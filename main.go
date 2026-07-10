@@ -11,6 +11,7 @@ import (
 
 	"changeme/internal/services/database"
 	"changeme/internal/services/notes"
+	sshservice "changeme/internal/services/ssh"
 	"changeme/internal/vault"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -32,11 +33,13 @@ func main() {
 	keyringPath := filepath.Join(dataDir, "keyring.json")
 	notesPath := filepath.Join(dataDir, "notes.json")
 	connectionsPath := filepath.Join(dataDir, "connections.json")
+	sshPath := filepath.Join(dataDir, "ssh.json")
 
 	container := app.NewContainerWithStores(
 		vault.NewFileKeyringStore(keyringPath),
 		notes.NewFileRepository(notesPath),
 		database.NewFileRepository(connectionsPath),
+		sshservice.NewFileRepository(sshPath),
 	)
 	if err := app.RegisterBuiltins(container); err != nil {
 		log.Fatal(err)

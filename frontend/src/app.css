@@ -208,6 +208,68 @@
   color: #6ee7a8;
 }
 
+.ssh-view {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 900px;
+}
+
+.ssh-create {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.ssh-create input,
+.ssh-create select,
+.ssh-create textarea,
+.ssh-profiles select,
+.ssh-command input {
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid #3f4650;
+  background: #0d0f12;
+  color: inherit;
+}
+
+.ssh-create textarea {
+  grid-column: 1 / -1;
+  min-height: 60px;
+  font-family: ui-monospace, monospace;
+}
+
+.ssh-profiles {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.ssh-profiles label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+.ssh-command {
+  display: flex;
+  gap: 8px;
+}
+
+.ssh-command input {
+  flex: 1;
+  font-family: ui-monospace, monospace;
+}
+
+.ssh-view pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: #181b20;
+  padding: 12px;
+  border-radius: 6px;
+}
+
 .command-palette {
   position: fixed;
   inset: 0;
