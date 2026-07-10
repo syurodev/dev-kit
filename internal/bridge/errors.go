@@ -33,7 +33,7 @@ func publicError(subject string, err error) *apperrors.AppError {
 	}
 	var existing *apperrors.AppError
 	if errors.As(err, &existing) {
-		return existing
+		return publicErrorForCode(existing.Code)
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return apperrors.New(codeOperationCancelled, "Operation cancelled.", true)
@@ -44,11 +44,28 @@ func publicError(subject string, err error) *apperrors.AppError {
 	if _, safe := safeValidationMessages[err.Error()]; safe {
 		return apperrors.New(codeValidationFailed, err.Error(), true)
 	}
-	if errors.Is(err, vault.ErrLocked) || subject == "builtin.vault" {
+	if errors.Is(err, vault.ErrLocked) {
 		return apperrors.New(codeVaultLocked, "Vault is locked or unavailable.", true)
 	}
 	if subject == "builtin.database" || subject == "builtin.ssh" {
 		return apperrors.New(codeConnectionFailed, "Connection failed.", true)
 	}
 	return apperrors.New(codeInternalError, "An unexpected error occurred.", false)
+}
+
+func publicErrorForCode(code string) *apperrors.AppError {
+	switch code {
+	case codeValidationFailed:
+		return apperrors.New(codeValidationFailed, "Validation failed.", true)
+	case codeVaultLocked:
+		return apperrors.New(codeVaultLocked, "Vault is locked or unavailable.", true)
+	case codePermissionDenied:
+		return apperrors.New(codePermissionDenied, "Permission denied.", false)
+	case codeConnectionFailed:
+		return apperrors.New(codeConnectionFailed, "Connection failed.", true)
+	case codeOperationCancelled:
+		return apperrors.New(codeOperationCancelled, "Operation cancelled.", true)
+	default:
+		return apperrors.New(codeInternalError, "An unexpected error occurred.", false)
+	}
 }

@@ -1,6 +1,10 @@
 package app
 
-import "testing"
+import (
+	"testing"
+
+	"changeme/internal/permissions"
+)
 
 func TestNewContainerWiresCoreServices(t *testing.T) {
 	container := NewContainer()
@@ -16,6 +20,18 @@ func TestNewContainerWiresCoreServices(t *testing.T) {
 	}
 	if container.Capabilities == nil {
 		t.Fatal("Capabilities is nil")
+	}
+}
+
+func TestNewContainerDeniesScopeOutsideBridgeGrant(t *testing.T) {
+	container := NewContainer()
+	decision := container.Permissions.Check(permissions.Request{
+		SubjectID:  "builtin.notes",
+		Capability: "notes:read",
+		Scope:      "profile:unrelated",
+	})
+	if decision.Allowed {
+		t.Fatal("ungranted bridge scope was allowed")
 	}
 }
 

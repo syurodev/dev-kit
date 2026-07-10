@@ -63,6 +63,33 @@ func TestPublicErrorRedacts(t *testing.T) {
 	}
 }
 
+func TestPublicErrorNormalizesUnsafeExistingAppError(t *testing.T) {
+	const internalCause = "postgres driver failed at postgres://admin:password@internal-db:5432/devkit"
+	err := publicError("builtin.database", apperrors.Wrap("database_failure", internalCause, true, errors.New(internalCause)))
+
+	if err.Code != "internal_error" {
+		t.Fatalf("error code = %q, want internal_error", err.Code)
+	}
+	payload, marshalErr := json.Marshal(err)
+	if marshalErr != nil {
+		t.Fatalf("json.Marshal: %v", marshalErr)
+	}
+	for _, public := range []string{err.Error(), string(payload)} {
+		if strings.Contains(public, internalCause) || strings.Contains(public, "postgres://") || strings.Contains(public, "driver") {
+			t.Fatalf("public error leaked internal AppError: %s", public)
+		}
+	}
+}
+
+func TestPublicErrorMapsOnlyRecognizedVaultLock(t *testing.T) {
+	if err := publicError("builtin.vault", errors.New("keyring I/O failure")); err.Code != "internal_error" {
+		t.Fatalf("unknown vault error code = %q, want internal_error", err.Code)
+	}
+	if err := publicError("builtin.vault", vault.ErrLocked); err.Code != "vault_locked" {
+		t.Fatalf("vault locked error code = %q, want vault_locked", err.Code)
+	}
+}
+
 func TestBridgeAuditUsesOnlyOpaqueIDs(t *testing.T) {
 	container := app.NewContainer()
 	service := NewAppService(container)

@@ -24,6 +24,8 @@ func (s *AppService) VaultStatus() (VaultStatusDTO, error) {
 
 // SetupVault creates the vault with a mandatory Master Password (first run
 // only) and returns the recovery key to show the user exactly once.
+// SECURITY: This one-time return is the only exception; never log, audit,
+// persist, or return the recovery key from any other bridge method.
 func (s *AppService) SetupVault(masterPassword string) (string, error) {
 	result, err := s.call(context.Background(), "builtin.vault", "vault:manage", "vault", map[string]any{
 		"action": "setup",
@@ -33,6 +35,7 @@ func (s *AppService) SetupVault(masterPassword string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// SECURITY: one-time return only; it is never logged, audited, or persisted.
 	return result.(string), nil
 }
 
