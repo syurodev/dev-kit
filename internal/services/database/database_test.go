@@ -1,6 +1,8 @@
 package database
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	"changeme/internal/crypto"
@@ -74,6 +76,91 @@ func TestCreateProfileRequiresNameAndHost(t *testing.T) {
 	}
 	if _, err := svc.CreateProfile(CreateProfileInput{Name: "n"}); err == nil {
 		t.Fatal("missing host must error")
+	}
+}
+
+func TestCreateProfileDefaultsRemotePostgresToVerifyFull(t *testing.T) {
+	svc := NewService(NewMemoryRepository(), newUnlockedVault(t))
+
+	summary, err := svc.CreateProfile(CreateProfileInput{
+		Name: "production",
+		Host: "db.example.com",
+	})
+	if err != nil {
+		t.Fatalf("CreateProfile: %v", err)
+	}
+	if summary.SSLMode != "verify-full" {
+		t.Fatalf("SSLMode = %q, want verify-full", summary.SSLMode)
+	}
+}
+
+func TestCreateProfileRejectsExplicitInsecureTLSForRemoteHost(t *testing.T) {
+	svc := NewService(NewMemoryRepository(), newUnlockedVault(t))
+
+	_, err := svc.CreateProfile(CreateProfileInput{
+		Name:    "production",
+		Host:    "db.example.com",
+		SSLMode: "disable",
+	})
+	if !errors.Is(err, ErrInsecureTLSForRemoteHost) {
+		t.Fatalf("CreateProfile error = %v, want ErrInsecureTLSForRemoteHost", err)
+	}
+}
+
+func TestCreateProfilePermitsExplicitInsecureTLSForLoopbackHosts(t *testing.T) {
+	for _, host := range []string{"localhost", "127.0.0.1", "::1"} {
+		t.Run(host, func(t *testing.T) {
+			svc := NewService(NewMemoryRepository(), newUnlockedVault(t))
+			summary, err := svc.CreateProfile(CreateProfileInput{
+				Name:    "local",
+				Host:    host,
+				SSLMode: "disable",
+			})
+			if err != nil {
+				t.Fatalf("CreateProfile: %v", err)
+			}
+			if summary.SSLMode != "disable" {
+				t.Fatalf("SSLMode = %q, want disable", summary.SSLMode)
+			}
+		})
+	}
+}
+
+func TestDSNRejectsPersistedRemoteProfileWithInsecureTLS(t *testing.T) {
+	v := newUnlockedVault(t)
+	repo := NewMemoryRepository()
+	svc := NewService(repo, v)
+	summary, err := svc.CreateProfile(CreateProfileInput{Name: "production", Host: "db.example.com", Password: "secret"})
+	if err != nil {
+		t.Fatalf("CreateProfile: %v", err)
+	}
+	record, err := repo.Get(summary.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	record.SSLMode = "disable"
+	if err := repo.Put(record); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+
+	_, err = svc.dsn(summary.ID)
+	if !errors.Is(err, ErrInsecureTLSForRemoteHost) {
+		t.Fatalf("dsn error = %v, want ErrInsecureTLSForRemoteHost", err)
+	}
+}
+
+func TestQueryPreservesCallerCancellation(t *testing.T) {
+	svc := NewService(NewMemoryRepository(), newUnlockedVault(t))
+	summary, err := svc.CreateProfile(CreateProfileInput{Name: "local", Host: "127.0.0.1", Password: "secret"})
+	if err != nil {
+		t.Fatalf("CreateProfile: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err = svc.Query(ctx, summary.ID, "select 1")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Query error = %v, want context.Canceled", err)
 	}
 }
 

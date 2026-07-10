@@ -6,19 +6,22 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"sort"
 	"time"
 
 	"changeme/internal/crypto"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const (
 	passwordKeyID             = "db-password"
 	databaseProfileRecordType = "database-profile"
 )
+
+var ErrInsecureTLSForRemoteHost = errors.New("insecure TLS is only allowed for loopback database hosts")
 
 // DefaultMaxRows caps query results so the UI stays responsive (§12.4).
 // ponytail: fixed cap; make it configurable per query later if needed.
@@ -86,11 +89,12 @@ type QueryResult struct {
 type Service struct {
 	repo    Repository
 	vault   Vault
+	pools   *PoolManager
 	maxRows int
 }
 
 func NewService(repo Repository, vault Vault) *Service {
-	return &Service{repo: repo, vault: vault, maxRows: DefaultMaxRows}
+	return &Service{repo: repo, vault: vault, pools: NewPoolManager(), maxRows: DefaultMaxRows}
 }
 
 func (s *Service) CreateProfile(input CreateProfileInput) (ProfileSummary, error) {
@@ -103,9 +107,11 @@ func (s *Service) CreateProfile(input CreateProfileInput) (ProfileSummary, error
 	if input.Port == 0 {
 		input.Port = 5432
 	}
-	if input.SSLMode == "" {
-		input.SSLMode = "disable"
+	sslMode, err := normalizeSSLMode(input.Host, input.SSLMode)
+	if err != nil {
+		return ProfileSummary{}, err
 	}
+	input.SSLMode = sslMode
 
 	id, err := newID()
 	if err != nil {
@@ -150,8 +156,15 @@ func (s *Service) ListProfiles() ([]ProfileSummary, error) {
 }
 
 func (s *Service) DeleteProfile(id string) error {
-	return s.repo.Delete(id)
+	if err := s.repo.Delete(id); err != nil {
+		return err
+	}
+	s.pools.Remove(id)
+	return nil
 }
+
+// Close releases all PostgreSQL pools during application shutdown.
+func (s *Service) Close() { s.pools.Close() }
 
 // TestConnection decrypts the password, connects, and pings the database.
 func (s *Service) TestConnection(ctx context.Context, id string) error {
@@ -159,15 +172,14 @@ func (s *Service) TestConnection(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	ctx, cancel := queryContext(ctx)
 	defer cancel()
 
-	conn, err := pgx.Connect(ctx, dsn)
+	pool, err := s.pool(ctx, id, dsn)
 	if err != nil {
 		return err
 	}
-	defer conn.Close(ctx)
-	return conn.Ping(ctx)
+	return pool.Ping(ctx)
 }
 
 // Query runs SQL against the profile's database and returns rows (capped).
@@ -176,16 +188,15 @@ func (s *Service) Query(ctx context.Context, id string, sql string) (QueryResult
 	if err != nil {
 		return QueryResult{}, err
 	}
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	ctx, cancel := queryContext(ctx)
 	defer cancel()
 
-	conn, err := pgx.Connect(ctx, dsn)
+	pool, err := s.pool(ctx, id, dsn)
 	if err != nil {
 		return QueryResult{}, err
 	}
-	defer conn.Close(ctx)
 
-	rows, err := conn.Query(ctx, sql)
+	rows, err := pool.Query(ctx, sql)
 	if err != nil {
 		return QueryResult{}, err
 	}
@@ -229,20 +240,45 @@ func (s *Service) dsn(id string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	sslmode := record.SSLMode
-	if sslmode == "" {
-		sslmode = "disable"
+	sslmode, err := normalizeSSLMode(record.Host, record.SSLMode)
+	if err != nil {
+		return "", err
 	}
 	u := url.URL{
 		Scheme: "postgres",
 		User:   url.UserPassword(record.Username, string(password)),
-		Host:   fmt.Sprintf("%s:%d", record.Host, record.Port),
+		Host:   net.JoinHostPort(record.Host, fmt.Sprintf("%d", record.Port)),
 		Path:   record.Database,
 	}
 	query := u.Query()
 	query.Set("sslmode", sslmode)
 	u.RawQuery = query.Encode()
 	return u.String(), nil
+}
+
+func (s *Service) pool(ctx context.Context, id, dsn string) (*pgxpool.Pool, error) {
+	return s.pools.Get(ctx, id, dsn)
+}
+
+func normalizeSSLMode(host, sslMode string) (string, error) {
+	if sslMode == "" {
+		if isLoopbackHost(host) {
+			return "disable", nil
+		}
+		return "verify-full", nil
+	}
+	if sslMode == "disable" && !isLoopbackHost(host) {
+		return "", ErrInsecureTLSForRemoteHost
+	}
+	return sslMode, nil
+}
+
+func isLoopbackHost(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func databaseProfileAssociatedData(record ProfileRecord) crypto.AssociatedData {

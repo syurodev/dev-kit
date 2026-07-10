@@ -50,6 +50,7 @@ func main() {
 		database.NewSQLRepository(storage.NewKV(db, storage.TableConnectionProfiles)),
 		sshservice.NewSQLRepository(storage.NewKV(db, storage.TableSSHProfiles)),
 	)
+	defer container.Database.Close()
 	if err := app.RegisterBuiltins(container); err != nil {
 		log.Fatal(err)
 	}
