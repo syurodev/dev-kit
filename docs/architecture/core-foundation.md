@@ -28,7 +28,7 @@ This document tracks the implemented DevKit core foundation (Phase 0).
 ## How It Runs
 
 - Desktop: `task dev` / `wails3 dev` (needs a display + gtk4/webkitgtk).
-- Headless / cloud: server mode — `task run:server` or `go build -tags server` then run the binary; serves HTTP on port 8080. The app is gated behind the mandatory vault: first run shows "Create Master Password", later runs show "Unlock".
+- Headless local use: server mode — `task run:server` or `go build -tags server` then run the binary; it serves HTTP on `127.0.0.1:8080` only. The app is gated behind the mandatory vault: first run shows "Create Master Password", later runs show "Unlock". This mode is not a remote API or deployment surface: public binding, TLS, authentication, and authorization are unsupported until a separate server design supplies them.
 
 ## Next Modules
 
