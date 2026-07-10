@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"sort"
+	"strings"
 	"time"
 
 	"changeme/internal/crypto"
@@ -123,6 +124,38 @@ func (s *Service) Get(id string) (Note, error) {
 
 func (s *Service) Delete(id string) error {
 	return s.repo.Delete(id)
+}
+
+// Search matches notes by query (case-insensitive). Titles are plaintext
+// metadata and are always searched. Bodies are encrypted, so they are only
+// searched when the vault is unlocked (decrypt succeeds); when locked, Search
+// degrades to metadata-only, per architecture §8.3. An empty query returns all
+// notes (newest first).
+func (s *Service) Search(query string) ([]Summary, error) {
+	needle := strings.ToLower(strings.TrimSpace(query))
+	records, err := s.repo.List()
+	if err != nil {
+		return nil, err
+	}
+
+	matched := make([]Summary, 0, len(records))
+	for _, record := range records {
+		if needle == "" || strings.Contains(strings.ToLower(record.Title), needle) {
+			matched = append(matched, toSummary(record))
+			continue
+		}
+		// Body search requires an unlocked vault; skip silently when locked.
+		if plain, openErr := s.vault.Open(record.Body); openErr == nil {
+			if strings.Contains(strings.ToLower(string(plain)), needle) {
+				matched = append(matched, toSummary(record))
+			}
+		}
+	}
+
+	sort.Slice(matched, func(i, j int) bool {
+		return matched[i].UpdatedAt.After(matched[j].UpdatedAt)
+	})
+	return matched, nil
 }
 
 func toSummary(record Record) Summary {
