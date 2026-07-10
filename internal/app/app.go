@@ -18,6 +18,15 @@ func RegisterBuiltins(container *Container) error {
 		return err
 	}
 
+	if err := container.Modules.Register(modules.Module{
+		ID:       "notes",
+		Title:    "Notes",
+		Commands: []string{"notes.create"},
+		Views:    []string{"notes.list"},
+	}); err != nil {
+		return err
+	}
+
 	return container.Commands.Register(commands.Command{
 		ID:    "tools.hash",
 		Title: "Hash text",

@@ -20,11 +20,15 @@ func TestAppServiceListsModules(t *testing.T) {
 	service := newTestService(t)
 	modules := service.ListModules()
 
-	if len(modules) != 1 {
-		t.Fatalf("len(modules) = %d, want 1", len(modules))
+	if len(modules) != 2 {
+		t.Fatalf("len(modules) = %d, want 2", len(modules))
 	}
-	if modules[0].ID != "tools" {
-		t.Fatalf("module id = %q", modules[0].ID)
+	found := map[string]bool{}
+	for _, m := range modules {
+		found[m.ID] = true
+	}
+	if !found["tools"] || !found["notes"] {
+		t.Fatalf("modules = %+v, want tools and notes", modules)
 	}
 }
 
