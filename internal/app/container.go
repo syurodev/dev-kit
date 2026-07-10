@@ -51,6 +51,7 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.notes", Capability: "notes:read", Scope: "*"},
 		{SubjectID: "builtin.database", Capability: "db:query", Scope: "*"},
 		{SubjectID: "builtin.ssh", Capability: "ssh:connect", Scope: "*"},
+		{SubjectID: "builtin.vault", Capability: "vault:manage", Scope: "vault"},
 	})
 
 	vaultService := vault.NewService(keyringStore)

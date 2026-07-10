@@ -7,21 +7,61 @@ import (
 )
 
 func (s *AppService) DBListProfiles() ([]database.ProfileSummary, error) {
-	return s.container.Database.ListProfiles()
+	result, err := s.call(context.Background(), "builtin.database", "db:query", "profile:list", map[string]any{
+		"action": "list_profiles",
+	}, func(context.Context) (any, error) {
+		return s.container.Database.ListProfiles()
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]database.ProfileSummary), nil
 }
 
 func (s *AppService) DBCreateProfile(input database.CreateProfileInput) (database.ProfileSummary, error) {
-	return s.container.Database.CreateProfile(input)
+	result, err := s.call(context.Background(), "builtin.database", "db:query", "profile:new", map[string]any{
+		"action": "create_profile",
+	}, func(context.Context) (any, error) {
+		return s.container.Database.CreateProfile(input)
+	})
+	if err != nil {
+		return database.ProfileSummary{}, err
+	}
+	return result.(database.ProfileSummary), nil
 }
 
 func (s *AppService) DBDeleteProfile(id string) error {
-	return s.container.Database.DeleteProfile(id)
+	opaqueID := recordID(id)
+	_, err := s.call(context.Background(), "builtin.database", "db:query", "profile:"+opaqueID, map[string]any{
+		"action":     "delete_profile",
+		"profile_id": opaqueID,
+	}, func(context.Context) (any, error) {
+		return nil, s.container.Database.DeleteProfile(id)
+	})
+	return err
 }
 
 func (s *AppService) DBTestConnection(ctx context.Context, id string) error {
-	return s.container.Database.TestConnection(ctx, id)
+	opaqueID := recordID(id)
+	_, err := s.call(ctx, "builtin.database", "db:query", "profile:"+opaqueID, map[string]any{
+		"action":     "test_connection",
+		"profile_id": opaqueID,
+	}, func(callCtx context.Context) (any, error) {
+		return nil, s.container.Database.TestConnection(callCtx, id)
+	})
+	return err
 }
 
 func (s *AppService) DBQuery(ctx context.Context, id string, sql string) (database.QueryResult, error) {
-	return s.container.Database.Query(ctx, id, sql)
+	opaqueID := recordID(id)
+	result, err := s.call(ctx, "builtin.database", "db:query", "profile:"+opaqueID, map[string]any{
+		"action":     "query",
+		"profile_id": opaqueID,
+	}, func(callCtx context.Context) (any, error) {
+		return s.container.Database.Query(callCtx, id, sql)
+	})
+	if err != nil {
+		return database.QueryResult{}, err
+	}
+	return result.(database.QueryResult), nil
 }
