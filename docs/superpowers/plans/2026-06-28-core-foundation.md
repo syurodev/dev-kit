@@ -20,6 +20,8 @@
 - External/untrusted plugins, marketplace, signing, and sandboxing are a **far, non-committed vision**. Phase 0 builds an **internal module platform only**.
 - The internal Extension API, permission model, and Capability Gateway must be built to the **extensibility invariants** in `docs/architecture/devkit-architecture.md` §6.10 so an untrusted runtime can be inserted later without rearchitecting. In particular: internal modules go through the Capability Gateway (never call core services directly), carry a subject identity, and cross the boundary with serializable DTOs + opaque secret handles (no live Go pointers/plaintext).
 
+**Implementation status:** Phase 0 is implemented. All packages under `internal/`, the Wails bridge (`AppService` + vault methods), and the frontend workbench with the mandatory vault gate exist and pass `go test ./internal/...`; the flow is verified end-to-end in server mode (Create Master Password → recovery key → hash). See `internal/*.go` and `frontend/src/*` as the source of truth — a few snippets below diverge from the shipped code (notably the crypto `Envelope` type; see the note on Task 5.2).
+
 ---
 
 ## Scope
@@ -201,7 +203,7 @@ Expected: commit succeeds if repository has been initialized. If this workspace 
 - Create: `internal/apperrors/errors.go`
 - Test: `internal/apperrors/errors_test.go`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Create `internal/apperrors/errors_test.go`:
 
@@ -259,7 +261,7 @@ func contains(value string, needle string) bool {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
@@ -269,7 +271,7 @@ go test ./internal/apperrors
 
 Expected: FAIL because `New`, `Wrap`, and `AppError` are not defined.
 
-- [ ] **Step 3: Implement structured errors**
+- [x] **Step 3: Implement structured errors**
 
 Create `internal/apperrors/errors.go`:
 
@@ -328,7 +330,7 @@ func (e *AppError) Unwrap() error {
 }
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run:
 
@@ -338,7 +340,7 @@ go test ./internal/apperrors
 
 Expected: PASS.
 
-- [ ] **Step 5: Run all Go tests**
+- [x] **Step 5: Run all Go tests**
 
 Run:
 
@@ -348,7 +350,7 @@ go test ./...
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add internal/apperrors
@@ -362,7 +364,7 @@ git commit -m "feat: add structured app errors"
 - Create: `internal/audit/redact.go`
 - Test: `internal/audit/redact_test.go`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Create `internal/audit/redact_test.go`:
 
@@ -407,7 +409,7 @@ func TestRedactSensitiveKeys(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
@@ -417,7 +419,7 @@ go test ./internal/audit
 
 Expected: FAIL because `RedactMap` and `RedactedValue` are not defined.
 
-- [ ] **Step 3: Implement redaction**
+- [x] **Step 3: Implement redaction**
 
 Create `internal/audit/redact.go`:
 
@@ -469,7 +471,7 @@ func IsSensitiveKey(key string) bool {
 }
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run:
 
@@ -479,7 +481,7 @@ go test ./internal/audit
 
 Expected: PASS.
 
-- [ ] **Step 5: Run all Go tests**
+- [x] **Step 5: Run all Go tests**
 
 Run:
 
@@ -489,7 +491,7 @@ go test ./...
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add internal/audit
@@ -504,7 +506,7 @@ git commit -m "feat: add audit redaction helpers"
 - Create: `internal/storage/migrations.go`
 - Test: `internal/storage/migrations_test.go`
 
-- [ ] **Step 1: Write failing migration tests**
+- [x] **Step 1: Write failing migration tests**
 
 Create `internal/storage/migrations_test.go`:
 
@@ -566,7 +568,7 @@ func TestMigrationRunnerRunsPendingMigrationsInOrder(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
@@ -576,7 +578,7 @@ go test ./internal/storage
 
 Expected: FAIL because migration types are not defined.
 
-- [ ] **Step 3: Add storage interfaces**
+- [x] **Step 3: Add storage interfaces**
 
 Create `internal/storage/storage.go`:
 
@@ -595,7 +597,7 @@ type Transactioner interface {
 }
 ```
 
-- [ ] **Step 4: Add migration runner**
+- [x] **Step 4: Add migration runner**
 
 Create `internal/storage/migrations.go`:
 
@@ -675,7 +677,7 @@ func (s *MemoryMigrationStore) MarkApplied(ctx context.Context, version int) err
 }
 ```
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 Run:
 
@@ -685,7 +687,7 @@ go test ./internal/storage
 
 Expected: PASS.
 
-- [ ] **Step 6: Run all Go tests**
+- [x] **Step 6: Run all Go tests**
 
 Run:
 
@@ -695,7 +697,7 @@ go test ./...
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add internal/storage
@@ -709,7 +711,7 @@ git commit -m "feat: add storage migration skeleton"
 - Create: `internal/crypto/envelope.go`
 - Test: `internal/crypto/envelope_test.go`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Create `internal/crypto/envelope_test.go`:
 
@@ -750,7 +752,7 @@ func TestEncryptedRecordEnvelopeRejectsMissingKeyID(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
@@ -760,7 +762,7 @@ go test ./internal/crypto
 
 Expected: FAIL because `EncryptedRecordEnvelope` is not defined.
 
-- [ ] **Step 3: Implement envelope**
+- [x] **Step 3: Implement envelope**
 
 Create `internal/crypto/envelope.go`:
 
@@ -806,7 +808,7 @@ func (e EncryptedRecordEnvelope) Validate() error {
 }
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run:
 
@@ -816,7 +818,7 @@ go test ./internal/crypto
 
 Expected: PASS.
 
-- [ ] **Step 5: Run all Go tests**
+- [x] **Step 5: Run all Go tests**
 
 Run:
 
@@ -826,7 +828,7 @@ go test ./...
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add internal/crypto
@@ -992,6 +994,14 @@ git commit -m "feat: add argon2id key derivation"
 ```
 
 ## Task 5.2: Add AEAD Seal/Open (XChaCha20-Poly1305)
+
+> ✅ Reconciled + implemented (option a). The shipped `internal/crypto/envelope.go`
+> uses the type **`Envelope`** (`Version uint32`, JSON tag `key_id`, no
+> `AssociatedData`). The actual implementation of this task and Tasks 5.3/6 uses
+> `Envelope` and drops `associatedData` to reuse the shipped code; the snippets
+> below still show the original `EncryptedRecordEnvelope`/AAD shape, so treat
+> `internal/crypto/*.go` and `internal/vault/*.go` as the source of truth. AAD can
+> be added later with a new envelope version when encrypted record storage lands.
 
 **Files:**
 
