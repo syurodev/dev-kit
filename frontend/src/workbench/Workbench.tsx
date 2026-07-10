@@ -3,8 +3,10 @@ import { ActivityBar } from "./ActivityBar";
 import { CommandPalette } from "./CommandPalette";
 import { listRegisteredModules, registerModule } from "../modules/registry";
 import { toolsModule } from "../modules/tools/manifest";
+import { notesModule } from "../modules/notes/manifest";
 
 registerModule(toolsModule);
+registerModule(notesModule);
 
 export function Workbench() {
   const modules = useMemo(() => listRegisteredModules(), []);
