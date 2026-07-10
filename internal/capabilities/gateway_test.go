@@ -2,11 +2,45 @@ package capabilities
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"changeme/internal/audit"
 	"changeme/internal/permissions"
 )
+
+func TestNewGatewayRejectsNilDependencies(t *testing.T) {
+	validPolicy := permissions.NewPolicy(nil)
+	validSink := audit.NewMemorySink()
+	var typedNilSink *audit.MemorySink
+
+	tests := []struct {
+		name   string
+		policy *permissions.Policy
+		sink   audit.Sink
+		want   string
+	}{
+		{name: "nil policy", policy: nil, sink: validSink, want: "capability policy is required"},
+		{name: "nil audit sink", policy: validPolicy, sink: nil, want: "audit sink is required"},
+		{name: "typed nil audit sink", policy: validPolicy, sink: typedNilSink, want: "audit sink is required"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			defer func() {
+				recovered := recover()
+				if recovered == nil {
+					t.Fatal("NewGateway did not panic")
+				}
+				if !strings.Contains(recovered.(string), tt.want) {
+					t.Fatalf("panic = %q, want message containing %q", recovered, tt.want)
+				}
+			}()
+
+			NewGateway(tt.policy, tt.sink)
+		})
+	}
+}
 
 func TestGatewayAuditsDeniedCallWithoutRunningHandler(t *testing.T) {
 	policy := permissions.NewPolicy(nil)
@@ -35,8 +69,18 @@ func TestGatewayAuditsDeniedCallWithoutRunningHandler(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("event count = %d, want 1", len(events))
 	}
-	if events[0].Outcome != audit.OutcomeDenied {
-		t.Fatalf("event outcome = %q, want %q", events[0].Outcome, audit.OutcomeDenied)
+	got := events[0]
+	if got.SubjectID != "plugin.example" {
+		t.Fatalf("event subject ID = %q, want %q", got.SubjectID, "plugin.example")
+	}
+	if got.Capability != "vault:read" {
+		t.Fatalf("event capability = %q, want %q", got.Capability, "vault:read")
+	}
+	if got.Scope != "secret:main" {
+		t.Fatalf("event scope = %q, want %q", got.Scope, "secret:main")
+	}
+	if got.Outcome != audit.OutcomeDenied {
+		t.Fatalf("event outcome = %q, want %q", got.Outcome, audit.OutcomeDenied)
 	}
 }
 

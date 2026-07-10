@@ -3,6 +3,7 @@ package capabilities
 import (
 	"context"
 	"fmt"
+	"reflect"
 
 	"changeme/internal/audit"
 	"changeme/internal/permissions"
@@ -24,7 +25,28 @@ type Gateway struct {
 }
 
 func NewGateway(policy *permissions.Policy, sink audit.Sink) *Gateway {
+	if policy == nil {
+		panic("capability policy is required")
+	}
+	if isNilSink(sink) {
+		panic("audit sink is required")
+	}
+
 	return &Gateway{policy: policy, sink: sink}
+}
+
+func isNilSink(sink audit.Sink) bool {
+	if sink == nil {
+		return true
+	}
+
+	value := reflect.ValueOf(sink)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return value.IsNil()
+	default:
+		return false
+	}
 }
 
 func (g *Gateway) Call(ctx context.Context, request CallRequest) (any, error) {
