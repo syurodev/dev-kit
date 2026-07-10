@@ -41,6 +41,10 @@ export function NotesList(): $CancellablePromise<notes$0.Summary[] | null> {
     return $Call.ByID(1792210430);
 }
 
+export function NotesSearch(query: string): $CancellablePromise<notes$0.Summary[] | null> {
+    return $Call.ByID(2453531114, query);
+}
+
 /**
  * SetupVault creates the vault with a mandatory Master Password (first run
  * only) and returns the recovery key to show the user exactly once.
