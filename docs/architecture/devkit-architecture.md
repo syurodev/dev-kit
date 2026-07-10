@@ -232,7 +232,7 @@ Authentication:
 
 Encryption:
 
-- The user has an app-level Master Password or recovery-backed local key flow.
+- The user sets an app-level Master Password. It is **mandatory and chosen once at first-run setup**; a recovery key is generated at setup to back it up.
 - The Master Password derives or unwraps the local Encryption Key.
 - Data is encrypted on the client before storage and before sync.
 - The server receives encrypted blobs only.
@@ -353,6 +353,17 @@ Extension API
   v
 Go Core Services
 ```
+
+### 6.0 Scope Decision: Internal Modules Now, Untrusted Plugins Later
+
+Status (locked decision):
+
+- **In scope now:** an internal module platform only. Built-in modules ship compiled with the app and call the Extension API through the Capability Gateway.
+- **Deferred to a far, non-committed vision:** external/third-party plugin loading, the plugin marketplace, plugin signing/supply-chain, and untrusted-code sandboxing (§6.8 Phases 2–4, §6.9, §16 Phases 4–5). These are not committed and must not drive near-term implementation.
+
+Rationale: the hardest and least certain part of the VS Code-style vision is isolating untrusted code inside a Wails/Go app (there is no built-in separate extension-host process; JS-in-webview, goja, WASM, and iframe sandboxes each have serious limits). Building the marketplace/permission/signing surface before that isolation exists would be premature (see §18 Risk #1).
+
+Consequence: the near-term work still builds the Extension API, permission model, and Capability Gateway — but only as the boundary that **internal** modules use. The requirement is that this internal design stays extensible so an untrusted runtime can be inserted later **without rearchitecting**. The invariants that guarantee this are in §6.10.
 
 ### 6.1 Why Not Module Federation as the Platform
 
@@ -719,6 +730,66 @@ Required controls:
 MVP rule:
 
 - No remote marketplace or remote plugin auto-update until signing, integrity checks, permission diffing, and rollback are implemented.
+
+### 6.10 Extensibility Invariants (build now, extend later)
+
+Even though only internal modules ship first, the current design MUST obey the
+following invariants so that an out-of-process or WASM untrusted-plugin runtime
+can be added later without rearchitecting. These are the "design it vững để mở
+rộng" contract.
+
+1. **Single choke point.** Every sensitive operation goes through the Capability
+   Gateway. Internal modules are trusted but MUST NOT bypass it or call core
+   services directly. If a trusted module takes a shortcut today, you cannot
+   insert isolation tomorrow.
+
+2. **One Extension API contract for everyone.** Internal modules call the exact
+   same Extension API shape that a future external plugin would. Modules MUST NOT
+   import core Go services or generated Wails bindings directly. The API is a
+   contract, not a convenience wrapper.
+
+3. **Versioned API.** The Extension API is versioned independently of the app
+   (§6.5.1). Internal modules declare the API version they target, so the same
+   compatibility gate works for external plugins later.
+
+4. **Caller identity is first-class.** Every capability call carries a subject
+   identity (`builtin.tools` now, `plugin.<id>` later). The Gateway keys every
+   allow/deny decision on subject + capability + scope. Nothing infers trust from
+   "it's internal".
+
+5. **Manifest-driven, declarative contributions.** Internal modules register
+   commands/views/permissions through a manifest/registry; they never mutate the
+   shell directly. The contribution model is identical for future plugins.
+
+6. **Transport-agnostic boundary (the key one for isolation).** The Extension API
+   crossing point MUST be serializable: request/response DTOs are plain data, no
+   live Go pointers, callbacks, or in-memory handles cross the boundary. Secrets
+   cross as opaque handles/IDs, not values (§9.5). Today the call is in-process;
+   because it is serializable, the same call can later be marshaled over IPC/RPC
+   to a plugin process or over the host↔WASM boundary.
+
+7. **Permissions and scopes from day one.** Grants are stored per subject +
+   capability + scope even for built-in modules. Broadening to external plugins
+   reuses the same machinery; no new permission system is introduced later.
+
+8. **Lazy-activation-capable registry.** The registry stores module metadata
+   without executing module code at registration. Eager activation now is fine,
+   but the registry MUST support activation events so future lazy/untrusted
+   activation fits.
+
+9. **Auditable by construction.** The Gateway can emit an audit event for every
+   capability call, including internal ones (§14). Isolation later changes who
+   calls the Gateway, not whether calls are audited.
+
+10. **UI goes through the bridge, never the raw runtime.** Frontend modules call
+    typed bridge adapters, not generated Wails bindings. A future sandboxed
+    plugin UI (iframe/WASM) reuses the same message-passing contract instead of
+    touching the runtime directly.
+
+Litmus test for any near-term change: "If external plugins shipped tomorrow,
+would this code need to be rewritten, or just have a new subject + isolation
+layer plugged into the existing Gateway/API?" If the answer is "rewritten", the
+invariant above is being violated.
 
 ## 7. Built-In Modules
 
@@ -1424,6 +1495,11 @@ Before a feature touches secrets, plugins, sync, auth, or filesystem access, req
 - logging review.
 
 ## 16. Development Roadmap
+
+Scope note: Phases 4 (Local Trusted Plugins) and 5 (Marketplace) are a **far,
+non-committed vision** per §6.0. They are kept here for direction only; Phases
+0–3 must satisfy the extensibility invariants in §6.10 so those later phases
+remain possible without rearchitecting.
 
 ### Phase 0: Architecture Foundation
 

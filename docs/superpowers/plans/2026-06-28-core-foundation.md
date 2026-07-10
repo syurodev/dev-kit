@@ -2,11 +2,23 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the DevKit core foundation so future modules can use a stable Wails bridge, command registry, local storage, crypto envelope, vault skeleton, permission model, and Capability Gateway.
+**Goal:** Build the DevKit core foundation so future modules can use a stable Wails bridge, command registry, local storage, crypto envelope, a Master-Password-protected vault, permission model, and Capability Gateway.
 
 **Architecture:** Keep Wails as a thin transport layer. Go core packages own application behavior, storage, crypto, vault, commands, permissions, and capability checks. Frontend modules call typed bridge adapters instead of generated Wails bindings directly.
 
-**Tech Stack:** Go 1.25, Wails v3, React 19, TypeScript, Vite, built-in Go tests, TypeScript compiler.
+**Tech Stack:** Go 1.25, Wails v3, React 19, TypeScript, Vite, built-in Go tests, TypeScript compiler, `golang.org/x/crypto` (Argon2id + XChaCha20-Poly1305).
+
+**Security decisions (locked):**
+
+- A **Master Password is mandatory and is set once at first-run setup**. A brand-new install starts in a `not_configured` state and cannot reach an unlocked vault until `Setup` is called with a Master Password.
+- Encryption follows the password-manager model from `docs/architecture/devkit-architecture.md` §9: `Master Password ──Argon2id──▶ KEK ──unwrap──▶ random DEK ──XChaCha20-Poly1305──▶ records`. The DEK is random and wrapped; changing the Master Password rewraps the DEK without re-encrypting records.
+- A **recovery key** is generated at setup (zero-knowledge: losing the Master Password otherwise means losing the data) and returned exactly once to be shown to the user; it is never stored in plaintext.
+- Do not write custom crypto: use `golang.org/x/crypto` primitives only.
+
+**Extensibility decision (locked):**
+
+- External/untrusted plugins, marketplace, signing, and sandboxing are a **far, non-committed vision**. Phase 0 builds an **internal module platform only**.
+- The internal Extension API, permission model, and Capability Gateway must be built to the **extensibility invariants** in `docs/architecture/devkit-architecture.md` §6.10 so an untrusted runtime can be inserted later without rearchitecting. In particular: internal modules go through the Capability Gateway (never call core services directly), carry a subject identity, and cross the boundary with serializable DTOs + opaque secret handles (no live Go pointers/plaintext).
 
 ---
 
@@ -22,7 +34,11 @@ Included:
 - Logging/redaction package.
 - Local storage abstraction and migration runner skeleton.
 - Crypto envelope package.
-- Vault lock/unlock skeleton.
+- Password key derivation (Argon2id) and AEAD seal/open (XChaCha20-Poly1305).
+- Key hierarchy / keyring: a random Data Encryption Key wrapped by a password-derived Key Encryption Key, plus a recovery key.
+- Vault service with a **mandatory Master Password** set at first-run setup, unlock/lock, and recovery-key unlock.
+- Keyring persistence (in-memory for tests + JSON file store for the app).
+- Vault bridge methods and a frontend setup/unlock gate that blocks the app until the vault is unlocked.
 - Command registry.
 - Wails bridge service.
 - Frontend bridge adapter layer.
@@ -36,7 +52,8 @@ Excluded:
 
 - External plugin loading.
 - SaaS backend.
-- SQLCipher production integration.
+- SQLCipher production integration (records are encrypted at the application layer via the crypto envelope; only the keyring is persisted in Phase 0).
+- Persistent encrypted vault item repository (vault item storage/CRUD comes in a later phase).
 - Notes/snippets persistence.
 - SSH terminal.
 - DB manager.
@@ -55,8 +72,20 @@ Create Go files:
 - `internal/storage/migrations.go`: migration runner skeleton.
 - `internal/crypto/envelope.go`: versioned encryption envelope structs.
 - `internal/crypto/envelope_test.go`: envelope validation tests.
-- `internal/vault/service.go`: vault lock/unlock skeleton.
-- `internal/vault/service_test.go`: vault state tests.
+- `internal/crypto/kdf.go`: Argon2id password key derivation and params.
+- `internal/crypto/kdf_test.go`: key derivation tests.
+- `internal/crypto/aead.go`: XChaCha20-Poly1305 seal/open over the envelope.
+- `internal/crypto/aead_test.go`: AEAD round-trip and tamper tests.
+- `internal/crypto/keyring.go`: DEK/KEK key hierarchy, wrap/unwrap, recovery key.
+- `internal/crypto/keyring_test.go`: keyring unlock/recovery/change-password tests.
+- `internal/vault/service.go`: vault service with mandatory Master Password, unlock/lock.
+- `internal/vault/service_test.go`: vault state and setup/unlock tests.
+- `internal/vault/keyringstore.go`: in-memory and JSON file keyring stores.
+- `internal/vault/keyringstore_test.go`: keyring persistence tests.
+- `internal/bridge/vault.go`: Wails-facing vault methods (status/setup/unlock/lock).
+- `internal/bridge/vault_test.go`: vault bridge tests.
+- `frontend/src/bridge/vault.ts`: typed vault adapter over the generated bindings.
+- `frontend/src/workbench/VaultGate.tsx`: first-run setup + unlock gate.
 - `internal/commands/registry.go`: command registry and dispatch.
 - `internal/commands/registry_test.go`: command registry tests.
 - `internal/modules/registry.go`: built-in module registry.
@@ -804,7 +833,597 @@ git add internal/crypto
 git commit -m "feat: add versioned crypto envelope"
 ```
 
-## Task 6: Add Vault Skeleton
+## Task 5.1: Add Password Key Derivation (Argon2id)
+
+**Files:**
+
+- Create: `internal/crypto/kdf.go`
+- Test: `internal/crypto/kdf_test.go`
+- Modify: `go.mod`, `go.sum`
+
+- [ ] **Step 1: Add the crypto dependency**
+
+Run:
+
+```bash
+go get golang.org/x/crypto/argon2
+```
+
+Expected: command exits `0`; `golang.org/x/crypto` appears in `go.mod`.
+
+- [ ] **Step 2: Write failing tests**
+
+Create `internal/crypto/kdf_test.go`:
+
+```go
+package crypto
+
+import (
+	"bytes"
+	"testing"
+)
+
+func TestDeriveKeyIsDeterministic(t *testing.T) {
+	params, err := DefaultKDFParams()
+	if err != nil {
+		t.Fatalf("DefaultKDFParams: %v", err)
+	}
+
+	a, err := DeriveKey("correct horse", params)
+	if err != nil {
+		t.Fatalf("DeriveKey: %v", err)
+	}
+	b, err := DeriveKey("correct horse", params)
+	if err != nil {
+		t.Fatalf("DeriveKey: %v", err)
+	}
+	if !bytes.Equal(a, b) {
+		t.Fatal("same password+params must derive the same key")
+	}
+	if len(a) != int(params.KeyLength) {
+		t.Fatalf("key length = %d, want %d", len(a), params.KeyLength)
+	}
+}
+
+func TestDeriveKeyDiffersBySalt(t *testing.T) {
+	p1, _ := DefaultKDFParams()
+	p2, _ := DefaultKDFParams()
+
+	k1, _ := DeriveKey("pw", p1)
+	k2, _ := DeriveKey("pw", p2)
+	if bytes.Equal(k1, k2) {
+		t.Fatal("different salts must derive different keys")
+	}
+}
+
+func TestDeriveKeyRequiresPassword(t *testing.T) {
+	params, _ := DefaultKDFParams()
+	if _, err := DeriveKey("", params); err == nil {
+		t.Fatal("empty password must error")
+	}
+}
+```
+
+- [ ] **Step 3: Run test to verify it fails**
+
+Run:
+
+```bash
+go test ./internal/crypto
+```
+
+Expected: FAIL because `KDFParams`, `DefaultKDFParams`, `DeriveKey` are not defined.
+
+- [ ] **Step 4: Implement key derivation**
+
+Create `internal/crypto/kdf.go`:
+
+```go
+package crypto
+
+import (
+	"crypto/rand"
+	"errors"
+
+	"golang.org/x/crypto/argon2"
+)
+
+const AlgorithmArgon2id = "argon2id"
+
+// KDFParams holds Argon2id parameters plus the salt. Persist it next to the
+// wrapped key so derivation stays reproducible after upgrades.
+type KDFParams struct {
+	Algorithm   string `json:"algorithm"`
+	Memory      uint32 `json:"memory"`
+	Iterations  uint32 `json:"iterations"`
+	Parallelism uint8  `json:"parallelism"`
+	KeyLength   uint32 `json:"keyLength"`
+	Salt        []byte `json:"salt"`
+}
+
+// DefaultKDFParams returns interactive-strength Argon2id params with a fresh
+// random 16-byte salt.
+// ponytail: fixed cost (64MB, 3 passes, 4 lanes); add a "hardened" tier later if needed.
+func DefaultKDFParams() (KDFParams, error) {
+	salt := make([]byte, 16)
+	if _, err := rand.Read(salt); err != nil {
+		return KDFParams{}, err
+	}
+	return KDFParams{
+		Algorithm:   AlgorithmArgon2id,
+		Memory:      64 * 1024,
+		Iterations:  3,
+		Parallelism: 4,
+		KeyLength:   32,
+		Salt:        salt,
+	}, nil
+}
+
+// DeriveKey derives a key of params.KeyLength bytes from the password.
+func DeriveKey(password string, params KDFParams) ([]byte, error) {
+	if password == "" {
+		return nil, errors.New("password is required")
+	}
+	if params.Algorithm != AlgorithmArgon2id {
+		return nil, errors.New("unsupported kdf algorithm")
+	}
+	if len(params.Salt) == 0 {
+		return nil, errors.New("salt is required")
+	}
+	return argon2.IDKey([]byte(password), params.Salt, params.Iterations, params.Memory, params.Parallelism, params.KeyLength), nil
+}
+```
+
+- [ ] **Step 5: Run tests**
+
+Run:
+
+```bash
+go test ./internal/crypto
+```
+
+Expected: PASS.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add internal/crypto go.mod go.sum
+git commit -m "feat: add argon2id key derivation"
+```
+
+## Task 5.2: Add AEAD Seal/Open (XChaCha20-Poly1305)
+
+**Files:**
+
+- Create: `internal/crypto/aead.go`
+- Test: `internal/crypto/aead_test.go`
+
+- [ ] **Step 1: Write failing tests**
+
+Create `internal/crypto/aead_test.go`:
+
+```go
+package crypto
+
+import (
+	"bytes"
+	"testing"
+)
+
+func newTestKey(t *testing.T) []byte {
+	t.Helper()
+	params, err := DefaultKDFParams()
+	if err != nil {
+		t.Fatalf("params: %v", err)
+	}
+	key, err := DeriveKey("master-password", params)
+	if err != nil {
+		t.Fatalf("derive: %v", err)
+	}
+	return key
+}
+
+func TestSealOpenRoundTrip(t *testing.T) {
+	key := newTestKey(t)
+	ad := map[string]string{"entityType": "note", "entityId": "n1"}
+
+	env, err := Seal("dek_1", key, []byte("top secret"), ad)
+	if err != nil {
+		t.Fatalf("Seal: %v", err)
+	}
+	plain, err := Open(key, env)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if !bytes.Equal(plain, []byte("top secret")) {
+		t.Fatalf("plaintext = %q", plain)
+	}
+}
+
+func TestOpenFailsWithWrongKey(t *testing.T) {
+	key := newTestKey(t)
+	env, err := Seal("dek_1", key, []byte("secret"), nil)
+	if err != nil {
+		t.Fatalf("Seal: %v", err)
+	}
+
+	wrong := make([]byte, len(key))
+	copy(wrong, key)
+	wrong[0] ^= 0xFF
+	if _, err := Open(wrong, env); err == nil {
+		t.Fatal("Open must fail with wrong key")
+	}
+}
+
+func TestOpenFailsWhenTampered(t *testing.T) {
+	key := newTestKey(t)
+	env, err := Seal("dek_1", key, []byte("secret"), map[string]string{"a": "b"})
+	if err != nil {
+		t.Fatalf("Seal: %v", err)
+	}
+	env.Ciphertext[0] ^= 0xFF
+	if _, err := Open(key, env); err == nil {
+		t.Fatal("Open must fail when ciphertext is tampered")
+	}
+}
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run:
+
+```bash
+go test ./internal/crypto
+```
+
+Expected: FAIL because `Seal` and `Open` are not defined.
+
+- [ ] **Step 3: Implement AEAD**
+
+Create `internal/crypto/aead.go`:
+
+```go
+package crypto
+
+import (
+	"crypto/rand"
+	"errors"
+	"sort"
+	"strings"
+
+	"golang.org/x/crypto/chacha20poly1305"
+)
+
+// Seal encrypts plaintext with key using XChaCha20-Poly1305 and returns a
+// versioned envelope. associatedData is authenticated but not encrypted.
+func Seal(keyID string, key []byte, plaintext []byte, associatedData map[string]string) (EncryptedRecordEnvelope, error) {
+	aead, err := chacha20poly1305.NewX(key)
+	if err != nil {
+		return EncryptedRecordEnvelope{}, err
+	}
+	nonce := make([]byte, aead.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return EncryptedRecordEnvelope{}, err
+	}
+	ciphertext := aead.Seal(nil, nonce, plaintext, encodeAD(associatedData))
+	envelope := EncryptedRecordEnvelope{
+		Version:        1,
+		Algorithm:      AlgorithmXChaCha20Poly1305,
+		KeyID:          keyID,
+		Nonce:          nonce,
+		AssociatedData: associatedData,
+		Ciphertext:     ciphertext,
+	}
+	return envelope, envelope.Validate()
+}
+
+// Open verifies and decrypts an envelope produced by Seal.
+func Open(key []byte, envelope EncryptedRecordEnvelope) ([]byte, error) {
+	if err := envelope.Validate(); err != nil {
+		return nil, err
+	}
+	if envelope.Algorithm != AlgorithmXChaCha20Poly1305 {
+		return nil, errors.New("unsupported aead algorithm")
+	}
+	aead, err := chacha20poly1305.NewX(key)
+	if err != nil {
+		return nil, err
+	}
+	return aead.Open(nil, envelope.Nonce, envelope.Ciphertext, encodeAD(envelope.AssociatedData))
+}
+
+// encodeAD serializes associated data deterministically so authentication is
+// stable regardless of map iteration order.
+func encodeAD(ad map[string]string) []byte {
+	if len(ad) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(ad))
+	for k := range ad {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for _, k := range keys {
+		b.WriteString(k)
+		b.WriteByte('=')
+		b.WriteString(ad[k])
+		b.WriteByte(';')
+	}
+	return []byte(b.String())
+}
+```
+
+- [ ] **Step 4: Run tests**
+
+Run:
+
+```bash
+go test ./internal/crypto
+```
+
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add internal/crypto
+git commit -m "feat: add xchacha20-poly1305 aead"
+```
+
+## Task 5.3: Add Key Hierarchy / Keyring (DEK wrap + recovery key)
+
+**Files:**
+
+- Create: `internal/crypto/keyring.go`
+- Test: `internal/crypto/keyring_test.go`
+
+- [ ] **Step 1: Write failing tests**
+
+Create `internal/crypto/keyring_test.go`:
+
+```go
+package crypto
+
+import (
+	"bytes"
+	"testing"
+)
+
+func TestKeyringUnlockWithPasswordAndRecovery(t *testing.T) {
+	kr, recovery, err := NewKeyring("master-pw")
+	if err != nil {
+		t.Fatalf("NewKeyring: %v", err)
+	}
+	if recovery == "" {
+		t.Fatal("recovery key must be returned")
+	}
+
+	dek1, err := kr.UnlockWithPassword("master-pw")
+	if err != nil {
+		t.Fatalf("UnlockWithPassword: %v", err)
+	}
+	dek2, err := kr.UnlockWithRecovery(recovery)
+	if err != nil {
+		t.Fatalf("UnlockWithRecovery: %v", err)
+	}
+	if !bytes.Equal(dek1, dek2) {
+		t.Fatal("password and recovery must unwrap the same DEK")
+	}
+}
+
+func TestKeyringRejectsWrongPassword(t *testing.T) {
+	kr, _, err := NewKeyring("master-pw")
+	if err != nil {
+		t.Fatalf("NewKeyring: %v", err)
+	}
+	if _, err := kr.UnlockWithPassword("wrong"); err == nil {
+		t.Fatal("wrong password must error")
+	}
+}
+
+func TestKeyringRequiresMasterPassword(t *testing.T) {
+	if _, _, err := NewKeyring(""); err == nil {
+		t.Fatal("empty master password must error")
+	}
+}
+
+func TestKeyringChangePasswordKeepsDEK(t *testing.T) {
+	kr, _, err := NewKeyring("old-pw")
+	if err != nil {
+		t.Fatalf("NewKeyring: %v", err)
+	}
+	before, _ := kr.UnlockWithPassword("old-pw")
+
+	if err := kr.ChangePassword("old-pw", "new-pw"); err != nil {
+		t.Fatalf("ChangePassword: %v", err)
+	}
+	if _, err := kr.UnlockWithPassword("old-pw"); err == nil {
+		t.Fatal("old password must stop working")
+	}
+	after, err := kr.UnlockWithPassword("new-pw")
+	if err != nil {
+		t.Fatalf("UnlockWithPassword(new): %v", err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatal("DEK must stay the same after password change")
+	}
+}
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run:
+
+```bash
+go test ./internal/crypto
+```
+
+Expected: FAIL because `Keyring` and `NewKeyring` are not defined.
+
+- [ ] **Step 3: Implement the keyring**
+
+Create `internal/crypto/keyring.go`:
+
+```go
+package crypto
+
+import (
+	"crypto/rand"
+	"encoding/base64"
+	"errors"
+)
+
+const keyringDEKKeyID = "dek"
+
+// Keyring is the persisted key material for a vault. It never contains the
+// plaintext DEK: the random DEK is wrapped once by the master-password key and
+// once by the recovery key.
+type Keyring struct {
+	Version         int                     `json:"version"`
+	MasterKDF       KDFParams               `json:"masterKdf"`
+	MasterWrapped   EncryptedRecordEnvelope `json:"masterWrapped"`
+	RecoveryKDF     KDFParams               `json:"recoveryKdf"`
+	RecoveryWrapped EncryptedRecordEnvelope `json:"recoveryWrapped"`
+}
+
+// NewKeyring generates a random DEK, wraps it with a key derived from
+// masterPassword, and also wraps it with a freshly generated recovery key. The
+// plaintext recovery key is returned once and is never stored.
+func NewKeyring(masterPassword string) (*Keyring, string, error) {
+	if masterPassword == "" {
+		return nil, "", errors.New("master password is required")
+	}
+
+	dek := make([]byte, 32)
+	if _, err := rand.Read(dek); err != nil {
+		return nil, "", err
+	}
+
+	masterKDF, err := DefaultKDFParams()
+	if err != nil {
+		return nil, "", err
+	}
+	masterKey, err := DeriveKey(masterPassword, masterKDF)
+	if err != nil {
+		return nil, "", err
+	}
+	masterWrapped, err := Seal(keyringDEKKeyID, masterKey, dek, nil)
+	if err != nil {
+		return nil, "", err
+	}
+
+	recoveryKey, err := newRecoveryKey()
+	if err != nil {
+		return nil, "", err
+	}
+	recoveryKDF, err := DefaultKDFParams()
+	if err != nil {
+		return nil, "", err
+	}
+	recoveryDerived, err := DeriveKey(recoveryKey, recoveryKDF)
+	if err != nil {
+		return nil, "", err
+	}
+	recoveryWrapped, err := Seal(keyringDEKKeyID, recoveryDerived, dek, nil)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return &Keyring{
+		Version:         1,
+		MasterKDF:       masterKDF,
+		MasterWrapped:   masterWrapped,
+		RecoveryKDF:     recoveryKDF,
+		RecoveryWrapped: recoveryWrapped,
+	}, recoveryKey, nil
+}
+
+// UnlockWithPassword returns the plaintext DEK when masterPassword is correct.
+func (k *Keyring) UnlockWithPassword(masterPassword string) ([]byte, error) {
+	key, err := DeriveKey(masterPassword, k.MasterKDF)
+	if err != nil {
+		return nil, err
+	}
+	dek, err := Open(key, k.MasterWrapped)
+	if err != nil {
+		return nil, errors.New("invalid master password")
+	}
+	return dek, nil
+}
+
+// UnlockWithRecovery returns the plaintext DEK when recoveryKey is correct.
+func (k *Keyring) UnlockWithRecovery(recoveryKey string) ([]byte, error) {
+	key, err := DeriveKey(recoveryKey, k.RecoveryKDF)
+	if err != nil {
+		return nil, err
+	}
+	dek, err := Open(key, k.RecoveryWrapped)
+	if err != nil {
+		return nil, errors.New("invalid recovery key")
+	}
+	return dek, nil
+}
+
+// ChangePassword rewraps the existing DEK under a new master password. The DEK
+// is unchanged, so existing records stay decryptable.
+func (k *Keyring) ChangePassword(oldPassword string, newPassword string) error {
+	if newPassword == "" {
+		return errors.New("new master password is required")
+	}
+	dek, err := k.UnlockWithPassword(oldPassword)
+	if err != nil {
+		return err
+	}
+	kdf, err := DefaultKDFParams()
+	if err != nil {
+		return err
+	}
+	newKey, err := DeriveKey(newPassword, kdf)
+	if err != nil {
+		return err
+	}
+	wrapped, err := Seal(keyringDEKKeyID, newKey, dek, nil)
+	if err != nil {
+		return err
+	}
+	k.MasterKDF = kdf
+	k.MasterWrapped = wrapped
+	return nil
+}
+
+func newRecoveryKey() (string, error) {
+	raw := make([]byte, 24)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(raw), nil
+}
+```
+
+- [ ] **Step 4: Run tests**
+
+Run:
+
+```bash
+go test ./internal/crypto
+```
+
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add internal/crypto
+git commit -m "feat: add key hierarchy keyring with recovery key"
+```
+
+## Task 6: Add Vault Service (Master Password Mandatory)
+
+> Design decision: the Master Password is **mandatory** and set once at first-run
+> setup. A new install starts `not_configured`; the only paths to `unlocked` are
+> `Setup` (first run) or `Unlock`/`UnlockWithRecovery` (later runs). The service
+> holds the decrypted DEK in memory only while unlocked and zeroizes it on `Lock`.
 
 **Files:**
 
@@ -813,42 +1432,101 @@ git commit -m "feat: add versioned crypto envelope"
 
 - [ ] **Step 1: Write failing tests**
 
-Create `internal/vault/service_test.go`:
+Create `internal/vault/service_test.go` (uses a test-only in-memory store; the
+real stores land in Task 6.1):
 
 ```go
 package vault
 
-import "testing"
+import (
+	"errors"
+	"testing"
 
-func TestServiceStartsLocked(t *testing.T) {
-	service := NewService()
+	"changeme/internal/crypto"
+)
 
-	if !service.IsLocked() {
-		t.Fatal("new vault service should start locked")
+type fakeStore struct {
+	keyring *crypto.Keyring
+}
+
+func (f *fakeStore) Exists() (bool, error) { return f.keyring != nil, nil }
+
+func (f *fakeStore) Load() (*crypto.Keyring, error) {
+	if f.keyring == nil {
+		return nil, errors.New("not configured")
+	}
+	return f.keyring, nil
+}
+
+func (f *fakeStore) Save(keyring *crypto.Keyring) error {
+	f.keyring = keyring
+	return nil
+}
+
+func TestVaultStartsNotConfigured(t *testing.T) {
+	service := NewService(&fakeStore{})
+	state, err := service.Status()
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if state != StateNotConfigured {
+		t.Fatalf("state = %q, want %q", state, StateNotConfigured)
 	}
 }
 
-func TestUnlockAndLock(t *testing.T) {
-	service := NewService()
+func TestVaultSetupUnlocksAndReturnsRecovery(t *testing.T) {
+	service := NewService(&fakeStore{})
 
-	if err := service.Unlock(UnlockRequest{KeyID: "dek_1"}); err != nil {
-		t.Fatalf("Unlock returned error: %v", err)
+	recovery, err := service.Setup("master-password")
+	if err != nil {
+		t.Fatalf("Setup: %v", err)
 	}
-	if service.IsLocked() {
-		t.Fatal("vault should be unlocked")
+	if recovery == "" {
+		t.Fatal("Setup must return a recovery key")
+	}
+
+	state, _ := service.Status()
+	if state != StateUnlocked {
+		t.Fatalf("state = %q, want unlocked", state)
+	}
+}
+
+func TestVaultSetupRejectsSecondSetup(t *testing.T) {
+	service := NewService(&fakeStore{})
+	if _, err := service.Setup("master-password"); err != nil {
+		t.Fatalf("Setup: %v", err)
+	}
+	if _, err := service.Setup("another-password"); err == nil {
+		t.Fatal("second Setup must fail")
+	}
+}
+
+func TestVaultSetupRejectsShortPassword(t *testing.T) {
+	service := NewService(&fakeStore{})
+	if _, err := service.Setup("short"); err == nil {
+		t.Fatal("short master password must fail")
+	}
+}
+
+func TestVaultLockThenUnlock(t *testing.T) {
+	service := NewService(&fakeStore{})
+	if _, err := service.Setup("master-password"); err != nil {
+		t.Fatalf("Setup: %v", err)
 	}
 
 	service.Lock()
 	if !service.IsLocked() {
 		t.Fatal("vault should be locked")
 	}
-}
 
-func TestUnlockRequiresKeyID(t *testing.T) {
-	service := NewService()
-
-	if err := service.Unlock(UnlockRequest{}); err == nil {
-		t.Fatal("Unlock returned nil, want error")
+	if err := service.Unlock("wrong-password"); err == nil {
+		t.Fatal("wrong password must fail unlock")
+	}
+	if err := service.Unlock("master-password"); err != nil {
+		t.Fatalf("Unlock: %v", err)
+	}
+	if service.IsLocked() {
+		t.Fatal("vault should be unlocked")
 	}
 }
 ```
@@ -861,9 +1539,9 @@ Run:
 go test ./internal/vault
 ```
 
-Expected: FAIL because `NewService` is not defined.
+Expected: FAIL because `NewService`, `State`, and store types are not defined.
 
-- [ ] **Step 3: Implement vault state**
+- [ ] **Step 3: Implement the vault service**
 
 Create `internal/vault/service.go`:
 
@@ -873,54 +1551,139 @@ package vault
 import (
 	"errors"
 	"sync"
+
+	"changeme/internal/crypto"
 )
 
-type UnlockRequest struct {
-	KeyID string
+type State string
+
+const (
+	StateNotConfigured State = "not_configured"
+	StateLocked        State = "locked"
+	StateUnlocked      State = "unlocked"
+)
+
+// MinMasterPasswordLength is the minimum length enforced at setup.
+// ponytail: length-only policy for now; add a strength meter later if needed.
+const MinMasterPasswordLength = 8
+
+// KeyringStore persists the vault keyring (wrapped DEK + KDF params).
+type KeyringStore interface {
+	Exists() (bool, error)
+	Load() (*crypto.Keyring, error)
+	Save(keyring *crypto.Keyring) error
 }
 
+// Service owns vault lock state and holds the decrypted DEK in memory only
+// while unlocked. A Master Password is mandatory: a new install starts
+// NotConfigured and must call Setup before anything can be unlocked.
 type Service struct {
-	mu       sync.RWMutex
-	locked   bool
-	activeKey string
+	mu    sync.RWMutex
+	store KeyringStore
+	dek   []byte
 }
 
-func NewService() *Service {
-	return &Service{locked: true}
+func NewService(store KeyringStore) *Service {
+	return &Service{store: store}
+}
+
+// Status reports whether the vault still needs setup, is locked, or unlocked.
+func (s *Service) Status() (State, error) {
+	s.mu.RLock()
+	unlocked := s.dek != nil
+	s.mu.RUnlock()
+	if unlocked {
+		return StateUnlocked, nil
+	}
+	exists, err := s.store.Exists()
+	if err != nil {
+		return "", err
+	}
+	if !exists {
+		return StateNotConfigured, nil
+	}
+	return StateLocked, nil
+}
+
+// Setup creates the vault on first run. It fails if a keyring already exists,
+// enforcing that a Master Password is chosen exactly once. It returns the
+// recovery key, which must be shown to the user and is never stored.
+func (s *Service) Setup(masterPassword string) (string, error) {
+	if len(masterPassword) < MinMasterPasswordLength {
+		return "", errors.New("master password too short")
+	}
+	exists, err := s.store.Exists()
+	if err != nil {
+		return "", err
+	}
+	if exists {
+		return "", errors.New("vault already configured")
+	}
+
+	keyring, recoveryKey, err := crypto.NewKeyring(masterPassword)
+	if err != nil {
+		return "", err
+	}
+	if err := s.store.Save(keyring); err != nil {
+		return "", err
+	}
+	dek, err := keyring.UnlockWithPassword(masterPassword)
+	if err != nil {
+		return "", err
+	}
+
+	s.mu.Lock()
+	s.dek = dek
+	s.mu.Unlock()
+	return recoveryKey, nil
+}
+
+// Unlock decrypts the DEK using the Master Password.
+func (s *Service) Unlock(masterPassword string) error {
+	keyring, err := s.store.Load()
+	if err != nil {
+		return err
+	}
+	dek, err := keyring.UnlockWithPassword(masterPassword)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.dek = dek
+	s.mu.Unlock()
+	return nil
+}
+
+// UnlockWithRecovery decrypts the DEK using the recovery key.
+func (s *Service) UnlockWithRecovery(recoveryKey string) error {
+	keyring, err := s.store.Load()
+	if err != nil {
+		return err
+	}
+	dek, err := keyring.UnlockWithRecovery(recoveryKey)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.dek = dek
+	s.mu.Unlock()
+	return nil
+}
+
+// Lock zeroizes the in-memory DEK.
+func (s *Service) Lock() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.dek {
+		s.dek[i] = 0
+	}
+	s.dek = nil
 }
 
 func (s *Service) IsLocked() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.locked
-}
-
-func (s *Service) Unlock(request UnlockRequest) error {
-	if request.KeyID == "" {
-		return errors.New("key id is required")
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.activeKey = request.KeyID
-	s.locked = false
-	return nil
-}
-
-func (s *Service) Lock() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.activeKey = ""
-	s.locked = true
-}
-
-func (s *Service) ActiveKeyID() (string, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.locked || s.activeKey == "" {
-		return "", false
-	}
-	return s.activeKey, true
+	return s.dek == nil
 }
 ```
 
@@ -948,7 +1711,213 @@ Expected: PASS.
 
 ```bash
 git add internal/vault
-git commit -m "feat: add vault lock state"
+git commit -m "feat: add vault service with mandatory master password"
+```
+
+## Task 6.1: Add Keyring Persistence Stores
+
+**Files:**
+
+- Create: `internal/vault/keyringstore.go`
+- Test: `internal/vault/keyringstore_test.go`
+
+- [ ] **Step 1: Write failing tests**
+
+Create `internal/vault/keyringstore_test.go`:
+
+```go
+package vault
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"changeme/internal/crypto"
+)
+
+func TestFileKeyringStoreRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "keyring.json")
+	store := NewFileKeyringStore(path)
+
+	exists, err := store.Exists()
+	if err != nil {
+		t.Fatalf("Exists: %v", err)
+	}
+	if exists {
+		t.Fatal("store should not exist yet")
+	}
+
+	keyring, _, err := crypto.NewKeyring("master-password")
+	if err != nil {
+		t.Fatalf("NewKeyring: %v", err)
+	}
+	if err := store.Save(keyring); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	exists, _ = store.Exists()
+	if !exists {
+		t.Fatal("store should exist after Save")
+	}
+
+	loaded, err := store.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if _, err := loaded.UnlockWithPassword("master-password"); err != nil {
+		t.Fatalf("loaded keyring must unlock: %v", err)
+	}
+}
+
+func TestFileKeyringStoreModeIsRestrictive(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "keyring.json")
+	store := NewFileKeyringStore(path)
+	keyring, _, _ := crypto.NewKeyring("master-password")
+	if err := store.Save(keyring); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	if info.Mode().Perm()&0o077 != 0 {
+		t.Fatalf("keyring file mode = %v, want no group/other access", info.Mode().Perm())
+	}
+}
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run:
+
+```bash
+go test ./internal/vault
+```
+
+Expected: FAIL because `NewFileKeyringStore` is not defined.
+
+- [ ] **Step 3: Implement the stores**
+
+Create `internal/vault/keyringstore.go`:
+
+```go
+package vault
+
+import (
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"sync"
+
+	"changeme/internal/crypto"
+)
+
+// MemoryKeyringStore keeps the keyring in memory. Useful for tests and
+// ephemeral runs; it does not survive a restart.
+type MemoryKeyringStore struct {
+	mu      sync.RWMutex
+	keyring *crypto.Keyring
+}
+
+func NewMemoryKeyringStore() *MemoryKeyringStore {
+	return &MemoryKeyringStore{}
+}
+
+func (s *MemoryKeyringStore) Exists() (bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.keyring != nil, nil
+}
+
+func (s *MemoryKeyringStore) Load() (*crypto.Keyring, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.keyring == nil {
+		return nil, errors.New("keyring not found")
+	}
+	return s.keyring, nil
+}
+
+func (s *MemoryKeyringStore) Save(keyring *crypto.Keyring) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.keyring = keyring
+	return nil
+}
+
+// FileKeyringStore persists the keyring as JSON. The file only holds wrapped
+// key material and KDF params, never the plaintext DEK or the Master Password.
+type FileKeyringStore struct {
+	path string
+}
+
+func NewFileKeyringStore(path string) *FileKeyringStore {
+	return &FileKeyringStore{path: path}
+}
+
+func (s *FileKeyringStore) Exists() (bool, error) {
+	_, err := os.Stat(s.path)
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, err
+}
+
+func (s *FileKeyringStore) Load() (*crypto.Keyring, error) {
+	data, err := os.ReadFile(s.path)
+	if err != nil {
+		return nil, err
+	}
+	var keyring crypto.Keyring
+	if err := json.Unmarshal(data, &keyring); err != nil {
+		return nil, err
+	}
+	return &keyring, nil
+}
+
+func (s *FileKeyringStore) Save(keyring *crypto.Keyring) error {
+	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(keyring, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(s.path, data, 0o600)
+}
+```
+
+- [ ] **Step 4: Run tests**
+
+Run:
+
+```bash
+go test ./internal/vault
+```
+
+Expected: PASS.
+
+- [ ] **Step 5: Run all Go tests**
+
+Run:
+
+```bash
+go test ./...
+```
+
+Expected: PASS.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add internal/vault
+git commit -m "feat: add keyring persistence stores"
 ```
 
 ## Task 7: Add Command Registry
@@ -1749,7 +2718,15 @@ type Container struct {
 	HashTools     *tools.HashService
 }
 
+// NewContainer wires core services with an in-memory keyring store, suitable
+// for tests and ephemeral runs. The desktop/server entrypoint (Task 14) should
+// call NewContainerWithKeyringStore with a FileKeyringStore so the Master
+// Password set at setup persists across restarts.
 func NewContainer() *Container {
+	return NewContainerWithKeyringStore(vault.NewMemoryKeyringStore())
+}
+
+func NewContainerWithKeyringStore(keyringStore vault.KeyringStore) *Container {
 	permissionPolicy := permissions.NewPolicy([]permissions.Grant{
 		{SubjectID: "builtin.tools", Capability: "tools:hash", Scope: "*"},
 	})
@@ -1759,8 +2736,8 @@ func NewContainer() *Container {
 		Modules:      modules.NewRegistry(),
 		Permissions:  permissionPolicy,
 		Capabilities: capabilities.NewGateway(permissionPolicy),
-		Vault:         vault.NewService(),
-		HashTools:     tools.NewHashService(),
+		Vault:        vault.NewService(keyringStore),
+		HashTools:    tools.NewHashService(),
 	}
 }
 ```
@@ -2017,6 +2994,148 @@ git add internal/bridge
 git commit -m "feat: add app bridge service"
 ```
 
+## Task 13.1: Add Vault Bridge Methods
+
+**Files:**
+
+- Create: `internal/bridge/vault.go`
+- Test: `internal/bridge/vault_test.go`
+
+- [ ] **Step 1: Write failing tests**
+
+Create `internal/bridge/vault_test.go`:
+
+```go
+package bridge
+
+import (
+	"testing"
+
+	"changeme/internal/app"
+)
+
+func TestVaultBridgeSetupAndStatus(t *testing.T) {
+	container := app.NewContainer()
+	service := NewAppService(container)
+
+	status, err := service.VaultStatus()
+	if err != nil {
+		t.Fatalf("VaultStatus: %v", err)
+	}
+	if status.State != "not_configured" {
+		t.Fatalf("state = %q, want not_configured", status.State)
+	}
+
+	recovery, err := service.SetupVault("master-password")
+	if err != nil {
+		t.Fatalf("SetupVault: %v", err)
+	}
+	if recovery == "" {
+		t.Fatal("SetupVault must return a recovery key")
+	}
+
+	status, _ = service.VaultStatus()
+	if status.State != "unlocked" {
+		t.Fatalf("state = %q, want unlocked", status.State)
+	}
+}
+
+func TestVaultBridgeLockThenUnlock(t *testing.T) {
+	container := app.NewContainer()
+	service := NewAppService(container)
+
+	if _, err := service.SetupVault("master-password"); err != nil {
+		t.Fatalf("SetupVault: %v", err)
+	}
+	if err := service.LockVault(); err != nil {
+		t.Fatalf("LockVault: %v", err)
+	}
+	if err := service.UnlockVault("master-password"); err != nil {
+		t.Fatalf("UnlockVault: %v", err)
+	}
+	status, _ := service.VaultStatus()
+	if status.State != "unlocked" {
+		t.Fatalf("state = %q, want unlocked", status.State)
+	}
+}
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run:
+
+```bash
+go test ./internal/bridge
+```
+
+Expected: FAIL because the vault bridge methods are not defined.
+
+- [ ] **Step 3: Implement vault bridge methods**
+
+Create `internal/bridge/vault.go` (methods live on the existing `AppService`):
+
+```go
+package bridge
+
+type VaultStatusDTO struct {
+	State string `json:"state"`
+}
+
+func (s *AppService) VaultStatus() (VaultStatusDTO, error) {
+	state, err := s.container.Vault.Status()
+	if err != nil {
+		return VaultStatusDTO{}, err
+	}
+	return VaultStatusDTO{State: string(state)}, nil
+}
+
+// SetupVault creates the vault with a mandatory Master Password (first run
+// only) and returns the recovery key to show the user exactly once.
+func (s *AppService) SetupVault(masterPassword string) (string, error) {
+	return s.container.Vault.Setup(masterPassword)
+}
+
+func (s *AppService) UnlockVault(masterPassword string) error {
+	return s.container.Vault.Unlock(masterPassword)
+}
+
+func (s *AppService) UnlockVaultWithRecovery(recoveryKey string) error {
+	return s.container.Vault.UnlockWithRecovery(recoveryKey)
+}
+
+func (s *AppService) LockVault() error {
+	s.container.Vault.Lock()
+	return nil
+}
+```
+
+- [ ] **Step 4: Run tests**
+
+Run:
+
+```bash
+go test ./internal/bridge
+```
+
+Expected: PASS.
+
+- [ ] **Step 5: Run all Go tests**
+
+Run:
+
+```bash
+go test ./...
+```
+
+Expected: PASS.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add internal/bridge
+git commit -m "feat: add vault bridge methods"
+```
+
 ## Task 14: Wire Core Container into Current Wails Entry
 
 **Files:**
@@ -2047,10 +3166,13 @@ package main
 import (
 	"embed"
 	"log"
+	"os"
+	"path/filepath"
 	"time"
 
 	"changeme/internal/app"
 	"changeme/internal/bridge"
+	"changeme/internal/vault"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -2063,7 +3185,14 @@ func init() {
 }
 
 func main() {
-	container := app.NewContainer()
+	// Persist the vault keyring so the Master Password set at first-run setup
+	// survives restarts. Only wrapped key material is written to disk.
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		log.Fatal(err)
+	}
+	keyringPath := filepath.Join(configDir, "DevKit", "keyring.json")
+	container := app.NewContainerWithKeyringStore(vault.NewFileKeyringStore(keyringPath))
 	if err := app.RegisterBuiltins(container); err != nil {
 		log.Fatal(err)
 	}
@@ -2655,6 +3784,169 @@ git add frontend/src
 git commit -m "feat: add minimal workbench shell"
 ```
 
+## Task 17.1: Add Frontend Vault Gate (Mandatory Setup + Unlock)
+
+> This enforces the Master Password in the UI: the Workbench does not render
+> until the vault is set up (first run) and unlocked.
+
+**Files:**
+
+- Create: `frontend/src/bridge/vault.ts`
+- Create: `frontend/src/workbench/VaultGate.tsx`
+- Modify: `frontend/src/App.tsx`
+
+- [ ] **Step 1: Create the vault bridge adapter**
+
+UI must not import generated bindings directly (§8.3 and §6.10 invariant 10);
+route vault calls through a typed adapter. Create `frontend/src/bridge/vault.ts`:
+
+```ts
+import { callBridge } from "./client";
+import { AppService } from "../../bindings/changeme";
+
+export type VaultState = "not_configured" | "locked" | "unlocked";
+
+export function vaultStatus(): Promise<VaultState> {
+  return callBridge(async () => (await AppService.VaultStatus()).state as VaultState);
+}
+
+export function setupVault(masterPassword: string): Promise<string> {
+  return callBridge(() => AppService.SetupVault(masterPassword));
+}
+
+export function unlockVault(masterPassword: string): Promise<void> {
+  return callBridge(() => AppService.UnlockVault(masterPassword) as Promise<void>);
+}
+```
+
+- [ ] **Step 2: Create the gate component**
+
+Create `frontend/src/workbench/VaultGate.tsx`:
+
+```tsx
+import { useEffect, useState, type ReactNode } from "react";
+import { setupVault, unlockVault, vaultStatus, type VaultState } from "../bridge/vault";
+
+type Status = "loading" | VaultState;
+
+export function VaultGate({ children }: { children: ReactNode }) {
+  const [status, setStatus] = useState<Status>("loading");
+  const [password, setPassword] = useState("");
+  const [recoveryKey, setRecoveryKey] = useState("");
+  const [error, setError] = useState("");
+
+  async function refresh() {
+    setStatus(await vaultStatus());
+  }
+
+  useEffect(() => {
+    refresh().catch((e) => setError(String(e)));
+  }, []);
+
+  async function onSetup() {
+    setError("");
+    try {
+      const recovery = await setupVault(password);
+      setRecoveryKey(recovery);
+      setPassword("");
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function onUnlock() {
+    setError("");
+    try {
+      await unlockVault(password);
+      setPassword("");
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  if (status === "loading") {
+    return <div className="vault-gate">Loading…</div>;
+  }
+
+  if (status === "unlocked") {
+    return (
+      <>
+        {recoveryKey ? (
+          <div className="vault-recovery" role="alert">
+            Save your recovery key now — it is shown only once and cannot be
+            recovered later: <code>{recoveryKey}</code>
+            <button type="button" onClick={() => setRecoveryKey("")}>
+              I saved it
+            </button>
+          </div>
+        ) : null}
+        {children}
+      </>
+    );
+  }
+
+  const isSetup = status === "not_configured";
+  return (
+    <div className="vault-gate">
+      <h1>{isSetup ? "Create Master Password" : "Unlock DevKit"}</h1>
+      <p>
+        {isSetup
+          ? "A Master Password is required to protect your vault. Without your recovery key it cannot be recovered."
+          : "Enter your Master Password to unlock the vault."}
+      </p>
+      <input
+        type="password"
+        value={password}
+        placeholder="Master Password"
+        onChange={(e) => setPassword(e.target.value)}
+      />
+      <button type="button" onClick={isSetup ? onSetup : onUnlock}>
+        {isSetup ? "Create" : "Unlock"}
+      </button>
+      {error ? <p role="alert">{error}</p> : null}
+    </div>
+  );
+}
+```
+
+- [ ] **Step 3: Wrap the Workbench with the gate**
+
+Replace `frontend/src/App.tsx`:
+
+```tsx
+import { VaultGate } from "./workbench/VaultGate";
+import { Workbench } from "./workbench/Workbench";
+
+function App() {
+  return (
+    <VaultGate>
+      <Workbench />
+    </VaultGate>
+  );
+}
+
+export default App;
+```
+
+- [ ] **Step 4: Run frontend build**
+
+Run:
+
+```bash
+cd frontend && npm run build
+```
+
+Expected: PASS (requires the vault bindings from Task 13.1 + Task 14 regeneration).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add frontend/src
+git commit -m "feat: gate app behind mandatory vault setup/unlock"
+```
+
 ## Task 18: Connect ToolsView to Hash Command
 
 **Files:**
@@ -2758,8 +4050,8 @@ wails3 dev
 
 Expected:
 
-- App opens.
-- Workbench shell appears.
+- App opens on the "Create Master Password" screen (first run); after creating one the recovery key is shown once.
+- After setup/unlock, the Workbench shell appears.
 - Tools module appears.
 - Hashing `hello` with SHA-256 returns `2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824`.
 
@@ -2791,8 +4083,8 @@ This document tracks the implemented DevKit core foundation.
 - `internal/apperrors`: structured application errors.
 - `internal/audit`: redaction helpers for logs and audit events.
 - `internal/storage`: storage interfaces and migration runner skeleton.
-- `internal/crypto`: encrypted record envelope types.
-- `internal/vault`: vault lock/unlock skeleton.
+- `internal/crypto`: encrypted record envelope, Argon2id KDF, XChaCha20-Poly1305 AEAD, and the DEK/KEK keyring with recovery key.
+- `internal/vault`: vault service with a mandatory Master Password (setup/unlock/lock, recovery-key unlock) and keyring persistence.
 - `internal/commands`: command registry.
 - `internal/modules`: built-in module registry.
 - `internal/permissions`: permission grants and policy checks.
@@ -2803,6 +4095,7 @@ This document tracks the implemented DevKit core foundation.
 ## Current Rules
 
 - Frontend code calls `frontend/src/bridge`, not generated Wails bindings directly.
+- A Master Password is mandatory and set once at first-run setup; the vault holds the decrypted DEK in memory only while unlocked.
 - Sensitive plugin-style calls must pass through the Capability Gateway.
 - Encrypted record formats are versioned from the first implementation.
 - Long-running future operations must accept cancellation.
@@ -2874,8 +4167,8 @@ wails3 dev
 
 Expected:
 
-- App starts.
-- Workbench shell renders.
+- App starts on the vault gate: "Create Master Password" on first run, or "Unlock DevKit" on later runs.
+- After setup/unlock, the Workbench shell renders.
 - Tools module renders.
 - Hash tool works.
 - No frontend console errors.
@@ -2929,7 +4222,9 @@ Spec coverage:
 - Logging/redaction: covered by Task 3.
 - Local storage and migrations: covered by Task 4.
 - Crypto envelope: covered by Task 5.
-- Vault skeleton: covered by Task 6.
+- Password key derivation, AEAD, key hierarchy/keyring: covered by Tasks 5.1–5.3.
+- Master-Password vault (mandatory setup, unlock/lock, recovery) + persistence: covered by Tasks 6 and 6.1.
+- Vault bridge + frontend setup/unlock gate: covered by Tasks 13.1 and 17.1.
 - Command registry: covered by Task 7.
 - First core module: covered by Task 8 and Task 18.
 - Permission model: covered by Task 9.
@@ -2939,11 +4234,16 @@ Spec coverage:
 - Workbench shell: covered by Task 17.
 - Verification: covered by Task 20.
 
+Extensibility invariants (§6.10) upheld by these tasks:
+
+- Single choke point + caller identity: capability calls go through the Gateway keyed on subject + capability + scope (Tasks 9, 10).
+- Manifest-driven contributions + permissions from day one: modules register metadata and grants (Tasks 11, 12).
+- UI through the bridge, not raw runtime (Task 15).
+
 Known gaps intentionally deferred:
 
-- Real encrypted SQLite/SQLCipher integration.
-- Real key derivation and encryption/decryption implementation.
-- Persistent vault item repository.
-- External plugin runtime.
+- Real encrypted SQLite/SQLCipher integration (records use the app-layer crypto envelope; only the keyring is persisted).
+- Persistent encrypted vault item repository (item CRUD comes later).
+- External/untrusted plugin runtime, marketplace, signing, sandboxing (far, non-committed vision per §6.0).
 - SaaS sync.
 - SSH and DB manager modules.
