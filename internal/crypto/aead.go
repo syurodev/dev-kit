@@ -3,6 +3,7 @@ package crypto
 import (
 	"crypto/rand"
 	"errors"
+	"strings"
 
 	"golang.org/x/crypto/chacha20poly1305"
 )
@@ -56,6 +57,9 @@ func SealV2(associatedData AssociatedData, key []byte, plaintext []byte) (Envelo
 
 // Open verifies and decrypts an Envelope produced by Seal.
 func Open(key []byte, envelope Envelope) ([]byte, error) {
+	if envelope.Version != EnvelopeVersionV1 {
+		return nil, errors.New("associated data is required for this envelope version")
+	}
 	return open(key, envelope, nil)
 }
 
@@ -98,6 +102,11 @@ func validateAssociatedData(associatedData AssociatedData) error {
 	}
 	if associatedData.KeyID == "" {
 		return errors.New("associated data key ID is required")
+	}
+	if strings.ContainsRune(associatedData.RecordType, '\x00') ||
+		strings.ContainsRune(associatedData.RecordID, '\x00') ||
+		strings.ContainsRune(associatedData.KeyID, '\x00') {
+		return errors.New("associated data must not contain NUL")
 	}
 	return nil
 }
