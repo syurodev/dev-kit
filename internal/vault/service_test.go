@@ -72,6 +72,37 @@ func TestVaultLockThenUnlock(t *testing.T) {
 	}
 }
 
+func TestVaultSealOpenRoundTrip(t *testing.T) {
+	service := NewService(NewMemoryKeyringStore())
+	if _, err := service.Setup("master-password"); err != nil {
+		t.Fatalf("Setup: %v", err)
+	}
+
+	env, err := service.Seal("note:1", []byte("secret body"))
+	if err != nil {
+		t.Fatalf("Seal: %v", err)
+	}
+	plain, err := service.Open(env)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if string(plain) != "secret body" {
+		t.Fatalf("plain = %q", plain)
+	}
+}
+
+func TestVaultSealFailsWhenLocked(t *testing.T) {
+	service := NewService(NewMemoryKeyringStore())
+	if _, err := service.Setup("master-password"); err != nil {
+		t.Fatalf("Setup: %v", err)
+	}
+	service.Lock()
+
+	if _, err := service.Seal("note:1", []byte("x")); err == nil {
+		t.Fatal("Seal must fail when locked")
+	}
+}
+
 func TestVaultUnlockWithRecovery(t *testing.T) {
 	service := NewService(NewMemoryKeyringStore())
 	recovery, err := service.Setup("master-password")

@@ -7,6 +7,10 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as notes$0 from "../services/notes/models.js";
+
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as $models from "./models.js";
 
 export function ExecuteCommand(request: $models.ExecuteCommandRequest): $CancellablePromise<any> {
@@ -19,6 +23,22 @@ export function ListModules(): $CancellablePromise<$models.ModuleDTO[] | null> {
 
 export function LockVault(): $CancellablePromise<void> {
     return $Call.ByID(1540677414);
+}
+
+export function NotesCreate(title: string, body: string): $CancellablePromise<notes$0.Summary> {
+    return $Call.ByID(59292470, title, body);
+}
+
+export function NotesDelete(id: string): $CancellablePromise<void> {
+    return $Call.ByID(297732157, id);
+}
+
+export function NotesGet(id: string): $CancellablePromise<notes$0.Note> {
+    return $Call.ByID(1669727726, id);
+}
+
+export function NotesList(): $CancellablePromise<notes$0.Summary[] | null> {
+    return $Call.ByID(1792210430);
 }
 
 /**

@@ -137,3 +137,29 @@ func (s *Service) IsLocked() bool {
 	defer s.mu.RUnlock()
 	return s.dek == nil
 }
+
+// ErrLocked is returned when a crypto operation is attempted while the vault is
+// locked.
+var ErrLocked = errors.New("vault is locked")
+
+// Seal encrypts plaintext with the in-memory DEK. The DEK never leaves the
+// vault: callers get a capability to encrypt, not the key itself. Fails if the
+// vault is locked.
+func (s *Service) Seal(keyID string, plaintext []byte) (crypto.Envelope, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.dek == nil {
+		return crypto.Envelope{}, ErrLocked
+	}
+	return crypto.Seal(keyID, s.dek, plaintext)
+}
+
+// Open decrypts an envelope with the in-memory DEK. Fails if the vault is locked.
+func (s *Service) Open(envelope crypto.Envelope) ([]byte, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.dek == nil {
+		return nil, ErrLocked
+	}
+	return crypto.Open(s.dek, envelope)
+}

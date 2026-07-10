@@ -9,6 +9,7 @@ import (
 	"changeme/internal/app"
 	"changeme/internal/bridge"
 
+	"changeme/internal/services/notes"
 	"changeme/internal/vault"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -26,9 +27,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	keyringPath := filepath.Join(configDir, "DevKit", "keyring.json")
+	dataDir := filepath.Join(configDir, "DevKit")
+	keyringPath := filepath.Join(dataDir, "keyring.json")
+	notesPath := filepath.Join(dataDir, "notes.json")
 
-	container := app.NewContainerWithKeyringStore(vault.NewFileKeyringStore(keyringPath))
+	container := app.NewContainerWithStores(
+		vault.NewFileKeyringStore(keyringPath),
+		notes.NewFileRepository(notesPath),
+	)
 	if err := app.RegisterBuiltins(container); err != nil {
 		log.Fatal(err)
 	}
