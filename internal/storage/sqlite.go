@@ -18,6 +18,8 @@ const (
 	TableSSHProfiles        = "ssh_profiles"
 )
 
+var chmodFile = os.Chmod
+
 // Open opens (creating if needed) a SQLite database using the pure-Go driver
 // (no cgo) and applies sensible pragmas.
 func Open(path string) (*sql.DB, error) {
@@ -32,7 +34,7 @@ func Open(path string) (*sql.DB, error) {
 		db.Close()
 		return nil, err
 	}
-	if err := os.Chmod(path, 0o600); err != nil {
+	if err := chmodFile(path, 0o600); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("restrict SQLite database permissions: %w", err)
 	}

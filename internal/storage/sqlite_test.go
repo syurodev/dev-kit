@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -22,6 +23,34 @@ func TestOpenRestrictsSQLiteFilePermissions(t *testing.T) {
 	}
 	if got, want := info.Mode().Perm(), os.FileMode(0o600); got != want {
 		t.Fatalf("database permissions = %o, want %o", got, want)
+	}
+}
+
+func TestOpenClosesDatabaseWhenRestrictingPermissionsFails(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	wantErr := errors.New("chmod failed")
+	originalChmod := chmodFile
+	chmodFile = func(string, os.FileMode) error {
+		return wantErr
+	}
+	t.Cleanup(func() {
+		chmodFile = originalChmod
+	})
+
+	if _, err := Open(path); !errors.Is(err, wantErr) {
+		t.Fatalf("Open error = %v, want chmod error %v", err, wantErr)
+	}
+	chmodFile = originalChmod
+
+	db, err := Open(path)
+	if err != nil {
+		t.Fatalf("reopen after chmod failure: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close reopened database: %v", err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("remove after chmod failure: %v", err)
 	}
 }
 
