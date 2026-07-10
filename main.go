@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"log"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"changeme/internal/services/database"
 	"changeme/internal/services/notes"
 	sshservice "changeme/internal/services/ssh"
+	"changeme/internal/storage"
 	"changeme/internal/vault"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -30,16 +32,22 @@ func main() {
 		log.Fatal(err)
 	}
 	dataDir := filepath.Join(configDir, "DevKit")
-	keyringPath := filepath.Join(dataDir, "keyring.json")
-	notesPath := filepath.Join(dataDir, "notes.json")
-	connectionsPath := filepath.Join(dataDir, "connections.json")
-	sshPath := filepath.Join(dataDir, "ssh.json")
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		log.Fatal(err)
+	}
+	db, err := storage.Open(filepath.Join(dataDir, "devkit.db"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := storage.Migrate(context.Background(), db); err != nil {
+		log.Fatal(err)
+	}
 
 	container := app.NewContainerWithStores(
-		vault.NewFileKeyringStore(keyringPath),
-		notes.NewFileRepository(notesPath),
-		database.NewFileRepository(connectionsPath),
-		sshservice.NewFileRepository(sshPath),
+		vault.NewSQLKeyringStore(storage.NewKV(db, storage.TableVaultKeyring)),
+		notes.NewSQLRepository(storage.NewKV(db, storage.TableNotes)),
+		database.NewSQLRepository(storage.NewKV(db, storage.TableConnectionProfiles)),
+		sshservice.NewSQLRepository(storage.NewKV(db, storage.TableSSHProfiles)),
 	)
 	if err := app.RegisterBuiltins(container); err != nil {
 		log.Fatal(err)
