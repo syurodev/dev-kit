@@ -9,6 +9,7 @@ import (
 	"changeme/internal/app"
 	"changeme/internal/bridge"
 
+	"changeme/internal/services/database"
 	"changeme/internal/services/notes"
 	"changeme/internal/vault"
 
@@ -30,10 +31,12 @@ func main() {
 	dataDir := filepath.Join(configDir, "DevKit")
 	keyringPath := filepath.Join(dataDir, "keyring.json")
 	notesPath := filepath.Join(dataDir, "notes.json")
+	connectionsPath := filepath.Join(dataDir, "connections.json")
 
 	container := app.NewContainerWithStores(
 		vault.NewFileKeyringStore(keyringPath),
 		notes.NewFileRepository(notesPath),
+		database.NewFileRepository(connectionsPath),
 	)
 	if err := app.RegisterBuiltins(container); err != nil {
 		log.Fatal(err)
