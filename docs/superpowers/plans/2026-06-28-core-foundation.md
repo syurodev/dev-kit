@@ -20,6 +20,8 @@
 - External/untrusted plugins, marketplace, signing, and sandboxing are a **far, non-committed vision**. Phase 0 builds an **internal module platform only**.
 - The internal Extension API, permission model, and Capability Gateway must be built to the **extensibility invariants** in `docs/architecture/devkit-architecture.md` §6.10 so an untrusted runtime can be inserted later without rearchitecting. In particular: internal modules go through the Capability Gateway (never call core services directly), carry a subject identity, and cross the boundary with serializable DTOs + opaque secret handles (no live Go pointers/plaintext).
 
+**Implementation status:** Phase 0 is implemented. All packages under `internal/`, the Wails bridge (`AppService` + vault methods), and the frontend workbench with the mandatory vault gate exist and pass `go test ./internal/...`; the flow is verified end-to-end in server mode (Create Master Password → recovery key → hash). See `internal/*.go` and `frontend/src/*` as the source of truth — a few snippets below diverge from the shipped code (notably the crypto `Envelope` type; see the note on Task 5.2).
+
 ---
 
 ## Scope
@@ -993,14 +995,13 @@ git commit -m "feat: add argon2id key derivation"
 
 ## Task 5.2: Add AEAD Seal/Open (XChaCha20-Poly1305)
 
-> ⚠️ Reconcile with shipped code first. The already-implemented
-> `internal/crypto/envelope.go` named the type **`Envelope`** (not
-> `EncryptedRecordEnvelope`), uses `Version uint32`, JSON tag `key_id`, and has
-> **no `AssociatedData` field**. The snippets in this task and in Tasks 5.3/6
-> were written against `EncryptedRecordEnvelope` + `AssociatedData`, so they will
-> not compile as-is. Before implementing, either (a) update these snippets to use
-> `Envelope` and drop `associatedData` (simplest, reuses shipped code), or
-> (b) extend `Envelope` with an `AssociatedData` field. Decision pending.
+> ✅ Reconciled + implemented (option a). The shipped `internal/crypto/envelope.go`
+> uses the type **`Envelope`** (`Version uint32`, JSON tag `key_id`, no
+> `AssociatedData`). The actual implementation of this task and Tasks 5.3/6 uses
+> `Envelope` and drops `associatedData` to reuse the shipped code; the snippets
+> below still show the original `EncryptedRecordEnvelope`/AAD shape, so treat
+> `internal/crypto/*.go` and `internal/vault/*.go` as the source of truth. AAD can
+> be added later with a new envelope version when encrypted record storage lands.
 
 **Files:**
 
