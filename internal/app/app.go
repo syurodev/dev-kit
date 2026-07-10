@@ -36,6 +36,15 @@ func RegisterBuiltins(container *Container) error {
 		return err
 	}
 
+	if err := container.Modules.Register(modules.Module{
+		ID:       "ssh",
+		Title:    "SSH",
+		Commands: []string{"ssh.run"},
+		Views:    []string{"ssh.connections"},
+	}); err != nil {
+		return err
+	}
+
 	return container.Commands.Register(commands.Command{
 		ID:    "tools.hash",
 		Title: "Hash text",
