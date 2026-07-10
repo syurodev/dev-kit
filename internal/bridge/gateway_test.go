@@ -90,6 +90,27 @@ func TestPublicErrorMapsOnlyRecognizedVaultLock(t *testing.T) {
 	}
 }
 
+func TestPublicErrorPrioritizesWrappedVaultLock(t *testing.T) {
+	err := publicError("builtin.database", apperrors.Wrap("database_failure", "unsafe storage detail", false, vault.ErrLocked))
+	if err.Code != "vault_locked" {
+		t.Fatalf("error code = %q, want vault_locked", err.Code)
+	}
+}
+
+func TestPublicErrorDoesNotTrustWrappedVaultLockedCode(t *testing.T) {
+	err := publicError("builtin.vault", apperrors.Wrap("vault_locked", "unsafe storage detail", true, errors.New("keyring I/O failure")))
+	if err.Code != "internal_error" {
+		t.Fatalf("error code = %q, want internal_error", err.Code)
+	}
+}
+
+func TestPublicErrorPrioritizesWrappedCancellation(t *testing.T) {
+	err := publicError("builtin.database", apperrors.Wrap("database_failure", "unsafe query detail", false, context.Canceled))
+	if err.Code != "operation_cancelled" {
+		t.Fatalf("error code = %q, want operation_cancelled", err.Code)
+	}
+}
+
 func TestBridgeAuditUsesOnlyOpaqueIDs(t *testing.T) {
 	container := app.NewContainer()
 	service := NewAppService(container)
