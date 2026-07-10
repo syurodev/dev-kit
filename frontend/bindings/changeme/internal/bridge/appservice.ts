@@ -11,6 +11,9 @@ import * as database$0 from "../services/database/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as notes$0 from "../services/notes/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as ssh$0 from "../services/ssh/models.js";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -66,6 +69,26 @@ export function NotesList(): $CancellablePromise<notes$0.Summary[] | null> {
 
 export function NotesSearch(query: string): $CancellablePromise<notes$0.Summary[] | null> {
     return $Call.ByID(2453531114, query);
+}
+
+export function SSHCreateProfile(input: ssh$0.CreateProfileInput): $CancellablePromise<ssh$0.ProfileSummary> {
+    return $Call.ByID(4067339226, input);
+}
+
+export function SSHDeleteProfile(id: string): $CancellablePromise<void> {
+    return $Call.ByID(2384439843, id);
+}
+
+export function SSHListProfiles(): $CancellablePromise<ssh$0.ProfileSummary[] | null> {
+    return $Call.ByID(1529350215);
+}
+
+export function SSHRunCommand(id: string, command: string): $CancellablePromise<ssh$0.CommandResult> {
+    return $Call.ByID(3450765639, id, command);
+}
+
+export function SSHTestConnection(id: string): $CancellablePromise<void> {
+    return $Call.ByID(2055731053, id);
 }
 
 /**

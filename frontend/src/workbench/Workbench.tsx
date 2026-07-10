@@ -5,10 +5,12 @@ import { listRegisteredModules, registerModule } from "../modules/registry";
 import { toolsModule } from "../modules/tools/manifest";
 import { notesModule } from "../modules/notes/manifest";
 import { databaseModule } from "../modules/database/manifest";
+import { sshModule } from "../modules/ssh/manifest";
 
 registerModule(toolsModule);
 registerModule(notesModule);
 registerModule(databaseModule);
+registerModule(sshModule);
 
 export function Workbench() {
   const modules = useMemo(() => listRegisteredModules(), []);
