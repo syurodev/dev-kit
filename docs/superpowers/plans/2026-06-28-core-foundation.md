@@ -84,6 +84,7 @@ Create Go files:
 - `internal/vault/keyringstore_test.go`: keyring persistence tests.
 - `internal/bridge/vault.go`: Wails-facing vault methods (status/setup/unlock/lock).
 - `internal/bridge/vault_test.go`: vault bridge tests.
+- `frontend/src/bridge/vault.ts`: typed vault adapter over the generated bindings.
 - `frontend/src/workbench/VaultGate.tsx`: first-run setup + unlock gate.
 - `internal/commands/registry.go`: command registry and dispatch.
 - `internal/commands/registry_test.go`: command registry tests.
@@ -3790,18 +3791,43 @@ git commit -m "feat: add minimal workbench shell"
 
 **Files:**
 
+- Create: `frontend/src/bridge/vault.ts`
 - Create: `frontend/src/workbench/VaultGate.tsx`
 - Modify: `frontend/src/App.tsx`
 
-- [ ] **Step 1: Create the gate component**
+- [ ] **Step 1: Create the vault bridge adapter**
+
+UI must not import generated bindings directly (§8.3 and §6.10 invariant 10);
+route vault calls through a typed adapter. Create `frontend/src/bridge/vault.ts`:
+
+```ts
+import { callBridge } from "./client";
+import { AppService } from "../../bindings/changeme";
+
+export type VaultState = "not_configured" | "locked" | "unlocked";
+
+export function vaultStatus(): Promise<VaultState> {
+  return callBridge(async () => (await AppService.VaultStatus()).state as VaultState);
+}
+
+export function setupVault(masterPassword: string): Promise<string> {
+  return callBridge(() => AppService.SetupVault(masterPassword));
+}
+
+export function unlockVault(masterPassword: string): Promise<void> {
+  return callBridge(() => AppService.UnlockVault(masterPassword) as Promise<void>);
+}
+```
+
+- [ ] **Step 2: Create the gate component**
 
 Create `frontend/src/workbench/VaultGate.tsx`:
 
 ```tsx
 import { useEffect, useState, type ReactNode } from "react";
-import { AppService } from "../../bindings/changeme";
+import { setupVault, unlockVault, vaultStatus, type VaultState } from "../bridge/vault";
 
-type Status = "loading" | "not_configured" | "locked" | "unlocked";
+type Status = "loading" | VaultState;
 
 export function VaultGate({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<Status>("loading");
@@ -3810,8 +3836,7 @@ export function VaultGate({ children }: { children: ReactNode }) {
   const [error, setError] = useState("");
 
   async function refresh() {
-    const result = await AppService.VaultStatus();
-    setStatus(result.state as Status);
+    setStatus(await vaultStatus());
   }
 
   useEffect(() => {
@@ -3821,7 +3846,7 @@ export function VaultGate({ children }: { children: ReactNode }) {
   async function onSetup() {
     setError("");
     try {
-      const recovery = await AppService.SetupVault(password);
+      const recovery = await setupVault(password);
       setRecoveryKey(recovery);
       setPassword("");
       await refresh();
@@ -3833,7 +3858,7 @@ export function VaultGate({ children }: { children: ReactNode }) {
   async function onUnlock() {
     setError("");
     try {
-      await AppService.UnlockVault(password);
+      await unlockVault(password);
       setPassword("");
       await refresh();
     } catch (e) {
@@ -3886,7 +3911,7 @@ export function VaultGate({ children }: { children: ReactNode }) {
 }
 ```
 
-- [ ] **Step 2: Wrap the Workbench with the gate**
+- [ ] **Step 3: Wrap the Workbench with the gate**
 
 Replace `frontend/src/App.tsx`:
 
@@ -3905,7 +3930,7 @@ function App() {
 export default App;
 ```
 
-- [ ] **Step 3: Run frontend build**
+- [ ] **Step 4: Run frontend build**
 
 Run:
 
@@ -3915,7 +3940,7 @@ cd frontend && npm run build
 
 Expected: PASS (requires the vault bindings from Task 13.1 + Task 14 regeneration).
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add frontend/src
@@ -4025,8 +4050,8 @@ wails3 dev
 
 Expected:
 
-- App opens.
-- Workbench shell appears.
+- App opens on the "Create Master Password" screen (first run); after creating one the recovery key is shown once.
+- After setup/unlock, the Workbench shell appears.
 - Tools module appears.
 - Hashing `hello` with SHA-256 returns `2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824`.
 
@@ -4058,8 +4083,8 @@ This document tracks the implemented DevKit core foundation.
 - `internal/apperrors`: structured application errors.
 - `internal/audit`: redaction helpers for logs and audit events.
 - `internal/storage`: storage interfaces and migration runner skeleton.
-- `internal/crypto`: encrypted record envelope types.
-- `internal/vault`: vault lock/unlock skeleton.
+- `internal/crypto`: encrypted record envelope, Argon2id KDF, XChaCha20-Poly1305 AEAD, and the DEK/KEK keyring with recovery key.
+- `internal/vault`: vault service with a mandatory Master Password (setup/unlock/lock, recovery-key unlock) and keyring persistence.
 - `internal/commands`: command registry.
 - `internal/modules`: built-in module registry.
 - `internal/permissions`: permission grants and policy checks.
@@ -4070,6 +4095,7 @@ This document tracks the implemented DevKit core foundation.
 ## Current Rules
 
 - Frontend code calls `frontend/src/bridge`, not generated Wails bindings directly.
+- A Master Password is mandatory and set once at first-run setup; the vault holds the decrypted DEK in memory only while unlocked.
 - Sensitive plugin-style calls must pass through the Capability Gateway.
 - Encrypted record formats are versioned from the first implementation.
 - Long-running future operations must accept cancellation.
@@ -4141,8 +4167,8 @@ wails3 dev
 
 Expected:
 
-- App starts.
-- Workbench shell renders.
+- App starts on the vault gate: "Create Master Password" on first run, or "Unlock DevKit" on later runs.
+- After setup/unlock, the Workbench shell renders.
 - Tools module renders.
 - Hash tool works.
 - No frontend console errors.

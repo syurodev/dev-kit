@@ -232,7 +232,7 @@ Authentication:
 
 Encryption:
 
-- The user has an app-level Master Password or recovery-backed local key flow.
+- The user sets an app-level Master Password. It is **mandatory and chosen once at first-run setup**; a recovery key is generated at setup to back it up.
 - The Master Password derives or unwraps the local Encryption Key.
 - Data is encrypted on the client before storage and before sync.
 - The server receives encrypted blobs only.
