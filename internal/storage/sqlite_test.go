@@ -2,9 +2,28 @@ package storage
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 )
+
+func TestOpenRestrictsSQLiteFilePermissions(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+
+	db, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer db.Close()
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	if got, want := info.Mode().Perm(), os.FileMode(0o600); got != want {
+		t.Fatalf("database permissions = %o, want %o", got, want)
+	}
+}
 
 func TestSQLiteKVPersistenceAcrossReopen(t *testing.T) {
 	ctx := context.Background()

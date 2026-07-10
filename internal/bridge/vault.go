@@ -3,11 +3,24 @@ package bridge
 import (
 	"context"
 
+	"changeme/internal/audit"
 	"changeme/internal/vault"
 )
 
 type VaultStatusDTO struct {
 	State string `json:"state"`
+}
+
+func (s *AppService) auditVaultLifecycle(event string) {
+	s.container.Audit.Record(audit.Event{
+		SubjectID:  "builtin.vault",
+		Capability: "vault:lifecycle",
+		Scope:      "vault",
+		Outcome:    audit.OutcomeAllowed,
+		Metadata: map[string]any{
+			"event": event,
+		},
+	})
 }
 
 func (s *AppService) VaultStatus() (VaultStatusDTO, error) {
@@ -35,6 +48,7 @@ func (s *AppService) SetupVault(masterPassword string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	s.auditVaultLifecycle("setup")
 	// SECURITY: one-time return only; it is never logged, audited, or persisted.
 	return result.(string), nil
 }
@@ -45,6 +59,9 @@ func (s *AppService) UnlockVault(masterPassword string) error {
 	}, func(context.Context) (any, error) {
 		return nil, s.container.Vault.Unlock(masterPassword)
 	})
+	if err == nil {
+		s.auditVaultLifecycle("unlock")
+	}
 	return err
 }
 
@@ -54,6 +71,9 @@ func (s *AppService) UnlockVaultWithRecovery(recoveryKey string) error {
 	}, func(context.Context) (any, error) {
 		return nil, s.container.Vault.UnlockWithRecovery(recoveryKey)
 	})
+	if err == nil {
+		s.auditVaultLifecycle("recovery_unlock")
+	}
 	return err
 }
 
@@ -64,5 +84,8 @@ func (s *AppService) LockVault() error {
 		s.container.Vault.Lock()
 		return nil, nil
 	})
+	if err == nil {
+		s.auditVaultLifecycle("lock")
+	}
 	return err
 }

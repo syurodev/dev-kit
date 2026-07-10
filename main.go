@@ -39,6 +39,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer db.Close()
 	if err := storage.Migrate(context.Background(), db); err != nil {
 		log.Fatal(err)
 	}

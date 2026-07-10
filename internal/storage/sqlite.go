@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
 
 	_ "modernc.org/sqlite"
 )
@@ -30,6 +31,10 @@ func Open(path string) (*sql.DB, error) {
 	if _, err := db.Exec("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;"); err != nil {
 		db.Close()
 		return nil, err
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("restrict SQLite database permissions: %w", err)
 	}
 	return db, nil
 }
