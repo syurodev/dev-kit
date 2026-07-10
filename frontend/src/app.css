@@ -137,6 +137,69 @@
   border-radius: 6px;
 }
 
+.database-view {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 900px;
+}
+
+.db-create {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.db-create input,
+.db-profiles select,
+.db-query textarea {
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid #3f4650;
+  background: #0d0f12;
+  color: inherit;
+}
+
+.db-profiles {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.db-profiles label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+.db-query {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.db-query textarea {
+  min-height: 80px;
+  font-family: ui-monospace, monospace;
+}
+
+.db-result table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.db-result th,
+.db-result td {
+  border: 1px solid #2a2f35;
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.db-status {
+  color: #6ee7a8;
+}
+
 .command-palette {
   position: fixed;
   inset: 0;

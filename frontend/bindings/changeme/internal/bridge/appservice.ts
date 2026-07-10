@@ -7,11 +7,34 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as database$0 from "../services/database/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as notes$0 from "../services/notes/models.js";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as $models from "./models.js";
+
+export function DBCreateProfile(input: database$0.CreateProfileInput): $CancellablePromise<database$0.ProfileSummary> {
+    return $Call.ByID(3076574404, input);
+}
+
+export function DBDeleteProfile(id: string): $CancellablePromise<void> {
+    return $Call.ByID(1020110141, id);
+}
+
+export function DBListProfiles(): $CancellablePromise<database$0.ProfileSummary[] | null> {
+    return $Call.ByID(1018212093);
+}
+
+export function DBQuery(id: string, sql: string): $CancellablePromise<database$0.QueryResult> {
+    return $Call.ByID(4141658393, id, sql);
+}
+
+export function DBTestConnection(id: string): $CancellablePromise<void> {
+    return $Call.ByID(3943270391, id);
+}
 
 export function ExecuteCommand(request: $models.ExecuteCommandRequest): $CancellablePromise<any> {
     return $Call.ByID(3246392393, request);

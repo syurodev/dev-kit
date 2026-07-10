@@ -4,9 +4,11 @@ import { CommandPalette } from "./CommandPalette";
 import { listRegisteredModules, registerModule } from "../modules/registry";
 import { toolsModule } from "../modules/tools/manifest";
 import { notesModule } from "../modules/notes/manifest";
+import { databaseModule } from "../modules/database/manifest";
 
 registerModule(toolsModule);
 registerModule(notesModule);
+registerModule(databaseModule);
 
 export function Workbench() {
   const modules = useMemo(() => listRegisteredModules(), []);
