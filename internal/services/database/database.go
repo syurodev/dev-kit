@@ -15,7 +15,10 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const passwordKeyID = "db-password"
+const (
+	passwordKeyID             = "db-password"
+	databaseProfileRecordType = "database-profile"
+)
 
 // DefaultMaxRows caps query results so the UI stays responsive (§12.4).
 // ponytail: fixed cap; make it configurable per query later if needed.
@@ -26,6 +29,8 @@ const DefaultMaxRows = 200
 type Vault interface {
 	Seal(keyID string, plaintext []byte) (crypto.Envelope, error)
 	Open(envelope crypto.Envelope) ([]byte, error)
+	SealV2(associatedData crypto.AssociatedData, plaintext []byte) (crypto.Envelope, error)
+	OpenWithAD(envelope crypto.Envelope, associatedData crypto.AssociatedData) ([]byte, error)
 }
 
 // ProfileRecord is the at-rest form of a connection profile. Only the password
@@ -102,11 +107,11 @@ func (s *Service) CreateProfile(input CreateProfileInput) (ProfileSummary, error
 		input.SSLMode = "disable"
 	}
 
-	envelope, err := s.vault.Seal(passwordKeyID, []byte(input.Password))
+	id, err := newID()
 	if err != nil {
 		return ProfileSummary{}, err
 	}
-	id, err := newID()
+	envelope, err := s.vault.SealV2(crypto.AssociatedData{RecordType: databaseProfileRecordType, RecordID: id, KeyID: passwordKeyID}, []byte(input.Password))
 	if err != nil {
 		return ProfileSummary{}, err
 	}
@@ -220,7 +225,7 @@ func (s *Service) dsn(id string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	password, err := s.vault.Open(record.Password)
+	password, err := s.vault.OpenWithAD(record.Password, databaseProfileAssociatedData(record))
 	if err != nil {
 		return "", err
 	}
@@ -238,6 +243,10 @@ func (s *Service) dsn(id string) (string, error) {
 	query.Set("sslmode", sslmode)
 	u.RawQuery = query.Encode()
 	return u.String(), nil
+}
+
+func databaseProfileAssociatedData(record ProfileRecord) crypto.AssociatedData {
+	return crypto.AssociatedData{RecordType: databaseProfileRecordType, RecordID: record.ID, KeyID: passwordKeyID}
 }
 
 func stringify(value any) string {

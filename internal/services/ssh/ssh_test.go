@@ -3,6 +3,7 @@ package ssh
 import (
 	"testing"
 
+	"changeme/internal/crypto"
 	"changeme/internal/vault"
 )
 
@@ -41,12 +42,30 @@ func TestCreateProfileEncryptsSecret(t *testing.T) {
 	if string(record.Secret.Ciphertext) == "s3cr3t" {
 		t.Fatal("secret must be stored encrypted, not plaintext")
 	}
-	plain, err := v.Open(record.Secret)
+	plain, err := v.OpenWithAD(record.Secret, crypto.AssociatedData{RecordType: "ssh-profile", RecordID: record.ID, KeyID: secretKeyID})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 	if string(plain) != "s3cr3t" {
 		t.Fatalf("decrypted secret = %q", plain)
+	}
+}
+
+func TestCreateProfileUsesV2EnvelopeBoundToProfile(t *testing.T) {
+	v := newUnlockedVault(t)
+	repo := NewMemoryRepository()
+	svc := NewService(repo, v)
+
+	summary, err := svc.CreateProfile(CreateProfileInput{Name: "prod", Host: "127.0.0.1", Username: "ubuntu", Secret: "s3cr3t"})
+	if err != nil {
+		t.Fatalf("CreateProfile: %v", err)
+	}
+	record, err := repo.Get(summary.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if record.Secret.Version != crypto.EnvelopeVersionV2 {
+		t.Fatalf("envelope version = %d, want V2", record.Secret.Version)
 	}
 }
 

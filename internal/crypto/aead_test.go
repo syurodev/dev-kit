@@ -60,3 +60,33 @@ func TestOpenFailsWhenTampered(t *testing.T) {
 		t.Fatal("Open must fail when ciphertext is tampered")
 	}
 }
+
+func TestOpenWithADRejectsChangedRecordID(t *testing.T) {
+	key := newTestKey(t)
+	ad := AssociatedData{RecordType: "note", RecordID: "record-1", KeyID: "note-body"}
+	env, err := SealV2(ad, key, []byte("secret"))
+	if err != nil {
+		t.Fatalf("SealV2: %v", err)
+	}
+
+	_, err = OpenWithAD(key, env, AssociatedData{RecordType: "note", RecordID: "record-2", KeyID: "note-body"})
+	if err == nil {
+		t.Fatal("OpenWithAD must fail when record ID changes")
+	}
+}
+
+func TestOpenWithADReadsV1Envelope(t *testing.T) {
+	key := newTestKey(t)
+	env, err := Seal("note-body", key, []byte("legacy secret"))
+	if err != nil {
+		t.Fatalf("Seal: %v", err)
+	}
+
+	plain, err := OpenWithAD(key, env, AssociatedData{RecordType: "note", RecordID: "record-1", KeyID: "note-body"})
+	if err != nil {
+		t.Fatalf("OpenWithAD: %v", err)
+	}
+	if !bytes.Equal(plain, []byte("legacy secret")) {
+		t.Fatalf("plaintext = %q", plain)
+	}
+}

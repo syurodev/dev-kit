@@ -19,7 +19,8 @@ const (
 	AuthPassword = "password"
 	AuthKey      = "key"
 
-	secretKeyID = "ssh-secret"
+	secretKeyID          = "ssh-secret"
+	sshProfileRecordType = "ssh-profile"
 )
 
 // Vault is the encryption capability the SSH service needs. The DEK stays inside
@@ -27,6 +28,8 @@ const (
 type Vault interface {
 	Seal(keyID string, plaintext []byte) (crypto.Envelope, error)
 	Open(envelope crypto.Envelope) ([]byte, error)
+	SealV2(associatedData crypto.AssociatedData, plaintext []byte) (crypto.Envelope, error)
+	OpenWithAD(envelope crypto.Envelope, associatedData crypto.AssociatedData) ([]byte, error)
 }
 
 // ProfileRecord is the at-rest form of an SSH profile. The secret (password or
@@ -105,11 +108,11 @@ func (s *Service) CreateProfile(input CreateProfileInput) (ProfileSummary, error
 		return ProfileSummary{}, errors.New("unsupported auth method")
 	}
 
-	envelope, err := s.vault.Seal(secretKeyID, []byte(input.Secret))
+	id, err := newID()
 	if err != nil {
 		return ProfileSummary{}, err
 	}
-	id, err := newID()
+	envelope, err := s.vault.SealV2(crypto.AssociatedData{RecordType: sshProfileRecordType, RecordID: id, KeyID: secretKeyID}, []byte(input.Secret))
 	if err != nil {
 		return ProfileSummary{}, err
 	}
@@ -195,7 +198,7 @@ func (s *Service) dial(ctx context.Context, id string) (*gossh.Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	secret, err := s.vault.Open(record.Secret)
+	secret, err := s.vault.OpenWithAD(record.Secret, sshProfileAssociatedData(record))
 	if err != nil {
 		return nil, err
 	}
@@ -235,6 +238,10 @@ func (s *Service) dial(ctx context.Context, id string) (*gossh.Client, error) {
 		return nil, err
 	}
 	return gossh.NewClient(clientConn, chans, reqs), nil
+}
+
+func sshProfileAssociatedData(record ProfileRecord) crypto.AssociatedData {
+	return crypto.AssociatedData{RecordType: sshProfileRecordType, RecordID: record.ID, KeyID: secretKeyID}
 }
 
 func toSummary(record ProfileRecord) ProfileSummary {

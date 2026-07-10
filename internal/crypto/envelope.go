@@ -7,6 +7,20 @@ const (
 	AlgorithmAES256GCM         = "aes-256-gcm"
 )
 
+const (
+	EnvelopeVersionV1 uint32 = 1
+	EnvelopeVersionV2 uint32 = 2
+)
+
+// AssociatedData is the immutable record identity authenticated by V2
+// envelopes. It is not persisted in the envelope: the owning record supplies
+// it when decrypting.
+type AssociatedData struct {
+	RecordType string
+	RecordID   string
+	KeyID      string
+}
+
 type Envelope struct {
 	Version    uint32 `json:"version"`
 	Algorithm  string `json:"algorithm"`
@@ -16,8 +30,8 @@ type Envelope struct {
 }
 
 func (e Envelope) Validate() error {
-	if e.Version == 0 {
-		return errors.New("version must be greater than zero")
+	if e.Version != EnvelopeVersionV1 && e.Version != EnvelopeVersionV2 {
+		return errors.New("envelope version is unsupported")
 	}
 	if !isSupportedAlgorithm(e.Algorithm) {
 		return errors.New("algorithm must be supported")
@@ -37,7 +51,7 @@ func (e Envelope) Validate() error {
 
 func isSupportedAlgorithm(algorithm string) bool {
 	switch algorithm {
-	case AlgorithmXChaCha20Poly1305, AlgorithmAES256GCM:
+	case AlgorithmXChaCha20Poly1305:
 		return true
 	default:
 		return false
