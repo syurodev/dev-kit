@@ -201,7 +201,7 @@ Expected: commit succeeds if repository has been initialized. If this workspace 
 - Create: `internal/apperrors/errors.go`
 - Test: `internal/apperrors/errors_test.go`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Create `internal/apperrors/errors_test.go`:
 
@@ -259,7 +259,7 @@ func contains(value string, needle string) bool {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
@@ -269,7 +269,7 @@ go test ./internal/apperrors
 
 Expected: FAIL because `New`, `Wrap`, and `AppError` are not defined.
 
-- [ ] **Step 3: Implement structured errors**
+- [x] **Step 3: Implement structured errors**
 
 Create `internal/apperrors/errors.go`:
 
@@ -328,7 +328,7 @@ func (e *AppError) Unwrap() error {
 }
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run:
 
@@ -338,7 +338,7 @@ go test ./internal/apperrors
 
 Expected: PASS.
 
-- [ ] **Step 5: Run all Go tests**
+- [x] **Step 5: Run all Go tests**
 
 Run:
 
@@ -348,7 +348,7 @@ go test ./...
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add internal/apperrors
@@ -362,7 +362,7 @@ git commit -m "feat: add structured app errors"
 - Create: `internal/audit/redact.go`
 - Test: `internal/audit/redact_test.go`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Create `internal/audit/redact_test.go`:
 
@@ -407,7 +407,7 @@ func TestRedactSensitiveKeys(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
@@ -417,7 +417,7 @@ go test ./internal/audit
 
 Expected: FAIL because `RedactMap` and `RedactedValue` are not defined.
 
-- [ ] **Step 3: Implement redaction**
+- [x] **Step 3: Implement redaction**
 
 Create `internal/audit/redact.go`:
 
@@ -469,7 +469,7 @@ func IsSensitiveKey(key string) bool {
 }
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run:
 
@@ -479,7 +479,7 @@ go test ./internal/audit
 
 Expected: PASS.
 
-- [ ] **Step 5: Run all Go tests**
+- [x] **Step 5: Run all Go tests**
 
 Run:
 
@@ -489,7 +489,7 @@ go test ./...
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add internal/audit
@@ -504,7 +504,7 @@ git commit -m "feat: add audit redaction helpers"
 - Create: `internal/storage/migrations.go`
 - Test: `internal/storage/migrations_test.go`
 
-- [ ] **Step 1: Write failing migration tests**
+- [x] **Step 1: Write failing migration tests**
 
 Create `internal/storage/migrations_test.go`:
 
@@ -566,7 +566,7 @@ func TestMigrationRunnerRunsPendingMigrationsInOrder(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
@@ -576,7 +576,7 @@ go test ./internal/storage
 
 Expected: FAIL because migration types are not defined.
 
-- [ ] **Step 3: Add storage interfaces**
+- [x] **Step 3: Add storage interfaces**
 
 Create `internal/storage/storage.go`:
 
@@ -595,7 +595,7 @@ type Transactioner interface {
 }
 ```
 
-- [ ] **Step 4: Add migration runner**
+- [x] **Step 4: Add migration runner**
 
 Create `internal/storage/migrations.go`:
 
@@ -675,7 +675,7 @@ func (s *MemoryMigrationStore) MarkApplied(ctx context.Context, version int) err
 }
 ```
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 Run:
 
@@ -685,7 +685,7 @@ go test ./internal/storage
 
 Expected: PASS.
 
-- [ ] **Step 6: Run all Go tests**
+- [x] **Step 6: Run all Go tests**
 
 Run:
 
@@ -695,7 +695,7 @@ go test ./...
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add internal/storage
@@ -709,7 +709,7 @@ git commit -m "feat: add storage migration skeleton"
 - Create: `internal/crypto/envelope.go`
 - Test: `internal/crypto/envelope_test.go`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Create `internal/crypto/envelope_test.go`:
 
@@ -750,7 +750,7 @@ func TestEncryptedRecordEnvelopeRejectsMissingKeyID(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
@@ -760,7 +760,7 @@ go test ./internal/crypto
 
 Expected: FAIL because `EncryptedRecordEnvelope` is not defined.
 
-- [ ] **Step 3: Implement envelope**
+- [x] **Step 3: Implement envelope**
 
 Create `internal/crypto/envelope.go`:
 
@@ -806,7 +806,7 @@ func (e EncryptedRecordEnvelope) Validate() error {
 }
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run:
 
@@ -816,7 +816,7 @@ go test ./internal/crypto
 
 Expected: PASS.
 
-- [ ] **Step 5: Run all Go tests**
+- [x] **Step 5: Run all Go tests**
 
 Run:
 
@@ -826,7 +826,7 @@ go test ./...
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add internal/crypto
@@ -992,6 +992,15 @@ git commit -m "feat: add argon2id key derivation"
 ```
 
 ## Task 5.2: Add AEAD Seal/Open (XChaCha20-Poly1305)
+
+> ⚠️ Reconcile with shipped code first. The already-implemented
+> `internal/crypto/envelope.go` named the type **`Envelope`** (not
+> `EncryptedRecordEnvelope`), uses `Version uint32`, JSON tag `key_id`, and has
+> **no `AssociatedData` field**. The snippets in this task and in Tasks 5.3/6
+> were written against `EncryptedRecordEnvelope` + `AssociatedData`, so they will
+> not compile as-is. Before implementing, either (a) update these snippets to use
+> `Envelope` and drop `associatedData` (simplest, reuses shipped code), or
+> (b) extend `Envelope` with an `AssociatedData` field. Decision pending.
 
 **Files:**
 
