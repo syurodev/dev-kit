@@ -134,6 +134,18 @@ func TestBridgeAuditUsesOnlyOpaqueIDs(t *testing.T) {
 	}
 }
 
+func TestSSHBridgeDoesNotAuditPassphrase(t *testing.T) {
+	container := app.NewContainer()
+	service := NewAppService(container)
+	const passphrase = "one-time-passphrase-must-not-be-audited"
+
+	_ = service.SSHTestConnection(context.Background(), "missing-profile", passphrase)
+
+	if events := fmt.Sprint(container.Audit.Events()); strings.Contains(events, passphrase) {
+		t.Fatalf("audit events leaked SSH passphrase: %s", events)
+	}
+}
+
 type failingNotesRepository struct {
 	err error
 }
