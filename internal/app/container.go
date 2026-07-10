@@ -1,6 +1,7 @@
 package app
 
 import (
+	"changeme/internal/audit"
 	"changeme/internal/capabilities"
 	"changeme/internal/commands"
 	"changeme/internal/modules"
@@ -15,6 +16,7 @@ import (
 type Container struct {
 	Commands     *commands.Registry
 	Modules      *modules.Registry
+	Audit        *audit.MemorySink
 	Permissions  *permissions.Policy
 	Capabilities *capabilities.Gateway
 	Vault        *vault.Service
@@ -52,12 +54,14 @@ func NewContainerWithStores(
 	})
 
 	vaultService := vault.NewService(keyringStore)
+	auditSink := audit.NewMemorySink()
 
 	return &Container{
 		Commands:     commands.NewRegistry(),
 		Modules:      modules.NewRegistry(),
+		Audit:        auditSink,
 		Permissions:  permissionPolicy,
-		Capabilities: capabilities.NewGateway(permissionPolicy),
+		Capabilities: capabilities.NewGateway(permissionPolicy, auditSink),
 		Vault:        vaultService,
 		HashTools:    tools.NewHashService(),
 		Notes:        notes.NewService(notesRepo, vaultService),
