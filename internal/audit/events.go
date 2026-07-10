@@ -44,5 +44,8 @@ func (s *MemorySink) Events() []Event {
 
 	events := make([]Event, len(s.events))
 	copy(events, s.events)
+	for i := range events {
+		events[i].Metadata = RedactMap(events[i].Metadata)
+	}
 	return events
 }
