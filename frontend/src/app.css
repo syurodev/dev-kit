@@ -101,6 +101,14 @@
   min-height: 80px;
 }
 
+.notes-search {
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid #3f4650;
+  background: #0d0f12;
+  color: inherit;
+}
+
 .notes-list {
   list-style: none;
   margin: 0;

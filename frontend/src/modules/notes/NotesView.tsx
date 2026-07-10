@@ -4,6 +4,7 @@ import {
   deleteNote,
   getNote,
   listNotes,
+  searchNotes,
   type Note,
   type NoteSummary,
 } from "../../bridge/notes";
@@ -17,11 +18,12 @@ export function NotesView() {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [selected, setSelected] = useState<Note | null>(null);
+  const [query, setQuery] = useState("");
   const [error, setError] = useState("");
 
-  async function refresh() {
+  async function refresh(q = query) {
     try {
-      setNotes(await listNotes());
+      setNotes(q.trim() ? await searchNotes(q) : await listNotes());
     } catch (e) {
       setError(message(e));
     }
@@ -87,6 +89,17 @@ export function NotesView() {
       </div>
 
       {error ? <p role="alert">{error}</p> : null}
+
+      <input
+        aria-label="note-search"
+        className="notes-search"
+        placeholder="Search notes (title always, body when unlocked)…"
+        value={query}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          void refresh(e.target.value);
+        }}
+      />
 
       <ul className="notes-list">
         {notes.map((note) => (

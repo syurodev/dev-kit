@@ -60,6 +60,62 @@ func TestCreateFailsWhenVaultLocked(t *testing.T) {
 	}
 }
 
+func TestSearchMatchesTitleAndBodyWhenUnlocked(t *testing.T) {
+	v := newUnlockedVault(t)
+	svc := NewService(NewMemoryRepository(), v)
+	if _, err := svc.Create("Groceries", "buy milk and eggs"); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if _, err := svc.Create("Work log", "finished the report"); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Title match.
+	byTitle, err := svc.Search("grocer")
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(byTitle) != 1 || byTitle[0].Title != "Groceries" {
+		t.Fatalf("byTitle = %+v", byTitle)
+	}
+
+	// Body match (only possible while unlocked).
+	byBody, err := svc.Search("report")
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(byBody) != 1 || byBody[0].Title != "Work log" {
+		t.Fatalf("byBody = %+v", byBody)
+	}
+}
+
+func TestSearchIsMetadataOnlyWhenLocked(t *testing.T) {
+	v := newUnlockedVault(t)
+	svc := NewService(NewMemoryRepository(), v)
+	if _, err := svc.Create("Groceries", "buy milk and eggs"); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	v.Lock()
+
+	// Title still searchable while locked.
+	byTitle, err := svc.Search("grocer")
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(byTitle) != 1 {
+		t.Fatalf("title search while locked = %+v, want 1", byTitle)
+	}
+
+	// Body NOT searchable while locked.
+	byBody, err := svc.Search("milk")
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(byBody) != 0 {
+		t.Fatalf("body search while locked = %+v, want 0", byBody)
+	}
+}
+
 func TestGetFailsWhenVaultLocked(t *testing.T) {
 	v := newUnlockedVault(t)
 	svc := NewService(NewMemoryRepository(), v)

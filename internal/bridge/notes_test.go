@@ -35,6 +35,25 @@ func TestNotesBridgeCreateListGet(t *testing.T) {
 	}
 }
 
+func TestNotesBridgeSearch(t *testing.T) {
+	container := app.NewContainer()
+	service := NewAppService(container)
+	if _, err := service.SetupVault("master-password"); err != nil {
+		t.Fatalf("SetupVault: %v", err)
+	}
+	if _, err := service.NotesCreate("Groceries", "buy milk"); err != nil {
+		t.Fatalf("NotesCreate: %v", err)
+	}
+
+	results, err := service.NotesSearch("grocer")
+	if err != nil {
+		t.Fatalf("NotesSearch: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("len(results) = %d, want 1", len(results))
+	}
+}
+
 func TestNotesBridgeCreateFailsWhenLocked(t *testing.T) {
 	container := app.NewContainer()
 	service := NewAppService(container)
