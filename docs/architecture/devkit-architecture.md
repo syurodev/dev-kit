@@ -786,6 +786,28 @@ rộng" contract.
     plugin UI (iframe/WASM) reuses the same message-passing contract instead of
     touching the runtime directly.
 
+### 6.10.1 Implemented security guarantees
+
+The core foundation applies the extensibility invariants as concrete security
+guarantees:
+
+- The Wails-facing bridge routes every sensitive call through its single
+  `AppService.call` capability-gateway choke point; bridge code does not call
+  sensitive core services directly.
+- The gateway audits both allowed and denied decisions. Events retain only an
+  action and opaque identifiers, and must never serialize secret input, raw SQL,
+  shell or SSH command text, credentials, or passphrases.
+- Encryption keeps V1 envelopes readable for compatibility. New records use V2
+  envelopes and bind record type, record ID, and key ID as associated data.
+- Headless server mode binds only to loopback addresses. A non-loopback server
+  requires a separately designed authenticated and TLS-protected deployment
+  surface.
+- Remote database profiles use verified TLS (`verify-full` by default); an
+  explicit insecure TLS setting is limited to loopback development hosts.
+- SSH authentication requires an exact pinned host-key fingerprint before
+  authentication. A passphrase is operation-scoped and is neither persisted nor
+  included in audit events.
+
 Litmus test for any near-term change: "If external plugins shipped tomorrow,
 would this code need to be rewritten, or just have a new subject + isolation
 layer plugged into the existing Gateway/API?" If the answer is "rewritten", the
