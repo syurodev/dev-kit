@@ -29,4 +29,5 @@ export interface ProfileSummary {
     "port": number;
     "username": string;
     "auth_method": string;
+    "host_key_fingerprint": string;
 }

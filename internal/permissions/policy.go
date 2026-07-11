@@ -1,5 +1,7 @@
 package permissions
 
+import "strings"
+
 type Policy struct {
 	grants []Grant
 }
@@ -23,10 +25,23 @@ func (p *Policy) Check(request Request) Decision {
 		if grant.Capability != request.Capability {
 			continue
 		}
-		if grant.Scope == "*" || grant.Scope == request.Scope {
+		if scopeMatches(grant.Scope, request.Scope) {
 			return Decision{Allowed: true}
 		}
 	}
 
 	return Decision{Allowed: false, Reason: "permission grant not found"}
+}
+
+func scopeMatches(grantScope string, requestScope string) bool {
+	if grantScope == requestScope {
+		return true
+	}
+	if grantScope == "*" {
+		return true
+	}
+	if !strings.HasSuffix(grantScope, "*") {
+		return false
+	}
+	return strings.HasPrefix(requestScope, strings.TrimSuffix(grantScope, "*"))
 }

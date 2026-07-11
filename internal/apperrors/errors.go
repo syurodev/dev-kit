@@ -1,10 +1,9 @@
 package apperrors
 
 type AppError struct {
-	Code        string         `json:"code"`
-	Message     string         `json:"message"`
-	Recoverable bool           `json:"recoverable"`
-	Details     map[string]any `json:"details,omitempty"`
+	Code        string `json:"code"`
+	Message     string `json:"message"`
+	Recoverable bool   `json:"recoverable"`
 	cause       error
 }
 
@@ -16,13 +15,10 @@ func New(code string, message string, recoverable bool) *AppError {
 	}
 }
 
-func NewWithDetails(code string, message string, recoverable bool, details map[string]any) *AppError {
-	return &AppError{
-		Code:        code,
-		Message:     message,
-		Recoverable: recoverable,
-		Details:     details,
-	}
+// NewWithDetails is retained for source compatibility. Details are deliberately
+// not exposed by the public error contract.
+func NewWithDetails(code string, message string, recoverable bool, _ map[string]any) *AppError {
+	return New(code, message, recoverable)
 }
 
 func Wrap(code string, message string, recoverable bool, cause error) *AppError {

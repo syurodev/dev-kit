@@ -9,6 +9,7 @@ import (
 
 	"changeme/internal/app"
 	"changeme/internal/bridge"
+	"changeme/internal/servermode"
 
 	"changeme/internal/services/database"
 	"changeme/internal/services/notes"
@@ -25,6 +26,16 @@ import (
 var assets embed.FS
 
 func main() {
+	if application.System.IsServer() {
+		host, err := servermode.ValidateHost(os.Getenv("WAILS_SERVER_HOST"))
+		if err != nil {
+			log.Fatal(err)
+		}
+		if err := os.Setenv("WAILS_SERVER_HOST", host); err != nil {
+			log.Fatal(err)
+		}
+	}
+
 	// Persist the vault keyring so the Master Password set at first-run setup
 	// survives restarts. Only wrapped key material is written to disk.
 	configDir, err := os.UserConfigDir()
@@ -39,6 +50,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer db.Close()
 	if err := storage.Migrate(context.Background(), db); err != nil {
 		log.Fatal(err)
 	}
@@ -49,6 +61,7 @@ func main() {
 		database.NewSQLRepository(storage.NewKV(db, storage.TableConnectionProfiles)),
 		sshservice.NewSQLRepository(storage.NewKV(db, storage.TableSSHProfiles)),
 	)
+	defer container.Database.Close()
 	if err := app.RegisterBuiltins(container); err != nil {
 		log.Fatal(err)
 	}
@@ -63,6 +76,9 @@ func main() {
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
+		},
+		Server: application.ServerOptions{
+			Host: "127.0.0.1",
 		},
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: true,

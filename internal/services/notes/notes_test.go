@@ -3,6 +3,7 @@ package notes
 import (
 	"testing"
 
+	"changeme/internal/crypto"
 	"changeme/internal/vault"
 )
 
@@ -13,6 +14,27 @@ func newUnlockedVault(t *testing.T) *vault.Service {
 		t.Fatalf("Setup: %v", err)
 	}
 	return v
+}
+
+func TestCreateUsesV2EnvelopeBoundToNote(t *testing.T) {
+	v := newUnlockedVault(t)
+	repo := NewMemoryRepository()
+	svc := NewService(repo, v)
+
+	summary, err := svc.Create("My note", "secret body")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	record, err := repo.Get(summary.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if record.Body.Version != crypto.EnvelopeVersionV2 {
+		t.Fatalf("envelope version = %d, want V2", record.Body.Version)
+	}
+	if _, err := v.OpenWithAD(record.Body, crypto.AssociatedData{RecordType: "note", RecordID: record.ID, KeyID: bodyKeyID}); err != nil {
+		t.Fatalf("OpenWithAD: %v", err)
+	}
 }
 
 func TestCreateListGetRoundTrip(t *testing.T) {

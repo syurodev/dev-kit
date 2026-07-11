@@ -38,5 +38,11 @@ func (s *AppService) ExecuteCommand(ctx context.Context, request ExecuteCommandR
 			Input:     fmt.Sprint(request.Payload["input"]),
 		}
 	}
-	return s.container.Commands.Execute(ctx, request.ID, payload)
+	opaqueID := commandID(request.ID)
+	return s.call(ctx, "builtin.tools", "tools:hash", "command:"+opaqueID, map[string]any{
+		"action":     "execute",
+		"command_id": opaqueID,
+	}, func(callCtx context.Context) (any, error) {
+		return s.container.Commands.Execute(callCtx, request.ID, payload)
+	})
 }

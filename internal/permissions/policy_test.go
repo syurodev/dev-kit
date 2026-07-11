@@ -35,3 +35,18 @@ func TestPolicyDeniesMissingGrant(t *testing.T) {
 		t.Fatal("Allowed = true, want false")
 	}
 }
+
+func TestPolicyAllowsOnlyBoundedPrefixScope(t *testing.T) {
+	policy := NewPolicy([]Grant{{
+		SubjectID:  "builtin.notes",
+		Capability: "notes:read",
+		Scope:      "note:*",
+	}})
+
+	if !policy.Check(Request{SubjectID: "builtin.notes", Capability: "notes:read", Scope: "note:abc"}).Allowed {
+		t.Fatal("note scope was denied")
+	}
+	if policy.Check(Request{SubjectID: "builtin.notes", Capability: "notes:read", Scope: "profile:abc"}).Allowed {
+		t.Fatal("scope outside bounded prefix was allowed")
+	}
+}

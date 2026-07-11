@@ -3,8 +3,10 @@ import {
   createSSHProfile,
   deleteSSHProfile,
   listSSHProfiles,
+  observeSSHHostKey,
   runSSHCommand,
   testSSHConnection,
+  trustSSHHostKey,
   type SSHProfile,
 } from "../../bridge/ssh";
 
@@ -26,6 +28,8 @@ export function SSHView() {
   const [form, setForm] = useState({ ...emptyForm });
   const [selectedId, setSelectedId] = useState("");
   const [command, setCommand] = useState("echo hello from $(hostname)");
+  const [passphrase, setPassphrase] = useState("");
+  const [observedHostKey, setObservedHostKey] = useState("");
   const [output, setOutput] = useState("");
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
@@ -63,11 +67,13 @@ export function SSHView() {
     setError("");
     setStatus("Testing…");
     try {
-      await testSSHConnection(selectedId);
+      await testSSHConnection(selectedId, passphrase);
       setStatus("Connection OK");
     } catch (e) {
       setStatus("");
       setError(message(e));
+    } finally {
+      setPassphrase("");
     }
   }
 
@@ -75,9 +81,35 @@ export function SSHView() {
     setError("");
     setStatus("");
     try {
-      setOutput(await runSSHCommand(selectedId, command));
+      setOutput(await runSSHCommand(selectedId, command, passphrase));
     } catch (e) {
       setOutput("");
+      setError(message(e));
+    } finally {
+      setPassphrase("");
+    }
+  }
+
+  async function onObserveHostKey() {
+    setError("");
+    setStatus("Observing host key…");
+    try {
+      setObservedHostKey(await observeSSHHostKey(selectedId));
+      setStatus("Review the fingerprint, then explicitly trust it.");
+    } catch (e) {
+      setStatus("");
+      setError(message(e));
+    }
+  }
+
+  async function onTrustHostKey() {
+    setError("");
+    try {
+      await trustSSHHostKey(selectedId, observedHostKey);
+      setObservedHostKey("");
+      setStatus("Host key trusted.");
+      await refresh();
+    } catch (e) {
       setError(message(e));
     }
   }
@@ -152,6 +184,16 @@ export function SSHView() {
         <button type="button" onClick={onTest} disabled={!selectedId}>
           Test connection
         </button>
+        <button type="button" onClick={onObserveHostKey} disabled={!selectedId}>
+          Observe host key
+        </button>
+        <button
+          type="button"
+          onClick={onTrustHostKey}
+          disabled={!selectedId || !observedHostKey}
+        >
+          Trust observed host key
+        </button>
         {selectedId ? (
           <button
             type="button"
@@ -166,6 +208,26 @@ export function SSHView() {
           </button>
         ) : null}
       </div>
+
+      {selectedId ? (
+        <div className="ssh-host-key">
+          <p>
+            Trusted host key: {profiles.find((profile) => profile.id === selectedId)?.hostKeyFingerprint || "not trusted"}
+          </p>
+          {observedHostKey ? <code aria-label="ssh-observed-host-key">{observedHostKey}</code> : null}
+        </div>
+      ) : null}
+
+      <label>
+        Private-key passphrase (used once)
+        <input
+          aria-label="ssh-passphrase"
+          type="password"
+          autoComplete="off"
+          value={passphrase}
+          onChange={(e) => setPassphrase(e.target.value)}
+        />
+      </label>
 
       <div className="ssh-command">
         <input

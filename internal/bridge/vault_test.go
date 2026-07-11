@@ -1,10 +1,71 @@
 package bridge
 
 import (
+	"fmt"
+	"reflect"
+	"strings"
 	"testing"
 
 	"changeme/internal/app"
 )
+
+func TestVaultBridgeAuditsSuccessfulLifecycleTransitionsWithoutCredentials(t *testing.T) {
+	container := app.NewContainer()
+	service := NewAppService(container)
+	const masterPassword = "master-password"
+
+	recovery, err := service.SetupVault(masterPassword)
+	if err != nil {
+		t.Fatalf("SetupVault: %v", err)
+	}
+	if err := service.LockVault(); err != nil {
+		t.Fatalf("LockVault: %v", err)
+	}
+	if err := service.UnlockVault(masterPassword); err != nil {
+		t.Fatalf("UnlockVault: %v", err)
+	}
+	if err := service.LockVault(); err != nil {
+		t.Fatalf("LockVault: %v", err)
+	}
+	if err := service.UnlockVaultWithRecovery(recovery); err != nil {
+		t.Fatalf("UnlockVaultWithRecovery: %v", err)
+	}
+
+	wantEvents := map[string]bool{
+		"setup":           false,
+		"lock":            false,
+		"unlock":          false,
+		"recovery_unlock": false,
+	}
+	for _, event := range container.Audit.Events() {
+		if event.Capability != "vault:lifecycle" {
+			continue
+		}
+		if event.SubjectID != "builtin.vault" || event.Scope != "vault" || event.Outcome != "allowed" {
+			t.Fatalf("unexpected lifecycle audit event: %#v", event)
+		}
+		if !reflect.DeepEqual(event.Metadata, map[string]any{"event": event.Metadata["event"]}) {
+			t.Fatalf("lifecycle audit metadata contains more than its event name: %#v", event.Metadata)
+		}
+		eventName, ok := event.Metadata["event"].(string)
+		if _, exists := wantEvents[eventName]; !ok || !exists {
+			t.Fatalf("unexpected lifecycle event name: %#v", event.Metadata)
+		}
+		wantEvents[eventName] = true
+	}
+	for eventName, found := range wantEvents {
+		if !found {
+			t.Fatalf("missing lifecycle audit event %q", eventName)
+		}
+	}
+
+	auditText := fmt.Sprint(container.Audit.Events())
+	for _, credential := range []string{masterPassword, recovery} {
+		if strings.Contains(auditText, credential) {
+			t.Fatalf("audit events leaked credential %q", credential)
+		}
+	}
+}
 
 func TestVaultBridgeSetupAndStatus(t *testing.T) {
 	container := app.NewContainer()

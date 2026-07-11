@@ -1,6 +1,7 @@
 package app
 
 import (
+	"changeme/internal/audit"
 	"changeme/internal/capabilities"
 	"changeme/internal/commands"
 	"changeme/internal/modules"
@@ -15,6 +16,7 @@ import (
 type Container struct {
 	Commands     *commands.Registry
 	Modules      *modules.Registry
+	Audit        *audit.MemorySink
 	Permissions  *permissions.Policy
 	Capabilities *capabilities.Gateway
 	Vault        *vault.Service
@@ -44,20 +46,30 @@ func NewContainerWithStores(
 	sshRepo sshservice.Repository,
 ) *Container {
 	permissionPolicy := permissions.NewPolicy([]permissions.Grant{
-		{SubjectID: "builtin.tools", Capability: "tools:hash", Scope: "*"},
-		{SubjectID: "builtin.notes", Capability: "notes:write", Scope: "*"},
-		{SubjectID: "builtin.notes", Capability: "notes:read", Scope: "*"},
-		{SubjectID: "builtin.database", Capability: "db:query", Scope: "*"},
-		{SubjectID: "builtin.ssh", Capability: "ssh:connect", Scope: "*"},
+		{SubjectID: "builtin.tools", Capability: "tools:hash", Scope: "command:tools.hash"},
+		{SubjectID: "builtin.notes", Capability: "notes:write", Scope: "note:new"},
+		{SubjectID: "builtin.notes", Capability: "notes:write", Scope: "note:*"},
+		{SubjectID: "builtin.notes", Capability: "notes:read", Scope: "note:list"},
+		{SubjectID: "builtin.notes", Capability: "notes:read", Scope: "note:search"},
+		{SubjectID: "builtin.notes", Capability: "notes:read", Scope: "note:*"},
+		{SubjectID: "builtin.database", Capability: "db:query", Scope: "profile:list"},
+		{SubjectID: "builtin.database", Capability: "db:query", Scope: "profile:new"},
+		{SubjectID: "builtin.database", Capability: "db:query", Scope: "profile:*"},
+		{SubjectID: "builtin.ssh", Capability: "ssh:connect", Scope: "profile:list"},
+		{SubjectID: "builtin.ssh", Capability: "ssh:connect", Scope: "profile:new"},
+		{SubjectID: "builtin.ssh", Capability: "ssh:connect", Scope: "profile:*"},
+		{SubjectID: "builtin.vault", Capability: "vault:manage", Scope: "vault"},
 	})
 
 	vaultService := vault.NewService(keyringStore)
+	auditSink := audit.NewMemorySink()
 
 	return &Container{
 		Commands:     commands.NewRegistry(),
 		Modules:      modules.NewRegistry(),
+		Audit:        auditSink,
 		Permissions:  permissionPolicy,
-		Capabilities: capabilities.NewGateway(permissionPolicy),
+		Capabilities: capabilities.NewGateway(permissionPolicy, auditSink),
 		Vault:        vaultService,
 		HashTools:    tools.NewHashService(),
 		Notes:        notes.NewService(notesRepo, vaultService),

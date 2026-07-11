@@ -42,12 +42,26 @@ func TestWrapPreservesCauseWithoutLeakingInJSON(t *testing.T) {
 	}
 }
 
-func TestNewWithDetailsSetsDetails(t *testing.T) {
-	details := map[string]any{"path": "/vault"}
-	err := NewWithDetails("vault.locked", "Vault is locked", true, details)
+func TestPublicJSONContainsOnlyStableFields(t *testing.T) {
+	err := NewWithDetails("vault_locked", "Vault is locked", true, map[string]any{
+		"internal_url": "postgres://admin:password@internal-db/devkit",
+	})
 
-	if err.Details["path"] != "/vault" {
-		t.Fatalf("Details[path] = %v, want %q", err.Details["path"], "/vault")
+	payload, marshalErr := json.Marshal(err)
+	if marshalErr != nil {
+		t.Fatalf("json.Marshal returned error: %v", marshalErr)
+	}
+	var fields map[string]any
+	if unmarshalErr := json.Unmarshal(payload, &fields); unmarshalErr != nil {
+		t.Fatalf("json.Unmarshal returned error: %v", unmarshalErr)
+	}
+	if len(fields) != 3 {
+		t.Fatalf("public fields = %v, want only code, message, recoverable", fields)
+	}
+	for _, key := range []string{"code", "message", "recoverable"} {
+		if _, ok := fields[key]; !ok {
+			t.Fatalf("public fields = %v, missing %q", fields, key)
+		}
 	}
 }
 

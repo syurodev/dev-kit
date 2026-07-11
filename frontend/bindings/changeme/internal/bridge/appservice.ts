@@ -83,12 +83,20 @@ export function SSHListProfiles(): $CancellablePromise<ssh$0.ProfileSummary[] | 
     return $Call.ByID(1529350215);
 }
 
-export function SSHRunCommand(id: string, command: string): $CancellablePromise<ssh$0.CommandResult> {
-    return $Call.ByID(3450765639, id, command);
+export function SSHObserveHostKey(id: string): $CancellablePromise<string> {
+    return $Call.ByID(543685068, id);
 }
 
-export function SSHTestConnection(id: string): $CancellablePromise<void> {
-    return $Call.ByID(2055731053, id);
+export function SSHRunCommand(id: string, command: string, passphrase: string): $CancellablePromise<ssh$0.CommandResult> {
+    return $Call.ByID(3450765639, id, command, passphrase);
+}
+
+export function SSHTestConnection(id: string, passphrase: string): $CancellablePromise<void> {
+    return $Call.ByID(2055731053, id, passphrase);
+}
+
+export function SSHTrustHostKey(id: string, fingerprint: string): $CancellablePromise<void> {
+    return $Call.ByID(4212538506, id, fingerprint);
 }
 
 /**

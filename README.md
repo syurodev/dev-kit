@@ -22,6 +22,14 @@ Congratulations on generating your Wails3 application! This README will guide yo
 
    This will create a production-ready executable in the `build` directory.
 
+## Server mode security
+
+`go build -tags server` creates a local headless convenience mode that binds
+only to `127.0.0.1` (or another loopback address). It is not a remote API or a
+production web-server deployment option. Public binding, TLS, authentication,
+and authorization are unsupported until a separate server design provides
+those controls.
+
 ## Exploring Wails3 Features
 
 Now that you have your project set up, it's time to explore the features that Wails3 offers:

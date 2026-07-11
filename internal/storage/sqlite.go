@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
 
 	_ "modernc.org/sqlite"
 )
@@ -17,6 +18,8 @@ const (
 	TableSSHProfiles        = "ssh_profiles"
 )
 
+var chmodFile = os.Chmod
+
 // Open opens (creating if needed) a SQLite database using the pure-Go driver
 // (no cgo) and applies sensible pragmas.
 func Open(path string) (*sql.DB, error) {
@@ -27,9 +30,15 @@ func Open(path string) (*sql.DB, error) {
 	// modernc's driver serializes writes; a single connection avoids
 	// "database is locked" under concurrent bridge calls.
 	db.SetMaxOpenConns(1)
-	if _, err := db.Exec("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;"); err != nil {
+	// Keep the local database to a single file so journal sidecars cannot
+	// bypass the database file's restrictive 0600 permission.
+	if _, err := db.Exec("PRAGMA journal_mode=DELETE; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;"); err != nil {
 		db.Close()
 		return nil, err
+	}
+	if err := chmodFile(path, 0o600); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("restrict SQLite database permissions: %w", err)
 	}
 	return db, nil
 }

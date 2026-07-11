@@ -276,23 +276,16 @@ tasks:
         msg: "Dockerfile.server not found. Run 'wails3 update build-assets' to generate it."
 
   run:docker:
-    summary: Builds and runs the Docker image
+    summary: Explains why loopback-only server mode cannot be published from Docker
     desc: |
-      Builds the Docker image and runs it, exposing port 8080.
-      Usage: task run:docker [TAG=myapp:latest] [PORT=8080]
-      Note: The internal container port is always 8080. The PORT variable
-      only changes the host port mapping. Ensure your app uses port 8080
-      or modify the Dockerfile to match your ServerOptions.Port setting.
-    deps:
-      - task: build:docker
-        vars:
-          TAG:
-            ref: .TAG
-    cmds:
-      - docker run --rm -p {{.PORT | default "8080"}}:8080 {{.TAG | default (printf "%s:latest" .APP_NAME)}}
-    vars:
-      TAG: "{{.TAG}}"
-      PORT: "{{.PORT}}"
+      Server mode intentionally listens only on its own loopback interface.
+      Docker port publishing cannot reach that interface without weakening the
+      runtime loopback guard, so this task does not run a container.
+      Run `task run:server` for the supported local-only server at
+      http://127.0.0.1:8080 instead.
+    preconditions:
+      - sh: "false"
+        msg: "Docker port publishing is unsupported for loopback-only server mode. Use 'task run:server' instead."
 
   setup:docker:
     summary: Builds Docker image for cross-compilation (~800MB download)

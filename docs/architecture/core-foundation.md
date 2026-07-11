@@ -21,14 +21,17 @@ This document tracks the implemented DevKit core foundation (Phase 0).
 
 - Frontend code calls `frontend/src/bridge`, not generated Wails bindings directly.
 - A Master Password is mandatory and set once at first-run setup; the vault holds the decrypted DEK in memory only while unlocked and zeroizes it on lock.
-- Sensitive plugin-style calls must pass through the Capability Gateway.
-- Encrypted record formats are versioned from the first implementation.
+- Every sensitive bridge call passes through `AppService.call` and the Capability Gateway; core services are not a bridge bypass.
+- The Gateway records both allowed and denied decisions. Audit metadata contains only an action and opaque identifiers; it must not serialize secret input, raw SQL, shell/SSH command text, credentials, or passphrases.
+- Encrypted records use versioned envelopes. Existing V1 envelopes remain readable, while newly sealed records use V2 associated data binding record type, record ID, and key ID.
+- Database profiles for remote hosts require verified TLS (`verify-full` by default); explicit insecure TLS is allowed only for loopback development hosts.
+- SSH connections require an exact pinned host-key fingerprint before authentication. Passphrases are supplied for one operation only, never persisted or audited.
 - Long-running future operations must accept cancellation.
 
 ## How It Runs
 
 - Desktop: `task dev` / `wails3 dev` (needs a display + gtk4/webkitgtk).
-- Headless / cloud: server mode — `task run:server` or `go build -tags server` then run the binary; serves HTTP on port 8080. The app is gated behind the mandatory vault: first run shows "Create Master Password", later runs show "Unlock".
+- Headless local use: server mode — `task run:server` or `go build -tags server` then run the binary; it binds only to a loopback address (default `127.0.0.1:8080`). The app is gated behind the mandatory vault: first run shows "Create Master Password", later runs show "Unlock". This mode is not a remote API or deployment surface: public binding, TLS, authentication, and authorization are unsupported until a separate server design supplies them.
 
 ## Next Modules
 

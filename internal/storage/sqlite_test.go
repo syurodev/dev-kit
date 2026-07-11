@@ -2,9 +2,78 @@ package storage
 
 import (
 	"context"
+	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 )
+
+func TestOpenRestrictsSQLiteFilePermissions(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+
+	db, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer db.Close()
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	if got, want := info.Mode().Perm(), os.FileMode(0o600); got != want {
+		t.Fatalf("database permissions = %o, want %o", got, want)
+	}
+}
+
+func TestSQLiteDoesNotCreateUnprotectedWALSidecars(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	db, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer db.Close()
+
+	if _, err := db.Exec("CREATE TABLE sidecar_check (value TEXT)"); err != nil {
+		t.Fatalf("create table: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO sidecar_check(value) VALUES ('ok')"); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	for _, suffix := range []string{"-wal", "-shm"} {
+		if _, err := os.Stat(path + suffix); !os.IsNotExist(err) {
+			t.Fatalf("SQLite sidecar %q exists or stat failed: %v", suffix, err)
+		}
+	}
+}
+
+func TestOpenClosesDatabaseWhenRestrictingPermissionsFails(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	wantErr := errors.New("chmod failed")
+	originalChmod := chmodFile
+	chmodFile = func(string, os.FileMode) error {
+		return wantErr
+	}
+	t.Cleanup(func() {
+		chmodFile = originalChmod
+	})
+
+	if _, err := Open(path); !errors.Is(err, wantErr) {
+		t.Fatalf("Open error = %v, want chmod error %v", err, wantErr)
+	}
+	chmodFile = originalChmod
+
+	db, err := Open(path)
+	if err != nil {
+		t.Fatalf("reopen after chmod failure: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close reopened database: %v", err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("remove after chmod failure: %v", err)
+	}
+}
 
 func TestSQLiteKVPersistenceAcrossReopen(t *testing.T) {
 	ctx := context.Background()

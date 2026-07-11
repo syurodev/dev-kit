@@ -11,13 +11,18 @@ import (
 	"changeme/internal/crypto"
 )
 
-const bodyKeyID = "note-body"
+const (
+	bodyKeyID      = "note-body"
+	noteRecordType = "note"
+)
 
 // Vault is the encryption capability the notes service needs. The DEK stays
 // inside the vault; notes only get seal/open.
 type Vault interface {
 	Seal(keyID string, plaintext []byte) (crypto.Envelope, error)
 	Open(envelope crypto.Envelope) ([]byte, error)
+	SealV2(associatedData crypto.AssociatedData, plaintext []byte) (crypto.Envelope, error)
+	OpenWithAD(envelope crypto.Envelope, associatedData crypto.AssociatedData) ([]byte, error)
 }
 
 // Record is the at-rest form of a note. The body is encrypted; the title is
@@ -71,11 +76,11 @@ func (s *Service) Create(title string, body string) (Summary, error) {
 	if title == "" {
 		return Summary{}, errors.New("title is required")
 	}
-	envelope, err := s.vault.Seal(bodyKeyID, []byte(body))
+	id, err := newID()
 	if err != nil {
 		return Summary{}, err
 	}
-	id, err := newID()
+	envelope, err := s.vault.SealV2(crypto.AssociatedData{RecordType: noteRecordType, RecordID: id, KeyID: bodyKeyID}, []byte(body))
 	if err != nil {
 		return Summary{}, err
 	}
@@ -109,7 +114,7 @@ func (s *Service) Get(id string) (Note, error) {
 	if err != nil {
 		return Note{}, err
 	}
-	plain, err := s.vault.Open(record.Body)
+	plain, err := s.vault.OpenWithAD(record.Body, noteAssociatedData(record))
 	if err != nil {
 		return Note{}, err
 	}
@@ -145,7 +150,7 @@ func (s *Service) Search(query string) ([]Summary, error) {
 			continue
 		}
 		// Body search requires an unlocked vault; skip silently when locked.
-		if plain, openErr := s.vault.Open(record.Body); openErr == nil {
+		if plain, openErr := s.vault.OpenWithAD(record.Body, noteAssociatedData(record)); openErr == nil {
 			if strings.Contains(strings.ToLower(string(plain)), needle) {
 				matched = append(matched, toSummary(record))
 			}
@@ -156,6 +161,10 @@ func (s *Service) Search(query string) ([]Summary, error) {
 		return matched[i].UpdatedAt.After(matched[j].UpdatedAt)
 	})
 	return matched, nil
+}
+
+func noteAssociatedData(record Record) crypto.AssociatedData {
+	return crypto.AssociatedData{RecordType: noteRecordType, RecordID: record.ID, KeyID: bodyKeyID}
 }
 
 func toSummary(record Record) Summary {

@@ -19,7 +19,8 @@ const (
 	AuthPassword = "password"
 	AuthKey      = "key"
 
-	secretKeyID = "ssh-secret"
+	secretKeyID          = "ssh-secret"
+	sshProfileRecordType = "ssh-profile"
 )
 
 // Vault is the encryption capability the SSH service needs. The DEK stays inside
@@ -27,21 +28,24 @@ const (
 type Vault interface {
 	Seal(keyID string, plaintext []byte) (crypto.Envelope, error)
 	Open(envelope crypto.Envelope) ([]byte, error)
+	SealV2(associatedData crypto.AssociatedData, plaintext []byte) (crypto.Envelope, error)
+	OpenWithAD(envelope crypto.Envelope, associatedData crypto.AssociatedData) ([]byte, error)
 }
 
 // ProfileRecord is the at-rest form of an SSH profile. The secret (password or
 // private key PEM, depending on AuthMethod) is encrypted; the rest is
 // non-sensitive connection metadata.
 type ProfileRecord struct {
-	ID         string          `json:"id"`
-	Name       string          `json:"name"`
-	Host       string          `json:"host"`
-	Port       int             `json:"port"`
-	Username   string          `json:"username"`
-	AuthMethod string          `json:"auth_method"`
-	Secret     crypto.Envelope `json:"secret"`
-	CreatedAt  time.Time       `json:"created_at"`
-	UpdatedAt  time.Time       `json:"updated_at"`
+	ID                 string          `json:"id"`
+	Name               string          `json:"name"`
+	Host               string          `json:"host"`
+	Port               int             `json:"port"`
+	Username           string          `json:"username"`
+	AuthMethod         string          `json:"auth_method"`
+	HostKeyFingerprint string          `json:"host_key_fingerprint"`
+	Secret             crypto.Envelope `json:"secret"`
+	CreatedAt          time.Time       `json:"created_at"`
+	UpdatedAt          time.Time       `json:"updated_at"`
 }
 
 type Repository interface {
@@ -53,12 +57,13 @@ type Repository interface {
 
 // ProfileSummary is an SSH profile without the (encrypted) secret.
 type ProfileSummary struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	Host       string `json:"host"`
-	Port       int    `json:"port"`
-	Username   string `json:"username"`
-	AuthMethod string `json:"auth_method"`
+	ID                 string `json:"id"`
+	Name               string `json:"name"`
+	Host               string `json:"host"`
+	Port               int    `json:"port"`
+	Username           string `json:"username"`
+	AuthMethod         string `json:"auth_method"`
+	HostKeyFingerprint string `json:"host_key_fingerprint"`
 }
 
 type CreateProfileInput struct {
@@ -105,11 +110,11 @@ func (s *Service) CreateProfile(input CreateProfileInput) (ProfileSummary, error
 		return ProfileSummary{}, errors.New("unsupported auth method")
 	}
 
-	envelope, err := s.vault.Seal(secretKeyID, []byte(input.Secret))
+	id, err := newID()
 	if err != nil {
 		return ProfileSummary{}, err
 	}
-	id, err := newID()
+	envelope, err := s.vault.SealV2(crypto.AssociatedData{RecordType: sshProfileRecordType, RecordID: id, KeyID: secretKeyID}, []byte(input.Secret))
 	if err != nil {
 		return ProfileSummary{}, err
 	}
@@ -151,8 +156,8 @@ func (s *Service) DeleteProfile(id string) error {
 }
 
 // TestConnection dials, authenticates, and opens a session to verify the profile.
-func (s *Service) TestConnection(ctx context.Context, id string) error {
-	client, err := s.dial(ctx, id)
+func (s *Service) TestConnection(ctx context.Context, id string, passphrase string) error {
+	client, err := s.dial(ctx, id, passphrase)
 	if err != nil {
 		return err
 	}
@@ -168,8 +173,8 @@ func (s *Service) TestConnection(ctx context.Context, id string) error {
 // RunCommand runs a command over SSH and returns its combined output. A non-zero
 // exit status still returns the output (with a nil error); only connection or
 // session failures return an error.
-func (s *Service) RunCommand(ctx context.Context, id string, command string) (CommandResult, error) {
-	client, err := s.dial(ctx, id)
+func (s *Service) RunCommand(ctx context.Context, id string, command string, passphrase string) (CommandResult, error) {
+	client, err := s.dial(ctx, id, passphrase)
 	if err != nil {
 		return CommandResult{}, err
 	}
@@ -190,22 +195,76 @@ func (s *Service) RunCommand(ctx context.Context, id string, command string) (Co
 	return result, nil
 }
 
-func (s *Service) dial(ctx context.Context, id string) (*gossh.Client, error) {
+// ObserveHostKey gets the server's fingerprint without authenticating or
+// storing it. The caller must present this value for an explicit trust action.
+func (s *Service) ObserveHostKey(ctx context.Context, id string) (string, error) {
+	record, err := s.repo.Get(id)
+	if err != nil {
+		return "", err
+	}
+	addr := net.JoinHostPort(record.Host, strconv.Itoa(record.Port))
+	dialer := net.Dialer{Timeout: 10 * time.Second}
+	conn, err := dialer.DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return "", err
+	}
+	defer conn.Close()
+
+	var observed string
+	config := &gossh.ClientConfig{
+		User:            record.Username,
+		HostKeyCallback: observeHostKeyCallback(&observed),
+		Timeout:         10 * time.Second,
+	}
+	_, _, _, err = gossh.NewClientConn(conn, addr, config)
+	if observed != "" && errors.Is(err, errHostKeyObserved) {
+		return observed, nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return "", errors.New("ssh server did not provide a host key")
+}
+
+// TrustHostKey persists a fingerprint only after a fresh observation confirms
+// the exact value the user approved.
+func (s *Service) TrustHostKey(ctx context.Context, id string, fingerprint string) error {
+	if fingerprint == "" {
+		return errors.New("host key fingerprint is required")
+	}
+	observed, err := s.ObserveHostKey(ctx, id)
+	if err != nil {
+		return err
+	}
+	if observed != fingerprint {
+		return errors.New("observed host key fingerprint does not match approval")
+	}
+	record, err := s.repo.Get(id)
+	if err != nil {
+		return err
+	}
+	record.HostKeyFingerprint = fingerprint
+	record.UpdatedAt = time.Now().UTC()
+	return s.repo.Put(record)
+}
+
+func (s *Service) dial(ctx context.Context, id string, passphrase string) (*gossh.Client, error) {
 	record, err := s.repo.Get(id)
 	if err != nil {
 		return nil, err
 	}
-	secret, err := s.vault.Open(record.Secret)
+	secret, err := s.vault.OpenWithAD(record.Secret, sshProfileAssociatedData(record))
 	if err != nil {
 		return nil, err
 	}
+	defer zeroBytes(secret)
 
 	var auth gossh.AuthMethod
 	switch record.AuthMethod {
 	case AuthPassword:
 		auth = gossh.Password(string(secret))
 	case AuthKey:
-		signer, err := gossh.ParsePrivateKey(secret)
+		signer, err := parsePrivateKey(secret, passphrase)
 		if err != nil {
 			return nil, err
 		}
@@ -215,11 +274,9 @@ func (s *Service) dial(ctx context.Context, id string) (*gossh.Client, error) {
 	}
 
 	config := &gossh.ClientConfig{
-		User: record.Username,
-		Auth: []gossh.AuthMethod{auth},
-		// ponytail: TOFU/known_hosts host-key verification needed for production;
-		// ceiling is MITM exposure. Store + pin host keys in a later iteration.
-		HostKeyCallback: gossh.InsecureIgnoreHostKey(),
+		User:            record.Username,
+		Auth:            []gossh.AuthMethod{auth},
+		HostKeyCallback: pinnedHostKeyCallback(record.HostKeyFingerprint),
 		Timeout:         10 * time.Second,
 	}
 
@@ -237,14 +294,19 @@ func (s *Service) dial(ctx context.Context, id string) (*gossh.Client, error) {
 	return gossh.NewClient(clientConn, chans, reqs), nil
 }
 
+func sshProfileAssociatedData(record ProfileRecord) crypto.AssociatedData {
+	return crypto.AssociatedData{RecordType: sshProfileRecordType, RecordID: record.ID, KeyID: secretKeyID}
+}
+
 func toSummary(record ProfileRecord) ProfileSummary {
 	return ProfileSummary{
-		ID:         record.ID,
-		Name:       record.Name,
-		Host:       record.Host,
-		Port:       record.Port,
-		Username:   record.Username,
-		AuthMethod: record.AuthMethod,
+		ID:                 record.ID,
+		Name:               record.Name,
+		Host:               record.Host,
+		Port:               record.Port,
+		Username:           record.Username,
+		AuthMethod:         record.AuthMethod,
+		HostKeyFingerprint: record.HostKeyFingerprint,
 	}
 }
 

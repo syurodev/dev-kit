@@ -43,11 +43,18 @@ func TestSSHIntegration(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	if err := svc.TestConnection(ctx, summary.ID); err != nil {
+	fingerprint, err := svc.ObserveHostKey(ctx, summary.ID)
+	if err != nil {
+		t.Fatalf("ObserveHostKey: %v", err)
+	}
+	if err := svc.TrustHostKey(ctx, summary.ID, fingerprint); err != nil {
+		t.Fatalf("TrustHostKey: %v", err)
+	}
+	if err := svc.TestConnection(ctx, summary.ID, ""); err != nil {
 		t.Fatalf("TestConnection: %v", err)
 	}
 
-	result, err := svc.RunCommand(ctx, summary.ID, "echo devkit-ssh-ok")
+	result, err := svc.RunCommand(ctx, summary.ID, "echo devkit-ssh-ok", "")
 	if err != nil {
 		t.Fatalf("RunCommand: %v", err)
 	}
