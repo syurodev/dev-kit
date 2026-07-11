@@ -128,4 +128,3 @@ Step 3: Keep this test at the bridge/gateway boundary; do not duplicate service 
 Step 4: Run GOCACHE=/private/tmp/devkit-go-cache go test ./... && npm --prefix frontend run build && GOCACHE=/private/tmp/devkit-go-cache go build -tags server ./....
 
 Step 5: Update architecture guarantees for choke point, audit redaction, V1/V2 compatibility, loopback server, DB TLS, and SSH pins, then commit.
-
