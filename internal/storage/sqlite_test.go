@@ -26,6 +26,27 @@ func TestOpenRestrictsSQLiteFilePermissions(t *testing.T) {
 	}
 }
 
+func TestSQLiteDoesNotCreateUnprotectedWALSidecars(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	db, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer db.Close()
+
+	if _, err := db.Exec("CREATE TABLE sidecar_check (value TEXT)"); err != nil {
+		t.Fatalf("create table: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO sidecar_check(value) VALUES ('ok')"); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	for _, suffix := range []string{"-wal", "-shm"} {
+		if _, err := os.Stat(path + suffix); !os.IsNotExist(err) {
+			t.Fatalf("SQLite sidecar %q exists or stat failed: %v", suffix, err)
+		}
+	}
+}
+
 func TestOpenClosesDatabaseWhenRestrictingPermissionsFails(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.db")
 	wantErr := errors.New("chmod failed")
