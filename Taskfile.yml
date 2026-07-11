@@ -30,6 +30,11 @@ tasks:
     cmds:
       - task: "{{OS}}:run"
 
+  test:
+    summary: Runs all Go tests
+    cmds:
+      - go test -v -cover ./...
+
   dev:
     summary: Runs the application in development mode
     cmds:
