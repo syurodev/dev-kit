@@ -8,11 +8,10 @@ const (
 )
 
 const (
-	EnvelopeVersionV1 uint32 = 1
 	EnvelopeVersionV2 uint32 = 2
 )
 
-// AssociatedData is the immutable record identity authenticated by V2
+// AssociatedData is the immutable record identity authenticated by SealV2
 // envelopes. It is not persisted in the envelope: the owning record supplies
 // it when decrypting.
 type AssociatedData struct {
@@ -30,7 +29,7 @@ type Envelope struct {
 }
 
 func (e Envelope) Validate() error {
-	if e.Version != EnvelopeVersionV1 && e.Version != EnvelopeVersionV2 {
+	if e.Version != EnvelopeVersionV2 {
 		return errors.New("envelope version is unsupported")
 	}
 	if !isSupportedAlgorithm(e.Algorithm) {

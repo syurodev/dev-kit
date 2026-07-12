@@ -6,7 +6,20 @@ import (
 	"errors"
 )
 
-const keyringDEKKeyID = "dek"
+const (
+	keyringDEKKeyID      = "dek"
+	keyringRecordType    = "keyring"
+	keyringMasterWrapID  = "master"
+	keyringRecoveryWrapID = "recovery"
+)
+
+func keyringMasterAssociatedData() AssociatedData {
+	return AssociatedData{RecordType: keyringRecordType, RecordID: keyringMasterWrapID, KeyID: keyringDEKKeyID}
+}
+
+func keyringRecoveryAssociatedData() AssociatedData {
+	return AssociatedData{RecordType: keyringRecordType, RecordID: keyringRecoveryWrapID, KeyID: keyringDEKKeyID}
+}
 
 // Keyring is the persisted key material for a vault. It never contains the
 // plaintext DEK: the random DEK is wrapped once by the master-password key and
@@ -40,7 +53,7 @@ func NewKeyring(masterPassword string) (*Keyring, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	masterWrapped, err := Seal(keyringDEKKeyID, masterKey, dek)
+	masterWrapped, err := SealV2(keyringMasterAssociatedData(), masterKey, dek)
 	if err != nil {
 		return nil, "", err
 	}
@@ -57,7 +70,7 @@ func NewKeyring(masterPassword string) (*Keyring, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	recoveryWrapped, err := Seal(keyringDEKKeyID, recoveryDerived, dek)
+	recoveryWrapped, err := SealV2(keyringRecoveryAssociatedData(), recoveryDerived, dek)
 	if err != nil {
 		return nil, "", err
 	}
@@ -77,7 +90,7 @@ func (k *Keyring) UnlockWithPassword(masterPassword string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	dek, err := Open(key, k.MasterWrapped)
+	dek, err := OpenWithAD(key, k.MasterWrapped, keyringMasterAssociatedData())
 	if err != nil {
 		return nil, errors.New("invalid master password")
 	}
@@ -90,7 +103,7 @@ func (k *Keyring) UnlockWithRecovery(recoveryKey string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	dek, err := Open(key, k.RecoveryWrapped)
+	dek, err := OpenWithAD(key, k.RecoveryWrapped, keyringRecoveryAssociatedData())
 	if err != nil {
 		return nil, errors.New("invalid recovery key")
 	}
@@ -115,7 +128,7 @@ func (k *Keyring) ChangePassword(oldPassword string, newPassword string) error {
 	if err != nil {
 		return err
 	}
-	wrapped, err := Seal(keyringDEKKeyID, newKey, dek)
+	wrapped, err := SealV2(keyringMasterAssociatedData(), newKey, dek)
 	if err != nil {
 		return err
 	}

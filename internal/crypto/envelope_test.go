@@ -4,7 +4,7 @@ import "testing"
 
 func TestEnvelopeValidateAcceptsSupportedEnvelope(t *testing.T) {
 	envelope := Envelope{
-		Version:    1,
+		Version:    EnvelopeVersionV2,
 		Algorithm:  AlgorithmXChaCha20Poly1305,
 		KeyID:      "key-1",
 		Nonce:      []byte{1, 2, 3},
@@ -16,9 +16,23 @@ func TestEnvelopeValidateAcceptsSupportedEnvelope(t *testing.T) {
 	}
 }
 
-func TestEnvelopeValidateRejectsMissingKeyID(t *testing.T) {
+func TestEnvelopeValidateRejectsV1(t *testing.T) {
 	envelope := Envelope{
 		Version:    1,
+		Algorithm:  AlgorithmXChaCha20Poly1305,
+		KeyID:      "key-1",
+		Nonce:      []byte{1, 2, 3},
+		Ciphertext: []byte{4, 5, 6},
+	}
+
+	if err := envelope.Validate(); err == nil {
+		t.Fatal("Validate() must reject version 1 envelopes")
+	}
+}
+
+func TestEnvelopeValidateRejectsMissingKeyID(t *testing.T) {
+	envelope := Envelope{
+		Version:    EnvelopeVersionV2,
 		Algorithm:  AlgorithmAES256GCM,
 		Nonce:      []byte{1, 2, 3},
 		Ciphertext: []byte{4, 5, 6},
@@ -32,7 +46,7 @@ func TestEnvelopeValidateRejectsMissingKeyID(t *testing.T) {
 
 func TestEnvelopeValidateRejectsAES256GCM(t *testing.T) {
 	envelope := Envelope{
-		Version:    1,
+		Version:    EnvelopeVersionV2,
 		Algorithm:  AlgorithmAES256GCM,
 		KeyID:      "key-1",
 		Nonce:      []byte{1, 2, 3},

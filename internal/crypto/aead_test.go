@@ -18,46 +18,53 @@ func newTestKey(t *testing.T) []byte {
 	return key
 }
 
-func TestSealOpenRoundTrip(t *testing.T) {
-	key := newTestKey(t)
+func testAssociatedData() AssociatedData {
+	return AssociatedData{RecordType: "note", RecordID: "record-1", KeyID: "note-body"}
+}
 
-	env, err := Seal("dek_1", key, []byte("top secret"))
+func TestSealV2OpenWithADRoundTrip(t *testing.T) {
+	key := newTestKey(t)
+	ad := testAssociatedData()
+
+	env, err := SealV2(ad, key, []byte("top secret"))
 	if err != nil {
-		t.Fatalf("Seal: %v", err)
+		t.Fatalf("SealV2: %v", err)
 	}
-	plain, err := Open(key, env)
+	plain, err := OpenWithAD(key, env, ad)
 	if err != nil {
-		t.Fatalf("Open: %v", err)
+		t.Fatalf("OpenWithAD: %v", err)
 	}
 	if !bytes.Equal(plain, []byte("top secret")) {
 		t.Fatalf("plaintext = %q", plain)
 	}
 }
 
-func TestOpenFailsWithWrongKey(t *testing.T) {
+func TestOpenWithADFailsWithWrongKey(t *testing.T) {
 	key := newTestKey(t)
-	env, err := Seal("dek_1", key, []byte("secret"))
+	ad := testAssociatedData()
+	env, err := SealV2(ad, key, []byte("secret"))
 	if err != nil {
-		t.Fatalf("Seal: %v", err)
+		t.Fatalf("SealV2: %v", err)
 	}
 
 	wrong := make([]byte, len(key))
 	copy(wrong, key)
 	wrong[0] ^= 0xFF
-	if _, err := Open(wrong, env); err == nil {
-		t.Fatal("Open must fail with wrong key")
+	if _, err := OpenWithAD(wrong, env, ad); err == nil {
+		t.Fatal("OpenWithAD must fail with wrong key")
 	}
 }
 
-func TestOpenFailsWhenTampered(t *testing.T) {
+func TestOpenWithADFailsWhenTampered(t *testing.T) {
 	key := newTestKey(t)
-	env, err := Seal("dek_1", key, []byte("secret"))
+	ad := testAssociatedData()
+	env, err := SealV2(ad, key, []byte("secret"))
 	if err != nil {
-		t.Fatalf("Seal: %v", err)
+		t.Fatalf("SealV2: %v", err)
 	}
 	env.Ciphertext[0] ^= 0xFF
-	if _, err := Open(key, env); err == nil {
-		t.Fatal("Open must fail when ciphertext is tampered")
+	if _, err := OpenWithAD(key, env, ad); err == nil {
+		t.Fatal("OpenWithAD must fail when ciphertext is tampered")
 	}
 }
 
@@ -75,32 +82,18 @@ func TestOpenWithADRejectsChangedRecordID(t *testing.T) {
 	}
 }
 
-func TestOpenWithADReadsV1Envelope(t *testing.T) {
+func TestOpenWithADRejectsV1Envelope(t *testing.T) {
 	key := newTestKey(t)
-	env, err := Seal("note-body", key, []byte("legacy secret"))
-	if err != nil {
-		t.Fatalf("Seal: %v", err)
+	ad := AssociatedData{RecordType: "note", RecordID: "record-1", KeyID: "note-body"}
+	env := Envelope{
+		Version:    1,
+		Algorithm:  AlgorithmXChaCha20Poly1305,
+		KeyID:      ad.KeyID,
+		Nonce:      make([]byte, 24),
+		Ciphertext: []byte("not-a-real-ciphertext-just-for-version-gate"),
 	}
-
-	plain, err := OpenWithAD(key, env, AssociatedData{RecordType: "note", RecordID: "record-1", KeyID: "note-body"})
-	if err != nil {
-		t.Fatalf("OpenWithAD: %v", err)
-	}
-	if !bytes.Equal(plain, []byte("legacy secret")) {
-		t.Fatalf("plaintext = %q", plain)
-	}
-}
-
-func TestOpenRejectsV2EnvelopeWithoutAssociatedData(t *testing.T) {
-	key := newTestKey(t)
-	env, err := Seal("note-body", key, []byte("secret"))
-	if err != nil {
-		t.Fatalf("Seal: %v", err)
-	}
-	env.Version = EnvelopeVersionV2
-
-	if plain, err := Open(key, env); err == nil || plain != nil {
-		t.Fatalf("Open(V2) = %q, %v; want nil plaintext and an error", plain, err)
+	if _, err := OpenWithAD(key, env, ad); err == nil {
+		t.Fatal("OpenWithAD must reject version 1 envelopes")
 	}
 }
 
