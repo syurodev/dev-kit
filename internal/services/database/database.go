@@ -30,8 +30,6 @@ const DefaultMaxRows = 200
 // Vault is the encryption capability the database service needs. The DEK stays
 // inside the vault; the service only gets seal/open.
 type Vault interface {
-	Seal(keyID string, plaintext []byte) (crypto.Envelope, error)
-	Open(envelope crypto.Envelope) ([]byte, error)
 	SealV2(associatedData crypto.AssociatedData, plaintext []byte) (crypto.Envelope, error)
 	OpenWithAD(envelope crypto.Envelope, associatedData crypto.AssociatedData) ([]byte, error)
 }

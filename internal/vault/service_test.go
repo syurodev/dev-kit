@@ -2,6 +2,8 @@ package vault
 
 import (
 	"testing"
+
+	"changeme/internal/crypto"
 )
 
 func TestVaultStartsNotConfigured(t *testing.T) {
@@ -72,34 +74,36 @@ func TestVaultLockThenUnlock(t *testing.T) {
 	}
 }
 
-func TestVaultSealOpenRoundTrip(t *testing.T) {
+func TestVaultSealV2OpenWithADRoundTrip(t *testing.T) {
 	service := NewService(NewMemoryKeyringStore())
 	if _, err := service.Setup("master-password"); err != nil {
 		t.Fatalf("Setup: %v", err)
 	}
 
-	env, err := service.Seal("note:1", []byte("secret body"))
+	ad := crypto.AssociatedData{RecordType: "note", RecordID: "note-1", KeyID: "note-body"}
+	env, err := service.SealV2(ad, []byte("secret body"))
 	if err != nil {
-		t.Fatalf("Seal: %v", err)
+		t.Fatalf("SealV2: %v", err)
 	}
-	plain, err := service.Open(env)
+	plain, err := service.OpenWithAD(env, ad)
 	if err != nil {
-		t.Fatalf("Open: %v", err)
+		t.Fatalf("OpenWithAD: %v", err)
 	}
 	if string(plain) != "secret body" {
 		t.Fatalf("plain = %q", plain)
 	}
 }
 
-func TestVaultSealFailsWhenLocked(t *testing.T) {
+func TestVaultSealV2FailsWhenLocked(t *testing.T) {
 	service := NewService(NewMemoryKeyringStore())
 	if _, err := service.Setup("master-password"); err != nil {
 		t.Fatalf("Setup: %v", err)
 	}
 	service.Lock()
 
-	if _, err := service.Seal("note:1", []byte("x")); err == nil {
-		t.Fatal("Seal must fail when locked")
+	ad := crypto.AssociatedData{RecordType: "note", RecordID: "note-1", KeyID: "note-body"}
+	if _, err := service.SealV2(ad, []byte("x")); err == nil {
+		t.Fatal("SealV2 must fail when locked")
 	}
 }
 
