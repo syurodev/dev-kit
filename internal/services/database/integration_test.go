@@ -19,7 +19,7 @@ func TestPostgresIntegration(t *testing.T) {
 		t.Skip("set DEVKIT_PG_TEST=1 to run the PostgreSQL integration test")
 	}
 
-	svc := NewService(NewMemoryRepository(), newUnlockedVault(t))
+	svc := newService(t)
 	summary, err := svc.CreateProfile(CreateProfileInput{
 		Name:     "local",
 		Host:     envOr("DEVKIT_PG_HOST", "127.0.0.1"),

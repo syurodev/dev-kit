@@ -11,9 +11,7 @@ import (
 	"changeme/internal/bridge"
 	"changeme/internal/servermode"
 
-	"changeme/internal/services/database"
-	"changeme/internal/services/notes"
-	sshservice "changeme/internal/services/ssh"
+	"changeme/internal/services/vaultitem"
 	"changeme/internal/storage"
 	"changeme/internal/vault"
 
@@ -57,9 +55,7 @@ func main() {
 
 	container := app.NewContainerWithStores(
 		vault.NewSQLKeyringStore(storage.NewKV(db, storage.TableVaultKeyring)),
-		notes.NewSQLRepository(storage.NewKV(db, storage.TableNotes)),
-		database.NewSQLRepository(storage.NewKV(db, storage.TableConnectionProfiles)),
-		sshservice.NewSQLRepository(storage.NewKV(db, storage.TableSSHProfiles)),
+		vaultitem.NewSQLRepository(db),
 	)
 	defer container.Database.Close()
 	if err := app.RegisterBuiltins(container); err != nil {

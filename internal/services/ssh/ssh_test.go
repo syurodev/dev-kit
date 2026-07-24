@@ -4,22 +4,33 @@ import (
 	"testing"
 
 	"changeme/internal/crypto"
+	"changeme/internal/services/vaultitem"
 	"changeme/internal/vault"
 )
 
-func newUnlockedVault(t *testing.T) *vault.Service {
+func newService(t *testing.T) *Service {
 	t.Helper()
 	v := vault.NewService(vault.NewMemoryKeyringStore())
-	if _, err := v.Setup("master-password"); err != nil {
-		t.Fatalf("Setup: %v", err)
+	if _, err := v.Setup("correct-horse"); err != nil {
+		t.Fatalf("setup: %v", err)
 	}
-	return v
+	return NewService(vaultitem.NewStore(vaultitem.NewMemoryRepository(), v))
+}
+
+// newServiceWithStore is like newService but also returns the concrete store
+// so tests can inspect records (and their still-encrypted payloads) directly.
+func newServiceWithStore(t *testing.T) (*Service, *vaultitem.Store) {
+	t.Helper()
+	v := vault.NewService(vault.NewMemoryKeyringStore())
+	if _, err := v.Setup("correct-horse"); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	store := vaultitem.NewStore(vaultitem.NewMemoryRepository(), v)
+	return NewService(store), store
 }
 
 func TestCreateProfileEncryptsSecret(t *testing.T) {
-	v := newUnlockedVault(t)
-	repo := NewMemoryRepository()
-	svc := NewService(repo, v)
+	svc, store := newServiceWithStore(t)
 
 	summary, err := svc.CreateProfile(CreateProfileInput{
 		Name:       "prod",
@@ -35,16 +46,19 @@ func TestCreateProfileEncryptsSecret(t *testing.T) {
 		t.Fatalf("default port = %d, want 22", summary.Port)
 	}
 
-	record, err := repo.Get(summary.ID)
+	record, err := store.Get(summary.ID)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if string(record.Secret.Ciphertext) == "s3cr3t" {
+	if record.Payload == nil {
+		t.Fatal("expected payload to be set")
+	}
+	if string(record.Payload.Ciphertext) == "s3cr3t" {
 		t.Fatal("secret must be stored encrypted, not plaintext")
 	}
-	plain, err := v.OpenWithAD(record.Secret, crypto.AssociatedData{RecordType: "ssh-profile", RecordID: record.ID, KeyID: secretKeyID})
+	plain, err := store.OpenPayload(record, secretKeyID)
 	if err != nil {
-		t.Fatalf("Open: %v", err)
+		t.Fatalf("OpenPayload: %v", err)
 	}
 	if string(plain) != "s3cr3t" {
 		t.Fatalf("decrypted secret = %q", plain)
@@ -52,25 +66,26 @@ func TestCreateProfileEncryptsSecret(t *testing.T) {
 }
 
 func TestCreateProfileUsesV2EnvelopeBoundToProfile(t *testing.T) {
-	v := newUnlockedVault(t)
-	repo := NewMemoryRepository()
-	svc := NewService(repo, v)
+	svc, store := newServiceWithStore(t)
 
 	summary, err := svc.CreateProfile(CreateProfileInput{Name: "prod", Host: "127.0.0.1", Username: "ubuntu", Secret: "s3cr3t"})
 	if err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
-	record, err := repo.Get(summary.ID)
+	record, err := store.Get(summary.ID)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if record.Secret.Version != crypto.EnvelopeVersionV2 {
-		t.Fatalf("envelope version = %d, want V2", record.Secret.Version)
+	if record.Payload == nil {
+		t.Fatal("expected payload to be set")
+	}
+	if record.Payload.Version != crypto.EnvelopeVersionV2 {
+		t.Fatalf("envelope version = %d, want V2", record.Payload.Version)
 	}
 }
 
 func TestCreateProfileValidatesRequiredFields(t *testing.T) {
-	svc := NewService(NewMemoryRepository(), newUnlockedVault(t))
+	svc := newService(t)
 	if _, err := svc.CreateProfile(CreateProfileInput{Host: "h", Username: "u"}); err == nil {
 		t.Fatal("missing name must error")
 	}
@@ -86,7 +101,7 @@ func TestCreateProfileValidatesRequiredFields(t *testing.T) {
 }
 
 func TestListProfiles(t *testing.T) {
-	svc := NewService(NewMemoryRepository(), newUnlockedVault(t))
+	svc := newService(t)
 	if _, err := svc.CreateProfile(CreateProfileInput{Name: "a", Host: "h", Username: "u"}); err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}

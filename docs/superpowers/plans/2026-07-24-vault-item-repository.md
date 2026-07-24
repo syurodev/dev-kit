@@ -42,18 +42,24 @@
 
 ---
 
-## Task 1: Storage — `vault_items` table + migrations
+## Task 1: Storage — `vault_items` table
 
 **Files:**
 - Modify: `internal/storage/sqlite.go`
 - Test: `internal/storage/migrations_test.go`
+
+> **Ordering note:** This task only *creates* `vault_items`. Dropping the three
+> legacy tables is deferred to Task 8 (migration m6), after the services and
+> `main.go` no longer reference them and the old per-service repository tests
+> are deleted. Dropping them here would break `notes`/`database`/`ssh`
+> `sqlrepository_test.go` at this commit boundary.
 
 - [ ] **Step 1: Write the failing test**
 
 Add to `internal/storage/migrations_test.go`:
 
 ```go
-func TestMigrateCreatesVaultItemsAndDropsLegacyTables(t *testing.T) {
+func TestMigrateCreatesVaultItemsTable(t *testing.T) {
 	dir := t.TempDir()
 	db, err := Open(filepath.Join(dir, "devkit.db"))
 	if err != nil {
@@ -73,13 +79,8 @@ func TestMigrateCreatesVaultItemsAndDropsLegacyTables(t *testing.T) {
 		return err == nil && got == name
 	}
 
-	if !tableExists("vault_items") {
-		t.Fatal("expected vault_items table to exist")
-	}
-	for _, legacy := range []string{"notes", "connection_profiles", "ssh_profiles"} {
-		if tableExists(legacy) {
-			t.Fatalf("expected legacy table %q to be dropped", legacy)
-		}
+	if !tableExists(TableVaultItems) {
+		t.Fatalf("expected %s table to exist", TableVaultItems)
 	}
 
 	// Idempotent: running again must not error.
@@ -93,8 +94,8 @@ Ensure the test file imports `context`, `path/filepath`, `testing`.
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `GOCACHE=/private/tmp/devkit-go-cache go test ./internal/storage/ -run TestMigrateCreatesVaultItemsAndDropsLegacyTables -v`
-Expected: FAIL — `vault_items` does not exist (or legacy tables still present).
+Run: `GOCACHE=/private/tmp/devkit-go-cache go test ./internal/storage/ -run TestMigrateCreatesVaultItemsTable -v`
+Expected: FAIL — `vault_items` does not exist.
 
 - [ ] **Step 3: Add the table constant**
 
@@ -110,9 +111,9 @@ const (
 )
 ```
 
-- [ ] **Step 4: Add migrations m5 and m6 in `Migrate`**
+- [ ] **Step 4: Add migration m5 in `Migrate`**
 
-In `internal/storage/sqlite.go`, replace the tail of `Migrate` (from `m4 := kvTable(...)` through the `runner` construction) with:
+In `internal/storage/sqlite.go`, replace the tail of `Migrate` (from `m4 := kvTable(...)` through the `runner` construction) with the following. Use the `TableVaultItems` constant in the DDL (matching the const-block comment that table names are safe to interpolate):
 
 ```go
 	m4 := kvTable(TableSSHProfiles)
@@ -122,49 +123,33 @@ In `internal/storage/sqlite.go`, replace the tail of `Migrate` (from `m4 := kvTa
 		Version: 5,
 		Name:    "create vault_items",
 		Up: func(ctx context.Context) error {
-			_, err := db.ExecContext(ctx,
-				"CREATE TABLE IF NOT EXISTS vault_items (id TEXT PRIMARY KEY, type TEXT NOT NULL, data TEXT NOT NULL)",
-			)
+			_, err := db.ExecContext(ctx, fmt.Sprintf(
+				"CREATE TABLE IF NOT EXISTS %s (id TEXT PRIMARY KEY, type TEXT NOT NULL, data TEXT NOT NULL)",
+				TableVaultItems,
+			))
 			return err
 		},
 	}
 
-	m6 := Migration{
-		Version: 6,
-		Name:    "drop legacy item tables",
-		Up: func(ctx context.Context) error {
-			for _, stmt := range []string{
-				"DROP TABLE IF EXISTS notes",
-				"DROP TABLE IF EXISTS connection_profiles",
-				"DROP TABLE IF EXISTS ssh_profiles",
-			} {
-				if _, err := db.ExecContext(ctx, stmt); err != nil {
-					return err
-				}
-			}
-			return nil
-		},
-	}
-
-	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6})
+	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5})
 	if err != nil {
 		return err
 	}
 	return runner.Run(ctx)
 ```
 
-(The `m1`–`m3` definitions above this block stay as they are. Keeping m2–m4 and then dropping in m6 preserves version continuity for the forward-only runner.)
+(The `m1`–`m3` definitions above this block stay as they are.)
 
 - [ ] **Step 5: Run test to verify it passes**
 
 Run: `GOCACHE=/private/tmp/devkit-go-cache go test ./internal/storage/ -v`
-Expected: PASS (all storage tests).
+Expected: PASS (all storage tests). Do NOT modify `sqlite_test.go` — the `notes` table still exists after this task.
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add internal/storage/sqlite.go internal/storage/migrations_test.go
-git commit -m "feat(storage): add vault_items table and drop legacy item tables"
+git commit -m "feat(storage): add vault_items table"
 ```
 
 ---
@@ -1625,14 +1610,98 @@ git commit -m "refactor(ssh): back profiles with the shared vaultitem store"
 
 ---
 
-## Task 8: Wire the container and `main.go`
+## Task 8: Drop legacy tables + wire the container and `main.go`
 
 **Files:**
+- Modify: `internal/storage/sqlite.go` (add migration m6)
+- Test: `internal/storage/migrations_test.go`
 - Modify: `internal/app/container.go`
 - Modify: `main.go`
 - Test: `internal/app/container_test.go` (if present) — adjust constructor calls
 
-- [ ] **Step 1: Rewrite `container.go`**
+By this point Tasks 5–7 have deleted the per-service `sqlrepository.go` files and
+their tests, and `main.go` is about to stop referencing the legacy tables, so it
+is now safe to drop them.
+
+- [ ] **Step 1: Write the failing drop-migration test**
+
+Add to `internal/storage/migrations_test.go`:
+
+```go
+func TestMigrateDropsLegacyItemTables(t *testing.T) {
+	dir := t.TempDir()
+	db, err := Open(filepath.Join(dir, "devkit.db"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+
+	if err := Migrate(context.Background(), db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	tableExists := func(name string) bool {
+		var got string
+		err := db.QueryRow(
+			"SELECT name FROM sqlite_master WHERE type='table' AND name = ?", name,
+		).Scan(&got)
+		return err == nil && got == name
+	}
+	for _, legacy := range []string{TableNotes, TableConnectionProfiles, TableSSHProfiles} {
+		if tableExists(legacy) {
+			t.Fatalf("expected legacy table %q to be dropped", legacy)
+		}
+	}
+
+	if err := Migrate(context.Background(), db); err != nil {
+		t.Fatalf("second migrate: %v", err)
+	}
+}
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `GOCACHE=/private/tmp/devkit-go-cache go test ./internal/storage/ -run TestMigrateDropsLegacyItemTables -v`
+Expected: FAIL — legacy tables still exist.
+
+- [ ] **Step 3: Add migration m6 in `Migrate`**
+
+In `internal/storage/sqlite.go`, after the `m5 := Migration{...}` block, add m6 and extend the runner slice to `{m1, m2, m3, m4, m5, m6}`:
+
+```go
+	m6 := Migration{
+		Version: 6,
+		Name:    "drop legacy item tables",
+		Up: func(ctx context.Context) error {
+			for _, table := range []string{TableNotes, TableConnectionProfiles, TableSSHProfiles} {
+				if _, err := db.ExecContext(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", table)); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	}
+
+	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6})
+	if err != nil {
+		return err
+	}
+	return runner.Run(ctx)
+```
+
+- [ ] **Step 4: Fix the storage KV reopen test**
+
+Migration m6 now drops the `notes` table, so `internal/storage/sqlite_test.go`'s
+`TestSQLiteKVPersistenceAcrossReopen` must not use `TableNotes`. Change its
+`storage.NewKV(db, TableNotes)` calls to `storage.NewKV(db, TableVaultKeyring)`
+(a table m1 creates and nothing drops), keeping the rest of the test identical.
+
+- [ ] **Step 5: Run storage tests**
+
+Run: `GOCACHE=/private/tmp/devkit-go-cache go test ./internal/storage/ -v`
+Expected: PASS (including the new drop test and the adjusted reopen test).
+
+- [ ] **Step 6: Rewrite `container.go`**
 
 ```go
 package app
@@ -1715,7 +1784,7 @@ func NewContainerWithStores(
 }
 ```
 
-- [ ] **Step 2: Rewrite the store wiring in `main.go`**
+- [ ] **Step 7: Rewrite the store wiring in `main.go`**
 
 Replace the `container := app.NewContainerWithStores(...)` block with:
 
@@ -1728,25 +1797,25 @@ Replace the `container := app.NewContainerWithStores(...)` block with:
 
 Update `main.go` imports: remove `"changeme/internal/services/database"`, `"changeme/internal/services/notes"`, and `sshservice "changeme/internal/services/ssh"` (no longer referenced in `main.go`), and add `"changeme/internal/services/vaultitem"`. Keep `"changeme/internal/storage"` and `"changeme/internal/vault"`. Note `container.Database.Close()` is still called on shutdown and remains valid.
 
-- [ ] **Step 3: Adjust `container_test.go` if it exists**
+- [ ] **Step 8: Adjust `container_test.go` if it exists**
 
 If `internal/app/container_test.go` calls `NewContainerWithStores` with the old four-argument shape, update it to the two-argument `(vault.NewMemoryKeyringStore(), vaultitem.NewMemoryRepository())` form. If no such test exists, skip this step.
 
-- [ ] **Step 4: Build the whole module**
+- [ ] **Step 9: Build the whole module**
 
 Run: `GOCACHE=/private/tmp/devkit-go-cache go build ./... && GOCACHE=/private/tmp/devkit-go-cache go build -tags server .`
 Expected: builds with no errors.
 
-- [ ] **Step 5: Run the full test suite**
+- [ ] **Step 10: Run the full test suite**
 
 Run: `GOCACHE=/private/tmp/devkit-go-cache go test ./...`
 Expected: PASS across packages.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 11: Commit**
 
 ```bash
-git add internal/app/container.go main.go internal/app/container_test.go
-git commit -m "refactor(app): wire one shared vaultitem store into all built-in services"
+git add internal/storage/sqlite.go internal/storage/migrations_test.go internal/storage/sqlite_test.go internal/app/container.go main.go internal/app/container_test.go
+git commit -m "refactor(app): drop legacy tables and wire one shared vaultitem store"
 ```
 
 ---

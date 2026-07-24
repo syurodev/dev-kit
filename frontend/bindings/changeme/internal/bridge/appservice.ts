@@ -102,6 +102,8 @@ export function SSHTrustHostKey(id: string, fingerprint: string): $CancellablePr
 /**
  * SetupVault creates the vault with a mandatory Master Password (first run
  * only) and returns the recovery key to show the user exactly once.
+ * SECURITY: This one-time return is the only exception; never log, audit,
+ * persist, or return the recovery key from any other bridge method.
  */
 export function SetupVault(masterPassword: string): $CancellablePromise<string> {
     return $Call.ByID(796766178, masterPassword);
@@ -113,6 +115,15 @@ export function UnlockVault(masterPassword: string): $CancellablePromise<void> {
 
 export function UnlockVaultWithRecovery(recoveryKey: string): $CancellablePromise<void> {
     return $Call.ByID(4259195092, recoveryKey);
+}
+
+/**
+ * VaultSearch returns cross-type items whose plaintext metadata matches query.
+ * It runs on metadata only, so it works while the vault is locked, and never
+ * returns secret payloads.
+ */
+export function VaultSearch(query: string): $CancellablePromise<$models.VaultSearchResult[] | null> {
+    return $Call.ByID(4028168727, query);
 }
 
 export function VaultStatus(): $CancellablePromise<$models.VaultStatusDTO> {

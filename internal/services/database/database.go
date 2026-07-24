@@ -2,23 +2,21 @@ package database
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
 	"net/url"
 	"sort"
-	"time"
 
-	"changeme/internal/crypto"
+	"changeme/internal/services/vaultitem"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const (
-	passwordKeyID             = "db-password"
-	databaseProfileRecordType = "database-profile"
+	passwordKeyID = "db-password"
+	itemType      = "db-profile"
 )
 
 var ErrInsecureTLSForRemoteHost = errors.New("insecure TLS is only allowed for loopback database hosts")
@@ -26,35 +24,6 @@ var ErrInsecureTLSForRemoteHost = errors.New("insecure TLS is only allowed for l
 // DefaultMaxRows caps query results so the UI stays responsive (§12.4).
 // ponytail: fixed cap; make it configurable per query later if needed.
 const DefaultMaxRows = 200
-
-// Vault is the encryption capability the database service needs. The DEK stays
-// inside the vault; the service only gets seal/open.
-type Vault interface {
-	SealV2(associatedData crypto.AssociatedData, plaintext []byte) (crypto.Envelope, error)
-	OpenWithAD(envelope crypto.Envelope, associatedData crypto.AssociatedData) ([]byte, error)
-}
-
-// ProfileRecord is the at-rest form of a connection profile. Only the password
-// is encrypted; the rest is non-sensitive connection metadata.
-type ProfileRecord struct {
-	ID        string          `json:"id"`
-	Name      string          `json:"name"`
-	Host      string          `json:"host"`
-	Port      int             `json:"port"`
-	Database  string          `json:"database"`
-	Username  string          `json:"username"`
-	SSLMode   string          `json:"ssl_mode"`
-	Password  crypto.Envelope `json:"password"`
-	CreatedAt time.Time       `json:"created_at"`
-	UpdatedAt time.Time       `json:"updated_at"`
-}
-
-type Repository interface {
-	List() ([]ProfileRecord, error)
-	Get(id string) (ProfileRecord, error)
-	Put(record ProfileRecord) error
-	Delete(id string) error
-}
 
 // ProfileSummary is a connection profile without the (encrypted) password.
 type ProfileSummary struct {
@@ -84,15 +53,33 @@ type QueryResult struct {
 	Truncated bool       `json:"truncated"`
 }
 
+// Store is the shared vault-item substrate the database service needs.
+type Store interface {
+	Create(itemType, keyID string, metadata json.RawMessage, secret []byte) (vaultitem.Record, error)
+	Get(id string) (vaultitem.Record, error)
+	OpenPayload(record vaultitem.Record, keyID string) ([]byte, error)
+	ListByType(itemType string) ([]vaultitem.Record, error)
+	Delete(id string) error
+}
+
+// metadata is the plaintext, non-sensitive connection metadata for a profile.
+type metadata struct {
+	Name     string `json:"name"`
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Database string `json:"database"`
+	Username string `json:"username"`
+	SSLMode  string `json:"ssl_mode"`
+}
+
 type Service struct {
-	repo    Repository
-	vault   Vault
+	store   Store
 	pools   *PoolManager
 	maxRows int
 }
 
-func NewService(repo Repository, vault Vault) *Service {
-	return &Service{repo: repo, vault: vault, pools: NewPoolManager(), maxRows: DefaultMaxRows}
+func NewService(store Store) *Service {
+	return &Service{store: store, pools: NewPoolManager(), maxRows: DefaultMaxRows}
 }
 
 func (s *Service) CreateProfile(input CreateProfileInput) (ProfileSummary, error) {
@@ -111,41 +98,36 @@ func (s *Service) CreateProfile(input CreateProfileInput) (ProfileSummary, error
 	}
 	input.SSLMode = sslMode
 
-	id, err := newID()
+	meta, err := json.Marshal(metadata{
+		Name:     input.Name,
+		Host:     input.Host,
+		Port:     input.Port,
+		Database: input.Database,
+		Username: input.Username,
+		SSLMode:  input.SSLMode,
+	})
 	if err != nil {
 		return ProfileSummary{}, err
 	}
-	envelope, err := s.vault.SealV2(crypto.AssociatedData{RecordType: databaseProfileRecordType, RecordID: id, KeyID: passwordKeyID}, []byte(input.Password))
+	record, err := s.store.Create(itemType, passwordKeyID, meta, []byte(input.Password))
 	if err != nil {
 		return ProfileSummary{}, err
 	}
-	now := time.Now().UTC()
-	record := ProfileRecord{
-		ID:        id,
-		Name:      input.Name,
-		Host:      input.Host,
-		Port:      input.Port,
-		Database:  input.Database,
-		Username:  input.Username,
-		SSLMode:   input.SSLMode,
-		Password:  envelope,
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
-	if err := s.repo.Put(record); err != nil {
-		return ProfileSummary{}, err
-	}
-	return toSummary(record), nil
+	return summaryFromRecord(record)
 }
 
 func (s *Service) ListProfiles() ([]ProfileSummary, error) {
-	records, err := s.repo.List()
+	records, err := s.store.ListByType(itemType)
 	if err != nil {
 		return nil, err
 	}
 	summaries := make([]ProfileSummary, 0, len(records))
 	for _, record := range records {
-		summaries = append(summaries, toSummary(record))
+		summary, err := summaryFromRecord(record)
+		if err != nil {
+			return nil, err
+		}
+		summaries = append(summaries, summary)
 	}
 	sort.Slice(summaries, func(i, j int) bool {
 		return summaries[i].Name < summaries[j].Name
@@ -154,7 +136,7 @@ func (s *Service) ListProfiles() ([]ProfileSummary, error) {
 }
 
 func (s *Service) DeleteProfile(id string) error {
-	if err := s.repo.Delete(id); err != nil {
+	if err := s.store.Delete(id); err != nil {
 		return err
 	}
 	s.pools.Remove(id)
@@ -230,23 +212,27 @@ func (s *Service) Query(ctx context.Context, id string, sql string) (QueryResult
 }
 
 func (s *Service) dsn(id string) (string, error) {
-	record, err := s.repo.Get(id)
+	record, err := s.store.Get(id)
 	if err != nil {
 		return "", err
 	}
-	password, err := s.vault.OpenWithAD(record.Password, databaseProfileAssociatedData(record))
+	meta, err := decodeMetadata(record)
 	if err != nil {
 		return "", err
 	}
-	sslmode, err := normalizeSSLMode(record.Host, record.SSLMode)
+	password, err := s.store.OpenPayload(record, passwordKeyID)
+	if err != nil {
+		return "", err
+	}
+	sslmode, err := normalizeSSLMode(meta.Host, meta.SSLMode)
 	if err != nil {
 		return "", err
 	}
 	u := url.URL{
 		Scheme: "postgres",
-		User:   url.UserPassword(record.Username, string(password)),
-		Host:   net.JoinHostPort(record.Host, fmt.Sprintf("%d", record.Port)),
-		Path:   record.Database,
+		User:   url.UserPassword(meta.Username, string(password)),
+		Host:   net.JoinHostPort(meta.Host, fmt.Sprintf("%d", meta.Port)),
+		Path:   meta.Database,
 	}
 	query := u.Query()
 	query.Set("sslmode", sslmode)
@@ -279,10 +265,6 @@ func isLoopbackHost(host string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-func databaseProfileAssociatedData(record ProfileRecord) crypto.AssociatedData {
-	return crypto.AssociatedData{RecordType: databaseProfileRecordType, RecordID: record.ID, KeyID: passwordKeyID}
-}
-
 func stringify(value any) string {
 	if value == nil {
 		return "NULL"
@@ -297,22 +279,26 @@ func stringify(value any) string {
 	}
 }
 
-func toSummary(record ProfileRecord) ProfileSummary {
-	return ProfileSummary{
-		ID:       record.ID,
-		Name:     record.Name,
-		Host:     record.Host,
-		Port:     record.Port,
-		Database: record.Database,
-		Username: record.Username,
-		SSLMode:  record.SSLMode,
+func decodeMetadata(record vaultitem.Record) (metadata, error) {
+	var meta metadata
+	if err := json.Unmarshal(record.Metadata, &meta); err != nil {
+		return metadata{}, err
 	}
+	return meta, nil
 }
 
-func newID() (string, error) {
-	raw := make([]byte, 12)
-	if _, err := rand.Read(raw); err != nil {
-		return "", err
+func summaryFromRecord(record vaultitem.Record) (ProfileSummary, error) {
+	meta, err := decodeMetadata(record)
+	if err != nil {
+		return ProfileSummary{}, err
 	}
-	return hex.EncodeToString(raw), nil
+	return ProfileSummary{
+		ID:       record.ID,
+		Name:     meta.Name,
+		Host:     meta.Host,
+		Port:     meta.Port,
+		Database: meta.Database,
+		Username: meta.Username,
+		SSLMode:  meta.SSLMode,
+	}, nil
 }

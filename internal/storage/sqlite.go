@@ -16,6 +16,7 @@ const (
 	TableNotes              = "notes"
 	TableConnectionProfiles = "connection_profiles"
 	TableSSHProfiles        = "ssh_profiles"
+	TableVaultItems         = "vault_items"
 )
 
 var chmodFile = os.Chmod
@@ -159,7 +160,32 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 	m4 := kvTable(TableSSHProfiles)
 	m4.Version, m4.Name = 4, "create ssh_profiles"
 
-	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4})
+	m5 := Migration{
+		Version: 5,
+		Name:    "create vault_items",
+		Up: func(ctx context.Context) error {
+			_, err := db.ExecContext(ctx, fmt.Sprintf(
+				"CREATE TABLE IF NOT EXISTS %s (id TEXT PRIMARY KEY, type TEXT NOT NULL, data TEXT NOT NULL)",
+				TableVaultItems,
+			))
+			return err
+		},
+	}
+
+	m6 := Migration{
+		Version: 6,
+		Name:    "drop legacy item tables",
+		Up: func(ctx context.Context) error {
+			for _, table := range []string{TableNotes, TableConnectionProfiles, TableSSHProfiles} {
+				if _, err := db.ExecContext(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", table)); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	}
+
+	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6})
 	if err != nil {
 		return err
 	}

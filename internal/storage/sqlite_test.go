@@ -86,7 +86,7 @@ func TestSQLiteKVPersistenceAcrossReopen(t *testing.T) {
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatalf("Migrate: %v", err)
 	}
-	kv := NewKV(db, TableNotes)
+	kv := NewKV(db, TableVaultKeyring)
 	if err := kv.Put(ctx, "a", []byte(`{"x":1}`)); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestSQLiteKVPersistenceAcrossReopen(t *testing.T) {
 	if err := Migrate(ctx, db2); err != nil {
 		t.Fatalf("Migrate (2nd, must be idempotent): %v", err)
 	}
-	kv2 := NewKV(db2, TableNotes)
+	kv2 := NewKV(db2, TableVaultKeyring)
 	data, ok, err := kv2.Get(ctx, "a")
 	if err != nil {
 		t.Fatalf("Get: %v", err)

@@ -10,6 +10,7 @@ import (
 	"changeme/internal/services/notes"
 	sshservice "changeme/internal/services/ssh"
 	"changeme/internal/services/tools"
+	"changeme/internal/services/vaultitem"
 	"changeme/internal/vault"
 )
 
@@ -21,29 +22,24 @@ type Container struct {
 	Capabilities *capabilities.Gateway
 	Vault        *vault.Service
 	HashTools    *tools.HashService
+	Items        *vaultitem.Store
 	Notes        *notes.Service
 	Database     *database.Service
 	SSH          *sshservice.Service
 }
 
 // NewContainer wires core services with in-memory stores, suitable for tests
-// and ephemeral runs. The desktop/server entrypoint should call
-// NewContainerWithStores with file-backed stores so the Master Password set at
-// setup and the notes persist across restarts.
+// and ephemeral runs.
 func NewContainer() *Container {
 	return NewContainerWithStores(
 		vault.NewMemoryKeyringStore(),
-		notes.NewMemoryRepository(),
-		database.NewMemoryRepository(),
-		sshservice.NewMemoryRepository(),
+		vaultitem.NewMemoryRepository(),
 	)
 }
 
 func NewContainerWithStores(
 	keyringStore vault.KeyringStore,
-	notesRepo notes.Repository,
-	dbRepo database.Repository,
-	sshRepo sshservice.Repository,
+	itemRepo vaultitem.Repository,
 ) *Container {
 	permissionPolicy := permissions.NewPolicy([]permissions.Grant{
 		{SubjectID: "builtin.tools", Capability: "tools:hash", Scope: "command:tools.hash"},
@@ -59,10 +55,12 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.ssh", Capability: "ssh:connect", Scope: "profile:new"},
 		{SubjectID: "builtin.ssh", Capability: "ssh:connect", Scope: "profile:*"},
 		{SubjectID: "builtin.vault", Capability: "vault:manage", Scope: "vault"},
+		{SubjectID: "builtin.search", Capability: "vault:search", Scope: "item:search"},
 	})
 
 	vaultService := vault.NewService(keyringStore)
 	auditSink := audit.NewMemorySink()
+	itemStore := vaultitem.NewStore(itemRepo, vaultService)
 
 	return &Container{
 		Commands:     commands.NewRegistry(),
@@ -72,8 +70,9 @@ func NewContainerWithStores(
 		Capabilities: capabilities.NewGateway(permissionPolicy, auditSink),
 		Vault:        vaultService,
 		HashTools:    tools.NewHashService(),
-		Notes:        notes.NewService(notesRepo, vaultService),
-		Database:     database.NewService(dbRepo, vaultService),
-		SSH:          sshservice.NewService(sshRepo, vaultService),
+		Items:        itemStore,
+		Notes:        notes.NewService(itemStore),
+		Database:     database.NewService(itemStore),
+		SSH:          sshservice.NewService(itemStore),
 	}
 }
