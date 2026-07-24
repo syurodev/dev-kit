@@ -2,26 +2,38 @@ package database
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
 	"changeme/internal/crypto"
+	"changeme/internal/services/vaultitem"
 	"changeme/internal/vault"
 )
 
-func newUnlockedVault(t *testing.T) *vault.Service {
+func newService(t *testing.T) *Service {
 	t.Helper()
 	v := vault.NewService(vault.NewMemoryKeyringStore())
-	if _, err := v.Setup("master-password"); err != nil {
-		t.Fatalf("Setup: %v", err)
+	if _, err := v.Setup("correct-horse"); err != nil {
+		t.Fatalf("setup: %v", err)
 	}
-	return v
+	return NewService(vaultitem.NewStore(vaultitem.NewMemoryRepository(), v))
+}
+
+// newServiceWithStore is like newService but also returns the concrete store
+// so tests can inspect records (and their still-encrypted payloads) directly.
+func newServiceWithStore(t *testing.T) (*Service, *vaultitem.Store) {
+	t.Helper()
+	v := vault.NewService(vault.NewMemoryKeyringStore())
+	if _, err := v.Setup("correct-horse"); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	store := vaultitem.NewStore(vaultitem.NewMemoryRepository(), v)
+	return NewService(store), store
 }
 
 func TestCreateProfileEncryptsPassword(t *testing.T) {
-	v := newUnlockedVault(t)
-	repo := NewMemoryRepository()
-	svc := NewService(repo, v)
+	svc, store := newServiceWithStore(t)
 
 	summary, err := svc.CreateProfile(CreateProfileInput{
 		Name:     "local",
@@ -35,16 +47,19 @@ func TestCreateProfileEncryptsPassword(t *testing.T) {
 		t.Fatalf("CreateProfile: %v", err)
 	}
 
-	record, err := repo.Get(summary.ID)
+	record, err := store.Get(summary.ID)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if string(record.Password.Ciphertext) == "devkitpass" {
+	if record.Payload == nil {
+		t.Fatal("expected payload to be set")
+	}
+	if string(record.Payload.Ciphertext) == "devkitpass" {
 		t.Fatal("password must be stored encrypted, not plaintext")
 	}
-	plain, err := v.OpenWithAD(record.Password, crypto.AssociatedData{RecordType: "database-profile", RecordID: record.ID, KeyID: passwordKeyID})
+	plain, err := store.OpenPayload(record, passwordKeyID)
 	if err != nil {
-		t.Fatalf("Open: %v", err)
+		t.Fatalf("OpenPayload: %v", err)
 	}
 	if string(plain) != "devkitpass" {
 		t.Fatalf("decrypted password = %q", plain)
@@ -52,25 +67,26 @@ func TestCreateProfileEncryptsPassword(t *testing.T) {
 }
 
 func TestCreateProfileUsesV2EnvelopeBoundToProfile(t *testing.T) {
-	v := newUnlockedVault(t)
-	repo := NewMemoryRepository()
-	svc := NewService(repo, v)
+	svc, store := newServiceWithStore(t)
 
 	summary, err := svc.CreateProfile(CreateProfileInput{Name: "local", Host: "127.0.0.1", Password: "devkitpass"})
 	if err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
-	record, err := repo.Get(summary.ID)
+	record, err := store.Get(summary.ID)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if record.Password.Version != crypto.EnvelopeVersionV2 {
-		t.Fatalf("envelope version = %d, want V2", record.Password.Version)
+	if record.Payload == nil {
+		t.Fatal("expected payload to be set")
+	}
+	if record.Payload.Version != crypto.EnvelopeVersionV2 {
+		t.Fatalf("envelope version = %d, want V2", record.Payload.Version)
 	}
 }
 
 func TestCreateProfileRequiresNameAndHost(t *testing.T) {
-	svc := NewService(NewMemoryRepository(), newUnlockedVault(t))
+	svc := newService(t)
 	if _, err := svc.CreateProfile(CreateProfileInput{Host: "h"}); err == nil {
 		t.Fatal("missing name must error")
 	}
@@ -80,7 +96,7 @@ func TestCreateProfileRequiresNameAndHost(t *testing.T) {
 }
 
 func TestCreateProfileDefaultsRemotePostgresToVerifyFull(t *testing.T) {
-	svc := NewService(NewMemoryRepository(), newUnlockedVault(t))
+	svc := newService(t)
 
 	summary, err := svc.CreateProfile(CreateProfileInput{
 		Name: "production",
@@ -95,7 +111,7 @@ func TestCreateProfileDefaultsRemotePostgresToVerifyFull(t *testing.T) {
 }
 
 func TestCreateProfileRejectsExplicitInsecureTLSForRemoteHost(t *testing.T) {
-	svc := NewService(NewMemoryRepository(), newUnlockedVault(t))
+	svc := newService(t)
 
 	_, err := svc.CreateProfile(CreateProfileInput{
 		Name:    "production",
@@ -110,7 +126,7 @@ func TestCreateProfileRejectsExplicitInsecureTLSForRemoteHost(t *testing.T) {
 func TestCreateProfilePermitsExplicitInsecureTLSForLoopbackHosts(t *testing.T) {
 	for _, host := range []string{"localhost", "127.0.0.1", "::1"} {
 		t.Run(host, func(t *testing.T) {
-			svc := NewService(NewMemoryRepository(), newUnlockedVault(t))
+			svc := newService(t)
 			summary, err := svc.CreateProfile(CreateProfileInput{
 				Name:    "local",
 				Host:    host,
@@ -127,20 +143,26 @@ func TestCreateProfilePermitsExplicitInsecureTLSForLoopbackHosts(t *testing.T) {
 }
 
 func TestDSNRejectsPersistedRemoteProfileWithInsecureTLS(t *testing.T) {
-	v := newUnlockedVault(t)
-	repo := NewMemoryRepository()
-	svc := NewService(repo, v)
+	svc, store := newServiceWithStore(t)
 	summary, err := svc.CreateProfile(CreateProfileInput{Name: "production", Host: "db.example.com", Password: "secret"})
 	if err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
-	record, err := repo.Get(summary.ID)
+	record, err := store.Get(summary.ID)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	record.SSLMode = "disable"
-	if err := repo.Put(record); err != nil {
-		t.Fatalf("Put: %v", err)
+	meta, err := decodeMetadata(record)
+	if err != nil {
+		t.Fatalf("decodeMetadata: %v", err)
+	}
+	meta.SSLMode = "disable"
+	raw, err := json.Marshal(meta)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if _, err := store.UpdateMetadata(summary.ID, raw); err != nil {
+		t.Fatalf("UpdateMetadata: %v", err)
 	}
 
 	_, err = svc.dsn(summary.ID)
@@ -150,7 +172,7 @@ func TestDSNRejectsPersistedRemoteProfileWithInsecureTLS(t *testing.T) {
 }
 
 func TestQueryPreservesCallerCancellation(t *testing.T) {
-	svc := NewService(NewMemoryRepository(), newUnlockedVault(t))
+	svc := newService(t)
 	summary, err := svc.CreateProfile(CreateProfileInput{Name: "local", Host: "127.0.0.1", Password: "secret"})
 	if err != nil {
 		t.Fatalf("CreateProfile: %v", err)
@@ -165,7 +187,7 @@ func TestQueryPreservesCallerCancellation(t *testing.T) {
 }
 
 func TestListProfiles(t *testing.T) {
-	svc := NewService(NewMemoryRepository(), newUnlockedVault(t))
+	svc := newService(t)
 	if _, err := svc.CreateProfile(CreateProfileInput{Name: "a", Host: "h"}); err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
