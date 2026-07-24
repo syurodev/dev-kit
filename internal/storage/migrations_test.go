@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"testing"
 )
 
@@ -133,5 +134,34 @@ func TestTestMigrationStoreApplyMigrationDoesNotAdvanceVersionOnFailure(t *testi
 	}
 	if version != 4 {
 		t.Fatalf("version = %d, want 4", version)
+	}
+}
+
+func TestMigrateCreatesVaultItemsTable(t *testing.T) {
+	dir := t.TempDir()
+	db, err := Open(filepath.Join(dir, "devkit.db"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+
+	if err := Migrate(context.Background(), db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	tableExists := func(name string) bool {
+		var got string
+		err := db.QueryRow(
+			"SELECT name FROM sqlite_master WHERE type='table' AND name = ?", name,
+		).Scan(&got)
+		return err == nil && got == name
+	}
+
+	if !tableExists(TableVaultItems) {
+		t.Fatalf("expected %s table to exist", TableVaultItems)
+	}
+
+	if err := Migrate(context.Background(), db); err != nil {
+		t.Fatalf("second migrate: %v", err)
 	}
 }

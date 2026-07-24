@@ -16,6 +16,7 @@ const (
 	TableNotes              = "notes"
 	TableConnectionProfiles = "connection_profiles"
 	TableSSHProfiles        = "ssh_profiles"
+	TableVaultItems         = "vault_items"
 )
 
 var chmodFile = os.Chmod
@@ -159,7 +160,19 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 	m4 := kvTable(TableSSHProfiles)
 	m4.Version, m4.Name = 4, "create ssh_profiles"
 
-	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4})
+	m5 := Migration{
+		Version: 5,
+		Name:    "create vault_items",
+		Up: func(ctx context.Context) error {
+			_, err := db.ExecContext(ctx, fmt.Sprintf(
+				"CREATE TABLE IF NOT EXISTS %s (id TEXT PRIMARY KEY, type TEXT NOT NULL, data TEXT NOT NULL)",
+				TableVaultItems,
+			))
+			return err
+		},
+	}
+
+	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5})
 	if err != nil {
 		return err
 	}
