@@ -13,6 +13,17 @@ export interface ModuleDTO {
     "views": string[] | null;
 }
 
+/**
+ * VaultSearchResult is one cross-type search hit. Label is the item's plaintext
+ * display name (note title or profile name); no secret content is included.
+ */
+export interface VaultSearchResult {
+    "id": string;
+    "type": string;
+    "label": string;
+    "updated_at": string;
+}
+
 export interface VaultStatusDTO {
     "state": string;
 }
