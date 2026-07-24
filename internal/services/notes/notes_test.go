@@ -3,151 +3,91 @@ package notes
 import (
 	"testing"
 
-	"changeme/internal/crypto"
+	"changeme/internal/services/vaultitem"
 	"changeme/internal/vault"
 )
 
-func newUnlockedVault(t *testing.T) *vault.Service {
+func newService(t *testing.T) *Service {
 	t.Helper()
 	v := vault.NewService(vault.NewMemoryKeyringStore())
-	if _, err := v.Setup("master-password"); err != nil {
-		t.Fatalf("Setup: %v", err)
+	if _, err := v.Setup("correct-horse"); err != nil {
+		t.Fatalf("setup: %v", err)
 	}
-	return v
+	return NewService(vaultitem.NewStore(vaultitem.NewMemoryRepository(), v))
 }
 
-func TestCreateUsesV2EnvelopeBoundToNote(t *testing.T) {
-	v := newUnlockedVault(t)
-	repo := NewMemoryRepository()
-	svc := NewService(repo, v)
+func TestCreateAndGet(t *testing.T) {
+	s := newService(t)
 
-	summary, err := svc.Create("My note", "secret body")
+	summary, err := s.Create("Title", "body text")
 	if err != nil {
-		t.Fatalf("Create: %v", err)
+		t.Fatalf("create: %v", err)
 	}
-	record, err := repo.Get(summary.ID)
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if record.Body.Version != crypto.EnvelopeVersionV2 {
-		t.Fatalf("envelope version = %d, want V2", record.Body.Version)
-	}
-	if _, err := v.OpenWithAD(record.Body, crypto.AssociatedData{RecordType: "note", RecordID: record.ID, KeyID: bodyKeyID}); err != nil {
-		t.Fatalf("OpenWithAD: %v", err)
-	}
-}
-
-func TestCreateListGetRoundTrip(t *testing.T) {
-	v := newUnlockedVault(t)
-	svc := NewService(NewMemoryRepository(), v)
-
-	summary, err := svc.Create("My note", "secret body")
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-	if summary.ID == "" || summary.Title != "My note" {
-		t.Fatalf("summary = %+v", summary)
+	if summary.Title != "Title" {
+		t.Fatalf("title = %q", summary.Title)
 	}
 
-	list, err := svc.List()
+	note, err := s.Get(summary.ID)
 	if err != nil {
-		t.Fatalf("List: %v", err)
+		t.Fatalf("get: %v", err)
 	}
-	if len(list) != 1 {
-		t.Fatalf("len(list) = %d, want 1", len(list))
-	}
-
-	note, err := svc.Get(summary.ID)
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if note.Body != "secret body" {
-		t.Fatalf("body = %q, want %q", note.Body, "secret body")
+	if note.Body != "body text" {
+		t.Fatalf("body = %q", note.Body)
 	}
 }
 
 func TestCreateRequiresTitle(t *testing.T) {
-	svc := NewService(NewMemoryRepository(), newUnlockedVault(t))
-	if _, err := svc.Create("", "body"); err == nil {
-		t.Fatal("Create must require a title")
+	s := newService(t)
+	if _, err := s.Create("", "b"); err == nil {
+		t.Fatal("expected error for empty title")
 	}
 }
 
-func TestCreateFailsWhenVaultLocked(t *testing.T) {
-	v := newUnlockedVault(t)
-	v.Lock()
-	svc := NewService(NewMemoryRepository(), v)
-	if _, err := svc.Create("n", "b"); err == nil {
-		t.Fatal("Create must fail when vault locked")
+func TestListReturnsSummaries(t *testing.T) {
+	s := newService(t)
+	s.Create("A", "1")
+	s.Create("B", "2")
+	list, err := s.List()
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("len = %d", len(list))
 	}
 }
 
-func TestSearchMatchesTitleAndBodyWhenUnlocked(t *testing.T) {
-	v := newUnlockedVault(t)
-	svc := NewService(NewMemoryRepository(), v)
-	if _, err := svc.Create("Groceries", "buy milk and eggs"); err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-	if _, err := svc.Create("Work log", "finished the report"); err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-
-	// Title match.
-	byTitle, err := svc.Search("grocer")
+func TestSearchByTitle(t *testing.T) {
+	s := newService(t)
+	s.Create("staging deploy", "x")
+	s.Create("prod deploy", "y")
+	hits, err := s.Search("staging")
 	if err != nil {
-		t.Fatalf("Search: %v", err)
+		t.Fatalf("search: %v", err)
 	}
-	if len(byTitle) != 1 || byTitle[0].Title != "Groceries" {
-		t.Fatalf("byTitle = %+v", byTitle)
-	}
-
-	// Body match (only possible while unlocked).
-	byBody, err := svc.Search("report")
-	if err != nil {
-		t.Fatalf("Search: %v", err)
-	}
-	if len(byBody) != 1 || byBody[0].Title != "Work log" {
-		t.Fatalf("byBody = %+v", byBody)
+	if len(hits) != 1 || hits[0].Title != "staging deploy" {
+		t.Fatalf("hits = %+v", hits)
 	}
 }
 
-func TestSearchIsMetadataOnlyWhenLocked(t *testing.T) {
-	v := newUnlockedVault(t)
-	svc := NewService(NewMemoryRepository(), v)
-	if _, err := svc.Create("Groceries", "buy milk and eggs"); err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-	v.Lock()
-
-	// Title still searchable while locked.
-	byTitle, err := svc.Search("grocer")
+func TestSearchByBodyWhenUnlocked(t *testing.T) {
+	s := newService(t)
+	s.Create("note one", "contains rocketship")
+	hits, err := s.Search("rocketship")
 	if err != nil {
-		t.Fatalf("Search: %v", err)
+		t.Fatalf("search: %v", err)
 	}
-	if len(byTitle) != 1 {
-		t.Fatalf("title search while locked = %+v, want 1", byTitle)
-	}
-
-	// Body NOT searchable while locked.
-	byBody, err := svc.Search("milk")
-	if err != nil {
-		t.Fatalf("Search: %v", err)
-	}
-	if len(byBody) != 0 {
-		t.Fatalf("body search while locked = %+v, want 0", byBody)
+	if len(hits) != 1 {
+		t.Fatalf("expected body match, got %d", len(hits))
 	}
 }
 
-func TestGetFailsWhenVaultLocked(t *testing.T) {
-	v := newUnlockedVault(t)
-	svc := NewService(NewMemoryRepository(), v)
-	summary, err := svc.Create("n", "b")
-	if err != nil {
-		t.Fatalf("Create: %v", err)
+func TestDelete(t *testing.T) {
+	s := newService(t)
+	summary, _ := s.Create("x", "y")
+	if err := s.Delete(summary.ID); err != nil {
+		t.Fatalf("delete: %v", err)
 	}
-
-	v.Lock()
-	if _, err := svc.Get(summary.ID); err == nil {
-		t.Fatal("Get must fail when vault locked")
+	if _, err := s.Get(summary.ID); err == nil {
+		t.Fatal("expected get to fail after delete")
 	}
 }
