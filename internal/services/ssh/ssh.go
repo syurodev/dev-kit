@@ -2,15 +2,14 @@ package ssh
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"net"
 	"sort"
 	"strconv"
 	"time"
 
-	"changeme/internal/crypto"
+	"changeme/internal/services/vaultitem"
 
 	gossh "golang.org/x/crypto/ssh"
 )
@@ -19,38 +18,28 @@ const (
 	AuthPassword = "password"
 	AuthKey      = "key"
 
-	secretKeyID          = "ssh-secret"
-	sshProfileRecordType = "ssh-profile"
+	secretKeyID = "ssh-secret"
+	itemType    = "ssh-profile"
 )
 
-// Vault is the encryption capability the SSH service needs. The DEK stays inside
-// the vault; the service only gets seal/open.
-type Vault interface {
-	SealV2(associatedData crypto.AssociatedData, plaintext []byte) (crypto.Envelope, error)
-	OpenWithAD(envelope crypto.Envelope, associatedData crypto.AssociatedData) ([]byte, error)
-}
-
-// ProfileRecord is the at-rest form of an SSH profile. The secret (password or
-// private key PEM, depending on AuthMethod) is encrypted; the rest is
-// non-sensitive connection metadata.
-type ProfileRecord struct {
-	ID                 string          `json:"id"`
-	Name               string          `json:"name"`
-	Host               string          `json:"host"`
-	Port               int             `json:"port"`
-	Username           string          `json:"username"`
-	AuthMethod         string          `json:"auth_method"`
-	HostKeyFingerprint string          `json:"host_key_fingerprint"`
-	Secret             crypto.Envelope `json:"secret"`
-	CreatedAt          time.Time       `json:"created_at"`
-	UpdatedAt          time.Time       `json:"updated_at"`
-}
-
-type Repository interface {
-	List() ([]ProfileRecord, error)
-	Get(id string) (ProfileRecord, error)
-	Put(record ProfileRecord) error
+// Store is the shared vault-item substrate the SSH service needs.
+type Store interface {
+	Create(itemType, keyID string, metadata json.RawMessage, secret []byte) (vaultitem.Record, error)
+	Get(id string) (vaultitem.Record, error)
+	OpenPayload(record vaultitem.Record, keyID string) ([]byte, error)
+	ListByType(itemType string) ([]vaultitem.Record, error)
+	UpdateMetadata(id string, metadata json.RawMessage) (vaultitem.Record, error)
 	Delete(id string) error
+}
+
+// metadata is the plaintext, non-sensitive SSH connection metadata.
+type metadata struct {
+	Name               string `json:"name"`
+	Host               string `json:"host"`
+	Port               int    `json:"port"`
+	Username           string `json:"username"`
+	AuthMethod         string `json:"auth_method"`
+	HostKeyFingerprint string `json:"host_key_fingerprint"`
 }
 
 // ProfileSummary is an SSH profile without the (encrypted) secret.
@@ -80,12 +69,11 @@ type CommandResult struct {
 }
 
 type Service struct {
-	repo  Repository
-	vault Vault
+	store Store
 }
 
-func NewService(repo Repository, vault Vault) *Service {
-	return &Service{repo: repo, vault: vault}
+func NewService(store Store) *Service {
+	return &Service{store: store}
 }
 
 func (s *Service) CreateProfile(input CreateProfileInput) (ProfileSummary, error) {
@@ -108,40 +96,35 @@ func (s *Service) CreateProfile(input CreateProfileInput) (ProfileSummary, error
 		return ProfileSummary{}, errors.New("unsupported auth method")
 	}
 
-	id, err := newID()
-	if err != nil {
-		return ProfileSummary{}, err
-	}
-	envelope, err := s.vault.SealV2(crypto.AssociatedData{RecordType: sshProfileRecordType, RecordID: id, KeyID: secretKeyID}, []byte(input.Secret))
-	if err != nil {
-		return ProfileSummary{}, err
-	}
-	now := time.Now().UTC()
-	record := ProfileRecord{
-		ID:         id,
+	meta, err := json.Marshal(metadata{
 		Name:       input.Name,
 		Host:       input.Host,
 		Port:       input.Port,
 		Username:   input.Username,
 		AuthMethod: input.AuthMethod,
-		Secret:     envelope,
-		CreatedAt:  now,
-		UpdatedAt:  now,
-	}
-	if err := s.repo.Put(record); err != nil {
+	})
+	if err != nil {
 		return ProfileSummary{}, err
 	}
-	return toSummary(record), nil
+	record, err := s.store.Create(itemType, secretKeyID, meta, []byte(input.Secret))
+	if err != nil {
+		return ProfileSummary{}, err
+	}
+	return summaryFromRecord(record)
 }
 
 func (s *Service) ListProfiles() ([]ProfileSummary, error) {
-	records, err := s.repo.List()
+	records, err := s.store.ListByType(itemType)
 	if err != nil {
 		return nil, err
 	}
 	summaries := make([]ProfileSummary, 0, len(records))
 	for _, record := range records {
-		summaries = append(summaries, toSummary(record))
+		summary, err := summaryFromRecord(record)
+		if err != nil {
+			return nil, err
+		}
+		summaries = append(summaries, summary)
 	}
 	sort.Slice(summaries, func(i, j int) bool {
 		return summaries[i].Name < summaries[j].Name
@@ -150,7 +133,7 @@ func (s *Service) ListProfiles() ([]ProfileSummary, error) {
 }
 
 func (s *Service) DeleteProfile(id string) error {
-	return s.repo.Delete(id)
+	return s.store.Delete(id)
 }
 
 // TestConnection dials, authenticates, and opens a session to verify the profile.
@@ -196,11 +179,15 @@ func (s *Service) RunCommand(ctx context.Context, id string, command string, pas
 // ObserveHostKey gets the server's fingerprint without authenticating or
 // storing it. The caller must present this value for an explicit trust action.
 func (s *Service) ObserveHostKey(ctx context.Context, id string) (string, error) {
-	record, err := s.repo.Get(id)
+	record, err := s.store.Get(id)
 	if err != nil {
 		return "", err
 	}
-	addr := net.JoinHostPort(record.Host, strconv.Itoa(record.Port))
+	meta, err := decodeMetadata(record)
+	if err != nil {
+		return "", err
+	}
+	addr := net.JoinHostPort(meta.Host, strconv.Itoa(meta.Port))
 	dialer := net.Dialer{Timeout: 10 * time.Second}
 	conn, err := dialer.DialContext(ctx, "tcp", addr)
 	if err != nil {
@@ -210,7 +197,7 @@ func (s *Service) ObserveHostKey(ctx context.Context, id string) (string, error)
 
 	var observed string
 	config := &gossh.ClientConfig{
-		User:            record.Username,
+		User:            meta.Username,
 		HostKeyCallback: observeHostKeyCallback(&observed),
 		Timeout:         10 * time.Second,
 	}
@@ -237,28 +224,40 @@ func (s *Service) TrustHostKey(ctx context.Context, id string, fingerprint strin
 	if observed != fingerprint {
 		return errors.New("observed host key fingerprint does not match approval")
 	}
-	record, err := s.repo.Get(id)
+	record, err := s.store.Get(id)
 	if err != nil {
 		return err
 	}
-	record.HostKeyFingerprint = fingerprint
-	record.UpdatedAt = time.Now().UTC()
-	return s.repo.Put(record)
+	meta, err := decodeMetadata(record)
+	if err != nil {
+		return err
+	}
+	meta.HostKeyFingerprint = fingerprint
+	updated, err := json.Marshal(meta)
+	if err != nil {
+		return err
+	}
+	_, err = s.store.UpdateMetadata(id, updated)
+	return err
 }
 
 func (s *Service) dial(ctx context.Context, id string, passphrase string) (*gossh.Client, error) {
-	record, err := s.repo.Get(id)
+	record, err := s.store.Get(id)
 	if err != nil {
 		return nil, err
 	}
-	secret, err := s.vault.OpenWithAD(record.Secret, sshProfileAssociatedData(record))
+	meta, err := decodeMetadata(record)
+	if err != nil {
+		return nil, err
+	}
+	secret, err := s.store.OpenPayload(record, secretKeyID)
 	if err != nil {
 		return nil, err
 	}
 	defer zeroBytes(secret)
 
 	var auth gossh.AuthMethod
-	switch record.AuthMethod {
+	switch meta.AuthMethod {
 	case AuthPassword:
 		auth = gossh.Password(string(secret))
 	case AuthKey:
@@ -272,13 +271,13 @@ func (s *Service) dial(ctx context.Context, id string, passphrase string) (*goss
 	}
 
 	config := &gossh.ClientConfig{
-		User:            record.Username,
+		User:            meta.Username,
 		Auth:            []gossh.AuthMethod{auth},
-		HostKeyCallback: pinnedHostKeyCallback(record.HostKeyFingerprint),
+		HostKeyCallback: pinnedHostKeyCallback(meta.HostKeyFingerprint),
 		Timeout:         10 * time.Second,
 	}
 
-	addr := net.JoinHostPort(record.Host, strconv.Itoa(record.Port))
+	addr := net.JoinHostPort(meta.Host, strconv.Itoa(meta.Port))
 	dialer := net.Dialer{Timeout: 10 * time.Second}
 	conn, err := dialer.DialContext(ctx, "tcp", addr)
 	if err != nil {
@@ -292,26 +291,26 @@ func (s *Service) dial(ctx context.Context, id string, passphrase string) (*goss
 	return gossh.NewClient(clientConn, chans, reqs), nil
 }
 
-func sshProfileAssociatedData(record ProfileRecord) crypto.AssociatedData {
-	return crypto.AssociatedData{RecordType: sshProfileRecordType, RecordID: record.ID, KeyID: secretKeyID}
+func decodeMetadata(record vaultitem.Record) (metadata, error) {
+	var meta metadata
+	if err := json.Unmarshal(record.Metadata, &meta); err != nil {
+		return metadata{}, err
+	}
+	return meta, nil
 }
 
-func toSummary(record ProfileRecord) ProfileSummary {
+func summaryFromRecord(record vaultitem.Record) (ProfileSummary, error) {
+	meta, err := decodeMetadata(record)
+	if err != nil {
+		return ProfileSummary{}, err
+	}
 	return ProfileSummary{
 		ID:                 record.ID,
-		Name:               record.Name,
-		Host:               record.Host,
-		Port:               record.Port,
-		Username:           record.Username,
-		AuthMethod:         record.AuthMethod,
-		HostKeyFingerprint: record.HostKeyFingerprint,
-	}
-}
-
-func newID() (string, error) {
-	raw := make([]byte, 12)
-	if _, err := rand.Read(raw); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(raw), nil
+		Name:               meta.Name,
+		Host:               meta.Host,
+		Port:               meta.Port,
+		Username:           meta.Username,
+		AuthMethod:         meta.AuthMethod,
+		HostKeyFingerprint: meta.HostKeyFingerprint,
+	}, nil
 }

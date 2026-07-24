@@ -29,7 +29,7 @@ func TestSSHIntegration(t *testing.T) {
 		t.Fatalf("read key: %v", err)
 	}
 
-	svc := NewService(NewMemoryRepository(), newUnlockedVault(t))
+	svc := newService(t)
 	summary, err := svc.CreateProfile(CreateProfileInput{
 		Name:       "local",
 		Host:       envOr("DEVKIT_SSH_HOST", "127.0.0.1"),
