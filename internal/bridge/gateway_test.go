@@ -12,9 +12,7 @@ import (
 	"changeme/internal/apperrors"
 	"changeme/internal/capabilities"
 	"changeme/internal/permissions"
-	"changeme/internal/services/database"
-	"changeme/internal/services/notes"
-	sshservice "changeme/internal/services/ssh"
+	"changeme/internal/services/vaultitem"
 	"changeme/internal/vault"
 )
 
@@ -39,8 +37,6 @@ func TestPublicErrorRedacts(t *testing.T) {
 	container := app.NewContainerWithStores(
 		vault.NewMemoryKeyringStore(),
 		failingNotesRepository{err: errors.New(internalCause)},
-		database.NewMemoryRepository(),
-		sshservice.NewMemoryRepository(),
 	)
 	service := NewAppService(container)
 
@@ -150,15 +146,19 @@ type failingNotesRepository struct {
 	err error
 }
 
-func (r failingNotesRepository) List() ([]notes.Record, error) {
+func (r failingNotesRepository) List() ([]vaultitem.Record, error) {
 	return nil, r.err
 }
 
-func (r failingNotesRepository) Get(string) (notes.Record, error) {
-	return notes.Record{}, r.err
+func (r failingNotesRepository) ListByType(string) ([]vaultitem.Record, error) {
+	return nil, r.err
 }
 
-func (r failingNotesRepository) Put(notes.Record) error {
+func (r failingNotesRepository) Get(string) (vaultitem.Record, error) {
+	return vaultitem.Record{}, r.err
+}
+
+func (r failingNotesRepository) Put(vaultitem.Record) error {
 	return r.err
 }
 
@@ -166,4 +166,4 @@ func (r failingNotesRepository) Delete(string) error {
 	return r.err
 }
 
-var _ notes.Repository = failingNotesRepository{}
+var _ vaultitem.Repository = failingNotesRepository{}

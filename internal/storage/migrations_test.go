@@ -165,3 +165,33 @@ func TestMigrateCreatesVaultItemsTable(t *testing.T) {
 		t.Fatalf("second migrate: %v", err)
 	}
 }
+
+func TestMigrateDropsLegacyItemTables(t *testing.T) {
+	dir := t.TempDir()
+	db, err := Open(filepath.Join(dir, "devkit.db"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+
+	if err := Migrate(context.Background(), db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	tableExists := func(name string) bool {
+		var got string
+		err := db.QueryRow(
+			"SELECT name FROM sqlite_master WHERE type='table' AND name = ?", name,
+		).Scan(&got)
+		return err == nil && got == name
+	}
+	for _, legacy := range []string{TableNotes, TableConnectionProfiles, TableSSHProfiles} {
+		if tableExists(legacy) {
+			t.Fatalf("expected legacy table %q to be dropped", legacy)
+		}
+	}
+
+	if err := Migrate(context.Background(), db); err != nil {
+		t.Fatalf("second migrate: %v", err)
+	}
+}
