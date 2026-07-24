@@ -38,7 +38,8 @@ func associatedData(itemType, id, keyID string) crypto.AssociatedData {
 }
 
 // Create seals secret (when non-nil) under AAD {itemType, newID, keyID} and
-// stores the record. When secret is nil, the item has no payload.
+// stores the record. When secret is nil, the item has no payload. Sealing
+// goes through the vault DEK, so this fails if the vault is locked.
 func (s *Store) Create(itemType, keyID string, metadata json.RawMessage, secret []byte) (Record, error) {
 	id, err := NewID()
 	if err != nil {
@@ -107,10 +108,10 @@ func (s *Store) Delete(id string) error {
 }
 
 // Search matches query (case-insensitive) against plaintext metadata across the
-// given types (all types when none are given). It never decrypts payloads, so
-// it works while the vault is locked. Matching is a substring test over the raw
-// metadata JSON; that can match a JSON key name, which is acceptable for the
-// local MVP scale.
+// given types (all types when none are given). It reads plaintext metadata only
+// and never decrypts payloads, so it works while the vault is locked. Matching
+// is a substring test over the raw metadata JSON; that can match a JSON key
+// name, which is acceptable for the local MVP scale.
 func (s *Store) Search(query string, types ...string) ([]Record, error) {
 	needle := strings.ToLower(strings.TrimSpace(query))
 

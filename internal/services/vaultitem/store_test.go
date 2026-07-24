@@ -16,6 +16,15 @@ func newUnlockedStore(t *testing.T) *Store {
 	return NewStore(NewMemoryRepository(), v)
 }
 
+func newStoreWithVault(t *testing.T) (*Store, *vault.Service) {
+	t.Helper()
+	v := vault.NewService(vault.NewMemoryKeyringStore())
+	if _, err := v.Setup("correct-horse"); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	return NewStore(NewMemoryRepository(), v), v
+}
+
 func TestStoreCreateOpenRoundTrip(t *testing.T) {
 	s := newUnlockedStore(t)
 
@@ -72,5 +81,51 @@ func TestStoreSearchMetadataAcrossTypes(t *testing.T) {
 	}
 	if len(scoped) != 1 || scoped[0].Type != "note" {
 		t.Fatalf("scoped Search = %+v, want one note", scoped)
+	}
+}
+
+func TestStoreCreateFailsWhenVaultLocked(t *testing.T) {
+	s, v := newStoreWithVault(t)
+	v.Lock()
+
+	if _, err := s.Create("note", "note-body", json.RawMessage(`{"title":"x"}`), []byte("secret")); err == nil {
+		t.Fatal("expected Create to fail when vault is locked")
+	}
+}
+
+func TestStoreOpenPayloadFailsWhenVaultLocked(t *testing.T) {
+	s, v := newStoreWithVault(t)
+
+	rec, err := s.Create("note", "note-body", json.RawMessage(`{"title":"x"}`), []byte("secret body"))
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	v.Lock()
+
+	if _, err := s.OpenPayload(rec, "note-body"); err == nil {
+		t.Fatal("expected OpenPayload to fail when vault is locked")
+	}
+}
+
+func TestStoreSearchWorksWhenVaultLocked(t *testing.T) {
+	s, v := newStoreWithVault(t)
+
+	if _, err := s.Create("note", "note-body", json.RawMessage(`{"title":"staging notes"}`), []byte("body")); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if _, err := s.Create("db-profile", "db-password", json.RawMessage(`{"name":"prod db"}`), []byte("pw")); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	v.Lock()
+
+	// Search reads plaintext metadata only, so it still works while locked.
+	hits, err := s.Search("staging")
+	if err != nil {
+		t.Fatalf("search while locked: %v", err)
+	}
+	if len(hits) != 1 || hits[0].Type != "note" {
+		t.Fatalf("Search(staging) while locked = %+v, want one note", hits)
 	}
 }
