@@ -19,9 +19,11 @@ export function CommandPalette({ open, commands, onClose }: CommandPaletteProps)
           </button>
         </div>
         <ul>
-          {commands.map((command) => (
-            <li key={command.id}>{command.title}</li>
-          ))}
+          {commands.length > 0 ? (
+            commands.map((command) => <li key={command.id}>{command.title}</li>)
+          ) : (
+            <li role="status">No commands are currently available.</li>
+          )}
         </ul>
       </div>
     </div>
