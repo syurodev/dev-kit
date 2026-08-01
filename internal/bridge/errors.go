@@ -19,12 +19,19 @@ const (
 )
 
 var safeValidationMessages = map[string]struct{}{
-	"title is required":         {},
-	"name is required":          {},
-	"host is required":          {},
-	"username is required":      {},
-	"unsupported auth method":   {},
-	"master password too short": {},
+	"title is required":                       {},
+	"name is required":                        {},
+	"host is required":                        {},
+	"username is required":                    {},
+	"unsupported auth method":                 {},
+	"master password too short":               {},
+	"forward direction is required":           {},
+	"unsupported forward direction":           {},
+	"bind host must be loopback":              {},
+	"bind port must be between 0 and 65535":   {},
+	"target host is required":                 {},
+	"target host is invalid":                  {},
+	"target port must be between 1 and 65535": {},
 }
 
 func publicError(subject string, err error) *apperrors.AppError {

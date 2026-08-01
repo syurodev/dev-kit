@@ -3,10 +3,15 @@ import {
   createSSHProfile,
   deleteSSHProfile,
   listSSHProfiles,
+  listSSHForwards,
   observeSSHHostKey,
   runSSHCommand,
+  startSSHForward,
+  stopSSHForward,
   testSSHConnection,
   trustSSHHostKey,
+  type SSHForward,
+  type SSHForwardDirection,
   type SSHProfile,
 } from "../../bridge/ssh";
 
@@ -25,6 +30,7 @@ const emptyForm = {
 
 export function SSHView() {
   const [profiles, setProfiles] = useState<SSHProfile[]>([]);
+  const [forwards, setForwards] = useState<SSHForward[]>([]);
   const [form, setForm] = useState({ ...emptyForm });
   const [selectedId, setSelectedId] = useState("");
   const [command, setCommand] = useState("echo hello from $(hostname)");
@@ -33,11 +39,20 @@ export function SSHView() {
   const [output, setOutput] = useState("");
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
+  const [forwardDirection, setForwardDirection] = useState<SSHForwardDirection>("local");
+  const [forwardListenHost, setForwardListenHost] = useState("127.0.0.1");
+  const [forwardListenPort, setForwardListenPort] = useState(0);
+  const [forwardTargetHost, setForwardTargetHost] = useState("127.0.0.1");
+  const [forwardTargetPort, setForwardTargetPort] = useState(5432);
 
   async function refresh() {
     try {
-      const list = await listSSHProfiles();
+      const [list, activeForwards] = await Promise.all([
+        listSSHProfiles(),
+        listSSHForwards(),
+      ]);
       setProfiles(list);
+      setForwards(activeForwards);
       if (!selectedId && list.length > 0) {
         setSelectedId(list[0].id);
       }
@@ -109,6 +124,43 @@ export function SSHView() {
       setObservedHostKey("");
       setStatus("Host key trusted.");
       await refresh();
+    } catch (e) {
+      setError(message(e));
+    }
+  }
+
+  async function onStartForward() {
+    if (!selectedId) return;
+    setError("");
+    setStatus("Starting SSH forward…");
+    try {
+      const started = await startSSHForward(
+        selectedId,
+        {
+          direction: forwardDirection,
+          listenHost: forwardListenHost,
+          listenPort: forwardListenPort,
+          targetHost: forwardTargetHost,
+          targetPort: forwardTargetPort,
+        },
+        passphrase,
+      );
+      setForwards((current) => [...current, started]);
+      setStatus(`Forward started on ${started.listenHost}:${started.listenPort}.`);
+    } catch (e) {
+      setStatus("");
+      setError(message(e));
+    } finally {
+      setPassphrase("");
+    }
+  }
+
+  async function onStopForward(id: string) {
+    setError("");
+    try {
+      await stopSSHForward(id);
+      setForwards((current) => current.filter((forward) => forward.id !== id));
+      setStatus("Forward stopped.");
     } catch (e) {
       setError(message(e));
     }
@@ -217,6 +269,68 @@ export function SSHView() {
           {observedHostKey ? <code aria-label="ssh-observed-host-key">{observedHostKey}</code> : null}
         </div>
       ) : null}
+
+      <div className="ssh-forward">
+        <h3>SSH tunnel / forwarding</h3>
+        <p>
+          Forward listeners are loopback-only and live until stopped or the app exits.
+        </p>
+        <select
+          aria-label="ssh-forward-direction"
+          value={forwardDirection}
+          onChange={(e) => setForwardDirection(e.target.value as SSHForwardDirection)}
+        >
+          <option value="local">Local forward (-L)</option>
+          <option value="remote">Remote forward (-R)</option>
+        </select>
+        <input
+          aria-label="ssh-forward-listen-host"
+          placeholder="Listen host (loopback)"
+          value={forwardListenHost}
+          onChange={(e) => setForwardListenHost(e.target.value)}
+        />
+        <input
+          aria-label="ssh-forward-listen-port"
+          type="number"
+          min={0}
+          max={65535}
+          placeholder="Listen port (0 = automatic)"
+          value={forwardListenPort}
+          onChange={(e) => setForwardListenPort(Number(e.target.value))}
+        />
+        <input
+          aria-label="ssh-forward-target-host"
+          placeholder="Target host"
+          value={forwardTargetHost}
+          onChange={(e) => setForwardTargetHost(e.target.value)}
+        />
+        <input
+          aria-label="ssh-forward-target-port"
+          type="number"
+          min={1}
+          max={65535}
+          placeholder="Target port"
+          value={forwardTargetPort}
+          onChange={(e) => setForwardTargetPort(Number(e.target.value))}
+        />
+        <button type="button" onClick={onStartForward} disabled={!selectedId}>
+          Start forwarding
+        </button>
+        {forwards.length > 0 ? (
+          <ul aria-label="ssh-active-forwards">
+            {forwards.map((forward) => (
+              <li key={forward.id}>
+                <code>
+                  {forward.direction} {forward.listenHost}:{forward.listenPort} → {forward.targetHost}:{forward.targetPort}
+                </code>
+                <button type="button" onClick={() => void onStopForward(forward.id)}>
+                  Stop
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
 
       <label>
         Private-key passphrase (used once)

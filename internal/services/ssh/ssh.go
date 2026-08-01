@@ -7,6 +7,7 @@ import (
 	"net"
 	"sort"
 	"strconv"
+	"sync"
 	"time"
 
 	"changeme/internal/services/vaultitem"
@@ -69,11 +70,21 @@ type CommandResult struct {
 }
 
 type Service struct {
-	store Store
+	store       Store
+	forwardMu   sync.Mutex
+	forwards    map[string]*forwardSession
+	forwardDial func(context.Context, string, string) (forwardingClient, error)
 }
 
 func NewService(store Store) *Service {
-	return &Service{store: store}
+	service := &Service{
+		store:    store,
+		forwards: make(map[string]*forwardSession),
+	}
+	service.forwardDial = func(ctx context.Context, id string, passphrase string) (forwardingClient, error) {
+		return service.dial(ctx, id, passphrase)
+	}
+	return service
 }
 
 func (s *Service) CreateProfile(input CreateProfileInput) (ProfileSummary, error) {
@@ -133,6 +144,10 @@ func (s *Service) ListProfiles() ([]ProfileSummary, error) {
 }
 
 func (s *Service) DeleteProfile(id string) error {
+	// A profile owns the SSH client used by its forwards. Stop those runtime
+	// sessions before deleting the profile so a deleted credential cannot leave
+	// an orphaned network path alive in the process.
+	s.stopForwardsForProfile(id)
 	return s.store.Delete(id)
 }
 

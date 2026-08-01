@@ -20,6 +20,21 @@ export type CreateSSHProfileInput = {
   secret: string;
 };
 
+export type SSHForwardDirection = "local" | "remote";
+
+export type SSHForwardSpec = {
+  direction: SSHForwardDirection;
+  listenHost: string;
+  listenPort: number;
+  targetHost: string;
+  targetPort: number;
+};
+
+export type SSHForward = SSHForwardSpec & {
+  id: string;
+  profileId: string;
+};
+
 function toProfile(p: {
   id: string;
   name: string;
@@ -82,4 +97,56 @@ export function runSSHCommand(id: string, command: string, passphrase: string): 
     const result = await AppService.SSHRunCommand(id, command, passphrase);
     return result.output;
   });
+}
+
+function toForward(f: {
+  id: string;
+  profile_id: string;
+  direction: string;
+  listen_host: string;
+  listen_port: number;
+  target_host: string;
+  target_port: number;
+}): SSHForward {
+  return {
+    id: f.id,
+    profileId: f.profile_id,
+    direction: f.direction === "remote" ? "remote" : "local",
+    listenHost: f.listen_host,
+    listenPort: f.listen_port,
+    targetHost: f.target_host,
+    targetPort: f.target_port,
+  };
+}
+
+export function listSSHForwards(): Promise<SSHForward[]> {
+  return callBridge(async () => {
+    const list = await AppService.SSHListForwards();
+    return (list ?? []).map(toForward);
+  });
+}
+
+export function startSSHForward(
+  id: string,
+  spec: SSHForwardSpec,
+  passphrase: string,
+): Promise<SSHForward> {
+  return callBridge(async () => {
+    const started = await AppService.SSHStartForward(
+      id,
+      {
+        direction: spec.direction,
+        listen_host: spec.listenHost,
+        listen_port: spec.listenPort,
+        target_host: spec.targetHost,
+        target_port: spec.targetPort,
+      },
+      passphrase,
+    );
+    return toForward(started);
+  });
+}
+
+export function stopSSHForward(id: string): Promise<void> {
+  return callBridge(() => AppService.SSHStopForward(id) as Promise<void>);
 }

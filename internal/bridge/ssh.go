@@ -90,3 +90,44 @@ func (s *AppService) SSHRunCommand(ctx context.Context, id string, command strin
 	}
 	return result.(sshservice.CommandResult), nil
 }
+
+// SSHStartForward starts a runtime-only local (-L) or remote (-R) TCP
+// forward. The forwarding capability is separate from ordinary SSH command
+// execution because it creates a long-lived network path.
+func (s *AppService) SSHStartForward(ctx context.Context, id string, spec sshservice.ForwardSpec, passphrase string) (sshservice.ForwardInfo, error) {
+	opaqueID := recordID(id)
+	result, err := s.call(ctx, "builtin.ssh", "ssh:forward", "profile:"+opaqueID, map[string]any{
+		"action":     "start_forward",
+		"profile_id": opaqueID,
+		"direction":  spec.Direction,
+	}, func(callCtx context.Context) (any, error) {
+		return s.container.SSH.StartForward(callCtx, id, spec, passphrase)
+	})
+	if err != nil {
+		return sshservice.ForwardInfo{}, err
+	}
+	return result.(sshservice.ForwardInfo), nil
+}
+
+func (s *AppService) SSHListForwards() ([]sshservice.ForwardInfo, error) {
+	result, err := s.call(context.Background(), "builtin.ssh", "ssh:forward", "forward:list", map[string]any{
+		"action": "list_forwards",
+	}, func(context.Context) (any, error) {
+		return s.container.SSH.ListForwards(), nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]sshservice.ForwardInfo), nil
+}
+
+func (s *AppService) SSHStopForward(id string) error {
+	opaqueID := recordID(id)
+	_, err := s.call(context.Background(), "builtin.ssh", "ssh:forward", "forward:"+opaqueID, map[string]any{
+		"action":     "stop_forward",
+		"forward_id": opaqueID,
+	}, func(context.Context) (any, error) {
+		return nil, s.container.SSH.StopForward(id)
+	})
+	return err
+}

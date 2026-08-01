@@ -54,6 +54,9 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.ssh", Capability: "ssh:connect", Scope: "profile:list"},
 		{SubjectID: "builtin.ssh", Capability: "ssh:connect", Scope: "profile:new"},
 		{SubjectID: "builtin.ssh", Capability: "ssh:connect", Scope: "profile:*"},
+		{SubjectID: "builtin.ssh", Capability: "ssh:forward", Scope: "profile:*"},
+		{SubjectID: "builtin.ssh", Capability: "ssh:forward", Scope: "forward:list"},
+		{SubjectID: "builtin.ssh", Capability: "ssh:forward", Scope: "forward:*"},
 		{SubjectID: "builtin.vault", Capability: "vault:manage", Scope: "vault"},
 		{SubjectID: "builtin.search", Capability: "vault:search", Scope: "item:search"},
 	})

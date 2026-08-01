@@ -12,6 +12,7 @@ import (
 	"changeme/internal/apperrors"
 	"changeme/internal/capabilities"
 	"changeme/internal/permissions"
+	sshservice "changeme/internal/services/ssh"
 	"changeme/internal/services/vaultitem"
 	"changeme/internal/vault"
 )
@@ -139,6 +140,46 @@ func TestSSHBridgeDoesNotAuditPassphrase(t *testing.T) {
 
 	if events := fmt.Sprint(container.Audit.Events()); strings.Contains(events, passphrase) {
 		t.Fatalf("audit events leaked SSH passphrase: %s", events)
+	}
+}
+
+func TestSSHForwardUsesDedicatedCapability(t *testing.T) {
+	container := app.NewContainer()
+	container.Permissions = permissions.NewPolicy([]permissions.Grant{
+		{SubjectID: "builtin.ssh", Capability: "ssh:connect", Scope: "profile:*"},
+	})
+	container.Capabilities = capabilities.NewGateway(container.Permissions, container.Audit)
+	service := NewAppService(container)
+
+	_, err := service.SSHStartForward(context.Background(), "000000000000000000000000", sshservice.ForwardSpec{
+		Direction:  sshservice.ForwardDirectionLocal,
+		ListenHost: "127.0.0.1",
+		TargetHost: "127.0.0.1",
+		TargetPort: 5432,
+	}, "one-time-passphrase")
+	var publicErr *apperrors.AppError
+	if !errors.As(err, &publicErr) {
+		t.Fatalf("SSHStartForward error = %T %v, want *apperrors.AppError", err, err)
+	}
+	if publicErr.Code != codePermissionDenied {
+		t.Fatalf("error code = %q, want permission_denied", publicErr.Code)
+	}
+}
+
+func TestSSHForwardBridgeDoesNotAuditPassphrase(t *testing.T) {
+	container := app.NewContainer()
+	service := NewAppService(container)
+	const passphrase = "forward-passphrase-must-not-be-audited"
+
+	_, _ = service.SSHStartForward(context.Background(), "000000000000000000000000", sshservice.ForwardSpec{
+		Direction:  sshservice.ForwardDirectionLocal,
+		ListenHost: "0.0.0.0",
+		TargetHost: "127.0.0.1",
+		TargetPort: 5432,
+	}, passphrase)
+
+	if events := fmt.Sprint(container.Audit.Events()); strings.Contains(events, passphrase) {
+		t.Fatalf("audit events leaked SSH forwarding passphrase: %s", events)
 	}
 }
 

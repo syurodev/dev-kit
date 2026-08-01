@@ -4,5 +4,7 @@
 export type {
     CommandResult,
     CreateProfileInput,
+    ForwardInfo,
+    ForwardSpec,
     ProfileSummary
 } from "./models.js";

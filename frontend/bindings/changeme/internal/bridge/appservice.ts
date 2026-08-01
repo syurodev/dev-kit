@@ -79,6 +79,10 @@ export function SSHDeleteProfile(id: string): $CancellablePromise<void> {
     return $Call.ByID(2384439843, id);
 }
 
+export function SSHListForwards(): $CancellablePromise<ssh$0.ForwardInfo[] | null> {
+    return $Call.ByID(3624548715);
+}
+
 export function SSHListProfiles(): $CancellablePromise<ssh$0.ProfileSummary[] | null> {
     return $Call.ByID(1529350215);
 }
@@ -89,6 +93,19 @@ export function SSHObserveHostKey(id: string): $CancellablePromise<string> {
 
 export function SSHRunCommand(id: string, command: string, passphrase: string): $CancellablePromise<ssh$0.CommandResult> {
     return $Call.ByID(3450765639, id, command, passphrase);
+}
+
+/**
+ * SSHStartForward starts a runtime-only local (-L) or remote (-R) TCP
+ * forward. The forwarding capability is separate from ordinary SSH command
+ * execution because it creates a long-lived network path.
+ */
+export function SSHStartForward(id: string, spec: ssh$0.ForwardSpec, passphrase: string): $CancellablePromise<ssh$0.ForwardInfo> {
+    return $Call.ByID(2417694560, id, spec, passphrase);
+}
+
+export function SSHStopForward(id: string): $CancellablePromise<void> {
+    return $Call.ByID(1975449174, id);
 }
 
 export function SSHTestConnection(id: string, passphrase: string): $CancellablePromise<void> {

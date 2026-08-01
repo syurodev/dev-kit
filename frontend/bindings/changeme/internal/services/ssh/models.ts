@@ -20,6 +20,35 @@ export interface CreateProfileInput {
 }
 
 /**
+ * ForwardInfo is the safe runtime representation returned to the bridge. It
+ * contains no credentials, passphrases, private keys, or SSH client details.
+ */
+export interface ForwardInfo {
+    "id": string;
+    "profile_id": string;
+    "direction": string;
+    "listen_host": string;
+    "listen_port": number;
+    "target_host": string;
+    "target_port": number;
+}
+
+/**
+ * ForwardSpec describes one TCP forwarding rule. ListenHost is deliberately
+ * restricted to loopback addresses so a started tunnel cannot become an
+ * accidental LAN-facing proxy. For local forwarding, TargetHost/TargetPort
+ * are resolved from the SSH server; for remote forwarding, they are resolved
+ * by the DevKit process.
+ */
+export interface ForwardSpec {
+    "direction": string;
+    "listen_host": string;
+    "listen_port": number;
+    "target_host": string;
+    "target_port": number;
+}
+
+/**
  * ProfileSummary is an SSH profile without the (encrypted) secret.
  */
 export interface ProfileSummary {

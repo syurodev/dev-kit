@@ -58,6 +58,7 @@ func main() {
 		vaultitem.NewSQLRepository(db),
 	)
 	defer container.Database.Close()
+	defer container.SSH.Close()
 	if err := app.RegisterBuiltins(container); err != nil {
 		log.Fatal(err)
 	}
