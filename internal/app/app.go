@@ -9,40 +9,52 @@ import (
 )
 
 func RegisterBuiltins(container *Container) error {
-	if err := container.Modules.Register(modules.Module{
-		ID:       "tools",
-		Title:    "Tools",
-		Commands: []string{"tools.hash"},
-		Views:    []string{"tools.hash"},
-	}); err != nil {
-		return err
+	// Built-ins use the same declarative descriptor shape as future extensions.
+	// The capability list is descriptive metadata only; grants remain owned by
+	// the permission policy in the application container.
+	builtins := []modules.ModuleManifest{
+		{
+			ID:           "tools",
+			Title:        "Tools",
+			Version:      "1.0.0",
+			APIVersion:   modules.CurrentAPIVersion,
+			Commands:     []string{"tools.hash"},
+			Views:        []string{"tools.hash"},
+			Capabilities: []string{"tools:hash"},
+		},
+		{
+			ID:           "notes",
+			Title:        "Notes",
+			Version:      "1.0.0",
+			APIVersion:   modules.CurrentAPIVersion,
+			Commands:     []string{"notes.create"},
+			Views:        []string{"notes.list"},
+			Capabilities: []string{"notes:read", "notes:write"},
+		},
+		{
+			ID:           "database",
+			Title:        "Database",
+			Version:      "1.0.0",
+			APIVersion:   modules.CurrentAPIVersion,
+			Commands:     []string{"database.query"},
+			Views:        []string{"database.connections"},
+			Capabilities: []string{"db:query"},
+		},
+		{
+			ID:           "ssh",
+			Title:        "SSH",
+			Version:      "1.0.0",
+			APIVersion:   modules.CurrentAPIVersion,
+			Commands:     []string{"ssh.run"},
+			Views:        []string{"ssh.connections"},
+			Capabilities: []string{"ssh:connect", "ssh:forward"},
+		},
 	}
 
-	if err := container.Modules.Register(modules.Module{
-		ID:       "notes",
-		Title:    "Notes",
-		Commands: []string{"notes.create"},
-		Views:    []string{"notes.list"},
-	}); err != nil {
-		return err
-	}
-
-	if err := container.Modules.Register(modules.Module{
-		ID:       "database",
-		Title:    "Database",
-		Commands: []string{"database.query"},
-		Views:    []string{"database.connections"},
-	}); err != nil {
-		return err
-	}
-
-	if err := container.Modules.Register(modules.Module{
-		ID:       "ssh",
-		Title:    "SSH",
-		Commands: []string{"ssh.run"},
-		Views:    []string{"ssh.connections"},
-	}); err != nil {
-		return err
+	for _, manifest := range builtins {
+		if err := container.Modules.Register(manifest); err != nil {
+			return err
+		}
 	}
 
 	return container.Commands.Register(commands.Command{

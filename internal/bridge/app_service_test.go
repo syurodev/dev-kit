@@ -8,6 +8,7 @@ import (
 
 	"changeme/internal/app"
 	"changeme/internal/capabilities"
+	"changeme/internal/modules"
 	"changeme/internal/permissions"
 )
 
@@ -22,18 +23,70 @@ func newTestService(t *testing.T) *AppService {
 
 func TestAppServiceListsModules(t *testing.T) {
 	service := newTestService(t)
-	modules := service.ListModules()
+	moduleList := service.ListModules()
 
-	if len(modules) != 4 {
-		t.Fatalf("len(modules) = %d, want 4", len(modules))
+	if len(moduleList) != 4 {
+		t.Fatalf("len(modules) = %d, want 4", len(moduleList))
+	}
+	wantCapabilities := map[string][]string{
+		"tools":    {"tools:hash"},
+		"notes":    {"notes:read", "notes:write"},
+		"database": {"db:query"},
+		"ssh":      {"ssh:connect", "ssh:forward"},
 	}
 	found := map[string]bool{}
-	for _, m := range modules {
+	for _, m := range moduleList {
 		found[m.ID] = true
+		if m.Version != "1.0.0" {
+			t.Errorf("module %q version = %q, want 1.0.0", m.ID, m.Version)
+		}
+		if m.APIVersion != modules.CurrentAPIVersion {
+			t.Errorf("module %q api version = %q, want %q", m.ID, m.APIVersion, modules.CurrentAPIVersion)
+		}
+		want, ok := wantCapabilities[m.ID]
+		if !ok {
+			t.Errorf("unexpected module %q", m.ID)
+			continue
+		}
+		if len(m.Capabilities) == 0 {
+			t.Errorf("module %q capabilities are empty", m.ID)
+		}
+		if got, wantJSON := string(mustJSON(t, m.Capabilities)), string(mustJSON(t, want)); got != wantJSON {
+			t.Errorf("module %q capabilities = %s, want %s", m.ID, got, wantJSON)
+		}
 	}
 	if !found["tools"] || !found["notes"] || !found["database"] || !found["ssh"] {
-		t.Fatalf("modules = %+v, want tools, notes, database and ssh", modules)
+		t.Fatalf("modules = %+v, want tools, notes, database and ssh", moduleList)
 	}
+}
+
+func TestAppServiceModuleDTOJSONExposesOnlyPublicMetadata(t *testing.T) {
+	service := newTestService(t)
+	payload, err := json.Marshal(service.ListModules())
+	if err != nil {
+		t.Fatalf("json.Marshal(ListModules()) returned error: %v", err)
+	}
+
+	serialized := string(payload)
+	for _, expected := range []string{`"version":"1.0.0"`, `"api_version":"1"`, `"capabilities":[`} {
+		if !strings.Contains(serialized, expected) {
+			t.Fatalf("ListModules JSON = %s, want it to contain %s", serialized, expected)
+		}
+	}
+	for _, forbidden := range []string{"handler", "secret", "grant"} {
+		if strings.Contains(strings.ToLower(serialized), forbidden) {
+			t.Fatalf("ListModules JSON exposed forbidden metadata %q: %s", forbidden, serialized)
+		}
+	}
+}
+
+func mustJSON(t *testing.T, value any) []byte {
+	t.Helper()
+	payload, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("json.Marshal(%T) returned error: %v", value, err)
+	}
+	return payload
 }
 
 func TestAppServiceExecutesHashCommand(t *testing.T) {

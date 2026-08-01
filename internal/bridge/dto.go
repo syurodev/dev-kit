@@ -1,10 +1,13 @@
 package bridge
 
 type ModuleDTO struct {
-	ID       string   `json:"id"`
-	Title    string   `json:"title"`
-	Commands []string `json:"commands"`
-	Views    []string `json:"views"`
+	ID           string   `json:"id"`
+	Title        string   `json:"title"`
+	Version      string   `json:"version"`
+	APIVersion   string   `json:"api_version"`
+	Commands     []string `json:"commands"`
+	Views        []string `json:"views"`
+	Capabilities []string `json:"capabilities"`
 }
 
 type ExecuteCommandRequest struct {

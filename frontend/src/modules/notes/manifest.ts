@@ -1,9 +1,12 @@
-import type { ModuleDefinition } from "../registry";
+import type { ModuleManifest } from "../registry";
 import { NotesView } from "./NotesView";
 
-export const notesModule: ModuleDefinition = {
+export const notesModule: ModuleManifest = {
   id: "notes",
   title: "Notes",
+  version: "1.0.0",
+  apiVersion: "1",
+  capabilities: ["notes:read", "notes:write"],
   commands: [
     {
       id: "notes.create",

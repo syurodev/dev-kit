@@ -9,8 +9,11 @@ export interface ExecuteCommandRequest {
 export interface ModuleDTO {
     "id": string;
     "title": string;
+    "version": string;
+    "api_version": string;
     "commands": string[] | null;
     "views": string[] | null;
+    "capabilities": string[] | null;
 }
 
 /**

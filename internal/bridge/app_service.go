@@ -21,10 +21,13 @@ func (s *AppService) ListModules() []ModuleDTO {
 	result := make([]ModuleDTO, 0, len(modules))
 	for _, module := range modules {
 		result = append(result, ModuleDTO{
-			ID:       module.ID,
-			Title:    module.Title,
-			Commands: module.Commands,
-			Views:    module.Views,
+			ID:           module.ID,
+			Title:        module.Title,
+			Version:      module.Version,
+			APIVersion:   module.APIVersion,
+			Commands:     append([]string(nil), module.Commands...),
+			Views:        append([]string(nil), module.Views...),
+			Capabilities: append([]string(nil), module.Capabilities...),
 		})
 	}
 	return result
