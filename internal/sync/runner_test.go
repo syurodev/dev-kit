@@ -1,0 +1,207 @@
+package sync
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+)
+
+func TestMemoryTransportPushIsIdempotentAndKeepsPayloadOpaque(t *testing.T) {
+	transport := NewMemoryTransport()
+	now := time.Unix(100, 0).UTC()
+	change := validChange("change-1", now)
+	payload := append([]byte(nil), change.Payload...)
+	result, err := transport.Push(context.Background(), []Change{change})
+	if err != nil {
+		t.Fatalf("first push: %v", err)
+	}
+	if len(result.SentIdempotencyKeys) != 1 || result.SentIdempotencyKeys[0] != change.IdempotencyKey {
+		t.Fatalf("first result = %+v", result)
+	}
+	change.Payload[0] ^= 0xff
+	result, err = transport.Push(context.Background(), []Change{validChange("change-1", now)})
+	if err != nil || len(result.SentIdempotencyKeys) != 1 {
+		t.Fatalf("repeated push = %+v, err %v", result, err)
+	}
+	received := transport.Received()
+	if len(received) != 1 || string(received[0].Payload) != string(payload) {
+		t.Fatalf("received payload = %x, want %x", received[0].Payload, payload)
+	}
+	received[0].Payload[0] ^= 0xff
+	if transport.Received()[0].Payload[0] != payload[0] {
+		t.Fatal("received payload was not clone-safe")
+	}
+}
+
+func TestMemoryTransportForcedErrorAndConflict(t *testing.T) {
+	now := time.Unix(100, 0).UTC()
+	conflict := Conflict{
+		ID:              "conflict-1",
+		RecordID:        "record-1",
+		RecordType:      "note",
+		LocalChangeKey:  "change-1",
+		RemoteChangeKey: "remote-1",
+		DetectedAt:      now,
+	}
+	transport := NewMemoryTransport(MemoryTransportConfig{ForcedConflicts: []Conflict{conflict}})
+	result, err := transport.Push(context.Background(), []Change{validChange("change-1", now)})
+	if err != nil || len(result.Conflicts) != 1 || result.Conflicts[0].ID != conflict.ID {
+		t.Fatalf("conflict result = %+v, err %v", result, err)
+	}
+	if len(transport.Received()) != 0 {
+		t.Fatal("conflicted change was accepted")
+	}
+	if err := transport.SetForcedError(FailureNetwork); err != nil {
+		t.Fatal(err)
+	}
+	_, err = transport.Push(context.Background(), []Change{validChange("change-2", now)})
+	var transportErr TransportError
+	if !errors.As(err, &transportErr) || transportErr.FailureReason() != FailureNetwork {
+		t.Fatalf("forced error = %v", err)
+	}
+}
+
+func TestRunnerPushesAndIsIdempotentOnRerun(t *testing.T) {
+	now := time.Unix(100, 0).UTC()
+	outbox := NewMemoryOutbox()
+	for _, key := range []string{"b", "a"} {
+		if err := outbox.Enqueue(validChange(key, now)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	transport := NewMemoryTransport()
+	runner := NewRunner(outbox, transport, RunnerConfig{Clock: func() time.Time { return now }})
+	report, err := runner.Run(context.Background(), 0)
+	if err != nil || report.Attempted != 2 || report.Sent != 2 || report.Retried != 0 || report.Conflicts != 0 {
+		t.Fatalf("first run = %+v, err %v", report, err)
+	}
+	if rerun, err := runner.Run(context.Background(), 0); err != nil || rerun != (RunReport{}) {
+		t.Fatalf("rerun = %+v, err %v", rerun, err)
+	}
+	for _, key := range []string{"a", "b"} {
+		change, err := outbox.Get(key)
+		if err != nil || change.Status != StatusSynced {
+			t.Fatalf("change %s = %+v, err %v", key, change, err)
+		}
+	}
+}
+
+func TestRunnerRetriesTransportErrorWithSafeReason(t *testing.T) {
+	now := time.Unix(100, 0).UTC()
+	outbox := NewMemoryOutbox()
+	if err := outbox.Enqueue(validChange("retry", now)); err != nil {
+		t.Fatal(err)
+	}
+	transport := NewMemoryTransport(MemoryTransportConfig{ForcedError: FailureNetwork})
+	runner := NewRunner(outbox, transport, RunnerConfig{Clock: func() time.Time { return now }})
+	report, err := runner.Run(context.Background(), 1)
+	if err == nil || report.Attempted != 1 || report.Retried != 1 {
+		t.Fatalf("run = %+v, err %v", report, err)
+	}
+	change, _ := outbox.Get("retry")
+	if change.Status != StatusPending || change.LastError != FailureNetwork || change.Attempts != 1 {
+		t.Fatalf("retry state = %+v", change)
+	}
+}
+
+func TestRunnerMarksConflict(t *testing.T) {
+	now := time.Unix(100, 0).UTC()
+	change := validChange("conflict-key", now)
+	conflict := Conflict{ID: "c1", RecordID: change.RecordID, RecordType: change.RecordType, LocalChangeKey: change.IdempotencyKey, RemoteChangeKey: "remote", DetectedAt: now}
+	outbox := NewMemoryOutbox()
+	if err := outbox.Enqueue(change); err != nil {
+		t.Fatal(err)
+	}
+	runner := NewRunner(outbox, NewMemoryTransport(MemoryTransportConfig{ForcedConflicts: []Conflict{conflict}}), RunnerConfig{Clock: func() time.Time { return now }})
+	report, err := runner.Run(context.Background(), 1)
+	if err != nil || report.Conflicts != 1 || report.Sent != 0 {
+		t.Fatalf("run = %+v, err %v", report, err)
+	}
+	stored, _ := outbox.Get(change.IdempotencyKey)
+	if stored.Status != StatusConflict || stored.Conflict == nil {
+		t.Fatalf("conflict state = %+v", stored)
+	}
+}
+
+func TestRunnerRejectsPartialResponseAndRetriesMissing(t *testing.T) {
+	now := time.Unix(100, 0).UTC()
+	outbox := NewMemoryOutbox()
+	for _, key := range []string{"sent", "missing"} {
+		if err := outbox.Enqueue(validChange(key, now)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	transport := &scriptedTransport{push: func(_ context.Context, changes []Change) (PushResult, error) {
+		return PushResult{SentIdempotencyKeys: []string{changes[1].IdempotencyKey}}, nil
+	}}
+	runner := NewRunner(outbox, transport, RunnerConfig{Clock: func() time.Time { return now }})
+	report, err := runner.Run(context.Background(), 0)
+	if !errors.Is(err, ErrInvalidTransportResponse) || report.Sent != 1 || report.Retried != 1 {
+		t.Fatalf("run = %+v, err %v", report, err)
+	}
+	sent, _ := outbox.Get("sent")
+	missing, _ := outbox.Get("missing")
+	if sent.Status != StatusSynced || missing.Status != StatusPending || missing.LastError != FailureInvalidResponse {
+		t.Fatalf("states = sent %+v, missing %+v", sent, missing)
+	}
+}
+
+func TestRunnerRejectsMalformedResponseWithoutMarkingSent(t *testing.T) {
+	now := time.Unix(100, 0).UTC()
+	outbox := NewMemoryOutbox()
+	if err := outbox.Enqueue(validChange("one", now)); err != nil {
+		t.Fatal(err)
+	}
+	transport := &scriptedTransport{push: func(context.Context, []Change) (PushResult, error) {
+		return PushResult{SentIdempotencyKeys: []string{"unknown"}}, nil
+	}}
+	runner := NewRunner(outbox, transport, RunnerConfig{Clock: func() time.Time { return now }})
+	report, err := runner.Run(context.Background(), 1)
+	if !errors.Is(err, ErrInvalidTransportResponse) || report.Sent != 0 || report.Retried != 1 {
+		t.Fatalf("run = %+v, err %v", report, err)
+	}
+	change, _ := outbox.Get("one")
+	if change.Status != StatusPending || change.LastError != FailureInvalidResponse {
+		t.Fatalf("state = %+v", change)
+	}
+}
+
+func TestRunnerHandlesCancellationWithoutPersistingRawError(t *testing.T) {
+	now := time.Unix(100, 0).UTC()
+	outbox := NewMemoryOutbox()
+	if err := outbox.Enqueue(validChange("cancelled", now)); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	runner := NewRunner(outbox, NewMemoryTransport(), RunnerConfig{Clock: func() time.Time { return now }})
+	if _, err := runner.Run(ctx, 1); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled run error = %v", err)
+	}
+	change, _ := outbox.Get("cancelled")
+	if change.Status != StatusPending || change.LastError != "" {
+		t.Fatalf("cancelled state = %+v", change)
+	}
+
+	transport := &scriptedTransport{push: func(ctx context.Context, _ []Change) (PushResult, error) {
+		return PushResult{}, context.Canceled
+	}}
+	runner = NewRunner(outbox, transport, RunnerConfig{Clock: func() time.Time { return now }})
+	report, err := runner.Run(context.Background(), 1)
+	if !errors.Is(err, context.Canceled) || report.Retried != 1 {
+		t.Fatalf("transport cancellation run = %+v, err %v", report, err)
+	}
+	change, _ = outbox.Get("cancelled")
+	if change.LastError != FailureTimeout || change.Status != StatusPending {
+		t.Fatalf("cancel retry state = %+v", change)
+	}
+}
+
+type scriptedTransport struct {
+	push func(context.Context, []Change) (PushResult, error)
+}
+
+func (t *scriptedTransport) Push(ctx context.Context, changes []Change) (PushResult, error) {
+	return t.push(ctx, changes)
+}

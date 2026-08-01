@@ -17,6 +17,8 @@ const (
 	TableConnectionProfiles = "connection_profiles"
 	TableSSHProfiles        = "ssh_profiles"
 	TableVaultItems         = "vault_items"
+	TableSyncOutbox         = "sync_outbox"
+	TableSyncCursors        = "sync_cursors"
 )
 
 var chmodFile = os.Chmod
@@ -185,7 +187,43 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		},
 	}
 
-	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6})
+	m7 := Migration{
+		Version: 7,
+		Name:    "create local sync persistence",
+		Up: func(ctx context.Context) error {
+			// This is local queue state only. The payload is opaque ciphertext;
+			// no vault_items plaintext is copied or backfilled into this schema.
+			if _, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE TABLE IF NOT EXISTS %s (
+					id TEXT PRIMARY KEY,
+					record_id TEXT NOT NULL,
+					record_type TEXT NOT NULL,
+					operation TEXT NOT NULL,
+					payload BLOB NOT NULL,
+					key_version INTEGER NOT NULL,
+					status TEXT NOT NULL,
+					attempts INTEGER NOT NULL DEFAULT 0,
+					next_attempt_at TEXT NOT NULL,
+					last_error TEXT NOT NULL DEFAULT '',
+					idempotency_key TEXT NOT NULL UNIQUE,
+					conflict_json TEXT,
+					created_at TEXT NOT NULL
+				)`, TableSyncOutbox,
+			)); err != nil {
+				return err
+			}
+			_, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE TABLE IF NOT EXISTS %s (
+					name TEXT PRIMARY KEY,
+					cursor TEXT NOT NULL,
+					updated_at TEXT NOT NULL
+				)`, TableSyncCursors,
+			))
+			return err
+		},
+	}
+
+	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7})
 	if err != nil {
 		return err
 	}
