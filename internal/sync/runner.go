@@ -114,7 +114,20 @@ func (r *Runner) Run(ctx context.Context, limit int) (RunReport, error) {
 	}
 	report.Attempted = len(ready)
 
-	result, pushErr := r.transport.Push(ctx, ready)
+	operations := make([]PushOperation, 0, len(ready))
+	for _, change := range ready {
+		operation, operationErr := pushOperationFromChange(change)
+		if operationErr != nil {
+			if retryErr := r.retryAll(ready, FailureInvalidResponse, now); retryErr != nil {
+				return report, retryErr
+			}
+			report.Retried = len(ready)
+			return report, operationErr
+		}
+		operations = append(operations, operation)
+	}
+
+	result, pushErr := r.transport.Push(ctx, operations)
 	if pushErr != nil {
 		report.Retried = len(ready)
 		if retryErr := r.retryAll(ready, classifyTransportError(pushErr), now); retryErr != nil {

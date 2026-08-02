@@ -248,7 +248,6 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 				{"operation_id", "TEXT NOT NULL DEFAULT ''"},
 				{"entity_version", "INTEGER NOT NULL DEFAULT 0"},
 				{"key_id", "TEXT NOT NULL DEFAULT ''"},
-				{"content_digest", "TEXT NOT NULL DEFAULT ''"},
 			} {
 				if err := addColumnIfNotExists(ctx, db, TableSyncOutbox, col.name, col.definition); err != nil {
 					return err

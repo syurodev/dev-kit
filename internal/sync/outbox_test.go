@@ -15,11 +15,13 @@ func TestMemoryOutboxEnqueueIsIdempotentAndCopiesPayload(t *testing.T) {
 	outbox := NewMemoryOutbox()
 	now := time.Unix(100, 0).UTC()
 	change := validChange("key-1", now)
+	original := cloneChange(change)
+	originalFirstByte := original.Payload[0]
 	if err := outbox.Enqueue(change); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
 	change.Payload[0] = 0xff
-	if err := outbox.Enqueue(validChange("key-1", now)); err != nil {
+	if err := outbox.Enqueue(original); err != nil {
 		t.Fatalf("same change enqueue: %v", err)
 	}
 	conflicting := validChange("key-1", now)
@@ -31,12 +33,12 @@ func TestMemoryOutboxEnqueueIsIdempotentAndCopiesPayload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if got.Payload[0] != 0x01 {
+	if got.Payload[0] != originalFirstByte {
 		t.Fatalf("payload was not copied: %x", got.Payload)
 	}
 	got.Payload[0] = 0xee
 	again, _ := outbox.Get("key-1")
-	if again.Payload[0] != 0x01 {
+	if again.Payload[0] != originalFirstByte {
 		t.Fatalf("public state exposed payload: %x", again.Payload)
 	}
 }

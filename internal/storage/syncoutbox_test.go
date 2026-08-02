@@ -35,7 +35,7 @@ func testSQLSyncContext() replicationsync.SyncContext {
 }
 
 func testSQLChange(key string, createdAt time.Time) replicationsync.Change {
-	return replicationsync.NewChange(key, "record-1", "note", replicationsync.OperationCreate, []byte{0x01, 0x02}, 1, testSQLSyncContext(), "key-1", "digest-1", createdAt)
+	return replicationsync.NewChange(key, "record-1", "note", replicationsync.OperationCreate, []byte{0x01, 0x02}, 1, testSQLSyncContext(), "key-1", createdAt)
 }
 
 func testSQLConflict(now time.Time) replicationsync.Conflict {

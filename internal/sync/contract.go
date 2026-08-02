@@ -150,17 +150,13 @@ type Change struct {
 	OperationID     string
 	EntityVersion   uint32
 	KeyID           string
-	// ContentDigest is a local-only SHA-256 of plaintext used for idempotency.
-	// Future transport/wire DTOs must not send this digest to a server; use a
-	// keyed/HMAC digest or omit it on the wire.
-	ContentDigest string
-	CreatedAt     time.Time
-	Status        Status
-	Attempts      int
-	NextAttemptAt time.Time
-	LastError     FailureReason
-	Conflict      *Conflict
-	SyncingSince  time.Time
+	CreatedAt       time.Time
+	Status          Status
+	Attempts        int
+	NextAttemptAt   time.Time
+	LastError       FailureReason
+	Conflict        *Conflict
+	SyncingSince    time.Time
 }
 
 // NewChange creates a pending change with safe defaults.
@@ -170,7 +166,7 @@ func NewChange(
 	payload []byte,
 	keyVersion uint32,
 	ctx SyncContext,
-	keyID, contentDigest string,
+	keyID string,
 	createdAt time.Time,
 ) Change {
 	return Change{
@@ -186,7 +182,6 @@ func NewChange(
 		OperationID:     ctx.OperationID,
 		EntityVersion:   ctx.EntityVersion,
 		KeyID:           keyID,
-		ContentDigest:   contentDigest,
 		CreatedAt:       createdAt,
 		Status:          StatusPending,
 		NextAttemptAt:   createdAt,
@@ -224,9 +219,6 @@ func (c Change) Validate() error {
 		return err
 	}
 	if err := validateSyncIdentifier("key id", c.KeyID, 256); err != nil {
-		return err
-	}
-	if err := validateIdentifier("content digest", c.ContentDigest, 128); err != nil {
 		return err
 	}
 	if c.CreatedAt.IsZero() {

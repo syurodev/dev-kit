@@ -1,6 +1,8 @@
 package sync
 
 import (
+	"bytes"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -17,7 +19,17 @@ func testSyncContext() SyncContext {
 }
 
 func validChange(key string, createdAt time.Time) Change {
-	return NewChange(key, "record-1", "note", OperationCreate, []byte{0x01, 0x02}, 1, testSyncContext(), "key-1", "digest-1", createdAt)
+	ctx := testSyncContext()
+	ctx.OperationID = key
+	envelope, err := SealPayload(testVault{key: bytes.Repeat([]byte{0x42}, 32)}, ctx, "record-1", "note", "key-1", 1, OperationCreate, []byte("record"))
+	if err != nil {
+		panic(err)
+	}
+	payload, err := json.Marshal(envelope)
+	if err != nil {
+		panic(err)
+	}
+	return NewChange(key, "record-1", "note", OperationCreate, payload, 1, ctx, "key-1", createdAt)
 }
 
 func TestSyncContextValidate(t *testing.T) {

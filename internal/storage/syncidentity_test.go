@@ -21,15 +21,22 @@ func openTestDB(t *testing.T) *sql.DB {
 	return db
 }
 
-func TestEnsureLocalPersistsStableIDs(t *testing.T) {
+func TestEnsureLocalDevicePersistsStableIDWithoutMintingAccountIdentity(t *testing.T) {
 	db := openTestDB(t)
-	store := NewSQLIdentityStore(db)
-	a1, d1, err := store.EnsureLocal(context.Background())
-	if err != nil || a1 == "" || d1 == "" {
-		t.Fatalf("first: %v %q %q", err, a1, d1)
+	store := NewSQLDeviceIdentityStore(db)
+	d1, err := store.EnsureLocalDevice(context.Background())
+	if err != nil || d1 == "" {
+		t.Fatalf("first: %v %q", err, d1)
 	}
-	a2, d2, err := store.EnsureLocal(context.Background())
-	if err != nil || a1 != a2 || d1 != d2 {
-		t.Fatalf("second differed: %q/%q vs %q/%q err=%v", a1, d1, a2, d2, err)
+	d2, err := store.EnsureLocalDevice(context.Background())
+	if err != nil || d1 != d2 {
+		t.Fatalf("second differed: %q vs %q err=%v", d1, d2, err)
+	}
+	var accountID string
+	if err := db.QueryRow("SELECT account_id FROM sync_identity WHERE id = 'local'").Scan(&accountID); err != nil {
+		t.Fatal(err)
+	}
+	if accountID != "" {
+		t.Fatalf("local store minted account identity %q", accountID)
 	}
 }

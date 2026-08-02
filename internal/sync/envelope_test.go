@@ -31,7 +31,7 @@ func testContext(opID string) SyncContext {
 func TestSealPayloadBindsSyncContext(t *testing.T) {
 	vault := testVault{key: bytes.Repeat([]byte{0x42}, 32)}
 	plaintext := []byte("secret")
-	env, err := SealPayload(vault, testContext("op-1"), "record-1", "note", "note-body", 1, plaintext)
+	env, err := SealPayload(vault, testContext("op-1"), "record-1", "note", "note-body", 1, OperationCreate, plaintext)
 	if err != nil {
 		t.Fatalf("SealPayload: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestSealPayloadOpenPayloadRoundTrip(t *testing.T) {
 	vault := testVault{key: bytes.Repeat([]byte{0x42}, 32)}
 	plaintext := []byte(`{"record":"secret-marker","payload":{"version":2}}`)
 
-	envelope, err := SealPayload(vault, testContext("op-roundtrip"), "record-1", "note", "note-body", 3, plaintext)
+	envelope, err := SealPayload(vault, testContext("op-roundtrip"), "record-1", "note", "note-body", 3, OperationUpdate, plaintext)
 	if err != nil {
 		t.Fatalf("SealPayload: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestSealPayloadOpenPayloadRoundTrip(t *testing.T) {
 func TestReplicationEnvelopeDoesNotSerializePlaintext(t *testing.T) {
 	marker := []byte("plaintext-marker")
 	vault := testVault{key: bytes.Repeat([]byte{0x24}, 32)}
-	envelope, err := SealPayload(vault, testContext("op-serialize"), "record-1", "note", "note-body", 1, marker)
+	envelope, err := SealPayload(vault, testContext("op-serialize"), "record-1", "note", "note-body", 1, OperationCreate, marker)
 	if err != nil {
 		t.Fatalf("SealPayload: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestReplicationEnvelopeDoesNotSerializePlaintext(t *testing.T) {
 
 func TestOpenPayloadRejectsChangedAADInputs(t *testing.T) {
 	vault := testVault{key: bytes.Repeat([]byte{0x11}, 32)}
-	envelope, err := SealPayload(vault, testContext("op-aad"), "record-1", "note", "note-body", 1, []byte("secret"))
+	envelope, err := SealPayload(vault, testContext("op-aad"), "record-1", "note", "note-body", 1, OperationUpdate, []byte("secret"))
 	if err != nil {
 		t.Fatalf("SealPayload: %v", err)
 	}
@@ -112,6 +112,7 @@ func TestOpenPayloadRejectsChangedAADInputs(t *testing.T) {
 		{name: "device ID", mutate: func(e *ReplicationEnvelope) { e.DeviceID = "other-dev" }, keyID: "note-body"},
 		{name: "operation ID", mutate: func(e *ReplicationEnvelope) { e.OperationID = "other-op" }, keyID: "note-body"},
 		{name: "entity version", mutate: func(e *ReplicationEnvelope) { e.EntityVersion = 2 }, keyID: "note-body"},
+		{name: "operation", mutate: func(e *ReplicationEnvelope) { e.Operation = OperationDelete }, keyID: "note-body"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -127,7 +128,7 @@ func TestOpenPayloadRejectsChangedAADInputs(t *testing.T) {
 func TestOpenPayloadRejectsWrongKey(t *testing.T) {
 	vault := testVault{key: bytes.Repeat([]byte{0x31}, 32)}
 	wrongVault := testVault{key: bytes.Repeat([]byte{0x32}, 32)}
-	envelope, err := SealPayload(vault, testContext("op-wrong-key"), "record-1", "note", "note-body", 1, []byte("secret"))
+	envelope, err := SealPayload(vault, testContext("op-wrong-key"), "record-1", "note", "note-body", 1, OperationCreate, []byte("secret"))
 	if err != nil {
 		t.Fatalf("SealPayload: %v", err)
 	}
@@ -138,7 +139,7 @@ func TestOpenPayloadRejectsWrongKey(t *testing.T) {
 
 func TestOpenPayloadRejectsTampering(t *testing.T) {
 	vault := testVault{key: bytes.Repeat([]byte{0x51}, 32)}
-	envelope, err := SealPayload(vault, testContext("op-tamper"), "record-1", "note", "note-body", 1, []byte("secret"))
+	envelope, err := SealPayload(vault, testContext("op-tamper"), "record-1", "note", "note-body", 1, OperationCreate, []byte("secret"))
 	if err != nil {
 		t.Fatalf("SealPayload: %v", err)
 	}
@@ -150,7 +151,7 @@ func TestOpenPayloadRejectsTampering(t *testing.T) {
 
 func TestReplicationEnvelopeRejectsUnsupportedVersion(t *testing.T) {
 	vault := testVault{key: bytes.Repeat([]byte{0x61}, 32)}
-	envelope, err := SealPayload(vault, testContext("op-version"), "record-1", "note", "note-body", 1, []byte("secret"))
+	envelope, err := SealPayload(vault, testContext("op-version"), "record-1", "note", "note-body", 1, OperationCreate, []byte("secret"))
 	if err != nil {
 		t.Fatalf("SealPayload: %v", err)
 	}
@@ -164,10 +165,9 @@ func TestReplicationEnvelopeRejectsUnsupportedVersion(t *testing.T) {
 }
 
 func TestSyncIdentifierRejectsPathSeparatorsForAADSafety(t *testing.T) {
-	// Without rejecting '/', these contexts pack to the same replication AAD
-	// prefix (account/device path segments are slash-delimited):
-	//   account=x, device=y/z  -> .../account/x/device/y/z/...
-	//   account=x/y, device=z  -> .../account/x/y/device/z/...
+	// Replication AAD uses slash-delimited labeled segments. Keep each caller
+	// supplied identifier to one segment so the encoding stays canonical and
+	// human-auditable across future parsers and protocol implementations.
 	ctxA := SyncContext{
 		AccountID: "x", DeviceID: "y/z",
 		ProtocolVersion: SyncProtocolVersion,
@@ -178,26 +178,20 @@ func TestSyncIdentifierRejectsPathSeparatorsForAADSafety(t *testing.T) {
 		ProtocolVersion: SyncProtocolVersion,
 		OperationID:     "op-1", EntityVersion: 1,
 	}
-	adA := replicationAssociatedData(ctxA, "record-1", "note", "note-body", 1)
-	adB := replicationAssociatedData(ctxB, "record-1", "note", "note-body", 1)
-	if adA.RecordType == adB.RecordType {
-		t.Fatalf("test precondition: distinct slash placements must collide without validation: %q", adA.RecordType)
-	}
-
 	vault := testVault{key: bytes.Repeat([]byte{0x42}, 32)}
-	if _, err := SealPayload(vault, ctxA, "record-1", "note", "note-body", 1, []byte("secret")); err == nil {
+	if _, err := SealPayload(vault, ctxA, "record-1", "note", "note-body", 1, OperationCreate, []byte("secret")); err == nil {
 		t.Fatal("context with slash in device id must be rejected")
 	}
-	if _, err := SealPayload(vault, ctxB, "record-1", "note", "note-body", 1, []byte("secret")); err == nil {
+	if _, err := SealPayload(vault, ctxB, "record-1", "note", "note-body", 1, OperationCreate, []byte("secret")); err == nil {
 		t.Fatal("context with slash in account id must be rejected")
 	}
-	if _, err := SealPayload(vault, testContext("op-1"), "rec/ord", "note", "note-body", 1, []byte("secret")); err == nil {
+	if _, err := SealPayload(vault, testContext("op-1"), "rec/ord", "note", "note-body", 1, OperationCreate, []byte("secret")); err == nil {
 		t.Fatal("record id with slash must be rejected")
 	}
-	if _, err := SealPayload(vault, testContext("op-1"), "record-1", "no/te", "note-body", 1, []byte("secret")); err == nil {
+	if _, err := SealPayload(vault, testContext("op-1"), "record-1", "no/te", "note-body", 1, OperationCreate, []byte("secret")); err == nil {
 		t.Fatal("record type with slash must be rejected")
 	}
-	if _, err := SealPayload(vault, testContext("op-1"), "record-1", "note", "note/body", 1, []byte("secret")); err == nil {
+	if _, err := SealPayload(vault, testContext("op-1"), "record-1", "note", "note/body", 1, OperationCreate, []byte("secret")); err == nil {
 		t.Fatal("key id with slash must be rejected")
 	}
 }
@@ -223,7 +217,7 @@ func TestReplicationEnvelopeRejectsInvalidInputs(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := SealPayload(vault, tc.ctx, tc.recordID, tc.recordType, tc.keyID, tc.keyVersion, tc.plaintext); err == nil {
+			if _, err := SealPayload(vault, tc.ctx, tc.recordID, tc.recordType, tc.keyID, tc.keyVersion, OperationCreate, tc.plaintext); err == nil {
 				t.Fatal("SealPayload must reject invalid input")
 			}
 		})

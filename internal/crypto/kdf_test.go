@@ -56,11 +56,11 @@ func TestDeriveKeyRejectsUnsafeParams(t *testing.T) {
 		mutate func(*KDFParams)
 	}{
 		{name: "memory too low", mutate: func(p *KDFParams) { p.Memory = 512 }},
-		{name: "memory too high", mutate: func(p *KDFParams) { p.Memory = 2097153 }},
+		{name: "memory too high", mutate: func(p *KDFParams) { p.Memory = 256*1024 + 1 }},
 		{name: "iterations zero", mutate: func(p *KDFParams) { p.Iterations = 0 }},
-		{name: "iterations too high", mutate: func(p *KDFParams) { p.Iterations = 11 }},
+		{name: "iterations too high", mutate: func(p *KDFParams) { p.Iterations = 7 }},
 		{name: "parallelism zero", mutate: func(p *KDFParams) { p.Parallelism = 0 }},
-		{name: "parallelism too high", mutate: func(p *KDFParams) { p.Parallelism = 17 }},
+		{name: "parallelism too high", mutate: func(p *KDFParams) { p.Parallelism = 9 }},
 		{name: "key length too low", mutate: func(p *KDFParams) { p.KeyLength = 8 }},
 		{name: "key length too high", mutate: func(p *KDFParams) { p.KeyLength = 65 }},
 		{name: "salt too short", mutate: func(p *KDFParams) { p.Salt = []byte("short") }},

@@ -53,8 +53,8 @@ func (o *SQLOutbox) Enqueue(change replicationsync.Change) error {
 			id, record_id, record_type, operation, payload, key_version, status,
 			attempts, next_attempt_at, last_error, idempotency_key, conflict_json, created_at,
 			syncing_since, account_id, device_id, protocol_version, operation_id,
-			entity_version, key_id, content_digest
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			entity_version, key_id
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(idempotency_key) DO NOTHING`, TableSyncOutbox,
 	),
 		change.IdempotencyKey,
@@ -77,7 +77,6 @@ func (o *SQLOutbox) Enqueue(change replicationsync.Change) error {
 		change.OperationID,
 		change.EntityVersion,
 		change.KeyID,
-		change.ContentDigest,
 	)
 	if err != nil {
 		return err
@@ -108,7 +107,7 @@ func (o *SQLOutbox) Get(idempotencyKey string) (replicationsync.Change, error) {
 		SELECT idempotency_key, record_id, record_type, operation, payload, key_version, status,
 			attempts, next_attempt_at, last_error, conflict_json, created_at,
 			syncing_since, account_id, device_id, protocol_version, operation_id,
-			entity_version, key_id, content_digest
+			entity_version, key_id
 		FROM %s WHERE idempotency_key = ?`, TableSyncOutbox), idempotencyKey)
 	change, err := scanSQLChange(row, idempotencyKey)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -133,7 +132,7 @@ func (o *SQLOutbox) Pending(now time.Time, limit int) ([]replicationsync.Change,
 		SELECT idempotency_key, record_id, record_type, operation, payload, key_version, status,
 			attempts, next_attempt_at, last_error, conflict_json, created_at,
 			syncing_since, account_id, device_id, protocol_version, operation_id,
-			entity_version, key_id, content_digest
+			entity_version, key_id
 		FROM %s
 		WHERE (
 			(status = ? AND next_attempt_at <= ?)
@@ -350,7 +349,7 @@ type sqlChangeRow interface {
 func scanSQLChange(row sqlChangeRow, idempotencyKey string) (replicationsync.Change, error) {
 	var (
 		storedIdempotencyKey, recordID, recordType, operation, status, nextAttemptAt, lastError, conflictJSON, createdAt string
-		syncingSince, accountID, deviceID, operationID, keyID, contentDigest                                             string
+		syncingSince, accountID, deviceID, operationID, keyID                                                            string
 		payload                                                                                                          []byte
 		keyVersion, attempts, protocolVersion, entityVersion                                                             int64
 		storedConflict                                                                                                   sql.NullString
@@ -358,7 +357,7 @@ func scanSQLChange(row sqlChangeRow, idempotencyKey string) (replicationsync.Cha
 	if err := row.Scan(
 		&storedIdempotencyKey, &recordID, &recordType, &operation, &payload, &keyVersion, &status, &attempts,
 		&nextAttemptAt, &lastError, &storedConflict, &createdAt,
-		&syncingSince, &accountID, &deviceID, &protocolVersion, &operationID, &entityVersion, &keyID, &contentDigest,
+		&syncingSince, &accountID, &deviceID, &protocolVersion, &operationID, &entityVersion, &keyID,
 	); err != nil {
 		return replicationsync.Change{}, err
 	}
@@ -400,7 +399,6 @@ func scanSQLChange(row sqlChangeRow, idempotencyKey string) (replicationsync.Cha
 		OperationID:     operationID,
 		EntityVersion:   uint32(entityVersion),
 		KeyID:           keyID,
-		ContentDigest:   contentDigest,
 		CreatedAt:       created,
 		Status:          replicationsync.Status(status),
 		Attempts:        int(attempts),
@@ -488,7 +486,7 @@ func sameSQLImmutableChange(a, b replicationsync.Change) bool {
 	}
 	if a.AccountID != b.AccountID || a.DeviceID != b.DeviceID || a.ProtocolVersion != b.ProtocolVersion ||
 		a.OperationID != b.OperationID || a.EntityVersion != b.EntityVersion ||
-		a.KeyID != b.KeyID || a.ContentDigest != b.ContentDigest {
+		a.KeyID != b.KeyID {
 		return false
 	}
 	return string(a.Payload) == string(b.Payload)

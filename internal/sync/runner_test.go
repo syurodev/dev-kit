@@ -1,35 +1,76 @@
 package sync
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
 )
 
+func TestPushOperationExcludesLocalOutboxState(t *testing.T) {
+	now := time.Unix(100, 0).UTC()
+	change := validChange("wire-safe", now)
+	change.Attempts = 7
+	change.LastError = FailureNetwork
+	change.SyncingSince = now
+
+	operation, err := pushOperationFromChange(change)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serialized, err := json.Marshal(operation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range [][]byte{
+		[]byte("attempts"), []byte("last_error"), []byte("syncing_since"),
+		[]byte("next_attempt_at"), []byte("content_digest"), []byte("status"),
+		[]byte("created_at"),
+	} {
+		if bytes.Contains(serialized, forbidden) {
+			t.Fatalf("wire operation exposed local field %q: %s", forbidden, serialized)
+		}
+	}
+}
+
+func TestPushOperationRejectsMetadataThatDiffersFromEnvelope(t *testing.T) {
+	change := validChange("wire-mismatch", time.Unix(100, 0).UTC())
+	change.RecordID = "other-record"
+	if _, err := pushOperationFromChange(change); err == nil {
+		t.Fatal("mismatched public metadata must not reach transport")
+	}
+}
+
 func TestMemoryTransportPushIsIdempotentAndKeepsPayloadOpaque(t *testing.T) {
 	transport := NewMemoryTransport()
 	now := time.Unix(100, 0).UTC()
 	change := validChange("change-1", now)
-	payload := append([]byte(nil), change.Payload...)
-	result, err := transport.Push(context.Background(), []Change{change})
+	operation, err := pushOperationFromChange(change)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := clonePushOperation(operation)
+	payload := append([]byte(nil), operation.Envelope.Ciphertext...)
+	result, err := transport.Push(context.Background(), []PushOperation{operation})
 	if err != nil {
 		t.Fatalf("first push: %v", err)
 	}
 	if len(result.SentIdempotencyKeys) != 1 || result.SentIdempotencyKeys[0] != change.IdempotencyKey {
 		t.Fatalf("first result = %+v", result)
 	}
-	change.Payload[0] ^= 0xff
-	result, err = transport.Push(context.Background(), []Change{validChange("change-1", now)})
+	operation.Envelope.Ciphertext[0] ^= 0xff
+	result, err = transport.Push(context.Background(), []PushOperation{original})
 	if err != nil || len(result.SentIdempotencyKeys) != 1 {
 		t.Fatalf("repeated push = %+v, err %v", result, err)
 	}
 	received := transport.Received()
-	if len(received) != 1 || string(received[0].Payload) != string(payload) {
-		t.Fatalf("received payload = %x, want %x", received[0].Payload, payload)
+	if len(received) != 1 || string(received[0].Envelope.Ciphertext) != string(payload) {
+		t.Fatalf("received payload = %x, want %x", received[0].Envelope.Ciphertext, payload)
 	}
-	received[0].Payload[0] ^= 0xff
-	if transport.Received()[0].Payload[0] != payload[0] {
+	received[0].Envelope.Ciphertext[0] ^= 0xff
+	if transport.Received()[0].Envelope.Ciphertext[0] != payload[0] {
 		t.Fatal("received payload was not clone-safe")
 	}
 }
@@ -45,7 +86,11 @@ func TestMemoryTransportForcedErrorAndConflict(t *testing.T) {
 		DetectedAt:      now,
 	}
 	transport := NewMemoryTransport(MemoryTransportConfig{ForcedConflicts: []Conflict{conflict}})
-	result, err := transport.Push(context.Background(), []Change{validChange("change-1", now)})
+	operation, err := pushOperationFromChange(validChange("change-1", now))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := transport.Push(context.Background(), []PushOperation{operation})
 	if err != nil || len(result.Conflicts) != 1 || result.Conflicts[0].ID != conflict.ID {
 		t.Fatalf("conflict result = %+v, err %v", result, err)
 	}
@@ -55,7 +100,11 @@ func TestMemoryTransportForcedErrorAndConflict(t *testing.T) {
 	if err := transport.SetForcedError(FailureNetwork); err != nil {
 		t.Fatal(err)
 	}
-	_, err = transport.Push(context.Background(), []Change{validChange("change-2", now)})
+	operation, err = pushOperationFromChange(validChange("change-2", now))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = transport.Push(context.Background(), []PushOperation{operation})
 	var transportErr TransportError
 	if !errors.As(err, &transportErr) || transportErr.FailureReason() != FailureNetwork {
 		t.Fatalf("forced error = %v", err)
@@ -132,8 +181,8 @@ func TestRunnerRejectsPartialResponseAndRetriesMissing(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	transport := &scriptedTransport{push: func(_ context.Context, changes []Change) (PushResult, error) {
-		return PushResult{SentIdempotencyKeys: []string{changes[1].IdempotencyKey}}, nil
+	transport := &scriptedTransport{push: func(_ context.Context, operations []PushOperation) (PushResult, error) {
+		return PushResult{SentIdempotencyKeys: []string{operations[1].IdempotencyKey}}, nil
 	}}
 	runner := NewRunner(outbox, transport, RunnerConfig{Clock: func() time.Time { return now }})
 	report, err := runner.Run(context.Background(), 0)
@@ -153,7 +202,7 @@ func TestRunnerRejectsMalformedResponseWithoutMarkingSent(t *testing.T) {
 	if err := outbox.Enqueue(validChange("one", now)); err != nil {
 		t.Fatal(err)
 	}
-	transport := &scriptedTransport{push: func(context.Context, []Change) (PushResult, error) {
+	transport := &scriptedTransport{push: func(context.Context, []PushOperation) (PushResult, error) {
 		return PushResult{SentIdempotencyKeys: []string{"unknown"}}, nil
 	}}
 	runner := NewRunner(outbox, transport, RunnerConfig{Clock: func() time.Time { return now }})
@@ -184,7 +233,7 @@ func TestRunnerHandlesCancellationWithoutPersistingRawError(t *testing.T) {
 		t.Fatalf("cancelled state = %+v", change)
 	}
 
-	transport := &scriptedTransport{push: func(ctx context.Context, _ []Change) (PushResult, error) {
+	transport := &scriptedTransport{push: func(ctx context.Context, _ []PushOperation) (PushResult, error) {
 		return PushResult{}, context.Canceled
 	}}
 	runner = NewRunner(outbox, transport, RunnerConfig{Clock: func() time.Time { return now }})
@@ -199,9 +248,9 @@ func TestRunnerHandlesCancellationWithoutPersistingRawError(t *testing.T) {
 }
 
 type scriptedTransport struct {
-	push func(context.Context, []Change) (PushResult, error)
+	push func(context.Context, []PushOperation) (PushResult, error)
 }
 
-func (t *scriptedTransport) Push(ctx context.Context, changes []Change) (PushResult, error) {
-	return t.push(ctx, changes)
+func (t *scriptedTransport) Push(ctx context.Context, operations []PushOperation) (PushResult, error) {
+	return t.push(ctx, operations)
 }

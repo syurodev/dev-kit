@@ -2,15 +2,66 @@ package sync
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sort"
 	stdsync "sync"
 )
 
-// Transport delivers opaque encrypted changes. Implementations must not
-// decrypt, parse, or otherwise interpret Change.Payload.
+// PushOperation is the explicit wire boundary for sync uploads. It omits all
+// local-only outbox state, including retry counters, failure state, leases, and
+// plaintext-derived comparison material.
+type PushOperation struct {
+	IdempotencyKey string              `json:"idempotency_key"`
+	Operation      Operation           `json:"operation"`
+	Envelope       ReplicationEnvelope `json:"envelope"`
+}
+
+func (o PushOperation) Validate() error {
+	if err := validateIdentifier("idempotency key", o.IdempotencyKey, 256); err != nil {
+		return err
+	}
+	if !validOperation(o.Operation) {
+		return errors.New("invalid sync operation")
+	}
+	if err := o.Envelope.Validate(); err != nil {
+		return err
+	}
+	if o.Envelope.Operation != o.Operation {
+		return errors.New("operation does not match encrypted envelope")
+	}
+	return nil
+}
+
+func pushOperationFromChange(change Change) (PushOperation, error) {
+	if err := change.Validate(); err != nil {
+		return PushOperation{}, err
+	}
+	var envelope ReplicationEnvelope
+	if err := json.Unmarshal(change.Payload, &envelope); err != nil {
+		return PushOperation{}, errors.New("change contains an invalid replication envelope")
+	}
+	operation := PushOperation{
+		IdempotencyKey: change.IdempotencyKey,
+		Operation:      change.Operation,
+		Envelope:       cloneReplicationEnvelope(envelope),
+	}
+	if err := operation.Validate(); err != nil {
+		return PushOperation{}, err
+	}
+	if envelope.RecordID != change.RecordID || envelope.RecordType != change.RecordType ||
+		envelope.KeyVersion != change.KeyVersion || envelope.AccountID != change.AccountID ||
+		envelope.DeviceID != change.DeviceID || envelope.ProtocolVersion != change.ProtocolVersion ||
+		envelope.OperationID != change.OperationID || envelope.EntityVersion != change.EntityVersion {
+		return PushOperation{}, errors.New("change metadata does not match encrypted envelope")
+	}
+	return operation, nil
+}
+
+// Transport delivers only wire-safe encrypted operations. Implementations must
+// not decrypt or interpret PushOperation.Envelope.Ciphertext.
 type Transport interface {
-	Push(ctx context.Context, changes []Change) (PushResult, error)
+	Push(ctx context.Context, operations []PushOperation) (PushResult, error)
 }
 
 // PushResult contains only acknowledgements and safe conflict metadata. A
@@ -53,14 +104,14 @@ type MemoryTransportConfig struct {
 // payload.
 type MemoryTransport struct {
 	mu             stdsync.RWMutex
-	received       map[string]Change
+	received       map[string]PushOperation
 	forcedError    FailureReason
 	forcedConflict map[string]Conflict
 }
 
 func NewMemoryTransport(config ...MemoryTransportConfig) *MemoryTransport {
 	transport := &MemoryTransport{
-		received:       make(map[string]Change),
+		received:       make(map[string]PushOperation),
 		forcedConflict: make(map[string]Conflict),
 	}
 	if len(config) > 0 {
@@ -106,7 +157,7 @@ func (t *MemoryTransport) ClearForcedConflicts() {
 
 // Received returns clone-safe changes accepted by the memory transport,
 // ordered by idempotency key. It is intended for tests and diagnostics only.
-func (t *MemoryTransport) Received() []Change {
+func (t *MemoryTransport) Received() []PushOperation {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	keys := make([]string, 0, len(t.received))
@@ -114,14 +165,14 @@ func (t *MemoryTransport) Received() []Change {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
-	changes := make([]Change, 0, len(keys))
+	operations := make([]PushOperation, 0, len(keys))
 	for _, key := range keys {
-		changes = append(changes, cloneChange(t.received[key]))
+		operations = append(operations, clonePushOperation(t.received[key]))
 	}
-	return changes
+	return operations
 }
 
-func (t *MemoryTransport) Push(ctx context.Context, changes []Change) (PushResult, error) {
+func (t *MemoryTransport) Push(ctx context.Context, operations []PushOperation) (PushResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -131,15 +182,15 @@ func (t *MemoryTransport) Push(ctx context.Context, changes []Change) (PushResul
 
 	// Validate only the public envelope and state. Payload remains opaque; a
 	// non-empty payload is enough for this transport foundation.
-	seen := make(map[string]struct{}, len(changes))
-	for _, change := range changes {
-		if err := change.Validate(); err != nil {
+	seen := make(map[string]struct{}, len(operations))
+	for _, operation := range operations {
+		if err := operation.Validate(); err != nil {
 			return PushResult{}, TransportError{Reason: FailureInvalidResponse}
 		}
-		if _, ok := seen[change.IdempotencyKey]; ok {
+		if _, ok := seen[operation.IdempotencyKey]; ok {
 			return PushResult{}, TransportError{Reason: FailureInvalidResponse}
 		}
-		seen[change.IdempotencyKey] = struct{}{}
+		seen[operation.IdempotencyKey] = struct{}{}
 	}
 
 	t.mu.Lock()
@@ -149,32 +200,47 @@ func (t *MemoryTransport) Push(ctx context.Context, changes []Change) (PushResul
 	}
 
 	result := PushResult{
-		SentIdempotencyKeys: make([]string, 0, len(changes)),
+		SentIdempotencyKeys: make([]string, 0, len(operations)),
 		Conflicts:           make([]Conflict, 0),
 	}
-	for _, change := range changes {
+	for _, operation := range operations {
 		if err := ctx.Err(); err != nil {
 			return PushResult{}, err
 		}
-		if conflict, ok := t.forcedConflict[change.IdempotencyKey]; ok {
+		if conflict, ok := t.forcedConflict[operation.IdempotencyKey]; ok {
 			result.Conflicts = append(result.Conflicts, cloneConflict(conflict))
 			continue
 		}
-		if existing, ok := t.received[change.IdempotencyKey]; ok {
-			if !sameTransportChange(existing, change) {
+		if existing, ok := t.received[operation.IdempotencyKey]; ok {
+			if !sameTransportOperation(existing, operation) {
 				return PushResult{}, TransportError{Reason: FailureInvalidResponse}
 			}
-			result.SentIdempotencyKeys = append(result.SentIdempotencyKeys, change.IdempotencyKey)
+			result.SentIdempotencyKeys = append(result.SentIdempotencyKeys, operation.IdempotencyKey)
 			continue
 		}
-		t.received[change.IdempotencyKey] = cloneChange(change)
-		result.SentIdempotencyKeys = append(result.SentIdempotencyKeys, change.IdempotencyKey)
+		t.received[operation.IdempotencyKey] = clonePushOperation(operation)
+		result.SentIdempotencyKeys = append(result.SentIdempotencyKeys, operation.IdempotencyKey)
 	}
 	return result, nil
 }
 
-func sameTransportChange(a, b Change) bool {
-	return sameImmutableChange(a, b)
+func sameTransportOperation(a, b PushOperation) bool {
+	if a.IdempotencyKey != b.IdempotencyKey || a.Operation != b.Operation {
+		return false
+	}
+	aJSON, errA := json.Marshal(a.Envelope)
+	bJSON, errB := json.Marshal(b.Envelope)
+	return errA == nil && errB == nil && string(aJSON) == string(bJSON)
+}
+
+func clonePushOperation(operation PushOperation) PushOperation {
+	operation.Envelope = cloneReplicationEnvelope(operation.Envelope)
+	return operation
+}
+
+func cloneReplicationEnvelope(envelope ReplicationEnvelope) ReplicationEnvelope {
+	envelope.Ciphertext = append([]byte(nil), envelope.Ciphertext...)
+	return envelope
 }
 
 func cloneConflict(conflict Conflict) Conflict {

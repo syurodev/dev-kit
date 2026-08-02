@@ -227,11 +227,14 @@ func TestMigrateCreatesSyncSchemaWithoutVaultItemBackfill(t *testing.T) {
 		"id", "record_id", "record_type", "operation", "payload", "key_version", "status",
 		"attempts", "next_attempt_at", "last_error", "idempotency_key", "conflict_json", "created_at",
 		"syncing_since", "account_id", "device_id", "protocol_version", "operation_id",
-		"entity_version", "key_id", "content_digest",
+		"entity_version", "key_id",
 	} {
 		if _, ok := outboxColumns[name]; !ok {
 			t.Fatalf("sync_outbox missing column %q", name)
 		}
+	}
+	if _, exists := outboxColumns["content_digest"]; exists {
+		t.Fatal("sync_outbox must not persist a plaintext-derived content digest")
 	}
 	if outboxColumns["payload"].typeName != "BLOB" {
 		t.Fatalf("payload type = %q, want BLOB", outboxColumns["payload"].typeName)

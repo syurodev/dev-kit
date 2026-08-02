@@ -28,16 +28,17 @@ type Vault interface {
 // Record identity and key version are public routing metadata. Ciphertext is
 // the serialized nested crypto.Envelope; record bytes never appear outside it.
 type ReplicationEnvelope struct {
-	RecordID        string `json:"record_id"`
-	RecordType      string `json:"record_type"`
-	KeyVersion      uint32 `json:"key_version"`
-	EnvelopeVersion uint32 `json:"envelope_version"`
-	AccountID       string `json:"account_id"`
-	DeviceID        string `json:"device_id"`
-	ProtocolVersion uint32 `json:"protocol_version"`
-	OperationID     string `json:"operation_id"`
-	EntityVersion   uint32 `json:"entity_version"`
-	Ciphertext      []byte `json:"ciphertext"`
+	RecordID        string    `json:"record_id"`
+	RecordType      string    `json:"record_type"`
+	KeyVersion      uint32    `json:"key_version"`
+	EnvelopeVersion uint32    `json:"envelope_version"`
+	AccountID       string    `json:"account_id"`
+	DeviceID        string    `json:"device_id"`
+	ProtocolVersion uint32    `json:"protocol_version"`
+	OperationID     string    `json:"operation_id"`
+	EntityVersion   uint32    `json:"entity_version"`
+	Operation       Operation `json:"operation"`
+	Ciphertext      []byte    `json:"ciphertext"`
 }
 
 // Validate checks the public contract and the nested crypto envelope without
@@ -71,6 +72,9 @@ func (e ReplicationEnvelope) Validate() error {
 	if e.EntityVersion == 0 {
 		return errors.New("entity version must be positive")
 	}
+	if !validOperation(e.Operation) {
+		return fmt.Errorf("invalid operation %q", e.Operation)
+	}
 	if len(e.Ciphertext) == 0 {
 		return errors.New("replication ciphertext is required")
 	}
@@ -88,15 +92,15 @@ func (e ReplicationEnvelope) Validate() error {
 // SealPayload encrypts record bytes into a replication envelope. The bytes may
 // contain record metadata and a nested payload envelope, but they are treated
 // as opaque by sync and are never serialized into public transport fields.
-func SealPayload(vault Vault, ctx SyncContext, recordID, recordType, keyID string, keyVersion uint32, plaintext []byte) (ReplicationEnvelope, error) {
+func SealPayload(vault Vault, ctx SyncContext, recordID, recordType, keyID string, keyVersion uint32, operation Operation, plaintext []byte) (ReplicationEnvelope, error) {
 	if vault == nil {
 		return ReplicationEnvelope{}, errors.New("vault is required")
 	}
-	if err := validateReplicationInputs(ctx, recordID, recordType, keyID, keyVersion, plaintext); err != nil {
+	if err := validateReplicationInputs(ctx, recordID, recordType, keyID, keyVersion, operation, plaintext); err != nil {
 		return ReplicationEnvelope{}, err
 	}
 
-	nested, err := vault.SealV2(replicationAssociatedData(ctx, recordID, recordType, keyID, keyVersion), plaintext)
+	nested, err := vault.SealV2(replicationAssociatedData(ctx, recordID, recordType, keyID, keyVersion, operation), plaintext)
 	if err != nil {
 		return ReplicationEnvelope{}, err
 	}
@@ -115,6 +119,7 @@ func SealPayload(vault Vault, ctx SyncContext, recordID, recordType, keyID strin
 		ProtocolVersion: ctx.ProtocolVersion,
 		OperationID:     ctx.OperationID,
 		EntityVersion:   ctx.EntityVersion,
+		Operation:       operation,
 		Ciphertext:      serializedNested,
 	}
 	if err := envelope.Validate(); err != nil {
@@ -148,10 +153,10 @@ func OpenPayload(vault Vault, envelope ReplicationEnvelope, keyID string) ([]byt
 		OperationID:     envelope.OperationID,
 		EntityVersion:   envelope.EntityVersion,
 	}
-	return vault.OpenWithAD(nested, replicationAssociatedData(ctx, envelope.RecordID, envelope.RecordType, keyID, envelope.KeyVersion))
+	return vault.OpenWithAD(nested, replicationAssociatedData(ctx, envelope.RecordID, envelope.RecordType, keyID, envelope.KeyVersion, envelope.Operation))
 }
 
-func validateReplicationInputs(ctx SyncContext, recordID, recordType, keyID string, keyVersion uint32, plaintext []byte) error {
+func validateReplicationInputs(ctx SyncContext, recordID, recordType, keyID string, keyVersion uint32, operation Operation, plaintext []byte) error {
 	if err := ctx.Validate(); err != nil {
 		return err
 	}
@@ -167,15 +172,18 @@ func validateReplicationInputs(ctx SyncContext, recordID, recordType, keyID stri
 	if keyVersion == 0 {
 		return errors.New("key version must be positive")
 	}
+	if !validOperation(operation) {
+		return fmt.Errorf("invalid operation %q", operation)
+	}
 	if len(plaintext) == 0 {
 		return errors.New("plaintext payload is required")
 	}
 	return nil
 }
 
-func replicationAssociatedData(ctx SyncContext, recordID, recordType, keyID string, keyVersion uint32) crypto.AssociatedData {
+func replicationAssociatedData(ctx SyncContext, recordID, recordType, keyID string, keyVersion uint32, operation Operation) crypto.AssociatedData {
 	recordTypeAD := fmt.Sprintf(
-		"%s/v%d/protocol/%d/account/%s/device/%s/key-version/%d/op/%s/entity/%d/%s",
+		"%s/v%d/protocol/%d/account/%s/device/%s/key-version/%d/op/%s/entity/%d/action/%s/%s",
 		replicationAADNamespace,
 		ReplicationEnvelopeVersion,
 		ctx.ProtocolVersion,
@@ -184,6 +192,7 @@ func replicationAssociatedData(ctx SyncContext, recordID, recordType, keyID stri
 		keyVersion,
 		ctx.OperationID,
 		ctx.EntityVersion,
+		operation,
 		recordType,
 	)
 	return crypto.AssociatedData{
@@ -191,4 +200,8 @@ func replicationAssociatedData(ctx SyncContext, recordID, recordType, keyID stri
 		RecordID:   recordID,
 		KeyID:      keyID,
 	}
+}
+
+func validOperation(operation Operation) bool {
+	return operation == OperationCreate || operation == OperationUpdate || operation == OperationDelete
 }

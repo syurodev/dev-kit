@@ -10,12 +10,15 @@ import (
 const AlgorithmArgon2id = "argon2id"
 
 const (
-	kdfMinMemoryKiB   uint32 = 1024
-	kdfMaxMemoryKiB   uint32 = 2097152
-	kdfMinIterations  uint32 = 1
-	kdfMaxIterations  uint32 = 10
+	// Bounds accept the current 64 MiB interactive profile while preventing a
+	// tampered keyring from requesting multi-gigabyte allocations or excessive
+	// CPU work during unlock on a desktop machine.
+	kdfMinMemoryKiB   uint32 = 32 * 1024
+	kdfMaxMemoryKiB   uint32 = 256 * 1024
+	kdfMinIterations  uint32 = 2
+	kdfMaxIterations  uint32 = 6
 	kdfMinParallelism uint8  = 1
-	kdfMaxParallelism uint8  = 16
+	kdfMaxParallelism uint8  = 8
 	kdfMinKeyLength   uint32 = 16
 	kdfMaxKeyLength   uint32 = 64
 	kdfMinSaltLength         = 8

@@ -2,6 +2,7 @@ package sync
 
 import (
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -42,14 +43,17 @@ func QueuePayload(
 		return Change{}, err
 	}
 
-	// Local-only digest for idempotency; must not be sent on the wire as plaintext
-	// (see Change.ContentDigest).
-	digest := sha256.Sum256(plaintextRecord)
-	contentDigest := hex.EncodeToString(digest[:])
 	idempotencyKey := queueIdempotencyKey(ctx.OperationID)
 
 	if existing, err := outbox.Get(idempotencyKey); err == nil {
-		if !sameQueueIdentity(existing, ctx, recordID, recordType, keyID, keyVersion, operation, contentDigest) {
+		if !sameQueueIdentity(existing, ctx, recordID, recordType, keyID, keyVersion, operation) {
+			return Change{}, ErrIdempotencyConflict
+		}
+		matches, compareErr := sameQueuedPlaintext(vault, existing, keyID, plaintextRecord)
+		if compareErr != nil {
+			return Change{}, compareErr
+		}
+		if !matches {
 			return Change{}, ErrIdempotencyConflict
 		}
 		return cloneChange(existing), nil
@@ -57,7 +61,7 @@ func QueuePayload(
 		return Change{}, err
 	}
 
-	envelope, err := SealPayload(vault, ctx, recordID, recordType, keyID, keyVersion, plaintextRecord)
+	envelope, err := SealPayload(vault, ctx, recordID, recordType, keyID, keyVersion, operation, plaintextRecord)
 	if err != nil {
 		return Change{}, err
 	}
@@ -75,7 +79,6 @@ func QueuePayload(
 		keyVersion,
 		ctx,
 		keyID,
-		contentDigest,
 		createdAt,
 	)
 	if err := outbox.Enqueue(change); err != nil {
@@ -84,8 +87,14 @@ func QueuePayload(
 		// will differ even though the logical idempotency key is the same.
 		if errors.Is(err, ErrIdempotencyConflict) {
 			existing, getErr := outbox.Get(idempotencyKey)
-			if getErr == nil && sameQueueIdentity(existing, ctx, recordID, recordType, keyID, keyVersion, operation, contentDigest) {
-				return cloneChange(existing), nil
+			if getErr == nil && sameQueueIdentity(existing, ctx, recordID, recordType, keyID, keyVersion, operation) {
+				matches, compareErr := sameQueuedPlaintext(vault, existing, keyID, plaintextRecord)
+				if compareErr != nil {
+					return Change{}, compareErr
+				}
+				if matches {
+					return cloneChange(existing), nil
+				}
 			}
 		}
 		return Change{}, err
@@ -101,7 +110,7 @@ func QueuePayload(
 }
 
 func validateQueueInputs(ctx SyncContext, recordID, recordType, keyID string, keyVersion uint32, operation Operation, plaintextRecord []byte, createdAt time.Time) error {
-	if err := validateReplicationInputs(ctx, recordID, recordType, keyID, keyVersion, plaintextRecord); err != nil {
+	if err := validateReplicationInputs(ctx, recordID, recordType, keyID, keyVersion, operation, plaintextRecord); err != nil {
 		return err
 	}
 	switch operation {
@@ -121,16 +130,37 @@ func queueIdempotencyKey(operationID string) string {
 	return queueIdempotencyNamespace + ":" + hex.EncodeToString(sum[:])
 }
 
-func sameQueueIdentity(change Change, ctx SyncContext, recordID, recordType, keyID string, keyVersion uint32, operation Operation, contentDigest string) bool {
+func sameQueueIdentity(change Change, ctx SyncContext, recordID, recordType, keyID string, keyVersion uint32, operation Operation) bool {
 	return change.RecordID == recordID &&
 		change.RecordType == recordType &&
 		change.KeyVersion == keyVersion &&
 		change.Operation == operation &&
 		change.KeyID == keyID &&
-		change.ContentDigest == contentDigest &&
 		change.AccountID == ctx.AccountID &&
 		change.DeviceID == ctx.DeviceID &&
 		change.ProtocolVersion == ctx.ProtocolVersion &&
 		change.OperationID == ctx.OperationID &&
 		change.EntityVersion == ctx.EntityVersion
+}
+
+// sameQueuedPlaintext authenticates and opens the already queued envelope, then
+// compares its plaintext with the retry. This avoids persisting an unkeyed
+// plaintext digest beside encrypted records in the local database.
+func sameQueuedPlaintext(vault Vault, change Change, keyID string, candidate []byte) (bool, error) {
+	var envelope ReplicationEnvelope
+	if err := json.Unmarshal(change.Payload, &envelope); err != nil {
+		return false, errors.New("queued replication envelope is invalid")
+	}
+	plaintext, err := OpenPayload(vault, envelope, keyID)
+	if err != nil {
+		return false, err
+	}
+	defer zeroBytes(plaintext)
+	return subtle.ConstantTimeCompare(plaintext, candidate) == 1, nil
+}
+
+func zeroBytes(value []byte) {
+	for i := range value {
+		value[i] = 0
+	}
 }

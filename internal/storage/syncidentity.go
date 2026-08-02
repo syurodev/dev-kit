@@ -11,54 +11,53 @@ import (
 )
 
 const (
-	TableSyncIdentity   = "sync_identity"
-	localIdentityRowID  = "local"
+	TableSyncIdentity  = "sync_identity"
+	localIdentityRowID = "local"
 )
 
-// SQLIdentityStore persists the local sync account and device identifiers.
-type SQLIdentityStore struct {
+// SQLDeviceIdentityStore persists only the installation's stable device ID.
+// Account identity belongs to the authenticated backend session and must never
+// be minted locally or trusted from this store.
+type SQLDeviceIdentityStore struct {
 	db *sql.DB
 }
 
-func NewSQLIdentityStore(db *sql.DB) *SQLIdentityStore {
-	return &SQLIdentityStore{db: db}
+func NewSQLDeviceIdentityStore(db *sql.DB) *SQLDeviceIdentityStore {
+	return &SQLDeviceIdentityStore{db: db}
 }
 
-// EnsureLocal returns stable local account and device IDs, creating them on
-// first use.
-func (s *SQLIdentityStore) EnsureLocal(ctx context.Context) (accountID, deviceID string, err error) {
+// EnsureLocalDevice returns the stable local device ID, creating it on first
+// use. The legacy account_id column is deliberately written as empty so it
+// cannot pass SyncContext validation or be mistaken for authenticated identity.
+func (s *SQLDeviceIdentityStore) EnsureLocalDevice(ctx context.Context) (deviceID string, err error) {
 	if s == nil || s.db == nil {
-		return "", "", errors.New("identity store is nil")
+		return "", errors.New("device identity store is nil")
 	}
 	ctx = nonNilContext(ctx)
 
-	var storedAccount, storedDevice string
+	var storedDevice string
 	err = s.db.QueryRowContext(ctx, fmt.Sprintf(
-		"SELECT account_id, device_id FROM %s WHERE id = ?", TableSyncIdentity,
-	), localIdentityRowID).Scan(&storedAccount, &storedDevice)
+		"SELECT device_id FROM %s WHERE id = ?", TableSyncIdentity,
+	), localIdentityRowID).Scan(&storedDevice)
 	if err == nil {
-		return storedAccount, storedDevice, nil
+		return storedDevice, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
-		return "", "", err
+		return "", err
 	}
 
-	accountID, err = newSyncIdentityID()
-	if err != nil {
-		return "", "", err
-	}
 	deviceID, err = newSyncIdentityID()
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
 	_, err = s.db.ExecContext(ctx, fmt.Sprintf(
 		"INSERT INTO %s (id, account_id, device_id, created_at) VALUES (?, ?, ?, ?)",
 		TableSyncIdentity,
-	), localIdentityRowID, accountID, deviceID, formatTime(time.Now().UTC()))
+	), localIdentityRowID, "", deviceID, formatTime(time.Now().UTC()))
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
-	return accountID, deviceID, nil
+	return deviceID, nil
 }
 
 func newSyncIdentityID() (string, error) {

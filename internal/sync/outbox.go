@@ -284,8 +284,7 @@ func sameChangeIdentity(a, b Change) bool {
 		a.ProtocolVersion == b.ProtocolVersion &&
 		a.OperationID == b.OperationID &&
 		a.EntityVersion == b.EntityVersion &&
-		a.KeyID == b.KeyID &&
-		a.ContentDigest == b.ContentDigest
+		a.KeyID == b.KeyID
 }
 
 func cloneChange(change Change) Change {
