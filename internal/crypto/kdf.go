@@ -9,6 +9,19 @@ import (
 
 const AlgorithmArgon2id = "argon2id"
 
+const (
+	kdfMinMemoryKiB   uint32 = 1024
+	kdfMaxMemoryKiB   uint32 = 2097152
+	kdfMinIterations  uint32 = 1
+	kdfMaxIterations  uint32 = 10
+	kdfMinParallelism uint8  = 1
+	kdfMaxParallelism uint8  = 16
+	kdfMinKeyLength   uint32 = 16
+	kdfMaxKeyLength   uint32 = 64
+	kdfMinSaltLength         = 8
+	kdfMaxSaltLength         = 64
+)
+
 // KDFParams holds Argon2id parameters plus the salt. Persist it next to the
 // wrapped key so derivation stays reproducible after upgrades.
 type KDFParams struct {
@@ -48,6 +61,21 @@ func DeriveKey(password string, params KDFParams) ([]byte, error) {
 	}
 	if len(params.Salt) == 0 {
 		return nil, errors.New("salt is required")
+	}
+	if params.Memory < kdfMinMemoryKiB || params.Memory > kdfMaxMemoryKiB {
+		return nil, errors.New("kdf memory is out of allowed range")
+	}
+	if params.Iterations < kdfMinIterations || params.Iterations > kdfMaxIterations {
+		return nil, errors.New("kdf iterations are out of allowed range")
+	}
+	if params.Parallelism < kdfMinParallelism || params.Parallelism > kdfMaxParallelism {
+		return nil, errors.New("kdf parallelism is out of allowed range")
+	}
+	if params.KeyLength < kdfMinKeyLength || params.KeyLength > kdfMaxKeyLength {
+		return nil, errors.New("kdf key length is out of allowed range")
+	}
+	if len(params.Salt) < kdfMinSaltLength || len(params.Salt) > kdfMaxSaltLength {
+		return nil, errors.New("kdf salt length is out of allowed range")
 	}
 	return argon2.IDKey([]byte(password), params.Salt, params.Iterations, params.Memory, params.Parallelism, params.KeyLength), nil
 }
