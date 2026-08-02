@@ -20,7 +20,7 @@ func newSyncPersistence(t *testing.T) (*SQLOutbox, *SQLCursorStore, func()) {
 		db.Close()
 		t.Fatalf("migrate: %v", err)
 	}
-	return NewSQLOutbox(db), NewSQLCursorStore(db), func() { _ = db.Close() }
+	return NewSQLOutbox(db, time.Minute), NewSQLCursorStore(db), func() { _ = db.Close() }
 }
 
 func testSQLSyncContext() replicationsync.SyncContext {
@@ -200,6 +200,49 @@ func TestSQLOutboxConflictPersistsSafeCopy(t *testing.T) {
 	}
 	if err := outbox.MarkConflict("local-1", conflict); !errors.Is(err, replicationsync.ErrInvalidState) {
 		t.Fatalf("repeat conflict = %v, want %v", err, replicationsync.ErrInvalidState)
+	}
+}
+
+func TestSQLOutboxReclaimsStaleSyncing(t *testing.T) {
+	outbox, _, cleanup := newSyncPersistence(t)
+	defer cleanup()
+
+	now := time.Unix(1000, 0).UTC()
+	if err := outbox.Enqueue(testSQLChange("k1", now)); err != nil {
+		t.Fatal(err)
+	}
+	if err := outbox.MarkSyncing("k1", now); err != nil {
+		t.Fatal(err)
+	}
+	if pending, _ := outbox.Pending(now.Add(30*time.Second), 0); len(pending) != 0 {
+		t.Fatal("fresh syncing must not be pending")
+	}
+	ready, err := outbox.Pending(now.Add(time.Minute+time.Second), 0)
+	if err != nil || len(ready) != 1 {
+		t.Fatalf("stale syncing reclaim: len=%d err=%v", len(ready), err)
+	}
+}
+
+func TestSQLRecoverStaleSyncing(t *testing.T) {
+	outbox, _, cleanup := newSyncPersistence(t)
+	defer cleanup()
+
+	now := time.Unix(1000, 0).UTC()
+	if err := outbox.Enqueue(testSQLChange("k1", now)); err != nil {
+		t.Fatal(err)
+	}
+	if err := outbox.MarkSyncing("k1", now); err != nil {
+		t.Fatal(err)
+	}
+	if err := outbox.RecoverStaleSyncing(now.Add(2 * time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	got, err := outbox.Get("k1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != replicationsync.StatusPending || !got.SyncingSince.IsZero() {
+		t.Fatalf("recovered = %+v", got)
 	}
 }
 

@@ -223,7 +223,39 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		},
 	}
 
-	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7})
+	m8 := Migration{
+		Version: 8,
+		Name:    "sync identity and outbox lease columns",
+		Up: func(ctx context.Context) error {
+			if _, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE TABLE IF NOT EXISTS %s (
+					id TEXT PRIMARY KEY,
+					account_id TEXT NOT NULL,
+					device_id TEXT NOT NULL,
+					created_at TEXT NOT NULL
+				)`, TableSyncIdentity,
+			)); err != nil {
+				return err
+			}
+			for _, stmt := range []string{
+				fmt.Sprintf("ALTER TABLE %s ADD COLUMN syncing_since TEXT NOT NULL DEFAULT ''", TableSyncOutbox),
+				fmt.Sprintf("ALTER TABLE %s ADD COLUMN account_id TEXT NOT NULL DEFAULT ''", TableSyncOutbox),
+				fmt.Sprintf("ALTER TABLE %s ADD COLUMN device_id TEXT NOT NULL DEFAULT ''", TableSyncOutbox),
+				fmt.Sprintf("ALTER TABLE %s ADD COLUMN protocol_version INTEGER NOT NULL DEFAULT 0", TableSyncOutbox),
+				fmt.Sprintf("ALTER TABLE %s ADD COLUMN operation_id TEXT NOT NULL DEFAULT ''", TableSyncOutbox),
+				fmt.Sprintf("ALTER TABLE %s ADD COLUMN entity_version INTEGER NOT NULL DEFAULT 0", TableSyncOutbox),
+				fmt.Sprintf("ALTER TABLE %s ADD COLUMN key_id TEXT NOT NULL DEFAULT ''", TableSyncOutbox),
+				fmt.Sprintf("ALTER TABLE %s ADD COLUMN content_digest TEXT NOT NULL DEFAULT ''", TableSyncOutbox),
+			} {
+				if _, err := db.ExecContext(ctx, stmt); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	}
+
+	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8})
 	if err != nil {
 		return err
 	}

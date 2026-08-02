@@ -19,13 +19,18 @@ const syncTimeLayout = time.RFC3339Nano
 // a local persistence foundation: it does not perform network I/O or assume a
 // SaaS transport exists.
 type SQLOutbox struct {
-	db *sql.DB
+	db    *sql.DB
+	lease time.Duration
 }
 
 var _ replicationsync.Outbox = (*SQLOutbox)(nil)
 
-func NewSQLOutbox(db *sql.DB) *SQLOutbox {
-	return &SQLOutbox{db: db}
+func NewSQLOutbox(db *sql.DB, lease ...time.Duration) *SQLOutbox {
+	l := 5 * time.Minute
+	if len(lease) > 0 && lease[0] > 0 {
+		l = lease[0]
+	}
+	return &SQLOutbox{db: db, lease: l}
 }
 
 // Enqueue stores a change once. A repeated identical idempotency key is a
@@ -46,8 +51,10 @@ func (o *SQLOutbox) Enqueue(change replicationsync.Change) error {
 	result, err := o.db.ExecContext(context.Background(), fmt.Sprintf(
 		`INSERT INTO %s (
 			id, record_id, record_type, operation, payload, key_version, status,
-			attempts, next_attempt_at, last_error, idempotency_key, conflict_json, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			attempts, next_attempt_at, last_error, idempotency_key, conflict_json, created_at,
+			syncing_since, account_id, device_id, protocol_version, operation_id,
+			entity_version, key_id, content_digest
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(idempotency_key) DO NOTHING`, TableSyncOutbox,
 	),
 		change.IdempotencyKey,
@@ -63,6 +70,14 @@ func (o *SQLOutbox) Enqueue(change replicationsync.Change) error {
 		change.IdempotencyKey,
 		conflictJSON,
 		formatTime(change.CreatedAt),
+		formatOptionalTime(change.SyncingSince),
+		change.AccountID,
+		change.DeviceID,
+		change.ProtocolVersion,
+		change.OperationID,
+		change.EntityVersion,
+		change.KeyID,
+		change.ContentDigest,
 	)
 	if err != nil {
 		return err
@@ -91,7 +106,9 @@ func (o *SQLOutbox) Get(idempotencyKey string) (replicationsync.Change, error) {
 
 	row := o.db.QueryRowContext(context.Background(), fmt.Sprintf(`
 		SELECT idempotency_key, record_id, record_type, operation, payload, key_version, status,
-			attempts, next_attempt_at, last_error, conflict_json, created_at
+			attempts, next_attempt_at, last_error, conflict_json, created_at,
+			syncing_since, account_id, device_id, protocol_version, operation_id,
+			entity_version, key_id, content_digest
 		FROM %s WHERE idempotency_key = ?`, TableSyncOutbox), idempotencyKey)
 	change, err := scanSQLChange(row, idempotencyKey)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -111,13 +128,22 @@ func (o *SQLOutbox) Pending(now time.Time, limit int) ([]replicationsync.Change,
 		return nil, err
 	}
 
+	staleBefore := formatTime(now.Add(-o.lease))
 	query := fmt.Sprintf(`
 		SELECT idempotency_key, record_id, record_type, operation, payload, key_version, status,
-			attempts, next_attempt_at, last_error, conflict_json, created_at
+			attempts, next_attempt_at, last_error, conflict_json, created_at,
+			syncing_since, account_id, device_id, protocol_version, operation_id,
+			entity_version, key_id, content_digest
 		FROM %s
-		WHERE status = ? AND next_attempt_at <= ?
+		WHERE (
+			(status = ? AND next_attempt_at <= ?)
+			OR (status = ? AND syncing_since != '' AND syncing_since <= ?)
+		)
 		ORDER BY created_at ASC, idempotency_key ASC`, TableSyncOutbox)
-	args := []any{string(replicationsync.StatusPending), formatTime(now)}
+	args := []any{
+		string(replicationsync.StatusPending), formatTime(now),
+		string(replicationsync.StatusSyncing), staleBefore,
+	}
 	if limit > 0 {
 		query += " LIMIT ?"
 		args = append(args, limit)
@@ -143,21 +169,36 @@ func (o *SQLOutbox) Pending(now time.Time, limit int) ([]replicationsync.Change,
 	return changes, nil
 }
 
-func (o *SQLOutbox) MarkSyncing(idempotencyKey string, _ time.Time) error {
+func (o *SQLOutbox) MarkSyncing(idempotencyKey string, at time.Time) error {
+	staleBefore := formatTime(at.Add(-o.lease))
 	return o.updateState(idempotencyKey, `
-		UPDATE sync_outbox SET status = ?
-		WHERE idempotency_key = ? AND status = ?`,
-		string(replicationsync.StatusSyncing), idempotencyKey, string(replicationsync.StatusPending))
+		UPDATE sync_outbox SET status = ?, syncing_since = ?
+		WHERE idempotency_key = ? AND (
+			status = ? OR (status = ? AND syncing_since != '' AND syncing_since <= ?)
+		)`,
+		string(replicationsync.StatusSyncing), formatTime(at), idempotencyKey,
+		string(replicationsync.StatusPending), string(replicationsync.StatusSyncing), staleBefore)
 }
 
-func (o *SQLOutbox) RecoverStaleSyncing(_ time.Time) error {
-	return nil
+func (o *SQLOutbox) RecoverStaleSyncing(now time.Time) error {
+	if err := o.ensureDB(); err != nil {
+		return err
+	}
+	staleBefore := formatTime(now.Add(-o.lease))
+	_, err := o.db.ExecContext(context.Background(), fmt.Sprintf(`
+		UPDATE %s
+		SET status = ?, syncing_since = '',
+			next_attempt_at = CASE WHEN next_attempt_at = '' THEN ? ELSE next_attempt_at END
+		WHERE status = ? AND syncing_since != '' AND syncing_since <= ?`, TableSyncOutbox),
+		string(replicationsync.StatusPending), formatTime(now),
+		string(replicationsync.StatusSyncing), staleBefore)
+	return err
 }
 
 func (o *SQLOutbox) MarkSent(idempotencyKey string) error {
 	return o.updateState(idempotencyKey, `
 		UPDATE sync_outbox
-		SET status = ?, last_error = '', next_attempt_at = '', conflict_json = NULL
+		SET status = ?, last_error = '', next_attempt_at = '', conflict_json = NULL, syncing_since = ''
 		WHERE idempotency_key = ? AND status IN (?, ?)`,
 		string(replicationsync.StatusSynced), idempotencyKey,
 		string(replicationsync.StatusPending), string(replicationsync.StatusSyncing))
@@ -172,7 +213,7 @@ func (o *SQLOutbox) MarkRetry(idempotencyKey string, nextAttemptAt time.Time, re
 	}
 	return o.updateState(idempotencyKey, `
 		UPDATE sync_outbox
-		SET status = ?, attempts = attempts + 1, next_attempt_at = ?, last_error = ?, conflict_json = NULL
+		SET status = ?, attempts = attempts + 1, next_attempt_at = ?, last_error = ?, conflict_json = NULL, syncing_since = ''
 		WHERE idempotency_key = ? AND status IN (?, ?)`,
 		string(replicationsync.StatusPending), formatTime(nextAttemptAt), string(reason), idempotencyKey,
 		string(replicationsync.StatusPending), string(replicationsync.StatusSyncing))
@@ -184,7 +225,7 @@ func (o *SQLOutbox) MarkFailed(idempotencyKey string, reason replicationsync.Fai
 	}
 	return o.updateState(idempotencyKey, `
 		UPDATE sync_outbox
-		SET status = ?, attempts = attempts + 1, next_attempt_at = '', last_error = ?, conflict_json = NULL
+		SET status = ?, attempts = attempts + 1, next_attempt_at = '', last_error = ?, conflict_json = NULL, syncing_since = ''
 		WHERE idempotency_key = ? AND status IN (?, ?)`,
 		string(replicationsync.StatusFailed), string(reason), idempotencyKey,
 		string(replicationsync.StatusPending), string(replicationsync.StatusSyncing))
@@ -207,7 +248,7 @@ func (o *SQLOutbox) MarkConflict(idempotencyKey string, conflict replicationsync
 	}
 	return o.updateState(idempotencyKey, `
 		UPDATE sync_outbox
-		SET status = ?, next_attempt_at = '', last_error = '', conflict_json = ?
+		SET status = ?, next_attempt_at = '', last_error = '', conflict_json = ?, syncing_since = ''
 		WHERE idempotency_key = ? AND status IN (?, ?)`,
 		string(replicationsync.StatusConflict), conflictJSON, idempotencyKey,
 		string(replicationsync.StatusPending), string(replicationsync.StatusSyncing))
@@ -309,11 +350,16 @@ type sqlChangeRow interface {
 func scanSQLChange(row sqlChangeRow, idempotencyKey string) (replicationsync.Change, error) {
 	var (
 		storedIdempotencyKey, recordID, recordType, operation, status, nextAttemptAt, lastError, conflictJSON, createdAt string
+		syncingSince, accountID, deviceID, operationID, keyID, contentDigest                                            string
 		payload                                                                                                          []byte
-		keyVersion, attempts                                                                                             int64
+		keyVersion, attempts, protocolVersion, entityVersion                                                             int64
 		storedConflict                                                                                                   sql.NullString
 	)
-	if err := row.Scan(&storedIdempotencyKey, &recordID, &recordType, &operation, &payload, &keyVersion, &status, &attempts, &nextAttemptAt, &lastError, &storedConflict, &createdAt); err != nil {
+	if err := row.Scan(
+		&storedIdempotencyKey, &recordID, &recordType, &operation, &payload, &keyVersion, &status, &attempts,
+		&nextAttemptAt, &lastError, &storedConflict, &createdAt,
+		&syncingSince, &accountID, &deviceID, &protocolVersion, &operationID, &entityVersion, &keyID, &contentDigest,
+	); err != nil {
 		return replicationsync.Change{}, err
 	}
 	if idempotencyKey == "" {
@@ -330,11 +376,15 @@ func scanSQLChange(row sqlChangeRow, idempotencyKey string) (replicationsync.Cha
 	if err != nil {
 		return replicationsync.Change{}, errors.New("stored change has invalid next attempt time")
 	}
+	synced, err := parseOptionalTime(syncingSince)
+	if err != nil {
+		return replicationsync.Change{}, errors.New("stored change has invalid syncing time")
+	}
 	conflict, err := unmarshalConflict(conflictJSON)
 	if err != nil {
 		return replicationsync.Change{}, err
 	}
-	if keyVersion <= 0 || attempts < 0 {
+	if keyVersion <= 0 || attempts < 0 || protocolVersion < 0 || entityVersion < 0 {
 		return replicationsync.Change{}, errors.New("stored change has invalid numeric state")
 	}
 	change := replicationsync.Change{
@@ -344,19 +394,20 @@ func scanSQLChange(row sqlChangeRow, idempotencyKey string) (replicationsync.Cha
 		Operation:       replicationsync.Operation(operation),
 		Payload:         append([]byte(nil), payload...),
 		KeyVersion:      uint32(keyVersion),
-		AccountID:       "pending",
-		DeviceID:        "pending",
-		ProtocolVersion: replicationsync.SyncProtocolVersion,
-		OperationID:     "pending",
-		EntityVersion:   1,
-		KeyID:           "pending",
-		ContentDigest:   "pending",
+		AccountID:       accountID,
+		DeviceID:        deviceID,
+		ProtocolVersion: uint32(protocolVersion),
+		OperationID:     operationID,
+		EntityVersion:   uint32(entityVersion),
+		KeyID:           keyID,
+		ContentDigest:   contentDigest,
 		CreatedAt:       created,
 		Status:          replicationsync.Status(status),
 		Attempts:        int(attempts),
 		NextAttemptAt:   next,
 		LastError:       replicationsync.FailureReason(lastError),
 		Conflict:        conflict,
+		SyncingSince:    synced,
 	}
 	if err := change.Validate(); err != nil {
 		return replicationsync.Change{}, errors.New("stored change is invalid")
@@ -433,6 +484,11 @@ func normalizeSQLChange(change replicationsync.Change) replicationsync.Change {
 
 func sameSQLImmutableChange(a, b replicationsync.Change) bool {
 	if a.IdempotencyKey != b.IdempotencyKey || a.RecordID != b.RecordID || a.RecordType != b.RecordType || a.Operation != b.Operation || a.KeyVersion != b.KeyVersion || !a.CreatedAt.Equal(b.CreatedAt) {
+		return false
+	}
+	if a.AccountID != b.AccountID || a.DeviceID != b.DeviceID || a.ProtocolVersion != b.ProtocolVersion ||
+		a.OperationID != b.OperationID || a.EntityVersion != b.EntityVersion ||
+		a.KeyID != b.KeyID || a.ContentDigest != b.ContentDigest {
 		return false
 	}
 	return string(a.Payload) == string(b.Payload)

@@ -160,7 +160,7 @@ func TestMigrateCreatesVaultItemsTable(t *testing.T) {
 	if !tableExists(TableVaultItems) {
 		t.Fatalf("expected %s table to exist", TableVaultItems)
 	}
-	for _, table := range []string{TableSyncOutbox, TableSyncCursors} {
+	for _, table := range []string{TableSyncOutbox, TableSyncCursors, TableSyncIdentity} {
 		if !tableExists(table) {
 			t.Fatalf("expected %s table to exist", table)
 		}
@@ -170,8 +170,8 @@ func TestMigrateCreatesVaultItemsTable(t *testing.T) {
 	if err := db.QueryRow("SELECT MAX(version) FROM schema_migrations").Scan(&version); err != nil {
 		t.Fatalf("read migration version: %v", err)
 	}
-	if version != 7 {
-		t.Fatalf("migration version = %d, want 7", version)
+	if version != 8 {
+		t.Fatalf("migration version = %d, want 8", version)
 	}
 
 	if err := Migrate(context.Background(), db); err != nil {
@@ -226,6 +226,8 @@ func TestMigrateCreatesSyncSchemaWithoutVaultItemBackfill(t *testing.T) {
 	for _, name := range []string{
 		"id", "record_id", "record_type", "operation", "payload", "key_version", "status",
 		"attempts", "next_attempt_at", "last_error", "idempotency_key", "conflict_json", "created_at",
+		"syncing_since", "account_id", "device_id", "protocol_version", "operation_id",
+		"entity_version", "key_id", "content_digest",
 	} {
 		if _, ok := outboxColumns[name]; !ok {
 			t.Fatalf("sync_outbox missing column %q", name)
