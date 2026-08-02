@@ -143,11 +143,15 @@ func (o *SQLOutbox) Pending(now time.Time, limit int) ([]replicationsync.Change,
 	return changes, nil
 }
 
-func (o *SQLOutbox) MarkSyncing(idempotencyKey string) error {
+func (o *SQLOutbox) MarkSyncing(idempotencyKey string, _ time.Time) error {
 	return o.updateState(idempotencyKey, `
 		UPDATE sync_outbox SET status = ?
 		WHERE idempotency_key = ? AND status = ?`,
 		string(replicationsync.StatusSyncing), idempotencyKey, string(replicationsync.StatusPending))
+}
+
+func (o *SQLOutbox) RecoverStaleSyncing(_ time.Time) error {
+	return nil
 }
 
 func (o *SQLOutbox) MarkSent(idempotencyKey string) error {

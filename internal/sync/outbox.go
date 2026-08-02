@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+const defaultOutboxLease = 5 * time.Minute
+
 var (
 	ErrNotFound            = errors.New("change not found")
 	ErrIdempotencyConflict = errors.New("idempotency key already contains different change")
@@ -20,11 +22,17 @@ type Outbox interface {
 	Enqueue(change Change) error
 	Get(idempotencyKey string) (Change, error)
 	Pending(now time.Time, limit int) ([]Change, error)
-	MarkSyncing(idempotencyKey string) error
+	MarkSyncing(idempotencyKey string, at time.Time) error
+	RecoverStaleSyncing(now time.Time) error
 	MarkSent(idempotencyKey string) error
 	MarkRetry(idempotencyKey string, nextAttemptAt time.Time, reason FailureReason) error
 	MarkFailed(idempotencyKey string, reason FailureReason) error
 	MarkConflict(idempotencyKey string, conflict Conflict) error
+}
+
+// MemoryOutboxConfig configures lease duration for stale syncing reclaim.
+type MemoryOutboxConfig struct {
+	Lease time.Duration
 }
 
 // MemoryOutbox is a thread-safe in-memory implementation for the local
@@ -33,10 +41,18 @@ type Outbox interface {
 type MemoryOutbox struct {
 	mu      stdsync.RWMutex
 	changes map[string]Change
+	lease   time.Duration
 }
 
-func NewMemoryOutbox() *MemoryOutbox {
-	return &MemoryOutbox{changes: make(map[string]Change)}
+func NewMemoryOutbox(config ...MemoryOutboxConfig) *MemoryOutbox {
+	outbox := &MemoryOutbox{
+		changes: make(map[string]Change),
+		lease:   defaultOutboxLease,
+	}
+	if len(config) > 0 && config[0].Lease > 0 {
+		outbox.lease = config[0].Lease
+	}
+	return outbox
 }
 
 func (o *MemoryOutbox) Enqueue(change Change) error {
@@ -79,6 +95,10 @@ func (o *MemoryOutbox) Pending(now time.Time, limit int) ([]Change, error) {
 	for _, change := range o.changes {
 		if change.Status == StatusPending && !change.NextAttemptAt.After(now) {
 			changes = append(changes, cloneChange(change))
+			continue
+		}
+		if o.isStaleSyncing(change, now) {
+			changes = append(changes, cloneChange(change))
 		}
 	}
 	sort.Slice(changes, func(i, j int) bool {
@@ -93,12 +113,36 @@ func (o *MemoryOutbox) Pending(now time.Time, limit int) ([]Change, error) {
 	return changes, nil
 }
 
-func (o *MemoryOutbox) MarkSyncing(idempotencyKey string) error {
+func (o *MemoryOutbox) RecoverStaleSyncing(now time.Time) error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	for key, change := range o.changes {
+		if !o.isStaleSyncing(change, now) {
+			continue
+		}
+		change.Status = StatusPending
+		change.SyncingSince = time.Time{}
+		if change.NextAttemptAt.IsZero() {
+			change.NextAttemptAt = now
+		}
+		o.changes[key] = cloneChange(change)
+	}
+	return nil
+}
+
+func (o *MemoryOutbox) MarkSyncing(idempotencyKey string, at time.Time) error {
 	return o.transition(idempotencyKey, func(change *Change) error {
-		if change.Status != StatusPending {
+		switch change.Status {
+		case StatusPending:
+		case StatusSyncing:
+			if change.SyncingSince.IsZero() || change.SyncingSince.After(at.Add(-o.lease)) {
+				return ErrInvalidState
+			}
+		default:
 			return ErrInvalidState
 		}
 		change.Status = StatusSyncing
+		change.SyncingSince = at
 		return nil
 	})
 }
@@ -111,6 +155,7 @@ func (o *MemoryOutbox) MarkSent(idempotencyKey string) error {
 		change.Status = StatusSynced
 		change.LastError = ""
 		change.NextAttemptAt = time.Time{}
+		change.SyncingSince = time.Time{}
 		return nil
 	})
 }
@@ -130,6 +175,7 @@ func (o *MemoryOutbox) MarkRetry(idempotencyKey string, nextAttemptAt time.Time,
 		change.Attempts++
 		change.NextAttemptAt = nextAttemptAt
 		change.LastError = reason
+		change.SyncingSince = time.Time{}
 		return nil
 	})
 }
@@ -146,6 +192,7 @@ func (o *MemoryOutbox) MarkFailed(idempotencyKey string, reason FailureReason) e
 		change.Attempts++
 		change.NextAttemptAt = time.Time{}
 		change.LastError = reason
+		change.SyncingSince = time.Time{}
 		return nil
 	})
 }
@@ -164,6 +211,7 @@ func (o *MemoryOutbox) MarkConflict(idempotencyKey string, conflict Conflict) er
 		change.Status = StatusConflict
 		change.NextAttemptAt = time.Time{}
 		change.LastError = ""
+		change.SyncingSince = time.Time{}
 		change.Conflict = &Conflict{
 			ID:              conflict.ID,
 			RecordID:        conflict.RecordID,
@@ -174,6 +222,12 @@ func (o *MemoryOutbox) MarkConflict(idempotencyKey string, conflict Conflict) er
 		}
 		return nil
 	})
+}
+
+func (o *MemoryOutbox) isStaleSyncing(change Change, now time.Time) bool {
+	return change.Status == StatusSyncing &&
+		!change.SyncingSince.IsZero() &&
+		!change.SyncingSince.After(now.Add(-o.lease))
 }
 
 func (o *MemoryOutbox) transition(idempotencyKey string, fn func(*Change) error) error {
@@ -201,7 +255,7 @@ func normalizeChange(change Change) Change {
 }
 
 func sameImmutableChange(a, b Change) bool {
-	if a.IdempotencyKey != b.IdempotencyKey || a.RecordID != b.RecordID || a.RecordType != b.RecordType || a.Operation != b.Operation || a.KeyVersion != b.KeyVersion || !a.CreatedAt.Equal(b.CreatedAt) {
+	if !sameChangeIdentity(a, b) {
 		return false
 	}
 	if len(a.Payload) != len(b.Payload) {
@@ -213,6 +267,21 @@ func sameImmutableChange(a, b Change) bool {
 		}
 	}
 	return true
+}
+
+func sameChangeIdentity(a, b Change) bool {
+	return a.IdempotencyKey == b.IdempotencyKey &&
+		a.RecordID == b.RecordID &&
+		a.RecordType == b.RecordType &&
+		a.Operation == b.Operation &&
+		a.KeyVersion == b.KeyVersion &&
+		a.AccountID == b.AccountID &&
+		a.DeviceID == b.DeviceID &&
+		a.ProtocolVersion == b.ProtocolVersion &&
+		a.OperationID == b.OperationID &&
+		a.EntityVersion == b.EntityVersion &&
+		a.KeyID == b.KeyID &&
+		a.ContentDigest == b.ContentDigest
 }
 
 func cloneChange(change Change) Change {

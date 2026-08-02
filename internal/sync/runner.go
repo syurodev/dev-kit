@@ -38,9 +38,12 @@ type Coordinator = Runner
 
 // RunnerConfig contains local scheduling hooks. RetryDelay is kept bounded to
 // a positive value so MarkRetry always receives a future timestamp.
+// SyncingLease documents the outbox lease used to reclaim stale syncing rows;
+// the runner does not implement reclaim itself beyond passing now to MarkSyncing.
 type RunnerConfig struct {
-	Clock      func() time.Time
-	RetryDelay time.Duration
+	Clock        func() time.Time
+	RetryDelay   time.Duration
+	SyncingLease time.Duration
 }
 
 func NewRunner(outbox Outbox, transport Transport, config ...RunnerConfig) *Runner {
@@ -98,7 +101,7 @@ func (r *Runner) Run(ctx context.Context, limit int) (RunReport, error) {
 		if err := ctx.Err(); err != nil {
 			return report, err
 		}
-		if err := r.outbox.MarkSyncing(change.IdempotencyKey); err != nil {
+		if err := r.outbox.MarkSyncing(change.IdempotencyKey, now); err != nil {
 			if errors.Is(err, ErrInvalidState) {
 				continue
 			}

@@ -7,6 +7,10 @@ import (
 	"time"
 )
 
+func testPendingChange(key string, createdAt time.Time) Change {
+	return validChange(key, createdAt)
+}
+
 func TestMemoryOutboxEnqueueIsIdempotentAndCopiesPayload(t *testing.T) {
 	outbox := NewMemoryOutbox()
 	now := time.Unix(100, 0).UTC()
@@ -68,7 +72,7 @@ func TestMemoryOutboxRetryFailureAndSent(t *testing.T) {
 	if err := outbox.Enqueue(validChange("retry", now)); err != nil {
 		t.Fatal(err)
 	}
-	if err := outbox.MarkSyncing("retry"); err != nil {
+	if err := outbox.MarkSyncing("retry", now); err != nil {
 		t.Fatal(err)
 	}
 	next := now.Add(time.Hour)
@@ -83,7 +87,7 @@ func TestMemoryOutboxRetryFailureAndSent(t *testing.T) {
 	if len(ready) != 0 {
 		t.Fatalf("retry was returned before next attempt: %+v", ready)
 	}
-	if err := outbox.MarkSyncing("retry"); err != nil {
+	if err := outbox.MarkSyncing("retry", now); err != nil {
 		t.Fatal(err)
 	}
 	if err := outbox.MarkSent("retry"); err != nil {
@@ -132,6 +136,39 @@ func TestMemoryOutboxConflict(t *testing.T) {
 	}
 	if pending, _ := outbox.Pending(now, 0); len(pending) != 0 {
 		t.Fatalf("conflict returned as pending: %+v", pending)
+	}
+}
+
+func TestMemoryOutboxReclaimsStaleSyncing(t *testing.T) {
+	outbox := NewMemoryOutbox(MemoryOutboxConfig{Lease: time.Minute})
+	now := time.Unix(1000, 0).UTC()
+	change := testPendingChange("k1", now)
+	if err := outbox.Enqueue(change); err != nil {
+		t.Fatal(err)
+	}
+	if err := outbox.MarkSyncing("k1", now); err != nil {
+		t.Fatal(err)
+	}
+	if pending, _ := outbox.Pending(now.Add(30*time.Second), 0); len(pending) != 0 {
+		t.Fatal("fresh syncing must not be pending")
+	}
+	ready, err := outbox.Pending(now.Add(time.Minute+time.Second), 0)
+	if err != nil || len(ready) != 1 {
+		t.Fatalf("stale syncing reclaim: len=%d err=%v", len(ready), err)
+	}
+}
+
+func TestRecoverStaleSyncing(t *testing.T) {
+	outbox := NewMemoryOutbox(MemoryOutboxConfig{Lease: time.Minute})
+	now := time.Unix(1000, 0).UTC()
+	_ = outbox.Enqueue(testPendingChange("k1", now))
+	_ = outbox.MarkSyncing("k1", now)
+	if err := outbox.RecoverStaleSyncing(now.Add(2 * time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := outbox.Get("k1")
+	if got.Status != StatusPending || !got.SyncingSince.IsZero() {
+		t.Fatalf("recovered = %+v", got)
 	}
 }
 

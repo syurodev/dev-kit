@@ -174,18 +174,7 @@ func (t *MemoryTransport) Push(ctx context.Context, changes []Change) (PushResul
 }
 
 func sameTransportChange(a, b Change) bool {
-	if a.IdempotencyKey != b.IdempotencyKey || a.RecordID != b.RecordID || a.RecordType != b.RecordType || a.Operation != b.Operation || a.KeyVersion != b.KeyVersion || !a.CreatedAt.Equal(b.CreatedAt) {
-		return false
-	}
-	if len(a.Payload) != len(b.Payload) {
-		return false
-	}
-	for i := range a.Payload {
-		if a.Payload[i] != b.Payload[i] {
-			return false
-		}
-	}
-	return true
+	return sameImmutableChange(a, b)
 }
 
 func cloneConflict(conflict Conflict) Conflict {

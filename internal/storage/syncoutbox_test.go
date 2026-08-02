@@ -129,7 +129,7 @@ func TestSQLOutboxStateTransitionsAndSafeFailureReasons(t *testing.T) {
 	if err := outbox.Enqueue(testSQLChange("retry", now)); err != nil {
 		t.Fatal(err)
 	}
-	if err := outbox.MarkSyncing("retry"); err != nil {
+	if err := outbox.MarkSyncing("retry", now); err != nil {
 		t.Fatal(err)
 	}
 	next := now.Add(time.Hour)
@@ -140,7 +140,7 @@ func TestSQLOutboxStateTransitionsAndSafeFailureReasons(t *testing.T) {
 	if got.Status != replicationsync.StatusPending || got.Attempts != 1 || got.LastError != replicationsync.FailureTimeout || !got.NextAttemptAt.Equal(next) {
 		t.Fatalf("retry state = %+v", got)
 	}
-	if err := outbox.MarkSyncing("retry"); err != nil {
+	if err := outbox.MarkSyncing("retry", now); err != nil {
 		t.Fatal(err)
 	}
 	if err := outbox.MarkSent("retry"); err != nil {
