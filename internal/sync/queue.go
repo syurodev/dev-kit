@@ -9,22 +9,21 @@ import (
 	"time"
 )
 
-const queueIdempotencyNamespace = "dev-kit/sync/queue/v1"
+const queueIdempotencyNamespace = "dev-kit/sync/queue/v2"
 
 // QueuePayload seals one complete record payload and adds it to the local
 // outbox. The outbox only receives the serialized replication envelope, never
 // the plaintext record bytes.
 //
-// The idempotency key is derived from the stable record identity, operation,
-// and creation timestamp. Encryption is intentionally performed only when the
-// logical change is not already queued because SealPayload uses a fresh nonce
-// for every encryption attempt.
+// The idempotency key is derived from the caller-supplied operation_id.
+// Encryption is intentionally performed only when the logical change is not
+// already queued because SealPayload uses a fresh nonce for every encryption
+// attempt.
 func QueuePayload(
 	vault Vault,
 	outbox Outbox,
-	recordID string,
-	recordType string,
-	keyID string,
+	ctx SyncContext,
+	recordID, recordType, keyID string,
 	keyVersion uint32,
 	operation Operation,
 	plaintextRecord []byte,
@@ -36,13 +35,19 @@ func QueuePayload(
 	if outbox == nil {
 		return Change{}, errors.New("outbox is required")
 	}
-	if err := validateQueueInputs(recordID, recordType, keyID, keyVersion, operation, plaintextRecord, createdAt); err != nil {
+	if err := ctx.Validate(); err != nil {
+		return Change{}, err
+	}
+	if err := validateQueueInputs(ctx, recordID, recordType, keyID, keyVersion, operation, plaintextRecord, createdAt); err != nil {
 		return Change{}, err
 	}
 
-	idempotencyKey := queueIdempotencyKey(recordID, operation, createdAt)
+	digest := sha256.Sum256(plaintextRecord)
+	contentDigest := hex.EncodeToString(digest[:])
+	idempotencyKey := queueIdempotencyKey(ctx.OperationID)
+
 	if existing, err := outbox.Get(idempotencyKey); err == nil {
-		if !sameQueueIdentity(existing, recordID, recordType, keyVersion, operation, createdAt) {
+		if !sameQueueIdentity(existing, ctx, recordID, recordType, keyID, keyVersion, operation, contentDigest) {
 			return Change{}, ErrIdempotencyConflict
 		}
 		return cloneChange(existing), nil
@@ -50,13 +55,6 @@ func QueuePayload(
 		return Change{}, err
 	}
 
-	ctx := SyncContext{
-		AccountID:       "pending",
-		DeviceID:        "pending",
-		ProtocolVersion: SyncProtocolVersion,
-		OperationID:     "pending",
-		EntityVersion:   1,
-	}
 	envelope, err := SealPayload(vault, ctx, recordID, recordType, keyID, keyVersion, plaintextRecord)
 	if err != nil {
 		return Change{}, err
@@ -75,7 +73,7 @@ func QueuePayload(
 		keyVersion,
 		ctx,
 		keyID,
-		"pending",
+		contentDigest,
 		createdAt,
 	)
 	if err := outbox.Enqueue(change); err != nil {
@@ -84,7 +82,7 @@ func QueuePayload(
 		// will differ even though the logical idempotency key is the same.
 		if errors.Is(err, ErrIdempotencyConflict) {
 			existing, getErr := outbox.Get(idempotencyKey)
-			if getErr == nil && sameQueueIdentity(existing, recordID, recordType, keyVersion, operation, createdAt) {
+			if getErr == nil && sameQueueIdentity(existing, ctx, recordID, recordType, keyID, keyVersion, operation, contentDigest) {
 				return cloneChange(existing), nil
 			}
 		}
@@ -100,15 +98,8 @@ func QueuePayload(
 	return cloneChange(queued), nil
 }
 
-func validateQueueInputs(recordID, recordType, keyID string, keyVersion uint32, operation Operation, plaintextRecord []byte, createdAt time.Time) error {
-	pendingCtx := SyncContext{
-		AccountID:       "pending",
-		DeviceID:        "pending",
-		ProtocolVersion: SyncProtocolVersion,
-		OperationID:     "pending",
-		EntityVersion:   1,
-	}
-	if err := validateReplicationInputs(pendingCtx, recordID, recordType, keyID, keyVersion, plaintextRecord); err != nil {
+func validateQueueInputs(ctx SyncContext, recordID, recordType, keyID string, keyVersion uint32, operation Operation, plaintextRecord []byte, createdAt time.Time) error {
+	if err := validateReplicationInputs(ctx, recordID, recordType, keyID, keyVersion, plaintextRecord); err != nil {
 		return err
 	}
 	switch operation {
@@ -122,20 +113,22 @@ func validateQueueInputs(recordID, recordType, keyID string, keyVersion uint32, 
 	return nil
 }
 
-func queueIdempotencyKey(recordID string, operation Operation, createdAt time.Time) string {
-	canonical := fmt.Sprintf("%s\x00%s\x00%s", queueIdempotencyNamespace, recordID, operationTimestamp(operation, createdAt))
-	digest := sha256.Sum256([]byte(canonical))
-	return queueIdempotencyNamespace + ":" + hex.EncodeToString(digest[:])
+func queueIdempotencyKey(operationID string) string {
+	canonical := queueIdempotencyNamespace + "\x00" + operationID
+	sum := sha256.Sum256([]byte(canonical))
+	return queueIdempotencyNamespace + ":" + hex.EncodeToString(sum[:])
 }
 
-func operationTimestamp(operation Operation, createdAt time.Time) string {
-	return string(operation) + "\x00" + createdAt.UTC().Format(time.RFC3339Nano)
-}
-
-func sameQueueIdentity(change Change, recordID, recordType string, keyVersion uint32, operation Operation, createdAt time.Time) bool {
+func sameQueueIdentity(change Change, ctx SyncContext, recordID, recordType, keyID string, keyVersion uint32, operation Operation, contentDigest string) bool {
 	return change.RecordID == recordID &&
 		change.RecordType == recordType &&
 		change.KeyVersion == keyVersion &&
 		change.Operation == operation &&
-		change.CreatedAt.Equal(createdAt)
+		change.KeyID == keyID &&
+		change.ContentDigest == contentDigest &&
+		change.AccountID == ctx.AccountID &&
+		change.DeviceID == ctx.DeviceID &&
+		change.ProtocolVersion == ctx.ProtocolVersion &&
+		change.OperationID == ctx.OperationID &&
+		change.EntityVersion == ctx.EntityVersion
 }
