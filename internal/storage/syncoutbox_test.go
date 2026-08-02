@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -10,7 +11,7 @@ import (
 	replicationsync "changeme/internal/sync"
 )
 
-func newSyncPersistence(t *testing.T) (*SQLOutbox, *SQLCursorStore, func()) {
+func newSyncPersistence(t *testing.T) (*SQLOutbox, *sql.DB, *SQLCursorStore, func()) {
 	t.Helper()
 	db, err := Open(filepath.Join(t.TempDir(), "devkit.db"))
 	if err != nil {
@@ -20,7 +21,7 @@ func newSyncPersistence(t *testing.T) (*SQLOutbox, *SQLCursorStore, func()) {
 		db.Close()
 		t.Fatalf("migrate: %v", err)
 	}
-	return NewSQLOutbox(db, time.Minute), NewSQLCursorStore(db), func() { _ = db.Close() }
+	return NewSQLOutbox(db, time.Minute), db, NewSQLCursorStore(db), func() { _ = db.Close() }
 }
 
 func testSQLSyncContext() replicationsync.SyncContext {
@@ -49,7 +50,7 @@ func testSQLConflict(now time.Time) replicationsync.Conflict {
 }
 
 func TestSQLOutboxEnqueueGetAndIdempotency(t *testing.T) {
-	outbox, _, cleanup := newSyncPersistence(t)
+	outbox, _, _, cleanup := newSyncPersistence(t)
 	defer cleanup()
 
 	now := time.Unix(100, 123).UTC()
@@ -83,7 +84,7 @@ func TestSQLOutboxEnqueueGetAndIdempotency(t *testing.T) {
 }
 
 func TestSQLOutboxPendingIsTimeAwareDeterministicAndLimited(t *testing.T) {
-	outbox, _, cleanup := newSyncPersistence(t)
+	outbox, _, _, cleanup := newSyncPersistence(t)
 	defer cleanup()
 
 	base := time.Unix(100, 0).UTC()
@@ -122,7 +123,7 @@ func TestSQLOutboxPendingIsTimeAwareDeterministicAndLimited(t *testing.T) {
 }
 
 func TestSQLOutboxStateTransitionsAndSafeFailureReasons(t *testing.T) {
-	outbox, _, cleanup := newSyncPersistence(t)
+	outbox, _, _, cleanup := newSyncPersistence(t)
 	defer cleanup()
 
 	now := time.Unix(100, 0).UTC()
@@ -176,7 +177,7 @@ func TestSQLOutboxStateTransitionsAndSafeFailureReasons(t *testing.T) {
 }
 
 func TestSQLOutboxConflictPersistsSafeCopy(t *testing.T) {
-	outbox, _, cleanup := newSyncPersistence(t)
+	outbox, _, _, cleanup := newSyncPersistence(t)
 	defer cleanup()
 
 	now := time.Unix(100, 0).UTC()
@@ -204,7 +205,7 @@ func TestSQLOutboxConflictPersistsSafeCopy(t *testing.T) {
 }
 
 func TestSQLOutboxReclaimsStaleSyncing(t *testing.T) {
-	outbox, _, cleanup := newSyncPersistence(t)
+	outbox, _, _, cleanup := newSyncPersistence(t)
 	defer cleanup()
 
 	now := time.Unix(1000, 0).UTC()
@@ -224,7 +225,7 @@ func TestSQLOutboxReclaimsStaleSyncing(t *testing.T) {
 }
 
 func TestSQLRecoverStaleSyncing(t *testing.T) {
-	outbox, _, cleanup := newSyncPersistence(t)
+	outbox, _, _, cleanup := newSyncPersistence(t)
 	defer cleanup()
 
 	now := time.Unix(1000, 0).UTC()
@@ -246,8 +247,29 @@ func TestSQLRecoverStaleSyncing(t *testing.T) {
 	}
 }
 
+func TestSQLOutboxReclaimsSyncingWithEmptyLeaseTimestamp(t *testing.T) {
+	outbox, db, _, cleanup := newSyncPersistence(t)
+	defer cleanup()
+
+	now := time.Unix(1000, 0).UTC()
+	if err := outbox.Enqueue(testSQLChange("k1", now)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE sync_outbox SET status = ?, syncing_since = '' WHERE idempotency_key = ?`,
+		string(replicationsync.StatusSyncing), "k1"); err != nil {
+		t.Fatal(err)
+	}
+	pending, err := outbox.Pending(now, 0)
+	if err != nil || len(pending) != 1 {
+		t.Fatalf("empty syncing_since must be immediately stale: len=%d err=%v", len(pending), err)
+	}
+	if err := outbox.MarkSyncing("k1", now); err != nil {
+		t.Fatalf("reclaim syncing row with empty lease timestamp: %v", err)
+	}
+}
+
 func TestSQLCursorStoreRoundTripValidationAndInitialValue(t *testing.T) {
-	_, cursors, cleanup := newSyncPersistence(t)
+	_, _, cursors, cleanup := newSyncPersistence(t)
 	defer cleanup()
 
 	ctx := context.Background()

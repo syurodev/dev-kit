@@ -237,17 +237,20 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			)); err != nil {
 				return err
 			}
-			for _, stmt := range []string{
-				fmt.Sprintf("ALTER TABLE %s ADD COLUMN syncing_since TEXT NOT NULL DEFAULT ''", TableSyncOutbox),
-				fmt.Sprintf("ALTER TABLE %s ADD COLUMN account_id TEXT NOT NULL DEFAULT ''", TableSyncOutbox),
-				fmt.Sprintf("ALTER TABLE %s ADD COLUMN device_id TEXT NOT NULL DEFAULT ''", TableSyncOutbox),
-				fmt.Sprintf("ALTER TABLE %s ADD COLUMN protocol_version INTEGER NOT NULL DEFAULT 0", TableSyncOutbox),
-				fmt.Sprintf("ALTER TABLE %s ADD COLUMN operation_id TEXT NOT NULL DEFAULT ''", TableSyncOutbox),
-				fmt.Sprintf("ALTER TABLE %s ADD COLUMN entity_version INTEGER NOT NULL DEFAULT 0", TableSyncOutbox),
-				fmt.Sprintf("ALTER TABLE %s ADD COLUMN key_id TEXT NOT NULL DEFAULT ''", TableSyncOutbox),
-				fmt.Sprintf("ALTER TABLE %s ADD COLUMN content_digest TEXT NOT NULL DEFAULT ''", TableSyncOutbox),
+			for _, col := range []struct {
+				name       string
+				definition string
+			}{
+				{"syncing_since", "TEXT NOT NULL DEFAULT ''"},
+				{"account_id", "TEXT NOT NULL DEFAULT ''"},
+				{"device_id", "TEXT NOT NULL DEFAULT ''"},
+				{"protocol_version", "INTEGER NOT NULL DEFAULT 0"},
+				{"operation_id", "TEXT NOT NULL DEFAULT ''"},
+				{"entity_version", "INTEGER NOT NULL DEFAULT 0"},
+				{"key_id", "TEXT NOT NULL DEFAULT ''"},
+				{"content_digest", "TEXT NOT NULL DEFAULT ''"},
 			} {
-				if _, err := db.ExecContext(ctx, stmt); err != nil {
+				if err := addColumnIfNotExists(ctx, db, TableSyncOutbox, col.name, col.definition); err != nil {
 					return err
 				}
 			}
@@ -260,4 +263,28 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		return err
 	}
 	return runner.Run(ctx)
+}
+
+func addColumnIfNotExists(ctx context.Context, db *sql.DB, table, column, definition string) error {
+	rows, err := db.QueryContext(ctx, "PRAGMA table_info("+table+")")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid, notNull, pk int
+		var name, typ string
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
+			return err
+		}
+		if name == column {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	_, err = db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, definition))
+	return err
 }

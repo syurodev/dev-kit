@@ -44,10 +44,10 @@ type ReplicationEnvelope struct {
 // decrypting it. This rejects malformed or unsupported transport data before
 // it reaches the vault boundary.
 func (e ReplicationEnvelope) Validate() error {
-	if err := validateIdentifier("record ID", e.RecordID, 256); err != nil {
+	if err := validateSyncIdentifier("record ID", e.RecordID, 256); err != nil {
 		return err
 	}
-	if err := validateIdentifier("record type", e.RecordType, 128); err != nil {
+	if err := validateSyncIdentifier("record type", e.RecordType, 128); err != nil {
 		return err
 	}
 	if e.KeyVersion == 0 {
@@ -56,16 +56,16 @@ func (e ReplicationEnvelope) Validate() error {
 	if e.EnvelopeVersion != ReplicationEnvelopeVersion {
 		return errors.New("replication envelope version is unsupported")
 	}
-	if err := validateIdentifier("account id", e.AccountID, 256); err != nil {
+	if err := validateSyncIdentifier("account id", e.AccountID, 256); err != nil {
 		return err
 	}
-	if err := validateIdentifier("device id", e.DeviceID, 256); err != nil {
+	if err := validateSyncIdentifier("device id", e.DeviceID, 256); err != nil {
 		return err
 	}
 	if e.ProtocolVersion != SyncProtocolVersion {
 		return fmt.Errorf("unsupported sync protocol version %d", e.ProtocolVersion)
 	}
-	if err := validateIdentifier("operation id", e.OperationID, 256); err != nil {
+	if err := validateSyncIdentifier("operation id", e.OperationID, 256); err != nil {
 		return err
 	}
 	if e.EntityVersion == 0 {
@@ -133,7 +133,7 @@ func OpenPayload(vault Vault, envelope ReplicationEnvelope, keyID string) ([]byt
 	if err := envelope.Validate(); err != nil {
 		return nil, err
 	}
-	if err := validateIdentifier("key ID", keyID, 256); err != nil {
+	if err := validateSyncIdentifier("key ID", keyID, 256); err != nil {
 		return nil, err
 	}
 
@@ -155,13 +155,13 @@ func validateReplicationInputs(ctx SyncContext, recordID, recordType, keyID stri
 	if err := ctx.Validate(); err != nil {
 		return err
 	}
-	if err := validateIdentifier("record ID", recordID, 256); err != nil {
+	if err := validateSyncIdentifier("record ID", recordID, 256); err != nil {
 		return err
 	}
-	if err := validateIdentifier("record type", recordType, 128); err != nil {
+	if err := validateSyncIdentifier("record type", recordType, 128); err != nil {
 		return err
 	}
-	if err := validateIdentifier("key ID", keyID, 256); err != nil {
+	if err := validateSyncIdentifier("key ID", keyID, 256); err != nil {
 		return err
 	}
 	if keyVersion == 0 {

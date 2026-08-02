@@ -137,7 +137,7 @@ func (o *SQLOutbox) Pending(now time.Time, limit int) ([]replicationsync.Change,
 		FROM %s
 		WHERE (
 			(status = ? AND next_attempt_at <= ?)
-			OR (status = ? AND syncing_since != '' AND syncing_since <= ?)
+			OR (status = ? AND (syncing_since = '' OR syncing_since <= ?))
 		)
 		ORDER BY created_at ASC, idempotency_key ASC`, TableSyncOutbox)
 	args := []any{
@@ -174,7 +174,7 @@ func (o *SQLOutbox) MarkSyncing(idempotencyKey string, at time.Time) error {
 	return o.updateState(idempotencyKey, `
 		UPDATE sync_outbox SET status = ?, syncing_since = ?
 		WHERE idempotency_key = ? AND (
-			status = ? OR (status = ? AND syncing_since != '' AND syncing_since <= ?)
+			status = ? OR (status = ? AND (syncing_since = '' OR syncing_since <= ?))
 		)`,
 		string(replicationsync.StatusSyncing), formatTime(at), idempotencyKey,
 		string(replicationsync.StatusPending), string(replicationsync.StatusSyncing), staleBefore)
@@ -189,7 +189,7 @@ func (o *SQLOutbox) RecoverStaleSyncing(now time.Time) error {
 		UPDATE %s
 		SET status = ?, syncing_since = '',
 			next_attempt_at = CASE WHEN next_attempt_at = '' THEN ? ELSE next_attempt_at END
-		WHERE status = ? AND syncing_since != '' AND syncing_since <= ?`, TableSyncOutbox),
+		WHERE status = ? AND (syncing_since = '' OR syncing_since <= ?)`, TableSyncOutbox),
 		string(replicationsync.StatusPending), formatTime(now),
 		string(replicationsync.StatusSyncing), staleBefore)
 	return err
@@ -350,7 +350,7 @@ type sqlChangeRow interface {
 func scanSQLChange(row sqlChangeRow, idempotencyKey string) (replicationsync.Change, error) {
 	var (
 		storedIdempotencyKey, recordID, recordType, operation, status, nextAttemptAt, lastError, conflictJSON, createdAt string
-		syncingSince, accountID, deviceID, operationID, keyID, contentDigest                                            string
+		syncingSince, accountID, deviceID, operationID, keyID, contentDigest                                             string
 		payload                                                                                                          []byte
 		keyVersion, attempts, protocolVersion, entityVersion                                                             int64
 		storedConflict                                                                                                   sql.NullString
@@ -483,7 +483,7 @@ func normalizeSQLChange(change replicationsync.Change) replicationsync.Change {
 }
 
 func sameSQLImmutableChange(a, b replicationsync.Change) bool {
-	if a.IdempotencyKey != b.IdempotencyKey || a.RecordID != b.RecordID || a.RecordType != b.RecordType || a.Operation != b.Operation || a.KeyVersion != b.KeyVersion || !a.CreatedAt.Equal(b.CreatedAt) {
+	if a.IdempotencyKey != b.IdempotencyKey || a.RecordID != b.RecordID || a.RecordType != b.RecordType || a.Operation != b.Operation || a.KeyVersion != b.KeyVersion {
 		return false
 	}
 	if a.AccountID != b.AccountID || a.DeviceID != b.DeviceID || a.ProtocolVersion != b.ProtocolVersion ||

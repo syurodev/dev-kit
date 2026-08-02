@@ -172,6 +172,23 @@ func TestRecoverStaleSyncing(t *testing.T) {
 	}
 }
 
+func TestMemoryOutboxReclaimsSyncingWithEmptyLeaseTimestamp(t *testing.T) {
+	outbox := NewMemoryOutbox(MemoryOutboxConfig{Lease: time.Minute})
+	now := time.Unix(1000, 0).UTC()
+	change := testPendingChange("k1", now)
+	change.Status = StatusSyncing
+	if err := outbox.Enqueue(change); err != nil {
+		t.Fatal(err)
+	}
+	pending, err := outbox.Pending(now, 0)
+	if err != nil || len(pending) != 1 {
+		t.Fatalf("empty syncing_since must be immediately stale: len=%d err=%v", len(pending), err)
+	}
+	if err := outbox.MarkSyncing("k1", now); err != nil {
+		t.Fatalf("reclaim syncing row with empty lease timestamp: %v", err)
+	}
+}
+
 func TestMemoryOutboxIsThreadSafe(t *testing.T) {
 	outbox := NewMemoryOutbox()
 	now := time.Unix(100, 0).UTC()

@@ -135,7 +135,7 @@ func (o *MemoryOutbox) MarkSyncing(idempotencyKey string, at time.Time) error {
 		switch change.Status {
 		case StatusPending:
 		case StatusSyncing:
-			if change.SyncingSince.IsZero() || change.SyncingSince.After(at.Add(-o.lease)) {
+			if !change.SyncingSince.IsZero() && change.SyncingSince.After(at.Add(-o.lease)) {
 				return ErrInvalidState
 			}
 		default:
@@ -225,9 +225,13 @@ func (o *MemoryOutbox) MarkConflict(idempotencyKey string, conflict Conflict) er
 }
 
 func (o *MemoryOutbox) isStaleSyncing(change Change, now time.Time) bool {
-	return change.Status == StatusSyncing &&
-		!change.SyncingSince.IsZero() &&
-		!change.SyncingSince.After(now.Add(-o.lease))
+	if change.Status != StatusSyncing {
+		return false
+	}
+	if change.SyncingSince.IsZero() {
+		return true
+	}
+	return !change.SyncingSince.After(now.Add(-o.lease))
 }
 
 func (o *MemoryOutbox) transition(idempotencyKey string, fn func(*Change) error) error {

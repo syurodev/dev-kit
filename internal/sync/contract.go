@@ -26,16 +26,16 @@ type SyncContext struct {
 }
 
 func (c SyncContext) Validate() error {
-	if err := validateIdentifier("account id", c.AccountID, 256); err != nil {
+	if err := validateSyncIdentifier("account id", c.AccountID, 256); err != nil {
 		return err
 	}
-	if err := validateIdentifier("device id", c.DeviceID, 256); err != nil {
+	if err := validateSyncIdentifier("device id", c.DeviceID, 256); err != nil {
 		return err
 	}
 	if c.ProtocolVersion != SyncProtocolVersion {
 		return fmt.Errorf("unsupported sync protocol version %d", c.ProtocolVersion)
 	}
-	if err := validateIdentifier("operation id", c.OperationID, 256); err != nil {
+	if err := validateSyncIdentifier("operation id", c.OperationID, 256); err != nil {
 		return err
 	}
 	if c.EntityVersion == 0 {
@@ -150,14 +150,17 @@ type Change struct {
 	OperationID     string
 	EntityVersion   uint32
 	KeyID           string
-	ContentDigest   string
-	CreatedAt       time.Time
-	Status          Status
-	Attempts        int
-	NextAttemptAt   time.Time
-	LastError       FailureReason
-	Conflict        *Conflict
-	SyncingSince    time.Time
+	// ContentDigest is a local-only SHA-256 of plaintext used for idempotency.
+	// Future transport/wire DTOs must not send this digest to a server; use a
+	// keyed/HMAC digest or omit it on the wire.
+	ContentDigest string
+	CreatedAt     time.Time
+	Status        Status
+	Attempts      int
+	NextAttemptAt time.Time
+	LastError     FailureReason
+	Conflict      *Conflict
+	SyncingSince  time.Time
 }
 
 // NewChange creates a pending change with safe defaults.
@@ -197,10 +200,10 @@ func (c Change) Validate() error {
 	if err := validateIdentifier("idempotency key", c.IdempotencyKey, 256); err != nil {
 		return err
 	}
-	if err := validateIdentifier("record id", c.RecordID, 256); err != nil {
+	if err := validateSyncIdentifier("record id", c.RecordID, 256); err != nil {
 		return err
 	}
-	if err := validateIdentifier("record type", c.RecordType, 128); err != nil {
+	if err := validateSyncIdentifier("record type", c.RecordType, 128); err != nil {
 		return err
 	}
 	if c.Operation != OperationCreate && c.Operation != OperationUpdate && c.Operation != OperationDelete {
@@ -220,7 +223,7 @@ func (c Change) Validate() error {
 	if err := ctx.Validate(); err != nil {
 		return err
 	}
-	if err := validateIdentifier("key id", c.KeyID, 256); err != nil {
+	if err := validateSyncIdentifier("key id", c.KeyID, 256); err != nil {
 		return err
 	}
 	if err := validateIdentifier("content digest", c.ContentDigest, 128); err != nil {
@@ -278,6 +281,18 @@ func validateIdentifier(label, value string, max int) error {
 	}
 	if hasControl(value) {
 		return fmt.Errorf("%s contains control characters", label)
+	}
+	return nil
+}
+
+// validateSyncIdentifier rejects path separators in values packed into
+// replication associated data so slash placement cannot change the binding.
+func validateSyncIdentifier(label, value string, max int) error {
+	if err := validateIdentifier(label, value, max); err != nil {
+		return err
+	}
+	if strings.ContainsAny(value, "/\\") {
+		return fmt.Errorf("%s must not contain path separators", label)
 	}
 	return nil
 }

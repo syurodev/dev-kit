@@ -42,6 +42,8 @@ func QueuePayload(
 		return Change{}, err
 	}
 
+	// Local-only digest for idempotency; must not be sent on the wire as plaintext
+	// (see Change.ContentDigest).
 	digest := sha256.Sum256(plaintextRecord)
 	contentDigest := hex.EncodeToString(digest[:])
 	idempotencyKey := queueIdempotencyKey(ctx.OperationID)

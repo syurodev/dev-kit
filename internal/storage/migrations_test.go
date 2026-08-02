@@ -260,6 +260,31 @@ func TestMigrateCreatesSyncSchemaWithoutVaultItemBackfill(t *testing.T) {
 	}
 }
 
+func TestMigration8AddColumnIsIdempotent(t *testing.T) {
+	dir := t.TempDir()
+	db, err := Open(filepath.Join(dir, "devkit.db"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	// Simulate interrupted m8 after columns were applied but before version insert.
+	if _, err := db.ExecContext(ctx, "DELETE FROM schema_migrations WHERE version = 8"); err != nil {
+		t.Fatalf("reset migration version: %v", err)
+	}
+
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatalf("resume m8 migrate: %v", err)
+	}
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatalf("third migrate: %v", err)
+	}
+}
+
 func TestMigrateDropsLegacyItemTables(t *testing.T) {
 	dir := t.TempDir()
 	db, err := Open(filepath.Join(dir, "devkit.db"))

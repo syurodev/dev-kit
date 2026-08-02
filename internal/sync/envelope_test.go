@@ -24,7 +24,7 @@ func testContext(opID string) SyncContext {
 	return SyncContext{
 		AccountID: "acct-1", DeviceID: "dev-1",
 		ProtocolVersion: SyncProtocolVersion,
-		OperationID: opID, EntityVersion: 1,
+		OperationID:     opID, EntityVersion: 1,
 	}
 }
 
@@ -160,6 +160,45 @@ func TestReplicationEnvelopeRejectsUnsupportedVersion(t *testing.T) {
 	}
 	if _, err := OpenPayload(vault, envelope, "note-body"); err == nil {
 		t.Fatal("OpenPayload must reject unsupported replication versions")
+	}
+}
+
+func TestSyncIdentifierRejectsPathSeparatorsForAADSafety(t *testing.T) {
+	// Without rejecting '/', these contexts pack to the same replication AAD
+	// prefix (account/device path segments are slash-delimited):
+	//   account=x, device=y/z  -> .../account/x/device/y/z/...
+	//   account=x/y, device=z  -> .../account/x/y/device/z/...
+	ctxA := SyncContext{
+		AccountID: "x", DeviceID: "y/z",
+		ProtocolVersion: SyncProtocolVersion,
+		OperationID:     "op-1", EntityVersion: 1,
+	}
+	ctxB := SyncContext{
+		AccountID: "x/y", DeviceID: "z",
+		ProtocolVersion: SyncProtocolVersion,
+		OperationID:     "op-1", EntityVersion: 1,
+	}
+	adA := replicationAssociatedData(ctxA, "record-1", "note", "note-body", 1)
+	adB := replicationAssociatedData(ctxB, "record-1", "note", "note-body", 1)
+	if adA.RecordType == adB.RecordType {
+		t.Fatalf("test precondition: distinct slash placements must collide without validation: %q", adA.RecordType)
+	}
+
+	vault := testVault{key: bytes.Repeat([]byte{0x42}, 32)}
+	if _, err := SealPayload(vault, ctxA, "record-1", "note", "note-body", 1, []byte("secret")); err == nil {
+		t.Fatal("context with slash in device id must be rejected")
+	}
+	if _, err := SealPayload(vault, ctxB, "record-1", "note", "note-body", 1, []byte("secret")); err == nil {
+		t.Fatal("context with slash in account id must be rejected")
+	}
+	if _, err := SealPayload(vault, testContext("op-1"), "rec/ord", "note", "note-body", 1, []byte("secret")); err == nil {
+		t.Fatal("record id with slash must be rejected")
+	}
+	if _, err := SealPayload(vault, testContext("op-1"), "record-1", "no/te", "note-body", 1, []byte("secret")); err == nil {
+		t.Fatal("record type with slash must be rejected")
+	}
+	if _, err := SealPayload(vault, testContext("op-1"), "record-1", "note", "note/body", 1, []byte("secret")); err == nil {
+		t.Fatal("key id with slash must be rejected")
 	}
 }
 
