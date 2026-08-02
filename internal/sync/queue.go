@@ -66,6 +66,15 @@ func QueuePayload(
 		operation,
 		payload,
 		keyVersion,
+		SyncContext{
+			AccountID:       "pending",
+			DeviceID:        "pending",
+			ProtocolVersion: SyncProtocolVersion,
+			OperationID:     "pending",
+			EntityVersion:   1,
+		},
+		keyID,
+		"pending",
 		createdAt,
 	)
 	if err := outbox.Enqueue(change); err != nil {

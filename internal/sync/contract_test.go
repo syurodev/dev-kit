@@ -6,8 +6,55 @@ import (
 	"time"
 )
 
+func testSyncContext() SyncContext {
+	return SyncContext{
+		AccountID:       "acct-1",
+		DeviceID:        "dev-1",
+		ProtocolVersion: SyncProtocolVersion,
+		OperationID:     "op-1",
+		EntityVersion:   1,
+	}
+}
+
 func validChange(key string, createdAt time.Time) Change {
-	return NewChange(key, "record-1", "note", OperationCreate, []byte{0x01, 0x02}, 1, createdAt)
+	return NewChange(key, "record-1", "note", OperationCreate, []byte{0x01, 0x02}, 1, testSyncContext(), "key-1", "digest-1", createdAt)
+}
+
+func TestSyncContextValidate(t *testing.T) {
+	valid := SyncContext{
+		AccountID:       "acct-1",
+		DeviceID:        "dev-1",
+		ProtocolVersion: SyncProtocolVersion,
+		OperationID:     "op-1",
+		EntityVersion:   1,
+	}
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("valid context: %v", err)
+	}
+	bad := valid
+	bad.ProtocolVersion = SyncProtocolVersion + 1
+	if err := bad.Validate(); err == nil {
+		t.Fatal("expected protocol mismatch error")
+	}
+	bad = valid
+	bad.EntityVersion = 0
+	if err := bad.Validate(); err == nil {
+		t.Fatal("expected entity version error")
+	}
+}
+
+func TestNewOperationIDUnique(t *testing.T) {
+	a, err := NewOperationID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := NewOperationID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a == "" || a == b {
+		t.Fatalf("ids not unique: %q %q", a, b)
+	}
 }
 
 func TestChangeValidateRejectsPlainInvalidEnvelope(t *testing.T) {

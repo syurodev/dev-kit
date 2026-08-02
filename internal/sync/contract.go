@@ -6,12 +6,51 @@
 package sync
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 	"unicode"
 )
+
+const SyncProtocolVersion uint32 = 1
+
+type SyncContext struct {
+	AccountID       string
+	DeviceID        string
+	ProtocolVersion uint32
+	OperationID     string
+	EntityVersion   uint32
+}
+
+func (c SyncContext) Validate() error {
+	if err := validateIdentifier("account id", c.AccountID, 256); err != nil {
+		return err
+	}
+	if err := validateIdentifier("device id", c.DeviceID, 256); err != nil {
+		return err
+	}
+	if c.ProtocolVersion != SyncProtocolVersion {
+		return fmt.Errorf("unsupported sync protocol version %d", c.ProtocolVersion)
+	}
+	if err := validateIdentifier("operation id", c.OperationID, 256); err != nil {
+		return err
+	}
+	if c.EntityVersion == 0 {
+		return errors.New("entity version must be positive")
+	}
+	return nil
+}
+
+func NewOperationID() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b[:]), nil
+}
 
 // Operation identifies the change applied to a replicated record.
 type Operation string
@@ -99,32 +138,55 @@ func (c Conflict) Validate() error {
 // Change is an encrypted local replication operation. Payload must contain
 // ciphertext (including for deletes); this type never interprets its bytes.
 type Change struct {
-	IdempotencyKey string
-	RecordID       string
-	RecordType     string
-	Operation      Operation
-	Payload        []byte
-	KeyVersion     uint32
-	CreatedAt      time.Time
-	Status         Status
-	Attempts       int
-	NextAttemptAt  time.Time
-	LastError      FailureReason
-	Conflict       *Conflict
+	IdempotencyKey  string
+	RecordID        string
+	RecordType      string
+	Operation       Operation
+	Payload         []byte
+	KeyVersion      uint32
+	AccountID       string
+	DeviceID        string
+	ProtocolVersion uint32
+	OperationID     string
+	EntityVersion   uint32
+	KeyID           string
+	ContentDigest   string
+	CreatedAt       time.Time
+	Status          Status
+	Attempts        int
+	NextAttemptAt   time.Time
+	LastError       FailureReason
+	Conflict        *Conflict
+	SyncingSince    time.Time
 }
 
 // NewChange creates a pending change with safe defaults.
-func NewChange(idempotencyKey, recordID, recordType string, operation Operation, payload []byte, keyVersion uint32, createdAt time.Time) Change {
+func NewChange(
+	idempotencyKey, recordID, recordType string,
+	operation Operation,
+	payload []byte,
+	keyVersion uint32,
+	ctx SyncContext,
+	keyID, contentDigest string,
+	createdAt time.Time,
+) Change {
 	return Change{
-		IdempotencyKey: idempotencyKey,
-		RecordID:       recordID,
-		RecordType:     recordType,
-		Operation:      operation,
-		Payload:        append([]byte(nil), payload...),
-		KeyVersion:     keyVersion,
-		CreatedAt:      createdAt,
-		Status:         StatusPending,
-		NextAttemptAt:  createdAt,
+		IdempotencyKey:  idempotencyKey,
+		RecordID:        recordID,
+		RecordType:      recordType,
+		Operation:       operation,
+		Payload:         append([]byte(nil), payload...),
+		KeyVersion:      keyVersion,
+		AccountID:       ctx.AccountID,
+		DeviceID:        ctx.DeviceID,
+		ProtocolVersion: ctx.ProtocolVersion,
+		OperationID:     ctx.OperationID,
+		EntityVersion:   ctx.EntityVersion,
+		KeyID:           keyID,
+		ContentDigest:   contentDigest,
+		CreatedAt:       createdAt,
+		Status:          StatusPending,
+		NextAttemptAt:   createdAt,
 	}
 }
 
@@ -149,6 +211,20 @@ func (c Change) Validate() error {
 	}
 	if c.KeyVersion == 0 {
 		return errors.New("key version must be positive")
+	}
+	ctx := SyncContext{
+		AccountID: c.AccountID, DeviceID: c.DeviceID,
+		ProtocolVersion: c.ProtocolVersion, OperationID: c.OperationID,
+		EntityVersion: c.EntityVersion,
+	}
+	if err := ctx.Validate(); err != nil {
+		return err
+	}
+	if err := validateIdentifier("key id", c.KeyID, 256); err != nil {
+		return err
+	}
+	if err := validateIdentifier("content digest", c.ContentDigest, 128); err != nil {
+		return err
 	}
 	if c.CreatedAt.IsZero() {
 		return errors.New("created time is required")

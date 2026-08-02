@@ -334,18 +334,25 @@ func scanSQLChange(row sqlChangeRow, idempotencyKey string) (replicationsync.Cha
 		return replicationsync.Change{}, errors.New("stored change has invalid numeric state")
 	}
 	change := replicationsync.Change{
-		IdempotencyKey: idempotencyKey,
-		RecordID:       recordID,
-		RecordType:     recordType,
-		Operation:      replicationsync.Operation(operation),
-		Payload:        append([]byte(nil), payload...),
-		KeyVersion:     uint32(keyVersion),
-		CreatedAt:      created,
-		Status:         replicationsync.Status(status),
-		Attempts:       int(attempts),
-		NextAttemptAt:  next,
-		LastError:      replicationsync.FailureReason(lastError),
-		Conflict:       conflict,
+		IdempotencyKey:  idempotencyKey,
+		RecordID:        recordID,
+		RecordType:      recordType,
+		Operation:       replicationsync.Operation(operation),
+		Payload:         append([]byte(nil), payload...),
+		KeyVersion:      uint32(keyVersion),
+		AccountID:       "pending",
+		DeviceID:        "pending",
+		ProtocolVersion: replicationsync.SyncProtocolVersion,
+		OperationID:     "pending",
+		EntityVersion:   1,
+		KeyID:           "pending",
+		ContentDigest:   "pending",
+		CreatedAt:       created,
+		Status:          replicationsync.Status(status),
+		Attempts:        int(attempts),
+		NextAttemptAt:   next,
+		LastError:       replicationsync.FailureReason(lastError),
+		Conflict:        conflict,
 	}
 	if err := change.Validate(); err != nil {
 		return replicationsync.Change{}, errors.New("stored change is invalid")

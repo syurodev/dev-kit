@@ -23,8 +23,18 @@ func newSyncPersistence(t *testing.T) (*SQLOutbox, *SQLCursorStore, func()) {
 	return NewSQLOutbox(db), NewSQLCursorStore(db), func() { _ = db.Close() }
 }
 
+func testSQLSyncContext() replicationsync.SyncContext {
+	return replicationsync.SyncContext{
+		AccountID:       "acct-1",
+		DeviceID:        "dev-1",
+		ProtocolVersion: replicationsync.SyncProtocolVersion,
+		OperationID:     "op-1",
+		EntityVersion:   1,
+	}
+}
+
 func testSQLChange(key string, createdAt time.Time) replicationsync.Change {
-	return replicationsync.NewChange(key, "record-1", "note", replicationsync.OperationCreate, []byte{0x01, 0x02}, 1, createdAt)
+	return replicationsync.NewChange(key, "record-1", "note", replicationsync.OperationCreate, []byte{0x01, 0x02}, 1, testSQLSyncContext(), "key-1", "digest-1", createdAt)
 }
 
 func testSQLConflict(now time.Time) replicationsync.Conflict {
