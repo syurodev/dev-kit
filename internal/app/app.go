@@ -49,6 +49,15 @@ func RegisterBuiltins(container *Container) error {
 			Views:        []string{"ssh.connections"},
 			Capabilities: []string{"ssh:connect", "ssh:forward"},
 		},
+		{
+			ID:           "sync",
+			Title:        "Sync",
+			Version:      "1.0.0",
+			APIVersion:   modules.CurrentAPIVersion,
+			Commands:     []string{"sync.run"},
+			Views:        []string{"sync.status"},
+			Capabilities: []string{"sync:manage"},
+		},
 	}
 
 	for _, manifest := range builtins {

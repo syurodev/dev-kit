@@ -247,6 +247,31 @@ func TestRunnerHandlesCancellationWithoutPersistingRawError(t *testing.T) {
 	}
 }
 
+func TestRunnerPreservesAuthenticationErrorWhenRetryPersistenceFails(t *testing.T) {
+	now := time.Unix(100, 0).UTC()
+	memory := NewMemoryOutbox()
+	if err := memory.Enqueue(validChange("auth-rejected", now)); err != nil {
+		t.Fatal(err)
+	}
+	persistErr := errors.New("retry persistence failed")
+	outbox := &retryFailingOutbox{Outbox: memory, err: persistErr}
+	transport := &scriptedTransport{push: func(context.Context, []PushOperation) (PushResult, error) {
+		return PushResult{}, ErrAuthentication
+	}}
+
+	_, err := NewRunner(outbox, transport, RunnerConfig{Clock: func() time.Time { return now }}).Run(context.Background(), 1)
+	if !errors.Is(err, ErrAuthentication) || !errors.Is(err, persistErr) {
+		t.Fatalf("Run error = %v, want authentication and persistence errors", err)
+	}
+}
+
+type retryFailingOutbox struct {
+	Outbox
+	err error
+}
+
+func (o *retryFailingOutbox) MarkRetry(string, time.Time, FailureReason) error { return o.err }
+
 type scriptedTransport struct {
 	push func(context.Context, []PushOperation) (PushResult, error)
 }

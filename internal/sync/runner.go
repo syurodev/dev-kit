@@ -131,7 +131,10 @@ func (r *Runner) Run(ctx context.Context, limit int) (RunReport, error) {
 	if pushErr != nil {
 		report.Retried = len(ready)
 		if retryErr := r.retryAll(ready, classifyTransportError(pushErr), now); retryErr != nil {
-			return report, retryErr
+			// Preserve the transport classification as well as the local outbox
+			// failure. Session owners must still be able to detect an authentication
+			// rejection and discard runtime credentials when retry bookkeeping fails.
+			return report, errors.Join(pushErr, retryErr)
 		}
 		return report, pushErr
 	}

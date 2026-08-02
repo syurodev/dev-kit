@@ -126,6 +126,22 @@ export function SetupVault(masterPassword: string): $CancellablePromise<string> 
     return $Call.ByID(796766178, masterPassword);
 }
 
+export function SyncConnect(endpoint: string, accessToken: string): $CancellablePromise<void> {
+    return $Call.ByID(2389156000, endpoint, accessToken);
+}
+
+export function SyncDisconnect(): $CancellablePromise<void> {
+    return $Call.ByID(2041714372);
+}
+
+export function SyncNow(): $CancellablePromise<$models.SyncReportDTO> {
+    return $Call.ByID(1670774930);
+}
+
+export function SyncStatus(): $CancellablePromise<$models.SyncStatusDTO> {
+    return $Call.ByID(188174924);
+}
+
 export function UnlockVault(masterPassword: string): $CancellablePromise<void> {
     return $Call.ByID(1335607687, masterPassword);
 }

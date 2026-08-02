@@ -25,14 +25,15 @@ func TestAppServiceListsModules(t *testing.T) {
 	service := newTestService(t)
 	moduleList := service.ListModules()
 
-	if len(moduleList) != 4 {
-		t.Fatalf("len(modules) = %d, want 4", len(moduleList))
+	if len(moduleList) != 5 {
+		t.Fatalf("len(modules) = %d, want 5", len(moduleList))
 	}
 	wantCapabilities := map[string][]string{
 		"tools":    {"tools:hash"},
 		"notes":    {"notes:read", "notes:write"},
 		"database": {"db:query"},
 		"ssh":      {"ssh:connect", "ssh:forward"},
+		"sync":     {"sync:manage"},
 	}
 	found := map[string]bool{}
 	for _, m := range moduleList {
@@ -55,8 +56,8 @@ func TestAppServiceListsModules(t *testing.T) {
 			t.Errorf("module %q capabilities = %s, want %s", m.ID, got, wantJSON)
 		}
 	}
-	if !found["tools"] || !found["notes"] || !found["database"] || !found["ssh"] {
-		t.Fatalf("modules = %+v, want tools, notes, database and ssh", moduleList)
+	if !found["tools"] || !found["notes"] || !found["database"] || !found["ssh"] || !found["sync"] {
+		t.Fatalf("modules = %+v, want tools, notes, database, ssh and sync", moduleList)
 	}
 }
 

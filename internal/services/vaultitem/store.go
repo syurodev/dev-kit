@@ -96,6 +96,10 @@ func (s *Store) UpdateMetadata(id string, metadata json.RawMessage) (Record, err
 	}
 	record.Metadata = metadata
 	record.UpdatedAt = time.Now().UTC()
+	// A local edit must become dirty even when the record originally came from
+	// sync. Phase 3B does not enqueue it yet, but remote apply can now fail with
+	// a conflict instead of silently overwriting unsynced local work.
+	record.SyncState = syncStateLocal
 	if err := s.repo.Put(record); err != nil {
 		return Record{}, err
 	}

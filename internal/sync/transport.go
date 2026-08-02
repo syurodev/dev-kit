@@ -8,6 +8,11 @@ import (
 	stdsync "sync"
 )
 
+// ErrAuthentication indicates that the remote endpoint rejected or can no
+// longer use the runtime-only authenticated session. Callers should discard
+// the session and require an explicit reconnect; no response body is exposed.
+var ErrAuthentication = errors.New("sync authentication failed")
+
 // PushOperation is the explicit wire boundary for sync uploads. It omits all
 // local-only outbox state, including retry counters, failure state, leases, and
 // plaintext-derived comparison material.

@@ -6,11 +6,13 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"time"
 
 	"changeme/internal/app"
 	"changeme/internal/bridge"
 	"changeme/internal/servermode"
 
+	"changeme/internal/services/syncclient"
 	"changeme/internal/services/vaultitem"
 	"changeme/internal/storage"
 	"changeme/internal/vault"
@@ -57,6 +59,23 @@ func main() {
 		vault.NewSQLKeyringStore(storage.NewKV(db, storage.TableVaultKeyring)),
 		vaultitem.NewSQLRepository(db),
 	)
+	outbox := storage.NewSQLOutbox(db)
+	if err := outbox.RecoverStaleSyncing(time.Now().UTC()); err != nil {
+		log.Fatal(err)
+	}
+	syncService, err := syncclient.New(syncclient.Dependencies{
+		DeviceIdentity: storage.NewSQLDeviceIdentityStore(db),
+		Cursors:        storage.NewSQLCursorStore(db),
+		Remote:         storage.NewSQLRemoteStore(db),
+		Outbox:         outbox,
+		Vault:          container.Vault,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	// Sync remains disconnected until the user explicitly supplies a runtime
+	// endpoint and access token through the capability-gated bridge.
+	container.Sync = syncService
 	defer container.Database.Close()
 	defer container.SSH.Close()
 	if err := app.RegisterBuiltins(container); err != nil {

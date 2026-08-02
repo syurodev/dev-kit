@@ -1,6 +1,8 @@
 package app
 
 import (
+	"context"
+
 	"changeme/internal/audit"
 	"changeme/internal/capabilities"
 	"changeme/internal/commands"
@@ -9,10 +11,21 @@ import (
 	"changeme/internal/services/database"
 	"changeme/internal/services/notes"
 	sshservice "changeme/internal/services/ssh"
+	"changeme/internal/services/syncclient"
 	"changeme/internal/services/tools"
 	"changeme/internal/services/vaultitem"
 	"changeme/internal/vault"
 )
+
+// SyncService is the narrow runtime contract exposed to the bridge. Keeping it
+// as an interface lets the core container remain usable for offline tests and
+// prevents bridge code from depending on HTTP implementation details.
+type SyncService interface {
+	Connect(ctx context.Context, baseURL, accessToken string) error
+	Disconnect()
+	Status() syncclient.Status
+	SyncNow(ctx context.Context) (syncclient.Report, error)
+}
 
 type Container struct {
 	Commands     *commands.Registry
@@ -26,6 +39,7 @@ type Container struct {
 	Notes        *notes.Service
 	Database     *database.Service
 	SSH          *sshservice.Service
+	Sync         SyncService
 }
 
 // NewContainer wires core services with in-memory stores, suitable for tests
@@ -59,6 +73,10 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.ssh", Capability: "ssh:forward", Scope: "forward:*"},
 		{SubjectID: "builtin.vault", Capability: "vault:manage", Scope: "vault"},
 		{SubjectID: "builtin.search", Capability: "vault:search", Scope: "item:search"},
+		{SubjectID: "builtin.sync", Capability: "sync:manage", Scope: "sync:status"},
+		{SubjectID: "builtin.sync", Capability: "sync:manage", Scope: "sync:connect"},
+		{SubjectID: "builtin.sync", Capability: "sync:manage", Scope: "sync:run"},
+		{SubjectID: "builtin.sync", Capability: "sync:manage", Scope: "sync:disconnect"},
 	})
 
 	vaultService := vault.NewService(keyringStore)

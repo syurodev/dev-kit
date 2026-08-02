@@ -3,6 +3,8 @@ package crypto
 import (
 	"bytes"
 	"testing"
+
+	"golang.org/x/crypto/chacha20poly1305"
 )
 
 func newTestKey(t *testing.T) []byte {
@@ -94,6 +96,53 @@ func TestOpenWithADRejectsV1Envelope(t *testing.T) {
 	}
 	if _, err := OpenWithAD(key, env, ad); err == nil {
 		t.Fatal("OpenWithAD must reject version 1 envelopes")
+	}
+}
+
+func TestOpenWithADRejectsMalformedEnvelopeWithoutPanic(t *testing.T) {
+	key := newTestKey(t)
+	ad := testAssociatedData()
+	tests := []struct {
+		name       string
+		nonce      []byte
+		ciphertext []byte
+	}{
+		{
+			name:       "short nonce",
+			nonce:      []byte{1},
+			ciphertext: make([]byte, chacha20poly1305.Overhead),
+		},
+		{
+			name:       "long nonce",
+			nonce:      make([]byte, chacha20poly1305.NonceSizeX+1),
+			ciphertext: make([]byte, chacha20poly1305.Overhead),
+		},
+		{
+			name:       "short ciphertext",
+			nonce:      make([]byte, chacha20poly1305.NonceSizeX),
+			ciphertext: make([]byte, chacha20poly1305.Overhead-1),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					t.Fatalf("OpenWithAD panicked for malformed envelope: %v", recovered)
+				}
+			}()
+
+			envelope := Envelope{
+				Version:    EnvelopeVersionV2,
+				Algorithm:  AlgorithmXChaCha20Poly1305,
+				KeyID:      ad.KeyID,
+				Nonce:      tc.nonce,
+				Ciphertext: tc.ciphertext,
+			}
+			if _, err := OpenWithAD(key, envelope, ad); err == nil {
+				t.Fatal("OpenWithAD() error = nil, want malformed envelope error")
+			}
+		})
 	}
 }
 

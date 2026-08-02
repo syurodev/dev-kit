@@ -1,6 +1,11 @@
 package crypto
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+
+	"golang.org/x/crypto/chacha20poly1305"
+)
 
 const (
 	AlgorithmXChaCha20Poly1305 = "xchacha20-poly1305"
@@ -38,11 +43,16 @@ func (e Envelope) Validate() error {
 	if e.KeyID == "" {
 		return errors.New("key ID is required")
 	}
-	if len(e.Nonce) == 0 {
-		return errors.New("nonce is required")
+	// XChaCha20-Poly1305 panics when Open receives a nonce with an invalid
+	// length. Enforce the algorithm-specific size at the envelope boundary so
+	// malformed or untrusted envelopes always fail with an error instead.
+	if len(e.Nonce) != chacha20poly1305.NonceSizeX {
+		return fmt.Errorf("nonce must be exactly %d bytes", chacha20poly1305.NonceSizeX)
 	}
-	if len(e.Ciphertext) == 0 {
-		return errors.New("ciphertext is required")
+	// A sealed XChaCha20-Poly1305 value always contains at least the
+	// authentication tag, even when the plaintext is empty.
+	if len(e.Ciphertext) < chacha20poly1305.Overhead {
+		return fmt.Errorf("ciphertext must be at least %d bytes", chacha20poly1305.Overhead)
 	}
 
 	return nil

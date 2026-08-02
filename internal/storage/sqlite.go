@@ -19,6 +19,9 @@ const (
 	TableVaultItems         = "vault_items"
 	TableSyncOutbox         = "sync_outbox"
 	TableSyncCursors        = "sync_cursors"
+	TableSyncAccountBinding = "sync_account_binding"
+	TableSyncEntityVersions = "sync_entity_versions"
+	TableSyncAppliedOps     = "sync_applied_operations"
 )
 
 var chmodFile = os.Chmod
@@ -257,7 +260,66 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		},
 	}
 
-	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8})
+	m9 := Migration{
+		Version: 9,
+		Name:    "sync account binding and remote entity versions",
+		Up: func(ctx context.Context) error {
+			// The account binding is intentionally separate from sync_identity:
+			// device identity is local, while account identity is supplied only by
+			// an authenticated remote caller. A fixed primary key permits at most
+			// one account binding for this local database.
+			if _, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE TABLE IF NOT EXISTS %s (
+					id TEXT PRIMARY KEY CHECK (id = 'local'),
+					account_id TEXT NOT NULL UNIQUE,
+					bound_at TEXT NOT NULL
+				)`, TableSyncAccountBinding,
+			)); err != nil {
+				return err
+			}
+
+			// This current-state ledger survives deletes and enforces monotonic
+			// entity versions. vault_items rows are not backfilled because the app
+			// is greenfield.
+			if _, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE TABLE IF NOT EXISTS %s (
+					account_id TEXT NOT NULL,
+					record_id TEXT NOT NULL,
+					record_type TEXT NOT NULL,
+					entity_version INTEGER NOT NULL CHECK (entity_version > 0),
+					operation_id TEXT NOT NULL,
+					operation TEXT NOT NULL CHECK (operation IN ('create', 'update', 'delete')),
+					tombstone INTEGER NOT NULL CHECK (tombstone IN (0, 1)),
+					updated_at TEXT NOT NULL,
+					PRIMARY KEY (account_id, record_id),
+					FOREIGN KEY (account_id) REFERENCES %s(account_id) ON DELETE RESTRICT
+				)`, TableSyncEntityVersions, TableSyncAccountBinding,
+			)); err != nil {
+				return err
+			}
+
+			// Applied operation IDs are append-only. Keeping the full immutable
+			// identity prevents an old operation ID from becoming reusable after
+			// the per-entity ledger advances to a newer version. No record content
+			// or content-derived digest is stored here.
+			_, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE TABLE IF NOT EXISTS %s (
+					account_id TEXT NOT NULL,
+					operation_id TEXT NOT NULL,
+					record_id TEXT NOT NULL,
+					record_type TEXT NOT NULL,
+					entity_version INTEGER NOT NULL CHECK (entity_version > 0),
+					operation TEXT NOT NULL CHECK (operation IN ('create', 'update', 'delete')),
+					applied_at TEXT NOT NULL,
+					PRIMARY KEY (account_id, operation_id),
+					FOREIGN KEY (account_id) REFERENCES %s(account_id) ON DELETE RESTRICT
+				)`, TableSyncAppliedOps, TableSyncAccountBinding,
+			))
+			return err
+		},
+	}
+
+	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9})
 	if err != nil {
 		return err
 	}

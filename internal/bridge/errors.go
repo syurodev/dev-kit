@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"changeme/internal/apperrors"
+	"changeme/internal/services/syncclient"
 	"changeme/internal/vault"
 )
 
@@ -44,12 +45,29 @@ func publicError(subject string, err error) *apperrors.AppError {
 	if errors.Is(err, vault.ErrLocked) {
 		return apperrors.New(codeVaultLocked, "Vault is locked or unavailable.", true)
 	}
+	// Authorization failures are classified before subject-specific adapters so
+	// adding a new module cannot accidentally hide a denied capability as a
+	// connection or service failure.
+	if strings.HasPrefix(err.Error(), "permission denied:") {
+		return apperrors.New(codePermissionDenied, "Permission denied.", false)
+	}
 	var existing *apperrors.AppError
 	if errors.As(err, &existing) {
 		return publicErrorForCode(existing.Code)
 	}
-	if strings.HasPrefix(err.Error(), "permission denied:") {
-		return apperrors.New(codePermissionDenied, "Permission denied.", false)
+	if subject == "builtin.sync" {
+		switch {
+		case errors.Is(err, syncclient.ErrNotConnected):
+			return apperrors.New(codeConnectionFailed, "Sync is not connected.", true)
+		case errors.Is(err, syncclient.ErrSyncInProgress):
+			return apperrors.New(codeConnectionFailed, "Sync is already in progress.", true)
+		case errors.Is(err, syncclient.ErrInvalidDependencies):
+			return apperrors.New(codeConnectionFailed, "Sync is unavailable.", true)
+		default:
+			// Never expose an upstream response, endpoint, or bearer token through
+			// the public bridge error contract.
+			return apperrors.New(codeConnectionFailed, "Sync operation failed.", true)
+		}
 	}
 	if _, safe := safeValidationMessages[err.Error()]; safe {
 		return apperrors.New(codeValidationFailed, err.Error(), true)

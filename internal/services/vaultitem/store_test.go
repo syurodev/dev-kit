@@ -129,3 +129,28 @@ func TestStoreSearchWorksWhenVaultLocked(t *testing.T) {
 		t.Fatalf("Search(staging) while locked = %+v, want one note", hits)
 	}
 }
+
+func TestUpdateMetadataMarksPulledRecordLocal(t *testing.T) {
+	repo := NewMemoryRepository()
+	v := vault.NewService(vault.NewMemoryKeyringStore())
+	if _, err := v.Setup("correct-horse"); err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(repo, v)
+	record, err := store.Create("note", "note-body", json.RawMessage(`{"title":"remote"}`), []byte("body"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	record.SyncState = "synced"
+	if err := repo.Put(record); err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := store.UpdateMetadata(record.ID, json.RawMessage(`{"title":"local edit"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.SyncState != "local" {
+		t.Fatalf("sync state = %q, want local", updated.SyncState)
+	}
+}

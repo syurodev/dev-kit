@@ -9,6 +9,8 @@ export {
 export type {
     ExecuteCommandRequest,
     ModuleDTO,
+    SyncReportDTO,
+    SyncStatusDTO,
     VaultSearchResult,
     VaultStatusDTO
 } from "./models.js";

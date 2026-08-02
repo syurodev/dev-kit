@@ -160,7 +160,10 @@ func TestMigrateCreatesVaultItemsTable(t *testing.T) {
 	if !tableExists(TableVaultItems) {
 		t.Fatalf("expected %s table to exist", TableVaultItems)
 	}
-	for _, table := range []string{TableSyncOutbox, TableSyncCursors, TableSyncIdentity} {
+	for _, table := range []string{
+		TableSyncOutbox, TableSyncCursors, TableSyncIdentity,
+		TableSyncAccountBinding, TableSyncEntityVersions, TableSyncAppliedOps,
+	} {
 		if !tableExists(table) {
 			t.Fatalf("expected %s table to exist", table)
 		}
@@ -170,8 +173,8 @@ func TestMigrateCreatesVaultItemsTable(t *testing.T) {
 	if err := db.QueryRow("SELECT MAX(version) FROM schema_migrations").Scan(&version); err != nil {
 		t.Fatalf("read migration version: %v", err)
 	}
-	if version != 8 {
-		t.Fatalf("migration version = %d, want 8", version)
+	if version != 9 {
+		t.Fatalf("migration version = %d, want 9", version)
 	}
 
 	if err := Migrate(context.Background(), db); err != nil {
@@ -250,6 +253,33 @@ func TestMigrateCreatesSyncSchemaWithoutVaultItemBackfill(t *testing.T) {
 		}
 	}
 
+	bindingColumns := columns(TableSyncAccountBinding)
+	for _, name := range []string{"id", "account_id", "bound_at"} {
+		if _, ok := bindingColumns[name]; !ok {
+			t.Fatalf("sync_account_binding missing column %q", name)
+		}
+	}
+
+	versionColumns := columns(TableSyncEntityVersions)
+	for _, name := range []string{
+		"account_id", "record_id", "record_type", "entity_version",
+		"operation_id", "operation", "tombstone", "updated_at",
+	} {
+		if _, ok := versionColumns[name]; !ok {
+			t.Fatalf("sync_entity_versions missing column %q", name)
+		}
+	}
+
+	appliedOperationColumns := columns(TableSyncAppliedOps)
+	for _, name := range []string{
+		"account_id", "operation_id", "record_id", "record_type",
+		"entity_version", "operation", "applied_at",
+	} {
+		if _, ok := appliedOperationColumns[name]; !ok {
+			t.Fatalf("sync_applied_operations missing column %q", name)
+		}
+	}
+
 	var vaultItemCount int
 	if err := db.QueryRow("SELECT COUNT(*) FROM vault_items").Scan(&vaultItemCount); err != nil {
 		t.Fatalf("count vault_items: %v", err)
@@ -260,6 +290,28 @@ func TestMigrateCreatesSyncSchemaWithoutVaultItemBackfill(t *testing.T) {
 
 	if err := Migrate(context.Background(), db); err != nil {
 		t.Fatalf("second migrate: %v", err)
+	}
+}
+
+func TestMigration9DoesNotBackfillVaultItems(t *testing.T) {
+	dir := t.TempDir()
+	db, err := Open(filepath.Join(dir, "devkit.db"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+
+	if err := Migrate(context.Background(), db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	for _, table := range []string{TableSyncAccountBinding, TableSyncEntityVersions, TableSyncAppliedOps} {
+		var count int
+		if err := db.QueryRow("SELECT COUNT(*) FROM " + table).Scan(&count); err != nil {
+			t.Fatalf("count %s: %v", table, err)
+		}
+		if count != 0 {
+			t.Fatalf("%s row count = %d, want 0", table, count)
+		}
 	}
 }
 

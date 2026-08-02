@@ -42,7 +42,28 @@ func TestRegisterBuiltinsRegistersToolsModule(t *testing.T) {
 		t.Fatalf("RegisterBuiltins returned error: %v", err)
 	}
 
-	if len(container.Modules.List()) != 4 {
-		t.Fatalf("module count = %d, want 4", len(container.Modules.List()))
+	if len(container.Modules.List()) != 5 {
+		t.Fatalf("module count = %d, want 5", len(container.Modules.List()))
+	}
+}
+
+func TestNewContainerGrantsOnlyExactSyncScopes(t *testing.T) {
+	container := NewContainer()
+	for _, scope := range []string{"sync:status", "sync:connect", "sync:run", "sync:disconnect"} {
+		decision := container.Permissions.Check(permissions.Request{
+			SubjectID: "builtin.sync", Capability: "sync:manage", Scope: scope,
+		})
+		if !decision.Allowed {
+			t.Fatalf("sync scope %q was denied", scope)
+		}
+	}
+
+	for _, scope := range []string{"sync:*", "sync:admin", "*"} {
+		decision := container.Permissions.Check(permissions.Request{
+			SubjectID: "builtin.sync", Capability: "sync:manage", Scope: scope,
+		})
+		if decision.Allowed {
+			t.Fatalf("ungranted sync scope %q was allowed", scope)
+		}
 	}
 }
