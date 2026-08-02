@@ -14,10 +14,7 @@ import {
   type SSHForwardDirection,
   type SSHProfile,
 } from "../../bridge/ssh";
-
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+import { errorMessage } from "../../bridge/errors";
 
 const emptyForm = {
   name: "",
@@ -57,7 +54,7 @@ export function SSHView() {
         setSelectedId(list[0].id);
       }
     } catch (e) {
-      setError(message(e));
+      setError(errorMessage(e));
     }
   }
 
@@ -74,7 +71,7 @@ export function SSHView() {
       setSelectedId(created.id);
       await refresh();
     } catch (e) {
-      setError(message(e));
+      setError(errorMessage(e));
     }
   }
 
@@ -86,7 +83,7 @@ export function SSHView() {
       setStatus("Connection OK");
     } catch (e) {
       setStatus("");
-      setError(message(e));
+      setError(errorMessage(e));
     } finally {
       setPassphrase("");
     }
@@ -99,7 +96,7 @@ export function SSHView() {
       setOutput(await runSSHCommand(selectedId, command, passphrase));
     } catch (e) {
       setOutput("");
-      setError(message(e));
+      setError(errorMessage(e));
     } finally {
       setPassphrase("");
     }
@@ -113,7 +110,7 @@ export function SSHView() {
       setStatus("Review the fingerprint, then explicitly trust it.");
     } catch (e) {
       setStatus("");
-      setError(message(e));
+      setError(errorMessage(e));
     }
   }
 
@@ -125,7 +122,7 @@ export function SSHView() {
       setStatus("Host key trusted.");
       await refresh();
     } catch (e) {
-      setError(message(e));
+      setError(errorMessage(e));
     }
   }
 
@@ -149,7 +146,7 @@ export function SSHView() {
       setStatus(`Forward started on ${started.listenHost}:${started.listenPort}.`);
     } catch (e) {
       setStatus("");
-      setError(message(e));
+      setError(errorMessage(e));
     } finally {
       setPassphrase("");
     }
@@ -162,7 +159,7 @@ export function SSHView() {
       setForwards((current) => current.filter((forward) => forward.id !== id));
       setStatus("Forward stopped.");
     } catch (e) {
-      setError(message(e));
+      setError(errorMessage(e));
     }
   }
 

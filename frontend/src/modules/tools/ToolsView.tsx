@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { executeCommand } from "../../bridge/commands";
+import { errorMessage } from "../../bridge/errors";
 
 type HashResult = {
   Algorithm: string;
@@ -20,9 +21,9 @@ export function ToolsView() {
         payload: { algorithm, input },
       });
       setOutput(result.Output);
-    } catch (err) {
+    } catch (error) {
       setOutput("");
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(error));
     }
   }
 

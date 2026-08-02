@@ -8,10 +8,7 @@ import {
   type Note,
   type NoteSummary,
 } from "../../bridge/notes";
-
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+import { errorMessage } from "../../bridge/errors";
 
 export function NotesView() {
   const [notes, setNotes] = useState<NoteSummary[]>([]);
@@ -25,7 +22,7 @@ export function NotesView() {
     try {
       setNotes(q.trim() ? await searchNotes(q) : await listNotes());
     } catch (e) {
-      setError(message(e));
+      setError(errorMessage(e));
     }
   }
 
@@ -41,7 +38,7 @@ export function NotesView() {
       setBody("");
       await refresh();
     } catch (e) {
-      setError(message(e));
+      setError(errorMessage(e));
     }
   }
 
@@ -50,7 +47,7 @@ export function NotesView() {
     try {
       setSelected(await getNote(id));
     } catch (e) {
-      setError(message(e));
+      setError(errorMessage(e));
     }
   }
 
@@ -63,7 +60,7 @@ export function NotesView() {
       }
       await refresh();
     } catch (e) {
-      setError(message(e));
+      setError(errorMessage(e));
     }
   }
 

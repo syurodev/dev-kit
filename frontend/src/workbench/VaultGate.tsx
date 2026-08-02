@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { setupVault, unlockVault, vaultStatus, type VaultState } from "../bridge/vault";
+import { errorMessage } from "../bridge/errors";
 
 type Status = "loading" | VaultState;
 
@@ -14,7 +15,7 @@ export function VaultGate({ children }: { children: ReactNode }) {
   }
 
   useEffect(() => {
-    refresh().catch((e) => setError(String(e)));
+    refresh().catch((error) => setError(errorMessage(error)));
   }, []);
 
   async function onSetup() {
@@ -24,8 +25,8 @@ export function VaultGate({ children }: { children: ReactNode }) {
       setRecoveryKey(recovery);
       setPassword("");
       await refresh();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+    } catch (error) {
+      setError(errorMessage(error));
     }
   }
 
@@ -35,8 +36,8 @@ export function VaultGate({ children }: { children: ReactNode }) {
       await unlockVault(password);
       setPassword("");
       await refresh();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+    } catch (error) {
+      setError(errorMessage(error));
     }
   }
 

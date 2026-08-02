@@ -8,10 +8,7 @@ import {
   type ConnectionProfile,
   type QueryResult,
 } from "../../bridge/database";
-
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+import { errorMessage } from "../../bridge/errors";
 
 const emptyForm = {
   name: "",
@@ -40,7 +37,7 @@ export function DatabaseView() {
         setSelectedId(list[0].id);
       }
     } catch (e) {
-      setError(message(e));
+      setError(errorMessage(e));
     }
   }
 
@@ -57,7 +54,7 @@ export function DatabaseView() {
       setSelectedId(created.id);
       await refresh();
     } catch (e) {
-      setError(message(e));
+      setError(errorMessage(e));
     }
   }
 
@@ -69,7 +66,7 @@ export function DatabaseView() {
       setStatus("Connection OK");
     } catch (e) {
       setStatus("");
-      setError(message(e));
+      setError(errorMessage(e));
     }
   }
 
@@ -80,7 +77,7 @@ export function DatabaseView() {
       setResult(await runQuery(selectedId, sql));
     } catch (e) {
       setResult(null);
-      setError(message(e));
+      setError(errorMessage(e));
     }
   }
 
