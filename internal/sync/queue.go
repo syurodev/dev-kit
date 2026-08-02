@@ -50,7 +50,14 @@ func QueuePayload(
 		return Change{}, err
 	}
 
-	envelope, err := SealPayload(vault, recordID, recordType, keyID, keyVersion, plaintextRecord)
+	ctx := SyncContext{
+		AccountID:       "pending",
+		DeviceID:        "pending",
+		ProtocolVersion: SyncProtocolVersion,
+		OperationID:     "pending",
+		EntityVersion:   1,
+	}
+	envelope, err := SealPayload(vault, ctx, recordID, recordType, keyID, keyVersion, plaintextRecord)
 	if err != nil {
 		return Change{}, err
 	}
@@ -66,13 +73,7 @@ func QueuePayload(
 		operation,
 		payload,
 		keyVersion,
-		SyncContext{
-			AccountID:       "pending",
-			DeviceID:        "pending",
-			ProtocolVersion: SyncProtocolVersion,
-			OperationID:     "pending",
-			EntityVersion:   1,
-		},
+		ctx,
 		keyID,
 		"pending",
 		createdAt,
@@ -100,7 +101,14 @@ func QueuePayload(
 }
 
 func validateQueueInputs(recordID, recordType, keyID string, keyVersion uint32, operation Operation, plaintextRecord []byte, createdAt time.Time) error {
-	if err := validateReplicationInputs(recordID, recordType, keyID, keyVersion, plaintextRecord); err != nil {
+	pendingCtx := SyncContext{
+		AccountID:       "pending",
+		DeviceID:        "pending",
+		ProtocolVersion: SyncProtocolVersion,
+		OperationID:     "pending",
+		EntityVersion:   1,
+	}
+	if err := validateReplicationInputs(pendingCtx, recordID, recordType, keyID, keyVersion, plaintextRecord); err != nil {
 		return err
 	}
 	switch operation {

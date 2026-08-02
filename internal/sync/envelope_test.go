@@ -20,11 +20,46 @@ func (v testVault) OpenWithAD(envelope crypto.Envelope, ad crypto.AssociatedData
 	return crypto.OpenWithAD(v.key, envelope, ad)
 }
 
+func testContext(opID string) SyncContext {
+	return SyncContext{
+		AccountID: "acct-1", DeviceID: "dev-1",
+		ProtocolVersion: SyncProtocolVersion,
+		OperationID: opID, EntityVersion: 1,
+	}
+}
+
+func TestSealPayloadBindsSyncContext(t *testing.T) {
+	vault := testVault{key: bytes.Repeat([]byte{0x42}, 32)}
+	plaintext := []byte("secret")
+	env, err := SealPayload(vault, testContext("op-1"), "record-1", "note", "note-body", 1, plaintext)
+	if err != nil {
+		t.Fatalf("SealPayload: %v", err)
+	}
+	if env.EnvelopeVersion != 2 || env.AccountID != "acct-1" || env.OperationID != "op-1" {
+		t.Fatalf("envelope context not set: %+v", env)
+	}
+	if _, err := OpenPayload(vault, env, "note-body"); err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	tampered := env
+	tampered.AccountID = "other"
+	if _, err := OpenPayload(vault, tampered, "note-body"); err == nil {
+		t.Fatal("account swap must fail")
+	}
+}
+
+func TestReplicationEnvelopeRejectsV1(t *testing.T) {
+	env := ReplicationEnvelope{EnvelopeVersion: 1, RecordID: "r", RecordType: "note", KeyVersion: 1, Ciphertext: []byte("{}")}
+	if err := env.Validate(); err == nil {
+		t.Fatal("v1 must be rejected")
+	}
+}
+
 func TestSealPayloadOpenPayloadRoundTrip(t *testing.T) {
 	vault := testVault{key: bytes.Repeat([]byte{0x42}, 32)}
 	plaintext := []byte(`{"record":"secret-marker","payload":{"version":2}}`)
 
-	envelope, err := SealPayload(vault, "record-1", "note", "note-body", 3, plaintext)
+	envelope, err := SealPayload(vault, testContext("op-roundtrip"), "record-1", "note", "note-body", 3, plaintext)
 	if err != nil {
 		t.Fatalf("SealPayload: %v", err)
 	}
@@ -44,7 +79,7 @@ func TestSealPayloadOpenPayloadRoundTrip(t *testing.T) {
 func TestReplicationEnvelopeDoesNotSerializePlaintext(t *testing.T) {
 	marker := []byte("plaintext-marker")
 	vault := testVault{key: bytes.Repeat([]byte{0x24}, 32)}
-	envelope, err := SealPayload(vault, "record-1", "note", "note-body", 1, marker)
+	envelope, err := SealPayload(vault, testContext("op-serialize"), "record-1", "note", "note-body", 1, marker)
 	if err != nil {
 		t.Fatalf("SealPayload: %v", err)
 	}
@@ -59,7 +94,7 @@ func TestReplicationEnvelopeDoesNotSerializePlaintext(t *testing.T) {
 
 func TestOpenPayloadRejectsChangedAADInputs(t *testing.T) {
 	vault := testVault{key: bytes.Repeat([]byte{0x11}, 32)}
-	envelope, err := SealPayload(vault, "record-1", "note", "note-body", 1, []byte("secret"))
+	envelope, err := SealPayload(vault, testContext("op-aad"), "record-1", "note", "note-body", 1, []byte("secret"))
 	if err != nil {
 		t.Fatalf("SealPayload: %v", err)
 	}
@@ -73,6 +108,10 @@ func TestOpenPayloadRejectsChangedAADInputs(t *testing.T) {
 		{name: "record type", mutate: func(e *ReplicationEnvelope) { e.RecordType = "database" }, keyID: "note-body"},
 		{name: "key version", mutate: func(e *ReplicationEnvelope) { e.KeyVersion = 2 }, keyID: "note-body"},
 		{name: "key ID", mutate: func(e *ReplicationEnvelope) {}, keyID: "other-key"},
+		{name: "account ID", mutate: func(e *ReplicationEnvelope) { e.AccountID = "other-acct" }, keyID: "note-body"},
+		{name: "device ID", mutate: func(e *ReplicationEnvelope) { e.DeviceID = "other-dev" }, keyID: "note-body"},
+		{name: "operation ID", mutate: func(e *ReplicationEnvelope) { e.OperationID = "other-op" }, keyID: "note-body"},
+		{name: "entity version", mutate: func(e *ReplicationEnvelope) { e.EntityVersion = 2 }, keyID: "note-body"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -88,7 +127,7 @@ func TestOpenPayloadRejectsChangedAADInputs(t *testing.T) {
 func TestOpenPayloadRejectsWrongKey(t *testing.T) {
 	vault := testVault{key: bytes.Repeat([]byte{0x31}, 32)}
 	wrongVault := testVault{key: bytes.Repeat([]byte{0x32}, 32)}
-	envelope, err := SealPayload(vault, "record-1", "note", "note-body", 1, []byte("secret"))
+	envelope, err := SealPayload(vault, testContext("op-wrong-key"), "record-1", "note", "note-body", 1, []byte("secret"))
 	if err != nil {
 		t.Fatalf("SealPayload: %v", err)
 	}
@@ -99,7 +138,7 @@ func TestOpenPayloadRejectsWrongKey(t *testing.T) {
 
 func TestOpenPayloadRejectsTampering(t *testing.T) {
 	vault := testVault{key: bytes.Repeat([]byte{0x51}, 32)}
-	envelope, err := SealPayload(vault, "record-1", "note", "note-body", 1, []byte("secret"))
+	envelope, err := SealPayload(vault, testContext("op-tamper"), "record-1", "note", "note-body", 1, []byte("secret"))
 	if err != nil {
 		t.Fatalf("SealPayload: %v", err)
 	}
@@ -111,7 +150,7 @@ func TestOpenPayloadRejectsTampering(t *testing.T) {
 
 func TestReplicationEnvelopeRejectsUnsupportedVersion(t *testing.T) {
 	vault := testVault{key: bytes.Repeat([]byte{0x61}, 32)}
-	envelope, err := SealPayload(vault, "record-1", "note", "note-body", 1, []byte("secret"))
+	envelope, err := SealPayload(vault, testContext("op-version"), "record-1", "note", "note-body", 1, []byte("secret"))
 	if err != nil {
 		t.Fatalf("SealPayload: %v", err)
 	}
@@ -126,23 +165,26 @@ func TestReplicationEnvelopeRejectsUnsupportedVersion(t *testing.T) {
 
 func TestReplicationEnvelopeRejectsInvalidInputs(t *testing.T) {
 	vault := testVault{key: bytes.Repeat([]byte{0x71}, 32)}
+	ctx := testContext("op-invalid")
 	cases := []struct {
 		name       string
+		ctx        SyncContext
 		recordID   string
 		recordType string
 		keyID      string
 		keyVersion uint32
 		plaintext  []byte
 	}{
-		{name: "empty record ID", recordID: "", recordType: "note", keyID: "note-body", keyVersion: 1, plaintext: []byte("x")},
-		{name: "empty record type", recordID: "record-1", recordType: "", keyID: "note-body", keyVersion: 1, plaintext: []byte("x")},
-		{name: "empty key ID", recordID: "record-1", recordType: "note", keyID: "", keyVersion: 1, plaintext: []byte("x")},
-		{name: "zero key version", recordID: "record-1", recordType: "note", keyID: "note-body", keyVersion: 0, plaintext: []byte("x")},
-		{name: "empty payload", recordID: "record-1", recordType: "note", keyID: "note-body", keyVersion: 1, plaintext: nil},
+		{name: "empty record ID", ctx: ctx, recordID: "", recordType: "note", keyID: "note-body", keyVersion: 1, plaintext: []byte("x")},
+		{name: "empty record type", ctx: ctx, recordID: "record-1", recordType: "", keyID: "note-body", keyVersion: 1, plaintext: []byte("x")},
+		{name: "empty key ID", ctx: ctx, recordID: "record-1", recordType: "note", keyID: "", keyVersion: 1, plaintext: []byte("x")},
+		{name: "zero key version", ctx: ctx, recordID: "record-1", recordType: "note", keyID: "note-body", keyVersion: 0, plaintext: []byte("x")},
+		{name: "empty payload", ctx: ctx, recordID: "record-1", recordType: "note", keyID: "note-body", keyVersion: 1, plaintext: nil},
+		{name: "invalid context", ctx: SyncContext{}, recordID: "record-1", recordType: "note", keyID: "note-body", keyVersion: 1, plaintext: []byte("x")},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := SealPayload(vault, tc.recordID, tc.recordType, tc.keyID, tc.keyVersion, tc.plaintext); err == nil {
+			if _, err := SealPayload(vault, tc.ctx, tc.recordID, tc.recordType, tc.keyID, tc.keyVersion, tc.plaintext); err == nil {
 				t.Fatal("SealPayload must reject invalid input")
 			}
 		})
