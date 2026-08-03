@@ -22,6 +22,8 @@ const (
 	TableSyncAccountBinding = "sync_account_binding"
 	TableSyncEntityVersions = "sync_entity_versions"
 	TableSyncAppliedOps     = "sync_applied_operations"
+	TableSyncLocalEntities  = "sync_local_entity_versions"
+	TableSyncLocalMutations = "sync_local_mutations"
 )
 
 var chmodFile = os.Chmod
@@ -319,7 +321,55 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		},
 	}
 
-	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9})
+	m10 := Migration{
+		Version: 10,
+		Name:    "local sync mutation journal",
+		Up: func(ctx context.Context) error {
+			// Local versions do not carry an account ID. This lets local-first
+			// writes remain durable before the first authenticated sync session.
+			if _, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE TABLE IF NOT EXISTS %s (
+					record_id TEXT PRIMARY KEY,
+					record_type TEXT NOT NULL,
+					entity_version INTEGER NOT NULL CHECK (entity_version > 0),
+					operation_id TEXT NOT NULL UNIQUE,
+					operation TEXT NOT NULL CHECK (operation IN ('create', 'update', 'delete')),
+					tombstone INTEGER NOT NULL CHECK (tombstone IN (0, 1)),
+					updated_at TEXT NOT NULL
+				)`, TableSyncLocalEntities,
+			)); err != nil {
+				return err
+			}
+
+			// Snapshot contains the same local metadata already present in
+			// vault_items and an encrypted inner payload. It is never a wire DTO;
+			// SyncNow encrypts it into the authenticated outbox after connect.
+			if _, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE TABLE IF NOT EXISTS %s (
+					sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+					operation_id TEXT NOT NULL UNIQUE,
+					record_id TEXT NOT NULL,
+					record_type TEXT NOT NULL,
+					entity_version INTEGER NOT NULL CHECK (entity_version > 0),
+					operation TEXT NOT NULL CHECK (operation IN ('create', 'update', 'delete')),
+					snapshot BLOB NOT NULL,
+					key_version INTEGER NOT NULL CHECK (key_version > 0),
+					key_id TEXT NOT NULL,
+					created_at TEXT NOT NULL,
+					UNIQUE (record_id, entity_version)
+				)`, TableSyncLocalMutations,
+			)); err != nil {
+				return err
+			}
+			_, err := db.ExecContext(ctx, fmt.Sprintf(
+				"CREATE INDEX IF NOT EXISTS idx_%s_record_version ON %s (record_id, entity_version)",
+				TableSyncLocalMutations, TableSyncLocalMutations,
+			))
+			return err
+		},
+	}
+
+	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10})
 	if err != nil {
 		return err
 	}

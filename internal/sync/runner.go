@@ -2,6 +2,7 @@ package sync
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 )
@@ -95,9 +96,11 @@ func (r *Runner) Run(ctx context.Context, limit int) (RunReport, error) {
 	if len(changes) == 0 {
 		return report, nil
 	}
+	selected, prepared, prepareErr := preparePushPrefix(changes)
 
-	ready := make([]Change, 0, len(changes))
-	for _, change := range changes {
+	ready := make([]Change, 0, len(selected))
+	operations := make([]PushOperation, 0, len(selected))
+	for _, change := range selected {
 		if err := ctx.Err(); err != nil {
 			return report, err
 		}
@@ -108,23 +111,20 @@ func (r *Runner) Run(ctx context.Context, limit int) (RunReport, error) {
 			return report, err
 		}
 		ready = append(ready, change)
+		if operation, ok := prepared[change.IdempotencyKey]; ok {
+			operations = append(operations, operation)
+		}
 	}
 	if len(ready) == 0 {
 		return report, nil
 	}
 	report.Attempted = len(ready)
-
-	operations := make([]PushOperation, 0, len(ready))
-	for _, change := range ready {
-		operation, operationErr := pushOperationFromChange(change)
-		if operationErr != nil {
-			if retryErr := r.retryAll(ready, FailureInvalidResponse, now); retryErr != nil {
-				return report, retryErr
-			}
-			report.Retried = len(ready)
-			return report, operationErr
+	if prepareErr != nil {
+		if retryErr := r.retryAll(ready, FailureInvalidResponse, now); retryErr != nil {
+			return report, retryErr
 		}
-		operations = append(operations, operation)
+		report.Retried = len(ready)
+		return report, prepareErr
 	}
 
 	result, pushErr := r.transport.Push(ctx, operations)
@@ -174,6 +174,39 @@ func (r *Runner) Run(ctx context.Context, limit int) (RunReport, error) {
 		return report, ErrInvalidTransportResponse
 	}
 	return report, nil
+}
+
+// preparePushPrefix constructs the largest ready prefix that fits the exact
+// HTTP JSON request budget before any row is marked syncing. Other transports
+// inherit the conservative bound, avoiding a retry loop on aggregate size.
+func preparePushPrefix(changes []Change) ([]Change, map[string]PushOperation, error) {
+	selected := make([]Change, 0, len(changes))
+	operations := make([]PushOperation, 0, len(changes))
+	prepared := make(map[string]PushOperation, len(changes))
+	for _, change := range changes {
+		operation, err := pushOperationFromChange(change)
+		if err != nil {
+			if len(selected) == 0 {
+				return []Change{change}, prepared, err
+			}
+			break
+		}
+		candidate := append(operations, operation)
+		body, err := json.Marshal(pushRequest{Operations: candidate})
+		if err != nil {
+			return selected, prepared, ErrInvalidTransportResponse
+		}
+		if len(body) > maxHTTPRequestBytes {
+			if len(selected) == 0 {
+				return []Change{change}, prepared, ErrInvalidTransportResponse
+			}
+			break
+		}
+		selected = append(selected, change)
+		operations = candidate
+		prepared[change.IdempotencyKey] = operation
+	}
+	return selected, prepared, nil
 }
 
 type acknowledgedResult struct {

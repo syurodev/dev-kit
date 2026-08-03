@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -122,6 +123,38 @@ func TestSQLOutboxPendingIsTimeAwareDeterministicAndLimited(t *testing.T) {
 	}
 }
 
+func TestSQLOutboxPendingPreservesPerEntityVersionOrder(t *testing.T) {
+	outbox, _, _, cleanup := newSyncPersistence(t)
+	defer cleanup()
+	now := time.Unix(100, 0).UTC()
+	firstContext := testSQLSyncContext()
+	firstContext.OperationID = "ordered-op-1"
+	firstContext.EntityVersion = 1
+	secondContext := firstContext
+	secondContext.OperationID = "ordered-op-2"
+	secondContext.EntityVersion = 2
+	first := replicationsync.NewChange("ordered-1", "ordered-record", "note", replicationsync.OperationCreate,
+		[]byte{1}, 1, firstContext, "vault-item", now)
+	second := replicationsync.NewChange("ordered-2", "ordered-record", "note", replicationsync.OperationUpdate,
+		[]byte{2}, 1, secondContext, "vault-item", now.Add(time.Nanosecond))
+	for _, change := range []replicationsync.Change{first, second} {
+		if err := outbox.Enqueue(change); err != nil {
+			t.Fatal(err)
+		}
+	}
+	retryAt := now.Add(time.Hour)
+	if err := outbox.MarkRetry(first.IdempotencyKey, retryAt, replicationsync.FailureNetwork); err != nil {
+		t.Fatal(err)
+	}
+	if pending, err := outbox.Pending(now, 10); err != nil || len(pending) != 0 {
+		t.Fatalf("newer version bypassed retrying predecessor: %+v, err=%v", pending, err)
+	}
+	pending, err := outbox.Pending(retryAt, 10)
+	if err != nil || len(pending) != 1 || pending[0].IdempotencyKey != first.IdempotencyKey {
+		t.Fatalf("causal pending = %+v, err=%v", pending, err)
+	}
+}
+
 func TestSQLOutboxStateTransitionsAndSafeFailureReasons(t *testing.T) {
 	outbox, _, _, cleanup := newSyncPersistence(t)
 	defer cleanup()
@@ -173,6 +206,72 @@ func TestSQLOutboxStateTransitionsAndSafeFailureReasons(t *testing.T) {
 	}
 	if err := outbox.MarkFailed("failed", replicationsync.FailureReason("raw transport error")); err == nil {
 		t.Fatal("unsafe failure reason accepted")
+	}
+}
+
+func TestSQLOutboxMarkSentOnlyClearsCurrentLocalHead(t *testing.T) {
+	outbox, db, _, cleanup := newSyncPersistence(t)
+	defer cleanup()
+	now := time.Unix(100, 0).UTC()
+	if _, err := db.Exec(`INSERT INTO sync_account_binding (id, account_id, bound_at) VALUES ('local', ?, ?)`,
+		"acct-1", now.Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO vault_items (id, type, data) VALUES (?, ?, ?)`,
+		"record-1", "note", `{"id":"record-1","type":"note","metadata":{"title":"newer"},"sync_state":"local"}`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO sync_local_entity_versions
+		(record_id, record_type, entity_version, operation_id, operation, tombstone, updated_at)
+		VALUES (?, ?, 2, 'op-2', 'update', 0, ?)`, "record-1", "note", now.Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+	firstContext := testSQLSyncContext()
+	firstContext.OperationID = "op-1"
+	firstContext.EntityVersion = 1
+	first := replicationsync.NewChange("key-old", "record-1", "note", replicationsync.OperationCreate,
+		[]byte{1}, 1, firstContext, "vault-item", now)
+	secondContext := firstContext
+	secondContext.OperationID = "op-2"
+	secondContext.EntityVersion = 2
+	second := replicationsync.NewChange("key-head", "record-1", "note", replicationsync.OperationUpdate,
+		[]byte{2}, 1, secondContext, "vault-item", now.Add(time.Nanosecond))
+	for _, change := range []replicationsync.Change{first, second} {
+		if err := outbox.Enqueue(change); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Simulate a partial/out-of-order server ACK. The newer head must remain
+	// dirty while its predecessor is unresolved.
+	if err := outbox.MarkSent(second.IdempotencyKey); err != nil {
+		t.Fatal(err)
+	}
+	assertVaultSyncState(t, db, "record-1", "local")
+	if err := outbox.MarkSent(first.IdempotencyKey); err != nil {
+		t.Fatal(err)
+	}
+	assertVaultSyncState(t, db, "record-1", "synced")
+	var applied int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sync_applied_operations WHERE account_id = ? AND record_id = ?`,
+		"acct-1", "record-1").Scan(&applied); err != nil || applied != 2 {
+		t.Fatalf("acknowledged operation count = %d, err = %v", applied, err)
+	}
+}
+
+func assertVaultSyncState(t *testing.T, db *sql.DB, recordID, want string) {
+	t.Helper()
+	var data []byte
+	if err := db.QueryRow("SELECT data FROM vault_items WHERE id = ?", recordID).Scan(&data); err != nil {
+		t.Fatal(err)
+	}
+	var record struct {
+		SyncState string `json:"sync_state"`
+	}
+	if err := json.Unmarshal(data, &record); err != nil {
+		t.Fatal(err)
+	}
+	if record.SyncState != want {
+		t.Fatalf("sync state = %q, want %q", record.SyncState, want)
 	}
 }
 

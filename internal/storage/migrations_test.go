@@ -163,6 +163,7 @@ func TestMigrateCreatesVaultItemsTable(t *testing.T) {
 	for _, table := range []string{
 		TableSyncOutbox, TableSyncCursors, TableSyncIdentity,
 		TableSyncAccountBinding, TableSyncEntityVersions, TableSyncAppliedOps,
+		TableSyncLocalEntities, TableSyncLocalMutations,
 	} {
 		if !tableExists(table) {
 			t.Fatalf("expected %s table to exist", table)
@@ -173,8 +174,8 @@ func TestMigrateCreatesVaultItemsTable(t *testing.T) {
 	if err := db.QueryRow("SELECT MAX(version) FROM schema_migrations").Scan(&version); err != nil {
 		t.Fatalf("read migration version: %v", err)
 	}
-	if version != 9 {
-		t.Fatalf("migration version = %d, want 9", version)
+	if version != 10 {
+		t.Fatalf("migration version = %d, want 10", version)
 	}
 
 	if err := Migrate(context.Background(), db); err != nil {
@@ -277,6 +278,26 @@ func TestMigrateCreatesSyncSchemaWithoutVaultItemBackfill(t *testing.T) {
 	} {
 		if _, ok := appliedOperationColumns[name]; !ok {
 			t.Fatalf("sync_applied_operations missing column %q", name)
+		}
+	}
+
+	localEntityColumns := columns(TableSyncLocalEntities)
+	for _, name := range []string{
+		"record_id", "record_type", "entity_version", "operation_id",
+		"operation", "tombstone", "updated_at",
+	} {
+		if _, ok := localEntityColumns[name]; !ok {
+			t.Fatalf("sync_local_entity_versions missing column %q", name)
+		}
+	}
+
+	localMutationColumns := columns(TableSyncLocalMutations)
+	for _, name := range []string{
+		"sequence", "operation_id", "record_id", "record_type", "entity_version",
+		"operation", "snapshot", "key_version", "key_id", "created_at",
+	} {
+		if _, ok := localMutationColumns[name]; !ok {
+			t.Fatalf("sync_local_mutations missing column %q", name)
 		}
 	}
 

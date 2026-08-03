@@ -25,7 +25,7 @@ const (
 	defaultCursorName = "pull"
 	defaultPushLimit  = 100
 	defaultPullLimit  = 100
-	maxRecordJSONSize = 1 << 20
+	maxRecordJSONSize = replicationsync.MaxRecordSnapshotBytes
 )
 
 var (
@@ -38,6 +38,7 @@ var (
 	ErrInvalidRemoteData   = errors.New("remote sync data is invalid")
 	ErrDecryptFailed       = errors.New("remote sync data could not be authenticated")
 	ErrApplyFailed         = errors.New("remote sync data could not be applied")
+	ErrLocalCaptureFailed  = errors.New("local sync changes could not be queued")
 )
 
 // DeviceIdentityStore owns only the stable local device identity. Account
@@ -54,8 +55,16 @@ type CursorStore interface {
 // RemoteStore atomically applies authenticated mutations and advances the
 // cursor. Implementations must roll back both when any mutation fails.
 type RemoteStore interface {
+	ValidateAuthenticatedAccount(ctx context.Context, accountID string) error
 	BindAuthenticatedAccount(ctx context.Context, accountID string) error
 	ApplyRemoteBatch(ctx context.Context, accountID, cursorName, nextCursor string, mutations []storage.RemoteMutation) error
+}
+
+// LocalMutationStore owns the durable handoff from account-neutral local
+// intents to authenticated encrypted outbox changes.
+type LocalMutationStore interface {
+	Pending(ctx context.Context, limit int) ([]storage.LocalMutationIntent, error)
+	CommitMaterialized(ctx context.Context, accountID string, intent storage.LocalMutationIntent, change replicationsync.Change) error
 }
 
 // Dependencies are the capabilities required by the orchestration service.
@@ -65,6 +74,7 @@ type Dependencies struct {
 	DeviceIdentity DeviceIdentityStore
 	Cursors        CursorStore
 	Remote         RemoteStore
+	LocalMutations LocalMutationStore
 	Outbox         replicationsync.Outbox
 	Vault          replicationsync.Vault
 	HTTPClient     *http.Client
@@ -213,9 +223,9 @@ func (s *Service) Connect(ctx context.Context, baseURL, accessToken string) erro
 	if err != nil {
 		return safeStageError(ctx, ErrConnectFailed)
 	}
-	// Bind before constructing a transport so an already-bound database cannot
-	// start a network sync cycle under another authenticated account.
-	if err := s.deps.Remote.BindAuthenticatedAccount(ctx, session.AccountID()); err != nil {
+	// Check an existing claim before constructing transport, but do not make the
+	// first durable account claim until the user explicitly chooses SyncNow.
+	if err := s.deps.Remote.ValidateAuthenticatedAccount(ctx, session.AccountID()); err != nil {
 		return safeStageError(ctx, ErrConnectFailed)
 	}
 	provider := &sessionProvider{session: session, set: true}
@@ -305,6 +315,12 @@ func (s *Service) SyncNow(ctx context.Context) (Report, error) {
 	if !ok {
 		return report, ErrNotConnected
 	}
+	if err := s.deps.Remote.BindAuthenticatedAccount(ctx, session.AccountID()); err != nil {
+		return report, safeStageError(ctx, ErrLocalCaptureFailed)
+	}
+	if err := s.materializeLocalMutations(ctx, session); err != nil {
+		return report, safeStageError(ctx, ErrLocalCaptureFailed)
+	}
 	push, err := replicationsync.NewRunner(s.deps.Outbox, current.transport).Run(ctx, s.deps.PushLimit)
 	report.PushAttempted = push.Attempted
 	report.PushSent = push.Sent
@@ -351,6 +367,49 @@ func (s *Service) SyncNow(ctx context.Context) (Report, error) {
 	}
 	report.Applied = len(mutations)
 	return report, nil
+}
+
+func (s *Service) materializeLocalMutations(ctx context.Context, session replicationsync.AuthSession) error {
+	if s.deps.LocalMutations == nil {
+		return nil
+	}
+	intents, err := s.deps.LocalMutations.Pending(ctx, s.deps.PushLimit)
+	if err != nil {
+		return err
+	}
+	for i := range intents {
+		intent := intents[i]
+		if err := ctx.Err(); err != nil {
+			zeroBytes(intent.Snapshot)
+			return err
+		}
+		change, queueErr := replicationsync.QueuePayload(
+			s.deps.Vault,
+			s.deps.Outbox,
+			replicationsync.SyncContext{
+				AccountID:       session.AccountID(),
+				DeviceID:        session.DeviceID(),
+				ProtocolVersion: replicationsync.SyncProtocolVersion,
+				OperationID:     intent.OperationID,
+				EntityVersion:   intent.EntityVersion,
+			},
+			intent.RecordID,
+			intent.RecordType,
+			intent.KeyID,
+			intent.KeyVersion,
+			intent.Operation,
+			intent.Snapshot,
+			intent.CreatedAt,
+		)
+		zeroBytes(intent.Snapshot)
+		if queueErr != nil {
+			return queueErr
+		}
+		if err := s.deps.LocalMutations.CommitMaterialized(ctx, session.AccountID(), intent, change); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // clearConnection removes current only if it is still the active connection.

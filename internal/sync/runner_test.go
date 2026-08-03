@@ -5,8 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
+
+	"changeme/internal/crypto"
 )
 
 func TestPushOperationExcludesLocalOutboxState(t *testing.T) {
@@ -262,6 +265,58 @@ func TestRunnerPreservesAuthenticationErrorWhenRetryPersistenceFails(t *testing.
 	_, err := NewRunner(outbox, transport, RunnerConfig{Clock: func() time.Time { return now }}).Run(context.Background(), 1)
 	if !errors.Is(err, ErrAuthentication) || !errors.Is(err, persistErr) {
 		t.Fatalf("Run error = %v, want authentication and persistence errors", err)
+	}
+}
+
+func TestRunnerSplitsAggregateWireBudgetBeforeMarkingSyncing(t *testing.T) {
+	now := time.Unix(100, 0).UTC()
+	outbox := NewMemoryOutbox()
+	for i := 0; i < 6; i++ {
+		change := validChange(fmt.Sprintf("large-%d", i), now.Add(time.Duration(i)*time.Nanosecond))
+		var envelope ReplicationEnvelope
+		if err := json.Unmarshal(change.Payload, &envelope); err != nil {
+			t.Fatal(err)
+		}
+		var nested crypto.Envelope
+		if err := json.Unmarshal(envelope.Ciphertext, &nested); err != nil {
+			t.Fatal(err)
+		}
+		// Model a maximum-size plaintext after authenticated encryption. The
+		// nested and outer JSON encodings both add base64 overhead, so several
+		// individually valid operations can exceed the aggregate HTTP budget.
+		nested.Ciphertext = bytes.Repeat([]byte{byte(i + 1)}, MaxRecordSnapshotBytes+16)
+		envelope.Ciphertext, _ = json.Marshal(nested)
+		envelope.RecordID = fmt.Sprintf("record-large-%d", i)
+		change.RecordID = envelope.RecordID
+		change.Payload, _ = json.Marshal(envelope)
+		if err := outbox.Enqueue(change); err != nil {
+			t.Fatal(err)
+		}
+	}
+	batchSizes := make([]int, 0, 2)
+	transport := &scriptedTransport{push: func(_ context.Context, operations []PushOperation) (PushResult, error) {
+		body, err := json.Marshal(pushRequest{Operations: operations})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(body) > maxHTTPRequestBytes {
+			t.Fatalf("push body = %d bytes, limit = %d", len(body), maxHTTPRequestBytes)
+		}
+		batchSizes = append(batchSizes, len(operations))
+		result := PushResult{SentIdempotencyKeys: make([]string, 0, len(operations))}
+		for _, operation := range operations {
+			result.SentIdempotencyKeys = append(result.SentIdempotencyKeys, operation.IdempotencyKey)
+		}
+		return result, nil
+	}}
+	runner := NewRunner(outbox, transport, RunnerConfig{Clock: func() time.Time { return now.Add(time.Second) }})
+	for len(batchSizes) < 2 {
+		if _, err := runner.Run(context.Background(), 100); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if batchSizes[0] <= 0 || batchSizes[0] >= 6 || batchSizes[0]+batchSizes[1] != 6 {
+		t.Fatalf("wire-bounded batch sizes = %v", batchSizes)
 	}
 }
 

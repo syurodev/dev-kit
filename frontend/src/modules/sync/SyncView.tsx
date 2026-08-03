@@ -81,9 +81,9 @@ export function SyncView() {
     <section className="sync-view">
       <h2>Sync</h2>
       <p className="sync-notice">
-        This phase sends changes already present in the sync queue and pulls
-        encrypted remote changes. New local vault edits are not queued
-        automatically yet.
+        Local vault changes are queued automatically and encrypted before
+        upload. On the first Sync now, this vault is associated with the
+        authenticated account shown below.
       </p>
 
       <div className="sync-connect">

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"changeme/internal/crypto"
+	"changeme/internal/services/vaultitem"
 	"changeme/internal/storage"
 	replicationsync "changeme/internal/sync"
 )
@@ -60,6 +61,18 @@ type fakeRemoteStore struct {
 	cursorName string
 	nextCursor string
 	mutations  []storage.RemoteMutation
+}
+
+func (s *fakeRemoteStore) ValidateAuthenticatedAccount(ctx context.Context, accountID string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.accountID != "" && s.accountID != accountID {
+		return storage.ErrSyncAccountMismatch
+	}
+	return nil
 }
 
 func (s *fakeRemoteStore) BindAuthenticatedAccount(ctx context.Context, accountID string) error {
@@ -275,6 +288,10 @@ func TestHTTPClientPullAppliesAndAdvancesCursorAtomicallyInSQLite(t *testing.T) 
 	if err := service.Connect(context.Background(), server.URL, testToken); err != nil {
 		t.Fatal(err)
 	}
+	var preSyncBindingCount int
+	if err := db.QueryRow("SELECT COUNT(*) FROM sync_account_binding").Scan(&preSyncBindingCount); err != nil || preSyncBindingCount != 0 {
+		t.Fatalf("Connect claimed account before SyncNow: count=%d err=%v", preSyncBindingCount, err)
+	}
 	report, err := service.SyncNow(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -306,6 +323,95 @@ func TestHTTPClientPullAppliesAndAdvancesCursorAtomicallyInSQLite(t *testing.T) 
 	}
 	if account != testAccountID {
 		t.Fatalf("bound account = %q", account)
+	}
+}
+
+func TestSyncNowMaterializesLocalIntentBeforePush(t *testing.T) {
+	db, err := storage.Open(filepath.Join(t.TempDir(), "devkit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := storage.Migrate(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	vault := testVault{key: bytes.Repeat([]byte{0x62}, 32)}
+	items := vaultitem.NewStore(vaultitem.NewSQLMutationRepository(db), vault)
+	record, err := items.Create("note", "note-body", json.RawMessage(`{"title":"Local"}`), []byte("local body"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"account_id": testAccountID,
+			"device_id":  testDeviceID,
+			"expires_at": time.Now().UTC().Add(time.Hour),
+		})
+	}))
+	defer server.Close()
+	transport := &fakeTransport{}
+	outbox := storage.NewSQLOutbox(db)
+	service, err := NewWithFactories(Dependencies{
+		DeviceIdentity: fakeDeviceStore{id: testDeviceID},
+		Cursors:        storage.NewSQLCursorStore(db),
+		Remote:         storage.NewSQLRemoteStore(db),
+		LocalMutations: storage.NewSQLLocalMutationStore(db),
+		Outbox:         outbox,
+		Vault:          vault,
+	}, Factories{
+		Authenticator: func(baseURL string, client *http.Client) (replicationsync.Authenticator, error) {
+			return replicationsync.NewHTTPAuthenticator(baseURL, client)
+		},
+		Transport: func(string, replicationsync.SessionProvider, *http.Client) (replicationsync.PullTransport, error) {
+			return transport, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Connect(context.Background(), server.URL, testToken); err != nil {
+		t.Fatal(err)
+	}
+	report, err := service.SyncNow(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.PushSent != 1 {
+		t.Fatalf("report = %+v", report)
+	}
+	transport.mu.Lock()
+	pushed := append([]replicationsync.PushOperation(nil), transport.pushed...)
+	transport.mu.Unlock()
+	if len(pushed) != 1 || pushed[0].Envelope.RecordID != record.ID || pushed[0].Envelope.EntityVersion != 1 {
+		t.Fatalf("pushed operations = %+v", pushed)
+	}
+	snapshot, err := replicationsync.OpenPayload(vault, pushed[0].Envelope, "vault-item")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer zeroBytes(snapshot)
+	if !bytes.Contains(snapshot, []byte(`"title":"Local"`)) || bytes.Contains(snapshot, []byte("sync_state")) {
+		t.Fatalf("materialized snapshot = %s", snapshot)
+	}
+	var intentCount int
+	if err := db.QueryRow("SELECT COUNT(*) FROM sync_local_mutations").Scan(&intentCount); err != nil || intentCount != 0 {
+		t.Fatalf("remaining intents = %d, err = %v", intentCount, err)
+	}
+	var accountVersion int
+	if err := db.QueryRow(`SELECT entity_version FROM sync_entity_versions
+		WHERE account_id = ? AND record_id = ?`, testAccountID, record.ID).Scan(&accountVersion); err != nil {
+		t.Fatal(err)
+	}
+	if accountVersion != 1 {
+		t.Fatalf("account entity version = %d", accountVersion)
+	}
+	stored, err := items.Get(record.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.SyncState != "synced" {
+		t.Fatalf("stored sync state = %q, want synced", stored.SyncState)
 	}
 }
 

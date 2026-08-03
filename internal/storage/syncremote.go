@@ -53,6 +53,33 @@ func NewSQLRemoteStore(db *sql.DB) *SQLRemoteStore {
 	return &SQLRemoteStore{db: db}
 }
 
+// ValidateAuthenticatedAccount rejects an already-bound account mismatch
+// without claiming an unbound database. The first durable claim is deferred to
+// the user's explicit SyncNow action.
+func (s *SQLRemoteStore) ValidateAuthenticatedAccount(ctx context.Context, authenticatedAccountID string) error {
+	if s == nil || s.db == nil {
+		return errors.New("remote sync store is nil")
+	}
+	ctx = nonNilContext(ctx)
+	if err := validateSyncIdentifier("account id", authenticatedAccountID, 256); err != nil {
+		return err
+	}
+	var bound string
+	err := s.db.QueryRowContext(ctx, fmt.Sprintf(
+		"SELECT account_id FROM %s WHERE id = ?", TableSyncAccountBinding,
+	), localAccountBindingRowID).Scan(&bound)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if bound != authenticatedAccountID {
+		return ErrSyncAccountMismatch
+	}
+	return nil
+}
+
 // BindAuthenticatedAccount permanently associates this local database with
 // the server-authoritative account before any push or pull is attempted. The
 // binding is intentionally one-way; switching accounts requires an explicit
@@ -247,6 +274,13 @@ func applyRemoteMutation(ctx context.Context, tx *sql.Tx, mutation RemoteMutatio
 	if err != nil {
 		return err
 	}
+	pendingLocal, err := hasPendingLocalIntent(ctx, tx, mutation.RecordID)
+	if err != nil {
+		return err
+	}
+	if pendingLocal {
+		return ErrRemoteMutationConflict
+	}
 	if exists && current.recordType != mutation.RecordType {
 		return ErrRemoteMutationConflict
 	}
@@ -317,6 +351,26 @@ func applyRemoteMutation(ctx context.Context, tx *sql.Tx, mutation RemoteMutatio
 		mutation.OperationID, string(mutation.Operation), tombstone, formatTime(time.Now().UTC())); err != nil {
 		return err
 	}
+	// Keep the account-neutral local head aligned with accepted remote state so
+	// the next offline/local mutation can atomically allocate N+1 even when no
+	// authenticated session is active at mutation time. This direct remote path
+	// deliberately does not create a local mutation intent.
+	if _, err = tx.ExecContext(ctx, fmt.Sprintf(`
+		INSERT INTO %s (
+			record_id, record_type, entity_version, operation_id, operation, tombstone, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(record_id) DO UPDATE SET
+			record_type = excluded.record_type,
+			entity_version = excluded.entity_version,
+			operation_id = excluded.operation_id,
+			operation = excluded.operation,
+			tombstone = excluded.tombstone,
+			updated_at = excluded.updated_at`, TableSyncLocalEntities),
+		mutation.RecordID, mutation.RecordType, mutation.EntityVersion,
+		mutation.OperationID, string(mutation.Operation), tombstone,
+		formatTime(time.Now().UTC())); err != nil {
+		return err
+	}
 
 	_, err = tx.ExecContext(ctx, fmt.Sprintf(`
 		INSERT INTO %s (
@@ -339,7 +393,17 @@ func rejectUnsyncedLocalState(ctx context.Context, tx *sql.Tx, current remoteEnt
 		"SELECT type, data FROM %s WHERE id = ?", TableVaultItems,
 	), mutation.RecordID).Scan(&recordType, &recordJSON)
 	if errors.Is(err, sql.ErrNoRows) {
-		if current.tombstone || mutation.Operation == replicationsync.OperationDelete {
+		if current.tombstone {
+			unsynced, checkErr := hasUnsyncedLocalOperation(ctx, tx, mutation.AccountID, current.operationID)
+			if checkErr != nil {
+				return checkErr
+			}
+			if unsynced {
+				return ErrRemoteMutationConflict
+			}
+			return nil
+		}
+		if mutation.Operation == replicationsync.OperationDelete {
 			return nil
 		}
 		return ErrRemoteMutationConflict
@@ -357,6 +421,33 @@ func rejectUnsyncedLocalState(ctx context.Context, tx *sql.Tx, current remoteEnt
 		return ErrRemoteMutationConflict
 	}
 	return nil
+}
+
+func hasPendingLocalIntent(ctx context.Context, tx *sql.Tx, recordID string) (bool, error) {
+	// A local mutation can commit after SyncNow's materialization pass but before
+	// pull/apply. Its account-neutral intent is durable proof that local state is
+	// newer, including a physically missing row after delete.
+	var count int
+	if err := tx.QueryRowContext(ctx, fmt.Sprintf(
+		"SELECT COUNT(*) FROM %s WHERE record_id = ?", TableSyncLocalMutations,
+	), recordID).Scan(&count); err != nil {
+		return false, err
+	}
+	return count != 0, nil
+}
+
+func hasUnsyncedLocalOperation(ctx context.Context, tx *sql.Tx, accountID, operationID string) (bool, error) {
+	var status string
+	err := tx.QueryRowContext(ctx, fmt.Sprintf(`
+		SELECT status FROM %s WHERE account_id = ? AND operation_id = ?`, TableSyncOutbox),
+		accountID, operationID).Scan(&status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil // The head came from remote apply, not a local outbox.
+	}
+	if err != nil {
+		return false, err
+	}
+	return status != string(replicationsync.StatusSynced), nil
 }
 
 type appliedRemoteOperation struct {

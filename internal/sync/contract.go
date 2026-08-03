@@ -15,7 +15,13 @@ import (
 	"unicode"
 )
 
-const SyncProtocolVersion uint32 = 1
+const (
+	SyncProtocolVersion uint32 = 1
+	// MaxRecordSnapshotBytes is deliberately below the 1 MiB wire ciphertext
+	// cap. The margin covers AEAD, envelope JSON and base64 expansion so a local
+	// record accepted here cannot become a permanent HTTP outbox poison pill.
+	MaxRecordSnapshotBytes = 512 << 10
+)
 
 type SyncContext struct {
 	AccountID       string

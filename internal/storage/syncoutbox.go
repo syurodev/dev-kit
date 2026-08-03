@@ -133,15 +133,23 @@ func (o *SQLOutbox) Pending(now time.Time, limit int) ([]replicationsync.Change,
 			attempts, next_attempt_at, last_error, conflict_json, created_at,
 			syncing_since, account_id, device_id, protocol_version, operation_id,
 			entity_version, key_id
-		FROM %s
+		FROM %s AS candidate
 		WHERE (
 			(status = ? AND next_attempt_at <= ?)
 			OR (status = ? AND (syncing_since = '' OR syncing_since <= ?))
 		)
-		ORDER BY created_at ASC, idempotency_key ASC`, TableSyncOutbox)
+		AND NOT EXISTS (
+			SELECT 1 FROM %s AS earlier
+			WHERE earlier.account_id = candidate.account_id
+				AND earlier.record_id = candidate.record_id
+				AND earlier.entity_version < candidate.entity_version
+				AND earlier.status != ?
+		)
+		ORDER BY created_at ASC, record_id ASC, entity_version ASC, idempotency_key ASC`, TableSyncOutbox, TableSyncOutbox)
 	args := []any{
 		string(replicationsync.StatusPending), formatTime(now),
 		string(replicationsync.StatusSyncing), staleBefore,
+		string(replicationsync.StatusSynced),
 	}
 	if limit > 0 {
 		query += " LIMIT ?"
@@ -195,12 +203,168 @@ func (o *SQLOutbox) RecoverStaleSyncing(now time.Time) error {
 }
 
 func (o *SQLOutbox) MarkSent(idempotencyKey string) error {
-	return o.updateState(idempotencyKey, `
-		UPDATE sync_outbox
-		SET status = ?, last_error = '', next_attempt_at = '', conflict_json = NULL, syncing_since = ''
-		WHERE idempotency_key = ? AND status IN (?, ?)`,
+	if err := validateSyncIdentifier("idempotency key", idempotencyKey, 256); err != nil {
+		return err
+	}
+	if err := o.ensureDB(); err != nil {
+		return err
+	}
+	ctx := context.Background()
+	tx, err := o.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var change struct {
+		accountID, operationID, recordID, recordType, operation string
+		entityVersion                                           int64
+	}
+	var status string
+	err = tx.QueryRowContext(ctx, fmt.Sprintf(`
+		SELECT account_id, operation_id, record_id, record_type, entity_version, operation, status
+		FROM %s WHERE idempotency_key = ?`, TableSyncOutbox), idempotencyKey).
+		Scan(&change.accountID, &change.operationID, &change.recordID, &change.recordType,
+			&change.entityVersion, &change.operation, &status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return replicationsync.ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if status != string(replicationsync.StatusPending) && status != string(replicationsync.StatusSyncing) {
+		return replicationsync.ErrInvalidState
+	}
+	if _, err = tx.ExecContext(ctx, fmt.Sprintf(`
+		UPDATE %s SET status = ?, last_error = '', next_attempt_at = '',
+			conflict_json = NULL, syncing_since = ''
+		WHERE idempotency_key = ? AND status IN (?, ?)`, TableSyncOutbox),
 		string(replicationsync.StatusSynced), idempotencyKey,
-		string(replicationsync.StatusPending), string(replicationsync.StatusSyncing))
+		string(replicationsync.StatusPending), string(replicationsync.StatusSyncing)); err != nil {
+		return err
+	}
+
+	// Legacy/test-only outbox rows may not belong to an authenticated binding.
+	// Preserve their state transition without pretending they are replicated.
+	var bindingExists int
+	err = tx.QueryRowContext(ctx, fmt.Sprintf(
+		"SELECT 1 FROM %s WHERE account_id = ?", TableSyncAccountBinding,
+	), change.accountID).Scan(&bindingExists)
+	if errors.Is(err, sql.ErrNoRows) {
+		return tx.Commit()
+	}
+	if err != nil {
+		return err
+	}
+
+	if err := recordAcknowledgedOperation(ctx, tx, change.accountID, change.operationID,
+		change.recordID, change.recordType, change.entityVersion, change.operation); err != nil {
+		return err
+	}
+	if err := reconcileAcknowledgedLocalHead(ctx, tx, change.accountID, change.recordID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func recordAcknowledgedOperation(ctx context.Context, tx *sql.Tx, accountID, operationID,
+	recordID, recordType string, entityVersion int64, operation string,
+) error {
+	result, err := tx.ExecContext(ctx, fmt.Sprintf(`
+		INSERT INTO %s (account_id, operation_id, record_id, record_type, entity_version, operation, applied_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(account_id, operation_id) DO NOTHING`, TableSyncAppliedOps),
+		accountID, operationID, recordID, recordType, entityVersion, operation, formatTime(time.Now().UTC()))
+	if err != nil {
+		return err
+	}
+	if rows, rowsErr := result.RowsAffected(); rowsErr == nil && rows == 1 {
+		return nil
+	}
+	var storedRecordID, storedRecordType, storedOperation string
+	var storedVersion int64
+	if err := tx.QueryRowContext(ctx, fmt.Sprintf(`
+		SELECT record_id, record_type, entity_version, operation FROM %s
+		WHERE account_id = ? AND operation_id = ?`, TableSyncAppliedOps), accountID, operationID).
+		Scan(&storedRecordID, &storedRecordType, &storedVersion, &storedOperation); err != nil {
+		return err
+	}
+	if storedRecordID != recordID || storedRecordType != recordType ||
+		storedVersion != entityVersion || storedOperation != operation {
+		return ErrRemoteMutationConflict
+	}
+	return nil
+}
+
+func reconcileAcknowledgedLocalHead(ctx context.Context, tx *sql.Tx, accountID, recordID string) error {
+	var headOperationID, headType string
+	var headVersion int64
+	var headTombstone int
+	err := tx.QueryRowContext(ctx, fmt.Sprintf(`
+		SELECT operation_id, record_type, entity_version, tombstone FROM %s WHERE record_id = ?`, TableSyncLocalEntities),
+		recordID).Scan(&headOperationID, &headType, &headVersion, &headTombstone)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if headTombstone == 1 {
+		return nil
+	}
+	if headTombstone != 0 {
+		return errors.New("local entity tombstone is invalid")
+	}
+	var headStatus string
+	err = tx.QueryRowContext(ctx, fmt.Sprintf(`
+		SELECT status FROM %s WHERE account_id = ? AND operation_id = ?
+			AND record_id = ? AND record_type = ? AND entity_version = ?`, TableSyncOutbox),
+		accountID, headOperationID, recordID, headType, headVersion).Scan(&headStatus)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil // The current head came from remote apply.
+	}
+	if err != nil {
+		return err
+	}
+	if headStatus != string(replicationsync.StatusSynced) {
+		return nil
+	}
+	var unsyncedCount int
+	if err := tx.QueryRowContext(ctx, fmt.Sprintf(`
+		SELECT
+			(SELECT COUNT(*) FROM %s WHERE record_id = ?) +
+			(SELECT COUNT(*) FROM %s WHERE account_id = ? AND record_id = ? AND status != ?)
+		`, TableSyncLocalMutations, TableSyncOutbox),
+		recordID, accountID, recordID, string(replicationsync.StatusSynced)).Scan(&unsyncedCount); err != nil {
+		return err
+	}
+	if unsyncedCount != 0 {
+		return nil
+	}
+	var storedType string
+	var data []byte
+	err = tx.QueryRowContext(ctx, fmt.Sprintf("SELECT type, data FROM %s WHERE id = ?", TableVaultItems), recordID).
+		Scan(&storedType, &data)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if storedType != headType {
+		return ErrRemoteMutationConflict
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil || object == nil {
+		return errors.New("vault item JSON is invalid")
+	}
+	object["sync_state"] = json.RawMessage(`"synced"`)
+	normalized, err := json.Marshal(object)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, fmt.Sprintf("UPDATE %s SET data = ? WHERE id = ? AND type = ?", TableVaultItems),
+		normalized, recordID, headType)
+	return err
 }
 
 func (o *SQLOutbox) MarkRetry(idempotencyKey string, nextAttemptAt time.Time, reason replicationsync.FailureReason) error {

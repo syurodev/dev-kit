@@ -57,7 +57,10 @@ func main() {
 
 	container := app.NewContainerWithStores(
 		vault.NewSQLKeyringStore(storage.NewKV(db, storage.TableVaultKeyring)),
-		vaultitem.NewSQLRepository(db),
+		// Production local writes use one transaction for the vault row, local
+		// entity version and durable Phase 3C mutation intent. The raw repository
+		// remains available for isolated persistence tests only.
+		vaultitem.NewSQLMutationRepository(db),
 	)
 	outbox := storage.NewSQLOutbox(db)
 	if err := outbox.RecoverStaleSyncing(time.Now().UTC()); err != nil {
@@ -67,6 +70,7 @@ func main() {
 		DeviceIdentity: storage.NewSQLDeviceIdentityStore(db),
 		Cursors:        storage.NewSQLCursorStore(db),
 		Remote:         storage.NewSQLRemoteStore(db),
+		LocalMutations: storage.NewSQLLocalMutationStore(db),
 		Outbox:         outbox,
 		Vault:          container.Vault,
 	})

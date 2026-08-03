@@ -121,6 +121,9 @@ func validateQueueInputs(ctx SyncContext, recordID, recordType, keyID string, ke
 	if createdAt.IsZero() {
 		return errors.New("created time is required")
 	}
+	if len(plaintextRecord) > MaxRecordSnapshotBytes {
+		return fmt.Errorf("record snapshot exceeds %d bytes", MaxRecordSnapshotBytes)
+	}
 	return nil
 }
 

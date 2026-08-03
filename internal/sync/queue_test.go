@@ -147,6 +147,7 @@ func TestQueuePayloadRejectsInvalidInputs(t *testing.T) {
 		{name: "invalid operation", vault: vault, outbox: outbox, ctx: ctx, recordID: "record-1", recordType: "note", keyID: "note-body", keyVersion: 1, operation: Operation("rotate"), plaintext: plaintext, createdAt: now},
 		{name: "empty plaintext", vault: vault, outbox: outbox, ctx: ctx, recordID: "record-1", recordType: "note", keyID: "note-body", keyVersion: 1, operation: OperationCreate, plaintext: nil, createdAt: now},
 		{name: "zero created time", vault: vault, outbox: outbox, ctx: ctx, recordID: "record-1", recordType: "note", keyID: "note-body", keyVersion: 1, operation: OperationCreate, plaintext: plaintext},
+		{name: "oversized snapshot", vault: vault, outbox: outbox, ctx: ctx, recordID: "record-1", recordType: "note", keyID: "note-body", keyVersion: 1, operation: OperationCreate, plaintext: make([]byte, MaxRecordSnapshotBytes+1), createdAt: now},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

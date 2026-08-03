@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"changeme/internal/services/vaultitem"
 	replicationsync "changeme/internal/sync"
 )
 
@@ -29,7 +30,7 @@ func newTestRemoteStore(t *testing.T) (*sql.DB, *SQLRemoteStore) {
 }
 
 func remoteRecordJSON(id, recordType, marker string) []byte {
-	return []byte(fmt.Sprintf(`{"id":%q,"type":%q,"metadata":{"marker":%q},"sync_state":"synced"}`, id, recordType, marker))
+	return []byte(fmt.Sprintf(`{"id":%q,"type":%q,"metadata":{"marker":%q},"key_version":1,"sync_state":"synced"}`, id, recordType, marker))
 }
 
 func remoteMutation(id string, operation replicationsync.Operation, version uint32) RemoteMutation {
@@ -52,6 +53,20 @@ func TestApplyRemoteBatchBindsAuthenticatedAccountAndRejectsMismatch(t *testing.
 	mutation := remoteMutation("record-1", replicationsync.OperationCreate, 3)
 	if err := store.ApplyRemoteBatch(context.Background(), testRemoteAccountID, "pull", "cursor-1", []RemoteMutation{mutation}); err != nil {
 		t.Fatalf("first apply: %v", err)
+	}
+	var localVersion, localTombstone int
+	var localOperationID string
+	if err := db.QueryRow(`SELECT entity_version, operation_id, tombstone
+		FROM sync_local_entity_versions WHERE record_id = ?`, mutation.RecordID).
+		Scan(&localVersion, &localOperationID, &localTombstone); err != nil {
+		t.Fatalf("read local entity head: %v", err)
+	}
+	if localVersion != int(mutation.EntityVersion) || localOperationID != mutation.OperationID || localTombstone != 0 {
+		t.Fatalf("local entity head = %d/%q/%d", localVersion, localOperationID, localTombstone)
+	}
+	var localIntentCount int
+	if err := db.QueryRow("SELECT COUNT(*) FROM sync_local_mutations").Scan(&localIntentCount); err != nil || localIntentCount != 0 {
+		t.Fatalf("remote apply local intent count = %d, err = %v", localIntentCount, err)
 	}
 
 	var boundAccount, deviceID string
@@ -77,6 +92,13 @@ func TestApplyRemoteBatchBindsAuthenticatedAccountAndRejectsMismatch(t *testing.
 func TestBindAuthenticatedAccountIsIdempotentAndRejectsSwitch(t *testing.T) {
 	db, store := newTestRemoteStore(t)
 	ctx := context.Background()
+	if err := store.ValidateAuthenticatedAccount(ctx, testRemoteAccountID); err != nil {
+		t.Fatalf("validate unbound account: %v", err)
+	}
+	var beforeBind int
+	if err := db.QueryRow("SELECT COUNT(*) FROM sync_account_binding").Scan(&beforeBind); err != nil || beforeBind != 0 {
+		t.Fatalf("validation claimed account: count=%d err=%v", beforeBind, err)
+	}
 	if err := store.BindAuthenticatedAccount(ctx, testRemoteAccountID); err != nil {
 		t.Fatal(err)
 	}
@@ -85,6 +107,9 @@ func TestBindAuthenticatedAccountIsIdempotentAndRejectsSwitch(t *testing.T) {
 	}
 	if err := store.BindAuthenticatedAccount(ctx, "account-2"); !errors.Is(err, ErrSyncAccountMismatch) {
 		t.Fatalf("different account bind error = %v, want %v", err, ErrSyncAccountMismatch)
+	}
+	if err := store.ValidateAuthenticatedAccount(ctx, "account-2"); !errors.Is(err, ErrSyncAccountMismatch) {
+		t.Fatalf("different account validation error = %v", err)
 	}
 	var accountID string
 	if err := db.QueryRow("SELECT account_id FROM sync_account_binding WHERE id = 'local'").Scan(&accountID); err != nil {
@@ -180,6 +205,64 @@ func TestApplyRemoteBatchDoesNotResurrectLocallyDeletedRecord(t *testing.T) {
 		t.Fatal("remote update resurrected locally deleted record")
 	}
 	assertCursor(t, db, "pull", "cursor-1")
+}
+
+func TestApplyRemoteBatchDoesNotResurrectUnacknowledgedLocalTombstone(t *testing.T) {
+	db, remoteStore := newTestRemoteStore(t)
+	first := remoteMutation("record-local-tombstone", replicationsync.OperationCreate, 1)
+	if err := remoteStore.ApplyRemoteBatch(context.Background(), testRemoteAccountID, "pull", "cursor-1", []RemoteMutation{first}); err != nil {
+		t.Fatal(err)
+	}
+	if err := vaultitem.NewSQLMutationRepository(db).Delete(first.RecordID); err != nil {
+		t.Fatal(err)
+	}
+	intents, err := NewSQLLocalMutationStore(db).Pending(context.Background(), 10)
+	if err != nil || len(intents) != 1 {
+		t.Fatalf("local delete intents = %+v, err = %v", intents, err)
+	}
+	intent := intents[0]
+	change := replicationsync.NewChange("local-delete-key", intent.RecordID, intent.RecordType,
+		intent.Operation, []byte{1}, intent.KeyVersion, replicationsync.SyncContext{
+			AccountID: testRemoteAccountID, DeviceID: "device-1",
+			ProtocolVersion: replicationsync.SyncProtocolVersion,
+			OperationID:     intent.OperationID, EntityVersion: intent.EntityVersion,
+		}, intent.KeyID, intent.CreatedAt)
+	outbox := NewSQLOutbox(db)
+	if err := outbox.Enqueue(change); err != nil {
+		t.Fatal(err)
+	}
+	if err := NewSQLLocalMutationStore(db).CommitMaterialized(context.Background(), testRemoteAccountID, intent, change); err != nil {
+		t.Fatal(err)
+	}
+
+	incoming := remoteMutation(first.RecordID, replicationsync.OperationUpdate, 3)
+	if err := remoteStore.ApplyRemoteBatch(context.Background(), testRemoteAccountID, "pull", "cursor-3", []RemoteMutation{incoming}); !errors.Is(err, ErrRemoteMutationConflict) {
+		t.Fatalf("unacknowledged tombstone resurrection error = %v", err)
+	}
+	var count int
+	if err := db.QueryRow("SELECT COUNT(*) FROM vault_items WHERE id = ?", first.RecordID).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("resurrected row count = %d, err = %v", count, err)
+	}
+}
+
+func TestApplyRemoteBatchRejectsDeleteWhileLocalDeleteIntentIsUnmaterialized(t *testing.T) {
+	db, remoteStore := newTestRemoteStore(t)
+	first := remoteMutation("record-local-delete-race", replicationsync.OperationCreate, 1)
+	if err := remoteStore.ApplyRemoteBatch(context.Background(), testRemoteAccountID, "pull", "cursor-1", []RemoteMutation{first}); err != nil {
+		t.Fatal(err)
+	}
+	if err := vaultitem.NewSQLMutationRepository(db).Delete(first.RecordID); err != nil {
+		t.Fatal(err)
+	}
+	incomingDelete := remoteMutation(first.RecordID, replicationsync.OperationDelete, 2)
+	incomingDelete.OperationID = "different-remote-delete"
+	if err := remoteStore.ApplyRemoteBatch(context.Background(), testRemoteAccountID, "pull", "cursor-2", []RemoteMutation{incomingDelete}); !errors.Is(err, ErrRemoteMutationConflict) {
+		t.Fatalf("concurrent remote delete error = %v, want conflict", err)
+	}
+	var intentCount int
+	if err := db.QueryRow("SELECT COUNT(*) FROM sync_local_mutations WHERE record_id = ?", first.RecordID).Scan(&intentCount); err != nil || intentCount != 1 {
+		t.Fatalf("local delete intent count = %d, err = %v", intentCount, err)
+	}
 }
 
 func TestApplyRemoteBatchHistoricalReplayDoesNotDowngradeAndOperationIDCannotBeReused(t *testing.T) {

@@ -1,4 +1,4 @@
-package vaultitem
+package vaultitem_test
 
 import (
 	"context"
@@ -6,10 +6,11 @@ import (
 	"path/filepath"
 	"testing"
 
+	"changeme/internal/services/vaultitem"
 	"changeme/internal/storage"
 )
 
-func newTestDB(t *testing.T) *SQLRepository {
+func newTestDB(t *testing.T) *vaultitem.SQLRepository {
 	t.Helper()
 	db, err := storage.Open(filepath.Join(t.TempDir(), "devkit.db"))
 	if err != nil {
@@ -19,16 +20,16 @@ func newTestDB(t *testing.T) *SQLRepository {
 	if err := storage.Migrate(context.Background(), db); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	return NewSQLRepository(db)
+	return vaultitem.NewSQLRepository(db)
 }
 
 func TestSQLRepositoryRoundTrip(t *testing.T) {
 	repo := newTestDB(t)
 
-	if err := repo.Put(Record{ID: "a1", Type: "note", Metadata: json.RawMessage(`{"title":"x"}`)}); err != nil {
+	if err := repo.Put(vaultitem.Record{ID: "a1", Type: "note", Metadata: json.RawMessage(`{"title":"x"}`)}); err != nil {
 		t.Fatalf("put: %v", err)
 	}
-	if err := repo.Put(Record{ID: "b2", Type: "db-profile", Metadata: json.RawMessage(`{"name":"y"}`)}); err != nil {
+	if err := repo.Put(vaultitem.Record{ID: "b2", Type: "db-profile", Metadata: json.RawMessage(`{"name":"y"}`)}); err != nil {
 		t.Fatalf("put: %v", err)
 	}
 
@@ -51,7 +52,7 @@ func TestSQLRepositoryRoundTrip(t *testing.T) {
 	if err := repo.Delete("a1"); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
-	if _, err := repo.Get("a1"); err != ErrNotFound {
+	if _, err := repo.Get("a1"); err != vaultitem.ErrNotFound {
 		t.Fatalf("get after delete err = %v, want ErrNotFound", err)
 	}
 }
