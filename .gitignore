@@ -41,5 +41,6 @@ Thumbs.db
 coverage.out
 *.coverprofile
 
-.docs/superpowers
+.docs/superpowers/
+.superpowers/.worktrees/
 .superpowers/
