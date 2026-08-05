@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"changeme/internal/services/syncclient"
+	"changeme/internal/syncclient"
 )
 
 // SyncStatusDTO contains only connection metadata safe for display. The

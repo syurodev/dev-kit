@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"changeme/internal/apperrors"
-	"changeme/internal/services/syncclient"
+	"changeme/internal/syncclient"
 	"changeme/internal/vault"
 )
 

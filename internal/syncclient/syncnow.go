@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"changeme/internal/crypto"
-	"changeme/internal/services/vaultitem"
 	"changeme/internal/storage"
 	replicationsync "changeme/internal/sync"
+	"changeme/internal/vaultitem"
 )
 
 // SyncNow pushes the current outbox, pulls one bounded page, decrypts and

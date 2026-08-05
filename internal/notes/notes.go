@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"changeme/internal/services/vaultitem"
+	"changeme/internal/vaultitem"
 )
 
 const (

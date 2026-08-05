@@ -15,9 +15,9 @@ import (
 	"time"
 
 	"changeme/internal/crypto"
-	"changeme/internal/services/vaultitem"
 	"changeme/internal/storage"
 	replicationsync "changeme/internal/sync"
+	"changeme/internal/vaultitem"
 )
 
 const (

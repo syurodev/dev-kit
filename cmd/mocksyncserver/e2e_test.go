@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"changeme/internal/services/syncclient"
-	"changeme/internal/services/vaultitem"
 	"changeme/internal/storage"
 	replicationsync "changeme/internal/sync"
+	"changeme/internal/syncclient"
 	"changeme/internal/vault"
+	"changeme/internal/vaultitem"
 )
 
 // This is the two-device end-to-end test the conflict-resolution design calls

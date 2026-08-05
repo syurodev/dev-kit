@@ -6,16 +6,16 @@ import (
 	"changeme/internal/audit"
 	"changeme/internal/capabilities"
 	"changeme/internal/commands"
+	"changeme/internal/database"
 	"changeme/internal/modules"
+	"changeme/internal/notes"
 	"changeme/internal/permissions"
-	"changeme/internal/services/database"
-	"changeme/internal/services/notes"
-	sshservice "changeme/internal/services/ssh"
-	"changeme/internal/services/syncclient"
-	"changeme/internal/services/tools"
-	"changeme/internal/services/vaultitem"
+	sshservice "changeme/internal/ssh"
 	"changeme/internal/storage"
+	"changeme/internal/syncclient"
+	"changeme/internal/tools"
 	"changeme/internal/vault"
+	"changeme/internal/vaultitem"
 )
 
 // SyncService is the narrow runtime contract exposed to the bridge. Keeping it

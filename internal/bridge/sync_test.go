@@ -12,7 +12,7 @@ import (
 	"changeme/internal/app"
 	"changeme/internal/capabilities"
 	"changeme/internal/permissions"
-	"changeme/internal/services/syncclient"
+	"changeme/internal/syncclient"
 )
 
 type fakeSyncService struct {

@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"changeme/internal/services/vaultitem"
+	"changeme/internal/vaultitem"
 
 	gossh "golang.org/x/crypto/ssh"
 )

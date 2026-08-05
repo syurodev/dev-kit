@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	"changeme/internal/crypto"
-	"changeme/internal/services/vaultitem"
 	"changeme/internal/vault"
+	"changeme/internal/vaultitem"
 )
 
 func newService(t *testing.T) *Service {

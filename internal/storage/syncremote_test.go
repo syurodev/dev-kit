@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"changeme/internal/services/vaultitem"
 	replicationsync "changeme/internal/sync"
+	"changeme/internal/vaultitem"
 )
 
 const testRemoteAccountID = "account-1"

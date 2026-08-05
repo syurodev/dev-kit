@@ -5,10 +5,10 @@ import (
 	"errors"
 	"time"
 
-	"changeme/internal/services/syncclient"
-	"changeme/internal/services/vaultitem"
 	"changeme/internal/storage"
 	replicationsync "changeme/internal/sync"
+	"changeme/internal/syncclient"
+	"changeme/internal/vaultitem"
 )
 
 // noteBodyKeyID mirrors notes.bodyKeyID. Edit-merge is notes-only, so the

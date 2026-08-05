@@ -98,13 +98,12 @@ internal/
   modules/           Module manifest registry
   crypto/            Primitives: XChaCha20-Poly1305 AEAD, Argon2id KDF, versioned envelope
   vault/             Master-password keyring + in-memory DEK (seal/open)
-  services/
-    vaultitem/       Vault-item substrate: Record + Repository (memory/SQL) + seal/open + schema
-    notes/           Notes module
-    database/        Database-connection module (pgx)
-    ssh/             SSH module (profiles, host keys, port forwarding)
-    tools/           Hashing tools module
-    syncclient/      Sync application service (connect / push / pull / materialize / resolve)
+  vaultitem/         Vault-item substrate: Record + Repository (memory/SQL) + seal/open + schema
+  notes/             Notes module
+  database/          Database-connection module (pgx)
+  ssh/               SSH module (profiles, host keys, port forwarding)
+  tools/             Hashing tools module
+  syncclient/        Sync application service (service / connect / syncnow / conflicts)
   sync/              Replication protocol: contract, envelope, HTTP transport, runner, outbox port
   storage/           SQLite: open / KV / migrations + sync persistence (outbox, remote apply, conflicts)
   servermode/        Loopback-only bind guard for server mode

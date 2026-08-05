@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"changeme/internal/app"
-	"changeme/internal/services/tools"
+	"changeme/internal/tools"
 )
 
 type AppService struct {

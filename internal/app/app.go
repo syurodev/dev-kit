@@ -5,7 +5,7 @@ import (
 
 	"changeme/internal/commands"
 	"changeme/internal/modules"
-	"changeme/internal/services/tools"
+	"changeme/internal/tools"
 )
 
 func RegisterBuiltins(container *Container) error {

@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"changeme/internal/services/vaultitem"
 	"changeme/internal/storage"
+	"changeme/internal/vaultitem"
 )
 
 func newTestDB(t *testing.T) *vaultitem.SQLRepository {

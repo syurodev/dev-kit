@@ -12,10 +12,10 @@ import (
 	"changeme/internal/bridge"
 	"changeme/internal/servermode"
 
-	"changeme/internal/services/syncclient"
-	"changeme/internal/services/vaultitem"
 	"changeme/internal/storage"
+	"changeme/internal/syncclient"
 	"changeme/internal/vault"
+	"changeme/internal/vaultitem"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )

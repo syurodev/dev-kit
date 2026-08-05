@@ -6,7 +6,7 @@ This repo is a **Wails v3** desktop app (Go backend + React/TypeScript/Vite fron
 The product is "DevKit" (see `docs/architecture/`). The Go core under `internal/` implements
 the vault (mandatory Master Password, Argon2id KDF + XChaCha20-Poly1305 AEAD), the vault-item
 modules (notes, database, ssh), and a local-first, zero-knowledge **sync client** with
-Git-style conflict resolution (`internal/services/syncclient`, `internal/storage/syncconflict*`).
+Git-style conflict resolution (`internal/syncclient`, `internal/storage/syncconflict*`).
 A throwaway in-memory mock sync server lives at `cmd/mocksyncserver`.
 
 ### Toolchain (preinstalled in the environment)

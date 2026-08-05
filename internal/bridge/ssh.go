@@ -3,7 +3,7 @@ package bridge
 import (
 	"context"
 
-	sshservice "changeme/internal/services/ssh"
+	sshservice "changeme/internal/ssh"
 )
 
 func (s *AppService) SSHListProfiles() ([]sshservice.ProfileSummary, error) {

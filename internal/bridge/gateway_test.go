@@ -12,9 +12,9 @@ import (
 	"changeme/internal/apperrors"
 	"changeme/internal/capabilities"
 	"changeme/internal/permissions"
-	sshservice "changeme/internal/services/ssh"
-	"changeme/internal/services/vaultitem"
+	sshservice "changeme/internal/ssh"
 	"changeme/internal/vault"
+	"changeme/internal/vaultitem"
 )
 
 func TestNotesBridgeUsesGateway(t *testing.T) {

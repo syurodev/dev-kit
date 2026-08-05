@@ -7,8 +7,8 @@ import (
 	"changeme/internal/app"
 	"changeme/internal/apperrors"
 	"changeme/internal/capabilities"
+	"changeme/internal/database"
 	"changeme/internal/permissions"
-	"changeme/internal/services/database"
 )
 
 func TestVaultSearchReturnsCrossTypeHits(t *testing.T) {
