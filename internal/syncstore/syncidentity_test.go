@@ -1,19 +1,21 @@
-package storage
+package syncstore
 
 import (
 	"context"
 	"database/sql"
 	"path/filepath"
 	"testing"
+
+	"changeme/internal/storage"
 )
 
 func openTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := Open(filepath.Join(t.TempDir(), "devkit.db"))
+	db, err := storage.Open(filepath.Join(t.TempDir(), "devkit.db"))
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	if err := Migrate(context.Background(), db); err != nil {
+	if err := storage.Migrate(context.Background(), db); err != nil {
 		db.Close()
 		t.Fatalf("migrate: %v", err)
 	}

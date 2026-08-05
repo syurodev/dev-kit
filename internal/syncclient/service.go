@@ -14,8 +14,8 @@ import (
 	stdsync "sync"
 	"time"
 
-	"changeme/internal/storage"
 	replicationsync "changeme/internal/sync"
+	"changeme/internal/syncstore"
 )
 
 const (
@@ -55,14 +55,14 @@ type CursorStore interface {
 type RemoteStore interface {
 	ValidateAuthenticatedAccount(ctx context.Context, accountID string) error
 	BindAuthenticatedAccount(ctx context.Context, accountID string) error
-	ApplyRemoteBatch(ctx context.Context, accountID, cursorName, nextCursor string, mutations []storage.RemoteMutation) error
+	ApplyRemoteBatch(ctx context.Context, accountID, cursorName, nextCursor string, mutations []syncstore.RemoteMutation) error
 }
 
 // LocalMutationStore owns the durable handoff from account-neutral local
 // intents to authenticated encrypted outbox changes.
 type LocalMutationStore interface {
-	Pending(ctx context.Context, limit int) ([]storage.LocalMutationIntent, error)
-	CommitMaterialized(ctx context.Context, accountID string, intent storage.LocalMutationIntent, change replicationsync.Change) error
+	Pending(ctx context.Context, limit int) ([]syncstore.LocalMutationIntent, error)
+	CommitMaterialized(ctx context.Context, accountID string, intent syncstore.LocalMutationIntent, change replicationsync.Change) error
 }
 
 // Dependencies are the capabilities required by the orchestration service.

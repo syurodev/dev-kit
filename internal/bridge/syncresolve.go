@@ -5,9 +5,9 @@ import (
 	"errors"
 	"time"
 
-	"changeme/internal/storage"
 	replicationsync "changeme/internal/sync"
 	"changeme/internal/syncclient"
+	"changeme/internal/syncstore"
 	"changeme/internal/vaultitem"
 )
 
@@ -163,7 +163,7 @@ func (s *AppService) resolveUseLocal(ctx context.Context, account, id string, re
 	if err != nil {
 		return err
 	}
-	return s.container.ConflictResolver.ResolveUseLocal(ctx, account, id, storage.LocalResolution{
+	return s.container.ConflictResolver.ResolveUseLocal(ctx, account, id, syncstore.LocalResolution{
 		OperationID: operationID,
 		Operation:   replicationsync.OperationUpdate,
 		KeyVersion:  uint32(record.KeyVersion),

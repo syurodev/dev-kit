@@ -14,6 +14,7 @@ import (
 
 	"changeme/internal/storage"
 	"changeme/internal/syncclient"
+	"changeme/internal/syncstore"
 	"changeme/internal/vault"
 	"changeme/internal/vaultitem"
 
@@ -62,16 +63,16 @@ func main() {
 		// remains available for isolated persistence tests only.
 		vaultitem.NewSQLMutationRepository(db),
 	)
-	outbox := storage.NewSQLOutbox(db)
+	outbox := syncstore.NewSQLOutbox(db)
 	if err := outbox.RecoverStaleSyncing(time.Now().UTC()); err != nil {
 		log.Fatal(err)
 	}
-	remoteStore := storage.NewSQLRemoteStore(db)
+	remoteStore := syncstore.NewSQLRemoteStore(db)
 	syncService, err := syncclient.New(syncclient.Dependencies{
-		DeviceIdentity: storage.NewSQLDeviceIdentityStore(db),
-		Cursors:        storage.NewSQLCursorStore(db),
+		DeviceIdentity: syncstore.NewSQLDeviceIdentityStore(db),
+		Cursors:        syncstore.NewSQLCursorStore(db),
 		Remote:         remoteStore,
-		LocalMutations: storage.NewSQLLocalMutationStore(db),
+		LocalMutations: syncstore.NewSQLLocalMutationStore(db),
 		Outbox:         outbox,
 		Vault:          container.Vault,
 	})
@@ -83,8 +84,8 @@ func main() {
 	container.Sync = syncService
 	// Conflict resolution runs offline against the bound account, so it is wired
 	// directly from durable stores rather than the live session.
-	container.ConflictStore = storage.NewSQLConflictStore(db)
-	container.ConflictResolver = storage.NewSQLConflictResolver(db)
+	container.ConflictStore = syncstore.NewSQLConflictStore(db)
+	container.ConflictResolver = syncstore.NewSQLConflictResolver(db)
 	container.AccountReader = remoteStore
 	defer container.Database.Close()
 	defer container.SSH.Close()

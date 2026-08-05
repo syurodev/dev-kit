@@ -11,8 +11,8 @@ import (
 	"changeme/internal/notes"
 	"changeme/internal/permissions"
 	sshservice "changeme/internal/ssh"
-	"changeme/internal/storage"
 	"changeme/internal/syncclient"
+	"changeme/internal/syncstore"
 	"changeme/internal/tools"
 	"changeme/internal/vault"
 	"changeme/internal/vaultitem"
@@ -34,12 +34,12 @@ type SyncService interface {
 // bound account for offline resolution, and ConflictResolver applies the chosen
 // strategy atomically. These are optional (nil in ephemeral/test containers).
 type ConflictReader interface {
-	Get(ctx context.Context, accountID, recordID string) (storage.ConflictRecord, bool, error)
+	Get(ctx context.Context, accountID, recordID string) (syncstore.ConflictRecord, bool, error)
 }
 
 type ConflictResolver interface {
 	ResolveUseTheirs(ctx context.Context, accountID, recordID string) error
-	ResolveUseLocal(ctx context.Context, accountID, recordID string, res storage.LocalResolution) error
+	ResolveUseLocal(ctx context.Context, accountID, recordID string, res syncstore.LocalResolution) error
 }
 
 type AccountReader interface {

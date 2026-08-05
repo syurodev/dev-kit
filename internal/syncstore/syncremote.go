@@ -1,4 +1,4 @@
-package storage
+package syncstore
 
 import (
 	"bytes"

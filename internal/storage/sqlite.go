@@ -22,6 +22,7 @@ const (
 	TableSyncAccountBinding = "sync_account_binding"
 	TableSyncEntityVersions = "sync_entity_versions"
 	TableSyncAppliedOps     = "sync_applied_operations"
+	TableSyncIdentity       = "sync_identity"
 	TableSyncLocalEntities  = "sync_local_entity_versions"
 	TableSyncLocalMutations = "sync_local_mutations"
 	TableSyncConflicts      = "sync_conflicts"

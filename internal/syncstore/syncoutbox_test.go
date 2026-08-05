@@ -1,4 +1,4 @@
-package storage
+package syncstore
 
 import (
 	"context"
@@ -9,16 +9,17 @@ import (
 	"testing"
 	"time"
 
+	"changeme/internal/storage"
 	replicationsync "changeme/internal/sync"
 )
 
 func newSyncPersistence(t *testing.T) (*SQLOutbox, *sql.DB, *SQLCursorStore, func()) {
 	t.Helper()
-	db, err := Open(filepath.Join(t.TempDir(), "devkit.db"))
+	db, err := storage.Open(filepath.Join(t.TempDir(), "devkit.db"))
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	if err := Migrate(context.Background(), db); err != nil {
+	if err := storage.Migrate(context.Background(), db); err != nil {
 		db.Close()
 		t.Fatalf("migrate: %v", err)
 	}

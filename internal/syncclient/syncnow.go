@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"changeme/internal/crypto"
-	"changeme/internal/storage"
 	replicationsync "changeme/internal/sync"
+	"changeme/internal/syncstore"
 	"changeme/internal/vaultitem"
 )
 
@@ -68,7 +68,7 @@ func (s *Service) SyncNow(ctx context.Context) (Report, error) {
 	}
 	report.Pulled = len(pulled.Operations)
 
-	mutations := make([]storage.RemoteMutation, 0, len(pulled.Operations))
+	mutations := make([]syncstore.RemoteMutation, 0, len(pulled.Operations))
 	defer func() { zeroMutations(mutations) }()
 	for _, operation := range pulled.Operations {
 		if err := ctx.Err(); err != nil {
@@ -131,12 +131,12 @@ func (s *Service) materializeLocalMutations(ctx context.Context, session replica
 	return nil
 }
 
-func (s *Service) decryptMutation(operation replicationsync.PushOperation, accountID string) (storage.RemoteMutation, error) {
+func (s *Service) decryptMutation(operation replicationsync.PushOperation, accountID string) (syncstore.RemoteMutation, error) {
 	if err := operation.Validate(); err != nil || operation.Envelope.AccountID != accountID || operation.Envelope.ProtocolVersion != replicationsync.SyncProtocolVersion {
-		return storage.RemoteMutation{}, ErrInvalidRemoteData
+		return syncstore.RemoteMutation{}, ErrInvalidRemoteData
 	}
 	if !vaultitem.IsSupportedItemType(operation.Envelope.RecordType) {
-		return storage.RemoteMutation{}, ErrInvalidRemoteData
+		return syncstore.RemoteMutation{}, ErrInvalidRemoteData
 	}
 
 	// The nested envelope's key ID is authenticated by OpenPayload's AAD. It is
@@ -144,18 +144,18 @@ func (s *Service) decryptMutation(operation replicationsync.PushOperation, accou
 	// leave the vault.
 	var nested crypto.Envelope
 	if err := json.Unmarshal(operation.Envelope.Ciphertext, &nested); err != nil || nested.Validate() != nil {
-		return storage.RemoteMutation{}, ErrInvalidRemoteData
+		return syncstore.RemoteMutation{}, ErrInvalidRemoteData
 	}
 	plaintext, err := replicationsync.OpenPayload(s.deps.Vault, operation.Envelope, nested.KeyID)
 	if err != nil {
-		return storage.RemoteMutation{}, ErrDecryptFailed
+		return syncstore.RemoteMutation{}, ErrDecryptFailed
 	}
 	defer zeroBytes(plaintext)
 	if len(plaintext) == 0 || len(plaintext) > maxRecordJSONSize {
-		return storage.RemoteMutation{}, ErrInvalidRemoteData
+		return syncstore.RemoteMutation{}, ErrInvalidRemoteData
 	}
 
-	mutation := storage.RemoteMutation{
+	mutation := syncstore.RemoteMutation{
 		AccountID:     accountID,
 		RecordID:      operation.Envelope.RecordID,
 		RecordType:    operation.Envelope.RecordType,
@@ -167,7 +167,7 @@ func (s *Service) decryptMutation(operation replicationsync.PushOperation, accou
 	case replicationsync.OperationCreate, replicationsync.OperationUpdate:
 		normalized, innerPayload, err := normalizeSnapshot(plaintext, operation.Envelope)
 		if err != nil {
-			return storage.RemoteMutation{}, ErrInvalidRemoteData
+			return syncstore.RemoteMutation{}, ErrInvalidRemoteData
 		}
 		// Authenticate the nested module payload before persistence. Structural
 		// validation alone cannot detect a payload copied from another record or
@@ -178,16 +178,16 @@ func (s *Service) decryptMutation(operation replicationsync.PushOperation, accou
 			KeyID:      innerPayload.KeyID,
 		})
 		if err != nil {
-			return storage.RemoteMutation{}, ErrDecryptFailed
+			return syncstore.RemoteMutation{}, ErrDecryptFailed
 		}
 		zeroBytes(innerPlaintext)
 		mutation.RecordJSON = normalized
 	case replicationsync.OperationDelete:
 		if !validTombstone(plaintext, mutation.RecordID, mutation.RecordType) {
-			return storage.RemoteMutation{}, ErrInvalidRemoteData
+			return syncstore.RemoteMutation{}, ErrInvalidRemoteData
 		}
 	default:
-		return storage.RemoteMutation{}, ErrInvalidRemoteData
+		return syncstore.RemoteMutation{}, ErrInvalidRemoteData
 	}
 	return mutation, nil
 }
@@ -268,7 +268,7 @@ func validTombstone(payload []byte, recordID, recordType string) bool {
 	return tombstone.Deleted && tombstone.RecordID == recordID && tombstone.RecordType == recordType
 }
 
-func zeroMutations(mutations []storage.RemoteMutation) {
+func zeroMutations(mutations []syncstore.RemoteMutation) {
 	for i := range mutations {
 		zeroBytes(mutations[i].RecordJSON)
 		mutations[i].RecordJSON = nil

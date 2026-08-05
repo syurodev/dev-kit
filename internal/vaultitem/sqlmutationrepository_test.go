@@ -10,6 +10,7 @@ import (
 
 	"changeme/internal/storage"
 	replicationsync "changeme/internal/sync"
+	"changeme/internal/syncstore"
 	"changeme/internal/vault"
 	"changeme/internal/vaultitem"
 )
@@ -44,7 +45,7 @@ func TestSQLMutationRepositoryCapturesCreateUpdateDeleteAtomically(t *testing.T)
 		t.Fatal(err)
 	}
 
-	intents, err := storage.NewSQLLocalMutationStore(db).Pending(context.Background(), 10)
+	intents, err := syncstore.NewSQLLocalMutationStore(db).Pending(context.Background(), 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +113,7 @@ func TestSQLMutationRepositoryDeleteMissingDoesNotInventIntent(t *testing.T) {
 	if err := store.Delete("missing"); err != nil {
 		t.Fatal(err)
 	}
-	intents, err := storage.NewSQLLocalMutationStore(db).Pending(context.Background(), 10)
+	intents, err := syncstore.NewSQLLocalMutationStore(db).Pending(context.Background(), 10)
 	if err != nil {
 		t.Fatal(err)
 	}

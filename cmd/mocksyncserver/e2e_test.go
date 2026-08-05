@@ -12,6 +12,7 @@ import (
 	"changeme/internal/storage"
 	replicationsync "changeme/internal/sync"
 	"changeme/internal/syncclient"
+	"changeme/internal/syncstore"
 	"changeme/internal/vault"
 	"changeme/internal/vaultitem"
 )
@@ -40,9 +41,9 @@ type device struct {
 	repo      *vaultitem.SQLMutationRepository
 	items     *vaultitem.Store
 	sync      *syncclient.Service
-	resolver  *storage.SQLConflictResolver
-	conflicts *storage.SQLConflictStore
-	remote    *storage.SQLRemoteStore
+	resolver  *syncstore.SQLConflictResolver
+	conflicts *syncstore.SQLConflictStore
+	remote    *syncstore.SQLRemoteStore
 }
 
 func newDevice(t *testing.T, baseURL, token string, vlt *vault.Service) *device {
@@ -58,11 +59,11 @@ func newDevice(t *testing.T, baseURL, token string, vlt *vault.Service) *device 
 	}
 	repo := vaultitem.NewSQLMutationRepository(db)
 	sync, err := syncclient.New(syncclient.Dependencies{
-		DeviceIdentity: storage.NewSQLDeviceIdentityStore(db),
-		Cursors:        storage.NewSQLCursorStore(db),
-		Remote:         storage.NewSQLRemoteStore(db),
-		LocalMutations: storage.NewSQLLocalMutationStore(db),
-		Outbox:         storage.NewSQLOutbox(db),
+		DeviceIdentity: syncstore.NewSQLDeviceIdentityStore(db),
+		Cursors:        syncstore.NewSQLCursorStore(db),
+		Remote:         syncstore.NewSQLRemoteStore(db),
+		LocalMutations: syncstore.NewSQLLocalMutationStore(db),
+		Outbox:         syncstore.NewSQLOutbox(db),
 		Vault:          vlt,
 	})
 	if err != nil {
@@ -75,9 +76,9 @@ func newDevice(t *testing.T, baseURL, token string, vlt *vault.Service) *device 
 		repo:      repo,
 		items:     vaultitem.NewStore(repo, vlt),
 		sync:      sync,
-		resolver:  storage.NewSQLConflictResolver(db),
-		conflicts: storage.NewSQLConflictStore(db),
-		remote:    storage.NewSQLRemoteStore(db),
+		resolver:  syncstore.NewSQLConflictResolver(db),
+		conflicts: syncstore.NewSQLConflictStore(db),
+		remote:    syncstore.NewSQLRemoteStore(db),
 	}
 }
 
@@ -253,7 +254,7 @@ func resolveUseLocal(t *testing.T, d *device, account, recordID string, record v
 	if err != nil {
 		t.Fatalf("operation id: %v", err)
 	}
-	if err := d.resolver.ResolveUseLocal(context.Background(), account, recordID, storage.LocalResolution{
+	if err := d.resolver.ResolveUseLocal(context.Background(), account, recordID, syncstore.LocalResolution{
 		OperationID: operationID,
 		Operation:   replicationsync.OperationUpdate,
 		KeyVersion:  uint32(record.KeyVersion),

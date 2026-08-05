@@ -1,4 +1,4 @@
-package storage
+package syncstore
 
 import (
 	"context"
@@ -10,10 +10,7 @@ import (
 	"time"
 )
 
-const (
-	TableSyncIdentity  = "sync_identity"
-	localIdentityRowID = "local"
-)
+const localIdentityRowID = "local"
 
 // SQLDeviceIdentityStore persists only the installation's stable device ID.
 // Account identity belongs to the authenticated backend session and must never

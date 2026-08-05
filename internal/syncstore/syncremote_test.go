@@ -1,4 +1,4 @@
-package storage
+package syncstore
 
 import (
 	"bytes"
@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"changeme/internal/storage"
 	replicationsync "changeme/internal/sync"
 	"changeme/internal/vaultitem"
 )
@@ -20,12 +21,12 @@ const testRemoteAccountID = "account-1"
 
 func newTestRemoteStore(t *testing.T) (*sql.DB, *SQLRemoteStore) {
 	t.Helper()
-	db, err := Open(filepath.Join(t.TempDir(), "devkit.db"))
+	db, err := storage.Open(filepath.Join(t.TempDir(), "devkit.db"))
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	if err := Migrate(context.Background(), db); err != nil {
+	if err := storage.Migrate(context.Background(), db); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	return db, NewSQLRemoteStore(db)

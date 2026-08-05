@@ -17,6 +17,7 @@ import (
 	"changeme/internal/crypto"
 	"changeme/internal/storage"
 	replicationsync "changeme/internal/sync"
+	"changeme/internal/syncstore"
 	"changeme/internal/vaultitem"
 )
 
@@ -60,7 +61,7 @@ type fakeRemoteStore struct {
 	accountID  string
 	cursorName string
 	nextCursor string
-	mutations  []storage.RemoteMutation
+	mutations  []syncstore.RemoteMutation
 }
 
 func (s *fakeRemoteStore) ValidateAuthenticatedAccount(ctx context.Context, accountID string) error {
@@ -70,7 +71,7 @@ func (s *fakeRemoteStore) ValidateAuthenticatedAccount(ctx context.Context, acco
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.accountID != "" && s.accountID != accountID {
-		return storage.ErrSyncAccountMismatch
+		return syncstore.ErrSyncAccountMismatch
 	}
 	return nil
 }
@@ -82,13 +83,13 @@ func (s *fakeRemoteStore) BindAuthenticatedAccount(ctx context.Context, accountI
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.accountID != "" && s.accountID != accountID {
-		return storage.ErrSyncAccountMismatch
+		return syncstore.ErrSyncAccountMismatch
 	}
 	s.accountID = accountID
 	return nil
 }
 
-func (s *fakeRemoteStore) ApplyRemoteBatch(ctx context.Context, accountID, cursorName, nextCursor string, mutations []storage.RemoteMutation) error {
+func (s *fakeRemoteStore) ApplyRemoteBatch(ctx context.Context, accountID, cursorName, nextCursor string, mutations []syncstore.RemoteMutation) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -97,7 +98,7 @@ func (s *fakeRemoteStore) ApplyRemoteBatch(ctx context.Context, accountID, curso
 	s.accountID = accountID
 	s.cursorName = cursorName
 	s.nextCursor = nextCursor
-	s.mutations = make([]storage.RemoteMutation, len(mutations))
+	s.mutations = make([]syncstore.RemoteMutation, len(mutations))
 	copy(s.mutations, mutations)
 	for i := range s.mutations {
 		s.mutations[i].RecordJSON = append([]byte(nil), mutations[i].RecordJSON...)
@@ -275,10 +276,10 @@ func TestHTTPClientPullAppliesAndAdvancesCursorAtomicallyInSQLite(t *testing.T) 
 	defer server.Close()
 
 	service, err := New(Dependencies{
-		DeviceIdentity: storage.NewSQLDeviceIdentityStore(db),
-		Cursors:        storage.NewSQLCursorStore(db),
-		Remote:         storage.NewSQLRemoteStore(db),
-		Outbox:         storage.NewSQLOutbox(db),
+		DeviceIdentity: syncstore.NewSQLDeviceIdentityStore(db),
+		Cursors:        syncstore.NewSQLCursorStore(db),
+		Remote:         syncstore.NewSQLRemoteStore(db),
+		Outbox:         syncstore.NewSQLOutbox(db),
 		Vault:          vault,
 		HTTPClient:     server.Client(),
 	})
@@ -351,12 +352,12 @@ func TestSyncNowMaterializesLocalIntentBeforePush(t *testing.T) {
 	}))
 	defer server.Close()
 	transport := &fakeTransport{}
-	outbox := storage.NewSQLOutbox(db)
+	outbox := syncstore.NewSQLOutbox(db)
 	service, err := NewWithFactories(Dependencies{
 		DeviceIdentity: fakeDeviceStore{id: testDeviceID},
-		Cursors:        storage.NewSQLCursorStore(db),
-		Remote:         storage.NewSQLRemoteStore(db),
-		LocalMutations: storage.NewSQLLocalMutationStore(db),
+		Cursors:        syncstore.NewSQLCursorStore(db),
+		Remote:         syncstore.NewSQLRemoteStore(db),
+		LocalMutations: syncstore.NewSQLLocalMutationStore(db),
 		Outbox:         outbox,
 		Vault:          vault,
 	}, Factories{

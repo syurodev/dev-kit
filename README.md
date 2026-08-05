@@ -105,7 +105,8 @@ internal/
   tools/             Hashing tools module
   syncclient/        Sync application service (service / connect / syncnow / conflicts)
   sync/              Replication protocol: contract, envelope, HTTP transport, runner, outbox port
-  storage/           SQLite: open / KV / migrations + sync persistence (outbox, remote apply, conflicts)
+  storage/           SQLite kernel: open / KV / migrations / schema (owns all table names)
+  syncstore/         Sync persistence adapters: outbox, cursors, remote apply, conflicts, identity, local mutations
   servermode/        Loopback-only bind guard for server mode
   apperrors/         Structured, redactable application errors
 frontend/            React + TypeScript + Vite UI (generated Go↔JS bindings under frontend/bindings/)
