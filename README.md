@@ -1,26 +1,27 @@
-# Welcome to Your New Wails3 Project!
+# DevKit
 
-Congratulations on generating your Wails3 application! This README will guide you through the next steps to get your project up and running.
+DevKit is a local-first developer toolkit built with **Wails v3** — a Go backend
+(`internal/`, `main.go`) and a React + TypeScript + Vite frontend (`frontend/`).
+Secrets live in a zero-knowledge vault (mandatory Master Password); built-in
+modules cover notes, database connections, SSH, and hashing tools, plus a
+local-first encrypted sync client with Git-style conflict resolution. Design
+specs live under `docs/`.
 
-## Getting Started
+## Quickstart
 
-1. Navigate to your project directory in the terminal.
+Prerequisites: Go (>= 1.25), [bun](https://bun.sh), `task`
+([go-task](https://taskfile.dev)), and — only to compile the Wails CLI / native
+GUI (cgo) — `libgtk-4-dev` + `libwebkitgtk-6.0-dev`.
 
-2. To run your application in development mode, use the following command:
+| Task | Command |
+| --- | --- |
+| Desktop dev (native window) | `task dev` |
+| Headless / server mode (HTTP, loopback only) | `task run:server` |
+| Go tests | `go test ./internal/... ./cmd/...` |
+| Two-device sync E2E | `go test ./cmd/mocksyncserver/` |
+| Frontend build + typecheck | `cd frontend && bun run build` |
 
-   ```
-   wails3 dev
-   ```
-
-   This will start your application and enable hot-reloading for both frontend and backend changes.
-
-3. To build your application for production, use:
-
-   ```
-   wails3 build
-   ```
-
-   This will create a production-ready executable in the `build` directory.
+Cloud/CI setup and non-obvious run caveats are documented in `AGENTS.md`.
 
 ## Server mode security
 
@@ -30,38 +31,89 @@ production web-server deployment option. Public binding, TLS, authentication,
 and authorization are unsupported until a separate server design provides
 those controls.
 
-## Exploring Wails3 Features
+## Code organization
 
-Now that you have your project set up, it's time to explore the features that Wails3 offers:
+DevKit follows the **standard Go module layout** described in the official guide
+[Organizing a Go module](https://go.dev/doc/modules/layout). The conventions we
+hold ourselves to:
 
-1. **Check out the examples**: The best way to learn is by example. Visit the `examples` directory in the `v3/examples` directory to see various sample applications.
+### Directory layout
 
-2. **Run an example**: To run any of the examples, navigate to the example's directory and use:
+- `cmd/<binary>/` — one directory per executable, each declaring `package main`
+  (currently just `cmd/mocksyncserver`).
+- `internal/` — all application logic. The `internal/` path is import-restricted
+  by the Go toolchain, so nothing here is a public API and we can refactor freely.
+- `main.go` (repo root) — the Wails entry point and composition wiring.
+- `frontend/`, `docs/`, `build/` — non-Go assets.
+- Keep server logic in `internal/`; only extract a separate Go module if code
+  becomes genuinely useful to other projects.
 
-   ```
-   go run .
-   ```
+### Packages
 
-   Note: Some examples may be under development during the alpha phase.
+- One package per directory; the package name is the directory name.
+- Group a package's files by concept (e.g. `aead.go`, `kdf.go`, `envelope.go`) —
+  a package may span many files, all declaring the same `package`.
+- Keep packages small and focused on a single responsibility; add sub-packages
+  only when a distinct responsibility emerges. Prefer flat over deeply nested.
 
-3. **Explore the documentation**: Visit the [Wails3 documentation](https://v3.wails.io/) for in-depth guides and API references.
+### Naming
 
-4. **Join the community**: Have questions or want to share your progress? Join the [Wails Discord](https://discord.gg/JDdSxwjhGf) or visit the [Wails discussions on GitHub](https://github.com/wailsapp/wails/discussions).
+Per the Go blog [Package names](https://go.dev/blog/package-names) and
+[Effective Go](https://go.dev/doc/effective_go#names):
 
-## Project Structure
+- Package names are short, lowercase, single words — no `under_scores`, no
+  `camelCase`, no plurals. The name should describe what the package provides so
+  call sites read well (`crypto.SealV2`, `vault.Service`).
+- Avoid catch-all packages: `util`, `common`, `helpers`, `misc`, `base`.
+- Avoid stutter — prefer `bridge.AppService` over `bridge.Bridge`.
+- Name files after the concept they hold; co-locate tests as `<file>_test.go`.
+- Name adapters by role and prefix concrete implementations by their technology,
+  applying the **same** convention everywhere (e.g. an in-memory store in
+  `memory.go`, a SQLite implementation named `SQL…`).
 
-Take a moment to familiarize yourself with your project structure:
+### Dependencies
 
-- `frontend/`: Contains your frontend code (HTML, CSS, JavaScript/TypeScript)
-- `main.go`: The entry point of your Go backend
-- `app.go`: Define your application structure and methods here
-- `wails.json`: Configuration file for your Wails project
+- Dependencies stay acyclic and flow one way: lower-level packages (`crypto`,
+  `sync`) never import higher-level ones (`app`, `bridge`).
+- "Accept interfaces, return structs" — define narrow interfaces in the consumer
+  package, not the implementer.
 
-## Next Steps
+> The community `golang-standards/project-layout` repository (with `pkg/`, etc.)
+> is **not** an official Go standard and the Go team does not endorse it. We
+> follow the `go.dev` guidance above.
 
-1. Modify the frontend in the `frontend/` directory to create your desired UI.
-2. Add backend functionality in `main.go`.
-3. Use `wails3 dev` to see your changes in real-time.
-4. When ready, build your application with `wails3 build`.
+## Current layout
 
-Happy coding with Wails3! If you encounter any issues or have questions, don't hesitate to consult the documentation or reach out to the Wails community.
+```text
+main.go              Wails entry point + dependency wiring
+cmd/
+  mocksyncserver/    In-memory zero-knowledge mock sync server (dev + E2E testing)
+internal/
+  app/               Composition root: DI container, module/command registries, permission grants
+  bridge/            Wails boundary: DTOs, capability-gated calls, error redaction, opaque IDs
+  capabilities/      Capability gateway — authorizes every privileged call, emits audit events
+  permissions/       Permission policy + request model
+  audit/             Audit event sink + field redaction
+  commands/          Command registry
+  modules/           Module manifest registry
+  crypto/            Primitives: XChaCha20-Poly1305 AEAD, Argon2id KDF, versioned envelope
+  vault/             Master-password keyring + in-memory DEK (seal/open)
+  services/
+    vaultitem/       Vault-item substrate: Record + Repository (memory/SQL) + seal/open + schema
+    notes/           Notes module
+    database/        Database-connection module (pgx)
+    ssh/             SSH module (profiles, host keys, port forwarding)
+    tools/           Hashing tools module
+    syncclient/      Sync application service (connect / push / pull / materialize / resolve)
+  sync/              Replication protocol: contract, envelope, HTTP transport, runner, outbox port
+  storage/           SQLite: open / KV / migrations + sync persistence (outbox, remote apply, conflicts)
+  servermode/        Loopback-only bind guard for server mode
+  apperrors/         Structured, redactable application errors
+frontend/            React + TypeScript + Vite UI (generated Go↔JS bindings under frontend/bindings/)
+docs/                Design specs and plans
+build/               Wails/platform build configuration
+```
+
+The security spine is `permissions` + `capabilities` + `audit`: every privileged
+call from the `bridge` passes through the capability gateway with an explicit
+`(subject, capability, scope)`, and sensitive fields are redacted before audit.
