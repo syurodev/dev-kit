@@ -12,7 +12,7 @@ import (
 	"changeme/internal/permissions"
 	sshservice "changeme/internal/ssh"
 	"changeme/internal/syncclient"
-	"changeme/internal/syncstore"
+	"changeme/internal/syncconflict"
 	"changeme/internal/tools"
 	"changeme/internal/vault"
 	"changeme/internal/vaultitem"
@@ -29,39 +29,27 @@ type SyncService interface {
 	Conflicts(ctx context.Context) ([]syncclient.ConflictInfo, error)
 }
 
-// ConflictReader reads the captured "theirs" side of a sync conflict so the
-// bridge can present ours-vs-theirs and resolve. AccountReader supplies the
-// bound account for offline resolution, and ConflictResolver applies the chosen
-// strategy atomically. These are optional (nil in ephemeral/test containers).
-type ConflictReader interface {
-	Get(ctx context.Context, accountID, recordID string) (syncstore.ConflictRecord, bool, error)
-}
-
-type ConflictResolver interface {
-	ResolveUseTheirs(ctx context.Context, accountID, recordID string) error
-	ResolveUseLocal(ctx context.Context, accountID, recordID string, res syncstore.LocalResolution) error
-}
-
-type AccountReader interface {
-	BoundAccountID(ctx context.Context) (string, bool, error)
+// SyncConflictService is the narrow runtime contract for presenting and
+// resolving sync conflicts. It is optional (nil in ephemeral/test containers).
+type SyncConflictService interface {
+	Detail(ctx context.Context, recordID string) (syncconflict.Detail, error)
+	Resolve(ctx context.Context, recordID, strategy, mergedText string) error
 }
 
 type Container struct {
-	Commands         *commands.Registry
-	Modules          *modules.Registry
-	Audit            *audit.MemorySink
-	Permissions      *permissions.Policy
-	Capabilities     *capabilities.Gateway
-	Vault            *vault.Service
-	HashTools        *tools.HashService
-	Items            *vaultitem.Store
-	Notes            *notes.Service
-	Database         *database.Service
-	SSH              *sshservice.Service
-	Sync             SyncService
-	ConflictStore    ConflictReader
-	ConflictResolver ConflictResolver
-	AccountReader    AccountReader
+	Commands     *commands.Registry
+	Modules      *modules.Registry
+	Audit        *audit.MemorySink
+	Permissions  *permissions.Policy
+	Capabilities *capabilities.Gateway
+	Vault        *vault.Service
+	HashTools    *tools.HashService
+	Items        *vaultitem.Store
+	Notes        *notes.Service
+	Database     *database.Service
+	SSH          *sshservice.Service
+	Sync         SyncService
+	SyncConflict SyncConflictService
 }
 
 // NewContainer wires core services with in-memory stores, suitable for tests

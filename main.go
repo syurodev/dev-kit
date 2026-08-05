@@ -14,6 +14,7 @@ import (
 
 	"changeme/internal/storage"
 	"changeme/internal/syncclient"
+	"changeme/internal/syncconflict"
 	"changeme/internal/syncstore"
 	"changeme/internal/vault"
 	"changeme/internal/vaultitem"
@@ -84,9 +85,12 @@ func main() {
 	container.Sync = syncService
 	// Conflict resolution runs offline against the bound account, so it is wired
 	// directly from durable stores rather than the live session.
-	container.ConflictStore = syncstore.NewSQLConflictStore(db)
-	container.ConflictResolver = syncstore.NewSQLConflictResolver(db)
-	container.AccountReader = remoteStore
+	container.SyncConflict = syncconflict.New(syncconflict.Deps{
+		Conflicts: syncstore.NewSQLConflictStore(db),
+		Resolver:  syncstore.NewSQLConflictResolver(db),
+		Accounts:  remoteStore,
+		Items:     container.Items,
+	})
 	defer container.Database.Close()
 	defer container.SSH.Close()
 	if err := app.RegisterBuiltins(container); err != nil {
