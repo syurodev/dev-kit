@@ -1,0 +1,131 @@
+package arch
+
+import (
+	"os/exec"
+	"strings"
+	"testing"
+)
+
+const modulePrefix = "changeme/"
+
+func pkg(name string) string { return "changeme/internal/" + name }
+
+// importGraph returns each changeme package's direct in-module (production)
+// imports. Test-only imports are intentionally excluded: tests may wire any
+// layer together, but production code must obey the architecture.
+func importGraph(t *testing.T) map[string][]string {
+	t.Helper()
+	out, err := exec.Command("go", "list", "-f", "{{.ImportPath}}\t{{join .Imports \" \"}}", "changeme/...").CombinedOutput()
+	if err != nil {
+		t.Fatalf("go list failed: %v\n%s", err, out)
+	}
+	graph := map[string][]string{}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		fields := strings.SplitN(line, "\t", 2)
+		var imports []string
+		if len(fields) == 2 {
+			for _, imp := range strings.Fields(fields[1]) {
+				if strings.HasPrefix(imp, modulePrefix) {
+					imports = append(imports, imp)
+				}
+			}
+		}
+		graph[fields[0]] = imports
+	}
+	return graph
+}
+
+// TestLayering enforces the dependency direction. The rules mirror the "Code
+// organization" section of the README: dependencies flow one way, the bridge is
+// a thin boundary that never reaches storage/crypto, and app is the sole
+// composition root imported only by main.
+func TestLayering(t *testing.T) {
+	graph := importGraph(t)
+
+	bans := map[string][]string{
+		// The bridge is the Wails boundary: it goes through app + services and
+		// must never reach the storage, sync, or crypto layers directly.
+		pkg("bridge"): {pkg("storage"), pkg("syncstore"), pkg("sync"), pkg("crypto")},
+		// app is the composition root; it wires services and must not depend on
+		// low-level persistence/crypto or on the bridge above it.
+		pkg("app"): {pkg("storage"), pkg("syncstore"), pkg("sync"), pkg("crypto"), pkg("bridge")},
+		// vaultitem is the shared substrate; domain modules depend on it, not the
+		// other way around.
+		pkg("vaultitem"): {
+			pkg("notes"), pkg("database"), pkg("ssh"), pkg("tools"),
+			pkg("syncclient"), pkg("syncconflict"), pkg("bridge"), pkg("app"),
+		},
+		// storage is the generic DB kernel; the sync persistence adapter builds on
+		// it, never the reverse.
+		pkg("storage"): {pkg("syncstore")},
+	}
+	for from, forbidden := range bans {
+		for _, imp := range graph[from] {
+			for _, bad := range forbidden {
+				if imp == bad {
+					t.Errorf("layering violation: %s must not import %s", short(from), short(imp))
+				}
+			}
+		}
+	}
+
+	// crypto is a leaf: it must not import any other in-module package.
+	for _, imp := range graph[pkg("crypto")] {
+		t.Errorf("layering violation: crypto must not import %s", short(imp))
+	}
+
+	// Nothing but main may import the bridge; nothing but the bridge (and main)
+	// may import app. main is the module-root package "changeme".
+	for from, imports := range graph {
+		for _, imp := range imports {
+			if imp == pkg("bridge") && from != "changeme" {
+				t.Errorf("layering violation: %s must not import bridge (top boundary)", short(from))
+			}
+			if imp == pkg("app") && from != "changeme" && from != pkg("bridge") {
+				t.Errorf("layering violation: %s must not import app (only bridge/main may)", short(from))
+			}
+		}
+	}
+}
+
+// TestNoImportCycles asserts the in-module import graph is acyclic. The Go
+// compiler already rejects cycles, but this documents the invariant and fails
+// fast with the offending path.
+func TestNoImportCycles(t *testing.T) {
+	graph := importGraph(t)
+	const (
+		white = 0
+		gray  = 1
+		black = 2
+	)
+	color := map[string]int{}
+	var stack []string
+	var visit func(string) bool
+	visit = func(node string) bool {
+		color[node] = gray
+		stack = append(stack, node)
+		for _, next := range graph[node] {
+			switch color[next] {
+			case gray:
+				t.Errorf("import cycle: %s", strings.Join(append(stack, next), " -> "))
+				return true
+			case white:
+				if visit(next) {
+					return true
+				}
+			}
+		}
+		stack = stack[:len(stack)-1]
+		color[node] = black
+		return false
+	}
+	for node := range graph {
+		if color[node] == white && visit(node) {
+			return
+		}
+	}
+}
+
+func short(importPath string) string {
+	return strings.TrimPrefix(importPath, modulePrefix)
+}

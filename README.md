@@ -62,11 +62,14 @@ Per the Go blog [Package names](https://go.dev/blog/package-names) and
 [Effective Go](https://go.dev/doc/effective_go#names):
 
 - Package names are short, lowercase, single words — no `under_scores`, no
-  `camelCase`, no plurals. The name should describe what the package provides so
-  call sites read well (`crypto.SealV2`, `vault.Service`).
+  `camelCase`. Prefer singular. Established collection/registry packages may stay
+  plural (`permissions`, `capabilities`, `commands`, `modules`). The name should
+  describe what the package provides so call sites read well (`crypto.SealV2`,
+  `vault.Service`).
 - Avoid catch-all packages: `util`, `common`, `helpers`, `misc`, `base`.
 - Avoid stutter — prefer `bridge.AppService` over `bridge.Bridge`.
 - Name files after the concept they hold; co-locate tests as `<file>_test.go`.
+  Bridge DTOs live next to their handlers (not in a shared `dto.go`).
 - Name adapters by role and prefix concrete implementations by their technology,
   applying the **same** convention everywhere (e.g. an in-memory store in
   `memory.go`, a SQLite implementation named `SQL…`).
@@ -77,6 +80,8 @@ Per the Go blog [Package names](https://go.dev/blog/package-names) and
   `sync`) never import higher-level ones (`app`, `bridge`).
 - "Accept interfaces, return structs" — define narrow interfaces in the consumer
   package, not the implementer.
+- Enforced by `go test ./internal/arch/` (`TestLayering`, `TestNoImportCycles`).
+  Any production import that breaks the layering fails CI.
 
 > The community `golang-standards/project-layout` repository (with `pkg/`, etc.)
 > is **not** an official Go standard and the Go team does not endorse it. We
@@ -104,9 +109,11 @@ internal/
   ssh/               SSH module (profiles, host keys, port forwarding)
   tools/             Hashing tools module
   syncclient/        Sync application service (service / connect / syncnow / conflicts)
+  syncconflict/      Conflict-resolution application service (detail + resolve strategies)
   sync/              Replication protocol: contract, envelope, HTTP transport, runner, outbox port
   storage/           SQLite kernel: open / KV / migrations / schema (owns all table names)
   syncstore/         Sync persistence adapters: outbox, cursors, remote apply, conflicts, identity, local mutations
+  arch/              Architecture-enforcement tests (no runtime code)
   servermode/        Loopback-only bind guard for server mode
   apperrors/         Structured, redactable application errors
 frontend/            React + TypeScript + Vite UI (generated Go↔JS bindings under frontend/bindings/)

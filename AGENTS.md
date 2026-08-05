@@ -6,8 +6,9 @@ This repo is a **Wails v3** desktop app (Go backend + React/TypeScript/Vite fron
 The product is "DevKit" (see `docs/architecture/`). The Go core under `internal/` implements
 the vault (mandatory Master Password, Argon2id KDF + XChaCha20-Poly1305 AEAD), the vault-item
 modules (notes, database, ssh), and a local-first, zero-knowledge **sync client** with
-Git-style conflict resolution (`internal/syncclient`, `internal/storage/syncconflict*`).
-A throwaway in-memory mock sync server lives at `cmd/mocksyncserver`.
+Git-style conflict resolution (`internal/syncclient`, `internal/syncconflict`,
+`internal/syncstore`). A throwaway in-memory mock sync server lives at
+`cmd/mocksyncserver`. Architecture layering is enforced by `go test ./internal/arch/`.
 
 ### Toolchain (preinstalled in the environment)
 - Go (auto-downloaded via `GOTOOLCHAIN=auto` from `go.mod`; needs >= 1.25).
@@ -44,6 +45,8 @@ a first-run "Create Master Password" or an "Unlock" gate before the workbench.
   the root `changeme` package (needs `frontend/dist` and gtk4/webkit for the default GUI
   build) and on `build/ios` scaffolding — that's expected, not a regression. Scope Go tests
   to `./internal/...` (and `./cmd/...`).
+- Architecture: `go test ./internal/arch/` fails on forbidden production imports (e.g.
+  `bridge` → `storage`/`syncstore`/`sync`/`crypto`). Keep this green on every change.
 - Two-device sync E2E: `go test ./cmd/mocksyncserver/` runs a real two-device convergence
   test (two full device stacks over HTTP against the in-memory mock). Run the mock
   standalone for manual testing with `go run ./cmd/mocksyncserver` (loopback, default
