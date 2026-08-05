@@ -447,6 +447,35 @@
   color: #a1a1aa;
 }
 
+/* Conflict resolution is consequential, so its controls get explicit button
+   chrome (the rest of the app keeps the minimal plain-text style). */
+.sync-conflict-resolve,
+.resolve-header button,
+.resolve-actions button {
+  border: 1px solid #3a3f45;
+  border-radius: 6px;
+  padding: 5px 12px;
+  background: #23262c;
+  color: #e5e7eb;
+  cursor: pointer;
+}
+
+.sync-conflict-resolve:hover,
+.resolve-header button:hover,
+.resolve-actions button:not(:disabled):hover {
+  background: #2c3038;
+}
+
+.resolve-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.resolve-actions .resolve-merge-save {
+  border-color: #3d5a3d;
+  background: #23302a;
+}
+
 .command-palette {
   position: fixed;
   inset: 0;
