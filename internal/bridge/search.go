@@ -6,6 +6,15 @@ import (
 	"time"
 )
 
+// VaultSearchResult is one cross-type search hit. Label is the item's plaintext
+// display name (note title or profile name); no secret content is included.
+type VaultSearchResult struct {
+	ID        string `json:"id"`
+	Type      string `json:"type"`
+	Label     string `json:"label"`
+	UpdatedAt string `json:"updated_at"`
+}
+
 // VaultSearch returns cross-type items whose plaintext metadata matches query.
 // It runs on metadata only, so it works while the vault is locked, and never
 // returns secret payloads.

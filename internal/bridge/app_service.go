@@ -16,6 +16,21 @@ func NewAppService(container *app.Container) *AppService {
 	return &AppService{container: container}
 }
 
+type ModuleDTO struct {
+	ID           string   `json:"id"`
+	Title        string   `json:"title"`
+	Version      string   `json:"version"`
+	APIVersion   string   `json:"api_version"`
+	Commands     []string `json:"commands"`
+	Views        []string `json:"views"`
+	Capabilities []string `json:"capabilities"`
+}
+
+type ExecuteCommandRequest struct {
+	ID      string         `json:"id"`
+	Payload map[string]any `json:"payload"`
+}
+
 func (s *AppService) ListModules() []ModuleDTO {
 	modules := s.container.Modules.List()
 	result := make([]ModuleDTO, 0, len(modules))
