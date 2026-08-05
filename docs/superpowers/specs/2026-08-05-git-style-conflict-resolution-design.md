@@ -29,7 +29,8 @@ require an explicit user action to resolve. Never silently merge secrets.
    for a record that is in `conflict` state, the apply path stores the
    authenticated remote snapshot as **theirs** (a per-record conflict side)
    instead of dropping it. The main record (ours) is left untouched.
-3. **Present**: the UI shows ours vs theirs (Git-marker style) with actions:
+3. **Present**: the UI shows ours vs theirs (see [UI direction](#ui-direction-mvp-vs-target))
+   with actions:
    - **Use ours** — keep local content.
    - **Use theirs** — take remote content.
    - **Edit/merge** — only for note text; the user produces the merged text.
@@ -72,6 +73,24 @@ require an explicit user action to resolve. Never silently merge secrets.
   the boundary; payloads for compare are opened on demand like other item reads.
 - `frontend/src/modules/sync`: conflict list + a resolve view showing ours/theirs
   and the three actions (secrets: two actions).
+
+## UI direction (MVP vs target)
+
+- **MVP (now, for testing)**: a single-pane resolve view rendering inline Git
+  markers (`<<<<<<< ours` / `=======` / `>>>>>>> theirs`) for note text, plus the
+  three action buttons. Enough to exercise the resolution flow against the mock;
+  keeps the frontend minimal.
+- **Target**: a JetBrains-style **3-pane merge editor** — Local (ours) |
+  Result (editable) | Remote (theirs) — with per-hunk accept `◀`/`▶` gutter
+  actions, an editable center Result, and Apply / Abort. Line-based merge applies
+  to note text only.
+- **Non-text / secret item types** (database, SSH profiles): the 3-pane collapses
+  to a 2-choice picker (Use ours / Use theirs). Secret fields are never
+  line-merged.
+
+The resolution contract (bridge + storage) is UI-agnostic: both the MVP marker
+view and the target 3-pane editor call the same `SyncResolveConflict(recordID,
+strategy, mergedPayload?)`, so the UI can evolve without backend changes.
 
 ## Security invariants (bảo mật tuyệt đối)
 
