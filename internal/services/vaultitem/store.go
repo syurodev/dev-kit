@@ -37,6 +37,20 @@ func associatedData(itemType, id, keyID string) crypto.AssociatedData {
 	return crypto.AssociatedData{RecordType: itemType, RecordID: id, KeyID: keyID}
 }
 
+// Reseal returns a copy of record whose payload is re-encrypted from plaintext,
+// bound to the record's own identity and the given inner keyID. It is used by
+// conflict resolution's edit-merge path to produce a merged note body; the
+// caller re-materialises the returned record as a new local mutation.
+func (s *Store) Reseal(record Record, innerKeyID string, plaintext []byte) (Record, error) {
+	envelope, err := s.vault.SealV2(associatedData(record.Type, record.ID, innerKeyID), plaintext)
+	if err != nil {
+		return Record{}, err
+	}
+	record.Payload = &envelope
+	record.UpdatedAt = time.Now().UTC()
+	return record, nil
+}
+
 // Create seals secret (when non-nil) under AAD {itemType, newID, keyID} and
 // stores the record. When secret is nil, the item has no payload. Sealing
 // goes through the vault DEK, so this fails if the vault is locked.

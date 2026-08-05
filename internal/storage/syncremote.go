@@ -80,6 +80,26 @@ func (s *SQLRemoteStore) ValidateAuthenticatedAccount(ctx context.Context, authe
 	return nil
 }
 
+// BoundAccountID returns the account this local database is bound to, if any.
+// Conflict resolution runs offline and needs the account without a live session.
+func (s *SQLRemoteStore) BoundAccountID(ctx context.Context) (string, bool, error) {
+	if s == nil || s.db == nil {
+		return "", false, errors.New("remote sync store is nil")
+	}
+	ctx = nonNilContext(ctx)
+	var bound string
+	err := s.db.QueryRowContext(ctx, fmt.Sprintf(
+		"SELECT account_id FROM %s WHERE id = ?", TableSyncAccountBinding,
+	), localAccountBindingRowID).Scan(&bound)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return bound, true, nil
+}
+
 // BindAuthenticatedAccount permanently associates this local database with
 // the server-authoritative account before any push or pull is attempted. The
 // binding is intentionally one-way; switching accounts requires an explicit

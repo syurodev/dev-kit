@@ -14,6 +14,7 @@ import (
 	"changeme/internal/services/syncclient"
 	"changeme/internal/services/tools"
 	"changeme/internal/services/vaultitem"
+	"changeme/internal/storage"
 	"changeme/internal/vault"
 )
 
@@ -28,19 +29,39 @@ type SyncService interface {
 	Conflicts(ctx context.Context) ([]syncclient.ConflictInfo, error)
 }
 
+// ConflictReader reads the captured "theirs" side of a sync conflict so the
+// bridge can present ours-vs-theirs and resolve. AccountReader supplies the
+// bound account for offline resolution, and ConflictResolver applies the chosen
+// strategy atomically. These are optional (nil in ephemeral/test containers).
+type ConflictReader interface {
+	Get(ctx context.Context, accountID, recordID string) (storage.ConflictRecord, bool, error)
+}
+
+type ConflictResolver interface {
+	ResolveUseTheirs(ctx context.Context, accountID, recordID string) error
+	ResolveUseLocal(ctx context.Context, accountID, recordID string, res storage.LocalResolution) error
+}
+
+type AccountReader interface {
+	BoundAccountID(ctx context.Context) (string, bool, error)
+}
+
 type Container struct {
-	Commands     *commands.Registry
-	Modules      *modules.Registry
-	Audit        *audit.MemorySink
-	Permissions  *permissions.Policy
-	Capabilities *capabilities.Gateway
-	Vault        *vault.Service
-	HashTools    *tools.HashService
-	Items        *vaultitem.Store
-	Notes        *notes.Service
-	Database     *database.Service
-	SSH          *sshservice.Service
-	Sync         SyncService
+	Commands         *commands.Registry
+	Modules          *modules.Registry
+	Audit            *audit.MemorySink
+	Permissions      *permissions.Policy
+	Capabilities     *capabilities.Gateway
+	Vault            *vault.Service
+	HashTools        *tools.HashService
+	Items            *vaultitem.Store
+	Notes            *notes.Service
+	Database         *database.Service
+	SSH              *sshservice.Service
+	Sync             SyncService
+	ConflictStore    ConflictReader
+	ConflictResolver ConflictResolver
+	AccountReader    AccountReader
 }
 
 // NewContainer wires core services with in-memory stores, suitable for tests
@@ -79,6 +100,7 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.sync", Capability: "sync:manage", Scope: "sync:run"},
 		{SubjectID: "builtin.sync", Capability: "sync:manage", Scope: "sync:disconnect"},
 		{SubjectID: "builtin.sync", Capability: "sync:manage", Scope: "sync:conflicts"},
+		{SubjectID: "builtin.sync", Capability: "sync:manage", Scope: "sync:resolve"},
 	})
 
 	vaultService := vault.NewService(keyringStore)

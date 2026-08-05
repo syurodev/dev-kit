@@ -126,6 +126,10 @@ export function SetupVault(masterPassword: string): $CancellablePromise<string> 
     return $Call.ByID(796766178, masterPassword);
 }
 
+export function SyncConflictDetail(id: string): $CancellablePromise<$models.SyncConflictDetailDTO> {
+    return $Call.ByID(2857013137, id);
+}
+
 export function SyncConflicts(): $CancellablePromise<$models.SyncConflictDTO[] | null> {
     return $Call.ByID(2729123769);
 }
@@ -140,6 +144,10 @@ export function SyncDisconnect(): $CancellablePromise<void> {
 
 export function SyncNow(): $CancellablePromise<$models.SyncReportDTO> {
     return $Call.ByID(1670774930);
+}
+
+export function SyncResolveConflict(id: string, strategy: string, mergedText: string): $CancellablePromise<void> {
+    return $Call.ByID(972829776, id, strategy, mergedText);
 }
 
 export function SyncStatus(): $CancellablePromise<$models.SyncStatusDTO> {

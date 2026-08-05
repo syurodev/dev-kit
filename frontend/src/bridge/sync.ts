@@ -39,6 +39,41 @@ export function syncConflicts(): Promise<SyncConflict[]> {
   });
 }
 
+export type SyncConflictDetail = {
+  recordId: string;
+  recordType: string;
+  theirsCaptured: boolean;
+  mergeable: boolean;
+  oursText: string;
+  theirsText: string;
+};
+
+export type ResolveStrategy = "ours" | "theirs" | "merge";
+
+export function syncConflictDetail(id: string): Promise<SyncConflictDetail> {
+  return callBridge(async () => {
+    const detail = await AppService.SyncConflictDetail(id);
+    return {
+      recordId: detail.record_id,
+      recordType: detail.record_type,
+      theirsCaptured: detail.theirs_captured,
+      mergeable: detail.mergeable,
+      oursText: detail.ours_text ?? "",
+      theirsText: detail.theirs_text ?? "",
+    };
+  });
+}
+
+export function syncResolveConflict(
+  id: string,
+  strategy: ResolveStrategy,
+  mergedText = "",
+): Promise<void> {
+  return callBridge(
+    () => AppService.SyncResolveConflict(id, strategy, mergedText) as Promise<void>,
+  );
+}
+
 export function syncStatus(): Promise<SyncStatus> {
   return callBridge(async () => {
     const status = await AppService.SyncStatus();

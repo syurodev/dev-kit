@@ -187,6 +187,12 @@ func scanMutationRows(rows *sql.Rows) ([]Record, error) {
 	return records, rows.Err()
 }
 
+// DecodeRecord parses an at-rest vault item Record JSON (e.g. a captured remote
+// conflict snapshot) into a Record. The payload stays an encrypted envelope.
+func DecodeRecord(data []byte) (Record, error) {
+	return decodeMutationRecord(data)
+}
+
 func decodeMutationRecord(data []byte) (Record, error) {
 	var record Record
 	if err := json.Unmarshal(data, &record); err != nil {
@@ -206,6 +212,26 @@ func validateMutationRecord(record Record) error {
 		return errors.New("vault item key version is invalid")
 	}
 	return ValidateRecordSchema(record.Type, record.Metadata, record.Payload)
+}
+
+// MarshalForResolution builds the (full record JSON, sync snapshot JSON) pair a
+// conflict resolution needs to re-materialise a chosen local record at
+// remote_head + 1. It forces sync_state = local like the normal write path and
+// enforces the same snapshot size bound. The snapshot excludes sync_state and
+// carries only already-encrypted payload — never plaintext.
+func MarshalForResolution(record Record) (recordJSON, snapshotJSON []byte, err error) {
+	record.SyncState = syncStateLocal
+	if err := validateMutationRecord(record); err != nil {
+		return nil, nil, err
+	}
+	recordJSON, snapshotJSON, err = marshalMutationRecord(record)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(snapshotJSON) > replicationsync.MaxRecordSnapshotBytes {
+		return nil, nil, fmt.Errorf("vault item snapshot exceeds %d bytes", replicationsync.MaxRecordSnapshotBytes)
+	}
+	return recordJSON, snapshotJSON, nil
 }
 
 func marshalMutationRecord(record Record) ([]byte, []byte, error) {

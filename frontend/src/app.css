@@ -384,6 +384,69 @@
   flex-shrink: 0;
 }
 
+.sync-conflict-resolve {
+  flex-shrink: 0;
+}
+
+.resolve-panel {
+  margin-top: 12px;
+  border: 1px solid #3a3f45;
+  border-radius: 8px;
+  padding: 12px;
+  background: #16181d;
+}
+
+.resolve-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.resolve-header h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.resolve-markers {
+  margin: 10px 0;
+  padding: 10px;
+  border: 1px solid #2a2f35;
+  border-radius: 6px;
+  background: #0e1013;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  font-size: 0.85rem;
+}
+
+.resolve-merge {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+  font-size: 0.85rem;
+  color: #a1a1aa;
+}
+
+.resolve-merge textarea {
+  font-family: inherit;
+  resize: vertical;
+}
+
+.resolve-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.resolve-waiting,
+.resolve-secret {
+  color: #a1a1aa;
+}
+
 .command-palette {
   position: fixed;
   inset: 0;

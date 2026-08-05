@@ -10,6 +10,7 @@ export type {
     ExecuteCommandRequest,
     ModuleDTO,
     SyncConflictDTO,
+    SyncConflictDetailDTO,
     SyncReportDTO,
     SyncStatusDTO,
     VaultSearchResult,

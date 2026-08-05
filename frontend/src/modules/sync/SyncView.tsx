@@ -10,6 +10,7 @@ import {
   type SyncStatus,
 } from "../../bridge/sync";
 import { errorMessage } from "../../bridge/errors";
+import { ResolvePanel } from "./ResolvePanel";
 
 const disconnected: SyncStatus = {
   connected: false,
@@ -25,6 +26,7 @@ export function SyncView() {
   const [connection, setConnection] = useState<SyncStatus>(disconnected);
   const [report, setReport] = useState<SyncReport | null>(null);
   const [conflicts, setConflicts] = useState<SyncConflict[]>([]);
+  const [resolving, setResolving] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -169,10 +171,27 @@ export function SyncView() {
                 <span className="sync-conflict-detected">
                   {conflict.detectedAt || "—"}
                 </span>
+                <button
+                  type="button"
+                  className="sync-conflict-resolve"
+                  onClick={() => setResolving(conflict.recordId)}
+                >
+                  Resolve
+                </button>
               </li>
             ))}
           </ul>
         )}
+        {resolving ? (
+          <ResolvePanel
+            recordId={resolving}
+            onClose={() => setResolving(null)}
+            onResolved={() => {
+              setResolving(null);
+              refreshConflicts().catch((caught) => setError(errorMessage(caught)));
+            }}
+          />
+        ) : null}
       </div>
 
       {error ? <p role="alert">{error}</p> : null}

@@ -66,10 +66,11 @@ func main() {
 	if err := outbox.RecoverStaleSyncing(time.Now().UTC()); err != nil {
 		log.Fatal(err)
 	}
+	remoteStore := storage.NewSQLRemoteStore(db)
 	syncService, err := syncclient.New(syncclient.Dependencies{
 		DeviceIdentity: storage.NewSQLDeviceIdentityStore(db),
 		Cursors:        storage.NewSQLCursorStore(db),
-		Remote:         storage.NewSQLRemoteStore(db),
+		Remote:         remoteStore,
 		LocalMutations: storage.NewSQLLocalMutationStore(db),
 		Outbox:         outbox,
 		Vault:          container.Vault,
@@ -80,6 +81,11 @@ func main() {
 	// Sync remains disconnected until the user explicitly supplies a runtime
 	// endpoint and access token through the capability-gated bridge.
 	container.Sync = syncService
+	// Conflict resolution runs offline against the bound account, so it is wired
+	// directly from durable stores rather than the live session.
+	container.ConflictStore = storage.NewSQLConflictStore(db)
+	container.ConflictResolver = storage.NewSQLConflictResolver(db)
+	container.AccountReader = remoteStore
 	defer container.Database.Close()
 	defer container.SSH.Close()
 	if err := app.RegisterBuiltins(container); err != nil {

@@ -33,6 +33,20 @@ export interface SyncConflictDTO {
 }
 
 /**
+ * SyncConflictDetailDTO carries the on-demand decrypted note text for a
+ * conflict so the UI can show ours vs theirs. For non-note (secret) types no
+ * text is returned; the UI offers only Use ours / Use theirs.
+ */
+export interface SyncConflictDetailDTO {
+    "record_id": string;
+    "record_type": string;
+    "theirs_captured": boolean;
+    "mergeable": boolean;
+    "ours_text": string;
+    "theirs_text": string;
+}
+
+/**
  * SyncReportDTO exposes aggregate counts only, never remote payloads.
  */
 export interface SyncReportDTO {

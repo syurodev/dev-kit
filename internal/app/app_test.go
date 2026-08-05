@@ -49,7 +49,7 @@ func TestRegisterBuiltinsRegistersToolsModule(t *testing.T) {
 
 func TestNewContainerGrantsOnlyExactSyncScopes(t *testing.T) {
 	container := NewContainer()
-	for _, scope := range []string{"sync:status", "sync:connect", "sync:run", "sync:disconnect", "sync:conflicts"} {
+	for _, scope := range []string{"sync:status", "sync:connect", "sync:run", "sync:disconnect", "sync:conflicts", "sync:resolve"} {
 		decision := container.Permissions.Check(permissions.Request{
 			SubjectID: "builtin.sync", Capability: "sync:manage", Scope: scope,
 		})
