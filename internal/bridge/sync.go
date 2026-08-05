@@ -27,6 +27,45 @@ type SyncReportDTO struct {
 	Applied       int `json:"applied"`
 }
 
+// SyncConflictDTO is non-secret conflict metadata for the UI. No record payload
+// or plaintext secret crosses the boundary.
+type SyncConflictDTO struct {
+	RecordID        string    `json:"record_id"`
+	RecordType      string    `json:"record_type"`
+	LocalChangeKey  string    `json:"local_change_key"`
+	RemoteChangeKey string    `json:"remote_change_key"`
+	DetectedAt      time.Time `json:"detected_at"`
+}
+
+func (s *AppService) SyncConflicts() ([]SyncConflictDTO, error) {
+	result, err := s.call(context.Background(), "builtin.sync", "sync:manage", "sync:conflicts", map[string]any{
+		"action": "conflicts",
+	}, func(ctx context.Context) (any, error) {
+		if s.container.Sync == nil {
+			return nil, syncclient.ErrInvalidDependencies
+		}
+		conflicts, err := s.container.Sync.Conflicts(ctx)
+		if err != nil {
+			return nil, err
+		}
+		dtos := make([]SyncConflictDTO, 0, len(conflicts))
+		for _, conflict := range conflicts {
+			dtos = append(dtos, SyncConflictDTO{
+				RecordID:        conflict.RecordID,
+				RecordType:      conflict.RecordType,
+				LocalChangeKey:  conflict.LocalChangeKey,
+				RemoteChangeKey: conflict.RemoteChangeKey,
+				DetectedAt:      conflict.DetectedAt,
+			})
+		}
+		return dtos, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]SyncConflictDTO), nil
+}
+
 func (s *AppService) SyncStatus() (SyncStatusDTO, error) {
 	result, err := s.call(context.Background(), "builtin.sync", "sync:manage", "sync:status", map[string]any{
 		"action": "status",

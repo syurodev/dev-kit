@@ -303,6 +303,33 @@ func TestSQLOutboxConflictPersistsSafeCopy(t *testing.T) {
 	}
 }
 
+func TestSQLOutboxConflictsListsConflicts(t *testing.T) {
+	outbox, _, _, cleanup := newSyncPersistence(t)
+	defer cleanup()
+
+	if conflicts, err := outbox.Conflicts(); err != nil || len(conflicts) != 0 {
+		t.Fatalf("empty Conflicts = %+v, err %v", conflicts, err)
+	}
+
+	now := time.Unix(100, 0).UTC()
+	if err := outbox.Enqueue(testSQLChange("local-1", now)); err != nil {
+		t.Fatal(err)
+	}
+	if err := outbox.MarkConflict("local-1", testSQLConflict(now)); err != nil {
+		t.Fatalf("mark conflict: %v", err)
+	}
+
+	conflicts, err := outbox.Conflicts()
+	if err != nil {
+		t.Fatalf("Conflicts: %v", err)
+	}
+	if len(conflicts) != 1 || conflicts[0].IdempotencyKey != "local-1" ||
+		conflicts[0].Status != replicationsync.StatusConflict || conflicts[0].Conflict == nil ||
+		conflicts[0].Conflict.RemoteChangeKey != "remote-1" {
+		t.Fatalf("conflicts = %+v", conflicts)
+	}
+}
+
 func TestSQLOutboxReclaimsStaleSyncing(t *testing.T) {
 	outbox, _, _, cleanup := newSyncPersistence(t)
 	defer cleanup()

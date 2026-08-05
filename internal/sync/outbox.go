@@ -28,6 +28,9 @@ type Outbox interface {
 	MarkRetry(idempotencyKey string, nextAttemptAt time.Time, reason FailureReason) error
 	MarkFailed(idempotencyKey string, reason FailureReason) error
 	MarkConflict(idempotencyKey string, conflict Conflict) error
+	// Conflicts returns every change currently in StatusConflict, oldest first.
+	// It is read-only and safe to call regardless of connection state.
+	Conflicts() ([]Change, error)
 }
 
 // MemoryOutboxConfig configures lease duration for stale syncing reclaim.
@@ -222,6 +225,24 @@ func (o *MemoryOutbox) MarkConflict(idempotencyKey string, conflict Conflict) er
 		}
 		return nil
 	})
+}
+
+func (o *MemoryOutbox) Conflicts() ([]Change, error) {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	conflicts := make([]Change, 0)
+	for _, change := range o.changes {
+		if change.Status == StatusConflict {
+			conflicts = append(conflicts, cloneChange(change))
+		}
+	}
+	sort.Slice(conflicts, func(i, j int) bool {
+		if conflicts[i].CreatedAt.Equal(conflicts[j].CreatedAt) {
+			return conflicts[i].IdempotencyKey < conflicts[j].IdempotencyKey
+		}
+		return conflicts[i].CreatedAt.Before(conflicts[j].CreatedAt)
+	})
+	return conflicts, nil
 }
 
 func (o *MemoryOutbox) isStaleSyncing(change Change, now time.Time) bool {

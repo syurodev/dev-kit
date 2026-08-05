@@ -141,6 +141,35 @@ func TestMemoryOutboxConflict(t *testing.T) {
 	}
 }
 
+func TestMemoryOutboxConflictsListsOnlyConflicts(t *testing.T) {
+	outbox := NewMemoryOutbox()
+	now := time.Unix(100, 0).UTC()
+	if conflicts, err := outbox.Conflicts(); err != nil || len(conflicts) != 0 {
+		t.Fatalf("empty Conflicts = %+v, err %v", conflicts, err)
+	}
+	if err := outbox.Enqueue(validChange("local-1", now)); err != nil {
+		t.Fatal(err)
+	}
+	if err := outbox.Enqueue(testPendingChange("pending-1", now)); err != nil {
+		t.Fatal(err)
+	}
+	conflict := Conflict{
+		ID: "conflict-1", RecordID: "record-1", RecordType: "note",
+		LocalChangeKey: "local-1", RemoteChangeKey: "remote-1", DetectedAt: now,
+	}
+	if err := outbox.MarkConflict("local-1", conflict); err != nil {
+		t.Fatalf("mark conflict: %v", err)
+	}
+	conflicts, err := outbox.Conflicts()
+	if err != nil {
+		t.Fatalf("Conflicts: %v", err)
+	}
+	if len(conflicts) != 1 || conflicts[0].IdempotencyKey != "local-1" ||
+		conflicts[0].Status != StatusConflict || conflicts[0].Conflict == nil {
+		t.Fatalf("conflicts = %+v", conflicts)
+	}
+}
+
 func TestMemoryOutboxReclaimsStaleSyncing(t *testing.T) {
 	outbox := NewMemoryOutbox(MemoryOutboxConfig{Lease: time.Minute})
 	now := time.Unix(1000, 0).UTC()

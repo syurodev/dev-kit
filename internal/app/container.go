@@ -25,6 +25,7 @@ type SyncService interface {
 	Disconnect()
 	Status() syncclient.Status
 	SyncNow(ctx context.Context) (syncclient.Report, error)
+	Conflicts(ctx context.Context) ([]syncclient.ConflictInfo, error)
 }
 
 type Container struct {
@@ -77,6 +78,7 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.sync", Capability: "sync:manage", Scope: "sync:connect"},
 		{SubjectID: "builtin.sync", Capability: "sync:manage", Scope: "sync:run"},
 		{SubjectID: "builtin.sync", Capability: "sync:manage", Scope: "sync:disconnect"},
+		{SubjectID: "builtin.sync", Capability: "sync:manage", Scope: "sync:conflicts"},
 	})
 
 	vaultService := vault.NewService(keyringStore)

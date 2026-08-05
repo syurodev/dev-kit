@@ -23,6 +23,8 @@ type fakeSyncService struct {
 	endpoint       string
 	accessToken    string
 	disconnections int
+	conflicts      []syncclient.ConflictInfo
+	conflictsErr   error
 }
 
 func (f *fakeSyncService) Connect(_ context.Context, endpoint, accessToken string) error {
@@ -35,6 +37,9 @@ func (f *fakeSyncService) Disconnect()               { f.disconnections++ }
 func (f *fakeSyncService) Status() syncclient.Status { return f.status }
 func (f *fakeSyncService) SyncNow(context.Context) (syncclient.Report, error) {
 	return f.report, f.syncErr
+}
+func (f *fakeSyncService) Conflicts(context.Context) ([]syncclient.ConflictInfo, error) {
+	return f.conflicts, f.conflictsErr
 }
 
 func newSyncBridge(t *testing.T, service app.SyncService) (*AppService, *app.Container) {
@@ -118,6 +123,35 @@ func TestSyncConnectAuditDoesNotContainCredentialsOrIdentity(t *testing.T) {
 		if strings.Contains(string(serialized), forbidden) {
 			t.Fatalf("audit event leaked %q: %s", forbidden, serialized)
 		}
+	}
+}
+
+func TestSyncBridgeListsConflicts(t *testing.T) {
+	detected := time.Date(2026, 8, 5, 4, 0, 0, 0, time.UTC)
+	fake := &fakeSyncService{conflicts: []syncclient.ConflictInfo{
+		{RecordID: "rec-1", RecordType: "note", LocalChangeKey: "k1", RemoteChangeKey: "k2", DetectedAt: detected},
+	}}
+	service, container := newSyncBridge(t, fake)
+
+	conflicts, err := service.SyncConflicts()
+	if err != nil {
+		t.Fatalf("SyncConflicts: %v", err)
+	}
+	if len(conflicts) != 1 || conflicts[0].RecordID != "rec-1" || conflicts[0].RecordType != "note" ||
+		conflicts[0].LocalChangeKey != "k1" || conflicts[0].RemoteChangeKey != "k2" || conflicts[0].DetectedAt != detected {
+		t.Fatalf("conflicts = %#v", conflicts)
+	}
+
+	serialized, _ := json.Marshal(conflicts)
+	for _, forbidden := range []string{"payload", "ciphertext", "secret", "access_token"} {
+		if strings.Contains(strings.ToLower(string(serialized)), forbidden) {
+			t.Fatalf("conflict DTO leaked %q: %s", forbidden, serialized)
+		}
+	}
+
+	events := container.Audit.Events()
+	if len(events) != 1 || events[0].Scope != "sync:conflicts" {
+		t.Fatalf("audit events = %#v", events)
 	}
 }
 

@@ -126,6 +126,10 @@ export function SetupVault(masterPassword: string): $CancellablePromise<string> 
     return $Call.ByID(796766178, masterPassword);
 }
 
+export function SyncConflicts(): $CancellablePromise<$models.SyncConflictDTO[] | null> {
+    return $Call.ByID(2729123769);
+}
+
 export function SyncConnect(endpoint: string, accessToken: string): $CancellablePromise<void> {
     return $Call.ByID(2389156000, endpoint, accessToken);
 }

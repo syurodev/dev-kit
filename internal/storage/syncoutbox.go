@@ -417,6 +417,34 @@ func (o *SQLOutbox) MarkConflict(idempotencyKey string, conflict replicationsync
 		string(replicationsync.StatusPending), string(replicationsync.StatusSyncing))
 }
 
+func (o *SQLOutbox) Conflicts() ([]replicationsync.Change, error) {
+	if err := o.ensureDB(); err != nil {
+		return nil, err
+	}
+	query := fmt.Sprintf(`
+		SELECT idempotency_key, record_id, record_type, operation, payload, key_version, status,
+			attempts, next_attempt_at, last_error, conflict_json, created_at,
+			syncing_since, account_id, device_id, protocol_version, operation_id,
+			entity_version, key_id
+		FROM %s WHERE status = ?
+		ORDER BY created_at ASC, record_id ASC, entity_version ASC, idempotency_key ASC`, TableSyncOutbox)
+	rows, err := o.db.QueryContext(context.Background(), query, string(replicationsync.StatusConflict))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	changes := make([]replicationsync.Change, 0)
+	for rows.Next() {
+		change, err := scanSQLChange(rows, "")
+		if err != nil {
+			return nil, err
+		}
+		changes = append(changes, cloneSQLChange(change))
+	}
+	return changes, rows.Err()
+}
+
 func (o *SQLOutbox) updateState(idempotencyKey, query string, args ...any) error {
 	if err := validateSyncIdentifier("idempotency key", idempotencyKey, 256); err != nil {
 		return err

@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import {
+  syncConflicts,
   syncConnect,
   syncDisconnect,
   syncNow,
   syncStatus,
+  type SyncConflict,
   type SyncReport,
   type SyncStatus,
 } from "../../bridge/sync";
@@ -22,6 +24,7 @@ export function SyncView() {
   const [accessToken, setAccessToken] = useState("");
   const [connection, setConnection] = useState<SyncStatus>(disconnected);
   const [report, setReport] = useState<SyncReport | null>(null);
+  const [conflicts, setConflicts] = useState<SyncConflict[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -29,8 +32,13 @@ export function SyncView() {
     setConnection(await syncStatus());
   }
 
+  async function refreshConflicts() {
+    setConflicts(await syncConflicts());
+  }
+
   useEffect(() => {
     refreshStatus().catch((caught) => setError(errorMessage(caught)));
+    refreshConflicts().catch((caught) => setError(errorMessage(caught)));
   }, []);
 
   async function onConnect() {
@@ -56,6 +64,7 @@ export function SyncView() {
     try {
       setReport(await syncNow());
       await refreshStatus();
+      await refreshConflicts();
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
@@ -147,6 +156,25 @@ export function SyncView() {
           <div><dt>Applied</dt><dd>{report.applied}</dd></div>
         </dl>
       ) : null}
+      <div className="sync-conflicts">
+        <h3>Conflicts ({conflicts.length})</h3>
+        {conflicts.length === 0 ? (
+          <p className="sync-conflicts-empty">No conflicts to resolve.</p>
+        ) : (
+          <ul>
+            {conflicts.map((conflict) => (
+              <li key={conflict.localChangeKey}>
+                <span className="sync-conflict-type">{conflict.recordType}</span>
+                <code>{conflict.recordId}</code>
+                <span className="sync-conflict-detected">
+                  {conflict.detectedAt || "—"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
       {error ? <p role="alert">{error}</p> : null}
     </section>
   );

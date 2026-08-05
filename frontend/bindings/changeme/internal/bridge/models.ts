@@ -21,6 +21,18 @@ export interface ModuleDTO {
 }
 
 /**
+ * SyncConflictDTO is non-secret conflict metadata for the UI. No record payload
+ * or plaintext secret crosses the boundary.
+ */
+export interface SyncConflictDTO {
+    "record_id": string;
+    "record_type": string;
+    "local_change_key": string;
+    "remote_change_key": string;
+    "detected_at": time$0.Time;
+}
+
+/**
  * SyncReportDTO exposes aggregate counts only, never remote payloads.
  */
 export interface SyncReportDTO {

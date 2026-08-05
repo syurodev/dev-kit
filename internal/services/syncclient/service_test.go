@@ -701,6 +701,57 @@ func newTestService(t *testing.T, transport *fakeTransport) *Service {
 	return service
 }
 
+func TestConflictsListsOutboxConflicts(t *testing.T) {
+	outbox := replicationsync.NewMemoryOutbox()
+	change := replicationsync.NewChange(
+		"key-1", "rec-1", "note", replicationsync.OperationUpdate, []byte("cipher"), 1,
+		replicationsync.SyncContext{
+			AccountID: testAccountID, DeviceID: testDeviceID,
+			ProtocolVersion: replicationsync.SyncProtocolVersion, OperationID: "op-1", EntityVersion: 2,
+		},
+		testKeyID, time.Now().UTC())
+	if err := outbox.Enqueue(change); err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+	conflict := replicationsync.Conflict{
+		ID: "conflict-1", RecordID: "rec-1", RecordType: "note",
+		LocalChangeKey: "key-1", RemoteChangeKey: "key-remote", DetectedAt: time.Now().UTC(),
+	}
+	if err := outbox.MarkConflict("key-1", conflict); err != nil {
+		t.Fatalf("MarkConflict: %v", err)
+	}
+
+	service, err := NewWithFactories(Dependencies{
+		DeviceIdentity: fakeDeviceStore{id: testDeviceID},
+		Cursors:        &fakeCursorStore{},
+		Remote:         &fakeRemoteStore{},
+		Outbox:         outbox,
+		Vault:          testVault{key: bytes.Repeat([]byte{0x42}, 32)},
+	}, Factories{
+		Authenticator: func(baseURL string, client *http.Client) (replicationsync.Authenticator, error) {
+			return replicationsync.NewHTTPAuthenticator(baseURL, client)
+		},
+		Transport: func(_ string, sessions replicationsync.SessionProvider, _ *http.Client) (replicationsync.PullTransport, error) {
+			return &fakeTransport{}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewWithFactories: %v", err)
+	}
+
+	conflicts, err := service.Conflicts(context.Background())
+	if err != nil {
+		t.Fatalf("Conflicts: %v", err)
+	}
+	if len(conflicts) != 1 {
+		t.Fatalf("len(conflicts) = %d, want 1", len(conflicts))
+	}
+	got := conflicts[0]
+	if got.RecordID != "rec-1" || got.RecordType != "note" || got.LocalChangeKey != "key-1" || got.RemoteChangeKey != "key-remote" {
+		t.Fatalf("conflict = %#v", got)
+	}
+}
+
 func sealedOperation(t *testing.T, vault testVault, operationID, recordID, recordType string, operation replicationsync.Operation, entityVersion uint32, plaintext []byte) replicationsync.PushOperation {
 	t.Helper()
 	envelope := sealEnvelope(t, vault, operationID, recordID, recordType, operation, entityVersion, plaintext, "remote-device")

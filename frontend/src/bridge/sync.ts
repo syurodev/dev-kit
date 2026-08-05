@@ -18,6 +18,27 @@ export type SyncReport = {
   applied: number;
 };
 
+export type SyncConflict = {
+  recordId: string;
+  recordType: string;
+  localChangeKey: string;
+  remoteChangeKey: string;
+  detectedAt: string;
+};
+
+export function syncConflicts(): Promise<SyncConflict[]> {
+  return callBridge(async () => {
+    const conflicts = (await AppService.SyncConflicts()) ?? [];
+    return conflicts.map((conflict) => ({
+      recordId: conflict.record_id,
+      recordType: conflict.record_type,
+      localChangeKey: conflict.local_change_key,
+      remoteChangeKey: conflict.remote_change_key,
+      detectedAt: conflict.detected_at ? String(conflict.detected_at) : "",
+    }));
+  });
+}
+
 export function syncStatus(): Promise<SyncStatus> {
   return callBridge(async () => {
     const status = await AppService.SyncStatus();
