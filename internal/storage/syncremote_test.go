@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"changeme/internal/services/vaultitem"
 	replicationsync "changeme/internal/sync"
@@ -157,6 +159,83 @@ func TestApplyRemoteBatchAcceptsVersionGapAndRejectsStaleOrEqual(t *testing.T) {
 	}
 	assertVaultData(t, db, gap.RecordID, gap.RecordJSON)
 	assertCursor(t, db, "pull", "cursor-11")
+}
+
+func TestApplyRemoteBatchCapturesTheirsForSameVersionPushConflict(t *testing.T) {
+	db, store := newTestRemoteStore(t)
+
+	// Seed a synced record at v1, then simulate this device winning locally to
+	// v2 (its own push) — the state right after a lost same-version push.
+	ours := remoteMutation("record-1", replicationsync.OperationCreate, 1)
+	if err := store.ApplyRemoteBatch(context.Background(), testRemoteAccountID, "pull", "cursor-1", []RemoteMutation{ours}); err != nil {
+		t.Fatalf("seed v1: %v", err)
+	}
+	if _, err := db.Exec(`UPDATE sync_entity_versions
+		SET entity_version = 2, operation_id = 'op-local-b', operation = 'update'
+		WHERE account_id = ? AND record_id = 'record-1'`, testRemoteAccountID); err != nil {
+		t.Fatalf("advance local head: %v", err)
+	}
+
+	// A conflicted outbox row is the durable signal that this record lost a push.
+	outbox := NewSQLOutbox(db)
+	losing := replicationsync.NewChange(
+		"local-key-b", "record-1", "note", replicationsync.OperationUpdate, []byte("ours-cipher"), 1,
+		replicationsync.SyncContext{
+			AccountID: testRemoteAccountID, DeviceID: "dev-b",
+			ProtocolVersion: replicationsync.SyncProtocolVersion, OperationID: "op-local-b", EntityVersion: 2,
+		},
+		"key-1", time.Unix(100, 0).UTC())
+	if err := outbox.Enqueue(losing); err != nil {
+		t.Fatalf("enqueue losing push: %v", err)
+	}
+	if err := outbox.MarkConflict("local-key-b", replicationsync.Conflict{
+		ID: "conflict-1", RecordID: "record-1", RecordType: "note",
+		LocalChangeKey: "local-key-b", RemoteChangeKey: "op-remote-a", DetectedAt: time.Unix(100, 0).UTC(),
+	}); err != nil {
+		t.Fatalf("mark conflict: %v", err)
+	}
+
+	// Pull carries the divergent winning remote op at the same version (v2).
+	theirs := remoteMutation("record-1", replicationsync.OperationUpdate, 2)
+	if err := store.ApplyRemoteBatch(context.Background(), testRemoteAccountID, "pull", "cursor-2", []RemoteMutation{theirs}); err != nil {
+		t.Fatalf("apply theirs should not error: %v", err)
+	}
+
+	// Ours is untouched: vault_items still holds the v1 snapshot, and the ledger
+	// still points at the local op — theirs did not overwrite either.
+	assertVaultData(t, db, "record-1", ours.RecordJSON)
+	var version int
+	var op string
+	if err := db.QueryRow(`SELECT entity_version, operation_id FROM sync_entity_versions
+		WHERE account_id = ? AND record_id = 'record-1'`, testRemoteAccountID).Scan(&version, &op); err != nil {
+		t.Fatalf("read ledger: %v", err)
+	}
+	if version != 2 || op != "op-local-b" {
+		t.Fatalf("ledger changed: version=%d op=%s", version, op)
+	}
+
+	// Theirs is captured for later resolution.
+	conflict, found, err := NewSQLConflictStore(db).Get(context.Background(), testRemoteAccountID, "record-1")
+	if err != nil || !found {
+		t.Fatalf("conflict not captured: found=%v err=%v", found, err)
+	}
+	if conflict.RemoteOperationID != theirs.OperationID || conflict.RemoteEntityVersion != 2 ||
+		conflict.RemoteOperation != replicationsync.OperationUpdate || conflict.LocalChangeKey != "local-key-b" ||
+		!bytes.Equal(conflict.TheirsSnapshot, theirs.RecordJSON) {
+		t.Fatalf("captured conflict = %+v", conflict)
+	}
+
+	// Re-pulling the same divergent op is idempotent (single conflict row).
+	if err := store.ApplyRemoteBatch(context.Background(), testRemoteAccountID, "pull", "cursor-3", []RemoteMutation{theirs}); err != nil {
+		t.Fatalf("re-apply theirs: %v", err)
+	}
+	var conflictCount int
+	if err := db.QueryRow("SELECT COUNT(*) FROM sync_conflicts WHERE record_id = 'record-1'").Scan(&conflictCount); err != nil {
+		t.Fatalf("count conflicts: %v", err)
+	}
+	if conflictCount != 1 {
+		t.Fatalf("conflict rows = %d, want 1", conflictCount)
+	}
 }
 
 func TestApplyRemoteBatchRejectsOverwriteOfUnsyncedLocalEdit(t *testing.T) {

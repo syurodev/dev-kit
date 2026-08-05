@@ -288,6 +288,16 @@ func applyRemoteMutation(ctx context.Context, tx *sql.Tx, mutation RemoteMutatio
 	// snapshot before syncing. Therefore versions must increase strictly, but
 	// they need not be contiguous and the first accepted version may exceed 1.
 	if exists && mutation.EntityVersion <= current.entityVersion {
+		// A same-version divergence for a record that lost a push is not a stale
+		// replay: capture the authenticated remote snapshot as "theirs" so the
+		// user can resolve it, and leave ours untouched. Otherwise fail closed.
+		captured, err := captureRemoteConflict(ctx, tx, current, mutation)
+		if err != nil {
+			return err
+		}
+		if captured {
+			return nil
+		}
 		return ErrRemoteMutationConflict
 	}
 	if exists {

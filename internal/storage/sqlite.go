@@ -24,6 +24,7 @@ const (
 	TableSyncAppliedOps     = "sync_applied_operations"
 	TableSyncLocalEntities  = "sync_local_entity_versions"
 	TableSyncLocalMutations = "sync_local_mutations"
+	TableSyncConflicts      = "sync_conflicts"
 )
 
 var chmodFile = os.Chmod
@@ -369,7 +370,34 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		},
 	}
 
-	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10})
+	m11 := Migration{
+		Version: 11,
+		Name:    "sync conflict theirs snapshots",
+		Up: func(ctx context.Context) error {
+			// Per-record conflict side ("theirs"): the authenticated remote
+			// snapshot captured when a pull carries the divergent op for a record
+			// that lost a same-version push. No FK (app-layer integrity, matching
+			// the SaaS design); theirs_snapshot is the same encrypted record JSON
+			// stored elsewhere, never a plaintext secret. Unique per record.
+			_, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE TABLE IF NOT EXISTS %s (
+					account_id TEXT NOT NULL,
+					record_id TEXT NOT NULL,
+					record_type TEXT NOT NULL,
+					remote_operation_id TEXT NOT NULL,
+					remote_operation TEXT NOT NULL CHECK (remote_operation IN ('create', 'update', 'delete')),
+					remote_entity_version INTEGER NOT NULL CHECK (remote_entity_version > 0),
+					theirs_snapshot BLOB NOT NULL,
+					local_change_key TEXT NOT NULL,
+					detected_at TEXT NOT NULL,
+					PRIMARY KEY (account_id, record_id)
+				)`, TableSyncConflicts,
+			))
+			return err
+		},
+	}
+
+	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11})
 	if err != nil {
 		return err
 	}

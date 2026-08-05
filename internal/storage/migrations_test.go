@@ -163,7 +163,7 @@ func TestMigrateCreatesVaultItemsTable(t *testing.T) {
 	for _, table := range []string{
 		TableSyncOutbox, TableSyncCursors, TableSyncIdentity,
 		TableSyncAccountBinding, TableSyncEntityVersions, TableSyncAppliedOps,
-		TableSyncLocalEntities, TableSyncLocalMutations,
+		TableSyncLocalEntities, TableSyncLocalMutations, TableSyncConflicts,
 	} {
 		if !tableExists(table) {
 			t.Fatalf("expected %s table to exist", table)
@@ -174,8 +174,8 @@ func TestMigrateCreatesVaultItemsTable(t *testing.T) {
 	if err := db.QueryRow("SELECT MAX(version) FROM schema_migrations").Scan(&version); err != nil {
 		t.Fatalf("read migration version: %v", err)
 	}
-	if version != 10 {
-		t.Fatalf("migration version = %d, want 10", version)
+	if version != 11 {
+		t.Fatalf("migration version = %d, want 11", version)
 	}
 
 	if err := Migrate(context.Background(), db); err != nil {
