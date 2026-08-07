@@ -11,13 +11,19 @@ import (
 	"changeme/internal/vaultitem"
 )
 
+type stubEnvLookup map[string]bool
+
+func (s stubEnvLookup) Exists(name string) bool { return s[name] }
+
+var testEnvs = stubEnvLookup{"dev": true, "stg": true, "prod": true}
+
 func newService(t *testing.T) *Service {
 	t.Helper()
 	v := vault.NewService(vault.NewMemoryKeyringStore())
 	if _, err := v.Setup("correct-horse"); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
-	return NewService(vaultitem.NewStore(vaultitem.NewMemoryRepository(), v))
+	return NewService(vaultitem.NewStore(vaultitem.NewMemoryRepository(), v), testEnvs)
 }
 
 // newServiceWithStore is like newService but also returns the concrete store
@@ -29,7 +35,7 @@ func newServiceWithStore(t *testing.T) (*Service, *vaultitem.Store) {
 		t.Fatalf("setup: %v", err)
 	}
 	store := vaultitem.NewStore(vaultitem.NewMemoryRepository(), v)
-	return NewService(store), store
+	return NewService(store, testEnvs), store
 }
 
 func TestCreateProfileEncryptsPassword(t *testing.T) {
@@ -42,6 +48,7 @@ func TestCreateProfileEncryptsPassword(t *testing.T) {
 		Database: "devkitdb",
 		Username: "devkit",
 		Password: "devkitpass",
+		Env:      "dev",
 	})
 	if err != nil {
 		t.Fatalf("CreateProfile: %v", err)
@@ -69,7 +76,7 @@ func TestCreateProfileEncryptsPassword(t *testing.T) {
 func TestCreateProfileUsesV2EnvelopeBoundToProfile(t *testing.T) {
 	svc, store := newServiceWithStore(t)
 
-	summary, err := svc.CreateProfile(CreateProfileInput{Name: "local", Host: "127.0.0.1", Password: "devkitpass"})
+	summary, err := svc.CreateProfile(CreateProfileInput{Name: "local", Host: "127.0.0.1", Password: "devkitpass", Env: "dev"})
 	if err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
@@ -101,6 +108,7 @@ func TestCreateProfileDefaultsRemotePostgresToVerifyFull(t *testing.T) {
 	summary, err := svc.CreateProfile(CreateProfileInput{
 		Name: "production",
 		Host: "db.example.com",
+		Env:  "prod",
 	})
 	if err != nil {
 		t.Fatalf("CreateProfile: %v", err)
@@ -117,6 +125,7 @@ func TestCreateProfileRejectsExplicitInsecureTLSForRemoteHost(t *testing.T) {
 		Name:    "production",
 		Host:    "db.example.com",
 		SSLMode: "disable",
+		Env:     "prod",
 	})
 	if !errors.Is(err, ErrInsecureTLSForRemoteHost) {
 		t.Fatalf("CreateProfile error = %v, want ErrInsecureTLSForRemoteHost", err)
@@ -131,6 +140,7 @@ func TestCreateProfilePermitsExplicitInsecureTLSForLoopbackHosts(t *testing.T) {
 				Name:    "local",
 				Host:    host,
 				SSLMode: "disable",
+				Env:     "dev",
 			})
 			if err != nil {
 				t.Fatalf("CreateProfile: %v", err)
@@ -144,7 +154,7 @@ func TestCreateProfilePermitsExplicitInsecureTLSForLoopbackHosts(t *testing.T) {
 
 func TestDSNRejectsPersistedRemoteProfileWithInsecureTLS(t *testing.T) {
 	svc, store := newServiceWithStore(t)
-	summary, err := svc.CreateProfile(CreateProfileInput{Name: "production", Host: "db.example.com", Password: "secret"})
+	summary, err := svc.CreateProfile(CreateProfileInput{Name: "production", Host: "db.example.com", Password: "secret", Env: "prod"})
 	if err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
@@ -173,7 +183,7 @@ func TestDSNRejectsPersistedRemoteProfileWithInsecureTLS(t *testing.T) {
 
 func TestQueryPreservesCallerCancellation(t *testing.T) {
 	svc := newService(t)
-	summary, err := svc.CreateProfile(CreateProfileInput{Name: "local", Host: "127.0.0.1", Password: "secret"})
+	summary, err := svc.CreateProfile(CreateProfileInput{Name: "local", Host: "127.0.0.1", Password: "secret", Env: "dev"})
 	if err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
@@ -188,7 +198,7 @@ func TestQueryPreservesCallerCancellation(t *testing.T) {
 
 func TestListProfiles(t *testing.T) {
 	svc := newService(t)
-	if _, err := svc.CreateProfile(CreateProfileInput{Name: "a", Host: "h"}); err != nil {
+	if _, err := svc.CreateProfile(CreateProfileInput{Name: "a", Host: "h", Env: "dev"}); err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
 	list, err := svc.ListProfiles()
@@ -197,5 +207,19 @@ func TestListProfiles(t *testing.T) {
 	}
 	if len(list) != 1 {
 		t.Fatalf("len(list) = %d, want 1", len(list))
+	}
+}
+
+func TestCreateProfileRequiresEnv(t *testing.T) {
+	svc := newService(t)
+	if _, err := svc.CreateProfile(CreateProfileInput{Name: "n", Host: "h"}); err == nil {
+		t.Fatal("missing env must error")
+	}
+}
+
+func TestCreateProfileRejectsUnknownEnv(t *testing.T) {
+	svc := newService(t)
+	if _, err := svc.CreateProfile(CreateProfileInput{Name: "n", Host: "h", Env: "canary"}); err == nil {
+		t.Fatal("unknown env must error")
 	}
 }

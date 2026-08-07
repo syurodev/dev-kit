@@ -25,6 +25,14 @@ var ErrInsecureTLSForRemoteHost = errors.New("insecure TLS is only allowed for l
 // ponytail: fixed cap; make it configurable per query later if needed.
 const DefaultMaxRows = 200
 
+// EnvLookup is the narrow view of the environments registry the database
+// service needs to validate a profile's env tag. Declared here (the
+// consumer), not by internal/environments — README.md "Accept interfaces,
+// return structs".
+type EnvLookup interface {
+	Exists(name string) bool
+}
+
 // ProfileSummary is a connection profile without the (encrypted) password.
 type ProfileSummary struct {
 	ID       string `json:"id"`
@@ -34,6 +42,7 @@ type ProfileSummary struct {
 	Database string `json:"database"`
 	Username string `json:"username"`
 	SSLMode  string `json:"ssl_mode"`
+	Env      string `json:"env"`
 }
 
 type CreateProfileInput struct {
@@ -44,6 +53,7 @@ type CreateProfileInput struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
 	SSLMode  string `json:"ssl_mode"`
+	Env      string `json:"env"`
 }
 
 type QueryResult struct {
@@ -70,16 +80,18 @@ type metadata struct {
 	Database string `json:"database"`
 	Username string `json:"username"`
 	SSLMode  string `json:"ssl_mode"`
+	Env      string `json:"env"`
 }
 
 type Service struct {
 	store   Store
+	envs    EnvLookup
 	pools   *PoolManager
 	maxRows int
 }
 
-func NewService(store Store) *Service {
-	return &Service{store: store, pools: NewPoolManager(), maxRows: DefaultMaxRows}
+func NewService(store Store, envs EnvLookup) *Service {
+	return &Service{store: store, envs: envs, pools: NewPoolManager(), maxRows: DefaultMaxRows}
 }
 
 func (s *Service) CreateProfile(input CreateProfileInput) (ProfileSummary, error) {
@@ -88,6 +100,12 @@ func (s *Service) CreateProfile(input CreateProfileInput) (ProfileSummary, error
 	}
 	if input.Host == "" {
 		return ProfileSummary{}, errors.New("host is required")
+	}
+	if input.Env == "" {
+		return ProfileSummary{}, errors.New("env is required")
+	}
+	if !s.envs.Exists(input.Env) {
+		return ProfileSummary{}, fmt.Errorf("unknown env tag %q", input.Env)
 	}
 	if input.Port == 0 {
 		input.Port = 5432
@@ -105,6 +123,7 @@ func (s *Service) CreateProfile(input CreateProfileInput) (ProfileSummary, error
 		Database: input.Database,
 		Username: input.Username,
 		SSLMode:  input.SSLMode,
+		Env:      input.Env,
 	})
 	if err != nil {
 		return ProfileSummary{}, err
@@ -300,5 +319,6 @@ func summaryFromRecord(record vaultitem.Record) (ProfileSummary, error) {
 		Database: meta.Database,
 		Username: meta.Username,
 		SSLMode:  meta.SSLMode,
+		Env:      meta.Env,
 	}, nil
 }

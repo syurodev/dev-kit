@@ -28,6 +28,7 @@ func TestPostgresIntegration(t *testing.T) {
 		Username: envOr("DEVKIT_PG_USER", "devkit"),
 		Password: envOr("DEVKIT_PG_PASSWORD", "devkitpass"),
 		SSLMode:  "disable",
+		Env:      "dev",
 	})
 	if err != nil {
 		t.Fatalf("CreateProfile: %v", err)
