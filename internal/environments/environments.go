@@ -96,12 +96,12 @@ func (s *Service) UpdateTag(id string, requiresConfirmation bool) (Tag, error) {
 // DeleteTag removes a custom tag. Builtin tags (dev/stg/prod) are never
 // deletable, and locked tags (prod) are rejected the same way.
 //
-// ponytail: no "tag in use by a profile" guard — a profile that references a
-// deleted tag already fails closed to RequiresConfirmation=true via the
-// EnvLookup.Exists() check in internal/ssh and internal/database, so a stale
-// reference cannot silently relax confirmation policy. Add a cross-service
-// in-use check when MCP actually reads env policy and the UX cost of a
-// blocked delete matters.
+// ponytail: no "tag in use by a profile" guard — a later task wires an
+// EnvLookup.Exists() check into internal/ssh and internal/database that will
+// fail closed to RequiresConfirmation=true for a profile referencing a
+// deleted tag, so a stale reference cannot silently relax confirmation
+// policy. Add a cross-service in-use check when MCP actually reads env
+// policy and the UX cost of a blocked delete matters.
 func (s *Service) DeleteTag(id string) error {
 	tag, err := s.repo.GetByID(id)
 	if err != nil {
