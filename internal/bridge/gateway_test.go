@@ -11,6 +11,7 @@ import (
 	"changeme/internal/app"
 	"changeme/internal/apperrors"
 	"changeme/internal/capabilities"
+	"changeme/internal/environments"
 	"changeme/internal/permissions"
 	sshservice "changeme/internal/ssh"
 	"changeme/internal/vault"
@@ -38,6 +39,7 @@ func TestPublicErrorRedacts(t *testing.T) {
 	container := app.NewContainerWithStores(
 		vault.NewMemoryKeyringStore(),
 		failingNotesRepository{err: errors.New(internalCause)},
+		environments.NewMemoryRepository(),
 	)
 	service := NewAppService(container)
 

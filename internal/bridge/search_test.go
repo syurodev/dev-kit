@@ -25,6 +25,7 @@ func TestVaultSearchReturnsCrossTypeHits(t *testing.T) {
 		Name: "staging db",
 		Host: "localhost",
 		Port: 5432,
+		Env:  "dev",
 	}); err != nil {
 		t.Fatalf("DBCreateProfile: %v", err)
 	}

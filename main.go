@@ -10,6 +10,7 @@ import (
 
 	"changeme/internal/app"
 	"changeme/internal/bridge"
+	"changeme/internal/environments"
 	"changeme/internal/servermode"
 
 	"changeme/internal/storage"
@@ -63,6 +64,7 @@ func main() {
 		// entity version and durable Phase 3C mutation intent. The raw repository
 		// remains available for isolated persistence tests only.
 		vaultitem.NewSQLMutationRepository(db),
+		environments.NewSQLRepository(db),
 	)
 	outbox := syncstore.NewSQLOutbox(db)
 	if err := outbox.RecoverStaleSyncing(time.Now().UTC()); err != nil {

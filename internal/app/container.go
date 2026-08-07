@@ -7,6 +7,7 @@ import (
 	"changeme/internal/capabilities"
 	"changeme/internal/commands"
 	"changeme/internal/database"
+	"changeme/internal/environments"
 	"changeme/internal/modules"
 	"changeme/internal/notes"
 	"changeme/internal/permissions"
@@ -46,6 +47,7 @@ type Container struct {
 	HashTools    *tools.HashService
 	Items        *vaultitem.Store
 	Notes        *notes.Service
+	Environments *environments.Service
 	Database     *database.Service
 	SSH          *sshservice.Service
 	Sync         SyncService
@@ -58,12 +60,14 @@ func NewContainer() *Container {
 	return NewContainerWithStores(
 		vault.NewMemoryKeyringStore(),
 		vaultitem.NewMemoryRepository(),
+		environments.NewMemoryRepository(),
 	)
 }
 
 func NewContainerWithStores(
 	keyringStore vault.KeyringStore,
 	itemRepo vaultitem.Repository,
+	envRepo environments.Repository,
 ) *Container {
 	permissionPolicy := permissions.NewPolicy([]permissions.Grant{
 		{SubjectID: "builtin.tools", Capability: "tools:hash", Scope: "command:tools.hash"},
@@ -72,6 +76,9 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.notes", Capability: "notes:read", Scope: "note:list"},
 		{SubjectID: "builtin.notes", Capability: "notes:read", Scope: "note:search"},
 		{SubjectID: "builtin.notes", Capability: "notes:read", Scope: "note:*"},
+		{SubjectID: "builtin.environments", Capability: "env:read", Scope: "tag:list"},
+		{SubjectID: "builtin.environments", Capability: "env:write", Scope: "tag:new"},
+		{SubjectID: "builtin.environments", Capability: "env:write", Scope: "tag:*"},
 		{SubjectID: "builtin.database", Capability: "db:query", Scope: "profile:list"},
 		{SubjectID: "builtin.database", Capability: "db:query", Scope: "profile:new"},
 		{SubjectID: "builtin.database", Capability: "db:query", Scope: "profile:*"},
@@ -94,6 +101,7 @@ func NewContainerWithStores(
 	vaultService := vault.NewService(keyringStore)
 	auditSink := audit.NewMemorySink()
 	itemStore := vaultitem.NewStore(itemRepo, vaultService)
+	envService := environments.NewService(envRepo)
 
 	return &Container{
 		Commands:     commands.NewRegistry(),
@@ -105,7 +113,8 @@ func NewContainerWithStores(
 		HashTools:    tools.NewHashService(),
 		Items:        itemStore,
 		Notes:        notes.NewService(itemStore),
-		Database:     database.NewService(itemStore),
-		SSH:          sshservice.NewService(itemStore),
+		Environments: envService,
+		Database:     database.NewService(itemStore, envService),
+		SSH:          sshservice.NewService(itemStore, envService),
 	}
 }
