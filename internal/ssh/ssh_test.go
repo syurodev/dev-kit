@@ -8,13 +8,19 @@ import (
 	"changeme/internal/vaultitem"
 )
 
+type stubEnvLookup map[string]bool
+
+func (s stubEnvLookup) Exists(name string) bool { return s[name] }
+
+var testEnvs = stubEnvLookup{"dev": true, "stg": true, "prod": true}
+
 func newService(t *testing.T) *Service {
 	t.Helper()
 	v := vault.NewService(vault.NewMemoryKeyringStore())
 	if _, err := v.Setup("correct-horse"); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
-	return NewService(vaultitem.NewStore(vaultitem.NewMemoryRepository(), v))
+	return NewService(vaultitem.NewStore(vaultitem.NewMemoryRepository(), v), testEnvs)
 }
 
 // newServiceWithStore is like newService but also returns the concrete store
@@ -26,7 +32,7 @@ func newServiceWithStore(t *testing.T) (*Service, *vaultitem.Store) {
 		t.Fatalf("setup: %v", err)
 	}
 	store := vaultitem.NewStore(vaultitem.NewMemoryRepository(), v)
-	return NewService(store), store
+	return NewService(store, testEnvs), store
 }
 
 func TestCreateProfileEncryptsSecret(t *testing.T) {
@@ -38,6 +44,7 @@ func TestCreateProfileEncryptsSecret(t *testing.T) {
 		Username:   "ubuntu",
 		AuthMethod: AuthPassword,
 		Secret:     "s3cr3t",
+		Env:        "dev",
 	})
 	if err != nil {
 		t.Fatalf("CreateProfile: %v", err)
@@ -68,7 +75,7 @@ func TestCreateProfileEncryptsSecret(t *testing.T) {
 func TestCreateProfileUsesV2EnvelopeBoundToProfile(t *testing.T) {
 	svc, store := newServiceWithStore(t)
 
-	summary, err := svc.CreateProfile(CreateProfileInput{Name: "prod", Host: "127.0.0.1", Username: "ubuntu", Secret: "s3cr3t"})
+	summary, err := svc.CreateProfile(CreateProfileInput{Name: "prod", Host: "127.0.0.1", Username: "ubuntu", Secret: "s3cr3t", Env: "dev"})
 	if err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
@@ -102,7 +109,7 @@ func TestCreateProfileValidatesRequiredFields(t *testing.T) {
 
 func TestListProfiles(t *testing.T) {
 	svc := newService(t)
-	if _, err := svc.CreateProfile(CreateProfileInput{Name: "a", Host: "h", Username: "u"}); err != nil {
+	if _, err := svc.CreateProfile(CreateProfileInput{Name: "a", Host: "h", Username: "u", Env: "dev"}); err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
 	list, err := svc.ListProfiles()
@@ -111,5 +118,19 @@ func TestListProfiles(t *testing.T) {
 	}
 	if len(list) != 1 {
 		t.Fatalf("len(list) = %d, want 1", len(list))
+	}
+}
+
+func TestCreateProfileRequiresEnv(t *testing.T) {
+	svc := newService(t)
+	if _, err := svc.CreateProfile(CreateProfileInput{Name: "n", Host: "h", Username: "u"}); err == nil {
+		t.Fatal("missing env must error")
+	}
+}
+
+func TestCreateProfileRejectsUnknownEnv(t *testing.T) {
+	svc := newService(t)
+	if _, err := svc.CreateProfile(CreateProfileInput{Name: "n", Host: "h", Username: "u", Env: "canary"}); err == nil {
+		t.Fatal("unknown env must error")
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"sort"
 	"strconv"
@@ -33,6 +34,13 @@ type Store interface {
 	Delete(id string) error
 }
 
+// EnvLookup is the narrow view of the environments registry the SSH service
+// needs to validate a profile's env tag. Declared here (the consumer), not by
+// internal/environments — README.md "Accept interfaces, return structs".
+type EnvLookup interface {
+	Exists(name string) bool
+}
+
 // metadata is the plaintext, non-sensitive SSH connection metadata.
 type metadata struct {
 	Name               string `json:"name"`
@@ -41,6 +49,7 @@ type metadata struct {
 	Username           string `json:"username"`
 	AuthMethod         string `json:"auth_method"`
 	HostKeyFingerprint string `json:"host_key_fingerprint"`
+	Env                string `json:"env"`
 }
 
 // ProfileSummary is an SSH profile without the (encrypted) secret.
@@ -52,6 +61,7 @@ type ProfileSummary struct {
 	Username           string `json:"username"`
 	AuthMethod         string `json:"auth_method"`
 	HostKeyFingerprint string `json:"host_key_fingerprint"`
+	Env                string `json:"env"`
 }
 
 type CreateProfileInput struct {
@@ -63,6 +73,7 @@ type CreateProfileInput struct {
 	// Secret is the password (auth_method "password") or the private key PEM
 	// (auth_method "key").
 	Secret string `json:"secret"`
+	Env    string `json:"env"`
 }
 
 type CommandResult struct {
@@ -71,14 +82,16 @@ type CommandResult struct {
 
 type Service struct {
 	store       Store
+	envs        EnvLookup
 	forwardMu   sync.Mutex
 	forwards    map[string]*forwardSession
 	forwardDial func(context.Context, string, string) (forwardingClient, error)
 }
 
-func NewService(store Store) *Service {
+func NewService(store Store, envs EnvLookup) *Service {
 	service := &Service{
 		store:    store,
+		envs:     envs,
 		forwards: make(map[string]*forwardSession),
 	}
 	service.forwardDial = func(ctx context.Context, id string, passphrase string) (forwardingClient, error) {
@@ -97,6 +110,12 @@ func (s *Service) CreateProfile(input CreateProfileInput) (ProfileSummary, error
 	if input.Username == "" {
 		return ProfileSummary{}, errors.New("username is required")
 	}
+	if input.Env == "" {
+		return ProfileSummary{}, errors.New("env is required")
+	}
+	if !s.envs.Exists(input.Env) {
+		return ProfileSummary{}, fmt.Errorf("unknown env tag %q", input.Env)
+	}
 	if input.Port == 0 {
 		input.Port = 22
 	}
@@ -113,6 +132,7 @@ func (s *Service) CreateProfile(input CreateProfileInput) (ProfileSummary, error
 		Port:       input.Port,
 		Username:   input.Username,
 		AuthMethod: input.AuthMethod,
+		Env:        input.Env,
 	})
 	if err != nil {
 		return ProfileSummary{}, err
@@ -327,5 +347,6 @@ func summaryFromRecord(record vaultitem.Record) (ProfileSummary, error) {
 		Username:           meta.Username,
 		AuthMethod:         meta.AuthMethod,
 		HostKeyFingerprint: meta.HostKeyFingerprint,
+		Env:                meta.Env,
 	}, nil
 }

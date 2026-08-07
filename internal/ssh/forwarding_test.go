@@ -95,6 +95,7 @@ func TestStartLocalForwardProxiesAndStops(t *testing.T) {
 		Username:   "developer",
 		AuthMethod: AuthPassword,
 		Secret:     "password",
+		Env:        "dev",
 	})
 	if err != nil {
 		t.Fatalf("CreateProfile: %v", err)
@@ -163,6 +164,7 @@ func TestStartRemoteForwardDialsLocalTarget(t *testing.T) {
 		Username:   "developer",
 		AuthMethod: AuthPassword,
 		Secret:     "password",
+		Env:        "dev",
 	})
 	if err != nil {
 		t.Fatalf("CreateProfile: %v", err)

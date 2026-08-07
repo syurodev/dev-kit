@@ -37,6 +37,7 @@ func TestSSHIntegration(t *testing.T) {
 		Username:   envOr("DEVKIT_SSH_USER", envOr("USER", "ubuntu")),
 		AuthMethod: AuthKey,
 		Secret:     string(key),
+		Env:        "dev",
 	})
 	if err != nil {
 		t.Fatalf("CreateProfile: %v", err)
