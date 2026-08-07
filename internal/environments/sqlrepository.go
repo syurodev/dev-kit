@@ -38,8 +38,10 @@ func boolToInt(v bool) int {
 
 const selectTagColumns = "SELECT id, name, requires_confirmation, is_builtin, locked FROM env_tags"
 
+const listTagsQuery = selectTagColumns + " ORDER BY name"
+
 func (r *SQLRepository) List() ([]Tag, error) {
-	rows, err := r.db.QueryContext(context.Background(), selectTagColumns)
+	rows, err := r.db.QueryContext(context.Background(), listTagsQuery)
 	if err != nil {
 		return nil, err
 	}

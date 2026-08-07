@@ -104,6 +104,7 @@ internal/
   crypto/            Primitives: XChaCha20-Poly1305 AEAD, Argon2id KDF, versioned envelope
   vault/             Master-password keyring + in-memory DEK (seal/open)
   vaultitem/         Vault-item substrate: Record + Repository (memory/SQL) + seal/open + schema
+  environments/      Env tag registry (dev/stg/prod + custom) + Repository (memory/SQL)
   notes/             Notes module
   database/          Database-connection module (pgx)
   ssh/               SSH module (profiles, host keys, port forwarding)

@@ -61,6 +61,12 @@ func TestLayering(t *testing.T) {
 		pkg("environments"): {
 			pkg("ssh"), pkg("database"), pkg("bridge"), pkg("app"),
 		},
+		// ssh/database must never import environments directly — this is the
+		// central design decision behind their locally-declared EnvLookup
+		// interfaces ("accept interfaces, return structs"), not just a
+		// preference, so it is pinned the same way vaultitem's boundary is.
+		pkg("ssh"):      {pkg("environments")},
+		pkg("database"): {pkg("environments")},
 		// storage is the generic DB kernel; the sync persistence adapter builds on
 		// it, never the reverse.
 		pkg("storage"): {pkg("syncstore")},

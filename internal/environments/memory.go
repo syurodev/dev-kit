@@ -2,6 +2,7 @@ package environments
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 )
 
@@ -33,6 +34,7 @@ func (r *MemoryRepository) List() ([]Tag, error) {
 	for _, tag := range r.tags {
 		out = append(out, tag)
 	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
 }
 

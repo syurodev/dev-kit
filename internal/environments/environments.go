@@ -37,6 +37,10 @@ type Repository interface {
 	Get(name string) (Tag, error)
 	GetByID(id string) (Tag, error)
 	Create(tag Tag) error
+	// Update persists only RequiresConfirmation for the tag at ID — Name,
+	// IsBuiltin, and Locked are immutable after creation. Callers (only
+	// Service.UpdateTag today) must not rely on Update changing any other
+	// field.
 	Update(tag Tag) error
 	Delete(id string) error
 }
@@ -96,12 +100,16 @@ func (s *Service) UpdateTag(id string, requiresConfirmation bool) (Tag, error) {
 // DeleteTag removes a custom tag. Builtin tags (dev/stg/prod) are never
 // deletable, and locked tags (prod) are rejected the same way.
 //
-// ponytail: no "tag in use by a profile" guard — a later task wires an
-// EnvLookup.Exists() check into internal/ssh and internal/database that will
-// fail closed to RequiresConfirmation=true for a profile referencing a
-// deleted tag, so a stale reference cannot silently relax confirmation
-// policy. Add a cross-service in-use check when MCP actually reads env
-// policy and the UX cost of a blocked delete matters.
+// ponytail: no "tag in use by a profile" guard. internal/ssh and
+// internal/database validate EnvLookup.Exists() only at profile creation
+// time — deleting a tag afterward leaves any referencing profile with a
+// dangling env name, and nothing here re-validates it. There is currently no
+// reader of RequiresConfirmation anywhere in this codebase, so this is not
+// yet a live policy gap, but it means whoever wires the future MCP
+// confirmation gate MUST treat an unresolvable env name as
+// RequiresConfirmation=true (fail closed) at read time — do not assume this
+// package guarantees that. Add a cross-service in-use check on delete when
+// that gate exists and the UX cost of a blocked delete matters.
 func (s *Service) DeleteTag(id string) error {
 	tag, err := s.repo.GetByID(id)
 	if err != nil {
