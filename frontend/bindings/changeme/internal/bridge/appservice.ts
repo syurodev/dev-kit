@@ -7,13 +7,16 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
-import * as database$0 from "../services/database/models.js";
+import * as database$0 from "../database/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
-import * as notes$0 from "../services/notes/models.js";
+import * as environments$0 from "../environments/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
-import * as ssh$0 from "../services/ssh/models.js";
+import * as notes$0 from "../notes/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as ssh$0 from "../ssh/models.js";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -37,6 +40,22 @@ export function DBQuery(id: string, sql: string): $CancellablePromise<database$0
 
 export function DBTestConnection(id: string): $CancellablePromise<void> {
     return $Call.ByID(3943270391, id);
+}
+
+export function EnvCreateTag(name: string, requiresConfirmation: boolean): $CancellablePromise<environments$0.Tag> {
+    return $Call.ByID(2924483096, name, requiresConfirmation);
+}
+
+export function EnvDeleteTag(id: string): $CancellablePromise<void> {
+    return $Call.ByID(2083511037, id);
+}
+
+export function EnvListTags(): $CancellablePromise<environments$0.Tag[] | null> {
+    return $Call.ByID(1564579597);
+}
+
+export function EnvUpdateTag(id: string, requiresConfirmation: boolean): $CancellablePromise<environments$0.Tag> {
+    return $Call.ByID(3882344987, id, requiresConfirmation);
 }
 
 export function ExecuteCommand(request: $models.ExecuteCommandRequest): $CancellablePromise<any> {

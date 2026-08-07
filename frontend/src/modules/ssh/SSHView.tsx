@@ -14,6 +14,7 @@ import {
   type SSHForwardDirection,
   type SSHProfile,
 } from "../../bridge/ssh";
+import { listEnvTags, type EnvTag } from "../../bridge/environments";
 import { errorMessage } from "../../bridge/errors";
 
 const emptyForm = {
@@ -23,11 +24,13 @@ const emptyForm = {
   username: "",
   authMethod: "password",
   secret: "",
+  env: "dev",
 };
 
 export function SSHView() {
   const [profiles, setProfiles] = useState<SSHProfile[]>([]);
   const [forwards, setForwards] = useState<SSHForward[]>([]);
+  const [envTags, setEnvTags] = useState<EnvTag[]>([]);
   const [form, setForm] = useState({ ...emptyForm });
   const [selectedId, setSelectedId] = useState("");
   const [command, setCommand] = useState("echo hello from $(hostname)");
@@ -44,12 +47,14 @@ export function SSHView() {
 
   async function refresh() {
     try {
-      const [list, activeForwards] = await Promise.all([
+      const [list, activeForwards, tags] = await Promise.all([
         listSSHProfiles(),
         listSSHForwards(),
+        listEnvTags(),
       ]);
       setProfiles(list);
       setForwards(activeForwards);
+      setEnvTags(tags);
       if (!selectedId && list.length > 0) {
         setSelectedId(list[0].id);
       }
@@ -209,6 +214,17 @@ export function SSHView() {
           value={form.secret}
           onChange={(e) => setForm({ ...form, secret: e.target.value })}
         />
+        <select
+          aria-label="ssh-env"
+          value={form.env}
+          onChange={(e) => setForm({ ...form, env: e.target.value })}
+        >
+          {envTags.map((tag) => (
+            <option key={tag.id} value={tag.name}>
+              {tag.name}
+            </option>
+          ))}
+        </select>
         <button type="button" onClick={onCreate}>
           Save connection
         </button>

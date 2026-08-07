@@ -17,6 +17,7 @@ export interface CreateProfileInput {
      * (auth_method "key").
      */
     "secret": string;
+    "env": string;
 }
 
 /**
@@ -59,4 +60,5 @@ export interface ProfileSummary {
     "username": string;
     "auth_method": string;
     "host_key_fingerprint": string;
+    "env": string;
 }

@@ -3,7 +3,7 @@
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
-import * as time$0 from "../../../../time/models.js";
+import * as time$0 from "../../../time/models.js";
 
 /**
  * Note is the decrypted form returned to the caller.

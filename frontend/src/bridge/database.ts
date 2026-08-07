@@ -19,6 +19,7 @@ export type CreateProfileInput = {
   username: string;
   password: string;
   sslMode: string;
+  env: string;
 };
 
 export type QueryResult = {
@@ -65,6 +66,7 @@ export function createProfile(input: CreateProfileInput): Promise<ConnectionProf
       username: input.username,
       password: input.password,
       ssl_mode: input.sslMode,
+      env: input.env,
     });
     return toProfile(created);
   });

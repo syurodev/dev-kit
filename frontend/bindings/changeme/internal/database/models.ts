@@ -9,6 +9,7 @@ export interface CreateProfileInput {
     "username": string;
     "password": string;
     "ssl_mode": string;
+    "env": string;
 }
 
 /**
@@ -22,6 +23,7 @@ export interface ProfileSummary {
     "database": string;
     "username": string;
     "ssl_mode": string;
+    "env": string;
 }
 
 export interface QueryResult {

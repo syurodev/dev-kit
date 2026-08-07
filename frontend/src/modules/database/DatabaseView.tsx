@@ -8,6 +8,7 @@ import {
   type ConnectionProfile,
   type QueryResult,
 } from "../../bridge/database";
+import { listEnvTags, type EnvTag } from "../../bridge/environments";
 import { errorMessage } from "../../bridge/errors";
 
 const emptyForm = {
@@ -18,10 +19,12 @@ const emptyForm = {
   username: "",
   password: "",
   sslMode: "disable",
+  env: "dev",
 };
 
 export function DatabaseView() {
   const [profiles, setProfiles] = useState<ConnectionProfile[]>([]);
+  const [envTags, setEnvTags] = useState<EnvTag[]>([]);
   const [form, setForm] = useState({ ...emptyForm });
   const [selectedId, setSelectedId] = useState("");
   const [sql, setSql] = useState("select 1 as n, 'hello' as greeting");
@@ -31,8 +34,9 @@ export function DatabaseView() {
 
   async function refresh() {
     try {
-      const list = await listProfiles();
+      const [list, tags] = await Promise.all([listProfiles(), listEnvTags()]);
       setProfiles(list);
+      setEnvTags(tags);
       if (!selectedId && list.length > 0) {
         setSelectedId(list[0].id);
       }
@@ -124,6 +128,17 @@ export function DatabaseView() {
           value={form.password}
           onChange={(e) => setForm({ ...form, password: e.target.value })}
         />
+        <select
+          aria-label="db-env"
+          value={form.env}
+          onChange={(e) => setForm({ ...form, env: e.target.value })}
+        >
+          {envTags.map((tag) => (
+            <option key={tag.id} value={tag.name}>
+              {tag.name}
+            </option>
+          ))}
+        </select>
         <button type="button" onClick={onCreate}>
           Save connection
         </button>

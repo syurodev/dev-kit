@@ -18,6 +18,7 @@ export type CreateSSHProfileInput = {
   username: string;
   authMethod: string;
   secret: string;
+  env: string;
 };
 
 export type SSHForwardDirection = "local" | "remote";
@@ -71,6 +72,7 @@ export function createSSHProfile(input: CreateSSHProfileInput): Promise<SSHProfi
       username: input.username,
       auth_method: input.authMethod,
       secret: input.secret,
+      env: input.env,
     });
     return toProfile(created);
   });
