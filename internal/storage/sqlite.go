@@ -26,6 +26,7 @@ const (
 	TableSyncLocalEntities  = "sync_local_entity_versions"
 	TableSyncLocalMutations = "sync_local_mutations"
 	TableSyncConflicts      = "sync_conflicts"
+	TableEnvTags            = "env_tags"
 )
 
 var chmodFile = os.Chmod
@@ -398,7 +399,54 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		},
 	}
 
-	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11})
+	m12 := Migration{
+		Version: 12,
+		Name:    "create env_tags with builtin seed",
+		Up: func(ctx context.Context) error {
+			if _, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE TABLE IF NOT EXISTS %s (
+					id TEXT PRIMARY KEY,
+					name TEXT NOT NULL UNIQUE,
+					requires_confirmation INTEGER NOT NULL,
+					is_builtin INTEGER NOT NULL,
+					locked INTEGER NOT NULL
+				)`, TableEnvTags,
+			)); err != nil {
+				return err
+			}
+			// Builtin seed: dev/stg start unlocked (editable), prod is always
+			// locked with requires_confirmation=1 — no UI, bridge, or MCP path may
+			// change that (enforced again in internal/environments.Service).
+			seed := []struct {
+				id                    string
+				name                  string
+				requiresConfirmation  bool
+				locked                bool
+			}{
+				{fmt.Sprintf("%024x", 1), "dev", false, false},
+				{fmt.Sprintf("%024x", 2), "stg", false, false},
+				{fmt.Sprintf("%024x", 3), "prod", true, true},
+			}
+			for _, tag := range seed {
+				requiresConfirmation, locked := 0, 0
+				if tag.requiresConfirmation {
+					requiresConfirmation = 1
+				}
+				if tag.locked {
+					locked = 1
+				}
+				if _, err := db.ExecContext(ctx, fmt.Sprintf(
+					"INSERT OR IGNORE INTO %s (id, name, requires_confirmation, is_builtin, locked) VALUES (?, ?, ?, ?, ?)",
+					TableEnvTags,
+				), tag.id, tag.name, requiresConfirmation, 1, locked); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	}
+
+	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12})
 	if err != nil {
 		return err
 	}

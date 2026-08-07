@@ -139,3 +139,60 @@ func TestMigrateIsIdempotent(t *testing.T) {
 		t.Fatalf("Migrate #2: %v", err)
 	}
 }
+
+func TestMigrateCreatesEnvTagsWithBuiltinSeed(t *testing.T) {
+	dir := t.TempDir()
+	db, err := Open(filepath.Join(dir, "devkit.db"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+
+	if err := Migrate(context.Background(), db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	rows, err := db.Query("SELECT name, requires_confirmation, is_builtin, locked FROM env_tags ORDER BY name")
+	if err != nil {
+		t.Fatalf("query env_tags: %v", err)
+	}
+	defer rows.Close()
+
+	type seeded struct {
+		name                                  string
+		requiresConfirmation, isBuiltin, locked int
+	}
+	var got []seeded
+	for rows.Next() {
+		var s seeded
+		if err := rows.Scan(&s.name, &s.requiresConfirmation, &s.isBuiltin, &s.locked); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		got = append(got, s)
+	}
+	want := []seeded{
+		{"dev", 0, 1, 0},
+		{"prod", 1, 1, 1},
+		{"stg", 0, 1, 0},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("env_tags rows = %+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("env_tags[%d] = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+
+	// Re-running Migrate must not duplicate or error (INSERT OR IGNORE + version guard).
+	if err := Migrate(context.Background(), db); err != nil {
+		t.Fatalf("second migrate: %v", err)
+	}
+	var count int
+	if err := db.QueryRow("SELECT COUNT(*) FROM env_tags").Scan(&count); err != nil {
+		t.Fatalf("count env_tags: %v", err)
+	}
+	if count != 3 {
+		t.Fatalf("env_tags row count after re-migrate = %d, want 3", count)
+	}
+}
