@@ -418,10 +418,10 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			// locked with requires_confirmation=1 — no UI, bridge, or MCP path may
 			// change that (enforced again in internal/environments.Service).
 			seed := []struct {
-				id                    string
-				name                  string
-				requiresConfirmation  bool
-				locked                bool
+				id                   string
+				name                 string
+				requiresConfirmation bool
+				locked               bool
 			}{
 				{fmt.Sprintf("%024x", 1), "dev", false, false},
 				{fmt.Sprintf("%024x", 2), "stg", false, false},

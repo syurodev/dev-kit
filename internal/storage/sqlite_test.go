@@ -159,7 +159,7 @@ func TestMigrateCreatesEnvTagsWithBuiltinSeed(t *testing.T) {
 	defer rows.Close()
 
 	type seeded struct {
-		name                                  string
+		name                                    string
 		requiresConfirmation, isBuiltin, locked int
 	}
 	var got []seeded
