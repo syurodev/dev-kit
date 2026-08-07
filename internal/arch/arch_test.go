@@ -55,6 +55,12 @@ func TestLayering(t *testing.T) {
 			pkg("notes"), pkg("database"), pkg("ssh"), pkg("tools"),
 			pkg("syncclient"), pkg("syncconflict"), pkg("bridge"), pkg("app"),
 		},
+		// environments is a shared registry substrate like vaultitem; ssh/database
+		// consume it through their own locally-declared EnvLookup interface, never
+		// the reverse.
+		pkg("environments"): {
+			pkg("ssh"), pkg("database"), pkg("bridge"), pkg("app"),
+		},
 		// storage is the generic DB kernel; the sync persistence adapter builds on
 		// it, never the reverse.
 		pkg("storage"): {pkg("syncstore")},
