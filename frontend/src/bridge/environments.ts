@@ -31,3 +31,27 @@ export function listEnvTags(): Promise<EnvTag[]> {
     return (list ?? []).map(toTag);
   });
 }
+
+export function createEnvTag(
+  name: string,
+  requiresConfirmation: boolean,
+): Promise<EnvTag> {
+  return callBridge(async () => {
+    const created = await AppService.EnvCreateTag(name, requiresConfirmation);
+    return toTag(created);
+  });
+}
+
+export function updateEnvTag(
+  id: string,
+  requiresConfirmation: boolean,
+): Promise<EnvTag> {
+  return callBridge(async () => {
+    const updated = await AppService.EnvUpdateTag(id, requiresConfirmation);
+    return toTag(updated);
+  });
+}
+
+export function deleteEnvTag(id: string): Promise<void> {
+  return callBridge(() => AppService.EnvDeleteTag(id) as Promise<void>);
+}

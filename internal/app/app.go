@@ -58,6 +58,15 @@ func RegisterBuiltins(container *Container) error {
 			Views:        []string{"sync.status"},
 			Capabilities: []string{"sync:manage"},
 		},
+		{
+			ID:           "settings",
+			Title:        "Settings",
+			Version:      "1.0.0",
+			APIVersion:   modules.CurrentAPIVersion,
+			Commands:     []string{},
+			Views:        []string{"settings.environments"},
+			Capabilities: []string{"env:read", "env:write"},
+		},
 	}
 
 	for _, manifest := range builtins {

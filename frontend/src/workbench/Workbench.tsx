@@ -13,12 +13,14 @@ import { notesModule } from "../modules/notes/manifest";
 import { databaseModule } from "../modules/database/manifest";
 import { sshModule } from "../modules/ssh/manifest";
 import { syncModule } from "../modules/sync/manifest";
+import { settingsModule } from "../modules/settings/manifest";
 
 registerModule(toolsModule);
 registerModule(notesModule);
 registerModule(databaseModule);
 registerModule(sshModule);
 registerModule(syncModule);
+registerModule(settingsModule);
 
 export function Workbench() {
   const modules = useMemo(() => listRegisteredModules(), []);
