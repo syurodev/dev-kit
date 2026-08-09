@@ -17,9 +17,15 @@ GUI (cgo) — `libgtk-4-dev` + `libwebkitgtk-6.0-dev`.
 | --- | --- |
 | Desktop dev (native window) | `task dev` |
 | Headless / server mode (HTTP, loopback only) | `task run:server` |
+| Production desktop build | `task build` |
 | Go tests | `go test ./internal/... ./cmd/...` |
+| Architecture layering gate | `go test ./internal/arch/` |
 | Two-device sync E2E | `go test ./cmd/mocksyncserver/` |
+| Go format check | `gofmt -l internal main.go` |
+| Go vet | `go vet -tags server ./...` |
 | Frontend build + typecheck | `cd frontend && bun run build` |
+| Frontend-only dev server (Vite, no Go backend) | `cd frontend && bun run dev` |
+| Regenerate Wails bindings (after Go bridge changes) | `wails3 generate bindings` |
 
 Cloud/CI setup and non-obvious run caveats are documented in `AGENTS.md`.
 
