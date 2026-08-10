@@ -83,6 +83,20 @@ func main() {
 	if startupResult.IssuerChanged {
 		_ = refreshStore.Delete()
 	}
+	cloudconfig.StartRefresh(context.Background(), cloudconfig.RefreshOptions{
+		ConfigDir: configDir,
+		FromEnv:   startupResult.FromEnv,
+		OnApply: func(update cloudconfig.ApplyUpdate) {
+			if update.Blocked != nil {
+				container.SyncBlocked = update.Blocked
+			} else if container.SyncBlocked == cloudconfig.ErrAppBelowMinimum {
+				container.SyncBlocked = nil
+			}
+			if update.IssuerChanged {
+				_ = refreshStore.Delete()
+			}
+		},
+	})
 	if startupResult.HasAuthConfig {
 		authService, err := auth.New(auth.Dependencies{
 			Config: startupResult.AuthConfig,
