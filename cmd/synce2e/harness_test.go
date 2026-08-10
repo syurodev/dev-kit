@@ -99,6 +99,15 @@ func newBootstrappedDevice(t *testing.T, baseURL, token string, vlt *vault.Servi
 	return device
 }
 
+func newBootstrappedDeviceWithTokenSource(t *testing.T, baseURL string, tokens syncclient.AccessTokenSource, vlt *vault.Service) *device {
+	t.Helper()
+	device := buildDevice(t, vlt)
+	if err := device.sync.ConnectWithTokenSource(context.Background(), baseURL, tokens); err != nil {
+		t.Fatalf("connect with token source: %v", err)
+	}
+	return device
+}
+
 func newEnrolledDevice(t *testing.T, baseURL, token string, authorizing *device, vlt *vault.Service) *device {
 	t.Helper()
 	device := buildDevice(t, vlt)
