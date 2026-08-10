@@ -26,9 +26,10 @@ type StartupResult struct {
 	AuthConfig    auth.Config
 	HasAuthConfig bool
 	FromEnv       bool
-	Blocked       error
-	Unavailable   bool
-	IssuerChanged bool
+	Blocked        error
+	Unavailable    bool
+	IssuerChanged  bool
+	StartupFetched bool
 }
 
 // SyncBlocked returns the error that should block AuthLogin and SyncConnect.
@@ -79,6 +80,7 @@ func ResolveStartup(ctx context.Context, opts StartupOptions) (StartupResult, er
 	fetched, fetchErr := fetch(fetchCtx, ProductionAPIBase, AppVersion, opts.Client)
 	switch {
 	case fetchErr == nil:
+		result.StartupFetched = true
 		if err := store.Save(fetched); err != nil {
 			return StartupResult{}, err
 		}

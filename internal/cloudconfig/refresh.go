@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/url"
 	"time"
+
+	"devkit/internal/auth"
 )
 
 const (
@@ -22,14 +24,17 @@ const (
 type ApplyUpdate struct {
 	Blocked       error
 	IssuerChanged bool
+	AuthConfig    auth.Config
+	HasAuthConfig bool
 }
 
 // RefreshOptions configures the background desktop config refresh loop.
 type RefreshOptions struct {
 	ConfigDir string
 	Client    *http.Client
-	FromEnv   bool
-	OnApply   func(ApplyUpdate)
+	FromEnv        bool
+	StartupFetched bool
+	OnApply        func(ApplyUpdate)
 
 	// PollInterval is the delay between connectivity checks while offline or
 	// after a successful refresh. Tests may shorten this.
@@ -53,7 +58,7 @@ func runRefreshLoop(ctx context.Context, opts RefreshOptions) {
 	opts = opts.withDefaults()
 	store := NewFileStore(opts.ConfigDir)
 
-	wasOffline := true
+	wasOffline := !opts.StartupFetched
 	for {
 		if err := ctx.Err(); err != nil {
 			return
@@ -140,7 +145,24 @@ func applyRefresh(snapshot Snapshot, cachedIssuer string, fromEnv bool) ApplyUpd
 	if !fromEnv && cachedIssuer != "" && !sameIssuer(cachedIssuer, snapshot.OIDCIssuer) {
 		update.IssuerChanged = true
 	}
+	if !fromEnv && update.Blocked == nil {
+		if cfg, ok := authConfigFromSnapshot(snapshot); ok {
+			update.AuthConfig = cfg
+			update.HasAuthConfig = true
+		}
+	}
 	return update
+}
+
+// ApplySyncBlocked merges a refresh apply outcome into the current block state.
+func ApplySyncBlocked(current, update error) error {
+	if update != nil {
+		return update
+	}
+	if errors.Is(current, ErrAppBelowMinimum) || errors.Is(current, ErrUnavailable) {
+		return nil
+	}
+	return current
 }
 
 func (opts RefreshOptions) withDefaults() RefreshOptions {

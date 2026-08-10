@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"devkit/internal/app"
@@ -71,7 +72,27 @@ func main() {
 	// The callback/browser boundary is composed here rather than in auth so the
 	// OIDC core remains independent of Wails and directly testable.
 	var openBrowser auth.BrowserOpener
+	var authMu sync.Mutex
 	refreshStore := auth.NewSystemRefreshTokenStore()
+	wireAuth := func(cfg auth.Config) error {
+		authService, err := auth.New(auth.Dependencies{
+			Config: cfg,
+			Store:  refreshStore,
+			OpenBrowser: func(url string) error {
+				if openBrowser == nil {
+					return auth.ErrAuthenticationFailed
+				}
+				return openBrowser(url)
+			},
+		})
+		if err != nil {
+			return err
+		}
+		authMu.Lock()
+		container.Auth = authService
+		authMu.Unlock()
+		return nil
+	}
 	startupResult, err := cloudconfig.ResolveStartup(context.Background(), cloudconfig.StartupOptions{
 		ConfigDir: configDir,
 		Timeout:   5 * time.Second,
@@ -84,34 +105,30 @@ func main() {
 		_ = refreshStore.Delete()
 	}
 	cloudconfig.StartRefresh(context.Background(), cloudconfig.RefreshOptions{
-		ConfigDir: configDir,
-		FromEnv:   startupResult.FromEnv,
+		ConfigDir:      configDir,
+		FromEnv:        startupResult.FromEnv,
+		StartupFetched: startupResult.StartupFetched,
 		OnApply: func(update cloudconfig.ApplyUpdate) {
-			if update.Blocked != nil {
-				container.SyncBlocked = update.Blocked
-			} else if container.SyncBlocked == cloudconfig.ErrAppBelowMinimum {
-				container.SyncBlocked = nil
-			}
+			container.SyncBlocked = cloudconfig.ApplySyncBlocked(container.SyncBlocked, update.Blocked)
 			if update.IssuerChanged {
 				_ = refreshStore.Delete()
+			}
+			if !startupResult.FromEnv && update.HasAuthConfig {
+				authMu.Lock()
+				needsAuth := container.Auth == nil
+				authMu.Unlock()
+				if needsAuth {
+					if err := wireAuth(update.AuthConfig); err != nil {
+						log.Printf("auth wiring failed: %v", err)
+					}
+				}
 			}
 		},
 	})
 	if startupResult.HasAuthConfig {
-		authService, err := auth.New(auth.Dependencies{
-			Config: startupResult.AuthConfig,
-			Store:  refreshStore,
-			OpenBrowser: func(url string) error {
-				if openBrowser == nil {
-					return auth.ErrAuthenticationFailed
-				}
-				return openBrowser(url)
-			},
-		})
-		if err != nil {
+		if err := wireAuth(startupResult.AuthConfig); err != nil {
 			log.Fatal(err) // keyring/deps failure only — not missing issuer
 		}
-		container.Auth = authService
 	}
 	outbox := syncstore.NewSQLOutbox(db)
 	if err := outbox.RecoverStaleSyncing(time.Now().UTC()); err != nil {

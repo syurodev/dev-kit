@@ -62,6 +62,9 @@ func TestRefreshUpdatesSnapshotAfterFailedFetch(t *testing.T) {
 	if applied.Blocked != nil {
 		t.Fatalf("blocked = %v", applied.Blocked)
 	}
+	if !applied.HasAuthConfig {
+		t.Fatal("expected auth config on successful refresh")
+	}
 }
 
 func TestRefreshRateLimitedBackoff(t *testing.T) {
@@ -132,5 +135,54 @@ func TestApplyRefreshBlocksBelowMinimum(t *testing.T) {
 	)
 	if update.Blocked != ErrAppBelowMinimum {
 		t.Fatalf("blocked = %v", update.Blocked)
+	}
+	if update.HasAuthConfig {
+		t.Fatal("auth config must not be provided when below minimum")
+	}
+}
+
+func TestApplyRefreshProvidesAuthConfig(t *testing.T) {
+	update := applyRefresh(
+		Snapshot{OIDCIssuer: "https://auth.example.test/realms/devkit", MinAppVersion: "0.0.1"},
+		"",
+		false,
+	)
+	if update.Blocked != nil {
+		t.Fatalf("blocked = %v", update.Blocked)
+	}
+	if !update.HasAuthConfig {
+		t.Fatal("expected auth config")
+	}
+	if update.AuthConfig.Issuer != "https://auth.example.test/realms/devkit" {
+		t.Fatalf("issuer = %q", update.AuthConfig.Issuer)
+	}
+}
+
+func TestApplySyncBlockedClearsUnavailable(t *testing.T) {
+	got := ApplySyncBlocked(ErrUnavailable, nil)
+	if got != nil {
+		t.Fatalf("blocked = %v", got)
+	}
+}
+
+func TestApplySyncBlockedClearsBelowMinimum(t *testing.T) {
+	got := ApplySyncBlocked(ErrAppBelowMinimum, nil)
+	if got != nil {
+		t.Fatalf("blocked = %v", got)
+	}
+}
+
+func TestApplySyncBlockedSetsBlocked(t *testing.T) {
+	got := ApplySyncBlocked(ErrUnavailable, ErrAppBelowMinimum)
+	if got != ErrAppBelowMinimum {
+		t.Fatalf("blocked = %v", got)
+	}
+}
+
+func TestApplySyncBlockedPreservesOtherErrors(t *testing.T) {
+	other := errors.New("other")
+	got := ApplySyncBlocked(other, nil)
+	if got != other {
+		t.Fatalf("blocked = %v", got)
 	}
 }
