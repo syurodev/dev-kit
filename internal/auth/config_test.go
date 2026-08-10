@@ -71,3 +71,13 @@ func TestLoadConfigFromEnvHonorsURLOverrides(t *testing.T) {
 		t.Fatalf("client/scope override failed")
 	}
 }
+
+func TestConfigFromOIDCRejectsHTTPIssuer(t *testing.T) {
+	_, err := ConfigFromOIDC("http://auth.example.test/realms/devkit", "", "", "", "")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if errors.Is(err, ErrOIDCConfigRequired) {
+		t.Fatal("http issuer should be validation error, not missing-config")
+	}
+}

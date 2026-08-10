@@ -24,16 +24,33 @@ func LoadConfigFromEnv() (Config, error) {
 	if issuer == "" {
 		return Config{}, ErrOIDCConfigRequired
 	}
-	clientID := strings.TrimSpace(os.Getenv(envOIDCClientID))
+	return ConfigFromOIDC(
+		issuer,
+		os.Getenv(envOIDCClientID),
+		os.Getenv(envOIDCScopes),
+		os.Getenv(envOIDCAuthURL),
+		os.Getenv(envOIDCTokenURL),
+	)
+}
+
+// ConfigFromOIDC builds a validated auth.Config from explicit OIDC settings.
+// Empty clientID and scopes receive production defaults; empty auth/token URLs
+// are derived from the issuer using the Keycloak path convention.
+func ConfigFromOIDC(issuer, clientID, scopes, authURL, tokenURL string) (Config, error) {
+	issuer = strings.TrimSpace(issuer)
+	if issuer == "" {
+		return Config{}, ErrOIDCConfigRequired
+	}
+	clientID = strings.TrimSpace(clientID)
 	if clientID == "" {
 		clientID = "devkit-desktop"
 	}
-	scope := strings.TrimSpace(os.Getenv(envOIDCScopes))
+	scope := strings.TrimSpace(scopes)
 	if scope == "" {
 		scope = "openid profile email roles"
 	}
-	authURL := strings.TrimSpace(os.Getenv(envOIDCAuthURL))
-	tokenURL := strings.TrimSpace(os.Getenv(envOIDCTokenURL))
+	authURL = strings.TrimSpace(authURL)
+	tokenURL = strings.TrimSpace(tokenURL)
 	if authURL == "" {
 		authURL = strings.TrimRight(issuer, "/") + "/protocol/openid-connect/auth"
 	}
