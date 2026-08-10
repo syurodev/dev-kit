@@ -117,7 +117,7 @@ func main() {
 				authMu.Lock()
 				needsAuth := container.Auth == nil
 				authMu.Unlock()
-				if needsAuth {
+				if needsAuth || update.IssuerChanged {
 					if err := wireAuth(update.AuthConfig); err != nil {
 						log.Printf("auth wiring failed: %v", err)
 					}

@@ -141,6 +141,20 @@ func TestApplyRefreshBlocksBelowMinimum(t *testing.T) {
 	}
 }
 
+func TestApplyRefreshIssuerChangeProvidesAuthConfig(t *testing.T) {
+	update := applyRefresh(
+		Snapshot{OIDCIssuer: "https://new.example.test/realms/devkit", MinAppVersion: "0.0.1"},
+		"https://old.example.test/realms/devkit",
+		false,
+	)
+	if !update.IssuerChanged {
+		t.Fatal("expected issuer change")
+	}
+	if !update.HasAuthConfig {
+		t.Fatal("expected auth config for re-wire on issuer change")
+	}
+}
+
 func TestApplyRefreshProvidesAuthConfig(t *testing.T) {
 	update := applyRefresh(
 		Snapshot{OIDCIssuer: "https://auth.example.test/realms/devkit", MinAppVersion: "0.0.1"},
