@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"embed"
+	"errors"
 	"log"
 	"os"
 	"path/filepath"
@@ -70,20 +71,25 @@ func main() {
 	// The callback/browser boundary is composed here rather than in auth so the
 	// OIDC core remains independent of Wails and directly testable.
 	var openBrowser auth.BrowserOpener
-	authService, err := auth.New(auth.Dependencies{
-		Config: auth.ProductionConfig(),
-		Store:  auth.NewSystemRefreshTokenStore(),
-		OpenBrowser: func(url string) error {
-			if openBrowser == nil {
-				return auth.ErrAuthenticationFailed
-			}
-			return openBrowser(url)
-		},
-	})
-	if err != nil {
-		log.Fatal(err)
+	if cfg, err := auth.LoadConfigFromEnv(); err == nil {
+		authService, err := auth.New(auth.Dependencies{
+			Config: cfg,
+			Store:  auth.NewSystemRefreshTokenStore(),
+			OpenBrowser: func(url string) error {
+				if openBrowser == nil {
+					return auth.ErrAuthenticationFailed
+				}
+				return openBrowser(url)
+			},
+		})
+		if err != nil {
+			log.Fatal(err) // keyring/deps failure only — not missing issuer
+		}
+		container.Auth = authService
+	} else if !errors.Is(err, auth.ErrOIDCConfigRequired) {
+		log.Fatal(err) // invalid issuer URL etc. at startup is OK to fail loud
 	}
-	container.Auth = authService
+	// Missing issuer: leave container.Auth nil; local features still run.
 	outbox := syncstore.NewSQLOutbox(db)
 	if err := outbox.RecoverStaleSyncing(time.Now().UTC()); err != nil {
 		log.Fatal(err)
