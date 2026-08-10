@@ -146,7 +146,10 @@ func TestRunnerRetriesTransportErrorWithSafeReason(t *testing.T) {
 		t.Fatal(err)
 	}
 	transport := NewMemoryTransport(MemoryTransportConfig{ForcedError: FailureNetwork})
-	runner := NewRunner(outbox, transport, RunnerConfig{Clock: func() time.Time { return now }})
+	runner := NewRunner(outbox, transport, RunnerConfig{
+		Clock:                 func() time.Time { return now },
+		MaxInlinePushAttempts: 1,
+	})
 	report, err := runner.Run(context.Background(), 1)
 	if err == nil || report.Attempted != 1 || report.Retried != 1 {
 		t.Fatalf("run = %+v, err %v", report, err)
@@ -155,6 +158,46 @@ func TestRunnerRetriesTransportErrorWithSafeReason(t *testing.T) {
 	if change.Status != StatusPending || change.LastError != FailureNetwork || change.Attempts != 1 {
 		t.Fatalf("retry state = %+v", change)
 	}
+}
+
+func TestRunnerRetriesInlineOnTransientTransportError(t *testing.T) {
+	now := time.Unix(100, 0).UTC()
+	outbox := NewMemoryOutbox()
+	if err := outbox.Enqueue(validChange("inline", now)); err != nil {
+		t.Fatal(err)
+	}
+	transport := &countingTransport{
+		inner:          NewMemoryTransport(),
+		failuresBefore: 2,
+		reason:         FailureNetwork,
+	}
+	runner := NewRunner(outbox, transport, RunnerConfig{
+		Clock:                 func() time.Time { return now },
+		MaxInlinePushAttempts: 3,
+		InlinePushBackoff:     0,
+	})
+	report, err := runner.Run(context.Background(), 1)
+	if err != nil || report.Attempted != 1 || report.Sent != 1 || report.Retried != 0 {
+		t.Fatalf("run = %+v, err %v, push attempts = %d", report, err, transport.attempts)
+	}
+	if transport.attempts != 3 {
+		t.Fatalf("push attempts = %d, want 3", transport.attempts)
+	}
+}
+
+type countingTransport struct {
+	inner          Transport
+	failuresBefore int
+	reason         FailureReason
+	attempts       int
+}
+
+func (t *countingTransport) Push(ctx context.Context, operations []PushOperation) (PushResult, error) {
+	t.attempts++
+	if t.attempts <= t.failuresBefore {
+		return PushResult{}, TransportError{Reason: t.reason}
+	}
+	return t.inner.Push(ctx, operations)
 }
 
 func TestRunnerMarksConflict(t *testing.T) {

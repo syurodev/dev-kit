@@ -12,7 +12,11 @@ var (
 	ErrInvalidTransportResponse = errors.New("invalid sync transport response")
 )
 
-const defaultRetryDelay = time.Minute
+const (
+	defaultRetryDelay            = time.Minute
+	defaultMaxInlinePushAttempts = 3
+	defaultInlinePushBackoff     = 100 * time.Millisecond
+)
 
 // RunReport describes one local push attempt. It contains counts only and no
 // transport error text or payload data.
@@ -27,10 +31,12 @@ type RunReport struct {
 // not pull or apply remote data and is safe to use with either MemoryOutbox or
 // a persistent Outbox implementation.
 type Runner struct {
-	outbox     Outbox
-	transport  Transport
-	now        func() time.Time
-	retryDelay time.Duration
+	outbox                Outbox
+	transport             Transport
+	now                   func() time.Time
+	retryDelay            time.Duration
+	maxInlinePushAttempts int
+	inlinePushBackoff     time.Duration
 }
 
 // Coordinator is kept as a descriptive alias for callers that use the
@@ -42,17 +48,21 @@ type Coordinator = Runner
 // SyncingLease documents the outbox lease used to reclaim stale syncing rows;
 // the runner does not implement reclaim itself beyond passing now to MarkSyncing.
 type RunnerConfig struct {
-	Clock        func() time.Time
-	RetryDelay   time.Duration
-	SyncingLease time.Duration
+	Clock                 func() time.Time
+	RetryDelay            time.Duration
+	SyncingLease          time.Duration
+	MaxInlinePushAttempts int
+	InlinePushBackoff     time.Duration
 }
 
 func NewRunner(outbox Outbox, transport Transport, config ...RunnerConfig) *Runner {
 	runner := &Runner{
-		outbox:     outbox,
-		transport:  transport,
-		now:        func() time.Time { return time.Now().UTC() },
-		retryDelay: defaultRetryDelay,
+		outbox:                outbox,
+		transport:             transport,
+		now:                   func() time.Time { return time.Now().UTC() },
+		retryDelay:            defaultRetryDelay,
+		maxInlinePushAttempts: defaultMaxInlinePushAttempts,
+		inlinePushBackoff:     defaultInlinePushBackoff,
 	}
 	if len(config) > 0 {
 		if config[0].Clock != nil {
@@ -60,6 +70,12 @@ func NewRunner(outbox Outbox, transport Transport, config ...RunnerConfig) *Runn
 		}
 		if config[0].RetryDelay > 0 {
 			runner.retryDelay = config[0].RetryDelay
+		}
+		if config[0].MaxInlinePushAttempts > 0 {
+			runner.maxInlinePushAttempts = config[0].MaxInlinePushAttempts
+		}
+		if config[0].InlinePushBackoff > 0 {
+			runner.inlinePushBackoff = config[0].InlinePushBackoff
 		}
 	}
 	return runner
@@ -127,7 +143,7 @@ func (r *Runner) Run(ctx context.Context, limit int) (RunReport, error) {
 		return report, prepareErr
 	}
 
-	result, pushErr := r.transport.Push(ctx, operations)
+	result, pushErr := r.pushWithInlineRetry(ctx, operations)
 	if pushErr != nil {
 		report.Retried = len(ready)
 		if retryErr := r.retryAll(ready, classifyTransportError(pushErr), now); retryErr != nil {
@@ -265,6 +281,65 @@ func (r *Runner) retryAll(changes []Change, reason FailureReason, now time.Time)
 
 func (r *Runner) markRetry(change Change, reason FailureReason, now time.Time) error {
 	return r.outbox.MarkRetry(change.IdempotencyKey, now.Add(r.retryDelay), reason)
+}
+
+func (r *Runner) pushWithInlineRetry(ctx context.Context, operations []PushOperation) (PushResult, error) {
+	attempts := r.maxInlinePushAttempts
+	if attempts < 1 {
+		attempts = 1
+	}
+	var (
+		result  PushResult
+		pushErr error
+	)
+	for attempt := 1; attempt <= attempts; attempt++ {
+		result, pushErr = r.transport.Push(ctx, operations)
+		if pushErr == nil {
+			return result, nil
+		}
+		reason := classifyTransportError(pushErr)
+		if reason != FailureNetwork && reason != FailureTimeout {
+			return result, pushErr
+		}
+		if attempt == attempts {
+			break
+		}
+		if err := sleepWithContext(ctx, r.inlineBackoff(attempt)); err != nil {
+			return PushResult{}, err
+		}
+	}
+	return result, pushErr
+}
+
+func (r *Runner) inlineBackoff(attempt int) time.Duration {
+	if attempt < 1 {
+		attempt = 1
+	}
+	backoff := r.inlinePushBackoff
+	if backoff <= 0 {
+		backoff = defaultInlinePushBackoff
+	}
+	for i := 1; i < attempt; i++ {
+		backoff *= 2
+	}
+	return backoff
+}
+
+func sleepWithContext(ctx context.Context, delay time.Duration) error {
+	if delay <= 0 {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func classifyTransportError(err error) FailureReason {
