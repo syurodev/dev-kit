@@ -21,7 +21,7 @@ GUI (cgo) — `libgtk-4-dev` + `libwebkitgtk-6.0-dev`.
 | Go tests | `go test ./internal/... ./cmd/...` |
 | Architecture layering gate | `go test ./internal/arch/` |
 | Two-device sync E2E | `go test ./cmd/mocksyncserver/` |
-| Deployed sync matrix (opt-in Compose) | `DEVKIT_DEPLOYED_E2E_URL=… DEVKIT_DEPLOYED_E2E_TOKEN=… go test ./cmd/synce2e/ -count=1` |
+| Deployed sync matrix (opt-in Compose) | `set -a; . .superpowers/sdd/deployed-e2e.env; set +a; go test ./cmd/synce2e/ -count=1 -timeout 15m` |
 | Go format check | `gofmt -l internal main.go` |
 | Go vet | `go vet -tags server ./...` |
 | Frontend build + typecheck | `cd frontend && bun run build` |

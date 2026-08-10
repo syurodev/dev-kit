@@ -13,6 +13,7 @@ import (
 
 func TestG2PushRetriesWithoutDuplicateLog(t *testing.T) {
 	upstream, token := requireDeployed(t)
+	resetDeployedSyncState(t)
 	proxy := newSelectiveFaultProxy(t, upstream, 2)
 	vlt := newSharedVault(t)
 	a := newBootstrappedDevice(t, proxy, token, vlt)

@@ -53,7 +53,11 @@ a first-run "Create Master Password" or an "Unlock" gate before the workbench.
   `127.0.0.1:8787`); point the app's sync endpoint at it (plain HTTP is allowed on loopback).
 - Deployed sync matrix: `go test ./cmd/synce2e/` skips unless
   `DEVKIT_DEPLOYED_E2E_URL` and `DEVKIT_DEPLOYED_E2E_TOKEN` are set; targets the Compose
-  Gateway at `http://127.0.0.1:8082` typically.
+  Gateway at `http://127.0.0.1:8082` typically. Source
+  `.superpowers/sdd/deployed-e2e.env` (never commit tokens) then run
+  `go test ./cmd/synce2e/ -count=1 -timeout 15m`. Each gate resets Compose sync
+  tables via `docker exec devkit-db` so G1–G4 pass in one command. Regression:
+  `go test ./internal/arch/ ./internal/sync ./internal/syncclient ./cmd/mocksyncserver/ -count=1`.
 - Go format/vet: `gofmt -l internal main.go` / `go vet -tags server ./...`. (`build/ios/*.go`
   and `internal/crypto/keyring.go` are not gofmt-clean upstream; ignore them.)
 - Frontend typecheck + build: `cd frontend && bun run build` (runs `tsc` then `vite build`).

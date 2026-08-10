@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"os/exec"
-	"strings"
 	"testing"
 	"time"
 
@@ -11,25 +9,6 @@ import (
 	"changeme/internal/syncstore"
 	"changeme/internal/vaultitem"
 )
-
-func resetDeployedSyncState(t *testing.T) {
-	t.Helper()
-	cmd := exec.Command(
-		"docker", "exec", "devkit-db", "sh", "-c",
-		`psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "`+
-			`DELETE FROM audit_events; `+
-			`DELETE FROM device_enrollments; `+
-			`DELETE FROM entity_heads; `+
-			`DELETE FROM replication_log; `+
-			`DELETE FROM account_storage_usage; `+
-			`DELETE FROM devices; `+
-			`DELETE FROM accounts;"`,
-	)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("G3: reset deployed sync state: %v (%s)", err, strings.TrimSpace(string(output)))
-	}
-}
 
 // setupConflict brings two devices to the post-conflict state: both edit the
 // same note offline from v1, A wins the push, and B's next sync loses and

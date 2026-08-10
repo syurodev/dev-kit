@@ -4,6 +4,7 @@ import "testing"
 
 func TestG1MultiEntityPullApply(t *testing.T) {
 	baseURL, token := requireDeployed(t)
+	resetDeployedSyncState(t)
 	vlt := newSharedVault(t)
 	a := newBootstrappedDevice(t, baseURL, token, vlt)
 	b := newEnrolledDevice(t, baseURL, token, a, vlt)
