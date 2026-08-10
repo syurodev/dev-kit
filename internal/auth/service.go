@@ -46,26 +46,6 @@ type Config struct {
 	RefreshBefore    time.Duration
 }
 
-// ProductionConfig is intentionally explicit rather than environment driven:
-// accepting an arbitrary issuer would let a local UI value obtain a token for
-// an attacker-controlled authorization server.
-func ProductionConfig() Config {
-	issuer := "https://auth.synx.io.vn/realms/devkit"
-	return Config{
-		Issuer:           issuer,
-		AuthorizationURL: issuer + "/protocol/openid-connect/auth",
-		TokenURL:         issuer + "/protocol/openid-connect/token",
-		ClientID:         "devkit-desktop",
-		Scope:            "openid profile email roles",
-		// A fixed, explicit loopback URI keeps redirect validation strict across
-		// Keycloak deployments. PKCE still protects the authorization code.
-		CallbackAddress: defaultCallbackAddress,
-		CallbackPath:    defaultCallbackPath,
-		LoginTimeout:    3 * time.Minute,
-		RefreshBefore:   60 * time.Second,
-	}
-}
-
 // RefreshTokenStore persists only the rotating refresh token. Access tokens
 // stay in memory and are never written to SQLite, the frontend, or audit logs.
 type RefreshTokenStore interface {
