@@ -3,8 +3,8 @@ package notes
 import (
 	"testing"
 
-	"changeme/internal/vault"
-	"changeme/internal/vaultitem"
+	"devkit/internal/vault"
+	"devkit/internal/vaultitem"
 )
 
 func newService(t *testing.T) *Service {

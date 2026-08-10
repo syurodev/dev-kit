@@ -7,7 +7,7 @@ package environments
 import (
 	"errors"
 
-	"changeme/internal/vaultitem"
+	"devkit/internal/vaultitem"
 )
 
 var (

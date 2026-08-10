@@ -9,7 +9,7 @@ import (
 	"net/url"
 	"sort"
 
-	"changeme/internal/vaultitem"
+	"devkit/internal/vaultitem"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )

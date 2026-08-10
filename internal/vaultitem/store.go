@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"changeme/internal/crypto"
+	"devkit/internal/crypto"
 )
 
 // Store owns id generation, seal/open with per-type AAD binding, and plaintext

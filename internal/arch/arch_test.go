@@ -6,16 +6,16 @@ import (
 	"testing"
 )
 
-const modulePrefix = "changeme/"
+const modulePrefix = "devkit/"
 
-func pkg(name string) string { return "changeme/internal/" + name }
+func pkg(name string) string { return "devkit/internal/" + name }
 
-// importGraph returns each changeme package's direct in-module (production)
+// importGraph returns each devkit package's direct in-module (production)
 // imports. Test-only imports are intentionally excluded: tests may wire any
 // layer together, but production code must obey the architecture.
 func importGraph(t *testing.T) map[string][]string {
 	t.Helper()
-	out, err := exec.Command("go", "list", "-f", "{{.ImportPath}}\t{{join .Imports \" \"}}", "changeme/...").CombinedOutput()
+	out, err := exec.Command("go", "list", "-f", "{{.ImportPath}}\t{{join .Imports \" \"}}", "devkit/...").CombinedOutput()
 	if err != nil {
 		t.Fatalf("go list failed: %v\n%s", err, out)
 	}
@@ -87,13 +87,13 @@ func TestLayering(t *testing.T) {
 	}
 
 	// Nothing but main may import the bridge; nothing but the bridge (and main)
-	// may import app. main is the module-root package "changeme".
+	// may import app. main is the module-root package "devkit".
 	for from, imports := range graph {
 		for _, imp := range imports {
-			if imp == pkg("bridge") && from != "changeme" {
+			if imp == pkg("bridge") && from != "devkit" {
 				t.Errorf("layering violation: %s must not import bridge (top boundary)", short(from))
 			}
-			if imp == pkg("app") && from != "changeme" && from != pkg("bridge") {
+			if imp == pkg("app") && from != "devkit" && from != pkg("bridge") {
 				t.Errorf("layering violation: %s must not import app (only bridge/main may)", short(from))
 			}
 		}

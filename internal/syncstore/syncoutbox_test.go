@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"changeme/internal/storage"
-	replicationsync "changeme/internal/sync"
+	"devkit/internal/storage"
+	replicationsync "devkit/internal/sync"
 )
 
 func newSyncPersistence(t *testing.T) (*SQLOutbox, *sql.DB, *SQLCursorStore, func()) {

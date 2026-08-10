@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"changeme/internal/app"
-	"changeme/internal/auth"
-	"changeme/internal/capabilities"
-	"changeme/internal/permissions"
-	"changeme/internal/syncclient"
+	"devkit/internal/app"
+	"devkit/internal/auth"
+	"devkit/internal/capabilities"
+	"devkit/internal/permissions"
+	"devkit/internal/syncclient"
 )
 
 type fakeSyncService struct {

@@ -14,11 +14,11 @@ import (
 	"testing"
 	"time"
 
-	"changeme/internal/crypto"
-	"changeme/internal/storage"
-	replicationsync "changeme/internal/sync"
-	"changeme/internal/syncstore"
-	"changeme/internal/vaultitem"
+	"devkit/internal/crypto"
+	"devkit/internal/storage"
+	replicationsync "devkit/internal/sync"
+	"devkit/internal/syncstore"
+	"devkit/internal/vaultitem"
 )
 
 const (

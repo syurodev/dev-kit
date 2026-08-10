@@ -3,7 +3,7 @@ package bridge
 import (
 	"context"
 
-	"changeme/internal/notes"
+	"devkit/internal/notes"
 )
 
 func (s *AppService) NotesList() ([]notes.Summary, error) {

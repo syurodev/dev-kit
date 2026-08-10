@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	replicationsync "changeme/internal/sync"
+	replicationsync "devkit/internal/sync"
 )
 
 // ConflictRecord is the captured "theirs" side of a per-record sync conflict:

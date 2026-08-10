@@ -3,9 +3,9 @@ package app
 import (
 	"context"
 
-	"changeme/internal/commands"
-	"changeme/internal/modules"
-	"changeme/internal/tools"
+	"devkit/internal/commands"
+	"devkit/internal/modules"
+	"devkit/internal/tools"
 )
 
 func RegisterBuiltins(container *Container) error {

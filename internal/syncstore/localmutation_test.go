@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	replicationsync "changeme/internal/sync"
+	replicationsync "devkit/internal/sync"
 )
 
 func TestSQLLocalMutationStoreRejectsOversizedStoredSnapshotWithoutReturningIt(t *testing.T) {

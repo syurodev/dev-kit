@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	replicationsync "changeme/internal/sync"
+	replicationsync "devkit/internal/sync"
 )
 
 // LocalMutationIntent is an account-neutral local mutation captured in the

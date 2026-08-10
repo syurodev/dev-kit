@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"time"
 
-	"changeme/internal/crypto"
-	replicationsync "changeme/internal/sync"
+	"devkit/internal/crypto"
+	replicationsync "devkit/internal/sync"
 )
 
 const (

@@ -5,9 +5,9 @@ import (
 	"errors"
 	"strings"
 
-	"changeme/internal/apperrors"
-	"changeme/internal/syncclient"
-	"changeme/internal/vault"
+	"devkit/internal/apperrors"
+	"devkit/internal/syncclient"
+	"devkit/internal/vault"
 )
 
 const (

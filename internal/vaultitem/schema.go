@@ -6,7 +6,7 @@ import (
 	"errors"
 	"io"
 
-	"changeme/internal/crypto"
+	"devkit/internal/crypto"
 )
 
 const (

@@ -9,7 +9,7 @@ import (
 	"errors"
 	"time"
 
-	"changeme/internal/crypto"
+	"devkit/internal/crypto"
 )
 
 // ErrNotFound is returned by repositories when an id has no item.

@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"changeme/internal/audit"
-	"changeme/internal/permissions"
+	"devkit/internal/audit"
+	"devkit/internal/permissions"
 )
 
 func TestNewGatewayRejectsNilDependencies(t *testing.T) {

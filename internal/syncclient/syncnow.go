@@ -9,10 +9,10 @@ import (
 	"log/slog"
 	"time"
 
-	"changeme/internal/crypto"
-	replicationsync "changeme/internal/sync"
-	"changeme/internal/syncstore"
-	"changeme/internal/vaultitem"
+	"devkit/internal/crypto"
+	replicationsync "devkit/internal/sync"
+	"devkit/internal/syncstore"
+	"devkit/internal/vaultitem"
 )
 
 // SyncNow pushes the current outbox, pulls one bounded page, decrypts and

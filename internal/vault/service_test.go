@@ -3,7 +3,7 @@ package vault
 import (
 	"testing"
 
-	"changeme/internal/crypto"
+	"devkit/internal/crypto"
 )
 
 func TestVaultStartsNotConfigured(t *testing.T) {

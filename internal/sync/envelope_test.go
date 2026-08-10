@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"changeme/internal/crypto"
+	"devkit/internal/crypto"
 )
 
 type testVault struct {

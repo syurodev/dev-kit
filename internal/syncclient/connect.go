@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	replicationsync "changeme/internal/sync"
+	replicationsync "devkit/internal/sync"
 )
 
 // Connect performs the authenticated handshake using the stable local device.

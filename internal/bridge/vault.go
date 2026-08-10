@@ -3,8 +3,8 @@ package bridge
 import (
 	"context"
 
-	"changeme/internal/audit"
-	"changeme/internal/vault"
+	"devkit/internal/audit"
+	"devkit/internal/vault"
 )
 
 type VaultStatusDTO struct {

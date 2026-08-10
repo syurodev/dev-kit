@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"changeme/internal/app"
+	"devkit/internal/app"
 )
 
 func TestVaultBridgeAuditsSuccessfulLifecycleTransitionsWithoutCredentials(t *testing.T) {

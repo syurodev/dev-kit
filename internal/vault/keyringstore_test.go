@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"changeme/internal/crypto"
+	"devkit/internal/crypto"
 )
 
 func TestFileKeyringStoreRoundTrip(t *testing.T) {

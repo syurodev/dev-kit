@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"changeme/internal/syncclient"
+	"devkit/internal/syncclient"
 )
 
 const productionSyncGateway = "https://api.synx.io.vn"

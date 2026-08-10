@@ -44,3 +44,7 @@ coverage.out
 .docs/superpowers/
 .superpowers/.worktrees/
 .superpowers/
+.claude/
+.agent/
+.agents/
+.DS_Store

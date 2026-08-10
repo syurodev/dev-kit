@@ -3,7 +3,7 @@ package app
 import (
 	"testing"
 
-	"changeme/internal/permissions"
+	"devkit/internal/permissions"
 )
 
 func TestNewContainerWiresCoreServices(t *testing.T) {

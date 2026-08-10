@@ -8,11 +8,11 @@ import (
 	"strings"
 	"testing"
 
-	"changeme/internal/storage"
-	replicationsync "changeme/internal/sync"
-	"changeme/internal/syncstore"
-	"changeme/internal/vault"
-	"changeme/internal/vaultitem"
+	"devkit/internal/storage"
+	replicationsync "devkit/internal/sync"
+	"devkit/internal/syncstore"
+	"devkit/internal/vault"
+	"devkit/internal/vaultitem"
 )
 
 func newMutationStore(t *testing.T) (*sql.DB, *vaultitem.Store) {

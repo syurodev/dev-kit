@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"changeme/internal/crypto"
+	"devkit/internal/crypto"
 )
 
 func TestPushOperationExcludesLocalOutboxState(t *testing.T) {

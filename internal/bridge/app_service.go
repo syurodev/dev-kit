@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"changeme/internal/app"
-	"changeme/internal/tools"
+	"devkit/internal/app"
+	"devkit/internal/tools"
 )
 
 type AppService struct {

@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"changeme/internal/syncclient"
+	"devkit/internal/syncclient"
 )
 
 // SyncConflictDetailDTO carries the on-demand decrypted note text for a

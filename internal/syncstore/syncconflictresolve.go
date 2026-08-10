@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	replicationsync "changeme/internal/sync"
+	replicationsync "devkit/internal/sync"
 )
 
 // ErrConflictNotFound means no captured conflict side exists for the record.

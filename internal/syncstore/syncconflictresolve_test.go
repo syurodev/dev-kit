@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	replicationsync "changeme/internal/sync"
+	replicationsync "devkit/internal/sync"
 )
 
 // seedCapturedConflict drives a device into the state right after it lost a

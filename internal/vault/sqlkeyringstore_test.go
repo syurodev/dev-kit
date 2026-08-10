@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"changeme/internal/storage"
+	"devkit/internal/storage"
 )
 
 func TestSQLKeyringStorePersistsAcrossReopen(t *testing.T) {

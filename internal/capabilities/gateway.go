@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"reflect"
 
-	"changeme/internal/audit"
-	"changeme/internal/permissions"
+	"devkit/internal/audit"
+	"devkit/internal/permissions"
 )
 
 type Handler func(ctx context.Context) (any, error)

@@ -6,9 +6,9 @@ import (
 	"errors"
 	"testing"
 
-	"changeme/internal/crypto"
-	"changeme/internal/vault"
-	"changeme/internal/vaultitem"
+	"devkit/internal/crypto"
+	"devkit/internal/vault"
+	"devkit/internal/vaultitem"
 )
 
 type stubEnvLookup map[string]bool

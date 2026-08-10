@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"changeme/internal/environments"
-	"changeme/internal/storage"
+	"devkit/internal/environments"
+	"devkit/internal/storage"
 )
 
 func newTestRepo(t *testing.T) *environments.SQLRepository {

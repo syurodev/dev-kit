@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"changeme/internal/storage"
-	replicationsync "changeme/internal/sync"
-	"changeme/internal/syncclient"
-	"changeme/internal/syncstore"
-	"changeme/internal/vault"
-	"changeme/internal/vaultitem"
+	"devkit/internal/storage"
+	replicationsync "devkit/internal/sync"
+	"devkit/internal/syncclient"
+	"devkit/internal/syncstore"
+	"devkit/internal/vault"
+	"devkit/internal/vaultitem"
 )
 
 // This is the two-device end-to-end test the conflict-resolution design calls

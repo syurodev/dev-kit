@@ -1,5 +1,5 @@
 import { callBridge } from "./client";
-import { AppService } from "../../bindings/changeme/internal/bridge";
+import { AppService } from "../../bindings/devkit/internal/bridge";
 import type { ModuleMetadata } from "../modules/registry";
 
 export type ExecuteCommandRequest = {

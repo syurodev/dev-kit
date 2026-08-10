@@ -11,7 +11,7 @@ import (
 	"time"
 	"unicode"
 
-	replicationsync "changeme/internal/sync"
+	replicationsync "devkit/internal/sync"
 )
 
 const (

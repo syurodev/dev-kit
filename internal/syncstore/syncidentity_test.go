@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"changeme/internal/storage"
+	"devkit/internal/storage"
 )
 
 func openTestDB(t *testing.T) *sql.DB {

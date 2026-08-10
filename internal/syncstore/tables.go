@@ -1,6 +1,6 @@
 package syncstore
 
-import "changeme/internal/storage"
+import "devkit/internal/storage"
 
 // The database schema (table names + migrations) is owned by the storage
 // package, the single source of truth. syncstore aliases the sync-related

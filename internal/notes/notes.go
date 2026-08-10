@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"changeme/internal/vaultitem"
+	"devkit/internal/vaultitem"
 )
 
 const (

@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"changeme/internal/app"
-	"changeme/internal/capabilities"
-	"changeme/internal/modules"
-	"changeme/internal/permissions"
+	"devkit/internal/app"
+	"devkit/internal/capabilities"
+	"devkit/internal/modules"
+	"devkit/internal/permissions"
 )
 
 func newTestService(t *testing.T) *AppService {

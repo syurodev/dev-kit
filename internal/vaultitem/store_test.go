@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"changeme/internal/vault"
+	"devkit/internal/vault"
 )
 
 func newUnlockedStore(t *testing.T) *Store {

@@ -1,4 +1,4 @@
-import { AppService } from "../../bindings/changeme/internal/bridge";
+import { AppService } from "../../bindings/devkit/internal/bridge";
 import { callBridge } from "./client";
 
 export type SyncStatus = {

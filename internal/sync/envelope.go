@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"changeme/internal/crypto"
+	"devkit/internal/crypto"
 )
 
 const (

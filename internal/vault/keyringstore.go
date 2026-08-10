@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"changeme/internal/crypto"
+	"devkit/internal/crypto"
 )
 
 // MemoryKeyringStore keeps the keyring in memory. Useful for tests and

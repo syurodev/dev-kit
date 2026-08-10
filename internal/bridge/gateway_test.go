@@ -8,14 +8,14 @@ import (
 	"strings"
 	"testing"
 
-	"changeme/internal/app"
-	"changeme/internal/apperrors"
-	"changeme/internal/capabilities"
-	"changeme/internal/environments"
-	"changeme/internal/permissions"
-	sshservice "changeme/internal/ssh"
-	"changeme/internal/vault"
-	"changeme/internal/vaultitem"
+	"devkit/internal/app"
+	"devkit/internal/apperrors"
+	"devkit/internal/capabilities"
+	"devkit/internal/environments"
+	"devkit/internal/permissions"
+	sshservice "devkit/internal/ssh"
+	"devkit/internal/vault"
+	"devkit/internal/vaultitem"
 )
 
 func TestNotesBridgeUsesGateway(t *testing.T) {

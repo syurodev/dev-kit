@@ -6,7 +6,7 @@ import (
 	"errors"
 	"testing"
 
-	"changeme/internal/crypto"
+	"devkit/internal/crypto"
 )
 
 func TestValidateRecordSchemaAcceptsSupportedModuleRecords(t *testing.T) {

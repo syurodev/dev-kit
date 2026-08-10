@@ -3,7 +3,7 @@ package bridge
 import (
 	"context"
 
-	"changeme/internal/environments"
+	"devkit/internal/environments"
 )
 
 func (s *AppService) EnvListTags() ([]environments.Tag, error) {

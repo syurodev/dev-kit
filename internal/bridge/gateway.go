@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"changeme/internal/capabilities"
+	"devkit/internal/capabilities"
 )
 
 const invalidOpaqueID = "invalid"

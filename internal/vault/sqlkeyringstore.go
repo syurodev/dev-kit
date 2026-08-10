@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 
-	"changeme/internal/crypto"
-	"changeme/internal/storage"
+	"devkit/internal/crypto"
+	"devkit/internal/storage"
 )
 
 const keyringRowID = "keyring"

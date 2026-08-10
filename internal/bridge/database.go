@@ -3,7 +3,7 @@ package bridge
 import (
 	"context"
 
-	"changeme/internal/database"
+	"devkit/internal/database"
 )
 
 func (s *AppService) DBListProfiles() ([]database.ProfileSummary, error) {

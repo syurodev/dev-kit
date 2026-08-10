@@ -42,7 +42,7 @@ a first-run "Create Master Password" or an "Unlock" gate before the workbench.
 
 ### Tests / checks
 - Go (real code): `go test ./internal/... ./cmd/...`. Note: `go test ./...` will **fail** on
-  the root `changeme` package (needs `frontend/dist` and gtk4/webkit for the default GUI
+  the root `devkit` package (needs `frontend/dist` and gtk4/webkit for the default GUI
   build) and on `build/ios` scaffolding — that's expected, not a regression. Scope Go tests
   to `./internal/...` (and `./cmd/...`).
 - Architecture: `go test ./internal/arch/` fails on forbidden production imports (e.g.

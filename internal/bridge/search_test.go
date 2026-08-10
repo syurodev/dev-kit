@@ -4,11 +4,11 @@ import (
 	"errors"
 	"testing"
 
-	"changeme/internal/app"
-	"changeme/internal/apperrors"
-	"changeme/internal/capabilities"
-	"changeme/internal/database"
-	"changeme/internal/permissions"
+	"devkit/internal/app"
+	"devkit/internal/apperrors"
+	"devkit/internal/capabilities"
+	"devkit/internal/database"
+	"devkit/internal/permissions"
 )
 
 func TestVaultSearchReturnsCrossTypeHits(t *testing.T) {

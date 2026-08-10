@@ -3,7 +3,7 @@ package bridge
 import (
 	"testing"
 
-	"changeme/internal/app"
+	"devkit/internal/app"
 )
 
 func TestEnvListTagsReturnsBuiltinTags(t *testing.T) {

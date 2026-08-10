@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"changeme/internal/storage"
-	replicationsync "changeme/internal/sync"
-	"changeme/internal/vaultitem"
+	"devkit/internal/storage"
+	replicationsync "devkit/internal/sync"
+	"devkit/internal/vaultitem"
 )
 
 const testRemoteAccountID = "account-1"

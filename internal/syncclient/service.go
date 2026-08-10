@@ -14,8 +14,8 @@ import (
 	stdsync "sync"
 	"time"
 
-	replicationsync "changeme/internal/sync"
-	"changeme/internal/syncstore"
+	replicationsync "devkit/internal/sync"
+	"devkit/internal/syncstore"
 )
 
 const (
