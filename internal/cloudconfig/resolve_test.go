@@ -38,6 +38,9 @@ func TestResolveStartupEnvWinsOverCache(t *testing.T) {
 	if result.AuthConfig.Issuer != "https://env.example.test/realms/devkit" {
 		t.Fatalf("issuer = %q", result.AuthConfig.Issuer)
 	}
+	if result.IssuerChanged {
+		t.Fatal("env issuer wins; cache/fetch mismatch must not clear refresh store")
+	}
 }
 
 func TestResolveStartupUsesCacheWhenFetchFails(t *testing.T) {

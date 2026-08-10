@@ -83,7 +83,7 @@ func ResolveStartup(ctx context.Context, opts StartupOptions) (StartupResult, er
 			return StartupResult{}, err
 		}
 		activeSnapshot = fetched
-		if hadCache && cachedIssuer != "" && !sameIssuer(cachedIssuer, fetched.OIDCIssuer) {
+		if !result.FromEnv && hadCache && cachedIssuer != "" && !sameIssuer(cachedIssuer, fetched.OIDCIssuer) {
 			result.IssuerChanged = true
 		}
 	case hadCache:
