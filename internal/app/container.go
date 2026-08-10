@@ -65,6 +65,9 @@ type Container struct {
 	Sync         SyncService
 	Auth         AuthService
 	SyncConflict SyncConflictService
+	// SyncBlocked, when set, prevents AuthLogin and SyncConnect with a dedicated
+	// cloud-config or version-gate error mapped by the bridge.
+	SyncBlocked error
 }
 
 // NewContainer wires core services with in-memory stores, suitable for tests

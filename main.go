@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"embed"
-	"errors"
 	"log"
 	"os"
 	"path/filepath"
@@ -12,6 +11,7 @@ import (
 	"devkit/internal/app"
 	"devkit/internal/auth"
 	"devkit/internal/bridge"
+	"devkit/internal/cloudconfig"
 	"devkit/internal/environments"
 	"devkit/internal/servermode"
 
@@ -71,10 +71,22 @@ func main() {
 	// The callback/browser boundary is composed here rather than in auth so the
 	// OIDC core remains independent of Wails and directly testable.
 	var openBrowser auth.BrowserOpener
-	if cfg, err := auth.LoadConfigFromEnv(); err == nil {
+	refreshStore := auth.NewSystemRefreshTokenStore()
+	startupResult, err := cloudconfig.ResolveStartup(context.Background(), cloudconfig.StartupOptions{
+		ConfigDir: configDir,
+		Timeout:   5 * time.Second,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	container.SyncBlocked = startupResult.SyncBlocked()
+	if startupResult.IssuerChanged {
+		_ = refreshStore.Delete()
+	}
+	if startupResult.HasAuthConfig {
 		authService, err := auth.New(auth.Dependencies{
-			Config: cfg,
-			Store:  auth.NewSystemRefreshTokenStore(),
+			Config: startupResult.AuthConfig,
+			Store:  refreshStore,
 			OpenBrowser: func(url string) error {
 				if openBrowser == nil {
 					return auth.ErrAuthenticationFailed
@@ -86,10 +98,7 @@ func main() {
 			log.Fatal(err) // keyring/deps failure only — not missing issuer
 		}
 		container.Auth = authService
-	} else if !errors.Is(err, auth.ErrOIDCConfigRequired) {
-		log.Fatal(err) // invalid issuer URL etc. at startup is OK to fail loud
 	}
-	// Missing issuer: leave container.Auth nil; local features still run.
 	outbox := syncstore.NewSQLOutbox(db)
 	if err := outbox.RecoverStaleSyncing(time.Now().UTC()); err != nil {
 		log.Fatal(err)

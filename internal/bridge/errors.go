@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"devkit/internal/apperrors"
+	"devkit/internal/cloudconfig"
 	"devkit/internal/syncclient"
 	"devkit/internal/vault"
 )
@@ -57,6 +58,10 @@ func publicError(subject string, err error) *apperrors.AppError {
 	}
 	if subject == "builtin.sync" {
 		switch {
+		case errors.Is(err, cloudconfig.ErrUnavailable):
+			return apperrors.New(codeConnectionFailed, "Cloud configuration is unavailable. Connect to the internet once or set DEVKIT_OIDC_ISSUER.", true)
+		case errors.Is(err, cloudconfig.ErrAppBelowMinimum):
+			return apperrors.New(codeConnectionFailed, "This DevKit version is too old for Sync. Please update.", true)
 		case errors.Is(err, syncclient.ErrNotConnected):
 			return apperrors.New(codeConnectionFailed, "Sync is not connected.", true)
 		case errors.Is(err, syncclient.ErrSyncInProgress):

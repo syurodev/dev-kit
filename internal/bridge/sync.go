@@ -9,6 +9,13 @@ import (
 
 const productionSyncGateway = "https://api.synx.io.vn"
 
+func (s *AppService) syncDependencyErr() error {
+	if s.container.SyncBlocked != nil {
+		return s.container.SyncBlocked
+	}
+	return syncclient.ErrInvalidDependencies
+}
+
 // AuthStatusDTO deliberately omits all token material and refresh-token state.
 type AuthStatusDTO struct {
 	Authenticated bool      `json:"authenticated"`
@@ -94,7 +101,7 @@ func (s *AppService) AuthStatus() (AuthStatusDTO, error) {
 		"action": "auth_status",
 	}, func(context.Context) (any, error) {
 		if s.container.Auth == nil {
-			return nil, syncclient.ErrInvalidDependencies
+			return nil, s.syncDependencyErr()
 		}
 		status := s.container.Auth.Status()
 		return AuthStatusDTO{Authenticated: status.Authenticated, ExpiresAt: status.ExpiresAt}, nil
@@ -111,8 +118,11 @@ func (s *AppService) AuthLogin(ctx context.Context) (AuthStatusDTO, error) {
 	result, err := s.call(ctx, "builtin.sync", "sync:manage", "sync:login", map[string]any{
 		"action": "login",
 	}, func(callCtx context.Context) (any, error) {
+		if s.container.SyncBlocked != nil {
+			return nil, s.container.SyncBlocked
+		}
 		if s.container.Auth == nil {
-			return nil, syncclient.ErrInvalidDependencies
+			return nil, s.syncDependencyErr()
 		}
 		status, err := s.container.Auth.EnsureAuthenticated(callCtx)
 		if err != nil {
@@ -131,7 +141,7 @@ func (s *AppService) AuthLogout() error {
 		"action": "logout",
 	}, func(context.Context) (any, error) {
 		if s.container.Auth == nil {
-			return nil, syncclient.ErrInvalidDependencies
+			return nil, s.syncDependencyErr()
 		}
 		if s.container.Sync != nil {
 			s.container.Sync.Disconnect()
@@ -147,8 +157,11 @@ func (s *AppService) SyncConnect(ctx context.Context) error {
 	_, err := s.call(ctx, "builtin.sync", "sync:manage", "sync:connect", map[string]any{
 		"action": "connect",
 	}, func(callCtx context.Context) (any, error) {
+		if s.container.SyncBlocked != nil {
+			return nil, s.container.SyncBlocked
+		}
 		if s.container.Sync == nil || s.container.Auth == nil {
-			return nil, syncclient.ErrInvalidDependencies
+			return nil, s.syncDependencyErr()
 		}
 		if _, err := s.container.Auth.EnsureAuthenticated(callCtx); err != nil {
 			return nil, err
