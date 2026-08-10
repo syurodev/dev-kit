@@ -1,13 +1,19 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 
 	"changeme/internal/storage"
+	"changeme/internal/sync"
 	"changeme/internal/syncclient"
 	"changeme/internal/syncstore"
 	"changeme/internal/vault"
@@ -36,17 +42,17 @@ func newSharedVault(t *testing.T) *vault.Service {
 }
 
 type device struct {
-	repo      *vaultitem.SQLMutationRepository
-	items     *vaultitem.Store
-	sync      *syncclient.Service
-	resolver  *syncstore.SQLConflictResolver
-	conflicts *syncstore.SQLConflictStore
-	remote    *syncstore.SQLRemoteStore
+	localDeviceID string
+	repo          *vaultitem.SQLMutationRepository
+	items         *vaultitem.Store
+	sync          *syncclient.Service
+	resolver      *syncstore.SQLConflictResolver
+	conflicts     *syncstore.SQLConflictStore
+	remote        *syncstore.SQLRemoteStore
 }
 
-func newDevice(t *testing.T, baseURL, token, enrollmentToken string, vlt *vault.Service) *device {
+func buildDevice(t *testing.T, vlt *vault.Service) *device {
 	t.Helper()
-	_ = enrollmentToken
 	ctx := context.Background()
 	db, err := storage.Open(filepath.Join(t.TempDir(), "device.db"))
 	if err != nil {
@@ -56,9 +62,14 @@ func newDevice(t *testing.T, baseURL, token, enrollmentToken string, vlt *vault.
 	if err := storage.Migrate(ctx, db); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
+	identity := syncstore.NewSQLDeviceIdentityStore(db)
+	localDeviceID, err := identity.EnsureLocalDevice(ctx)
+	if err != nil {
+		t.Fatalf("ensure local device: %v", err)
+	}
 	repo := vaultitem.NewSQLMutationRepository(db)
-	sync, err := syncclient.New(syncclient.Dependencies{
-		DeviceIdentity: syncstore.NewSQLDeviceIdentityStore(db),
+	syncService, err := syncclient.New(syncclient.Dependencies{
+		DeviceIdentity: identity,
 		Cursors:        syncstore.NewSQLCursorStore(db),
 		Remote:         syncstore.NewSQLRemoteStore(db),
 		LocalMutations: syncstore.NewSQLLocalMutationStore(db),
@@ -68,17 +79,81 @@ func newDevice(t *testing.T, baseURL, token, enrollmentToken string, vlt *vault.
 	if err != nil {
 		t.Fatalf("new sync client: %v", err)
 	}
-	if err := sync.Connect(ctx, baseURL, token); err != nil {
+	return &device{
+		localDeviceID: localDeviceID,
+		repo:          repo,
+		items:         vaultitem.NewStore(repo, vlt),
+		sync:          syncService,
+		resolver:      syncstore.NewSQLConflictResolver(db),
+		conflicts:     syncstore.NewSQLConflictStore(db),
+		remote:        syncstore.NewSQLRemoteStore(db),
+	}
+}
+
+func newBootstrappedDevice(t *testing.T, baseURL, token string, vlt *vault.Service) *device {
+	t.Helper()
+	device := buildDevice(t, vlt)
+	if err := device.sync.Connect(context.Background(), baseURL, token); err != nil {
 		t.Fatalf("connect: %v", err)
 	}
-	return &device{
-		repo:      repo,
-		items:     vaultitem.NewStore(repo, vlt),
-		sync:      sync,
-		resolver:  syncstore.NewSQLConflictResolver(db),
-		conflicts: syncstore.NewSQLConflictStore(db),
-		remote:    syncstore.NewSQLRemoteStore(db),
+	return device
+}
+
+func newEnrolledDevice(t *testing.T, baseURL, token string, authorizing *device, vlt *vault.Service) *device {
+	t.Helper()
+	device := buildDevice(t, vlt)
+	enrollmentToken := enrollDevice(t, baseURL, token, authorizing.localDeviceID, device.localDeviceID)
+	if err := device.sync.ConnectWithEnrollment(context.Background(), baseURL, token, enrollmentToken); err != nil {
+		t.Fatalf("connect with enrollment: %v", err)
 	}
+	return device
+}
+
+func enrollDevice(t *testing.T, baseURL, bearer, authorizerDeviceID, targetDeviceID string) string {
+	t.Helper()
+	body, err := json.Marshal(struct {
+		TargetDeviceID string `json:"target_device_id"`
+	}{targetDeviceID})
+	if err != nil {
+		t.Fatalf("marshal enrollment request: %v", err)
+	}
+	target := strings.TrimRight(baseURL, "/") + "/v1/sync/devices/enrollments"
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodPost, target, bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("create enrollment request: %v", err)
+	}
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", "Bearer "+bearer)
+	request.Header.Set("X-DevKit-Device-ID", authorizerDeviceID)
+	request.Header.Set("X-DevKit-Sync-Protocol", strconv.FormatUint(uint64(sync.SyncProtocolVersion), 10))
+
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatalf("enrollment request failed: %v", err)
+	}
+	defer response.Body.Close()
+	payload, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+	if err != nil {
+		t.Fatalf("read enrollment response: %v", err)
+	}
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		t.Fatalf("enrollment request returned HTTP %d (body length %d)", response.StatusCode, len(payload))
+	}
+	var wire struct {
+		EnrollmentToken string `json:"enrollment_token"`
+		TargetDeviceID  string `json:"target_device_id"`
+	}
+	if err := json.Unmarshal(payload, &wire); err != nil {
+		t.Fatalf("decode enrollment response: %v", err)
+	}
+	if wire.EnrollmentToken == "" {
+		t.Fatal("enrollment response missing token")
+	}
+	if wire.TargetDeviceID != targetDeviceID {
+		t.Fatalf("enrollment target device = %q, want %q", wire.TargetDeviceID, targetDeviceID)
+	}
+	return wire.EnrollmentToken
 }
 
 func (d *device) createNote(t *testing.T, title, body string) string {

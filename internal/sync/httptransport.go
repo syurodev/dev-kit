@@ -18,6 +18,7 @@ import (
 const (
 	deviceHeader                = "X-DevKit-Device-ID"
 	protocolHeader              = "X-DevKit-Sync-Protocol"
+	enrollmentHeader            = "X-DevKit-Enrollment-Token"
 	maxHTTPRequestBytes         = 4 << 20
 	maxHTTPResponseBytes        = 4 << 20
 	maxOperationCiphertextBytes = 1 << 20
@@ -68,10 +69,18 @@ func NewHTTPAuthenticator(baseURL string, client *http.Client) (*HTTPAuthenticat
 	}, nil
 }
 
-// Authenticate calls the session handshake without putting credentials or
-// account identity in a request body. AccountID is accepted only from the
-// authenticated response and the returned device must match the local device.
+// Authenticate calls the session handshake without an enrollment token.
 func (a *HTTPAuthenticator) Authenticate(ctx context.Context, accessToken, localDeviceID string) (AuthSession, error) {
+	return a.authenticate(ctx, accessToken, localDeviceID, "")
+}
+
+// AuthenticateWithEnrollment calls the session handshake for a device that
+// requires a one-time enrollment token minted by an active device.
+func (a *HTTPAuthenticator) AuthenticateWithEnrollment(ctx context.Context, accessToken, localDeviceID, enrollmentToken string) (AuthSession, error) {
+	return a.authenticate(ctx, accessToken, localDeviceID, enrollmentToken)
+}
+
+func (a *HTTPAuthenticator) authenticate(ctx context.Context, accessToken, localDeviceID, enrollmentToken string) (AuthSession, error) {
 	if a == nil || a.baseURL == nil || a.client == nil {
 		return AuthSession{}, TransportError{Reason: FailureUnknown}
 	}
@@ -93,6 +102,9 @@ func (a *HTTPAuthenticator) Authenticate(ctx context.Context, accessToken, local
 	request.Header.Set("Authorization", "Bearer "+accessToken)
 	request.Header.Set(deviceHeader, localDeviceID)
 	request.Header.Set(protocolHeader, strconv.FormatUint(uint64(SyncProtocolVersion), 10))
+	if enrollmentToken != "" {
+		request.Header.Set(enrollmentHeader, enrollmentToken)
+	}
 
 	response, err := doHTTP(a.client, request)
 	if err != nil {

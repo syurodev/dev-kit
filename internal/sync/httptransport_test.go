@@ -66,6 +66,30 @@ func assertAuthHeaders(t *testing.T, request *http.Request) {
 	}
 }
 
+func TestAuthenticateWithEnrollmentSendsHeader(t *testing.T) {
+	saw := ""
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		saw = request.Header.Get("X-DevKit-Enrollment-Token")
+		writer.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(writer).Encode(sessionResponse{
+			AccountID: "acc",
+			DeviceID:  "dev-2",
+			ExpiresAt: time.Now().UTC().Add(time.Hour),
+		})
+	}))
+	defer server.Close()
+	authenticator, err := NewHTTPAuthenticator(server.URL, server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := authenticator.AuthenticateWithEnrollment(context.Background(), "tok", "dev-2", "enroll-secret"); err != nil {
+		t.Fatal(err)
+	}
+	if saw != "enroll-secret" {
+		t.Fatalf("enrollment header = %q", saw)
+	}
+}
+
 func TestHTTPAuthenticatorUsesServerAccountAndLocalDevice(t *testing.T) {
 	now := time.Unix(100, 0).UTC()
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {

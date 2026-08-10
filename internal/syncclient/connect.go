@@ -11,7 +11,16 @@ import (
 // Connect performs the authenticated handshake using the stable local device.
 // The account and final device identity are accepted only from AuthSession.
 func (s *Service) Connect(ctx context.Context, baseURL, accessToken string) error {
-	return s.connect(ctx, baseURL, staticAccessTokenSource{token: accessToken}, false)
+	return s.connect(ctx, baseURL, staticAccessTokenSource{token: accessToken}, false, "")
+}
+
+// ConnectWithEnrollment performs the authenticated handshake for a device that
+// requires a one-time enrollment token minted by an active device.
+func (s *Service) ConnectWithEnrollment(ctx context.Context, baseURL, accessToken, enrollmentToken string) error {
+	if enrollmentToken == "" {
+		return ErrConnectFailed
+	}
+	return s.connect(ctx, baseURL, staticAccessTokenSource{token: accessToken}, false, enrollmentToken)
 }
 
 // ConnectWithTokenSource establishes the server-authoritative session with a
@@ -21,10 +30,10 @@ func (s *Service) ConnectWithTokenSource(ctx context.Context, baseURL string, to
 	if tokens == nil {
 		return ErrConnectFailed
 	}
-	return s.connect(ctx, baseURL, tokens, true)
+	return s.connect(ctx, baseURL, tokens, true, "")
 }
 
-func (s *Service) connect(ctx context.Context, baseURL string, tokens AccessTokenSource, refreshPerRequest bool) error {
+func (s *Service) connect(ctx context.Context, baseURL string, tokens AccessTokenSource, refreshPerRequest bool, enrollmentToken string) error {
 	if s == nil {
 		return ErrInvalidDependencies
 	}
@@ -47,7 +56,7 @@ func (s *Service) connect(ctx context.Context, baseURL string, tokens AccessToke
 	if err != nil {
 		return safeStageError(ctx, ErrConnectFailed)
 	}
-	session, err := authenticator.Authenticate(ctx, accessToken, deviceID)
+	session, err := authenticateSession(ctx, authenticator, accessToken, deviceID, enrollmentToken)
 	if err != nil {
 		return safeConnectError(ctx, err)
 	}
@@ -93,6 +102,23 @@ func safeConnectError(ctx context.Context, cause error) error {
 		return ErrConnectServiceUnavailable
 	}
 	return ErrConnectFailed
+}
+
+func authenticateSession(
+	ctx context.Context,
+	authenticator replicationsync.Authenticator,
+	accessToken, deviceID, enrollmentToken string,
+) (replicationsync.AuthSession, error) {
+	if enrollmentToken != "" {
+		withEnrollment, ok := authenticator.(interface {
+			AuthenticateWithEnrollment(context.Context, string, string, string) (replicationsync.AuthSession, error)
+		})
+		if !ok {
+			return replicationsync.AuthSession{}, ErrConnectFailed
+		}
+		return withEnrollment.AuthenticateWithEnrollment(ctx, accessToken, deviceID, enrollmentToken)
+	}
+	return authenticator.Authenticate(ctx, accessToken, deviceID)
 }
 
 type staticAccessTokenSource struct {

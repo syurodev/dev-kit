@@ -196,6 +196,35 @@ func TestConnectClassifiesRejectedAuthenticationWithoutExposingResponse(t *testi
 	}
 }
 
+func TestConnectWithEnrollmentSendsEnrollmentHeader(t *testing.T) {
+	const enrollmentToken = "enroll-secret"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/sync/session" {
+			http.Error(w, "unexpected path", http.StatusNotFound)
+			return
+		}
+		if got := r.Header.Get("X-DevKit-Enrollment-Token"); got != enrollmentToken {
+			http.Error(w, "missing enrollment header", http.StatusUnauthorized)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"account_id": testAccountID,
+			"device_id":  testDeviceID,
+			"expires_at": time.Now().UTC().Add(time.Hour),
+		})
+	}))
+	defer server.Close()
+
+	service := newTestService(t, &fakeTransport{})
+	if err := service.ConnectWithEnrollment(context.Background(), server.URL, testToken, enrollmentToken); err != nil {
+		t.Fatalf("ConnectWithEnrollment: %v", err)
+	}
+	status := service.Status()
+	if !status.Connected || status.AccountID != testAccountID || status.DeviceID != testDeviceID {
+		t.Fatalf("unexpected status: %+v", status)
+	}
+}
+
 func TestSyncNowPushesPullsDecryptsAndApplies(t *testing.T) {
 	vault := testVault{key: bytes.Repeat([]byte{0x42}, 32)}
 	createSnapshot := noteSnapshot(t, vault, "note-1", "Remote")
