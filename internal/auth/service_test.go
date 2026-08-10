@@ -52,25 +52,28 @@ func testConfig(serverURL string) Config {
 }
 
 func TestAccessTokenRotatesRefreshTokenOnce(t *testing.T) {
-	now := time.Date(2026, 8, 9, 16, 0, 0, 0, time.UTC)
 	requests := 0
 	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		requests++
 		if err := request.ParseForm(); err != nil || request.Form.Get("grant_type") != "refresh_token" || request.Form.Get("refresh_token") != "old-refresh" {
-			t.Fatalf("unexpected refresh request")
+			t.Fatalf("unexpected refresh request: form=%v err=%v", request.Form, err)
 		}
+		writer.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(writer, `{"access_token":"new-access","refresh_token":"new-refresh","expires_in":300}`)
 	}))
 	defer server.Close()
 	store := &memoryRefreshStore{token: "old-refresh", found: true}
-	service, err := New(Dependencies{Config: testConfig(server.URL), Store: store, OpenBrowser: func(string) error { t.Fatal("browser must not open"); return nil }, HTTPClient: server.Client(), Now: func() time.Time { return now }})
+	service, err := New(Dependencies{Config: testConfig(server.URL), Store: store, OpenBrowser: func(string) error { t.Fatal("browser must not open"); return nil }, HTTPClient: server.Client()})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 
 	token, expiresAt, err := service.AccessToken(context.Background())
-	if err != nil || token != "new-access" || !expiresAt.Equal(now.Add(5*time.Minute)) {
+	if err != nil || token != "new-access" {
 		t.Fatalf("AccessToken = %q %s %v", token, expiresAt, err)
+	}
+	if expiresAt.Sub(time.Now()) < 4*time.Minute || expiresAt.Sub(time.Now()) > 6*time.Minute {
+		t.Fatalf("expiresAt = %s, want ~5m from now", expiresAt)
 	}
 	if store.token != "new-refresh" || !store.found {
 		t.Fatalf("rotated refresh token was not saved")
@@ -85,6 +88,7 @@ func TestAccessTokenRotatesRefreshTokenOnce(t *testing.T) {
 
 func TestAccessTokenDeletesRejectedRefreshToken(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
 		writer.WriteHeader(http.StatusBadRequest)
 		_, _ = io.WriteString(writer, `{"error":"invalid_grant"}`)
 	}))
@@ -105,8 +109,9 @@ func TestAccessTokenDeletesRejectedRefreshToken(t *testing.T) {
 func TestInteractiveLoginUsesLoopbackStateAndPKCE(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if err := request.ParseForm(); err != nil || request.Form.Get("grant_type") != "authorization_code" || request.Form.Get("code") != "accepted-code" || request.Form.Get("code_verifier") == "" {
-			t.Fatalf("unexpected authorization-code exchange")
+			t.Fatalf("unexpected authorization-code exchange: form=%v err=%v", request.Form, err)
 		}
+		writer.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(writer, `{"access_token":"interactive-access","refresh_token":"interactive-refresh","expires_in":300}`)
 	}))
 	defer server.Close()
@@ -119,7 +124,7 @@ func TestInteractiveLoginUsesLoopbackStateAndPKCE(t *testing.T) {
 				return err
 			}
 			query := parsed.Query()
-			if query.Get("code_challenge_method") != "S256" || query.Get("state") == "" || query.Get("redirect_uri") == "" {
+			if query.Get("code_challenge_method") != "S256" || query.Get("code_challenge") == "" || query.Get("state") == "" || query.Get("redirect_uri") == "" {
 				t.Fatal("missing PKCE or state")
 			}
 			callback, _ := url.Parse(query.Get("redirect_uri"))

@@ -6,10 +6,8 @@ package auth
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -19,6 +17,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/oauth2"
 )
 
 const (
@@ -78,6 +78,8 @@ type Status struct {
 // token concurrently.
 type Service struct {
 	config      Config
+	oauth       *oauth2.Config
+	tokenSrc    oauth2.TokenSource
 	store       RefreshTokenStore
 	openBrowser BrowserOpener
 	client      *http.Client
@@ -115,7 +117,33 @@ func New(deps Dependencies) (*Service, error) {
 	if now == nil {
 		now = func() time.Time { return time.Now().UTC() }
 	}
-	return &Service{config: config, store: deps.Store, openBrowser: deps.OpenBrowser, client: client, now: now}, nil
+	oauthCfg := &oauth2.Config{
+		ClientID: config.ClientID,
+		Endpoint: oauth2.Endpoint{
+			AuthURL:  config.AuthorizationURL,
+			TokenURL: config.TokenURL,
+		},
+		RedirectURL: "http://" + config.CallbackAddress + config.CallbackPath,
+		Scopes:      strings.Fields(config.Scope),
+	}
+	s := &Service{
+		config:      config,
+		oauth:       oauthCfg,
+		store:       deps.Store,
+		openBrowser: deps.OpenBrowser,
+		client:      client,
+		now:         now,
+	}
+	s.rebuildTokenSource()
+	return s, nil
+}
+
+func (s *Service) rebuildTokenSource() {
+	s.tokenSrc = oauth2.ReuseTokenSourceWithExpiry(nil, &refreshTokenSource{
+		config: s.oauth,
+		store:  s.store,
+		client: s.client,
+	}, s.config.RefreshBefore)
 }
 
 func validConfig(config Config) bool {
@@ -168,27 +196,16 @@ func (s *Service) AccessToken(ctx context.Context) (string, time.Time, error) {
 	if token, expiresAt, ok := s.cachedToken(); ok {
 		return token, expiresAt, nil
 	}
-	refreshToken, found, err := s.store.Load()
-	if err != nil || !found || !validToken(refreshToken) {
-		return "", time.Time{}, ErrAuthenticationRequired
-	}
-	tokens, invalidGrant, err := s.exchange(ctx, url.Values{
-		"grant_type":    {"refresh_token"},
-		"client_id":     {s.config.ClientID},
-		"refresh_token": {refreshToken},
-	})
-	if invalidGrant {
-		_ = s.store.Delete()
-		return "", time.Time{}, ErrAuthenticationRequired
-	}
+
+	token, err := s.tokenSrc.Token()
 	if err != nil {
+		if errors.Is(err, ErrAuthenticationRequired) {
+			return "", time.Time{}, ErrAuthenticationRequired
+		}
 		return "", time.Time{}, ErrAuthenticationFailed
 	}
-	if tokens.RefreshToken == "" || s.store.Save(tokens.RefreshToken) != nil {
-		return "", time.Time{}, ErrAuthenticationFailed
-	}
-	s.setAccessToken(tokens.AccessToken, tokens.ExpiresAt)
-	return tokens.AccessToken, tokens.ExpiresAt, nil
+	s.setAccessToken(token.AccessToken, token.Expiry)
+	return token.AccessToken, token.Expiry, nil
 }
 
 func (s *Service) Status() Status {
@@ -212,6 +229,7 @@ func (s *Service) Logout() error {
 	s.accessToken = ""
 	s.expiresAt = time.Time{}
 	s.mu.Unlock()
+	s.rebuildTokenSource()
 	if err := s.store.Delete(); err != nil {
 		return ErrAuthenticationFailed
 	}
@@ -254,13 +272,9 @@ func (s *Service) interactiveLogin(ctx context.Context) (Status, error) {
 	if err != nil {
 		return Status{}, ErrAuthenticationFailed
 	}
-	verifier, err := randomURLValue(48)
-	if err != nil {
-		return Status{}, ErrAuthenticationFailed
-	}
-	challengeBytes := sha256.Sum256([]byte(verifier))
-	challenge := base64.RawURLEncoding.EncodeToString(challengeBytes[:])
+	verifier := oauth2.GenerateVerifier()
 	redirectURI := "http://" + listener.Addr().String() + s.config.CallbackPath
+	s.oauth.RedirectURL = redirectURI
 
 	result := make(chan callbackResult, 1)
 	server := &http.Server{Handler: callbackHandler(s.config.CallbackPath, state, result), ReadHeaderTimeout: 5 * time.Second}
@@ -271,20 +285,11 @@ func (s *Service) interactiveLogin(ctx context.Context) (Status, error) {
 		_ = server.Shutdown(shutdownCtx)
 	}()
 
-	authorizeURL, err := url.Parse(s.config.AuthorizationURL)
-	if err != nil {
-		return Status{}, ErrAuthenticationFailed
-	}
-	query := authorizeURL.Query()
-	query.Set("response_type", "code")
-	query.Set("client_id", s.config.ClientID)
-	query.Set("redirect_uri", redirectURI)
-	query.Set("scope", s.config.Scope)
-	query.Set("state", state)
-	query.Set("code_challenge", challenge)
-	query.Set("code_challenge_method", "S256")
-	authorizeURL.RawQuery = query.Encode()
-	if err := s.openBrowser(authorizeURL.String()); err != nil {
+	authURL := s.oauth.AuthCodeURL(state,
+		oauth2.AccessTypeOffline,
+		oauth2.S256ChallengeOption(verifier),
+	)
+	if err := s.openBrowser(authURL); err != nil {
 		return Status{}, ErrAuthenticationFailed
 	}
 
@@ -299,18 +304,17 @@ func (s *Service) interactiveLogin(ctx context.Context) (Status, error) {
 		if callback.err != nil {
 			return Status{}, ErrAuthenticationRequired
 		}
-		tokens, _, err := s.exchange(ctx, url.Values{
-			"grant_type":    {"authorization_code"},
-			"client_id":     {s.config.ClientID},
-			"code":          {callback.code},
-			"redirect_uri":  {redirectURI},
-			"code_verifier": {verifier},
-		})
-		if err != nil || tokens.RefreshToken == "" || s.store.Save(tokens.RefreshToken) != nil {
+		exchangeCtx := context.WithValue(ctx, oauth2.HTTPClient, s.client)
+		token, err := s.oauth.Exchange(exchangeCtx, callback.code, oauth2.VerifierOption(verifier))
+		if err != nil || !validToken(token.AccessToken) || token.RefreshToken == "" || token.Expiry.IsZero() {
 			return Status{}, ErrAuthenticationFailed
 		}
-		s.setAccessToken(tokens.AccessToken, tokens.ExpiresAt)
-		return Status{Authenticated: true, ExpiresAt: tokens.ExpiresAt}, nil
+		if err := s.store.Save(token.RefreshToken); err != nil {
+			return Status{}, ErrAuthenticationFailed
+		}
+		s.rebuildTokenSource()
+		s.setAccessToken(token.AccessToken, token.Expiry)
+		return Status{Authenticated: true, ExpiresAt: token.Expiry}, nil
 	}
 }
 
@@ -342,50 +346,6 @@ func callbackHandler(path, state string, result chan<- callbackResult) http.Hand
 		writer.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = io.WriteString(writer, "<html><body>You may return to DevKit.</body></html>")
 	})
-}
-
-type tokenResponse struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
-	ExpiresIn    int64  `json:"expires_in"`
-}
-
-type tokens struct {
-	AccessToken  string
-	RefreshToken string
-	ExpiresAt    time.Time
-}
-
-func (s *Service) exchange(ctx context.Context, form url.Values) (tokens, bool, error) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, s.config.TokenURL, strings.NewReader(form.Encode()))
-	if err != nil {
-		return tokens{}, false, err
-	}
-	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	request.Header.Set("Accept", "application/json")
-	response, err := s.client.Do(request)
-	if err != nil {
-		return tokens{}, false, err
-	}
-	defer response.Body.Close()
-	if response.StatusCode == http.StatusBadRequest || response.StatusCode == http.StatusUnauthorized {
-		return tokens{}, true, ErrAuthenticationFailed
-	}
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return tokens{}, false, ErrAuthenticationFailed
-	}
-	body, err := io.ReadAll(io.LimitReader(response.Body, maxTokenBytes))
-	if err != nil {
-		return tokens{}, false, err
-	}
-	var decoded tokenResponse
-	if err := json.Unmarshal(body, &decoded); err != nil || !validToken(decoded.AccessToken) || decoded.ExpiresIn <= 0 {
-		return tokens{}, false, ErrAuthenticationFailed
-	}
-	if decoded.ExpiresIn > int64((24 * time.Hour).Seconds()) {
-		return tokens{}, false, ErrAuthenticationFailed
-	}
-	return tokens{AccessToken: decoded.AccessToken, RefreshToken: decoded.RefreshToken, ExpiresAt: s.now().Add(time.Duration(decoded.ExpiresIn) * time.Second).UTC()}, false, nil
 }
 
 func validToken(token string) bool {
