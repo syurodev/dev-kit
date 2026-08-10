@@ -30,10 +30,15 @@ GUI (cgo) — `libgtk-4-dev` + `libwebkitgtk-6.0-dev`.
 
 Cloud/CI setup and non-obvious run caveats are documented in `AGENTS.md`.
 
-### OIDC (optional — required only for Sync login)
+### Remote config + OIDC (Sync login)
 
-Local-first: omit these to run vault and local modules without IdP.
-OIDC code lives in `internal/auth` (flat package; wired from `main.go`).
+Local-first: vault and local modules work with no network. Sync login needs OIDC
+settings from the pinned API host (`https://api.synx.io.vn/v1/desktop/config`) or
+from disk cache after a successful fetch. `internal/cloudconfig` fetches on
+startup, caches under app-private storage, and refreshes when connectivity returns.
+
+`DEVKIT_OIDC_*` env vars **override** remote/cache when set (local dev / alternate IdP).
+OIDC protocol code lives in `internal/auth` (wired from `main.go`).
 
 | Variable | Required | Description |
 | --- | --- | --- |
@@ -121,6 +126,7 @@ cmd/
 internal/
   app/               Composition root: DI container, module/command registries, permission grants
   bridge/            Wails boundary: DTOs, capability-gated calls, error redaction, opaque IDs
+  cloudconfig/       Remote desktop config fetch, disk cache, semver gate, reconnect refresh
   auth/              OIDC PKCE browser flow + OS-keychain refresh-token rotation
   capabilities/      Capability gateway — authorizes every privileged call, emits audit events
   permissions/       Permission policy + request model

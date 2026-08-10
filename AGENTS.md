@@ -64,7 +64,7 @@ a first-run "Create Master Password" or an "Unlock" gate before the workbench.
 - Frontend dev server (Vite only, no Go): `task dev:frontend` (port 9245).
 
 ### Notes / gotchas
-- Sync browser login requires `DEVKIT_OIDC_ISSUER` (and optional `DEVKIT_OIDC_*` overrides); omit all OIDC env vars for local-only vault/modules.
+- Sync login: production uses `internal/cloudconfig` (pinned `GET /v1/desktop/config`, disk cache, refresh on reconnect). Set `DEVKIT_OIDC_*` to override remote/cache for local dev. Omit all OIDC env + stay offline with no cache for local-only vault/modules.
 - Storage is a single SQLite file (`modernc.org/sqlite`, no cgo) opened with
   `MaxOpenConns(1)`; migrations run forward-only from `storage.Migrate`. Because of the
   single connection, migration `Up` funcs must **not** be wrapped in an outer transaction.
