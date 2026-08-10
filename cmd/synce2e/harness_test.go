@@ -168,6 +168,54 @@ func (d *device) createNote(t *testing.T, title, body string) string {
 	return record.ID
 }
 
+func (d *device) createDBProfile(t *testing.T, name string) string {
+	t.Helper()
+	meta, _ := json.Marshal(struct {
+		Name     string `json:"name"`
+		Host     string `json:"host"`
+		Port     int    `json:"port"`
+		Database string `json:"database"`
+		Username string `json:"username"`
+		SSLMode  string `json:"ssl_mode"`
+	}{
+		Name:     name,
+		Host:     "db.internal",
+		Port:     5432,
+		Database: "app",
+		Username: "devkit",
+		SSLMode:  "verify-full",
+	})
+	record, err := d.items.Create("db-profile", "db-password", meta, []byte("db-secret"))
+	if err != nil {
+		t.Fatalf("create db profile: %v", err)
+	}
+	return record.ID
+}
+
+func (d *device) createSSHProfile(t *testing.T, name string) string {
+	t.Helper()
+	meta, _ := json.Marshal(struct {
+		Name               string `json:"name"`
+		Host               string `json:"host"`
+		Port               int    `json:"port"`
+		Username           string `json:"username"`
+		AuthMethod         string `json:"auth_method"`
+		HostKeyFingerprint string `json:"host_key_fingerprint"`
+	}{
+		Name:               name,
+		Host:               "ssh.internal",
+		Port:               22,
+		Username:           "devkit",
+		AuthMethod:         "key",
+		HostKeyFingerprint: "SHA256:test",
+	})
+	record, err := d.items.Create("ssh-profile", "ssh-secret", meta, []byte("ssh-secret"))
+	if err != nil {
+		t.Fatalf("create ssh profile: %v", err)
+	}
+	return record.ID
+}
+
 func (d *device) editNote(t *testing.T, id, body string) {
 	t.Helper()
 	record, err := d.items.Get(id)
