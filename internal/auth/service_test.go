@@ -62,8 +62,14 @@ func TestAccessTokenRotatesRefreshTokenOnce(t *testing.T) {
 		_, _ = io.WriteString(writer, `{"access_token":"new-access","refresh_token":"new-refresh","expires_in":300}`)
 	}))
 	defer server.Close()
+	fixedNow := time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC)
 	store := &memoryRefreshStore{token: "old-refresh", found: true}
-	service, err := New(Dependencies{Config: testConfig(server.URL), Store: store, OpenBrowser: func(string) error { t.Fatal("browser must not open"); return nil }, HTTPClient: server.Client()})
+	service, err := New(Dependencies{
+		Config: testConfig(server.URL), Store: store,
+		OpenBrowser: func(string) error { t.Fatal("browser must not open"); return nil },
+		HTTPClient:  server.Client(),
+		Now:         func() time.Time { return fixedNow },
+	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -72,8 +78,12 @@ func TestAccessTokenRotatesRefreshTokenOnce(t *testing.T) {
 	if err != nil || token != "new-access" {
 		t.Fatalf("AccessToken = %q %s %v", token, expiresAt, err)
 	}
-	if expiresAt.Sub(time.Now()) < 4*time.Minute || expiresAt.Sub(time.Now()) > 6*time.Minute {
-		t.Fatalf("expiresAt = %s, want ~5m from now", expiresAt)
+	wantExpiry := fixedNow.Add(5 * time.Minute)
+	if d := expiresAt.Sub(fixedNow); d < 5*time.Minute-time.Second || d > 5*time.Minute {
+		t.Fatalf("expiresAt = %s (%s from fixed now), want ~5m", expiresAt, d)
+	}
+	if expiresAt.After(wantExpiry) {
+		t.Fatalf("expiresAt = %s, want <= %s", expiresAt, wantExpiry)
 	}
 	if store.token != "new-refresh" || !store.found {
 		t.Fatalf("rotated refresh token was not saved")

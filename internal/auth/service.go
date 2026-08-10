@@ -80,6 +80,7 @@ type Service struct {
 	config      Config
 	oauth       *oauth2.Config
 	tokenSrc    oauth2.TokenSource
+	refreshSrc  *refreshTokenSource
 	store       RefreshTokenStore
 	openBrowser BrowserOpener
 	client      *http.Client
@@ -120,8 +121,9 @@ func New(deps Dependencies) (*Service, error) {
 	oauthCfg := &oauth2.Config{
 		ClientID: config.ClientID,
 		Endpoint: oauth2.Endpoint{
-			AuthURL:  config.AuthorizationURL,
-			TokenURL: config.TokenURL,
+			AuthURL:   config.AuthorizationURL,
+			TokenURL:  config.TokenURL,
+			AuthStyle: oauth2.AuthStyleInParams,
 		},
 		RedirectURL: "http://" + config.CallbackAddress + config.CallbackPath,
 		Scopes:      strings.Fields(config.Scope),
@@ -139,11 +141,19 @@ func New(deps Dependencies) (*Service, error) {
 }
 
 func (s *Service) rebuildTokenSource() {
-	s.tokenSrc = oauth2.ReuseTokenSourceWithExpiry(nil, &refreshTokenSource{
+	s.refreshSrc = &refreshTokenSource{
 		config: s.oauth,
 		store:  s.store,
 		client: s.client,
-	}, s.config.RefreshBefore)
+	}
+	s.tokenSrc = oauth2.ReuseTokenSourceWithExpiry(nil, s.refreshSrc, s.config.RefreshBefore)
+}
+
+func (s *Service) normalizeExpiry(expiry time.Time) time.Time {
+	if expiry.IsZero() {
+		return expiry
+	}
+	return s.now().Add(time.Until(expiry))
 }
 
 func validConfig(config Config) bool {
@@ -197,15 +207,20 @@ func (s *Service) AccessToken(ctx context.Context) (string, time.Time, error) {
 		return token, expiresAt, nil
 	}
 
+	s.refreshSrc.setCallerContext(ctx)
 	token, err := s.tokenSrc.Token()
 	if err != nil {
 		if errors.Is(err, ErrAuthenticationRequired) {
 			return "", time.Time{}, ErrAuthenticationRequired
 		}
+		if err := ctx.Err(); err != nil {
+			return "", time.Time{}, err
+		}
 		return "", time.Time{}, ErrAuthenticationFailed
 	}
-	s.setAccessToken(token.AccessToken, token.Expiry)
-	return token.AccessToken, token.Expiry, nil
+	expiresAt := s.normalizeExpiry(token.Expiry)
+	s.setAccessToken(token.AccessToken, expiresAt)
+	return token.AccessToken, expiresAt, nil
 }
 
 func (s *Service) Status() Status {
@@ -313,8 +328,9 @@ func (s *Service) interactiveLogin(ctx context.Context) (Status, error) {
 			return Status{}, ErrAuthenticationFailed
 		}
 		s.rebuildTokenSource()
-		s.setAccessToken(token.AccessToken, token.Expiry)
-		return Status{Authenticated: true, ExpiresAt: token.Expiry}, nil
+		expiresAt := s.normalizeExpiry(token.Expiry)
+		s.setAccessToken(token.AccessToken, expiresAt)
+		return Status{Authenticated: true, ExpiresAt: expiresAt}, nil
 	}
 }
 

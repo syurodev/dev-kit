@@ -12,10 +12,15 @@ import (
 // refreshTokenSource loads the keychain refresh token and asks oauth2 to refresh.
 // It persists a rotated refresh token before callers use the new access token.
 type refreshTokenSource struct {
-	mu     sync.Mutex
-	config *oauth2.Config
-	store  RefreshTokenStore
-	client *http.Client
+	mu        sync.Mutex
+	config    *oauth2.Config
+	store     RefreshTokenStore
+	client    *http.Client
+	callerCtx context.Context
+}
+
+func (s *refreshTokenSource) setCallerContext(ctx context.Context) {
+	s.callerCtx = ctx
 }
 
 func (s *refreshTokenSource) Token() (*oauth2.Token, error) {
@@ -25,7 +30,14 @@ func (s *refreshTokenSource) Token() (*oauth2.Token, error) {
 	if err != nil || !found || !validToken(refresh) {
 		return nil, ErrAuthenticationRequired
 	}
-	ctx := context.WithValue(context.Background(), oauth2.HTTPClient, s.client)
+	ctx := s.callerCtx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	ctx = context.WithValue(ctx, oauth2.HTTPClient, s.client)
 	token, err := s.config.TokenSource(ctx, &oauth2.Token{RefreshToken: refresh}).Token()
 	if err != nil {
 		if isInvalidGrant(err) {
