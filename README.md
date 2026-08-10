@@ -30,6 +30,24 @@ GUI (cgo) — `libgtk-4-dev` + `libwebkitgtk-6.0-dev`.
 
 Cloud/CI setup and non-obvious run caveats are documented in `AGENTS.md`.
 
+### OIDC (optional — required only for Sync login)
+
+Local-first: omit these to run vault and local modules without IdP.
+OIDC code lives in `internal/auth` (flat package; wired from `main.go`).
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `DEVKIT_OIDC_ISSUER` | for Sync auth | Keycloak realm issuer, e.g. `https://auth.example/realms/devkit` |
+| `DEVKIT_OIDC_CLIENT_ID` | no | Default `devkit-desktop` |
+| `DEVKIT_OIDC_SCOPES` | no | Default `openid profile email roles` |
+| `DEVKIT_OIDC_AUTH_URL` | no | Override authorize URL |
+| `DEVKIT_OIDC_TOKEN_URL` | no | Override token URL |
+
+Example (local Keycloak from companion backend Compose):
+
+`export DEVKIT_OIDC_ISSUER=https://localhost:…/realms/devkit`  
+(use the real HTTPS issuer your realm publishes; loopback callback stays `http://127.0.0.1:62364/callback`.)
+
 ## Server mode security
 
 `go build -tags server` creates a local headless convenience mode that binds
@@ -103,6 +121,7 @@ cmd/
 internal/
   app/               Composition root: DI container, module/command registries, permission grants
   bridge/            Wails boundary: DTOs, capability-gated calls, error redaction, opaque IDs
+  auth/              OIDC PKCE browser flow + OS-keychain refresh-token rotation
   capabilities/      Capability gateway — authorizes every privileged call, emits audit events
   permissions/       Permission policy + request model
   audit/             Audit event sink + field redaction
