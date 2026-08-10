@@ -233,13 +233,18 @@ func (d *device) editNote(t *testing.T, id, body string) {
 
 func (d *device) body(t *testing.T, id string) string {
 	t.Helper()
+	return d.payload(t, id, "note-body")
+}
+
+func (d *device) payload(t *testing.T, id, key string) string {
+	t.Helper()
 	record, err := d.items.Get(id)
 	if err != nil {
-		t.Fatalf("get note: %v", err)
+		t.Fatalf("get %s: %v", key, err)
 	}
-	plain, err := d.items.OpenPayload(record, "note-body")
+	plain, err := d.items.OpenPayload(record, key)
 	if err != nil {
-		t.Fatalf("open note: %v", err)
+		t.Fatalf("open %s: %v", key, err)
 	}
 	return string(plain)
 }
