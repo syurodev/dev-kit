@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"time"
 
 	"changeme/internal/crypto"
@@ -35,9 +36,11 @@ func (s *Service) SyncNow(ctx context.Context) (Report, error) {
 		return report, ErrNotConnected
 	}
 	if err := s.deps.Remote.BindAuthenticatedAccount(ctx, session.AccountID()); err != nil {
+		logSyncStageFailure("bind_account", err)
 		return report, safeStageError(ctx, ErrLocalCaptureFailed)
 	}
 	if err := s.materializeLocalMutations(ctx, session); err != nil {
+		logSyncStageFailure("prepare_local_changes", err)
 		return report, safeStageError(ctx, ErrLocalCaptureFailed)
 	}
 	push, err := replicationsync.NewRunner(s.deps.Outbox, current.transport).Run(ctx, s.deps.PushLimit)
@@ -46,6 +49,7 @@ func (s *Service) SyncNow(ctx context.Context) (Report, error) {
 	report.PushRetried = push.Retried
 	report.PushConflicts = push.Conflicts
 	if err != nil {
+		logSyncStageFailure("push", err)
 		if errors.Is(err, replicationsync.ErrAuthentication) {
 			s.clearConnection(current)
 		}
@@ -54,16 +58,19 @@ func (s *Service) SyncNow(ctx context.Context) (Report, error) {
 
 	cursor, err := s.deps.Cursors.GetCursor(ctx, s.deps.CursorName)
 	if err != nil {
+		logSyncStageFailure("load_cursor", err)
 		return report, safeStageError(ctx, ErrPullFailed)
 	}
 	pulled, err := current.transport.Pull(ctx, cursor, s.deps.PullLimit)
 	if err != nil {
+		logSyncStageFailure("pull", err)
 		if errors.Is(err, replicationsync.ErrAuthentication) {
 			s.clearConnection(current)
 		}
 		return report, safeStageError(ctx, ErrPullFailed)
 	}
 	if len(pulled.Operations) > s.deps.PullLimit || pulled.NextCursor.Validate() != nil {
+		logSyncStageFailure("validate_pull", replicationsync.ErrInvalidTransportResponse)
 		return report, ErrInvalidRemoteData
 	}
 	report.Pulled = len(pulled.Operations)
@@ -72,20 +79,52 @@ func (s *Service) SyncNow(ctx context.Context) (Report, error) {
 	defer func() { zeroMutations(mutations) }()
 	for _, operation := range pulled.Operations {
 		if err := ctx.Err(); err != nil {
+			logSyncStageFailure("decrypt_pull", err)
 			return report, err
 		}
 		mutation, err := s.decryptMutation(operation, session.AccountID())
 		if err != nil {
+			logSyncStageFailure("decrypt_pull", err)
 			zeroMutations(mutations)
 			return report, err
 		}
 		mutations = append(mutations, mutation)
 	}
 	if err := s.deps.Remote.ApplyRemoteBatch(ctx, session.AccountID(), s.deps.CursorName, pulled.NextCursor.Token, mutations); err != nil {
+		logSyncStageFailure("apply_pull", err)
 		return report, safeStageError(ctx, ErrApplyFailed)
 	}
 	report.Applied = len(mutations)
 	return report, nil
+}
+
+// logSyncStageFailure records only the sync stage and a deliberately small
+// failure category. Raw HTTP errors may contain endpoints, tokens, cursors or
+// encrypted payload data, so they must never be emitted by the desktop app.
+func logSyncStageFailure(stage string, err error) {
+	slog.Warn("Sync operation failed", "stage", stage, "reason", safeFailureReason(err))
+}
+
+func safeFailureReason(err error) string {
+	if err == nil {
+		return "unknown"
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return "timeout"
+	}
+	if errors.Is(err, replicationsync.ErrAuthentication) {
+		return "authentication"
+	}
+	if errors.Is(err, replicationsync.ErrInvalidTransportResponse) {
+		return string(replicationsync.FailureInvalidResponse)
+	}
+	var reasonProvider interface {
+		FailureReason() replicationsync.FailureReason
+	}
+	if errors.As(err, &reasonProvider) {
+		return string(reasonProvider.FailureReason())
+	}
+	return string(replicationsync.FailureUnknown)
 }
 
 func (s *Service) materializeLocalMutations(ctx context.Context, session replicationsync.AuthSession) error {

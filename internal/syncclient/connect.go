@@ -2,12 +2,29 @@ package syncclient
 
 import (
 	"context"
+	"errors"
 	"time"
+
+	replicationsync "changeme/internal/sync"
 )
 
 // Connect performs the authenticated handshake using the stable local device.
 // The account and final device identity are accepted only from AuthSession.
 func (s *Service) Connect(ctx context.Context, baseURL, accessToken string) error {
+	return s.connect(ctx, baseURL, staticAccessTokenSource{token: accessToken}, false)
+}
+
+// ConnectWithTokenSource establishes the server-authoritative session with a
+// current access token, then consults the source before each HTTP request. The
+// refresh token remains owned by the authentication package.
+func (s *Service) ConnectWithTokenSource(ctx context.Context, baseURL string, tokens AccessTokenSource) error {
+	if tokens == nil {
+		return ErrConnectFailed
+	}
+	return s.connect(ctx, baseURL, tokens, true)
+}
+
+func (s *Service) connect(ctx context.Context, baseURL string, tokens AccessTokenSource, refreshPerRequest bool) error {
 	if s == nil {
 		return ErrInvalidDependencies
 	}
@@ -26,9 +43,13 @@ func (s *Service) Connect(ctx context.Context, baseURL, accessToken string) erro
 	if err != nil {
 		return safeStageError(ctx, ErrConnectFailed)
 	}
-	session, err := authenticator.Authenticate(ctx, accessToken, deviceID)
+	accessToken, _, err := tokens.AccessToken(ctx)
 	if err != nil {
 		return safeStageError(ctx, ErrConnectFailed)
+	}
+	session, err := authenticator.Authenticate(ctx, accessToken, deviceID)
+	if err != nil {
+		return safeConnectError(ctx, err)
 	}
 	// Check an existing claim before constructing transport, but do not make the
 	// first durable account claim until the user explicitly chooses SyncNow.
@@ -36,6 +57,9 @@ func (s *Service) Connect(ctx context.Context, baseURL, accessToken string) erro
 		return safeStageError(ctx, ErrConnectFailed)
 	}
 	provider := &sessionProvider{session: session, set: true}
+	if refreshPerRequest {
+		provider.tokens = tokens
+	}
 	transport, err := s.factories.Transport(baseURL, provider, s.deps.HTTPClient)
 	if err != nil {
 		provider.clear()
@@ -50,6 +74,33 @@ func (s *Service) Connect(ctx context.Context, baseURL, accessToken string) erro
 		previous.provider.clear()
 	}
 	return nil
+}
+
+// safeConnectError retains only error classes that are safe and actionable for
+// a desktop user. Raw HTTP response bodies, endpoint details and credentials
+// must never cross the sync-client boundary.
+func safeConnectError(ctx context.Context, cause error) error {
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+	}
+	if errors.Is(cause, replicationsync.ErrAuthentication) {
+		return ErrConnectAuthenticationRejected
+	}
+	var transportError replicationsync.TransportError
+	if errors.As(cause, &transportError) && transportError.FailureReason() == replicationsync.FailureNetwork {
+		return ErrConnectServiceUnavailable
+	}
+	return ErrConnectFailed
+}
+
+type staticAccessTokenSource struct {
+	token string
+}
+
+func (s staticAccessTokenSource) AccessToken(context.Context) (string, time.Time, error) {
+	return s.token, time.Time{}, nil
 }
 
 // Disconnect clears all runtime connection state. AuthSession intentionally

@@ -2,8 +2,10 @@ package app
 
 import (
 	"context"
+	"time"
 
 	"changeme/internal/audit"
+	"changeme/internal/auth"
 	"changeme/internal/capabilities"
 	"changeme/internal/commands"
 	"changeme/internal/database"
@@ -24,10 +26,20 @@ import (
 // prevents bridge code from depending on HTTP implementation details.
 type SyncService interface {
 	Connect(ctx context.Context, baseURL, accessToken string) error
+	ConnectWithTokenSource(ctx context.Context, baseURL string, tokens syncclient.AccessTokenSource) error
 	Disconnect()
 	Status() syncclient.Status
 	SyncNow(ctx context.Context) (syncclient.Report, error)
 	Conflicts(ctx context.Context) ([]syncclient.ConflictInfo, error)
+}
+
+// AuthService keeps the OIDC browser/keychain lifecycle behind the composition
+// root. The bridge can request login but never receives an access token.
+type AuthService interface {
+	EnsureAuthenticated(ctx context.Context) (auth.Status, error)
+	AccessToken(ctx context.Context) (string, time.Time, error)
+	Logout() error
+	Status() auth.Status
 }
 
 // SyncConflictService is the narrow runtime contract for presenting and
@@ -51,6 +63,7 @@ type Container struct {
 	Database     *database.Service
 	SSH          *sshservice.Service
 	Sync         SyncService
+	Auth         AuthService
 	SyncConflict SyncConflictService
 }
 
@@ -91,6 +104,8 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.vault", Capability: "vault:manage", Scope: "vault"},
 		{SubjectID: "builtin.search", Capability: "vault:search", Scope: "item:search"},
 		{SubjectID: "builtin.sync", Capability: "sync:manage", Scope: "sync:status"},
+		{SubjectID: "builtin.sync", Capability: "sync:manage", Scope: "sync:login"},
+		{SubjectID: "builtin.sync", Capability: "sync:manage", Scope: "sync:logout"},
 		{SubjectID: "builtin.sync", Capability: "sync:manage", Scope: "sync:connect"},
 		{SubjectID: "builtin.sync", Capability: "sync:manage", Scope: "sync:run"},
 		{SubjectID: "builtin.sync", Capability: "sync:manage", Scope: "sync:disconnect"},

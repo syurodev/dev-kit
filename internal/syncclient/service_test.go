@@ -172,11 +172,27 @@ func TestConnectErrorDoesNotExposeTokenOrRawResponse(t *testing.T) {
 
 	service := newTestService(t, &fakeTransport{})
 	err := service.Connect(context.Background(), server.URL, testToken)
-	if !errors.Is(err, ErrConnectFailed) {
-		t.Fatalf("Connect error = %v, want ErrConnectFailed", err)
+	if !errors.Is(err, ErrConnectServiceUnavailable) {
+		t.Fatalf("Connect error = %v, want ErrConnectServiceUnavailable", err)
 	}
 	if strings.Contains(err.Error(), testToken) || strings.Contains(err.Error(), "server leaked") {
 		t.Fatalf("Connect exposed sensitive upstream error: %v", err)
+	}
+}
+
+func TestConnectClassifiesRejectedAuthenticationWithoutExposingResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "token diagnostic must stay private", http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	service := newTestService(t, &fakeTransport{})
+	err := service.Connect(context.Background(), server.URL, testToken)
+	if !errors.Is(err, ErrConnectAuthenticationRejected) {
+		t.Fatalf("Connect error = %v, want ErrConnectAuthenticationRejected", err)
+	}
+	if strings.Contains(err.Error(), "diagnostic") || strings.Contains(err.Error(), testToken) {
+		t.Fatalf("Connect exposed upstream detail: %v", err)
 	}
 }
 

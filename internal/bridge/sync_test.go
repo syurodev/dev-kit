@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"changeme/internal/app"
+	"changeme/internal/auth"
 	"changeme/internal/capabilities"
 	"changeme/internal/permissions"
 	"changeme/internal/syncclient"
@@ -22,6 +23,7 @@ type fakeSyncService struct {
 	syncErr        error
 	endpoint       string
 	accessToken    string
+	tokenSource    syncclient.AccessTokenSource
 	disconnections int
 	conflicts      []syncclient.ConflictInfo
 	conflictsErr   error
@@ -33,11 +35,32 @@ func (f *fakeSyncService) Connect(_ context.Context, endpoint, accessToken strin
 	return f.connectErr
 }
 
+func (f *fakeSyncService) ConnectWithTokenSource(_ context.Context, endpoint string, tokens syncclient.AccessTokenSource) error {
+	f.endpoint = endpoint
+	f.tokenSource = tokens
+	return f.connectErr
+}
+
 func (f *fakeSyncService) Disconnect()               { f.disconnections++ }
 func (f *fakeSyncService) Status() syncclient.Status { return f.status }
 func (f *fakeSyncService) SyncNow(context.Context) (syncclient.Report, error) {
 	return f.report, f.syncErr
 }
+
+type fakeAuthService struct {
+	status auth.Status
+	token  string
+	err    error
+}
+
+func (f *fakeAuthService) EnsureAuthenticated(context.Context) (auth.Status, error) {
+	return f.status, f.err
+}
+func (f *fakeAuthService) AccessToken(context.Context) (string, time.Time, error) {
+	return f.token, f.status.ExpiresAt, f.err
+}
+func (f *fakeAuthService) Logout() error       { return f.err }
+func (f *fakeAuthService) Status() auth.Status { return f.status }
 func (f *fakeSyncService) Conflicts(context.Context) ([]syncclient.ConflictInfo, error) {
 	return f.conflicts, f.conflictsErr
 }
@@ -46,6 +69,7 @@ func newSyncBridge(t *testing.T, service app.SyncService) (*AppService, *app.Con
 	t.Helper()
 	container := app.NewContainer()
 	container.Sync = service
+	container.Auth = &fakeAuthService{status: auth.Status{Authenticated: true, ExpiresAt: time.Now().Add(time.Hour)}, token: "test-token"}
 	if err := app.RegisterBuiltins(container); err != nil {
 		t.Fatalf("RegisterBuiltins: %v", err)
 	}
@@ -92,19 +116,15 @@ func TestSyncBridgeMapsSafeStatusAndCountDTOs(t *testing.T) {
 	}
 }
 
-func TestSyncConnectAuditDoesNotContainCredentialsOrIdentity(t *testing.T) {
-	const (
-		endpoint = "https://private.example.test/path"
-		token    = "secret-bearer-token"
-	)
+func TestSyncConnectUsesPinnedGatewayWithoutAuditingCredentials(t *testing.T) {
 	fake := &fakeSyncService{}
 	service, container := newSyncBridge(t, fake)
 
-	if err := service.SyncConnect(context.Background(), endpoint, token); err != nil {
+	if err := service.SyncConnect(context.Background()); err != nil {
 		t.Fatalf("SyncConnect: %v", err)
 	}
-	if fake.endpoint != endpoint || fake.accessToken != token {
-		t.Fatal("SyncConnect did not pass credentials to the runtime service")
+	if fake.endpoint != productionSyncGateway || fake.tokenSource == nil {
+		t.Fatal("SyncConnect did not pass the pinned endpoint and runtime token source")
 	}
 
 	events := container.Audit.Events()
@@ -119,7 +139,7 @@ func TestSyncConnectAuditDoesNotContainCredentialsOrIdentity(t *testing.T) {
 		t.Fatalf("audit metadata = %s, want action only", got)
 	}
 	serialized, _ := json.Marshal(events)
-	for _, forbidden := range []string{endpoint, token, "account-1", "device-1"} {
+	for _, forbidden := range []string{"test-token", "account-1", "device-1"} {
 		if strings.Contains(string(serialized), forbidden) {
 			t.Fatalf("audit event leaked %q: %s", forbidden, serialized)
 		}
@@ -161,11 +181,10 @@ func TestSyncBridgeDeniesMissingGrantBeforeCallingService(t *testing.T) {
 	container.Permissions = permissions.NewPolicy(nil)
 	container.Capabilities = capabilities.NewGateway(container.Permissions, container.Audit)
 
-	const token = "must-not-reach-service"
-	if err := service.SyncConnect(context.Background(), "https://sync.example.test", token); err == nil || err.Error() != "permission_denied: Permission denied." {
+	if err := service.SyncConnect(context.Background()); err == nil || err.Error() != "permission_denied: Permission denied." {
 		t.Fatalf("SyncConnect error = %v, want permission_denied", err)
 	}
-	if fake.accessToken != "" || fake.endpoint != "" {
+	if fake.accessToken != "" || fake.endpoint != "" || fake.tokenSource != nil {
 		t.Fatal("denied SyncConnect called the runtime service")
 	}
 }
@@ -185,7 +204,7 @@ func TestSyncBridgeRedactsUpstreamErrors(t *testing.T) {
 	fake := &fakeSyncService{connectErr: errors.New("https://private.example: " + secret)}
 	service, _ := newSyncBridge(t, fake)
 
-	err := service.SyncConnect(context.Background(), "https://private.example", secret)
+	err := service.SyncConnect(context.Background())
 	if err == nil {
 		t.Fatal("SyncConnect returned nil error")
 	}
@@ -194,5 +213,56 @@ func TestSyncBridgeRedactsUpstreamErrors(t *testing.T) {
 	}
 	if err.Error() != "connection_failed: Sync operation failed." {
 		t.Fatalf("public error = %v", err)
+	}
+}
+
+func TestSyncBridgeDescribesSafeAuthenticationRejection(t *testing.T) {
+	fake := &fakeSyncService{connectErr: syncclient.ErrConnectAuthenticationRejected}
+	service, _ := newSyncBridge(t, fake)
+
+	err := service.SyncConnect(context.Background())
+	if err == nil || err.Error() != "connection_failed: The sync gateway rejected the sign-in token." {
+		t.Fatalf("SyncConnect error = %v", err)
+	}
+}
+
+func TestSyncBridgeDescribesSafeSyncFailureStage(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{
+			name: "local capture",
+			err:  syncclient.ErrLocalCaptureFailed,
+			want: "connection_failed: Local changes could not be prepared for sync.",
+		},
+		{
+			name: "push",
+			err:  syncclient.ErrPushFailed,
+			want: "connection_failed: Sync upload failed.",
+		},
+		{
+			name: "pull",
+			err:  syncclient.ErrPullFailed,
+			want: "connection_failed: Sync download failed.",
+		},
+		{
+			name: "apply",
+			err:  syncclient.ErrApplyFailed,
+			want: "connection_failed: Downloaded sync data could not be applied.",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fake := &fakeSyncService{syncErr: test.err}
+			service, _ := newSyncBridge(t, fake)
+
+			_, err := service.SyncNow(context.Background())
+			if err == nil || err.Error() != test.want {
+				t.Fatalf("SyncNow error = %v, want %q", err, test.want)
+			}
+		})
 	}
 }

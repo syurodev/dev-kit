@@ -29,14 +29,20 @@ var (
 	ErrInvalidDependencies = errors.New("sync client dependencies are required")
 	ErrNotConnected        = errors.New("sync client is not connected")
 	ErrConnectFailed       = errors.New("sync connection failed")
-	ErrSyncInProgress      = errors.New("sync is already in progress")
-	ErrPushFailed          = errors.New("sync push failed")
-	ErrPullFailed          = errors.New("sync pull failed")
-	ErrInvalidRemoteData   = errors.New("remote sync data is invalid")
-	ErrDecryptFailed       = errors.New("remote sync data could not be authenticated")
-	ErrApplyFailed         = errors.New("remote sync data could not be applied")
-	ErrLocalCaptureFailed  = errors.New("local sync changes could not be queued")
-	ErrConflictsFailed     = errors.New("sync conflicts could not be listed")
+	// ErrConnectAuthenticationRejected has no server detail. It only tells the
+	// UI that the authentication handshake returned 401 or 403.
+	ErrConnectAuthenticationRejected = errors.New("sync authentication was rejected")
+	// ErrConnectServiceUnavailable has no upstream address or response body.
+	// It covers transient 5xx, rate-limit and network failures during handshake.
+	ErrConnectServiceUnavailable = errors.New("sync service is unavailable")
+	ErrSyncInProgress            = errors.New("sync is already in progress")
+	ErrPushFailed                = errors.New("sync push failed")
+	ErrPullFailed                = errors.New("sync pull failed")
+	ErrInvalidRemoteData         = errors.New("remote sync data is invalid")
+	ErrDecryptFailed             = errors.New("remote sync data could not be authenticated")
+	ErrApplyFailed               = errors.New("remote sync data could not be applied")
+	ErrLocalCaptureFailed        = errors.New("local sync changes could not be queued")
+	ErrConflictsFailed           = errors.New("sync conflicts could not be listed")
 )
 
 // DeviceIdentityStore owns only the stable local device identity. Account
@@ -101,6 +107,12 @@ type Status struct {
 	ExpiresAt time.Time `json:"expires_at,omitempty"`
 }
 
+// AccessTokenSource returns a current bearer token without exposing refresh
+// credentials to sync. Implementations may rotate a refresh token internally.
+type AccessTokenSource interface {
+	AccessToken(ctx context.Context) (token string, expiresAt time.Time, err error)
+}
+
 // Report contains counts only. It never includes decrypted records, tokens,
 // response bodies, or raw upstream error text.
 type Report struct {
@@ -124,6 +136,7 @@ type ConflictInfo struct {
 type sessionProvider struct {
 	mu      stdsync.RWMutex
 	session replicationsync.AuthSession
+	tokens  AccessTokenSource
 	set     bool
 }
 
@@ -134,11 +147,31 @@ func (p *sessionProvider) Session(ctx context.Context) (replicationsync.AuthSess
 		}
 	}
 	p.mu.RLock()
-	defer p.mu.RUnlock()
 	if !p.set {
+		p.mu.RUnlock()
 		return replicationsync.AuthSession{}, ErrNotConnected
 	}
-	return p.session, nil
+	session := p.session
+	tokens := p.tokens
+	p.mu.RUnlock()
+	if tokens == nil {
+		return session, nil
+	}
+	accessToken, expiresAt, err := tokens.AccessToken(ctx)
+	if err != nil {
+		// Do not leak an IdP or keychain error through the sync transport.
+		return replicationsync.AuthSession{}, replicationsync.ErrAuthentication
+	}
+	updated, err := replicationsync.NewAuthSessionForRefresh(session.AccountID(), session.DeviceID(), accessToken, expiresAt)
+	if err != nil {
+		return replicationsync.AuthSession{}, replicationsync.ErrAuthentication
+	}
+	p.mu.Lock()
+	if p.set {
+		p.session = updated
+	}
+	p.mu.Unlock()
+	return updated, nil
 }
 
 func (p *sessionProvider) metadata() (replicationsync.AuthSession, bool) {

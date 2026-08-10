@@ -7,6 +7,7 @@ export {
 };
 
 export type {
+    AuthStatusDTO,
     ExecuteCommandRequest,
     ModuleDTO,
     SyncConflictDTO,

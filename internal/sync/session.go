@@ -38,6 +38,13 @@ func newAuthSession(accountID, deviceID, accessToken string, expiresAt time.Time
 	return session, nil
 }
 
+// NewAuthSessionForRefresh reconstructs a server-authenticated session after
+// only its bearer token changes. Callers receive identity from a previous
+// successful handshake and must not use this constructor for initial login.
+func NewAuthSessionForRefresh(accountID, deviceID, accessToken string, expiresAt time.Time) (AuthSession, error) {
+	return newAuthSession(accountID, deviceID, accessToken, expiresAt)
+}
+
 func (s AuthSession) AccountID() string    { return s.accountID }
 func (s AuthSession) DeviceID() string     { return s.deviceID }
 func (s AuthSession) ExpiresAt() time.Time { return s.expiresAt }

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"changeme/internal/app"
+	"changeme/internal/auth"
 	"changeme/internal/bridge"
 	"changeme/internal/environments"
 	"changeme/internal/servermode"
@@ -66,6 +67,23 @@ func main() {
 		vaultitem.NewSQLMutationRepository(db),
 		environments.NewSQLRepository(db),
 	)
+	// The callback/browser boundary is composed here rather than in auth so the
+	// OIDC core remains independent of Wails and directly testable.
+	var openBrowser auth.BrowserOpener
+	authService, err := auth.New(auth.Dependencies{
+		Config: auth.ProductionConfig(),
+		Store:  auth.NewSystemRefreshTokenStore(),
+		OpenBrowser: func(url string) error {
+			if openBrowser == nil {
+				return auth.ErrAuthenticationFailed
+			}
+			return openBrowser(url)
+		},
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	container.Auth = authService
 	outbox := syncstore.NewSQLOutbox(db)
 	if err := outbox.RecoverStaleSyncing(time.Now().UTC()); err != nil {
 		log.Fatal(err)
@@ -82,8 +100,8 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	// Sync remains disconnected until the user explicitly supplies a runtime
-	// endpoint and access token through the capability-gated bridge.
+	// Sync remains disconnected until the user explicitly starts the pinned
+	// Keycloak/Gateway flow through the capability-gated bridge.
 	container.Sync = syncService
 	// Conflict resolution runs offline against the bound account, so it is wired
 	// directly from durable stores rather than the live session.
@@ -117,6 +135,7 @@ func main() {
 			ApplicationShouldTerminateAfterLastWindowClosed: true,
 		},
 	})
+	openBrowser = wailsApp.Browser.OpenURL
 
 	wailsApp.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:  "DevKit",

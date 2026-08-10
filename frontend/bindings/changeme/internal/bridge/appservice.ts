@@ -22,6 +22,22 @@ import * as ssh$0 from "../ssh/models.js";
 // @ts-ignore: Unused imports
 import * as $models from "./models.js";
 
+/**
+ * AuthLogin opens Keycloak only when a stored refresh session cannot be used.
+ * No token crosses this bridge or is included in audit metadata.
+ */
+export function AuthLogin(): $CancellablePromise<$models.AuthStatusDTO> {
+    return $Call.ByID(2244796844);
+}
+
+export function AuthLogout(): $CancellablePromise<void> {
+    return $Call.ByID(3792853017);
+}
+
+export function AuthStatus(): $CancellablePromise<$models.AuthStatusDTO> {
+    return $Call.ByID(4198688113);
+}
+
 export function DBCreateProfile(input: database$0.CreateProfileInput): $CancellablePromise<database$0.ProfileSummary> {
     return $Call.ByID(3076574404, input);
 }
@@ -153,8 +169,12 @@ export function SyncConflicts(): $CancellablePromise<$models.SyncConflictDTO[] |
     return $Call.ByID(2729123769);
 }
 
-export function SyncConnect(endpoint: string, accessToken: string): $CancellablePromise<void> {
-    return $Call.ByID(2389156000, endpoint, accessToken);
+/**
+ * SyncConnect always targets the pinned production gateway. The OIDC service
+ * supplies fresh access tokens to sync at request time, including rotations.
+ */
+export function SyncConnect(): $CancellablePromise<void> {
+    return $Call.ByID(2389156000);
 }
 
 export function SyncDisconnect(): $CancellablePromise<void> {

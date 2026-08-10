@@ -5,6 +5,14 @@
 // @ts-ignore: Unused imports
 import * as time$0 from "../../../time/models.js";
 
+/**
+ * AuthStatusDTO deliberately omits all token material and refresh-token state.
+ */
+export interface AuthStatusDTO {
+    "authenticated": boolean;
+    "expires_at"?: time$0.Time;
+}
+
 export interface ExecuteCommandRequest {
     "id": string;
     "payload": { [_ in string]?: any } | null;

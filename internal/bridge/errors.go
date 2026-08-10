@@ -63,6 +63,18 @@ func publicError(subject string, err error) *apperrors.AppError {
 			return apperrors.New(codeConnectionFailed, "Sync is already in progress.", true)
 		case errors.Is(err, syncclient.ErrInvalidDependencies):
 			return apperrors.New(codeConnectionFailed, "Sync is unavailable.", true)
+		case errors.Is(err, syncclient.ErrConnectAuthenticationRejected):
+			return apperrors.New(codeConnectionFailed, "The sync gateway rejected the sign-in token.", true)
+		case errors.Is(err, syncclient.ErrConnectServiceUnavailable):
+			return apperrors.New(codeConnectionFailed, "The sync service is temporarily unavailable.", true)
+		case errors.Is(err, syncclient.ErrLocalCaptureFailed):
+			return apperrors.New(codeConnectionFailed, "Local changes could not be prepared for sync.", true)
+		case errors.Is(err, syncclient.ErrPushFailed):
+			return apperrors.New(codeConnectionFailed, "Sync upload failed.", true)
+		case errors.Is(err, syncclient.ErrPullFailed):
+			return apperrors.New(codeConnectionFailed, "Sync download failed.", true)
+		case errors.Is(err, syncclient.ErrApplyFailed):
+			return apperrors.New(codeConnectionFailed, "Downloaded sync data could not be applied.", true)
 		default:
 			// Never expose an upstream response, endpoint, or bearer token through
 			// the public bridge error contract.

@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
 import {
+	 authLogout,
+	 authStatus,
   syncConflicts,
   syncConnect,
   syncDisconnect,
   syncNow,
   syncStatus,
+  type AuthStatus,
   type SyncConflict,
   type SyncReport,
   type SyncStatus,
@@ -20,9 +23,13 @@ const disconnected: SyncStatus = {
   expiresAt: "",
 };
 
+// The HTTP transport appends /v1/sync/* itself. Keep only the public gateway
+// origin here so a released client never connects directly to the API service.
+const productionGatewayEndpoint = "https://api.synx.io.vn";
+const signedOut: AuthStatus = { authenticated: false, expiresAt: "" };
+
 export function SyncView() {
-  const [endpoint, setEndpoint] = useState("");
-  const [accessToken, setAccessToken] = useState("");
+  const [authentication, setAuthentication] = useState<AuthStatus>(signedOut);
   const [connection, setConnection] = useState<SyncStatus>(disconnected);
   const [report, setReport] = useState<SyncReport | null>(null);
   const [conflicts, setConflicts] = useState<SyncConflict[]>([]);
@@ -34,12 +41,17 @@ export function SyncView() {
     setConnection(await syncStatus());
   }
 
+  async function refreshAuthentication() {
+    setAuthentication(await authStatus());
+  }
+
   async function refreshConflicts() {
     setConflicts(await syncConflicts());
   }
 
   useEffect(() => {
     refreshStatus().catch((caught) => setError(errorMessage(caught)));
+    refreshAuthentication().catch((caught) => setError(errorMessage(caught)));
     refreshConflicts().catch((caught) => setError(errorMessage(caught)));
   }, []);
 
@@ -48,14 +60,14 @@ export function SyncView() {
     setError("");
     setReport(null);
     try {
-      await syncConnect(endpoint, accessToken);
+      await syncConnect();
       await refreshStatus();
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
-      // The token is runtime-only and must not remain in React state after the
-      // connect attempt, regardless of success or failure.
-      setAccessToken("");
+			// Authentication can succeed before the gateway handshake fails. Always
+			// refresh here so the UI permits Sign out of that stored session.
+			await refreshAuthentication().catch((caught) => setError(errorMessage(caught)));
       setBusy(false);
     }
   }
@@ -88,6 +100,21 @@ export function SyncView() {
     }
   }
 
+  async function onLogout() {
+    setBusy(true);
+    setError("");
+    try {
+      await authLogout();
+      setAuthentication(signedOut);
+      setConnection(disconnected);
+      setReport(null);
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <section className="sync-view">
       <h2>Sync</h2>
@@ -102,30 +129,29 @@ export function SyncView() {
           Endpoint
           <input
             type="url"
-            value={endpoint}
-            onChange={(event) => setEndpoint(event.target.value)}
-            placeholder="https://sync.example.com"
-            disabled={busy || connection.connected}
-          />
-        </label>
-        <label>
-          Access token
-          <input
-            type="password"
-            value={accessToken}
-            onChange={(event) => setAccessToken(event.target.value)}
-            autoComplete="off"
+            value={productionGatewayEndpoint}
+            placeholder={productionGatewayEndpoint}
+            readOnly
             disabled={busy || connection.connected}
           />
         </label>
         <button
           type="button"
           onClick={onConnect}
-          disabled={busy || connection.connected || !endpoint || !accessToken}
+          disabled={busy || connection.connected}
         >
-          Connect
+          {authentication.authenticated ? "Connect" : "Sign in and connect"}
+        </button>
+        <button type="button" onClick={onLogout} disabled={busy}>
+          Sign out
         </button>
       </div>
+
+      <p className="sync-notice">
+        {authentication.authenticated
+          ? `Signed in${authentication.expiresAt ? ` until ${authentication.expiresAt}` : ""}. Tokens refresh automatically.`
+          : "Sign in opens Keycloak in your browser. DevKit stores only the rotating refresh token in the OS keychain."}
+      </p>
 
       <dl className="sync-status">
         <div><dt>Status</dt><dd>{connection.connected ? "Connected" : "Disconnected"}</dd></div>

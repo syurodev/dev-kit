@@ -9,6 +9,11 @@ export type SyncStatus = {
   expiresAt: string;
 };
 
+export type AuthStatus = {
+  authenticated: boolean;
+  expiresAt: string;
+};
+
 export type SyncReport = {
   pushAttempted: number;
   pushSent: number;
@@ -87,9 +92,23 @@ export function syncStatus(): Promise<SyncStatus> {
   });
 }
 
-export function syncConnect(endpoint: string, accessToken: string): Promise<void> {
+export function authStatus(): Promise<AuthStatus> {
+  return callBridge(async () => {
+    const status = await AppService.AuthStatus();
+    return {
+      authenticated: status.authenticated,
+      expiresAt: status.expires_at ? String(status.expires_at) : "",
+    };
+  });
+}
+
+export function authLogout(): Promise<void> {
+  return callBridge(() => AppService.AuthLogout() as Promise<void>);
+}
+
+export function syncConnect(): Promise<void> {
   return callBridge(
-    () => AppService.SyncConnect(endpoint, accessToken) as Promise<void>,
+    () => AppService.SyncConnect() as Promise<void>,
   );
 }
 
