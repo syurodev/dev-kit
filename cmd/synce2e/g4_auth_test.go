@@ -17,8 +17,8 @@ import (
 )
 
 func TestG4RevokedDeviceRejected(t *testing.T) {
-	resetDeployedSyncState(t)
 	baseURL, token := requireDeployed(t)
+	resetDeployedSyncState(t)
 	vlt := newSharedVault(t)
 	a := newBootstrappedDevice(t, baseURL, token, vlt)
 	a.createNote(t, "revoke-me", "body")
@@ -39,8 +39,8 @@ func TestG4RevokedDeviceRejected(t *testing.T) {
 }
 
 func TestG4ExpiredCredentialsClearSession(t *testing.T) {
-	resetDeployedSyncState(t)
 	baseURL, token := requireDeployed(t)
+	resetDeployedSyncState(t)
 	vlt := newSharedVault(t)
 
 	a := newBootstrappedDeviceWithTokenSource(t, baseURL, &expiringTokenSource{token: token}, vlt)

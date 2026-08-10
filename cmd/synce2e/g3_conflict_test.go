@@ -36,8 +36,8 @@ func resetDeployedSyncState(t *testing.T) {
 // captures theirs. It returns both devices, the shared account, and the note id.
 func setupConflict(t *testing.T) (a, b *device, account, recordID string) {
 	t.Helper()
-	resetDeployedSyncState(t)
 	baseURL, token := requireDeployed(t)
+	resetDeployedSyncState(t)
 	vlt := newSharedVault(t)
 
 	a = newBootstrappedDevice(t, baseURL, token, vlt)
