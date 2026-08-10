@@ -51,6 +51,9 @@ a first-run "Create Master Password" or an "Unlock" gate before the workbench.
   test (two full device stacks over HTTP against the in-memory mock). Run the mock
   standalone for manual testing with `go run ./cmd/mocksyncserver` (loopback, default
   `127.0.0.1:8787`); point the app's sync endpoint at it (plain HTTP is allowed on loopback).
+- Deployed sync matrix: `go test ./cmd/synce2e/` skips unless
+  `DEVKIT_DEPLOYED_E2E_URL` and `DEVKIT_DEPLOYED_E2E_TOKEN` are set; targets the Compose
+  Gateway at `http://127.0.0.1:8082` typically.
 - Go format/vet: `gofmt -l internal main.go` / `go vet -tags server ./...`. (`build/ios/*.go`
   and `internal/crypto/keyring.go` are not gofmt-clean upstream; ignore them.)
 - Frontend typecheck + build: `cd frontend && bun run build` (runs `tsc` then `vite build`).
