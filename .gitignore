@@ -48,3 +48,4 @@ coverage.out
 .agent/
 .agents/
 .DS_Store
+docs/superpowers/*

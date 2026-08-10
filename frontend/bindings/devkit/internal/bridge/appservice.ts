@@ -27,107 +27,107 @@ import * as $models from "./models.js";
  * No token crosses this bridge or is included in audit metadata.
  */
 export function AuthLogin(): $CancellablePromise<$models.AuthStatusDTO> {
-    return $Call.ByID(2244796844);
+    return $Call.ByID(729656021);
 }
 
 export function AuthLogout(): $CancellablePromise<void> {
-    return $Call.ByID(3792853017);
+    return $Call.ByID(47377726);
 }
 
 export function AuthStatus(): $CancellablePromise<$models.AuthStatusDTO> {
-    return $Call.ByID(4198688113);
+    return $Call.ByID(1688778362);
 }
 
 export function DBCreateProfile(input: database$0.CreateProfileInput): $CancellablePromise<database$0.ProfileSummary> {
-    return $Call.ByID(3076574404, input);
+    return $Call.ByID(3479862833, input);
 }
 
 export function DBDeleteProfile(id: string): $CancellablePromise<void> {
-    return $Call.ByID(1020110141, id);
+    return $Call.ByID(369902404, id);
 }
 
 export function DBListProfiles(): $CancellablePromise<database$0.ProfileSummary[] | null> {
-    return $Call.ByID(1018212093);
+    return $Call.ByID(1640509370);
 }
 
 export function DBQuery(id: string, sql: string): $CancellablePromise<database$0.QueryResult> {
-    return $Call.ByID(4141658393, id, sql);
+    return $Call.ByID(2555176260, id, sql);
 }
 
 export function DBTestConnection(id: string): $CancellablePromise<void> {
-    return $Call.ByID(3943270391, id);
+    return $Call.ByID(3559263668, id);
 }
 
 export function EnvCreateTag(name: string, requiresConfirmation: boolean): $CancellablePromise<environments$0.Tag> {
-    return $Call.ByID(2924483096, name, requiresConfirmation);
+    return $Call.ByID(336598155, name, requiresConfirmation);
 }
 
 export function EnvDeleteTag(id: string): $CancellablePromise<void> {
-    return $Call.ByID(2083511037, id);
+    return $Call.ByID(2238017762, id);
 }
 
 export function EnvListTags(): $CancellablePromise<environments$0.Tag[] | null> {
-    return $Call.ByID(1564579597);
+    return $Call.ByID(1587675964);
 }
 
 export function EnvUpdateTag(id: string, requiresConfirmation: boolean): $CancellablePromise<environments$0.Tag> {
-    return $Call.ByID(3882344987, id, requiresConfirmation);
+    return $Call.ByID(868902444, id, requiresConfirmation);
 }
 
 export function ExecuteCommand(request: $models.ExecuteCommandRequest): $CancellablePromise<any> {
-    return $Call.ByID(3246392393, request);
+    return $Call.ByID(2188640894, request);
 }
 
 export function ListModules(): $CancellablePromise<$models.ModuleDTO[] | null> {
-    return $Call.ByID(3174419494);
+    return $Call.ByID(3950340155);
 }
 
 export function LockVault(): $CancellablePromise<void> {
-    return $Call.ByID(1540677414);
+    return $Call.ByID(4203038791);
 }
 
 export function NotesCreate(title: string, body: string): $CancellablePromise<notes$0.Summary> {
-    return $Call.ByID(59292470, title, body);
+    return $Call.ByID(1729685215, title, body);
 }
 
 export function NotesDelete(id: string): $CancellablePromise<void> {
-    return $Call.ByID(297732157, id);
+    return $Call.ByID(3689405508, id);
 }
 
 export function NotesGet(id: string): $CancellablePromise<notes$0.Note> {
-    return $Call.ByID(1669727726, id);
+    return $Call.ByID(1051925601, id);
 }
 
 export function NotesList(): $CancellablePromise<notes$0.Summary[] | null> {
-    return $Call.ByID(1792210430);
+    return $Call.ByID(3703031295);
 }
 
 export function NotesSearch(query: string): $CancellablePromise<notes$0.Summary[] | null> {
-    return $Call.ByID(2453531114, query);
+    return $Call.ByID(4193008759, query);
 }
 
 export function SSHCreateProfile(input: ssh$0.CreateProfileInput): $CancellablePromise<ssh$0.ProfileSummary> {
-    return $Call.ByID(4067339226, input);
+    return $Call.ByID(287245993, input);
 }
 
 export function SSHDeleteProfile(id: string): $CancellablePromise<void> {
-    return $Call.ByID(2384439843, id);
+    return $Call.ByID(4047570572, id);
 }
 
 export function SSHListForwards(): $CancellablePromise<ssh$0.ForwardInfo[] | null> {
-    return $Call.ByID(3624548715);
+    return $Call.ByID(254600186);
 }
 
 export function SSHListProfiles(): $CancellablePromise<ssh$0.ProfileSummary[] | null> {
-    return $Call.ByID(1529350215);
+    return $Call.ByID(1465248130);
 }
 
 export function SSHObserveHostKey(id: string): $CancellablePromise<string> {
-    return $Call.ByID(543685068, id);
+    return $Call.ByID(991282733, id);
 }
 
 export function SSHRunCommand(id: string, command: string, passphrase: string): $CancellablePromise<ssh$0.CommandResult> {
-    return $Call.ByID(3450765639, id, command, passphrase);
+    return $Call.ByID(3148248618, id, command, passphrase);
 }
 
 /**
@@ -136,19 +136,19 @@ export function SSHRunCommand(id: string, command: string, passphrase: string): 
  * execution because it creates a long-lived network path.
  */
 export function SSHStartForward(id: string, spec: ssh$0.ForwardSpec, passphrase: string): $CancellablePromise<ssh$0.ForwardInfo> {
-    return $Call.ByID(2417694560, id, spec, passphrase);
+    return $Call.ByID(4195262953, id, spec, passphrase);
 }
 
 export function SSHStopForward(id: string): $CancellablePromise<void> {
-    return $Call.ByID(1975449174, id);
+    return $Call.ByID(182446317, id);
 }
 
 export function SSHTestConnection(id: string, passphrase: string): $CancellablePromise<void> {
-    return $Call.ByID(2055731053, id, passphrase);
+    return $Call.ByID(2407498444, id, passphrase);
 }
 
 export function SSHTrustHostKey(id: string, fingerprint: string): $CancellablePromise<void> {
-    return $Call.ByID(4212538506, id, fingerprint);
+    return $Call.ByID(3977822955, id, fingerprint);
 }
 
 /**
@@ -158,15 +158,15 @@ export function SSHTrustHostKey(id: string, fingerprint: string): $CancellablePr
  * persist, or return the recovery key from any other bridge method.
  */
 export function SetupVault(masterPassword: string): $CancellablePromise<string> {
-    return $Call.ByID(796766178, masterPassword);
+    return $Call.ByID(3377915881, masterPassword);
 }
 
 export function SyncConflictDetail(id: string): $CancellablePromise<$models.SyncConflictDetailDTO> {
-    return $Call.ByID(2857013137, id);
+    return $Call.ByID(529548970, id);
 }
 
 export function SyncConflicts(): $CancellablePromise<$models.SyncConflictDTO[] | null> {
-    return $Call.ByID(2729123769);
+    return $Call.ByID(2482308472);
 }
 
 /**
@@ -174,31 +174,31 @@ export function SyncConflicts(): $CancellablePromise<$models.SyncConflictDTO[] |
  * supplies fresh access tokens to sync at request time, including rotations.
  */
 export function SyncConnect(): $CancellablePromise<void> {
-    return $Call.ByID(2389156000);
+    return $Call.ByID(1847325245);
 }
 
 export function SyncDisconnect(): $CancellablePromise<void> {
-    return $Call.ByID(2041714372);
+    return $Call.ByID(3041152959);
 }
 
 export function SyncNow(): $CancellablePromise<$models.SyncReportDTO> {
-    return $Call.ByID(1670774930);
+    return $Call.ByID(2828019723);
 }
 
 export function SyncResolveConflict(id: string, strategy: string, mergedText: string): $CancellablePromise<void> {
-    return $Call.ByID(972829776, id, strategy, mergedText);
+    return $Call.ByID(1652864581, id, strategy, mergedText);
 }
 
 export function SyncStatus(): $CancellablePromise<$models.SyncStatusDTO> {
-    return $Call.ByID(188174924);
+    return $Call.ByID(1672945227);
 }
 
 export function UnlockVault(masterPassword: string): $CancellablePromise<void> {
-    return $Call.ByID(1335607687, masterPassword);
+    return $Call.ByID(4175507442, masterPassword);
 }
 
 export function UnlockVaultWithRecovery(recoveryKey: string): $CancellablePromise<void> {
-    return $Call.ByID(4259195092, recoveryKey);
+    return $Call.ByID(4016602009, recoveryKey);
 }
 
 /**
@@ -207,9 +207,9 @@ export function UnlockVaultWithRecovery(recoveryKey: string): $CancellablePromis
  * returns secret payloads.
  */
 export function VaultSearch(query: string): $CancellablePromise<$models.VaultSearchResult[] | null> {
-    return $Call.ByID(4028168727, query);
+    return $Call.ByID(3232671278, query);
 }
 
 export function VaultStatus(): $CancellablePromise<$models.VaultStatusDTO> {
-    return $Call.ByID(3884390625);
+    return $Call.ByID(252340320);
 }
