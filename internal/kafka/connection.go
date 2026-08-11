@@ -80,6 +80,43 @@ func (s *Service) ListTopics(ctx context.Context) ([]TopicInfo, error) {
 	return client.ListTopics(ctx)
 }
 
+func (s *Service) DescribeTopic(ctx context.Context, topic string) (TopicDetail, error) {
+	client, err := s.activeClient()
+	if err != nil {
+		return TopicDetail{}, err
+	}
+	return client.DescribeTopic(ctx, topic)
+}
+
+func (s *Service) PeekMessages(ctx context.Context, topic string, partition int32, limit int, offset int64) ([]Message, error) {
+	client, err := s.activeClient()
+	if err != nil {
+		return nil, err
+	}
+	limit = clampPeekLimit(limit)
+	return client.PeekMessages(ctx, topic, partition, limit, offset)
+}
+
+func (s *Service) ListConsumerGroups(ctx context.Context) ([]ConsumerGroupInfo, error) {
+	client, err := s.activeClient()
+	if err != nil {
+		return nil, err
+	}
+	return client.ListConsumerGroups(ctx)
+}
+
+func (s *Service) PublishMessage(ctx context.Context, req PublishRequest) (PublishResult, error) {
+	client, err := s.activeClient()
+	if err != nil {
+		return PublishResult{}, err
+	}
+	return client.Publish(ctx, req)
+}
+
+func (s *Service) Close() {
+	_ = s.Disconnect()
+}
+
 func (s *Service) activeClient() (BrokerClient, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

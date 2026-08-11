@@ -86,3 +86,13 @@ type PublishResult struct {
 	Offset    int64 `json:"offset"`
 	Timestamp int64 `json:"timestamp,omitempty"`
 }
+
+func clampPeekLimit(limit int) int {
+	if limit <= 0 {
+		return 50
+	}
+	if limit > 500 {
+		return 500
+	}
+	return limit
+}

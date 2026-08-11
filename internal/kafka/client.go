@@ -147,16 +147,6 @@ func (c *franzClient) DescribeTopic(ctx context.Context, topic string) (TopicDet
 	return detail, nil
 }
 
-func clampPeekLimit(limit int) int {
-	if limit <= 0 {
-		return 50
-	}
-	if limit > 500 {
-		return 500
-	}
-	return limit
-}
-
 func (c *franzClient) PeekMessages(ctx context.Context, topic string, partition int32, limit int, offset int64) ([]Message, error) {
 	limit = clampPeekLimit(limit)
 
