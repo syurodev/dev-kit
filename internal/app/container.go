@@ -10,6 +10,7 @@ import (
 	"devkit/internal/commands"
 	"devkit/internal/database"
 	"devkit/internal/environments"
+	"devkit/internal/interaction"
 	"devkit/internal/kafka"
 	"devkit/internal/modules"
 	"devkit/internal/notes"
@@ -67,6 +68,10 @@ type Container struct {
 	Sync         SyncService
 	Auth         AuthService
 	SyncConflict SyncConflictService
+	// Interaction is the shared MCP/UI hub for selection and confirmation
+	// dialogs. Set from main before NewAppService so bridge and MCP share one
+	// instance. Nil in ephemeral tests that do not exercise interaction.
+	Interaction *interaction.Hub
 	// SyncBlocked, when set, prevents AuthLogin and SyncConnect with a dedicated
 	// cloud-config or version-gate error mapped by the bridge.
 	SyncBlocked error
@@ -123,6 +128,8 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.sync", Capability: "sync:manage", Scope: "sync:disconnect"},
 		{SubjectID: "builtin.sync", Capability: "sync:manage", Scope: "sync:conflicts"},
 		{SubjectID: "builtin.sync", Capability: "sync:manage", Scope: "sync:resolve"},
+		{SubjectID: "builtin.interaction", Capability: "interaction:respond", Scope: "pending"},
+		{SubjectID: "builtin.interaction", Capability: "interaction:respond", Scope: "pending:complete"},
 	})
 
 	vaultService := vault.NewService(keyringStore)

@@ -166,11 +166,12 @@ func main() {
 		log.Fatal(err)
 	}
 
-	appService := bridge.NewAppService(container)
-
 	// MCP host: GUI process owns tools + interaction; cmd/devkit-mcp proxies stdio.
-	// Task 9 wires a real Wails Prompter; NoopPrompter keeps Complete callable from bridge.
+	// NoopPrompter is enough: InteractionHost polls InteractionPending every 500ms
+	// and Completes via the bridge. Share one Hub between MCP and bridge.
 	hub := interaction.NewHub(interaction.NoopPrompter{})
+	container.Interaction = hub
+	appService := bridge.NewAppService(container)
 	mcpServer := mcp.NewServerFromContainer(mcp.Deps{
 		Caller: appService,
 		Notes:  container.Notes,

@@ -6,11 +6,31 @@
 import * as time$0 from "../../../time/models.js";
 
 /**
+ * ActiveProfileDTO is the sticky agent-active profile for SSH or database MCP tools.
+ */
+export interface ActiveProfileDTO {
+    "profileId"?: string;
+}
+
+/**
  * AuthStatusDTO deliberately omits all token material and refresh-token state.
  */
 export interface AuthStatusDTO {
     "authenticated": boolean;
     "expires_at"?: time$0.Time;
+}
+
+/**
+ * InteractionPending mirrors interaction.Pending for MCP selection / confirmation dialogs.
+ */
+export interface InteractionPending {
+    "id": string;
+    "type": string;
+    "kind"?: string;
+    "env"?: string;
+    "tool"?: string;
+    "summary"?: string;
+    "allowAlwaysOffered": boolean;
 }
 
 export interface ExecuteCommandRequest {

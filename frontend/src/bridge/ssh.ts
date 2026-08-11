@@ -63,6 +63,17 @@ export function listSSHProfiles(): Promise<SSHProfile[]> {
   });
 }
 
+export function setSSHActiveProfile(id: string): Promise<void> {
+  return callBridge(() => AppService.SSHSetActiveProfile(id) as Promise<void>);
+}
+
+export function getSSHActiveProfile(): Promise<string> {
+  return callBridge(async () => {
+    const active = await AppService.SSHActiveProfile();
+    return active.profileId ?? "";
+  });
+}
+
 export function createSSHProfile(input: CreateSSHProfileInput): Promise<SSHProfile> {
   return callBridge(async () => {
     const created = await AppService.SSHCreateProfile({

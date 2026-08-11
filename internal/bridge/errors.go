@@ -66,6 +66,15 @@ func publicError(subject string, err error) *apperrors.AppError {
 	if errors.Is(err, interaction.ErrConfirmationRequired) {
 		return apperrors.New(codeValidationFailed, "Confirmation required.", true)
 	}
+	if errors.Is(err, interaction.ErrNoPendingInteraction) {
+		return apperrors.New(codeValidationFailed, "No pending interaction.", true)
+	}
+	if errors.Is(err, interaction.ErrInvalidInteractionID) {
+		return apperrors.New(codeValidationFailed, "Invalid interaction id.", true)
+	}
+	if errors.Is(err, errInteractionUnavailable) {
+		return apperrors.New(codeInternalError, "Interaction is not available.", true)
+	}
 	if errors.Is(err, vault.ErrLocked) {
 		return apperrors.New(codeVaultLocked, "Vault is locked or unavailable.", true)
 	}

@@ -7,8 +7,10 @@ export {
 };
 
 export type {
+    ActiveProfileDTO,
     AuthStatusDTO,
     ExecuteCommandRequest,
+    InteractionPending,
     ModuleDTO,
     SyncConflictDTO,
     SyncConflictDetailDTO,

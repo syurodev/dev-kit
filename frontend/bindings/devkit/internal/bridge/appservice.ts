@@ -41,6 +41,10 @@ export function AuthStatus(): $CancellablePromise<$models.AuthStatusDTO> {
     return $Call.ByID(1688778362);
 }
 
+export function DBActiveProfile(): $CancellablePromise<$models.ActiveProfileDTO> {
+    return $Call.ByID(2207927079);
+}
+
 export function DBCreateProfile(input: database$0.CreateProfileInput): $CancellablePromise<database$0.ProfileSummary> {
     return $Call.ByID(3479862833, input);
 }
@@ -55,6 +59,10 @@ export function DBListProfiles(): $CancellablePromise<database$0.ProfileSummary[
 
 export function DBQuery(id: string, sql: string): $CancellablePromise<database$0.QueryResult> {
     return $Call.ByID(2555176260, id, sql);
+}
+
+export function DBSetActiveProfile(id: string): $CancellablePromise<void> {
+    return $Call.ByID(646248503, id);
 }
 
 export function DBTestConnection(id: string): $CancellablePromise<void> {
@@ -79,6 +87,31 @@ export function EnvUpdateTag(id: string, requiresConfirmation: boolean): $Cancel
 
 export function ExecuteCommand(request: $models.ExecuteCommandRequest): $CancellablePromise<any> {
     return $Call.ByID(2188640894, request);
+}
+
+/**
+ * InteractionComplete resolves a pending interaction with the given value
+ * (profile id, "allow", "allow_always", "deny", or "" for select cancel).
+ */
+export function InteractionComplete(id: string, value: string): $CancellablePromise<void> {
+    return $Call.ByID(4230484601, id, value);
+}
+
+/**
+ * InteractionDeny cancels a pending interaction: "deny" for confirm, or "" for
+ * select cancel.
+ */
+export function InteractionDeny(id: string): $CancellablePromise<void> {
+    return $Call.ByID(1537876152, id);
+}
+
+/**
+ * InteractionPending returns the current pending selection/confirmation, or
+ * nil when none is waiting. The frontend polls this while InteractionHost is
+ * mounted.
+ */
+export function InteractionPending(): $CancellablePromise<$models.InteractionPending | null> {
+    return $Call.ByID(4067819829);
 }
 
 export function KafkaConnect(id: string): $CancellablePromise<void> {
@@ -157,6 +190,10 @@ export function NotesSearch(query: string): $CancellablePromise<notes$0.Summary[
     return $Call.ByID(4193008759, query);
 }
 
+export function SSHActiveProfile(): $CancellablePromise<$models.ActiveProfileDTO> {
+    return $Call.ByID(3462748943);
+}
+
 export function SSHCreateProfile(input: ssh$0.CreateProfileInput): $CancellablePromise<ssh$0.ProfileSummary> {
     return $Call.ByID(287245993, input);
 }
@@ -179,6 +216,10 @@ export function SSHObserveHostKey(id: string): $CancellablePromise<string> {
 
 export function SSHRunCommand(id: string, command: string, passphrase: string): $CancellablePromise<ssh$0.CommandResult> {
     return $Call.ByID(3148248618, id, command, passphrase);
+}
+
+export function SSHSetActiveProfile(id: string): $CancellablePromise<void> {
+    return $Call.ByID(2766634159, id);
 }
 
 /**

@@ -56,6 +56,17 @@ export function listProfiles(): Promise<ConnectionProfile[]> {
   });
 }
 
+export function setDBActiveProfile(id: string): Promise<void> {
+  return callBridge(() => AppService.DBSetActiveProfile(id) as Promise<void>);
+}
+
+export function getDBActiveProfile(): Promise<string> {
+  return callBridge(async () => {
+    const active = await AppService.DBActiveProfile();
+    return active.profileId ?? "";
+  });
+}
+
 export function createProfile(input: CreateProfileInput): Promise<ConnectionProfile> {
   return callBridge(async () => {
     const created = await AppService.DBCreateProfile({

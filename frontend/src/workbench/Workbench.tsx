@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { listModules, type ModuleDTO } from "../bridge/commands";
 import { ActivityBar } from "./ActivityBar";
 import { CommandPalette } from "./CommandPalette";
+import { InteractionHost } from "./InteractionHost";
 import {
   compareModuleParity,
   CURRENT_MODULE_API_VERSION,
@@ -144,6 +145,7 @@ export function Workbench() {
         commands={commands}
         onClose={() => setPaletteOpen(false)}
       />
+      <InteractionHost />
     </main>
   );
 }
