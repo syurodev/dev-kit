@@ -145,3 +145,16 @@ func (s *Service) Exists(name string) bool {
 	_, err := s.repo.Get(name)
 	return err == nil
 }
+
+// RequiresConfirmation reports the MCP confirmation policy for an env tag name.
+// Unknown or unreadable tags fail closed (true).
+func (s *Service) RequiresConfirmation(name string) bool {
+	if name == "" {
+		return true
+	}
+	tag, err := s.repo.Get(name)
+	if err != nil {
+		return true
+	}
+	return tag.RequiresConfirmation
+}

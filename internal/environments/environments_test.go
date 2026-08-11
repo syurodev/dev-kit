@@ -174,3 +174,31 @@ func TestDeleteTagAllowsUnusedCustomTagWithUsageChecker(t *testing.T) {
 		t.Fatalf("DeleteTag(unused qa): %v", err)
 	}
 }
+
+func TestRequiresConfirmationProdTrue(t *testing.T) {
+	svc := NewService(NewMemoryRepository(), nil)
+	if !svc.RequiresConfirmation("prod") {
+		t.Fatal("RequiresConfirmation(prod) = false, want true")
+	}
+}
+
+func TestRequiresConfirmationUnknownFailClosed(t *testing.T) {
+	svc := NewService(NewMemoryRepository(), nil)
+	if !svc.RequiresConfirmation("does-not-exist") {
+		t.Fatal("RequiresConfirmation(unknown) = false, want true (fail closed)")
+	}
+}
+
+func TestRequiresConfirmationDevDefaultFalse(t *testing.T) {
+	svc := NewService(NewMemoryRepository(), nil)
+	if svc.RequiresConfirmation("dev") {
+		t.Fatal("RequiresConfirmation(dev) = true, want false")
+	}
+}
+
+func TestRequiresConfirmationEmptyFailClosed(t *testing.T) {
+	svc := NewService(NewMemoryRepository(), nil)
+	if !svc.RequiresConfirmation("") {
+		t.Fatal("RequiresConfirmation(\"\") = false, want true (fail closed)")
+	}
+}
