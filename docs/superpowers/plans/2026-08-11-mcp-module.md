@@ -29,8 +29,9 @@
 | Socket path | `filepath.Join(configDir, "DevKit", "mcp.sock")` mode `0600`; remove on clean shutdown |
 | Selection / confirmation timeout | `60s` each |
 | Headless / no Prompter | Return structured `selection_required` / `confirmation_required` immediately |
-| Confirmation choices | Allow / Deny only — **no** `allow_always` |
+| Confirmation choices | `allow` / `allow_always` / `deny` — see **Allow-always vs env** below |
 | Unresolvable env tag | Fail closed → treat as `requiresConfirmation=true` |
+| Allow-always vs env | `allow_always` is supported for MCP confirmations **when env does not require confirmation**. If `RequiresConfirmation(env)` is true (incl. fail-closed / locked `prod`), **env always wins**: prompt every call, ignore any prior `allow_always`, and UI must **not** offer `allow_always` on that dialog |
 | `db.query` annotations | Always `readOnlyHint=false`, `destructiveHint=true` |
 | `tools/list` filtering | Only register tools whose subject/capability/scope are granted in `container` policy (static = register allowlist ∩ grants) |
 | SDK | `github.com/modelcontextprotocol/go-sdk` latest ≥ v1.7 |
@@ -357,13 +358,13 @@ func TestSelectHeadlessNoPrompterImmediate(t *testing.T) {
 }
 
 func TestConfirmAllowAndDeny(t *testing.T) {
-	h := NewHub(nil)
+	h := NewHub(NoopPrompter{})
 	ctx := context.Background()
 	go func() {
 		waitForPending(t, h)
 		_ = h.Complete(h.Pending().ID, "allow")
 	}()
-	if err := h.Confirm(ctx, ConfirmRequest{Env: "prod", Tool: "ssh.runCommand", Summary: "ls"}); err != nil {
+	if err := h.Confirm(ctx, ConfirmRequest{Env: "prod", Tool: "ssh.runCommand", Summary: "ls", EnvBlocks: true}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -371,8 +372,64 @@ func TestConfirmAllowAndDeny(t *testing.T) {
 		waitForPending(t, h)
 		_ = h.Complete(h.Pending().ID, "deny")
 	}()
-	if err := h.Confirm(ctx, ConfirmRequest{Env: "prod", Tool: "ssh.runCommand", Summary: "rm"}); !errors.Is(err, ErrConfirmationDenied) {
+	if err := h.Confirm(ctx, ConfirmRequest{Env: "prod", Tool: "ssh.runCommand", Summary: "rm", EnvBlocks: true}); !errors.Is(err, ErrConfirmationDenied) {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestAllowAlwaysSkippedWhenEnvDoesNotBlock(t *testing.T) {
+	h := NewHub(NoopPrompter{})
+	ctx := context.Background()
+	// First call: user picks allow_always for tool on non-blocking env.
+	go func() {
+		waitForPending(t, h)
+		p := h.Pending()
+		if p.AllowAlwaysOffered != true {
+			t.Errorf("expected allow_always offered when env does not block")
+		}
+		_ = h.Complete(p.ID, "allow_always")
+	}()
+	if err := h.Confirm(ctx, ConfirmRequest{Env: "dev", Tool: "db.query", Summary: "select 1", EnvBlocks: false}); err != nil {
+		t.Fatal(err)
+	}
+	// Second call: no prompt — allow_always remembered for tool key.
+	if err := h.Confirm(ctx, ConfirmRequest{Env: "dev", Tool: "db.query", Summary: "select 2", EnvBlocks: false}); err != nil {
+		t.Fatal(err)
+	}
+	if h.Pending() != nil {
+		t.Fatal("should not leave pending after allow_always short-circuit")
+	}
+}
+
+func TestEnvBlockIgnoresAllowAlways(t *testing.T) {
+	h := NewHub(NoopPrompter{})
+	ctx := context.Background()
+	// Seed allow_always while env does not block.
+	go func() {
+		waitForPending(t, h)
+		_ = h.Complete(h.Pending().ID, "allow_always")
+	}()
+	if err := h.Confirm(ctx, ConfirmRequest{Env: "dev", Tool: "kafka.publishMessage", Summary: "x", EnvBlocks: false}); err != nil {
+		t.Fatal(err)
+	}
+	// Same tool, but env now blocks (e.g. switched active profile to prod) → must prompt again.
+	prompted := make(chan struct{}, 1)
+	go func() {
+		waitForPending(t, h)
+		p := h.Pending()
+		if p.AllowAlwaysOffered {
+			t.Errorf("env block must not offer allow_always")
+		}
+		prompted <- struct{}{}
+		_ = h.Complete(p.ID, "allow")
+	}()
+	if err := h.Confirm(ctx, ConfirmRequest{Env: "prod", Tool: "kafka.publishMessage", Summary: "x", EnvBlocks: true}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-prompted:
+	default:
+		t.Fatal("env block must prompt even if allow_always was set")
 	}
 }
 ```
@@ -438,15 +495,19 @@ type ConfirmRequest struct {
 	Tool    string
 	Summary string
 	Kind    Kind
+	// EnvBlocks is true when RequiresConfirmation(env) (incl. fail-closed).
+	// When true, hub ignores allow_always cache and does not offer allow_always.
+	EnvBlocks bool
 }
 
 type Pending struct {
-	ID      string `json:"id"`
-	Type    Type   `json:"type"`
-	Kind    Kind   `json:"kind,omitempty"`
-	Env     string `json:"env,omitempty"`
-	Tool    string `json:"tool,omitempty"`
-	Summary string `json:"summary,omitempty"`
+	ID                  string `json:"id"`
+	Type                Type   `json:"type"`
+	Kind                Kind   `json:"kind,omitempty"`
+	Env                 string `json:"env,omitempty"`
+	Tool                string `json:"tool,omitempty"`
+	Summary             string `json:"summary,omitempty"`
+	AllowAlwaysOffered  bool   `json:"allowAlwaysOffered"`
 }
 
 type Hub struct {
@@ -454,8 +515,9 @@ type Hub struct {
 	Headless bool
 	prompter Prompter
 
-	mu      sync.Mutex
-	pending *pendingWait
+	mu          sync.Mutex
+	pending     *pendingWait
+	allowAlways map[string]struct{} // key = Tool (v1); cleared on process restart only
 }
 
 type pendingWait struct {
@@ -464,7 +526,11 @@ type pendingWait struct {
 }
 
 func NewHub(p Prompter) *Hub {
-	return &Hub{Timeout: DefaultTimeout, prompter: p}
+	return &Hub{
+		Timeout:     DefaultTimeout,
+		prompter:    p,
+		allowAlways: map[string]struct{}{},
+	}
 }
 
 func (h *Hub) Pending() *Pending {
@@ -509,13 +575,34 @@ func (h *Hub) Confirm(ctx context.Context, req ConfirmRequest) error {
 	if h.Headless || h.prompter == nil {
 		return ErrConfirmationRequired
 	}
+	// Env block always wins: never short-circuit on allow_always.
+	if !req.EnvBlocks {
+		h.mu.Lock()
+		_, ok := h.allowAlways[req.Tool]
+		h.mu.Unlock()
+		if ok {
+			return nil
+		}
+	}
 	_, err := h.wait(ctx, Pending{
 		Type: TypeConfirm, Kind: req.Kind, Env: req.Env, Tool: req.Tool, Summary: req.Summary,
+		AllowAlwaysOffered: !req.EnvBlocks,
 	}, func(v string) (string, error) {
-		if v != "allow" {
+		switch v {
+		case "allow":
+			return v, nil
+		case "allow_always":
+			if req.EnvBlocks {
+				// UI should not send this when EnvBlocks; treat as single allow.
+				return "allow", nil
+			}
+			h.mu.Lock()
+			h.allowAlways[req.Tool] = struct{}{}
+			h.mu.Unlock()
+			return v, nil
+		default:
 			return "", ErrConfirmationDenied
 		}
-		return v, nil
 	})
 	return err
 }
@@ -725,16 +812,17 @@ type ActiveTarget interface {
 - [ ] **Step 2: Failing tests with fakes**
 
 ```go
-func TestGateSkipsConfirmWhenDev(t *testing.T) {
-	// active id set, env=dev → RequiresConfirmation false → Gate returns nil without Confirm call
+func TestGatePromptsDevThenAllowAlways(t *testing.T) {
+	// active id set, env=dev → EnvBlocks=false → Confirm offered with allow_always;
+	// after allow_always, second GateActiveMCP returns without new pending
 }
 
-func TestGateConfirmsWhenProd(t *testing.T) {
-	// Confirm invoked once; deny → ErrConfirmationDenied
+func TestGateConfirmsWhenProdEveryTime(t *testing.T) {
+	// Confirm invoked every call; deny → ErrConfirmationDenied; allow_always cache ignored
 }
 
 func TestGateFailClosedUnknownEnv(t *testing.T) {
-	// env name missing from registry → confirmer returns true → Confirm required
+	// env name missing from registry → confirmer returns true → EnvBlocks → Confirm required
 }
 ```
 
@@ -750,14 +838,22 @@ func GateActiveMCP(ctx context.Context, hub *interaction.Hub, env EnvConfirmer, 
 	if err != nil {
 		return err
 	}
-	if !env.RequiresConfirmation(envName) {
-		return nil
-	}
+	blocks := env.RequiresConfirmation(envName)
+	// User rule: allow_always exists, but env block always wins.
+	//   blocks==true  → always Confirm (no allow_always honor/offer)
+	//   blocks==false → Confirm may short-circuit via allow_always cache; first prompt offers it
 	return hub.Confirm(ctx, interaction.ConfirmRequest{
-		Env: envName, Tool: tool, Summary: summary, Kind: kind,
+		Env: envName, Tool: tool, Summary: summary, Kind: kind, EnvBlocks: blocks,
 	})
 }
 ```
+
+**Gate behavior summary:**
+
+| `RequiresConfirmation(env)` | First call | Later calls after `allow_always` |
+|---|---|---|
+| `true` (prod / fail-closed) | Prompt Allow/Deny only | Prompt again every time |
+| `false` (dev/stg default) | Prompt Allow / Allow always / Deny | Skip prompt for that tool until process restart |
 
 For Kafka, `ActiveID`/`EnsureActive` wrap `Kafka.Status` / `Hub.SelectProfile` + `Kafka.Connect`.
 
@@ -1135,7 +1231,9 @@ Use Wails v3 event API already in the project (search `Event` / `Emit` in Wails 
 
 `InteractionHost.tsx`:
 - On pending `select` + kind ssh/db/kafka → modal listing profiles via existing `listProfiles` bridge; on confirm call `SSHSetActiveProfile` / `DBSetActiveProfile` / `KafkaConnect`, then `InteractionComplete(id, profileId)`.
-- On pending `confirm` → modal showing env badge (prod/stg/dev colors), tool name, summary; Allow → `Complete(id,"allow")`; Deny → `Complete(id,"deny")`.
+- On pending `confirm` → modal showing env badge (prod/stg/dev colors), tool name, summary.
+  - If `allowAlwaysOffered` → buttons **Allow** / **Allow always** / **Deny** (`Complete` with `allow` | `allow_always` | `deny`).
+  - If env blocks (`allowAlwaysOffered=false`) → buttons **Allow** / **Deny** only (never persist always).
 
 Use existing `frontend/src/components/ui/alert-dialog.tsx` / `dialog.tsx`.
 
@@ -1167,6 +1265,8 @@ git commit -m "feat(ui): MCP selection and env confirmation dialogs"
 - `AGENTS.md` — cloud caveat: MCP popups need GUI; headless fails selection
 
 - [ ] **Step 1: Edit base docs; commit & push base `main`** (PAT flow used previously)
+
+  Explicitly update `mcp-agent.mdx` + Environments: **divergence from older draft** — v1 **does** support `allow_always` for non-blocking env tags; when `requiresConfirmation` is true, env **always wins** (per-call Allow/Deny, ignore cache, do not offer Allow always). Remove/replace the prior sentence that said there is never `allow_always`.
 
 - [ ] **Step 2: Edit README/AGENTS; commit**
 
@@ -1216,7 +1316,7 @@ Or `go run ./cmd/devkit-mcp`.
 
 4. `tools/list` → includes `notes.list`, excludes `vault.unlock`.
 5. `notes.list` with locked vault in a **fresh** GUI before unlock → `vault_locked`.
-6. Set Kafka/SSH/DB profiles; call gated tool without active → popup; Allow confirm on `prod`.
+6. Set Kafka/SSH/DB profiles; call gated tool without active → popup; on `prod` confirm Allow/Deny only (no Allow always); on `dev` use Allow always then verify second call skips prompt.
 
 - [ ] **Step 4: Final commit if fixes needed**
 
@@ -1247,7 +1347,7 @@ git commit -m "fix(mcp): verification gate follow-ups"
 
 **Placeholder scan:** none intentional — SDK `*bool` annotation shapes and exact Wails event API must be verified at pin time (called out inline, not TBD).
 
-**Type consistency:** `interaction.Kind` values `ssh|database|kafka`; Complete select returns profile id string; Confirm values `allow|deny`; origin constant `mcp`.
+**Type consistency:** `interaction.Kind` values `ssh|database|kafka`; Complete select returns profile id string; Confirm values `allow` | `allow_always` | `deny`; `Pending.AllowAlwaysOffered` mirrors `!EnvBlocks`; origin constant `mcp`.
 
 ---
 
