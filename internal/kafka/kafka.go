@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"sync"
 
 	"devkit/internal/vaultitem"
 )
@@ -64,10 +65,14 @@ type metadata struct {
 type Service struct {
 	store Store
 	envs  EnvLookup
-	dial  any
+	dial  DialFunc
+
+	mu            sync.Mutex
+	active        BrokerClient
+	activeProfile string
 }
 
-func NewService(store Store, envs EnvLookup, dial any) *Service {
+func NewService(store Store, envs EnvLookup, dial DialFunc) *Service {
 	return &Service{store: store, envs: envs, dial: dial}
 }
 
@@ -126,6 +131,15 @@ func (s *Service) ListProfiles() ([]ProfileSummary, error) {
 }
 
 func (s *Service) DeleteProfile(id string) error {
+	s.mu.Lock()
+	if s.activeProfile == id {
+		if s.active != nil {
+			s.active.Close()
+		}
+		s.active = nil
+		s.activeProfile = ""
+	}
+	s.mu.Unlock()
 	return s.store.Delete(id)
 }
 
