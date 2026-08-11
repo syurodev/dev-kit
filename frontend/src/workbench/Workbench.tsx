@@ -12,6 +12,7 @@ import { toolsModule } from "../modules/tools/manifest";
 import { notesModule } from "../modules/notes/manifest";
 import { databaseModule } from "../modules/database/manifest";
 import { sshModule } from "../modules/ssh/manifest";
+import { kafkaModule } from "../modules/kafka/manifest";
 import { syncModule } from "../modules/sync/manifest";
 import { settingsModule } from "../modules/settings/manifest";
 
@@ -19,6 +20,7 @@ registerModule(toolsModule);
 registerModule(notesModule);
 registerModule(databaseModule);
 registerModule(sshModule);
+registerModule(kafkaModule);
 registerModule(syncModule);
 registerModule(settingsModule);
 

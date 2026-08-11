@@ -13,6 +13,9 @@ import * as database$0 from "../database/models.js";
 import * as environments$0 from "../environments/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as kafka$0 from "../kafka/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as notes$0 from "../notes/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -76,6 +79,54 @@ export function EnvUpdateTag(id: string, requiresConfirmation: boolean): $Cancel
 
 export function ExecuteCommand(request: $models.ExecuteCommandRequest): $CancellablePromise<any> {
     return $Call.ByID(2188640894, request);
+}
+
+export function KafkaConnect(id: string): $CancellablePromise<void> {
+    return $Call.ByID(955367566, id);
+}
+
+export function KafkaConnectionStatus(): $CancellablePromise<kafka$0.ConnectionStatus> {
+    return $Call.ByID(1654559250);
+}
+
+export function KafkaCreateProfile(input: kafka$0.CreateProfileInput): $CancellablePromise<kafka$0.ProfileSummary> {
+    return $Call.ByID(709139881, input);
+}
+
+export function KafkaDeleteProfile(id: string): $CancellablePromise<void> {
+    return $Call.ByID(174497164, id);
+}
+
+export function KafkaDescribeTopic(topic: string): $CancellablePromise<kafka$0.TopicDetail> {
+    return $Call.ByID(3537479448, topic);
+}
+
+export function KafkaDisconnect(): $CancellablePromise<void> {
+    return $Call.ByID(4081857010);
+}
+
+export function KafkaListConsumerGroups(): $CancellablePromise<kafka$0.ConsumerGroupInfo[] | null> {
+    return $Call.ByID(3356133412);
+}
+
+export function KafkaListProfiles(): $CancellablePromise<kafka$0.ProfileSummary[] | null> {
+    return $Call.ByID(2436126338);
+}
+
+export function KafkaListTopics(): $CancellablePromise<kafka$0.TopicInfo[] | null> {
+    return $Call.ByID(986775924);
+}
+
+export function KafkaPeekMessages(topic: string, partition: number, limit: number, offset: number): $CancellablePromise<kafka$0.Message[] | null> {
+    return $Call.ByID(1693361375, topic, partition, limit, offset);
+}
+
+export function KafkaPublishMessage(req: kafka$0.PublishRequest): $CancellablePromise<kafka$0.PublishResult> {
+    return $Call.ByID(2789352970, req);
+}
+
+export function KafkaTestConnection(id: string): $CancellablePromise<void> {
+    return $Call.ByID(632043468, id);
 }
 
 export function ListModules(): $CancellablePromise<$models.ModuleDTO[] | null> {
