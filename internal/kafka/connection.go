@@ -135,7 +135,7 @@ func (s *Service) buildConnConfig(id string) (ConnConfig, error) {
 	if err != nil {
 		return ConnConfig{}, err
 	}
-	if err := validatePlaintextSecurity(meta.BootstrapServers, meta.SecurityProtocol); err != nil {
+	if err := validateCleartextTransportSecurity(meta.BootstrapServers, meta.SecurityProtocol); err != nil {
 		return ConnConfig{}, err
 	}
 	secret, err := s.store.OpenPayload(record, secretKeyID)
@@ -154,8 +154,10 @@ func (s *Service) buildConnConfig(id string) (ConnConfig, error) {
 	}, nil
 }
 
-func validatePlaintextSecurity(servers []string, securityProtocol string) error {
-	if securityProtocol != "PLAINTEXT" {
+func validateCleartextTransportSecurity(servers []string, securityProtocol string) error {
+	switch securityProtocol {
+	case "PLAINTEXT", "SASL_PLAINTEXT":
+	default:
 		return nil
 	}
 	for _, server := range servers {

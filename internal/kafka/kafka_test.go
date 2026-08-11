@@ -208,31 +208,60 @@ func TestListTopicsRequiresConnection(t *testing.T) {
 }
 
 func TestRejectRemotePLAINTEXT(t *testing.T) {
-	ctx := context.Background()
-	dial := func(ctx context.Context, cfg ConnConfig) (BrokerClient, error) {
-		t.Fatal("dial must not be called for remote PLAINTEXT")
-		return nil, nil
-	}
-	svc := newServiceWithDial(t, dial)
-	summary, err := svc.CreateProfile(CreateProfileInput{
-		Name:             "remote",
-		BootstrapServers: []string{"203.0.113.1:9092"},
-		SecurityProtocol: "PLAINTEXT",
-		Secret:           "secret",
-		Env:              "dev",
-	})
-	if err != nil {
-		t.Fatalf("CreateProfile: %v", err)
+	protocols := []struct {
+		name     string
+		protocol string
+		input    CreateProfileInput
+	}{
+		{
+			name:     "PLAINTEXT",
+			protocol: "PLAINTEXT",
+			input: CreateProfileInput{
+				Name:             "remote-plaintext",
+				BootstrapServers: []string{"203.0.113.1:9092"},
+				SecurityProtocol: "PLAINTEXT",
+				Secret:           "secret",
+				Env:              "dev",
+			},
+		},
+		{
+			name:     "SASL_PLAINTEXT",
+			protocol: "SASL_PLAINTEXT",
+			input: CreateProfileInput{
+				Name:             "remote-sasl-plaintext",
+				BootstrapServers: []string{"203.0.113.1:9092"},
+				SecurityProtocol: "SASL_PLAINTEXT",
+				SASLMechanism:    "PLAIN",
+				Username:         "user",
+				Secret:           "secret",
+				Env:              "dev",
+			},
+		},
 	}
 
-	if err := svc.TestConnection(ctx, summary.ID); !errors.Is(err, ErrInsecureRemotePLAINTEXT) {
-		t.Fatalf("TestConnection error = %v, want ErrInsecureRemotePLAINTEXT", err)
-	}
-	if err := svc.Connect(ctx, summary.ID); !errors.Is(err, ErrInsecureRemotePLAINTEXT) {
-		t.Fatalf("Connect error = %v, want ErrInsecureRemotePLAINTEXT", err)
-	}
-	if st := svc.Status(); st.Connected {
-		t.Fatalf("Status = %+v, want not connected", st)
+	for _, tc := range protocols {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			dial := func(ctx context.Context, cfg ConnConfig) (BrokerClient, error) {
+				t.Fatalf("dial must not be called for remote %s", tc.protocol)
+				return nil, nil
+			}
+			svc := newServiceWithDial(t, dial)
+			summary, err := svc.CreateProfile(tc.input)
+			if err != nil {
+				t.Fatalf("CreateProfile: %v", err)
+			}
+
+			if err := svc.TestConnection(ctx, summary.ID); !errors.Is(err, ErrInsecureRemotePLAINTEXT) {
+				t.Fatalf("TestConnection error = %v, want ErrInsecureRemotePLAINTEXT", err)
+			}
+			if err := svc.Connect(ctx, summary.ID); !errors.Is(err, ErrInsecureRemotePLAINTEXT) {
+				t.Fatalf("Connect error = %v, want ErrInsecureRemotePLAINTEXT", err)
+			}
+			if st := svc.Status(); st.Connected {
+				t.Fatalf("Status = %+v, want not connected", st)
+			}
+		})
 	}
 }
 

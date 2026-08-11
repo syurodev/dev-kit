@@ -44,6 +44,7 @@ func franzOpts(cfg ConnConfig) ([]kgo.Opt, error) {
 	opts := []kgo.Opt{
 		kgo.SeedBrokers(cfg.BootstrapServers...),
 		kgo.RequiredAcks(kgo.AllISRAcks()),
+		// franz-go disables auto topic creation by default; AllowAutoTopicCreation() is opt-in only.
 	}
 
 	switch cfg.SecurityProtocol {

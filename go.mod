@@ -6,6 +6,8 @@ toolchain go1.26.5
 
 require (
 	github.com/jackc/pgx/v5 v5.10.0
+	github.com/twmb/franz-go v1.21.5
+	github.com/twmb/franz-go/pkg/kadm v1.18.0
 	github.com/wailsapp/wails/v3 v3.0.0-alpha2.106
 	github.com/zalando/go-keyring v0.2.6
 	golang.org/x/crypto v0.54.0
@@ -32,8 +34,6 @@ require (
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/pierrec/lz4/v4 v4.1.26 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
-	github.com/twmb/franz-go v1.21.5 // indirect
-	github.com/twmb/franz-go/pkg/kadm v1.18.0 // indirect
 	github.com/twmb/franz-go/pkg/kmsg v1.13.1 // indirect
 	github.com/wailsapp/wails/webview2 v1.0.27 // indirect
 	golang.org/x/sync v0.22.0 // indirect
