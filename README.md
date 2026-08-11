@@ -140,6 +140,7 @@ internal/
   notes/             Notes module
   database/          Database-connection module (pgx)
   ssh/               SSH module (profiles, host keys, port forwarding)
+  kafka/             Kafka module (profiles, connect, topics, peek, groups, publish)
   tools/             Hashing tools module
   syncclient/        Sync application service (service / connect / syncnow / conflicts)
   syncconflict/      Conflict-resolution application service (detail + resolve strategies)
