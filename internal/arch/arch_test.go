@@ -65,9 +65,14 @@ func TestLayering(t *testing.T) {
 		// central design decision behind their locally-declared EnvLookup
 		// interfaces ("accept interfaces, return structs"), not just a
 		// preference, so it is pinned the same way vaultitem's boundary is.
-		pkg("ssh"):      {pkg("environments")},
-		pkg("database"): {pkg("environments")},
-		pkg("kafka"):    {pkg("environments")},
+		pkg("ssh"):      {pkg("environments"), pkg("mcp")},
+		pkg("database"): {pkg("environments"), pkg("mcp")},
+		pkg("kafka"):    {pkg("environments"), pkg("mcp")},
+		// notes must not depend upward on the MCP host.
+		pkg("notes"): {pkg("mcp")},
+		// mcp is an alternate host boundary: capability-gated tools only, never
+		// storage/crypto/sync, and never bridge/app (Caller is defined locally).
+		pkg("mcp"): {pkg("storage"), pkg("syncstore"), pkg("sync"), pkg("crypto"), pkg("app"), pkg("bridge")},
 		// storage is the generic DB kernel; the sync persistence adapter builds on
 		// it, never the reverse.
 		pkg("storage"): {pkg("syncstore")},
