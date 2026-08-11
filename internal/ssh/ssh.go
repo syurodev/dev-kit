@@ -81,11 +81,12 @@ type CommandResult struct {
 }
 
 type Service struct {
-	store       Store
-	envs        EnvLookup
-	forwardMu   sync.Mutex
-	forwards    map[string]*forwardSession
-	forwardDial func(context.Context, string, string) (forwardingClient, error)
+	store         Store
+	envs          EnvLookup
+	mu            sync.Mutex
+	agentActiveID string
+	forwards      map[string]*forwardSession
+	forwardDial   func(context.Context, string, string) (forwardingClient, error)
 }
 
 func NewService(store Store, envs EnvLookup) *Service {

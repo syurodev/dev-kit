@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/url"
 	"sort"
+	"sync"
 
 	"devkit/internal/vaultitem"
 
@@ -84,10 +85,12 @@ type metadata struct {
 }
 
 type Service struct {
-	store   Store
-	envs    EnvLookup
-	pools   *PoolManager
-	maxRows int
+	store         Store
+	envs          EnvLookup
+	mu            sync.Mutex
+	agentActiveID string
+	pools         *PoolManager
+	maxRows       int
 }
 
 func NewService(store Store, envs EnvLookup) *Service {

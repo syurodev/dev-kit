@@ -166,9 +166,9 @@ func (s *Service) StartForward(ctx context.Context, profileID string, spec Forwa
 		done:     make(chan struct{}),
 	}
 
-	s.forwardMu.Lock()
+	s.mu.Lock()
 	s.forwards[id] = session
-	s.forwardMu.Unlock()
+	s.mu.Unlock()
 	go s.serveForward(session)
 	return info, nil
 }
@@ -270,12 +270,12 @@ func proxyBidirectional(left net.Conn, right net.Conn) {
 // StopForward closes the listener, SSH client, and all active proxy streams,
 // then waits until the forwarding goroutine has exited.
 func (s *Service) StopForward(id string) error {
-	s.forwardMu.Lock()
+	s.mu.Lock()
 	session, ok := s.forwards[id]
 	if ok {
 		delete(s.forwards, id)
 	}
-	s.forwardMu.Unlock()
+	s.mu.Unlock()
 	if !ok {
 		return ErrForwardNotFound
 	}
@@ -289,12 +289,12 @@ func (s *Service) StopForward(id string) error {
 // intentionally not persisted because they contain network routing intent and
 // must be explicitly started by the user after each application launch.
 func (s *Service) ListForwards() []ForwardInfo {
-	s.forwardMu.Lock()
+	s.mu.Lock()
 	forwards := make([]ForwardInfo, 0, len(s.forwards))
 	for _, session := range s.forwards {
 		forwards = append(forwards, session.info)
 	}
-	s.forwardMu.Unlock()
+	s.mu.Unlock()
 	sort.Slice(forwards, func(i, j int) bool { return forwards[i].ID < forwards[j].ID })
 	return forwards
 }
@@ -302,13 +302,13 @@ func (s *Service) ListForwards() []ForwardInfo {
 // Close stops every active forward. It is called from the application
 // composition root during shutdown so SSH clients do not outlive the app.
 func (s *Service) Close() {
-	s.forwardMu.Lock()
+	s.mu.Lock()
 	sessions := make([]*forwardSession, 0, len(s.forwards))
 	for id, session := range s.forwards {
 		delete(s.forwards, id)
 		sessions = append(sessions, session)
 	}
-	s.forwardMu.Unlock()
+	s.mu.Unlock()
 
 	for _, session := range sessions {
 		session.stop()
@@ -319,7 +319,7 @@ func (s *Service) Close() {
 }
 
 func (s *Service) stopForwardsForProfile(profileID string) {
-	s.forwardMu.Lock()
+	s.mu.Lock()
 	sessions := make([]*forwardSession, 0)
 	for id, session := range s.forwards {
 		if session.info.ProfileID != profileID {
@@ -328,7 +328,7 @@ func (s *Service) stopForwardsForProfile(profileID string) {
 		delete(s.forwards, id)
 		sessions = append(sessions, session)
 	}
-	s.forwardMu.Unlock()
+	s.mu.Unlock()
 
 	for _, session := range sessions {
 		session.stop()
@@ -339,11 +339,11 @@ func (s *Service) stopForwardsForProfile(profileID string) {
 }
 
 func (s *Service) removeForward(id string, session *forwardSession) {
-	s.forwardMu.Lock()
+	s.mu.Lock()
 	if current, ok := s.forwards[id]; ok && current == session {
 		delete(s.forwards, id)
 	}
-	s.forwardMu.Unlock()
+	s.mu.Unlock()
 }
 
 func (session *forwardSession) stop() {
