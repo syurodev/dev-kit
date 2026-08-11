@@ -108,22 +108,9 @@ func isEphemeralPath(path string) bool {
 	if err != nil {
 		abs = path
 	}
-	if strings.Contains(abs, "go-build") {
-		return true
-	}
-	tmp := os.TempDir()
-	if tmp == "" {
-		return false
-	}
-	tmpAbs, err := filepath.Abs(tmp)
-	if err != nil {
-		tmpAbs = tmp
-	}
-	rel, err := filepath.Rel(tmpAbs, abs)
-	if err != nil {
-		return false
-	}
-	return rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
+	// Only reject go-run / go-test temp binaries — not every path under TempDir
+	// (tests and some installs legitimately live there).
+	return strings.Contains(abs, "go-build")
 }
 
 func rejectEphemeralCommandPath(abs string) error {
