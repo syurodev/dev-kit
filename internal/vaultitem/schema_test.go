@@ -19,7 +19,7 @@ func TestValidateRecordSchemaAcceptsSupportedModuleRecords(t *testing.T) {
 		{name: "note", itemType: ItemTypeNote, metadata: `{"title":"Deploy notes"}`, keyID: "note-body"},
 		{name: "database", itemType: ItemTypeDatabase, metadata: `{"name":"Primary","host":"db.internal","port":5432,"database":"app","username":"devkit","ssl_mode":"verify-full"}`, keyID: "db-password"},
 		{name: "ssh", itemType: ItemTypeSSH, metadata: `{"name":"Bastion","host":"ssh.internal","port":22,"username":"devkit","auth_method":"key","host_key_fingerprint":"SHA256:test"}`, keyID: "ssh-secret"},
-		{name: "kafka", itemType: ItemTypeKafka, metadata: `{"name":"Events","bootstrap_servers":"kafka.internal:9092","security_protocol":"PLAINTEXT","env":"prod"}`, keyID: "kafka-secret"},
+		{name: "kafka", itemType: ItemTypeKafka, metadata: `{"name":"Events","bootstrap_servers":["kafka.internal:9092"],"security_protocol":"PLAINTEXT","env":"prod"}`, keyID: "kafka-secret"},
 	}
 
 	for _, test := range tests {
@@ -58,8 +58,8 @@ func TestValidateRecordSchemaRejectsInvalidModuleRecords(t *testing.T) {
 }
 
 func TestValidateKafkaProfile(t *testing.T) {
-	validPlain := `{"name":"Events","bootstrap_servers":"kafka.internal:9092","security_protocol":"PLAINTEXT","env":"prod"}`
-	validSASL := `{"name":"Events","bootstrap_servers":"kafka.internal:9093","security_protocol":"SASL_SSL","sasl_mechanism":"SCRAM-SHA-256","username":"devkit","env":"staging"}`
+	validPlain := `{"name":"Events","bootstrap_servers":["kafka.internal:9092"],"security_protocol":"PLAINTEXT","env":"prod"}`
+	validSASL := `{"name":"Events","bootstrap_servers":["kafka.internal:9093"],"security_protocol":"SASL_SSL","sasl_mechanism":"SCRAM-SHA-256","username":"devkit","env":"staging"}`
 
 	if err := ValidateRecordSchema(ItemTypeKafka, json.RawMessage(validPlain), validSchemaEnvelope("kafka-secret")); err != nil {
 		t.Fatalf("valid PLAINTEXT profile: ValidateRecordSchema() error = %v", err)
@@ -73,12 +73,13 @@ func TestValidateKafkaProfile(t *testing.T) {
 		metadata string
 		keyID    string
 	}{
-		{name: "missing name", metadata: `{"bootstrap_servers":"kafka:9092","security_protocol":"PLAINTEXT","env":"prod"}`, keyID: "kafka-secret"},
+		{name: "missing name", metadata: `{"bootstrap_servers":["kafka:9092"],"security_protocol":"PLAINTEXT","env":"prod"}`, keyID: "kafka-secret"},
 		{name: "missing bootstrap_servers", metadata: `{"name":"Events","security_protocol":"PLAINTEXT","env":"prod"}`, keyID: "kafka-secret"},
-		{name: "missing env", metadata: `{"name":"Events","bootstrap_servers":"kafka:9092","security_protocol":"PLAINTEXT"}`, keyID: "kafka-secret"},
-		{name: "invalid security_protocol", metadata: `{"name":"Events","bootstrap_servers":"kafka:9092","security_protocol":"UNKNOWN","env":"prod"}`, keyID: "kafka-secret"},
-		{name: "SASL missing mechanism", metadata: `{"name":"Events","bootstrap_servers":"kafka:9093","security_protocol":"SASL_SSL","username":"devkit","env":"prod"}`, keyID: "kafka-secret"},
-		{name: "SASL missing username", metadata: `{"name":"Events","bootstrap_servers":"kafka:9093","security_protocol":"SASL_PLAINTEXT","sasl_mechanism":"PLAIN","env":"prod"}`, keyID: "kafka-secret"},
+		{name: "empty bootstrap_servers", metadata: `{"name":"Events","bootstrap_servers":[],"security_protocol":"PLAINTEXT","env":"prod"}`, keyID: "kafka-secret"},
+		{name: "missing env", metadata: `{"name":"Events","bootstrap_servers":["kafka:9092"],"security_protocol":"PLAINTEXT"}`, keyID: "kafka-secret"},
+		{name: "invalid security_protocol", metadata: `{"name":"Events","bootstrap_servers":["kafka:9092"],"security_protocol":"UNKNOWN","env":"prod"}`, keyID: "kafka-secret"},
+		{name: "SASL missing mechanism", metadata: `{"name":"Events","bootstrap_servers":["kafka:9093"],"security_protocol":"SASL_SSL","username":"devkit","env":"prod"}`, keyID: "kafka-secret"},
+		{name: "SASL missing username", metadata: `{"name":"Events","bootstrap_servers":["kafka:9093"],"security_protocol":"SASL_PLAINTEXT","sasl_mechanism":"PLAIN","env":"prod"}`, keyID: "kafka-secret"},
 		{name: "wrong payload key", metadata: validPlain, keyID: "ssh-secret"},
 	}
 	for _, tc := range invalid {

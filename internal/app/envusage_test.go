@@ -50,6 +50,22 @@ func TestVaultItemEnvUsageDetectsSSHAndDatabaseProfiles(t *testing.T) {
 	if inUse, err := usage.EnvInUse("canary"); err != nil || !inUse {
 		t.Fatalf("EnvInUse(canary) after db = (%v, %v), want true", inUse, err)
 	}
+
+	metaKafka, err := json.Marshal(map[string]any{
+		"name":              "events",
+		"bootstrap_servers": []string{"127.0.0.1:9092"},
+		"security_protocol": "PLAINTEXT",
+		"env":               "kafka-env",
+	})
+	if err != nil {
+		t.Fatalf("marshal kafka: %v", err)
+	}
+	if _, err := store.Create("kafka-profile", "kafka-secret", metaKafka, []byte("secret")); err != nil {
+		t.Fatalf("Create kafka: %v", err)
+	}
+	if inUse, err := usage.EnvInUse("kafka-env"); err != nil || !inUse {
+		t.Fatalf("EnvInUse(kafka-env) after kafka = (%v, %v), want true", inUse, err)
+	}
 }
 
 func TestDeleteTagBlockedWhenSSHProfileReferencesTag(t *testing.T) {

@@ -84,14 +84,14 @@ func ValidateRecordSchema(itemType string, metadata json.RawMessage, payload *cr
 
 	case ItemTypeKafka:
 		var value struct {
-			Name             string `json:"name"`
-			BootstrapServers string `json:"bootstrap_servers"`
-			SecurityProtocol string `json:"security_protocol"`
-			Env              string `json:"env"`
-			SASLMechanism    string `json:"sasl_mechanism"`
-			Username         string `json:"username"`
+			Name             string   `json:"name"`
+			BootstrapServers []string `json:"bootstrap_servers"`
+			SecurityProtocol string   `json:"security_protocol"`
+			Env              string   `json:"env"`
+			SASLMechanism    string   `json:"sasl_mechanism"`
+			Username         string   `json:"username"`
 		}
-		if decodeMetadataObject(metadata, &value) != nil || value.Name == "" || value.BootstrapServers == "" || value.Env == "" {
+		if decodeMetadataObject(metadata, &value) != nil || value.Name == "" || len(value.BootstrapServers) == 0 || value.Env == "" {
 			return ErrInvalidRecordSchema
 		}
 		switch value.SecurityProtocol {
