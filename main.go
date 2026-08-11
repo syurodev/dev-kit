@@ -14,6 +14,8 @@ import (
 	"devkit/internal/bridge"
 	"devkit/internal/cloudconfig"
 	"devkit/internal/environments"
+	"devkit/internal/interaction"
+	"devkit/internal/mcp"
 	"devkit/internal/servermode"
 
 	"devkit/internal/storage"
@@ -166,6 +168,33 @@ func main() {
 
 	appService := bridge.NewAppService(container)
 
+	// MCP host: GUI process owns tools + interaction; cmd/devkit-mcp proxies stdio.
+	// Task 9 wires a real Wails Prompter; NoopPrompter keeps Complete callable from bridge.
+	hub := interaction.NewHub(interaction.NoopPrompter{})
+	mcpServer := mcp.NewServerFromContainer(mcp.Deps{
+		Caller: appService,
+		Notes:  container.Notes,
+		Vault:  container.Vault,
+		Search: mcp.NewSearchAPI(container.Items),
+		Tools:  container.HashTools,
+		Envs:   container.Environments,
+		SSH:    container.SSH,
+		DB:     container.Database,
+		Kafka:  container.Kafka,
+		Hub:    hub,
+	})
+	mcpCtx, mcpCancel := context.WithCancel(context.Background())
+	defer mcpCancel()
+	sockPath, err := mcp.SocketPath()
+	if err != nil {
+		log.Fatal(err)
+	}
+	go func() {
+		if err := mcp.ServeUnix(mcpCtx, sockPath, mcpServer); err != nil {
+			log.Printf("mcp host: %v", err)
+		}
+	}()
+
 	wailsApp := application.New(application.Options{
 		Name:        "DevKit",
 		Description: "Local-first developer toolkit",
@@ -181,6 +210,7 @@ func main() {
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: true,
 		},
+		OnShutdown: mcpCancel,
 	})
 	openBrowser = wailsApp.Browser.OpenURL
 

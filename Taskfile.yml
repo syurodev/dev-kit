@@ -64,3 +64,8 @@ tasks:
     summary: Builds and runs the Docker image
     cmds:
       - task: common:run:docker
+
+  mcp:
+    desc: Stdio MCP proxy (requires running DevKit desktop with vault unlocked)
+    cmds:
+      - go run ./cmd/devkit-mcp
