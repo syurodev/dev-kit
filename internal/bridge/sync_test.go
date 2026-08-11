@@ -27,6 +27,11 @@ type fakeSyncService struct {
 	disconnections int
 	conflicts      []syncclient.ConflictInfo
 	conflictsErr   error
+	devices        []syncclient.DeviceInfo
+	devicesErr     error
+	revokeTarget   string
+	revokeSelf     bool
+	revokeErr      error
 }
 
 func (f *fakeSyncService) Connect(_ context.Context, endpoint, accessToken string) error {
@@ -63,6 +68,19 @@ func (f *fakeAuthService) Logout() error       { return f.err }
 func (f *fakeAuthService) Status() auth.Status { return f.status }
 func (f *fakeSyncService) Conflicts(context.Context) ([]syncclient.ConflictInfo, error) {
 	return f.conflicts, f.conflictsErr
+}
+
+func (f *fakeSyncService) ListDevices(_ context.Context, tokens syncclient.AccessTokenSource, baseURL string) ([]syncclient.DeviceInfo, error) {
+	f.tokenSource = tokens
+	f.endpoint = baseURL
+	return f.devices, f.devicesErr
+}
+
+func (f *fakeSyncService) RevokeDevice(_ context.Context, tokens syncclient.AccessTokenSource, baseURL, targetDeviceID string) (bool, error) {
+	f.tokenSource = tokens
+	f.endpoint = baseURL
+	f.revokeTarget = targetDeviceID
+	return f.revokeSelf, f.revokeErr
 }
 
 func newSyncBridge(t *testing.T, service app.SyncService) (*AppService, *app.Container) {
@@ -175,6 +193,73 @@ func TestSyncBridgeListsConflicts(t *testing.T) {
 	}
 }
 
+func TestSyncBridgeListsDevices(t *testing.T) {
+	created := time.Date(2026, 8, 10, 10, 0, 0, 0, time.UTC)
+	lastSeen := time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC)
+	fake := &fakeSyncService{devices: []syncclient.DeviceInfo{
+		{DeviceID: "device-1", Status: "active", CreatedAt: created, LastSeenAt: lastSeen, Current: true},
+		{DeviceID: "device-2", Status: "active", CreatedAt: created, LastSeenAt: lastSeen, Current: false},
+	}}
+	service, container := newSyncBridge(t, fake)
+
+	devices, err := service.SyncListDevices(context.Background())
+	if err != nil {
+		t.Fatalf("SyncListDevices: %v", err)
+	}
+	if len(devices) != 2 || devices[0].DeviceID != "device-1" || !devices[0].Current ||
+		devices[1].DeviceID != "device-2" || devices[1].Current {
+		t.Fatalf("devices = %#v", devices)
+	}
+	if fake.endpoint != productionSyncGateway || fake.tokenSource == nil {
+		t.Fatal("SyncListDevices did not pass pinned gateway and auth token source")
+	}
+
+	serialized, _ := json.Marshal(devices)
+	for _, forbidden := range []string{"access_token", "bearer", "password", "payload"} {
+		if strings.Contains(strings.ToLower(string(serialized)), forbidden) {
+			t.Fatalf("device DTO leaked %q: %s", forbidden, serialized)
+		}
+	}
+
+	events := container.Audit.Events()
+	if len(events) != 1 || events[0].Scope != "sync:devices" {
+		t.Fatalf("audit events = %#v", events)
+	}
+}
+
+func TestSyncBridgeRevokeDeviceClearsSessionOnSelfRevoke(t *testing.T) {
+	fake := &fakeSyncService{
+		status:     syncclient.Status{Connected: true, DeviceID: "device-1"},
+		revokeSelf: true,
+	}
+	service, _ := newSyncBridge(t, fake)
+
+	if err := service.SyncRevokeDevice(context.Background(), "device-1"); err != nil {
+		t.Fatalf("SyncRevokeDevice: %v", err)
+	}
+	if fake.revokeTarget != "device-1" {
+		t.Fatalf("revoke target = %q, want device-1", fake.revokeTarget)
+	}
+	if fake.disconnections != 1 {
+		t.Fatalf("disconnections = %d, want 1", fake.disconnections)
+	}
+}
+
+func TestSyncBridgeRevokeDeviceKeepsSessionForRemoteTarget(t *testing.T) {
+	fake := &fakeSyncService{
+		status:     syncclient.Status{Connected: true, DeviceID: "device-1"},
+		revokeSelf: false,
+	}
+	service, _ := newSyncBridge(t, fake)
+
+	if err := service.SyncRevokeDevice(context.Background(), "device-2"); err != nil {
+		t.Fatalf("SyncRevokeDevice: %v", err)
+	}
+	if fake.disconnections != 0 {
+		t.Fatalf("disconnections = %d, want 0", fake.disconnections)
+	}
+}
+
 func TestSyncBridgeDeniesMissingGrantBeforeCallingService(t *testing.T) {
 	fake := &fakeSyncService{}
 	service, container := newSyncBridge(t, fake)
@@ -186,6 +271,13 @@ func TestSyncBridgeDeniesMissingGrantBeforeCallingService(t *testing.T) {
 	}
 	if fake.accessToken != "" || fake.endpoint != "" || fake.tokenSource != nil {
 		t.Fatal("denied SyncConnect called the runtime service")
+	}
+
+	if _, err := service.SyncListDevices(context.Background()); err == nil || err.Error() != "permission_denied: Permission denied." {
+		t.Fatalf("SyncListDevices error = %v, want permission_denied", err)
+	}
+	if fake.tokenSource != nil {
+		t.Fatal("denied SyncListDevices called the runtime service")
 	}
 }
 

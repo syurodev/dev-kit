@@ -42,6 +42,15 @@ type SyncReportDTO struct {
 	Applied       int `json:"applied"`
 }
 
+// SyncDeviceDTO is non-secret device metadata safe for the UI.
+type SyncDeviceDTO struct {
+	DeviceID   string    `json:"device_id"`
+	Status     string    `json:"status"`
+	CreatedAt  time.Time `json:"created_at"`
+	LastSeenAt time.Time `json:"last_seen_at"`
+	Current    bool      `json:"current"`
+}
+
 // SyncConflictDTO is non-secret conflict metadata for the UI. No record payload
 // or plaintext secret crosses the boundary.
 type SyncConflictDTO struct {
@@ -195,6 +204,66 @@ func (s *AppService) SyncDisconnect() error {
 			return nil, syncclient.ErrInvalidDependencies
 		}
 		s.container.Sync.Disconnect()
+		return nil, nil
+	})
+	return err
+}
+
+func (s *AppService) SyncListDevices(ctx context.Context) ([]SyncDeviceDTO, error) {
+	result, err := s.call(ctx, "builtin.sync", "sync:manage", "sync:devices", map[string]any{
+		"action": "list_devices",
+	}, func(callCtx context.Context) (any, error) {
+		if s.container.SyncBlocked != nil {
+			return nil, s.container.SyncBlocked
+		}
+		if s.container.Sync == nil || s.container.Auth == nil {
+			return nil, s.syncDependencyErr()
+		}
+		if _, err := s.container.Auth.EnsureAuthenticated(callCtx); err != nil {
+			return nil, err
+		}
+		devices, err := s.container.Sync.ListDevices(callCtx, s.container.Auth, productionSyncGateway)
+		if err != nil {
+			return nil, err
+		}
+		dtos := make([]SyncDeviceDTO, 0, len(devices))
+		for _, device := range devices {
+			dtos = append(dtos, SyncDeviceDTO{
+				DeviceID:   device.DeviceID,
+				Status:     device.Status,
+				CreatedAt:  device.CreatedAt,
+				LastSeenAt: device.LastSeenAt,
+				Current:    device.Current,
+			})
+		}
+		return dtos, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]SyncDeviceDTO), nil
+}
+
+func (s *AppService) SyncRevokeDevice(ctx context.Context, targetDeviceID string) error {
+	_, err := s.call(ctx, "builtin.sync", "sync:manage", "sync:devices", map[string]any{
+		"action": "revoke_device",
+	}, func(callCtx context.Context) (any, error) {
+		if s.container.SyncBlocked != nil {
+			return nil, s.container.SyncBlocked
+		}
+		if s.container.Sync == nil || s.container.Auth == nil {
+			return nil, s.syncDependencyErr()
+		}
+		if _, err := s.container.Auth.EnsureAuthenticated(callCtx); err != nil {
+			return nil, err
+		}
+		selfRevoked, err := s.container.Sync.RevokeDevice(callCtx, s.container.Auth, productionSyncGateway, targetDeviceID)
+		if err != nil {
+			return nil, err
+		}
+		if selfRevoked {
+			s.container.Sync.Disconnect()
+		}
 		return nil, nil
 	})
 	return err

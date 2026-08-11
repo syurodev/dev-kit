@@ -33,6 +33,8 @@ type SyncService interface {
 	Status() syncclient.Status
 	SyncNow(ctx context.Context) (syncclient.Report, error)
 	Conflicts(ctx context.Context) ([]syncclient.ConflictInfo, error)
+	ListDevices(ctx context.Context, tokens syncclient.AccessTokenSource, baseURL string) ([]syncclient.DeviceInfo, error)
+	RevokeDevice(ctx context.Context, tokens syncclient.AccessTokenSource, baseURL, targetDeviceID string) (selfRevoked bool, err error)
 }
 
 // AuthService keeps the OIDC browser/keychain lifecycle behind the composition
@@ -128,6 +130,7 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.sync", Capability: "sync:manage", Scope: "sync:disconnect"},
 		{SubjectID: "builtin.sync", Capability: "sync:manage", Scope: "sync:conflicts"},
 		{SubjectID: "builtin.sync", Capability: "sync:manage", Scope: "sync:resolve"},
+		{SubjectID: "builtin.sync", Capability: "sync:manage", Scope: "sync:devices"},
 		{SubjectID: "builtin.interaction", Capability: "interaction:respond", Scope: "pending"},
 		{SubjectID: "builtin.interaction", Capability: "interaction:respond", Scope: "pending:complete"},
 		{SubjectID: "builtin.mcpinstall", Capability: "mcp:install", Scope: "agent:list"},
