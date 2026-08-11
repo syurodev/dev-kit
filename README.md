@@ -3,7 +3,7 @@
 DevKit is a local-first developer toolkit built with **Wails v3** — a Go backend
 (`internal/`, `main.go`) and a React + TypeScript + Vite frontend (`frontend/`).
 Secrets live in a zero-knowledge vault (mandatory Master Password); built-in
-modules cover notes, database connections, SSH, and hashing tools, plus a
+modules cover notes, database connections, SSH, Kafka, and hashing tools, plus a
 local-first encrypted sync client with Git-style conflict resolution. Design
 specs live under `docs/`.
 

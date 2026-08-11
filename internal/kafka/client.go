@@ -19,9 +19,10 @@ import (
 const brokerRequestTimeout = 30 * time.Second
 
 type franzClient struct {
-	cl  *kgo.Client
-	adm *kadm.Client
-	mu  sync.Mutex
+	cl   *kgo.Client
+	adm  *kadm.Client
+	opts []kgo.Opt
+	mu   sync.Mutex
 }
 
 // DialFranz opens a franz-go backed BrokerClient for cfg.
@@ -35,8 +36,9 @@ func DialFranz(ctx context.Context, cfg ConnConfig) (BrokerClient, error) {
 		return nil, err
 	}
 	return &franzClient{
-		cl:  cl,
-		adm: kadm.NewClient(cl),
+		cl:   cl,
+		adm:  kadm.NewClient(cl),
+		opts: opts,
 	}, nil
 }
 
@@ -268,10 +270,22 @@ func (c *franzClient) Publish(ctx context.Context, req PublishRequest) (PublishR
 		Key:   []byte(req.Key),
 		Value: []byte(req.Value),
 	}
+	produceClient := c.cl
 	if req.Partition != nil {
+		// Default StickyKeyPartitioner ignores Record.Partition; use a
+		// short-lived ManualPartitioner client only when the caller pins one.
 		rec.Partition = *req.Partition
+		manualOpts := make([]kgo.Opt, 0, len(c.opts)+1)
+		manualOpts = append(manualOpts, c.opts...)
+		manualOpts = append(manualOpts, kgo.RecordPartitioner(kgo.ManualPartitioner()))
+		manualCl, err := kgo.NewClient(manualOpts...)
+		if err != nil {
+			return PublishResult{}, err
+		}
+		defer manualCl.Close()
+		produceClient = manualCl
 	}
-	res := c.cl.ProduceSync(ctx, rec)
+	res := produceClient.ProduceSync(ctx, rec)
 	if err := res.FirstErr(); err != nil {
 		return PublishResult{}, err
 	}
