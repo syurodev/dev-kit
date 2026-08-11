@@ -470,6 +470,91 @@ func TestHTTPTransportPullValidatesContextCursorAndDuplicates(t *testing.T) {
 	}
 }
 
+func TestRevokeDevicePostsPath(t *testing.T) {
+	var gotMethod, gotPath, gotDeviceHeader string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		gotMethod = request.Method
+		gotPath = request.URL.Path
+		gotDeviceHeader = request.Header.Get(deviceHeader)
+		writer.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	authenticator, err := NewHTTPAuthenticator(server.URL, server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := authenticator.RevokeDevice(context.Background(), "access-token", "dev-1", "target-1"); err != nil {
+		t.Fatal(err)
+	}
+	if gotMethod != http.MethodPost {
+		t.Fatalf("method = %q, want POST", gotMethod)
+	}
+	if gotPath != "/v1/sync/devices/target-1/revoke" {
+		t.Fatalf("path = %q", gotPath)
+	}
+	if gotDeviceHeader != "dev-1" {
+		t.Fatalf("device header = %q", gotDeviceHeader)
+	}
+}
+
+func TestListDevicesGetsPathAndMapsResponse(t *testing.T) {
+	created := time.Unix(100, 0).UTC()
+	lastSeen := time.Unix(200, 0).UTC()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet || request.URL.Path != "/v1/sync/devices" {
+			t.Errorf("unexpected list request: %s %s", request.Method, request.URL.Path)
+			return
+		}
+		if got := request.Header.Get("Authorization"); got != "Bearer access-token" {
+			t.Errorf("Authorization = %q", got)
+		}
+		if got := request.Header.Get(deviceHeader); got != "dev-1" {
+			t.Errorf("device header = %q", got)
+		}
+		_ = json.NewEncoder(writer).Encode(deviceListResponse{
+			Devices: []deviceWire{
+				{DeviceID: "dev-1", Status: "active", CreatedAt: created, LastSeenAt: lastSeen, Current: true},
+				{DeviceID: "dev-2", Status: "active", CreatedAt: created, LastSeenAt: lastSeen, Current: false},
+			},
+		})
+	}))
+	defer server.Close()
+
+	authenticator, err := NewHTTPAuthenticator(server.URL, server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	devices, err := authenticator.ListDevices(context.Background(), "access-token", "dev-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(devices) != 2 || devices[0].DeviceID != "dev-1" || !devices[0].Current ||
+		devices[1].DeviceID != "dev-2" || devices[1].Current {
+		t.Fatalf("devices = %+v", devices)
+	}
+	if devices[0].Status != "active" || !devices[0].CreatedAt.Equal(created) || !devices[0].LastSeenAt.Equal(lastSeen) {
+		t.Fatalf("device fields = %+v", devices[0])
+	}
+}
+
+func TestHTTPAuthenticatorMapsDeviceManagementAuthFailures(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		http.Error(writer, "sensitive upstream detail", http.StatusUnauthorized)
+	}))
+	defer server.Close()
+	authenticator, err := NewHTTPAuthenticator(server.URL, server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := authenticator.RevokeDevice(context.Background(), "access-token", "dev-1", "target-1"); !errors.Is(err, ErrAuthentication) {
+		t.Fatalf("RevokeDevice error = %v, want ErrAuthentication", err)
+	}
+	if _, err := authenticator.ListDevices(context.Background(), "access-token", "dev-1"); !errors.Is(err, ErrAuthentication) {
+		t.Fatalf("ListDevices error = %v, want ErrAuthentication", err)
+	}
+}
+
 func TestHTTPTransportRejectsInvalidPullCursorBeforeNetwork(t *testing.T) {
 	now := time.Unix(100, 0).UTC()
 	var requests atomic.Int32

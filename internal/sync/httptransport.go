@@ -80,28 +80,103 @@ func (a *HTTPAuthenticator) AuthenticateWithEnrollment(ctx context.Context, acce
 	return a.authenticate(ctx, accessToken, localDeviceID, enrollmentToken)
 }
 
-func (a *HTTPAuthenticator) authenticate(ctx context.Context, accessToken, localDeviceID, enrollmentToken string) (AuthSession, error) {
+// DeviceInfo is non-secret device metadata returned by the account device list.
+type DeviceInfo struct {
+	DeviceID   string
+	Status     string
+	CreatedAt  time.Time
+	LastSeenAt time.Time
+	Current    bool
+}
+
+// ListDevices returns account-scoped device metadata for the authenticated caller.
+func (a *HTTPAuthenticator) ListDevices(ctx context.Context, accessToken, localDeviceID string) ([]DeviceInfo, error) {
+	response, err := a.doAuthenticated(ctx, http.MethodGet, "v1/sync/devices", accessToken, localDeviceID, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if err := validateHTTPStatus(response.StatusCode); err != nil {
+		return nil, err
+	}
+	var wire deviceListResponse
+	if err := decodeBoundedJSON(response.Body, &wire); err != nil {
+		return nil, TransportError{Reason: FailureInvalidResponse}
+	}
+	devices := make([]DeviceInfo, 0, len(wire.Devices))
+	for _, device := range wire.Devices {
+		if err := validateSyncIdentifier("device id", device.DeviceID, 256); err != nil {
+			return nil, TransportError{Reason: FailureInvalidResponse}
+		}
+		devices = append(devices, DeviceInfo{
+			DeviceID:   device.DeviceID,
+			Status:     device.Status,
+			CreatedAt:  device.CreatedAt,
+			LastSeenAt: device.LastSeenAt,
+			Current:    device.Current,
+		})
+	}
+	return devices, nil
+}
+
+// RevokeDevice revokes another device or the caller when targetDeviceID matches localDeviceID.
+func (a *HTTPAuthenticator) RevokeDevice(ctx context.Context, accessToken, localDeviceID, targetDeviceID string) error {
+	if err := validateSyncIdentifier("device id", targetDeviceID, 256); err != nil {
+		return TransportError{Reason: FailureInvalidResponse}
+	}
+	endpoint := "v1/sync/devices/" + targetDeviceID + "/revoke"
+	response, err := a.doAuthenticated(ctx, http.MethodPost, endpoint, accessToken, localDeviceID, nil)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if err := validateHTTPStatus(response.StatusCode); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (a *HTTPAuthenticator) doAuthenticated(ctx context.Context, method, endpoint, accessToken, localDeviceID string, body []byte) (*http.Response, error) {
+	request, err := a.newAuthenticatedRequest(ctx, method, endpoint, accessToken, localDeviceID, body)
+	if err != nil {
+		return nil, err
+	}
+	return doHTTP(a.client, request)
+}
+
+func (a *HTTPAuthenticator) newAuthenticatedRequest(ctx context.Context, method, endpoint, accessToken, localDeviceID string, body []byte) (*http.Request, error) {
 	if a == nil || a.baseURL == nil || a.client == nil {
-		return AuthSession{}, TransportError{Reason: FailureUnknown}
+		return nil, TransportError{Reason: FailureUnknown}
 	}
 	if err := validateSyncIdentifier("device id", localDeviceID, 256); err != nil {
-		return AuthSession{}, TransportError{Reason: FailureInvalidResponse}
+		return nil, TransportError{Reason: FailureInvalidResponse}
 	}
 	if err := validateAccessToken(accessToken); err != nil {
-		return AuthSession{}, TransportError{Reason: FailureUnknown}
+		return nil, TransportError{Reason: FailureUnknown}
 	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	target := a.baseURL.JoinPath("v1/sync/session")
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, target.String(), nil)
+	target := a.baseURL.JoinPath(endpoint)
+	request, err := http.NewRequestWithContext(ctx, method, target.String(), bytes.NewReader(body))
 	if err != nil {
-		return AuthSession{}, TransportError{Reason: FailureInvalidResponse}
+		return nil, TransportError{Reason: FailureInvalidResponse}
 	}
 	request.Header.Set("Accept", "application/json")
+	if body != nil {
+		request.Header.Set("Content-Type", "application/json")
+	}
 	request.Header.Set("Authorization", "Bearer "+accessToken)
 	request.Header.Set(deviceHeader, localDeviceID)
 	request.Header.Set(protocolHeader, strconv.FormatUint(uint64(SyncProtocolVersion), 10))
+	return request, nil
+}
+
+func (a *HTTPAuthenticator) authenticate(ctx context.Context, accessToken, localDeviceID, enrollmentToken string) (AuthSession, error) {
+	request, err := a.newAuthenticatedRequest(ctx, http.MethodGet, "v1/sync/session", accessToken, localDeviceID, nil)
+	if err != nil {
+		return AuthSession{}, err
+	}
 	if enrollmentToken != "" {
 		request.Header.Set(enrollmentHeader, enrollmentToken)
 	}
@@ -486,6 +561,18 @@ type sessionResponse struct {
 	AccountID string    `json:"account_id"`
 	DeviceID  string    `json:"device_id"`
 	ExpiresAt time.Time `json:"expires_at"`
+}
+
+type deviceListResponse struct {
+	Devices []deviceWire `json:"devices"`
+}
+
+type deviceWire struct {
+	DeviceID   string    `json:"deviceId"`
+	Status     string    `json:"status"`
+	CreatedAt  time.Time `json:"createdAt"`
+	LastSeenAt time.Time `json:"lastSeenAt"`
+	Current    bool      `json:"current"`
 }
 
 type conflictWire struct {
