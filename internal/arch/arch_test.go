@@ -52,14 +52,14 @@ func TestLayering(t *testing.T) {
 		// vaultitem is the shared substrate; domain modules depend on it, not the
 		// other way around.
 		pkg("vaultitem"): {
-			pkg("notes"), pkg("database"), pkg("ssh"), pkg("tools"),
+			pkg("notes"), pkg("database"), pkg("ssh"), pkg("kafka"), pkg("tools"),
 			pkg("syncclient"), pkg("syncconflict"), pkg("bridge"), pkg("app"),
 		},
 		// environments is a shared registry substrate like vaultitem; ssh/database
 		// consume it through their own locally-declared EnvLookup interface, never
 		// the reverse.
 		pkg("environments"): {
-			pkg("ssh"), pkg("database"), pkg("bridge"), pkg("app"),
+			pkg("ssh"), pkg("database"), pkg("kafka"), pkg("bridge"), pkg("app"),
 		},
 		// ssh/database must never import environments directly — this is the
 		// central design decision behind their locally-declared EnvLookup
@@ -67,6 +67,7 @@ func TestLayering(t *testing.T) {
 		// preference, so it is pinned the same way vaultitem's boundary is.
 		pkg("ssh"):      {pkg("environments")},
 		pkg("database"): {pkg("environments")},
+		pkg("kafka"):    {pkg("environments")},
 		// storage is the generic DB kernel; the sync persistence adapter builds on
 		// it, never the reverse.
 		pkg("storage"): {pkg("syncstore")},

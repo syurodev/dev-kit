@@ -50,6 +50,15 @@ func RegisterBuiltins(container *Container) error {
 			Capabilities: []string{"ssh:connect", "ssh:forward"},
 		},
 		{
+			ID:           "kafka",
+			Title:        "Kafka",
+			Version:      "1.0.0",
+			APIVersion:   modules.CurrentAPIVersion,
+			Commands:     []string{"kafka.publish"},
+			Views:        []string{"kafka.explorer"},
+			Capabilities: []string{"kafka:connect", "kafka:produce"},
+		},
+		{
 			ID:           "sync",
 			Title:        "Sync",
 			Version:      "1.0.0",

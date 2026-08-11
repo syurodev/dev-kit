@@ -42,8 +42,8 @@ func TestRegisterBuiltinsRegistersToolsModule(t *testing.T) {
 		t.Fatalf("RegisterBuiltins returned error: %v", err)
 	}
 
-	if len(container.Modules.List()) != 6 {
-		t.Fatalf("module count = %d, want 6", len(container.Modules.List()))
+	if len(container.Modules.List()) != 7 {
+		t.Fatalf("module count = %d, want 7", len(container.Modules.List()))
 	}
 }
 

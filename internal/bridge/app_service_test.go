@@ -25,14 +25,15 @@ func TestAppServiceListsModules(t *testing.T) {
 	service := newTestService(t)
 	moduleList := service.ListModules()
 
-	if len(moduleList) != 6 {
-		t.Fatalf("len(modules) = %d, want 6", len(moduleList))
+	if len(moduleList) != 7 {
+		t.Fatalf("len(modules) = %d, want 7", len(moduleList))
 	}
 	wantCapabilities := map[string][]string{
 		"tools":    {"tools:hash"},
 		"notes":    {"notes:read", "notes:write"},
 		"database": {"db:query"},
 		"ssh":      {"ssh:connect", "ssh:forward"},
+		"kafka":    {"kafka:connect", "kafka:produce"},
 		"sync":     {"sync:manage"},
 		"settings": {"env:read", "env:write"},
 	}
@@ -57,8 +58,8 @@ func TestAppServiceListsModules(t *testing.T) {
 			t.Errorf("module %q capabilities = %s, want %s", m.ID, got, wantJSON)
 		}
 	}
-	if !found["tools"] || !found["notes"] || !found["database"] || !found["ssh"] || !found["sync"] || !found["settings"] {
-		t.Fatalf("modules = %+v, want tools, notes, database, ssh, sync and settings", moduleList)
+	if !found["tools"] || !found["notes"] || !found["database"] || !found["ssh"] || !found["kafka"] || !found["sync"] || !found["settings"] {
+		t.Fatalf("modules = %+v, want tools, notes, database, ssh, kafka, sync and settings", moduleList)
 	}
 }
 

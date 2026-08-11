@@ -8,6 +8,7 @@ import (
 	"devkit/internal/apperrors"
 	"devkit/internal/cloudconfig"
 	"devkit/internal/environments"
+	"devkit/internal/kafka"
 	"devkit/internal/syncclient"
 	"devkit/internal/vault"
 )
@@ -22,21 +23,27 @@ const (
 )
 
 var safeValidationMessages = map[string]struct{}{
-	"title is required":                       {},
-	"name is required":                        {},
-	"host is required":                        {},
-	"username is required":                    {},
-	"unsupported auth method":                 {},
-	"master password too short":               {},
-	"forward direction is required":           {},
-	"unsupported forward direction":           {},
-	"bind host must be loopback":              {},
-	"bind port must be between 0 and 65535":   {},
-	"target host is required":                 {},
-	"target host is invalid":                  {},
-	"target port must be between 1 and 65535": {},
-	"environment tag is in use":               {},
-	"environment tag is locked":               {},
+	"title is required":                                      {},
+	"name is required":                                       {},
+	"host is required":                                       {},
+	"username is required":                                   {},
+	"unsupported auth method":                                {},
+	"master password too short":                              {},
+	"forward direction is required":                          {},
+	"unsupported forward direction":                          {},
+	"bind host must be loopback":                             {},
+	"bind port must be between 0 and 65535":                  {},
+	"target host is required":                                {},
+	"target host is invalid":                                 {},
+	"target port must be between 1 and 65535":                {},
+	"environment tag is in use":                              {},
+	"environment tag is locked":                              {},
+	"bootstrap_servers is required":                          {},
+	"env is required":                                        {},
+	"username is required for SASL authentication":           {},
+	"sasl_mechanism is required for SASL security protocols": {},
+	"unsupported sasl mechanism":                             {},
+	"unsupported security protocol":                          {},
 }
 
 func publicError(subject string, err error) *apperrors.AppError {
@@ -95,10 +102,20 @@ func publicError(subject string, err error) *apperrors.AppError {
 			return apperrors.New(codeConnectionFailed, "Sync operation failed.", true)
 		}
 	}
+	if subject == "builtin.kafka" {
+		switch {
+		case errors.Is(err, errKafkaUnavailable):
+			return apperrors.New(codeInternalError, "Kafka is not available.", true)
+		case errors.Is(err, kafka.ErrNotConnected):
+			return apperrors.New(codeConnectionFailed, "Kafka is not connected.", true)
+		case errors.Is(err, kafka.ErrInsecureRemotePLAINTEXT):
+			return apperrors.New(codeConnectionFailed, "Plaintext Kafka to a remote host is not allowed.", true)
+		}
+	}
 	if _, safe := safeValidationMessages[err.Error()]; safe {
 		return apperrors.New(codeValidationFailed, err.Error(), true)
 	}
-	if subject == "builtin.database" || subject == "builtin.ssh" {
+	if subject == "builtin.database" || subject == "builtin.ssh" || subject == "builtin.kafka" {
 		return apperrors.New(codeConnectionFailed, "Connection failed.", true)
 	}
 	return apperrors.New(codeInternalError, "An unexpected error occurred.", false)

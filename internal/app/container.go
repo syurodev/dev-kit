@@ -10,6 +10,7 @@ import (
 	"devkit/internal/commands"
 	"devkit/internal/database"
 	"devkit/internal/environments"
+	"devkit/internal/kafka"
 	"devkit/internal/modules"
 	"devkit/internal/notes"
 	"devkit/internal/permissions"
@@ -62,6 +63,7 @@ type Container struct {
 	Environments *environments.Service
 	Database     *database.Service
 	SSH          *sshservice.Service
+	Kafka        *kafka.Service
 	Sync         SyncService
 	Auth         AuthService
 	SyncConflict SyncConflictService
@@ -104,6 +106,11 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.ssh", Capability: "ssh:forward", Scope: "profile:*"},
 		{SubjectID: "builtin.ssh", Capability: "ssh:forward", Scope: "forward:list"},
 		{SubjectID: "builtin.ssh", Capability: "ssh:forward", Scope: "forward:*"},
+		{SubjectID: "builtin.kafka", Capability: "kafka:connect", Scope: "profile:list"},
+		{SubjectID: "builtin.kafka", Capability: "kafka:connect", Scope: "profile:new"},
+		{SubjectID: "builtin.kafka", Capability: "kafka:connect", Scope: "profile:*"},
+		{SubjectID: "builtin.kafka", Capability: "kafka:connect", Scope: "connection"},
+		{SubjectID: "builtin.kafka", Capability: "kafka:produce", Scope: "connection"},
 		{SubjectID: "builtin.vault", Capability: "vault:manage", Scope: "vault"},
 		{SubjectID: "builtin.search", Capability: "vault:search", Scope: "item:search"},
 		{SubjectID: "builtin.sync", Capability: "sync:manage", Scope: "sync:status"},
@@ -134,5 +141,6 @@ func NewContainerWithStores(
 		Environments: envService,
 		Database:     database.NewService(itemStore, envService),
 		SSH:          sshservice.NewService(itemStore, envService),
+		Kafka:        kafka.NewService(itemStore, envService, nil),
 	}
 }
