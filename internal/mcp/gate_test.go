@@ -43,9 +43,9 @@ func (f fakeProfileEnvReader) EnvForProfile(id string) (string, error) {
 }
 
 type fakeActiveTarget struct {
-	id      string
-	ok      bool
-	ensure  func(ctx context.Context) (string, error)
+	id     string
+	ok     bool
+	ensure func(ctx context.Context) (string, error)
 }
 
 func (f *fakeActiveTarget) ActiveID() (string, bool) {

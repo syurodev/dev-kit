@@ -21,7 +21,7 @@ type fakeSSH struct {
 	runErr   error
 }
 
-func (f *fakeSSH) ListProfiles() ([]sshservice.ProfileSummary, error) { return f.profiles, nil }
+func (f *fakeSSH) ListProfiles() ([]sshservice.ProfileSummary, error)   { return f.profiles, nil }
 func (f *fakeSSH) TestConnection(context.Context, string, string) error { return nil }
 func (f *fakeSSH) AgentActiveProfileID() string                         { return f.activeID }
 func (f *fakeSSH) SetAgentActiveProfile(id string) error {
@@ -40,7 +40,7 @@ type fakeDB struct {
 }
 
 func (f *fakeDB) ListProfiles() ([]database.ProfileSummary, error) { return f.profiles, nil }
-func (f *fakeDB) TestConnection(context.Context, string) error      { return nil }
+func (f *fakeDB) TestConnection(context.Context, string) error     { return nil }
 func (f *fakeDB) AgentActiveProfileID() string                     { return f.activeID }
 func (f *fakeDB) SetAgentActiveProfile(id string) error {
 	f.activeID = id
