@@ -9,6 +9,19 @@ import (
 
 const invalidOpaqueID = "invalid"
 
+// Call runs a capability-gated handler and maps errors through publicError.
+// Bridge UI methods and MCP tool handlers must both use this entrypoint.
+func (s *AppService) Call(
+	ctx context.Context,
+	subject string,
+	capability string,
+	scope string,
+	metadata map[string]any,
+	handler capabilities.Handler,
+) (any, error) {
+	return s.call(ctx, subject, capability, scope, metadata, handler)
+}
+
 func (s *AppService) call(
 	ctx context.Context,
 	subject string,

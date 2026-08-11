@@ -34,6 +34,30 @@ func TestNotesBridgeUsesGateway(t *testing.T) {
 	}
 }
 
+func TestAppServiceCallSetsMetadata(t *testing.T) {
+	// Default container already grants notes:read / note:list; audit records Call metadata.
+	container := app.NewContainer()
+	svc := NewAppService(container)
+
+	_, err := svc.Call(context.Background(), "builtin.notes", "notes:read", "note:list", map[string]any{
+		"origin": "mcp",
+		"action": "list",
+	}, func(context.Context) (any, error) {
+		return []string{}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	events := container.Audit.Events()
+	if len(events) != 1 {
+		t.Fatalf("len(audit events) = %d, want 1", len(events))
+	}
+	if events[0].Metadata["origin"] != "mcp" {
+		t.Fatalf("origin = %v", events[0].Metadata["origin"])
+	}
+}
+
 func TestPublicErrorRedacts(t *testing.T) {
 	const internalCause = "postgres driver failed at postgres://admin:password@internal-db:5432/devkit"
 	container := app.NewContainerWithStores(
