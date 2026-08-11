@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ship DevKit as an MCP **Server** (Tools only, stdio) so external agents can call existing built-in modules through the **same** Capability Gateway path as the UI Bridge — with interactive **active-target selection** and **env-tag confirmation** for SSH/DB/Kafka — matching `/dev-kit/mcp-agent` and per-module MCP tool surfaces.
+**Goal:** Ship DevKit as an MCP **Server** (Tools only, stdio) so external agents can call existing built-in modules through the **same** Capability Gateway path as the UI Bridge — with interactive **active-target selection**, **env-tag confirmation** (`allow_always` with env-wins), and **one-click/CLI install** of the `devkit` MCP entry into a designated agent at `global` or `project` scope — matching `/dev-kit/mcp-agent`.
 
-**Architecture:** `internal/mcp` is a thin transport/tool adapter. Tool handlers never call domain services directly without going through an exported `AppService.Call` (same gateway + audit as Bridge), always with `Metadata["origin"]="mcp"`. Because selection/confirmation popups and an unlocked vault live in the **desktop GUI process**, the GUI hosts the real MCP tool runtime over a Unix domain socket; `cmd/devkit-mcp` is a stdio↔socket proxy that agents spawn. Headless / no GUI → selection/confirmation fail immediately (no hang).
+**Architecture:** `internal/mcp` is a thin transport/tool adapter. Tool handlers never call domain services directly without going through an exported `AppService.Call` (same gateway + audit as Bridge), always with `Metadata["origin"]="mcp"`. Because selection/confirmation popups and an unlocked vault live in the **desktop GUI process**, the GUI hosts the real MCP tool runtime over a Unix domain socket; `cmd/devkit-mcp` is a stdio↔socket proxy that agents spawn. `internal/mcp/install` writes agent config files (Claude Code / Codex) for scope `global|project`. Headless / no GUI → selection/confirmation fail immediately (no hang).
 
 **Tech Stack:** Go 1.26, official `github.com/modelcontextprotocol/go-sdk` (`mcp` package, target protocol `2026-07-28` / SDK ≥ v1.7), existing `capabilities` / `bridge` / `environments` / SSH / Database / Kafka / Notes / Vault / React+Vite frontend, `go-task` + bun.
 
@@ -20,6 +20,7 @@
 - Code Graph / Agent Hub tools (modules not Implemented)
 - Per-tool enable/disable Settings UI (static container grants only)
 - SQL parse split for `db.query` read vs write (treat all queries as execute + `destructiveHint`)
+- Auto-install for Cursor IDE (add agent ID later); bulk-install-all-agents; cloud sync of MCP configs
 
 **Concrete defaults (open questions locked):**
 
@@ -32,6 +33,10 @@
 | Confirmation choices | `allow` / `allow_always` / `deny` — see **Allow-always vs env** below |
 | Unresolvable env tag | Fail closed → treat as `requiresConfirmation=true` |
 | Allow-always vs env | `allow_always` is supported for MCP confirmations **when env does not require confirmation**. If `RequiresConfirmation(env)` is true (incl. fail-closed / locked `prod`), **env always wins**: prompt every call, ignore any prior `allow_always`, and UI must **not** offer `allow_always` on that dialog |
+| MCP auto-install agents (v1) | `claude-code`, `codex` only (Cursor deferred) |
+| MCP auto-install scopes | Exactly two product scopes: `global` \| `project` (see path table in Task 10) |
+| MCP server config key | Always `devkit` |
+| Install surfaces | Settings UI + `task mcp:install` / bridge — **not** an MCP tool |
 | `db.query` annotations | Always `readOnlyHint=false`, `destructiveHint=true` |
 | `tools/list` filtering | Only register tools whose subject/capability/scope are granted in `container` policy (static = register allowlist ∩ grants) |
 | SDK | `github.com/modelcontextprotocol/go-sdk` latest ≥ v1.7 |
@@ -83,8 +88,14 @@
 | `internal/mcp/tools_*.go` | One file per module family (vault, notes, tools, env, ssh, db, kafka) |
 | `internal/mcp/server_test.go` | In-process tool call tests with fake Caller / services |
 | `internal/mcp/host.go` | Listen Unix socket; accept; serve one MCP session per conn |
-| `cmd/devkit-mcp/main.go` | Stdio ↔ socket proxy |
-| `internal/app/container.go` | Wire `Interaction` hub; grant `profile:active` for ssh/db |
+| `internal/mcp/install/install.go` | `Install(agent, scope, projectPath)` / `Uninstall` — resolve proxy command path |
+| `internal/mcp/install/claude.go` | Merge `devkit` into `~/.claude.json` or `<project>/.mcp.json` |
+| `internal/mcp/install/codex.go` | Merge `[mcp_servers.devkit]` into `~/.codex/config.toml` or `<project>/.codex/config.toml` |
+| `internal/mcp/install/install_test.go` | Temp-dir unit tests for both agents × both scopes |
+| `internal/bridge/mcp_install.go` | `McpListAgents`, `McpInstall`, `McpUninstall` (human-only) |
+| `frontend/src/modules/settings/McpInstallPanel.tsx` | Agent select + scope global/project + folder picker |
+| `cmd/devkit-mcp/main.go` | Also support `install` / `uninstall` subcommands OR separate `task mcp:install` |
+| `Taskfile.yml` | `mcp`, `mcp:install`, `mcp:uninstall` |
 | `main.go` | Start/stop MCP host with app lifecycle; pass event emitter / Prompter |
 | `frontend/src/bridge/interaction.ts` | Typed adapters for pending interactions |
 | `frontend/src/workbench/InteractionHost.tsx` | Global dialogs: select profile / confirm env |
@@ -1252,39 +1263,183 @@ git commit -m "feat(ui): MCP selection and env confirmation dialogs"
 
 ---
 
-### Task 10: Docs sync (base) + README/AGENTS notes
+### Task 10: Auto-install MCP config for a designated agent (`global` | `project`)
+
+**Files:**
+- Create: `internal/mcp/install/{install.go,claude.go,codex.go,install_test.go}`
+- Create: `internal/bridge/mcp_install.go`
+- Create: `frontend/src/modules/settings/McpInstallPanel.tsx` (or section in existing Settings)
+- Modify: `Taskfile.yml`, `cmd/devkit-mcp/main.go` (optional subcommands)
+- Modify: `internal/app/container.go` grants for `builtin.mcpinstall` / `mcp:install` / `agent:*`
+
+**Path mapping (locked):**
+
+| Agent | Scope `global` | Scope `project` |
+|---|---|---|
+| `claude-code` | `~/.claude.json` → `mcpServers.devkit` | `<project>/.mcp.json` → `mcpServers.devkit` |
+| `codex` | `~/.codex/config.toml` → `[mcp_servers.devkit]` | `<project>/.codex/config.toml` → `[mcp_servers.devkit]` |
+
+**Entry shape (stdio):**
+
+```json
+{
+  "command": "/abs/path/to/devkit-mcp",
+  "args": []
+}
+```
+
+```toml
+[mcp_servers.devkit]
+command = "/abs/path/to/devkit-mcp"
+args = []
+```
+
+Resolve command path: prefer `exec.LookPath("devkit-mcp")`, else path next to current executable, else error asking user to build/install the proxy first.
+
+- [ ] **Step 1: Failing tests (temp HOME + temp project)**
+
+```go
+func TestClaudeInstallGlobalIdempotent(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cmd := filepath.Join(home, "bin", "devkit-mcp")
+	req := InstallRequest{Agent: AgentClaudeCode, Scope: ScopeGlobal, Command: cmd}
+	if err := Install(req); err != nil {
+		t.Fatal(err)
+	}
+	if err := Install(req); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(home, ".claude.json"))
+	var doc map[string]any
+	_ = json.Unmarshal(raw, &doc)
+	servers := doc["mcpServers"].(map[string]any)
+	if len(servers) != 1 {
+		t.Fatalf("want 1 server, got %d", len(servers))
+	}
+	// Pre-seed another server and ensure Install preserves it
+}
+
+func TestClaudeInstallProject(t *testing.T) { /* writes project/.mcp.json */ }
+
+func TestCodexInstallGlobalAndProject(t *testing.T) { /* TOML round-trip */ }
+
+func TestUninstallRemovesOnlyDevkit(t *testing.T) { /* ... */ }
+
+func TestProjectScopeRequiresPath(t *testing.T) {
+	err := Install(InstallRequest{Agent: AgentClaudeCode, Scope: ScopeProject})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+```
+
+- [ ] **Step 2: Run — expect fail**
+
+```bash
+go test ./internal/mcp/install/ -count=1
+```
+
+- [ ] **Step 3: Implement**
+
+```go
+package install
+
+type Agent string
+type Scope string
+
+const (
+	AgentClaudeCode Agent = "claude-code"
+	AgentCodex      Agent = "codex"
+	ScopeGlobal     Scope = "global"
+	ScopeProject    Scope = "project"
+	ServerName      = "devkit"
+)
+
+type InstallRequest struct {
+	Agent       Agent
+	Scope       Scope
+	ProjectPath string // required when ScopeProject
+	Command     string // absolute path to proxy binary
+}
+
+func Install(req InstallRequest) error { /* validate; switch agent */ }
+func Uninstall(req InstallRequest) error { /* validate; remove key only */ }
+func ListAgents() []Agent { return []Agent{AgentClaudeCode, AgentCodex} }
+```
+
+Claude writer: read JSON (empty object if missing), set `mcpServers["devkit"]`, write `0600`.  
+Codex writer: use a small TOML library already in go.mod **or** carefully merge with `pelletier/go-toml` / `BurntSushi/toml` — `go get` one if needed; never wipe unrelated tables.
+
+- [ ] **Step 4: Bridge + grants**
+
+```go
+func (s *AppService) McpListAgents() ([]string, error)
+func (s *AppService) McpInstall(agent, scope, projectPath string) error
+func (s *AppService) McpUninstall(agent, scope, projectPath string) error
+```
+
+Subject `builtin.mcpinstall`, capability `mcp:install`, scopes `agent:list` / `agent:claude-code` / `agent:codex`.
+
+- [ ] **Step 5: Settings UI**
+
+Panel: dropdown Agent (`claude-code` | `codex`), radio Scope (`global` | `project`), if project → directory text field (user pastes path; native folder picker if easy in Wails), buttons Install / Uninstall, show last result path written.
+
+- [ ] **Step 6: Taskfile**
+
+```yaml
+mcp:install:
+  desc: "Install DevKit MCP into an agent (AGENT=claude-code|codex SCOPE=global|project PROJECT=.)"
+  cmds:
+    - go run ./cmd/devkit-mcp -- install --agent {{.AGENT}} --scope {{.SCOPE}} --project {{.PROJECT}}
+```
+
+Implement thin CLI flags on `cmd/devkit-mcp` when first arg is `install`/`uninstall`; default (no args) remains stdio proxy.
+
+- [ ] **Step 7: Test + commit**
+
+```bash
+go test ./internal/mcp/install/ ./internal/bridge/ -count=1
+cd frontend && bun run build
+git add internal/mcp/install/ internal/bridge/mcp_install.go frontend/ Taskfile.yml cmd/devkit-mcp/
+git commit -m "feat(mcp): install/uninstall devkit MCP for claude-code and codex"
+```
+
+---
+
+### Task 11: Docs sync (base) + README/AGENTS notes
 
 **Files (base repo):**
-- `content/projects/dev-kit/mcp-agent.mdx` — Callout → Implemented (stdio + tools); note socket proxy
-- `implementation-status.mdx` — MCP row → Implemented (or Partial if Code Graph tools absent — **locked: Implemented** for runtime+allowlist; Remaining = Resources/HTTP/tool Settings UI)
-- Module pages SSH/DB/Kafka/Notes/Vault/Environments — MCP sections stay accurate; change “design” → “Implemented” where tools shipped
-- `technical-contracts.mdx` — MCP column updates
+- `content/projects/dev-kit/mcp-agent.mdx` — Callout → Implemented when code ships; keep allow_always + env-wins + auto-install sections (already drafted in design sync)
+- `implementation-status.mdx` — MCP row update when runtime lands
+- Module pages SSH/DB/Kafka/Environments — confirmation wording matches env-wins
+- `technical-contracts.mdx` — MCP column + install bridge methods if listed
 
 **Files (dev-kit):**
-- `README.md` — mention `task mcp` + “DevKit desktop must be running”
-- `AGENTS.md` — cloud caveat: MCP popups need GUI; headless fails selection
+- `README.md` — `task mcp`, `task mcp:install AGENT=... SCOPE=global|project`
+- `AGENTS.md` — desktop required for tools; install only writes agent config
 
 - [ ] **Step 1: Edit base docs; commit & push base `main`** (PAT flow used previously)
 
-  Explicitly update `mcp-agent.mdx` + Environments: **divergence from older draft** — v1 **does** support `allow_always` for non-blocking env tags; when `requiresConfirmation` is true, env **always wins** (per-call Allow/Deny, ignore cache, do not offer Allow always). Remove/replace the prior sentence that said there is never `allow_always`.
+  Keep design docs aligned: **có `allow_always`**, nhưng khi `requiresConfirmation` thì **env luôn thắng**; document FR-7 auto-install scopes.
 
 - [ ] **Step 2: Edit README/AGENTS; commit**
 
 ```bash
 git add README.md AGENTS.md
-git commit -m "docs: document MCP stdio proxy and desktop host requirements"
+git commit -m "docs: document MCP stdio proxy, install scopes, confirmation policy"
 ```
 
 ---
 
-### Task 11: Verification gate
+### Task 12: Verification gate
 
 - [ ] **Step 1: Go tests**
 
 ```bash
-go test ./internal/mcp/ ./internal/interaction/ ./internal/ssh/ ./internal/database/ ./internal/kafka/ ./internal/bridge/ ./internal/environments/ ./internal/arch/ ./internal/app/ -count=1
-go vet -tags server ./internal/mcp/ ./internal/interaction/ ./cmd/devkit-mcp/
-gofmt -l internal/mcp internal/interaction internal/bridge/interaction.go internal/bridge/ssh_active.go internal/bridge/database_active.go cmd/devkit-mcp
+go test ./internal/mcp/... ./internal/interaction/ ./internal/ssh/ ./internal/database/ ./internal/kafka/ ./internal/bridge/ ./internal/environments/ ./internal/arch/ ./internal/app/ -count=1
+go vet -tags server ./internal/mcp/... ./internal/interaction/ ./cmd/devkit-mcp/
+gofmt -l internal/mcp internal/interaction internal/bridge/interaction.go internal/bridge/ssh_active.go internal/bridge/database_active.go internal/bridge/mcp_install.go cmd/devkit-mcp
 ```
 
 Expected: all PASS; gofmt clean.
@@ -1299,24 +1454,11 @@ cd frontend && bun run build
 
 1. Start DevKit GUI; unlock vault.
 2. Confirm `mcp.sock` exists under config dir.
-3. Configure a client:
-
-```json
-{
-  "mcpServers": {
-    "devkit": {
-      "command": "task",
-      "args": ["mcp"]
-    }
-  }
-}
-```
-
-Or `go run ./cmd/devkit-mcp`.
-
-4. `tools/list` → includes `notes.list`, excludes `vault.unlock`.
-5. `notes.list` with locked vault in a **fresh** GUI before unlock → `vault_locked`.
-6. Set Kafka/SSH/DB profiles; call gated tool without active → popup; on `prod` confirm Allow/Deny only (no Allow always); on `dev` use Allow always then verify second call skips prompt.
+3. `task mcp:install AGENT=claude-code SCOPE=global` → `~/.claude.json` has `mcpServers.devkit`.
+4. `task mcp:install AGENT=codex SCOPE=project PROJECT=/path/to/repo` → `.codex/config.toml` entry.
+5. Configure/use client; `tools/list` includes `notes.list`, excludes `vault.unlock`.
+6. `notes.list` with locked vault → `vault_locked`.
+7. Gated tool without active → selection popup; on `prod` Allow/Deny only; on `dev` Allow always then second call skips.
 
 - [ ] **Step 4: Final commit if fixes needed**
 
@@ -1336,10 +1478,13 @@ git commit -m "fix(mcp): verification gate follow-ups"
 | FR-4 origin=mcp | 1, 6 |
 | FR-5 annotations | 6, 7 |
 | FR-6 vault_locked | 6 (existing publicError) |
+| FR-7 agent install global/project | 10 |
+| FR-8 allow_always + env wins | 3, 5, 9 |
 | NFR-1 stdio only | 8 |
 | NFR-2 no OAuth | locked |
 | NFR-3 no raw secrets | allowlist exclusions |
 | NFR-4 hard exclusions | allowlist |
+| NFR-5 install local-only | 10 |
 | Active target pattern | 4, 5, 7, 9 |
 | Env confirmation | 2, 5, 7, 9 |
 | Kafka MCP tools | 7 |
@@ -1347,7 +1492,7 @@ git commit -m "fix(mcp): verification gate follow-ups"
 
 **Placeholder scan:** none intentional — SDK `*bool` annotation shapes and exact Wails event API must be verified at pin time (called out inline, not TBD).
 
-**Type consistency:** `interaction.Kind` values `ssh|database|kafka`; Complete select returns profile id string; Confirm values `allow` | `allow_always` | `deny`; `Pending.AllowAlwaysOffered` mirrors `!EnvBlocks`; origin constant `mcp`.
+**Type consistency:** `interaction.Kind` values `ssh|database|kafka`; Complete select returns profile id string; Confirm values `allow` | `allow_always` | `deny`; `Pending.AllowAlwaysOffered` mirrors `!EnvBlocks`; install `Agent`/`Scope` enums; origin constant `mcp`.
 
 ---
 
