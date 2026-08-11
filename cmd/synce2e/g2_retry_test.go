@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"changeme/internal/syncclient"
+	"devkit/internal/syncclient"
 )
 
 func TestG2PushRetriesWithoutDuplicateLog(t *testing.T) {

@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	replicationsync "changeme/internal/sync"
-	"changeme/internal/syncstore"
-	"changeme/internal/vaultitem"
+	replicationsync "devkit/internal/sync"
+	"devkit/internal/syncstore"
+	"devkit/internal/vaultitem"
 )
 
 // setupConflict brings two devices to the post-conflict state: both edit the

@@ -13,12 +13,12 @@ import (
 	"strings"
 	"testing"
 
-	"changeme/internal/storage"
-	"changeme/internal/sync"
-	"changeme/internal/syncclient"
-	"changeme/internal/syncstore"
-	"changeme/internal/vault"
-	"changeme/internal/vaultitem"
+	"devkit/internal/storage"
+	"devkit/internal/sync"
+	"devkit/internal/syncclient"
+	"devkit/internal/syncstore"
+	"devkit/internal/vault"
+	"devkit/internal/vaultitem"
 )
 
 func TestHarnessCompiles(t *testing.T) {}
@@ -183,6 +183,35 @@ func enrollDevice(t *testing.T, baseURL, bearer, authorizerDeviceID, targetDevic
 		t.Fatalf("enrollment target device = %q, want %q", wire.TargetDeviceID, targetDeviceID)
 	}
 	return wire.EnrollmentToken
+}
+
+func revokeDeviceAPI(t *testing.T, baseURL, accessToken, actorDeviceID, targetDeviceID string) {
+	t.Helper()
+	if targetDeviceID == "" {
+		t.Fatal("revoke: target device id is required")
+	}
+	target := strings.TrimRight(baseURL, "/") + "/v1/sync/devices/" + targetDeviceID + "/revoke"
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodPost, target, nil)
+	if err != nil {
+		t.Fatalf("create revoke request: %v", err)
+	}
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("Authorization", "Bearer "+accessToken)
+	request.Header.Set("X-DevKit-Device-ID", actorDeviceID)
+	request.Header.Set("X-DevKit-Sync-Protocol", strconv.FormatUint(uint64(sync.SyncProtocolVersion), 10))
+
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatalf("revoke request failed: %v", err)
+	}
+	defer response.Body.Close()
+	payload, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+	if err != nil {
+		t.Fatalf("read revoke response: %v", err)
+	}
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		t.Fatalf("revoke request returned HTTP %d (body length %d)", response.StatusCode, len(payload))
+	}
 }
 
 func (d *device) createNote(t *testing.T, title, body string) string {
