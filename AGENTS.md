@@ -63,6 +63,23 @@ a first-run "Create Master Password" or an "Unlock" gate before the workbench.
 - Frontend typecheck + build: `cd frontend && bun run build` (runs `tsc` then `vite build`).
 - Frontend dev server (Vite only, no Go): `task dev:frontend` (port 9245).
 
+### MCP (agent tools)
+**Implemented runtime** — desktop hosts tools over a Unix socket; `cmd/devkit-mcp` is the
+stdio proxy agents spawn. Resources / Streamable HTTP are deferred. Do **not** treat this
+as production-verified against a real Claude Code session in cloud CI.
+
+- Desktop (GUI, unlocked vault) required for the socket host + selection/confirmation
+  dialogs. `task mcp` proxies stdio ↔ socket (`go run ./cmd/devkit-mcp`).
+- Install only writes local agent config (no network, no grant changes):
+  `task mcp:install AGENT=claude-code|codex SCOPE=global|project PROJECT=.`
+  (also Settings → MCP panel / `task mcp:uninstall`).
+- Confirmation policy: `allow` / `allow_always` / `deny`. When env
+  `requiresConfirmation` (incl. fail-closed / `prod`), **env wins** — every gated call
+  re-prompts; `allow_always` is ignored and not offered.
+- Headless / `task run:server` / nil Prompter: selection and confirmation **fail fast**
+  (no hang). Non-gated tools (e.g. `vault.status`, notes when unlocked in-process) can
+  still work when the host is up.
+
 ### Notes / gotchas
 - Sync login: production uses `internal/cloudconfig` (pinned `GET /v1/desktop/config`, disk cache, refresh on reconnect). Set `DEVKIT_OIDC_*` to override remote/cache for local dev. Omit all OIDC env + stay offline with no cache for local-only vault/modules.
 - Storage is a single SQLite file (`modernc.org/sqlite`, no cgo) opened with

@@ -27,8 +27,30 @@ GUI (cgo) — `libgtk-4-dev` + `libwebkitgtk-6.0-dev`.
 | Frontend build + typecheck | `cd frontend && bun run build` |
 | Frontend-only dev server (Vite, no Go backend) | `cd frontend && bun run dev` |
 | Regenerate Wails bindings (after Go bridge changes) | `wails3 generate bindings` |
+| MCP stdio proxy (needs desktop + unlocked vault) | `task mcp` |
+| Install DevKit MCP into an agent | `task mcp:install AGENT=claude-code\|codex SCOPE=global\|project PROJECT=.` |
+| Uninstall DevKit MCP from an agent | `task mcp:uninstall AGENT=claude-code\|codex SCOPE=global\|project PROJECT=.` |
 
 Cloud/CI setup and non-obvious run caveats are documented in `AGENTS.md`.
+
+### MCP (agent tools)
+
+**Implemented runtime** (stdio tools + install; Resources / Streamable HTTP deferred).
+Not claimed as production-tested end-to-end against a real Claude Code / Codex session
+in CI — verify locally on a desktop build.
+
+- The **desktop app** hosts the MCP tool server over a Unix domain socket (`mcp.sock`
+  under the app config dir) after unlock. Agents do not talk to that socket directly.
+- `task mcp` / `cmd/devkit-mcp` is a **stdio ↔ socket proxy** that MCP clients spawn.
+- Install writes local agent config only (no network):
+  `task mcp:install AGENT=claude-code|codex SCOPE=global|project PROJECT=.`
+  (`claude-code` / `codex` only in v1; Cursor deferred).
+- Gated tools (SSH / Database / Kafka) use sticky active targets plus env-tag
+  confirmation. Dialog choices are `allow` / `allow_always` / `deny`. When the env
+  tag `requiresConfirmation` (including fail-closed / locked `prod`), **env wins**:
+  prompt every call, ignore prior `allow_always`, and do not offer Allow always.
+- Headless / server mode / no GUI prompter: selection and confirmation **fail fast**
+  (`selection_required` / `confirmation_required`) — they do not hang waiting for UI.
 
 ### Remote config + OIDC (Sync login)
 
@@ -70,7 +92,7 @@ hold ourselves to:
 ### Directory layout
 
 - `cmd/<binary>/` — one directory per executable, each declaring `package main`
-  (currently just `cmd/mocksyncserver`).
+  (e.g. `cmd/mocksyncserver`, `cmd/devkit-mcp` stdio proxy + install CLI).
 - `internal/` — all application logic. The `internal/` path is import-restricted
   by the Go toolchain, so nothing here is a public API and we can refactor freely.
 - `main.go` (repo root) — the Wails entry point and composition wiring.
@@ -141,6 +163,8 @@ internal/
   database/          Database-connection module (pgx)
   ssh/               SSH module (profiles, host keys, port forwarding)
   kafka/             Kafka module (profiles, connect, topics, peek, groups, publish)
+  mcp/               MCP server (Unix socket host, tools, active-target gate) + install/
+  interaction/       Selection + env confirmation hub (MCP/UI; headless fail-fast)
   tools/             Hashing tools module
   syncclient/        Sync application service (service / connect / syncnow / conflicts)
   syncconflict/      Conflict-resolution application service (detail + resolve strategies)
