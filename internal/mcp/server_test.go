@@ -78,9 +78,19 @@ func (fakeTools) Hash(req tools.HashRequest) (tools.HashResult, error) {
 
 type fakeEnvs struct {
 	tags []environments.Tag
+	req  map[string]bool
 }
 
 func (f *fakeEnvs) ListTags() ([]environments.Tag, error) { return f.tags, nil }
+
+func (f *fakeEnvs) RequiresConfirmation(name string) bool {
+	if f.req != nil {
+		if v, ok := f.req[name]; ok {
+			return v
+		}
+	}
+	return true // fail closed
+}
 
 func testDeps(caller *fakeCaller, notesAPI NotesAPI) Deps {
 	if notesAPI == nil {

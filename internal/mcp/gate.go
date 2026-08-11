@@ -23,9 +23,18 @@ type ActiveTarget interface {
 	EnsureActive(ctx context.Context) (id string, err error)
 }
 
+// effectiveHub treats a nil Hub as headless (selection/confirmation required).
+func effectiveHub(hub *interaction.Hub) *interaction.Hub {
+	if hub == nil {
+		return &interaction.Hub{Headless: true}
+	}
+	return hub
+}
+
 // GateActiveMCP ensures an active target exists and env confirmation policy is satisfied.
 // When RequiresConfirmation(env) is true, Confirm runs every call (allow_always ignored).
 // When false, Confirm may short-circuit via allow_always after the user opts in once.
+// A nil hub behaves as headless.
 func GateActiveMCP(
 	ctx context.Context,
 	hub *interaction.Hub,
@@ -44,7 +53,7 @@ func GateActiveMCP(
 		return err
 	}
 	blocks := env.RequiresConfirmation(envName)
-	return hub.Confirm(ctx, interaction.ConfirmRequest{
+	return effectiveHub(hub).Confirm(ctx, interaction.ConfirmRequest{
 		Env:       envName,
 		Tool:      tool,
 		Summary:   summary,

@@ -8,6 +8,7 @@ import (
 	"devkit/internal/apperrors"
 	"devkit/internal/cloudconfig"
 	"devkit/internal/environments"
+	"devkit/internal/interaction"
 	"devkit/internal/kafka"
 	"devkit/internal/syncclient"
 	"devkit/internal/vault"
@@ -52,6 +53,18 @@ func publicError(subject string, err error) *apperrors.AppError {
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return apperrors.New(codeOperationCancelled, "Operation cancelled.", true)
+	}
+	if errors.Is(err, interaction.ErrInteractionTimeout) {
+		return apperrors.New(codeOperationCancelled, "Operation cancelled.", true)
+	}
+	if errors.Is(err, interaction.ErrConfirmationDenied) {
+		return apperrors.New(codePermissionDenied, "Permission denied.", false)
+	}
+	if errors.Is(err, interaction.ErrSelectionRequired) {
+		return apperrors.New(codeValidationFailed, "Selection required.", true)
+	}
+	if errors.Is(err, interaction.ErrConfirmationRequired) {
+		return apperrors.New(codeValidationFailed, "Confirmation required.", true)
 	}
 	if errors.Is(err, vault.ErrLocked) {
 		return apperrors.New(codeVaultLocked, "Vault is locked or unavailable.", true)

@@ -4,8 +4,12 @@ import (
 	"context"
 
 	"devkit/internal/capabilities"
+	"devkit/internal/database"
 	"devkit/internal/environments"
+	"devkit/internal/interaction"
+	"devkit/internal/kafka"
 	"devkit/internal/notes"
+	sshservice "devkit/internal/ssh"
 	"devkit/internal/tools"
 	"devkit/internal/vault"
 
@@ -55,14 +59,50 @@ type ToolsAPI interface {
 	Hash(request tools.HashRequest) (tools.HashResult, error)
 }
 
-// EnvAPI lists environment tags for MCP.
+// EnvAPI lists environment tags and reports MCP confirmation policy.
 type EnvAPI interface {
 	ListTags() ([]environments.Tag, error)
+	RequiresConfirmation(name string) bool
+}
+
+// SSHAPI is the SSH domain surface MCP tools invoke.
+type SSHAPI interface {
+	ListProfiles() ([]sshservice.ProfileSummary, error)
+	TestConnection(ctx context.Context, id, passphrase string) error
+	AgentActiveProfileID() string
+	SetAgentActiveProfile(id string) error
+	RunCommand(ctx context.Context, id, command, passphrase string) (sshservice.CommandResult, error)
+}
+
+// DatabaseAPI is the database domain surface MCP tools invoke.
+type DatabaseAPI interface {
+	ListProfiles() ([]database.ProfileSummary, error)
+	TestConnection(ctx context.Context, id string) error
+	AgentActiveProfileID() string
+	SetAgentActiveProfile(id string) error
+	Query(ctx context.Context, id, sql string) (database.QueryResult, error)
+}
+
+// KafkaAPI is the Kafka domain surface MCP tools invoke.
+type KafkaAPI interface {
+	ListProfiles() ([]kafka.ProfileSummary, error)
+	Status() kafka.ConnectionStatus
+	Connect(ctx context.Context, id string) error
+	ListTopics(ctx context.Context) ([]kafka.TopicInfo, error)
+	DescribeTopic(ctx context.Context, topic string) (kafka.TopicDetail, error)
+	PeekMessages(ctx context.Context, topic string, partition int32, limit int, offset int64) ([]kafka.Message, error)
+	ListConsumerGroups(ctx context.Context) ([]kafka.ConsumerGroupInfo, error)
+	PublishMessage(ctx context.Context, req kafka.PublishRequest) (kafka.PublishResult, error)
 }
 
 // VaultStatusResult is the structured output of vault.status.
 type VaultStatusResult struct {
 	State string `json:"state"`
+}
+
+// ActiveProfileResult is the sticky/live active profile for SSH, DB, or Kafka tools.
+type ActiveProfileResult struct {
+	ProfileID string `json:"profileId,omitempty"`
 }
 
 // Deps wires MCP tool handlers. Production composition is Task 8 / main.
@@ -73,7 +113,10 @@ type Deps struct {
 	Search SearchAPI
 	Tools  ToolsAPI
 	Envs   EnvAPI
-	// later: SSH, DB, Kafka, Hub
+	SSH    SSHAPI
+	DB     DatabaseAPI
+	Kafka  KafkaAPI
+	Hub    *interaction.Hub // optional nil → headless
 }
 
 // Server hosts the MCP tool registry for DevKit.
@@ -82,7 +125,7 @@ type Server struct {
 	mcp  *sdk.Server
 }
 
-// NewServer builds an MCP server and registers vault/notes/tools/env tools.
+// NewServer builds an MCP server and registers vault/notes/tools/env/ssh/db/kafka tools.
 func NewServer(d Deps) *Server {
 	s := &Server{deps: d}
 	ms := sdk.NewServer(&sdk.Implementation{Name: "devkit", Version: "0.1.0"}, nil)
@@ -91,6 +134,9 @@ func NewServer(d Deps) *Server {
 	s.registerNotes()
 	s.registerTools()
 	s.registerEnv()
+	s.registerSSH()
+	s.registerDatabase()
+	s.registerKafka()
 	return s
 }
 
@@ -98,3 +144,15 @@ func NewServer(d Deps) *Server {
 func (s *Server) MCP() *sdk.Server { return s.mcp }
 
 func boolPtr(v bool) *bool { return &v }
+
+func (s *Server) sshTarget() *sshTarget {
+	return &sshTarget{api: s.deps.SSH, hub: s.deps.Hub}
+}
+
+func (s *Server) databaseTarget() *databaseTarget {
+	return &databaseTarget{api: s.deps.DB, hub: s.deps.Hub}
+}
+
+func (s *Server) kafkaTarget() *kafkaTarget {
+	return &kafkaTarget{api: s.deps.Kafka, hub: s.deps.Hub}
+}
