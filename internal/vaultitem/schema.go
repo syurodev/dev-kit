@@ -13,6 +13,7 @@ const (
 	ItemTypeNote     = "note"
 	ItemTypeDatabase = "db-profile"
 	ItemTypeSSH      = "ssh-profile"
+	ItemTypeKafka    = "kafka-profile"
 )
 
 // ErrInvalidRecordSchema means a vault item does not satisfy the contract of
@@ -25,7 +26,7 @@ var ErrInvalidRecordSchema = errors.New("vault item schema is invalid")
 // snapshots and tombstones so arbitrary records cannot enter its ledgers.
 func IsSupportedItemType(itemType string) bool {
 	switch itemType {
-	case ItemTypeNote, ItemTypeDatabase, ItemTypeSSH:
+	case ItemTypeNote, ItemTypeDatabase, ItemTypeSSH, ItemTypeKafka:
 		return true
 	default:
 		return false
@@ -80,6 +81,34 @@ func ValidateRecordSchema(itemType string, metadata json.RawMessage, payload *cr
 			return ErrInvalidRecordSchema
 		}
 		expectedKeyID = "ssh-secret"
+
+	case ItemTypeKafka:
+		var value struct {
+			Name             string `json:"name"`
+			BootstrapServers string `json:"bootstrap_servers"`
+			SecurityProtocol string `json:"security_protocol"`
+			Env              string `json:"env"`
+			SASLMechanism    string `json:"sasl_mechanism"`
+			Username         string `json:"username"`
+		}
+		if decodeMetadataObject(metadata, &value) != nil || value.Name == "" || value.BootstrapServers == "" || value.Env == "" {
+			return ErrInvalidRecordSchema
+		}
+		switch value.SecurityProtocol {
+		case "PLAINTEXT", "SSL":
+		case "SASL_PLAINTEXT", "SASL_SSL":
+			switch value.SASLMechanism {
+			case "PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512":
+				if value.Username == "" {
+					return ErrInvalidRecordSchema
+				}
+			default:
+				return ErrInvalidRecordSchema
+			}
+		default:
+			return ErrInvalidRecordSchema
+		}
+		expectedKeyID = "kafka-secret"
 
 	default:
 		return ErrInvalidRecordSchema

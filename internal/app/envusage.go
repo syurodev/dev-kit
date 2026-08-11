@@ -9,7 +9,7 @@ import (
 // profileTypesWithEnv are vaultitem record types that store metadata.env and
 // must block Environments.DeleteTag while any profile still references the tag.
 // Kafka (design) adds its type here when implemented.
-var profileTypesWithEnv = []string{"ssh-profile", "db-profile"}
+var profileTypesWithEnv = []string{"ssh-profile", "db-profile", "kafka-profile"}
 
 type itemLister interface {
 	ListByType(itemType string) ([]vaultitem.Record, error)
