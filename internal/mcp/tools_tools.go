@@ -12,7 +12,10 @@ func (s *Server) registerTools() {
 	sdk.AddTool(s.mcp, &sdk.Tool{
 		Name:        "tools.hash",
 		Description: "Hash input with sha256, sha512, or md5",
-		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: false},
+		Annotations: &sdk.ToolAnnotations{
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(false),
+		},
 	}, s.toolToolsHash)
 }
 

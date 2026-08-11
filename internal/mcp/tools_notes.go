@@ -28,7 +28,10 @@ func (s *Server) registerNotes() {
 	sdk.AddTool(s.mcp, &sdk.Tool{
 		Name:        "notes.create",
 		Description: "Create a new encrypted note",
-		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: false},
+		Annotations: &sdk.ToolAnnotations{
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(false),
+		},
 	}, s.toolNotesCreate)
 
 	sdk.AddTool(s.mcp, &sdk.Tool{
