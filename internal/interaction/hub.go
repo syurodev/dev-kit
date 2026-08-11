@@ -74,7 +74,8 @@ type Hub struct {
 
 type pendingWait struct {
 	Pending
-	result chan string
+	result   chan string
+	finished bool
 }
 
 func NewHub(p Prompter) *Hub {
@@ -98,7 +99,7 @@ func (h *Hub) Pending() *Pending {
 func (h *Hub) Complete(id, value string) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.pending == nil {
+	if h.pending == nil || h.pending.finished {
 		return ErrNoPendingInteraction
 	}
 	if h.pending.ID != id {
@@ -106,9 +107,19 @@ func (h *Hub) Complete(id, value string) error {
 	}
 	select {
 	case h.pending.result <- value:
+		return nil
 	default:
+		return ErrNoPendingInteraction
 	}
-	return nil
+}
+
+func (h *Hub) invalidatePending(id string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.pending != nil && h.pending.ID == id {
+		h.pending.finished = true
+		h.pending = nil
+	}
 }
 
 func (h *Hub) SelectProfile(ctx context.Context, req SelectRequest) (string, error) {
@@ -194,8 +205,10 @@ func (h *Hub) wait(ctx context.Context, p Pending, mapResult func(string) (strin
 
 	select {
 	case <-ctx.Done():
+		h.invalidatePending(id)
 		return "", ctx.Err()
 	case <-timer.C:
+		h.invalidatePending(id)
 		return "", ErrInteractionTimeout
 	case v := <-resCh:
 		return mapResult(v)

@@ -57,6 +57,28 @@ func TestSelectTimeout(t *testing.T) {
 	}
 }
 
+func TestCompleteAfterTimeoutReturnsNoPending(t *testing.T) {
+	h := NewHub(NoopPrompter{})
+	h.Timeout = 50 * time.Millisecond
+
+	var selectErr error
+	done := make(chan struct{})
+	go func() {
+		_, selectErr = h.SelectProfile(context.Background(), SelectRequest{Kind: KindSSH})
+		done <- struct{}{}
+	}()
+
+	waitForPending(t, h)
+	pend := h.Pending()
+	<-done
+	if !errors.Is(selectErr, ErrInteractionTimeout) {
+		t.Fatalf("select err = %v, want ErrInteractionTimeout", selectErr)
+	}
+	if err := h.Complete(pend.ID, "late"); !errors.Is(err, ErrNoPendingInteraction) {
+		t.Fatalf("complete err = %v, want ErrNoPendingInteraction", err)
+	}
+}
+
 func TestSelectHeadlessNoPrompterImmediate(t *testing.T) {
 	h := NewHub(nil)
 	h.Headless = true
