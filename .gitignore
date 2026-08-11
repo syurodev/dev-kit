@@ -43,6 +43,7 @@ coverage.out
 
 .docs/superpowers/
 .superpowers/.worktrees/
+.worktrees/
 .superpowers/
 .claude/
 .agent/
