@@ -7,6 +7,7 @@ import (
 
 	"devkit/internal/apperrors"
 	"devkit/internal/cloudconfig"
+	"devkit/internal/environments"
 	"devkit/internal/syncclient"
 	"devkit/internal/vault"
 )
@@ -34,6 +35,8 @@ var safeValidationMessages = map[string]struct{}{
 	"target host is required":                 {},
 	"target host is invalid":                  {},
 	"target port must be between 1 and 65535": {},
+	"environment tag is in use":               {},
+	"environment tag is locked":               {},
 }
 
 func publicError(subject string, err error) *apperrors.AppError {
@@ -45,6 +48,12 @@ func publicError(subject string, err error) *apperrors.AppError {
 	}
 	if errors.Is(err, vault.ErrLocked) {
 		return apperrors.New(codeVaultLocked, "Vault is locked or unavailable.", true)
+	}
+	if errors.Is(err, environments.ErrTagInUse) {
+		return apperrors.New(codeValidationFailed, environments.ErrTagInUse.Error(), true)
+	}
+	if errors.Is(err, environments.ErrTagLocked) {
+		return apperrors.New(codeValidationFailed, "environment tag is locked", true)
 	}
 	// Authorization failures are classified before subject-specific adapters so
 	// adding a new module cannot accidentally hide a denied capability as a

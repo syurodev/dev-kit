@@ -119,7 +119,7 @@ func NewContainerWithStores(
 	vaultService := vault.NewService(keyringStore)
 	auditSink := audit.NewMemorySink()
 	itemStore := vaultitem.NewStore(itemRepo, vaultService)
-	envService := environments.NewService(envRepo)
+	envService := environments.NewService(envRepo, newVaultItemEnvUsage(itemStore))
 
 	return &Container{
 		Commands:     commands.NewRegistry(),

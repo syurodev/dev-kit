@@ -1,9 +1,12 @@
 package environments
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func TestNewMemoryRepositorySeedsBuiltinTags(t *testing.T) {
-	svc := NewService(NewMemoryRepository())
+	svc := NewService(NewMemoryRepository(), nil)
 
 	tags, err := svc.ListTags()
 	if err != nil {
@@ -28,7 +31,7 @@ func TestNewMemoryRepositorySeedsBuiltinTags(t *testing.T) {
 }
 
 func TestServiceExists(t *testing.T) {
-	svc := NewService(NewMemoryRepository())
+	svc := NewService(NewMemoryRepository(), nil)
 
 	if !svc.Exists("dev") {
 		t.Fatal("Exists(dev) = false, want true")
@@ -39,7 +42,7 @@ func TestServiceExists(t *testing.T) {
 }
 
 func TestCreateTagRejectsEmptyAndDuplicateName(t *testing.T) {
-	svc := NewService(NewMemoryRepository())
+	svc := NewService(NewMemoryRepository(), nil)
 
 	if _, err := svc.CreateTag("", false); err == nil {
 		t.Fatal("CreateTag(\"\") error = nil, want error")
@@ -56,7 +59,7 @@ func TestCreateTagRejectsEmptyAndDuplicateName(t *testing.T) {
 }
 
 func TestCreateTagProducesUnlockedNonBuiltinTag(t *testing.T) {
-	svc := NewService(NewMemoryRepository())
+	svc := NewService(NewMemoryRepository(), nil)
 
 	tag, err := svc.CreateTag("qa", true)
 	if err != nil {
@@ -74,7 +77,7 @@ func TestCreateTagProducesUnlockedNonBuiltinTag(t *testing.T) {
 }
 
 func TestUpdateTagRejectsLockedProd(t *testing.T) {
-	svc := NewService(NewMemoryRepository())
+	svc := NewService(NewMemoryRepository(), nil)
 	tags, err := svc.ListTags()
 	if err != nil {
 		t.Fatalf("ListTags: %v", err)
@@ -95,7 +98,7 @@ func TestUpdateTagRejectsLockedProd(t *testing.T) {
 }
 
 func TestUpdateTagAllowsUnlockedDev(t *testing.T) {
-	svc := NewService(NewMemoryRepository())
+	svc := NewService(NewMemoryRepository(), nil)
 	tags, err := svc.ListTags()
 	if err != nil {
 		t.Fatalf("ListTags: %v", err)
@@ -117,7 +120,7 @@ func TestUpdateTagAllowsUnlockedDev(t *testing.T) {
 }
 
 func TestDeleteTagRejectsBuiltinAndLocked(t *testing.T) {
-	svc := NewService(NewMemoryRepository())
+	svc := NewService(NewMemoryRepository(), nil)
 	tags, err := svc.ListTags()
 	if err != nil {
 		t.Fatalf("ListTags: %v", err)
@@ -130,7 +133,7 @@ func TestDeleteTagRejectsBuiltinAndLocked(t *testing.T) {
 }
 
 func TestDeleteTagAllowsCustomTag(t *testing.T) {
-	svc := NewService(NewMemoryRepository())
+	svc := NewService(NewMemoryRepository(), nil)
 	tag, err := svc.CreateTag("qa", false)
 	if err != nil {
 		t.Fatalf("CreateTag: %v", err)
@@ -140,5 +143,34 @@ func TestDeleteTagAllowsCustomTag(t *testing.T) {
 	}
 	if svc.Exists("qa") {
 		t.Fatal("Exists(qa) = true after DeleteTag")
+	}
+}
+
+type stubUsage map[string]bool
+
+func (s stubUsage) EnvInUse(name string) (bool, error) { return s[name], nil }
+
+func TestDeleteTagRejectsTagInUse(t *testing.T) {
+	svc := NewService(NewMemoryRepository(), stubUsage{"qa": true})
+	tag, err := svc.CreateTag("qa", false)
+	if err != nil {
+		t.Fatalf("CreateTag: %v", err)
+	}
+	if err := svc.DeleteTag(tag.ID); !errors.Is(err, ErrTagInUse) {
+		t.Fatalf("DeleteTag(qa in use) error = %v, want ErrTagInUse", err)
+	}
+	if !svc.Exists("qa") {
+		t.Fatal("Exists(qa) = false after rejected DeleteTag; tag must remain")
+	}
+}
+
+func TestDeleteTagAllowsUnusedCustomTagWithUsageChecker(t *testing.T) {
+	svc := NewService(NewMemoryRepository(), stubUsage{})
+	tag, err := svc.CreateTag("qa", false)
+	if err != nil {
+		t.Fatalf("CreateTag: %v", err)
+	}
+	if err := svc.DeleteTag(tag.ID); err != nil {
+		t.Fatalf("DeleteTag(unused qa): %v", err)
 	}
 }

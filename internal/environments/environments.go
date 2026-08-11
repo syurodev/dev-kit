@@ -20,7 +20,17 @@ var (
 	// ErrTagLocked is returned when a locked (prod) or builtin tag is
 	// updated/deleted through a path that must never succeed.
 	ErrTagLocked = errors.New("environment tag is locked")
+	// ErrTagInUse is returned when DeleteTag would leave ssh/database (or
+	// future) profiles pointing at a removed env name.
+	ErrTagInUse = errors.New("environment tag is in use")
 )
+
+// ProfileEnvUsage reports whether any connection profile still references an
+// env tag name. Declared here (consumer) so environments never imports
+// ssh/database — app wires a vaultitem-backed checker at the composition root.
+type ProfileEnvUsage interface {
+	EnvInUse(name string) (bool, error)
+}
 
 // Tag is one entry in the env tag registry.
 type Tag struct {
@@ -47,11 +57,15 @@ type Repository interface {
 
 // Service applies tag policy (locked/builtin rules) on top of a Repository.
 type Service struct {
-	repo Repository
+	repo  Repository
+	usage ProfileEnvUsage
 }
 
-func NewService(repo Repository) *Service {
-	return &Service{repo: repo}
+// NewService wires the registry. usage may be nil in unit tests that do not
+// exercise delete-in-use; production must pass a ProfileEnvUsage covering every
+// profile type that stores metadata.env.
+func NewService(repo Repository, usage ProfileEnvUsage) *Service {
+	return &Service{repo: repo, usage: usage}
 }
 
 // ListTags returns every tag, builtin and custom.
@@ -98,18 +112,12 @@ func (s *Service) UpdateTag(id string, requiresConfirmation bool) (Tag, error) {
 }
 
 // DeleteTag removes a custom tag. Builtin tags (dev/stg/prod) are never
-// deletable, and locked tags (prod) are rejected the same way.
+// deletable, and locked tags (prod) are rejected the same way. Custom tags
+// still referenced by any profile (via ProfileEnvUsage) return ErrTagInUse.
 //
-// ponytail: no "tag in use by a profile" guard. internal/ssh and
-// internal/database validate EnvLookup.Exists() only at profile creation
-// time — deleting a tag afterward leaves any referencing profile with a
-// dangling env name, and nothing here re-validates it. There is currently no
-// reader of RequiresConfirmation anywhere in this codebase, so this is not
-// yet a live policy gap, but it means whoever wires the future MCP
-// confirmation gate MUST treat an unresolvable env name as
-// RequiresConfirmation=true (fail closed) at read time — do not assume this
-// package guarantees that. Add a cross-service in-use check on delete when
-// that gate exists and the UX cost of a blocked delete matters.
+// MCP confirmation readers must still treat an unresolvable env name as
+// RequiresConfirmation=true (fail closed) — this guard only blocks new
+// dangling references created by delete.
 func (s *Service) DeleteTag(id string) error {
 	tag, err := s.repo.GetByID(id)
 	if err != nil {
@@ -117,6 +125,15 @@ func (s *Service) DeleteTag(id string) error {
 	}
 	if tag.Locked || tag.IsBuiltin {
 		return ErrTagLocked
+	}
+	if s.usage != nil {
+		inUse, err := s.usage.EnvInUse(tag.Name)
+		if err != nil {
+			return err
+		}
+		if inUse {
+			return ErrTagInUse
+		}
 	}
 	return s.repo.Delete(id)
 }
