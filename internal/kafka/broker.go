@@ -75,9 +75,10 @@ type ConsumerGroupInfo struct {
 
 // PublishRequest is a produce request.
 type PublishRequest struct {
-	Topic string `json:"topic"`
-	Key   string `json:"key,omitempty"`
-	Value string `json:"value"`
+	Topic     string `json:"topic"`
+	Key       string `json:"key,omitempty"`
+	Value     string `json:"value"`
+	Partition *int32 `json:"partition,omitempty"`
 }
 
 // PublishResult is the broker acknowledgement for a produce.

@@ -267,6 +267,9 @@ func (c *franzClient) Publish(ctx context.Context, req PublishRequest) (PublishR
 		Key:   []byte(req.Key),
 		Value: []byte(req.Value),
 	}
+	if req.Partition != nil {
+		rec.Partition = *req.Partition
+	}
 	res := c.cl.ProduceSync(ctx, rec)
 	if err := res.FirstErr(); err != nil {
 		return PublishResult{}, err

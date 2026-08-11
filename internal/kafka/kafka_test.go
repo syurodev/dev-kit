@@ -59,7 +59,11 @@ func (f *fakeBroker) ListConsumerGroups(ctx context.Context) ([]ConsumerGroupInf
 }
 func (f *fakeBroker) Publish(ctx context.Context, req PublishRequest) (PublishResult, error) {
 	f.lastPublish = req
-	return PublishResult{Partition: 0, Offset: 1}, nil
+	partition := int32(0)
+	if req.Partition != nil {
+		partition = *req.Partition
+	}
+	return PublishResult{Partition: partition, Offset: 1}, nil
 }
 
 func createPlaintextProfile(t *testing.T, svc *Service, name, bootstrap string) ProfileSummary {

@@ -64,6 +64,7 @@ export interface PublishRequest {
     "topic": string;
     "key"?: string;
     "value": string;
+    "partition"?: number;
 }
 
 /**

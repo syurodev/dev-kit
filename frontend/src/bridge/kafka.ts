@@ -220,6 +220,7 @@ export function publishKafkaMessage(input: PublishInput): Promise<PublishOutcome
       topic: input.topic,
       key: input.key,
       value: input.value,
+      ...(typeof input.partition === "number" ? { partition: input.partition } : {}),
     });
     return toPublishOutcome(result);
   });
