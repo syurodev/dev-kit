@@ -54,8 +54,9 @@ type PartitionInfo struct {
 
 // TopicDetail is metadata for a single topic.
 type TopicDetail struct {
-	Name       string          `json:"name"`
-	Partitions []PartitionInfo `json:"partitions"`
+	Name              string          `json:"name"`
+	ReplicationFactor int32           `json:"replication_factor"`
+	Partitions        []PartitionInfo `json:"partitions"`
 }
 
 // Message is a consumed record (peek / browse).
@@ -69,6 +70,7 @@ type Message struct {
 // ConsumerGroupInfo is a consumer group listing entry.
 type ConsumerGroupInfo struct {
 	GroupID string `json:"group_id"`
+	Lag     int64  `json:"lag,omitempty"`
 }
 
 // PublishRequest is a produce request.
@@ -82,4 +84,5 @@ type PublishRequest struct {
 type PublishResult struct {
 	Partition int32 `json:"partition"`
 	Offset    int64 `json:"offset"`
+	Timestamp int64 `json:"timestamp,omitempty"`
 }

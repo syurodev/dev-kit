@@ -73,6 +73,9 @@ type Service struct {
 }
 
 func NewService(store Store, envs EnvLookup, dial DialFunc) *Service {
+	if dial == nil {
+		dial = DialFranz
+	}
 	return &Service{store: store, envs: envs, dial: dial}
 }
 
