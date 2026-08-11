@@ -77,7 +77,8 @@ tasks:
       SCOPE: '{{.SCOPE | default "global"}}'
       PROJECT: '{{.PROJECT | default "."}}'
     cmds:
-      - go run ./cmd/devkit-mcp -- install --agent {{.AGENT}} --scope {{.SCOPE}} --project {{.PROJECT}}
+      - go build -o bin/devkit-mcp ./cmd/devkit-mcp
+      - ./bin/devkit-mcp install --agent {{.AGENT}} --scope {{.SCOPE}} --project {{.PROJECT}}
 
   mcp:uninstall:
     desc: "Uninstall DevKit MCP from an agent (AGENT=claude-code|codex SCOPE=global|project PROJECT=.)"
@@ -86,4 +87,5 @@ tasks:
       SCOPE: '{{.SCOPE | default "global"}}'
       PROJECT: '{{.PROJECT | default "."}}'
     cmds:
-      - go run ./cmd/devkit-mcp -- uninstall --agent {{.AGENT}} --scope {{.SCOPE}} --project {{.PROJECT}}
+      - go build -o bin/devkit-mcp ./cmd/devkit-mcp
+      - ./bin/devkit-mcp uninstall --agent {{.AGENT}} --scope {{.SCOPE}} --project {{.PROJECT}}

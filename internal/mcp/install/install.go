@@ -35,6 +35,7 @@ var (
 	ErrCommandRequired     = errors.New("command path is required")
 	ErrCommandNotAbsolute  = errors.New("command path must be absolute")
 	ErrProxyNotFound       = errors.New("devkit-mcp not found; build or install the proxy first")
+	ErrEphemeralCommand    = errors.New("devkit-mcp path is ephemeral (go run / temp); build bin/devkit-mcp (e.g. task mcp:install) or pass --command /absolute/path")
 )
 
 func ListAgents() []Agent {
@@ -42,14 +43,21 @@ func ListAgents() []Agent {
 }
 
 // ResolveCommand finds an absolute path to the devkit-mcp proxy binary.
-// Prefer PATH (LookPath), then a sibling of the current executable.
+// Prefer PATH (LookPath), then bin/devkit-mcp under cwd, then next to a non-temp executable.
 func ResolveCommand() (string, error) {
 	if p, err := exec.LookPath("devkit-mcp"); err == nil {
-		abs, err := filepath.Abs(p)
-		if err != nil {
+		if abs, err := absCommandPath(p); err != nil {
 			return "", err
+		} else if abs != "" {
+			return abs, nil
 		}
-		return abs, nil
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		if abs, err := resolveBuiltBinary(filepath.Join(cwd, "bin", "devkit-mcp")); err != nil {
+			return "", err
+		} else if abs != "" {
+			return abs, nil
+		}
 	}
 	exe, err := os.Executable()
 	if err != nil {
@@ -59,15 +67,70 @@ func ResolveCommand() (string, error) {
 	if err != nil {
 		exe, _ = os.Executable()
 	}
+	if isEphemeralPath(exe) {
+		return "", ErrProxyNotFound
+	}
+	if abs, err := resolveBuiltBinary(filepath.Join(filepath.Dir(exe), "bin", "devkit-mcp")); err != nil {
+		return "", err
+	} else if abs != "" {
+		return abs, nil
+	}
 	candidate := filepath.Join(filepath.Dir(exe), "devkit-mcp")
-	if st, err := os.Stat(candidate); err == nil && !st.IsDir() {
-		abs, err := filepath.Abs(candidate)
-		if err != nil {
-			return "", err
-		}
+	if abs, err := resolveBuiltBinary(candidate); err != nil {
+		return "", err
+	} else if abs != "" {
 		return abs, nil
 	}
 	return "", ErrProxyNotFound
+}
+
+func absCommandPath(path string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	if err := rejectEphemeralCommandPath(abs); err != nil {
+		return "", nil
+	}
+	return abs, nil
+}
+
+func resolveBuiltBinary(path string) (string, error) {
+	st, err := os.Stat(path)
+	if err != nil || st.IsDir() {
+		return "", nil
+	}
+	return absCommandPath(path)
+}
+
+func isEphemeralPath(path string) bool {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		abs = path
+	}
+	if strings.Contains(abs, "go-build") {
+		return true
+	}
+	tmp := os.TempDir()
+	if tmp == "" {
+		return false
+	}
+	tmpAbs, err := filepath.Abs(tmp)
+	if err != nil {
+		tmpAbs = tmp
+	}
+	rel, err := filepath.Rel(tmpAbs, abs)
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
+}
+
+func rejectEphemeralCommandPath(abs string) error {
+	if isEphemeralPath(abs) {
+		return ErrEphemeralCommand
+	}
+	return nil
 }
 
 // ConfigPath returns the agent config file path for the request (without writing).
@@ -137,6 +200,9 @@ func validateInstall(req InstallRequest) error {
 	}
 	if !filepath.IsAbs(req.Command) {
 		return ErrCommandNotAbsolute
+	}
+	if err := rejectEphemeralCommandPath(req.Command); err != nil {
+		return err
 	}
 	if req.Scope == ScopeProject {
 		if err := requireProjectDir(req.ProjectPath); err != nil {

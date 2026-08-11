@@ -18,10 +18,23 @@ func TestListAgents(t *testing.T) {
 	}
 }
 
+func stableTestCommand(t *testing.T) string {
+	dir := filepath.Join("/workspace", ".mcp-install-test", strings.ReplaceAll(t.Name(), "/", "_"))
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cmd := filepath.Join(dir, "devkit-mcp")
+	if err := os.WriteFile(cmd, []byte{0}, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	return cmd
+}
+
 func TestClaudeInstallGlobalIdempotent(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	cmd := filepath.Join(home, "bin", "devkit-mcp")
+	cmd := stableTestCommand(t)
 	req := InstallRequest{Agent: AgentClaudeCode, Scope: ScopeGlobal, Command: cmd}
 
 	if err := Install(req); err != nil {
@@ -79,7 +92,7 @@ func TestClaudeInstallProject(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	project := t.TempDir()
-	cmd := filepath.Join(home, "bin", "devkit-mcp")
+	cmd := stableTestCommand(t)
 	req := InstallRequest{
 		Agent:       AgentClaudeCode,
 		Scope:       ScopeProject,
@@ -108,7 +121,7 @@ func TestClaudeInstallProject(t *testing.T) {
 func TestCodexInstallGlobalAndProject(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	cmd := filepath.Join(home, "bin", "devkit-mcp")
+	cmd := stableTestCommand(t)
 
 	globalReq := InstallRequest{Agent: AgentCodex, Scope: ScopeGlobal, Command: cmd}
 	if err := Install(globalReq); err != nil {
@@ -158,7 +171,7 @@ func TestCodexInstallGlobalAndProject(t *testing.T) {
 func TestUninstallRemovesOnlyDevkit(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	cmd := filepath.Join(home, "bin", "devkit-mcp")
+	cmd := stableTestCommand(t)
 
 	claudePath := filepath.Join(home, ".claude.json")
 	seedClaude := map[string]any{
@@ -246,6 +259,25 @@ func TestInstallRequiresAbsoluteCommand(t *testing.T) {
 	err := Install(InstallRequest{Agent: AgentClaudeCode, Scope: ScopeGlobal, Command: "devkit-mcp"})
 	if !errors.Is(err, ErrCommandNotAbsolute) {
 		t.Fatalf("error = %v, want ErrCommandNotAbsolute", err)
+	}
+}
+
+func TestRejectEphemeralCommandPath(t *testing.T) {
+	ephemeral := filepath.Join(os.TempDir(), "go-build123456789", "exe", "devkit-mcp")
+	if err := rejectEphemeralCommandPath(ephemeral); !errors.Is(err, ErrEphemeralCommand) {
+		t.Fatalf("rejectEphemeralCommandPath() = %v, want ErrEphemeralCommand", err)
+	}
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	err := Install(InstallRequest{Agent: AgentClaudeCode, Scope: ScopeGlobal, Command: ephemeral})
+	if !errors.Is(err, ErrEphemeralCommand) {
+		t.Fatalf("Install() error = %v, want ErrEphemeralCommand", err)
+	}
+
+	stable := stableTestCommand(t)
+	if err := rejectEphemeralCommandPath(stable); err != nil {
+		t.Fatalf("stable path rejected: %v", err)
 	}
 }
 
