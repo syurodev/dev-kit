@@ -130,6 +130,9 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.sync", Capability: "sync:manage", Scope: "sync:resolve"},
 		{SubjectID: "builtin.interaction", Capability: "interaction:respond", Scope: "pending"},
 		{SubjectID: "builtin.interaction", Capability: "interaction:respond", Scope: "pending:complete"},
+		{SubjectID: "builtin.mcpinstall", Capability: "mcp:install", Scope: "agent:list"},
+		{SubjectID: "builtin.mcpinstall", Capability: "mcp:install", Scope: "agent:claude-code"},
+		{SubjectID: "builtin.mcpinstall", Capability: "mcp:install", Scope: "agent:codex"},
 	})
 
 	vaultService := vault.NewService(keyringStore)

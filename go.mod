@@ -7,6 +7,7 @@ toolchain go1.26.5
 require (
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/modelcontextprotocol/go-sdk v1.7.0
+	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/twmb/franz-go v1.21.5
 	github.com/twmb/franz-go/pkg/kadm v1.18.0
 	github.com/wailsapp/wails/v3 v3.0.0-alpha2.106

@@ -69,3 +69,21 @@ tasks:
     desc: Stdio MCP proxy (requires running DevKit desktop with vault unlocked)
     cmds:
       - go run ./cmd/devkit-mcp
+
+  mcp:install:
+    desc: "Install DevKit MCP into an agent (AGENT=claude-code|codex SCOPE=global|project PROJECT=.)"
+    vars:
+      AGENT: '{{.AGENT | default "claude-code"}}'
+      SCOPE: '{{.SCOPE | default "global"}}'
+      PROJECT: '{{.PROJECT | default "."}}'
+    cmds:
+      - go run ./cmd/devkit-mcp -- install --agent {{.AGENT}} --scope {{.SCOPE}} --project {{.PROJECT}}
+
+  mcp:uninstall:
+    desc: "Uninstall DevKit MCP from an agent (AGENT=claude-code|codex SCOPE=global|project PROJECT=.)"
+    vars:
+      AGENT: '{{.AGENT | default "claude-code"}}'
+      SCOPE: '{{.SCOPE | default "global"}}'
+      PROJECT: '{{.PROJECT | default "."}}'
+    cmds:
+      - go run ./cmd/devkit-mcp -- uninstall --agent {{.AGENT}} --scope {{.SCOPE}} --project {{.PROJECT}}

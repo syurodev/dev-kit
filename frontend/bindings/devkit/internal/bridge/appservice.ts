@@ -7,10 +7,16 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as capabilities$0 from "../capabilities/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as database$0 from "../database/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as environments$0 from "../environments/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as interaction$0 from "../interaction/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as kafka$0 from "../kafka/models.js";
@@ -39,6 +45,14 @@ export function AuthLogout(): $CancellablePromise<void> {
 
 export function AuthStatus(): $CancellablePromise<$models.AuthStatusDTO> {
     return $Call.ByID(1688778362);
+}
+
+/**
+ * Call runs a capability-gated handler and maps errors through publicError.
+ * Bridge UI methods and MCP tool handlers must both use this entrypoint.
+ */
+export function Call(subject: string, capability: string, scope: string, metadata: { [_ in string]?: any } | null, handler: capabilities$0.Handler): $CancellablePromise<any> {
+    return $Call.ByID(1812104438, subject, capability, scope, metadata, handler);
 }
 
 export function DBActiveProfile(): $CancellablePromise<$models.ActiveProfileDTO> {
@@ -110,7 +124,7 @@ export function InteractionDeny(id: string): $CancellablePromise<void> {
  * nil when none is waiting. The frontend polls this while InteractionHost is
  * mounted.
  */
-export function InteractionPending(): $CancellablePromise<$models.InteractionPending | null> {
+export function InteractionPending(): $CancellablePromise<interaction$0.Pending | null> {
     return $Call.ByID(4067819829);
 }
 
@@ -168,6 +182,18 @@ export function ListModules(): $CancellablePromise<$models.ModuleDTO[] | null> {
 
 export function LockVault(): $CancellablePromise<void> {
     return $Call.ByID(4203038791);
+}
+
+export function McpInstall(agent: string, scope: string, projectPath: string): $CancellablePromise<string> {
+    return $Call.ByID(4083451541, agent, scope, projectPath);
+}
+
+export function McpListAgents(): $CancellablePromise<string[] | null> {
+    return $Call.ByID(2421300);
+}
+
+export function McpUninstall(agent: string, scope: string, projectPath: string): $CancellablePromise<string> {
+    return $Call.ByID(3773505192, agent, scope, projectPath);
 }
 
 export function NotesCreate(title: string, body: string): $CancellablePromise<notes$0.Summary> {

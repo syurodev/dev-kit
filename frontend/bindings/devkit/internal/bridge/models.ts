@@ -20,19 +20,6 @@ export interface AuthStatusDTO {
     "expires_at"?: time$0.Time;
 }
 
-/**
- * InteractionPending mirrors interaction.Pending for MCP selection / confirmation dialogs.
- */
-export interface InteractionPending {
-    "id": string;
-    "type": string;
-    "kind"?: string;
-    "env"?: string;
-    "tool"?: string;
-    "summary"?: string;
-    "allowAlwaysOffered": boolean;
-}
-
 export interface ExecuteCommandRequest {
     "id": string;
     "payload": { [_ in string]?: any } | null;

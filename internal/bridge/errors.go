@@ -10,6 +10,7 @@ import (
 	"devkit/internal/environments"
 	"devkit/internal/interaction"
 	"devkit/internal/kafka"
+	"devkit/internal/mcp/install"
 	"devkit/internal/syncclient"
 	"devkit/internal/vault"
 )
@@ -136,6 +137,18 @@ func publicError(subject string, err error) *apperrors.AppError {
 	}
 	if _, safe := safeValidationMessages[err.Error()]; safe {
 		return apperrors.New(codeValidationFailed, err.Error(), true)
+	}
+	if subject == "builtin.mcpinstall" {
+		switch {
+		case errors.Is(err, install.ErrUnknownAgent),
+			errors.Is(err, install.ErrUnknownScope),
+			errors.Is(err, install.ErrProjectPathRequired),
+			errors.Is(err, install.ErrProjectPathMissing),
+			errors.Is(err, install.ErrCommandRequired),
+			errors.Is(err, install.ErrCommandNotAbsolute),
+			errors.Is(err, install.ErrProxyNotFound):
+			return apperrors.New(codeValidationFailed, err.Error(), true)
+		}
 	}
 	if subject == "builtin.database" || subject == "builtin.ssh" || subject == "builtin.kafka" {
 		return apperrors.New(codeConnectionFailed, "Connection failed.", true)

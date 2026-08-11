@@ -7,6 +7,7 @@ import {
   type EnvTag,
 } from "../../bridge/environments";
 import { errorMessage } from "../../bridge/errors";
+import { McpInstallPanel } from "./McpInstallPanel";
 
 export function SettingsView() {
   const [tags, setTags] = useState<EnvTag[]>([]);
@@ -124,6 +125,8 @@ export function SettingsView() {
       </table>
 
       {error ? <p role="alert">{error}</p> : null}
+
+      <McpInstallPanel />
     </section>
   );
 }
