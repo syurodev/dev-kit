@@ -39,6 +39,30 @@ func TestRunnerStartUsesBackend(t *testing.T) {
 	}
 }
 
+func TestRunnerStartAppliesPolicyDefaults(t *testing.T) {
+	var saw Policy
+	fake := &fakeBackend{start: func(ctx context.Context, p Policy, c Cmd) (*Proc, error) {
+		saw = p
+		cmd := exec.CommandContext(ctx, "true")
+		if err := cmd.Start(); err != nil {
+			return nil, err
+		}
+		return NewProc(cmd), nil
+	}}
+	r := NewRunner(fake)
+	proc, err := r.Start(context.Background(), Policy{WorkDir: t.TempDir()}, Cmd{Path: "true"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Kill()
+	if saw.Network != NetworkNone {
+		t.Fatalf("network default = %q, want %q", saw.Network, NetworkNone)
+	}
+	if !saw.EffectivePrivateHome() {
+		t.Fatal("private home should default to true")
+	}
+}
+
 func TestRunnerInvalidPolicyFailsBeforeBackend(t *testing.T) {
 	called := false
 	fake := &fakeBackend{start: func(ctx context.Context, p Policy, c Cmd) (*Proc, error) {

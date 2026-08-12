@@ -1,18 +1,39 @@
 package sandbox
 
 import (
+	"bytes"
 	"io"
 	"os/exec"
 )
 
 // Proc wraps a started exec.Cmd.
 type Proc struct {
-	cmd *exec.Cmd
+	cmd       *exec.Cmd
+	stdoutBuf *bytes.Buffer
+	stderrBuf *bytes.Buffer
 }
 
 // NewProc returns a Proc for an already-started command.
 func NewProc(cmd *exec.Cmd) *Proc {
 	return &Proc{cmd: cmd}
+}
+
+// NewProcWithBuffers captures stdout and stderr on cmd for later inspection.
+func NewProcWithBuffers(cmd *exec.Cmd, stdout, stderr *bytes.Buffer) *Proc {
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	return &Proc{cmd: cmd, stdoutBuf: stdout, stderrBuf: stderr}
+}
+
+// Output returns copies of captured stdout and stderr, when buffers were set.
+func (p *Proc) Output() (stdout, stderr []byte) {
+	if p.stdoutBuf != nil {
+		stdout = append([]byte(nil), p.stdoutBuf.Bytes()...)
+	}
+	if p.stderrBuf != nil {
+		stderr = append([]byte(nil), p.stderrBuf.Bytes()...)
+	}
+	return stdout, stderr
 }
 
 func (p *Proc) Wait() error {

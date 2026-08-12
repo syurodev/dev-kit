@@ -27,7 +27,7 @@ type Policy struct {
 	DenyReadPaths           []string // added on top of defaults
 	Env                     map[string]string
 	Network                 NetworkMode // default none
-	PrivateHome             bool        // default true
+	PrivateHome             *bool       // nil defaults to true
 	DangerousAllowSensitive bool        // default false; test-only escape
 }
 
@@ -85,6 +85,11 @@ func (p Policy) EffectiveDenyRead() []string {
 		add(path)
 	}
 	return out
+}
+
+// EffectivePrivateHome reports whether the backend should hide the host home.
+func (p Policy) EffectivePrivateHome() bool {
+	return p.PrivateHome == nil || *p.PrivateHome
 }
 
 func (p Policy) withDefaults() Policy {
