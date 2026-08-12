@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"sync"
-	"time"
 )
 
 // ProcessConfig configures StartProcess.
@@ -14,13 +13,13 @@ import (
 // TEST ONLY: StartProcess must not be called from the agenthub Claude adapter.
 // Production agents are spawned via the sandbox runner; Hub cancel targets the
 // sandbox supervisor PID (bwrap --die-with-parent + --unshare-pid).
+//
+// Shutdown wait durations belong on ShutdownConfig, not here.
 type ProcessConfig struct {
-	Command    string
-	Args       []string
-	Env        []string
-	Dir        string
-	CancelWait time.Duration // optional; unused by StartProcess (see ShutdownConfig)
-	TermWait   time.Duration // optional; unused by StartProcess (see ShutdownConfig)
+	Command string
+	Args    []string
+	Env     []string
+	Dir     string
 }
 
 // Process is an unsandboxed subprocess wrapper for unit tests.
@@ -36,11 +35,15 @@ type Process struct {
 // StartProcess starts an unsandboxed child process.
 //
 // TEST ONLY. Must not be called from the agenthub Claude adapter.
+// Uses exec.Command (not CommandContext) so Shutdown owns teardown.
 func StartProcess(ctx context.Context, cfg ProcessConfig) (*Process, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if cfg.Command == "" {
 		return nil, fmt.Errorf("acp: StartProcess requires Command")
 	}
-	cmd := exec.CommandContext(ctx, cfg.Command, cfg.Args...)
+	cmd := exec.Command(cfg.Command, cfg.Args...)
 	if len(cfg.Env) > 0 {
 		cmd.Env = cfg.Env
 	}

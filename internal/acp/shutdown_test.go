@@ -10,11 +10,10 @@ import (
 
 func TestShutdownLadderKillsStubbornChild(t *testing.T) {
 	ctx := context.Background()
+	// Ignore SIGTERM so the Kill rung of the ladder is exercised.
 	p, err := acp.StartProcess(ctx, acp.ProcessConfig{ // test-only helper
-		Command:    "sleep",
-		Args:       []string{"30"},
-		CancelWait: 50 * time.Millisecond,
-		TermWait:   50 * time.Millisecond,
+		Command: "sh",
+		Args:    []string{"-c", `trap "" TERM; sleep 30`},
 	})
 	if err != nil {
 		t.Fatal(err)
