@@ -59,6 +59,15 @@ func RegisterBuiltins(container *Container) error {
 			Capabilities: []string{"kafka:connect", "kafka:produce"},
 		},
 		{
+			ID:           "agenthub",
+			Title:        "Agent Hub",
+			Version:      "1.0.0",
+			APIVersion:   modules.CurrentAPIVersion,
+			Commands:     []string{"agenthub.create", "agenthub.invoke", "agenthub.cancel"},
+			Views:        []string{"agenthub.sessions"},
+			Capabilities: []string{"agenthub:read", "agenthub:execute"},
+		},
+		{
 			ID:           "sync",
 			Title:        "Sync",
 			Version:      "1.0.0",

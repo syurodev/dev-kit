@@ -118,6 +118,11 @@ func (s *Service) ListSessions(ctx context.Context) ([]AgentSession, error) {
 	return s.store.ListSessions(ctx)
 }
 
+// ListVendorTypes returns registered adapter types in stable order.
+func (s *Service) ListVendorTypes() []AgentType {
+	return s.reg.Types()
+}
+
 // GetStatus returns the persisted session record by id.
 func (s *Service) GetStatus(ctx context.Context, id string) (AgentSession, error) {
 	return s.store.GetSession(ctx, id)

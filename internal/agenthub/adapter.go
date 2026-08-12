@@ -3,6 +3,7 @@ package agenthub
 import (
 	"context"
 	"encoding/json"
+	"sort"
 	"sync"
 )
 
@@ -64,4 +65,16 @@ func (r *Registry) Get(t AgentType) (VendorAdapter, bool) {
 	defer r.mu.RUnlock()
 	a, ok := r.adapters[t]
 	return a, ok
+}
+
+// Types returns registered vendor types in stable sorted order.
+func (r *Registry) Types() []AgentType {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]AgentType, 0, len(r.adapters))
+	for t := range r.adapters {
+		out = append(out, t)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
 }

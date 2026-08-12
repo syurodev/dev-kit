@@ -53,7 +53,7 @@ func TestLayering(t *testing.T) {
 		// other way around.
 		pkg("vaultitem"): {
 			pkg("notes"), pkg("database"), pkg("ssh"), pkg("kafka"), pkg("tools"),
-			pkg("syncclient"), pkg("syncconflict"), pkg("bridge"), pkg("app"),
+			pkg("agenthub"), pkg("syncclient"), pkg("syncconflict"), pkg("bridge"), pkg("app"),
 		},
 		// environments is a shared registry substrate like vaultitem; ssh/database
 		// consume it through their own locally-declared EnvLookup interface, never
@@ -70,6 +70,11 @@ func TestLayering(t *testing.T) {
 		pkg("kafka"):    {pkg("environments"), pkg("mcp")},
 		// notes must not depend upward on the MCP host.
 		pkg("notes"): {pkg("mcp")},
+		// agenthub may use sandbox for vendor spawn, but must not reach host
+		// boundaries (mcp/bridge/app) or own the storage migration package.
+		pkg("agenthub"): {pkg("mcp"), pkg("bridge"), pkg("app"), pkg("storage")},
+		// acp is a leaf transport: no hub/sandbox/host imports (adapters own sandbox).
+		pkg("acp"): {pkg("agenthub"), pkg("sandbox"), pkg("mcp"), pkg("bridge"), pkg("app")},
 		// mcp is an alternate host boundary: capability-gated tools only, never
 		// storage/crypto/sync, and never bridge/app (Caller is defined locally).
 		pkg("mcp"): {pkg("storage"), pkg("syncstore"), pkg("sync"), pkg("crypto"), pkg("app"), pkg("bridge")},

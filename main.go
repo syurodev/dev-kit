@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"devkit/internal/agenthub"
 	"devkit/internal/app"
 	"devkit/internal/auth"
 	"devkit/internal/bridge"
@@ -159,6 +160,16 @@ func main() {
 		Accounts:  remoteStore,
 		Items:     container.Items,
 	})
+	// Agent Hub: SQLite session/turn store + mock/claude adapters. Compose here
+	// so agenthub never imports internal/storage (migrations stay in storage).
+	agentReg := agenthub.NewRegistry()
+	agentReg.Register(agenthub.NewMockAdapter())
+	agentReg.Register(agenthub.NewClaudeAdapter(agenthub.ClaudeOptions{AllowNpx: true}))
+	agentWaiter := agenthub.NewPermissionWaiter(nil)
+	agentSvc := agenthub.NewService(agentReg, agenthub.NewSQLStore(db), nil)
+	agentSvc.ResolvePermission = agentWaiter.Resolve
+	container.AgentHub = agentSvc
+	container.AgentHubPermissions = agentWaiter
 	defer container.Database.Close()
 	defer container.SSH.Close()
 	defer container.Kafka.Close()
