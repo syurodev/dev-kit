@@ -80,6 +80,23 @@ as production-verified against a real Claude Code session in cloud CI.
   (no hang). Non-gated tools (e.g. `vault.status`, notes when unlocked in-process) can
   still work when the host is up.
 
+### Agent sandbox (`internal/sandbox`)
+**Implemented** leaf package for OS-isolated subprocesses (prerequisite for Agent Hub
+vendor spawn). Linux: **bubblewrap** (`apt install bubblewrap`). macOS: Seatbelt /
+`sandbox-exec`. Landlock helper exists but is **not** wired into `BwrapBackend.Start`.
+
+```bash
+go test ./internal/sandbox/ ./internal/arch/ -count=1
+# meaningful smoke when bwrap is installed:
+go test ./internal/sandbox/ -run 'TestSmokeAgentShapedProcess|TestBwrapCanWriteWorkDirUnderHome' -v
+```
+
+- Entry: `sandbox.DefaultRunner().Start(ctx, Policy{WorkDir: absPath, Network: NetworkNone, Env: ...}, Cmd{Path, Args})`.
+- Fail closed if `bwrap` missing / unsupported GOOS (`ErrUnavailable` / `ErrUnsupportedPlatform`).
+- Private home default: tmpfs on home + forced `HOME`/`TMPDIR`; WorkDir under `$HOME` is re-bound after tmpfs.
+- Default denies host `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.config/gcloud`; symlink binds into deny → `ErrInvalidPolicy`.
+- Product docs: `syurodev/base` → `/dev-kit/sandbox` (ADR-009).
+
 ### Notes / gotchas
 - Sync login: production uses `internal/cloudconfig` (pinned `GET /v1/desktop/config`, disk cache, refresh on reconnect). Set `DEVKIT_OIDC_*` to override remote/cache for local dev. Omit all OIDC env + stay offline with no cache for local-only vault/modules.
 - Storage is a single SQLite file (`modernc.org/sqlite`, no cgo) opened with
