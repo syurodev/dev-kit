@@ -109,26 +109,30 @@ E2B, Daytona, Sprites — remote VMs via API. Useful later for “run agent in c
 
 ## Recommendation (for when Hub resumes)
 
+### ✅ Decision locked (2026-08-12)
+
+Product owner accepted **Option 1 — thin Go `internal/sandbox` + OS primitives**:
+
+| Layer | Choice |
+|---|---|
+| Package | `internal/sandbox` (leaf; Agent Hub / ACP adapters call it; no bridge/mcp imports) |
+| API | `Runner.Start(ctx, Policy, Cmd) (*Proc, error)` — policy allowlist, scrubbed env |
+| Linux | **bubblewrap** required; **Landlock** best-effort second layer when kernel supports |
+| macOS | **Seatbelt** profiles via `sandbox-exec` |
+| Network v1 | `NetworkNone` or `NetworkHost` (boolean); domain-allowlist HTTP proxy = v1.1 |
+| Windows | Out of scope v1 (fail with clear `ErrUnsupportedPlatform`) |
+| Not used as core | Firejail, gVisor, Firecracker, embedding `@anthropic-ai/sandbox-runtime` TS |
+| Inspiration only | srt / nono / fence / ai-jail policy shapes |
+
+Implementation plan: `docs/superpowers/plans/2026-08-12-agent-sandbox.md`.  
+ADR: base `architecture-decisions.mdx` → **ADR-009**.
+
 ### Must have before implementing Agent Hub
 
 1. **Sandbox is a hard dependency for non-mock vendors** — mock adapter may run in-process without jail; `claude`/future vendors **must** spawn via sandbox backend (fail closed if backend missing, unless explicit “unsafe unsandboxed” opt-in behind scary UI).
-2. **Define `internal/sandbox` (or `internal/agenthub/sandbox`) first** — separate small plan/spike **before** ACP Hub tasks:
-   - Interface: `Run(ctx, Policy, cmd, args) (Process, error)`
-   - Policy: `WorkDir` RW, `ReadPaths`, `DenyPaths` (ssh, aws, other projects), `EnvAllow`, `Network` (`none` | `allowlist`)
-   - Backends: Linux `bwrap`(+ optional Landlock), macOS Seatbelt profile
+2. **Ship `internal/sandbox` first** (plan above) before ACP Hub tasks.
 3. **Do not** make Firejail / gVisor / Firecracker the v1 path.
 4. **Gateway permission UI remains** — sandbox ≠ product consent; keep fail-closed ACP permissions for mediated tools; sandbox covers agent-native bash/fs.
-
-### Suggested default stack
-
-| Priority | Choice | Why |
-|---|---|---|
-| Policy model | Allowlist paths + scrubbed env + optional egress proxy | Matches srt/nono/fence; matches threat model |
-| Linux | **bubblewrap** (+ Landlock when available) | Proven, rootless, embeddable, Flatpak-grade |
-| macOS | **Seatbelt via `sandbox-exec`** (generate profiles like srt) | Only practical native option today |
-| Inspiration / spike | Run **srt** and **ai-jail** against `claude-agent-acp` for 1–2 days | Steal policy shape; measure breakage (npm, git, gh) |
-| Avoid as core dep | TypeScript `srt` inside Go module path | Keep as external binary or reimplement thin Go wrapper |
-| Later upgrade | Podman/yolobox-style “strong workspace” profile | Power users / untrusted repos |
 
 ### Explicit non-goals for sandbox v1
 
