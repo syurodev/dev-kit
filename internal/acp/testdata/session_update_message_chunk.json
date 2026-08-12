@@ -1,0 +1,10 @@
+{
+  "sessionId": "sess_abc123",
+  "update": {
+    "sessionUpdate": "agent_message_chunk",
+    "content": {
+      "type": "text",
+      "text": "Hello from ACP"
+    }
+  }
+}

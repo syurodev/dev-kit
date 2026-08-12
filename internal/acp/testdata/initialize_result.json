@@ -1,0 +1,15 @@
+{
+  "protocolVersion": 1,
+  "agentCapabilities": {
+    "loadSession": false,
+    "promptCapabilities": {
+      "image": false,
+      "audio": false,
+      "embeddedContext": false
+    }
+  },
+  "agentInfo": {
+    "name": "devkit-mock",
+    "version": "0.0.1"
+  }
+}
