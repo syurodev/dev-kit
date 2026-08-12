@@ -1,5 +1,9 @@
 import { useEffect } from "react";
-import { agentHubListAgents, onAgentHubPermission } from "../bridge/agenthub";
+import {
+  agentHubGetStatus,
+  agentHubListAgents,
+  onAgentHubPermission,
+} from "../bridge/agenthub";
 import { useAgentSessionsStore } from "../stores/agentSessions";
 
 /**
@@ -30,12 +34,22 @@ export function AgentSessionsSubscriber() {
   }, [setSessions]);
 
   useEffect(() => {
-    return onAgentHubPermission((pending) => {
+    return onAgentHubPermission(async (pending) => {
       const session = useAgentSessionsStore
         .getState()
         .sessions.find((s) => s.id === pending.sessionId);
       if (session) {
         upsertSession({ ...session, status: "awaiting_permission" });
+        return;
+      }
+      // Session isn't in the store yet — the initial list load is likely
+      // still in flight. Fetch it directly so the permission event isn't
+      // silently dropped.
+      try {
+        const fetched = await agentHubGetStatus(pending.sessionId);
+        upsertSession({ ...fetched, status: "awaiting_permission" });
+      } catch {
+        // Hub unavailable or session gone — nothing to show.
       }
     });
   }, [upsertSession]);
