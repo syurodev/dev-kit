@@ -133,9 +133,12 @@ export function AgentHubView() {
           ? cancelledPermissionOutcome()
           : selectedPermissionOutcome(optionId);
       await agentHubResolvePermission(pending.id, outcome);
-      const refreshed = await agentHubGetStatus(pending.sessionId);
-      upsertSession(refreshed);
       setPending(null);
+      try {
+        upsertSession(await agentHubGetStatus(pending.sessionId));
+      } catch (e) {
+        setError(errorMessage(e));
+      }
     } catch (e) {
       setError(errorMessage(e));
     } finally {
