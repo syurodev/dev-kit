@@ -22,14 +22,14 @@ export function DockItem({ item }: { item: DockEntry }) {
       onMouseEnter={() => item.panel && setPanelOpen(true)}
       onMouseLeave={() => item.panel && setPanelOpen(false)}
       className={cn(
-        "relative flex size-10 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors",
+        "relative flex size-8 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors",
         item.isActive
           ? "bg-accent text-foreground"
           : "hover:bg-accent/60 hover:text-foreground",
         item.unavailable && "pointer-events-none opacity-40",
       )}
     >
-      <item.icon className="size-4.5" />
+      <item.icon className="size-4" />
       {item.badge ? (
         <span
           className={cn(

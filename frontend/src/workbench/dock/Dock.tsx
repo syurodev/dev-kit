@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Bot,
   Database,
@@ -41,6 +41,27 @@ export function Dock({ modules, activeModuleId, onSelectModule }: DockProps) {
   const setActiveSessionId = useAgentSessionsStore((state) => state.setActiveSessionId);
   const contextItems = useDockStore((state) => state.contextItems);
   const [isHovered, setIsHovered] = useState(false);
+  const leaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (leaveTimeoutRef.current) {
+        clearTimeout(leaveTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  function handleHoverStart() {
+    if (leaveTimeoutRef.current) {
+      clearTimeout(leaveTimeoutRef.current);
+      leaveTimeoutRef.current = null;
+    }
+    setIsHovered(true);
+  }
+
+  function handleHoverEnd() {
+    leaveTimeoutRef.current = setTimeout(() => setIsHovered(false), 250);
+  }
 
   const baseItems: DockEntry[] = modules.map((module) => {
     const isAgentHub = module.id === "agenthub";
@@ -76,9 +97,9 @@ export function Dock({ modules, activeModuleId, onSelectModule }: DockProps) {
     <LazyMotion features={domAnimation}>
       <nav className="pointer-events-none fixed inset-x-0 bottom-6 z-50 flex justify-center">
         <m.div
-          onHoverStart={() => setIsHovered(true)}
-          onHoverEnd={() => setIsHovered(false)}
-          animate={{ scale: isHovered ? 1 : 0.75 }}
+          onHoverStart={handleHoverStart}
+          onHoverEnd={handleHoverEnd}
+          animate={{ scale: isHovered ? 1 : 0.55, y: isHovered ? 0 : 14 }}
           transition={{ type: "spring", stiffness: 300, damping: 30, mass: 0.8 }}
           className="pointer-events-auto flex items-center gap-1 rounded-2xl border border-white/10 bg-card/90 p-1.5 backdrop-blur-xl"
         >

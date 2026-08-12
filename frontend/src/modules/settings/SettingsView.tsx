@@ -8,8 +8,34 @@ import {
 } from "../../bridge/environments";
 import { errorMessage } from "../../bridge/errors";
 import { McpInstallPanel } from "./McpInstallPanel";
+import { SyncView } from "../sync/SyncView";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export function SettingsView() {
+  return (
+    <Tabs defaultValue="environments" className="gap-4">
+      <TabsList>
+        <TabsTrigger value="environments">Environments</TabsTrigger>
+        <TabsTrigger value="sync">Sync</TabsTrigger>
+      </TabsList>
+      <TabsContent value="environments">
+        <EnvironmentsPanel />
+      </TabsContent>
+      <TabsContent value="sync">
+        <SyncView />
+      </TabsContent>
+    </Tabs>
+  );
+}
+
+/**
+ * Sync's own module/manifest registration stays intact (backend still
+ * reports a "sync" module — removing the local registration would trip
+ * the metadata-parity check) — only the *navigation* is merged here. The
+ * Sync module's command surface (e.g. "Sync now" in the command palette)
+ * keeps working; its dock icon is what's gone.
+ */
+function EnvironmentsPanel() {
   const [tags, setTags] = useState<EnvTag[]>([]);
   const [newName, setNewName] = useState("");
   const [newRequiresConfirmation, setNewRequiresConfirmation] = useState(false);

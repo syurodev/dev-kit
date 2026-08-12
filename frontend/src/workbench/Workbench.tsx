@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Bot, Search, Settings as SettingsIcon } from "lucide-react";
 import { listModules, type ModuleDTO } from "../bridge/commands";
 import { Dock } from "./dock/Dock";
 import { AgentSessionsSubscriber } from "./AgentSessionsSubscriber";
@@ -21,6 +22,13 @@ import { settingsModule } from "../modules/settings/manifest";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Kbd } from "@/components/ui/kbd";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+
+// Settings absorbs Sync as a tab (SettingsView) — both stay registered
+// modules (backend still reports "sync", so removing its registration
+// would trip the metadata-parity check), they just don't get their own
+// dock icon anymore.
+const HEADER_ONLY_MODULE_IDS = new Set(["settings", "sync"]);
 
 registerModule(toolsModule);
 registerModule(notesModule);
@@ -97,6 +105,10 @@ export function Workbench() {
       })),
     [modules, unavailableModuleIds],
   );
+  const dockModules = useMemo(
+    () => activityModules.filter((module) => !HEADER_ONLY_MODULE_IDS.has(module.id)),
+    [activityModules],
+  );
   const activeModule =
     availableModules.find((module) => module.id === activeModuleId) ??
     availableModules[0];
@@ -111,29 +123,58 @@ export function Workbench() {
     // Only the content card below (bg-card) stays opaque.
     <div className="relative flex min-h-svh w-full flex-col bg-transparent">
       <AgentSessionsSubscriber />
-      {/* mt-[58px]: main.go sets Mac.InvisibleTitleBarHeight: 50 — that
-          reserves a draggable strip at the window top where the native
-          traffic-light buttons sit. The floating dock (no sidebar to carry
-          this concern anymore) has no such collision, so only the content
-          card needs the clearance; the extra 8px matches the mx/mb gap on
-          the other three sides. macOS-specific for now (Windows/Linux
-          titlebar chrome is a separate, deliberately deferred pass). */}
-      <div className="mx-2 mb-2 mt-[58px] flex flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card">
-        <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-4">
-          <strong className="text-sm font-semibold">
-            {activeModule?.title ?? "DevKit"}
-          </strong>
-          {metadataLoading ? (
-            <span role="status" className="text-xs text-muted-foreground">
-              Loading module metadata...
-            </span>
-          ) : null}
-          <div className="flex-1" />
-          <Button variant="outline" size="sm" onClick={() => setPaletteOpen(true)}>
-            Commands
-            <Kbd>⌘K</Kbd>
-          </Button>
-        </header>
+      {/* main.go sets Mac.InvisibleTitleBarHeight: 50 — a draggable strip at
+          the window top where the native traffic-light buttons sit. Rather
+          than reserving that as empty canvas above a bordered card (wasted
+          space), the header lives directly in this strip, on the canvas,
+          padded left to clear the traffic lights — matching how native
+          macOS toolbars combine both in one row. macOS-specific sizing for
+          now (Windows/Linux titlebar chrome is a separate, deferred pass). */}
+      <header className="flex h-[50px] shrink-0 items-center gap-2 pl-24 pr-4">
+        <div className="flex size-6 items-center justify-center rounded-md bg-primary text-primary-foreground">
+          <Bot className="size-3.5" />
+        </div>
+        <strong className="text-sm font-semibold">
+          {activeModule?.title ?? "DevKit"}
+        </strong>
+        {metadataLoading ? (
+          <span role="status" className="text-xs text-muted-foreground">
+            Loading module metadata...
+          </span>
+        ) : null}
+        <div className="flex-1" />
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Commands"
+              onClick={() => setPaletteOpen(true)}
+            >
+              <Search className="size-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            Commands <Kbd>⌘K</Kbd>
+          </TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Settings"
+              onClick={() => setActiveModuleId("settings")}
+            >
+              <SettingsIcon className="size-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            Settings <Kbd>⌘,</Kbd>
+          </TooltipContent>
+        </Tooltip>
+      </header>
+      <div className="mx-2 mb-2 flex flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card">
         {hasMetadataWarning ? (
           <Alert variant="destructive" className="m-4 mb-0 w-auto">
             <AlertDescription>
@@ -155,7 +196,7 @@ export function Workbench() {
       </div>
       <Dock
         activeModuleId={activeModule?.id ?? ""}
-        modules={activityModules}
+        modules={dockModules}
         onSelectModule={setActiveModuleId}
       />
       <CommandPalette
