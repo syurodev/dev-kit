@@ -42,7 +42,8 @@ type Service struct {
 	invoking          map[string]struct{}
 	mu                sync.Mutex
 	emit              func(sessionID string, update json.RawMessage)
-	ResolvePermission PermissionResolver // nil = fail closed (Task 10 wires UI)
+	ResolvePermission PermissionResolver // nil = fail closed (no auto-approve)
+	PermissionTimeout time.Duration      // 0 = interaction.DefaultTimeout (60s)
 }
 
 // NewService wires registry + store. emit may be nil (no-op).
