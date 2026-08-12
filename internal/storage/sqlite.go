@@ -27,6 +27,8 @@ const (
 	TableSyncLocalMutations = "sync_local_mutations"
 	TableSyncConflicts      = "sync_conflicts"
 	TableEnvTags            = "env_tags"
+	TableAgentSessions      = "agent_sessions"
+	TableAgentTurns         = "agent_turns"
 )
 
 var chmodFile = os.Chmod
@@ -446,7 +448,42 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		},
 	}
 
-	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12})
+	m13 := Migration{
+		Version: 13,
+		Name:    "create agent hub sessions and turns",
+		Up: func(ctx context.Context) error {
+			if _, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE TABLE IF NOT EXISTS %s (
+					id TEXT PRIMARY KEY,
+					agent_type TEXT NOT NULL,
+					project_path TEXT NOT NULL,
+					status TEXT NOT NULL,
+					parent_session_id TEXT,
+					depth INTEGER NOT NULL DEFAULT 0,
+					title TEXT,
+					acp_session_id TEXT,
+					created_at TEXT NOT NULL,
+					updated_at TEXT NOT NULL
+				)`, TableAgentSessions,
+			)); err != nil {
+				return err
+			}
+			_, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE TABLE IF NOT EXISTS %s (
+					id TEXT PRIMARY KEY,
+					session_id TEXT NOT NULL,
+					stop_reason TEXT,
+					usage_json TEXT,
+					raw_meta TEXT,
+					created_at TEXT NOT NULL,
+					FOREIGN KEY(session_id) REFERENCES %s(id)
+				)`, TableAgentTurns, TableAgentSessions,
+			))
+			return err
+		},
+	}
+
+	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13})
 	if err != nil {
 		return err
 	}

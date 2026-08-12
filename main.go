@@ -3,12 +3,14 @@ package main
 import (
 	"context"
 	"embed"
+	"encoding/json"
 	"log"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
 
+	"devkit/internal/agenthub"
 	"devkit/internal/app"
 	"devkit/internal/auth"
 	"devkit/internal/bridge"
@@ -159,6 +161,27 @@ func main() {
 		Accounts:  remoteStore,
 		Items:     container.Items,
 	})
+	// Agent Hub: SQLite session/turn store + mock/claude adapters. Compose here
+	// so agenthub never imports internal/storage (migrations stay in storage).
+	agentReg := agenthub.NewRegistry()
+	agentReg.Register(agenthub.NewMockAdapter())
+	agentReg.Register(agenthub.NewClaudeAdapter(agenthub.ClaudeOptions{AllowNpx: true}))
+	agentWaiter := agenthub.NewPermissionWaiter(func(p agenthub.PendingPermission) {
+		emitAgentHubEvent("agenthub:permission", map[string]any{
+			"id":        p.ID,
+			"sessionId": p.SessionID,
+			"params":    rawJSON(p.Params),
+		})
+	})
+	agentSvc := agenthub.NewService(agentReg, agenthub.NewSQLStore(db), func(sessionID string, update json.RawMessage) {
+		emitAgentHubEvent("agenthub:sessionUpdate", map[string]any{
+			"sessionId": sessionID,
+			"update":    rawJSON(update),
+		})
+	})
+	agentSvc.ResolvePermission = agentWaiter.Resolve
+	container.AgentHub = agentSvc
+	container.AgentHubPermissions = agentWaiter
 	defer container.Database.Close()
 	defer container.SSH.Close()
 	defer container.Kafka.Close()
@@ -173,16 +196,17 @@ func main() {
 	container.Interaction = hub
 	appService := bridge.NewAppService(container)
 	mcpServer := mcp.NewServerFromContainer(mcp.Deps{
-		Caller: appService,
-		Notes:  container.Notes,
-		Vault:  container.Vault,
-		Search: mcp.NewSearchAPI(container.Items),
-		Tools:  container.HashTools,
-		Envs:   container.Environments,
-		SSH:    container.SSH,
-		DB:     container.Database,
-		Kafka:  container.Kafka,
-		Hub:    hub,
+		Caller:   appService,
+		Notes:    container.Notes,
+		Vault:    container.Vault,
+		Search:   mcp.NewSearchAPI(container.Items),
+		Tools:    container.HashTools,
+		Envs:     container.Environments,
+		SSH:      container.SSH,
+		DB:       container.Database,
+		Kafka:    container.Kafka,
+		AgentHub: container.AgentHub,
+		Hub:      hub,
 	})
 	mcpCtx, mcpCancel := context.WithCancel(context.Background())
 	defer mcpCancel()
@@ -231,4 +255,25 @@ func main() {
 	if err := wailsApp.Run(); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// emitAgentHubEvent forwards hub callbacks to the Wails/server event bus once
+// the application singleton exists (Invoke/permission happen after Run starts).
+func emitAgentHubEvent(name string, data map[string]any) {
+	app := application.Get()
+	if app == nil {
+		return
+	}
+	app.Event.Emit(name, data)
+}
+
+func rawJSON(raw json.RawMessage) any {
+	if len(raw) == 0 {
+		return nil
+	}
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return string(raw)
+	}
+	return value
 }

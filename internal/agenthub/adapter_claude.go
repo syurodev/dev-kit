@@ -1,0 +1,477 @@
+package agenthub
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sync"
+	"time"
+
+	"devkit/internal/acp"
+	"devkit/internal/sandbox"
+)
+
+// SandboxRunner starts sandboxed piped processes (injected for tests).
+type SandboxRunner interface {
+	StartPiped(ctx context.Context, p sandbox.Policy, c sandbox.Cmd) (*sandbox.Proc, error)
+}
+
+// ClaudeOptions configures the Claude ACP vendor adapter.
+type ClaudeOptions struct {
+	// Command is the agent binary. Prefer an absolute path resolved before the jail.
+	// Non-absolute commands are rejected unless AllowNpx is set.
+	Command string
+	// Args are appended after Command (without the binary path).
+	Args []string
+	// AllowNpx enables the npx -y @agentclientprotocol/claude-agent-acp fallback.
+	// Requires resolving npx to an absolute path; still sandboxed via StartPiped.
+	AllowNpx bool
+	// Runner overrides sandbox.DefaultRunner(); nil uses the platform default.
+	Runner SandboxRunner
+}
+
+// ClaudeAdapter is a VendorAdapter that speaks ACP to Claude inside a sandbox.
+type ClaudeAdapter struct {
+	opts ClaudeOptions
+}
+
+// NewClaudeAdapter returns a Claude ACP adapter. Production Open always uses
+// sandbox.StartPiped — never acp.StartProcess or unsandboxed exec.
+func NewClaudeAdapter(opts ClaudeOptions) *ClaudeAdapter {
+	return &ClaudeAdapter{opts: opts}
+}
+
+var (
+	_ VendorAdapter  = (*ClaudeAdapter)(nil)
+	_ SessionRuntime = (*claudeRuntime)(nil)
+	_ SandboxRunner  = (*sandbox.Runner)(nil)
+)
+
+func (a *ClaudeAdapter) Type() AgentType { return AgentTypeClaude }
+
+func (a *ClaudeAdapter) Extensions() []string { return nil }
+
+func (a *ClaudeAdapter) runner() SandboxRunner {
+	if a.opts.Runner != nil {
+		return a.opts.Runner
+	}
+	return sandbox.DefaultRunner()
+}
+
+// buildSandbox resolves the agent binary and returns the jail Policy + Cmd.
+// Exported for unit tests via same-package access.
+func (a *ClaudeAdapter) buildSandbox(project string) (sandbox.Policy, sandbox.Cmd, error) {
+	workDir, err := filepath.Abs(project)
+	if err != nil {
+		return sandbox.Policy{}, sandbox.Cmd{}, fmt.Errorf("%w: resolve project: %v", ErrProcessFailed, err)
+	}
+	if st, err := os.Stat(workDir); err != nil || !st.IsDir() {
+		return sandbox.Policy{}, sandbox.Cmd{}, fmt.Errorf("%w: project path", ErrProcessFailed)
+	}
+
+	path, args, roPaths, err := a.resolveCommand()
+	if err != nil {
+		return sandbox.Policy{}, sandbox.Cmd{}, err
+	}
+
+	env := claudeEnvAllowlist()
+	pol := sandbox.Policy{
+		WorkDir:       workDir,
+		Network:       sandbox.NetworkHost,
+		Env:           env,
+		ReadOnlyPaths: roPaths,
+	}
+	cmd := sandbox.Cmd{
+		Path: path,
+		Args: args,
+	}
+	return pol, cmd, nil
+}
+
+func (a *ClaudeAdapter) resolveCommand() (path string, args []string, ro []string, err error) {
+	cmd := a.opts.Command
+	args = append([]string(nil), a.opts.Args...)
+
+	if a.opts.AllowNpx {
+		if cmd == "" || cmd == "npx" || !filepath.IsAbs(cmd) && filepath.Base(cmd) == "npx" {
+			npx, lookErr := exec.LookPath("npx")
+			if lookErr != nil {
+				return "", nil, nil, fmt.Errorf("%w: npx not found for AllowNpx", ErrProcessFailed)
+			}
+			path = npx
+			if len(args) == 0 {
+				args = []string{"-y", "@agentclientprotocol/claude-agent-acp"}
+			}
+			ro = uniqueAbsPaths(path)
+			return path, args, ro, nil
+		}
+	}
+
+	if cmd == "" {
+		return "", nil, nil, fmt.Errorf("%w: ClaudeOptions.Command required (absolute binary)", ErrProcessFailed)
+	}
+	if !filepath.IsAbs(cmd) {
+		return "", nil, nil, fmt.Errorf("%w: command must be absolute (or enable AllowNpx)", ErrProcessFailed)
+	}
+	path = filepath.Clean(cmd)
+	ro = uniqueAbsPaths(path)
+	return path, args, ro, nil
+}
+
+func uniqueAbsPaths(paths ...string) []string {
+	seen := make(map[string]struct{}, len(paths))
+	out := make([]string, 0, len(paths))
+	for _, p := range paths {
+		if p == "" {
+			continue
+		}
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			abs = p
+		}
+		abs = filepath.Clean(abs)
+		if _, ok := seen[abs]; ok {
+			continue
+		}
+		seen[abs] = struct{}{}
+		out = append(out, abs)
+	}
+	return out
+}
+
+// claudeEnvAllowlist copies API key vars (and a minimal PATH) from the host
+// env into the jail. bwrap uses --clearenv, so without PATH absolute Command
+// still works but AllowNpx / relative lookups fail. Values must never be logged.
+func claudeEnvAllowlist() map[string]string {
+	env := make(map[string]string)
+	for _, key := range []string{"ANTHROPIC_API_KEY", "CLAUDE_API_KEY"} {
+		if v, ok := os.LookupEnv(key); ok && v != "" {
+			env[key] = v
+		}
+	}
+	path := os.Getenv("PATH")
+	if path == "" {
+		path = "/usr/local/bin:/usr/bin:/bin"
+	}
+	env["PATH"] = path
+	return env
+}
+
+func mapSandboxErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, sandbox.ErrUnavailable) || errors.Is(err, sandbox.ErrUnsupportedPlatform) {
+		return fmt.Errorf("%w: %v", ErrSandboxUnavailable, err)
+	}
+	if errors.Is(err, sandbox.ErrInvalidPolicy) {
+		return fmt.Errorf("%w: %v", ErrProcessFailed, err)
+	}
+	return fmt.Errorf("%w: %v", ErrProcessFailed, err)
+}
+
+// Open starts a sandboxed Claude ACP process, connects over stdio, and creates a session.
+func (a *ClaudeAdapter) Open(ctx context.Context, cwd string) (SessionRuntime, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	pol, cmd, err := a.buildSandbox(cwd)
+	if err != nil {
+		return nil, err
+	}
+
+	proc, err := a.runner().StartPiped(ctx, pol, cmd)
+	if err != nil {
+		return nil, mapSandboxErr(err)
+	}
+
+	stdin := proc.StdinWriter()
+	stdout := proc.StdoutReader()
+	if stdin == nil || stdout == nil {
+		_ = proc.Kill()
+		return nil, fmt.Errorf("%w: StartPiped missing stdio pipes", ErrProcessFailed)
+	}
+
+	rw := &stdioPipe{r: stdout, w: stdin}
+	rt := &claudeRuntime{
+		proc:   proc,
+		cwd:    pol.WorkDir,
+		killer: &procKiller{proc: proc},
+	}
+	handler := &claudeConnHandler{rt: rt}
+	conn := acp.NewConn(rw, handler)
+	rt.conn = conn
+
+	serveCtx, cancelServe := context.WithCancel(context.Background())
+	rt.cancelServe = cancelServe
+	rt.serveDone = make(chan struct{})
+	go func() {
+		defer close(rt.serveDone)
+		_ = conn.Serve(serveCtx)
+	}()
+
+	cleanup := func() {
+		cancelServe()
+		_ = conn.Close()
+		_ = proc.Kill()
+		<-rt.serveDone
+	}
+
+	var initRes acp.InitializeResult
+	if err := conn.Call(ctx, "initialize", acp.InitializeRequest{
+		ProtocolVersion: 1,
+		ClientInfo:      map[string]any{"name": "devkit", "version": "0.0.0"},
+	}, &initRes); err != nil {
+		cleanup()
+		return nil, fmt.Errorf("%w: initialize: %v", ErrProcessFailed, err)
+	}
+
+	var newRes acp.SessionNewResult
+	if err := conn.Call(ctx, "session/new", acp.SessionNewRequest{
+		Cwd: pol.WorkDir,
+	}, &newRes); err != nil {
+		cleanup()
+		return nil, fmt.Errorf("%w: session/new: %v", ErrProcessFailed, err)
+	}
+	if newRes.SessionID == "" {
+		cleanup()
+		return nil, fmt.Errorf("%w: empty sessionId from session/new", ErrProcessFailed)
+	}
+	rt.acpSessionID = newRes.SessionID
+	return rt, nil
+}
+
+type claudeMetaRoot struct {
+	ClaudeCode *struct {
+		CostUSD      *float64 `json:"costUsd"`
+		InputTokens  *int     `json:"inputTokens"`
+		OutputTokens *int     `json:"outputTokens"`
+	} `json:"claudeCode"`
+}
+
+func (a *ClaudeAdapter) NormalizeUsage(meta json.RawMessage) (NormalizedUsage, error) {
+	out := NormalizedUsage{RawMeta: append(json.RawMessage(nil), meta...)}
+	if len(meta) == 0 {
+		return out, nil
+	}
+	var root claudeMetaRoot
+	if err := json.Unmarshal(meta, &root); err != nil {
+		return out, err
+	}
+	if root.ClaudeCode != nil {
+		if root.ClaudeCode.CostUSD != nil {
+			out.CostUSD = *root.ClaudeCode.CostUSD
+		}
+		if root.ClaudeCode.InputTokens != nil {
+			out.InputTokens = *root.ClaudeCode.InputTokens
+		}
+		if root.ClaudeCode.OutputTokens != nil {
+			out.OutputTokens = *root.ClaudeCode.OutputTokens
+		}
+	}
+	return out, nil
+}
+
+func (a *ClaudeAdapter) NormalizeToolSummary(meta json.RawMessage, update json.RawMessage) ([]string, string, error) {
+	_ = meta
+	_ = update
+	return nil, "", nil
+}
+
+// stdioPipe adapts separate stdin writer + stdout reader into one ReadWriteCloser
+// for acp.NewConn (write → agent stdin, read ← agent stdout).
+type stdioPipe struct {
+	r io.ReadCloser
+	w io.WriteCloser
+}
+
+func (p *stdioPipe) Read(b []byte) (int, error)  { return p.r.Read(b) }
+func (p *stdioPipe) Write(b []byte) (int, error) { return p.w.Write(b) }
+func (p *stdioPipe) Close() error {
+	errW := p.w.Close()
+	errR := p.r.Close()
+	if errW != nil {
+		return errW
+	}
+	return errR
+}
+
+// procKiller adapts *sandbox.Proc to acp.ProcessKiller (adds Signal).
+type procKiller struct {
+	proc *sandbox.Proc
+}
+
+func (k *procKiller) PID() int    { return k.proc.PID() }
+func (k *procKiller) Kill() error { return k.proc.Kill() }
+func (k *procKiller) Wait() error { return k.proc.Wait() }
+func (k *procKiller) Signal(sig os.Signal) error {
+	pid := k.proc.PID()
+	if pid <= 0 {
+		return nil
+	}
+	p, err := os.FindProcess(pid)
+	if err != nil {
+		return err
+	}
+	return p.Signal(sig)
+}
+
+type claudeRuntime struct {
+	conn         *acp.Conn
+	proc         *sandbox.Proc
+	killer       acp.ProcessKiller
+	acpSessionID string
+	cwd          string
+	cancelServe  context.CancelFunc
+	serveDone    chan struct{}
+
+	mu       sync.Mutex
+	handlers RuntimeHandlers
+	closed   bool
+}
+
+func (r *claudeRuntime) ACPSessionID() string { return r.acpSessionID }
+
+func (r *claudeRuntime) SetHandlers(h RuntimeHandlers) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.handlers = h
+}
+
+func (r *claudeRuntime) handlersSnapshot() RuntimeHandlers {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.handlers
+}
+
+func (r *claudeRuntime) Prompt(ctx context.Context, text string) (PromptOutcome, error) {
+	if err := ctx.Err(); err != nil {
+		return PromptOutcome{}, err
+	}
+	r.mu.Lock()
+	if r.closed {
+		r.mu.Unlock()
+		return PromptOutcome{}, ErrSessionNotFound
+	}
+	conn := r.conn
+	sid := r.acpSessionID
+	r.mu.Unlock()
+
+	var res acp.PromptResult
+	err := conn.Call(ctx, "session/prompt", acp.PromptRequest{
+		SessionID: sid,
+		Prompt: []acp.ContentBlock{{
+			Type: "text",
+			Text: text,
+		}},
+	}, &res)
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return PromptOutcome{}, ErrCancelled
+		}
+		return PromptOutcome{}, fmt.Errorf("%w: session/prompt: %v", ErrProcessFailed, err)
+	}
+	return PromptOutcome{StopReason: res.StopReason, Meta: res.Meta}, nil
+}
+
+func (r *claudeRuntime) Cancel(ctx context.Context) error {
+	r.mu.Lock()
+	conn := r.conn
+	sid := r.acpSessionID
+	killer := r.killer
+	closed := r.closed
+	r.mu.Unlock()
+	if closed {
+		return nil
+	}
+
+	// Best-effort ACP cancel, then OS shutdown ladder on the sandbox supervisor PID.
+	if conn != nil && sid != "" {
+		_ = conn.Notify(context.Background(), "session/cancel", map[string]any{
+			"sessionId": sid,
+		})
+	}
+	if killer != nil {
+		cfg := acp.ShutdownConfig{
+			CancelWait: 5 * time.Second,
+			TermWait:   5 * time.Second,
+		}
+		// Honor caller ctx for overall cancel, but Shutdown escalates even if cancelled.
+		_ = ctx
+		return acp.Shutdown(context.Background(), killer, cfg)
+	}
+	return nil
+}
+
+func (r *claudeRuntime) Close(ctx context.Context) error {
+	_ = ctx
+	r.mu.Lock()
+	if r.closed {
+		r.mu.Unlock()
+		return nil
+	}
+	r.closed = true
+	cancel := r.cancelServe
+	conn := r.conn
+	proc := r.proc
+	done := r.serveDone
+	r.mu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
+	if conn != nil {
+		_ = conn.Close()
+	}
+	if proc != nil {
+		_ = proc.Kill()
+	}
+	if done != nil {
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+		}
+	}
+	return nil
+}
+
+// claudeConnHandler bridges agent→client ACP methods onto RuntimeHandlers.
+type claudeConnHandler struct {
+	rt *claudeRuntime
+}
+
+func (h *claudeConnHandler) RequestPermission(ctx context.Context, params json.RawMessage) (json.RawMessage, error) {
+	handlers := h.rt.handlersSnapshot()
+	if handlers.OnPermission == nil {
+		return nil, ErrPermissionDenied
+	}
+	return handlers.OnPermission(ctx, params)
+}
+
+func (h *claudeConnHandler) SessionUpdate(ctx context.Context, params json.RawMessage) error {
+	_ = ctx
+	handlers := h.rt.handlersSnapshot()
+	if handlers.OnUpdate == nil {
+		return nil
+	}
+	var p acp.SessionUpdateParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		// Forward raw blob if shape is unexpected.
+		handlers.OnUpdate(params, nil)
+		return nil
+	}
+	handlers.OnUpdate(p.Update, p.Meta)
+	return nil
+}
+
+func (h *claudeConnHandler) UnknownMethod(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
+	_ = ctx
+	_ = params
+	return nil, fmt.Errorf("unsupported method %q", method)
+}

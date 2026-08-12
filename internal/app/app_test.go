@@ -42,8 +42,27 @@ func TestRegisterBuiltinsRegistersToolsModule(t *testing.T) {
 		t.Fatalf("RegisterBuiltins returned error: %v", err)
 	}
 
-	if len(container.Modules.List()) != 7 {
-		t.Fatalf("module count = %d, want 7", len(container.Modules.List()))
+	if len(container.Modules.List()) != 8 {
+		t.Fatalf("module count = %d, want 8", len(container.Modules.List()))
+	}
+}
+
+func TestNewContainerGrantsAgentHubScopes(t *testing.T) {
+	container := NewContainer()
+	for _, grant := range []permissions.Grant{
+		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "session:list"},
+		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "session:abc"},
+		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "vendor:list"},
+		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "session:new"},
+		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "session:abc"},
+		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "permission:complete"},
+	} {
+		decision := container.Permissions.Check(permissions.Request{
+			SubjectID: grant.SubjectID, Capability: grant.Capability, Scope: grant.Scope,
+		})
+		if !decision.Allowed {
+			t.Fatalf("agenthub scope %q / %q was denied", grant.Capability, grant.Scope)
+		}
 	}
 }
 

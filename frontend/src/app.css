@@ -552,3 +552,227 @@
   border-radius: 6px;
   overflow-wrap: anywhere;
 }
+
+.agenthub-view {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  min-height: 0;
+}
+
+.agenthub-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: end;
+}
+
+.agenthub-header label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: #a1a1aa;
+}
+
+.agenthub-header select,
+.agenthub-header input,
+.agenthub-composer textarea {
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid #3f4650;
+  background: #0d0f12;
+  color: inherit;
+}
+
+.agenthub-cwd {
+  flex: 1;
+  min-width: 180px;
+}
+
+.agenthub-tabstrip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.agenthub-tabstrip button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid #2a2f35;
+  background: #14171b;
+  color: inherit;
+  cursor: pointer;
+}
+
+.agenthub-tabstrip button.is-active {
+  border-color: #6d5efc;
+  background: #181b20;
+}
+
+.agenthub-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  flex: 1;
+}
+
+.agenthub-tab-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  color: #a1a1aa;
+}
+
+.agenthub-meta-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 60%;
+}
+
+.agenthub-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid #3f4650;
+  font-size: 11px;
+  text-transform: lowercase;
+}
+
+.agenthub-status.is-idle {
+  background: #1f2937;
+}
+
+.agenthub-status.is-running {
+  background: #1e3a5f;
+  border-color: #3b82f6;
+}
+
+.agenthub-status.is-awaiting_permission {
+  background: #422006;
+  border-color: #f59e0b;
+}
+
+.agenthub-status.is-error {
+  background: #450a0a;
+  border-color: #ef4444;
+}
+
+.agenthub-transcript {
+  flex: 1;
+  min-height: 220px;
+  max-height: 420px;
+  overflow: auto;
+  border: 1px solid #2a2f35;
+  border-radius: 8px;
+  background: #0d0f12;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.agenthub-line {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  gap: 8px;
+  align-items: start;
+}
+
+.agenthub-line-role {
+  font-size: 11px;
+  color: #a1a1aa;
+  text-transform: uppercase;
+}
+
+.agenthub-line pre {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: inherit;
+}
+
+.agenthub-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.agenthub-composer textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+
+.agenthub-composer-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.agenthub-empty {
+  color: #a1a1aa;
+}
+
+.agenthub-sandbox-error {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid #f59e0b;
+  border-radius: 8px;
+  background: #422006;
+}
+
+.agenthub-sandbox-error p {
+  margin: 0;
+  flex: 1;
+}
+
+.agenthub-permission-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 40;
+}
+
+.agenthub-permission-modal {
+  width: min(480px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  padding: 16px;
+  border-radius: 10px;
+  border: 1px solid #3f4650;
+  background: #14171b;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.agenthub-permission-params {
+  margin: 0;
+  max-height: 180px;
+  overflow: auto;
+  padding: 8px;
+  border-radius: 6px;
+  background: #0d0f12;
+  font-size: 12px;
+}
+
+.agenthub-permission-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}

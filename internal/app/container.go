@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"devkit/internal/agenthub"
 	"devkit/internal/audit"
 	"devkit/internal/auth"
 	"devkit/internal/capabilities"
@@ -74,6 +75,12 @@ type Container struct {
 	// dialogs. Set from main before NewAppService so bridge and MCP share one
 	// instance. Nil in ephemeral tests that do not exercise interaction.
 	Interaction *interaction.Hub
+	// AgentHub is optional: nil in ephemeral NewContainer tests until main (or a
+	// test helper) wires SQLStore + vendor registry from the opened SQLite DB.
+	AgentHub *agenthub.Service
+	// AgentHubPermissions completes UI permission prompts for AgentHub.
+	// Nil when AgentHub is unset.
+	AgentHubPermissions *agenthub.PermissionWaiter
 	// SyncBlocked, when set, prevents AuthLogin and SyncConnect with a dedicated
 	// cloud-config or version-gate error mapped by the bridge.
 	SyncBlocked error
@@ -120,6 +127,12 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.kafka", Capability: "kafka:connect", Scope: "profile:*"},
 		{SubjectID: "builtin.kafka", Capability: "kafka:connect", Scope: "connection"},
 		{SubjectID: "builtin.kafka", Capability: "kafka:produce", Scope: "connection"},
+		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "session:list"},
+		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "session:*"},
+		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "vendor:list"},
+		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "session:new"},
+		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "session:*"},
+		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "permission:complete"},
 		{SubjectID: "builtin.vault", Capability: "vault:manage", Scope: "vault"},
 		{SubjectID: "builtin.search", Capability: "vault:search", Scope: "item:search"},
 		{SubjectID: "builtin.sync", Capability: "sync:manage", Scope: "sync:status"},

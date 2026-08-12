@@ -69,6 +69,56 @@ func (SeatbeltBackend) Start(ctx context.Context, p Policy, c Cmd) (*Proc, error
 	return proc, nil
 }
 
+func (SeatbeltBackend) StartPiped(ctx context.Context, p Policy, c Cmd) (*Proc, error) {
+	if err := p.ValidateCmd(c); err != nil {
+		return nil, err
+	}
+	sandboxExec, err := exec.LookPath("sandbox-exec")
+	if err != nil {
+		if errors.Is(err, exec.ErrNotFound) {
+			return nil, ErrUnavailable
+		}
+		return nil, err
+	}
+
+	p = p.withDefaults()
+	profilePath, err := writeSeatbeltProfileFile(buildSeatbeltProfile(p))
+	if err != nil {
+		return nil, err
+	}
+
+	args := []string{"-f", profilePath, "--", c.Path}
+	args = append(args, c.Args...)
+
+	cmd := exec.CommandContext(ctx, sandboxExec, args...)
+	cmd.Dir = p.EffectiveChdir(c)
+	if env := seatbeltProcessEnv(p); env != nil {
+		cmd.Env = env
+	}
+
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		os.Remove(profilePath)
+		return nil, err
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		_ = stdin.Close()
+		os.Remove(profilePath)
+		return nil, err
+	}
+	stderr := &bytes.Buffer{}
+	proc := NewProcPiped(cmd, stdin, stdout, stderr)
+	if err := cmd.Start(); err != nil {
+		_ = stdin.Close()
+		_ = stdout.Close()
+		os.Remove(profilePath)
+		return nil, err
+	}
+	os.Remove(profilePath)
+	return proc, nil
+}
+
 func writeSeatbeltProfileFile(profile string) (string, error) {
 	f, err := os.CreateTemp("", "devkit-seatbelt-*.sb")
 	if err != nil {

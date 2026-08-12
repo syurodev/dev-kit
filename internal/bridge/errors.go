@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 
+	"devkit/internal/agenthub"
 	"devkit/internal/apperrors"
 	"devkit/internal/cloudconfig"
 	"devkit/internal/environments"
@@ -46,6 +47,8 @@ var safeValidationMessages = map[string]struct{}{
 	"sasl_mechanism is required for SASL security protocols": {},
 	"unsupported sasl mechanism":                             {},
 	"unsupported security protocol":                          {},
+	"agenthub: no pending permission":                        {},
+	"agenthub: invalid permission id":                        {},
 }
 
 func publicError(subject string, err error) *apperrors.AppError {
@@ -133,6 +136,30 @@ func publicError(subject string, err error) *apperrors.AppError {
 			return apperrors.New(codeConnectionFailed, "Kafka is not connected.", true)
 		case errors.Is(err, kafka.ErrInsecureRemotePLAINTEXT):
 			return apperrors.New(codeConnectionFailed, "Plaintext Kafka to a remote host is not allowed.", true)
+		}
+	}
+	if subject == "builtin.agenthub" {
+		switch {
+		case errors.Is(err, errAgentHubUnavailable), errors.Is(err, agenthub.ErrUnavailable):
+			return apperrors.New(codeInternalError, "Agent Hub is not available.", true)
+		case errors.Is(err, agenthub.ErrSessionNotFound):
+			return apperrors.New(codeValidationFailed, "Agent session not found.", true)
+		case errors.Is(err, agenthub.ErrSessionBusy):
+			return apperrors.New(codeValidationFailed, "Agent session is busy.", true)
+		case errors.Is(err, agenthub.ErrDepthLimitExceeded):
+			return apperrors.New(codeValidationFailed, "Agent session depth limit exceeded.", true)
+		case errors.Is(err, agenthub.ErrCycleDetected):
+			return apperrors.New(codeValidationFailed, "Agent session cycle detected.", true)
+		case errors.Is(err, agenthub.ErrVendorUnknown):
+			return apperrors.New(codeValidationFailed, "Unknown agent vendor.", true)
+		case errors.Is(err, agenthub.ErrPermissionDenied):
+			return apperrors.New(codePermissionDenied, "Permission denied.", false)
+		case errors.Is(err, agenthub.ErrCancelled):
+			return apperrors.New(codeOperationCancelled, "Operation cancelled.", true)
+		case errors.Is(err, agenthub.ErrSandboxUnavailable):
+			return apperrors.New(codeConnectionFailed, "Agent sandbox is unavailable.", true)
+		case errors.Is(err, agenthub.ErrProcessFailed):
+			return apperrors.New(codeConnectionFailed, "Agent process failed.", true)
 		}
 	}
 	if _, safe := safeValidationMessages[err.Error()]; safe {

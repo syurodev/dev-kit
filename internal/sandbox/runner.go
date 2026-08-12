@@ -36,6 +36,19 @@ func (r *Runner) Start(ctx context.Context, p Policy, c Cmd) (*Proc, error) {
 	return r.b.Start(ctx, p, c)
 }
 
+// StartPiped starts a sandboxed process with live stdin/stdout pipes.
+// Prefer StartPiped for ACP / interactive stdio; use Start to capture and wait.
+func (r *Runner) StartPiped(ctx context.Context, p Policy, c Cmd) (*Proc, error) {
+	if err := p.ValidateCmd(c); err != nil {
+		return nil, err
+	}
+	p = p.withDefaults()
+	if r.b == nil {
+		return nil, ErrUnavailable
+	}
+	return r.b.StartPiped(ctx, p, c)
+}
+
 type unavailableBackend struct{}
 
 func (unavailableBackend) Name() string { return "unavailable" }
@@ -45,5 +58,9 @@ func (unavailableBackend) Available(context.Context) error {
 }
 
 func (unavailableBackend) Start(context.Context, Policy, Cmd) (*Proc, error) {
+	return nil, ErrUnsupportedPlatform
+}
+
+func (unavailableBackend) StartPiped(context.Context, Policy, Cmd) (*Proc, error) {
 	return nil, ErrUnsupportedPlatform
 }
