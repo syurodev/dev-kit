@@ -76,6 +76,9 @@ func TestLayering(t *testing.T) {
 		// storage is the generic DB kernel; the sync persistence adapter builds on
 		// it, never the reverse.
 		pkg("storage"): {pkg("syncstore")},
+		// sandbox is a leaf execution boundary; it must not reach app/bridge or
+		// persistence/crypto layers.
+		pkg("sandbox"): {pkg("bridge"), pkg("mcp"), pkg("app"), pkg("storage"), pkg("sync"), pkg("crypto")},
 	}
 	for from, forbidden := range bans {
 		for _, imp := range graph[from] {

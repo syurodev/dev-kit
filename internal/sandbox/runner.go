@@ -12,9 +12,17 @@ func NewRunner(b Backend) *Runner {
 	return &Runner{b: b}
 }
 
-// DefaultRunner returns the platform default runner. Real platform wiring is Task 6.
+// DefaultRunner returns the platform default runner.
 func DefaultRunner() *Runner {
-	return NewRunner(&unavailableBackend{})
+	return NewRunner(defaultBackend())
+}
+
+// Available reports whether the runner's backend can start processes.
+func (r *Runner) Available(ctx context.Context) error {
+	if r.b == nil {
+		return ErrUnavailable
+	}
+	return r.b.Available(ctx)
 }
 
 func (r *Runner) Start(ctx context.Context, p Policy, c Cmd) (*Proc, error) {

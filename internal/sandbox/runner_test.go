@@ -3,6 +3,7 @@ package sandbox
 import (
 	"context"
 	"os/exec"
+	"runtime"
 	"testing"
 )
 
@@ -60,6 +61,16 @@ func TestRunnerStartAppliesPolicyDefaults(t *testing.T) {
 	}
 	if !saw.EffectivePrivateHome() {
 		t.Fatal("private home should default to true")
+	}
+}
+
+func TestDefaultRunnerAvailableOnCI(t *testing.T) {
+	r := DefaultRunner()
+	err := r.Available(context.Background())
+	if runtime.GOOS == "linux" {
+		if err != nil {
+			t.Skip("bwrap missing:", err)
+		}
 	}
 }
 
