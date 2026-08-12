@@ -107,16 +107,17 @@ type ActiveProfileResult struct {
 
 // Deps wires MCP tool handlers. Production composition is Task 8 / main.
 type Deps struct {
-	Caller Caller
-	Notes  NotesAPI
-	Vault  VaultAPI
-	Search SearchAPI
-	Tools  ToolsAPI
-	Envs   EnvAPI
-	SSH    SSHAPI
-	DB     DatabaseAPI
-	Kafka  KafkaAPI
-	Hub    *interaction.Hub // optional nil → headless
+	Caller   Caller
+	Notes    NotesAPI
+	Vault    VaultAPI
+	Search   SearchAPI
+	Tools    ToolsAPI
+	Envs     EnvAPI
+	SSH      SSHAPI
+	DB       DatabaseAPI
+	Kafka    KafkaAPI
+	AgentHub AgentHubAPI      // optional nil until wired from main
+	Hub      *interaction.Hub // optional nil → headless
 }
 
 // Server hosts the MCP tool registry for DevKit.
@@ -125,7 +126,7 @@ type Server struct {
 	mcp  *sdk.Server
 }
 
-// NewServer builds an MCP server and registers vault/notes/tools/env/ssh/db/kafka tools.
+// NewServer builds an MCP server and registers vault/notes/tools/env/ssh/db/kafka/agenthub tools.
 func NewServer(d Deps) *Server {
 	s := &Server{deps: d}
 	ms := sdk.NewServer(&sdk.Implementation{Name: "devkit", Version: "0.1.0"}, nil)
@@ -137,6 +138,7 @@ func NewServer(d Deps) *Server {
 	s.registerSSH()
 	s.registerDatabase()
 	s.registerKafka()
+	s.registerAgentHub()
 	return s
 }
 
