@@ -174,8 +174,40 @@ func TestMigrateCreatesVaultItemsTable(t *testing.T) {
 	if err := db.QueryRow("SELECT MAX(version) FROM schema_migrations").Scan(&version); err != nil {
 		t.Fatalf("read migration version: %v", err)
 	}
-	if version != 12 {
-		t.Fatalf("migration version = %d, want 12", version)
+	if version != 13 {
+		t.Fatalf("migration version = %d, want 13", version)
+	}
+
+	if err := Migrate(context.Background(), db); err != nil {
+		t.Fatalf("second migrate: %v", err)
+	}
+}
+
+func TestMigrateCreatesAgentHubTables(t *testing.T) {
+	dir := t.TempDir()
+	db, err := Open(filepath.Join(dir, "devkit.db"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+
+	if err := Migrate(context.Background(), db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	for _, table := range []string{TableAgentSessions, TableAgentTurns} {
+		var name string
+		err := db.QueryRow(
+			`SELECT name FROM sqlite_master WHERE type='table' AND name=?`, table,
+		).Scan(&name)
+		if err != nil {
+			t.Fatalf("missing table %s: %v", table, err)
+		}
+	}
+
+	var v int
+	if err := db.QueryRow(`SELECT MAX(version) FROM schema_migrations`).Scan(&v); err != nil || v < 13 {
+		t.Fatalf("version=%d err=%v", v, err)
 	}
 
 	if err := Migrate(context.Background(), db); err != nil {
