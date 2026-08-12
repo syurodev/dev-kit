@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 
@@ -239,6 +240,18 @@ func main() {
 	})
 	openBrowser = wailsApp.Browser.OpenURL
 
+	// A fully transparent window background is what actually lets the Mac
+	// vibrancy backdrop below show through — an opaque colour here paints
+	// over it regardless of Backdrop being set. Scoped to darwin: Windows
+	// needs its own separate BackgroundType/BackdropType opt-in (Mica/
+	// Acrylic) that isn't wired up yet, and an unconditionally transparent
+	// window would just show raw desktop content (no blur) on platforms
+	// without a compositor-level backdrop.
+	backgroundColour := application.NewRGB(16, 18, 20)
+	if runtime.GOOS == "darwin" {
+		backgroundColour = application.NewRGBA(0, 0, 0, 0)
+	}
+
 	wailsApp.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:  "DevKit",
 		Width:  1200,
@@ -248,7 +261,7 @@ func main() {
 			Backdrop:                application.MacBackdropTranslucent,
 			TitleBar:                application.MacTitleBarHiddenInset,
 		},
-		BackgroundColour: application.NewRGB(16, 18, 20),
+		BackgroundColour: backgroundColour,
 		URL:              "/",
 	})
 

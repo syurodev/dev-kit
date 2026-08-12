@@ -74,7 +74,10 @@
     --chart-4: oklch(0.371 0 0);
     --chart-5: oklch(0.269 0 0);
     --radius: 0.625rem;
-    --sidebar: #07080a;
+    /* Translucent, not opaque canvas — lets the native macOS vibrancy
+       blur (Mac.Backdrop in main.go) show through the sidebar/outer frame.
+       The content card (--card) stays fully opaque for legibility. */
+    --sidebar: rgba(7, 8, 10, 0.72);
     --sidebar-foreground: #cdcdcd;
     --sidebar-primary: #ffffff;
     --sidebar-primary-foreground: #000000;
@@ -97,9 +100,16 @@
     @apply border-border outline-ring/50;
     }
   body {
-    @apply bg-background text-foreground;
+    /* No opaque bg-background here: html/body must stay see-through so the
+       native window blur (main.go, macOS only) can show through wherever
+       the app's own translucent --sidebar surface doesn't fully cover it.
+       Every other surface (cards, popovers, buttons) still paints its own
+       opaque background as normal via bg-card/bg-popover/etc. */
+    @apply text-foreground;
+    background-color: transparent;
     }
   html {
     @apply font-sans;
+    background-color: transparent;
     }
 }
