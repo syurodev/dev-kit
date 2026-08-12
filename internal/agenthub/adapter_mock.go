@@ -56,8 +56,11 @@ func (a *MockAdapter) NormalizeUsage(meta json.RawMessage) (NormalizedUsage, err
 }
 
 func (a *MockAdapter) NormalizeToolSummary(meta json.RawMessage, update json.RawMessage) ([]string, string, error) {
-	_, _ = meta, update
-	return nil, "", nil
+	_ = meta
+	if len(update) == 0 {
+		return nil, "mock reply", nil
+	}
+	return nil, "mock reply", nil
 }
 
 func (a *MockAdapter) Extensions() []string { return nil }
@@ -67,6 +70,7 @@ type mockRuntime struct {
 	mu           sync.Mutex
 	handlers     RuntimeHandlers
 	closed       bool
+	cancelCh     chan struct{}
 }
 
 func (r *mockRuntime) ACPSessionID() string { return r.acpSessionID }
@@ -88,7 +92,24 @@ func (r *mockRuntime) Prompt(ctx context.Context, text string) (PromptOutcome, e
 	}
 	h := r.handlers
 	sid := r.acpSessionID
+	r.cancelCh = make(chan struct{})
+	cancelCh := r.cancelCh
 	r.mu.Unlock()
+
+	defer func() {
+		r.mu.Lock()
+		r.cancelCh = nil
+		r.mu.Unlock()
+	}()
+
+	if strings.Contains(text, "BLOCK") {
+		select {
+		case <-cancelCh:
+			return PromptOutcome{}, ErrCancelled
+		case <-ctx.Done():
+			return PromptOutcome{}, ErrCancelled
+		}
+	}
 
 	update, err := json.Marshal(map[string]any{
 		"sessionUpdate": "agent_message_chunk",
@@ -124,6 +145,13 @@ func (r *mockRuntime) Prompt(ctx context.Context, text string) (PromptOutcome, e
 		}
 	}
 
+	// Cancellation may have raced in while we were awaiting permission.
+	select {
+	case <-cancelCh:
+		return PromptOutcome{}, ErrCancelled
+	default:
+	}
+
 	meta, err := json.Marshal(mockMetaRoot{
 		Mock: mockMeta{CostUSD: 0.001, InputTokens: 1, OutputTokens: 1},
 	})
@@ -134,7 +162,20 @@ func (r *mockRuntime) Prompt(ctx context.Context, text string) (PromptOutcome, e
 }
 
 func (r *mockRuntime) Cancel(ctx context.Context) error {
-	return ctx.Err()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.cancelCh != nil {
+		select {
+		case <-r.cancelCh:
+			// already cancelled
+		default:
+			close(r.cancelCh)
+		}
+	}
+	return nil
 }
 
 func (r *mockRuntime) Close(ctx context.Context) error {
