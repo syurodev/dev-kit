@@ -30,6 +30,7 @@ GUI (cgo) — `libgtk-4-dev` + `libwebkitgtk-6.0-dev`.
 | MCP stdio proxy (needs desktop + unlocked vault) | `task mcp` |
 | Install DevKit MCP into an agent | `task mcp:install AGENT=claude-code\|codex SCOPE=global\|project PROJECT=.` |
 | Uninstall DevKit MCP from an agent | `task mcp:uninstall AGENT=claude-code\|codex SCOPE=global\|project PROJECT=.` |
+| Agent Hub (Partial: mock + Claude; see `AGENTS.md`) | `go test ./internal/acp/ ./internal/agenthub/` |
 
 Cloud/CI setup and non-obvious run caveats are documented in `AGENTS.md`.
 

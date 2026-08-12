@@ -80,18 +80,30 @@ as production-verified against a real Claude Code session in cloud CI.
   (no hang). Non-gated tools (e.g. `vault.status`, notes when unlocked in-process) can
   still work when the host is up.
 
+### Agent Hub (`internal/agenthub` + `internal/acp`)
+**Partial** v1 surface on this branch: ACP codec/conn, mock + Claude adapters,
+session service (SQLite migration 13), bridge/UI multi-tab, MCP `agenthub.*`.
+Claude vendor spawn uses `sandbox.DefaultRunner().StartPiped` (fail-closed).
+Codex/Gemini adapters are **not** shipped. Product design + status:
+`syurodev/base` → `/dev-kit/agent-hub`, `/dev-kit/implementation-status`.
+
+```bash
+go test ./internal/acp/ ./internal/agenthub/ ./internal/bridge/ ./internal/mcp/ -count=1
+```
+
 ### Agent sandbox (`internal/sandbox`)
-**Implemented** leaf package for OS-isolated subprocesses (prerequisite for Agent Hub
-vendor spawn). Linux: **bubblewrap** (`apt install bubblewrap`). macOS: Seatbelt /
-`sandbox-exec`. Landlock helper exists but is **not** wired into `BwrapBackend.Start`.
+**Implemented** leaf package for OS-isolated subprocesses. Linux: **bubblewrap**
+(`apt install bubblewrap`). macOS: Seatbelt / `sandbox-exec`. Landlock helper
+exists but is **not** wired into bwrap Start/StartPiped.
 
 ```bash
 go test ./internal/sandbox/ ./internal/arch/ -count=1
 # meaningful smoke when bwrap is installed:
-go test ./internal/sandbox/ -run 'TestSmokeAgentShapedProcess|TestBwrapCanWriteWorkDirUnderHome' -v
+go test ./internal/sandbox/ -run 'TestSmokeAgentShapedProcess|TestBwrapCanWriteWorkDirUnderHome|TestStartPiped' -v
 ```
 
-- Entry: `sandbox.DefaultRunner().Start(ctx, Policy{WorkDir: absPath, Network: NetworkNone, Env: ...}, Cmd{Path, Args})`.
+- `Start` — capture-and-wait helpers (buffered stdout/stderr).
+- `StartPiped` — ACP / interactive stdio (Claude adapter path).
 - Fail closed if `bwrap` missing / unsupported GOOS (`ErrUnavailable` / `ErrUnsupportedPlatform`).
 - Private home default: tmpfs on home + forced `HOME`/`TMPDIR`; WorkDir under `$HOME` is re-bound after tmpfs.
 - Default denies host `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.config/gcloud`; symlink binds into deny → `ErrInvalidPolicy`.
