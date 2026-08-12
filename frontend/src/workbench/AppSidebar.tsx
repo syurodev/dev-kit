@@ -20,6 +20,7 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
+  SidebarMenuAction,
   SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
@@ -119,6 +120,7 @@ export function AppSidebar({ modules, activeModuleId, onSelectModule }: AppSideb
               return (
                 <Collapsible
                   key={module.id}
+                  asChild
                   open={agentHubOpen}
                   onOpenChange={setAgentHubOpen}
                   className="group/collapsible"
@@ -164,33 +166,34 @@ export function AppSidebar({ modules, activeModuleId, onSelectModule }: AppSideb
 
                     {sessions.length > 0 ? (
                       <CollapsibleTrigger asChild>
-                        <button
-                          type="button"
-                          className="absolute top-1.5 right-7 text-sidebar-foreground/50 group-data-[collapsible=icon]:hidden"
+                        <SidebarMenuAction
+                          className="right-7"
                           aria-label={`Toggle ${module.title} sessions`}
                         >
                           <ChevronRight className="size-3.5 transition-transform group-data-[state=open]/collapsible:rotate-90" />
-                        </button>
+                        </SidebarMenuAction>
                       </CollapsibleTrigger>
                     ) : null}
 
-                    <CollapsibleContent>
-                      <SidebarMenuSub>
-                        {sessions.map((s) => (
-                          <SidebarMenuSubItem key={s.id}>
-                            <SidebarMenuSubButton
-                              onClick={() => {
-                                onSelectModule("agenthub");
-                                setActiveSessionId(s.id);
-                              }}
-                            >
-                              <StatusDot status={s.status} />
-                              <span>{sessionLabel(s)}</span>
-                            </SidebarMenuSubButton>
-                          </SidebarMenuSubItem>
-                        ))}
-                      </SidebarMenuSub>
-                    </CollapsibleContent>
+                    {sessions.length > 0 ? (
+                      <CollapsibleContent>
+                        <SidebarMenuSub>
+                          {sessions.map((s) => (
+                            <SidebarMenuSubItem key={s.id}>
+                              <SidebarMenuSubButton
+                                onClick={() => {
+                                  onSelectModule("agenthub");
+                                  setActiveSessionId(s.id);
+                                }}
+                              >
+                                <StatusDot status={s.status} />
+                                <span>{sessionLabel(s)}</span>
+                              </SidebarMenuSubButton>
+                            </SidebarMenuSubItem>
+                          ))}
+                        </SidebarMenuSub>
+                      </CollapsibleContent>
+                    ) : null}
                   </SidebarMenuItem>
                 </Collapsible>
               );
