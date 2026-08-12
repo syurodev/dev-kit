@@ -92,6 +92,12 @@ func TestLayering(t *testing.T) {
 		t.Errorf("layering violation: crypto must not import %s", short(imp))
 	}
 
+	// sandbox is a leaf execution boundary: production code must not import any
+	// other in-module package.
+	for _, imp := range graph[pkg("sandbox")] {
+		t.Errorf("layering violation: sandbox must not import %s", short(imp))
+	}
+
 	// Nothing but main may import the bridge; nothing but the bridge (and main)
 	// may import app. main is the module-root package "devkit".
 	for from, imports := range graph {
