@@ -26,7 +26,7 @@ func TestPublicErrorMapsAgentHubSentinels(t *testing.T) {
 		{agenthub.ErrPermissionDenied, "permission_denied: Permission denied."},
 		{agenthub.ErrCancelled, "operation_cancelled: Operation cancelled."},
 		{agenthub.ErrProcessFailed, "connection_failed: Agent process failed."},
-		{agenthub.ErrSandboxUnavailable, "connection_failed: Agent process failed."},
+		{agenthub.ErrSandboxUnavailable, "connection_failed: Agent sandbox is unavailable."},
 		{agenthub.ErrUnavailable, "internal_error: Agent Hub is not available."},
 	}
 	for _, tc := range cases {

@@ -14,6 +14,7 @@ import { notesModule } from "../modules/notes/manifest";
 import { databaseModule } from "../modules/database/manifest";
 import { sshModule } from "../modules/ssh/manifest";
 import { kafkaModule } from "../modules/kafka/manifest";
+import { agenthubModule } from "../modules/agenthub/manifest";
 import { syncModule } from "../modules/sync/manifest";
 import { settingsModule } from "../modules/settings/manifest";
 
@@ -22,6 +23,7 @@ registerModule(notesModule);
 registerModule(databaseModule);
 registerModule(sshModule);
 registerModule(kafkaModule);
+registerModule(agenthubModule);
 registerModule(syncModule);
 registerModule(settingsModule);
 

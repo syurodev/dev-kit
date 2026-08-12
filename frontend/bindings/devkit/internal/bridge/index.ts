@@ -13,6 +13,7 @@ export type {
     ModuleDTO,
     SyncConflictDTO,
     SyncConflictDetailDTO,
+    SyncDeviceDTO,
     SyncReportDTO,
     SyncStatusDTO,
     VaultSearchResult,

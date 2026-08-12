@@ -7,6 +7,9 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as agenthub$0 from "../agenthub/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as capabilities$0 from "../capabilities/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -26,10 +29,44 @@ import * as notes$0 from "../notes/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as ssh$0 from "../ssh/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as json$0 from "../../../encoding/json/models.js";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as $models from "./models.js";
+
+export function AgentHubCancel(id: string): $CancellablePromise<void> {
+    return $Call.ByID(952653156, id);
+}
+
+export function AgentHubCreateSession(input: agenthub$0.CreateInput): $CancellablePromise<agenthub$0.AgentSession> {
+    return $Call.ByID(146979054, input);
+}
+
+export function AgentHubGetStatus(id: string): $CancellablePromise<agenthub$0.AgentSession> {
+    return $Call.ByID(2289470436, id);
+}
+
+export function AgentHubInvoke(input: agenthub$0.InvokeInput): $CancellablePromise<agenthub$0.InvokeResult> {
+    return $Call.ByID(1873349950, input);
+}
+
+export function AgentHubListAgents(): $CancellablePromise<agenthub$0.AgentSession[] | null> {
+    return $Call.ByID(3384951636);
+}
+
+export function AgentHubListVendorTypes(): $CancellablePromise<agenthub$0.AgentType[] | null> {
+    return $Call.ByID(1235244657);
+}
+
+/**
+ * AgentHubResolvePermission completes a pending ACP permission prompt from the UI.
+ */
+export function AgentHubResolvePermission(id: string, outcome: json$0.RawMessage): $CancellablePromise<void> {
+    return $Call.ByID(953872769, id, outcome);
+}
 
 /**
  * AuthLogin opens Keycloak only when a stored refresh session cannot be used.
@@ -299,12 +336,20 @@ export function SyncDisconnect(): $CancellablePromise<void> {
     return $Call.ByID(3041152959);
 }
 
+export function SyncListDevices(): $CancellablePromise<$models.SyncDeviceDTO[] | null> {
+    return $Call.ByID(915810032);
+}
+
 export function SyncNow(): $CancellablePromise<$models.SyncReportDTO> {
     return $Call.ByID(2828019723);
 }
 
 export function SyncResolveConflict(id: string, strategy: string, mergedText: string): $CancellablePromise<void> {
     return $Call.ByID(1652864581, id, strategy, mergedText);
+}
+
+export function SyncRevokeDevice(targetDeviceID: string): $CancellablePromise<void> {
+    return $Call.ByID(2218968413, targetDeviceID);
 }
 
 export function SyncStatus(): $CancellablePromise<$models.SyncStatusDTO> {

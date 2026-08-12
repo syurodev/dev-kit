@@ -62,6 +62,17 @@ export interface SyncConflictDetailDTO {
 }
 
 /**
+ * SyncDeviceDTO is non-secret device metadata safe for the UI.
+ */
+export interface SyncDeviceDTO {
+    "device_id": string;
+    "status": string;
+    "created_at": time$0.Time;
+    "last_seen_at": time$0.Time;
+    "current": boolean;
+}
+
+/**
  * SyncReportDTO exposes aggregate counts only, never remote payloads.
  */
 export interface SyncReportDTO {

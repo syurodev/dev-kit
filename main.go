@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"embed"
+	"encoding/json"
 	"log"
 	"os"
 	"path/filepath"
@@ -165,8 +166,19 @@ func main() {
 	agentReg := agenthub.NewRegistry()
 	agentReg.Register(agenthub.NewMockAdapter())
 	agentReg.Register(agenthub.NewClaudeAdapter(agenthub.ClaudeOptions{AllowNpx: true}))
-	agentWaiter := agenthub.NewPermissionWaiter(nil)
-	agentSvc := agenthub.NewService(agentReg, agenthub.NewSQLStore(db), nil)
+	agentWaiter := agenthub.NewPermissionWaiter(func(p agenthub.PendingPermission) {
+		emitAgentHubEvent("agenthub:permission", map[string]any{
+			"id":        p.ID,
+			"sessionId": p.SessionID,
+			"params":    rawJSON(p.Params),
+		})
+	})
+	agentSvc := agenthub.NewService(agentReg, agenthub.NewSQLStore(db), func(sessionID string, update json.RawMessage) {
+		emitAgentHubEvent("agenthub:sessionUpdate", map[string]any{
+			"sessionId": sessionID,
+			"update":    rawJSON(update),
+		})
+	})
 	agentSvc.ResolvePermission = agentWaiter.Resolve
 	container.AgentHub = agentSvc
 	container.AgentHubPermissions = agentWaiter
@@ -242,4 +254,25 @@ func main() {
 	if err := wailsApp.Run(); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// emitAgentHubEvent forwards hub callbacks to the Wails/server event bus once
+// the application singleton exists (Invoke/permission happen after Run starts).
+func emitAgentHubEvent(name string, data map[string]any) {
+	app := application.Get()
+	if app == nil {
+		return
+	}
+	app.Event.Emit(name, data)
+}
+
+func rawJSON(raw json.RawMessage) any {
+	if len(raw) == 0 {
+		return nil
+	}
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return string(raw)
+	}
+	return value
 }

@@ -156,7 +156,9 @@ func publicError(subject string, err error) *apperrors.AppError {
 			return apperrors.New(codePermissionDenied, "Permission denied.", false)
 		case errors.Is(err, agenthub.ErrCancelled):
 			return apperrors.New(codeOperationCancelled, "Operation cancelled.", true)
-		case errors.Is(err, agenthub.ErrProcessFailed), errors.Is(err, agenthub.ErrSandboxUnavailable):
+		case errors.Is(err, agenthub.ErrSandboxUnavailable):
+			return apperrors.New(codeConnectionFailed, "Agent sandbox is unavailable.", true)
+		case errors.Is(err, agenthub.ErrProcessFailed):
 			return apperrors.New(codeConnectionFailed, "Agent process failed.", true)
 		}
 	}
