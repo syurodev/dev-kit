@@ -63,11 +63,12 @@ func (p Policy) EffectiveDenyRead() []string {
 		return append([]string{}, p.DenyReadPaths...)
 	}
 
+	home := p.policyHomeDir()
 	seen := make(map[string]struct{})
 	out := make([]string, 0, len(defaultSensitiveDenyPaths)+len(p.DenyReadPaths))
 
 	add := func(path string) {
-		normalized := normalizeDenyPath(path)
+		normalized := normalizeDenyPath(home, path)
 		if normalized == "" {
 			return
 		}
@@ -87,6 +88,26 @@ func (p Policy) EffectiveDenyRead() []string {
 	return out
 }
 
+// policyHomeDir returns Policy.Env["HOME"] when set, else the host user home.
+func (p Policy) policyHomeDir() string {
+	if p.Env != nil && p.Env["HOME"] != "" {
+		return p.Env["HOME"]
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return home
+}
+
+// EffectiveChdir returns c.Dir when absolute and contained in WorkDir, else WorkDir.
+func (p Policy) EffectiveChdir(c Cmd) string {
+	if c.Dir != "" && filepath.IsAbs(c.Dir) && pathIsContainedIn(c.Dir, p.WorkDir) {
+		return c.Dir
+	}
+	return p.WorkDir
+}
+
 // EffectivePrivateHome reports whether the backend should hide the host home.
 func (p Policy) EffectivePrivateHome() bool {
 	return p.PrivateHome == nil || *p.PrivateHome
@@ -99,21 +120,24 @@ func (p Policy) withDefaults() Policy {
 	return p
 }
 
-func normalizeDenyPath(path string) string {
+func normalizeDenyPath(home, path string) string {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return ""
 	}
-	return expandHome(path)
+	return expandHome(home, path)
 }
 
-func expandHome(path string) string {
+func expandHome(home, path string) string {
 	if path == "" || path[0] != '~' {
 		return path
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return path
+	if home == "" {
+		fallback, err := os.UserHomeDir()
+		if err != nil {
+			return path
+		}
+		home = fallback
 	}
 	if path == "~" {
 		return home
@@ -122,4 +146,12 @@ func expandHome(path string) string {
 		return filepath.Join(home, path[2:])
 	}
 	return path
+}
+
+func pathIsContainedIn(path, root string) bool {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }

@@ -98,6 +98,43 @@ func TestBwrapCanWriteWorkDir(t *testing.T) {
 	}
 }
 
+func TestBwrapCanWriteWorkDirUnderHome(t *testing.T) {
+	backend := NewBwrapBackend()
+	if err := backend.Available(context.Background()); err != nil {
+		t.Skipf("bwrap unavailable: %v", err)
+	}
+
+	realHome, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	workDir := filepath.Join(realHome, "devkit-bwrap-test-"+time.Now().Format("20060102150405"))
+	if err := os.MkdirAll(workDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(workDir)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	proc, err := backend.Start(ctx, Policy{
+		WorkDir: workDir,
+	}, Cmd{Path: "/bin/sh", Args: []string{"-c", "printf under-home > sandbox-under-home.txt"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := proc.Wait(); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := os.ReadFile(filepath.Join(workDir, "sandbox-under-home.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "under-home" {
+		t.Fatalf("file contents = %q, want %q", got, "under-home")
+	}
+}
+
 func boolPtr(v bool) *bool {
 	return &v
 }

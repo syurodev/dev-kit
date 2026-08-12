@@ -48,15 +48,22 @@ func buildBwrapArgs(p Policy, c Cmd) []string {
 		appendDenyReadMount(&args, path)
 	}
 
-	home := policyHome(p)
+	home := p.policyHomeDir()
 	if p.EffectivePrivateHome() && home != "" {
 		args = append(args, "--tmpfs", home)
+		if pathExists(p.WorkDir) && pathIsContainedIn(p.WorkDir, home) && !pathIsDenied(p.WorkDir, denyPaths) {
+			args = append(args, "--bind", p.WorkDir, p.WorkDir)
+		}
 		appendHomeAllowlist(&args, home, denyPaths, p.ReadWritePaths, "--bind")
 		appendHomeAllowlist(&args, home, denyPaths, p.ReadOnlyPaths, "--ro-bind")
 	}
 
-	args = appendEnvArgs(args, p.Env)
-	args = append(args, "--chdir", p.WorkDir, "--", c.Path)
+	env := p.Env
+	if p.EffectivePrivateHome() {
+		env = withTMPDIR(env)
+	}
+	args = appendEnvArgs(args, env)
+	args = append(args, "--chdir", p.EffectiveChdir(c), "--", c.Path)
 	args = append(args, c.Args...)
 	return args
 }
@@ -95,15 +102,16 @@ func appendEnvArgs(args []string, env map[string]string) []string {
 	return args
 }
 
-func policyHome(p Policy) string {
-	if p.Env != nil && p.Env["HOME"] != "" {
-		return p.Env["HOME"]
+func withTMPDIR(env map[string]string) map[string]string {
+	if env == nil {
+		return map[string]string{"TMPDIR": "/tmp"}
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
+	out := make(map[string]string, len(env)+1)
+	for key, value := range env {
+		out[key] = value
 	}
-	return home
+	out["TMPDIR"] = "/tmp"
+	return out
 }
 
 func pathExists(path string) bool {
