@@ -76,9 +76,6 @@ func TestLayering(t *testing.T) {
 		// storage is the generic DB kernel; the sync persistence adapter builds on
 		// it, never the reverse.
 		pkg("storage"): {pkg("syncstore")},
-		// sandbox is a leaf execution boundary; it must not reach app/bridge or
-		// persistence/crypto layers.
-		pkg("sandbox"): {pkg("bridge"), pkg("mcp"), pkg("app"), pkg("storage"), pkg("sync"), pkg("crypto")},
 	}
 	for from, forbidden := range bans {
 		for _, imp := range graph[from] {
@@ -93,6 +90,12 @@ func TestLayering(t *testing.T) {
 	// crypto is a leaf: it must not import any other in-module package.
 	for _, imp := range graph[pkg("crypto")] {
 		t.Errorf("layering violation: crypto must not import %s", short(imp))
+	}
+
+	// sandbox is a leaf execution boundary: production code must not import any
+	// other in-module package.
+	for _, imp := range graph[pkg("sandbox")] {
+		t.Errorf("layering violation: sandbox must not import %s", short(imp))
 	}
 
 	// Nothing but main may import the bridge; nothing but the bridge (and main)

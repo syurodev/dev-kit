@@ -60,7 +60,7 @@ func buildBwrapArgs(p Policy, c Cmd) []string {
 
 	env := p.Env
 	if p.EffectivePrivateHome() {
-		env = withTMPDIR(env)
+		env = withPrivateHomeEnv(p, env)
 	}
 	args = appendEnvArgs(args, env)
 	args = append(args, "--chdir", p.EffectiveChdir(c), "--", c.Path)
@@ -100,23 +100,6 @@ func appendEnvArgs(args []string, env map[string]string) []string {
 		args = append(args, "--setenv", key, env[key])
 	}
 	return args
-}
-
-func withTMPDIR(env map[string]string) map[string]string {
-	if env == nil {
-		return map[string]string{"TMPDIR": "/tmp"}
-	}
-	out := make(map[string]string, len(env)+1)
-	for key, value := range env {
-		out[key] = value
-	}
-	out["TMPDIR"] = "/tmp"
-	return out
-}
-
-func pathExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
 }
 
 func pathIsUnder(path, root string) bool {

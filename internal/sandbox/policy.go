@@ -44,6 +44,12 @@ func (p Policy) Validate() error {
 	if !filepath.IsAbs(p.WorkDir) {
 		return ErrInvalidPolicy
 	}
+	if !validNetworkMode(p.Network) {
+		return ErrInvalidPolicy
+	}
+	if err := p.validateBindPaths(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -59,15 +65,10 @@ func (p Policy) ValidateCmd(c Cmd) error {
 
 func (p Policy) EffectiveDenyRead() []string {
 	p = p.withDefaults()
-	if p.DangerousAllowSensitive {
-		return append([]string{}, p.DenyReadPaths...)
-	}
-
-	home := p.policyHomeDir()
 	seen := make(map[string]struct{})
-	out := make([]string, 0, len(defaultSensitiveDenyPaths)+len(p.DenyReadPaths))
+	out := make([]string, 0, len(defaultSensitiveDenyPaths)*2+len(p.DenyReadPaths))
 
-	add := func(path string) {
+	add := func(home, path string) {
 		normalized := normalizeDenyPath(home, path)
 		if normalized == "" {
 			return
@@ -79,11 +80,20 @@ func (p Policy) EffectiveDenyRead() []string {
 		out = append(out, normalized)
 	}
 
-	for _, path := range defaultSensitiveDenyPaths {
-		add(path)
+	hostHome, _ := os.UserHomeDir()
+	policyHome := p.policyHomeDir()
+	if !p.DangerousAllowSensitive {
+		for _, path := range defaultSensitiveDenyPaths {
+			add(hostHome, path)
+		}
+		if policyHome != "" && normalizePath(policyHome) != normalizePath(hostHome) {
+			for _, path := range defaultSensitiveDenyPaths {
+				add(policyHome, path)
+			}
+		}
 	}
 	for _, path := range p.DenyReadPaths {
-		add(path)
+		add(policyHome, path)
 	}
 	return out
 }
@@ -120,12 +130,102 @@ func (p Policy) withDefaults() Policy {
 	return p
 }
 
+func validNetworkMode(mode NetworkMode) bool {
+	return mode == "" || mode == NetworkNone || mode == NetworkHost
+}
+
+func (p Policy) validateBindPaths() error {
+	denyPaths := p.resolvedEffectiveDenyRead()
+	if err := validateBindPath(p.WorkDir, denyPaths); err != nil {
+		return err
+	}
+	for _, path := range append(append([]string{}, p.ReadWritePaths...), p.ReadOnlyPaths...) {
+		if strings.TrimSpace(path) == "" {
+			continue
+		}
+		if !pathExists(path) {
+			continue
+		}
+		if err := validateBindPath(path, denyPaths); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateBindPath(path string, denyPaths []string) error {
+	resolved, err := resolveExistingPath(path)
+	if err != nil {
+		return ErrInvalidPolicy
+	}
+	for _, denyPath := range denyPaths {
+		if pathIsContainedIn(resolved, denyPath) {
+			return ErrInvalidPolicy
+		}
+	}
+	return nil
+}
+
+func (p Policy) resolvedEffectiveDenyRead() []string {
+	denyPaths := p.EffectiveDenyRead()
+	out := make([]string, 0, len(denyPaths))
+	seen := make(map[string]struct{})
+	for _, path := range denyPaths {
+		normalized := resolveDenyPath(path)
+		if normalized == "" {
+			continue
+		}
+		if _, ok := seen[normalized]; ok {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		out = append(out, normalized)
+	}
+	return out
+}
+
 func normalizeDenyPath(home, path string) string {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return ""
 	}
-	return expandHome(home, path)
+	return normalizePath(expandHome(home, path))
+}
+
+func normalizePath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	if !filepath.IsAbs(path) {
+		if abs, err := filepath.Abs(path); err == nil {
+			path = abs
+		}
+	}
+	return filepath.Clean(path)
+}
+
+func resolveDenyPath(path string) string {
+	path = normalizePath(path)
+	if path == "" {
+		return ""
+	}
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return filepath.Clean(resolved)
+	}
+	return path
+}
+
+func resolveExistingPath(path string) (string, error) {
+	path = normalizePath(path)
+	if path == "" {
+		return "", ErrInvalidPolicy
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Clean(resolved), nil
 }
 
 func expandHome(home, path string) string {
@@ -146,6 +246,25 @@ func expandHome(home, path string) string {
 		return filepath.Join(home, path[2:])
 	}
 	return path
+}
+
+func withPrivateHomeEnv(p Policy, env map[string]string) map[string]string {
+	out := make(map[string]string, len(env)+2)
+	for key, value := range env {
+		out[key] = value
+	}
+	if home := p.policyHomeDir(); home != "" {
+		out["HOME"] = home
+	}
+	if out["TMPDIR"] == "" {
+		out["TMPDIR"] = "/tmp"
+	}
+	return out
+}
+
+func pathExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func pathIsContainedIn(path, root string) bool {

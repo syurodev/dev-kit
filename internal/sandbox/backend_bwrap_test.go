@@ -69,6 +69,49 @@ func TestBwrapCannotReadDeniedSSH(t *testing.T) {
 	}
 }
 
+func TestBwrapArgsPrivateHomeSetsHomeAndTMPDIR(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	args := buildBwrapArgs(Policy{
+		WorkDir: t.TempDir(),
+	}, Cmd{Path: "/bin/sh", Args: []string{"-c", "true"}})
+
+	assertArgsContain(t, args, "--tmpfs", home)
+	assertArgsContain(t, args, "--setenv", "HOME", home)
+	assertArgsContain(t, args, "--setenv", "TMPDIR", "/tmp")
+}
+
+func TestBwrapPrivateHomeRuntimeSetsHome(t *testing.T) {
+	backend := NewBwrapBackend()
+	if err := backend.Available(context.Background()); err != nil {
+		t.Skipf("bwrap unavailable: %v", err)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	proc, err := backend.Start(ctx, Policy{
+		WorkDir: t.TempDir(),
+	}, Cmd{Path: "/bin/sh", Args: []string{"-c", "printf %s \"$HOME\""}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := proc.Wait(); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr := proc.Output()
+	if got := string(stdout); got != home {
+		t.Fatalf("HOME = %q, want %q; stderr=%q", got, home, stderr)
+	}
+}
+
 func TestBwrapCanWriteWorkDir(t *testing.T) {
 	backend := NewBwrapBackend()
 	if err := backend.Available(context.Background()); err != nil {

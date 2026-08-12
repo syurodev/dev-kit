@@ -48,6 +48,32 @@ func TestSeatbeltDeniesDotSSH(t *testing.T) {
 	}
 }
 
+func TestSeatbeltPrivateHomeForcesHomeEnv(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	env := seatbeltProcessEnv(Policy{WorkDir: t.TempDir()})
+
+	if got := envValue(env, "HOME"); got != home {
+		t.Fatalf("HOME = %q, want %q in %v", got, home, env)
+	}
+	if got := envValue(env, "TMPDIR"); got != "/tmp" {
+		t.Fatalf("TMPDIR = %q, want /tmp in %v", got, env)
+	}
+}
+
 func boolPtr(v bool) *bool {
 	return &v
+}
+
+func envValue(env []string, key string) string {
+	prefix := key + "="
+	for _, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			return strings.TrimPrefix(entry, prefix)
+		}
+	}
+	return ""
 }

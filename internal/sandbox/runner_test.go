@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"errors"
 	"os/exec"
 	"runtime"
 	"testing"
@@ -87,5 +88,24 @@ func TestRunnerInvalidPolicyFailsBeforeBackend(t *testing.T) {
 	}
 	if called {
 		t.Fatal("backend called on invalid policy")
+	}
+}
+
+func TestRunnerUnknownNetworkFailsBeforeBackend(t *testing.T) {
+	called := false
+	fake := &fakeBackend{start: func(ctx context.Context, p Policy, c Cmd) (*Proc, error) {
+		called = true
+		return nil, nil
+	}}
+	r := NewRunner(fake)
+	_, err := r.Start(context.Background(), Policy{
+		WorkDir: t.TempDir(),
+		Network: NetworkMode("mystery"),
+	}, Cmd{Path: "true"})
+	if !errors.Is(err, ErrInvalidPolicy) {
+		t.Fatalf("got %v, want ErrInvalidPolicy", err)
+	}
+	if called {
+		t.Fatal("backend called on invalid network policy")
 	}
 }

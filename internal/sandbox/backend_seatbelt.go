@@ -93,7 +93,7 @@ func seatbeltProcessEnv(p Policy) []string {
 	}
 	env := p.Env
 	if p.EffectivePrivateHome() {
-		env = withTMPDIRForSeatbelt(env)
+		env = withPrivateHomeEnv(p, env)
 	}
 	if env == nil {
 		return nil
@@ -107,17 +107,5 @@ func seatbeltProcessEnv(p Policy) []string {
 	for _, key := range keys {
 		out = append(out, key+"="+env[key])
 	}
-	return out
-}
-
-func withTMPDIRForSeatbelt(env map[string]string) map[string]string {
-	if env == nil {
-		return map[string]string{"TMPDIR": "/tmp"}
-	}
-	out := make(map[string]string, len(env)+1)
-	for key, value := range env {
-		out[key] = value
-	}
-	out["TMPDIR"] = "/tmp"
 	return out
 }
