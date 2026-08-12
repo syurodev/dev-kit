@@ -74,10 +74,10 @@
     --chart-4: oklch(0.371 0 0);
     --chart-5: oklch(0.269 0 0);
     --radius: 0.625rem;
-    /* Translucent, not opaque canvas — lets the native macOS vibrancy
-       blur (Mac.Backdrop in main.go) show through the sidebar/outer frame.
-       The content card (--card) stays fully opaque for legibility. */
-    --sidebar: rgba(7, 8, 10, 0.72);
+    /* Fully transparent — lets the native macOS vibrancy blur (Mac.Backdrop
+       in main.go) show through the sidebar/outer frame with no tint on top
+       of it. The content card (--card) stays fully opaque for legibility. */
+    --sidebar: transparent;
     --sidebar-foreground: #cdcdcd;
     --sidebar-primary: #ffffff;
     --sidebar-primary-foreground: #000000;
