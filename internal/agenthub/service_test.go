@@ -250,3 +250,27 @@ func TestInvokeCycleOnCrossSession(t *testing.T) {
 		t.Fatalf("got %v want ErrCycleDetected", err)
 	}
 }
+
+func TestInvokeAppliesDefaultDeadline(t *testing.T) {
+	prev := agenthub.DefaultInvokeTimeout
+	agenthub.DefaultInvokeTimeout = 40 * time.Millisecond
+	t.Cleanup(func() { agenthub.DefaultInvokeTimeout = prev })
+
+	svc := newTestService(t)
+	sess, err := svc.CreateSession(context.Background(), agenthub.CreateInput{
+		AgentType: agenthub.AgentTypeMock,
+		Cwd:       t.TempDir(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// No caller deadline — Invoke must still bound the turn and cancel BLOCK.
+	_, err = svc.Invoke(context.Background(), agenthub.InvokeInput{
+		SessionID: sess.ID,
+		Prompt:    "BLOCK",
+	})
+	if !errors.Is(err, agenthub.ErrCancelled) {
+		t.Fatalf("got %v want ErrCancelled from default Invoke deadline", err)
+	}
+}

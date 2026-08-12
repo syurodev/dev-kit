@@ -2,10 +2,13 @@ package mcp
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"devkit/internal/agenthub"
+	"devkit/internal/apperrors"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -234,6 +237,24 @@ func TestAgentHubSessionScopeInvalidID(t *testing.T) {
 	}
 	if hub.statusID != "not-a-uuid" {
 		t.Fatalf("domain still receives raw id, got %q", hub.statusID)
+	}
+}
+
+func TestAgentHubNilDepsReturnsUnavailable(t *testing.T) {
+	caller := &fakeCaller{}
+	deps := agentHubTestDeps(caller, nil)
+	srv := NewServer(deps)
+
+	_, _, err := srv.toolAgentHubListAgents(context.Background(), &sdk.CallToolRequest{}, struct{}{})
+	if err == nil {
+		t.Fatal("expected unavailable error when AgentHub is nil")
+	}
+	var app *apperrors.AppError
+	if !errors.As(err, &app) || app.Code != "internal_error" {
+		t.Fatalf("err = %v, want internal_error AppError", err)
+	}
+	if !strings.Contains(app.Message, "Agent Hub is not available") {
+		t.Fatalf("message = %q", app.Message)
 	}
 }
 

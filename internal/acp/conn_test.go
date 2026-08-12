@@ -160,6 +160,75 @@ func TestConnInboundRequestPermission(t *testing.T) {
 	<-serveDone
 }
 
+func TestConnRequestPermissionDenyPrefersResult(t *testing.T) {
+	client, agent := net.Pipe()
+	defer client.Close()
+	defer agent.Close()
+
+	// Handler returns cancelled Result AND an error (Invoke fail-closed signal).
+	// Wire response must prefer Result so the agent gets a proper ACP outcome.
+	c := acp.NewConn(client, &denyBothHandler{
+		result: json.RawMessage(`{"outcome":{"outcome":"cancelled"}}`),
+		err:    errPermissionDeniedStub,
+	})
+	serveDone := make(chan error, 1)
+	go func() { serveDone <- c.Serve(context.Background()) }()
+
+	if err := acp.WriteMessage(agent, acp.Request{
+		JSONRPC: "2.0",
+		ID:      7,
+		Method:  "session/request_permission",
+		Params:  json.RawMessage(`{"sessionId":"s1"}`),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	msg, err := acp.ReadMessage(agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msg.Error != nil {
+		t.Fatalf("expected Result preferred over RPC error, got error %+v", msg.Error)
+	}
+	if len(msg.Result) == 0 {
+		t.Fatal("expected cancelled Result body")
+	}
+	var result map[string]any
+	if err := json.Unmarshal(msg.Result, &result); err != nil {
+		t.Fatal(err)
+	}
+	outcome, _ := result["outcome"].(map[string]any)
+	if outcome["outcome"] != "cancelled" {
+		t.Fatalf("result = %v", result)
+	}
+
+	_ = c.Close()
+	<-serveDone
+}
+
+type denyBothHandler struct {
+	result json.RawMessage
+	err    error
+}
+
+func (h *denyBothHandler) RequestPermission(ctx context.Context, params json.RawMessage) (json.RawMessage, error) {
+	return h.result, h.err
+}
+
+func (h *denyBothHandler) SessionUpdate(ctx context.Context, params json.RawMessage) error {
+	return nil
+}
+
+func (h *denyBothHandler) UnknownMethod(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
+	return nil, nil
+}
+
+type errStub string
+
+func (e errStub) Error() string { return string(e) }
+
+var errPermissionDeniedStub errStub = "permission denied"
+
 func TestConnInboundSessionUpdate(t *testing.T) {
 	client, agent := net.Pipe()
 	defer client.Close()

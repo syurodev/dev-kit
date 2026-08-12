@@ -140,7 +140,11 @@ func (r *mockRuntime) Prompt(ctx context.Context, text string) (PromptOutcome, e
 		if err != nil {
 			return PromptOutcome{}, err
 		}
-		if _, err := h.OnPermission(ctx, params); err != nil {
+		outcome, err := h.OnPermission(ctx, params)
+		if err != nil || isDeniedPermissionOutcome(outcome) {
+			if err == nil {
+				err = ErrPermissionDenied
+			}
 			return PromptOutcome{}, err
 		}
 	}

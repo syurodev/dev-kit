@@ -50,6 +50,9 @@ func TestClaudeSandboxPolicy(t *testing.T) {
 	if pol.Env["CLAUDE_API_KEY"] != "claude-test-not-logged" {
 		t.Fatal("expected CLAUDE_API_KEY from host env allowlist")
 	}
+	if pol.Env["PATH"] == "" {
+		t.Fatal("expected PATH in Policy.Env for bwrap --clearenv (AllowNpx / relative lookups)")
+	}
 	foundBin := false
 	for _, p := range pol.ReadOnlyPaths {
 		if p == bin {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"time"
 
@@ -91,6 +92,9 @@ func (w *PermissionWaiter) Wait(ctx context.Context, sessionID string, params js
 		w.invalidate(id)
 		return append(json.RawMessage(nil), deniedPermissionOutcome...), ErrPermissionDenied
 	case outcome := <-resCh:
+		if isDeniedPermissionOutcome(outcome) {
+			return outcome, ErrPermissionDenied
+		}
 		return outcome, nil
 	}
 }
@@ -142,8 +146,34 @@ func (s *Service) permissionTimeout() time.Duration {
 	return interaction.DefaultTimeout
 }
 
-// mediatePermission fails closed: nil resolver, timeout, or cancel → deny.
-// Never auto-approves.
+// isDeniedPermissionOutcome reports cancelled/rejected/deny ACP outcomes.
+// Malformed bodies fail closed (treated as deny).
+func isDeniedPermissionOutcome(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return true
+	}
+	var wrap struct {
+		Outcome struct {
+			Outcome string `json:"outcome"`
+		} `json:"outcome"`
+	}
+	if err := json.Unmarshal(raw, &wrap); err != nil {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(wrap.Outcome.Outcome)) {
+	case "selected":
+		return false
+	case "cancelled", "canceled", "rejected", "deny", "denied":
+		return true
+	default:
+		// Unknown / empty outcome → fail closed.
+		return true
+	}
+}
+
+// mediatePermission fails closed: nil resolver, timeout, cancel, or deny → deny.
+// Never auto-approves. Returns an ACP cancelled/rejected Result body together
+// with ErrPermissionDenied so Conn can deliver Result while Invoke fails closed.
 func (s *Service) mediatePermission(ctx context.Context, sessionID string, params json.RawMessage) (json.RawMessage, error) {
 	if s.ResolvePermission == nil {
 		return append(json.RawMessage(nil), deniedPermissionOutcome...), ErrPermissionDenied
@@ -161,11 +191,22 @@ func (s *Service) mediatePermission(ctx context.Context, sessionID string, param
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 			err = ErrPermissionDenied
 		}
+		if !errors.Is(err, ErrPermissionDenied) {
+			// Unexpected resolver failure — still fail closed for the turn.
+			err = ErrPermissionDenied
+		}
 		if len(outcome) == 0 {
 			outcome = append(json.RawMessage(nil), deniedPermissionOutcome...)
 		}
 		// Leave status as awaiting_permission; Invoke error path sets final status.
 		return outcome, err
+	}
+
+	if isDeniedPermissionOutcome(outcome) {
+		if len(outcome) == 0 {
+			outcome = append(json.RawMessage(nil), deniedPermissionOutcome...)
+		}
+		return outcome, ErrPermissionDenied
 	}
 
 	// Restore running so a continuing turn is still marked busy.

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"devkit/internal/agenthub"
+	"devkit/internal/apperrors"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -16,6 +17,13 @@ type AgentHubAPI interface {
 	GetStatus(ctx context.Context, id string) (agenthub.AgentSession, error)
 	Invoke(ctx context.Context, in agenthub.InvokeInput) (agenthub.InvokeResult, error)
 	Cancel(ctx context.Context, id string) error
+}
+
+func (s *Server) requireAgentHub() error {
+	if s.deps.AgentHub == nil {
+		return apperrors.New("internal_error", "Agent Hub is not available.", true)
+	}
+	return nil
 }
 
 func (s *Server) registerAgentHub() {
@@ -60,6 +68,9 @@ func (s *Server) registerAgentHub() {
 }
 
 func (s *Server) toolAgentHubListAgents(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {
+	if err := s.requireAgentHub(); err != nil {
+		return nil, nil, err
+	}
 	v, err := s.deps.Caller.Call(ctx, "builtin.agenthub", "agenthub:read", "session:list", meta("list_agents", nil), func(callCtx context.Context) (any, error) {
 		return s.deps.AgentHub.ListSessions(callCtx)
 	})
@@ -77,6 +88,9 @@ type agentHubCreateInput struct {
 }
 
 func (s *Server) toolAgentHubCreateAgentSession(ctx context.Context, _ *sdk.CallToolRequest, in agentHubCreateInput) (*sdk.CallToolResult, any, error) {
+	if err := s.requireAgentHub(); err != nil {
+		return nil, nil, err
+	}
 	v, err := s.deps.Caller.Call(ctx, "builtin.agenthub", "agenthub:execute", "session:new", meta("create_session", map[string]any{
 		"agent_type": in.AgentType,
 	}), func(callCtx context.Context) (any, error) {
@@ -100,6 +114,9 @@ type agentHubInvokeInput struct {
 }
 
 func (s *Server) toolAgentHubInvokeAgent(ctx context.Context, _ *sdk.CallToolRequest, in agentHubInvokeInput) (*sdk.CallToolResult, any, error) {
+	if err := s.requireAgentHub(); err != nil {
+		return nil, nil, err
+	}
 	opaqueID := hubSessionID(in.SessionID)
 	v, err := s.deps.Caller.Call(ctx, "builtin.agenthub", "agenthub:execute", "session:"+opaqueID, meta("invoke", map[string]any{
 		"session_id": opaqueID,
@@ -121,6 +138,9 @@ type agentHubSessionIDInput struct {
 }
 
 func (s *Server) toolAgentHubGetSessionStatus(ctx context.Context, _ *sdk.CallToolRequest, in agentHubSessionIDInput) (*sdk.CallToolResult, any, error) {
+	if err := s.requireAgentHub(); err != nil {
+		return nil, nil, err
+	}
 	opaqueID := hubSessionID(in.SessionID)
 	v, err := s.deps.Caller.Call(ctx, "builtin.agenthub", "agenthub:read", "session:"+opaqueID, meta("get_status", map[string]any{
 		"session_id": opaqueID,
@@ -134,6 +154,9 @@ func (s *Server) toolAgentHubGetSessionStatus(ctx context.Context, _ *sdk.CallTo
 }
 
 func (s *Server) toolAgentHubCancelAgent(ctx context.Context, _ *sdk.CallToolRequest, in agentHubSessionIDInput) (*sdk.CallToolResult, any, error) {
+	if err := s.requireAgentHub(); err != nil {
+		return nil, nil, err
+	}
 	opaqueID := hubSessionID(in.SessionID)
 	v, err := s.deps.Caller.Call(ctx, "builtin.agenthub", "agenthub:execute", "session:"+opaqueID, meta("cancel", map[string]any{
 		"session_id": opaqueID,

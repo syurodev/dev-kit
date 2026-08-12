@@ -86,7 +86,11 @@ func (c *Conn) handleRequest(ctx context.Context, msg Message) {
 		return
 	}
 	resp := Response{JSONRPC: "2.0", ID: id}
-	if err != nil {
+	// For session/request_permission, prefer a Result body when present even if
+	// the handler also returns an error (Invoke fail-closed + ACP cancelled Result).
+	if msg.Method == "session/request_permission" && len(result) > 0 {
+		resp.Result = result
+	} else if err != nil {
 		resp.Error = &RPCError{Code: -32000, Message: err.Error()}
 	} else {
 		resp.Result = result

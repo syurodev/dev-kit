@@ -5,10 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
 )
+
+// DefaultInvokeTimeout bounds Invoke when the caller context has no deadline.
+// Overridable in tests.
+var DefaultInvokeTimeout = 10 * time.Minute
 
 // CreateInput is the request to open a new agent session.
 type CreateInput struct {
@@ -114,6 +119,10 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 }
 
 // ListSessions returns all persisted hub sessions.
+//
+// Note: after a process restart, store rows may outlive in-memory runtimes
+// (orphan sessions). Invoke/Cancel return ErrUnavailable for those; callers
+// should not assume every listed session has a live runtime.
 func (s *Service) ListSessions(ctx context.Context) ([]AgentSession, error) {
 	return s.store.ListSessions(ctx)
 }
@@ -153,6 +162,12 @@ func (s *Service) CloseSession(ctx context.Context, id string) error {
 
 // Invoke runs a blocking prompt turn on an existing session.
 func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, error) {
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline && DefaultInvokeTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, DefaultInvokeTimeout)
+		defer cancel()
+	}
+
 	sess, err := s.store.GetSession(ctx, in.SessionID)
 	if err != nil {
 		return InvokeResult{}, err
@@ -205,19 +220,37 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 		return InvokeResult{}, err
 	}
 
-	var lastUpdate json.RawMessage
+	var (
+		lastUpdateMu sync.Mutex
+		lastUpdate   json.RawMessage
+		permDenied   atomic.Bool
+	)
 	rt.SetHandlers(RuntimeHandlers{
 		OnUpdate: func(update json.RawMessage, meta json.RawMessage) {
 			_ = meta
+			lastUpdateMu.Lock()
 			lastUpdate = append(json.RawMessage(nil), update...)
+			lastUpdateMu.Unlock()
 			s.emit(in.SessionID, update)
 		},
 		OnPermission: func(ctx context.Context, params json.RawMessage) (json.RawMessage, error) {
-			return s.mediatePermission(ctx, in.SessionID, params)
+			outcome, err := s.mediatePermission(ctx, in.SessionID, params)
+			if err != nil || isDeniedPermissionOutcome(outcome) {
+				permDenied.Store(true)
+				if len(outcome) == 0 {
+					outcome = append(json.RawMessage(nil), deniedPermissionOutcome...)
+				}
+				return outcome, ErrPermissionDenied
+			}
+			return outcome, nil
 		},
 	})
 
 	outcome, promptErr := rt.Prompt(ctx, in.Prompt)
+	if permDenied.Load() {
+		_ = s.setSessionStatus(ctx, in.SessionID, SessionStatusError)
+		return InvokeResult{Status: "error"}, ErrPermissionDenied
+	}
 	if promptErr != nil {
 		finalStatus := SessionStatusError
 		if errors.Is(promptErr, ErrCancelled) || errors.Is(promptErr, context.Canceled) {
@@ -233,7 +266,10 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 		_ = s.setSessionStatus(ctx, in.SessionID, SessionStatusError)
 		return InvokeResult{Status: "error"}, err
 	}
-	files, summary, err := adapter.NormalizeToolSummary(outcome.Meta, lastUpdate)
+	lastUpdateMu.Lock()
+	updateCopy := append(json.RawMessage(nil), lastUpdate...)
+	lastUpdateMu.Unlock()
+	files, summary, err := adapter.NormalizeToolSummary(outcome.Meta, updateCopy)
 	if err != nil {
 		_ = s.setSessionStatus(ctx, in.SessionID, SessionStatusError)
 		return InvokeResult{Status: "error"}, err

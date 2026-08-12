@@ -144,8 +144,9 @@ func uniqueAbsPaths(paths ...string) []string {
 	return out
 }
 
-// claudeEnvAllowlist copies API key vars from the host env into the jail.
-// Values must never be logged.
+// claudeEnvAllowlist copies API key vars (and a minimal PATH) from the host
+// env into the jail. bwrap uses --clearenv, so without PATH absolute Command
+// still works but AllowNpx / relative lookups fail. Values must never be logged.
 func claudeEnvAllowlist() map[string]string {
 	env := make(map[string]string)
 	for _, key := range []string{"ANTHROPIC_API_KEY", "CLAUDE_API_KEY"} {
@@ -153,6 +154,11 @@ func claudeEnvAllowlist() map[string]string {
 			env[key] = v
 		}
 	}
+	path := os.Getenv("PATH")
+	if path == "" {
+		path = "/usr/local/bin:/usr/bin:/bin"
+	}
+	env["PATH"] = path
 	return env
 }
 
