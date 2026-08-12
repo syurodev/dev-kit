@@ -72,6 +72,18 @@ function sessionLabel(session: { title: string | null; agentType: string; id: st
   return session.title?.trim() || `${session.agentType} · ${session.id.slice(0, 8)}`;
 }
 
+function ActiveIndicator({ active }: { active: boolean }) {
+  if (!active) {
+    return null;
+  }
+  return (
+    <span
+      aria-hidden="true"
+      className="absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-ring"
+    />
+  );
+}
+
 export function AppSidebar({ modules, activeModuleId, onSelectModule }: AppSidebarProps) {
   const sessions = useAgentSessionsStore((state) => state.sessions);
   const setActiveSessionId = useAgentSessionsStore((state) => state.setActiveSessionId);
@@ -101,6 +113,7 @@ export function AppSidebar({ modules, activeModuleId, onSelectModule }: AppSideb
               if (module.id !== "agenthub") {
                 return (
                   <SidebarMenuItem key={module.id}>
+                    <ActiveIndicator active={module.id === activeModuleId} />
                     <SidebarMenuButton
                       isActive={module.id === activeModuleId}
                       disabled={module.unavailable}
@@ -126,6 +139,7 @@ export function AppSidebar({ modules, activeModuleId, onSelectModule }: AppSideb
                   className="group/collapsible"
                 >
                   <SidebarMenuItem>
+                    <ActiveIndicator active={module.id === activeModuleId} />
                     <SidebarMenuButton
                       isActive={module.id === activeModuleId}
                       disabled={module.unavailable}
