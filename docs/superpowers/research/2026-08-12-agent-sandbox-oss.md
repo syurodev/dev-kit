@@ -157,3 +157,9 @@ ADR: base `architecture-decisions.mdx` → **ADR-009**.
 - Implementation of `2026-08-12-agent-hub.md` is **on hold**.  
 - Phase 4 remains the product destination, but **sandbox research/spike is the next engineering priority**.  
 - When resumed, Hub plan must gain: sandbox backend wiring in Claude adapter `Open()`, fail-closed without backend, UI “sandbox active” indicator, and tests that prove home secrets are unreachable.
+
+## Ops (host packages)
+
+- Linux: `apt install bubblewrap` (required for DefaultRunner)
+- macOS: `sandbox-exec` (system)
+- Landlock: best-effort; EPERM/ENOSYS → skip
