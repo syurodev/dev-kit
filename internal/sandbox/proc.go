@@ -11,6 +11,8 @@ type Proc struct {
 	cmd       *exec.Cmd
 	stdoutBuf *bytes.Buffer
 	stderrBuf *bytes.Buffer
+	stdinW    io.WriteCloser
+	stdoutR   io.ReadCloser
 }
 
 // NewProc returns a Proc for an already-started command.
@@ -23,6 +25,15 @@ func NewProcWithBuffers(cmd *exec.Cmd, stdout, stderr *bytes.Buffer) *Proc {
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	return &Proc{cmd: cmd, stdoutBuf: stdout, stderrBuf: stderr}
+}
+
+// NewProcPiped wraps a command started with stdin/stdout pipes.
+// stderr may be a buffer for capture; pass nil to leave stderr unset.
+func NewProcPiped(cmd *exec.Cmd, stdin io.WriteCloser, stdout io.ReadCloser, stderr *bytes.Buffer) *Proc {
+	if stderr != nil {
+		cmd.Stderr = stderr
+	}
+	return &Proc{cmd: cmd, stdinW: stdin, stdoutR: stdout, stderrBuf: stderr}
 }
 
 // Output returns copies of captured stdout and stderr, when buffers were set.
@@ -64,4 +75,16 @@ func (p *Proc) Stdout() io.Writer {
 
 func (p *Proc) Stderr() io.Writer {
 	return p.cmd.Stderr
+}
+
+// StdinWriter returns the write end of the stdin pipe from StartPiped.
+// Nil when the process was started with Start (buffered).
+func (p *Proc) StdinWriter() io.WriteCloser {
+	return p.stdinW
+}
+
+// StdoutReader returns the read end of the stdout pipe from StartPiped.
+// Nil when the process was started with Start (buffered).
+func (p *Proc) StdoutReader() io.ReadCloser {
+	return p.stdoutR
 }

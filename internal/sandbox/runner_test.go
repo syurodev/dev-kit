@@ -9,7 +9,8 @@ import (
 )
 
 type fakeBackend struct {
-	start func(ctx context.Context, p Policy, c Cmd) (*Proc, error)
+	start      func(ctx context.Context, p Policy, c Cmd) (*Proc, error)
+	startPiped func(ctx context.Context, p Policy, c Cmd) (*Proc, error)
 }
 
 func (f *fakeBackend) Name() string { return "fake" }
@@ -18,6 +19,13 @@ func (f *fakeBackend) Available(context.Context) error { return nil }
 
 func (f *fakeBackend) Start(ctx context.Context, p Policy, c Cmd) (*Proc, error) {
 	return f.start(ctx, p, c)
+}
+
+func (f *fakeBackend) StartPiped(ctx context.Context, p Policy, c Cmd) (*Proc, error) {
+	if f.startPiped != nil {
+		return f.startPiped(ctx, p, c)
+	}
+	return nil, ErrUnavailable
 }
 
 func TestRunnerStartUsesBackend(t *testing.T) {
