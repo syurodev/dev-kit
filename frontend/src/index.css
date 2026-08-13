@@ -1,4 +1,6 @@
 @import "tailwindcss";
+
+@plugin "tailwind-scrollbar-hide";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
@@ -47,6 +49,8 @@
     --radius-2xl: calc(var(--radius) * 1.8);
     --radius-3xl: calc(var(--radius) * 2.2);
     --radius-4xl: calc(var(--radius) * 2.6);
+    --color-brand: var(--brand);
+    --color-highlight: var(--highlight);
 }
 
 :root {
@@ -93,6 +97,8 @@
     --status-permission-soft: rgba(255, 197, 51, 0.18);
     --status-idle: #434345;
     --status-error: #ff6161;
+    --brand: oklch(0.623 0.214 259.815);
+    --highlight: oklch(0.852 0.199 91.936);
 }
 
 @layer base {
@@ -112,4 +118,9 @@
     @apply font-sans;
     background-color: transparent;
     }
+}
+
+.dark {
+    --brand: oklch(0.707 0.165 254.624);
+    --highlight: oklch(0.852 0.199 91.936);
 }
