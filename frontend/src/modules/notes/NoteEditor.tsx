@@ -25,6 +25,9 @@ export function NoteEditor({ noteId, onDeleted, onSaved }: NoteEditorProps) {
   const [loadError, setLoadError] = useState("");
   const [saveError, setSaveError] = useState("");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveInFlight = useRef(false);
+  const pendingSave = useRef(false);
+  const pendingTitle = useRef("");
 
   const editor = usePlateEditor({
     plugins: NotesEditorKit,
@@ -73,6 +76,12 @@ export function NoteEditor({ noteId, onDeleted, onSaved }: NoteEditorProps) {
     if (!note) {
       return;
     }
+    if (saveInFlight.current) {
+      pendingSave.current = true;
+      pendingTitle.current = nextTitle;
+      return;
+    }
+    saveInFlight.current = true;
     setStatus("saving");
     setSaveError("");
     try {
@@ -84,6 +93,12 @@ export function NoteEditor({ noteId, onDeleted, onSaved }: NoteEditorProps) {
     } catch (e) {
       setStatus("error");
       setSaveError(errorMessage(e));
+    } finally {
+      saveInFlight.current = false;
+      if (pendingSave.current) {
+        pendingSave.current = false;
+        void save(pendingTitle.current);
+      }
     }
   }
 
