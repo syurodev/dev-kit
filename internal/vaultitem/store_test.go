@@ -60,6 +60,57 @@ func TestStoreOpenRejectsSwappedID(t *testing.T) {
 	}
 }
 
+func TestStoreUpdateReplacesPayloadAndMetadata(t *testing.T) {
+	s := newUnlockedStore(t)
+
+	rec, err := s.Create("note", "note-body", json.RawMessage(`{"title":"old"}`), []byte("old body"))
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	updated, err := s.Update(rec.ID, "note-body", json.RawMessage(`{"title":"new"}`), []byte("new body"))
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if updated.SyncState != syncStateLocal {
+		t.Fatalf("sync_state = %q, want %q", updated.SyncState, syncStateLocal)
+	}
+	if string(updated.Metadata) != `{"title":"new"}` {
+		t.Fatalf("metadata = %s, want new title", updated.Metadata)
+	}
+
+	plain, err := s.OpenPayload(updated, "note-body")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if string(plain) != "new body" {
+		t.Fatalf("plain = %q, want %q", plain, "new body")
+	}
+}
+
+func TestStoreUpdateFailsWhenVaultLocked(t *testing.T) {
+	s, v := newStoreWithVault(t)
+
+	rec, err := s.Create("note", "note-body", json.RawMessage(`{"title":"x"}`), []byte("secret body"))
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	v.Lock()
+
+	if _, err := s.Update(rec.ID, "note-body", json.RawMessage(`{"title":"y"}`), []byte("new secret")); err == nil {
+		t.Fatal("expected Update to fail when vault is locked")
+	}
+}
+
+func TestStoreUpdateFailsForUnknownID(t *testing.T) {
+	s := newUnlockedStore(t)
+
+	if _, err := s.Update("does-not-exist", "note-body", json.RawMessage(`{"title":"x"}`), []byte("body")); err == nil {
+		t.Fatal("expected Update to fail for an unknown id")
+	}
+}
+
 func TestStoreSearchMetadataAcrossTypes(t *testing.T) {
 	s := newUnlockedStore(t)
 

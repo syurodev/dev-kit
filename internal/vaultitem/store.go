@@ -121,6 +121,30 @@ func (s *Store) UpdateMetadata(id string, metadata json.RawMessage) (Record, err
 	return record, nil
 }
 
+// Update rewrites both metadata and payload in one write, bumping
+// UpdatedAt and marking the record dirty for sync. The general-purpose
+// sibling of UpdateMetadata (metadata-only) and Reseal (payload-only,
+// caller persists) — this is the method that lets a caller replace both
+// plaintext metadata and the encrypted payload atomically in one Put.
+func (s *Store) Update(id, keyID string, metadata json.RawMessage, secret []byte) (Record, error) {
+	record, err := s.repo.Get(id)
+	if err != nil {
+		return Record{}, err
+	}
+	envelope, err := s.vault.SealV2(associatedData(record.Type, id, keyID), secret)
+	if err != nil {
+		return Record{}, err
+	}
+	record.Metadata = metadata
+	record.Payload = &envelope
+	record.UpdatedAt = time.Now().UTC()
+	record.SyncState = syncStateLocal
+	if err := s.repo.Put(record); err != nil {
+		return Record{}, err
+	}
+	return record, nil
+}
+
 // Delete removes an item by id.
 func (s *Store) Delete(id string) error {
 	return s.repo.Delete(id)
