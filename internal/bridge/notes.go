@@ -42,6 +42,20 @@ func (s *AppService) NotesCreate(title string, body string) (notes.Summary, erro
 	return result.(notes.Summary), nil
 }
 
+func (s *AppService) NotesUpdate(id string, title string, body string) (notes.Note, error) {
+	opaqueID := recordID(id)
+	result, err := s.call(context.Background(), "builtin.notes", "notes:write", "note:"+opaqueID, map[string]any{
+		"action":  "update",
+		"note_id": opaqueID,
+	}, func(context.Context) (any, error) {
+		return s.container.Notes.Update(id, title, body)
+	})
+	if err != nil {
+		return notes.Note{}, err
+	}
+	return result.(notes.Note), nil
+}
+
 func (s *AppService) NotesGet(id string) (notes.Note, error) {
 	opaqueID := recordID(id)
 	result, err := s.call(context.Background(), "builtin.notes", "notes:read", "note:"+opaqueID, map[string]any{
