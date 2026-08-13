@@ -35,6 +35,15 @@ func (s *Server) registerNotes() {
 	}, s.toolNotesCreate)
 
 	sdk.AddTool(s.mcp, &sdk.Tool{
+		Name:        "notes.update",
+		Description: "Update an existing note's title and body",
+		Annotations: &sdk.ToolAnnotations{
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(false),
+		},
+	}, s.toolNotesUpdate)
+
+	sdk.AddTool(s.mcp, &sdk.Tool{
 		Name:        "notes.delete",
 		Description: "Delete a note by id",
 		Annotations: &sdk.ToolAnnotations{
@@ -93,6 +102,25 @@ type notesCreateInput struct {
 func (s *Server) toolNotesCreate(ctx context.Context, _ *sdk.CallToolRequest, in notesCreateInput) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.notes", "notes:write", "note:new", meta("create", nil), func(context.Context) (any, error) {
 		return s.deps.Notes.Create(in.Title, in.Body)
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, v, nil
+}
+
+type notesUpdateInput struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	Body  string `json:"body"`
+}
+
+func (s *Server) toolNotesUpdate(ctx context.Context, _ *sdk.CallToolRequest, in notesUpdateInput) (*sdk.CallToolResult, any, error) {
+	opaqueID := recordID(in.ID)
+	v, err := s.deps.Caller.Call(ctx, "builtin.notes", "notes:write", "note:"+opaqueID, meta("update", map[string]any{
+		"note_id": opaqueID,
+	}), func(context.Context) (any, error) {
+		return s.deps.Notes.Update(in.ID, in.Title, in.Body)
 	})
 	if err != nil {
 		return nil, nil, err

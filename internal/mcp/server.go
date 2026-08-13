@@ -33,6 +33,7 @@ type NotesAPI interface {
 	Search(query string) ([]notes.Summary, error)
 	Get(id string) (notes.Note, error)
 	Create(title, body string) (notes.Summary, error)
+	Update(id, title, body string) (notes.Note, error)
 	Delete(id string) error
 }
 
