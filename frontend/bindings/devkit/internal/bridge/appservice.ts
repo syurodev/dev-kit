@@ -253,6 +253,10 @@ export function NotesSearch(query: string): $CancellablePromise<notes$0.Summary[
     return $Call.ByID(4193008759, query);
 }
 
+export function NotesUpdate(id: string, title: string, body: string): $CancellablePromise<notes$0.Note> {
+    return $Call.ByID(3274258150, id, title, body);
+}
+
 export function SSHActiveProfile(): $CancellablePromise<$models.ActiveProfileDTO> {
     return $Call.ByID(3462748943);
 }

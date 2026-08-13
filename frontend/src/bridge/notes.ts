@@ -31,6 +31,13 @@ export function createNote(title: string, body: string): Promise<NoteSummary> {
   });
 }
 
+export function updateNote(id: string, title: string, body: string): Promise<Note> {
+  return callBridge(async () => {
+    const n = await AppService.NotesUpdate(id, title, body);
+    return { id: n.id, title: n.title, body: n.body };
+  });
+}
+
 export function searchNotes(query: string): Promise<NoteSummary[]> {
   return callBridge(async () => {
     const list = await AppService.NotesSearch(query);
