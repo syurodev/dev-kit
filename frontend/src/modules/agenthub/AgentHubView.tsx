@@ -1,7 +1,8 @@
+// frontend/src/modules/agenthub/AgentHubView.tsx
 import { useEffect, useMemo, useState } from "react";
 import {
   agentHubCreateSession,
-  agentHubListAgents,
+  agentHubGetStatus,
   agentHubListVendorTypes,
   agentHubResolvePermission,
   cancelledPermissionOutcome,
@@ -12,37 +13,50 @@ import {
   permissionToolTitle,
   sandboxUnavailableMessage,
   selectedPermissionOutcome,
-  type AgentSession,
   type AgentVendor,
   type PendingPermission,
 } from "../../bridge/agenthub";
 import { errorMessage } from "../../bridge/errors";
 import { appendUpdateLine, SessionTab, type TranscriptLine } from "./SessionTab";
+import { useAgentSessionsStore } from "../../stores/agentSessions";
 
-type TabState = {
-  session: AgentSession;
+type TranscriptState = {
   lines: TranscriptLine[];
   prompt: string;
 };
 
 const DEFAULT_VENDORS: AgentVendor[] = ["mock", "claude"];
+const EMPTY_TRANSCRIPT: TranscriptState = { lines: [], prompt: "" };
 
 export function AgentHubView() {
+  const sessions = useAgentSessionsStore((state) => state.sessions);
+  const activeSessionId = useAgentSessionsStore((state) => state.activeSessionId);
+  const setActiveSessionId = useAgentSessionsStore((state) => state.setActiveSessionId);
+  const upsertSession = useAgentSessionsStore((state) => state.upsertSession);
+
   const [vendors, setVendors] = useState<string[]>(DEFAULT_VENDORS);
   const [vendor, setVendor] = useState<string>("mock");
   const [cwd, setCwd] = useState(".");
-  const [tabs, setTabs] = useState<TabState[]>([]);
-  const [activeId, setActiveId] = useState("");
+  const [transcripts, setTranscripts] = useState<Record<string, TranscriptState>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [sandboxHint, setSandboxHint] = useState("");
   const [pending, setPending] = useState<PendingPermission | null>(null);
   const [permBusy, setPermBusy] = useState(false);
 
-  const activeTab = useMemo(
-    () => tabs.find((t) => t.session.id === activeId) ?? tabs[0],
-    [tabs, activeId],
+  const activeSession = useMemo(
+    () => sessions.find((s) => s.id === activeSessionId) ?? sessions[0],
+    [sessions, activeSessionId],
   );
+  const activeTranscript = activeSession
+    ? transcripts[activeSession.id] ?? EMPTY_TRANSCRIPT
+    : EMPTY_TRANSCRIPT;
+
+  useEffect(() => {
+    if (!activeSessionId && sessions.length > 0) {
+      setActiveSessionId(sessions[0].id);
+    }
+  }, [sessions, activeSessionId, setActiveSessionId]);
 
   useEffect(() => {
     let mounted = true;
@@ -59,25 +73,6 @@ export function AgentHubView() {
       .catch(() => {
         // Keep mock|claude defaults when listing fails (e.g. hub unavailable).
       });
-
-    agentHubListAgents()
-      .then((sessions) => {
-        if (!mounted || sessions.length === 0) {
-          return;
-        }
-        setTabs(
-          sessions
-            .filter((s) => s.status !== "closed")
-            .map((session) => ({ session, lines: [], prompt: "" })),
-        );
-        setActiveId(sessions[0]?.id ?? "");
-      })
-      .catch((e) => {
-        if (mounted) {
-          setError(errorMessage(e));
-        }
-      });
-
     return () => {
       mounted = false;
     };
@@ -85,17 +80,16 @@ export function AgentHubView() {
 
   useEffect(() => {
     const offUpdate = onAgentHubSessionUpdate((event) => {
-      setTabs((prev) =>
-        prev.map((tab) => {
-          if (tab.session.id !== event.sessionId) {
-            return tab;
-          }
-          return {
-            ...tab,
-            lines: appendUpdateLine(tab.lines, event.update),
-          };
-        }),
-      );
+      setTranscripts((prev) => {
+        const current = prev[event.sessionId] ?? EMPTY_TRANSCRIPT;
+        return {
+          ...prev,
+          [event.sessionId]: {
+            ...current,
+            lines: appendUpdateLine(current.lines, event.update),
+          },
+        };
+      });
     });
     const offPermission = onAgentHubPermission((next) => {
       setPending(next);
@@ -106,14 +100,6 @@ export function AgentHubView() {
     };
   }, []);
 
-  function updateTab(sessionId: string, patch: Partial<TabState>) {
-    setTabs((prev) =>
-      prev.map((tab) =>
-        tab.session.id === sessionId ? { ...tab, ...patch } : tab,
-      ),
-    );
-  }
-
   async function onNewTab() {
     setBusy(true);
     setError("");
@@ -123,8 +109,8 @@ export function AgentHubView() {
         agentType: vendor,
         cwd: cwd.trim() || ".",
       });
-      setTabs((prev) => [...prev, { session, lines: [], prompt: "" }]);
-      setActiveId(session.id);
+      upsertSession(session);
+      setActiveSessionId(session.id);
     } catch (e) {
       setError(errorMessage(e));
       if (vendor === "claude" && isSandboxUnavailableError(e)) {
@@ -148,6 +134,11 @@ export function AgentHubView() {
           : selectedPermissionOutcome(optionId);
       await agentHubResolvePermission(pending.id, outcome);
       setPending(null);
+      try {
+        upsertSession(await agentHubGetStatus(pending.sessionId));
+      } catch (e) {
+        setError(errorMessage(e));
+      }
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -194,58 +185,33 @@ export function AgentHubView() {
         </button>
       </div>
 
-      {tabs.length > 0 ? (
-        <div className="agenthub-tabstrip" role="tablist" aria-label="agenthub-sessions">
-          {tabs.map((tab) => {
-            const label =
-              tab.session.title?.trim() ||
-              `${tab.session.agentType} · ${tab.session.id.slice(0, 8)}`;
-            const isActive = tab.session.id === activeTab?.session.id;
-            return (
-              <button
-                key={tab.session.id}
-                type="button"
-                role="tab"
-                aria-selected={isActive}
-                className={isActive ? "is-active" : undefined}
-                onClick={() => setActiveId(tab.session.id)}
-              >
-                <span>{label}</span>
-                <span className={`agenthub-status is-${tab.session.status}`}>
-                  {tab.session.status || "?"}
-                </span>
-              </button>
-            );
-          })}
-        </div>
+      {activeSession ? (
+        <SessionTab
+          session={activeSession}
+          lines={activeTranscript.lines}
+          prompt={activeTranscript.prompt}
+          busy={busy}
+          onPromptChange={(prompt) =>
+            setTranscripts((prev) => ({
+              ...prev,
+              [activeSession.id]: { ...(prev[activeSession.id] ?? EMPTY_TRANSCRIPT), prompt },
+            }))
+          }
+          onLinesChange={(updater) =>
+            setTranscripts((prev) => ({
+              ...prev,
+              [activeSession.id]: {
+                ...(prev[activeSession.id] ?? EMPTY_TRANSCRIPT),
+                lines: updater(prev[activeSession.id]?.lines ?? []),
+              },
+            }))
+          }
+          onSessionChange={(session) => upsertSession(session)}
+          onError={setError}
+        />
       ) : (
         <p className="agenthub-empty">No sessions. Create a tab to begin.</p>
       )}
-
-      {activeTab ? (
-        <SessionTab
-          session={activeTab.session}
-          lines={activeTab.lines}
-          prompt={activeTab.prompt}
-          busy={busy}
-          onPromptChange={(prompt) =>
-            updateTab(activeTab.session.id, { prompt })
-          }
-          onLinesChange={(updater) =>
-            setTabs((prev) =>
-              prev.map((tab) =>
-                tab.session.id === activeTab.session.id
-                  ? { ...tab, lines: updater(tab.lines) }
-                  : tab,
-              ),
-            )
-          }
-          onSessionChange={(session) =>
-            updateTab(activeTab.session.id, { session })
-          }
-          onError={setError}
-        />
-      ) : null}
 
       {sandboxHint ? (
         <div className="agenthub-sandbox-error" role="alert">

@@ -1,3 +1,12 @@
+import {
+  CommandDialog,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+
 type CommandPaletteProps = {
   open: boolean;
   commands: Array<{ id: string; title: string }>;
@@ -5,27 +14,26 @@ type CommandPaletteProps = {
 };
 
 export function CommandPalette({ open, commands, onClose }: CommandPaletteProps) {
-  if (!open) {
-    return null;
-  }
-
   return (
-    <div className="command-palette" role="dialog" aria-modal="true">
-      <div className="command-palette-panel">
-        <div className="command-palette-header">
-          <span>Commands</span>
-          <button type="button" onClick={onClose}>
-            Close
-          </button>
-        </div>
-        <ul>
-          {commands.length > 0 ? (
-            commands.map((command) => <li key={command.id}>{command.title}</li>)
-          ) : (
-            <li role="status">No commands are currently available.</li>
-          )}
-        </ul>
-      </div>
-    </div>
+    <CommandDialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) {
+          onClose();
+        }
+      }}
+    >
+      <CommandInput placeholder="Search commands..." />
+      <CommandList>
+        <CommandEmpty>No commands are currently available.</CommandEmpty>
+        <CommandGroup heading="Commands">
+          {commands.map((command) => (
+            <CommandItem key={command.id} value={command.title} onSelect={onClose}>
+              {command.title}
+            </CommandItem>
+          ))}
+        </CommandGroup>
+      </CommandList>
+    </CommandDialog>
   );
 }
