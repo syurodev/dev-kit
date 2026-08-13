@@ -21,6 +21,7 @@ type Store interface {
 	Get(id string) (vaultitem.Record, error)
 	OpenPayload(record vaultitem.Record, keyID string) ([]byte, error)
 	ListByType(itemType string) ([]vaultitem.Record, error)
+	Update(id, keyID string, metadata json.RawMessage, secret []byte) (vaultitem.Record, error)
 	Delete(id string) error
 }
 
@@ -106,6 +107,27 @@ func (s *Service) Get(id string) (Note, error) {
 		ID:        record.ID,
 		Title:     meta.Title,
 		Body:      string(plain),
+		CreatedAt: record.CreatedAt,
+		UpdatedAt: record.UpdatedAt,
+	}, nil
+}
+
+func (s *Service) Update(id, title, body string) (Note, error) {
+	if title == "" {
+		return Note{}, errors.New("title is required")
+	}
+	meta, err := json.Marshal(metadata{Title: title})
+	if err != nil {
+		return Note{}, err
+	}
+	record, err := s.store.Update(id, bodyKeyID, meta, []byte(body))
+	if err != nil {
+		return Note{}, err
+	}
+	return Note{
+		ID:        record.ID,
+		Title:     title,
+		Body:      body,
 		CreatedAt: record.CreatedAt,
 		UpdatedAt: record.UpdatedAt,
 	}, nil

@@ -43,6 +43,45 @@ func TestCreateRequiresTitle(t *testing.T) {
 	}
 }
 
+func TestUpdateReplacesTitleAndBody(t *testing.T) {
+	s := newService(t)
+	summary, err := s.Create("Old title", "old body")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	updated, err := s.Update(summary.ID, "New title", "new body")
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if updated.Title != "New title" || updated.Body != "new body" {
+		t.Fatalf("updated = %+v", updated)
+	}
+
+	fetched, err := s.Get(summary.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if fetched.Title != "New title" || fetched.Body != "new body" {
+		t.Fatalf("fetched = %+v", fetched)
+	}
+}
+
+func TestUpdateRequiresTitle(t *testing.T) {
+	s := newService(t)
+	summary, _ := s.Create("Title", "body")
+	if _, err := s.Update(summary.ID, "", "body"); err == nil {
+		t.Fatal("expected error for empty title")
+	}
+}
+
+func TestUpdateFailsForUnknownID(t *testing.T) {
+	s := newService(t)
+	if _, err := s.Update("does-not-exist", "Title", "body"); err == nil {
+		t.Fatal("expected error for unknown id")
+	}
+}
+
 func TestListReturnsSummaries(t *testing.T) {
 	s := newService(t)
 	s.Create("A", "1")
