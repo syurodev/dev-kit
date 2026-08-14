@@ -1,5 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { MoreHorizontal, Plus, X } from "lucide-react";
+import {
+  ChevronRight,
+  Folder,
+  Inbox,
+  LayoutGrid,
+  MoreHorizontal,
+  Plus,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -13,6 +21,11 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   Dialog,
   DialogContent,
@@ -28,6 +41,21 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarGroup,
+  SidebarGroupAction,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarMenu,
+  SidebarMenuAction,
+  SidebarMenuBadge,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarProvider,
+  SidebarTrigger,
+} from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
 import { errorMessage } from "../../bridge/errors";
 import {
@@ -340,166 +368,181 @@ export function NotesDashboard({
     }
   }
 
-  function scopeButtonClass(active: boolean) {
-    return cn(
-      "flex w-full items-center gap-2 rounded-sm px-2.5 py-1.5 text-left text-base tracking-[0.2px]",
-      active ? "bg-accent text-accent-foreground" : "hover:bg-accent/60",
-    );
-  }
-
   return (
-    <div className="notes-font-scope flex h-full min-h-0 flex-1">
-      <aside className="flex w-56 shrink-0 flex-col border-r border-border">
-        <ScrollArea className="min-h-0 flex-1">
-          <div className="flex flex-col gap-0.5 p-2">
-            <button
-              type="button"
-              className={scopeButtonClass(scope === "all")}
-              onClick={() => setScope("all")}
-            >
-              <span className="flex-1 truncate">All</span>
-              <span className="text-xs tracking-[0.4px] text-muted-foreground">{counts.all}</span>
-            </button>
-            <button
-              type="button"
-              className={scopeButtonClass(scope === "ungrouped")}
-              onClick={() => setScope("ungrouped")}
-            >
-              <span className="flex-1 truncate">Ungrouped</span>
-              <span className="text-xs tracking-[0.4px] text-muted-foreground">{counts.ungrouped}</span>
-            </button>
+    <div className="notes-font-scope contain-layout flex h-full min-h-0 flex-1">
+      <SidebarProvider className="flex h-full min-h-0 w-full">
+        <Sidebar collapsible="icon" className="border-r border-border">
+          <SidebarContent>
+            <SidebarGroup>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      isActive={scope === "all"}
+                      tooltip="All"
+                      onClick={() => setScope("all")}
+                    >
+                      <LayoutGrid />
+                      <span>All</span>
+                    </SidebarMenuButton>
+                    <SidebarMenuBadge>{counts.all}</SidebarMenuBadge>
+                  </SidebarMenuItem>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      isActive={scope === "ungrouped"}
+                      tooltip="Ungrouped"
+                      onClick={() => setScope("ungrouped")}
+                    >
+                      <Inbox />
+                      <span>Ungrouped</span>
+                    </SidebarMenuButton>
+                    <SidebarMenuBadge>{counts.ungrouped}</SidebarMenuBadge>
+                  </SidebarMenuItem>
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
 
-            {folders.map((folder) => (
-              <div key={folder.id} className="group relative flex items-center">
-                <button
-                  type="button"
-                  className={cn(scopeButtonClass(scope === `folder:${folder.id}`), "pr-8")}
-                  onClick={() => setScope(`folder:${folder.id}`)}
+            <Collapsible defaultOpen className="group/folders">
+              <SidebarGroup>
+                <CollapsibleTrigger asChild>
+                  <SidebarGroupLabel className="cursor-pointer">
+                    <ChevronRight className="size-3 shrink-0 transition-transform group-data-[state=open]/folders:rotate-90" />
+                    <span className="flex-1">Folders</span>
+                  </SidebarGroupLabel>
+                </CollapsibleTrigger>
+                <SidebarGroupAction
+                  onClick={() => setCreateOpen(true)}
+                  aria-label="New folder"
+                  className="opacity-0 group-hover/folders:opacity-100"
                 >
-                  <span
-                    className="size-2 shrink-0 rounded-full"
-                    style={{ background: folderDotVar(folder.color) }}
-                    aria-hidden
+                  <Plus />
+                </SidebarGroupAction>
+                <CollapsibleContent>
+                  <SidebarGroupContent>
+                    <SidebarMenu>
+                      {folders.map((folder) => (
+                        <SidebarMenuItem key={folder.id}>
+                          <SidebarMenuButton
+                            isActive={scope === `folder:${folder.id}`}
+                            tooltip={folder.name}
+                            onClick={() => setScope(`folder:${folder.id}`)}
+                          >
+                            <Folder
+                              fill={folderDotVar(folder.color)}
+                              stroke="none"
+                            />
+                            <span className="truncate">{folder.name}</span>
+                          </SidebarMenuButton>
+                          <SidebarMenuBadge className="group-hover/menu-item:opacity-0">
+                            {counts.byFolder.get(folder.id) ?? 0}
+                          </SidebarMenuBadge>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <SidebarMenuAction
+                                showOnHover
+                                aria-label={`${folder.name} options`}
+                              >
+                                <MoreHorizontal />
+                              </SidebarMenuAction>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" side="right">
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  setRenameFolder(folder);
+                                  setRenameName(folder.name);
+                                  setRenameColor(
+                                    (FOLDER_COLORS.includes(
+                                      folder.color as FolderColor,
+                                    )
+                                      ? folder.color
+                                      : "gray") as FolderColor,
+                                  );
+                                }}
+                              >
+                                Rename
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  setEditTagsFolder(folder);
+                                  setEditTags([...folder.tags]);
+                                }}
+                              >
+                                Edit tags
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                variant="destructive"
+                                onClick={() => setDeleteTarget(folder)}
+                              >
+                                Delete
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </SidebarMenuItem>
+                      ))}
+                    </SidebarMenu>
+                  </SidebarGroupContent>
+                </CollapsibleContent>
+              </SidebarGroup>
+            </Collapsible>
+          </SidebarContent>
+        </Sidebar>
+
+        <section className="flex min-h-0 flex-1 flex-col">
+          <div className="flex flex-wrap items-center gap-2 border-b border-border p-3">
+            <SidebarTrigger />
+            <Input
+              aria-label="note-search"
+              placeholder="Search notes..."
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                void refresh(e.target.value);
+              }}
+              className="h-8 max-w-sm"
+            />
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={creating}
+              onClick={() => void onCreateNote()}
+            >
+              <Plus className="size-4" />
+              New note
+            </Button>
+            {selectedTags.length > 0 ? (
+              <div className="flex flex-wrap items-center gap-1.5">
+                {selectedTags.map((tag) => (
+                  <TagChip
+                    key={tag.toLowerCase()}
+                    tag={tag}
+                    onClick={() => toggleTagFilter(tag)}
+                    onRemove={() => toggleTagFilter(tag)}
                   />
-                  <span className="flex-1 truncate">{folder.name}</span>
-                  <span className="text-xs tracking-[0.4px] text-muted-foreground">
-                    {counts.byFolder.get(folder.id) ?? 0}
-                  </span>
-                </button>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      type="button"
-                      size="icon-sm"
-                      variant="ghost"
-                      className="absolute right-0.5 size-7 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100"
-                      aria-label={`${folder.name} options`}
-                    >
-                      <MoreHorizontal className="size-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem
-                      onClick={() => {
-                        setRenameFolder(folder);
-                        setRenameName(folder.name);
-                        setRenameColor(
-                          (FOLDER_COLORS.includes(folder.color as FolderColor)
-                            ? folder.color
-                            : "gray") as FolderColor,
-                        );
-                      }}
-                    >
-                      Rename
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => {
-                        setEditTagsFolder(folder);
-                        setEditTags([...folder.tags]);
-                      }}
-                    >
-                      Edit tags
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      variant="destructive"
-                      onClick={() => setDeleteTarget(folder)}
-                    >
-                      Delete
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                ))}
               </div>
-            ))}
-          </div>
-        </ScrollArea>
-        <div className="border-t border-border p-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="w-full justify-start gap-2"
-            onClick={() => setCreateOpen(true)}
-          >
-            <Plus className="size-4" />
-            New folder
-          </Button>
-        </div>
-      </aside>
-
-      <section className="flex min-h-0 flex-1 flex-col">
-        <div className="flex flex-wrap items-center gap-2 border-b border-border p-3">
-          <Input
-            aria-label="note-search"
-            placeholder="Search notes..."
-            value={query}
-            onChange={(e) => {
-              setQuery(e.target.value);
-              void refresh(e.target.value);
-            }}
-            className="h-8 max-w-sm"
-          />
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={creating}
-            onClick={() => void onCreateNote()}
-          >
-            <Plus className="size-4" />
-            New note
-          </Button>
-          {selectedTags.length > 0 ? (
-            <div className="flex flex-wrap items-center gap-1.5">
-              {selectedTags.map((tag) => (
-                <TagChip
-                  key={tag.toLowerCase()}
-                  tag={tag}
-                  onClick={() => toggleTagFilter(tag)}
-                  onRemove={() => toggleTagFilter(tag)}
-                />
-              ))}
-            </div>
-          ) : null}
-        </div>
-
-        <ScrollArea className="min-h-0 flex-1">
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] gap-3.5 p-3">
-            {filtered.map((note) => (
-              <NoteCard
-                key={note.id}
-                note={note}
-                onOpen={onOpenNote}
-                onTagClick={toggleTagFilter}
-              />
-            ))}
-            {filtered.length === 0 ? (
-              <p className="col-span-full px-1 py-6 text-sm text-muted-foreground">
-                No notes match this view.
-              </p>
             ) : null}
           </div>
-        </ScrollArea>
-      </section>
+
+          <ScrollArea className="min-h-0 flex-1">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] gap-3.5 p-3">
+              {filtered.map((note) => (
+                <NoteCard
+                  key={note.id}
+                  note={note}
+                  onOpen={onOpenNote}
+                  onTagClick={toggleTagFilter}
+                />
+              ))}
+              {filtered.length === 0 ? (
+                <p className="col-span-full px-1 py-6 text-sm text-muted-foreground">
+                  No notes match this view.
+                </p>
+              ) : null}
+            </div>
+          </ScrollArea>
+        </section>
+      </SidebarProvider>
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="sm:max-w-md">
