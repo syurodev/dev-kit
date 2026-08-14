@@ -204,7 +204,7 @@ func TestSetOrganizationAndLiveInheritance(t *testing.T) {
 	if !strings.Contains(joined, "work") || !strings.Contains(joined, "q3") {
 		t.Fatalf("EffectiveTags = %#v", got.EffectiveTags)
 	}
-	if _, err := s.SetOrganization(summary.ID, "", []string{"keep"}); err != nil {
+	if _, err := s.SetOrganization(summary.ID, "", []string{"keep"}, ""); err != nil {
 		t.Fatalf("SetOrganization: %v", err)
 	}
 	moved, _ := s.Get(summary.ID)
@@ -268,5 +268,89 @@ func TestDeleteFolderCopyDown(t *testing.T) {
 	list, _ := s.ListFolders()
 	if len(list) != 0 {
 		t.Fatalf("folder still listed: %+v", list)
+	}
+}
+
+func TestEffectiveColorFromFolder(t *testing.T) {
+	s := newService(t)
+	folder, _ := s.CreateFolder("Work", "blue", nil)
+	summary, err := s.Create("T", "b", folder.ID, nil)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if summary.Color != "" {
+		t.Fatalf("Color = %q, want empty", summary.Color)
+	}
+	if summary.EffectiveColor != "blue" {
+		t.Fatalf("EffectiveColor = %q, want blue", summary.EffectiveColor)
+	}
+}
+
+func TestSetOrganizationOwnColorOverridesFolder(t *testing.T) {
+	s := newService(t)
+	folder, _ := s.CreateFolder("Work", "blue", nil)
+	summary, _ := s.Create("T", "b", folder.ID, nil)
+	updated, err := s.SetOrganization(summary.ID, folder.ID, nil, "red")
+	if err != nil {
+		t.Fatalf("SetOrganization: %v", err)
+	}
+	if updated.Color != "red" || updated.EffectiveColor != "red" {
+		t.Fatalf("updated = %+v", updated)
+	}
+}
+
+func TestSetOrganizationRejectsInvalidColor(t *testing.T) {
+	s := newService(t)
+	summary, _ := s.Create("T", "b", "", nil)
+	if _, err := s.SetOrganization(summary.ID, "", nil, "neon"); err == nil {
+		t.Fatal("expected error for invalid color")
+	}
+}
+
+func TestSetOrganizationClearingColorRevertsToFolder(t *testing.T) {
+	s := newService(t)
+	folder, _ := s.CreateFolder("Work", "blue", nil)
+	summary, _ := s.Create("T", "b", folder.ID, nil)
+	if _, err := s.SetOrganization(summary.ID, folder.ID, nil, "red"); err != nil {
+		t.Fatalf("SetOrganization: %v", err)
+	}
+	cleared, err := s.SetOrganization(summary.ID, folder.ID, nil, "")
+	if err != nil {
+		t.Fatalf("SetOrganization: %v", err)
+	}
+	if cleared.Color != "" || cleared.EffectiveColor != "blue" {
+		t.Fatalf("cleared = %+v", cleared)
+	}
+}
+
+func TestDeleteFolderCopiesColorWhenInheriting(t *testing.T) {
+	s := newService(t)
+	folder, _ := s.CreateFolder("Work", "blue", nil)
+	summary, _ := s.Create("T", "b", folder.ID, nil)
+	if err := s.DeleteFolder(folder.ID); err != nil {
+		t.Fatalf("DeleteFolder: %v", err)
+	}
+	got, _ := s.Get(summary.ID)
+	if got.Color != "blue" {
+		t.Fatalf("Color = %q, want blue", got.Color)
+	}
+	if got.EffectiveColor != "blue" {
+		t.Fatalf("EffectiveColor = %q, want blue", got.EffectiveColor)
+	}
+}
+
+func TestDeleteFolderKeepsExplicitNoteColor(t *testing.T) {
+	s := newService(t)
+	folder, _ := s.CreateFolder("Work", "blue", nil)
+	summary, _ := s.Create("T", "b", folder.ID, nil)
+	if _, err := s.SetOrganization(summary.ID, folder.ID, nil, "red"); err != nil {
+		t.Fatalf("SetOrganization: %v", err)
+	}
+	if err := s.DeleteFolder(folder.ID); err != nil {
+		t.Fatalf("DeleteFolder: %v", err)
+	}
+	got, _ := s.Get(summary.ID)
+	if got.Color != "red" {
+		t.Fatalf("Color = %q, want red (untouched)", got.Color)
 	}
 }

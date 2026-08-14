@@ -143,7 +143,11 @@ func (s *Service) DeleteFolder(id string) error {
 		if note.FolderID != id {
 			continue
 		}
-		if _, err := s.SetOrganization(note.ID, "", UnionTags(note.Tags, folder.Tags)); err != nil {
+		color := note.Color
+		if color == "" {
+			color = folder.Color
+		}
+		if _, err := s.SetOrganization(note.ID, "", UnionTags(note.Tags, folder.Tags), color); err != nil {
 			return err
 		}
 	}

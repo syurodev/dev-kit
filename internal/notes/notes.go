@@ -32,30 +32,35 @@ type metadata struct {
 	Title    string   `json:"title"`
 	FolderID string   `json:"folder_id,omitempty"`
 	Tags     []string `json:"tags,omitempty"`
+	Color    string   `json:"color,omitempty"`
 }
 
 // Summary is a note without its (encrypted) body, safe to list while unlocked.
 type Summary struct {
-	ID            string    `json:"id"`
-	Title         string    `json:"title"`
-	Preview       string    `json:"preview"`
-	FolderID      string    `json:"folder_id"`
-	Tags          []string  `json:"tags"`
-	EffectiveTags []string  `json:"effective_tags"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID             string    `json:"id"`
+	Title          string    `json:"title"`
+	Preview        string    `json:"preview"`
+	FolderID       string    `json:"folder_id"`
+	Tags           []string  `json:"tags"`
+	EffectiveTags  []string  `json:"effective_tags"`
+	Color          string    `json:"color"`
+	EffectiveColor string    `json:"effective_color"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 // Note is the decrypted form returned to the caller.
 type Note struct {
-	ID            string    `json:"id"`
-	Title         string    `json:"title"`
-	Body          string    `json:"body"`
-	FolderID      string    `json:"folder_id"`
-	Tags          []string  `json:"tags"`
-	EffectiveTags []string  `json:"effective_tags"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID             string    `json:"id"`
+	Title          string    `json:"title"`
+	Body           string    `json:"body"`
+	FolderID       string    `json:"folder_id"`
+	Tags           []string  `json:"tags"`
+	EffectiveTags  []string  `json:"effective_tags"`
+	Color          string    `json:"color"`
+	EffectiveColor string    `json:"effective_color"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 type Service struct {
@@ -166,10 +171,13 @@ func (s *Service) Update(id, title, body string) (Note, error) {
 	return noteFrom(record, meta, body, folderMap), nil
 }
 
-func (s *Service) SetOrganization(id, folderID string, tags []string) (Summary, error) {
+func (s *Service) SetOrganization(id, folderID string, tags []string, color string) (Summary, error) {
 	normalized, err := NormalizeTags(tags)
 	if err != nil {
 		return Summary{}, err
+	}
+	if color != "" && !vaultitem.ValidNoteFolderColor(color) {
+		return Summary{}, errors.New("invalid note color")
 	}
 	if folderID != "" {
 		record, err := s.store.Get(folderID)
@@ -187,6 +195,7 @@ func (s *Service) SetOrganization(id, folderID string, tags []string) (Summary, 
 	}
 	meta.FolderID = folderID
 	meta.Tags = normalized
+	meta.Color = color
 	metaBytes, err := json.Marshal(meta)
 	if err != nil {
 		return Summary{}, err
@@ -295,6 +304,20 @@ func effectiveTags(meta metadata, folderMap map[string]Folder) []string {
 	return UnionTags(own, nonNilTags(folder.Tags))
 }
 
+func effectiveColor(meta metadata, folderMap map[string]Folder) string {
+	if meta.Color != "" {
+		return meta.Color
+	}
+	if meta.FolderID == "" {
+		return ""
+	}
+	folder, ok := folderMap[meta.FolderID]
+	if !ok {
+		return ""
+	}
+	return folder.Color
+}
+
 func decodeMetadata(record vaultitem.Record) (metadata, error) {
 	var meta metadata
 	if err := json.Unmarshal(record.Metadata, &meta); err != nil {
@@ -314,13 +337,15 @@ func previewFromBody(body string) string {
 
 func (s *Service) summaryFrom(record vaultitem.Record, meta metadata, folderMap map[string]Folder) Summary {
 	summary := Summary{
-		ID:            record.ID,
-		Title:         meta.Title,
-		FolderID:      meta.FolderID,
-		Tags:          nonNilTags(meta.Tags),
-		EffectiveTags: effectiveTags(meta, folderMap),
-		CreatedAt:     record.CreatedAt,
-		UpdatedAt:     record.UpdatedAt,
+		ID:             record.ID,
+		Title:          meta.Title,
+		FolderID:       meta.FolderID,
+		Tags:           nonNilTags(meta.Tags),
+		EffectiveTags:  effectiveTags(meta, folderMap),
+		Color:          meta.Color,
+		EffectiveColor: effectiveColor(meta, folderMap),
+		CreatedAt:      record.CreatedAt,
+		UpdatedAt:      record.UpdatedAt,
 	}
 	if plain, err := s.store.OpenPayload(record, bodyKeyID); err == nil {
 		summary.Preview = previewFromBody(string(plain))
@@ -330,14 +355,16 @@ func (s *Service) summaryFrom(record vaultitem.Record, meta metadata, folderMap 
 
 func noteFrom(record vaultitem.Record, meta metadata, body string, folderMap map[string]Folder) Note {
 	return Note{
-		ID:            record.ID,
-		Title:         meta.Title,
-		Body:          body,
-		FolderID:      meta.FolderID,
-		Tags:          nonNilTags(meta.Tags),
-		EffectiveTags: effectiveTags(meta, folderMap),
-		CreatedAt:     record.CreatedAt,
-		UpdatedAt:     record.UpdatedAt,
+		ID:             record.ID,
+		Title:          meta.Title,
+		Body:           body,
+		FolderID:       meta.FolderID,
+		Tags:           nonNilTags(meta.Tags),
+		EffectiveTags:  effectiveTags(meta, folderMap),
+		Color:          meta.Color,
+		EffectiveColor: effectiveColor(meta, folderMap),
+		CreatedAt:      record.CreatedAt,
+		UpdatedAt:      record.UpdatedAt,
 	}
 }
 
