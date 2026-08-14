@@ -38,6 +38,7 @@ type metadata struct {
 type Summary struct {
 	ID            string    `json:"id"`
 	Title         string    `json:"title"`
+	Preview       string    `json:"preview"`
 	FolderID      string    `json:"folder_id"`
 	Tags          []string  `json:"tags"`
 	EffectiveTags []string  `json:"effective_tags"`
@@ -230,6 +231,26 @@ func (s *Service) Search(query string) ([]Summary, error) {
 			matched = append(matched, s.summaryFrom(record, meta, folderMap))
 			continue
 		}
+		tags := effectiveTags(meta, folderMap)
+		tagMatched := false
+		for _, tag := range tags {
+			if strings.Contains(strings.ToLower(tag), needle) {
+				matched = append(matched, s.summaryFrom(record, meta, folderMap))
+				tagMatched = true
+				break
+			}
+		}
+		if tagMatched {
+			continue
+		}
+		if meta.FolderID != "" {
+			if folder, ok := folderMap[meta.FolderID]; ok {
+				if strings.Contains(strings.ToLower(folder.Name), needle) {
+					matched = append(matched, s.summaryFrom(record, meta, folderMap))
+					continue
+				}
+			}
+		}
 		if plain, openErr := s.store.OpenPayload(record, bodyKeyID); openErr == nil {
 			if strings.Contains(strings.ToLower(string(plain)), needle) {
 				matched = append(matched, s.summaryFrom(record, meta, folderMap))
@@ -282,8 +303,17 @@ func decodeMetadata(record vaultitem.Record) (metadata, error) {
 	return meta, nil
 }
 
+func previewFromBody(body string) string {
+	collapsed := strings.Join(strings.Fields(body), " ")
+	runes := []rune(collapsed)
+	if len(runes) > 120 {
+		return string(runes[:120])
+	}
+	return collapsed
+}
+
 func (s *Service) summaryFrom(record vaultitem.Record, meta metadata, folderMap map[string]Folder) Summary {
-	return Summary{
+	summary := Summary{
 		ID:            record.ID,
 		Title:         meta.Title,
 		FolderID:      meta.FolderID,
@@ -292,6 +322,10 @@ func (s *Service) summaryFrom(record vaultitem.Record, meta metadata, folderMap 
 		CreatedAt:     record.CreatedAt,
 		UpdatedAt:     record.UpdatedAt,
 	}
+	if plain, err := s.store.OpenPayload(record, bodyKeyID); err == nil {
+		summary.Preview = previewFromBody(string(plain))
+	}
+	return summary
 }
 
 func noteFrom(record vaultitem.Record, meta metadata, body string, folderMap map[string]Folder) Note {

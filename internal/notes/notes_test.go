@@ -216,6 +216,37 @@ func TestSetOrganizationAndLiveInheritance(t *testing.T) {
 	}
 }
 
+func TestListPreview(t *testing.T) {
+	s := newService(t)
+	s.Create("T", "hello   world from the body", "", nil)
+	list, err := s.List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if list[0].Preview != "hello world from the body" {
+		t.Fatalf("Preview = %q", list[0].Preview)
+	}
+}
+
+func TestSearchByTagAndFolderName(t *testing.T) {
+	s := newService(t)
+	folder, _ := s.CreateFolder("Engineering", "blue", []string{"platform"})
+	s.Create("N1", "alpha", folder.ID, []string{"standup"})
+	s.Create("N2", "beta", "", nil)
+	byTag, _ := s.Search("platform")
+	if len(byTag) != 1 || byTag[0].Title != "N1" {
+		t.Fatalf("byTag = %+v", byTag)
+	}
+	byFolder, _ := s.Search("engineer")
+	if len(byFolder) != 1 || byFolder[0].Title != "N1" {
+		t.Fatalf("byFolder = %+v", byFolder)
+	}
+	byOwn, _ := s.Search("standup")
+	if len(byOwn) != 1 {
+		t.Fatalf("byOwn = %+v", byOwn)
+	}
+}
+
 func TestDeleteFolderCopyDown(t *testing.T) {
 	s := newService(t)
 	folder, _ := s.CreateFolder("Work", "blue", []string{"work"})
