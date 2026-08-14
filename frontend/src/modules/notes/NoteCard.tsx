@@ -1,3 +1,4 @@
+import { Tag } from "lucide-react";
 import type { NoteSummary } from "../../bridge/notes";
 import { noteAccentColor } from "./noteColor";
 import { tagSoftBackground } from "./tagColor";
@@ -26,7 +27,7 @@ export function NoteCard({
     <button
       type="button"
       onClick={() => onOpen(note.id)}
-      className="flex aspect-3/2 flex-col gap-1.5 rounded-lg border border-border bg-card p-3 text-left"
+      className="flex aspect-3/2 flex-col gap-1.5 rounded-xl border border-border bg-card p-4 text-left"
     >
       <span className="flex min-w-0 items-center gap-1.5">
         {accent ? (
@@ -36,7 +37,7 @@ export function NoteCard({
             aria-hidden
           />
         ) : null}
-        <span className="min-w-0 truncate text-sm font-medium tracking-[0.2px] text-foreground">
+        <span className="min-w-0 truncate text-base font-semibold tracking-[0.2px] text-foreground">
           {note.title || "Untitled"}
         </span>
       </span>
@@ -50,7 +51,7 @@ export function NoteCard({
               key={tag.toLowerCase()}
               role="button"
               tabIndex={0}
-              className="rounded-[4px] px-1.5 py-0.5 text-xs font-medium tracking-[0.4px]"
+              className="inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-semibold tracking-[0.4px]"
               style={tagSoftBackground(tag)}
               onClick={(e) => {
                 e.stopPropagation();
@@ -64,6 +65,7 @@ export function NoteCard({
                 }
               }}
             >
+              <Tag className="size-2.5" />
               {tag}
             </span>
           ))}
