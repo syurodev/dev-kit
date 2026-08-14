@@ -495,39 +495,43 @@ export function NotesDashboard({
         </Sidebar>
 
         <section className="flex min-h-0 flex-1 flex-col">
-          <div className="flex items-end justify-between gap-2 px-3 pt-4 pb-3">
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight text-foreground">
-                Notes
-              </h1>
-              <p className="mt-1.5 text-[13px] text-muted-foreground">
-                {filtered.length} {filtered.length === 1 ? "note" : "notes"} ·{" "}
-                {scopeLabel}
-              </p>
+          <div className="flex flex-col gap-2 border-b border-border px-3 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <SidebarTrigger />
+                <div>
+                  <h1 className="text-2xl font-bold tracking-tight text-foreground">
+                    Notes
+                  </h1>
+                  <p className="text-[13px] text-muted-foreground">
+                    {filtered.length} {filtered.length === 1 ? "note" : "notes"} ·{" "}
+                    {scopeLabel}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Input
+                  aria-label="note-search"
+                  placeholder="Search notes..."
+                  value={query}
+                  onChange={(e) => {
+                    setQuery(e.target.value);
+                    void refresh(e.target.value);
+                  }}
+                  className="h-9 w-64"
+                />
+                <Button
+                  type="button"
+                  size="lg"
+                  variant="outline"
+                  disabled={creating}
+                  onClick={() => void onCreateNote()}
+                >
+                  <Plus className="size-4" />
+                  New note
+                </Button>
+              </div>
             </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 border-b border-border p-3">
-            <SidebarTrigger />
-            <Input
-              aria-label="note-search"
-              placeholder="Search notes..."
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                void refresh(e.target.value);
-              }}
-              className="h-9 max-w-sm"
-            />
-            <Button
-              type="button"
-              size="lg"
-              variant="outline"
-              disabled={creating}
-              onClick={() => void onCreateNote()}
-            >
-              <Plus className="size-4" />
-              New note
-            </Button>
             {selectedTags.length > 0 ? (
               <div className="flex flex-wrap items-center gap-1.5">
                 {selectedTags.map((tag) => (
