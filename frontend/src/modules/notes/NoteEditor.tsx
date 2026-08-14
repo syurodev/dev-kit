@@ -182,7 +182,15 @@ export function NoteEditor({ noteId, onBack, onDeleted, onSaved }: NoteEditorPro
     try {
       const body = editor.api.markdown.serialize();
       const updated = await updateNote(note.id, nextTitle, body);
-      noteRef.current = { ...updated, tags: ownTags, folderId, color: note.color, effectiveColor: note.effectiveColor };
+      const current = noteRef.current;
+      noteRef.current = {
+        ...updated,
+        folderId: current?.folderId ?? folderId,
+        tags: current?.tags ?? ownTags,
+        effectiveTags: current?.effectiveTags ?? updated.effectiveTags,
+        color: current?.color ?? color,
+        effectiveColor: current?.effectiveColor ?? "",
+      };
       setNote(noteRef.current);
       setStatus("saved");
       onSaved();

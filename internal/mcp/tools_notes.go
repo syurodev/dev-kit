@@ -187,9 +187,9 @@ func (s *Server) toolNotesDelete(ctx context.Context, _ *sdk.CallToolRequest, in
 
 type notesSetOrganizationInput struct {
 	ID       string   `json:"id"`
-	FolderID string   `json:"folder_id"`
-	Tags     []string `json:"tags"`
-	Color    string   `json:"color"`
+	FolderID string   `json:"folder_id,omitempty"`
+	Tags     []string `json:"tags,omitempty"`
+	Color    string   `json:"color,omitempty"`
 }
 
 func (s *Server) toolNotesSetOrganization(ctx context.Context, _ *sdk.CallToolRequest, in notesSetOrganizationInput) (*sdk.CallToolResult, any, error) {

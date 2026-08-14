@@ -139,6 +139,12 @@ func (s *Service) DeleteFolder(id string) error {
 	if err != nil {
 		return err
 	}
+	type noteUpdate struct {
+		id    string
+		tags  []string
+		color string
+	}
+	updates := make([]noteUpdate, 0, len(notes))
 	for _, note := range notes {
 		if note.FolderID != id {
 			continue
@@ -147,7 +153,19 @@ func (s *Service) DeleteFolder(id string) error {
 		if color == "" {
 			color = folder.Color
 		}
-		if _, err := s.SetOrganization(note.ID, "", UnionTags(note.Tags, folder.Tags), color); err != nil {
+		union := UnionTags(note.Tags, folder.Tags)
+		normalized, err := NormalizeTags(union)
+		if err != nil {
+			return err
+		}
+		updates = append(updates, noteUpdate{
+			id:    note.ID,
+			tags:  normalized,
+			color: color,
+		})
+	}
+	for _, u := range updates {
+		if _, err := s.SetOrganization(u.id, "", u.tags, u.color); err != nil {
 			return err
 		}
 	}

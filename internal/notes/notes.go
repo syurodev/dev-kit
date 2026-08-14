@@ -128,6 +128,9 @@ func (s *Service) Get(id string) (Note, error) {
 	if err != nil {
 		return Note{}, err
 	}
+	if record.Type != itemType {
+		return Note{}, errors.New("note not found")
+	}
 	meta, err := decodeMetadata(record)
 	if err != nil {
 		return Note{}, err
@@ -150,6 +153,9 @@ func (s *Service) Update(id, title, body string) (Note, error) {
 	existing, err := s.store.Get(id)
 	if err != nil {
 		return Note{}, err
+	}
+	if existing.Type != itemType {
+		return Note{}, errors.New("note not found")
 	}
 	meta, err := decodeMetadata(existing)
 	if err != nil {
@@ -189,6 +195,9 @@ func (s *Service) SetOrganization(id, folderID string, tags []string, color stri
 	if err != nil {
 		return Summary{}, err
 	}
+	if record.Type != itemType {
+		return Summary{}, errors.New("note not found")
+	}
 	meta, err := decodeMetadata(record)
 	if err != nil {
 		return Summary{}, err
@@ -212,6 +221,13 @@ func (s *Service) SetOrganization(id, folderID string, tags []string, color stri
 }
 
 func (s *Service) Delete(id string) error {
+	record, err := s.store.Get(id)
+	if err != nil {
+		return err
+	}
+	if record.Type != itemType {
+		return errors.New("note not found")
+	}
 	return s.store.Delete(id)
 }
 

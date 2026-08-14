@@ -1,6 +1,7 @@
 package notes
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -352,5 +353,48 @@ func TestDeleteFolderKeepsExplicitNoteColor(t *testing.T) {
 	got, _ := s.Get(summary.ID)
 	if got.Color != "red" {
 		t.Fatalf("Color = %q, want red (untouched)", got.Color)
+	}
+}
+
+func TestSetOrganizationRejectsNonNoteRecord(t *testing.T) {
+	s := newService(t)
+	folder, _ := s.CreateFolder("Work", "blue", nil)
+	if _, err := s.SetOrganization(folder.ID, "", nil, ""); err == nil {
+		t.Fatal("expected error when setting org on non-note record")
+	}
+}
+
+func TestDeleteFolderAtomicValidation(t *testing.T) {
+	s := newService(t)
+	folderTags := make([]string, 20)
+	for i := range folderTags {
+		folderTags[i] = fmt.Sprintf("ftag%d", i)
+	}
+	folder, err := s.CreateFolder("Work", "blue", folderTags)
+	if err != nil {
+		t.Fatalf("CreateFolder: %v", err)
+	}
+	n1, _ := s.Create("N1", "b1", folder.ID, []string{"t1", "t2", "t3", "t4", "t5"})
+	note2Tags := make([]string, 20)
+	for i := range note2Tags {
+		note2Tags[i] = fmt.Sprintf("ntag%d", i)
+	}
+	n2, _ := s.Create("N2", "b2", folder.ID, note2Tags)
+
+	if err := s.DeleteFolder(folder.ID); err == nil {
+		t.Fatal("expected DeleteFolder to fail due to tag limit")
+	}
+
+	gotN1, _ := s.Get(n1.ID)
+	if gotN1.FolderID != folder.ID {
+		t.Fatalf("Note 1 was detached prematurely: folder_id = %q", gotN1.FolderID)
+	}
+	gotN2, _ := s.Get(n2.ID)
+	if gotN2.FolderID != folder.ID {
+		t.Fatalf("Note 2 was detached: folder_id = %q", gotN2.FolderID)
+	}
+	folders, _ := s.ListFolders()
+	if len(folders) != 1 {
+		t.Fatalf("folder was deleted: len = %d", len(folders))
 	}
 }
