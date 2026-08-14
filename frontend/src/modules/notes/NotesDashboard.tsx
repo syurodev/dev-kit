@@ -342,13 +342,13 @@ export function NotesDashboard({
 
   function scopeButtonClass(active: boolean) {
     return cn(
-      "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm",
+      "flex w-full items-center gap-2 rounded-sm px-2.5 py-1.5 text-left text-base tracking-[0.2px]",
       active ? "bg-accent text-accent-foreground" : "hover:bg-accent/60",
     );
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-1">
+    <div className="notes-font-scope flex h-full min-h-0 flex-1">
       <aside className="flex w-56 shrink-0 flex-col border-r border-border">
         <ScrollArea className="min-h-0 flex-1">
           <div className="flex flex-col gap-0.5 p-2">
@@ -358,7 +358,7 @@ export function NotesDashboard({
               onClick={() => setScope("all")}
             >
               <span className="flex-1 truncate">All</span>
-              <span className="text-xs text-muted-foreground">{counts.all}</span>
+              <span className="text-xs tracking-[0.4px] text-muted-foreground">{counts.all}</span>
             </button>
             <button
               type="button"
@@ -366,7 +366,7 @@ export function NotesDashboard({
               onClick={() => setScope("ungrouped")}
             >
               <span className="flex-1 truncate">Ungrouped</span>
-              <span className="text-xs text-muted-foreground">{counts.ungrouped}</span>
+              <span className="text-xs tracking-[0.4px] text-muted-foreground">{counts.ungrouped}</span>
             </button>
 
             {folders.map((folder) => (
@@ -382,7 +382,7 @@ export function NotesDashboard({
                     aria-hidden
                   />
                   <span className="flex-1 truncate">{folder.name}</span>
-                  <span className="text-xs text-muted-foreground">
+                  <span className="text-xs tracking-[0.4px] text-muted-foreground">
                     {counts.byFolder.get(folder.id) ?? 0}
                   </span>
                 </button>
