@@ -6,12 +6,27 @@
 import * as time$0 from "../../../time/models.js";
 
 /**
+ * Folder is a note-folder without any encrypted payload.
+ */
+export interface Folder {
+    "id": string;
+    "name": string;
+    "color": string;
+    "tags": string[] | null;
+    "created_at": time$0.Time;
+    "updated_at": time$0.Time;
+}
+
+/**
  * Note is the decrypted form returned to the caller.
  */
 export interface Note {
     "id": string;
     "title": string;
     "body": string;
+    "folder_id": string;
+    "tags": string[] | null;
+    "effective_tags": string[] | null;
     "created_at": time$0.Time;
     "updated_at": time$0.Time;
 }
@@ -22,6 +37,10 @@ export interface Note {
 export interface Summary {
     "id": string;
     "title": string;
+    "preview": string;
+    "folder_id": string;
+    "tags": string[] | null;
+    "effective_tags": string[] | null;
     "created_at": time$0.Time;
     "updated_at": time$0.Time;
 }

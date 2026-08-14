@@ -41,7 +41,7 @@ export function NoteList({ selectedId, onSelect, refreshToken }: NoteListProps) 
     setError("");
     setCreating(true);
     try {
-      const created = await createNote("Untitled", "");
+      const created = await createNote("Untitled", "", "", []);
       await refresh(query);
       onSelect(created.id);
     } catch (e) {

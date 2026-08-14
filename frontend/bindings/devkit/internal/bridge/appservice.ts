@@ -233,12 +233,28 @@ export function McpUninstall(agent: string, scope: string, projectPath: string):
     return $Call.ByID(3773505192, agent, scope, projectPath);
 }
 
-export function NotesCreate(title: string, body: string): $CancellablePromise<notes$0.Summary> {
-    return $Call.ByID(1729685215, title, body);
+export function NotesCreate(title: string, body: string, folderID: string, tags: string[] | null): $CancellablePromise<notes$0.Summary> {
+    return $Call.ByID(1729685215, title, body, folderID, tags);
 }
 
 export function NotesDelete(id: string): $CancellablePromise<void> {
     return $Call.ByID(3689405508, id);
+}
+
+export function NotesFolderCreate(name: string, color: string, tags: string[] | null): $CancellablePromise<notes$0.Folder> {
+    return $Call.ByID(4053102515, name, color, tags);
+}
+
+export function NotesFolderDelete(id: string): $CancellablePromise<void> {
+    return $Call.ByID(2045565056, id);
+}
+
+export function NotesFolderList(): $CancellablePromise<notes$0.Folder[] | null> {
+    return $Call.ByID(1235537003);
+}
+
+export function NotesFolderUpdate(id: string, name: string, color: string, tags: string[] | null): $CancellablePromise<notes$0.Folder> {
+    return $Call.ByID(2381677954, id, name, color, tags);
 }
 
 export function NotesGet(id: string): $CancellablePromise<notes$0.Note> {
@@ -251,6 +267,10 @@ export function NotesList(): $CancellablePromise<notes$0.Summary[] | null> {
 
 export function NotesSearch(query: string): $CancellablePromise<notes$0.Summary[] | null> {
     return $Call.ByID(4193008759, query);
+}
+
+export function NotesSetOrganization(id: string, folderID: string, tags: string[] | null): $CancellablePromise<notes$0.Summary> {
+    return $Call.ByID(1217687938, id, folderID, tags);
 }
 
 export function NotesUpdate(id: string, title: string, body: string): $CancellablePromise<notes$0.Note> {
