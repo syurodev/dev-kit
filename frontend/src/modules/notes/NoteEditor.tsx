@@ -441,8 +441,9 @@ export function NoteEditor({ noteId, onBack, onDeleted, onSaved }: NoteEditorPro
       { width: 420, onClose: () => setMetaOpen(false) },
     );
     return () => closePanel();
-    // onFolderChange/onColorChange/tryAddTag/removeOwnTag close over the
-    // same state already listed below; omitted to avoid re-pushing panel
+    // onFolderChange/onColorChange/tryAddTag/removeOwnTag (and the onSaved
+    // prop they call through to) close over state already listed below, not
+    // over anything effect-relevant; omitted to avoid re-pushing panel
     // content on every render (they're new function references each
     // render, but their behavior only changes when these listed values do).
     // eslint-disable-next-line react-hooks/exhaustive-deps
