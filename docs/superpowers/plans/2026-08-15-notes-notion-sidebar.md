@@ -32,7 +32,7 @@
 - Consumes: `Sidebar`, `SidebarContent`, `SidebarGroup`, `SidebarGroupAction`, `SidebarGroupContent`, `SidebarGroupLabel`, `SidebarMenu`, `SidebarMenuAction`, `SidebarMenuBadge`, `SidebarMenuButton`, `SidebarMenuItem`, `SidebarProvider`, `SidebarTrigger` (`@/components/ui/sidebar`); `Collapsible`, `CollapsibleContent`, `CollapsibleTrigger` (`@/components/ui/collapsible`); `Folder`, `Inbox`, `LayoutGrid`, `ChevronRight` (`lucide-react`)
 - Produces: same `NotesDashboard` public props/behavior — scope selection, folder CRUD dialogs, note grid, search, and tag filter are all unchanged; only the sidebar's DOM/interaction layer changes
 
-- [ ] **Step 1: Update imports**
+- [x] **Step 1: Update imports**
 
 In `frontend/src/modules/notes/NotesDashboard.tsx`, replace the import block (lines 1–47):
 
@@ -114,7 +114,7 @@ import { NoteCard } from "./NoteCard";
 import { tagChipVar } from "./tagColor";
 ```
 
-- [ ] **Step 2: Remove the now-unused `scopeButtonClass` helper**
+- [x] **Step 2: Remove the now-unused `scopeButtonClass` helper**
 
 Delete the `scopeButtonClass` function (originally lines 343–348, right before the component's `return`):
 
@@ -127,7 +127,7 @@ Delete the `scopeButtonClass` function (originally lines 343–348, right before
   }
 ```
 
-- [ ] **Step 3: Replace the sidebar + wrap it (with the note grid `<section>`) in `SidebarProvider`**
+- [x] **Step 3: Replace the sidebar + wrap it (with the note grid `<section>`) in `SidebarProvider`**
 
 Replace from the component's `return (` through the end of the original
 `</section>` block (originally lines 350–502 — this covers both the old
@@ -314,13 +314,13 @@ inside `SidebarProvider` and gains the `SidebarTrigger`) with:
 
 Leave everything from the four `<Dialog>`/`<AlertDialog>` blocks onward (originally lines 504–613, including the closing `</div>` and `);`/`}`) exactly as-is — only the sidebar/toolbar/`SidebarProvider` wrapping above it changes. The dialogs stay siblings of `SidebarProvider` inside the outer `<div>`, same as they were siblings of the old `<aside>`/`<section>` pair.
 
-- [ ] **Step 4: Typecheck**
+- [x] **Step 4: Typecheck**
 
 Run: `cd frontend && bunx tsc --noEmit`
 
 Expected: PASS
 
-- [ ] **Step 5: Manual check**
+- [x] **Step 5: Manual check**
 
 Run the app, open Notes:
 
@@ -333,7 +333,7 @@ Run the app, open Notes:
 7. Folder icons show the correct color per folder (filled, no outline).
 8. No visual/behavioral change to the note grid, search, tag filter, or any other module.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add frontend/src/modules/notes/NotesDashboard.tsx
@@ -346,13 +346,13 @@ git commit -m "feat(notes): rebuild the sidebar on shadcn Sidebar, Notion-style"
 
 **Files:** none new
 
-- [ ] **Step 1: Typecheck**
+- [x] **Step 1: Typecheck**
 
 Run: `cd frontend && bunx tsc --noEmit`
 
 Expected: PASS
 
-- [ ] **Step 2: Full manual script**
+- [x] **Step 2: Full manual script**
 
 Repeat Task 1 Step 5's script once more end-to-end in a single pass (sidebar collapse/expand + persistence, folder row hover-swap, group hover "+", folder-group chevron, folder CRUD dialogs, scope selection, note grid/search/tag-filter untouched) to confirm nothing regressed after the full file is in its final state.
 
