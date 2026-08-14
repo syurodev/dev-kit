@@ -156,7 +156,7 @@ export function Workbench() {
                   size="icon-sm"
                   aria-label={action.label}
                   aria-pressed={action.isActive}
-                  className={action.isActive ? "bg-accent text-foreground" : undefined}
+                  className={cn(action.isActive && "bg-accent text-foreground")}
                   onClick={action.onClick}
                 >
                   <action.icon className="size-4" />
