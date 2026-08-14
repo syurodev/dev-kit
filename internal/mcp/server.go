@@ -35,6 +35,11 @@ type NotesAPI interface {
 	Create(title, body, folderID string, tags []string) (notes.Summary, error)
 	Update(id, title, body string) (notes.Note, error)
 	Delete(id string) error
+	SetOrganization(id, folderID string, tags []string) (notes.Summary, error)
+	ListFolders() ([]notes.Folder, error)
+	CreateFolder(name, color string, tags []string) (notes.Folder, error)
+	UpdateFolder(id, name, color string, tags []string) (notes.Folder, error)
+	DeleteFolder(id string) error
 }
 
 // VaultAPI reports vault lock/setup state.

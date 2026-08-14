@@ -51,6 +51,48 @@ func (s *Server) registerNotes() {
 			DestructiveHint: boolPtr(true),
 		},
 	}, s.toolNotesDelete)
+
+	sdk.AddTool(s.mcp, &sdk.Tool{
+		Name:        "notes.set_organization",
+		Description: "Set a note's folder and tags",
+		Annotations: &sdk.ToolAnnotations{
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(false),
+		},
+	}, s.toolNotesSetOrganization)
+
+	sdk.AddTool(s.mcp, &sdk.Tool{
+		Name:        "notes.folder.list",
+		Description: "List note folders",
+		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
+	}, s.toolNotesFolderList)
+
+	sdk.AddTool(s.mcp, &sdk.Tool{
+		Name:        "notes.folder.create",
+		Description: "Create a note folder",
+		Annotations: &sdk.ToolAnnotations{
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(false),
+		},
+	}, s.toolNotesFolderCreate)
+
+	sdk.AddTool(s.mcp, &sdk.Tool{
+		Name:        "notes.folder.update",
+		Description: "Update a note folder",
+		Annotations: &sdk.ToolAnnotations{
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(false),
+		},
+	}, s.toolNotesFolderUpdate)
+
+	sdk.AddTool(s.mcp, &sdk.Tool{
+		Name:        "notes.folder.delete",
+		Description: "Delete a note folder",
+		Annotations: &sdk.ToolAnnotations{
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(true),
+		},
+	}, s.toolNotesFolderDelete)
 }
 
 func (s *Server) toolNotesList(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {
@@ -95,13 +137,15 @@ func (s *Server) toolNotesGet(ctx context.Context, _ *sdk.CallToolRequest, in no
 }
 
 type notesCreateInput struct {
-	Title string `json:"title"`
-	Body  string `json:"body"`
+	Title    string   `json:"title"`
+	Body     string   `json:"body"`
+	FolderID string   `json:"folder_id"`
+	Tags     []string `json:"tags"`
 }
 
 func (s *Server) toolNotesCreate(ctx context.Context, _ *sdk.CallToolRequest, in notesCreateInput) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.notes", "notes:write", "note:new", meta("create", nil), func(context.Context) (any, error) {
-		return s.deps.Notes.Create(in.Title, in.Body, "", nil)
+		return s.deps.Notes.Create(in.Title, in.Body, in.FolderID, in.Tags)
 	})
 	if err != nil {
 		return nil, nil, err
@@ -134,6 +178,84 @@ func (s *Server) toolNotesDelete(ctx context.Context, _ *sdk.CallToolRequest, in
 		"note_id": opaqueID,
 	}), func(context.Context) (any, error) {
 		return nil, s.deps.Notes.Delete(in.ID)
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, v, nil
+}
+
+type notesSetOrganizationInput struct {
+	ID       string   `json:"id"`
+	FolderID string   `json:"folder_id"`
+	Tags     []string `json:"tags"`
+}
+
+func (s *Server) toolNotesSetOrganization(ctx context.Context, _ *sdk.CallToolRequest, in notesSetOrganizationInput) (*sdk.CallToolResult, any, error) {
+	opaqueID := recordID(in.ID)
+	v, err := s.deps.Caller.Call(ctx, "builtin.notes", "notes:write", "note:"+opaqueID, meta("set_organization", map[string]any{
+		"note_id": opaqueID,
+	}), func(context.Context) (any, error) {
+		return s.deps.Notes.SetOrganization(in.ID, in.FolderID, in.Tags)
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, v, nil
+}
+
+func (s *Server) toolNotesFolderList(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.notes", "notes:read", "note-folder:list", meta("list_folders", nil), func(context.Context) (any, error) {
+		return s.deps.Notes.ListFolders()
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, v, nil
+}
+
+type notesFolderCreateInput struct {
+	Name  string   `json:"name"`
+	Color string   `json:"color"`
+	Tags  []string `json:"tags"`
+}
+
+func (s *Server) toolNotesFolderCreate(ctx context.Context, _ *sdk.CallToolRequest, in notesFolderCreateInput) (*sdk.CallToolResult, any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.notes", "notes:write", "note-folder:new", meta("create_folder", nil), func(context.Context) (any, error) {
+		return s.deps.Notes.CreateFolder(in.Name, in.Color, in.Tags)
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, v, nil
+}
+
+type notesFolderUpdateInput struct {
+	ID    string   `json:"id"`
+	Name  string   `json:"name"`
+	Color string   `json:"color"`
+	Tags  []string `json:"tags"`
+}
+
+func (s *Server) toolNotesFolderUpdate(ctx context.Context, _ *sdk.CallToolRequest, in notesFolderUpdateInput) (*sdk.CallToolResult, any, error) {
+	opaqueID := recordID(in.ID)
+	v, err := s.deps.Caller.Call(ctx, "builtin.notes", "notes:write", "note-folder:"+opaqueID, meta("update_folder", map[string]any{
+		"folder_id": opaqueID,
+	}), func(context.Context) (any, error) {
+		return s.deps.Notes.UpdateFolder(in.ID, in.Name, in.Color, in.Tags)
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, v, nil
+}
+
+func (s *Server) toolNotesFolderDelete(ctx context.Context, _ *sdk.CallToolRequest, in notesIDInput) (*sdk.CallToolResult, any, error) {
+	opaqueID := recordID(in.ID)
+	v, err := s.deps.Caller.Call(ctx, "builtin.notes", "notes:write", "note-folder:"+opaqueID, meta("delete_folder", map[string]any{
+		"folder_id": opaqueID,
+	}), func(context.Context) (any, error) {
+		return nil, s.deps.Notes.DeleteFolder(in.ID)
 	})
 	if err != nil {
 		return nil, nil, err

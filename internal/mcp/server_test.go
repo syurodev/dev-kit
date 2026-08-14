@@ -56,7 +56,18 @@ func (f *fakeNotes) Create(string, string, string, []string) (notes.Summary, err
 	return notes.Summary{ID: "created", Title: "t"}, nil
 }
 func (f *fakeNotes) Update(string, string, string) (notes.Note, error) { return f.note, nil }
-func (f *fakeNotes) Delete(string) error { return nil }
+func (f *fakeNotes) Delete(string) error                                 { return nil }
+func (f *fakeNotes) SetOrganization(string, string, []string) (notes.Summary, error) {
+	return notes.Summary{ID: "org"}, nil
+}
+func (f *fakeNotes) ListFolders() ([]notes.Folder, error) { return nil, nil }
+func (f *fakeNotes) CreateFolder(string, string, []string) (notes.Folder, error) {
+	return notes.Folder{ID: "f", Name: "Work", Color: "blue"}, nil
+}
+func (f *fakeNotes) UpdateFolder(string, string, string, []string) (notes.Folder, error) {
+	return notes.Folder{ID: "f", Name: "Ops", Color: "red"}, nil
+}
+func (f *fakeNotes) DeleteFolder(string) error { return nil }
 
 type fakeVault struct {
 	state vault.State
@@ -214,6 +225,39 @@ func TestToolsHashAndEnvListTags(t *testing.T) {
 	}
 	if caller.last.subject != "builtin.environments" || caller.last.capability != "env:read" || caller.last.scope != "tag:list" {
 		t.Fatalf("env Call = %+v", caller.last)
+	}
+}
+
+func TestNotesFolderCreateTool(t *testing.T) {
+	caller := &fakeCaller{}
+	srv := NewServer(testDeps(caller, &fakeNotes{}))
+	_, v, err := srv.toolNotesFolderCreate(context.Background(), &sdk.CallToolRequest{}, notesFolderCreateInput{
+		Name: "Work", Color: "blue", Tags: []string{"work"},
+	})
+	if err != nil {
+		t.Fatalf("toolNotesFolderCreate: %v", err)
+	}
+	folder, ok := v.(notes.Folder)
+	if !ok || folder.Name != "Work" {
+		t.Fatalf("output = %#v", v)
+	}
+	if caller.last.capability != "notes:write" || caller.last.scope != "note-folder:new" {
+		t.Fatalf("Call = %+v", caller.last)
+	}
+}
+
+func TestNotesSetOrganizationTool(t *testing.T) {
+	caller := &fakeCaller{}
+	srv := NewServer(testDeps(caller, &fakeNotes{}))
+	id := "0123456789abcdef01234567"
+	_, _, err := srv.toolNotesSetOrganization(context.Background(), &sdk.CallToolRequest{}, notesSetOrganizationInput{
+		ID: id, FolderID: "", Tags: []string{"solo"},
+	})
+	if err != nil {
+		t.Fatalf("toolNotesSetOrganization: %v", err)
+	}
+	if caller.last.scope != "note:"+id || caller.last.metadata["action"] != "set_organization" {
+		t.Fatalf("Call = %+v", caller.last)
 	}
 }
 
