@@ -86,6 +86,13 @@ func (s *Service) UpdateFolder(id, name, color string, tags []string) (Folder, e
 	if err != nil {
 		return Folder{}, err
 	}
+	existing, err := s.store.Get(id)
+	if err != nil {
+		return Folder{}, err
+	}
+	if existing.Type != vaultitem.ItemTypeNoteFolder {
+		return Folder{}, errors.New("folder not found")
+	}
 	record, err := s.store.UpdateMetadata(id, meta)
 	if err != nil {
 		return Folder{}, err

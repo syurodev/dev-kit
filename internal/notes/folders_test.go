@@ -42,6 +42,24 @@ func TestUpdateFolderRenames(t *testing.T) {
 	}
 }
 
+func TestUpdateFolderRejectsNote(t *testing.T) {
+	s := newService(t)
+	note, err := s.Create("T", "b")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if _, err := s.UpdateFolder(note.ID, "X", "blue", nil); err == nil {
+		t.Fatal("expected error when updating a note as folder")
+	}
+	got, err := s.Get(note.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.Title != "T" {
+		t.Fatalf("title = %q, want T", got.Title)
+	}
+}
+
 func TestEmptyFolderAllowed(t *testing.T) {
 	s := newService(t)
 	if _, err := s.CreateFolder("Empty", "gray", nil); err != nil {
