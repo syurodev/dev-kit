@@ -189,6 +189,7 @@ type notesSetOrganizationInput struct {
 	ID       string   `json:"id"`
 	FolderID string   `json:"folder_id"`
 	Tags     []string `json:"tags"`
+	Color    string   `json:"color"`
 }
 
 func (s *Server) toolNotesSetOrganization(ctx context.Context, _ *sdk.CallToolRequest, in notesSetOrganizationInput) (*sdk.CallToolResult, any, error) {
@@ -196,7 +197,7 @@ func (s *Server) toolNotesSetOrganization(ctx context.Context, _ *sdk.CallToolRe
 	v, err := s.deps.Caller.Call(ctx, "builtin.notes", "notes:write", "note:"+opaqueID, meta("set_organization", map[string]any{
 		"note_id": opaqueID,
 	}), func(context.Context) (any, error) {
-		return s.deps.Notes.SetOrganization(in.ID, in.FolderID, in.Tags)
+		return s.deps.Notes.SetOrganization(in.ID, in.FolderID, in.Tags, in.Color)
 	})
 	if err != nil {
 		return nil, nil, err

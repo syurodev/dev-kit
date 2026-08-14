@@ -57,7 +57,7 @@ func (f *fakeNotes) Create(string, string, string, []string) (notes.Summary, err
 }
 func (f *fakeNotes) Update(string, string, string) (notes.Note, error) { return f.note, nil }
 func (f *fakeNotes) Delete(string) error                                 { return nil }
-func (f *fakeNotes) SetOrganization(string, string, []string) (notes.Summary, error) {
+func (f *fakeNotes) SetOrganization(string, string, []string, string) (notes.Summary, error) {
 	return notes.Summary{ID: "org"}, nil
 }
 func (f *fakeNotes) ListFolders() ([]notes.Folder, error) { return nil, nil }
@@ -251,7 +251,7 @@ func TestNotesSetOrganizationTool(t *testing.T) {
 	srv := NewServer(testDeps(caller, &fakeNotes{}))
 	id := "0123456789abcdef01234567"
 	_, _, err := srv.toolNotesSetOrganization(context.Background(), &sdk.CallToolRequest{}, notesSetOrganizationInput{
-		ID: id, FolderID: "", Tags: []string{"solo"},
+		ID: id, FolderID: "", Tags: []string{"solo"}, Color: "red",
 	})
 	if err != nil {
 		t.Fatalf("toolNotesSetOrganization: %v", err)
