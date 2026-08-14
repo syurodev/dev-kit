@@ -48,8 +48,12 @@ func TestUpdateFolderRejectsNote(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if _, err := s.UpdateFolder(note.ID, "X", "blue", nil); err == nil {
+	_, err = s.UpdateFolder(note.ID, "X", "blue", nil)
+	if err == nil {
 		t.Fatal("expected error when updating a note as folder")
+	}
+	if err.Error() != "folder not found" {
+		t.Fatalf("UpdateFolder error = %q, want folder not found", err.Error())
 	}
 	got, err := s.Get(note.ID)
 	if err != nil {
