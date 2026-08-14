@@ -13,7 +13,7 @@ func TestNotesBridgeCreateListGet(t *testing.T) {
 		t.Fatalf("SetupVault: %v", err)
 	}
 
-	summary, err := service.NotesCreate("Bridge note", "secret via bridge")
+	summary, err := service.NotesCreate("Bridge note", "secret via bridge", "", nil)
 	if err != nil {
 		t.Fatalf("NotesCreate: %v", err)
 	}
@@ -42,7 +42,7 @@ func TestNotesBridgeUpdate(t *testing.T) {
 		t.Fatalf("SetupVault: %v", err)
 	}
 
-	summary, err := service.NotesCreate("Old title", "old body")
+	summary, err := service.NotesCreate("Old title", "old body", "", nil)
 	if err != nil {
 		t.Fatalf("NotesCreate: %v", err)
 	}
@@ -70,7 +70,7 @@ func TestNotesBridgeSearch(t *testing.T) {
 	if _, err := service.SetupVault("master-password"); err != nil {
 		t.Fatalf("SetupVault: %v", err)
 	}
-	if _, err := service.NotesCreate("Groceries", "buy milk"); err != nil {
+	if _, err := service.NotesCreate("Groceries", "buy milk", "", nil); err != nil {
 		t.Fatalf("NotesCreate: %v", err)
 	}
 
@@ -83,11 +83,40 @@ func TestNotesBridgeSearch(t *testing.T) {
 	}
 }
 
+func TestNotesBridgeFoldersAndOrganization(t *testing.T) {
+	container := app.NewContainer()
+	service := NewAppService(container)
+	if _, err := service.SetupVault("master-password"); err != nil {
+		t.Fatalf("SetupVault: %v", err)
+	}
+	folder, err := service.NotesFolderCreate("Work", "blue", []string{"work"})
+	if err != nil {
+		t.Fatalf("NotesFolderCreate: %v", err)
+	}
+	summary, err := service.NotesCreate("Standup", "body", folder.ID, []string{"standup"})
+	if err != nil {
+		t.Fatalf("NotesCreate: %v", err)
+	}
+	if summary.FolderID != folder.ID {
+		t.Fatalf("FolderID = %q", summary.FolderID)
+	}
+	if _, err := service.NotesSetOrganization(summary.ID, "", []string{"solo"}); err != nil {
+		t.Fatalf("NotesSetOrganization: %v", err)
+	}
+	if err := service.NotesFolderDelete(folder.ID); err != nil {
+		t.Fatalf("NotesFolderDelete: %v", err)
+	}
+	list, err := service.NotesFolderList()
+	if err != nil || len(list) != 0 {
+		t.Fatalf("list = %+v err=%v", list, err)
+	}
+}
+
 func TestNotesBridgeCreateFailsWhenLocked(t *testing.T) {
 	container := app.NewContainer()
 	service := NewAppService(container)
 	// No SetupVault: vault is not configured, so notes cannot be created.
-	if _, err := service.NotesCreate("n", "b"); err == nil {
+	if _, err := service.NotesCreate("n", "b", "", nil); err == nil {
 		t.Fatal("NotesCreate must fail when vault is not unlocked")
 	}
 }
