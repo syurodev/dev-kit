@@ -42,6 +42,7 @@ import {
   type NoteSummary,
 } from "../../bridge/notes";
 import { FOLDER_COLORS, folderDotVar, type FolderColor } from "./folderColors";
+import { ColorPicker } from "./ColorPicker";
 import { tagChipVar } from "./tagColor";
 
 type Scope = "all" | "ungrouped" | `folder:${string}`;
@@ -119,33 +120,6 @@ function TagChip({
         </span>
       ) : null}
     </Badge>
-  );
-}
-
-function ColorPicker({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (color: FolderColor) => void;
-}) {
-  return (
-    <div className="flex flex-wrap gap-2">
-      {FOLDER_COLORS.map((color) => (
-        <button
-          key={color}
-          type="button"
-          aria-label={color}
-          aria-pressed={value === color}
-          className={cn(
-            "size-6 rounded-full ring-offset-background transition-shadow",
-            value === color && "ring-2 ring-ring ring-offset-2",
-          )}
-          style={{ background: folderDotVar(color) }}
-          onClick={() => onChange(color)}
-        />
-      ))}
-    </div>
   );
 }
 
@@ -562,7 +536,7 @@ export function NotesDashboard({
               value={createName}
               onChange={(e) => setCreateName(e.target.value)}
             />
-            <ColorPicker value={createColor} onChange={setCreateColor} />
+            <ColorPicker value={createColor} onChange={(c) => c && setCreateColor(c)} />
             <TagsEditor tags={createTags} onChange={setCreateTags} />
           </div>
           <DialogFooter>
@@ -596,7 +570,7 @@ export function NotesDashboard({
               value={renameName}
               onChange={(e) => setRenameName(e.target.value)}
             />
-            <ColorPicker value={renameColor} onChange={setRenameColor} />
+            <ColorPicker value={renameColor} onChange={(c) => c && setRenameColor(c)} />
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setRenameFolder(null)}>
