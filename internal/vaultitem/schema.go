@@ -50,8 +50,10 @@ func ValidateRecordSchema(itemType string, metadata json.RawMessage, payload *cr
 			Title    string   `json:"title"`
 			FolderID string   `json:"folder_id"`
 			Tags     []string `json:"tags"`
+			Color    string   `json:"color"`
 		}
-		if decodeMetadataObject(metadata, &value) != nil || value.Title == "" {
+		if decodeMetadataObject(metadata, &value) != nil || value.Title == "" ||
+			(value.Color != "" && !ValidNoteFolderColor(value.Color)) {
 			return ErrInvalidRecordSchema
 		}
 		expectedKeyID = "note-body"

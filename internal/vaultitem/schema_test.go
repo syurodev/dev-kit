@@ -18,6 +18,7 @@ func TestValidateRecordSchemaAcceptsSupportedModuleRecords(t *testing.T) {
 	}{
 		{name: "note", itemType: ItemTypeNote, metadata: `{"title":"Deploy notes"}`, keyID: "note-body"},
 		{name: "note with org fields", itemType: ItemTypeNote, metadata: `{"title":"Deploy notes","folder_id":"aabbccddeeff001122334455","tags":["ops"]}`, keyID: "note-body"},
+		{name: "note with color", itemType: ItemTypeNote, metadata: `{"title":"Deploy notes","color":"blue"}`, keyID: "note-body"},
 		{name: "note-folder", itemType: ItemTypeNoteFolder, metadata: `{"name":"Work","color":"blue","tags":["work"]}`, keyID: "note-folder"},
 		{name: "database", itemType: ItemTypeDatabase, metadata: `{"name":"Primary","host":"db.internal","port":5432,"database":"app","username":"devkit","ssl_mode":"verify-full"}`, keyID: "db-password"},
 		{name: "ssh", itemType: ItemTypeSSH, metadata: `{"name":"Bastion","host":"ssh.internal","port":22,"username":"devkit","auth_method":"key","host_key_fingerprint":"SHA256:test"}`, keyID: "ssh-secret"},
@@ -44,6 +45,7 @@ func TestValidateRecordSchemaRejectsInvalidModuleRecords(t *testing.T) {
 		{name: "metadata is not object", itemType: ItemTypeNote, metadata: `[]`, payload: validSchemaEnvelope("note-body")},
 		{name: "unknown metadata field", itemType: ItemTypeNote, metadata: `{"title":"x","admin":true}`, payload: validSchemaEnvelope("note-body")},
 		{name: "missing note title", itemType: ItemTypeNote, metadata: `{}`, payload: validSchemaEnvelope("note-body")},
+		{name: "note unknown color", itemType: ItemTypeNote, metadata: `{"title":"x","color":"neon"}`, payload: validSchemaEnvelope("note-body")},
 		{name: "missing database host", itemType: ItemTypeDatabase, metadata: `{"name":"db","port":5432,"ssl_mode":"verify-full"}`, payload: validSchemaEnvelope("db-password")},
 		{name: "invalid ssh auth method", itemType: ItemTypeSSH, metadata: `{"name":"box","host":"host","port":22,"username":"me","auth_method":"agent"}`, payload: validSchemaEnvelope("ssh-secret")},
 		{name: "missing encrypted payload", itemType: ItemTypeNote, metadata: `{"title":"x"}`},
