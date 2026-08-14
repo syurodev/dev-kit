@@ -22,6 +22,7 @@ type Store interface {
 	OpenPayload(record vaultitem.Record, keyID string) ([]byte, error)
 	ListByType(itemType string) ([]vaultitem.Record, error)
 	Update(id, keyID string, metadata json.RawMessage, secret []byte) (vaultitem.Record, error)
+	UpdateMetadata(id string, metadata json.RawMessage) (vaultitem.Record, error)
 	Delete(id string) error
 }
 
