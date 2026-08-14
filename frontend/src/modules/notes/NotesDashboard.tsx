@@ -506,7 +506,6 @@ export function NotesDashboard({
               </p>
             </div>
           </div>
-          <div className="border-b border-border" />
           <div className="flex flex-wrap items-center gap-2 border-b border-border p-3">
             <SidebarTrigger />
             <Input
