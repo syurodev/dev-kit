@@ -149,8 +149,27 @@ func TestCreateInFolderWithTags(t *testing.T) {
 
 func TestCreateRejectsUnknownFolder(t *testing.T) {
 	s := newService(t)
-	if _, err := s.Create("T", "b", "deadbeefdeadbeefdeadbeef", nil); err == nil {
+	_, err := s.Create("T", "b", "deadbeefdeadbeefdeadbeef", nil)
+	if err == nil {
 		t.Fatal("expected folder not found")
+	}
+	if err.Error() != "folder not found" {
+		t.Fatalf("Create error = %q, want folder not found", err.Error())
+	}
+}
+
+func TestCreateRejectsNoteAsFolder(t *testing.T) {
+	s := newService(t)
+	note, err := s.Create("T", "b", "", nil)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	_, err = s.Create("Other", "b", note.ID, nil)
+	if err == nil {
+		t.Fatal("expected folder not found")
+	}
+	if err.Error() != "folder not found" {
+		t.Fatalf("Create error = %q, want folder not found", err.Error())
 	}
 }
 

@@ -75,10 +75,7 @@ func (s *Service) Create(title string, body string, folderID string, tags []stri
 	}
 	if folderID != "" {
 		record, err := s.store.Get(folderID)
-		if err != nil {
-			return Summary{}, err
-		}
-		if record.Type != vaultitem.ItemTypeNoteFolder {
+		if err != nil || record.Type != vaultitem.ItemTypeNoteFolder {
 			return Summary{}, errors.New("folder not found")
 		}
 	}
@@ -175,10 +172,7 @@ func (s *Service) SetOrganization(id, folderID string, tags []string) (Summary, 
 	}
 	if folderID != "" {
 		record, err := s.store.Get(folderID)
-		if err != nil {
-			return Summary{}, err
-		}
-		if record.Type != vaultitem.ItemTypeNoteFolder {
+		if err != nil || record.Type != vaultitem.ItemTypeNoteFolder {
 			return Summary{}, errors.New("folder not found")
 		}
 	}
