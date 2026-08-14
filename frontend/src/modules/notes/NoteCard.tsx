@@ -28,7 +28,7 @@ export function NoteCard({
       onClick={() => onOpen(note.id)}
       className="flex aspect-[3/2] flex-col gap-1.5 rounded-lg border border-border bg-card p-3 text-left"
     >
-      <span className="flex items-center gap-1.5">
+      <span className="flex min-w-0 items-center gap-1.5">
         {accent ? (
           <span
             className="size-2 shrink-0 rounded-[4px]"
@@ -36,7 +36,7 @@ export function NoteCard({
             aria-hidden
           />
         ) : null}
-        <span className="truncate text-sm font-medium tracking-[0.2px] text-foreground">
+        <span className="min-w-0 truncate text-sm font-medium tracking-[0.2px] text-foreground">
           {note.title || "Untitled"}
         </span>
       </span>
