@@ -18,7 +18,7 @@ function renderMermaid(id: string, source: string) {
     return cached;
   }
   const promise = import("mermaid").then(({ default: mermaid }) => {
-    mermaid.initialize({ startOnLoad: false, securityLevel: "loose", theme: "dark" });
+    mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: "dark" });
     return mermaid.render(id.replace(/:/g, ""), source);
   });
   renderCache.set(key, promise);
@@ -92,6 +92,7 @@ export function MermaidCodeBlock(props: PlateElementProps) {
   return (
     <PlateElement
       {...props}
+      attributes={{ ...props.attributes, contentEditable: false }}
       className="relative rounded-lg border border-border bg-card p-4"
     >
       <Button

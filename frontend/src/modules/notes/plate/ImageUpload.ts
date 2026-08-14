@@ -1,4 +1,5 @@
 import { ImagePlugin } from "@platejs/media/react";
+import { toast } from "sonner";
 
 // Matches Plate's own default image cap (4MB/image) — enforced explicitly
 // here so an oversized image is rejected with a clear error instead of
@@ -19,6 +20,7 @@ export const ImageUploadPlugin = ImagePlugin.configure({
       if (typeof dataUrl === "string" && dataUrl.startsWith("data:")) {
         const approxBytes = Math.ceil((dataUrl.length * 3) / 4);
         if (approxBytes > MAX_IMAGE_BYTES) {
+          toast.error("Image exceeds the 4MB limit and was not inserted.");
           throw new Error("Image exceeds the 4MB limit and was not inserted.");
         }
       }

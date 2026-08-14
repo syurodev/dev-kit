@@ -11,6 +11,8 @@ import { LinkKit } from "@/components/editor/plugins/link-kit";
 import { ListKit } from "@/components/editor/plugins/list-kit";
 import { TableKit } from "@/components/editor/plugins/table-kit";
 
+import { ImageElement } from "@/components/ui/media-image-node";
+
 import { MermaidCodeBlock } from "./MermaidCodeBlock";
 import { ImageUploadPlugin } from "./ImageUpload";
 import { SlashInputElement } from "./SlashInput";
@@ -32,7 +34,7 @@ export const NotesEditorKit = [
   ...TableKit,
   ...codeBlockKitWithMermaid,
   TogglePlugin,
-  ImageUploadPlugin,
+  ImageUploadPlugin.withComponent(ImageElement),
   SlashPlugin.configure({
     options: {
       triggerQuery: (editor: SlateEditor) =>

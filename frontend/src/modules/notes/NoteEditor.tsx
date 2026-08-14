@@ -32,6 +32,8 @@ export function NoteEditor({ noteId, onDeleted, onSaved }: NoteEditorProps) {
   const saveInFlight = useRef(false);
   const pendingSave = useRef(false);
   const pendingTitle = useRef("");
+  const titleRef = useRef("");
+  const noteRef = useRef<Note | null>(null);
 
   const editor = usePlateEditor({
     plugins: NotesEditorKit,
@@ -47,7 +49,9 @@ export function NoteEditor({ noteId, onDeleted, onSaved }: NoteEditorProps) {
         if (!mounted) {
           return;
         }
+        noteRef.current = n;
         setNote(n);
+        titleRef.current = n.title;
         setTitle(n.title);
         const value = editor.api.markdown.deserialize(n.body);
         editor.tf.setValue(value);
@@ -61,6 +65,14 @@ export function NoteEditor({ noteId, onDeleted, onSaved }: NoteEditorProps) {
       mounted = false;
       if (saveTimer.current) {
         clearTimeout(saveTimer.current);
+      }
+      const loadedNote = noteRef.current;
+      if (loadedNote) {
+        void updateNote(
+          loadedNote.id,
+          titleRef.current,
+          editor.api.markdown.serialize(),
+        );
       }
     };
     // Runs once per mount — NotesView remounts this component (via `key`)
@@ -91,6 +103,7 @@ export function NoteEditor({ noteId, onDeleted, onSaved }: NoteEditorProps) {
     try {
       const body = editor.api.markdown.serialize();
       const updated = await updateNote(note.id, nextTitle, body);
+      noteRef.current = updated;
       setNote(updated);
       setStatus("saved");
       onSaved();
@@ -143,6 +156,7 @@ export function NoteEditor({ noteId, onDeleted, onSaved }: NoteEditorProps) {
           aria-label="note-title"
           value={title}
           onChange={(e) => {
+            titleRef.current = e.target.value;
             setTitle(e.target.value);
             scheduleSave(e.target.value);
           }}
