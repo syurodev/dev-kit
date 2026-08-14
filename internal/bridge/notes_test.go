@@ -100,8 +100,12 @@ func TestNotesBridgeFoldersAndOrganization(t *testing.T) {
 	if summary.FolderID != folder.ID {
 		t.Fatalf("FolderID = %q", summary.FolderID)
 	}
-	if _, err := service.NotesSetOrganization(summary.ID, "", []string{"solo"}); err != nil {
+	organized, err := service.NotesSetOrganization(summary.ID, "", []string{"solo"}, "red")
+	if err != nil {
 		t.Fatalf("NotesSetOrganization: %v", err)
+	}
+	if organized.Color != "red" {
+		t.Fatalf("Color = %q, want red", organized.Color)
 	}
 	if err := service.NotesFolderDelete(folder.ID); err != nil {
 		t.Fatalf("NotesFolderDelete: %v", err)

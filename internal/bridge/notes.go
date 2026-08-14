@@ -42,13 +42,13 @@ func (s *AppService) NotesCreate(title string, body string, folderID string, tag
 	return result.(notes.Summary), nil
 }
 
-func (s *AppService) NotesSetOrganization(id, folderID string, tags []string) (notes.Summary, error) {
+func (s *AppService) NotesSetOrganization(id, folderID string, tags []string, color string) (notes.Summary, error) {
 	opaqueID := recordID(id)
 	result, err := s.call(context.Background(), "builtin.notes", "notes:write", "note:"+opaqueID, map[string]any{
 		"action":  "set_organization",
 		"note_id": opaqueID,
 	}, func(context.Context) (any, error) {
-		return s.container.Notes.SetOrganization(id, folderID, tags)
+		return s.container.Notes.SetOrganization(id, folderID, tags, color)
 	})
 	if err != nil {
 		return notes.Summary{}, err
