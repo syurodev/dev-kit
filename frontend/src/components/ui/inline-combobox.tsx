@@ -303,7 +303,7 @@ const InlineComboboxContent: typeof ComboboxPopover = ({
     <Portal>
       <ComboboxPopover
         className={cn(
-          'z-500 max-h-[288px] w-[300px] overflow-y-auto rounded-md bg-popover shadow-md',
+          'z-500 max-h-[288px] w-[300px] overflow-y-auto rounded-md border border-border bg-popover text-popover-foreground shadow-md',
           className
         )}
         onKeyDownCapture={handleKeyDown}
@@ -314,7 +314,7 @@ const InlineComboboxContent: typeof ComboboxPopover = ({
 };
 
 const comboboxItemVariants = cva(
-  'relative mx-1 flex h-[28px] select-none items-center rounded-sm px-2 text-foreground text-sm outline-none [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0',
+  'relative mx-1 flex h-[28px] w-[calc(100%-0.5rem)] select-none items-center gap-2 rounded-sm px-2 text-foreground text-sm outline-none [&_svg:not([class*=size-])]:pointer-events-none [&_svg:not([class*=size-])]:size-4 [&_svg:not([class*=size-])]:shrink-0',
   {
     defaultVariants: {
       interactive: true,
