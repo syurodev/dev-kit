@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Bold, Code, Italic, Strikethrough, Trash2, Underline, X } from "lucide-react";
+import { ArrowLeft, Bold, Code, Italic, Palette, Strikethrough, Trash2, Underline, X } from "lucide-react";
 import { KEYS } from "platejs";
 import { Plate, usePlateEditor } from "platejs/react";
 import { toast } from "sonner";
@@ -10,6 +10,7 @@ import { FloatingToolbar } from "@/components/ui/floating-toolbar";
 import { Input } from "@/components/ui/input";
 import { LinkToolbarButton } from "@/components/ui/link-toolbar-button";
 import { MarkToolbarButton } from "@/components/ui/mark-toolbar-button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -27,6 +28,7 @@ import {
   type Note,
   type NoteFolder,
 } from "../../bridge/notes";
+import { ColorPicker } from "./ColorPicker";
 import { folderDotVar } from "./folderColors";
 import { tagChipVar } from "./tagColor";
 import { NotesEditorKit } from "./plate/plugins";
@@ -86,6 +88,7 @@ export function NoteEditor({ noteId, onBack, onDeleted, onSaved }: NoteEditorPro
   const [title, setTitle] = useState("");
   const [folderId, setFolderId] = useState("");
   const [ownTags, setOwnTags] = useState<string[]>([]);
+  const [color, setColor] = useState("");
   const [tagDraft, setTagDraft] = useState("");
   const [status, setStatus] = useState<SaveStatus>("idle");
   const [loadError, setLoadError] = useState("");
@@ -131,6 +134,7 @@ export function NoteEditor({ noteId, onBack, onDeleted, onSaved }: NoteEditorPro
         setTitle(n.title);
         setFolderId(n.folderId);
         setOwnTags(n.tags);
+        setColor(n.color);
         const value = editor.api.markdown.deserialize(n.body);
         editor.tf.setValue(value);
       })
@@ -178,7 +182,7 @@ export function NoteEditor({ noteId, onBack, onDeleted, onSaved }: NoteEditorPro
     try {
       const body = editor.api.markdown.serialize();
       const updated = await updateNote(note.id, nextTitle, body);
-      noteRef.current = { ...updated, tags: ownTags, folderId };
+      noteRef.current = { ...updated, tags: ownTags, folderId, color: note.color, effectiveColor: note.effectiveColor };
       setNote(noteRef.current);
       setStatus("saved");
       onSaved();
@@ -194,23 +198,26 @@ export function NoteEditor({ noteId, onBack, onDeleted, onSaved }: NoteEditorPro
     }
   }
 
-  async function persistOrganization(nextFolderId: string, nextTags: string[]) {
+  async function persistOrganization(nextFolderId: string, nextTags: string[], nextColor: string) {
     if (!note || orgInFlight.current) {
       return;
     }
     orgInFlight.current = true;
     try {
-      const summary = await setNoteOrganization(note.id, nextFolderId, nextTags, note.color);
+      const summary = await setNoteOrganization(note.id, nextFolderId, nextTags, nextColor);
       const refreshed = {
         ...noteRef.current!,
         folderId: summary.folderId,
         tags: summary.tags,
         effectiveTags: summary.effectiveTags,
+        color: summary.color,
+        effectiveColor: summary.effectiveColor,
       };
       noteRef.current = refreshed;
       setNote(refreshed);
       setFolderId(summary.folderId);
       setOwnTags(summary.tags);
+      setColor(summary.color);
       onSaved();
     } catch (e) {
       toast.error(errorMessage(e));
@@ -240,19 +247,24 @@ export function NoteEditor({ noteId, onBack, onDeleted, onSaved }: NoteEditorPro
     const next = [...ownTags, tag];
     setOwnTags(next);
     setTagDraft("");
-    void persistOrganization(folderId, next);
+    void persistOrganization(folderId, next, color);
   }
 
   function removeOwnTag(tag: string) {
     const next = ownTags.filter((t) => t !== tag);
     setOwnTags(next);
-    void persistOrganization(folderId, next);
+    void persistOrganization(folderId, next, color);
   }
 
   function onFolderChange(value: string) {
     const nextFolderId = value === "ungrouped" ? "" : value;
     setFolderId(nextFolderId);
-    void persistOrganization(nextFolderId, ownTags);
+    void persistOrganization(nextFolderId, ownTags, color);
+  }
+
+  function onColorChange(nextColor: string) {
+    setColor(nextColor);
+    void persistOrganization(folderId, ownTags, nextColor);
   }
 
   async function onDelete() {
@@ -352,6 +364,31 @@ export function NoteEditor({ noteId, onBack, onDeleted, onSaved }: NoteEditorPro
             ))}
           </SelectContent>
         </Select>
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5 px-2"
+              aria-label="Note color"
+            >
+              <Palette className="size-3.5" />
+              <span
+                className="size-3 shrink-0 rounded-full border border-border"
+                style={
+                  note.effectiveColor
+                    ? { background: folderDotVar(note.effectiveColor) }
+                    : undefined
+                }
+                aria-hidden
+              />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto">
+            <ColorPicker value={color} onChange={onColorChange} allowInherit />
+          </PopoverContent>
+        </Popover>
         <Input
           aria-label="Add tag"
           placeholder="Add tag…"
