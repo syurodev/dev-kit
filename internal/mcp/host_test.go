@@ -25,9 +25,18 @@ func TestSocketPath(t *testing.T) {
 	}
 }
 
+func testSocketPath(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("/tmp", "mcp-test-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return filepath.Join(dir, "mcp.sock")
+}
+
 func TestServeUnixListenAcceptClose(t *testing.T) {
-	dir := t.TempDir()
-	sock := filepath.Join(dir, "mcp.sock")
+	sock := testSocketPath(t)
 
 	caller := &fakeCaller{}
 	server := NewServer(testDeps(caller, nil))
@@ -76,8 +85,7 @@ func TestServeUnixListenAcceptClose(t *testing.T) {
 }
 
 func TestServeUnixMCPInitializeAndListTools(t *testing.T) {
-	dir := t.TempDir()
-	sock := filepath.Join(dir, "mcp.sock")
+	sock := testSocketPath(t)
 
 	caller := &fakeCaller{}
 	server := NewServer(testDeps(caller, nil))
