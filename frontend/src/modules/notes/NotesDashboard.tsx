@@ -495,7 +495,7 @@ export function NotesDashboard({
         </Sidebar>
 
         <section className="flex min-h-0 flex-1 flex-col">
-          <div className="flex items-end justify-between gap-2 px-4 pt-4 pb-3">
+          <div className="flex items-end justify-between gap-2 px-3 pt-4 pb-3">
             <div>
               <h1 className="text-2xl font-bold tracking-tight text-foreground">
                 Notes
@@ -521,7 +521,7 @@ export function NotesDashboard({
             />
             <Button
               type="button"
-              size="sm"
+              size="lg"
               variant="outline"
               disabled={creating}
               onClick={() => void onCreateNote()}
