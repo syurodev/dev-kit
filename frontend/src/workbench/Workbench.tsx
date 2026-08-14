@@ -23,6 +23,8 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Kbd } from "@/components/ui/kbd";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { SplitPanelProvider, SplitPanelSlot } from "@/components/ui/split-panel";
+import { useModuleActionsStore } from "../stores/moduleActions";
 import { cn } from "@/lib/utils";
 
 // Settings absorbs Sync as a tab (SettingsView) — both stay registered
@@ -47,6 +49,7 @@ export function Workbench() {
   const [metadataLoading, setMetadataLoading] = useState(true);
   const [activeModuleId, setActiveModuleId] = useState(modules[0]?.id ?? "");
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const moduleActions = useModuleActionsStore((s) => s.actions);
 
   useEffect(() => {
     let mounted = true;
@@ -119,98 +122,120 @@ export function Workbench() {
   const hasMetadataWarning = metadataError || parityIssues.length > 0;
 
   return (
-    // Transparent, not bg-background: this outer frame is what the native
-    // macOS vibrancy blur (Mac.Backdrop in main.go) needs to show through.
-    // Only the content card below (bg-card) stays opaque.
-    <div className="relative flex min-h-svh w-full flex-col bg-transparent">
-      <AgentSessionsSubscriber />
-      {/* main.go sets Mac.InvisibleTitleBarHeight: 50 — a draggable strip at
-          the window top where the native traffic-light buttons sit. Rather
-          than reserving that as empty canvas above a bordered card (wasted
-          space), the header lives directly in this strip, on the canvas,
-          padded left to clear the traffic lights — matching how native
-          macOS toolbars combine both in one row. macOS-specific sizing for
-          now (Windows/Linux titlebar chrome is a separate, deferred pass). */}
-      <header className="flex h-[50px] shrink-0 items-center gap-2 pl-24 pr-4">
-        <div className="flex size-6 items-center justify-center rounded-md bg-primary text-primary-foreground">
-          <Bot className="size-3.5" />
+    <SplitPanelProvider>
+      {/* Transparent, not bg-background: this outer frame is what the native
+          macOS vibrancy blur (Mac.Backdrop in main.go) needs to show through.
+          Only the content card below (bg-card) stays opaque. */}
+      <div className="relative flex min-h-svh w-full flex-col bg-transparent">
+        <AgentSessionsSubscriber />
+        {/* main.go sets Mac.InvisibleTitleBarHeight: 50 — a draggable strip at
+            the window top where the native traffic-light buttons sit. Rather
+            than reserving that as empty canvas above a bordered card (wasted
+            space), the header lives directly in this strip, on the canvas,
+            padded left to clear the traffic lights — matching how native
+            macOS toolbars combine both in one row. macOS-specific sizing for
+            now (Windows/Linux titlebar chrome is a separate, deferred pass). */}
+        <header className="flex h-[50px] shrink-0 items-center gap-2 pl-24 pr-4">
+          <div className="flex size-6 items-center justify-center rounded-md bg-primary text-primary-foreground">
+            <Bot className="size-3.5" />
+          </div>
+          <strong className="text-sm font-semibold">
+            {activeModule?.title ?? "DevKit"}
+          </strong>
+          {metadataLoading ? (
+            <span role="status" className="text-xs text-muted-foreground">
+              Loading module metadata...
+            </span>
+          ) : null}
+          <div className="flex-1" />
+          {moduleActions.map((action) => (
+            <Tooltip key={action.id}>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={action.label}
+                  aria-pressed={action.isActive}
+                  className={action.isActive ? "bg-accent text-foreground" : undefined}
+                  onClick={action.onClick}
+                >
+                  <action.icon className="size-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">{action.label}</TooltipContent>
+            </Tooltip>
+          ))}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Commands"
+                onClick={() => setPaletteOpen(true)}
+              >
+                <Search className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              Commands <Kbd>⌘K</Kbd>
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Settings"
+                onClick={() => setActiveModuleId("settings")}
+              >
+                <SettingsIcon className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              Settings <Kbd>⌘,</Kbd>
+            </TooltipContent>
+          </Tooltip>
+        </header>
+        <div className="mx-2 mb-2 flex flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card">
+          {hasMetadataWarning ? (
+            <Alert variant="destructive" className="m-4 mb-0 w-auto">
+              <AlertDescription>
+                Module metadata is unavailable or out of sync.
+              </AlertDescription>
+            </Alert>
+          ) : null}
+          <div className="flex min-h-0 flex-1">
+            <section
+              className={cn(
+                "flex min-h-0 flex-1 flex-col overflow-auto",
+                activeModule?.id === "notes" ? "p-0" : "p-4",
+              )}
+            >
+              {ActiveView ? (
+                <ActiveView />
+              ) : (
+                <p role="status" className="text-sm text-muted-foreground">
+                  {availableModules.length === 0
+                    ? "No modules are currently available."
+                    : "No view is currently available."}
+                </p>
+              )}
+            </section>
+            <SplitPanelSlot />
+          </div>
         </div>
-        <strong className="text-sm font-semibold">
-          {activeModule?.title ?? "DevKit"}
-        </strong>
-        {metadataLoading ? (
-          <span role="status" className="text-xs text-muted-foreground">
-            Loading module metadata...
-          </span>
-        ) : null}
-        <div className="flex-1" />
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label="Commands"
-              onClick={() => setPaletteOpen(true)}
-            >
-              <Search className="size-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">
-            Commands <Kbd>⌘K</Kbd>
-          </TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label="Settings"
-              onClick={() => setActiveModuleId("settings")}
-            >
-              <SettingsIcon className="size-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">
-            Settings <Kbd>⌘,</Kbd>
-          </TooltipContent>
-        </Tooltip>
-      </header>
-      <div className="mx-2 mb-2 flex flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card">
-        {hasMetadataWarning ? (
-          <Alert variant="destructive" className="m-4 mb-0 w-auto">
-            <AlertDescription>
-              Module metadata is unavailable or out of sync.
-            </AlertDescription>
-          </Alert>
-        ) : null}
-        <section
-          className={cn(
-            "flex min-h-0 flex-1 flex-col overflow-auto",
-            activeModule?.id === "notes" ? "p-0" : "p-4",
-          )}
-        >
-          {ActiveView ? (
-            <ActiveView />
-          ) : (
-            <p role="status" className="text-sm text-muted-foreground">
-              {availableModules.length === 0
-                ? "No modules are currently available."
-                : "No view is currently available."}
-            </p>
-          )}
-        </section>
+        <Dock
+          activeModuleId={activeModule?.id ?? ""}
+          modules={dockModules}
+          onSelectModule={setActiveModuleId}
+        />
+        <CommandPalette
+          open={paletteOpen}
+          commands={commands}
+          onClose={() => setPaletteOpen(false)}
+        />
+        <InteractionHost />
       </div>
-      <Dock
-        activeModuleId={activeModule?.id ?? ""}
-        modules={dockModules}
-        onSelectModule={setActiveModuleId}
-      />
-      <CommandPalette
-        open={paletteOpen}
-        commands={commands}
-        onClose={() => setPaletteOpen(false)}
-      />
-      <InteractionHost />
-    </div>
+    </SplitPanelProvider>
   );
 }
