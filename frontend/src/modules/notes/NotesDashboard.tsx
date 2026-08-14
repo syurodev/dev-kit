@@ -281,6 +281,13 @@ export function NotesDashboard({
     return { all: notes.length, ungrouped, byFolder };
   }, [notes, folderIds]);
 
+  const scopeLabel = useMemo(() => {
+    if (scope === "all") return "All";
+    if (scope === "ungrouped") return "Ungrouped";
+    const folderId = scope.slice(7);
+    return folders.find((f) => f.id === folderId)?.name ?? "All";
+  }, [scope, folders]);
+
   function toggleTagFilter(tag: string) {
     setSelectedTags((prev) => {
       const key = tag.toLowerCase();
@@ -488,6 +495,18 @@ export function NotesDashboard({
         </Sidebar>
 
         <section className="flex min-h-0 flex-1 flex-col">
+          <div className="flex items-end justify-between gap-2 px-4 pt-4 pb-3">
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight text-foreground">
+                Notes
+              </h1>
+              <p className="mt-1.5 text-[13px] text-muted-foreground">
+                {filtered.length} {filtered.length === 1 ? "note" : "notes"} ·{" "}
+                {scopeLabel}
+              </p>
+            </div>
+          </div>
+          <div className="border-b border-border" />
           <div className="flex flex-wrap items-center gap-2 border-b border-border p-3">
             <SidebarTrigger />
             <Input
@@ -498,7 +517,7 @@ export function NotesDashboard({
                 setQuery(e.target.value);
                 void refresh(e.target.value);
               }}
-              className="h-8 max-w-sm"
+              className="h-9 max-w-sm"
             />
             <Button
               type="button"
@@ -525,7 +544,7 @@ export function NotesDashboard({
           </div>
 
           <ScrollArea className="min-h-0 flex-1">
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] gap-3.5 p-3">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] gap-4 p-3">
               {filtered.map((note) => (
                 <NoteCard
                   key={note.id}
