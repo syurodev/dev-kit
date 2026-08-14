@@ -10,10 +10,11 @@ import (
 )
 
 const (
-	ItemTypeNote     = "note"
-	ItemTypeDatabase = "db-profile"
-	ItemTypeSSH      = "ssh-profile"
-	ItemTypeKafka    = "kafka-profile"
+	ItemTypeNote       = "note"
+	ItemTypeNoteFolder = "note-folder"
+	ItemTypeDatabase   = "db-profile"
+	ItemTypeSSH        = "ssh-profile"
+	ItemTypeKafka      = "kafka-profile"
 )
 
 // ErrInvalidRecordSchema means a vault item does not satisfy the contract of
@@ -26,7 +27,7 @@ var ErrInvalidRecordSchema = errors.New("vault item schema is invalid")
 // snapshots and tombstones so arbitrary records cannot enter its ledgers.
 func IsSupportedItemType(itemType string) bool {
 	switch itemType {
-	case ItemTypeNote, ItemTypeDatabase, ItemTypeSSH, ItemTypeKafka:
+	case ItemTypeNote, ItemTypeNoteFolder, ItemTypeDatabase, ItemTypeSSH, ItemTypeKafka:
 		return true
 	default:
 		return false
@@ -46,12 +47,25 @@ func ValidateRecordSchema(itemType string, metadata json.RawMessage, payload *cr
 	switch itemType {
 	case ItemTypeNote:
 		var value struct {
-			Title string `json:"title"`
+			Title    string   `json:"title"`
+			FolderID string   `json:"folder_id"`
+			Tags     []string `json:"tags"`
 		}
 		if decodeMetadataObject(metadata, &value) != nil || value.Title == "" {
 			return ErrInvalidRecordSchema
 		}
 		expectedKeyID = "note-body"
+
+	case ItemTypeNoteFolder:
+		var value struct {
+			Name  string   `json:"name"`
+			Color string   `json:"color"`
+			Tags  []string `json:"tags"`
+		}
+		if decodeMetadataObject(metadata, &value) != nil || value.Name == "" || !ValidNoteFolderColor(value.Color) {
+			return ErrInvalidRecordSchema
+		}
+		expectedKeyID = "note-folder"
 
 	case ItemTypeDatabase:
 		var value struct {
@@ -118,6 +132,15 @@ func ValidateRecordSchema(itemType string, metadata json.RawMessage, payload *cr
 		return ErrInvalidRecordSchema
 	}
 	return nil
+}
+
+func ValidNoteFolderColor(color string) bool {
+	switch color {
+	case "red", "orange", "yellow", "green", "teal", "blue", "violet", "pink", "gray":
+		return true
+	default:
+		return false
+	}
 }
 
 func decodeMetadataObject(metadata json.RawMessage, destination any) error {

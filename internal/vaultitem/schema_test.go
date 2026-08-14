@@ -17,6 +17,8 @@ func TestValidateRecordSchemaAcceptsSupportedModuleRecords(t *testing.T) {
 		keyID    string
 	}{
 		{name: "note", itemType: ItemTypeNote, metadata: `{"title":"Deploy notes"}`, keyID: "note-body"},
+		{name: "note with org fields", itemType: ItemTypeNote, metadata: `{"title":"Deploy notes","folder_id":"aabbccddeeff001122334455","tags":["ops"]}`, keyID: "note-body"},
+		{name: "note-folder", itemType: ItemTypeNoteFolder, metadata: `{"name":"Work","color":"blue","tags":["work"]}`, keyID: "note-folder"},
 		{name: "database", itemType: ItemTypeDatabase, metadata: `{"name":"Primary","host":"db.internal","port":5432,"database":"app","username":"devkit","ssl_mode":"verify-full"}`, keyID: "db-password"},
 		{name: "ssh", itemType: ItemTypeSSH, metadata: `{"name":"Bastion","host":"ssh.internal","port":22,"username":"devkit","auth_method":"key","host_key_fingerprint":"SHA256:test"}`, keyID: "ssh-secret"},
 		{name: "kafka", itemType: ItemTypeKafka, metadata: `{"name":"Events","bootstrap_servers":["kafka.internal:9092"],"security_protocol":"PLAINTEXT","env":"prod"}`, keyID: "kafka-secret"},
@@ -46,6 +48,11 @@ func TestValidateRecordSchemaRejectsInvalidModuleRecords(t *testing.T) {
 		{name: "invalid ssh auth method", itemType: ItemTypeSSH, metadata: `{"name":"box","host":"host","port":22,"username":"me","auth_method":"agent"}`, payload: validSchemaEnvelope("ssh-secret")},
 		{name: "missing encrypted payload", itemType: ItemTypeNote, metadata: `{"title":"x"}`},
 		{name: "wrong payload key", itemType: ItemTypeNote, metadata: `{"title":"x"}`, payload: validSchemaEnvelope("db-password")},
+		{name: "note-folder missing name", itemType: ItemTypeNoteFolder, metadata: `{"color":"blue"}`, payload: validSchemaEnvelope("note-folder")},
+		{name: "note-folder unknown color", itemType: ItemTypeNoteFolder, metadata: `{"name":"Work","color":"neon"}`, payload: validSchemaEnvelope("note-folder")},
+		{name: "note-folder unknown field", itemType: ItemTypeNoteFolder, metadata: `{"name":"Work","color":"blue","icon":"x"}`, payload: validSchemaEnvelope("note-folder")},
+		{name: "note-folder wrong payload key", itemType: ItemTypeNoteFolder, metadata: `{"name":"Work","color":"blue"}`, payload: validSchemaEnvelope("note-body")},
+		{name: "note-folder missing payload", itemType: ItemTypeNoteFolder, metadata: `{"name":"Work","color":"blue"}`},
 	}
 
 	for _, test := range tests {
