@@ -1,9 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { Trash2 } from "lucide-react";
+import { Bold, Code, Italic, Strikethrough, Trash2, Underline } from "lucide-react";
+import { KEYS } from "platejs";
 import { Plate, usePlateEditor } from "platejs/react";
 import { Button } from "@/components/ui/button";
 import { Editor, EditorContainer } from "@/components/ui/editor";
+import { FloatingToolbar } from "@/components/ui/floating-toolbar";
 import { Input } from "@/components/ui/input";
+import { LinkToolbarButton } from "@/components/ui/link-toolbar-button";
+import { MarkToolbarButton } from "@/components/ui/mark-toolbar-button";
 import { deleteNote, getNote, updateNote, type Note } from "../../bridge/notes";
 import { errorMessage } from "../../bridge/errors";
 import { NotesEditorKit } from "./plate/plugins";
@@ -165,6 +169,24 @@ export function NoteEditor({ noteId, onDeleted, onSaved }: NoteEditorProps) {
       <Plate editor={editor} onChange={() => scheduleSave(title)}>
         <EditorContainer className="flex-1 overflow-auto">
           <Editor placeholder="Write something..." className="px-8 py-6" />
+          <FloatingToolbar>
+            <MarkToolbarButton nodeType={KEYS.bold} tooltip="Bold">
+              <Bold />
+            </MarkToolbarButton>
+            <MarkToolbarButton nodeType={KEYS.italic} tooltip="Italic">
+              <Italic />
+            </MarkToolbarButton>
+            <MarkToolbarButton nodeType={KEYS.underline} tooltip="Underline">
+              <Underline />
+            </MarkToolbarButton>
+            <MarkToolbarButton nodeType={KEYS.strikethrough} tooltip="Strikethrough">
+              <Strikethrough />
+            </MarkToolbarButton>
+            <MarkToolbarButton nodeType={KEYS.code} tooltip="Code">
+              <Code />
+            </MarkToolbarButton>
+            <LinkToolbarButton />
+          </FloatingToolbar>
         </EditorContainer>
       </Plate>
     </div>

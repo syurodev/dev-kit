@@ -2,6 +2,7 @@ import remarkGfm from "remark-gfm";
 import { MarkdownPlugin } from "@platejs/markdown";
 import { SlashInputPlugin, SlashPlugin } from "@platejs/slash-command/react";
 import { TogglePlugin } from "@platejs/toggle/react";
+import { KEYS, type SlateEditor } from "platejs";
 
 import { BasicBlocksKit } from "@/components/editor/plugins/basic-blocks-kit";
 import { BasicMarksKit } from "@/components/editor/plugins/basic-marks-kit";
@@ -12,6 +13,7 @@ import { TableKit } from "@/components/editor/plugins/table-kit";
 
 import { MermaidCodeBlock } from "./MermaidCodeBlock";
 import { ImageUploadPlugin } from "./ImageUpload";
+import { SlashInputElement } from "./SlashInput";
 
 /**
  * CodeBlockKit's own code_block plugin renders every language with plain
@@ -31,8 +33,15 @@ export const NotesEditorKit = [
   ...codeBlockKitWithMermaid,
   TogglePlugin,
   ImageUploadPlugin,
-  SlashPlugin,
-  SlashInputPlugin,
+  SlashPlugin.configure({
+    options: {
+      triggerQuery: (editor: SlateEditor) =>
+        !editor.api.some({
+          match: { type: editor.getType(KEYS.codeBlock) },
+        }),
+    },
+  }),
+  SlashInputPlugin.withComponent(SlashInputElement),
   MarkdownPlugin.configure({
     options: {
       remarkPlugins: [remarkGfm],
