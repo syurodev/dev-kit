@@ -306,7 +306,7 @@ export function NoteEditor({ noteId, onBack, onDeleted, onSaved }: NoteEditorPro
   }
 
   return (
-    <div className="flex h-full flex-1 flex-col">
+    <div className="notes-font-scope flex h-full flex-1 flex-col">
       <div className="flex items-center gap-2 border-b border-border px-4 py-2">
         {onBack ? (
           <Button
@@ -393,7 +393,7 @@ export function NoteEditor({ noteId, onBack, onDeleted, onSaved }: NoteEditorPro
               />
             </Button>
           </PopoverTrigger>
-          <PopoverContent className="w-auto">
+          <PopoverContent className="w-auto shadow-none">
             <ColorPicker value={color} onChange={onColorChange} allowInherit />
           </PopoverContent>
         </Popover>
