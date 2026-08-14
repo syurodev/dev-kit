@@ -1,5 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Bold, Code, Italic, Palette, Strikethrough, Trash2, Underline, X } from "lucide-react";
+import {
+  ArrowLeft,
+  Bold,
+  Code,
+  Italic,
+  PanelRight,
+  Strikethrough,
+  Trash2,
+  Underline,
+  X,
+} from "lucide-react";
 import { KEYS } from "platejs";
 import { Plate, usePlateEditor } from "platejs/react";
 import { toast } from "sonner";
@@ -10,7 +20,6 @@ import { FloatingToolbar } from "@/components/ui/floating-toolbar";
 import { Input } from "@/components/ui/input";
 import { LinkToolbarButton } from "@/components/ui/link-toolbar-button";
 import { MarkToolbarButton } from "@/components/ui/mark-toolbar-button";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -18,6 +27,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useSplitPanel } from "@/components/ui/split-panel";
 import { errorMessage } from "../../bridge/errors";
 import {
   deleteNote,
@@ -28,6 +38,7 @@ import {
   type Note,
   type NoteFolder,
 } from "../../bridge/notes";
+import { useModuleAction } from "../../stores/moduleActions";
 import { ColorPicker } from "./ColorPicker";
 import { folderDotVar } from "./folderColors";
 import { tagChipVar } from "./tagColor";
@@ -82,6 +93,112 @@ function TagChip({
   );
 }
 
+function NoteMetaPanel({
+  folders,
+  folderId,
+  ownTags,
+  color,
+  tagDraft,
+  inherited,
+  onTagDraftChange,
+  onFolderChange,
+  onColorChange,
+  onAddTag,
+  onRemoveTag,
+}: {
+  folders: NoteFolder[];
+  folderId: string;
+  ownTags: string[];
+  color: string;
+  tagDraft: string;
+  inherited: string[];
+  onTagDraftChange: (value: string) => void;
+  onFolderChange: (value: string) => void;
+  onColorChange: (color: string) => void;
+  onAddTag: (raw: string) => void;
+  onRemoveTag: (tag: string) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-5 p-4">
+      <div>
+        <p className="mb-2 text-xs font-medium tracking-[0.4px] text-muted-foreground uppercase">
+          Folder
+        </p>
+        <Select value={folderId || "ungrouped"} onValueChange={onFolderChange}>
+          <SelectTrigger size="sm" className="w-full" aria-label="note-folder">
+            <SelectValue placeholder="Folder" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="ungrouped">Ungrouped</SelectItem>
+            {folders.map((folder) => (
+              <SelectItem key={folder.id} value={folder.id}>
+                <span className="flex items-center gap-2">
+                  <span
+                    className="size-2 shrink-0 rounded-full"
+                    style={{ background: folderDotVar(folder.color) }}
+                    aria-hidden
+                  />
+                  {folder.name}
+                </span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div>
+        <p className="mb-2 text-xs font-medium tracking-[0.4px] text-muted-foreground uppercase">
+          Color
+        </p>
+        <ColorPicker value={color} onChange={onColorChange} allowInherit />
+      </div>
+
+      <div>
+        <p className="mb-2 text-xs font-medium tracking-[0.4px] text-muted-foreground uppercase">
+          Tags
+        </p>
+        <Input
+          aria-label="Add tag"
+          placeholder="Add tag…"
+          value={tagDraft}
+          onChange={(e) => onTagDraftChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === ",") {
+              e.preventDefault();
+              onAddTag(tagDraft);
+            }
+          }}
+          onBlur={() => {
+            if (tagDraft.trim()) {
+              onAddTag(tagDraft);
+            }
+          }}
+          className="h-8"
+        />
+        {ownTags.length > 0 || inherited.length > 0 ? (
+          <div className="mt-2 space-y-1.5">
+            {ownTags.length > 0 ? (
+              <div className="flex flex-wrap gap-1">
+                {ownTags.map((tag) => (
+                  <TagChip key={tag} tag={tag} onRemove={() => onRemoveTag(tag)} />
+                ))}
+              </div>
+            ) : null}
+            {inherited.length > 0 ? (
+              <div className="flex flex-wrap items-center gap-1">
+                <span className="text-xs text-muted-foreground">From folder:</span>
+                {inherited.map((tag) => (
+                  <TagChip key={tag} tag={tag} readOnly />
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 export function NoteEditor({ noteId, onBack, onDeleted, onSaved }: NoteEditorProps) {
   const [note, setNote] = useState<Note | null>(null);
   const [folders, setFolders] = useState<NoteFolder[]>([]);
@@ -90,6 +207,7 @@ export function NoteEditor({ noteId, onBack, onDeleted, onSaved }: NoteEditorPro
   const [ownTags, setOwnTags] = useState<string[]>([]);
   const [color, setColor] = useState("");
   const [tagDraft, setTagDraft] = useState("");
+  const [metaOpen, setMetaOpen] = useState(false);
   const [status, setStatus] = useState<SaveStatus>("idle");
   const [loadError, setLoadError] = useState("");
   const [saveError, setSaveError] = useState("");
@@ -100,6 +218,8 @@ export function NoteEditor({ noteId, onBack, onDeleted, onSaved }: NoteEditorPro
   const titleRef = useRef("");
   const noteRef = useRef<Note | null>(null);
   const orgInFlight = useRef(false);
+
+  const { openPanel, closePanel } = useSplitPanel();
 
   const editor = usePlateEditor({
     plugins: NotesEditorKit,
@@ -287,6 +407,47 @@ export function NoteEditor({ noteId, onBack, onDeleted, onSaved }: NoteEditorPro
     }
   }
 
+  useModuleAction(
+    note
+      ? {
+          id: "notes.toggle-meta-panel",
+          icon: PanelRight,
+          label: "Note details",
+          isActive: metaOpen,
+          onClick: () => setMetaOpen((v) => !v),
+        }
+      : null,
+  );
+
+  useEffect(() => {
+    if (!metaOpen || !note) {
+      closePanel();
+      return;
+    }
+    openPanel(
+      <NoteMetaPanel
+        folders={folders}
+        folderId={folderId}
+        ownTags={ownTags}
+        color={color}
+        tagDraft={tagDraft}
+        inherited={inherited}
+        onTagDraftChange={setTagDraft}
+        onFolderChange={onFolderChange}
+        onColorChange={onColorChange}
+        onAddTag={tryAddTag}
+        onRemoveTag={removeOwnTag}
+      />,
+      { width: 420, onClose: () => setMetaOpen(false) },
+    );
+    return () => closePanel();
+    // onFolderChange/onColorChange/tryAddTag/removeOwnTag close over the
+    // same state already listed below; omitted to avoid re-pushing panel
+    // content on every render (they're new function references each
+    // render, but their behavior only changes when these listed values do).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [metaOpen, note, folders, folderId, ownTags, color, tagDraft, inherited]);
+
   if (loadError) {
     return (
       <div className="flex flex-1 items-center justify-center p-4">
@@ -319,7 +480,10 @@ export function NoteEditor({ noteId, onBack, onDeleted, onSaved }: NoteEditorPro
             <ArrowLeft className="size-4" />
           </Button>
         ) : null}
-        <nav aria-label="Note breadcrumb" className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+        <nav
+          aria-label="Note breadcrumb"
+          className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground"
+        >
           <button type="button" className="shrink-0 hover:text-foreground" onClick={onBack}>
             Notes
           </button>
@@ -341,100 +505,6 @@ export function NoteEditor({ noteId, onBack, onDeleted, onSaved }: NoteEditorPro
           <Trash2 className="size-4" />
         </Button>
       </div>
-      <div className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-2">
-        <Input
-          aria-label="note-title"
-          value={title}
-          onChange={(e) => {
-            titleRef.current = e.target.value;
-            setTitle(e.target.value);
-            scheduleSave(e.target.value);
-          }}
-          className="h-8 min-w-[12rem] flex-1 border-none px-0 text-base font-semibold shadow-none focus-visible:ring-0"
-        />
-        <Select value={folderId || "ungrouped"} onValueChange={onFolderChange}>
-          <SelectTrigger size="sm" className="w-[10rem]" aria-label="note-folder">
-            <SelectValue placeholder="Folder" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="ungrouped">Ungrouped</SelectItem>
-            {folders.map((folder) => (
-              <SelectItem key={folder.id} value={folder.id}>
-                <span className="flex items-center gap-2">
-                  <span
-                    className="size-2 shrink-0 rounded-full"
-                    style={{ background: folderDotVar(folder.color) }}
-                    aria-hidden
-                  />
-                  {folder.name}
-                </span>
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-8 gap-1.5 px-2"
-              aria-label="Note color"
-            >
-              <Palette className="size-3.5" />
-              <span
-                className="size-3 shrink-0 rounded-full border border-border"
-                style={
-                  note.effectiveColor
-                    ? { background: folderDotVar(note.effectiveColor) }
-                    : undefined
-                }
-                aria-hidden
-              />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-auto shadow-none">
-            <ColorPicker value={color} onChange={onColorChange} allowInherit />
-          </PopoverContent>
-        </Popover>
-        <Input
-          aria-label="Add tag"
-          placeholder="Add tag…"
-          value={tagDraft}
-          onChange={(e) => setTagDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === ",") {
-              e.preventDefault();
-              tryAddTag(tagDraft);
-            }
-          }}
-          onBlur={() => {
-            if (tagDraft.trim()) {
-              tryAddTag(tagDraft);
-            }
-          }}
-          className="h-8 w-[10rem]"
-        />
-      </div>
-      {(ownTags.length > 0 || inherited.length > 0) && (
-        <div className="space-y-1 border-b border-border px-4 py-2">
-          {ownTags.length > 0 ? (
-            <div className="flex flex-wrap gap-1">
-              {ownTags.map((tag) => (
-                <TagChip key={tag} tag={tag} onRemove={() => removeOwnTag(tag)} />
-              ))}
-            </div>
-          ) : null}
-          {inherited.length > 0 ? (
-            <div className="flex flex-wrap items-center gap-1">
-              <span className="text-xs text-muted-foreground">From folder:</span>
-              {inherited.map((tag) => (
-                <TagChip key={tag} tag={tag} readOnly />
-              ))}
-            </div>
-          ) : null}
-        </div>
-      )}
       {saveError ? (
         <p role="alert" className="border-b border-border px-4 py-1 text-xs text-destructive">
           {saveError}
@@ -442,7 +512,19 @@ export function NoteEditor({ noteId, onBack, onDeleted, onSaved }: NoteEditorPro
       ) : null}
       <Plate editor={editor} onChange={() => scheduleSave(title)}>
         <EditorContainer className="flex-1 overflow-auto">
-          <Editor placeholder="Write something..." className="px-8 py-6" />
+          <div className="mx-auto w-full max-w-[720px] px-6 pt-10 pb-24">
+            <Input
+              aria-label="note-title"
+              value={title}
+              onChange={(e) => {
+                titleRef.current = e.target.value;
+                setTitle(e.target.value);
+                scheduleSave(e.target.value);
+              }}
+              className="h-auto w-full border-none bg-transparent px-0 py-1 text-3xl font-bold tracking-tight shadow-none focus-visible:ring-0"
+            />
+            <Editor placeholder="Write something..." className="mt-6 px-0" />
+          </div>
           <FloatingToolbar>
             <MarkToolbarButton nodeType={KEYS.bold} tooltip="Bold">
               <Bold />
