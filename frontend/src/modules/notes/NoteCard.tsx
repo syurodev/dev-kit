@@ -26,7 +26,7 @@ export function NoteCard({
     <button
       type="button"
       onClick={() => onOpen(note.id)}
-      className="flex aspect-[3/2] flex-col gap-1.5 rounded-lg border border-border bg-card p-3 text-left"
+      className="flex aspect-3/2 flex-col gap-1.5 rounded-lg border border-border bg-card p-3 text-left"
     >
       <span className="flex min-w-0 items-center gap-1.5">
         {accent ? (
