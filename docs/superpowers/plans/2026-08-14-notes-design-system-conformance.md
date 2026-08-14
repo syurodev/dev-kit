@@ -37,7 +37,7 @@
 - Consumes: `@fontsource-variable/inter` (already imported at the top of this file)
 - Produces: a `.notes-font-scope` class other Notes tasks apply to their screen roots
 
-- [ ] **Step 1: Add the rule**
+- [x] **Step 1: Add the rule**
 
 In `frontend/src/index.css`, insert immediately after the closing `}` of the existing `@layer base { ... }` block (the block ending at line 139, right after the `html { @apply font-sans; ... }` rule):
 
@@ -55,13 +55,13 @@ In `frontend/src/index.css`, insert immediately after the closing `}` of the exi
 }
 ```
 
-- [ ] **Step 2: Typecheck**
+- [x] **Step 2: Typecheck**
 
 Run: `cd frontend && bunx tsc --noEmit`
 
 Expected: PASS (CSS-only change, no TS surface touched — this just confirms nothing else broke)
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add frontend/src/index.css
@@ -82,7 +82,7 @@ git commit -m "feat(notes): add Inter+ss03 font scope for the Notes module"
   - `noteAccentColor(color: string): string | undefined` — replaces `notePanelStyle`; returns `var(--note-folder-<x>)` for a known palette color, `undefined` otherwise
   - `tagSoftBackground(name: string): CSSProperties` — `{ backgroundColor: color-mix(... 15% ...), color: <full-saturation var> }`, matching DESIGN.md's `accent-*-soft` convention (15% alpha fill + full-color text)
 
-- [ ] **Step 1: Replace `noteColor.ts`**
+- [x] **Step 1: Replace `noteColor.ts`**
 
 Replace the full contents of `frontend/src/modules/notes/noteColor.ts`:
 
@@ -97,7 +97,7 @@ export function noteAccentColor(color: string): string | undefined {
 }
 ```
 
-- [ ] **Step 2: Add `tagSoftBackground` to `tagColor.ts`**
+- [x] **Step 2: Add `tagSoftBackground` to `tagColor.ts`**
 
 Append to `frontend/src/modules/notes/tagColor.ts` (keep the existing `tagChipVar` function as-is — it's still used by `TagChip` in `NotesDashboard.tsx` and `NoteEditor.tsx`):
 
@@ -115,13 +115,13 @@ export function tagSoftBackground(name: string): CSSProperties {
 
 Add the `import type { CSSProperties } from "react";` line at the top of the file, above the existing code.
 
-- [ ] **Step 3: Typecheck**
+- [x] **Step 3: Typecheck**
 
 Run: `cd frontend && bunx tsc --noEmit`
 
 Expected: FAIL — `NoteCard.tsx` still imports the now-deleted `notePanelStyle` from `noteColor.ts`. This is expected; Task 3 fixes the only call site.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add frontend/src/modules/notes/noteColor.ts frontend/src/modules/notes/tagColor.ts
@@ -139,7 +139,7 @@ git commit -m "feat(notes): add DESIGN.md-conformant accent/soft color helpers"
 - Consumes: `noteAccentColor` (Task 2), `tagSoftBackground` (Task 2), `NoteSummary` (unchanged)
 - Produces: same `NoteCard({ note, onOpen, onTagClick })` public signature; visually replaces the inset colored panel with a flat `bg-card` surface + accent dot + soft tag badges
 
-- [ ] **Step 1: Replace the file**
+- [x] **Step 1: Replace the file**
 
 Replace the full contents of `frontend/src/modules/notes/NoteCard.tsx`:
 
@@ -223,13 +223,13 @@ export function NoteCard({
 }
 ```
 
-- [ ] **Step 2: Typecheck**
+- [x] **Step 2: Typecheck**
 
 Run: `cd frontend && bunx tsc --noEmit`
 
 Expected: PASS
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add frontend/src/modules/notes/NoteCard.tsx
@@ -247,7 +247,7 @@ git commit -m "feat(notes): flatten NoteCard to DESIGN.md's feature-card-dark sh
 - Consumes: nothing new
 - Produces: sidebar rows use `{rounded.sm}` (6px) and `{typography.body-md}` (16px); row counts use `{typography.caption-sm}` (12px/0.4px tracking); dashboard root carries `.notes-font-scope`
 
-- [ ] **Step 1: Update `scopeButtonClass`**
+- [x] **Step 1: Update `scopeButtonClass`**
 
 In `frontend/src/modules/notes/NotesDashboard.tsx`, replace the `scopeButtonClass` function (originally lines 343–348):
 
@@ -262,7 +262,7 @@ In `frontend/src/modules/notes/NotesDashboard.tsx`, replace the `scopeButtonClas
 
 (Only `rounded-lg` → `rounded-sm` and `text-sm` → `text-base tracking-[0.2px]` changed — the active/inactive background logic is untouched; `bg-accent` already resolves to the same `#121212` DESIGN.md calls `surface-card`.)
 
-- [ ] **Step 2: Update the three count spans**
+- [x] **Step 2: Update the three count spans**
 
 Each of the three `<span className="text-xs text-muted-foreground">` counters (All, Ungrouped, per-folder — originally lines 361, 369, 385–387) gains the `caption-sm` letter-spacing:
 
@@ -278,7 +278,7 @@ Each of the three `<span className="text-xs text-muted-foreground">` counters (A
                   </span>
 ```
 
-- [ ] **Step 3: Add the font scope to the root**
+- [x] **Step 3: Add the font scope to the root**
 
 Change the component's root element (originally line 351):
 
@@ -286,13 +286,13 @@ Change the component's root element (originally line 351):
     <div className="notes-font-scope flex h-full min-h-0 flex-1">
 ```
 
-- [ ] **Step 4: Typecheck**
+- [x] **Step 4: Typecheck**
 
 Run: `cd frontend && bunx tsc --noEmit`
 
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/src/modules/notes/NotesDashboard.tsx
@@ -310,7 +310,7 @@ git commit -m "feat(notes): apply command-palette-row tokens to the sidebar"
 - Consumes: nothing new
 - Produces: the note color `Popover` renders without the shared `Popover` component's default `shadow-md`; editor root carries `.notes-font-scope`
 
-- [ ] **Step 1: Strip the popover shadow**
+- [x] **Step 1: Strip the popover shadow**
 
 In `frontend/src/modules/notes/NoteEditor.tsx`, change the `PopoverContent`:
 
@@ -318,7 +318,7 @@ In `frontend/src/modules/notes/NoteEditor.tsx`, change the `PopoverContent`:
           <PopoverContent className="w-auto shadow-none">
 ```
 
-- [ ] **Step 2: Add the font scope to the root**
+- [x] **Step 2: Add the font scope to the root**
 
 Change the component's root element (the `return (` block's outermost `<div>`):
 
@@ -326,13 +326,13 @@ Change the component's root element (the `return (` block's outermost `<div>`):
     <div className="notes-font-scope flex h-full flex-1 flex-col">
 ```
 
-- [ ] **Step 3: Typecheck**
+- [x] **Step 3: Typecheck**
 
 Run: `cd frontend && bunx tsc --noEmit`
 
 Expected: PASS
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add frontend/src/modules/notes/NoteEditor.tsx
@@ -345,13 +345,13 @@ git commit -m "feat(notes): drop the color popover shadow, apply font scope"
 
 **Files:** none new
 
-- [ ] **Step 1: Typecheck**
+- [x] **Step 1: Typecheck**
 
 Run: `cd frontend && bunx tsc --noEmit`
 
 Expected: PASS
 
-- [ ] **Step 2: Manual script**
+- [x] **Step 2: Manual script**
 
 Run the app, open Notes:
 
