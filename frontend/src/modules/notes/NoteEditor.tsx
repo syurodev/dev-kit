@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Bold, Code, Italic, Strikethrough, Trash2, Underline } from "lucide-react";
+import { ArrowLeft, Bold, Code, Italic, Strikethrough, Trash2, Underline } from "lucide-react";
 import { KEYS } from "platejs";
 import { Plate, usePlateEditor } from "platejs/react";
 import { Button } from "@/components/ui/button";
@@ -16,13 +16,14 @@ type SaveStatus = "idle" | "saving" | "saved" | "error";
 
 type NoteEditorProps = {
   noteId: string;
+  onBack?: () => void;
   onDeleted: () => void;
   onSaved: () => void;
 };
 
 const AUTOSAVE_DELAY_MS = 1500;
 
-export function NoteEditor({ noteId, onDeleted, onSaved }: NoteEditorProps) {
+export function NoteEditor({ noteId, onBack, onDeleted, onSaved }: NoteEditorProps) {
   const [note, setNote] = useState<Note | null>(null);
   const [title, setTitle] = useState("");
   const [status, setStatus] = useState<SaveStatus>("idle");
@@ -152,6 +153,17 @@ export function NoteEditor({ noteId, onDeleted, onSaved }: NoteEditorProps) {
   return (
     <div className="flex h-full flex-1 flex-col">
       <div className="flex items-center gap-2 border-b border-border px-4 py-2">
+        {onBack ? (
+          <Button
+            type="button"
+            size="icon-sm"
+            variant="ghost"
+            aria-label="Back to notes"
+            onClick={onBack}
+          >
+            <ArrowLeft className="size-4" />
+          </Button>
+        ) : null}
         <Input
           aria-label="note-title"
           value={title}

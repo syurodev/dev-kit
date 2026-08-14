@@ -1,29 +1,31 @@
 import { useState } from "react";
 import { NoteEditor } from "./NoteEditor";
-import { NoteList } from "./NoteList";
+import { NotesDashboard } from "./NotesDashboard";
 
 export function NotesView() {
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
 
+  if (openId) {
+    return (
+      <NoteEditor
+        key={openId}
+        noteId={openId}
+        onBack={() => setOpenId(null)}
+        onDeleted={() => {
+          setOpenId(null);
+          setRefreshToken((t) => t + 1);
+        }}
+        onSaved={() => setRefreshToken((t) => t + 1)}
+      />
+    );
+  }
+
   return (
-    <div className="flex h-full">
-      <NoteList selectedId={selectedId} onSelect={setSelectedId} refreshToken={refreshToken} />
-      {selectedId ? (
-        <NoteEditor
-          key={selectedId}
-          noteId={selectedId}
-          onDeleted={() => {
-            setSelectedId(null);
-            setRefreshToken((t) => t + 1);
-          }}
-          onSaved={() => setRefreshToken((t) => t + 1)}
-        />
-      ) : (
-        <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-          Select a note or create a new one.
-        </div>
-      )}
-    </div>
+    <NotesDashboard
+      refreshToken={refreshToken}
+      onOpenNote={setOpenId}
+      onChanged={() => setRefreshToken((t) => t + 1)}
+    />
   );
 }
