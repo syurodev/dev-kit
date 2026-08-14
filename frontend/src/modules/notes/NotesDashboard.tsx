@@ -43,6 +43,7 @@ import {
 } from "../../bridge/notes";
 import { FOLDER_COLORS, folderDotVar, type FolderColor } from "./folderColors";
 import { ColorPicker } from "./ColorPicker";
+import { NoteCard } from "./NoteCard";
 import { tagChipVar } from "./tagColor";
 
 type Scope = "all" | "ungrouped" | `folder:${string}`;
@@ -482,38 +483,14 @@ export function NotesDashboard({
         </div>
 
         <ScrollArea className="min-h-0 flex-1">
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(14rem,1fr))] gap-3 p-3">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] gap-3.5 p-3">
             {filtered.map((note) => (
-              <button
+              <NoteCard
                 key={note.id}
-                type="button"
-                onClick={() => onOpenNote(note.id)}
-                className="flex flex-col items-start gap-2 rounded-lg border border-border bg-card p-3 text-left hover:bg-accent/40"
-              >
-                <span className="w-full truncate text-sm font-medium text-foreground">
-                  {note.title || "Untitled"}
-                </span>
-                {note.preview ? (
-                  <span className="line-clamp-2 w-full text-xs text-muted-foreground">
-                    {note.preview}
-                  </span>
-                ) : (
-                  <span className="line-clamp-2 w-full text-xs text-muted-foreground">
-                    No preview
-                  </span>
-                )}
-                {note.effectiveTags.length > 0 ? (
-                  <div className="flex flex-wrap gap-1">
-                    {note.effectiveTags.map((tag) => (
-                      <TagChip
-                        key={`${note.id}:${tag.toLowerCase()}`}
-                        tag={tag}
-                        onClick={() => toggleTagFilter(tag)}
-                      />
-                    ))}
-                  </div>
-                ) : null}
-              </button>
+                note={note}
+                onOpen={onOpenNote}
+                onTagClick={toggleTagFilter}
+              />
             ))}
             {filtered.length === 0 ? (
               <p className="col-span-full px-1 py-6 text-sm text-muted-foreground">
