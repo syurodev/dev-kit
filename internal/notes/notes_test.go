@@ -1,6 +1,7 @@
 package notes
 
 import (
+	"strings"
 	"testing"
 
 	"devkit/internal/vault"
@@ -19,7 +20,7 @@ func newService(t *testing.T) *Service {
 func TestCreateAndGet(t *testing.T) {
 	s := newService(t)
 
-	summary, err := s.Create("Title", "body text")
+	summary, err := s.Create("Title", "body text", "", nil)
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -38,14 +39,14 @@ func TestCreateAndGet(t *testing.T) {
 
 func TestCreateRequiresTitle(t *testing.T) {
 	s := newService(t)
-	if _, err := s.Create("", "b"); err == nil {
+	if _, err := s.Create("", "b", "", nil); err == nil {
 		t.Fatal("expected error for empty title")
 	}
 }
 
 func TestUpdateReplacesTitleAndBody(t *testing.T) {
 	s := newService(t)
-	summary, err := s.Create("Old title", "old body")
+	summary, err := s.Create("Old title", "old body", "", nil)
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -69,7 +70,7 @@ func TestUpdateReplacesTitleAndBody(t *testing.T) {
 
 func TestUpdateRequiresTitle(t *testing.T) {
 	s := newService(t)
-	summary, _ := s.Create("Title", "body")
+	summary, _ := s.Create("Title", "body", "", nil)
 	if _, err := s.Update(summary.ID, "", "body"); err == nil {
 		t.Fatal("expected error for empty title")
 	}
@@ -84,8 +85,8 @@ func TestUpdateFailsForUnknownID(t *testing.T) {
 
 func TestListReturnsSummaries(t *testing.T) {
 	s := newService(t)
-	s.Create("A", "1")
-	s.Create("B", "2")
+	s.Create("A", "1", "", nil)
+	s.Create("B", "2", "", nil)
 	list, err := s.List()
 	if err != nil {
 		t.Fatalf("list: %v", err)
@@ -97,8 +98,8 @@ func TestListReturnsSummaries(t *testing.T) {
 
 func TestSearchByTitle(t *testing.T) {
 	s := newService(t)
-	s.Create("staging deploy", "x")
-	s.Create("prod deploy", "y")
+	s.Create("staging deploy", "x", "", nil)
+	s.Create("prod deploy", "y", "", nil)
 	hits, err := s.Search("staging")
 	if err != nil {
 		t.Fatalf("search: %v", err)
@@ -110,7 +111,7 @@ func TestSearchByTitle(t *testing.T) {
 
 func TestSearchByBodyWhenUnlocked(t *testing.T) {
 	s := newService(t)
-	s.Create("note one", "contains rocketship")
+	s.Create("note one", "contains rocketship", "", nil)
 	hits, err := s.Search("rocketship")
 	if err != nil {
 		t.Fatalf("search: %v", err)
@@ -122,11 +123,100 @@ func TestSearchByBodyWhenUnlocked(t *testing.T) {
 
 func TestDelete(t *testing.T) {
 	s := newService(t)
-	summary, _ := s.Create("x", "y")
+	summary, _ := s.Create("x", "y", "", nil)
 	if err := s.Delete(summary.ID); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
 	if _, err := s.Get(summary.ID); err == nil {
 		t.Fatal("expected get to fail after delete")
+	}
+}
+
+func TestCreateInFolderWithTags(t *testing.T) {
+	s := newService(t)
+	folder, _ := s.CreateFolder("Work", "blue", []string{"work"})
+	summary, err := s.Create("Standup", "body", folder.ID, []string{"standup"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if summary.FolderID != folder.ID {
+		t.Fatalf("FolderID = %q", summary.FolderID)
+	}
+	if len(summary.EffectiveTags) != 2 {
+		t.Fatalf("EffectiveTags = %#v", summary.EffectiveTags)
+	}
+}
+
+func TestCreateRejectsUnknownFolder(t *testing.T) {
+	s := newService(t)
+	if _, err := s.Create("T", "b", "deadbeefdeadbeefdeadbeef", nil); err == nil {
+		t.Fatal("expected folder not found")
+	}
+}
+
+func TestUpdatePreservesOrganization(t *testing.T) {
+	s := newService(t)
+	folder, _ := s.CreateFolder("Work", "blue", []string{"work"})
+	summary, _ := s.Create("T", "old", folder.ID, []string{"standup"})
+	updated, err := s.Update(summary.ID, "T2", "new")
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if updated.Body != "new" || updated.FolderID != folder.ID || updated.Tags[0] != "standup" {
+		t.Fatalf("updated = %+v", updated)
+	}
+}
+
+func TestSetOrganizationAndLiveInheritance(t *testing.T) {
+	s := newService(t)
+	folder, _ := s.CreateFolder("Work", "blue", []string{"work"})
+	summary, _ := s.Create("T", "b", folder.ID, nil)
+	if _, err := s.UpdateFolder(folder.ID, "Work", "blue", []string{"work", "q3"}); err != nil {
+		t.Fatalf("UpdateFolder: %v", err)
+	}
+	got, err := s.Get(summary.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.Body != "b" {
+		t.Fatalf("body changed: %q", got.Body)
+	}
+	joined := strings.Join(got.EffectiveTags, ",")
+	if !strings.Contains(joined, "work") || !strings.Contains(joined, "q3") {
+		t.Fatalf("EffectiveTags = %#v", got.EffectiveTags)
+	}
+	if _, err := s.SetOrganization(summary.ID, "", []string{"keep"}); err != nil {
+		t.Fatalf("SetOrganization: %v", err)
+	}
+	moved, _ := s.Get(summary.ID)
+	if moved.FolderID != "" || moved.EffectiveTags[0] != "keep" {
+		t.Fatalf("moved = %+v", moved)
+	}
+	if moved.Body != "b" {
+		t.Fatal("SetOrganization resealed or lost body")
+	}
+}
+
+func TestDeleteFolderCopyDown(t *testing.T) {
+	s := newService(t)
+	folder, _ := s.CreateFolder("Work", "blue", []string{"work"})
+	summary, _ := s.Create("T", "keep-body", folder.ID, []string{"standup"})
+	if err := s.DeleteFolder(folder.ID); err != nil {
+		t.Fatalf("DeleteFolder: %v", err)
+	}
+	got, _ := s.Get(summary.ID)
+	if got.FolderID != "" {
+		t.Fatalf("still in folder: %q", got.FolderID)
+	}
+	if got.Body != "keep-body" {
+		t.Fatalf("body = %q", got.Body)
+	}
+	joined := strings.Join(got.Tags, ",")
+	if !strings.Contains(joined, "standup") || !strings.Contains(joined, "work") {
+		t.Fatalf("own tags after copy-down = %#v", got.Tags)
+	}
+	list, _ := s.ListFolders()
+	if len(list) != 0 {
+		t.Fatalf("folder still listed: %+v", list)
 	}
 }

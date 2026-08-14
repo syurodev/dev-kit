@@ -52,7 +52,7 @@ type fakeNotes struct {
 func (f *fakeNotes) List() ([]notes.Summary, error)         { return f.list, nil }
 func (f *fakeNotes) Search(string) ([]notes.Summary, error) { return f.list, nil }
 func (f *fakeNotes) Get(string) (notes.Note, error)         { return f.note, nil }
-func (f *fakeNotes) Create(string, string) (notes.Summary, error) {
+func (f *fakeNotes) Create(string, string, string, []string) (notes.Summary, error) {
 	return notes.Summary{ID: "created", Title: "t"}, nil
 }
 func (f *fakeNotes) Update(string, string, string) (notes.Note, error) { return f.note, nil }

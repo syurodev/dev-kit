@@ -44,7 +44,7 @@ func TestUpdateFolderRenames(t *testing.T) {
 
 func TestUpdateFolderRejectsNote(t *testing.T) {
 	s := newService(t)
-	note, err := s.Create("T", "b")
+	note, err := s.Create("T", "b", "", nil)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}

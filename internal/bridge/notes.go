@@ -34,7 +34,7 @@ func (s *AppService) NotesCreate(title string, body string) (notes.Summary, erro
 	result, err := s.call(context.Background(), "builtin.notes", "notes:write", "note:new", map[string]any{
 		"action": "create",
 	}, func(context.Context) (any, error) {
-		return s.container.Notes.Create(title, body)
+		return s.container.Notes.Create(title, body, "", nil)
 	})
 	if err != nil {
 		return notes.Summary{}, err

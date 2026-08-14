@@ -117,8 +117,35 @@ func folderFrom(record vaultitem.Record) (Folder, error) {
 		ID:        record.ID,
 		Name:      meta.Name,
 		Color:     meta.Color,
-		Tags:      meta.Tags,
+		Tags:      nonNilTags(meta.Tags),
 		CreatedAt: record.CreatedAt,
 		UpdatedAt: record.UpdatedAt,
 	}, nil
+}
+
+func (s *Service) DeleteFolder(id string) error {
+	record, err := s.store.Get(id)
+	if err != nil {
+		return err
+	}
+	if record.Type != vaultitem.ItemTypeNoteFolder {
+		return errors.New("folder not found")
+	}
+	folder, err := folderFrom(record)
+	if err != nil {
+		return err
+	}
+	notes, err := s.List()
+	if err != nil {
+		return err
+	}
+	for _, note := range notes {
+		if note.FolderID != id {
+			continue
+		}
+		if _, err := s.SetOrganization(note.ID, "", UnionTags(note.Tags, folder.Tags)); err != nil {
+			return err
+		}
+	}
+	return s.store.Delete(id)
 }

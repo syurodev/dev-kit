@@ -29,24 +29,32 @@ type Store interface {
 // metadata is the plaintext, local-only note metadata. Title stays plaintext so
 // notes list without decrypting; encrypt it too if titles ever sync.
 type metadata struct {
-	Title string `json:"title"`
+	Title    string   `json:"title"`
+	FolderID string   `json:"folder_id,omitempty"`
+	Tags     []string `json:"tags,omitempty"`
 }
 
 // Summary is a note without its (encrypted) body, safe to list while unlocked.
 type Summary struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID            string    `json:"id"`
+	Title         string    `json:"title"`
+	FolderID      string    `json:"folder_id"`
+	Tags          []string  `json:"tags"`
+	EffectiveTags []string  `json:"effective_tags"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // Note is the decrypted form returned to the caller.
 type Note struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	Body      string    `json:"body"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID            string    `json:"id"`
+	Title         string    `json:"title"`
+	Body          string    `json:"body"`
+	FolderID      string    `json:"folder_id"`
+	Tags          []string  `json:"tags"`
+	EffectiveTags []string  `json:"effective_tags"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 type Service struct {
@@ -57,11 +65,24 @@ func NewService(store Store) *Service {
 	return &Service{store: store}
 }
 
-func (s *Service) Create(title string, body string) (Summary, error) {
+func (s *Service) Create(title string, body string, folderID string, tags []string) (Summary, error) {
 	if title == "" {
 		return Summary{}, errors.New("title is required")
 	}
-	meta, err := json.Marshal(metadata{Title: title})
+	normalized, err := NormalizeTags(tags)
+	if err != nil {
+		return Summary{}, err
+	}
+	if folderID != "" {
+		record, err := s.store.Get(folderID)
+		if err != nil {
+			return Summary{}, err
+		}
+		if record.Type != vaultitem.ItemTypeNoteFolder {
+			return Summary{}, errors.New("folder not found")
+		}
+	}
+	meta, err := json.Marshal(metadata{Title: title, FolderID: folderID, Tags: normalized})
 	if err != nil {
 		return Summary{}, err
 	}
@@ -69,7 +90,11 @@ func (s *Service) Create(title string, body string) (Summary, error) {
 	if err != nil {
 		return Summary{}, err
 	}
-	return toSummary(record)
+	folderMap, err := s.loadFolderMap()
+	if err != nil {
+		return Summary{}, err
+	}
+	return s.toSummary(record, folderMap)
 }
 
 func (s *Service) List() ([]Summary, error) {
@@ -77,9 +102,13 @@ func (s *Service) List() ([]Summary, error) {
 	if err != nil {
 		return nil, err
 	}
+	folderMap, err := s.loadFolderMap()
+	if err != nil {
+		return nil, err
+	}
 	summaries := make([]Summary, 0, len(records))
 	for _, record := range records {
-		summary, err := toSummary(record)
+		summary, err := s.toSummary(record, folderMap)
 		if err != nil {
 			return nil, err
 		}
@@ -104,34 +133,78 @@ func (s *Service) Get(id string) (Note, error) {
 	if err != nil {
 		return Note{}, err
 	}
-	return Note{
-		ID:        record.ID,
-		Title:     meta.Title,
-		Body:      string(plain),
-		CreatedAt: record.CreatedAt,
-		UpdatedAt: record.UpdatedAt,
-	}, nil
+	folderMap, err := s.loadFolderMap()
+	if err != nil {
+		return Note{}, err
+	}
+	return noteFrom(record, meta, string(plain), folderMap), nil
 }
 
 func (s *Service) Update(id, title, body string) (Note, error) {
 	if title == "" {
 		return Note{}, errors.New("title is required")
 	}
-	meta, err := json.Marshal(metadata{Title: title})
+	existing, err := s.store.Get(id)
 	if err != nil {
 		return Note{}, err
 	}
-	record, err := s.store.Update(id, bodyKeyID, meta, []byte(body))
+	meta, err := decodeMetadata(existing)
 	if err != nil {
 		return Note{}, err
 	}
-	return Note{
-		ID:        record.ID,
-		Title:     title,
-		Body:      body,
-		CreatedAt: record.CreatedAt,
-		UpdatedAt: record.UpdatedAt,
-	}, nil
+	meta.Title = title
+	metaBytes, err := json.Marshal(meta)
+	if err != nil {
+		return Note{}, err
+	}
+	record, err := s.store.Update(id, bodyKeyID, metaBytes, []byte(body))
+	if err != nil {
+		return Note{}, err
+	}
+	folderMap, err := s.loadFolderMap()
+	if err != nil {
+		return Note{}, err
+	}
+	return noteFrom(record, meta, body, folderMap), nil
+}
+
+func (s *Service) SetOrganization(id, folderID string, tags []string) (Summary, error) {
+	normalized, err := NormalizeTags(tags)
+	if err != nil {
+		return Summary{}, err
+	}
+	if folderID != "" {
+		record, err := s.store.Get(folderID)
+		if err != nil {
+			return Summary{}, err
+		}
+		if record.Type != vaultitem.ItemTypeNoteFolder {
+			return Summary{}, errors.New("folder not found")
+		}
+	}
+	record, err := s.store.Get(id)
+	if err != nil {
+		return Summary{}, err
+	}
+	meta, err := decodeMetadata(record)
+	if err != nil {
+		return Summary{}, err
+	}
+	meta.FolderID = folderID
+	meta.Tags = normalized
+	metaBytes, err := json.Marshal(meta)
+	if err != nil {
+		return Summary{}, err
+	}
+	record, err = s.store.UpdateMetadata(id, metaBytes)
+	if err != nil {
+		return Summary{}, err
+	}
+	folderMap, err := s.loadFolderMap()
+	if err != nil {
+		return Summary{}, err
+	}
+	return s.toSummary(record, folderMap)
 }
 
 func (s *Service) Delete(id string) error {
@@ -148,6 +221,10 @@ func (s *Service) Search(query string) ([]Summary, error) {
 	if err != nil {
 		return nil, err
 	}
+	folderMap, err := s.loadFolderMap()
+	if err != nil {
+		return nil, err
+	}
 
 	matched := make([]Summary, 0, len(records))
 	for _, record := range records {
@@ -156,12 +233,12 @@ func (s *Service) Search(query string) ([]Summary, error) {
 			return nil, err
 		}
 		if needle == "" || strings.Contains(strings.ToLower(meta.Title), needle) {
-			matched = append(matched, summaryFrom(record, meta))
+			matched = append(matched, s.summaryFrom(record, meta, folderMap))
 			continue
 		}
 		if plain, openErr := s.store.OpenPayload(record, bodyKeyID); openErr == nil {
 			if strings.Contains(strings.ToLower(string(plain)), needle) {
-				matched = append(matched, summaryFrom(record, meta))
+				matched = append(matched, s.summaryFrom(record, meta, folderMap))
 			}
 		}
 	}
@@ -172,6 +249,37 @@ func (s *Service) Search(query string) ([]Summary, error) {
 	return matched, nil
 }
 
+func (s *Service) loadFolderMap() (map[string]Folder, error) {
+	folders, err := s.ListFolders()
+	if err != nil {
+		return nil, err
+	}
+	m := make(map[string]Folder, len(folders))
+	for _, folder := range folders {
+		m[folder.ID] = folder
+	}
+	return m, nil
+}
+
+func nonNilTags(tags []string) []string {
+	if tags == nil {
+		return []string{}
+	}
+	return tags
+}
+
+func effectiveTags(meta metadata, folderMap map[string]Folder) []string {
+	own := nonNilTags(meta.Tags)
+	if meta.FolderID == "" {
+		return own
+	}
+	folder, ok := folderMap[meta.FolderID]
+	if !ok {
+		return own
+	}
+	return UnionTags(own, nonNilTags(folder.Tags))
+}
+
 func decodeMetadata(record vaultitem.Record) (metadata, error) {
 	var meta metadata
 	if err := json.Unmarshal(record.Metadata, &meta); err != nil {
@@ -180,19 +288,35 @@ func decodeMetadata(record vaultitem.Record) (metadata, error) {
 	return meta, nil
 }
 
-func summaryFrom(record vaultitem.Record, meta metadata) Summary {
+func (s *Service) summaryFrom(record vaultitem.Record, meta metadata, folderMap map[string]Folder) Summary {
 	return Summary{
-		ID:        record.ID,
-		Title:     meta.Title,
-		CreatedAt: record.CreatedAt,
-		UpdatedAt: record.UpdatedAt,
+		ID:            record.ID,
+		Title:         meta.Title,
+		FolderID:      meta.FolderID,
+		Tags:          nonNilTags(meta.Tags),
+		EffectiveTags: effectiveTags(meta, folderMap),
+		CreatedAt:     record.CreatedAt,
+		UpdatedAt:     record.UpdatedAt,
 	}
 }
 
-func toSummary(record vaultitem.Record) (Summary, error) {
+func noteFrom(record vaultitem.Record, meta metadata, body string, folderMap map[string]Folder) Note {
+	return Note{
+		ID:            record.ID,
+		Title:         meta.Title,
+		Body:          body,
+		FolderID:      meta.FolderID,
+		Tags:          nonNilTags(meta.Tags),
+		EffectiveTags: effectiveTags(meta, folderMap),
+		CreatedAt:     record.CreatedAt,
+		UpdatedAt:     record.UpdatedAt,
+	}
+}
+
+func (s *Service) toSummary(record vaultitem.Record, folderMap map[string]Folder) (Summary, error) {
 	meta, err := decodeMetadata(record)
 	if err != nil {
 		return Summary{}, err
 	}
-	return summaryFrom(record, meta), nil
+	return s.summaryFrom(record, meta, folderMap), nil
 }

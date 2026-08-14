@@ -32,7 +32,7 @@ type NotesAPI interface {
 	List() ([]notes.Summary, error)
 	Search(query string) ([]notes.Summary, error)
 	Get(id string) (notes.Note, error)
-	Create(title, body string) (notes.Summary, error)
+	Create(title, body, folderID string, tags []string) (notes.Summary, error)
 	Update(id, title, body string) (notes.Note, error)
 	Delete(id string) error
 }

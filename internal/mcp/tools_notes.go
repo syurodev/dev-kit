@@ -101,7 +101,7 @@ type notesCreateInput struct {
 
 func (s *Server) toolNotesCreate(ctx context.Context, _ *sdk.CallToolRequest, in notesCreateInput) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.notes", "notes:write", "note:new", meta("create", nil), func(context.Context) (any, error) {
-		return s.deps.Notes.Create(in.Title, in.Body)
+		return s.deps.Notes.Create(in.Title, in.Body, "", nil)
 	})
 	if err != nil {
 		return nil, nil, err
