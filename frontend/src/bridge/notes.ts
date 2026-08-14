@@ -7,6 +7,8 @@ export type NoteSummary = {
   folderId: string;
   tags: string[];
   effectiveTags: string[];
+  color: string;
+  effectiveColor: string;
   preview: string;
   updatedAt: string;
 };
@@ -18,6 +20,8 @@ export type Note = {
   folderId: string;
   tags: string[];
   effectiveTags: string[];
+  color: string;
+  effectiveColor: string;
 };
 
 export type NoteFolder = {
@@ -38,6 +42,8 @@ function mapSummary(n: {
   folder_id?: string;
   tags?: string[] | null;
   effective_tags?: string[] | null;
+  color?: string;
+  effective_color?: string;
   preview?: string;
   updated_at: string;
 }): NoteSummary {
@@ -47,6 +53,8 @@ function mapSummary(n: {
     folderId: n.folder_id ?? "",
     tags: asStrings(n.tags),
     effectiveTags: asStrings(n.effective_tags),
+    color: n.color ?? "",
+    effectiveColor: n.effective_color ?? "",
     preview: n.preview ?? "",
     updatedAt: n.updated_at,
   };
@@ -59,6 +67,8 @@ function mapNote(n: {
   folder_id?: string;
   tags?: string[] | null;
   effective_tags?: string[] | null;
+  color?: string;
+  effective_color?: string;
 }): Note {
   return {
     id: n.id,
@@ -67,6 +77,8 @@ function mapNote(n: {
     folderId: n.folder_id ?? "",
     tags: asStrings(n.tags),
     effectiveTags: asStrings(n.effective_tags),
+    color: n.color ?? "",
+    effectiveColor: n.effective_color ?? "",
   };
 }
 
@@ -168,9 +180,10 @@ export function setNoteOrganization(
   id: string,
   folderId: string,
   tags: string[],
+  color: string,
 ): Promise<NoteSummary> {
   return callBridge(async () => {
-    const n = await AppService.NotesSetOrganization(id, folderId, tags);
+    const n = await AppService.NotesSetOrganization(id, folderId, tags, color);
     return mapSummary(n);
   });
 }

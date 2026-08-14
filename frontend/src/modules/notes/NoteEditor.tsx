@@ -200,7 +200,7 @@ export function NoteEditor({ noteId, onBack, onDeleted, onSaved }: NoteEditorPro
     }
     orgInFlight.current = true;
     try {
-      const summary = await setNoteOrganization(note.id, nextFolderId, nextTags);
+      const summary = await setNoteOrganization(note.id, nextFolderId, nextTags, note.color);
       const refreshed = {
         ...noteRef.current!,
         folderId: summary.folderId,
