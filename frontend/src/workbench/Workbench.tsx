@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Kbd } from "@/components/ui/kbd";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
 // Settings absorbs Sync as a tab (SettingsView) — both stay registered
 // modules (backend still reports "sync", so removing its registration
@@ -182,7 +183,12 @@ export function Workbench() {
             </AlertDescription>
           </Alert>
         ) : null}
-        <section className="flex-1 overflow-auto p-4">
+        <section
+          className={cn(
+            "flex min-h-0 flex-1 flex-col overflow-auto",
+            activeModule?.id === "notes" ? "p-0" : "p-4",
+          )}
+        >
           {ActiveView ? (
             <ActiveView />
           ) : (
