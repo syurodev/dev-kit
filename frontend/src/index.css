@@ -138,6 +138,17 @@
     }
 }
 
+/* Unlayered on purpose: Tailwind's own `.font-sans` utility (and the
+   `@apply font-sans` on `html` above) live inside Tailwind's cascade
+   layers, and unlayered author styles always win over layered ones
+   regardless of source order. This lets Notes opt into Inter + ss03
+   without touching the app-wide --font-sans (Geist) every other module
+   still inherits. */
+.notes-font-scope {
+  font-family: 'Inter Variable', sans-serif;
+  font-feature-settings: "calt", "kern", "liga", "ss03";
+}
+
 .dark {
     --brand: oklch(0.707 0.165 254.624);
     --highlight: oklch(0.852 0.199 91.936);
