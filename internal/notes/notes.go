@@ -206,10 +206,10 @@ func (s *Service) Delete(id string) error {
 	return s.store.Delete(id)
 }
 
-// Search matches notes by query (case-insensitive). Titles are plaintext and are
-// always searched. Bodies are encrypted, so they are only searched when the
-// vault is unlocked (decrypt succeeds); when locked, Search degrades to
-// title-only. An empty query returns all notes (newest first).
+// Search matches notes by query (case-insensitive). Titles, effective tags, and
+// folder names are always searched from plaintext metadata. Bodies are encrypted,
+// so they are only searched when the vault is unlocked (decrypt succeeds). An
+// empty query returns all notes (newest first).
 func (s *Service) Search(query string) ([]Summary, error) {
 	needle := strings.ToLower(strings.TrimSpace(query))
 	records, err := s.store.ListByType(itemType)
