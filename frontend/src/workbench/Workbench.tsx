@@ -462,7 +462,13 @@ export function Workbench() {
             drag handle; tabs and controls can own their gestures reliably. */}
         <header
           className={cn(
-            "relative flex h-[45px] shrink-0 items-center pt-0.5 pr-4 transition-[padding-left] duration-300 ease-out motion-reduce:transition-none [--wails-draggable:no-drag]",
+            // 38px, not an arbitrary round number: under Mac.TitleBar =
+            // HiddenInset (main.go), AppKit attaches an empty NSToolbar and
+            // centers the traffic lights within *its* native default height
+            // — not this CSS value. 38px is macOS's standard compact
+            // toolbar height, so matching it here is what keeps the tab row
+            // and the traffic lights aligned, not just a size preference.
+            "relative flex h-[38px] shrink-0 items-center pt-0.5 pr-4 transition-[padding-left] duration-300 ease-out motion-reduce:transition-none [--wails-draggable:no-drag]",
             isFullscreen ? "pl-1" : "pl-20",
           )}
         >
