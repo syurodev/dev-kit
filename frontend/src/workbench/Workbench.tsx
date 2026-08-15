@@ -253,30 +253,51 @@ export function Workbench() {
       return (event.metaKey || event.ctrlKey) && event.shiftKey;
     }
 
+    // A single, ordinary tap of a key isn't instantaneous — the press can
+    // last past the OS's key-repeat delay on some systems, which fired a
+    // second "browsing already active" keydown and escalated straight to
+    // the popup on what the user experienced as one press. Requiring
+    // browsing to have been active for at least this long before a further
+    // "e" is allowed to escalate distinguishes an actual hold from that.
+    const ESCALATE_HOLD_MS = 400;
+    let browsingStartedAt = 0;
+
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key.toLowerCase() !== "e" || !isTriggerModifier(event)) {
         return;
       }
       event.preventDefault();
-      // First press (not already active) -> browsing: the real tab strip
-      // takes over, no popup. Any further "e" while already browsing (or
-      // already in the popup) -> popup — whether it's the OS's native
-      // key-repeat from holding the key down, or a second discrete press
-      // (the fallback for users with OS key-repeat disabled), both arrive
-      // here as another keydown and take the same branch on purpose.
-      setSwitcher((current) => (current === "closed" ? "browsing" : "popup"));
+      setSwitcher((current) => {
+        if (current === "closed") {
+          browsingStartedAt = Date.now();
+          return "browsing";
+        }
+        if (current === "browsing" && Date.now() - browsingStartedAt >= ESCALATE_HOLD_MS) {
+          // Whether this "e" is the OS's native key-repeat from holding
+          // the key down, or a second discrete press (the fallback for
+          // users with OS key-repeat disabled), both arrive here as
+          // another keydown and take the same branch on purpose.
+          return "popup";
+        }
+        return current;
+      });
     }
 
     function handleKeyUp(event: KeyboardEvent) {
       const isModifierKey =
         event.key === "Meta" || event.key === "Control" || event.key === "Shift";
-      // Releasing either required modifier ends the session — cancel, not
-      // commit (Enter is the only thing that switches tabs; see
-      // TabSwitcher.tsx and the design spec for why this diverges from
-      // ⌘Tab's release-to-commit).
-      if (isModifierKey && !isTriggerModifier(event)) {
-        setSwitcher("closed");
+      if (!isModifierKey || isTriggerModifier(event)) {
+        return;
       }
+      // Releasing either required modifier only cancels the *browsing*
+      // state — cancel, not commit, matching Enter being the only thing
+      // that actually switches tabs while browsing (see TabStrip.tsx).
+      // The popup, once escalated to, is a normal modal from then on —
+      // it doesn't care about the chord being held anymore, since forcing
+      // the user to keep three keys down while also pressing arrow keys/
+      // Enter inside it is exactly the friction escalating was supposed
+      // to move past.
+      setSwitcher((current) => (current === "browsing" ? "closed" : current));
     }
 
     window.addEventListener("keydown", handleKeyDown);
