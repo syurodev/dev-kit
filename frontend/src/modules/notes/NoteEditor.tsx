@@ -276,6 +276,14 @@ export function NoteEditor({ params }: NoteEditorProps) {
         setOwnTags(n.tags);
         setColor(n.color);
         const value = editor.api.markdown.deserialize(n.body);
+        // Doesn't trip scheduleSave's pin-on-first-edit guard: this whole
+        // .then() runs in one synchronous batch before `note` is set, so
+        // <Plate>/<Slate> (gated on `note` below) hasn't mounted yet and
+        // slate-react hasn't registered its onChange listener — setValue's
+        // operations fire with nobody listening. Depends on that mount
+        // ordering; don't move this setValue after <Plate> can be mounted
+        // (e.g. behind a loading overlay instead of an early return)
+        // without re-checking this still holds.
         editor.tf.setValue(value);
       })
       .catch((e) => {
