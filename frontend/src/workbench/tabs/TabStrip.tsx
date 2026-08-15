@@ -53,8 +53,8 @@ function groupTabs(tabs: WorkbenchTab[]): TabGroup[] {
   return groups;
 }
 
-const FISHEYE_STEP_PERCENT = 15;
-const FISHEYE_FLOOR_PERCENT = 30;
+const FISHEYE_STEP_PERCENT = 20;
+const FISHEYE_FLOOR_PERCENT = 20;
 const TAB_BASE_WIDTH_PX = 140;
 
 /** Width for a tab `distance` positions away from the active tab. */
@@ -195,7 +195,7 @@ function TabGroupRow({
               animate={{ opacity: 1, scale: 1, width: widthPx ?? "auto" }}
               transition={{
                 layout: { duration: 0.045, ease: "easeOut" },
-                width: { duration: 0.18, ease: "easeOut" },
+                width: { duration: 0.32, ease: "easeOut" },
                 opacity: { duration: 0.18 },
                 scale: { duration: 0.18 },
               }}
