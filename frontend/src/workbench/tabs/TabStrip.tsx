@@ -226,7 +226,7 @@ function TabGroupRow({
               animate={{ opacity: 1, scale: 1, width: widthPx ?? "auto" }}
               transition={{
                 layout: { duration: 0.045, ease: "easeOut" },
-                width: { duration: 0.32, ease: "easeOut" },
+                width: { duration: 0.26, ease: "easeInOut" },
                 opacity: { duration: 0.18 },
                 scale: { duration: 0.18 },
               }}
