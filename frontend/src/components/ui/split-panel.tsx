@@ -138,8 +138,8 @@ export function SplitPanelSlot() {
           >
             <div
               className={cn(
-                "h-full w-px bg-border transition-colors",
-                isResizing ? "bg-ring" : "group-hover:bg-ring",
+                "h-full w-px bg-transparent transition-colors",
+                isResizing ? "bg-ring" : "group-hover:bg-border",
               )}
             />
           </div>
