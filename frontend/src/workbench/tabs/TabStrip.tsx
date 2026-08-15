@@ -317,7 +317,15 @@ function TabGroupRow({
                 // TAB_BASE_WIDTH_PX stays this small — bump the base width
                 // up if that reads as broken rather than "very narrow" in
                 // practice.
-                "group relative flex h-6 shrink-0 items-center overflow-hidden rounded-md py-0 pl-2 pr-7 text-xs font-medium transition-[filter,box-shadow] [--wails-draggable:no-drag] backdrop-blur-sm",
+                // Dropping the per-module color wash left inactive tabs
+                // with nothing at all marking their bounds — invisible
+                // against the transparent titlebar whenever no tab in the
+                // strip happens to be the active one (e.g. Dock-browsing a
+                // module whose home view has no strip entry, see
+                // isHiddenHomePreview). A theme-aware border keeps every
+                // tab reading as a distinct chip on its own, independent of
+                // the active pill.
+                "group relative flex h-6 shrink-0 items-center overflow-hidden rounded-md border border-border/50 py-0 pl-2 pr-7 text-xs font-medium transition-[filter,box-shadow] [--wails-draggable:no-drag] backdrop-blur-sm",
                 !isActive && hoveredTabId === tab.id && draggingTabId === null
                   ? "brightness-125"
                   : "",
