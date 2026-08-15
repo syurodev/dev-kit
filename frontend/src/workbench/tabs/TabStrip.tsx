@@ -322,10 +322,12 @@ function TabGroupRow({
                 // against the transparent titlebar whenever no tab in the
                 // strip happens to be the active one (e.g. Dock-browsing a
                 // module whose home view has no strip entry, see
-                // isHiddenHomePreview). A theme-aware border keeps every
-                // tab reading as a distinct chip on its own, independent of
-                // the active pill.
-                "group relative flex h-6 shrink-0 items-center overflow-hidden rounded-md border border-border/50 py-0 pl-2 pr-7 text-xs font-medium transition-[filter,box-shadow] [--wails-draggable:no-drag] backdrop-blur-sm",
+                // isHiddenHomePreview). A border alone still read as too
+                // faint against the native vibrancy blur behind it
+                // (tinted, not a flat surface) — bg-foreground/5 gives
+                // every tab an actual neutral surface under its text/icon,
+                // not just an outline, in either theme.
+                "group relative flex h-6 shrink-0 items-center overflow-hidden rounded-md border border-border/60 bg-foreground/5 py-0 pl-2 pr-7 text-xs font-medium transition-[filter,box-shadow] [--wails-draggable:no-drag] backdrop-blur-sm",
                 !isActive && hoveredTabId === tab.id && draggingTabId === null
                   ? "brightness-125"
                   : "",
@@ -358,7 +360,7 @@ function TabGroupRow({
                   // tab-strip-only icon map to drift either way.
                   const ModuleIcon =
                     tab.icon ?? getModule(tab.moduleId)?.icon ?? Wrench;
-                  return <ModuleIcon className="size-3.5 shrink-0 opacity-70" />;
+                  return <ModuleIcon className="size-3.5 shrink-0 opacity-85" />;
                 })()}
                 {tab.status && tab.status !== "idle" ? (
                   <span
