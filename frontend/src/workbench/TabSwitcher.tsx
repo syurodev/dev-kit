@@ -1,4 +1,4 @@
-import { Wrench } from "lucide-react";
+import { ArrowLeftRight, Wrench } from "lucide-react";
 import {
   CommandDialog,
   CommandEmpty,
@@ -57,6 +57,15 @@ export function TabSwitcher({ open, size, onClose }: TabSwitcherProps) {
       description="Jump to a recently used tab"
       className={size === "large" ? "sm:max-w-2xl" : "sm:max-w-md"}
     >
+      {/* CommandDialog's own title/description render sr-only (see
+          components/ui/command.tsx), so without a visible header this
+          popup was indistinguishable at a glance from the ⌘K Commands
+          palette — both are the same CommandDialog chrome around a plain
+          list. This row is the actual visual differentiator. */}
+      <div className="flex items-center gap-1.5 border-b border-border/50 px-3 py-2 text-xs font-medium text-muted-foreground">
+        <ArrowLeftRight className="size-3.5" />
+        Switch tab
+      </div>
       <CommandList>
         <CommandEmpty>No other tabs are open.</CommandEmpty>
         <CommandGroup heading="Recent tabs">
