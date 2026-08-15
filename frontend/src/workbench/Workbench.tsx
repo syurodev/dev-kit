@@ -238,13 +238,15 @@ export function Workbench() {
   const reorderTab = useWorkbenchTabsStore((state) => state.reorderTab);
 
   useEffect(() => {
-    // navigator.platform is deprecated but still the simplest reliable
-    // Mac/non-Mac check available without pulling in a UA-parsing
-    // dependency for one boolean.
-    const isMac = navigator.platform.toUpperCase().includes("MAC");
-
+    // Accept either ⌘ or Ctrl rather than branching on navigator.platform:
+    // that value is unreliable inside Wails' WKWebView (empty or
+    // inconsistent depending on build/runtime config), which made this
+    // check on macOS test event.ctrlKey — the wrong modifier for a real
+    // ⌘⇧E press — so the shortcut silently never fired. Checking the
+    // event's actual modifier state directly needs no platform guess at
+    // all.
     function isTriggerModifier(event: KeyboardEvent): boolean {
-      return (isMac ? event.metaKey : event.ctrlKey) && event.shiftKey;
+      return (event.metaKey || event.ctrlKey) && event.shiftKey;
     }
 
     function handleKeyDown(event: KeyboardEvent) {
@@ -445,8 +447,14 @@ export function Workbench() {
               content size, which is what an even 1:3:1 split actually
               requires — flex-grow only distributes space left over after
               content sizing, so an empty left column wouldn't reliably end
-              up the same width as a busy right column under flex. */}
-          <div className="grid w-full grid-cols-[1fr_3fr_1fr] items-center gap-2">
+              up the same width as a busy right column under flex.
+              minmax(0,_) on every track, not bare fr: a bare `Nfr` track's
+              implicit minimum is its content's min-content size, not 0 — with
+              every tab in the strip set to shrink-0, that min-content size is
+              large, so the middle track was blowing out past its 3fr share
+              and eating the side columns' space entirely. minmax(0,Nfr) is
+              the standard fix: it lets the fr ratio actually win. */}
+          <div className="grid w-full grid-cols-[minmax(0,1fr)_minmax(0,3fr)_minmax(0,1fr)] items-center gap-2">
             {/* Status column — reserved layout space only. Content (agent
                 status, index status, ...) isn't built yet. */}
             <div />

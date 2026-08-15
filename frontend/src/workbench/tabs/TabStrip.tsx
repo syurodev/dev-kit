@@ -197,6 +197,14 @@ function TabGroupRow({
               }}
               style={{
                 backgroundColor: `hsl(${hue} 55% 45% / ${isActive ? 0.7 : 0.3})`,
+                // "auto" width alone lets the active tab size to fit its own
+                // title — which reads as *smaller* than a neighbor whose
+                // fisheye width is a percentage of the fixed base when the
+                // active tab's own title happens to be short (e.g. "Kafka"
+                // next to a longer neighbor still near 100%). minWidth
+                // guarantees the active tab is never narrower than the 100%
+                // baseline, while still growing past it for longer titles.
+                minWidth: isActive ? TAB_BASE_WIDTH_PX : undefined,
                 // Siblings can visually pass under the captured pointer while
                 // Motion projects them into a new slot. Excluding them from
                 // hit-testing prevents WKWebView from retaining multiple hover
