@@ -283,28 +283,16 @@ export function Workbench() {
       });
     }
 
-    function handleKeyUp(event: KeyboardEvent) {
-      const isModifierKey =
-        event.key === "Meta" || event.key === "Control" || event.key === "Shift";
-      if (!isModifierKey || isTriggerModifier(event)) {
-        return;
-      }
-      // Releasing either required modifier only cancels the *browsing*
-      // state — cancel, not commit, matching Enter being the only thing
-      // that actually switches tabs while browsing (see TabStrip.tsx).
-      // The popup, once escalated to, is a normal modal from then on —
-      // it doesn't care about the chord being held anymore, since forcing
-      // the user to keep three keys down while also pressing arrow keys/
-      // Enter inside it is exactly the friction escalating was supposed
-      // to move past.
-      setSwitcher((current) => (current === "browsing" ? "closed" : current));
-    }
-
+    // Neither state cares about the chord being released once entered —
+    // browsing (like the popup) stays put after a plain press-and-release,
+    // since requiring the user to keep three keys held down while also
+    // pressing arrow keys/Enter to actually use it would be the opposite
+    // of the point. Exiting is explicit: Enter selects, Escape cancels
+    // (see TabStrip.tsx's own keydown handling, and the popup's own
+    // Escape/click-outside handling in TabSwitcher.tsx via Dialog).
     window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("keyup", handleKeyUp);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("keyup", handleKeyUp);
     };
   }, []);
 
