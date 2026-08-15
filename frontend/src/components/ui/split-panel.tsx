@@ -52,11 +52,12 @@ export function useSplitPanel(): SplitPanelContextValue {
 
 const MIN_PANEL_WIDTH = 320;
 const MAX_PANEL_WIDTH = 720;
-// Matches the mx-1.5/mb-1.5 (6px) transparent margins around the whole
-// content row — the gutter between the two cards is styled the same, not a
-// bespoke gap width, so it reads as "the same transparent frame", not a new
-// one.
-const GAP_WIDTH = 6;
+// Matches the mx-1/mb-1 (4px) transparent margins around the whole content
+// row — the gutter between the two cards is styled the same, not a bespoke
+// gap width, so it reads as "the same transparent frame", not a new one.
+// Drives the gutter's actual rendered width via inline style below (not a
+// Tailwind class) so the two can never drift out of sync again.
+const GAP_WIDTH = 4;
 
 /**
  * Renders as a flex sibling of the active module's content (see
@@ -135,7 +136,8 @@ export function SplitPanelSlot() {
             aria-orientation="vertical"
             aria-label="Resize panel"
             onPointerDown={onResizePointerDown}
-            className="group flex w-2 shrink-0 cursor-col-resize items-center justify-center"
+            style={{ width: GAP_WIDTH }}
+            className="group flex shrink-0 cursor-col-resize items-center justify-center"
           >
             <div
               className={cn(
