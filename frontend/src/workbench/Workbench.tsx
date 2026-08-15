@@ -451,8 +451,8 @@ export function Workbench() {
           Only the content card below (bg-card) stays opaque. */}
       <div className="relative flex h-svh w-full flex-col overflow-hidden bg-transparent">
         <AgentSessionsSubscriber />
-        {/* The header shares the compact 30px row with AppKit's traffic lights.
-            main.go intentionally leaves InvisibleTitleBarHeight at zero because
+        {/* The header shares this row with AppKit's traffic lights. main.go
+            intentionally leaves InvisibleTitleBarHeight at zero because
             Wails implements it as an unconditional native drag hit-zone. The
             explicit CSS handle below is the only draggable web region. */}
         {/* Keep the interactive titlebar no-drag by default. Wails listens for
@@ -462,7 +462,7 @@ export function Workbench() {
             drag handle; tabs and controls can own their gestures reliably. */}
         <header
           className={cn(
-            "relative flex h-[30px] shrink-0 items-center pt-0.5 pr-4 transition-[padding-left] duration-300 ease-out motion-reduce:transition-none [--wails-draggable:no-drag]",
+            "relative flex h-[40px] shrink-0 items-center pt-0.5 pr-4 transition-[padding-left] duration-300 ease-out motion-reduce:transition-none [--wails-draggable:no-drag]",
             isFullscreen ? "pl-1" : "pl-20",
           )}
         >

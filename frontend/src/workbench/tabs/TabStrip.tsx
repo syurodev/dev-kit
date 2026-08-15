@@ -102,7 +102,7 @@ type TabGroupRowProps = {
  * among its own group's siblings, never across groups, so a tab can never
  * leave its module's color cluster.
  *
- * Lives inside the 30px titlebar row. Native InvisibleTitleBarHeight is zero;
+ * Lives inside the titlebar row. Native InvisibleTitleBarHeight is zero;
  * both this row and its header default to no-drag, and Workbench owns
  * a separate native window-drag handle over the empty traffic-light clearance.
  * This is important because Wails detects draggable targets from a capture-
@@ -529,7 +529,7 @@ export function TabStrip({
         // The pill-shaped viewport holding every tab, replacing each tab's
         // own border/background from before — one capsule around the whole
         // strip instead of one around each tab.
-        className="scrollbar-hide flex w-full items-center gap-1 overflow-x-auto rounded-full border border-primary/50 px-1"
+        className="scrollbar-hide flex w-full items-center gap-1 overflow-x-auto rounded-full border border-primary/20 px-1"
       >
         <AnimatePresence initial={false}>
           {groups.map((group) => (
