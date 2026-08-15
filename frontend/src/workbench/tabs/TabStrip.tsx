@@ -74,18 +74,16 @@ function groupTabs(tabs: WorkbenchTab[]): TabGroup[] {
   return groups;
 }
 
-const FISHEYE_STEP_PERCENT = 35;
-const FISHEYE_FLOOR_PERCENT = 10;
-const TAB_BASE_WIDTH_PX = 200;
-
-/** Width for a tab `distance` positions away from the active tab. */
-function fisheyeWidthPx(distance: number): number {
-  const percent = Math.max(
-    FISHEYE_FLOOR_PERCENT,
-    100 - distance * FISHEYE_STEP_PERCENT,
-  );
-  return Math.round((TAB_BASE_WIDTH_PX * percent) / 100);
-}
+// Width model: split the strip's actual measured width evenly across every
+// tab. One tab fills the whole strip; opening more shrinks everyone's equal
+// share together. Once that equal share would push the active tab below its
+// own floor, the active tab locks at ACTIVE_MIN_WIDTH_PX instead and only
+// the *other* tabs keep splitting whatever's left — down to their own,
+// smaller floor (INACTIVE_MIN_WIDTH_PX, just enough for the icon and the
+// reserved close-button space), past which the strip scrolls horizontally
+// instead of shrinking further.
+const ACTIVE_MIN_WIDTH_PX = 200;
+const INACTIVE_MIN_WIDTH_PX = 44;
 
 const EDGE_FADE_PX = 20;
 
@@ -133,13 +131,13 @@ type TabGroupRowProps = {
  * window move, the OS owns the pointer and React cannot recover the tab drag.
  *
  * `layout="position"` animates a tab's position when a sibling's width
- * changes (fisheye recompute, or a drag) without scale-projecting content.
- * The tab's own `width` is a separate, real size change — animated through
+ * changes (an equal-share recompute, or a drag) without scale-projecting
+ * content. The tab's own `width` is a separate, real size change — animated through
  * `animate={{ width }}` (a direct tween) rather than through `layout`,
  * which only interpolates position/scale via FLIP, not genuine content
  * reflow. The close button is absolutely positioned in permanently
  * reserved space, so hover and drag alone never change a tab's measured
- * width — only the deliberate fisheye/hover-driven width does.
+ * width — only the deliberate equal-share width does.
  */
 function TabGroupRow({
   tabs,
@@ -241,10 +239,10 @@ function TabGroupRow({
               // AnimatePresence enter/exit — dropping them from `animate`
               // would leave a newly-appeared tab stuck at its `initial`
               // opacity/scale forever, since nothing would ever animate it
-              // to its resting state. "auto" for the active tab: Motion
-              // measures the actual rendered width and tweens toward it,
-              // rather than us trying to compute "however long this title
-              // needs" ourselves.
+              // to its resting state. widthPx is always a real number once
+              // TabStrip has measured its own container at least once;
+              // "auto" is only a fallback for the very first paint before
+              // that measurement lands.
               animate={{ opacity: 1, scale: 1, width: widthPx ?? "auto" }}
               // One shared duration/easing across layout, width, opacity and
               // scale — these used to run at mismatched speeds (layout
@@ -261,14 +259,6 @@ function TabGroupRow({
                 scale: { duration: 0.22, ease: "easeOut" },
               }}
               style={{
-                // "auto" width alone lets the active tab size to fit its own
-                // title — which reads as *smaller* than a neighbor whose
-                // fisheye width is a percentage of the fixed base when the
-                // active tab's own title happens to be short (e.g. "Kafka"
-                // next to a longer neighbor still near 100%). minWidth
-                // guarantees the active tab is never narrower than the 100%
-                // baseline, while still growing past it for longer titles.
-                minWidth: isActive ? TAB_BASE_WIDTH_PX : undefined,
                 // Siblings can visually pass under the captured pointer while
                 // Motion projects them into a new slot. Excluding them from
                 // hit-testing prevents WKWebView from retaining multiple hover
@@ -307,14 +297,10 @@ function TabGroupRow({
               }}
               onClick={() => onSelect(tab.id)}
               className={cn(
-                // overflow-hidden: at the fisheye floor (30% of 140px =
-                // 42px) there isn't room for icon + reserved close-button
-                // space + any title at once. Content clips rather than
-                // spilling out of the tab's bounds. ponytail: the icon can
-                // get visually tight at the exact floor width if
-                // TAB_BASE_WIDTH_PX stays this small — bump the base width
-                // up if that reads as broken rather than "very narrow" in
-                // practice.
+                // overflow-hidden: at INACTIVE_MIN_WIDTH_PX there isn't
+                // room for icon + reserved close-button space + any title
+                // at once — content clips down to just the icon rather than
+                // spilling out of the tab's bounds.
                 // Dropping the per-module color wash left inactive tabs
                 // with nothing at all marking their bounds — invisible
                 // against the transparent titlebar whenever no tab in the
@@ -480,6 +466,13 @@ export function TabStrip({
   const [draggingGroupIds, setDraggingGroupIds] = useState<Set<string>>(new Set());
   const scrollRef = useRef<HTMLDivElement>(null);
   const [edgeFade, setEdgeFade] = useState({ left: false, right: false });
+  // The strip's own available width (its box, not its content) — this is
+  // what the equal-share width model below divides among tabs. Reliable
+  // because scrollRef is styled `w-full`: its clientWidth is always the
+  // column's full width regardless of whether its content over- or
+  // under-fills it, so measuring it can't create a feedback loop with the
+  // very tab widths it's used to compute.
+  const [containerWidth, setContainerWidth] = useState<number | undefined>(undefined);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -487,10 +480,11 @@ export function TabStrip({
       return;
     }
 
-    function updateEdgeFade() {
+    function measure() {
       if (!el) {
         return;
       }
+      setContainerWidth(el.clientWidth);
       const maxScrollLeft = el.scrollWidth - el.clientWidth;
       setEdgeFade({
         left: el.scrollLeft > 1,
@@ -498,22 +492,21 @@ export function TabStrip({
       });
     }
 
-    updateEdgeFade();
-    // A fisheye width tween (activeTabId change) can still be resizing the
-    // row's scrollWidth after this effect runs — ResizeObserver only fires
-    // for the *observed* element's own box, which stays capped at
-    // max-w-full while overflowing, not for its unclipped content growing
-    // inside it. Re-check once after the width transition (0.32s below)
-    // has had time to settle.
-    const settleTimer = setTimeout(updateEdgeFade, 350);
+    measure();
+    // A width tween (activeTabId change, or new tabs changing the equal
+    // share) can still be resizing the row's scrollWidth after this effect
+    // runs — ResizeObserver only fires for the *observed* element's own
+    // box, not for its unclipped content growing inside it. Re-check once
+    // after the width transition (0.22s) has had time to settle.
+    const settleTimer = setTimeout(measure, 350);
 
-    el.addEventListener("scroll", updateEdgeFade, { passive: true });
-    const resizeObserver = new ResizeObserver(updateEdgeFade);
+    el.addEventListener("scroll", measure, { passive: true });
+    const resizeObserver = new ResizeObserver(measure);
     resizeObserver.observe(el);
 
     return () => {
       clearTimeout(settleTimer);
-      el.removeEventListener("scroll", updateEdgeFade);
+      el.removeEventListener("scroll", measure);
       resizeObserver.disconnect();
     };
   }, [visibleTabs, activeTabId]);
@@ -536,69 +529,62 @@ export function TabStrip({
     : undefined;
 
   const groups = groupTabs(visibleTabs);
-  // Distance is measured over this clustered order (not raw `tabs`
-  // order) because "close to the active tab" means spatial left-right
-  // adjacency in what's actually rendered, and clustering can reorder
-  // that relative to openTabs' own (drag-reorderable) order.
   const visualOrder = groups.flatMap((group) => group.tabs);
-  const activeIndex = visualOrder.findIndex((tab) => tab.id === activeTabId);
-  // A drag in progress also suspends the fisheye, same as hovering —
-  // tracked through the actual drag lifecycle (not pointer position) so a
+  // A drag in progress, hovering, or keyboard-browsing all force every tab
+  // to the same comfortable width regardless of the equal-share math below
+  // — tracked through the actual drag lifecycle (not pointer position) so a
   // drag that carries the pointer outside the strip's ~30px-tall bounds
-  // (very easy given how thin it is) can't cause every tab's width to
-  // snap back to fisheye percentages mid-gesture, underneath the cursor.
-  // Keyboard browsing (⌘⇧E) suspends it too — the whole point is seeing
-  // every tab at a readable width while arrow-navigating.
-  // activeIndex is -1 whenever the real active tab has no strip entry at
-  // all (Dock-browsing a module's hidden home preview — see
-  // isHiddenHomePreview): every visible tab's distance-from-active then
-  // computes as index+1 instead of a real spread around one full-width
-  // anchor, so *every* tab shrank toward the fisheye floor at once with
-  // nothing left to actually read. Same fallback as hovering: show every
-  // real tab at a normal width instead of collapsing all of them.
-  const suspendFisheye =
-    isBarHovered || draggingGroupIds.size > 0 || keyboardBrowsing || activeIndex === -1;
+  // can't cause widths to snap back mid-gesture, underneath the cursor. The
+  // whole point of hovering/keyboard-browsing is seeing every tab at a
+  // readable width regardless of how cramped the strip currently is.
+  const forceUniformWidth = isBarHovered || draggingGroupIds.size > 0 || keyboardBrowsing;
+  const hasVisibleActive = visualOrder.some((tab) => tab.id === activeTabId);
 
   const widths = new Map<string, number | undefined>();
-  visualOrder.forEach((tab, index) => {
-    if (suspendFisheye) {
-      // Hovering the strip (or dragging within it) suspends the fisheye
-      // for every tab, including the active one — "toàn bộ tab bung ra
-      // cùng kích thước": same fixed width for all, not each tab's own
-      // natural width.
-      widths.set(tab.id, TAB_BASE_WIDTH_PX);
-      return;
-    }
-    if (tab.id === activeTabId) {
-      // The active tab is never width-constrained at rest — it always
-      // shows its full title, however long. Confirmed explicitly: this
-      // isn't a Dock-style uniform scale-down for everything else relative
-      // to one fixed size.
-      widths.set(tab.id, undefined);
-      return;
-    }
-    widths.set(tab.id, fisheyeWidthPx(Math.abs(index - activeIndex)));
-  });
+  const equalShare =
+    containerWidth !== undefined && visualOrder.length > 0
+      ? containerWidth / visualOrder.length
+      : undefined;
+  if (forceUniformWidth) {
+    visualOrder.forEach((tab) => widths.set(tab.id, ACTIVE_MIN_WIDTH_PX));
+  } else if (equalShare === undefined) {
+    // First paint, before the container has been measured even once —
+    // "auto" (via widthPx ?? "auto" below) until the real share is known.
+    visualOrder.forEach((tab) => widths.set(tab.id, undefined));
+  } else if (!hasVisibleActive || equalShare >= ACTIVE_MIN_WIDTH_PX) {
+    // Room for everyone at (at least) the active tab's floor — including
+    // when nothing in the strip is actually active (Dock-browsing a hidden
+    // home preview, see isHiddenHomePreview), where there's no one tab to
+    // prioritize a width for in the first place.
+    const share = Math.max(equalShare, INACTIVE_MIN_WIDTH_PX);
+    visualOrder.forEach((tab) => widths.set(tab.id, share));
+  } else if (containerWidth !== undefined) {
+    // Cramped: the active tab locks at its floor, and every other tab
+    // splits whatever's left — shrinking further as more open, down to
+    // their own smaller floor, past which the strip scrolls instead
+    // (overflow-x-auto below) rather than shrinking anyone further.
+    const remaining = containerWidth - ACTIVE_MIN_WIDTH_PX;
+    const inactiveCount = visualOrder.length - 1;
+    const inactiveShare =
+      inactiveCount > 0 ? Math.max(INACTIVE_MIN_WIDTH_PX, remaining / inactiveCount) : undefined;
+    visualOrder.forEach((tab) => {
+      widths.set(tab.id, tab.id === activeTabId ? ACTIVE_MIN_WIDTH_PX : inactiveShare);
+    });
+  }
 
   return (
-    // Outer: centers the tab row when it's narrower than the available
-    // track (few tabs open) via justify-center. Inner: the actual
-    // scrollable row, capped at max-w-full so once its content is wider
-    // than the track it fills the whole width instead of trying to grow
-    // past it — at that point justify-center has no room left to do
-    // anything, and the inner element's own overflow-x-auto takes over
-    // with normal left-anchored scrolling. (A flex row with
-    // justify-center and no such cap would make the start of an
-    // overflowing tab list unreachable by scroll — this two-level
-    // structure is what avoids that.)
+    // No centering trick needed here: tab widths are computed above to
+    // always exactly fill the container (equal-share regime) or exceed it
+    // (floor-clamped regime, via overflow-x-auto below) — never fall short
+    // of it — so a plain full-width row is enough either way.
     <div
       onPointerEnter={() => setIsBarHovered(true)}
       onPointerLeave={() => setIsBarHovered(false)}
-      className="flex min-w-0 justify-center [--wails-draggable:no-drag]"
+      className="flex min-w-0 [--wails-draggable:no-drag]"
     >
       <div
         ref={scrollRef}
-        className="scrollbar-hide flex max-w-full items-center gap-1 overflow-x-auto"
+        className="scrollbar-hide flex w-full items-center gap-1 overflow-x-auto"
         // Soft-fades only the edge(s) that actually have a tab scrolled
         // half out of view (tracked via scroll position + ResizeObserver
         // above) instead of a hard clip — and no mask at all when the row
