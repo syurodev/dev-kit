@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { AnimatePresence, LazyMotion, domMax, m, type PanInfo } from "framer-motion";
 import { Wrench, X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -69,10 +69,37 @@ type TabStripProps = {
  * top of that every frame in between made it worse). Tab widths don't
  * change mid-drag, only their order does, so a snapshot taken once stays
  * accurate enough for crossing detection through the whole gesture.
+ *
+ * `onReorder` itself is also rAF-throttled: a fast drag can fire several
+ * `onDrag` events (each detecting a further crossing) before the browser
+ * paints a frame, and each one calling `onReorder` immediately means
+ * several full `layout` re-animations of every open tab stack up within
+ * one frame instead of one. Collapsing them to "at most one commit per
+ * frame, using the farthest target seen" keeps the visual result the
+ * same (dropping the tab at the same slot) without the redundant work.
  */
 export function TabStrip({ tabs, activeTabId, onSelect, onClose, onReorder }: TabStripProps) {
   const tabRefs = useRef(new Map<string, HTMLButtonElement>());
   const dragStartMidpoints = useRef(new Map<string, number>());
+  const pendingReorder = useRef<{ draggedId: string; targetIndex: number } | null>(null);
+  const reorderFrame = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (reorderFrame.current !== null) {
+        cancelAnimationFrame(reorderFrame.current);
+      }
+    };
+  }, []);
+
+  function flushReorder() {
+    reorderFrame.current = null;
+    const pending = pendingReorder.current;
+    if (pending) {
+      pendingReorder.current = null;
+      onReorder(pending.draggedId, pending.targetIndex);
+    }
+  }
 
   function handleDragStart() {
     const midpoints = new Map<string, number>();
@@ -115,7 +142,10 @@ export function TabStrip({ tabs, activeTabId, onSelect, onClose, onReorder }: Ta
       }
     }
     if (targetIndex !== -1) {
-      onReorder(draggedId, targetIndex);
+      pendingReorder.current = { draggedId, targetIndex };
+      if (reorderFrame.current === null) {
+        reorderFrame.current = requestAnimationFrame(flushReorder);
+      }
     }
   }
 
