@@ -52,6 +52,10 @@ export function TabStrip({ tabs, activeTabId, onSelect, onClose, onReorder }: Ta
       if (!drag) {
         return;
       }
+      if ((event.buttons & 1) === 0) {
+        dragRef.current = null;
+        return;
+      }
       if (!drag.dragging) {
         if (Math.abs(event.clientX - drag.startX) < 5) {
           return;
@@ -62,6 +66,7 @@ export function TabStrip({ tabs, activeTabId, onSelect, onClose, onReorder }: Ta
       if (draggedIndex === -1) {
         return;
       }
+      let targetIndex = -1;
       for (let i = 0; i < tabs.length; i += 1) {
         if (i === draggedIndex) {
           continue;
@@ -72,12 +77,22 @@ export function TabStrip({ tabs, activeTabId, onSelect, onClose, onReorder }: Ta
         }
         const rect = el.getBoundingClientRect();
         const mid = rect.left + rect.width / 2;
-        const crossedGoingRight = i > draggedIndex && event.clientX > mid;
-        const crossedGoingLeft = i < draggedIndex && event.clientX < mid;
-        if (crossedGoingRight || crossedGoingLeft) {
-          onReorder(drag.id, i);
+        if (i > draggedIndex && event.clientX > mid) {
+          // Rightward: keep scanning for the farthest match, don't stop at
+          // the nearest neighbor — a fast drag can jump past several tabs
+          // in one pointermove event, and we want the tab to land where
+          // the cursor actually is, not advance one slot at a time.
+          targetIndex = i;
+        } else if (i < draggedIndex && event.clientX < mid) {
+          // Leftward: midpoints increase with index, so the first (smallest
+          // i) match found ascending is already the correct farthest-left
+          // target — safe to stop here.
+          targetIndex = i;
           break;
         }
+      }
+      if (targetIndex !== -1) {
+        onReorder(drag.id, targetIndex);
       }
     }
 
@@ -87,9 +102,11 @@ export function TabStrip({ tabs, activeTabId, onSelect, onClose, onReorder }: Ta
 
     document.addEventListener("pointermove", handlePointerMove);
     document.addEventListener("pointerup", handlePointerUp);
+    document.addEventListener("pointercancel", handlePointerUp);
     return () => {
       document.removeEventListener("pointermove", handlePointerMove);
       document.removeEventListener("pointerup", handlePointerUp);
+      document.removeEventListener("pointercancel", handlePointerUp);
     };
   }, [tabs, onReorder]);
 
