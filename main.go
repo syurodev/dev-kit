@@ -292,9 +292,16 @@ func main() {
 			Backdrop:                application.MacBackdropTranslucent,
 			// Match AppKit's vibrancy, rim and titlebar to the persisted web theme.
 			Appearance: macAppearance,
-			// Hidden keeps AppKit's native controls without the extra NSToolbar
-			// used by HiddenInset, so the traffic lights fit the compact strip.
-			TitleBar: application.MacTitleBarHidden,
+			// HiddenInset (not Hidden): AppKit re-centers the traffic-light
+			// buttons within its own native toolbar-driven titlebar area under
+			// this mode — this app originally shipped with HiddenInset (see
+			// 320d85b) and only switched to plain Hidden for the earlier
+			// compact-30px redesign, which is what actually broke the
+			// auto-centering the frontend header now depends on again at
+			// 45px. InvisibleTitleBarHeight stays 0 either way — that's a
+			// separate, unrelated Wails property (a native drag hit-zone) and
+			// not what HiddenInset needs to auto-center.
+			TitleBar: application.MacTitleBarHiddenInset,
 		},
 		Windows: application.WindowsWindow{
 			Theme: windowsTheme,
@@ -318,10 +325,6 @@ func main() {
 			} else if runtime.GOOS == "darwin" {
 				log.Printf("WKWebView native refresh rate unavailable; using default frame rate")
 			}
-			// Grows the native titlebar so AppKit re-centers the traffic-light
-			// buttons within it, matching the frontend's own titlebar row
-			// height — see native_titlebar_darwin.go.
-			setNativeTitlebarHeight(mainWindow)
 		}()
 	})
 
