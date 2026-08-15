@@ -96,6 +96,7 @@
     --status-permission: #ffc533;
     --status-permission-soft: rgba(255, 197, 51, 0.18);
     --status-idle: #434345;
+    --status-success: #22c55e;
     --status-error: #ff6161;
     --brand: oklch(0.623 0.214 259.815);
     --highlight: oklch(0.852 0.199 91.936);
