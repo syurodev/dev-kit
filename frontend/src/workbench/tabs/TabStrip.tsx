@@ -3,7 +3,6 @@ import { AnimatePresence, Reorder, motion } from "framer-motion";
 import { Wrench, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getModule } from "../../modules/registry";
-import { moduleHue } from "./moduleColor";
 import type { TabStatus, WorkbenchTab } from "../../stores/workbenchTabs";
 
 function statusDotClass(status: TabStatus): string {
@@ -215,7 +214,6 @@ function TabGroupRow({
     >
       <AnimatePresence initial={false}>
         {visualTabs.map((tab) => {
-          const hue = moduleHue(tab.moduleId);
           const isActive = tab.id === activeTabId;
           const widthPx = widths.get(tab.id);
           return (
@@ -257,11 +255,6 @@ function TabGroupRow({
                 scale: { duration: 0.18 },
               }}
               style={{
-                // Module-color wash stays constant regardless of active
-                // state now — the frosted pill below is what marks the
-                // active tab, Safari-compact-style, so this no longer needs
-                // its own active/inactive split.
-                backgroundColor: `hsl(${hue} 55% 45% / 0.1)`,
                 // "auto" width alone lets the active tab size to fit its own
                 // title — which reads as *smaller* than a neighbor whose
                 // fisheye width is a percentage of the fixed base when the
