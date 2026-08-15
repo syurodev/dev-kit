@@ -415,23 +415,23 @@ export function Workbench() {
       // The same cached promise is consumed by React.lazy in WorkbenchViews.
       const preload = view.preload?.();
       void preload?.catch(() => undefined);
+      // Every module's home view opens as the one shared preview tab, not
+      // a permanent tab of its own — casually visiting a module via the
+      // Dock (without pinning anything inside it) shouldn't leave a tab
+      // behind once you move on to another module. Confirmed explicitly:
+      // this applies uniformly, not just to modules with a list-then-item
+      // structure — switching from Notes to SSH via the Dock must replace
+      // Notes' tab, not leave it stranded alongside a new permanent SSH
+      // one. Picking a specific item inside a module (Notes: a note) still
+      // replaces this same preview slot in place via openTab's existing
+      // logic; a module's own view can still promote it to permanent
+      // later (Notes does, on first edit, via pinTab) if that's ever
+      // wired up for other modules too.
       openTab({
         moduleId: module.id,
         viewId: view.id,
         title: module.title,
-        // Modules with more than one view have a list-then-item structure
-        // (Notes: dashboard -> a specific note) — opening their home view
-        // as a preview tab means it never becomes its own permanent tab;
-        // picking a specific item replaces it in place via the existing
-        // global preview-slot mechanic in openTab, which is what actually
-        // satisfies "don't open a tab until I pick something" rather than
-        // just hiding a tab that's there anyway. Single-view modules
-        // (Database, SSH, ...) have nothing to pick past their home view,
-        // so they keep opening a normal permanent tab as before — making
-        // their home view preview-and-disposable too would mean losing
-        // it the moment the Dock is used to glance at a different module,
-        // with no equivalent of Notes' "edit pins it" to ever promote it.
-        preview: module.views.length > 1,
+        preview: true,
       });
     }
   }
