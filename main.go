@@ -318,6 +318,10 @@ func main() {
 			} else if runtime.GOOS == "darwin" {
 				log.Printf("WKWebView native refresh rate unavailable; using default frame rate")
 			}
+			// Grows the native titlebar so AppKit re-centers the traffic-light
+			// buttons within it, matching the frontend's own titlebar row
+			// height — see native_titlebar_darwin.go.
+			setNativeTitlebarHeight(mainWindow)
 		}()
 	})
 
