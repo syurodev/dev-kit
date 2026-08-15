@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { AnimatePresence, Reorder } from "framer-motion";
+import { AnimatePresence, Reorder, motion } from "framer-motion";
 import { ChevronDown, Wrench, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getModule } from "../../modules/registry";
@@ -348,45 +348,64 @@ export function TabStrip({
 
   return (
     <div className="scrollbar-hide flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [--wails-draggable:no-drag]">
-      {groups.map((group) => {
-        if (!expandedModuleIds.has(group.moduleId)) {
+      <AnimatePresence initial={false}>
+        {groups.map((group) => {
+          const isExpanded = expandedModuleIds.has(group.moduleId);
+          const isActiveGroup = group.moduleId === activeModuleId;
           return (
-            <CollapsedChip
+            // A stable per-module key with `layout` (not `layout="position"`
+            // — this box's own width is what needs to visibly grow/shrink,
+            // not just its position) is what makes the chip <-> full-tabs
+            // swap read as "bung ra/thu vào" instead of an instant cut, and
+            // makes every other group's chip/tabs slide over to make room.
+            // No overflow-hidden here: a drag inside ExpandedGroup can
+            // legitimately track the pointer past this box's resting
+            // width, and clipping that would look worse than the transient
+            // overflow during a resize.
+            <motion.div
               key={group.moduleId}
-              group={group}
-              onSelect={onSelect}
-              onExpand={() => pinModule(group.moduleId)}
-            />
+              layout
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              transition={{ layout: { duration: 0.18, ease: "easeOut" } }}
+              className="flex shrink-0 items-center gap-1"
+            >
+              {isExpanded ? (
+                <>
+                  <ExpandedGroup
+                    tabs={group.tabs}
+                    activeTabId={activeTabId}
+                    onSelect={onSelect}
+                    onClose={onClose}
+                    onReorder={onReorder}
+                  />
+                  {isActiveGroup ? null : (
+                    // Only a manually-pinned (non-active) expanded group can
+                    // be collapsed back — the active module's own group has
+                    // no collapse control, since that would hide the tab
+                    // the user is currently looking at.
+                    <button
+                      type="button"
+                      aria-label={`Collapse ${getModule(group.moduleId)?.title ?? group.moduleId}`}
+                      onClick={() => unpinModule(group.moduleId)}
+                      className="flex size-5 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground [--wails-draggable:no-drag]"
+                    >
+                      <ChevronDown className="size-3.5" />
+                    </button>
+                  )}
+                </>
+              ) : (
+                <CollapsedChip
+                  group={group}
+                  onSelect={onSelect}
+                  onExpand={() => pinModule(group.moduleId)}
+                />
+              )}
+            </motion.div>
           );
-        }
-
-        const isActiveGroup = group.moduleId === activeModuleId;
-        return (
-          <div key={group.moduleId} className="flex shrink-0 items-center gap-1">
-            <ExpandedGroup
-              tabs={group.tabs}
-              activeTabId={activeTabId}
-              onSelect={onSelect}
-              onClose={onClose}
-              onReorder={onReorder}
-            />
-            {isActiveGroup ? null : (
-              // Only a manually-pinned (non-active) expanded group can be
-              // collapsed back — the active module's own group has no
-              // collapse control, since that would hide the tab the user
-              // is currently looking at.
-              <button
-                type="button"
-                aria-label={`Collapse ${getModule(group.moduleId)?.title ?? group.moduleId}`}
-                onClick={() => unpinModule(group.moduleId)}
-                className="flex size-5 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground [--wails-draggable:no-drag]"
-              >
-                <ChevronDown className="size-3.5" />
-              </button>
-            )}
-          </div>
-        );
-      })}
+        })}
+      </AnimatePresence>
     </div>
   );
 }
