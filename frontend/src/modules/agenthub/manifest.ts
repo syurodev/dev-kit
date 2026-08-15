@@ -1,3 +1,4 @@
+import { Bot } from "lucide-react";
 import type { ModuleManifest } from "../registry";
 import { AgentHubView } from "./AgentHubView";
 
@@ -6,6 +7,7 @@ export const agenthubModule: ModuleManifest = {
   title: "Agent Hub",
   version: "1.0.0",
   apiVersion: "1",
+  icon: Bot,
   capabilities: ["agenthub:read", "agenthub:execute"],
   commands: [
     { id: "agenthub.create", title: "New agent session" },

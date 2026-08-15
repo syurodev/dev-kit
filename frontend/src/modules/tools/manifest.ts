@@ -1,3 +1,4 @@
+import { Wrench } from "lucide-react";
 import type { ModuleManifest } from "../registry";
 import { ToolsView } from "./ToolsView";
 
@@ -6,6 +7,7 @@ export const toolsModule: ModuleManifest = {
   title: "Tools",
   version: "1.0.0",
   apiVersion: "1",
+  icon: Wrench,
   capabilities: ["tools:hash"],
   commands: [
     {

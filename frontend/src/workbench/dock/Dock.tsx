@@ -1,32 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import {
-  Bot,
-  Database,
-  FileText,
-  RefreshCw,
-  Settings,
-  Terminal,
-  Workflow,
-  Wrench,
-  type LucideIcon,
-} from "lucide-react";
+import { Wrench } from "lucide-react";
 import { LazyMotion, domAnimation, m } from "framer-motion";
 import { useAgentSessionsStore } from "../../stores/agentSessions";
 import { useDockStore } from "./dock-store";
 import { DockItem } from "./DockItem";
 import { AgentHubDockPanel } from "./AgentHubDockPanel";
+import { getModule } from "../../modules/registry";
 import type { DockEntry } from "./types";
-
-const MODULE_ICONS: Record<string, LucideIcon> = {
-  tools: Wrench,
-  notes: FileText,
-  database: Database,
-  ssh: Terminal,
-  kafka: Workflow,
-  agenthub: Bot,
-  sync: RefreshCw,
-  settings: Settings,
-};
 
 export type DockModule = { id: string; title: string; unavailable?: boolean };
 
@@ -70,7 +50,11 @@ export function Dock({ modules, activeModuleId, onSelectModule }: DockProps) {
     return {
       id: module.id,
       title: module.title,
-      icon: MODULE_ICONS[module.id] ?? Wrench,
+      // Each module registers its own icon on its manifest (see e.g.
+      // modules/notes/manifest.ts) — this falls back to Wrench only for an
+      // id with no matching registered module, which validateModuleManifest
+      // makes unreachable for anything actually passed in here.
+      icon: getModule(module.id)?.icon ?? Wrench,
       isActive: module.id === activeModuleId,
       unavailable: module.unavailable,
       badge,

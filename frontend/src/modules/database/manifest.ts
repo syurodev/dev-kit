@@ -1,3 +1,4 @@
+import { Database } from "lucide-react";
 import type { ModuleManifest } from "../registry";
 import { DatabaseView } from "./DatabaseView";
 
@@ -6,6 +7,7 @@ export const databaseModule: ModuleManifest = {
   title: "Database",
   version: "1.0.0",
   apiVersion: "1",
+  icon: Database,
   capabilities: ["db:query"],
   commands: [
     {

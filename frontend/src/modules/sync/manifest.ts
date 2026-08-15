@@ -1,3 +1,4 @@
+import { RefreshCw } from "lucide-react";
 import type { ModuleManifest } from "../registry";
 import { SyncView } from "./SyncView";
 
@@ -6,6 +7,7 @@ export const syncModule: ModuleManifest = {
   title: "Sync",
   version: "1.0.0",
   apiVersion: "1",
+  icon: RefreshCw,
   capabilities: ["sync:manage"],
   commands: [
     {

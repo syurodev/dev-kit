@@ -1,4 +1,5 @@
 import type { ComponentType } from "react";
+import type { LucideIcon } from "lucide-react";
 
 export const CURRENT_MODULE_API_VERSION = "1";
 
@@ -23,6 +24,8 @@ export type ModuleManifest = {
   title: string;
   version: string;
   apiVersion: string;
+  /** Identifies the module in the Dock and on its tabs — each module owns its own icon. */
+  icon: LucideIcon;
   commands: ModuleCommand[];
   views: ModuleView[];
   capabilities: string[];
@@ -110,6 +113,11 @@ export function validateModuleManifest(manifest: ModuleManifest): void {
   }
   if (manifest.apiVersion !== CURRENT_MODULE_API_VERSION) {
     throw new Error(`Unsupported module API version: ${manifest.apiVersion}`);
+  }
+  // Not `typeof === "function"` — lucide-react icons are React.forwardRef
+  // components, which are typeof "object" at runtime, not "function".
+  if (!manifest.icon || (typeof manifest.icon !== "function" && typeof manifest.icon !== "object")) {
+    throw new Error(`Module ${manifest.id} icon is required`);
   }
   if (!Array.isArray(manifest.commands) || !Array.isArray(manifest.views)) {
     throw new Error(`Module ${manifest.id} contributions must be arrays`);
