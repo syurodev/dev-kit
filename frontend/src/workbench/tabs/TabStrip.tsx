@@ -85,27 +85,6 @@ function groupTabs(tabs: WorkbenchTab[]): TabGroup[] {
 const ACTIVE_MIN_WIDTH_PX = 200;
 const INACTIVE_MIN_WIDTH_PX = 44;
 
-const EDGE_FADE_PX = 20;
-
-/**
- * Only fades the edge(s) that actually have more content scrolled past
- * them — `undefined` (no mask at all) when the row isn't scrolled or
- * doesn't overflow, so a fully-visible tab list never shows a fade with
- * nothing behind it to justify one.
- */
-function edgeFadeMask(canScrollLeft: boolean, canScrollRight: boolean): string | undefined {
-  if (canScrollLeft && canScrollRight) {
-    return `linear-gradient(to right, transparent, black ${EDGE_FADE_PX}px, black calc(100% - ${EDGE_FADE_PX}px), transparent)`;
-  }
-  if (canScrollLeft) {
-    return `linear-gradient(to right, transparent, black ${EDGE_FADE_PX}px)`;
-  }
-  if (canScrollRight) {
-    return `linear-gradient(to right, black calc(100% - ${EDGE_FADE_PX}px), transparent)`;
-  }
-  return undefined;
-}
-
 type TabGroupRowProps = {
   tabs: WorkbenchTab[];
   activeTabId: string;
@@ -401,7 +380,6 @@ export function TabStrip({
   keyboardBrowsing,
   onExitBrowsing,
 }: TabStripProps) {
-  const [isBarHovered, setIsBarHovered] = useState(false);
   const [keyboardFocusedTabId, setKeyboardFocusedTabId] = useState<string | null>(null);
   // Kept current every render so the "seed on browsing start" effect below
   // can read the latest activeTabId without needing it in its own
@@ -465,13 +443,14 @@ export function TabStrip({
   // be exact about) can't clobber each other's state.
   const [draggingGroupIds, setDraggingGroupIds] = useState<Set<string>>(new Set());
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [edgeFade, setEdgeFade] = useState({ left: false, right: false });
   // The strip's own available width (its box, not its content) — this is
   // what the equal-share width model below divides among tabs. Reliable
   // because scrollRef is styled `w-full`: its clientWidth is always the
   // column's full width regardless of whether its content over- or
   // under-fills it, so measuring it can't create a feedback loop with the
-  // very tab widths it's used to compute.
+  // very tab widths it's used to compute. Only the container's own box can
+  // resize it (the grid column, e.g. on window resize) — tab width tweens
+  // don't, so a plain ResizeObserver is enough with no settle timer needed.
   const [containerWidth, setContainerWidth] = useState<number | undefined>(undefined);
 
   useEffect(() => {
@@ -481,35 +460,16 @@ export function TabStrip({
     }
 
     function measure() {
-      if (!el) {
-        return;
+      if (el) {
+        setContainerWidth(el.clientWidth);
       }
-      setContainerWidth(el.clientWidth);
-      const maxScrollLeft = el.scrollWidth - el.clientWidth;
-      setEdgeFade({
-        left: el.scrollLeft > 1,
-        right: el.scrollLeft < maxScrollLeft - 1,
-      });
     }
 
     measure();
-    // A width tween (activeTabId change, or new tabs changing the equal
-    // share) can still be resizing the row's scrollWidth after this effect
-    // runs — ResizeObserver only fires for the *observed* element's own
-    // box, not for its unclipped content growing inside it. Re-check once
-    // after the width transition (0.22s) has had time to settle.
-    const settleTimer = setTimeout(measure, 350);
-
-    el.addEventListener("scroll", measure, { passive: true });
     const resizeObserver = new ResizeObserver(measure);
     resizeObserver.observe(el);
-
-    return () => {
-      clearTimeout(settleTimer);
-      el.removeEventListener("scroll", measure);
-      resizeObserver.disconnect();
-    };
-  }, [visibleTabs, activeTabId]);
+    return () => resizeObserver.disconnect();
+  }, []);
 
   function handleGroupDraggingChange(moduleId: string, dragging: boolean) {
     setDraggingGroupIds((prev) => {
@@ -523,21 +483,15 @@ export function TabStrip({
     });
   }
 
-  const edgeMask = edgeFadeMask(edgeFade.left, edgeFade.right);
-  const edgeMaskStyle = edgeMask
-    ? { WebkitMaskImage: edgeMask, maskImage: edgeMask }
-    : undefined;
-
   const groups = groupTabs(visibleTabs);
   const visualOrder = groups.flatMap((group) => group.tabs);
-  // A drag in progress, hovering, or keyboard-browsing all force every tab
-  // to the same comfortable width regardless of the equal-share math below
-  // — tracked through the actual drag lifecycle (not pointer position) so a
-  // drag that carries the pointer outside the strip's ~30px-tall bounds
-  // can't cause widths to snap back mid-gesture, underneath the cursor. The
-  // whole point of hovering/keyboard-browsing is seeing every tab at a
-  // readable width regardless of how cramped the strip currently is.
-  const forceUniformWidth = isBarHovered || draggingGroupIds.size > 0 || keyboardBrowsing;
+  // A drag in progress or keyboard-browsing both force every tab to the
+  // same comfortable width regardless of the equal-share math below — the
+  // whole point of keyboard-browsing is seeing every tab at a readable
+  // width regardless of how cramped the strip currently is, and mid-drag
+  // widths snapping to the equal-share math (which shifts as the dragged
+  // tab crosses siblings) would fight the gesture itself.
+  const forceUniformWidth = draggingGroupIds.size > 0 || keyboardBrowsing;
   const hasVisibleActive = visualOrder.some((tab) => tab.id === activeTabId);
 
   const widths = new Map<string, number | undefined>();
@@ -577,23 +531,10 @@ export function TabStrip({
     // always exactly fill the container (equal-share regime) or exceed it
     // (floor-clamped regime, via overflow-x-auto below) — never fall short
     // of it — so a plain full-width row is enough either way.
-    <div
-      onPointerEnter={() => setIsBarHovered(true)}
-      onPointerLeave={() => setIsBarHovered(false)}
-      className="flex min-w-0 [--wails-draggable:no-drag]"
-    >
+    <div className="flex min-w-0 [--wails-draggable:no-drag]">
       <div
         ref={scrollRef}
         className="scrollbar-hide flex w-full items-center gap-1 overflow-x-auto"
-        // Soft-fades only the edge(s) that actually have a tab scrolled
-        // half out of view (tracked via scroll position + ResizeObserver
-        // above) instead of a hard clip — and no mask at all when the row
-        // isn't scrolled, so a fully-visible tab list never gets a fade
-        // with nothing behind it to justify one. The -webkit- prefix
-        // matters here specifically, not just as a fallback: this app
-        // renders inside WKWebView, where unprefixed `mask-image` support
-        // depends on OS version.
-        style={edgeMaskStyle}
       >
         <AnimatePresence initial={false}>
           {groups.map((group) => (
