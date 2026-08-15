@@ -11,15 +11,18 @@ import { useWorkbenchTabsStore } from "../stores/workbenchTabs";
 
 type TabSwitcherProps = {
   open: boolean;
-  size: "small" | "large";
   onClose: () => void;
 };
 
 /**
- * Keyboard-driven tab switcher (⌘⇧E / Ctrl⇧E — see Workbench.tsx's
- * keydown/keyup handling for the escalating-chord detection). MRU order,
- * not the tab strip's own left-to-right/module-clustered order, since the
- * whole point is jumping back to whatever was just being looked at.
+ * The detail popup reached by holding ⌘⇧E (or pressing E again) once
+ * already browsing the real tab strip — see Workbench.tsx's keydown/keyup
+ * handling. A first, un-held ⌘⇧E press never opens this: it hands control
+ * to TabStrip.tsx's own ArrowLeft/ArrowRight + Enter navigation directly
+ * on the real tabs instead, no popup at all. MRU order, not the tab
+ * strip's own left-to-right/module-clustered order, since the whole point
+ * of escalating here is jumping back to whatever was just being looked at
+ * with more detail than the strip itself shows.
  *
  * No CommandInput (unlike CommandPalette): releasing either modifier key
  * closes this popup (see Workbench.tsx), which means there's never a
@@ -28,7 +31,7 @@ type TabSwitcherProps = {
  * be misleading. Arrow keys + Enter over CommandList/CommandItem work
  * without an Input present; cmdk focuses the first item automatically.
  */
-export function TabSwitcher({ open, size, onClose }: TabSwitcherProps) {
+export function TabSwitcher({ open, onClose }: TabSwitcherProps) {
   const openTabs = useWorkbenchTabsStore((state) => state.openTabs);
   const activeTabId = useWorkbenchTabsStore((state) => state.activeTabId);
   const tabMru = useWorkbenchTabsStore((state) => state.tabMru);
@@ -55,7 +58,7 @@ export function TabSwitcher({ open, size, onClose }: TabSwitcherProps) {
       }}
       title="Switch tab"
       description="Jump to a recently used tab"
-      className={size === "large" ? "sm:max-w-2xl" : "sm:max-w-md"}
+      className="sm:max-w-2xl"
     >
       {/* CommandDialog's own title/description render sr-only (see
           components/ui/command.tsx), so without a visible header this
@@ -87,11 +90,9 @@ export function TabSwitcher({ open, size, onClose }: TabSwitcherProps) {
               >
                 <ModuleIcon className="size-3.5 shrink-0 opacity-70" />
                 <span className="truncate">{tab.title}</span>
-                {size === "large" ? (
-                  <span className="ml-auto shrink-0 text-xs text-muted-foreground">
-                    {moduleTitle}
-                  </span>
-                ) : null}
+                <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+                  {moduleTitle}
+                </span>
               </CommandItem>
             );
           })}

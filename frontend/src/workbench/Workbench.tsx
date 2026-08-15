@@ -227,7 +227,11 @@ export function Workbench() {
   const [metadataError, setMetadataError] = useState(false);
   const [metadataLoading, setMetadataLoading] = useState(true);
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [switcher, setSwitcher] = useState<"closed" | "small" | "large">("closed");
+  // "browsing": the real tab strip is forced to full width, ArrowLeft/
+  // ArrowRight + Enter navigate it directly (TabStrip.tsx) — the first
+  // ⌘⇧E press. "popup": the detail popup (TabSwitcher.tsx) — reached by
+  // holding the key down or pressing it again while already browsing.
+  const [switcher, setSwitcher] = useState<"closed" | "browsing" | "popup">("closed");
   const [isFullscreen, setIsFullscreen] = useState(false);
   const moduleActions = useModuleActionsStore((s) => s.actions);
   const openTabs = useWorkbenchTabsStore((state) => state.openTabs);
@@ -254,12 +258,13 @@ export function Workbench() {
         return;
       }
       event.preventDefault();
-      // First press (not already open) -> small popup. Any further "e"
-      // while already open -> large — whether it's the OS's native
+      // First press (not already active) -> browsing: the real tab strip
+      // takes over, no popup. Any further "e" while already browsing (or
+      // already in the popup) -> popup — whether it's the OS's native
       // key-repeat from holding the key down, or a second discrete press
       // (the fallback for users with OS key-repeat disabled), both arrive
       // here as another keydown and take the same branch on purpose.
-      setSwitcher((current) => (current === "closed" ? "small" : "large"));
+      setSwitcher((current) => (current === "closed" ? "browsing" : "popup"));
     }
 
     function handleKeyUp(event: KeyboardEvent) {
@@ -464,6 +469,8 @@ export function Workbench() {
               onSelect={setActiveTab}
               onClose={closeTab}
               onReorder={reorderTab}
+              keyboardBrowsing={switcher === "browsing"}
+              onExitBrowsing={() => setSwitcher("closed")}
             />
             <div className="flex min-w-0 items-center justify-end gap-2">
               {moduleActions.map((action) => (
@@ -552,11 +559,7 @@ export function Workbench() {
           commands={commands}
           onClose={() => setPaletteOpen(false)}
         />
-        <TabSwitcher
-          open={switcher !== "closed"}
-          size={switcher === "large" ? "large" : "small"}
-          onClose={() => setSwitcher("closed")}
-        />
+        <TabSwitcher open={switcher === "popup"} onClose={() => setSwitcher("closed")} />
         <InteractionHost />
       </div>
     </SplitPanelProvider>

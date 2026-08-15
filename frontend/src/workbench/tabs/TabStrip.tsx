@@ -25,6 +25,14 @@ type TabStripProps = {
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
   onReorder: (fromId: string, beforeId: string | null) => void;
+  /** True while the ⌘⇧E/Ctrl⇧E quick-switch shortcut is held (see
+   * Workbench.tsx) — forces every tab to full width (same as hovering)
+   * and turns on ArrowLeft/ArrowRight + Enter/Escape navigation. */
+  keyboardBrowsing: boolean;
+  /** Called once browsing ends, however it ended (Enter, Escape, or the
+   * modifier keys being released in Workbench.tsx) — the caller resets
+   * whatever triggered keyboardBrowsing in the first place. */
+  onExitBrowsing: () => void;
 };
 
 type TabGroup = {
@@ -91,6 +99,7 @@ type TabGroupRowProps = {
   tabs: WorkbenchTab[];
   activeTabId: string;
   widths: Map<string, number | undefined>;
+  keyboardFocusedTabId: string | null;
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
   onReorder: (fromId: string, beforeId: string | null) => void;
@@ -123,6 +132,7 @@ function TabGroupRow({
   tabs,
   activeTabId,
   widths,
+  keyboardFocusedTabId,
   onSelect,
   onClose,
   onReorder,
@@ -270,11 +280,14 @@ function TabGroupRow({
                 // TAB_BASE_WIDTH_PX stays this small — bump the base width
                 // up if that reads as broken rather than "very narrow" in
                 // practice.
-                "group relative flex h-6 shrink-0 items-center overflow-hidden rounded-md py-0 pl-2 pr-7 text-xs font-medium transition-[filter] [--wails-draggable:no-drag]",
+                "group relative flex h-6 shrink-0 items-center overflow-hidden rounded-md py-0 pl-2 pr-7 text-xs font-medium transition-[filter,box-shadow] [--wails-draggable:no-drag]",
                 !isActive && hoveredTabId === tab.id && draggingTabId === null
                   ? "brightness-125"
                   : "",
                 isActive ? "text-foreground" : "text-muted-foreground",
+                // The ⌘⇧E keyboard-browsing cursor — separate from isActive,
+                // since Enter hasn't committed it as the active tab yet.
+                tab.id === keyboardFocusedTabId ? "ring-2 ring-foreground/80" : "",
               )}
             >
               {(() => {
@@ -337,8 +350,60 @@ export function TabStrip({
   onSelect,
   onClose,
   onReorder,
+  keyboardBrowsing,
+  onExitBrowsing,
 }: TabStripProps) {
   const [isBarHovered, setIsBarHovered] = useState(false);
+  const [keyboardFocusedTabId, setKeyboardFocusedTabId] = useState<string | null>(null);
+  // Kept current every render so the "seed on browsing start" effect below
+  // can read the latest activeTabId without needing it in its own
+  // dependency array (which would re-seed on every activeTabId change
+  // while already browsing, fighting the user's own arrow-key moves).
+  const activeTabIdRef = useRef(activeTabId);
+  activeTabIdRef.current = activeTabId;
+
+  useEffect(() => {
+    if (keyboardBrowsing) {
+      setKeyboardFocusedTabId(activeTabIdRef.current);
+    }
+  }, [keyboardBrowsing]);
+
+  useEffect(() => {
+    if (!keyboardBrowsing) {
+      return;
+    }
+
+    function handleBrowseKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onExitBrowsing();
+        return;
+      }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        if (keyboardFocusedTabId) {
+          onSelect(keyboardFocusedTabId);
+        }
+        onExitBrowsing();
+        return;
+      }
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
+        return;
+      }
+      event.preventDefault();
+      const order = groupTabs(tabs).flatMap((group) => group.tabs);
+      const currentIndex = order.findIndex((tab) => tab.id === keyboardFocusedTabId);
+      if (currentIndex === -1) {
+        return;
+      }
+      const delta = event.key === "ArrowLeft" ? -1 : 1;
+      const nextIndex = Math.min(Math.max(currentIndex + delta, 0), order.length - 1);
+      setKeyboardFocusedTabId(order[nextIndex]?.id ?? null);
+    }
+
+    window.addEventListener("keydown", handleBrowseKeyDown);
+    return () => window.removeEventListener("keydown", handleBrowseKeyDown);
+  }, [keyboardBrowsing, tabs, keyboardFocusedTabId, onSelect, onExitBrowsing]);
   // Keyed by moduleId rather than a single boolean so two groups reporting
   // out of order (shouldn't happen with one pointer, but costs nothing to
   // be exact about) can't clobber each other's state.
@@ -412,7 +477,9 @@ export function TabStrip({
   // drag that carries the pointer outside the strip's ~30px-tall bounds
   // (very easy given how thin it is) can't cause every tab's width to
   // snap back to fisheye percentages mid-gesture, underneath the cursor.
-  const suspendFisheye = isBarHovered || draggingGroupIds.size > 0;
+  // Keyboard browsing (⌘⇧E) suspends it too — the whole point is seeing
+  // every tab at a readable width while arrow-navigating.
+  const suspendFisheye = isBarHovered || draggingGroupIds.size > 0 || keyboardBrowsing;
 
   const widths = new Map<string, number | undefined>();
   visualOrder.forEach((tab, index) => {
@@ -483,6 +550,7 @@ export function TabStrip({
                 tabs={group.tabs}
                 activeTabId={activeTabId}
                 widths={widths}
+                keyboardFocusedTabId={keyboardBrowsing ? keyboardFocusedTabId : null}
                 onSelect={onSelect}
                 onClose={onClose}
                 onReorder={onReorder}
