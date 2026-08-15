@@ -279,18 +279,11 @@ function TabGroupRow({
                 // overflow-hidden: at INACTIVE_MIN_WIDTH_PX there isn't
                 // room for icon + reserved close-button space + any title
                 // at once — content clips down to just the icon rather than
-                // spilling out of the tab's bounds.
-                // Dropping the per-module color wash left inactive tabs
-                // with nothing at all marking their bounds — invisible
-                // against the transparent titlebar whenever no tab in the
-                // strip happens to be the active one (e.g. Dock-browsing a
-                // module whose home view has no strip entry, see
-                // isHiddenHomePreview). A border alone still read as too
-                // faint against the native vibrancy blur behind it
-                // (tinted, not a flat surface) — bg-foreground/5 gives
-                // every tab an actual neutral surface under its text/icon,
-                // not just an outline, in either theme.
-                "group relative flex h-6 shrink-0 items-center overflow-hidden rounded-md border border-border/60 bg-foreground/5 py-0 pl-2 pr-7 text-xs font-medium transition-[filter,box-shadow] [--wails-draggable:no-drag] backdrop-blur-sm",
+                // spilling out of the tab's bounds. No border/background of
+                // its own anymore — the strip's own pill container (see the
+                // outer scrollRef div below) is what marks the boundary now,
+                // same as segments inside a segmented control.
+                "group relative flex h-6 shrink-0 items-center overflow-hidden rounded-full py-0 pl-2 pr-7 text-xs font-medium transition-[filter] [--wails-draggable:no-drag]",
                 !isActive && hoveredTabId === tab.id && draggingTabId === null
                   ? "brightness-125"
                   : "",
@@ -301,18 +294,17 @@ function TabGroupRow({
               )}
             >
               {isActive ? (
-                // The Safari-compact-tab "pill": a single frosted highlight
-                // shared (via layoutId) across whichever tab is currently
-                // active, anywhere in the strip — including a different
-                // module's group entirely. Motion doesn't diff old vs new
-                // parent, only the old and new screen rect, so switching
-                // tabs reads as one glass capsule sliding and resizing to
-                // its new home rather than one tab's highlight fading out
-                // while an unrelated one fades in.
+                // A single flat highlight shared (via layoutId) across
+                // whichever tab is currently active, anywhere in the strip
+                // — including a different module's group entirely. Motion
+                // doesn't diff old vs new parent, only the old and new
+                // screen rect, so switching tabs reads as one highlight
+                // sliding and resizing into place rather than one tab's
+                // highlight fading out while an unrelated one fades in.
                 <motion.div
-                  layoutId="tab-active-glass"
+                  layoutId="tab-active-highlight"
                   transition={{ type: "spring", stiffness: 460, damping: 32 }}
-                  className="absolute inset-0 rounded-md border border-white/15 bg-white/12 shadow-[0_1px_3px_rgba(0,0,0,0.18),inset_0_1px_0_rgba(255,255,255,0.3)] backdrop-blur-md"
+                  className="absolute inset-0 rounded-full bg-primary/20"
                 />
               ) : null}
               <span className="relative z-10 flex min-w-0 flex-1 items-center">
@@ -534,7 +526,10 @@ export function TabStrip({
     <div className="flex min-w-0 [--wails-draggable:no-drag]">
       <div
         ref={scrollRef}
-        className="scrollbar-hide flex w-full items-center gap-1 overflow-x-auto"
+        // The pill-shaped viewport holding every tab, replacing each tab's
+        // own border/background from before — one capsule around the whole
+        // strip instead of one around each tab.
+        className="scrollbar-hide flex w-full items-center gap-1 overflow-x-auto rounded-full border border-primary/50 px-1"
       >
         <AnimatePresence initial={false}>
           {groups.map((group) => (
