@@ -257,7 +257,11 @@ function TabGroupRow({
                 scale: { duration: 0.18 },
               }}
               style={{
-                backgroundColor: `hsl(${hue} 55% 45% / ${isActive ? 0.5 : 0.1})`,
+                // Module-color wash stays constant regardless of active
+                // state now — the frosted pill below is what marks the
+                // active tab, Safari-compact-style, so this no longer needs
+                // its own active/inactive split.
+                backgroundColor: `hsl(${hue} 55% 45% / 0.1)`,
                 // "auto" width alone lets the active tab size to fit its own
                 // title — which reads as *smaller* than a neighbor whose
                 // fisheye width is a percentage of the fixed base when the
@@ -316,27 +320,44 @@ function TabGroupRow({
                 tab.id === keyboardFocusedTabId ? "ring-2 ring-foreground/80" : "",
               )}
             >
-              {(() => {
-                // A tab-level `icon` (set by whoever called openTab) wins
-                // over the module's self-registered default
-                // (modules/registry.ts ModuleManifest.icon) — no separate
-                // tab-strip-only icon map to drift either way.
-                const ModuleIcon =
-                  tab.icon ?? getModule(tab.moduleId)?.icon ?? Wrench;
-                return <ModuleIcon className="size-3.5 shrink-0 opacity-70" />;
-              })()}
-              {tab.status && tab.status !== "idle" ? (
-                <span
-                  className={cn(
-                    "ml-1.5 size-1.5 shrink-0 rounded-full",
-                    statusDotClass(tab.status),
-                  )}
+              {isActive ? (
+                // The Safari-compact-tab "pill": a single frosted highlight
+                // shared (via layoutId) across whichever tab is currently
+                // active, anywhere in the strip — including a different
+                // module's group entirely. Motion doesn't diff old vs new
+                // parent, only the old and new screen rect, so switching
+                // tabs reads as one glass capsule sliding and resizing to
+                // its new home rather than one tab's highlight fading out
+                // while an unrelated one fades in.
+                <motion.div
+                  layoutId="tab-active-glass"
+                  transition={{ type: "spring", stiffness: 460, damping: 32 }}
+                  className="absolute inset-0 rounded-md border border-white/15 bg-white/12 shadow-[0_1px_3px_rgba(0,0,0,0.18),inset_0_1px_0_rgba(255,255,255,0.3)] backdrop-blur-md"
                 />
               ) : null}
-              <span
-                className={cn("ml-1.5 truncate", tab.preview && "italic")}
-              >
-                {tab.title}
+              <span className="relative z-10 flex min-w-0 flex-1 items-center">
+                {(() => {
+                  // A tab-level `icon` (set by whoever called openTab) wins
+                  // over the module's self-registered default
+                  // (modules/registry.ts ModuleManifest.icon) — no separate
+                  // tab-strip-only icon map to drift either way.
+                  const ModuleIcon =
+                    tab.icon ?? getModule(tab.moduleId)?.icon ?? Wrench;
+                  return <ModuleIcon className="size-3.5 shrink-0 opacity-70" />;
+                })()}
+                {tab.status && tab.status !== "idle" ? (
+                  <span
+                    className={cn(
+                      "ml-1.5 size-1.5 shrink-0 rounded-full",
+                      statusDotClass(tab.status),
+                    )}
+                  />
+                ) : null}
+                <span
+                  className={cn("ml-1.5 truncate", tab.preview && "italic")}
+                >
+                  {tab.title}
+                </span>
               </span>
               <span
                 role="button"
@@ -354,7 +375,7 @@ function TabGroupRow({
                   }
                 }}
                 className={cn(
-                  "absolute right-1 top-1/2 flex size-4 -translate-y-1/2 scale-75 items-center justify-center rounded opacity-0 transition-[opacity,transform] duration-150 ease-out hover:bg-foreground/10 focus:scale-100 focus:opacity-100 [--wails-draggable:no-drag]",
+                  "absolute right-1 top-1/2 z-10 flex size-4 -translate-y-1/2 scale-75 items-center justify-center rounded opacity-0 transition-[opacity,transform] duration-150 ease-out hover:bg-foreground/10 focus:scale-100 focus:opacity-100 [--wails-draggable:no-drag]",
                   hoveredTabId === tab.id &&
                     draggingTabId === null &&
                     "scale-100 opacity-100",
