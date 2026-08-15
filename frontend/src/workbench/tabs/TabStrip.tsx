@@ -115,7 +115,17 @@ export function TabStrip({ tabs, activeTabId, onSelect, onClose, onReorder }: Ta
               layout
               drag="x"
               dragMomentum={false}
-              dragSnapToOrigin={false}
+              // Matches framer-motion's own Reorder.Item exactly (it
+              // hardcodes this true) — "origin" here isn't where the drag
+              // started, it's x/y snapping back to 0 on release, which
+              // hands control back to `layout`'s own transform. Since
+              // onDrag already reordered the array live, `layout` recomputes
+              // from the *new* position, so this reads as "snaps into its
+              // new slot," not "springs back to where it was." `false` (the
+              // prior value) left the raw drag offset applied forever —
+              // the tab rendered wherever the pointer was released and
+              // never returned to a real flex slot.
+              dragSnapToOrigin
               whileDrag={{ scale: 1.05, zIndex: 10 }}
               onDrag={(_event, info) => handleDrag(tab.id, info)}
               initial={{ opacity: 0, scale: 0.9 }}
