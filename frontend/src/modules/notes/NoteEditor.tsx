@@ -39,6 +39,8 @@ import {
   type NoteFolder,
 } from "../../bridge/notes";
 import { useModuleAction } from "../../stores/moduleActions";
+import { useNotesRefreshStore } from "../../stores/notesRefresh";
+import { tabKey, useWorkbenchTabsStore } from "../../stores/workbenchTabs";
 import { ColorPicker } from "./ColorPicker";
 import { folderDotVar } from "./folderColors";
 import { tagChipVar } from "./tagColor";
@@ -47,10 +49,7 @@ import { NotesEditorKit } from "./plate/plugins";
 type SaveStatus = "idle" | "saving" | "saved" | "error";
 
 type NoteEditorProps = {
-  noteId: string;
-  onBack?: () => void;
-  onDeleted: () => void;
-  onSaved: () => void;
+  params?: Record<string, unknown>;
 };
 
 const AUTOSAVE_DELAY_MS = 1500;
@@ -199,7 +198,28 @@ function NoteMetaPanel({
   );
 }
 
-export function NoteEditor({ noteId, onBack, onDeleted, onSaved }: NoteEditorProps) {
+export function NoteEditor({ params }: NoteEditorProps) {
+  const noteId = typeof params?.noteId === "string" ? params.noteId : "";
+  const tabId = useMemo(() => tabKey("notes", "notes.editor", { noteId }), [noteId]);
+  const openTab = useWorkbenchTabsStore((state) => state.openTab);
+  const closeTab = useWorkbenchTabsStore((state) => state.closeTab);
+  const pinTab = useWorkbenchTabsStore((state) => state.pinTab);
+  const bumpNotesRefresh = useNotesRefreshStore((state) => state.bump);
+  const hasEditedRef = useRef(false);
+
+  function onBack() {
+    openTab({ moduleId: "notes", viewId: "notes.list", title: "Notes" });
+  }
+
+  function onDeleted() {
+    closeTab(tabId);
+    bumpNotesRefresh();
+  }
+
+  function onSaved() {
+    bumpNotesRefresh();
+  }
+
   const [note, setNote] = useState<Note | null>(null);
   const [folders, setFolders] = useState<NoteFolder[]>([]);
   const [title, setTitle] = useState("");
@@ -281,6 +301,10 @@ export function NoteEditor({ noteId, onBack, onDeleted, onSaved }: NoteEditorPro
   }, [noteId]);
 
   function scheduleSave(nextTitle: string) {
+    if (!hasEditedRef.current) {
+      hasEditedRef.current = true;
+      pinTab(tabId);
+    }
     if (saveTimer.current) {
       clearTimeout(saveTimer.current);
     }
@@ -470,17 +494,15 @@ export function NoteEditor({ noteId, onBack, onDeleted, onSaved }: NoteEditorPro
   return (
     <div className="notes-font-scope flex h-full flex-1 flex-col">
       <div className="flex items-center gap-2 border-b border-border px-4 py-2">
-        {onBack ? (
-          <Button
-            type="button"
-            size="icon-sm"
-            variant="ghost"
-            aria-label="Back to notes"
-            onClick={onBack}
-          >
-            <ArrowLeft className="size-4" />
-          </Button>
-        ) : null}
+        <Button
+          type="button"
+          size="icon-sm"
+          variant="ghost"
+          aria-label="Back to notes"
+          onClick={onBack}
+        >
+          <ArrowLeft className="size-4" />
+        </Button>
         <nav
           aria-label="Note breadcrumb"
           className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground"
@@ -507,7 +529,10 @@ export function NoteEditor({ noteId, onBack, onDeleted, onSaved }: NoteEditorPro
         </Button>
       </div>
       {saveError ? (
-        <p role="alert" className="border-b border-border px-4 py-1 text-xs text-destructive">
+        <p
+          role="alert"
+          className="border-b border-border px-4 py-1 text-xs text-destructive"
+        >
           {saveError}
         </p>
       ) : null}

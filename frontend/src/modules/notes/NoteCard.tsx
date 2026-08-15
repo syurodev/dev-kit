@@ -16,17 +16,20 @@ function relativeTime(iso: string): string {
 export function NoteCard({
   note,
   onOpen,
+  onOpenDouble,
   onTagClick,
 }: {
   note: NoteSummary;
-  onOpen: (id: string) => void;
+  onOpen: (note: NoteSummary) => void;
+  onOpenDouble: (note: NoteSummary) => void;
   onTagClick: (tag: string) => void;
 }) {
   const accent = noteAccentColor(note.effectiveColor);
   return (
     <button
       type="button"
-      onClick={() => onOpen(note.id)}
+      onClick={() => onOpen(note)}
+      onDoubleClick={() => onOpenDouble(note)}
       className="flex aspect-3/2 flex-col gap-1.5 rounded-xl border border-border bg-card p-4 text-left"
     >
       <span className="flex min-w-0 items-center gap-1.5">

@@ -78,7 +78,8 @@ type Scope = "all" | "ungrouped" | `folder:${string}`;
 
 type NotesDashboardProps = {
   refreshToken: number;
-  onOpenNote: (id: string) => void;
+  onOpenNote: (note: { id: string; title: string }) => void;
+  onOpenNoteDouble: (note: { id: string; title: string }) => void;
   onChanged: () => void;
 };
 
@@ -210,6 +211,7 @@ function TagsEditor({
 export function NotesDashboard({
   refreshToken,
   onOpenNote,
+  onOpenNoteDouble,
   onChanged,
 }: NotesDashboardProps) {
   const [notes, setNotes] = useState<NoteSummary[]>([]);
@@ -305,7 +307,9 @@ export function NotesDashboard({
       const folderId = scope.startsWith("folder:") ? scope.slice(7) : "";
       const created = await createNote("Untitled", "", folderId, []);
       onChanged();
-      onOpenNote(created.id);
+      // Explicit creation is a deliberate action (same as a double-click),
+      // not casual browsing — opens pinned, not as a replaceable preview.
+      onOpenNoteDouble(created);
     } catch (e) {
       toast.error(errorMessage(e));
     } finally {
@@ -553,6 +557,7 @@ export function NotesDashboard({
                   key={note.id}
                   note={note}
                   onOpen={onOpenNote}
+                  onOpenDouble={onOpenNoteDouble}
                   onTagClick={toggleTagFilter}
                 />
               ))}
