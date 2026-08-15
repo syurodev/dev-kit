@@ -57,6 +57,7 @@ export function Workbench() {
   const openTab = useWorkbenchTabsStore((state) => state.openTab);
   const closeTab = useWorkbenchTabsStore((state) => state.closeTab);
   const setActiveTab = useWorkbenchTabsStore((state) => state.setActiveTab);
+  const reorderTab = useWorkbenchTabsStore((state) => state.reorderTab);
 
   useEffect(() => {
     let mounted = true;
@@ -165,6 +166,7 @@ export function Workbench() {
             activeTabId={activeTabId}
             onSelect={setActiveTab}
             onClose={closeTab}
+            onReorder={reorderTab}
           />
           {moduleActions.map((action) => (
             <Tooltip key={action.id}>

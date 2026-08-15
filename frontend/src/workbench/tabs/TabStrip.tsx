@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { AnimatePresence, LazyMotion, domMax, m } from "framer-motion";
 import { Wrench, X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -22,6 +23,7 @@ type TabStripProps = {
   activeTabId: string;
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
+  onReorder: (fromId: string, toIndex: number) => void;
 };
 
 /**
@@ -38,7 +40,59 @@ type TabStripProps = {
  * smoothly, including the resulting reflow of every other open tab —
  * without it, siblings snap to their new position in a single frame.
  */
-export function TabStrip({ tabs, activeTabId, onSelect, onClose }: TabStripProps) {
+export function TabStrip({ tabs, activeTabId, onSelect, onClose, onReorder }: TabStripProps) {
+  const tabRefs = useRef(new Map<string, HTMLButtonElement>());
+  const dragRef = useRef<{ id: string; startX: number; dragging: boolean } | null>(null);
+
+  // Global (not per-element) listeners: once a drag starts, the pointer can
+  // move anywhere in the window, not just over the tab strip.
+  useEffect(() => {
+    function handlePointerMove(event: PointerEvent) {
+      const drag = dragRef.current;
+      if (!drag) {
+        return;
+      }
+      if (!drag.dragging) {
+        if (Math.abs(event.clientX - drag.startX) < 5) {
+          return;
+        }
+        drag.dragging = true;
+      }
+      const draggedIndex = tabs.findIndex((tab) => tab.id === drag.id);
+      if (draggedIndex === -1) {
+        return;
+      }
+      for (let i = 0; i < tabs.length; i += 1) {
+        if (i === draggedIndex) {
+          continue;
+        }
+        const el = tabRefs.current.get(tabs[i].id);
+        if (!el) {
+          continue;
+        }
+        const rect = el.getBoundingClientRect();
+        const mid = rect.left + rect.width / 2;
+        const crossedGoingRight = i > draggedIndex && event.clientX > mid;
+        const crossedGoingLeft = i < draggedIndex && event.clientX < mid;
+        if (crossedGoingRight || crossedGoingLeft) {
+          onReorder(drag.id, i);
+          break;
+        }
+      }
+    }
+
+    function handlePointerUp() {
+      dragRef.current = null;
+    }
+
+    document.addEventListener("pointermove", handlePointerMove);
+    document.addEventListener("pointerup", handlePointerUp);
+    return () => {
+      document.removeEventListener("pointermove", handlePointerMove);
+      document.removeEventListener("pointerup", handlePointerUp);
+    };
+  }, [tabs, onReorder]);
+
   return (
     <LazyMotion features={domMax}>
       <div className="scrollbar-hide flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [--wails-draggable:drag]">
@@ -46,6 +100,13 @@ export function TabStrip({ tabs, activeTabId, onSelect, onClose }: TabStripProps
           {tabs.map((tab) => (
             <m.button
               key={tab.id}
+              ref={(el) => {
+                if (el) {
+                  tabRefs.current.set(tab.id, el);
+                } else {
+                  tabRefs.current.delete(tab.id);
+                }
+              }}
               layout
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -53,6 +114,12 @@ export function TabStrip({ tabs, activeTabId, onSelect, onClose }: TabStripProps
               transition={{ layout: { type: "spring", stiffness: 500, damping: 35 } }}
               type="button"
               onClick={() => onSelect(tab.id)}
+              onPointerDown={(event) => {
+                if (event.button !== 0) {
+                  return;
+                }
+                dragRef.current = { id: tab.id, startX: event.clientX, dragging: false };
+              }}
               className={cn(
                 // No `gap` here on purpose: gap reserves space between EVERY
                 // flex child, including the close button even while it's
