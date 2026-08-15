@@ -52,6 +52,10 @@ export function useSplitPanel(): SplitPanelContextValue {
 
 const MIN_PANEL_WIDTH = 320;
 const MAX_PANEL_WIDTH = 720;
+// Matches the mx-2/mb-2 (8px) transparent margins around the whole content
+// row — the gutter between the two cards is styled the same, not a bespoke
+// gap width, so it reads as "the same transparent frame", not a new one.
+const GAP_WIDTH = 8;
 
 /**
  * Renders as a flex sibling of the active module's content (see
@@ -120,9 +124,9 @@ export function SplitPanelSlot() {
     <LazyMotion features={domAnimation}>
       <m.div
         initial={{ width: 0 }}
-        animate={{ width: panel ? width : 0 }}
+        animate={{ width: panel ? width + GAP_WIDTH : 0 }}
         transition={isResizing ? { duration: 0 } : { duration: 0.22, ease: "easeInOut" }}
-        className="relative flex min-h-0 shrink-0 flex-col overflow-hidden"
+        className="flex min-h-0 shrink-0 overflow-hidden"
       >
         {panel ? (
           <div
@@ -130,7 +134,7 @@ export function SplitPanelSlot() {
             aria-orientation="vertical"
             aria-label="Resize panel"
             onPointerDown={onResizePointerDown}
-            className="group absolute inset-y-0 left-0 z-10 flex w-2 cursor-col-resize items-center justify-center"
+            className="group flex w-2 shrink-0 cursor-col-resize items-center justify-center"
           >
             <div
               className={cn(
@@ -140,32 +144,34 @@ export function SplitPanelSlot() {
             />
           </div>
         ) : null}
-        {panel ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Close panel"
-            className="absolute top-2 right-2 z-10"
-            onClick={panel.onClose}
-          >
-            <X className="size-4" />
-          </Button>
-        ) : null}
-        <AnimatePresence>
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card">
           {panel ? (
-            <m.div
-              key="panel-content"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.15 }}
-              className="flex min-h-0 flex-1 flex-col overflow-auto"
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Close panel"
+              className="absolute top-2 right-2 z-10"
+              onClick={panel.onClose}
             >
-              {panel.content}
-            </m.div>
+              <X className="size-4" />
+            </Button>
           ) : null}
-        </AnimatePresence>
+          <AnimatePresence>
+            {panel ? (
+              <m.div
+                key="panel-content"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.15 }}
+                className="flex min-h-0 flex-1 flex-col overflow-auto"
+              >
+                {panel.content}
+              </m.div>
+            ) : null}
+          </AnimatePresence>
+        </div>
       </m.div>
     </LazyMotion>
   );

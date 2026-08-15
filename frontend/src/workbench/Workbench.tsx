@@ -227,15 +227,19 @@ export function Workbench() {
             </TooltipContent>
           </Tooltip>
         </header>
-        <div className="mx-2 mb-2 flex flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card">
-          {hasMetadataWarning ? (
-            <Alert variant="destructive" className="m-4 mb-0 w-auto">
-              <AlertDescription>
-                Module metadata is unavailable or out of sync.
-              </AlertDescription>
-            </Alert>
-          ) : null}
-          <div className="flex min-h-0 flex-1">
+        {/* Transparent row: the main content card and the split panel are two
+            independent bg-card boxes, separated by a gap that shows the same
+            transparent/vibrancy background as the mx-2/mb-2 margins around
+            this whole row — not one shared card with an internal divider. */}
+        <div className="mx-2 mb-2 flex min-h-0 flex-1">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card">
+            {hasMetadataWarning ? (
+              <Alert variant="destructive" className="m-4 mb-0 w-auto">
+                <AlertDescription>
+                  Module metadata is unavailable or out of sync.
+                </AlertDescription>
+              </Alert>
+            ) : null}
             <section
               className={cn(
                 "flex min-h-0 flex-1 flex-col overflow-auto",
@@ -269,8 +273,8 @@ export function Workbench() {
                 })
               )}
             </section>
-            <SplitPanelSlot />
           </div>
+          <SplitPanelSlot />
         </div>
         <Dock
           activeModuleId={activeModule?.id ?? ""}
