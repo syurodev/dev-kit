@@ -53,7 +53,7 @@ function groupTabs(tabs: WorkbenchTab[]): TabGroup[] {
   return groups;
 }
 
-const FISHEYE_STEP_PERCENT = 5;
+const FISHEYE_STEP_PERCENT = 15;
 const FISHEYE_FLOOR_PERCENT = 30;
 const TAB_BASE_WIDTH_PX = 140;
 
@@ -386,7 +386,24 @@ export function TabStrip({
       onPointerLeave={() => setIsBarHovered(false)}
       className="flex min-w-0 justify-center [--wails-draggable:no-drag]"
     >
-      <div className="scrollbar-hide flex max-w-full items-center gap-1 overflow-x-auto">
+      <div
+        className="scrollbar-hide flex max-w-full items-center gap-1 overflow-x-auto"
+        // Soft-fades the two edges instead of a hard clip when a tab is
+        // scrolled half out of view — the -webkit- prefix matters here
+        // specifically, not just as a fallback: this app renders inside
+        // WKWebView, where unprefixed `mask-image` support depends on OS
+        // version. ponytail: fades unconditionally, even when nothing is
+        // actually scrolled off — a scroll-position-aware version (fade
+        // only the side(s) with hidden content) would need a scroll
+        // listener; revisit if the always-on fade reads as odd on a fully
+        // visible edge tab.
+        style={{
+          WebkitMaskImage:
+            "linear-gradient(to right, transparent, black 20px, black calc(100% - 20px), transparent)",
+          maskImage:
+            "linear-gradient(to right, transparent, black 20px, black calc(100% - 20px), transparent)",
+        }}
+      >
         <AnimatePresence initial={false}>
           {groups.map((group) => (
             <motion.div
