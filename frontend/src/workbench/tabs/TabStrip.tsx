@@ -221,18 +221,16 @@ function TabGroupRow({
               as="button"
               value={tab}
               key={tab.id}
-              // A preview tab replacing a different preview tab (e.g.
-              // switching modules via the Dock, or clicking through notes)
-              // is a completely different `key` — React unmounts the old
-              // one and mounts a new one with no visual relationship
-              // between them, which read as a jarring pop/jerk especially
-              // when replacements happen in quick succession (rapid
-              // clicks interrupting each other's still-playing exit/enter).
-              // Sharing this layoutId across every preview tab makes
-              // Motion treat the old and new one as the same continuous
-              // element crossing into its new spot/size, instead of two
-              // unrelated mount/unmount events landing at once.
-              layoutId={tab.preview ? "preview-tab" : undefined}
+              // A shared layoutId across every preview tab used to live
+              // here, so a preview replacing a different preview (e.g.
+              // clicking through notes) read as one continuous element
+              // instead of an unrelated exit+enter. Removed: it was
+              // fighting the active-tab pill's own layoutId (below) — both
+              // trying to morph a box's size/position on the same swap,
+              // at the same time, produced a briefly oversized/overlapping
+              // tab instead of a clean transition. The matched enter/exit
+              // timing plus the width-collapse-to-0 fix already makes a
+              // plain exit+enter read as one motion without this.
               layout="position"
               // Scaling a text-heavy tab forces WebKit to re-rasterise its
               // label and icon while Motion is also projecting every sibling.
