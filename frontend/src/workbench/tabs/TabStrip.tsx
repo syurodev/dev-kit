@@ -52,12 +52,20 @@ export function TabStrip({ tabs, activeTabId, onSelect, onClose }: TabStripProps
           <span className="max-w-40 truncate">{tab.title}</span>
           <span
             role="button"
+            tabIndex={0}
             aria-label={`Close ${tab.title}`}
             onClick={(event) => {
               event.stopPropagation();
               onClose(tab.id);
             }}
-            className="ml-0.5 hidden size-4 shrink-0 items-center justify-center rounded hover:bg-white/10 group-hover:flex [--wails-draggable:no-drag]"
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                event.stopPropagation();
+                onClose(tab.id);
+              }
+            }}
+            className="ml-0.5 hidden size-4 shrink-0 items-center justify-center rounded hover:bg-white/10 group-hover:flex group-focus-within:flex [--wails-draggable:no-drag]"
           >
             <X className="size-3" />
           </span>
