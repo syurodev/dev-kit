@@ -135,7 +135,7 @@ export function SessionTab({
           lines.map((line) => (
             <div
               key={line.id}
-              className={`agenthub-line is-${line.role}`}
+              className={`agenthub-line is-${line.role} [contain-intrinsic-size:auto_96px] [content-visibility:auto]`}
               data-role={line.role}
             >
               <span className="agenthub-line-role">{line.role}</span>

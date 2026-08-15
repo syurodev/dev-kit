@@ -1,6 +1,5 @@
 import { Bot } from "lucide-react";
-import type { ModuleManifest } from "../registry";
-import { AgentHubView } from "./AgentHubView";
+import { lazyModuleView, type ModuleManifest } from "../registry";
 
 export const agenthubModule: ModuleManifest = {
   id: "agenthub",
@@ -14,5 +13,13 @@ export const agenthubModule: ModuleManifest = {
     { id: "agenthub.invoke", title: "Send prompt" },
     { id: "agenthub.cancel", title: "Cancel turn" },
   ],
-  views: [{ id: "agenthub.sessions", title: "Agents", component: AgentHubView }],
+  views: [
+    {
+      id: "agenthub.sessions",
+      title: "Agents",
+      ...lazyModuleView(() =>
+        import("./AgentHubView").then(({ AgentHubView }) => ({ default: AgentHubView })),
+      ),
+    },
+  ],
 };

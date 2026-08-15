@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, Suspense, useEffect, useMemo, useState } from "react";
 import { Events, Window } from "@wailsio/runtime";
 import { Search, Settings as SettingsIcon } from "lucide-react";
 import { listModules, type ModuleDTO } from "../bridge/commands";
@@ -104,7 +104,15 @@ const WorkbenchViews = memo(function WorkbenchViews({
             // participation without an extra layout wrapper.
             return (
               <div key={tab.id} className={tab.id === activeTabId ? "contents" : "hidden"}>
-                <TabView params={tab.params} />
+                <Suspense
+                  fallback={
+                    <div role="status" className="p-4 text-sm text-muted-foreground">
+                      Loading {tab.title}...
+                    </div>
+                  }
+                >
+                  <TabView params={tab.params} />
+                </Suspense>
               </div>
             );
           })
@@ -244,6 +252,10 @@ export function Workbench() {
     const module = getModule(moduleId);
     const view = module?.views[0];
     if (module && view) {
+      // Start the module request before the tab state update triggers render.
+      // The same cached promise is consumed by React.lazy in WorkbenchViews.
+      const preload = view.preload?.();
+      void preload?.catch(() => undefined);
       openTab({ moduleId: module.id, viewId: view.id, title: module.title });
     }
   }

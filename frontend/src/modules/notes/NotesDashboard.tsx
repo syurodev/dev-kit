@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronRight,
   Folder,
@@ -80,6 +80,7 @@ type NotesDashboardProps = {
   refreshToken: number;
   onOpenNote: (note: { id: string; title: string }) => void;
   onOpenNoteDouble: (note: { id: string; title: string }) => void;
+  onPreloadEditor?: () => void;
   onChanged: () => void;
 };
 
@@ -212,6 +213,7 @@ export function NotesDashboard({
   refreshToken,
   onOpenNote,
   onOpenNoteDouble,
+  onPreloadEditor,
   onChanged,
 }: NotesDashboardProps) {
   const [notes, setNotes] = useState<NoteSummary[]>([]);
@@ -234,28 +236,43 @@ export function NotesDashboard({
   const [editTags, setEditTags] = useState<string[]>([]);
 
   const [deleteTarget, setDeleteTarget] = useState<NoteFolder | null>(null);
+  const refreshRequestRef = useRef(0);
 
   const folderIds = useMemo(() => new Set(folders.map((f) => f.id)), [folders]);
 
-  async function refresh(q: string) {
+  const refresh = useCallback(async (q: string) => {
+    const request = ++refreshRequestRef.current;
     try {
       const [list, folderList] = await Promise.all([
         q.trim() ? searchNotes(q) : listNotes(),
         listFolders(),
       ]);
+      // A slower bridge response for an older query must not replace the
+      // results for what the user is currently typing.
+      if (request !== refreshRequestRef.current) return;
       setNotes(list);
       setFolders(folderList);
     } catch (e) {
-      toast.error(errorMessage(e));
+      if (request === refreshRequestRef.current) {
+        toast.error(errorMessage(e));
+      }
     }
-  }
+  }, []);
 
   useEffect(() => {
-    void refresh(query);
-    // Intentionally omits `query` — typing refreshes via onChange; this
-    // effect covers mount + refreshToken bumps from editor/folder CRUD.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refreshToken]);
+    // Searching through the native bridge on every keystroke creates avoidable
+    // IPC and SQLite work. Empty queries and explicit refreshes remain fast;
+    // typed searches are coalesced into one request after a short pause.
+    const timer = window.setTimeout(
+      () => void refresh(query),
+      query.trim() ? 200 : 0,
+    );
+    return () => {
+      window.clearTimeout(timer);
+      // Also invalidate a request that already crossed the debounce boundary.
+      refreshRequestRef.current += 1;
+    };
+  }, [query, refresh, refreshToken]);
 
   const filtered = useMemo(() => {
     return notes.filter((n) => {
@@ -327,7 +344,6 @@ export function NotesDashboard({
       setCreateColor("blue");
       setCreateTags([]);
       onChanged();
-      await refresh(query);
     } catch (e) {
       toast.error(errorMessage(e));
     }
@@ -341,7 +357,6 @@ export function NotesDashboard({
       await updateFolder(renameFolder.id, name, renameColor, renameFolder.tags);
       setRenameFolder(null);
       onChanged();
-      await refresh(query);
     } catch (e) {
       toast.error(errorMessage(e));
     }
@@ -358,7 +373,6 @@ export function NotesDashboard({
       );
       setEditTagsFolder(null);
       onChanged();
-      await refresh(query);
     } catch (e) {
       toast.error(errorMessage(e));
     }
@@ -373,7 +387,6 @@ export function NotesDashboard({
       }
       setDeleteTarget(null);
       onChanged();
-      await refresh(query);
     } catch (e) {
       toast.error(errorMessage(e));
     }
@@ -520,7 +533,6 @@ export function NotesDashboard({
                   value={query}
                   onChange={(e) => {
                     setQuery(e.target.value);
-                    void refresh(e.target.value);
                   }}
                   className="h-9 w-64"
                 />
@@ -558,6 +570,7 @@ export function NotesDashboard({
                   note={note}
                   onOpen={onOpenNote}
                   onOpenDouble={onOpenNoteDouble}
+                  onPreload={onPreloadEditor}
                   onTagClick={toggleTagFilter}
                 />
               ))}

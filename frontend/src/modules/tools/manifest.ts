@@ -1,6 +1,5 @@
 import { Wrench } from "lucide-react";
-import type { ModuleManifest } from "../registry";
-import { ToolsView } from "./ToolsView";
+import { lazyModuleView, type ModuleManifest } from "../registry";
 
 export const toolsModule: ModuleManifest = {
   id: "tools",
@@ -19,7 +18,9 @@ export const toolsModule: ModuleManifest = {
     {
       id: "tools.hash",
       title: "Hash",
-      component: ToolsView,
+      ...lazyModuleView(() =>
+        import("./ToolsView").then(({ ToolsView }) => ({ default: ToolsView })),
+      ),
     },
   ],
 };

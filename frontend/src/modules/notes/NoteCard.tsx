@@ -17,20 +17,24 @@ export function NoteCard({
   note,
   onOpen,
   onOpenDouble,
+  onPreload,
   onTagClick,
 }: {
   note: NoteSummary;
   onOpen: (note: NoteSummary) => void;
   onOpenDouble: (note: NoteSummary) => void;
+  onPreload?: () => void;
   onTagClick: (tag: string) => void;
 }) {
   const accent = noteAccentColor(note.effectiveColor);
   return (
     <button
       type="button"
+      onMouseEnter={onPreload}
+      onFocus={onPreload}
       onClick={() => onOpen(note)}
       onDoubleClick={() => onOpenDouble(note)}
-      className="flex aspect-3/2 flex-col gap-1.5 rounded-xl border border-border bg-card p-4 text-left"
+      className="flex aspect-3/2 flex-col gap-1.5 rounded-xl border border-border bg-card p-4 text-left [contain-intrinsic-size:auto_208px] [content-visibility:auto]"
     >
       <span className="flex min-w-0 items-center gap-1.5">
         {accent ? (

@@ -1,7 +1,5 @@
 import { FileText } from "lucide-react";
-import type { ModuleManifest } from "../registry";
-import { NotesView } from "./NotesView";
-import { NoteEditor } from "./NoteEditor";
+import { lazyModuleView, type ModuleManifest } from "../registry";
 
 export const notesModule: ModuleManifest = {
   id: "notes",
@@ -20,12 +18,16 @@ export const notesModule: ModuleManifest = {
     {
       id: "notes.list",
       title: "Notes",
-      component: NotesView,
+      ...lazyModuleView(() =>
+        import("./NotesView").then(({ NotesView }) => ({ default: NotesView })),
+      ),
     },
     {
       id: "notes.editor",
       title: "Note",
-      component: NoteEditor,
+      ...lazyModuleView(() =>
+        import("./NoteEditor").then(({ NoteEditor }) => ({ default: NoteEditor })),
+      ),
     },
   ],
 };

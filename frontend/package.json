@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build:dev": "tsc && vite build --minify false --mode development",
-    "build": "tsc && vite build --mode production",
+    "build": "tsc && vite build --mode production && bun run check:performance",
+    "check:performance": "bun scripts/check-performance-budget.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

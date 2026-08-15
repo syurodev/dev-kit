@@ -1,6 +1,5 @@
 import { Workflow } from "lucide-react";
-import type { ModuleManifest } from "../registry";
-import { KafkaView } from "./KafkaView";
+import { lazyModuleView, type ModuleManifest } from "../registry";
 
 export const kafkaModule: ModuleManifest = {
   id: "kafka",
@@ -19,7 +18,9 @@ export const kafkaModule: ModuleManifest = {
     {
       id: "kafka.explorer",
       title: "Kafka",
-      component: KafkaView,
+      ...lazyModuleView(() =>
+        import("./KafkaView").then(({ KafkaView }) => ({ default: KafkaView })),
+      ),
     },
   ],
 };

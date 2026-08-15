@@ -1,13 +1,38 @@
-import type { ComponentType } from "react";
+import { lazy, type ComponentType, type LazyExoticComponent } from "react";
 import type { LucideIcon } from "lucide-react";
 
 export const CURRENT_MODULE_API_VERSION = "1";
 
+export type ModuleViewComponent = ComponentType<{
+  params?: Record<string, unknown>;
+}>;
+
 export type ModuleView = {
   id: string;
   title: string;
-  component: ComponentType<{ params?: Record<string, unknown> }>;
+  component: ModuleViewComponent | LazyExoticComponent<ModuleViewComponent>;
+  /** Starts fetching a lazy view before React needs to render it. */
+  preload?: () => Promise<void>;
 };
+
+type LazyViewModule = { default: ModuleViewComponent };
+
+/**
+ * Keeps module metadata eager and tiny while moving the actual UI tree into a
+ * separate chunk. The cached loader is shared by hover/click preloading and
+ * React.lazy, so a view is never requested twice.
+ */
+export function lazyModuleView(
+  loader: () => Promise<LazyViewModule>,
+): Pick<ModuleView, "component" | "preload"> {
+  let pending: Promise<LazyViewModule> | undefined;
+  const load = () => (pending ??= loader());
+
+  return {
+    component: lazy(load),
+    preload: () => load().then(() => undefined),
+  };
+}
 
 export type ModuleCommand = {
   id: string;
@@ -142,7 +167,9 @@ export function validateModuleManifest(manifest: ModuleManifest): void {
       typeof view !== "object" ||
       !isNonEmptyString(view.id) ||
       !isNonEmptyString(view.title) ||
-      typeof view.component !== "function"
+      !view.component ||
+      (typeof view.component !== "function" && typeof view.component !== "object") ||
+      (view.preload !== undefined && typeof view.preload !== "function")
     ) {
       throw new Error(`Module ${manifest.id} view must have a title and component`);
     }

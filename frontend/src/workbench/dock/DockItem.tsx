@@ -19,7 +19,10 @@ export function DockItem({ item }: { item: DockEntry }) {
       aria-disabled={item.unavailable}
       aria-label={item.title}
       onClick={item.onClick}
-      onMouseEnter={() => item.panel && setPanelOpen(true)}
+      onMouseEnter={() => {
+        item.onPreload?.();
+        if (item.panel) setPanelOpen(true);
+      }}
       onMouseLeave={() => item.panel && setPanelOpen(false)}
       className={cn(
         "relative flex size-8 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors",

@@ -12,6 +12,7 @@ export type DockEntry = {
   title: string;
   icon: LucideIcon;
   onClick: () => void;
+  onPreload?: () => void;
   isActive?: boolean;
   unavailable?: boolean;
   badge?: string | null;

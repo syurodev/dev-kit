@@ -1,6 +1,5 @@
 import { Database } from "lucide-react";
-import type { ModuleManifest } from "../registry";
-import { DatabaseView } from "./DatabaseView";
+import { lazyModuleView, type ModuleManifest } from "../registry";
 
 export const databaseModule: ModuleManifest = {
   id: "database",
@@ -19,7 +18,9 @@ export const databaseModule: ModuleManifest = {
     {
       id: "database.connections",
       title: "Database",
-      component: DatabaseView,
+      ...lazyModuleView(() =>
+        import("./DatabaseView").then(({ DatabaseView }) => ({ default: DatabaseView })),
+      ),
     },
   ],
 };

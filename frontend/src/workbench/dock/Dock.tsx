@@ -45,6 +45,7 @@ export function Dock({ modules, activeModuleId, onSelectModule }: DockProps) {
 
   const baseItems: DockEntry[] = modules.map((module) => {
     const isAgentHub = module.id === "agenthub";
+    const registeredModule = getModule(module.id);
     const badge = isAgentHub && sessions.length > 0 ? String(sessions.length) : null;
     const urgent = isAgentHub && sessions.some((s) => s.status === "awaiting_permission");
     return {
@@ -54,12 +55,18 @@ export function Dock({ modules, activeModuleId, onSelectModule }: DockProps) {
       // modules/notes/manifest.ts) — this falls back to Wrench only for an
       // id with no matching registered module, which validateModuleManifest
       // makes unreachable for anything actually passed in here.
-      icon: getModule(module.id)?.icon ?? Wrench,
+      icon: registeredModule?.icon ?? Wrench,
       isActive: module.id === activeModuleId,
       unavailable: module.unavailable,
       badge,
       urgent,
       onClick: () => onSelectModule(module.id),
+      onPreload: () => {
+        const preload = registeredModule?.views[0]?.preload?.();
+        // A click still renders through Suspense and owns any load error. A
+        // speculative hover must never create an unhandled rejection.
+        void preload?.catch(() => undefined);
+      },
       panel:
         isAgentHub && sessions.length > 0
           ? () => (

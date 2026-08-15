@@ -1,6 +1,5 @@
 import { Settings } from "lucide-react";
-import type { ModuleManifest } from "../registry";
-import { SettingsView } from "./SettingsView";
+import { lazyModuleView, type ModuleManifest } from "../registry";
 
 export const settingsModule: ModuleManifest = {
   id: "settings",
@@ -14,7 +13,9 @@ export const settingsModule: ModuleManifest = {
     {
       id: "settings.environments",
       title: "Settings",
-      component: SettingsView,
+      ...lazyModuleView(() =>
+        import("./SettingsView").then(({ SettingsView }) => ({ default: SettingsView })),
+      ),
     },
   ],
 };

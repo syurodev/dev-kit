@@ -1,6 +1,5 @@
 import { RefreshCw } from "lucide-react";
-import type { ModuleManifest } from "../registry";
-import { SyncView } from "./SyncView";
+import { lazyModuleView, type ModuleManifest } from "../registry";
 
 export const syncModule: ModuleManifest = {
   id: "sync",
@@ -19,7 +18,9 @@ export const syncModule: ModuleManifest = {
     {
       id: "sync.status",
       title: "Sync",
-      component: SyncView,
+      ...lazyModuleView(() =>
+        import("./SyncView").then(({ SyncView }) => ({ default: SyncView })),
+      ),
     },
   ],
 };

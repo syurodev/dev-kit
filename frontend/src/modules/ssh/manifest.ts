@@ -1,6 +1,5 @@
 import { Terminal } from "lucide-react";
-import type { ModuleManifest } from "../registry";
-import { SSHView } from "./SSHView";
+import { lazyModuleView, type ModuleManifest } from "../registry";
 
 export const sshModule: ModuleManifest = {
   id: "ssh",
@@ -19,7 +18,9 @@ export const sshModule: ModuleManifest = {
     {
       id: "ssh.connections",
       title: "SSH",
-      component: SSHView,
+      ...lazyModuleView(() =>
+        import("./SSHView").then(({ SSHView }) => ({ default: SSHView })),
+      ),
     },
   ],
 };
