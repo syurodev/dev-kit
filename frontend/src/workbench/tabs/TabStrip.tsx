@@ -551,7 +551,15 @@ export function TabStrip({
   // snap back to fisheye percentages mid-gesture, underneath the cursor.
   // Keyboard browsing (⌘⇧E) suspends it too — the whole point is seeing
   // every tab at a readable width while arrow-navigating.
-  const suspendFisheye = isBarHovered || draggingGroupIds.size > 0 || keyboardBrowsing;
+  // activeIndex is -1 whenever the real active tab has no strip entry at
+  // all (Dock-browsing a module's hidden home preview — see
+  // isHiddenHomePreview): every visible tab's distance-from-active then
+  // computes as index+1 instead of a real spread around one full-width
+  // anchor, so *every* tab shrank toward the fisheye floor at once with
+  // nothing left to actually read. Same fallback as hovering: show every
+  // real tab at a normal width instead of collapsing all of them.
+  const suspendFisheye =
+    isBarHovered || draggingGroupIds.size > 0 || keyboardBrowsing || activeIndex === -1;
 
   const widths = new Map<string, number | undefined>();
   visualOrder.forEach((tab, index) => {
