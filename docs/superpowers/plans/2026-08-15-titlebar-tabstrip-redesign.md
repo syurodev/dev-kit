@@ -30,7 +30,7 @@ No files deleted (the design doc for the superseded chip spec stays in `docs/` a
 **Files:**
 - Create: `frontend/src/workbench/tabs/moduleColor.ts`
 
-- [ ] **Step 1: Write the file**
+- [x] **Step 1: Write the file**
 
 ```ts
 /**
@@ -49,13 +49,13 @@ export function moduleHue(moduleId: string): number {
 }
 ```
 
-- [ ] **Step 2: Typecheck**
+- [x] **Step 2: Typecheck**
 
 Run: `cd frontend && bun run build`
 Expected: succeeds (this file has no consumers yet, but it's a valid,
 fully-typed, exported function — nothing to fail on).
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add frontend/src/workbench/tabs/moduleColor.ts
