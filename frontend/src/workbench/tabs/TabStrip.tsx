@@ -248,11 +248,19 @@ function TabGroupRow({
               // rather than us trying to compute "however long this title
               // needs" ourselves.
               animate={{ opacity: 1, scale: 1, width: widthPx ?? "auto" }}
+              // One shared duration/easing across layout, width, opacity and
+              // scale — these used to run at mismatched speeds (layout
+              // 45ms vs. width 260ms vs. opacity/scale 180ms), so a new or
+              // closing tab's footprint (layout FLIP) snapped into its
+              // final position almost instantly while the tab itself was
+              // still visibly growing/shrinking and fading into or out of
+              // that already-settled gap — two motions landing at different
+              // times read as a jerky double-step rather than one motion.
               transition={{
-                layout: { duration: 0.045, ease: "easeOut" },
-                width: { duration: 0.26, ease: "easeInOut" },
-                opacity: { duration: 0.18 },
-                scale: { duration: 0.18 },
+                layout: { duration: 0.22, ease: "easeOut" },
+                width: { duration: 0.22, ease: "easeOut" },
+                opacity: { duration: 0.22, ease: "easeOut" },
+                scale: { duration: 0.22, ease: "easeOut" },
               }}
               style={{
                 // "auto" width alone lets the active tab size to fit its own
@@ -274,8 +282,14 @@ function TabGroupRow({
               }}
               onDragStart={() => handleDragStart(tab.id)}
               onDragEnd={handleDragEnd}
-              initial={{ opacity: 0, scale: 0.95 }}
-              exit={{ opacity: 0, scale: 0.95 }}
+              // Width included here too (not just opacity/scale): without
+              // it, a new tab's DOM footprint (and the FLIP-computed gap
+              // its neighbors slide to fill) was already full-size from the
+              // very first frame — only the fade/scale was gradual — so
+              // neighbors visibly jumped aside before the new tab existed
+              // to fill that space. Same idea in reverse on close.
+              initial={{ opacity: 0, scale: 0.95, width: 0 }}
+              exit={{ opacity: 0, scale: 0.95, width: 0 }}
               type="button"
               data-tab-id={tab.id}
               onPointerEnter={() => {
@@ -587,16 +601,14 @@ export function TabStrip({
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              // Matches the individual tab's own opacity/scale timing below
-              // — a group appearing/disappearing (e.g. a preview tab
-              // swapping to a different module) and its one tab inside
-              // doing the same used to run on different durations (0.15
-              // here vs 0.18 there), which read as two motions slightly
-              // out of step rather than one.
+              // Matches the individual tab's own layout/width/opacity/scale
+              // timing below exactly (0.22s easeOut across the board) — a
+              // group appearing/disappearing and its tab(s) doing the same
+              // needs to land at the same moment, not slightly staggered.
               transition={{
-                layout: { duration: 0.045, ease: "easeOut" },
-                opacity: { duration: 0.18 },
-                scale: { duration: 0.18 },
+                layout: { duration: 0.22, ease: "easeOut" },
+                opacity: { duration: 0.22, ease: "easeOut" },
+                scale: { duration: 0.22, ease: "easeOut" },
               }}
               className="flex shrink-0 items-center"
             >
