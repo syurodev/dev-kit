@@ -32,7 +32,7 @@
         "@radix-ui/react-toolbar": "^1.1.19",
         "@shadcn/react": "^0.3.0",
         "@udecode/cn": "^52.3.4",
-        "@wailsio/runtime": "3.0.0-alpha2.117",
+        "@wailsio/runtime": "3.0.0-beta.8",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
         "cmdk": "^1.1.1",
@@ -571,7 +571,7 @@
 
     "@vitejs/plugin-react": ["@vitejs/plugin-react@6.0.5", "", { "dependencies": { "@rolldown/pluginutils": "^1.0.1" }, "peerDependencies": { "@rolldown/plugin-babel": "^0.1.7 || ^0.2.0", "babel-plugin-react-compiler": "^1.0.0", "vite": "^8.0.0" }, "optionalPeers": ["@rolldown/plugin-babel", "babel-plugin-react-compiler"] }, "sha512-BOVzne/NL162sMdResB25mUv+vWMF5NoAjNf09TeGlE7ZpszZWSD3winycicLJw72yeVsoCn/2kOhEuCvEShMA=="],
 
-    "@wailsio/runtime": ["@wailsio/runtime@3.0.0-alpha2.117", "", {}, "sha512-RZr6cncIXjdTbn2IqJ6AZXPm9WooaZEsNlNfaUH+Ru/YlH5sKDDeRdWpbcvsgoMLh4AJ+O8aBzZEiTYWDipGxw=="],
+    "@wailsio/runtime": ["@wailsio/runtime@3.0.0-beta.8", "", {}, "sha512-c9PZJcOR9z1a6cxtBS2q5cygNajlxDE8Oxv/vvcTFYRbZSoOGBszq4uzlkPTOd0Bot1xkM81jnpaBgKWRpBh2g=="],
 
     "accepts": ["accepts@2.0.0", "", { "dependencies": { "mime-types": "^3.0.0", "negotiator": "^1.0.0" } }, "sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng=="],
 

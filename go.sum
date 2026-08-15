@@ -78,10 +78,8 @@ github.com/twmb/franz-go/pkg/kadm v1.18.0 h1:WRf/LZmDdcDXwX7WMbtDU++v+b3NzYh2bCG
 github.com/twmb/franz-go/pkg/kadm v1.18.0/go.mod h1:XeLhGoLXLFzK8/ryv5FfpxPxGwj4oFEGpPJMB/x6KDE=
 github.com/twmb/franz-go/pkg/kmsg v1.13.1 h1:fG5kItwysTk5UXqVwb64EpQEy3TydF3vYYK21nUQ+bI=
 github.com/twmb/franz-go/pkg/kmsg v1.13.1/go.mod h1:+DPt4NC8RmI6hqb8G09+3giKObE6uD2Eya6CfqBpeJY=
-github.com/wailsapp/wails/v3 v3.0.0-alpha2.106 h1:vay8+y89EbUTGVBjKw1r4eCd2gi7lgvO5QTlSQJe41g=
-github.com/wailsapp/wails/v3 v3.0.0-alpha2.106/go.mod h1:wrdvmyeCsB/K3YqJDoH8E3MwcN8NXAMnEFaDTW46w60=
-github.com/wailsapp/wails/webview2 v1.0.27 h1:wjgAi/I8BBZ7kUGU8um3XF3ILEfzr96Q2Q1G4GPjMns=
-github.com/wailsapp/wails/webview2 v1.0.27/go.mod h1:zdM4jcO1IaC61RiJL5F1BzgoqBHFIdacz8gPr5exr0o=
+github.com/wailsapp/wails/v3 v3.0.0-beta.8 h1:r5d+5ERZ6TYI/OPJnqq91Ugux+TkfplCURUi/+6vA/Q=
+github.com/wailsapp/wails/v3 v3.0.0-beta.8/go.mod h1:A/OaL1mXOnwWynTJv4rZU89Wbk5q3rtq3C3qkx4rRN0=
 github.com/yosida95/uritemplate/v3 v3.0.2 h1:Ed3Oyj9yrmi9087+NczuL5BwkIc4wvTb5zIM+UJPGz4=
 github.com/yosida95/uritemplate/v3 v3.0.2/go.mod h1:ILOh0sOhIJR3+L/8afwt/kE++YT040gmv5BQTMR2HP4=
 github.com/zalando/go-keyring v0.2.6 h1:r7Yc3+H+Ux0+M72zacZoItR3UDxeWfKTcabvkI8ua9s=

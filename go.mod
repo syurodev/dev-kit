@@ -11,7 +11,7 @@ require (
 	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/twmb/franz-go v1.21.5
 	github.com/twmb/franz-go/pkg/kadm v1.18.0
-	github.com/wailsapp/wails/v3 v3.0.0-alpha2.106
+	github.com/wailsapp/wails/v3 v3.0.0-beta.8
 	github.com/zalando/go-keyring v0.2.6
 	golang.org/x/crypto v0.54.0
 	golang.org/x/oauth2 v0.36.0
@@ -41,7 +41,6 @@ require (
 	github.com/segmentio/asm v1.1.3 // indirect
 	github.com/segmentio/encoding v0.5.4 // indirect
 	github.com/twmb/franz-go/pkg/kmsg v1.13.1 // indirect
-	github.com/wailsapp/wails/webview2 v1.0.27 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/text v0.40.0 // indirect
