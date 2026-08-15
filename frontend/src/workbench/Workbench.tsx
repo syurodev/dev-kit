@@ -5,6 +5,7 @@ import { listModules, type ModuleDTO } from "../bridge/commands";
 import { Dock } from "./dock/Dock";
 import { AgentSessionsSubscriber } from "./AgentSessionsSubscriber";
 import { CommandPalette } from "./CommandPalette";
+import { TabSwitcher } from "./TabSwitcher";
 import { InteractionHost } from "./InteractionHost";
 import {
   compareModuleParity,
@@ -226,6 +227,7 @@ export function Workbench() {
   const [metadataError, setMetadataError] = useState(false);
   const [metadataLoading, setMetadataLoading] = useState(true);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [switcher, setSwitcher] = useState<"closed" | "small" | "large">("closed");
   const [isFullscreen, setIsFullscreen] = useState(false);
   const moduleActions = useModuleActionsStore((s) => s.actions);
   const openTabs = useWorkbenchTabsStore((state) => state.openTabs);
@@ -234,6 +236,49 @@ export function Workbench() {
   const closeTab = useWorkbenchTabsStore((state) => state.closeTab);
   const setActiveTab = useWorkbenchTabsStore((state) => state.setActiveTab);
   const reorderTab = useWorkbenchTabsStore((state) => state.reorderTab);
+
+  useEffect(() => {
+    // navigator.platform is deprecated but still the simplest reliable
+    // Mac/non-Mac check available without pulling in a UA-parsing
+    // dependency for one boolean.
+    const isMac = navigator.platform.toUpperCase().includes("MAC");
+
+    function isTriggerModifier(event: KeyboardEvent): boolean {
+      return (isMac ? event.metaKey : event.ctrlKey) && event.shiftKey;
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key.toLowerCase() !== "e" || !isTriggerModifier(event)) {
+        return;
+      }
+      event.preventDefault();
+      // First press (not already open) -> small popup. Any further "e"
+      // while already open -> large — whether it's the OS's native
+      // key-repeat from holding the key down, or a second discrete press
+      // (the fallback for users with OS key-repeat disabled), both arrive
+      // here as another keydown and take the same branch on purpose.
+      setSwitcher((current) => (current === "closed" ? "small" : "large"));
+    }
+
+    function handleKeyUp(event: KeyboardEvent) {
+      const isModifierKey =
+        event.key === "Meta" || event.key === "Control" || event.key === "Shift";
+      // Releasing either required modifier ends the session — cancel, not
+      // commit (Enter is the only thing that switches tabs; see
+      // TabSwitcher.tsx and the design spec for why this diverges from
+      // ⌘Tab's release-to-commit).
+      if (isModifierKey && !isTriggerModifier(event)) {
+        setSwitcher("closed");
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -498,6 +543,11 @@ export function Workbench() {
           open={paletteOpen}
           commands={commands}
           onClose={() => setPaletteOpen(false)}
+        />
+        <TabSwitcher
+          open={switcher !== "closed"}
+          size={switcher === "large" ? "large" : "small"}
+          onClose={() => setSwitcher("closed")}
         />
         <InteractionHost />
       </div>
