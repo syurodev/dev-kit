@@ -342,6 +342,15 @@ export function SSHTrustHostKey(id: string, fingerprint: string): $CancellablePr
 }
 
 /**
+ * SetTitlebarInsetHeightProvider wires the native accessor read by
+ * TitlebarInsetHeight. Optional (set post-construction, like applyTheme):
+ * main.go's native window isn't ready at NewAppService call time.
+ */
+export function SetTitlebarInsetHeightProvider(fn: any): $CancellablePromise<void> {
+    return $Call.ByID(3719108744, fn);
+}
+
+/**
  * SetupVault creates the vault with a mandatory Master Password (first run
  * only) and returns the recovery key to show the user exactly once.
  * SECURITY: This one-time return is the only exception; never log, audit,
@@ -389,6 +398,17 @@ export function SyncRevokeDevice(targetDeviceID: string): $CancellablePromise<vo
 
 export function SyncStatus(): $CancellablePromise<$models.SyncStatusDTO> {
     return $Call.ByID(1672945227);
+}
+
+/**
+ * TitlebarInsetHeight returns how many points of native titlebar/toolbar
+ * chrome (see main.go's Mac.TitleBar = HiddenInset) AppKit is actually
+ * rendering at the top of the window right now, so the frontend can size
+ * its own header row to match it exactly instead of guessing a pixel value.
+ * 0 on non-macOS platforms or before the native window exists.
+ */
+export function TitlebarInsetHeight(): $CancellablePromise<number> {
+    return $Call.ByID(3930914769);
 }
 
 export function UnlockVault(masterPassword: string): $CancellablePromise<void> {

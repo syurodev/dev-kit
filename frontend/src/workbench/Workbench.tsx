@@ -2,6 +2,7 @@ import { memo, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Events, Window } from "@wailsio/runtime";
 import { Search, Settings as SettingsIcon } from "lucide-react";
 import { listModules, type ModuleDTO } from "../bridge/commands";
+import { getTitlebarInsetHeight } from "../bridge/window";
 import { Dock } from "./dock/Dock";
 import { AgentSessionsSubscriber } from "./AgentSessionsSubscriber";
 import { CommandPalette } from "./CommandPalette";
@@ -233,6 +234,12 @@ export function Workbench() {
   // holding the key down or pressing it again while already browsing.
   const [switcher, setSwitcher] = useState<"closed" | "browsing" | "popup">("closed");
   const [isFullscreen, setIsFullscreen] = useState(false);
+  // Exact native titlebar/toolbar chrome height (see main.go's Mac.TitleBar
+  // = HiddenInset), read once at startup instead of guessing a pixel value
+  // — that's what keeps the traffic lights aligned with this header row.
+  // null (falls back to the CSS h-[38px] default below) until it resolves,
+  // and stays null on non-macOS platforms where the bridge call returns 0.
+  const [titlebarHeightPx, setTitlebarHeightPx] = useState<number | null>(null);
   const moduleActions = useModuleActionsStore((s) => s.actions);
   const openTabs = useWorkbenchTabsStore((state) => state.openTabs);
   const activeTabId = useWorkbenchTabsStore((state) => state.activeTabId);
@@ -293,6 +300,21 @@ export function Workbench() {
     window.addEventListener("keydown", handleKeyDown);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    getTitlebarInsetHeight()
+      .then((height) => {
+        if (mounted && height > 0) {
+          setTitlebarHeightPx(height);
+        }
+      })
+      .catch(() => undefined);
+
+    return () => {
+      mounted = false;
     };
   }, []);
 
@@ -462,15 +484,17 @@ export function Workbench() {
             drag handle; tabs and controls can own their gestures reliably. */}
         <header
           className={cn(
-            // 38px, not an arbitrary round number: under Mac.TitleBar =
-            // HiddenInset (main.go), AppKit attaches an empty NSToolbar and
-            // centers the traffic lights within *its* native default height
-            // — not this CSS value. 38px is macOS's standard compact
-            // toolbar height, so matching it here is what keeps the tab row
-            // and the traffic lights aligned, not just a size preference.
+            // h-[38px] is only the fallback for the brief window before
+            // titlebarHeightPx resolves (or on non-macOS, where it never
+            // does) — style.height below overrides it with AppKit's real,
+            // measured titlebar/toolbar chrome height once known, which is
+            // what actually keeps the tab row aligned with the traffic
+            // lights instead of guessing a pixel value that only happens to
+            // match one macOS version's toolbar default.
             "relative flex h-[38px] shrink-0 items-center pt-0.5 pr-4 transition-[padding-left] duration-300 ease-out motion-reduce:transition-none [--wails-draggable:no-drag]",
             isFullscreen ? "pl-1" : "pl-20",
           )}
+          style={titlebarHeightPx ? { height: titlebarHeightPx } : undefined}
         >
           <div
             aria-hidden="true"

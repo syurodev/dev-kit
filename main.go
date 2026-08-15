@@ -206,6 +206,9 @@ func main() {
 	appService := bridge.NewAppService(container, func(theme preferences.Theme) error {
 		return applyNativeTheme(mainWindow, theme)
 	})
+	appService.SetTitlebarInsetHeightProvider(func() float64 {
+		return nativeTitlebarInsetHeight(mainWindow)
+	})
 	mcpServer := mcp.NewServerFromContainer(mcp.Deps{
 		Caller:   appService,
 		Notes:    container.Notes,
