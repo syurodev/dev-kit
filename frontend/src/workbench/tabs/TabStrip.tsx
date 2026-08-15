@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { AnimatePresence, Reorder } from "framer-motion";
+import { AnimatePresence, Reorder, motion } from "framer-motion";
 import { Wrench, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getModule } from "../../modules/registry";
@@ -73,6 +73,7 @@ type TabGroupRowProps = {
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
   onReorder: (fromId: string, beforeId: string | null) => void;
+  onDraggingChange: (dragging: boolean) => void;
 };
 
 /**
@@ -104,6 +105,7 @@ function TabGroupRow({
   onSelect,
   onClose,
   onReorder,
+  onDraggingChange,
 }: TabGroupRowProps) {
   const activeDragId = useRef<string | null>(null);
   const dragOriginBeforeId = useRef<string | null>(null);
@@ -133,6 +135,7 @@ function TabGroupRow({
     activeDragId.current = draggedId;
     setDraggingTabId(draggedId);
     setHoveredTabId(null);
+    onDraggingChange(true);
     const index = visualTabsRef.current.findIndex((tab) => tab.id === draggedId);
     dragOriginBeforeId.current = visualTabsRef.current[index + 1]?.id ?? null;
   }
@@ -141,6 +144,7 @@ function TabGroupRow({
     const draggedId = activeDragId.current;
     setDraggingTabId(null);
     setHoveredTabId(null);
+    onDraggingChange(false);
     if (draggedId !== null) {
       const index = visualTabsRef.current.findIndex((tab) => tab.id === draggedId);
       const beforeId = visualTabsRef.current[index + 1]?.id ?? null;
@@ -314,6 +318,22 @@ export function TabStrip({
   onReorder,
 }: TabStripProps) {
   const [isBarHovered, setIsBarHovered] = useState(false);
+  // Keyed by moduleId rather than a single boolean so two groups reporting
+  // out of order (shouldn't happen with one pointer, but costs nothing to
+  // be exact about) can't clobber each other's state.
+  const [draggingGroupIds, setDraggingGroupIds] = useState<Set<string>>(new Set());
+
+  function handleGroupDraggingChange(moduleId: string, dragging: boolean) {
+    setDraggingGroupIds((prev) => {
+      const next = new Set(prev);
+      if (dragging) {
+        next.add(moduleId);
+      } else {
+        next.delete(moduleId);
+      }
+      return next;
+    });
+  }
 
   const groups = groupTabs(tabs);
   // Distance is measured over this clustered order (not raw `tabs`
@@ -322,13 +342,20 @@ export function TabStrip({
   // that relative to openTabs' own (drag-reorderable) order.
   const visualOrder = groups.flatMap((group) => group.tabs);
   const activeIndex = visualOrder.findIndex((tab) => tab.id === activeTabId);
+  // A drag in progress also suspends the fisheye, same as hovering —
+  // tracked through the actual drag lifecycle (not pointer position) so a
+  // drag that carries the pointer outside the strip's ~30px-tall bounds
+  // (very easy given how thin it is) can't cause every tab's width to
+  // snap back to fisheye percentages mid-gesture, underneath the cursor.
+  const suspendFisheye = isBarHovered || draggingGroupIds.size > 0;
 
   const widths = new Map<string, number | undefined>();
   visualOrder.forEach((tab, index) => {
-    if (isBarHovered) {
-      // Hovering the strip suspends the fisheye for every tab, including
-      // the active one — "toàn bộ tab bung ra cùng kích thước": same
-      // fixed width for all, not each tab's own natural width.
+    if (suspendFisheye) {
+      // Hovering the strip (or dragging within it) suspends the fisheye
+      // for every tab, including the active one — "toàn bộ tab bung ra
+      // cùng kích thước": same fixed width for all, not each tab's own
+      // natural width.
       widths.set(tab.id, TAB_BASE_WIDTH_PX);
       return;
     }
@@ -344,22 +371,52 @@ export function TabStrip({
   });
 
   return (
+    // Outer: centers the tab row when it's narrower than the available
+    // track (few tabs open) via justify-center. Inner: the actual
+    // scrollable row, capped at max-w-full so once its content is wider
+    // than the track it fills the whole width instead of trying to grow
+    // past it — at that point justify-center has no room left to do
+    // anything, and the inner element's own overflow-x-auto takes over
+    // with normal left-anchored scrolling. (A flex row with
+    // justify-center and no such cap would make the start of an
+    // overflowing tab list unreachable by scroll — this two-level
+    // structure is what avoids that.)
     <div
       onPointerEnter={() => setIsBarHovered(true)}
       onPointerLeave={() => setIsBarHovered(false)}
-      className="scrollbar-hide flex min-w-0 items-center gap-1 overflow-x-auto [--wails-draggable:no-drag]"
+      className="flex min-w-0 justify-center [--wails-draggable:no-drag]"
     >
-      {groups.map((group) => (
-        <TabGroupRow
-          key={group.moduleId}
-          tabs={group.tabs}
-          activeTabId={activeTabId}
-          widths={widths}
-          onSelect={onSelect}
-          onClose={onClose}
-          onReorder={onReorder}
-        />
-      ))}
+      <div className="scrollbar-hide flex max-w-full items-center gap-1 overflow-x-auto">
+        <AnimatePresence initial={false}>
+          {groups.map((group) => (
+            <motion.div
+              key={group.moduleId}
+              layout="position"
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              transition={{
+                layout: { duration: 0.045, ease: "easeOut" },
+                opacity: { duration: 0.15 },
+                scale: { duration: 0.15 },
+              }}
+              className="flex shrink-0 items-center"
+            >
+              <TabGroupRow
+                tabs={group.tabs}
+                activeTabId={activeTabId}
+                widths={widths}
+                onSelect={onSelect}
+                onClose={onClose}
+                onReorder={onReorder}
+                onDraggingChange={(dragging) =>
+                  handleGroupDraggingChange(group.moduleId, dragging)
+                }
+              />
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
     </div>
   );
 }
