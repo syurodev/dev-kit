@@ -28,7 +28,7 @@ func RegisterBuiltins(container *Container) error {
 			Version:      "1.0.0",
 			APIVersion:   modules.CurrentAPIVersion,
 			Commands:     []string{"notes.create"},
-			Views:        []string{"notes.list"},
+			Views:        []string{"notes.list", "notes.editor"},
 			Capabilities: []string{"notes:read", "notes:write"},
 		},
 		{
