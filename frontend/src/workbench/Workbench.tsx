@@ -415,7 +415,24 @@ export function Workbench() {
       // The same cached promise is consumed by React.lazy in WorkbenchViews.
       const preload = view.preload?.();
       void preload?.catch(() => undefined);
-      openTab({ moduleId: module.id, viewId: view.id, title: module.title });
+      openTab({
+        moduleId: module.id,
+        viewId: view.id,
+        title: module.title,
+        // Modules with more than one view have a list-then-item structure
+        // (Notes: dashboard -> a specific note) — opening their home view
+        // as a preview tab means it never becomes its own permanent tab;
+        // picking a specific item replaces it in place via the existing
+        // global preview-slot mechanic in openTab, which is what actually
+        // satisfies "don't open a tab until I pick something" rather than
+        // just hiding a tab that's there anyway. Single-view modules
+        // (Database, SSH, ...) have nothing to pick past their home view,
+        // so they keep opening a normal permanent tab as before — making
+        // their home view preview-and-disposable too would mean losing
+        // it the moment the Dock is used to glance at a different module,
+        // with no equivalent of Notes' "edit pins it" to ever promote it.
+        preview: module.views.length > 1,
+      });
     }
   }
 
