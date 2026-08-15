@@ -19,6 +19,7 @@ import (
 	"devkit/internal/environments"
 	"devkit/internal/interaction"
 	"devkit/internal/mcp"
+	"devkit/internal/preferences"
 	"devkit/internal/servermode"
 
 	"devkit/internal/storage"
@@ -29,6 +30,7 @@ import (
 	"devkit/internal/vaultitem"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
 // Wails uses Go's `embed` package to embed the frontend files into the binary.
@@ -74,6 +76,11 @@ func main() {
 		vaultitem.NewSQLMutationRepository(db),
 		environments.NewSQLRepository(db),
 	)
+	container.Preferences = preferences.NewService(preferences.NewSQLRepository(db))
+	themePreference, err := container.Preferences.Theme()
+	if err != nil {
+		log.Fatal(err)
+	}
 	// The callback/browser boundary is composed here rather than in auth so the
 	// OIDC core remains independent of Wails and directly testable.
 	var openBrowser auth.BrowserOpener
@@ -195,7 +202,10 @@ func main() {
 	// and Completes via the bridge. Share one Hub between MCP and bridge.
 	hub := interaction.NewHub(interaction.NoopPrompter{})
 	container.Interaction = hub
-	appService := bridge.NewAppService(container)
+	var mainWindow application.Window
+	appService := bridge.NewAppService(container, func(theme preferences.Theme) error {
+		return applyNativeTheme(mainWindow, theme)
+	})
 	mcpServer := mcp.NewServerFromContainer(mcp.Deps{
 		Caller:   appService,
 		Notes:    container.Notes,
@@ -247,22 +257,83 @@ func main() {
 	// Acrylic) that isn't wired up yet, and an unconditionally transparent
 	// window would just show raw desktop content (no blur) on platforms
 	// without a compositor-level backdrop.
-	backgroundColour := application.NewRGB(16, 18, 20)
+	resolvedDark := themePreference == preferences.ThemeDark ||
+		(themePreference == preferences.ThemeSystem && wailsApp.Env.IsDarkMode())
+	backgroundColour := application.NewRGB(245, 246, 247)
+	if resolvedDark {
+		backgroundColour = application.NewRGB(16, 18, 20)
+	}
 	if runtime.GOOS == "darwin" {
 		backgroundColour = application.NewRGBA(0, 0, 0, 0)
 	}
 
-	wailsApp.Window.NewWithOptions(application.WebviewWindowOptions{
+	macAppearance := application.DefaultAppearance
+	windowsTheme := application.SystemDefault
+	switch themePreference {
+	case preferences.ThemeDark:
+		macAppearance = application.NSAppearanceNameDarkAqua
+		windowsTheme = application.Dark
+	case preferences.ThemeLight:
+		macAppearance = application.NSAppearanceNameAqua
+		windowsTheme = application.Light
+	}
+
+	mainWindow = wailsApp.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:  "DevKit",
 		Width:  1200,
 		Height: 760,
 		Mac: application.MacWindow{
-			InvisibleTitleBarHeight: 50,
+			// Do not use InvisibleTitleBarHeight here. In Wails beta.8 it is a
+			// native AppKit hit zone: every first mouse-down in the top N pixels
+			// calls performWindowDragWithEvent before the webview can decide that
+			// a tab is interactive. The frontend owns one explicit CSS drag handle
+			// over the traffic-light clearance instead.
+			InvisibleTitleBarHeight: 0,
 			Backdrop:                application.MacBackdropTranslucent,
-			TitleBar:                application.MacTitleBarHiddenInset,
+			// Match AppKit's vibrancy, rim and titlebar to the persisted web theme.
+			Appearance: macAppearance,
+			// Hidden keeps AppKit's native controls without the extra NSToolbar
+			// used by HiddenInset, so the traffic lights fit the compact strip.
+			TitleBar: application.MacTitleBarHidden,
+		},
+		Windows: application.WindowsWindow{
+			Theme: windowsTheme,
 		},
 		BackgroundColour: backgroundColour,
 		URL:              "/",
+	})
+
+	// WKWebView currently caps requestAnimationFrame near 60Hz even on a
+	// ProMotion display. Opt into its native refresh rate through a private
+	// WebKit feature only after the webview exists. The native helper resolves
+	// every private selector dynamically and is exception guarded: if Apple
+	// removes or changes the API, this safely falls back to WKWebView's default
+	// rendering policy instead of affecting startup or page rendering.
+	mainWindow.OnWindowEvent(events.Common.WindowRuntimeReady, func(*application.WindowEvent) {
+		// Window events may arrive on AppKit's main thread; hop out before the
+		// helper synchronously dispatches its Objective-C work back to that thread.
+		go func() {
+			if enableNativeHighRefreshRate(mainWindow) {
+				log.Printf("WKWebView native refresh rate enabled (private WebKit API)")
+			} else if runtime.GOOS == "darwin" {
+				log.Printf("WKWebView native refresh rate unavailable; using default frame rate")
+			}
+		}()
+	})
+
+	// A window created in an explicit light/dark mode does not ask every
+	// platform backend to track later system changes. Once the user selects
+	// System, reapply the resolved native theme whenever Wails reports one.
+	wailsApp.Event.OnApplicationEvent(events.Common.ThemeChanged, func(*application.ApplicationEvent) {
+		theme, themeErr := container.Preferences.Theme()
+		if themeErr != nil || theme != preferences.ThemeSystem {
+			return
+		}
+		go func() {
+			if err := applyNativeTheme(mainWindow, theme); err != nil {
+				log.Printf("apply system window theme: %v", err)
+			}
+		}()
 	})
 
 	if err := wailsApp.Run(); err != nil {

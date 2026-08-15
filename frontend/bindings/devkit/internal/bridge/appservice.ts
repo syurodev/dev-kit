@@ -28,6 +28,9 @@ import * as kafka$0 from "../kafka/models.js";
 import * as notes$0 from "../notes/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as preferences$0 from "../preferences/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as ssh$0 from "../ssh/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -275,6 +278,14 @@ export function NotesSetOrganization(id: string, folderID: string, tags: string[
 
 export function NotesUpdate(id: string, title: string, body: string): $CancellablePromise<notes$0.Note> {
     return $Call.ByID(3274258150, id, title, body);
+}
+
+export function PreferencesGetTheme(): $CancellablePromise<preferences$0.Theme> {
+    return $Call.ByID(1151267161);
+}
+
+export function PreferencesSetTheme(theme: preferences$0.Theme): $CancellablePromise<void> {
+    return $Call.ByID(1801576341, theme);
 }
 
 export function SSHActiveProfile(): $CancellablePromise<$models.ActiveProfileDTO> {

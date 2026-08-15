@@ -85,7 +85,7 @@ export function Dock({ modules, activeModuleId, onSelectModule }: DockProps) {
           onHoverEnd={handleHoverEnd}
           animate={{ scale: isHovered ? 1 : 0.55, y: isHovered ? 0 : 14 }}
           transition={{ type: "spring", stiffness: 300, damping: 30, mass: 0.8 }}
-          className="pointer-events-auto flex items-center gap-1 rounded-2xl border border-white/10 bg-card/90 p-1.5 backdrop-blur-xl"
+          className="pointer-events-auto flex items-center gap-1 rounded-2xl border border-foreground/10 bg-card/90 p-1.5 backdrop-blur-xl"
         >
           {items.map((item) => (
             <DockItem key={item.id} item={item} />

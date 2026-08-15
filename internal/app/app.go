@@ -83,7 +83,7 @@ func RegisterBuiltins(container *Container) error {
 			APIVersion:   modules.CurrentAPIVersion,
 			Commands:     []string{},
 			Views:        []string{"settings.environments"},
-			Capabilities: []string{"env:read", "env:write"},
+			Capabilities: []string{"env:read", "env:write", "preferences:read", "preferences:write"},
 		},
 	}
 

@@ -3,6 +3,7 @@ import { NodeApi } from "platejs";
 import { PlateElement, type PlateElementProps } from "platejs/react";
 import { CodeBlockElement } from "@/components/ui/code-block-node";
 import { Button } from "@/components/ui/button";
+import { useTheme, type ResolvedTheme } from "@/theme/ThemeProvider";
 
 type RenderState =
   | { status: "rendering" }
@@ -11,14 +12,18 @@ type RenderState =
 
 const renderCache = new Map<string, Promise<{ svg: string }>>();
 
-function renderMermaid(id: string, source: string) {
-  const key = `${id}:${source}`;
+function renderMermaid(id: string, source: string, theme: ResolvedTheme) {
+  const key = `${id}:${theme}:${source}`;
   const cached = renderCache.get(key);
   if (cached) {
     return cached;
   }
   const promise = import("mermaid").then(({ default: mermaid }) => {
-    mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: "dark" });
+    mermaid.initialize({
+      startOnLoad: false,
+      securityLevel: "strict",
+      theme: theme === "dark" ? "dark" : "default",
+    });
     return mermaid.render(id.replace(/:/g, ""), source);
   });
   renderCache.set(key, promise);
@@ -27,12 +32,13 @@ function renderMermaid(id: string, source: string) {
 
 function MermaidDiagram({ source }: { source: string }) {
   const id = useId();
+  const { resolvedTheme } = useTheme();
   const [state, setState] = useState<RenderState>({ status: "rendering" });
 
   useEffect(() => {
     let cancelled = false;
     setState({ status: "rendering" });
-    renderMermaid(id, source)
+    renderMermaid(id, source, resolvedTheme)
       .then(({ svg }) => {
         if (!cancelled) {
           setState({ status: "rendered", svg });
@@ -49,7 +55,7 @@ function MermaidDiagram({ source }: { source: string }) {
     return () => {
       cancelled = true;
     };
-  }, [id, source]);
+  }, [id, resolvedTheme, source]);
 
   if (state.status === "error") {
     return <p className="text-sm text-destructive">Mermaid error: {state.message}</p>;

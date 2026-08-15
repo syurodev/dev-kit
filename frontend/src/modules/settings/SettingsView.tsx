@@ -10,14 +10,22 @@ import { errorMessage } from "../../bridge/errors";
 import { McpInstallPanel } from "./McpInstallPanel";
 import { SyncView } from "../sync/SyncView";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Monitor, Moon, Sun } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { useTheme } from "@/theme/ThemeProvider";
+import type { ThemePreference } from "@/bridge/preferences";
 
 export function SettingsView() {
   return (
-    <Tabs defaultValue="environments" className="gap-4">
+    <Tabs defaultValue="appearance" className="gap-4">
       <TabsList>
+        <TabsTrigger value="appearance">Appearance</TabsTrigger>
         <TabsTrigger value="environments">Environments</TabsTrigger>
         <TabsTrigger value="sync">Sync</TabsTrigger>
       </TabsList>
+      <TabsContent value="appearance">
+        <AppearancePanel />
+      </TabsContent>
       <TabsContent value="environments">
         <EnvironmentsPanel />
       </TabsContent>
@@ -25,6 +33,78 @@ export function SettingsView() {
         <SyncView />
       </TabsContent>
     </Tabs>
+  );
+}
+
+const themeOptions = [
+  { value: "system", label: "System", description: "Follow your operating system", icon: Monitor },
+  { value: "light", label: "Light", description: "Always use the light appearance", icon: Sun },
+  { value: "dark", label: "Dark", description: "Always use the dark appearance", icon: Moon },
+] satisfies Array<{
+  value: ThemePreference;
+  label: string;
+  description: string;
+  icon: typeof Monitor;
+}>;
+
+function AppearancePanel() {
+  const { theme, setTheme } = useTheme();
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function selectTheme(nextTheme: ThemePreference) {
+    if (nextTheme === theme) {
+      return;
+    }
+    setError("");
+    setSaving(true);
+    try {
+      await setTheme(nextTheme);
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="max-w-2xl space-y-4">
+      <div>
+        <h2 className="text-lg font-semibold">Appearance</h2>
+        <p className="text-sm text-muted-foreground">
+          Choose how DevKit looks. This also updates the native window frame.
+        </p>
+      </div>
+      <div role="radiogroup" aria-label="Application appearance" className="grid gap-2 sm:grid-cols-3">
+        {themeOptions.map((option) => {
+          const Icon = option.icon;
+          const selected = option.value === theme;
+          return (
+            <button
+              key={option.value}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              disabled={saving}
+              onClick={() => void selectTheme(option.value)}
+              className={cn(
+                "flex min-h-24 flex-col items-start gap-2 rounded-lg border bg-card p-3 text-left transition-colors",
+                selected
+                  ? "border-ring ring-2 ring-ring/20"
+                  : "border-border hover:bg-accent",
+              )}
+            >
+              <Icon className="size-4" />
+              <span>
+                <span className="block text-sm font-medium">{option.label}</span>
+                <span className="block text-xs text-muted-foreground">{option.description}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+    </section>
   );
 }
 

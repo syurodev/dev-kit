@@ -16,6 +16,7 @@ import (
 	"devkit/internal/modules"
 	"devkit/internal/notes"
 	"devkit/internal/permissions"
+	"devkit/internal/preferences"
 	sshservice "devkit/internal/ssh"
 	"devkit/internal/syncclient"
 	"devkit/internal/syncconflict"
@@ -65,6 +66,7 @@ type Container struct {
 	Items        *vaultitem.Store
 	Notes        *notes.Service
 	Environments *environments.Service
+	Preferences  *preferences.Service
 	Database     *database.Service
 	SSH          *sshservice.Service
 	Kafka        *kafka.Service
@@ -153,6 +155,8 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.mcpinstall", Capability: "mcp:install", Scope: "agent:list"},
 		{SubjectID: "builtin.mcpinstall", Capability: "mcp:install", Scope: "agent:claude-code"},
 		{SubjectID: "builtin.mcpinstall", Capability: "mcp:install", Scope: "agent:codex"},
+		{SubjectID: "builtin.settings", Capability: "preferences:read", Scope: "theme"},
+		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "theme"},
 	})
 
 	vaultService := vault.NewService(keyringStore)
@@ -171,6 +175,7 @@ func NewContainerWithStores(
 		Items:        itemStore,
 		Notes:        notes.NewService(itemStore),
 		Environments: envService,
+		Preferences:  preferences.NewService(preferences.NewMemoryRepository()),
 		Database:     database.NewService(itemStore, envService),
 		SSH:          sshservice.NewService(itemStore, envService),
 		Kafka:        kafka.NewService(itemStore, envService, nil),

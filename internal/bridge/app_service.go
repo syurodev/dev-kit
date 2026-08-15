@@ -5,15 +5,21 @@ import (
 	"fmt"
 
 	"devkit/internal/app"
+	"devkit/internal/preferences"
 	"devkit/internal/tools"
 )
 
 type AppService struct {
-	container *app.Container
+	container  *app.Container
+	applyTheme func(preferences.Theme) error
 }
 
-func NewAppService(container *app.Container) *AppService {
-	return &AppService{container: container}
+func NewAppService(container *app.Container, themeApplier ...func(preferences.Theme) error) *AppService {
+	service := &AppService{container: container}
+	if len(themeApplier) > 0 {
+		service.applyTheme = themeApplier[0]
+	}
+	return service
 }
 
 type ModuleDTO struct {

@@ -164,6 +164,7 @@ func TestMigrateCreatesVaultItemsTable(t *testing.T) {
 		TableSyncOutbox, TableSyncCursors, TableSyncIdentity,
 		TableSyncAccountBinding, TableSyncEntityVersions, TableSyncAppliedOps,
 		TableSyncLocalEntities, TableSyncLocalMutations, TableSyncConflicts,
+		TableAppPreferences,
 	} {
 		if !tableExists(table) {
 			t.Fatalf("expected %s table to exist", table)
@@ -174,8 +175,8 @@ func TestMigrateCreatesVaultItemsTable(t *testing.T) {
 	if err := db.QueryRow("SELECT MAX(version) FROM schema_migrations").Scan(&version); err != nil {
 		t.Fatalf("read migration version: %v", err)
 	}
-	if version != 13 {
-		t.Fatalf("migration version = %d, want 13", version)
+	if version != 14 {
+		t.Fatalf("migration version = %d, want 14", version)
 	}
 
 	if err := Migrate(context.Background(), db); err != nil {

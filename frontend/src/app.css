@@ -18,7 +18,7 @@
 .tools-view pre {
   overflow-wrap: anywhere;
   white-space: pre-wrap;
-  background: #181b20;
+  background: var(--muted);
   padding: 12px;
   border-radius: 6px;
 }
@@ -41,8 +41,8 @@
 .db-query textarea {
   padding: 8px 10px;
   border-radius: 6px;
-  border: 1px solid #3f4650;
-  background: #0d0f12;
+  border: 1px solid var(--input);
+  background: var(--card);
   color: inherit;
 }
 
@@ -77,13 +77,13 @@
 
 .db-result th,
 .db-result td {
-  border: 1px solid #2a2f35;
+  border: 1px solid var(--border);
   padding: 6px 10px;
   text-align: left;
 }
 
 .db-status {
-  color: #6ee7a8;
+  color: var(--status-success);
 }
 
 .ssh-view {
@@ -106,8 +106,8 @@
 .ssh-command input {
   padding: 8px 10px;
   border-radius: 6px;
-  border: 1px solid #3f4650;
-  background: #0d0f12;
+  border: 1px solid var(--input);
+  background: var(--card);
   color: inherit;
 }
 
@@ -143,7 +143,7 @@
 .ssh-view pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  background: #181b20;
+  background: var(--muted);
   padding: 12px;
   border-radius: 6px;
 }
@@ -171,8 +171,8 @@
 .sync-connect input {
   padding: 8px 10px;
   border-radius: 6px;
-  border: 1px solid #3f4650;
-  background: #0d0f12;
+  border: 1px solid var(--input);
+  background: var(--card);
   color: inherit;
 }
 
@@ -191,14 +191,14 @@
 
 .sync-status div,
 .sync-report div {
-  border: 1px solid #2a2f35;
+  border: 1px solid var(--border);
   border-radius: 6px;
   padding: 8px 10px;
 }
 
 .sync-status dt,
 .sync-report dt {
-  color: #a1a1aa;
+  color: var(--muted-foreground);
   font-size: 0.85rem;
 }
 
@@ -218,7 +218,7 @@
 }
 
 .sync-conflicts-empty {
-  color: #a1a1aa;
+  color: var(--muted-foreground);
   margin: 0;
 }
 
@@ -235,7 +235,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  border: 1px solid #2a2f35;
+  border: 1px solid var(--border);
   border-radius: 6px;
   padding: 8px 10px;
 }
@@ -244,8 +244,8 @@
   text-transform: uppercase;
   font-size: 0.7rem;
   letter-spacing: 0.04em;
-  color: #f0b429;
-  border: 1px solid #4a3f1f;
+  color: var(--status-permission);
+  border: 1px solid color-mix(in srgb, var(--status-permission) 45%, transparent);
   border-radius: 4px;
   padding: 2px 6px;
   flex-shrink: 0;
@@ -257,7 +257,7 @@
 
 .sync-conflict-detected {
   margin-left: auto;
-  color: #a1a1aa;
+  color: var(--muted-foreground);
   font-size: 0.8rem;
   flex-shrink: 0;
 }
@@ -268,10 +268,10 @@
 
 .resolve-panel {
   margin-top: 12px;
-  border: 1px solid #3a3f45;
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 12px;
-  background: #16181d;
+  background: var(--secondary);
 }
 
 .resolve-header {
@@ -292,9 +292,9 @@
 .resolve-markers {
   margin: 10px 0;
   padding: 10px;
-  border: 1px solid #2a2f35;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: #0e1013;
+  background: var(--background);
   overflow-x: auto;
   white-space: pre-wrap;
   font-size: 0.85rem;
@@ -306,7 +306,7 @@
   gap: 6px;
   margin-bottom: 10px;
   font-size: 0.85rem;
-  color: #a1a1aa;
+  color: var(--muted-foreground);
 }
 
 .resolve-merge textarea {
@@ -322,7 +322,7 @@
 
 .resolve-waiting,
 .resolve-secret {
-  color: #a1a1aa;
+  color: var(--muted-foreground);
 }
 
 /* Conflict resolution is consequential, so its controls get explicit button
@@ -330,18 +330,18 @@
 .sync-conflict-resolve,
 .resolve-header button,
 .resolve-actions button {
-  border: 1px solid #3a3f45;
+  border: 1px solid var(--border);
   border-radius: 6px;
   padding: 5px 12px;
-  background: #23262c;
-  color: #e5e7eb;
+  background: var(--muted);
+  color: var(--foreground);
   cursor: pointer;
 }
 
 .sync-conflict-resolve:hover,
 .resolve-header button:hover,
 .resolve-actions button:not(:disabled):hover {
-  background: #2c3038;
+  background: var(--accent);
 }
 
 .resolve-actions button:disabled {
@@ -350,8 +350,8 @@
 }
 
 .resolve-actions .resolve-merge-save {
-  border-color: #3d5a3d;
-  background: #23302a;
+  border-color: color-mix(in srgb, var(--status-success) 50%, var(--border));
+  background: color-mix(in srgb, var(--status-success) 12%, var(--card));
 }
 
 .vault-gate {
@@ -361,17 +361,17 @@
   max-width: 420px;
   margin: 120px auto;
   padding: 24px;
-  border: 1px solid #2a2f35;
+  border: 1px solid var(--border);
   border-radius: 12px;
-  background: #14171b;
-  color: #f4f4f5;
+  background: var(--card);
+  color: var(--foreground);
 }
 
 .vault-gate input {
   padding: 10px 12px;
   border-radius: 6px;
-  border: 1px solid #3f4650;
-  background: #0d0f12;
+  border: 1px solid var(--input);
+  background: var(--background);
   color: inherit;
 }
 
@@ -379,25 +379,25 @@
   padding: 10px 12px;
   border-radius: 6px;
   border: none;
-  background: #6d5efc;
-  color: white;
+  background: var(--brand);
+  color: var(--primary-foreground);
   cursor: pointer;
 }
 
 .vault-recovery {
   margin: 16px;
   padding: 12px 16px;
-  border: 1px solid #6d5efc;
+  border: 1px solid var(--brand);
   border-radius: 8px;
-  background: #181b20;
-  color: #f4f4f5;
+  background: var(--muted);
+  color: var(--foreground);
 }
 
 .vault-recovery code {
   display: block;
   margin: 8px 0;
   padding: 8px;
-  background: #0d0f12;
+  background: var(--background);
   border-radius: 6px;
   overflow-wrap: anywhere;
 }
@@ -422,7 +422,7 @@
   flex-direction: column;
   gap: 4px;
   font-size: 12px;
-  color: #a1a1aa;
+  color: var(--muted-foreground);
 }
 
 .agenthub-header select,
@@ -430,8 +430,8 @@
 .agenthub-composer textarea {
   padding: 8px 10px;
   border-radius: 6px;
-  border: 1px solid #3f4650;
-  background: #0d0f12;
+  border: 1px solid var(--input);
+  background: var(--card);
   color: inherit;
 }
 
@@ -452,15 +452,15 @@
   gap: 8px;
   padding: 6px 10px;
   border-radius: 6px;
-  border: 1px solid #2a2f35;
-  background: #14171b;
+  border: 1px solid var(--border);
+  background: var(--secondary);
   color: inherit;
   cursor: pointer;
 }
 
 .agenthub-tabstrip button.is-active {
-  border-color: #6d5efc;
-  background: #181b20;
+  border-color: var(--brand);
+  background: var(--muted);
 }
 
 .agenthub-tab {
@@ -477,7 +477,7 @@
   gap: 8px;
   align-items: center;
   font-size: 12px;
-  color: #a1a1aa;
+  color: var(--muted-foreground);
 }
 
 .agenthub-meta-path {
@@ -492,28 +492,28 @@
   align-items: center;
   padding: 2px 8px;
   border-radius: 999px;
-  border: 1px solid #3f4650;
+  border: 1px solid var(--input);
   font-size: 11px;
   text-transform: lowercase;
 }
 
 .agenthub-status.is-idle {
-  background: #1f2937;
+  background: color-mix(in srgb, var(--status-idle) 14%, var(--card));
 }
 
 .agenthub-status.is-running {
-  background: #1e3a5f;
-  border-color: #3b82f6;
+  background: color-mix(in srgb, var(--status-running) 14%, var(--card));
+  border-color: var(--status-running);
 }
 
 .agenthub-status.is-awaiting_permission {
-  background: #422006;
-  border-color: #f59e0b;
+  background: var(--status-permission-soft);
+  border-color: var(--status-permission);
 }
 
 .agenthub-status.is-error {
-  background: #450a0a;
-  border-color: #ef4444;
+  background: color-mix(in srgb, var(--status-error) 14%, var(--card));
+  border-color: var(--status-error);
 }
 
 .agenthub-transcript {
@@ -521,9 +521,9 @@
   min-height: 220px;
   max-height: 420px;
   overflow: auto;
-  border: 1px solid #2a2f35;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: #0d0f12;
+  background: var(--card);
   padding: 10px;
   display: flex;
   flex-direction: column;
@@ -539,7 +539,7 @@
 
 .agenthub-line-role {
   font-size: 11px;
-  color: #a1a1aa;
+  color: var(--muted-foreground);
   text-transform: uppercase;
 }
 
@@ -567,7 +567,7 @@
 }
 
 .agenthub-empty {
-  color: #a1a1aa;
+  color: var(--muted-foreground);
 }
 
 .agenthub-sandbox-error {
@@ -576,9 +576,9 @@
   gap: 10px;
   align-items: center;
   padding: 10px 12px;
-  border: 1px solid #f59e0b;
+  border: 1px solid var(--status-permission);
   border-radius: 8px;
-  background: #422006;
+  background: var(--status-permission-soft);
 }
 
 .agenthub-sandbox-error p {
@@ -602,8 +602,8 @@
   overflow: auto;
   padding: 16px;
   border-radius: 10px;
-  border: 1px solid #3f4650;
-  background: #14171b;
+  border: 1px solid var(--border);
+  background: var(--card);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -615,7 +615,7 @@
   overflow: auto;
   padding: 8px;
   border-radius: 6px;
-  background: #0d0f12;
+  background: var(--background);
   font-size: 12px;
 }
 

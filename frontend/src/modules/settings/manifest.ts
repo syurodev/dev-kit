@@ -8,7 +8,7 @@ export const settingsModule: ModuleManifest = {
   version: "1.0.0",
   apiVersion: "1",
   icon: Settings,
-  capabilities: ["env:read", "env:write"],
+  capabilities: ["env:read", "env:write", "preferences:read", "preferences:write"],
   commands: [],
   views: [
     {

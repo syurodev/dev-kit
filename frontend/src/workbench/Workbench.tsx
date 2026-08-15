@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
+import { Events, Window } from "@wailsio/runtime";
 import { Search, Settings as SettingsIcon } from "lucide-react";
 import { listModules, type ModuleDTO } from "../bridge/commands";
 import { Dock } from "./dock/Dock";
@@ -11,6 +12,7 @@ import {
   getModule,
   listRegisteredModules,
   registerModule,
+  type ModuleManifest,
 } from "../modules/registry";
 import { toolsModule } from "../modules/tools/manifest";
 import { notesModule } from "../modules/notes/manifest";
@@ -26,7 +28,7 @@ import { Kbd } from "@/components/ui/kbd";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { SplitPanelProvider, SplitPanelSlot } from "@/components/ui/split-panel";
 import { useModuleActionsStore } from "../stores/moduleActions";
-import { useWorkbenchTabsStore } from "../stores/workbenchTabs";
+import { useWorkbenchTabsStore, type WorkbenchTab } from "../stores/workbenchTabs";
 import { TabStrip } from "./tabs/TabStrip";
 import { cn } from "@/lib/utils";
 
@@ -45,12 +47,80 @@ registerModule(agenthubModule);
 registerModule(syncModule);
 registerModule(settingsModule);
 
+type WorkbenchViewsProps = {
+  availableModules: ModuleManifest[];
+  hasMetadataWarning: boolean;
+  openTabs: WorkbenchTab[];
+  activeTabId: string;
+};
+
+/**
+ * Heavy module trees are deliberately isolated from tab-strip ordering.
+ * Tab dragging changes only TabStrip-local state and commits to the store once
+ * on drop, so this subtree stays completely outside the high-frequency path.
+ * The explicit props keep tab activation atomic: preview replacement and its
+ * active id are rendered from the same Zustand snapshot.
+ */
+const WorkbenchViews = memo(function WorkbenchViews({
+  availableModules,
+  hasMetadataWarning,
+  openTabs,
+  activeTabId,
+}: WorkbenchViewsProps) {
+  const activeTab = openTabs.find((tab) => tab.id === activeTabId);
+  const activeModule =
+    availableModules.find((module) => module.id === activeTab?.moduleId) ??
+    availableModules[0];
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card">
+      {hasMetadataWarning ? (
+        <Alert variant="destructive" className="m-4 mb-0 w-auto">
+          <AlertDescription>Module metadata is unavailable or out of sync.</AlertDescription>
+        </Alert>
+      ) : null}
+      <section
+        className={cn(
+          "flex min-h-0 flex-1 flex-col",
+          activeModule?.id === "notes" ? "overflow-hidden p-0" : "overflow-auto p-4",
+        )}
+      >
+        {openTabs.length === 0 ? (
+          <p role="status" className="text-sm text-muted-foreground">
+            {availableModules.length === 0
+              ? "No modules are currently available."
+              : "No view is currently available."}
+          </p>
+        ) : (
+          openTabs.map((tab) => {
+            const module = getModule(tab.moduleId);
+            const view = module?.views.find((candidate) => candidate.id === tab.viewId);
+            if (!view) {
+              return null;
+            }
+            const TabView = view.component;
+            // Keep inactive tabs mounted so running work and drafts survive
+            // switching, while `contents` preserves the active view's flex
+            // participation without an extra layout wrapper.
+            return (
+              <div key={tab.id} className={tab.id === activeTabId ? "contents" : "hidden"}>
+                <TabView params={tab.params} />
+              </div>
+            );
+          })
+        )}
+      </section>
+    </div>
+  );
+});
+
 export function Workbench() {
   const modules = useMemo(() => listRegisteredModules(), []);
   const [backendModules, setBackendModules] = useState<ModuleDTO[] | null>(null);
   const [metadataError, setMetadataError] = useState(false);
   const [metadataLoading, setMetadataLoading] = useState(true);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const moduleActions = useModuleActionsStore((s) => s.actions);
   const openTabs = useWorkbenchTabsStore((state) => state.openTabs);
   const activeTabId = useWorkbenchTabsStore((state) => state.activeTabId);
@@ -80,6 +150,50 @@ export function Workbench() {
 
     return () => {
       mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    let receivedFullscreenEvent = false;
+
+    const updateFullscreen = (fullscreen: boolean) => {
+      receivedFullscreenEvent = true;
+      setIsFullscreen(fullscreen);
+    };
+
+    // The macOS "will" events start the web transition alongside the native
+    // fullscreen animation. Common events remain as the cross-platform
+    // fallback and are harmless when macOS emits them again on completion.
+    const offWillFullscreen = Events.On(Events.Types.Mac.WindowWillEnterFullScreen, () => {
+      updateFullscreen(true);
+    });
+    const offWillUnFullscreen = Events.On(Events.Types.Mac.WindowWillExitFullScreen, () => {
+      updateFullscreen(false);
+    });
+    const offFullscreen = Events.On(Events.Types.Common.WindowFullscreen, () => {
+      updateFullscreen(true);
+    });
+    const offUnFullscreen = Events.On(Events.Types.Common.WindowUnFullscreen, () => {
+      updateFullscreen(false);
+    });
+
+    void Window.IsFullscreen()
+      .then((fullscreen) => {
+        if (mounted && !receivedFullscreenEvent) {
+          setIsFullscreen(fullscreen);
+        }
+      })
+      .catch(() => {
+        // Browser-only development has no native window to query.
+      });
+
+    return () => {
+      mounted = false;
+      offWillFullscreen();
+      offWillUnFullscreen();
+      offFullscreen();
+      offUnFullscreen();
     };
   }, []);
 
@@ -149,18 +263,28 @@ export function Workbench() {
           Only the content card below (bg-card) stays opaque. */}
       <div className="relative flex h-svh w-full flex-col overflow-hidden bg-transparent">
         <AgentSessionsSubscriber />
-        {/* main.go sets Mac.InvisibleTitleBarHeight: 50 — a draggable strip at
-            the window top where the native traffic-light buttons sit. Rather
-            than reserving that as empty canvas above a bordered card (wasted
-            space), the header lives directly in this strip, on the canvas,
-            padded left to clear the traffic lights — matching how native
-            macOS toolbars combine both in one row. macOS-specific sizing for
-            now (Windows/Linux titlebar chrome is a separate, deferred pass). */}
-        {/* Header root defaults to draggable so empty space still moves the
-            window (Wails needs this set explicitly — there is no built-in
-            drag region under web content in hiddenInset mode). TabStrip and
-            every button below override back to no-drag on themselves. */}
-        <header className="flex h-[50px] shrink-0 items-center gap-2 pl-24 pr-4 [--wails-draggable:drag]">
+        {/* The header shares the compact 30px row with AppKit's traffic lights.
+            main.go intentionally leaves InvisibleTitleBarHeight at zero because
+            Wails implements it as an unconditional native drag hit-zone. The
+            explicit CSS handle below is the only draggable web region. */}
+        {/* Keep the interactive titlebar no-drag by default. Wails listens for
+            mousedown at window capture phase, before React/Motion can claim a
+            tab gesture, so a draggable ancestor is too broad a fallback here.
+            Only the empty traffic-light clearance is an explicit native window
+            drag handle; tabs and controls can own their gestures reliably. */}
+        <header
+          className={cn(
+            "relative flex h-[30px] shrink-0 items-center gap-2 pt-0.5 pr-4 transition-[padding-left] duration-300 ease-out motion-reduce:transition-none [--wails-draggable:no-drag]",
+            isFullscreen ? "pl-1" : "pl-20",
+          )}
+        >
+          <div
+            aria-hidden="true"
+            className={cn(
+              "absolute inset-y-0 left-0 transition-[width] duration-300 ease-out motion-reduce:transition-none [--wails-draggable:drag]",
+              isFullscreen ? "w-1" : "w-20",
+            )}
+          />
           <TabStrip
             tabs={openTabs}
             activeTabId={activeTabId}
@@ -173,7 +297,7 @@ export function Workbench() {
               <TooltipTrigger asChild>
                 <Button
                   variant="ghost"
-                  size="icon-sm"
+                  size="icon-xs"
                   aria-label={action.label}
                   aria-pressed={action.isActive}
                   className={cn(
@@ -182,7 +306,7 @@ export function Workbench() {
                   )}
                   onClick={action.onClick}
                 >
-                  <action.icon className="size-4" />
+                  <action.icon className="size-3.5" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="bottom">{action.label}</TooltipContent>
@@ -200,12 +324,12 @@ export function Workbench() {
             <TooltipTrigger asChild>
               <Button
                 variant="ghost"
-                size="icon-sm"
+                size="icon-xs"
                 aria-label="Commands"
                 className="shrink-0 [--wails-draggable:no-drag]"
                 onClick={() => setPaletteOpen(true)}
               >
-                <Search className="size-4" />
+                <Search className="size-3.5" />
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom">
@@ -216,12 +340,12 @@ export function Workbench() {
             <TooltipTrigger asChild>
               <Button
                 variant="ghost"
-                size="icon-sm"
+                size="icon-xs"
                 aria-label="Settings"
                 className="shrink-0 [--wails-draggable:no-drag]"
                 onClick={() => focusModule("settings")}
               >
-                <SettingsIcon className="size-4" />
+                <SettingsIcon className="size-3.5" />
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom">
@@ -234,50 +358,12 @@ export function Workbench() {
             transparent/vibrancy background as the mx-1/mb-1 margins around
             this whole row — not one shared card with an internal divider. */}
         <div className="mx-1 mb-1 flex min-h-0 flex-1">
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card">
-            {hasMetadataWarning ? (
-              <Alert variant="destructive" className="m-4 mb-0 w-auto">
-                <AlertDescription>
-                  Module metadata is unavailable or out of sync.
-                </AlertDescription>
-              </Alert>
-            ) : null}
-            <section
-              className={cn(
-                "flex min-h-0 flex-1 flex-col",
-                activeModule?.id === "notes"
-                  ? "overflow-hidden p-0"
-                  : "overflow-auto p-4",
-              )}
-            >
-              {openTabs.length === 0 ? (
-                <p role="status" className="text-sm text-muted-foreground">
-                  {availableModules.length === 0
-                    ? "No modules are currently available."
-                    : "No view is currently available."}
-                </p>
-              ) : (
-                openTabs.map((tab) => {
-                  const module = getModule(tab.moduleId);
-                  const view = module?.views.find((candidate) => candidate.id === tab.viewId);
-                  if (!view) {
-                    return null;
-                  }
-                  const TabView = view.component;
-                  // `contents` (not a fragment) keeps the active view's own
-                  // flex/overflow classes participating directly in this
-                  // section's layout, exactly as the single <ActiveView/> did
-                  // before. Inactive tabs stay mounted so in-progress state
-                  // (a running query, an unsaved draft) survives switching away.
-                  return (
-                    <div key={tab.id} className={tab.id === activeTabId ? "contents" : "hidden"}>
-                      <TabView params={tab.params} />
-                    </div>
-                  );
-                })
-              )}
-            </section>
-          </div>
+          <WorkbenchViews
+            availableModules={availableModules}
+            hasMetadataWarning={hasMetadataWarning}
+            openTabs={openTabs}
+            activeTabId={activeTabId}
+          />
           <SplitPanelSlot />
         </div>
         <Dock

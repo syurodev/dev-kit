@@ -56,7 +56,7 @@ export function DockItem({ item }: { item: DockEntry }) {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 6, scale: 0.96 }}
               transition={{ duration: 0.12 }}
-              className="absolute bottom-full left-1/2 z-10 mb-3 -translate-x-1/2 overflow-hidden rounded-2xl border border-white/10 bg-popover"
+              className="absolute bottom-full left-1/2 z-10 mb-3 -translate-x-1/2 overflow-hidden rounded-2xl border border-foreground/10 bg-popover"
             >
               {item.panel()}
             </m.div>

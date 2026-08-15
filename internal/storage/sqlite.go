@@ -29,6 +29,7 @@ const (
 	TableEnvTags            = "env_tags"
 	TableAgentSessions      = "agent_sessions"
 	TableAgentTurns         = "agent_turns"
+	TableAppPreferences     = "app_preferences"
 )
 
 var chmodFile = os.Chmod
@@ -483,7 +484,21 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		},
 	}
 
-	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13})
+	m14 := Migration{
+		Version: 14,
+		Name:    "create app preferences",
+		Up: func(ctx context.Context) error {
+			_, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE TABLE IF NOT EXISTS %s (
+					key TEXT PRIMARY KEY,
+					value TEXT NOT NULL
+				)`, TableAppPreferences,
+			))
+			return err
+		},
+	}
+
+	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14})
 	if err != nil {
 		return err
 	}

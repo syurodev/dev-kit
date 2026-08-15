@@ -35,7 +35,7 @@ func TestAppServiceListsModules(t *testing.T) {
 		"ssh":      {"ssh:connect", "ssh:forward"},
 		"kafka":    {"kafka:connect", "kafka:produce"},
 		"sync":     {"sync:manage"},
-		"settings": {"env:read", "env:write"},
+		"settings": {"env:read", "env:write", "preferences:read", "preferences:write"},
 		"agenthub": {"agenthub:read", "agenthub:execute"},
 	}
 	found := map[string]bool{}

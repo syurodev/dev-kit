@@ -12,6 +12,7 @@ import (
 	"devkit/internal/interaction"
 	"devkit/internal/kafka"
 	"devkit/internal/mcp/install"
+	"devkit/internal/preferences"
 	"devkit/internal/syncclient"
 	"devkit/internal/vault"
 )
@@ -87,6 +88,9 @@ func publicError(subject string, err error) *apperrors.AppError {
 	}
 	if errors.Is(err, environments.ErrTagLocked) {
 		return apperrors.New(codeValidationFailed, "environment tag is locked", true)
+	}
+	if errors.Is(err, preferences.ErrInvalidTheme) {
+		return apperrors.New(codeValidationFailed, preferences.ErrInvalidTheme.Error(), true)
 	}
 	// Authorization failures are classified before subject-specific adapters so
 	// adding a new module cannot accidentally hide a denied capability as a
