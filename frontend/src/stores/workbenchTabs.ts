@@ -42,9 +42,18 @@ export function tabKey(
   return `${moduleId}:${viewId}:${suffix}`;
 }
 
+/** Moves `id` to the front of an MRU list, deduping any earlier entry. */
+function pushMru(mru: string[], id: string): string[] {
+  return [id, ...mru.filter((existing) => existing !== id)];
+}
+
 type WorkbenchTabsState = {
   openTabs: WorkbenchTab[];
   activeTabId: string;
+  /** Most-recently-active tab ids, index 0 = most recent. Drives the
+   * keyboard quick-switcher's ordering — independent of openTabs' own
+   * (drag-reorderable, module-clustered) display order. */
+  tabMru: string[];
   openTab: (input: OpenTabInput) => string;
   closeTab: (id: string) => void;
   setActiveTab: (id: string) => void;
@@ -56,6 +65,7 @@ type WorkbenchTabsState = {
 export const useWorkbenchTabsStore = create<WorkbenchTabsState>((set, get) => ({
   openTabs: [],
   activeTabId: "",
+  tabMru: [],
 
   openTab: (input) => {
     const id = tabKey(input.moduleId, input.viewId, input.params);
@@ -70,10 +80,10 @@ export const useWorkbenchTabsStore = create<WorkbenchTabsState>((set, get) => ({
         // promotes it in place — same slot, no reorder.
         const openTabs = state.openTabs.slice();
         openTabs[existingIndex] = { ...existing, preview: false };
-        set({ openTabs, activeTabId: id });
+        set({ openTabs, activeTabId: id, tabMru: pushMru(state.tabMru, id) });
         return id;
       }
-      set({ activeTabId: id });
+      set({ activeTabId: id, tabMru: pushMru(state.tabMru, id) });
       return id;
     }
 
@@ -94,12 +104,16 @@ export const useWorkbenchTabsStore = create<WorkbenchTabsState>((set, get) => ({
         // so the strip doesn't jump when browsing via single-click.
         const openTabs = state.openTabs.slice();
         openTabs[previewIndex] = tab;
-        set({ openTabs, activeTabId: id });
+        set({ openTabs, activeTabId: id, tabMru: pushMru(state.tabMru, id) });
         return id;
       }
     }
 
-    set((s) => ({ openTabs: [...s.openTabs, tab], activeTabId: id }));
+    set((s) => ({
+      openTabs: [...s.openTabs, tab],
+      activeTabId: id,
+      tabMru: pushMru(s.tabMru, id),
+    }));
     return id;
   },
 
@@ -110,17 +124,19 @@ export const useWorkbenchTabsStore = create<WorkbenchTabsState>((set, get) => ({
         return state;
       }
       const openTabs = state.openTabs.filter((tab) => tab.id !== id);
+      const tabMru = state.tabMru.filter((existing) => existing !== id);
       if (state.activeTabId !== id) {
-        return { openTabs };
+        return { openTabs, tabMru };
       }
       // Closing the active tab focuses its former left neighbor, matching
       // VS Code — falling back to the new first tab if we closed index 0.
       const fallback = openTabs[index - 1] ?? openTabs[0];
-      return { openTabs, activeTabId: fallback?.id ?? "" };
+      return { openTabs, tabMru, activeTabId: fallback?.id ?? "" };
     });
   },
 
-  setActiveTab: (id) => set({ activeTabId: id }),
+  setActiveTab: (id) =>
+    set((state) => ({ activeTabId: id, tabMru: pushMru(state.tabMru, id) })),
 
   setTabStatus: (id, status) =>
     set((state) => ({
