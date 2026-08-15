@@ -528,8 +528,15 @@ export function TabStrip({
         ref={scrollRef}
         // The pill-shaped viewport holding every tab, replacing each tab's
         // own border/background from before — one capsule around the whole
-        // strip instead of one around each tab.
-        className="scrollbar-hide flex w-full items-center gap-1 overflow-x-auto rounded-full border border-primary/20 px-1"
+        // strip instead of one around each tab. Only drawn when there's at
+        // least one visible tab to hold — otherwise (e.g. Dock-browsing a
+        // module whose home view has no strip entry, see
+        // isHiddenHomePreview) it rendered as an empty capsule with nothing
+        // inside it.
+        className={cn(
+          "scrollbar-hide flex w-full items-center gap-1 overflow-x-auto",
+          visualOrder.length > 0 && "rounded-full border border-primary/20 px-1",
+        )}
       >
         <AnimatePresence initial={false}>
           {groups.map((group) => (
