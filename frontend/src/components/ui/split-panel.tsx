@@ -52,10 +52,11 @@ export function useSplitPanel(): SplitPanelContextValue {
 
 const MIN_PANEL_WIDTH = 320;
 const MAX_PANEL_WIDTH = 720;
-// Matches the mx-2/mb-2 (8px) transparent margins around the whole content
-// row — the gutter between the two cards is styled the same, not a bespoke
-// gap width, so it reads as "the same transparent frame", not a new one.
-const GAP_WIDTH = 8;
+// Matches the mx-1.5/mb-1.5 (6px) transparent margins around the whole
+// content row — the gutter between the two cards is styled the same, not a
+// bespoke gap width, so it reads as "the same transparent frame", not a new
+// one.
+const GAP_WIDTH = 6;
 
 /**
  * Renders as a flex sibling of the active module's content (see

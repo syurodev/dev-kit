@@ -229,9 +229,10 @@ export function Workbench() {
         </header>
         {/* Transparent row: the main content card and the split panel are two
             independent bg-card boxes, separated by a gap that shows the same
-            transparent/vibrancy background as the mx-2/mb-2 margins around
-            this whole row — not one shared card with an internal divider. */}
-        <div className="mx-2 mb-2 flex min-h-0 flex-1">
+            transparent/vibrancy background as the mx-1.5/mb-1.5 margins
+            around this whole row — not one shared card with an internal
+            divider. */}
+        <div className="mx-1.5 mb-1.5 flex min-h-0 flex-1">
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card">
             {hasMetadataWarning ? (
               <Alert variant="destructive" className="m-4 mb-0 w-auto">
