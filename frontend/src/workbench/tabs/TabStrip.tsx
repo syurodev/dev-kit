@@ -28,10 +28,18 @@ type TabStripProps = {
 
 /**
  * Lives inside the 50px native-titlebar strip (Mac.InvisibleTitleBarHeight
- * in main.go). The container defaults to `--wails-draggable: drag` so the
- * empty space after the last tab still moves the window like the rest of
- * the header; every clickable element inside overrides it back to no-drag,
- * same pattern Wails' own frameless-window docs use.
+ * in main.go). The container is `--wails-draggable: no-drag` — not `drag`
+ * like the rest of the header — because Wails' own drag detection
+ * (`@wailsio/runtime/dist/drag.js`) resolves drag-eligibility from
+ * `getComputedStyle` on the exact `mousedown` target: with `drag` on this
+ * container, the `gap-1` slivers between tabs (and any trailing space
+ * after the last one) belonged to it, not to a tab button, so a grab that
+ * landed even slightly off a tab handed the whole gesture to a native
+ * OS window-move instead of our own pointer-based reorder — which then
+ * never sees another event, since the OS owns the drag from that point.
+ * The window is still draggable from the `pl-24` header padding before
+ * this strip and the header's own default `drag`, just not from inside
+ * the tab row itself.
  *
  * `layout` on each tab (needs the heavier `domMax` bundle, not the
  * `domAnimation` one Dock.tsx uses — layout animation isn't in that
@@ -112,7 +120,7 @@ export function TabStrip({ tabs, activeTabId, onSelect, onClose, onReorder }: Ta
 
   return (
     <LazyMotion features={domMax}>
-      <div className="scrollbar-hide flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [--wails-draggable:drag]">
+      <div className="scrollbar-hide flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [--wails-draggable:no-drag]">
         <AnimatePresence initial={false}>
           {tabs.map((tab) => (
             <m.button
