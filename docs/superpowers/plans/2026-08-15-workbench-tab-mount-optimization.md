@@ -26,7 +26,7 @@ No files created. No other files touched.
 **Files:**
 - Modify: `frontend/src/workbench/Workbench.tsx`
 
-- [ ] **Step 1: Add `useRef` to the React import**
+- [x] **Step 1: Add `useRef` to the React import**
 
 Find:
 
@@ -40,7 +40,7 @@ Replace:
 import { memo, Suspense, useEffect, useMemo, useRef, useState } from "react";
 ```
 
-- [ ] **Step 2: Add the grace-period and cap constants next to `HEADER_ONLY_MODULE_IDS`**
+- [x] **Step 2: Add the grace-period and cap constants next to `HEADER_ONLY_MODULE_IDS`**
 
 Find:
 
@@ -60,7 +60,7 @@ const MODULE_GRACE_MS = 2 * 60 * 1000;
 const MAX_MOUNTED_MODULES = 3;
 ```
 
-- [ ] **Step 3: Add the `useMountedModuleIds` hook, between the props type and the `WorkbenchViews` doc comment**
+- [x] **Step 3: Add the `useMountedModuleIds` hook, between the props type and the `WorkbenchViews` doc comment**
 
 Find:
 
@@ -156,7 +156,7 @@ function useMountedModuleIds(
  * Heavy module trees are deliberately isolated from tab-strip ordering.
 ```
 
-- [ ] **Step 4: Compute the mounted-module set inside `WorkbenchViews`**
+- [x] **Step 4: Compute the mounted-module set inside `WorkbenchViews`**
 
 Find:
 
@@ -188,7 +188,7 @@ Replace:
   return (
 ```
 
-- [ ] **Step 5: Skip rendering tabs whose module isn't mounted**
+- [x] **Step 5: Skip rendering tabs whose module isn't mounted**
 
 Find:
 
@@ -232,7 +232,7 @@ Replace:
             return (
 ```
 
-- [ ] **Step 6: Typecheck**
+- [x] **Step 6: Typecheck**
 
 Run: `cd frontend && bun run build`
 Expected: succeeds with no TypeScript errors. This is the step that proves
@@ -241,7 +241,7 @@ has `noUnusedLocals: true`, so a defined-but-uncalled top-level function
 would fail this build) and that `mountedModuleIds`/`recentModuleIds` type
 correctly against `Set<string>`/`ReadonlySet<string>`.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add frontend/src/workbench/Workbench.tsx

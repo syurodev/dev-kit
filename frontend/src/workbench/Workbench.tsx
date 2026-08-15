@@ -147,10 +147,18 @@ const WorkbenchViews = memo(function WorkbenchViews({
     activeTab?.moduleId ?? "",
     HEADER_ONLY_MODULE_IDS,
   );
-  const mountedModuleIds = useMemo(
-    () => new Set([...HEADER_ONLY_MODULE_IDS, ...recentModuleIds]),
-    [recentModuleIds],
-  );
+  // The active module is unioned in directly (not only through
+  // recentModuleIds) because useMountedModuleIds only learns about it via
+  // an effect, which runs one render after activeTab already changed —
+  // without this, the just-activated tab would render null for that one
+  // frame. React Compiler memoizes this automatically; no manual useMemo
+  // needed (and the previous one didn't work anyway — recentModuleIds is a
+  // new Set identity every render, so its dependency never matched).
+  const mountedModuleIds = new Set([
+    ...HEADER_ONLY_MODULE_IDS,
+    ...(activeTab ? [activeTab.moduleId] : []),
+    ...recentModuleIds,
+  ]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card">
