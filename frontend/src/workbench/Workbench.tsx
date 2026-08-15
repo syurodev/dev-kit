@@ -147,7 +147,7 @@ export function Workbench() {
       {/* Transparent, not bg-background: this outer frame is what the native
           macOS vibrancy blur (Mac.Backdrop in main.go) needs to show through.
           Only the content card below (bg-card) stays opaque. */}
-      <div className="relative flex min-h-svh w-full flex-col bg-transparent">
+      <div className="relative flex h-svh w-full flex-col overflow-hidden bg-transparent">
         <AgentSessionsSubscriber />
         {/* main.go sets Mac.InvisibleTitleBarHeight: 50 — a draggable strip at
             the window top where the native traffic-light buttons sit. Rather
@@ -244,8 +244,10 @@ export function Workbench() {
             ) : null}
             <section
               className={cn(
-                "flex min-h-0 flex-1 flex-col overflow-auto",
-                activeModule?.id === "notes" ? "p-0" : "p-4",
+                "flex min-h-0 flex-1 flex-col",
+                activeModule?.id === "notes"
+                  ? "overflow-hidden p-0"
+                  : "overflow-auto p-4",
               )}
             >
               {openTabs.length === 0 ? (

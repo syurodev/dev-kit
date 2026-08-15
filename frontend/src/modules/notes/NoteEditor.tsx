@@ -500,8 +500,8 @@ export function NoteEditor({ params }: NoteEditorProps) {
   }
 
   return (
-    <div className="notes-font-scope flex h-full flex-1 flex-col">
-      <div className="flex items-center gap-2 border-b border-border px-4 py-2">
+    <div className="notes-font-scope flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2">
         <Button
           type="button"
           size="icon-sm"
@@ -539,13 +539,13 @@ export function NoteEditor({ params }: NoteEditorProps) {
       {saveError ? (
         <p
           role="alert"
-          className="border-b border-border px-4 py-1 text-xs text-destructive"
+          className="shrink-0 border-b border-border px-4 py-1 text-xs text-destructive"
         >
           {saveError}
         </p>
       ) : null}
       <Plate editor={editor} onChange={() => scheduleSave(title)}>
-        <EditorContainer className="flex-1 overflow-auto">
+        <EditorContainer className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto w-full max-w-[720px] px-6 pt-10 pb-24">
             <Input
               aria-label="note-title"
