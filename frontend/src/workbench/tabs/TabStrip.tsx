@@ -67,10 +67,11 @@ export function TabStrip({ tabs, activeTabId, onSelect, onClose }: TabStripProps
               )}
             >
               {(() => {
-                // Same self-registered icon the module's Dock entry uses
-                // (modules/registry.ts ModuleManifest.icon) — one source of
-                // truth, no separate tab-strip-only icon map to drift.
-                const ModuleIcon = getModule(tab.moduleId)?.icon ?? Wrench;
+                // A tab-level `icon` (set by whoever called openTab) wins
+                // over the module's self-registered default
+                // (modules/registry.ts ModuleManifest.icon) — no separate
+                // tab-strip-only icon map to drift either way.
+                const ModuleIcon = tab.icon ?? getModule(tab.moduleId)?.icon ?? Wrench;
                 return <ModuleIcon className="size-3.5 shrink-0 opacity-70" />;
               })()}
               {tab.status && tab.status !== "idle" ? (
@@ -81,7 +82,9 @@ export function TabStrip({ tabs, activeTabId, onSelect, onClose }: TabStripProps
                   )}
                 />
               ) : null}
-              <span className="ml-1.5 max-w-40 truncate">{tab.title}</span>
+              <span className={cn("ml-1.5 max-w-40 truncate", tab.preview && "italic")}>
+                {tab.title}
+              </span>
               <span
                 role="button"
                 tabIndex={0}
