@@ -59,9 +59,32 @@ type TabStripProps = {
  * who owns the element's transform, which a manual approach would have
  * had to solve itself. `onDrag` still runs the same midpoint-crossing
  * scan as before to call `onReorder` live as the drag crosses a neighbor.
+ *
+ * Neighbor midpoints are measured once in `onDragStart`, not on every
+ * `onDrag` frame — `getBoundingClientRect()` forces a synchronous layout
+ * read, and calling it for every other tab on every frame, right while
+ * `layout`/`drag` are mid-transform-update, was visibly janky whenever a
+ * drag actually crossed a neighbor (each crossing already costs a real
+ * `layout` re-animation of every sibling; stacking N forced reflows on
+ * top of that every frame in between made it worse). Tab widths don't
+ * change mid-drag, only their order does, so a snapshot taken once stays
+ * accurate enough for crossing detection through the whole gesture.
  */
 export function TabStrip({ tabs, activeTabId, onSelect, onClose, onReorder }: TabStripProps) {
   const tabRefs = useRef(new Map<string, HTMLButtonElement>());
+  const dragStartMidpoints = useRef(new Map<string, number>());
+
+  function handleDragStart() {
+    const midpoints = new Map<string, number>();
+    for (const tab of tabs) {
+      const el = tabRefs.current.get(tab.id);
+      if (el) {
+        const rect = el.getBoundingClientRect();
+        midpoints.set(tab.id, rect.left + rect.width / 2);
+      }
+    }
+    dragStartMidpoints.current = midpoints;
+  }
 
   function handleDrag(draggedId: string, info: PanInfo) {
     const draggedIndex = tabs.findIndex((tab) => tab.id === draggedId);
@@ -73,12 +96,10 @@ export function TabStrip({ tabs, activeTabId, onSelect, onClose, onReorder }: Ta
       if (i === draggedIndex) {
         continue;
       }
-      const el = tabRefs.current.get(tabs[i].id);
-      if (!el) {
+      const mid = dragStartMidpoints.current.get(tabs[i].id);
+      if (mid === undefined) {
         continue;
       }
-      const rect = el.getBoundingClientRect();
-      const mid = rect.left + rect.width / 2;
       if (i > draggedIndex && info.point.x > mid) {
         // Rightward: keep scanning for the farthest match, don't stop at
         // the nearest neighbor — a fast drag can jump past several tabs
@@ -127,6 +148,7 @@ export function TabStrip({ tabs, activeTabId, onSelect, onClose, onReorder }: Ta
               // never returned to a real flex slot.
               dragSnapToOrigin
               whileDrag={{ scale: 1.05, zIndex: 10 }}
+              onDragStart={handleDragStart}
               onDrag={(_event, info) => handleDrag(tab.id, info)}
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
