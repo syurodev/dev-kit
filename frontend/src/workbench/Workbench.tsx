@@ -1,4 +1,4 @@
-import { memo, Suspense, useEffect, useMemo, useState } from "react";
+import { memo, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Events, Window } from "@wailsio/runtime";
 import { Search, Settings as SettingsIcon } from "lucide-react";
 import { listModules, type ModuleDTO } from "../bridge/commands";
@@ -38,6 +38,12 @@ import { cn } from "@/lib/utils";
 // dock icon anymore.
 const HEADER_ONLY_MODULE_IDS = new Set(["settings", "sync"]);
 
+// Bounds how many modules' tab content stays mounted in WorkbenchViews:
+// the active module plus up to MAX_MOUNTED_MODULES - 1 more that were
+// active within the last MODULE_GRACE_MS. See useMountedModuleIds below.
+const MODULE_GRACE_MS = 2 * 60 * 1000;
+const MAX_MOUNTED_MODULES = 3;
+
 registerModule(toolsModule);
 registerModule(notesModule);
 registerModule(databaseModule);
@@ -53,6 +59,72 @@ type WorkbenchViewsProps = {
   openTabs: WorkbenchTab[];
   activeTabId: string;
 };
+
+/**
+ * MRU-tracked set of non-exempt module ids allowed to stay mounted: the
+ * active module always qualifies; up to MAX_MOUNTED_MODULES - 1 more
+ * recently-active modules stay mounted for MODULE_GRACE_MS after being
+ * left. Exempt ids (HEADER_ONLY_MODULE_IDS) are never added here — the
+ * caller unions them in separately and they're always mounted regardless
+ * of this hook's output.
+ */
+function useMountedModuleIds(
+  activeModuleId: string,
+  exemptIds: ReadonlySet<string>,
+): Set<string> {
+  const [recent, setRecent] = useState<string[]>([]);
+  const prevActive = useRef("");
+  const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+
+  useEffect(() => {
+    if (!activeModuleId) {
+      return;
+    }
+    const leaving = prevActive.current;
+    prevActive.current = activeModuleId;
+
+    if (leaving && leaving !== activeModuleId && !exemptIds.has(leaving)) {
+      const timer = setTimeout(() => {
+        timers.current.delete(leaving);
+        setRecent((prev) => prev.filter((id) => id !== leaving));
+      }, MODULE_GRACE_MS);
+      timers.current.set(leaving, timer);
+    }
+
+    if (exemptIds.has(activeModuleId)) {
+      return;
+    }
+
+    const ownTimer = timers.current.get(activeModuleId);
+    if (ownTimer) {
+      clearTimeout(ownTimer);
+      timers.current.delete(activeModuleId);
+    }
+
+    setRecent((prev) => {
+      const next = [activeModuleId, ...prev.filter((id) => id !== activeModuleId)];
+      for (const evictedId of next.slice(MAX_MOUNTED_MODULES)) {
+        const evictedTimer = timers.current.get(evictedId);
+        if (evictedTimer) {
+          clearTimeout(evictedTimer);
+          timers.current.delete(evictedId);
+        }
+      }
+      return next.slice(0, MAX_MOUNTED_MODULES);
+    });
+  }, [activeModuleId, exemptIds]);
+
+  useEffect(() => {
+    const timerMap = timers.current;
+    return () => {
+      for (const timer of timerMap.values()) {
+        clearTimeout(timer);
+      }
+    };
+  }, []);
+
+  return new Set(recent);
+}
 
 /**
  * Heavy module trees are deliberately isolated from tab-strip ordering.
@@ -71,6 +143,14 @@ const WorkbenchViews = memo(function WorkbenchViews({
   const activeModule =
     availableModules.find((module) => module.id === activeTab?.moduleId) ??
     availableModules[0];
+  const recentModuleIds = useMountedModuleIds(
+    activeTab?.moduleId ?? "",
+    HEADER_ONLY_MODULE_IDS,
+  );
+  const mountedModuleIds = useMemo(
+    () => new Set([...HEADER_ONLY_MODULE_IDS, ...recentModuleIds]),
+    [recentModuleIds],
+  );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card">
@@ -93,14 +173,24 @@ const WorkbenchViews = memo(function WorkbenchViews({
           </p>
         ) : (
           openTabs.map((tab) => {
+            // Tabs outside the active module's grace/cap window aren't
+            // mounted at all — see useMountedModuleIds above. Their tab
+            // stays in openTabs (visible, clickable) and remounts fresh
+            // when reactivated; background work belonging to that module
+            // (e.g. Agent Hub sessions) lives outside this render tree and
+            // is unaffected either way.
+            if (!mountedModuleIds.has(tab.moduleId)) {
+              return null;
+            }
             const module = getModule(tab.moduleId);
             const view = module?.views.find((candidate) => candidate.id === tab.viewId);
             if (!view) {
               return null;
             }
             const TabView = view.component;
-            // Keep inactive tabs mounted so running work and drafts survive
-            // switching, while `contents` preserves the active view's flex
+            // Keep same-module inactive tabs mounted so in-progress edits
+            // and scroll position survive switching between tabs of one
+            // module, while `contents` preserves the active view's flex
             // participation without an extra layout wrapper.
             return (
               <div key={tab.id} className={tab.id === activeTabId ? "contents" : "hidden"}>
