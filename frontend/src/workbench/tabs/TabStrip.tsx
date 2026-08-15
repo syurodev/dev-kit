@@ -46,6 +46,20 @@ type TabGroup = {
  * module is currently active) and each group's own tabs in their existing
  * relative order.
  */
+/**
+ * A module's home view opened as the shared preview tab (Dock click, no
+ * specific item picked yet — see Workbench.tsx's focusModule) never gets a
+ * strip entry: it isn't a distinct piece of content to track, just "you're
+ * looking at this module." Rendering it anyway meant every Dock click tore
+ * down one module's whole tab group and mounted a new one, which is what
+ * actually read as jerky — not just the individual tab's own transition.
+ * Picking a specific item (e.g. a note) opens a different viewId in the
+ * same preview slot and becomes visible normally.
+ */
+function isHiddenHomePreview(tab: WorkbenchTab): boolean {
+  return Boolean(tab.preview && getModule(tab.moduleId)?.views[0]?.id === tab.viewId);
+}
+
 function groupTabs(tabs: WorkbenchTab[]): TabGroup[] {
   const groups: TabGroup[] = [];
   const byModule = new Map<string, TabGroup>();
@@ -373,6 +387,7 @@ export function TabStrip({
   // while already browsing, fighting the user's own arrow-key moves).
   const activeTabIdRef = useRef(activeTabId);
   activeTabIdRef.current = activeTabId;
+  const visibleTabs = tabs.filter((tab) => !isHiddenHomePreview(tab));
 
   useEffect(() => {
     if (keyboardBrowsing) {
@@ -403,7 +418,7 @@ export function TabStrip({
         return;
       }
       event.preventDefault();
-      const order = groupTabs(tabs).flatMap((group) => group.tabs);
+      const order = groupTabs(visibleTabs).flatMap((group) => group.tabs);
       const currentIndex = order.findIndex((tab) => tab.id === keyboardFocusedTabId);
       if (currentIndex === -1) {
         return;
@@ -415,7 +430,7 @@ export function TabStrip({
 
     window.addEventListener("keydown", handleBrowseKeyDown);
     return () => window.removeEventListener("keydown", handleBrowseKeyDown);
-  }, [keyboardBrowsing, tabs, keyboardFocusedTabId, onSelect, onExitBrowsing]);
+  }, [keyboardBrowsing, visibleTabs, keyboardFocusedTabId, onSelect, onExitBrowsing]);
   // Keyed by moduleId rather than a single boolean so two groups reporting
   // out of order (shouldn't happen with one pointer, but costs nothing to
   // be exact about) can't clobber each other's state.
@@ -458,7 +473,7 @@ export function TabStrip({
       el.removeEventListener("scroll", updateEdgeFade);
       resizeObserver.disconnect();
     };
-  }, [tabs, activeTabId]);
+  }, [visibleTabs, activeTabId]);
 
   function handleGroupDraggingChange(moduleId: string, dragging: boolean) {
     setDraggingGroupIds((prev) => {
@@ -477,7 +492,7 @@ export function TabStrip({
     ? { WebkitMaskImage: edgeMask, maskImage: edgeMask }
     : undefined;
 
-  const groups = groupTabs(tabs);
+  const groups = groupTabs(visibleTabs);
   // Distance is measured over this clustered order (not raw `tabs`
   // order) because "close to the active tab" means spatial left-right
   // adjacency in what's actually rendered, and clustering can reorder

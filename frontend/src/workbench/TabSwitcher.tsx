@@ -37,7 +37,13 @@ export function TabSwitcher({ open, onClose }: TabSwitcherProps) {
   const tabMru = useWorkbenchTabsStore((state) => state.tabMru);
   const setActiveTab = useWorkbenchTabsStore((state) => state.setActiveTab);
 
-  const byId = new Map(openTabs.map((tab) => [tab.id, tab]));
+  // A module's home view opened via the Dock (no specific item picked yet)
+  // has no strip entry either — see TabStrip.tsx's isHiddenHomePreview —
+  // so it shouldn't show up here as something to "switch to" either.
+  const switchableTabs = openTabs.filter(
+    (tab) => !(tab.preview && getModule(tab.moduleId)?.views[0]?.id === tab.viewId),
+  );
+  const byId = new Map(switchableTabs.map((tab) => [tab.id, tab]));
   const orderedIds = [
     ...tabMru.filter((id) => id !== activeTabId && byId.has(id)),
     // Tabs never activated yet (no MRU entry — e.g. opened via preview and
