@@ -209,6 +209,18 @@ function TabGroupRow({
               as="button"
               value={tab}
               key={tab.id}
+              // A preview tab replacing a different preview tab (e.g.
+              // switching modules via the Dock, or clicking through notes)
+              // is a completely different `key` — React unmounts the old
+              // one and mounts a new one with no visual relationship
+              // between them, which read as a jarring pop/jerk especially
+              // when replacements happen in quick succession (rapid
+              // clicks interrupting each other's still-playing exit/enter).
+              // Sharing this layoutId across every preview tab makes
+              // Motion treat the old and new one as the same continuous
+              // element crossing into its new spot/size, instead of two
+              // unrelated mount/unmount events landing at once.
+              layoutId={tab.preview ? "preview-tab" : undefined}
               layout="position"
               // Scaling a text-heavy tab forces WebKit to re-rasterise its
               // label and icon while Motion is also projecting every sibling.
@@ -251,8 +263,8 @@ function TabGroupRow({
               }}
               onDragStart={() => handleDragStart(tab.id)}
               onDragEnd={handleDragEnd}
-              initial={{ opacity: 0, scale: 0.9 }}
-              exit={{ opacity: 0, scale: 0.9 }}
+              initial={{ opacity: 0, scale: 0.95 }}
+              exit={{ opacity: 0, scale: 0.95 }}
               type="button"
               data-tab-id={tab.id}
               onPointerEnter={() => {
@@ -536,13 +548,19 @@ export function TabStrip({
             <motion.div
               key={group.moduleId}
               layout="position"
-              initial={{ opacity: 0, scale: 0.9 }}
+              initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.9 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              // Matches the individual tab's own opacity/scale timing below
+              // — a group appearing/disappearing (e.g. a preview tab
+              // swapping to a different module) and its one tab inside
+              // doing the same used to run on different durations (0.15
+              // here vs 0.18 there), which read as two motions slightly
+              // out of step rather than one.
               transition={{
                 layout: { duration: 0.045, ease: "easeOut" },
-                opacity: { duration: 0.15 },
-                scale: { duration: 0.15 },
+                opacity: { duration: 0.18 },
+                scale: { duration: 0.18 },
               }}
               className="flex shrink-0 items-center"
             >
