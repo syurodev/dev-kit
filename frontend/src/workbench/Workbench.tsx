@@ -462,15 +462,7 @@ export function Workbench() {
             drag handle; tabs and controls can own their gestures reliably. */}
         <header
           className={cn(
-            // items-start (not items-center) + the same pt-0.5 this row used
-            // at its old 30px height: AppKit draws the traffic lights at a
-            // fixed offset from the window top, independent of this row's
-            // own CSS height, so re-centering content across the taller
-            // 45px box would just push it further from where the (unmoved)
-            // traffic lights actually sit. Keeping content pinned at the
-            // same top offset as before and letting the extra height become
-            // slack space below it keeps the two aligned.
-            "relative flex h-[45px] shrink-0 items-start pt-0.5 pr-4 transition-[padding-left] duration-300 ease-out motion-reduce:transition-none [--wails-draggable:no-drag]",
+            "relative flex h-[45px] shrink-0 items-center pt-0.5 pr-4 transition-[padding-left] duration-300 ease-out motion-reduce:transition-none [--wails-draggable:no-drag]",
             isFullscreen ? "pl-1" : "pl-20",
           )}
         >
