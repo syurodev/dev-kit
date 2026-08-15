@@ -384,7 +384,7 @@ export function Workbench() {
             drag handle; tabs and controls can own their gestures reliably. */}
         <header
           className={cn(
-            "relative flex h-[30px] shrink-0 items-center gap-2 pt-0.5 pr-4 transition-[padding-left] duration-300 ease-out motion-reduce:transition-none [--wails-draggable:no-drag]",
+            "relative flex h-[30px] shrink-0 items-center pt-0.5 pr-4 transition-[padding-left] duration-300 ease-out motion-reduce:transition-none [--wails-draggable:no-drag]",
             isFullscreen ? "pl-1" : "pl-20",
           )}
         >
@@ -395,73 +395,86 @@ export function Workbench() {
               isFullscreen ? "w-1" : "w-20",
             )}
           />
-          <TabStrip
-            tabs={openTabs}
-            activeTabId={activeTabId}
-            onSelect={setActiveTab}
-            onClose={closeTab}
-            onReorder={reorderTab}
-          />
-          {moduleActions.map((action) => (
-            <Tooltip key={action.id}>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  aria-label={action.label}
-                  aria-pressed={action.isActive}
-                  className={cn(
-                    action.isActive && "bg-accent text-foreground",
-                    "shrink-0 [--wails-draggable:no-drag]",
-                  )}
-                  onClick={action.onClick}
+          {/* 1fr/3fr/1fr, not flex-grow ratios: Grid's fr unit divides the
+              full track width by ratio regardless of each column's own
+              content size, which is what an even 1:3:1 split actually
+              requires — flex-grow only distributes space left over after
+              content sizing, so an empty left column wouldn't reliably end
+              up the same width as a busy right column under flex. */}
+          <div className="grid w-full grid-cols-[1fr_3fr_1fr] items-center gap-2">
+            {/* Status column — reserved layout space only. Content (agent
+                status, index status, ...) isn't built yet. */}
+            <div />
+            <TabStrip
+              tabs={openTabs}
+              activeTabId={activeTabId}
+              onSelect={setActiveTab}
+              onClose={closeTab}
+              onReorder={reorderTab}
+            />
+            <div className="flex min-w-0 items-center justify-end gap-2">
+              {moduleActions.map((action) => (
+                <Tooltip key={action.id}>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      aria-label={action.label}
+                      aria-pressed={action.isActive}
+                      className={cn(
+                        action.isActive && "bg-accent text-foreground",
+                        "shrink-0 [--wails-draggable:no-drag]",
+                      )}
+                      onClick={action.onClick}
+                    >
+                      <action.icon className="size-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">{action.label}</TooltipContent>
+                </Tooltip>
+              ))}
+              {metadataLoading ? (
+                <span
+                  role="status"
+                  className="shrink-0 text-xs text-muted-foreground [--wails-draggable:no-drag]"
                 >
-                  <action.icon className="size-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">{action.label}</TooltipContent>
-            </Tooltip>
-          ))}
-          {metadataLoading ? (
-            <span
-              role="status"
-              className="shrink-0 text-xs text-muted-foreground [--wails-draggable:no-drag]"
-            >
-              Loading module metadata...
-            </span>
-          ) : null}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                aria-label="Commands"
-                className="shrink-0 [--wails-draggable:no-drag]"
-                onClick={() => setPaletteOpen(true)}
-              >
-                <Search className="size-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-              Commands <Kbd>⌘K</Kbd>
-            </TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                aria-label="Settings"
-                className="shrink-0 [--wails-draggable:no-drag]"
-                onClick={() => focusModule("settings")}
-              >
-                <SettingsIcon className="size-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-              Settings <Kbd>⌘,</Kbd>
-            </TooltipContent>
-          </Tooltip>
+                  Loading module metadata...
+                </span>
+              ) : null}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label="Commands"
+                    className="shrink-0 [--wails-draggable:no-drag]"
+                    onClick={() => setPaletteOpen(true)}
+                  >
+                    <Search className="size-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  Commands <Kbd>⌘K</Kbd>
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label="Settings"
+                    className="shrink-0 [--wails-draggable:no-drag]"
+                    onClick={() => focusModule("settings")}
+                  >
+                    <SettingsIcon className="size-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  Settings <Kbd>⌘,</Kbd>
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          </div>
         </header>
         {/* Transparent row: the main content card and the split panel are two
             independent bg-card boxes, separated by a gap that shows the same
