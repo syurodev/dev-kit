@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { LucideIcon } from "lucide-react";
 
 export type TabStatus = "idle" | "running" | "success" | "error";
 
@@ -9,6 +10,8 @@ export type WorkbenchTab = {
   title: string;
   params?: Record<string, unknown>;
   status?: TabStatus;
+  icon?: LucideIcon;
+  preview?: boolean;
 };
 
 export type OpenTabInput = {
@@ -16,6 +19,8 @@ export type OpenTabInput = {
   viewId: string;
   title: string;
   params?: Record<string, unknown>;
+  icon?: LucideIcon;
+  preview?: boolean;
 };
 
 /**
@@ -44,6 +49,8 @@ type WorkbenchTabsState = {
   closeTab: (id: string) => void;
   setActiveTab: (id: string) => void;
   setTabStatus: (id: string, status: TabStatus) => void;
+  pinTab: (id: string) => void;
+  reorderTab: (fromId: string, toIndex: number) => void;
 };
 
 export const useWorkbenchTabsStore = create<WorkbenchTabsState>((set, get) => ({
@@ -52,19 +59,47 @@ export const useWorkbenchTabsStore = create<WorkbenchTabsState>((set, get) => ({
 
   openTab: (input) => {
     const id = tabKey(input.moduleId, input.viewId, input.params);
-    const existing = get().openTabs.find((tab) => tab.id === id);
-    if (existing) {
+    const state = get();
+    const existingIndex = state.openTabs.findIndex((tab) => tab.id === id);
+
+    if (existingIndex !== -1) {
+      const existing = state.openTabs[existingIndex];
+      if (input.preview === false && existing.preview) {
+        // Explicit non-preview open of the tab that's currently the
+        // preview tab (double-click, or first edit via pinTab elsewhere)
+        // promotes it in place — same slot, no reorder.
+        const openTabs = state.openTabs.slice();
+        openTabs[existingIndex] = { ...existing, preview: false };
+        set({ openTabs, activeTabId: id });
+        return id;
+      }
       set({ activeTabId: id });
       return id;
     }
+
     const tab: WorkbenchTab = {
       id,
       moduleId: input.moduleId,
       viewId: input.viewId,
       title: input.title,
       params: input.params,
+      icon: input.icon,
+      preview: input.preview ?? false,
     };
-    set((state) => ({ openTabs: [...state.openTabs, tab], activeTabId: id }));
+
+    if (input.preview) {
+      const previewIndex = state.openTabs.findIndex((t) => t.preview);
+      if (previewIndex !== -1) {
+        // Replace the current preview tab in place — same array index —
+        // so the strip doesn't jump when browsing via single-click.
+        const openTabs = state.openTabs.slice();
+        openTabs[previewIndex] = tab;
+        set({ openTabs, activeTabId: id });
+        return id;
+      }
+    }
+
+    set((s) => ({ openTabs: [...s.openTabs, tab], activeTabId: id }));
     return id;
   },
 
@@ -91,4 +126,23 @@ export const useWorkbenchTabsStore = create<WorkbenchTabsState>((set, get) => ({
     set((state) => ({
       openTabs: state.openTabs.map((tab) => (tab.id === id ? { ...tab, status } : tab)),
     })),
+
+  pinTab: (id) =>
+    set((state) => ({
+      openTabs: state.openTabs.map((tab) =>
+        tab.id === id ? { ...tab, preview: false } : tab,
+      ),
+    })),
+
+  reorderTab: (fromId, toIndex) =>
+    set((state) => {
+      const fromIndex = state.openTabs.findIndex((tab) => tab.id === fromId);
+      if (fromIndex === -1 || fromIndex === toIndex) {
+        return state;
+      }
+      const openTabs = state.openTabs.slice();
+      const [moved] = openTabs.splice(fromIndex, 1);
+      openTabs.splice(toIndex, 0, moved);
+      return { openTabs };
+    }),
 }));
