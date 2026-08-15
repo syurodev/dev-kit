@@ -5,7 +5,7 @@ export const CURRENT_MODULE_API_VERSION = "1";
 export type ModuleView = {
   id: string;
   title: string;
-  component: ComponentType;
+  component: ComponentType<{ params?: Record<string, unknown> }>;
 };
 
 export type ModuleCommand = {
