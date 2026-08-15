@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, Reorder, motion } from "framer-motion";
 import { Wrench, X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -387,7 +387,14 @@ export function TabStrip({
   // while already browsing, fighting the user's own arrow-key moves).
   const activeTabIdRef = useRef(activeTabId);
   activeTabIdRef.current = activeTabId;
-  const visibleTabs = tabs.filter((tab) => !isHiddenHomePreview(tab));
+  // Memoized (not a plain .filter() every render): both effects below use
+  // this as a dependency, and a freshly-identitied array on every render
+  // would make them re-run — and re-set state — on every render forever,
+  // regardless of whether `tabs` actually changed.
+  const visibleTabs = useMemo(
+    () => tabs.filter((tab) => !isHiddenHomePreview(tab)),
+    [tabs],
+  );
 
   useEffect(() => {
     if (keyboardBrowsing) {
