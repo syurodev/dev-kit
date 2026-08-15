@@ -66,6 +66,27 @@ function fisheyeWidthPx(distance: number): number {
   return Math.round((TAB_BASE_WIDTH_PX * percent) / 100);
 }
 
+const EDGE_FADE_PX = 20;
+
+/**
+ * Only fades the edge(s) that actually have more content scrolled past
+ * them — `undefined` (no mask at all) when the row isn't scrolled or
+ * doesn't overflow, so a fully-visible tab list never shows a fade with
+ * nothing behind it to justify one.
+ */
+function edgeFadeMask(canScrollLeft: boolean, canScrollRight: boolean): string | undefined {
+  if (canScrollLeft && canScrollRight) {
+    return `linear-gradient(to right, transparent, black ${EDGE_FADE_PX}px, black calc(100% - ${EDGE_FADE_PX}px), transparent)`;
+  }
+  if (canScrollLeft) {
+    return `linear-gradient(to right, transparent, black ${EDGE_FADE_PX}px)`;
+  }
+  if (canScrollRight) {
+    return `linear-gradient(to right, black calc(100% - ${EDGE_FADE_PX}px), transparent)`;
+  }
+  return undefined;
+}
+
 type TabGroupRowProps = {
   tabs: WorkbenchTab[];
   activeTabId: string;
@@ -322,6 +343,45 @@ export function TabStrip({
   // out of order (shouldn't happen with one pointer, but costs nothing to
   // be exact about) can't clobber each other's state.
   const [draggingGroupIds, setDraggingGroupIds] = useState<Set<string>>(new Set());
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [edgeFade, setEdgeFade] = useState({ left: false, right: false });
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) {
+      return;
+    }
+
+    function updateEdgeFade() {
+      if (!el) {
+        return;
+      }
+      const maxScrollLeft = el.scrollWidth - el.clientWidth;
+      setEdgeFade({
+        left: el.scrollLeft > 1,
+        right: el.scrollLeft < maxScrollLeft - 1,
+      });
+    }
+
+    updateEdgeFade();
+    // A fisheye width tween (activeTabId change) can still be resizing the
+    // row's scrollWidth after this effect runs — ResizeObserver only fires
+    // for the *observed* element's own box, which stays capped at
+    // max-w-full while overflowing, not for its unclipped content growing
+    // inside it. Re-check once after the width transition (0.32s below)
+    // has had time to settle.
+    const settleTimer = setTimeout(updateEdgeFade, 350);
+
+    el.addEventListener("scroll", updateEdgeFade, { passive: true });
+    const resizeObserver = new ResizeObserver(updateEdgeFade);
+    resizeObserver.observe(el);
+
+    return () => {
+      clearTimeout(settleTimer);
+      el.removeEventListener("scroll", updateEdgeFade);
+      resizeObserver.disconnect();
+    };
+  }, [tabs, activeTabId]);
 
   function handleGroupDraggingChange(moduleId: string, dragging: boolean) {
     setDraggingGroupIds((prev) => {
@@ -334,6 +394,11 @@ export function TabStrip({
       return next;
     });
   }
+
+  const edgeMask = edgeFadeMask(edgeFade.left, edgeFade.right);
+  const edgeMaskStyle = edgeMask
+    ? { WebkitMaskImage: edgeMask, maskImage: edgeMask }
+    : undefined;
 
   const groups = groupTabs(tabs);
   // Distance is measured over this clustered order (not raw `tabs`
@@ -387,22 +452,17 @@ export function TabStrip({
       className="flex min-w-0 justify-center [--wails-draggable:no-drag]"
     >
       <div
+        ref={scrollRef}
         className="scrollbar-hide flex max-w-full items-center gap-1 overflow-x-auto"
-        // Soft-fades the two edges instead of a hard clip when a tab is
-        // scrolled half out of view — the -webkit- prefix matters here
-        // specifically, not just as a fallback: this app renders inside
-        // WKWebView, where unprefixed `mask-image` support depends on OS
-        // version. ponytail: fades unconditionally, even when nothing is
-        // actually scrolled off — a scroll-position-aware version (fade
-        // only the side(s) with hidden content) would need a scroll
-        // listener; revisit if the always-on fade reads as odd on a fully
-        // visible edge tab.
-        style={{
-          WebkitMaskImage:
-            "linear-gradient(to right, transparent, black 20px, black calc(100% - 20px), transparent)",
-          maskImage:
-            "linear-gradient(to right, transparent, black 20px, black calc(100% - 20px), transparent)",
-        }}
+        // Soft-fades only the edge(s) that actually have a tab scrolled
+        // half out of view (tracked via scroll position + ResizeObserver
+        // above) instead of a hard clip — and no mask at all when the row
+        // isn't scrolled, so a fully-visible tab list never gets a fade
+        // with nothing behind it to justify one. The -webkit- prefix
+        // matters here specifically, not just as a fallback: this app
+        // renders inside WKWebView, where unprefixed `mask-image` support
+        // depends on OS version.
+        style={edgeMaskStyle}
       >
         <AnimatePresence initial={false}>
           {groups.map((group) => (
