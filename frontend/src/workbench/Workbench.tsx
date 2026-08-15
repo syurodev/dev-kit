@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Bot, Search, Settings as SettingsIcon } from "lucide-react";
+import { Search, Settings as SettingsIcon } from "lucide-react";
 import { listModules, type ModuleDTO } from "../bridge/commands";
 import { Dock } from "./dock/Dock";
 import { AgentSessionsSubscriber } from "./AgentSessionsSubscriber";
@@ -8,6 +8,7 @@ import { InteractionHost } from "./InteractionHost";
 import {
   compareModuleParity,
   CURRENT_MODULE_API_VERSION,
+  getModule,
   listRegisteredModules,
   registerModule,
 } from "../modules/registry";
@@ -25,6 +26,8 @@ import { Kbd } from "@/components/ui/kbd";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { SplitPanelProvider, SplitPanelSlot } from "@/components/ui/split-panel";
 import { useModuleActionsStore } from "../stores/moduleActions";
+import { useWorkbenchTabsStore } from "../stores/workbenchTabs";
+import { TabStrip } from "./tabs/TabStrip";
 import { cn } from "@/lib/utils";
 
 // Settings absorbs Sync as a tab (SettingsView) — both stay registered
@@ -47,9 +50,13 @@ export function Workbench() {
   const [backendModules, setBackendModules] = useState<ModuleDTO[] | null>(null);
   const [metadataError, setMetadataError] = useState(false);
   const [metadataLoading, setMetadataLoading] = useState(true);
-  const [activeModuleId, setActiveModuleId] = useState(modules[0]?.id ?? "");
   const [paletteOpen, setPaletteOpen] = useState(false);
   const moduleActions = useModuleActionsStore((s) => s.actions);
+  const openTabs = useWorkbenchTabsStore((state) => state.openTabs);
+  const activeTabId = useWorkbenchTabsStore((state) => state.activeTabId);
+  const openTab = useWorkbenchTabsStore((state) => state.openTab);
+  const closeTab = useWorkbenchTabsStore((state) => state.closeTab);
+  const setActiveTab = useWorkbenchTabsStore((state) => state.setActiveTab);
 
   useEffect(() => {
     let mounted = true;
@@ -113,11 +120,24 @@ export function Workbench() {
     () => activityModules.filter((module) => !HEADER_ONLY_MODULE_IDS.has(module.id)),
     [activityModules],
   );
+  const activeTab = openTabs.find((tab) => tab.id === activeTabId);
   const activeModule =
-    availableModules.find((module) => module.id === activeModuleId) ??
+    availableModules.find((module) => module.id === activeTab?.moduleId) ??
     availableModules[0];
-  const activeView = activeModule?.views[0];
-  const ActiveView = activeView?.component;
+
+  function focusModule(moduleId: string) {
+    const module = getModule(moduleId);
+    const view = module?.views[0];
+    if (module && view) {
+      openTab({ moduleId: module.id, viewId: view.id, title: module.title });
+    }
+  }
+
+  useEffect(() => {
+    if (openTabs.length === 0 && availableModules.length > 0) {
+      focusModule(availableModules[0].id);
+    }
+  }, [availableModules, openTabs.length]);
   const commands = availableModules.flatMap((module) => module.commands);
   const hasMetadataWarning = metadataError || parityIssues.length > 0;
 
@@ -135,19 +155,17 @@ export function Workbench() {
             padded left to clear the traffic lights — matching how native
             macOS toolbars combine both in one row. macOS-specific sizing for
             now (Windows/Linux titlebar chrome is a separate, deferred pass). */}
-        <header className="flex h-[50px] shrink-0 items-center gap-2 pl-24 pr-4">
-          <div className="flex size-6 items-center justify-center rounded-md bg-primary text-primary-foreground">
-            <Bot className="size-3.5" />
-          </div>
-          <strong className="text-sm font-semibold">
-            {activeModule?.title ?? "DevKit"}
-          </strong>
-          {metadataLoading ? (
-            <span role="status" className="text-xs text-muted-foreground">
-              Loading module metadata...
-            </span>
-          ) : null}
-          <div className="flex-1" />
+        {/* Header root defaults to draggable so empty space still moves the
+            window (Wails needs this set explicitly — there is no built-in
+            drag region under web content in hiddenInset mode). TabStrip and
+            every button below override back to no-drag on themselves. */}
+        <header className="flex h-[50px] shrink-0 items-center gap-2 pl-24 pr-4 [--wails-draggable:drag]">
+          <TabStrip
+            tabs={openTabs}
+            activeTabId={activeTabId}
+            onSelect={setActiveTab}
+            onClose={closeTab}
+          />
           {moduleActions.map((action) => (
             <Tooltip key={action.id}>
               <TooltipTrigger asChild>
@@ -156,7 +174,10 @@ export function Workbench() {
                   size="icon-sm"
                   aria-label={action.label}
                   aria-pressed={action.isActive}
-                  className={cn(action.isActive && "bg-accent text-foreground")}
+                  className={cn(
+                    action.isActive && "bg-accent text-foreground",
+                    "shrink-0 [--wails-draggable:no-drag]",
+                  )}
                   onClick={action.onClick}
                 >
                   <action.icon className="size-4" />
@@ -165,12 +186,21 @@ export function Workbench() {
               <TooltipContent side="bottom">{action.label}</TooltipContent>
             </Tooltip>
           ))}
+          {metadataLoading ? (
+            <span
+              role="status"
+              className="shrink-0 text-xs text-muted-foreground [--wails-draggable:no-drag]"
+            >
+              Loading module metadata...
+            </span>
+          ) : null}
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 variant="ghost"
                 size="icon-sm"
                 aria-label="Commands"
+                className="shrink-0 [--wails-draggable:no-drag]"
                 onClick={() => setPaletteOpen(true)}
               >
                 <Search className="size-4" />
@@ -186,7 +216,8 @@ export function Workbench() {
                 variant="ghost"
                 size="icon-sm"
                 aria-label="Settings"
-                onClick={() => setActiveModuleId("settings")}
+                className="shrink-0 [--wails-draggable:no-drag]"
+                onClick={() => focusModule("settings")}
               >
                 <SettingsIcon className="size-4" />
               </Button>
@@ -211,14 +242,31 @@ export function Workbench() {
                 activeModule?.id === "notes" ? "p-0" : "p-4",
               )}
             >
-              {ActiveView ? (
-                <ActiveView />
-              ) : (
+              {openTabs.length === 0 ? (
                 <p role="status" className="text-sm text-muted-foreground">
                   {availableModules.length === 0
                     ? "No modules are currently available."
                     : "No view is currently available."}
                 </p>
+              ) : (
+                openTabs.map((tab) => {
+                  const module = getModule(tab.moduleId);
+                  const view = module?.views.find((candidate) => candidate.id === tab.viewId);
+                  if (!view) {
+                    return null;
+                  }
+                  const TabView = view.component;
+                  // `contents` (not a fragment) keeps the active view's own
+                  // flex/overflow classes participating directly in this
+                  // section's layout, exactly as the single <ActiveView/> did
+                  // before. Inactive tabs stay mounted so in-progress state
+                  // (a running query, an unsaved draft) survives switching away.
+                  return (
+                    <div key={tab.id} className={tab.id === activeTabId ? "contents" : "hidden"}>
+                      <TabView params={tab.params} />
+                    </div>
+                  );
+                })
               )}
             </section>
             <SplitPanelSlot />
@@ -227,7 +275,7 @@ export function Workbench() {
         <Dock
           activeModuleId={activeModule?.id ?? ""}
           modules={dockModules}
-          onSelectModule={setActiveModuleId}
+          onSelectModule={focusModule}
         />
         <CommandPalette
           open={paletteOpen}
