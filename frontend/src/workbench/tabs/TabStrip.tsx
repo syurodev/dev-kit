@@ -1,5 +1,5 @@
-import { useEffect, useRef } from "react";
-import { AnimatePresence, LazyMotion, domMax, m } from "framer-motion";
+import { useRef } from "react";
+import { AnimatePresence, LazyMotion, domMax, m, type PanInfo } from "framer-motion";
 import { Wrench, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getModule } from "../../modules/registry";
@@ -47,76 +47,56 @@ type TabStripProps = {
  * revealing on hover/focus) and a tab being added/removed both animate
  * smoothly, including the resulting reflow of every other open tab —
  * without it, siblings snap to their new position in a single frame.
+ *
+ * Drag-to-reorder uses each tab's own `drag="x"` gesture (also from
+ * `domMax`) instead of hand-rolled pointer tracking — a first attempt at
+ * hand-rolling this (raw `pointerdown`/`pointermove`/`pointerup`) had no
+ * visual feedback until the cursor crossed a neighbor's midpoint, which
+ * read as "nothing happening" for a normal-speed drag. `drag` makes the
+ * grabbed tab visibly follow the cursor immediately, and Motion's own
+ * drag implementation is built on the same layout-projection system as
+ * `layout` specifically so the two compose correctly — no fighting over
+ * who owns the element's transform, which a manual approach would have
+ * had to solve itself. `onDrag` still runs the same midpoint-crossing
+ * scan as before to call `onReorder` live as the drag crosses a neighbor.
  */
 export function TabStrip({ tabs, activeTabId, onSelect, onClose, onReorder }: TabStripProps) {
   const tabRefs = useRef(new Map<string, HTMLButtonElement>());
-  const dragRef = useRef<{ id: string; startX: number; dragging: boolean } | null>(null);
 
-  // Global (not per-element) listeners: once a drag starts, the pointer can
-  // move anywhere in the window, not just over the tab strip.
-  useEffect(() => {
-    function handlePointerMove(event: PointerEvent) {
-      const drag = dragRef.current;
-      if (!drag) {
-        return;
+  function handleDrag(draggedId: string, info: PanInfo) {
+    const draggedIndex = tabs.findIndex((tab) => tab.id === draggedId);
+    if (draggedIndex === -1) {
+      return;
+    }
+    let targetIndex = -1;
+    for (let i = 0; i < tabs.length; i += 1) {
+      if (i === draggedIndex) {
+        continue;
       }
-      if ((event.buttons & 1) === 0) {
-        dragRef.current = null;
-        return;
+      const el = tabRefs.current.get(tabs[i].id);
+      if (!el) {
+        continue;
       }
-      if (!drag.dragging) {
-        if (Math.abs(event.clientX - drag.startX) < 5) {
-          return;
-        }
-        drag.dragging = true;
-      }
-      const draggedIndex = tabs.findIndex((tab) => tab.id === drag.id);
-      if (draggedIndex === -1) {
-        return;
-      }
-      let targetIndex = -1;
-      for (let i = 0; i < tabs.length; i += 1) {
-        if (i === draggedIndex) {
-          continue;
-        }
-        const el = tabRefs.current.get(tabs[i].id);
-        if (!el) {
-          continue;
-        }
-        const rect = el.getBoundingClientRect();
-        const mid = rect.left + rect.width / 2;
-        if (i > draggedIndex && event.clientX > mid) {
-          // Rightward: keep scanning for the farthest match, don't stop at
-          // the nearest neighbor — a fast drag can jump past several tabs
-          // in one pointermove event, and we want the tab to land where
-          // the cursor actually is, not advance one slot at a time.
-          targetIndex = i;
-        } else if (i < draggedIndex && event.clientX < mid) {
-          // Leftward: midpoints increase with index, so the first (smallest
-          // i) match found ascending is already the correct farthest-left
-          // target — safe to stop here.
-          targetIndex = i;
-          break;
-        }
-      }
-      if (targetIndex !== -1) {
-        onReorder(drag.id, targetIndex);
+      const rect = el.getBoundingClientRect();
+      const mid = rect.left + rect.width / 2;
+      if (i > draggedIndex && info.point.x > mid) {
+        // Rightward: keep scanning for the farthest match, don't stop at
+        // the nearest neighbor — a fast drag can jump past several tabs
+        // between two drag events, and we want the tab to land where the
+        // cursor actually is, not advance one slot at a time.
+        targetIndex = i;
+      } else if (i < draggedIndex && info.point.x < mid) {
+        // Leftward: midpoints increase with index, so the first (smallest
+        // i) match found ascending is already the correct farthest-left
+        // target — safe to stop here.
+        targetIndex = i;
+        break;
       }
     }
-
-    function handlePointerUp() {
-      dragRef.current = null;
+    if (targetIndex !== -1) {
+      onReorder(draggedId, targetIndex);
     }
-
-    document.addEventListener("pointermove", handlePointerMove);
-    document.addEventListener("pointerup", handlePointerUp);
-    document.addEventListener("pointercancel", handlePointerUp);
-    return () => {
-      document.removeEventListener("pointermove", handlePointerMove);
-      document.removeEventListener("pointerup", handlePointerUp);
-      document.removeEventListener("pointercancel", handlePointerUp);
-    };
-  }, [tabs, onReorder]);
+  }
 
   return (
     <LazyMotion features={domMax}>
@@ -133,18 +113,17 @@ export function TabStrip({ tabs, activeTabId, onSelect, onClose, onReorder }: Ta
                 }
               }}
               layout
+              drag="x"
+              dragMomentum={false}
+              dragSnapToOrigin={false}
+              whileDrag={{ scale: 1.05, zIndex: 10 }}
+              onDrag={(_event, info) => handleDrag(tab.id, info)}
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.9 }}
               transition={{ layout: { type: "spring", stiffness: 500, damping: 35 } }}
               type="button"
               onClick={() => onSelect(tab.id)}
-              onPointerDown={(event) => {
-                if (event.button !== 0) {
-                  return;
-                }
-                dragRef.current = { id: tab.id, startX: event.clientX, dragging: false };
-              }}
               className={cn(
                 // No `gap` here on purpose: gap reserves space between EVERY
                 // flex child, including the close button even while it's
