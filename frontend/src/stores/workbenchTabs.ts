@@ -50,7 +50,7 @@ type WorkbenchTabsState = {
   setActiveTab: (id: string) => void;
   setTabStatus: (id: string, status: TabStatus) => void;
   pinTab: (id: string) => void;
-  reorderTab: (fromId: string, toIndex: number) => void;
+  reorderTab: (fromId: string, beforeId: string | null) => void;
 };
 
 export const useWorkbenchTabsStore = create<WorkbenchTabsState>((set, get) => ({
@@ -134,15 +134,30 @@ export const useWorkbenchTabsStore = create<WorkbenchTabsState>((set, get) => ({
       ),
     })),
 
-  reorderTab: (fromId, toIndex) =>
+  // beforeId (not a numeric index) because callers now only ever have a
+  // subset of openTabs rendered (one expanded module group at a time) —
+  // an id stays correct regardless of what subset produced the drag,
+  // where a splice index would have to be translated back into the full
+  // array's index space and would be easy to get wrong.
+  reorderTab: (fromId, beforeId) =>
     set((state) => {
+      if (fromId === beforeId) {
+        return state;
+      }
       const fromIndex = state.openTabs.findIndex((tab) => tab.id === fromId);
-      if (fromIndex === -1 || fromIndex === toIndex) {
+      if (fromIndex === -1) {
         return state;
       }
       const openTabs = state.openTabs.slice();
       const [moved] = openTabs.splice(fromIndex, 1);
-      openTabs.splice(toIndex, 0, moved);
+      const insertAt = beforeId
+        ? openTabs.findIndex((tab) => tab.id === beforeId)
+        : -1;
+      if (insertAt === -1) {
+        openTabs.push(moved);
+      } else {
+        openTabs.splice(insertAt, 0, moved);
+      }
       return { openTabs };
     }),
 }));

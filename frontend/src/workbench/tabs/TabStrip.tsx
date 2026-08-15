@@ -1,7 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, Reorder } from "framer-motion";
-import { Wrench, X } from "lucide-react";
+import { ChevronDown, Wrench, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { getModule } from "../../modules/registry";
 import type { TabStatus, WorkbenchTab } from "../../stores/workbenchTabs";
 
@@ -23,10 +30,50 @@ type TabStripProps = {
   activeTabId: string;
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
-  onReorder: (fromId: string, toIndex: number) => void;
+  onReorder: (fromId: string, beforeId: string | null) => void;
+};
+
+type TabGroup = {
+  moduleId: string;
+  tabs: WorkbenchTab[];
 };
 
 /**
+ * Groups tabs by moduleId, preserving each group's left-to-right position
+ * as the position its first tab first appeared at (not disturbed by which
+ * module is currently active) and each group's own tabs in their existing
+ * relative order.
+ */
+function groupTabs(tabs: WorkbenchTab[]): TabGroup[] {
+  const groups: TabGroup[] = [];
+  const byModule = new Map<string, TabGroup>();
+  for (const tab of tabs) {
+    let group = byModule.get(tab.moduleId);
+    if (!group) {
+      group = { moduleId: tab.moduleId, tabs: [] };
+      byModule.set(tab.moduleId, group);
+      groups.push(group);
+    }
+    group.tabs.push(tab);
+  }
+  return groups;
+}
+
+type ExpandedGroupProps = {
+  tabs: WorkbenchTab[];
+  activeTabId: string;
+  onSelect: (id: string) => void;
+  onClose: (id: string) => void;
+  onReorder: (fromId: string, beforeId: string | null) => void;
+};
+
+/**
+ * Renders one module's tabs as a self-contained draggable Reorder.Group,
+ * scoped to just this group's tabs. Every expanded group gets its own
+ * instance of this component (and its own drag state) — dragging a tab
+ * only ever reorders it among its own group's siblings, never across
+ * groups, so there's no cross-group index math to get wrong.
+ *
  * Lives inside the 30px titlebar row. Native InvisibleTitleBarHeight is zero;
  * both this row and its header default to no-drag, and Workbench owns
  * a separate native window-drag handle over the empty traffic-light clearance.
@@ -39,22 +86,15 @@ type TabStripProps = {
  * smaller bundle) animates sibling movement without scale-projecting their
  * content. The close button is absolutely positioned in permanently reserved
  * space, so hover and drag never change a tab's measured width.
- *
- * Motion's Reorder primitives own both pointer offset and layout projection.
- * Keeping those two calculations in the same system avoids transform resets
- * when a dragged tab changes DOM slot. Reorder.Group updates only this
- * component's visual array; Zustand is still committed exactly once on drop,
- * so mounted module views stay outside the high-frequency path.
  */
-export function TabStrip({
+function ExpandedGroup({
   tabs,
   activeTabId,
   onSelect,
   onClose,
   onReorder,
-}: TabStripProps) {
+}: ExpandedGroupProps) {
   const activeDragId = useRef<string | null>(null);
-  const dragOriginIndex = useRef<number | null>(null);
   const [visualTabs, setVisualTabs] = useState(tabs);
   const [draggingTabId, setDraggingTabId] = useState<string | null>(null);
   const [hoveredTabId, setHoveredTabId] = useState<string | null>(null);
@@ -62,7 +102,7 @@ export function TabStrip({
 
   useEffect(() => {
     // Store order is committed only once on drop. External open/close/status
-    // changes still flow into the strip immediately while no gesture is active.
+    // changes still flow into the group immediately while no gesture is active.
     if (activeDragId.current === null) {
       visualTabsRef.current = tabs;
       setVisualTabs(tabs);
@@ -81,36 +121,21 @@ export function TabStrip({
     activeDragId.current = draggedId;
     setDraggingTabId(draggedId);
     setHoveredTabId(null);
-    dragOriginIndex.current = visualTabsRef.current.findIndex(
-      (tab) => tab.id === draggedId,
-    );
   }
 
   function handleDragEnd() {
     const draggedId = activeDragId.current;
-    const originIndex = dragOriginIndex.current;
-    const targetIndex =
-      draggedId === null
-        ? null
-        : visualTabsRef.current.findIndex((tab) => tab.id === draggedId);
-    // Do not let WebKit preserve :hover hit-tests from transformed siblings
-    // after pointer capture ends. Hover is rebuilt from the next real pointer
-    // movement over a settled tab.
     setDraggingTabId(null);
     setHoveredTabId(null);
-    if (
-      draggedId !== null &&
-      originIndex !== null &&
-      targetIndex !== null &&
-      originIndex !== targetIndex
-    ) {
-      // The global store changes once per completed gesture, not once per
+    if (draggedId !== null) {
+      const index = visualTabsRef.current.findIndex((tab) => tab.id === draggedId);
+      const beforeId = visualTabsRef.current[index + 1]?.id ?? null;
+      // The store change commits once per completed gesture, not once per
       // crossed tab. Heavy module views therefore remain isolated from the
       // high-frequency drag path.
-      onReorder(draggedId, targetIndex);
+      onReorder(draggedId, beforeId);
     }
     activeDragId.current = null;
-    dragOriginIndex.current = null;
   }
 
   return (
@@ -119,7 +144,7 @@ export function TabStrip({
       axis="x"
       values={visualTabs}
       onReorder={handleVisualReorder}
-      className="scrollbar-hide flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [--wails-draggable:no-drag]"
+      className="flex shrink-0 items-center gap-1"
     >
       <AnimatePresence initial={false}>
         {visualTabs.map((tab) => (
@@ -238,5 +263,129 @@ export function TabStrip({
         ))}
       </AnimatePresence>
     </Reorder.Group>
+  );
+}
+
+type CollapsedChipProps = {
+  group: TabGroup;
+  onSelect: (id: string) => void;
+  onExpand: () => void;
+};
+
+/**
+ * One module's tabs, collapsed to an icon + count badge (badge omitted at
+ * count 1 — most modules normally have exactly one tab, and a permanent
+ * "1" badge on every collapsed module would itself be visual noise).
+ * Clicking opens a menu: "Show all tabs" pins the group open without
+ * switching the active tab (peek), or pick a specific tab to switch to it
+ * directly — no blind "always opens the first tab" default.
+ */
+function CollapsedChip({ group, onSelect, onExpand }: CollapsedChipProps) {
+  const moduleTitle = getModule(group.moduleId)?.title ?? group.moduleId;
+  const ModuleIcon = group.tabs[0].icon ?? getModule(group.moduleId)?.icon ?? Wrench;
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label={`${moduleTitle} — ${group.tabs.length} open tab${group.tabs.length === 1 ? "" : "s"}`}
+          className="flex h-6 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground [--wails-draggable:no-drag]"
+        >
+          <ModuleIcon className="size-3.5 shrink-0 opacity-70" />
+          {group.tabs.length > 1 ? (
+            <span className="rounded-full bg-foreground/10 px-1.5 text-[10px] leading-4">
+              {group.tabs.length}
+            </span>
+          ) : null}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        <DropdownMenuItem onClick={onExpand}>Show all tabs</DropdownMenuItem>
+        <DropdownMenuSeparator />
+        {group.tabs.map((tab) => (
+          <DropdownMenuItem key={tab.id} onClick={() => onSelect(tab.id)}>
+            {tab.title}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+export function TabStrip({
+  tabs,
+  activeTabId,
+  onSelect,
+  onClose,
+  onReorder,
+}: TabStripProps) {
+  const [pinnedModuleIds, setPinnedModuleIds] = useState<Set<string>>(new Set());
+
+  const activeModuleId = tabs.find((tab) => tab.id === activeTabId)?.moduleId;
+  // The one line that generalizes to split view later: today activeModuleId
+  // is a single value, so this is pinned ∪ {one id}. When a second pane can
+  // have its own active module, this becomes pinned ∪ {active ids across
+  // every pane} — nothing else in this file needs to change.
+  const expandedModuleIds = new Set(
+    activeModuleId ? [...pinnedModuleIds, activeModuleId] : pinnedModuleIds,
+  );
+
+  function pinModule(moduleId: string) {
+    setPinnedModuleIds((prev) => new Set(prev).add(moduleId));
+  }
+
+  function unpinModule(moduleId: string) {
+    setPinnedModuleIds((prev) => {
+      const next = new Set(prev);
+      next.delete(moduleId);
+      return next;
+    });
+  }
+
+  const groups = groupTabs(tabs);
+
+  return (
+    <div className="scrollbar-hide flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [--wails-draggable:no-drag]">
+      {groups.map((group) => {
+        if (!expandedModuleIds.has(group.moduleId)) {
+          return (
+            <CollapsedChip
+              key={group.moduleId}
+              group={group}
+              onSelect={onSelect}
+              onExpand={() => pinModule(group.moduleId)}
+            />
+          );
+        }
+
+        const isActiveGroup = group.moduleId === activeModuleId;
+        return (
+          <div key={group.moduleId} className="flex shrink-0 items-center gap-1">
+            <ExpandedGroup
+              tabs={group.tabs}
+              activeTabId={activeTabId}
+              onSelect={onSelect}
+              onClose={onClose}
+              onReorder={onReorder}
+            />
+            {isActiveGroup ? null : (
+              // Only a manually-pinned (non-active) expanded group can be
+              // collapsed back — the active module's own group has no
+              // collapse control, since that would hide the tab the user
+              // is currently looking at.
+              <button
+                type="button"
+                aria-label={`Collapse ${getModule(group.moduleId)?.title ?? group.moduleId}`}
+                onClick={() => unpinModule(group.moduleId)}
+                className="flex size-5 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground [--wails-draggable:no-drag]"
+              >
+                <ChevronDown className="size-3.5" />
+              </button>
+            )}
+          </div>
+        );
+      })}
+    </div>
   );
 }
