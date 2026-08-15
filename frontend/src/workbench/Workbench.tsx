@@ -442,9 +442,9 @@ export function Workbench() {
               isFullscreen ? "w-1" : "w-20",
             )}
           />
-          {/* 1fr/4fr/1fr, not flex-grow ratios: Grid's fr unit divides the
+          {/* 1fr/5fr/1fr, not flex-grow ratios: Grid's fr unit divides the
               full track width by ratio regardless of each column's own
-              content size, which is what an even 1:4:1 split actually
+              content size, which is what an even 1:5:1 split actually
               requires — flex-grow only distributes space left over after
               content sizing, so an empty left column wouldn't reliably end
               up the same width as a busy right column under flex.
@@ -454,7 +454,7 @@ export function Workbench() {
               large, so the middle track was blowing out past its fr share
               and eating the side columns' space entirely. minmax(0,Nfr) is
               the standard fix: it lets the fr ratio actually win. */}
-          <div className="grid w-full grid-cols-[minmax(0,1fr)_minmax(0,4fr)_minmax(0,1fr)] items-center gap-2">
+          <div className="grid w-full grid-cols-[minmax(0,1fr)_minmax(0,5fr)_minmax(0,1fr)] items-center gap-2">
             {/* Status column — reserved layout space only. Content (agent
                 status, index status, ...) isn't built yet. */}
             <div />
