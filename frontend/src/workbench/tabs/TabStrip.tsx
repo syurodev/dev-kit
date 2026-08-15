@@ -2,13 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, Reorder } from "framer-motion";
 import { ChevronDown, Wrench, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { getModule } from "../../modules/registry";
 import type { TabStatus, WorkbenchTab } from "../../stores/workbenchTabs";
 
@@ -95,6 +88,7 @@ function ExpandedGroup({
   onReorder,
 }: ExpandedGroupProps) {
   const activeDragId = useRef<string | null>(null);
+  const dragOriginBeforeId = useRef<string | null>(null);
   const [visualTabs, setVisualTabs] = useState(tabs);
   const [draggingTabId, setDraggingTabId] = useState<string | null>(null);
   const [hoveredTabId, setHoveredTabId] = useState<string | null>(null);
@@ -121,6 +115,8 @@ function ExpandedGroup({
     activeDragId.current = draggedId;
     setDraggingTabId(draggedId);
     setHoveredTabId(null);
+    const index = visualTabsRef.current.findIndex((tab) => tab.id === draggedId);
+    dragOriginBeforeId.current = visualTabsRef.current[index + 1]?.id ?? null;
   }
 
   function handleDragEnd() {
@@ -130,10 +126,14 @@ function ExpandedGroup({
     if (draggedId !== null) {
       const index = visualTabsRef.current.findIndex((tab) => tab.id === draggedId);
       const beforeId = visualTabsRef.current[index + 1]?.id ?? null;
-      // The store change commits once per completed gesture, not once per
-      // crossed tab. Heavy module views therefore remain isolated from the
-      // high-frequency drag path.
-      onReorder(draggedId, beforeId);
+      // Skip the store commit when the gesture never actually crossed a
+      // neighbor — otherwise every accidental sub-threshold jiggle produces
+      // a new (but content-identical) openTabs array, which defeats
+      // WorkbenchViews' React.memo shallow prop check and re-renders the
+      // whole mounted content tree for zero visible change.
+      if (beforeId !== dragOriginBeforeId.current) {
+        onReorder(draggedId, beforeId);
+      }
     }
     activeDragId.current = null;
   }
@@ -276,40 +276,41 @@ type CollapsedChipProps = {
  * One module's tabs, collapsed to an icon + count badge (badge omitted at
  * count 1 — most modules normally have exactly one tab, and a permanent
  * "1" badge on every collapsed module would itself be visual noise).
- * Clicking opens a menu: "Show all tabs" pins the group open without
- * switching the active tab (peek), or pick a specific tab to switch to it
- * directly — no blind "always opens the first tab" default.
+ * One click, no intermediate menu: a single-tab group switches straight to
+ * its one tab; a multi-tab group expands in place (same as "Show all
+ * tabs") without switching the active tab — the user then clicks whichever
+ * of the now-visible individual tabs they actually want.
  */
 function CollapsedChip({ group, onSelect, onExpand }: CollapsedChipProps) {
   const moduleTitle = getModule(group.moduleId)?.title ?? group.moduleId;
   const ModuleIcon = group.tabs[0].icon ?? getModule(group.moduleId)?.icon ?? Wrench;
 
+  function handleClick() {
+    if (group.tabs.length === 1) {
+      onSelect(group.tabs[0].id);
+    } else {
+      onExpand();
+    }
+  }
+
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          aria-label={`${moduleTitle} — ${group.tabs.length} open tab${group.tabs.length === 1 ? "" : "s"}`}
-          className="flex h-6 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground [--wails-draggable:no-drag]"
-        >
-          <ModuleIcon className="size-3.5 shrink-0 opacity-70" />
-          {group.tabs.length > 1 ? (
-            <span className="rounded-full bg-foreground/10 px-1.5 text-[10px] leading-4">
-              {group.tabs.length}
-            </span>
-          ) : null}
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start">
-        <DropdownMenuItem onClick={onExpand}>Show all tabs</DropdownMenuItem>
-        <DropdownMenuSeparator />
-        {group.tabs.map((tab) => (
-          <DropdownMenuItem key={tab.id} onClick={() => onSelect(tab.id)}>
-            {tab.title}
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <button
+      type="button"
+      onClick={handleClick}
+      aria-label={
+        group.tabs.length === 1
+          ? `Switch to ${group.tabs[0].title}`
+          : `Show ${moduleTitle} tabs (${group.tabs.length})`
+      }
+      className="flex h-6 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground [--wails-draggable:no-drag]"
+    >
+      <ModuleIcon className="size-3.5 shrink-0 opacity-70" />
+      {group.tabs.length > 1 ? (
+        <span className="rounded-full bg-foreground/10 px-1.5 text-[10px] leading-4">
+          {group.tabs.length}
+        </span>
+      ) : null}
+    </button>
   );
 }
 
