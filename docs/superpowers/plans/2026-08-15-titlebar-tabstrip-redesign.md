@@ -73,7 +73,7 @@ git commit -m "feat(workbench): add per-module color hashing"
 so this task is independently typecheck-clean without touching
 `Workbench.tsx` — Task 3 is a separate, unrelated change to that file.
 
-- [ ] **Step 1: Replace the full contents of the file**
+- [x] **Step 1: Replace the full contents of the file**
 
 ```tsx
 import { useEffect, useRef, useState } from "react";
@@ -435,7 +435,7 @@ export function TabStrip({
 }
 ```
 
-- [ ] **Step 2: Typecheck**
+- [x] **Step 2: Typecheck**
 
 Run: `cd frontend && bun run build`
 Expected: succeeds. This is the step that proves `TabStripProps` really is
@@ -443,7 +443,7 @@ unchanged (no fallout in `Workbench.tsx`, which this task doesn't touch)
 and that `moduleHue` (Task 1) is correctly imported and used — an unused
 import would fail here too, since `tsconfig.json` has `noUnusedLocals: true`.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add frontend/src/workbench/tabs/TabStrip.tsx
@@ -457,7 +457,7 @@ git commit -m "feat(workbench): fisheye width + per-module color, drop tab colla
 **Files:**
 - Modify: `frontend/src/workbench/Workbench.tsx`
 
-**Step 1: Wrap the header's content in a 3-column grid**
+- [x] **Step 1: Wrap the header's content in a 3-column grid**
 
 Find:
 
@@ -644,12 +644,12 @@ Replace:
         </header>
 ```
 
-- [ ] **Step 2: Typecheck**
+- [x] **Step 2: Typecheck**
 
 Run: `cd frontend && bun run build`
 Expected: succeeds.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add frontend/src/workbench/Workbench.tsx

@@ -28,7 +28,7 @@ Modify:
 **Files:**
 - Modify: `frontend/src/stores/workbenchTabs.ts`
 
-- [ ] **Step 1: Add the `pushMru` helper and the `tabMru` field**
+- [x] **Step 1: Add the `pushMru` helper and the `tabMru` field**
 
 Find:
 
@@ -77,7 +77,7 @@ type WorkbenchTabsState = {
 };
 ```
 
-- [ ] **Step 2: Initialize `tabMru`**
+- [x] **Step 2: Initialize `tabMru`**
 
 Find:
 
@@ -96,7 +96,7 @@ export const useWorkbenchTabsStore = create<WorkbenchTabsState>((set, get) => ({
   tabMru: [],
 ```
 
-- [ ] **Step 3: Update `tabMru` in `openTab`'s existing-tab branches**
+- [x] **Step 3: Update `tabMru` in `openTab`'s existing-tab branches**
 
 Find:
 
@@ -124,7 +124,7 @@ Replace:
     }
 ```
 
-- [ ] **Step 4: Update `tabMru` in `openTab`'s new-tab branches**
+- [x] **Step 4: Update `tabMru` in `openTab`'s new-tab branches**
 
 Find:
 
@@ -170,7 +170,7 @@ Replace:
   },
 ```
 
-- [ ] **Step 5: Prune closed tabs from `tabMru`**
+- [x] **Step 5: Prune closed tabs from `tabMru`**
 
 Find:
 
@@ -215,7 +215,7 @@ Replace:
   },
 ```
 
-- [ ] **Step 6: Update `tabMru` in `setActiveTab`**
+- [x] **Step 6: Update `tabMru` in `setActiveTab`**
 
 Find:
 
@@ -230,12 +230,12 @@ Replace:
     set((state) => ({ activeTabId: id, tabMru: pushMru(state.tabMru, id) })),
 ```
 
-- [ ] **Step 7: Typecheck**
+- [x] **Step 7: Typecheck**
 
 Run: `cd frontend && bun run build`
 Expected: succeeds.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add frontend/src/stores/workbenchTabs.ts
@@ -249,7 +249,7 @@ git commit -m "feat(workbench): track tab activation order for the quick-switche
 **Files:**
 - Create: `frontend/src/workbench/TabSwitcher.tsx`
 
-- [ ] **Step 1: Write the file**
+- [x] **Step 1: Write the file**
 
 ```tsx
 import { Wrench } from "lucide-react";
@@ -347,14 +347,14 @@ export function TabSwitcher({ open, size, onClose }: TabSwitcherProps) {
 }
 ```
 
-- [ ] **Step 2: Typecheck**
+- [x] **Step 2: Typecheck**
 
 Run: `cd frontend && bun run build`
 Expected: succeeds — this component has no consumers yet (Task 3 wires it
 in), so this step just proves it's internally well-typed against the
 `tabMru` field Task 1 added.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add frontend/src/workbench/TabSwitcher.tsx
@@ -368,7 +368,7 @@ git commit -m "feat(workbench): add TabSwitcher popup component"
 **Files:**
 - Modify: `frontend/src/workbench/Workbench.tsx`
 
-- [ ] **Step 1: Import `TabSwitcher`**
+- [x] **Step 1: Import `TabSwitcher`**
 
 Find:
 
@@ -385,7 +385,7 @@ import { TabSwitcher } from "./TabSwitcher";
 import { InteractionHost } from "./InteractionHost";
 ```
 
-- [ ] **Step 2: Add switcher state and the keydown/keyup effect**
+- [x] **Step 2: Add switcher state and the keydown/keyup effect**
 
 Find:
 
@@ -461,7 +461,7 @@ Replace:
     listModules()
 ```
 
-- [ ] **Step 3: Render `TabSwitcher`**
+- [x] **Step 3: Render `TabSwitcher`**
 
 Find:
 
@@ -490,12 +490,12 @@ Replace:
         <InteractionHost />
 ```
 
-- [ ] **Step 4: Typecheck**
+- [x] **Step 4: Typecheck**
 
 Run: `cd frontend && bun run build`
 Expected: succeeds.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/src/workbench/Workbench.tsx

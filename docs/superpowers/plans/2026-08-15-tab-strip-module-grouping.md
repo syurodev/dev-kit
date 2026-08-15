@@ -30,7 +30,7 @@ No files created. `frontend/src/workbench/Workbench.tsx` needs no change — it 
 
 This is one task, not two, because `TabStrip.tsx` calls `onReorder` (typed from the store's `reorderTab`) — changing the store's signature without updating `TabStrip.tsx` in the same commit leaves the build broken, and there's no intermediate state where both files independently typecheck.
 
-- [ ] **Step 1: Change `reorderTab`'s type and implementation in the store**
+- [x] **Step 1: Change `reorderTab`'s type and implementation in the store**
 
 Find:
 
@@ -95,7 +95,7 @@ Replace:
     }),
 ```
 
-- [ ] **Step 2: Rewrite `TabStrip.tsx` in full**
+- [x] **Step 2: Rewrite `TabStrip.tsx` in full**
 
 Replace the full contents of `frontend/src/workbench/tabs/TabStrip.tsx` with:
 
@@ -493,7 +493,7 @@ export function TabStrip({
 }
 ```
 
-- [ ] **Step 3: Typecheck**
+- [x] **Step 3: Typecheck**
 
 Run: `cd frontend && bun run build`
 Expected: succeeds with no TypeScript errors. `Workbench.tsx` isn't touched
@@ -501,7 +501,7 @@ by this task — its `<TabStrip onReorder={reorderTab} />` wiring must still
 typecheck cleanly since both sides now agree on the `(fromId, beforeId: string | null) => void`
 signature.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add frontend/src/stores/workbenchTabs.ts frontend/src/workbench/tabs/TabStrip.tsx

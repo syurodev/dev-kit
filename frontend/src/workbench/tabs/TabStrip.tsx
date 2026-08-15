@@ -61,9 +61,9 @@ function groupTabs(tabs: WorkbenchTab[]): TabGroup[] {
   return groups;
 }
 
-const FISHEYE_STEP_PERCENT = 20;
-const FISHEYE_FLOOR_PERCENT = 20;
-const TAB_BASE_WIDTH_PX = 140;
+const FISHEYE_STEP_PERCENT = 35;
+const FISHEYE_FLOOR_PERCENT = 10;
+const TAB_BASE_WIDTH_PX = 200;
 
 /** Width for a tab `distance` positions away from the active tab. */
 function fisheyeWidthPx(distance: number): number {
@@ -243,7 +243,7 @@ function TabGroupRow({
                 scale: { duration: 0.18 },
               }}
               style={{
-                backgroundColor: `hsl(${hue} 55% 45% / ${isActive ? 0.7 : 0.3})`,
+                backgroundColor: `hsl(${hue} 55% 45% / ${isActive ? 0.5 : 0.1})`,
                 // "auto" width alone lets the active tab size to fit its own
                 // title — which reads as *smaller* than a neighbor whose
                 // fisheye width is a percentage of the fixed base when the
@@ -292,7 +292,7 @@ function TabGroupRow({
                 // TAB_BASE_WIDTH_PX stays this small — bump the base width
                 // up if that reads as broken rather than "very narrow" in
                 // practice.
-                "group relative flex h-6 shrink-0 items-center overflow-hidden rounded-md py-0 pl-2 pr-7 text-xs font-medium transition-[filter,box-shadow] [--wails-draggable:no-drag]",
+                "group relative flex h-6 shrink-0 items-center overflow-hidden rounded-md py-0 pl-2 pr-7 text-xs font-medium transition-[filter,box-shadow] [--wails-draggable:no-drag] backdrop-blur-sm",
                 !isActive && hoveredTabId === tab.id && draggingTabId === null
                   ? "brightness-125"
                   : "",
