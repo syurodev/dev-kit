@@ -548,7 +548,11 @@ export function TabStrip({
         // capsule with nothing inside it.
         className={cn(
           "scrollbar-hide flex max-w-full items-center gap-1.5 overflow-x-auto",
-          visualOrder.length > 0 && "rounded-full border border-primary/20 px-1.5 py-1",
+          // p-1 (not px-1.5/py-1): the horizontal and vertical gap between
+          // this outer border and the inner tab has to match, or the ring
+          // reads as uneven — most visible around the rounded end caps,
+          // where an unequal x/y offset breaks the two pills' concentricity.
+          visualOrder.length > 0 && "rounded-full border border-primary/20 p-1",
         )}
       >
         <AnimatePresence initial={false}>
