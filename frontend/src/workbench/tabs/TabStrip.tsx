@@ -233,6 +233,15 @@ function TabGroupRow({
               // timing plus the width-collapse-to-0 fix already makes a
               // plain exit+enter read as one motion without this.
               layout="position"
+              // Framer's drag defaults to momentum: on release, the item
+              // keeps drifting along its velocity for a moment before the
+              // layout system pulls it back to its actual slot — two
+              // motions competing right at drop, which read as a stutter
+              // exactly when the tab was supposed to be smoothly settling
+              // into place. Disabling it means release stops the item dead
+              // where the pointer left it, so the layout transition is the
+              // only motion happening from that point on.
+              dragMomentum={false}
               // Scaling a text-heavy tab forces WebKit to re-rasterise its
               // label and icon while Motion is also projecting every sibling.
               // A raised stacking order is enough feedback here and keeps the
