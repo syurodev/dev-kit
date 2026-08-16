@@ -234,12 +234,6 @@ export function Workbench() {
   // holding the key down or pressing it again while already browsing.
   const [switcher, setSwitcher] = useState<"closed" | "browsing" | "popup">("closed");
   const [isFullscreen, setIsFullscreen] = useState(false);
-  // Exact native titlebar/toolbar chrome height (see main.go's Mac.TitleBar
-  // = HiddenInset), read once at startup instead of guessing a pixel value
-  // — that's what keeps the traffic lights aligned with this header row.
-  // null (falls back to the CSS h-[38px] default below) until it resolves,
-  // and stays null on non-macOS platforms where the bridge call returns 0.
-  const [titlebarHeightPx, setTitlebarHeightPx] = useState<number | null>(null);
   const moduleActions = useModuleActionsStore((s) => s.actions);
   const openTabs = useWorkbenchTabsStore((state) => state.openTabs);
   const activeTabId = useWorkbenchTabsStore((state) => state.activeTabId);
@@ -304,18 +298,13 @@ export function Workbench() {
   }, []);
 
   useEffect(() => {
-    let mounted = true;
+    // Diagnostic only for now, not applied to the header (see the h-[50px]
+    // test on <header> below) — logging this to check whether the native
+    // bridge call is actually returning a useful value at all, separately
+    // from whether 50px itself turns out to be the right one.
     getTitlebarInsetHeight()
-      .then((height) => {
-        if (mounted && height > 0) {
-          setTitlebarHeightPx(height);
-        }
-      })
-      .catch(() => undefined);
-
-    return () => {
-      mounted = false;
-    };
+      .then((height) => console.log("[titlebar] native inset height:", height))
+      .catch((error) => console.log("[titlebar] native inset height failed:", error));
   }, []);
 
   useEffect(() => {
@@ -484,17 +473,15 @@ export function Workbench() {
             drag handle; tabs and controls can own their gestures reliably. */}
         <header
           className={cn(
-            // h-[38px] is only the fallback for the brief window before
-            // titlebarHeightPx resolves (or on non-macOS, where it never
-            // does) — style.height below overrides it with AppKit's real,
-            // measured titlebar/toolbar chrome height once known, which is
-            // what actually keeps the tab row aligned with the traffic
-            // lights instead of guessing a pixel value that only happens to
-            // match one macOS version's toolbar default.
-            "relative flex h-[38px] shrink-0 items-center pt-0.5 pr-4 transition-[padding-left] duration-300 ease-out motion-reduce:transition-none [--wails-draggable:no-drag]",
+            // Testing a direct revert to 50px (this app's original value
+            // pre-compact-redesign — see 320d85b) per explicit request,
+            // since the measured-native-height approach (titlebarHeightPx,
+            // still fetched above) didn't visibly fix the misalignment
+            // either — worth checking whether that means the fetch itself
+            // isn't returning a useful value, separately from this test.
+            "relative flex h-[50px] shrink-0 items-center pt-0.5 pr-4 transition-[padding-left] duration-300 ease-out motion-reduce:transition-none [--wails-draggable:no-drag]",
             isFullscreen ? "pl-1" : "pl-20",
           )}
-          style={titlebarHeightPx ? { height: titlebarHeightPx } : undefined}
         >
           <div
             aria-hidden="true"
