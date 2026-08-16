@@ -160,16 +160,11 @@ function TabGroupRow({
     if (activeDragId.current === null) {
       return;
     }
-    console.log(
-      "[TabStrip debug] handleVisualReorder ->",
-      nextTabs.map((tab) => tab.id),
-    );
     visualTabsRef.current = nextTabs;
     setVisualTabs(nextTabs);
   }
 
   function handleDragStart(draggedId: string) {
-    console.log("[TabStrip debug] handleDragStart", draggedId);
     activeDragId.current = draggedId;
     setDraggingTabId(draggedId);
     onDraggingChange(true);
@@ -188,12 +183,6 @@ function TabGroupRow({
         (tab) => tab.id === draggedId,
       );
       const beforeId = visualTabsRef.current[index + 1]?.id ?? null;
-      console.log("[TabStrip debug] handleDragEnd", {
-        draggedId,
-        beforeId,
-        dragOriginBeforeId: dragOriginBeforeId.current,
-        willCommitReorder: beforeId !== dragOriginBeforeId.current,
-      });
       // Skip the store commit when the gesture never actually crossed a
       // neighbor — otherwise every accidental sub-threshold jiggle produces
       // a new (but content-identical) openTabs array, which defeats
@@ -510,7 +499,6 @@ export function TabStrip({
 
     function measure() {
       if (el) {
-        console.log("[TabStrip debug] measure containerWidth ->", el.clientWidth);
         setContainerWidth(el.clientWidth);
       }
     }
@@ -590,28 +578,18 @@ export function TabStrip({
     // to a uniform width the instant any drag started, then snap back on
     // release, even when the gesture never actually committed a reorder.
     dragFreezeWidthsRef.current = new Map(computedWidths);
-    console.log(
-      "[TabStrip debug] drag freeze snapshot captured ->",
-      Object.fromEntries(dragFreezeWidthsRef.current),
-      "containerWidth:",
-      containerWidth,
-    );
   } else if (!isDragging && dragFreezeWidthsRef.current !== null) {
-    console.log("[TabStrip debug] drag freeze snapshot cleared");
     dragFreezeWidthsRef.current = null;
   }
 
   let widths = computedWidths;
-  let widthsSource: "computed" | "keyboardBrowsing" | "dragFreeze" = "computed";
   if (keyboardBrowsing) {
     // Keyboard-browsing (⌘⇧E) deliberately widens every tab to the same
     // comfortable width for readability while arrow-navigating — a real
     // intentional change, not something to freeze against.
     widths = new Map(visualOrder.map((tab) => [tab.id, ACTIVE_MIN_WIDTH_PX]));
-    widthsSource = "keyboardBrowsing";
   } else if (isDragging && dragFreezeWidthsRef.current) {
     widths = dragFreezeWidthsRef.current;
-    widthsSource = "dragFreeze";
   }
   // The pill's own rendered width, computed directly from data we already
   // have instead of letting it size itself from the live flex layout of its
@@ -633,13 +611,6 @@ export function TabStrip({
       8 +
       2
     : undefined;
-  console.log(
-    "[TabStrip debug] render widths ->",
-    widthsSource,
-    Object.fromEntries(widths),
-    "pillWidthPx:",
-    pillWidthPx,
-  );
 
   return (
     // Outer: always the strip's full measured width (ref={scrollRef} lives

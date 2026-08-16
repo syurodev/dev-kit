@@ -1,12 +1,4 @@
-import {
-  memo,
-  Suspense,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { memo, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Events, Window } from "@wailsio/runtime";
 import { Search, Settings as SettingsIcon } from "lucide-react";
 import { listModules, type ModuleDTO } from "../bridge/commands";
@@ -148,13 +140,6 @@ const WorkbenchViews = memo(function WorkbenchViews({
   openTabs,
   activeTabId,
 }: WorkbenchViewsProps) {
-  // Diagnostic: times this component's own render-function body (the
-  // synchronous work React does while calling it, not layout/paint) —
-  // checking whether re-rendering every mounted tab's view (e.g. a Plate.js
-  // NoteEditor) on a plain tab reorder is what's blocking the main thread
-  // at drop, since openTabs is a new array reference every reorder even
-  // when its actual contents are unchanged.
-  const __renderStart = performance.now();
   const activeTab = openTabs.find((tab) => tab.id === activeTabId);
   const activeModule =
     availableModules.find((module) => module.id === activeTab?.moduleId) ??
@@ -175,24 +160,6 @@ const WorkbenchViews = memo(function WorkbenchViews({
     ...(activeTab ? [activeTab.moduleId] : []),
     ...recentModuleIds,
   ]);
-
-  console.log(
-    "[perf debug] WorkbenchViews render body took",
-    (performance.now() - __renderStart).toFixed(1),
-    "ms",
-  );
-  useLayoutEffect(() => {
-    // Fires after this subtree (including every mounted TabView, e.g. a
-    // Plate.js NoteEditor) has committed to the DOM but before the browser
-    // paints — the gap from __renderStart to here covers everything React
-    // did for this whole tree on this update, not just this component's
-    // own body above.
-    console.log(
-      "[perf debug] WorkbenchViews subtree committed after",
-      (performance.now() - __renderStart).toFixed(1),
-      "ms",
-    );
-  });
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card">
@@ -256,33 +223,6 @@ const WorkbenchViews = memo(function WorkbenchViews({
 
 export function Workbench() {
   const modules = useMemo(() => listRegisteredModules(), []);
-  // Diagnostic: reports any browser-detected main-thread block over 50ms,
-  // regardless of source — WebKit's support for this is inconsistent across
-  // versions, so an empty console here doesn't rule out a block, only the
-  // WorkbenchViews timing logs above are conclusive either way.
-  useEffect(() => {
-    if (typeof PerformanceObserver === "undefined") {
-      return;
-    }
-    let observer: PerformanceObserver;
-    try {
-      observer = new PerformanceObserver((list) => {
-        for (const entry of list.getEntries()) {
-          console.log(
-            "[perf debug] longtask",
-            entry.duration.toFixed(1),
-            "ms",
-            entry,
-          );
-        }
-      });
-      observer.observe({ entryTypes: ["longtask"] });
-    } catch {
-      console.log("[perf debug] longtask observer unsupported in this WebView");
-      return;
-    }
-    return () => observer.disconnect();
-  }, []);
   const [backendModules, setBackendModules] = useState<ModuleDTO[] | null>(null);
   const [metadataError, setMetadataError] = useState(false);
   const [metadataLoading, setMetadataLoading] = useState(true);
