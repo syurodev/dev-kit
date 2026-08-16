@@ -599,10 +599,32 @@ export function TabStrip({
     widths = dragFreezeWidthsRef.current;
     widthsSource = "dragFreeze";
   }
+  // The pill's own rendered width, computed directly from data we already
+  // have instead of letting it size itself from the live flex layout of its
+  // children. Framer Motion's Reorder drag appears to change how the
+  // dragged item participates in that flex flow while a drag is active
+  // (its sibling(s)' widths never changed per the logging above, but the
+  // *pill's own* measured width still visibly shifted, recentering it via
+  // justify-center on the outer wrapper — the border looked like it was
+  // moving even though no tab's width was). Pinning the pill to a width we
+  // computed ourselves sidesteps whatever Framer is doing internally,
+  // rather than chasing it. gap-1.5 (6px) between every tab regardless of
+  // group boundaries (verified: outer gaps between groups + each group's
+  // own internal gaps always sum to visualOrder.length - 1 total gaps), +
+  // p-1 (4px each side) + the pill's own 1px border each side.
+  const tabWidthValues = visualOrder.map((tab) => widths.get(tab.id));
+  const pillWidthPx = tabWidthValues.every((value) => typeof value === "number")
+    ? tabWidthValues.reduce((sum: number, value) => sum + (value as number), 0) +
+      Math.max(0, visualOrder.length - 1) * 6 +
+      8 +
+      2
+    : undefined;
   console.log(
     "[TabStrip debug] render widths ->",
     widthsSource,
     Object.fromEntries(widths),
+    "pillWidthPx:",
+    pillWidthPx,
   );
 
   return (
@@ -635,6 +657,7 @@ export function TabStrip({
           // where an unequal x/y offset breaks the two pills' concentricity.
           visualOrder.length > 0 && "rounded-full border border-primary/20 p-1",
         )}
+        style={pillWidthPx !== undefined ? { width: pillWidthPx } : undefined}
       >
         <AnimatePresence initial={false}>
           {groups.map((group) => (
