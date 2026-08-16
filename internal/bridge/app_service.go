@@ -10,9 +10,8 @@ import (
 )
 
 type AppService struct {
-	container           *app.Container
-	applyTheme          func(preferences.Theme) error
-	titlebarInsetHeight func() float64
+	container  *app.Container
+	applyTheme func(preferences.Theme) error
 }
 
 func NewAppService(container *app.Container, themeApplier ...func(preferences.Theme) error) *AppService {
@@ -21,25 +20,6 @@ func NewAppService(container *app.Container, themeApplier ...func(preferences.Th
 		service.applyTheme = themeApplier[0]
 	}
 	return service
-}
-
-// SetTitlebarInsetHeightProvider wires the native accessor read by
-// TitlebarInsetHeight. Optional (set post-construction, like applyTheme):
-// main.go's native window isn't ready at NewAppService call time.
-func (s *AppService) SetTitlebarInsetHeightProvider(fn func() float64) {
-	s.titlebarInsetHeight = fn
-}
-
-// TitlebarInsetHeight returns how many points of native titlebar/toolbar
-// chrome (see main.go's Mac.TitleBar = HiddenInset) AppKit is actually
-// rendering at the top of the window right now, so the frontend can size
-// its own header row to match it exactly instead of guessing a pixel value.
-// 0 on non-macOS platforms or before the native window exists.
-func (s *AppService) TitlebarInsetHeight() float64 {
-	if s.titlebarInsetHeight == nil {
-		return 0
-	}
-	return s.titlebarInsetHeight()
 }
 
 type ModuleDTO struct {

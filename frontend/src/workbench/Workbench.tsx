@@ -2,7 +2,6 @@ import { memo, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Events, Window } from "@wailsio/runtime";
 import { Search, Settings as SettingsIcon } from "lucide-react";
 import { listModules, type ModuleDTO } from "../bridge/commands";
-import { getTitlebarInsetHeight } from "../bridge/window";
 import { Dock } from "./dock/Dock";
 import { AgentSessionsSubscriber } from "./AgentSessionsSubscriber";
 import { CommandPalette } from "./CommandPalette";
@@ -298,16 +297,6 @@ export function Workbench() {
   }, []);
 
   useEffect(() => {
-    // Diagnostic only for now, not applied to the header (see the h-[50px]
-    // test on <header> below) — logging this to check whether the native
-    // bridge call is actually returning a useful value at all, separately
-    // from whether 50px itself turns out to be the right one.
-    getTitlebarInsetHeight()
-      .then((height) => console.log("[titlebar] native inset height:", height))
-      .catch((error) => console.log("[titlebar] native inset height failed:", error));
-  }, []);
-
-  useEffect(() => {
     let mounted = true;
     listModules()
       .then((metadata) => {
@@ -473,12 +462,9 @@ export function Workbench() {
             drag handle; tabs and controls can own their gestures reliably. */}
         <header
           className={cn(
-            // Testing a direct revert to 50px (this app's original value
-            // pre-compact-redesign — see 320d85b) per explicit request,
-            // since the measured-native-height approach (titlebarHeightPx,
-            // still fetched above) didn't visibly fix the misalignment
-            // either — worth checking whether that means the fetch itself
-            // isn't returning a useful value, separately from this test.
+            // 50px, matching this app's original pre-compact-redesign value
+            // (see 320d85b) — confirmed to keep the traffic lights aligned
+            // with this row under Mac.TitleBar = HiddenInset (main.go).
             "relative flex h-[50px] shrink-0 items-center pt-0.5 pr-4 transition-[padding-left] duration-300 ease-out motion-reduce:transition-none [--wails-draggable:no-drag]",
             isFullscreen ? "pl-1" : "pl-20",
           )}
