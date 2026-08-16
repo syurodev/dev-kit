@@ -320,20 +320,24 @@ function TabGroupRow({
                   : "",
               )}
             >
-              {isActive ? (
-                // A single flat highlight shared (via layoutId) across
-                // whichever tab is currently active, anywhere in the strip
-                // — including a different module's group entirely. Motion
-                // doesn't diff old vs new parent, only the old and new
-                // screen rect, so switching tabs reads as one highlight
-                // sliding and resizing into place rather than one tab's
-                // highlight fading out while an unrelated one fades in.
-                <motion.div
-                  layoutId="tab-active-highlight"
-                  transition={{ type: "spring", stiffness: 460, damping: 32 }}
-                  className="absolute inset-0 rounded-full bg-primary/20"
-                />
-              ) : null}
+              {/* Plain CSS transition, not a shared layoutId Motion node —
+                  the layoutId version ran its own FLIP+spring computation
+                  on every render where this tab's position could differ,
+                  including mid-drag/reorder (its own layout="position"
+                  FLIP was already running then too), two separate Motion
+                  systems tracking the same tab concurrently. Reported
+                  stutter was specifically on drop, exactly where both
+                  would be settling at once — removing this one entirely
+                  in favor of a plain background-color transition trades
+                  the old "slides between tabs when switching active"
+                  effect for a same-spot fade, one fewer animated layer
+                  for the reorder/drop path to fight with. */}
+              <div
+                className={cn(
+                  "absolute inset-0 rounded-full bg-primary/20 transition-opacity duration-150 ease-out",
+                  isActive ? "opacity-100" : "opacity-0",
+                )}
+              />
               <span className="relative z-10 flex min-w-0 flex-1 items-center">
                 {(() => {
                   // A tab-level `icon` (set by whoever called openTab) wins
