@@ -83,7 +83,10 @@ function groupTabs(tabs: WorkbenchTab[]): TabGroup[] {
 // reserved close-button space), past which the strip scrolls horizontally
 // instead of shrinking further.
 const ACTIVE_MIN_WIDTH_PX = 200;
-const INACTIVE_MIN_WIDTH_PX = 44;
+// Floor for an inactive tab: pl-3 (12px) + icon (16px) + pr-8 (32px reserved
+// for the close button) sums to 60px at rest — 52px still leaves the icon
+// fully visible even at the exact floor, just tighter than at rest.
+const INACTIVE_MIN_WIDTH_PX = 52;
 
 type TabGroupRowProps = {
   tabs: WorkbenchTab[];
@@ -187,7 +190,7 @@ function TabGroupRow({
       axis="x"
       values={visualTabs}
       onReorder={handleVisualReorder}
-      className="flex shrink-0 items-center gap-1"
+      className="flex shrink-0 items-center gap-1.5"
     >
       <AnimatePresence initial={false}>
         {visualTabs.map((tab) => {
@@ -283,7 +286,7 @@ function TabGroupRow({
                 // its own anymore — the strip's own pill container (see the
                 // outer scrollRef div below) is what marks the boundary now,
                 // same as segments inside a segmented control.
-                "group relative flex h-6 shrink-0 items-center overflow-hidden rounded-full py-0 pl-2 pr-7 text-xs font-medium transition-[filter] [--wails-draggable:no-drag]",
+                "group relative flex h-8 shrink-0 items-center overflow-hidden rounded-full py-0 pl-3 pr-8 text-sm font-medium transition-[filter] [--wails-draggable:no-drag]",
                 !isActive && hoveredTabId === tab.id && draggingTabId === null
                   ? "brightness-125"
                   : "",
@@ -315,18 +318,18 @@ function TabGroupRow({
                   // tab-strip-only icon map to drift either way.
                   const ModuleIcon =
                     tab.icon ?? getModule(tab.moduleId)?.icon ?? Wrench;
-                  return <ModuleIcon className="size-3.5 shrink-0 opacity-85" />;
+                  return <ModuleIcon className="size-4 shrink-0 opacity-85" />;
                 })()}
                 {tab.status && tab.status !== "idle" ? (
                   <span
                     className={cn(
-                      "ml-1.5 size-1.5 shrink-0 rounded-full",
+                      "ml-2 size-1.5 shrink-0 rounded-full",
                       statusDotClass(tab.status),
                     )}
                   />
                 ) : null}
                 <span
-                  className={cn("ml-1.5 truncate", tab.preview && "italic")}
+                  className={cn("ml-2 truncate", tab.preview && "italic")}
                 >
                   {tab.title}
                 </span>
@@ -347,13 +350,13 @@ function TabGroupRow({
                   }
                 }}
                 className={cn(
-                  "absolute right-1 top-1/2 z-10 flex size-4 -translate-y-1/2 scale-75 items-center justify-center rounded opacity-0 transition-[opacity,transform] duration-150 ease-out hover:bg-foreground/10 focus:scale-100 focus:opacity-100 [--wails-draggable:no-drag]",
+                  "absolute right-1.5 top-1/2 z-10 flex size-5 -translate-y-1/2 scale-75 items-center justify-center rounded opacity-0 transition-[opacity,transform] duration-150 ease-out hover:bg-foreground/10 focus:scale-100 focus:opacity-100 [--wails-draggable:no-drag]",
                   hoveredTabId === tab.id &&
                     draggingTabId === null &&
                     "scale-100 opacity-100",
                 )}
               >
-                <X className="size-3" />
+                <X className="size-3.5" />
               </span>
             </Reorder.Item>
           );
@@ -534,8 +537,8 @@ export function TabStrip({
         // isHiddenHomePreview) it rendered as an empty capsule with nothing
         // inside it.
         className={cn(
-          "scrollbar-hide flex w-full items-center gap-1 overflow-x-auto",
-          visualOrder.length > 0 && "rounded-full border border-primary/20 px-1",
+          "scrollbar-hide flex w-full items-center gap-1.5 overflow-x-auto",
+          visualOrder.length > 0 && "rounded-full border border-primary/20 px-1.5 py-1",
         )}
       >
         <AnimatePresence initial={false}>
