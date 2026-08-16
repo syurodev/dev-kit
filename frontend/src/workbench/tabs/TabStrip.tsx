@@ -84,8 +84,12 @@ function groupTabs(tabs: WorkbenchTab[]): TabGroup[] {
 // own, smaller floor (INACTIVE_MIN_WIDTH_PX, just enough for the icon and
 // the reserved close-button space), past which the strip scrolls
 // horizontally instead of shrinking further.
-const MAX_TAB_WIDTH_PX = 320;
-const ACTIVE_MIN_WIDTH_PX = 200;
+const MAX_TAB_WIDTH_PX = 180;
+// Kept equal to MAX_TAB_WIDTH_PX: if the active tab's floor were ever above
+// the general cap, a roomy strip would render it *narrower* than a cramped
+// one (capped by MAX_TAB_WIDTH_PX in the roomy branch, locked at its own
+// higher floor only once cramped) — backwards from what "floor" should mean.
+const ACTIVE_MIN_WIDTH_PX = MAX_TAB_WIDTH_PX;
 // Floor for an inactive tab: pl-3 (12px) + icon (16px) + pr-8 (32px reserved
 // for the close button) sums to 60px at rest — 52px still leaves the icon
 // fully visible even at the exact floor, just tighter than at rest.
