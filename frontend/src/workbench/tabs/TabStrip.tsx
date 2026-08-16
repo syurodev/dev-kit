@@ -121,12 +121,13 @@ type TabGroupRowProps = {
  * phase mousedown before Motion's pointer gesture. Once it invokes the native
  * window move, the OS owns the pointer and React cannot recover the tab drag.
  *
- * `layout="position"` animates a tab's position when a sibling's width
- * changes (an equal-share recompute, or a drag) without scale-projecting
- * content. The tab's own `width` is a separate, real size change — animated through
- * `animate={{ width }}` (a direct tween) rather than through `layout`,
- * which only interpolates position/scale via FLIP, not genuine content
- * reflow. The close button is absolutely positioned in permanently
+ * `layout="position"` used to live on both the tab and its group wrapper,
+ * animating position via FLIP whenever a sibling's width changed (an
+ * equal-share recompute, or a drag) instead of snapping instantly. Removed
+ * as a diagnostic step for a drop-stutter that survived every other fix —
+ * see the inline comments at each removal site. The tab's own `width` is
+ * still a separate, real size change, animated through `animate={{ width }}`
+ * (a direct tween). The close button is absolutely positioned in permanently
  * reserved space, so hover and drag alone never change a tab's measured
  * width — only the deliberate equal-share width does.
  */
@@ -222,17 +223,17 @@ function TabGroupRow({
               as="button"
               value={tab}
               key={tab.id}
-              // A shared layoutId across every preview tab used to live
-              // here, so a preview replacing a different preview (e.g.
-              // clicking through notes) read as one continuous element
-              // instead of an unrelated exit+enter. Removed: it was
-              // fighting the active-tab pill's own layoutId (below) — both
-              // trying to morph a box's size/position on the same swap,
-              // at the same time, produced a briefly oversized/overlapping
-              // tab instead of a clean transition. The matched enter/exit
-              // timing plus the width-collapse-to-0 fix already makes a
-              // plain exit+enter read as one motion without this.
-              layout="position"
+              // layout="position" removed (was here): dropping it as a test
+              // for a reported drop-stutter that survived every other
+              // targeted fix (frozen widths, pinned pill width, disabled
+              // drag momentum, removing the active-highlight's own
+              // layoutId) — this was the last remaining Motion layer
+              // actively tracking every tab's position on every render,
+              // including throughout a drag/reorder. Without it, a sibling
+              // whose width or list position changes will snap instead of
+              // sliding smoothly — an explicit tradeoff to isolate whether
+              // this specific system is the source, not a settled decision
+              // to keep it removed either way.
               // Framer's drag defaults to momentum: on release, the item
               // keeps drifting along its velocity for a moment before the
               // layout system pulls it back to its actual slot — two
@@ -676,7 +677,8 @@ export function TabStrip({
           {groups.map((group) => (
             <motion.div
               key={group.moduleId}
-              layout="position"
+              // layout="position" removed here too, same test as the tab
+              // level above — see that comment.
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
