@@ -142,7 +142,6 @@ function TabGroupRow({
   const dragOriginBeforeId = useRef<string | null>(null);
   const [visualTabs, setVisualTabs] = useState(tabs);
   const [draggingTabId, setDraggingTabId] = useState<string | null>(null);
-  const [hoveredTabId, setHoveredTabId] = useState<string | null>(null);
   const visualTabsRef = useRef(tabs);
 
   useEffect(() => {
@@ -165,7 +164,6 @@ function TabGroupRow({
   function handleDragStart(draggedId: string) {
     activeDragId.current = draggedId;
     setDraggingTabId(draggedId);
-    setHoveredTabId(null);
     onDraggingChange(true);
     const index = visualTabsRef.current.findIndex((tab) => tab.id === draggedId);
     dragOriginBeforeId.current = visualTabsRef.current[index + 1]?.id ?? null;
@@ -174,7 +172,6 @@ function TabGroupRow({
   function handleDragEnd() {
     const draggedId = activeDragId.current;
     setDraggingTabId(null);
-    setHoveredTabId(null);
     onDraggingChange(false);
     if (draggedId !== null) {
       const index = visualTabsRef.current.findIndex((tab) => tab.id === draggedId);
@@ -269,34 +266,26 @@ function TabGroupRow({
               exit={{ opacity: 0, scale: 0.95, width: 0 }}
               type="button"
               data-tab-id={tab.id}
-              onPointerEnter={() => {
-                if (activeDragId.current === null) {
-                  setHoveredTabId(tab.id);
-                }
-              }}
-              onPointerMove={() => {
-                if (activeDragId.current === null && hoveredTabId !== tab.id) {
-                  setHoveredTabId(tab.id);
-                }
-              }}
-              onPointerLeave={() => {
-                setHoveredTabId((current) =>
-                  current === tab.id ? null : current,
-                );
-              }}
               onClick={() => onSelect(tab.id)}
               className={cn(
                 // overflow-hidden: at INACTIVE_MIN_WIDTH_PX there isn't
                 // room for icon + reserved close-button space + any title
                 // at once — content clips down to just the icon rather than
-                // spilling out of the tab's bounds. No border/background of
-                // its own anymore — the strip's own pill container (see the
-                // outer scrollRef div below) is what marks the boundary now,
-                // same as segments inside a segmented control.
+                // spilling out of the tab's bounds. bg-foreground/5 on
+                // inactive tabs: the strip's own pill container border
+                // alone read as too faint to tell individual tabs apart at
+                // a glance.
                 "group relative flex h-8 shrink-0 items-center overflow-hidden rounded-full py-0 pl-3 pr-8 text-sm font-medium transition-[filter] [--wails-draggable:no-drag]",
-                !isActive && hoveredTabId === tab.id && draggingTabId === null
-                  ? "brightness-125"
-                  : "",
+                !isActive && "bg-foreground/5",
+                // Plain CSS :hover (not JS-tracked hoveredTabId state) —
+                // hovering one tab used to re-render every sibling in this
+                // group (they all read the same hoveredTabId), which
+                // spuriously re-ran each one's `layout` FLIP measurement
+                // and read as a slight left-right jitter across the whole
+                // row. pointerEvents below already disables hit-testing on
+                // siblings during a drag, so :hover can't fire on them
+                // then either — no JS gating needed for that case.
+                !isActive && "hover:brightness-125",
                 isActive ? "text-foreground" : "text-muted-foreground",
                 // The ⌘⇧E keyboard-browsing cursor — separate from isActive,
                 // since Enter hasn't committed it as the active tab yet.
@@ -336,7 +325,14 @@ function TabGroupRow({
                   />
                 ) : null}
                 <span
-                  className={cn("ml-2 truncate", tab.preview && "italic")}
+                  className={cn(
+                    "ml-2 truncate",
+                    // pr-0.5: italic glyphs lean past their own box, and
+                    // truncate's overflow-hidden clips right at this
+                    // element's edge — without the extra room, the last
+                    // character's slanted stroke reads as slightly cut off.
+                    tab.preview && "pr-0.5 italic",
+                  )}
                 >
                   {tab.title}
                 </span>
@@ -356,12 +352,7 @@ function TabGroupRow({
                     onClose(tab.id);
                   }
                 }}
-                className={cn(
-                  "absolute right-1.5 top-1/2 z-10 flex size-5 -translate-y-1/2 scale-75 items-center justify-center rounded opacity-0 transition-[opacity,transform] duration-150 ease-out hover:bg-foreground/10 focus:scale-100 focus:opacity-100 [--wails-draggable:no-drag]",
-                  hoveredTabId === tab.id &&
-                    draggingTabId === null &&
-                    "scale-100 opacity-100",
-                )}
+                className="absolute right-1.5 top-1/2 z-10 flex size-5 -translate-y-1/2 scale-75 items-center justify-center rounded opacity-0 transition-[opacity,transform] duration-150 ease-out hover:bg-foreground/10 focus:scale-100 focus:opacity-100 group-hover:scale-100 group-hover:opacity-100 [--wails-draggable:no-drag]"
               >
                 <X className="size-3.5" />
               </span>
