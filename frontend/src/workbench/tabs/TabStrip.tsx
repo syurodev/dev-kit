@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { cn } from "@/lib/utils";
 import { AnimatePresence, Reorder, motion } from "framer-motion";
 import { Wrench, X } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { getModule } from "../../modules/registry";
 import type { TabStatus, WorkbenchTab } from "../../stores/workbenchTabs";
 
@@ -56,7 +56,9 @@ type TabGroup = {
  * same preview slot and becomes visible normally.
  */
 function isHiddenHomePreview(tab: WorkbenchTab): boolean {
-  return Boolean(tab.preview && getModule(tab.moduleId)?.views[0]?.id === tab.viewId);
+  return Boolean(
+    tab.preview && getModule(tab.moduleId)?.views[0]?.id === tab.viewId,
+  );
 }
 
 function groupTabs(tabs: WorkbenchTab[]): TabGroup[] {
@@ -165,7 +167,9 @@ function TabGroupRow({
     activeDragId.current = draggedId;
     setDraggingTabId(draggedId);
     onDraggingChange(true);
-    const index = visualTabsRef.current.findIndex((tab) => tab.id === draggedId);
+    const index = visualTabsRef.current.findIndex(
+      (tab) => tab.id === draggedId,
+    );
     dragOriginBeforeId.current = visualTabsRef.current[index + 1]?.id ?? null;
   }
 
@@ -174,7 +178,9 @@ function TabGroupRow({
     setDraggingTabId(null);
     onDraggingChange(false);
     if (draggedId !== null) {
-      const index = visualTabsRef.current.findIndex((tab) => tab.id === draggedId);
+      const index = visualTabsRef.current.findIndex(
+        (tab) => tab.id === draggedId,
+      );
       const beforeId = visualTabsRef.current[index + 1]?.id ?? null;
       // Skip the store commit when the gesture never actually crossed a
       // neighbor — otherwise every accidental sub-threshold jiggle produces
@@ -289,7 +295,9 @@ function TabGroupRow({
                 isActive ? "text-foreground" : "text-muted-foreground",
                 // The ⌘⇧E keyboard-browsing cursor — separate from isActive,
                 // since Enter hasn't committed it as the active tab yet.
-                tab.id === keyboardFocusedTabId ? "ring-2 ring-foreground/80" : "",
+                tab.id === keyboardFocusedTabId
+                  ? "ring-2 ring-foreground/80"
+                  : "",
               )}
             >
               {isActive ? (
@@ -373,7 +381,9 @@ export function TabStrip({
   keyboardBrowsing,
   onExitBrowsing,
 }: TabStripProps) {
-  const [keyboardFocusedTabId, setKeyboardFocusedTabId] = useState<string | null>(null);
+  const [keyboardFocusedTabId, setKeyboardFocusedTabId] = useState<
+    string | null
+  >(null);
   // Kept current every render so the "seed on browsing start" effect below
   // can read the latest activeTabId without needing it in its own
   // dependency array (which would re-seed on every activeTabId change
@@ -419,22 +429,41 @@ export function TabStrip({
       }
       event.preventDefault();
       const order = groupTabs(visibleTabs).flatMap((group) => group.tabs);
-      const currentIndex = order.findIndex((tab) => tab.id === keyboardFocusedTabId);
+      const currentIndex = order.findIndex(
+        (tab) => tab.id === keyboardFocusedTabId,
+      );
       if (currentIndex === -1) {
         return;
       }
       const delta = event.key === "ArrowLeft" ? -1 : 1;
-      const nextIndex = Math.min(Math.max(currentIndex + delta, 0), order.length - 1);
+      const nextIndex = Math.min(
+        Math.max(currentIndex + delta, 0),
+        order.length - 1,
+      );
       setKeyboardFocusedTabId(order[nextIndex]?.id ?? null);
     }
 
     window.addEventListener("keydown", handleBrowseKeyDown);
     return () => window.removeEventListener("keydown", handleBrowseKeyDown);
-  }, [keyboardBrowsing, visibleTabs, keyboardFocusedTabId, onSelect, onExitBrowsing]);
+  }, [
+    keyboardBrowsing,
+    visibleTabs,
+    keyboardFocusedTabId,
+    onSelect,
+    onExitBrowsing,
+  ]);
   // Keyed by moduleId rather than a single boolean so two groups reporting
   // out of order (shouldn't happen with one pointer, but costs nothing to
   // be exact about) can't clobber each other's state.
-  const [draggingGroupIds, setDraggingGroupIds] = useState<Set<string>>(new Set());
+  const [draggingGroupIds, setDraggingGroupIds] = useState<Set<string>>(
+    new Set(),
+  );
+  // Snapshot of every tab's width taken the instant a drag starts, reused
+  // for the whole gesture instead of recomputing — see the isDragging block
+  // below for why.
+  const dragFreezeWidthsRef = useRef<Map<string, number | undefined> | null>(
+    null,
+  );
   const scrollRef = useRef<HTMLDivElement>(null);
   // The strip's own available width (its box, not its content) — this is
   // what the equal-share width model below divides among tabs. Reliable
@@ -444,7 +473,9 @@ export function TabStrip({
   // very tab widths it's used to compute. Only the container's own box can
   // resize it (the grid column, e.g. on window resize) — tab width tweens
   // don't, so a plain ResizeObserver is enough with no settle timer needed.
-  const [containerWidth, setContainerWidth] = useState<number | undefined>(undefined);
+  const [containerWidth, setContainerWidth] = useState<number | undefined>(
+    undefined,
+  );
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -478,33 +509,30 @@ export function TabStrip({
 
   const groups = groupTabs(visibleTabs);
   const visualOrder = groups.flatMap((group) => group.tabs);
-  // A drag in progress or keyboard-browsing both force every tab to the
-  // same comfortable width regardless of the equal-share math below — the
-  // whole point of keyboard-browsing is seeing every tab at a readable
-  // width regardless of how cramped the strip currently is, and mid-drag
-  // widths snapping to the equal-share math (which shifts as the dragged
-  // tab crosses siblings) would fight the gesture itself.
-  const forceUniformWidth = draggingGroupIds.size > 0 || keyboardBrowsing;
   const hasVisibleActive = visualOrder.some((tab) => tab.id === activeTabId);
 
-  const widths = new Map<string, number | undefined>();
+  // The at-rest equal-share/cramped computation, independent of drag or
+  // keyboard-browsing state — used directly when neither is active, and as
+  // the drag-freeze snapshot's source (see below) while a drag is.
+  const computedWidths = new Map<string, number | undefined>();
   const equalShare =
     containerWidth !== undefined && visualOrder.length > 0
       ? containerWidth / visualOrder.length
       : undefined;
-  if (forceUniformWidth) {
-    visualOrder.forEach((tab) => widths.set(tab.id, ACTIVE_MIN_WIDTH_PX));
-  } else if (equalShare === undefined) {
+  if (equalShare === undefined) {
     // First paint, before the container has been measured even once —
     // "auto" (via widthPx ?? "auto" below) until the real share is known.
-    visualOrder.forEach((tab) => widths.set(tab.id, undefined));
+    visualOrder.forEach((tab) => computedWidths.set(tab.id, undefined));
   } else if (!hasVisibleActive || equalShare >= ACTIVE_MIN_WIDTH_PX) {
     // Room for everyone at (at least) the active tab's floor — including
     // when nothing in the strip is actually active (Dock-browsing a hidden
     // home preview, see isHiddenHomePreview), where there's no one tab to
     // prioritize a width for in the first place.
-    const share = Math.min(MAX_TAB_WIDTH_PX, Math.max(equalShare, INACTIVE_MIN_WIDTH_PX));
-    visualOrder.forEach((tab) => widths.set(tab.id, share));
+    const share = Math.min(
+      MAX_TAB_WIDTH_PX,
+      Math.max(equalShare, INACTIVE_MIN_WIDTH_PX),
+    );
+    visualOrder.forEach((tab) => computedWidths.set(tab.id, share));
   } else if (containerWidth !== undefined) {
     // Cramped: the active tab locks at its floor, and every other tab
     // splits whatever's left — shrinking further as more open, down to
@@ -513,10 +541,41 @@ export function TabStrip({
     const remaining = containerWidth - ACTIVE_MIN_WIDTH_PX;
     const inactiveCount = visualOrder.length - 1;
     const inactiveShare =
-      inactiveCount > 0 ? Math.max(INACTIVE_MIN_WIDTH_PX, remaining / inactiveCount) : undefined;
+      inactiveCount > 0
+        ? Math.max(INACTIVE_MIN_WIDTH_PX, remaining / inactiveCount)
+        : undefined;
     visualOrder.forEach((tab) => {
-      widths.set(tab.id, tab.id === activeTabId ? ACTIVE_MIN_WIDTH_PX : inactiveShare);
+      computedWidths.set(
+        tab.id,
+        tab.id === activeTabId ? ACTIVE_MIN_WIDTH_PX : inactiveShare,
+      );
     });
+  }
+
+  const isDragging = draggingGroupIds.size > 0;
+  if (isDragging && dragFreezeWidthsRef.current === null) {
+    // Snapshot the instant a drag starts (this render's computedWidths is
+    // still the pre-drag values — only the drag flag changed this frame,
+    // nothing feeding computedWidths itself has). Reusing this snapshot for
+    // the whole gesture, rather than forcing every tab to one shared width,
+    // is what keeps a drag that crosses a sibling and comes back without
+    // dropping from visibly jumping widths on the way in and back out —
+    // cramped tabs (an uneven active/inactive split) used to visibly snap
+    // to a uniform width the instant any drag started, then snap back on
+    // release, even when the gesture never actually committed a reorder.
+    dragFreezeWidthsRef.current = new Map(computedWidths);
+  } else if (!isDragging && dragFreezeWidthsRef.current !== null) {
+    dragFreezeWidthsRef.current = null;
+  }
+
+  let widths = computedWidths;
+  if (keyboardBrowsing) {
+    // Keyboard-browsing (⌘⇧E) deliberately widens every tab to the same
+    // comfortable width for readability while arrow-navigating — a real
+    // intentional change, not something to freeze against.
+    widths = new Map(visualOrder.map((tab) => [tab.id, ACTIVE_MIN_WIDTH_PX]));
+  } else if (isDragging && dragFreezeWidthsRef.current) {
+    widths = dragFreezeWidthsRef.current;
   }
 
   return (
@@ -573,7 +632,9 @@ export function TabStrip({
                 tabs={group.tabs}
                 activeTabId={activeTabId}
                 widths={widths}
-                keyboardFocusedTabId={keyboardBrowsing ? keyboardFocusedTabId : null}
+                keyboardFocusedTabId={
+                  keyboardBrowsing ? keyboardFocusedTabId : null
+                }
                 onSelect={onSelect}
                 onClose={onClose}
                 onReorder={onReorder}
