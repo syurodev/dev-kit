@@ -75,13 +75,16 @@ function groupTabs(tabs: WorkbenchTab[]): TabGroup[] {
 }
 
 // Width model: split the strip's actual measured width evenly across every
-// tab. One tab fills the whole strip; opening more shrinks everyone's equal
-// share together. Once that equal share would push the active tab below its
-// own floor, the active tab locks at ACTIVE_MIN_WIDTH_PX instead and only
-// the *other* tabs keep splitting whatever's left — down to their own,
-// smaller floor (INACTIVE_MIN_WIDTH_PX, just enough for the icon and the
-// reserved close-button space), past which the strip scrolls horizontally
-// instead of shrinking further.
+// tab, capped at MAX_TAB_WIDTH_PX — one or two short-titled tabs shouldn't
+// stretch into one giant mostly-empty pill just because the strip has the
+// room. Opening more tabs (past what fits at the cap) shrinks everyone's
+// equal share together. Once that equal share would push the active tab
+// below its own floor, the active tab locks at ACTIVE_MIN_WIDTH_PX instead
+// and only the *other* tabs keep splitting whatever's left — down to their
+// own, smaller floor (INACTIVE_MIN_WIDTH_PX, just enough for the icon and
+// the reserved close-button space), past which the strip scrolls
+// horizontally instead of shrinking further.
+const MAX_TAB_WIDTH_PX = 320;
 const ACTIVE_MIN_WIDTH_PX = 200;
 // Floor for an inactive tab: pl-3 (12px) + icon (16px) + pr-8 (32px reserved
 // for the close button) sums to 60px at rest — 52px still leaves the icon
@@ -505,7 +508,7 @@ export function TabStrip({
     // when nothing in the strip is actually active (Dock-browsing a hidden
     // home preview, see isHiddenHomePreview), where there's no one tab to
     // prioritize a width for in the first place.
-    const share = Math.max(equalShare, INACTIVE_MIN_WIDTH_PX);
+    const share = Math.min(MAX_TAB_WIDTH_PX, Math.max(equalShare, INACTIVE_MIN_WIDTH_PX));
     visualOrder.forEach((tab) => widths.set(tab.id, share));
   } else if (containerWidth !== undefined) {
     // Cramped: the active tab locks at its floor, and every other tab
@@ -522,22 +525,29 @@ export function TabStrip({
   }
 
   return (
-    // No centering trick needed here: tab widths are computed above to
-    // always exactly fill the container (equal-share regime) or exceed it
-    // (floor-clamped regime, via overflow-x-auto below) — never fall short
-    // of it — so a plain full-width row is enough either way.
-    <div className="flex min-w-0 [--wails-draggable:no-drag]">
+    // Outer: always the strip's full measured width (ref={scrollRef} lives
+    // here, not on the inner pill) — that's what the equal-share math above
+    // needs to divide, and it has to stay decoupled from how wide the
+    // rendered pill actually ends up (now that widths are capped at
+    // MAX_TAB_WIDTH_PX, a couple of short tabs render *narrower* than the
+    // container again, so measuring the pill itself would create a feedback
+    // loop: its width shrinks, `containerWidth` reads too small, tabs get
+    // sized as if there's less room than there really is). justify-center
+    // balances that narrower pill inside the available width instead of
+    // pinning it to the left edge. Inner: the actual visible, content-sized
+    // (max-w-full, not w-full) scrollable pill — grows only as wide as its
+    // tabs need, scrolling past that once they don't fit.
+    <div
+      ref={scrollRef}
+      className="flex min-w-0 w-full justify-center [--wails-draggable:no-drag]"
+    >
       <div
-        ref={scrollRef}
-        // The pill-shaped viewport holding every tab, replacing each tab's
-        // own border/background from before — one capsule around the whole
-        // strip instead of one around each tab. Only drawn when there's at
-        // least one visible tab to hold — otherwise (e.g. Dock-browsing a
-        // module whose home view has no strip entry, see
-        // isHiddenHomePreview) it rendered as an empty capsule with nothing
-        // inside it.
+        // Only drawn when there's at least one visible tab to hold —
+        // otherwise (e.g. Dock-browsing a module whose home view has no
+        // strip entry, see isHiddenHomePreview) it rendered as an empty
+        // capsule with nothing inside it.
         className={cn(
-          "scrollbar-hide flex w-full items-center gap-1.5 overflow-x-auto",
+          "scrollbar-hide flex max-w-full items-center gap-1.5 overflow-x-auto",
           visualOrder.length > 0 && "rounded-full border border-primary/20 px-1.5 py-1",
         )}
       >
