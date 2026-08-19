@@ -124,13 +124,13 @@ type ActiveProfileResult struct {
 
 // Deps wires MCP tool handlers. Production composition is Task 8 / main.
 type Deps struct {
-	Caller   Caller
-	Notes    NotesAPI
-	Vault    VaultAPI
-	Search   SearchAPI
-	Tools    ToolsAPI
-	Envs     EnvAPI
-	SSH      SSHAPI
+	Caller    Caller
+	Notes     NotesAPI
+	Vault     VaultAPI
+	Search    SearchAPI
+	Tools     ToolsAPI
+	Envs      EnvAPI
+	SSH       SSHAPI
 	DB        DatabaseAPI
 	Kafka     KafkaAPI
 	CodeGraph CodeGraphAPI

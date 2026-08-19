@@ -56,7 +56,7 @@ func (f *fakeNotes) Create(string, string, string, []string) (notes.Summary, err
 	return notes.Summary{ID: "created", Title: "t"}, nil
 }
 func (f *fakeNotes) Update(string, string, string) (notes.Note, error) { return f.note, nil }
-func (f *fakeNotes) Delete(string) error                                 { return nil }
+func (f *fakeNotes) Delete(string) error                               { return nil }
 func (f *fakeNotes) SetOrganization(string, string, []string, string) (notes.Summary, error) {
 	return notes.Summary{ID: "org"}, nil
 }
