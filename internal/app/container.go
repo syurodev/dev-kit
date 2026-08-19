@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"devkit/internal/agenthub"
@@ -71,9 +72,14 @@ type Container struct {
 	Database     *database.Service
 	SSH          *sshservice.Service
 	CodeGraph    *codegraph.Service
+	// ConfigDir is the raw OS user-config directory (os.UserConfigDir()),
+	// set by main before use. Empty in ephemeral/test containers built via
+	// NewContainer/NewContainerWithStores — callers that need a real path
+	// (e.g. CodeGraph's per-project SQLite index) must handle that case,
+	// since not every test wants a real filesystem dependency.
+	ConfigDir    string
 	Kafka        *kafka.Service
 	Sync         SyncService
-	Auth         AuthService
 	SyncConflict SyncConflictService
 	// Interaction is the shared MCP/UI hub for selection and confirmation
 	// dialogs. Set from main before NewAppService so bridge and MCP share one
@@ -85,9 +91,42 @@ type Container struct {
 	// AgentHubPermissions completes UI permission prompts for AgentHub.
 	// Nil when AgentHub is unset.
 	AgentHubPermissions *agenthub.PermissionWaiter
-	// SyncBlocked, when set, prevents AuthLogin and SyncConnect with a dedicated
-	// cloud-config or version-gate error mapped by the bridge.
-	SyncBlocked error
+
+	// auth and syncBlocked are mutable after startup: the cloudconfig refresh
+	// goroutine rewrites them while bridge call handlers read them, so every
+	// access goes through the mutex-guarded accessors below.
+	mu          sync.Mutex
+	auth        AuthService
+	syncBlocked error
+}
+
+// Auth returns the current auth service, if wired.
+func (c *Container) Auth() AuthService {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.auth
+}
+
+// SetAuth installs (or replaces) the auth service.
+func (c *Container) SetAuth(svc AuthService) {
+	c.mu.Lock()
+	c.auth = svc
+	c.mu.Unlock()
+}
+
+// SyncBlockedErr returns the cloud-config or version-gate error that should
+// block AuthLogin and SyncConnect, if any.
+func (c *Container) SyncBlockedErr() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.syncBlocked
+}
+
+// SetSyncBlockedErr records or clears the Sync/AuthLogin block reason.
+func (c *Container) SetSyncBlockedErr(err error) {
+	c.mu.Lock()
+	c.syncBlocked = err
+	c.mu.Unlock()
 }
 
 // NewContainer wires core services with in-memory stores, suitable for tests

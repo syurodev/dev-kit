@@ -76,6 +76,7 @@ func main() {
 		vaultitem.NewSQLMutationRepository(db),
 		environments.NewSQLRepository(db),
 	)
+	container.ConfigDir = configDir
 	container.Preferences = preferences.NewService(preferences.NewSQLRepository(db))
 	themePreference, err := container.Preferences.Theme()
 	if err != nil {
@@ -101,7 +102,7 @@ func main() {
 			return err
 		}
 		authMu.Lock()
-		container.Auth = authService
+		container.SetAuth(authService)
 		authMu.Unlock()
 		return nil
 	}
@@ -112,7 +113,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	container.SyncBlocked = startupResult.SyncBlocked()
+	container.SetSyncBlockedErr(startupResult.SyncBlocked())
 	if startupResult.IssuerChanged {
 		_ = refreshStore.Delete()
 	}
@@ -121,13 +122,13 @@ func main() {
 		FromEnv:        startupResult.FromEnv,
 		StartupFetched: startupResult.StartupFetched,
 		OnApply: func(update cloudconfig.ApplyUpdate) {
-			container.SyncBlocked = cloudconfig.ApplySyncBlocked(container.SyncBlocked, update.Blocked)
+			container.SetSyncBlockedErr(cloudconfig.ApplySyncBlocked(container.SyncBlockedErr(), update.Blocked))
 			if update.IssuerChanged {
 				_ = refreshStore.Delete()
 			}
 			if !startupResult.FromEnv && update.HasAuthConfig {
 				authMu.Lock()
-				needsAuth := container.Auth == nil
+				needsAuth := container.Auth() == nil
 				authMu.Unlock()
 				if needsAuth || update.IssuerChanged {
 					if err := wireAuth(update.AuthConfig); err != nil {
@@ -147,12 +148,14 @@ func main() {
 		log.Fatal(err)
 	}
 	remoteStore := syncstore.NewSQLRemoteStore(db)
+	conflictStore := syncstore.NewSQLConflictStore(db)
 	syncService, err := syncclient.New(syncclient.Dependencies{
 		DeviceIdentity: syncstore.NewSQLDeviceIdentityStore(db),
 		Cursors:        syncstore.NewSQLCursorStore(db),
 		Remote:         remoteStore,
 		LocalMutations: syncstore.NewSQLLocalMutationStore(db),
 		Outbox:         outbox,
+		Conflicts:      conflictStore,
 		Vault:          container.Vault,
 	})
 	if err != nil {
@@ -164,7 +167,7 @@ func main() {
 	// Conflict resolution runs offline against the bound account, so it is wired
 	// directly from durable stores rather than the live session.
 	container.SyncConflict = syncconflict.New(syncconflict.Deps{
-		Conflicts: syncstore.NewSQLConflictStore(db),
+		Conflicts: conflictStore,
 		Resolver:  syncstore.NewSQLConflictResolver(db),
 		Accounts:  remoteStore,
 		Items:     container.Items,
@@ -285,23 +288,16 @@ func main() {
 		Mac: application.MacWindow{
 			// Do not use InvisibleTitleBarHeight here. In Wails beta.8 it is a
 			// native AppKit hit zone: every first mouse-down in the top N pixels
-			// calls performWindowDragWithEvent before the webview can decide that
-			// a tab is interactive. The frontend owns one explicit CSS drag handle
-			// over the traffic-light clearance instead.
+			// calls performWindowDragWithEvent before the webview can honor a
+			// no-drag action. The frontend marks the full header as draggable and
+			// opts its interactive children out individually instead.
 			InvisibleTitleBarHeight: 0,
 			Backdrop:                application.MacBackdropTranslucent,
 			// Match AppKit's vibrancy, rim and titlebar to the persisted web theme.
 			Appearance: macAppearance,
-			// HiddenInset (not Hidden): AppKit re-centers the traffic-light
-			// buttons within its own native toolbar-driven titlebar area under
-			// this mode — this app originally shipped with HiddenInset (see
-			// 320d85b) and only switched to plain Hidden for the earlier
-			// compact-30px redesign, which is what actually broke the
-			// auto-centering the frontend header now depends on again at
-			// 45px. InvisibleTitleBarHeight stays 0 either way — that's a
-			// separate, unrelated Wails property (a native drag hit-zone) and
-			// not what HiddenInset needs to auto-center.
-			TitleBar: application.MacTitleBarHiddenInset,
+			// Hidden avoids the additional NSToolbar used by HiddenInset and
+			// matches the frontend's compact 30px titlebar.
+			TitleBar: application.MacTitleBarHidden,
 		},
 		Windows: application.WindowsWindow{
 			Theme: windowsTheme,
