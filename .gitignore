@@ -3,6 +3,7 @@
 bin
 target/
 analyzer/target/
+analyzer/dependency-reduced-pom.xml
 
 # Frontend
 frontend/dist
