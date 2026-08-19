@@ -437,6 +437,39 @@ func (s *Service) Close() error {
 	return nil
 }
 
+// WaitForIndexReady blocks until no background re-index is pending or
+// running, then returns the current index version. Callers that just wrote
+// a file (or otherwise expect a re-index) should call this before trusting
+// any other query's result — see this plan's "Known limitation" note for the
+// one narrow timing edge this does not close.
+//
+// Implemented as a short poll rather than a sync.Cond: the debounce interval
+// is hundreds of milliseconds, so a 50ms poll is imperceptible, and it composes
+// cleanly with ctx cancellation (sync.Cond.Wait does not, without extra
+// goroutine plumbing this doesn't otherwise need).
+func (s *Service) WaitForIndexReady(ctx context.Context) (int, error) {
+	for {
+		s.mu.RLock()
+		active := s.active
+		reindexing := s.reindexing
+		version := s.indexVersion
+		s.mu.RUnlock()
+
+		if !active {
+			return 0, ErrNoActiveProject
+		}
+		if !reindexing {
+			return version, nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+}
+
 func (s *Service) ReadFile(ctx context.Context, relativePath string) (string, error) {
 	_, root, err := s.activeProject()
 	if err != nil {

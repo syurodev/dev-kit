@@ -609,3 +609,51 @@ func TestServiceOpenProjectStartsWatcherNonFatally(t *testing.T) {
 		t.Fatal("expected the project to still be usable despite the watcher failing to start")
 	}
 }
+
+func TestServiceWaitForIndexReadyReturnsImmediatelyWhenIdle(t *testing.T) {
+	svc := newTestService(t, fakeAnalyzer{result: sampleResult()})
+	if err := svc.OpenProject(context.Background(), "/fake/project"); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+	t.Cleanup(func() { svc.Close() })
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	version, err := svc.WaitForIndexReady(ctx)
+	if err != nil {
+		t.Fatalf("WaitForIndexReady: %v", err)
+	}
+	if version != 1 {
+		t.Fatalf("version = %d, want 1 (one successful OpenProject)", version)
+	}
+}
+
+func TestServiceWaitForIndexReadyBeforeOpenProjectFails(t *testing.T) {
+	svc := NewService(nilStore{}, fakeAnalyzer{})
+	if _, err := svc.WaitForIndexReady(context.Background()); !errors.Is(err, ErrNoActiveProject) {
+		t.Fatalf("expected ErrNoActiveProject, got %v", err)
+	}
+}
+
+func TestServiceWaitForIndexReadyRespectsContextCancellation(t *testing.T) {
+	svc := newTestService(t, fakeAnalyzer{result: sampleResult()})
+	if err := svc.OpenProject(context.Background(), "/fake/project"); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+	t.Cleanup(func() { svc.Close() })
+
+	svc.mu.Lock()
+	svc.reindexing = true // simulate a reindex that never finishes
+	svc.mu.Unlock()
+	defer func() {
+		svc.mu.Lock()
+		svc.reindexing = false
+		svc.mu.Unlock()
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if _, err := svc.WaitForIndexReady(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected context.DeadlineExceeded, got %v", err)
+	}
+}
