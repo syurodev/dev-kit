@@ -7,6 +7,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -144,6 +146,20 @@ class ProjectAnalyzerTest {
         assertEquals("POST", endpoint.httpMethod);
         assertEquals("/refunds", endpoint.path);
         assertEquals("POST /refunds", endpoint.id);
+    }
+
+    @Test
+    void derivesFileDependenciesFromCrossFileCalls() throws IOException {
+        Path projectRoot = Path.of("src/test/resources/sample-project");
+        AnalysisResult result = new ProjectAnalyzer(projectRoot).analyze();
+
+        Set<String> deps = result.fileDependencies.stream()
+                .map(fd -> fd.filePath + " -> " + fd.dependsOnFilePath)
+                .collect(Collectors.toSet());
+        Set<String> want = Set.of(
+                "src/main/java/com/acme/refund/RefundController.java -> src/main/java/com/acme/refund/RefundService.java",
+                "src/main/java/com/acme/refund/RefundService.java -> src/main/java/com/acme/refund/RefundRepository.java");
+        assertEquals(want, deps, "file dependencies = %s".formatted(deps));
     }
 
     private boolean hasCallEdge(AnalysisResult result, String fromLabel, String toLabel) {

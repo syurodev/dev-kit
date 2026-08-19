@@ -11,9 +11,9 @@ import com.github.javaparser.symbolsolver.JavaSymbolSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.CombinedTypeSolver;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
+import java.nio.file.Files;import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -47,44 +47,48 @@ public class ProjectAnalyzer {
         CombinedTypeSolver typeSolver = TypeSolverFactory.build(sourceRoot);
         StaticJavaParser.setConfiguration(new ParserConfiguration().setSymbolResolver(new JavaSymbolSolver(typeSolver)));
 
+        List<ParsedFile> files = new ArrayList<>();
         try (Stream<Path> walk = Files.walk(sourceRoot)) {
             for (Path javaFile : walk.filter(p -> p.toString().endsWith(".java")).toList()) {
-                analyzeFile(javaFile, result);
+                parseFile(javaFile).ifPresent(files::add);
             }
         }
+
+        // Pass 1 collects every declaration and the class -> file map; pass 2
+        // resolves calls against that complete map, because a call in an
+        // early-parsed file may target a class in a file not parsed yet.
+        Map<String, String> classFile = new HashMap<>();
+        List<MethodCallSite> callSites = new ArrayList<>();
+        for (ParsedFile file : files) {
+            collectDeclarations(file, classFile, callSites, result);
+        }
+        for (MethodCallSite site : callSites) {
+            addCallEdges(site, classFile, result);
+        }
+
         result.edges = dedupeEdges(result.edges);
+        result.fileDependencies = dedupeFileDependencies(result.fileDependencies);
         return result;
     }
 
-    // The same target called repeatedly in one body yields identical edges;
-    // keep the first of each from/to/kind triple, preserving order. One pass
-    // at the end instead of a contains-check per added edge keeps large
-    // projects linear rather than quadratic.
-    private static List<Edge> dedupeEdges(List<Edge> edges) {
-        Map<String, Edge> byKey = new LinkedHashMap<>();
-        for (Edge e : edges) {
-            byKey.putIfAbsent(e.from + "\n" + e.to + "\n" + e.kind, e);
-        }
-        return new ArrayList<>(byKey.values());
-    }
-
-    private void analyzeFile(Path javaFile, AnalysisResult result) throws IOException {
+    private Optional<ParsedFile> parseFile(Path javaFile) {
         CompilationUnit cu;
-        // ParseProblemException is a RuntimeException; deeply nested
-        // expressions can overflow the parser's stack. Either way, one bad
-        // file must not abort indexing the rest of the project (FR-8's
-        // "unresolved, not fatal" principle applied one level up:
-        // unparseable, not just unresolvable). Real errors (OOM etc.)
-        // still propagate.
+        // IOException: the file is unreadable. ParseProblemException is a
+        // RuntimeException; deeply nested expressions can overflow the
+        // parser's stack. Either way, one bad file must not abort indexing
+        // the rest of the project (FR-8's "unresolved, not fatal" principle
+        // applied one level up: unparseable, not just unresolvable). Real
+        // errors (OOM etc.) still propagate.
         try {
             cu = StaticJavaParser.parse(javaFile);
-        } catch (RuntimeException | StackOverflowError e) {
-            return;
+        } catch (IOException | RuntimeException | StackOverflowError e) {
+            return Optional.empty();
         }
+        return Optional.of(new ParsedFile(cu, projectRoot.relativize(javaFile).toString()));
+    }
 
-        String relativePath = projectRoot.relativize(javaFile).toString();
-
-        for (ClassOrInterfaceDeclaration classDecl : cu.findAll(ClassOrInterfaceDeclaration.class)) {
+    private void collectDeclarations(ParsedFile file, Map<String, String> classFile, List<MethodCallSite> callSites, AnalysisResult result) {
+        for (ClassOrInterfaceDeclaration classDecl : file.cu().findAll(ClassOrInterfaceDeclaration.class)) {
             String className;
             try {
                 className = classDecl.resolve().getQualifiedName();
@@ -92,13 +96,15 @@ public class ProjectAnalyzer {
                 // If resolving class declaration fails, fallback to AST fully-qualified name or simple name
                 className = classDecl.getFullyQualifiedName().orElse(classDecl.getNameAsString());
             }
+            classFile.putIfAbsent(className, file.relativePath());
             String layer = LayerClassifier.classify(classDecl);
 
-            result.nodes.add(classNode(className, layer, relativePath, classDecl.getRange()));
+            result.nodes.add(classNode(className, layer, file.relativePath(), classDecl.getRange()));
 
             for (MethodDeclaration methodDecl : classDecl.getMethods()) {
-                Optional<String> methodId = addMethodNode(methodDecl, layer, relativePath, result);
+                Optional<String> methodId = addMethodNode(methodDecl, layer, file.relativePath(), result);
                 if (methodId.isPresent()) {
+                    callSites.add(new MethodCallSite(methodDecl, methodId.get(), file.relativePath()));
                     EndpointExtractor.extract(classDecl, methodDecl).ifPresent(mapping -> {
                         Endpoint endpoint = new Endpoint();
                         endpoint.id = mapping.httpMethod() + " " + mapping.path();
@@ -139,25 +145,57 @@ public class ProjectAnalyzer {
         }
         result.nodes.add(node);
 
-        addCallEdges(methodDecl, node.id, result);
         return Optional.of(node.id);
     }
 
-    private void addCallEdges(MethodDeclaration methodDecl, String fromNodeId, AnalysisResult result) {
-        for (com.github.javaparser.ast.expr.MethodCallExpr call : methodDecl.findAll(com.github.javaparser.ast.expr.MethodCallExpr.class)) {
+    private void addCallEdges(MethodCallSite site, Map<String, String> classFile, AnalysisResult result) {
+        for (com.github.javaparser.ast.expr.MethodCallExpr call : site.methodDecl().findAll(com.github.javaparser.ast.expr.MethodCallExpr.class)) {
+            ResolvedMethodDeclaration target;
+            String targetClass;
             String toNodeId;
             try {
-                ResolvedMethodDeclaration target = call.resolve();
+                target = call.resolve();
                 // target.getSignature() can also lazily throw UnsolvedSymbolException if its params are missing
-                toNodeId = target.declaringType().getQualifiedName() + "." + target.getSignature();
+                targetClass = target.declaringType().getQualifiedName();
+                toNodeId = targetClass + "." + target.getSignature();
             } catch (RuntimeException | StackOverflowError e) {
                 // Unresolved call (missing jar in the local cache, dynamic
                 // dispatch the solver can't follow, unresolved parameter types, etc.)
                 // — FR-8: this is a gap in the graph, not a fatal error for the whole project.
                 continue;
             }
-            result.edges.add(new Edge(fromNodeId, toNodeId, "call"));
+            result.edges.add(new Edge(site.methodId(), toNodeId, "call"));
+
+            // File-level dependency: only when the callee is declared in this
+            // project's own source (classFile has no entry for JDK/library
+            // types, and a dependency on an external file is meaningless for
+            // blast radius). Same-file calls are skipped — a file never
+            // depends on itself.
+            String targetFile = classFile.get(targetClass);
+            if (targetFile != null && !targetFile.equals(site.filePath())) {
+                result.fileDependencies.add(new FileDependency(site.filePath(), targetFile));
+            }
         }
+    }
+
+    // The same target called repeatedly in one body yields identical edges;
+    // keep the first of each from/to/kind triple, preserving order. One pass
+    // at the end instead of a contains-check per added edge keeps large
+    // projects linear rather than quadratic.
+    private static List<Edge> dedupeEdges(List<Edge> edges) {
+        Map<String, Edge> byKey = new LinkedHashMap<>();
+        for (Edge e : edges) {
+            byKey.putIfAbsent(e.from + "\n" + e.to + "\n" + e.kind, e);
+        }
+        return new ArrayList<>(byKey.values());
+    }
+
+    private static List<FileDependency> dedupeFileDependencies(List<FileDependency> deps) {
+        Map<String, FileDependency> byKey = new LinkedHashMap<>();
+        for (FileDependency fd : deps) {
+            byKey.putIfAbsent(fd.filePath + "\n" + fd.dependsOnFilePath, fd);
+        }
+        return new ArrayList<>(byKey.values());
     }
 
     private Node classNode(String qualifiedName, String layer, String relativePath, Optional<Range> range) {
@@ -173,4 +211,8 @@ public class ProjectAnalyzer {
         });
         return node;
     }
+
+    private record ParsedFile(CompilationUnit cu, String relativePath) {}
+
+    private record MethodCallSite(MethodDeclaration methodDecl, String methodId, String filePath) {}
 }
