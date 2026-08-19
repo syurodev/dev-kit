@@ -1450,3 +1450,151 @@ func TestServiceProposeFlowBeforeOpenProjectFails(t *testing.T) {
 		t.Fatalf("expected ErrNoActiveProject, got %v", err)
 	}
 }
+
+func TestServiceGetPlanProgressReflectsNewlyIndexedCode(t *testing.T) {
+	// The heart of "auto-diff": propose against an empty index (nothing
+	// implemented), then re-index with the code written, and the very next
+	// GetPlanProgress call reports it — no recompute hook, no manual
+	// refresh, because status is computed on read.
+	analyzer := &swappableAnalyzer{result: AnalysisResult{}}
+	svc := newTestService(t, analyzer)
+	if err := svc.OpenProject(context.Background(), "/fake/project"); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+	plan := Plan{
+		Description: "Refund flow",
+		Nodes: []PlanNode{
+			{PlanNodeID: "pn-1", Label: "Entry", FQN: "com.acme.RefundController.create", Kind: "method"},
+			{PlanNodeID: "pn-2", Label: "Core", FQN: "com.acme.RefundService.process", Kind: "method"},
+		},
+		Edges: []PlanEdge{{From: "pn-1", To: "pn-2"}},
+	}
+	before, err := svc.ProposeFlow(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("ProposeFlow: %v", err)
+	}
+	if before.Aggregate != PlanAggregateNotStarted {
+		t.Fatalf("before = %q, want not_started", before.Aggregate)
+	}
+
+	// The agent writes the code; a re-index picks it up.
+	analyzer.result = planFixtureAnalysis()
+	if err := svc.OpenProject(context.Background(), "/fake/project"); err != nil {
+		t.Fatalf("re-OpenProject: %v", err)
+	}
+
+	// This call succeeding at all is load-bearing: ReplaceIndex clears the
+	// index tables but must NOT touch plan_meta/plan_nodes/plan_edges, or a
+	// routine background re-index would silently destroy the user's approved
+	// plan. A wiped plan surfaces here as ErrNoPlan, not a wrong status.
+	after, err := svc.GetPlanProgress(context.Background())
+	if err != nil {
+		t.Fatalf("GetPlanProgress: %v", err)
+	}
+	if after.Aggregate != PlanAggregateComplete {
+		t.Fatalf("after = %q, want complete; nodes = %+v", after.Aggregate, after.Nodes)
+	}
+}
+
+func TestServiceApprovePlan(t *testing.T) {
+	svc := newTestService(t, fakeAnalyzer{result: AnalysisResult{}})
+	if err := svc.OpenProject(context.Background(), "/fake/project"); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+	plan := Plan{Description: "x", Nodes: []PlanNode{{PlanNodeID: "pn-1", Label: "A", FQN: "com.acme.A.a", Kind: "method"}}}
+	if _, err := svc.ProposeFlow(context.Background(), plan); err != nil {
+		t.Fatalf("ProposeFlow: %v", err)
+	}
+
+	if err := svc.ApprovePlan(context.Background()); err != nil {
+		t.Fatalf("ApprovePlan: %v", err)
+	}
+	progress, err := svc.GetPlanProgress(context.Background())
+	if err != nil {
+		t.Fatalf("GetPlanProgress: %v", err)
+	}
+	if progress.State != PlanStateApproved {
+		t.Fatalf("state = %q, want approved", progress.State)
+	}
+}
+
+func TestServiceApprovePlanWithoutPlanFails(t *testing.T) {
+	svc := newTestService(t, fakeAnalyzer{result: AnalysisResult{}})
+	if err := svc.OpenProject(context.Background(), "/fake/project"); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+	if err := svc.ApprovePlan(context.Background()); !errors.Is(err, ErrNoPlan) {
+		t.Fatalf("ApprovePlan = %v, want ErrNoPlan", err)
+	}
+}
+
+func TestServiceRelinkPlanNodeRestoresMatchAfterRename(t *testing.T) {
+	// The documented escape hatch for the FQN-matching tradeoff: the real
+	// method exists under a different name than planned, so the node reads
+	// not_implemented until the plan is pointed at the new name.
+	analysis := AnalysisResult{
+		Nodes: []Node{
+			{ID: "com.acme.RefundService.handle(com.acme.Req)", Label: "com.acme.RefundService.handle", Kind: "method", Layer: "service", FilePath: "S.java", Line: 1, EndLine: 5},
+		},
+	}
+	svc := newTestService(t, fakeAnalyzer{result: analysis})
+	if err := svc.OpenProject(context.Background(), "/fake/project"); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+	plan := Plan{Description: "x", Nodes: []PlanNode{
+		{PlanNodeID: "pn-1", Label: "Core", FQN: "com.acme.RefundService.process", Kind: "method"},
+	}}
+	progress, err := svc.ProposeFlow(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("ProposeFlow: %v", err)
+	}
+	if progress.Nodes[0].Status != PlanStatusNotImplemented {
+		t.Fatalf("status = %q, want not_implemented before relink", progress.Nodes[0].Status)
+	}
+
+	if err := svc.RelinkPlanNode(context.Background(), "pn-1", "com.acme.RefundService.handle"); err != nil {
+		t.Fatalf("RelinkPlanNode: %v", err)
+	}
+
+	progress, err = svc.GetPlanProgress(context.Background())
+	if err != nil {
+		t.Fatalf("GetPlanProgress: %v", err)
+	}
+	if progress.Nodes[0].Status != PlanStatusImplementedMatching {
+		t.Fatalf("status = %q, want implemented_matching after relink", progress.Nodes[0].Status)
+	}
+}
+
+func TestServiceRelinkUnknownPlanNodeFails(t *testing.T) {
+	svc := newTestService(t, fakeAnalyzer{result: AnalysisResult{}})
+	if err := svc.OpenProject(context.Background(), "/fake/project"); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+	plan := Plan{Description: "x", Nodes: []PlanNode{{PlanNodeID: "pn-1", Label: "A", FQN: "com.acme.A.a", Kind: "method"}}}
+	if _, err := svc.ProposeFlow(context.Background(), plan); err != nil {
+		t.Fatalf("ProposeFlow: %v", err)
+	}
+	if err := svc.RelinkPlanNode(context.Background(), "pn-404", "com.acme.X.y"); !errors.Is(err, ErrPlanNodeNotFound) {
+		t.Fatalf("RelinkPlanNode = %v, want ErrPlanNodeNotFound", err)
+	}
+}
+
+func TestServiceGetPlanProgressWithoutPlanFails(t *testing.T) {
+	svc := newTestService(t, fakeAnalyzer{result: AnalysisResult{}})
+	if err := svc.OpenProject(context.Background(), "/fake/project"); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+	if _, err := svc.GetPlanProgress(context.Background()); !errors.Is(err, ErrNoPlan) {
+		t.Fatalf("GetPlanProgress = %v, want ErrNoPlan", err)
+	}
+}
+
+// swappableAnalyzer lets a test change what the next OpenProject indexes,
+// simulating "the agent wrote the code, then it got re-indexed".
+type swappableAnalyzer struct {
+	result AnalysisResult
+}
+
+func (a *swappableAnalyzer) Analyze(ctx context.Context, projectPath string) (AnalysisResult, error) {
+	return a.result, nil
+}

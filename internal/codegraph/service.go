@@ -959,6 +959,47 @@ func computeProgress(ctx context.Context, store Store, plan Plan) (PlanProgress,
 	return progress, nil
 }
 
+// GetPlanProgress returns per-node status plus the derived whole-plan
+// status. Statuses are computed fresh against the current index on every
+// call, so progress reflects the latest re-index automatically.
+func (s *Service) GetPlanProgress(ctx context.Context) (PlanProgress, error) {
+	store, err := s.activeStore()
+	if err != nil {
+		return PlanProgress{}, err
+	}
+	plan, err := store.GetPlan(ctx)
+	if err != nil {
+		return PlanProgress{}, err
+	}
+	return computeProgress(ctx, store, plan)
+}
+
+// ApprovePlan moves the active plan from draft to approved. Human-only by
+// design — the bridge exposes it, MCP deliberately does not (see the doc's
+// Bridge & MCP table: approving a plan is always a human decision).
+func (s *Service) ApprovePlan(ctx context.Context) error {
+	store, err := s.activeStore()
+	if err != nil {
+		return err
+	}
+	return store.SetPlanState(ctx, PlanStateApproved)
+}
+
+// RelinkPlanNode repoints one plan node at a different FQN — the escape
+// hatch for the deliberate "matching by FQN breaks on rename" tradeoff.
+// Explicit by design: DevKit never guesses that a new name is a renamed old
+// one (see the doc's non-goals).
+func (s *Service) RelinkPlanNode(ctx context.Context, planNodeID, fqn string) error {
+	store, err := s.activeStore()
+	if err != nil {
+		return err
+	}
+	if fqn == "" {
+		return fmt.Errorf("%w: relink requires a non-empty fqn", ErrInvalidPlan)
+	}
+	return store.SetPlanNodeFQN(ctx, planNodeID, fqn)
+}
+
 // nilStore is the container's placeholder Store before any project has been
 // opened. Every method is unreachable in practice because Service checks
 // s.active first — but a safe zero-value beats a nil-pointer panic if that
