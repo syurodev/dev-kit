@@ -50,6 +50,21 @@ func TestSubprocessAnalyzerAnalyzesSampleProject(t *testing.T) {
 	if len(result.Endpoints) != 1 || result.Endpoints[0].Path != "/refunds" {
 		t.Fatalf("unexpected endpoints: %+v", result.Endpoints)
 	}
+
+	// The analyzer derives file-level dependencies from resolved call edges:
+	// Controller -> Service -> Repository, two cross-file deps, no self-deps.
+	want := map[string]string{
+		"src/main/java/com/acme/refund/RefundController.java": "src/main/java/com/acme/refund/RefundService.java",
+		"src/main/java/com/acme/refund/RefundService.java":    "src/main/java/com/acme/refund/RefundRepository.java",
+	}
+	if len(result.FileDependencies) != len(want) {
+		t.Fatalf("expected %d file dependencies, got %+v", len(want), result.FileDependencies)
+	}
+	for _, fd := range result.FileDependencies {
+		if want[fd.FilePath] != fd.DependsOnFilePath {
+			t.Fatalf("unexpected file dependency %+v (want set %+v)", fd, want)
+		}
+	}
 }
 
 func TestSubprocessAnalyzerWithoutJarConfiguredReturnsNotConfigured(t *testing.T) {
