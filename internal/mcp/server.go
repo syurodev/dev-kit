@@ -114,6 +114,10 @@ type CodeGraphAPI interface {
 	WaitForIndexReady(ctx context.Context) (int, error)
 	GetNeighbors(ctx context.Context, rootID string, depth int, filter codegraph.NeighborFilter) (codegraph.Subgraph, error)
 	TraceDataFlow(ctx context.Context, symbolID, fieldName string) (codegraph.DataFlowTrace, error)
+	ProposeFlow(ctx context.Context, plan codegraph.Plan) (codegraph.PlanProgress, error)
+	GetPlannedFlow(ctx context.Context) (codegraph.Plan, error)
+	GetPlanProgress(ctx context.Context) (codegraph.PlanProgress, error)
+	RelinkPlanNode(ctx context.Context, planNodeID, fqn string) error
 }
 
 // VaultStatusResult is the structured output of vault.status.
@@ -162,6 +166,7 @@ func NewServer(d Deps) *Server {
 	s.registerKafka()
 	s.registerAgentHub()
 	s.registerCodeGraph()
+	s.registerCodeGraphPlan()
 	return s
 }
 
