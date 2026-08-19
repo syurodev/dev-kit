@@ -28,14 +28,10 @@ func (t *kafkaTarget) EnsureActive(ctx context.Context) (string, error) {
 	if id, ok := t.ActiveID(); ok {
 		return id, nil
 	}
-	id, err := effectiveHub(t.hub).SelectProfile(ctx, interaction.SelectRequest{Kind: interaction.KindKafka})
-	if err != nil {
-		return "", err
-	}
-	if err := t.api.Connect(ctx, id); err != nil {
-		return "", err
-	}
-	return id, nil
+	// Selection only: the caller establishes the connection after the env
+	// confirmation, so sealed SASL credentials never travel to the broker
+	// before the user has approved the target.
+	return effectiveHub(t.hub).SelectProfile(ctx, interaction.SelectRequest{Kind: interaction.KindKafka})
 }
 
 func (t *kafkaTarget) EnvForProfile(id string) (string, error) {

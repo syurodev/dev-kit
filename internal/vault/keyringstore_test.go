@@ -58,3 +58,32 @@ func TestFileKeyringStoreModeIsRestrictive(t *testing.T) {
 		t.Fatalf("keyring file mode = %v, want no group/other access", info.Mode().Perm())
 	}
 }
+
+func TestFileKeyringStoreSaveLeavesNoTempResidue(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "keyring.json")
+	store := NewFileKeyringStore(path)
+	keyring, _, _ := crypto.NewKeyring("master-password")
+	if err := store.Save(keyring); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	// The atomic write must not leave temp files behind in the keyring dir.
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	for _, entry := range entries {
+		if entry.Name() != "keyring.json" {
+			t.Fatalf("unexpected file %q left behind by Save", entry.Name())
+		}
+	}
+
+	// Re-saving over an existing keyring keeps it loadable (rename replaces).
+	if err := store.Save(keyring); err != nil {
+		t.Fatalf("second Save: %v", err)
+	}
+	if _, err := store.Load(); err != nil {
+		t.Fatalf("Load after overwrite: %v", err)
+	}
+}

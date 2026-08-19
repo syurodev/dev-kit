@@ -2,6 +2,7 @@ package vault
 
 import (
 	"testing"
+	"time"
 
 	"devkit/internal/crypto"
 )
@@ -120,5 +121,56 @@ func TestVaultUnlockWithRecovery(t *testing.T) {
 	}
 	if service.IsLocked() {
 		t.Fatal("vault should be unlocked after recovery")
+	}
+}
+
+func TestVaultLockDuringUnlockDerivationStaysLocked(t *testing.T) {
+	store := NewMemoryKeyringStore()
+	service := NewService(store)
+	if _, err := service.Setup("master-password"); err != nil {
+		t.Fatalf("Setup: %v", err)
+	}
+	service.Lock()
+
+	unlocked := make(chan error, 1)
+	go func() {
+		unlocked <- service.Unlock("master-password")
+	}()
+	// The Argon2 derivation runs for hundreds of milliseconds under the service
+	// write lock, so a short delay guarantees Unlock is mid-derivation when
+	// Lock is requested. Lock blocks until Unlock finishes, then zeroizes the
+	// freshly installed DEK — the vault must end locked, never silently
+	// re-unlocked by the in-flight derivation.
+	time.Sleep(50 * time.Millisecond)
+	service.Lock()
+	if err := <-unlocked; err != nil {
+		t.Fatalf("Unlock: %v", err)
+	}
+	if !service.IsLocked() {
+		t.Fatal("vault must stay locked when Lock completes after an in-flight Unlock")
+	}
+}
+
+func TestVaultConcurrentSetupSucceedsExactlyOnce(t *testing.T) {
+	service := NewService(NewMemoryKeyringStore())
+	const attempts = 3
+	results := make(chan error, attempts)
+	for i := 0; i < attempts; i++ {
+		go func() {
+			_, err := service.Setup("master-password")
+			results <- err
+		}()
+	}
+	successes := 0
+	for i := 0; i < attempts; i++ {
+		if err := <-results; err == nil {
+			successes++
+		}
+	}
+	if successes != 1 {
+		t.Fatalf("concurrent Setup successes = %d, want exactly 1", successes)
+	}
+	if service.IsLocked() {
+		t.Fatal("vault should be unlocked after the winning Setup")
 	}
 }

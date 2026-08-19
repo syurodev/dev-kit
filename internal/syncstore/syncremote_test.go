@@ -139,7 +139,7 @@ func TestApplyRemoteBatchExactReplayIsNoOp(t *testing.T) {
 	assertCursor(t, db, "pull", "cursor-2")
 }
 
-func TestApplyRemoteBatchAcceptsVersionGapAndRejectsStaleOrEqual(t *testing.T) {
+func TestApplyRemoteBatchAcceptsVersionGapAndConsumesStaleReplay(t *testing.T) {
 	db, store := newTestRemoteStore(t)
 	first := remoteMutation("record-1", replicationsync.OperationUpdate, 4)
 	if err := store.ApplyRemoteBatch(context.Background(), testRemoteAccountID, "pull", "cursor-4", []RemoteMutation{first}); err != nil {
@@ -150,16 +150,23 @@ func TestApplyRemoteBatchAcceptsVersionGapAndRejectsStaleOrEqual(t *testing.T) {
 		t.Fatalf("version gap should be accepted: %v", err)
 	}
 
-	for _, version := range []uint32{10, 11} {
+	// A stale or equal version against a clean, fully-synced local head is a
+	// replay: consume it without touching state so the cursor advances instead
+	// of wedging the account's pull stream.
+	for i, cursor := range []string{"cursor-10", "cursor-11"} {
+		version := []uint32{10, 11}[i]
 		stale := remoteMutation("record-1", replicationsync.OperationUpdate, version)
 		stale.OperationID = fmt.Sprintf("different-operation-%d", version)
-		err := store.ApplyRemoteBatch(context.Background(), testRemoteAccountID, "pull", "bad-cursor", []RemoteMutation{stale})
-		if !errors.Is(err, ErrRemoteMutationConflict) {
-			t.Fatalf("version %d error = %v, want conflict", version, err)
+		if err := store.ApplyRemoteBatch(context.Background(), testRemoteAccountID, "pull", cursor, []RemoteMutation{stale}); err != nil {
+			t.Fatalf("stale replay version %d error = %v, want consumed no-op", version, err)
 		}
 	}
 	assertVaultData(t, db, gap.RecordID, gap.RecordJSON)
 	assertCursor(t, db, "pull", "cursor-11")
+	var conflictCount int
+	if err := db.QueryRow("SELECT COUNT(*) FROM sync_conflicts WHERE record_id = 'record-1'").Scan(&conflictCount); err != nil || conflictCount != 0 {
+		t.Fatalf("stale replay against clean head captured a conflict: count=%d err=%v", conflictCount, err)
+	}
 }
 
 func TestApplyRemoteBatchCapturesTheirsForSameVersionPushConflict(t *testing.T) {
@@ -239,7 +246,7 @@ func TestApplyRemoteBatchCapturesTheirsForSameVersionPushConflict(t *testing.T) 
 	}
 }
 
-func TestApplyRemoteBatchRejectsOverwriteOfUnsyncedLocalEdit(t *testing.T) {
+func TestApplyRemoteBatchCapturesTheirsForOverwriteOfUnsyncedLocalEdit(t *testing.T) {
 	db, store := newTestRemoteStore(t)
 	first := remoteMutation("record-local", replicationsync.OperationCreate, 1)
 	if err := store.ApplyRemoteBatch(context.Background(), testRemoteAccountID, "pull", "cursor-1", []RemoteMutation{first}); err != nil {
@@ -256,15 +263,24 @@ func TestApplyRemoteBatchRejectsOverwriteOfUnsyncedLocalEdit(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// A newer remote op against a dirty local row is a divergence: capture it as
+	// "theirs" and keep ours — never fail the batch.
 	remote := remoteMutation(first.RecordID, replicationsync.OperationUpdate, 2)
-	if err := store.ApplyRemoteBatch(context.Background(), testRemoteAccountID, "pull", "cursor-2", []RemoteMutation{remote}); !errors.Is(err, ErrRemoteMutationConflict) {
-		t.Fatalf("remote overwrite error = %v, want conflict", err)
+	if err := store.ApplyRemoteBatch(context.Background(), testRemoteAccountID, "pull", "cursor-2", []RemoteMutation{remote}); err != nil {
+		t.Fatalf("remote overwrite error = %v, want captured conflict", err)
 	}
 	assertVaultData(t, db, first.RecordID, localJSON)
-	assertCursor(t, db, "pull", "cursor-1")
+	conflict, found, err := NewSQLConflictStore(db).Get(context.Background(), testRemoteAccountID, first.RecordID)
+	if err != nil || !found {
+		t.Fatalf("conflict not captured: found=%v err=%v", found, err)
+	}
+	if conflict.RemoteOperationID != remote.OperationID || conflict.RemoteEntityVersion != 2 {
+		t.Fatalf("captured conflict = %+v", conflict)
+	}
+	assertCursor(t, db, "pull", "cursor-2")
 }
 
-func TestApplyRemoteBatchDoesNotResurrectLocallyDeletedRecord(t *testing.T) {
+func TestApplyRemoteBatchCapturesTheirsForRemoteUpdateOfLocallyDeletedRecord(t *testing.T) {
 	db, store := newTestRemoteStore(t)
 	first := remoteMutation("record-deleted", replicationsync.OperationCreate, 1)
 	if err := store.ApplyRemoteBatch(context.Background(), testRemoteAccountID, "pull", "cursor-1", []RemoteMutation{first}); err != nil {
@@ -274,8 +290,8 @@ func TestApplyRemoteBatchDoesNotResurrectLocallyDeletedRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 	remote := remoteMutation(first.RecordID, replicationsync.OperationUpdate, 2)
-	if err := store.ApplyRemoteBatch(context.Background(), testRemoteAccountID, "pull", "cursor-2", []RemoteMutation{remote}); !errors.Is(err, ErrRemoteMutationConflict) {
-		t.Fatalf("remote resurrection error = %v, want conflict", err)
+	if err := store.ApplyRemoteBatch(context.Background(), testRemoteAccountID, "pull", "cursor-2", []RemoteMutation{remote}); err != nil {
+		t.Fatalf("remote resurrection error = %v, want captured conflict", err)
 	}
 	var count int
 	if err := db.QueryRow("SELECT COUNT(*) FROM vault_items WHERE id = ?", first.RecordID).Scan(&count); err != nil {
@@ -284,7 +300,10 @@ func TestApplyRemoteBatchDoesNotResurrectLocallyDeletedRecord(t *testing.T) {
 	if count != 0 {
 		t.Fatal("remote update resurrected locally deleted record")
 	}
-	assertCursor(t, db, "pull", "cursor-1")
+	if _, found, err := NewSQLConflictStore(db).Get(context.Background(), testRemoteAccountID, first.RecordID); err != nil || !found {
+		t.Fatalf("conflict not captured: found=%v err=%v", found, err)
+	}
+	assertCursor(t, db, "pull", "cursor-2")
 }
 
 func TestApplyRemoteBatchDoesNotResurrectUnacknowledgedLocalTombstone(t *testing.T) {
@@ -316,16 +335,19 @@ func TestApplyRemoteBatchDoesNotResurrectUnacknowledgedLocalTombstone(t *testing
 	}
 
 	incoming := remoteMutation(first.RecordID, replicationsync.OperationUpdate, 3)
-	if err := remoteStore.ApplyRemoteBatch(context.Background(), testRemoteAccountID, "pull", "cursor-3", []RemoteMutation{incoming}); !errors.Is(err, ErrRemoteMutationConflict) {
-		t.Fatalf("unacknowledged tombstone resurrection error = %v", err)
+	if err := remoteStore.ApplyRemoteBatch(context.Background(), testRemoteAccountID, "pull", "cursor-3", []RemoteMutation{incoming}); err != nil {
+		t.Fatalf("unacknowledged tombstone resurrection error = %v, want captured conflict", err)
 	}
 	var count int
 	if err := db.QueryRow("SELECT COUNT(*) FROM vault_items WHERE id = ?", first.RecordID).Scan(&count); err != nil || count != 0 {
 		t.Fatalf("resurrected row count = %d, err = %v", count, err)
 	}
+	if _, found, err := NewSQLConflictStore(db).Get(context.Background(), testRemoteAccountID, first.RecordID); err != nil || !found {
+		t.Fatalf("conflict not captured: found=%v err=%v", found, err)
+	}
 }
 
-func TestApplyRemoteBatchRejectsDeleteWhileLocalDeleteIntentIsUnmaterialized(t *testing.T) {
+func TestApplyRemoteBatchRemoteDeleteSupersedesLocalDeleteIntent(t *testing.T) {
 	db, remoteStore := newTestRemoteStore(t)
 	first := remoteMutation("record-local-delete-race", replicationsync.OperationCreate, 1)
 	if err := remoteStore.ApplyRemoteBatch(context.Background(), testRemoteAccountID, "pull", "cursor-1", []RemoteMutation{first}); err != nil {
@@ -334,15 +356,23 @@ func TestApplyRemoteBatchRejectsDeleteWhileLocalDeleteIntentIsUnmaterialized(t *
 	if err := vaultitem.NewSQLMutationRepository(db).Delete(first.RecordID); err != nil {
 		t.Fatal(err)
 	}
+	// A concurrent remote delete agrees with the local delete intent: the remote
+	// tombstone is applied and the now-redundant intent is superseded, so a later
+	// materialization cannot wedge against the advanced ledger.
 	incomingDelete := remoteMutation(first.RecordID, replicationsync.OperationDelete, 2)
 	incomingDelete.OperationID = "different-remote-delete"
-	if err := remoteStore.ApplyRemoteBatch(context.Background(), testRemoteAccountID, "pull", "cursor-2", []RemoteMutation{incomingDelete}); !errors.Is(err, ErrRemoteMutationConflict) {
-		t.Fatalf("concurrent remote delete error = %v, want conflict", err)
+	if err := remoteStore.ApplyRemoteBatch(context.Background(), testRemoteAccountID, "pull", "cursor-2", []RemoteMutation{incomingDelete}); err != nil {
+		t.Fatalf("concurrent remote delete error = %v", err)
 	}
 	var intentCount int
-	if err := db.QueryRow("SELECT COUNT(*) FROM sync_local_mutations WHERE record_id = ?", first.RecordID).Scan(&intentCount); err != nil || intentCount != 1 {
+	if err := db.QueryRow("SELECT COUNT(*) FROM sync_local_mutations WHERE record_id = ?", first.RecordID).Scan(&intentCount); err != nil || intentCount != 0 {
 		t.Fatalf("local delete intent count = %d, err = %v", intentCount, err)
 	}
+	var conflictCount int
+	if err := db.QueryRow("SELECT COUNT(*) FROM sync_conflicts WHERE record_id = ?", first.RecordID).Scan(&conflictCount); err != nil || conflictCount != 0 {
+		t.Fatalf("delete-vs-delete captured a conflict: count=%d err=%v", conflictCount, err)
+	}
+	assertCursor(t, db, "pull", "cursor-2")
 }
 
 func TestApplyRemoteBatchHistoricalReplayDoesNotDowngradeAndOperationIDCannotBeReused(t *testing.T) {
@@ -426,9 +456,13 @@ func TestApplyRemoteBatchRollsBackEntireBatchAndCursor(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
+	// A type change against an existing ledger is corruption-level and still
+	// fails the whole batch (divergences are captured; corruption is not).
 	valid := remoteMutation("new-record", replicationsync.OperationCreate, 1)
-	stale := remoteMutation("existing", replicationsync.OperationUpdate, 4)
-	err := store.ApplyRemoteBatch(context.Background(), testRemoteAccountID, "pull", "cursor-after", []RemoteMutation{valid, stale})
+	typeChanged := remoteMutation("existing", replicationsync.OperationUpdate, 4)
+	typeChanged.RecordType = "db-profile"
+	typeChanged.RecordJSON = remoteRecordJSON(typeChanged.RecordID, typeChanged.RecordType, "x")
+	err := store.ApplyRemoteBatch(context.Background(), testRemoteAccountID, "pull", "cursor-after", []RemoteMutation{valid, typeChanged})
 	if !errors.Is(err, ErrRemoteMutationConflict) {
 		t.Fatalf("batch error = %v, want conflict", err)
 	}

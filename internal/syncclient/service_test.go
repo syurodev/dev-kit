@@ -89,6 +89,18 @@ func (s *fakeRemoteStore) BindAuthenticatedAccount(ctx context.Context, accountI
 	return nil
 }
 
+func (s *fakeRemoteStore) BoundAccountID(ctx context.Context) (string, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return "", false, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.accountID == "" {
+		return "", false, nil
+	}
+	return s.accountID, true, nil
+}
+
 func (s *fakeRemoteStore) ApplyRemoteBatch(ctx context.Context, accountID, cursorName, nextCursor string, mutations []syncstore.RemoteMutation) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -325,6 +337,7 @@ func TestHTTPClientPullAppliesAndAdvancesCursorAtomicallyInSQLite(t *testing.T) 
 		Cursors:        syncstore.NewSQLCursorStore(db),
 		Remote:         syncstore.NewSQLRemoteStore(db),
 		Outbox:         syncstore.NewSQLOutbox(db),
+		Conflicts:      syncstore.NewSQLConflictStore(db),
 		Vault:          vault,
 		HTTPClient:     server.Client(),
 	})
@@ -404,6 +417,7 @@ func TestSyncNowMaterializesLocalIntentBeforePush(t *testing.T) {
 		Remote:         syncstore.NewSQLRemoteStore(db),
 		LocalMutations: syncstore.NewSQLLocalMutationStore(db),
 		Outbox:         outbox,
+		Conflicts:      syncstore.NewSQLConflictStore(db),
 		Vault:          vault,
 	}, Factories{
 		Authenticator: func(baseURL string, client *http.Client) (replicationsync.Authenticator, error) {
@@ -720,6 +734,24 @@ func newConnectedTestService(t *testing.T, transport *fakeTransport) (*Service, 
 	return service, server, service.deps.Remote.(*fakeRemoteStore), service.deps.Outbox.(*replicationsync.MemoryOutbox)
 }
 
+type fakeConflictLister struct {
+	mu        stdsync.Mutex
+	accountID string
+	records   []syncstore.ConflictRecord
+}
+
+func (f *fakeConflictLister) List(ctx context.Context, accountID string) ([]syncstore.ConflictRecord, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.accountID = accountID
+	records := make([]syncstore.ConflictRecord, len(f.records))
+	copy(records, f.records)
+	return records, nil
+}
+
 func newTestService(t *testing.T, transport *fakeTransport) *Service {
 	t.Helper()
 	remote := &fakeRemoteStore{}
@@ -729,6 +761,7 @@ func newTestService(t *testing.T, transport *fakeTransport) *Service {
 		Cursors:        &fakeCursorStore{cursor: replicationsync.Cursor{Token: "cursor-current"}},
 		Remote:         remote,
 		Outbox:         outbox,
+		Conflicts:      &fakeConflictLister{},
 		Vault:          testVault{key: bytes.Repeat([]byte{0x42}, 32)},
 	}, Factories{
 		Authenticator: func(baseURL string, client *http.Client) (replicationsync.Authenticator, error) {
@@ -747,31 +780,25 @@ func newTestService(t *testing.T, transport *fakeTransport) *Service {
 	return service
 }
 
-func TestConflictsListsOutboxConflicts(t *testing.T) {
-	outbox := replicationsync.NewMemoryOutbox()
-	change := replicationsync.NewChange(
-		"key-1", "rec-1", "note", replicationsync.OperationUpdate, []byte("cipher"), 1,
-		replicationsync.SyncContext{
-			AccountID: testAccountID, DeviceID: testDeviceID,
-			ProtocolVersion: replicationsync.SyncProtocolVersion, OperationID: "op-1", EntityVersion: 2,
+func TestConflictsListsCapturedConflictSides(t *testing.T) {
+	lister := &fakeConflictLister{records: []syncstore.ConflictRecord{
+		{
+			AccountID: testRemoteAccountIDForConflicts(), RecordID: "rec-1", RecordType: "note",
+			RemoteOperationID: "op-remote-2", RemoteOperation: replicationsync.OperationUpdate,
+			RemoteEntityVersion: 2, TheirsSnapshot: []byte("snapshot"), DetectedAt: time.Unix(100, 0).UTC(),
 		},
-		testKeyID, time.Now().UTC())
-	if err := outbox.Enqueue(change); err != nil {
-		t.Fatalf("Enqueue: %v", err)
-	}
-	conflict := replicationsync.Conflict{
-		ID: "conflict-1", RecordID: "rec-1", RecordType: "note",
-		LocalChangeKey: "key-1", RemoteChangeKey: "key-remote", DetectedAt: time.Now().UTC(),
-	}
-	if err := outbox.MarkConflict("key-1", conflict); err != nil {
-		t.Fatalf("MarkConflict: %v", err)
-	}
-
+		{
+			AccountID: testRemoteAccountIDForConflicts(), RecordID: "rec-2", RecordType: "note",
+			RemoteOperationID: "op-remote-del", RemoteOperation: replicationsync.OperationDelete,
+			RemoteEntityVersion: 3, DetectedAt: time.Unix(101, 0).UTC(),
+		},
+	}}
 	service, err := NewWithFactories(Dependencies{
 		DeviceIdentity: fakeDeviceStore{id: testDeviceID},
 		Cursors:        &fakeCursorStore{},
-		Remote:         &fakeRemoteStore{},
-		Outbox:         outbox,
+		Remote:         &fakeRemoteStore{accountID: testRemoteAccountIDForConflicts()},
+		Outbox:         replicationsync.NewMemoryOutbox(),
+		Conflicts:      lister,
 		Vault:          testVault{key: bytes.Repeat([]byte{0x42}, 32)},
 	}, Factories{
 		Authenticator: func(baseURL string, client *http.Client) (replicationsync.Authenticator, error) {
@@ -789,14 +816,52 @@ func TestConflictsListsOutboxConflicts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Conflicts: %v", err)
 	}
-	if len(conflicts) != 1 {
-		t.Fatalf("len(conflicts) = %d, want 1", len(conflicts))
+	if len(conflicts) != 2 {
+		t.Fatalf("len(conflicts) = %d, want 2", len(conflicts))
 	}
 	got := conflicts[0]
-	if got.RecordID != "rec-1" || got.RecordType != "note" || got.LocalChangeKey != "key-1" || got.RemoteChangeKey != "key-remote" {
+	if got.RecordID != "rec-1" || got.RecordType != "note" || got.RemoteOperation != "update" ||
+		got.RemoteEntityVersion != 2 || got.TheirsDeleted {
 		t.Fatalf("conflict = %#v", got)
 	}
+	deleted := conflicts[1]
+	if deleted.RecordID != "rec-2" || !deleted.TheirsDeleted || deleted.RemoteOperation != "delete" {
+		t.Fatalf("delete conflict = %#v", deleted)
+	}
+	if lister.accountID != testRemoteAccountIDForConflicts() {
+		t.Fatalf("listed account = %q", lister.accountID)
+	}
 }
+
+func TestConflictsEmptyWithoutBoundAccount(t *testing.T) {
+	service, err := NewWithFactories(Dependencies{
+		DeviceIdentity: fakeDeviceStore{id: testDeviceID},
+		Cursors:        &fakeCursorStore{},
+		Remote:         &fakeRemoteStore{},
+		Outbox:         replicationsync.NewMemoryOutbox(),
+		Conflicts:      &fakeConflictLister{},
+		Vault:          testVault{key: bytes.Repeat([]byte{0x42}, 32)},
+	}, Factories{
+		Authenticator: func(baseURL string, client *http.Client) (replicationsync.Authenticator, error) {
+			return replicationsync.NewHTTPAuthenticator(baseURL, client)
+		},
+		Transport: func(_ string, sessions replicationsync.SessionProvider, _ *http.Client) (replicationsync.PullTransport, error) {
+			return &fakeTransport{}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewWithFactories: %v", err)
+	}
+	conflicts, err := service.Conflicts(context.Background())
+	if err != nil {
+		t.Fatalf("Conflicts: %v", err)
+	}
+	if len(conflicts) != 0 {
+		t.Fatalf("len(conflicts) = %d, want 0", len(conflicts))
+	}
+}
+
+func testRemoteAccountIDForConflicts() string { return "account-conflicts" }
 
 func sealedOperation(t *testing.T, vault testVault, operationID, recordID, recordType string, operation replicationsync.Operation, entityVersion uint32, plaintext []byte) replicationsync.PushOperation {
 	t.Helper()

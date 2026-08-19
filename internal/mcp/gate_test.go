@@ -81,11 +81,11 @@ func TestGatePromptsDevThenAllowAlways(t *testing.T) {
 		}
 	}()
 
-	if err := GateActiveMCP(ctx, h, env, profiles, active, "db.query", "select 1", interaction.KindDatabase); err != nil {
+	if _, err := GateActiveMCP(ctx, h, env, profiles, active, "db.query", "select 1", interaction.KindDatabase); err != nil {
 		t.Fatalf("first gate: %v", err)
 	}
 
-	if err := GateActiveMCP(ctx, h, env, profiles, active, "db.query", "select 2", interaction.KindDatabase); err != nil {
+	if _, err := GateActiveMCP(ctx, h, env, profiles, active, "db.query", "select 2", interaction.KindDatabase); err != nil {
 		t.Fatalf("second gate: %v", err)
 	}
 	if h.Pending() != nil {
@@ -112,7 +112,7 @@ func TestGateConfirmsWhenProdEveryTime(t *testing.T) {
 		}
 	}()
 
-	err := GateActiveMCP(ctx, h, env, profiles, active, "ssh.runCommand", "rm -rf", interaction.KindSSH)
+	_, err := GateActiveMCP(ctx, h, env, profiles, active, "ssh.runCommand", "rm -rf", interaction.KindSSH)
 	if !errors.Is(err, interaction.ErrConfirmationDenied) {
 		t.Fatalf("deny err = %v, want ErrConfirmationDenied", err)
 	}
@@ -130,7 +130,7 @@ func TestGateConfirmsWhenProdEveryTime(t *testing.T) {
 		}
 	}()
 
-	if err := GateActiveMCP(ctx, h, env, profiles, active, "ssh.runCommand", "ls", interaction.KindSSH); err != nil {
+	if _, err := GateActiveMCP(ctx, h, env, profiles, active, "ssh.runCommand", "ls", interaction.KindSSH); err != nil {
 		t.Fatalf("first allow gate: %v", err)
 	}
 	select {
@@ -148,7 +148,7 @@ func TestGateConfirmsWhenProdEveryTime(t *testing.T) {
 		}
 	}()
 
-	if err := GateActiveMCP(ctx, h, env, profiles, active, "ssh.runCommand", "ls again", interaction.KindSSH); err != nil {
+	if _, err := GateActiveMCP(ctx, h, env, profiles, active, "ssh.runCommand", "ls again", interaction.KindSSH); err != nil {
 		t.Fatalf("second gate: %v", err)
 	}
 	select {
@@ -179,7 +179,7 @@ func TestGateFailClosedUnknownEnv(t *testing.T) {
 		}
 	}()
 
-	if err := GateActiveMCP(ctx, h, env, profiles, active, "kafka.publishMessage", "payload", interaction.KindKafka); err != nil {
+	if _, err := GateActiveMCP(ctx, h, env, profiles, active, "kafka.publishMessage", "payload", interaction.KindKafka); err != nil {
 		t.Fatalf("gate: %v", err)
 	}
 	select {
@@ -202,7 +202,7 @@ func TestGateEnsureActiveErrorPropagates(t *testing.T) {
 	env := fakeEnvConfirmer{"dev": false}
 	profiles := fakeProfileEnvReader{"profile-1": "dev"}
 
-	err := GateActiveMCP(ctx, h, env, profiles, active, "db.query", "select 1", interaction.KindDatabase)
+	_, err := GateActiveMCP(ctx, h, env, profiles, active, "db.query", "select 1", interaction.KindDatabase)
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("err = %v, want %v", err, wantErr)
 	}
@@ -219,11 +219,42 @@ func TestGateEnvForProfileErrorPropagates(t *testing.T) {
 	env := fakeEnvConfirmer{"dev": false}
 	profiles := fakeProfileEnvReader{}
 
-	err := GateActiveMCP(ctx, h, env, profiles, active, "db.query", "select 1", interaction.KindDatabase)
+	_, err := GateActiveMCP(ctx, h, env, profiles, active, "db.query", "select 1", interaction.KindDatabase)
 	if !errors.Is(err, errProfileNotFound) {
 		t.Fatalf("err = %v, want %v", err, errProfileNotFound)
 	}
 	if h.Pending() != nil {
 		t.Fatal("EnvForProfile error should not leave pending confirmation")
+	}
+}
+
+// TestGateReturnsConfirmedProfileID pins the gate's contract: the returned id
+// is the one the env confirmation covered, so callers never re-read the sticky
+// active target (a concurrent SetActiveProfile swap between confirmation and
+// execution must not run against an unconfirmed profile).
+func TestGateReturnsConfirmedProfileID(t *testing.T) {
+	h := interaction.NewHub(interaction.NoopPrompter{})
+	ctx := context.Background()
+
+	// EnsureActive resolves "profile-A" (the one confirmed), while a stale
+	// re-read of the sticky state would see "profile-B".
+	active := &fakeActiveTarget{ensure: func(context.Context) (string, error) {
+		return "profile-A", nil
+	}}
+	env := fakeEnvConfirmer{"dev": false}
+	profiles := fakeProfileEnvReader{"profile-A": "dev", "profile-B": "prod"}
+
+	go func() {
+		waitForPending(t, h)
+		if err := h.Complete(h.Pending().ID, "allow"); err != nil {
+			t.Errorf("complete allow: %v", err)
+		}
+	}()
+	id, err := GateActiveMCP(ctx, h, env, profiles, active, "ssh.runCommand", "ls", interaction.KindSSH)
+	if err != nil {
+		t.Fatalf("gate: %v", err)
+	}
+	if id != "profile-A" {
+		t.Fatalf("confirmed id = %q, want profile-A", id)
 	}
 }

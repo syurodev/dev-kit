@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"os"
 	"os/exec"
 	"sort"
 )
@@ -44,12 +43,10 @@ func (SeatbeltBackend) Start(ctx context.Context, p Policy, c Cmd) (*Proc, error
 	}
 
 	p = p.withDefaults()
-	profilePath, err := writeSeatbeltProfileFile(buildSeatbeltProfile(p))
-	if err != nil {
-		return nil, err
-	}
-
-	args := []string{"-f", profilePath, "--", c.Path}
+	// The profile rides on argv (-p) instead of a temp file: sandbox-exec
+	// reads the file after exec, so unlinking it right after Start raced with
+	// the child opening it.
+	args := []string{"-p", buildSeatbeltProfile(p), "--", c.Path}
 	args = append(args, c.Args...)
 
 	cmd := exec.CommandContext(ctx, sandboxExec, args...)
@@ -62,10 +59,8 @@ func (SeatbeltBackend) Start(ctx context.Context, p Policy, c Cmd) (*Proc, error
 	stderr := &bytes.Buffer{}
 	proc := NewProcWithBuffers(cmd, stdout, stderr)
 	if err := cmd.Start(); err != nil {
-		os.Remove(profilePath)
 		return nil, err
 	}
-	os.Remove(profilePath)
 	return proc, nil
 }
 
@@ -82,12 +77,8 @@ func (SeatbeltBackend) StartPiped(ctx context.Context, p Policy, c Cmd) (*Proc, 
 	}
 
 	p = p.withDefaults()
-	profilePath, err := writeSeatbeltProfileFile(buildSeatbeltProfile(p))
-	if err != nil {
-		return nil, err
-	}
-
-	args := []string{"-f", profilePath, "--", c.Path}
+	// See Start: the profile rides on argv, no temp file to unlink.
+	args := []string{"-p", buildSeatbeltProfile(p), "--", c.Path}
 	args = append(args, c.Args...)
 
 	cmd := exec.CommandContext(ctx, sandboxExec, args...)
@@ -98,13 +89,11 @@ func (SeatbeltBackend) StartPiped(ctx context.Context, p Policy, c Cmd) (*Proc, 
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		os.Remove(profilePath)
 		return nil, err
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		_ = stdin.Close()
-		os.Remove(profilePath)
 		return nil, err
 	}
 	stderr := &bytes.Buffer{}
@@ -112,29 +101,9 @@ func (SeatbeltBackend) StartPiped(ctx context.Context, p Policy, c Cmd) (*Proc, 
 	if err := cmd.Start(); err != nil {
 		_ = stdin.Close()
 		_ = stdout.Close()
-		os.Remove(profilePath)
 		return nil, err
 	}
-	os.Remove(profilePath)
 	return proc, nil
-}
-
-func writeSeatbeltProfileFile(profile string) (string, error) {
-	f, err := os.CreateTemp("", "devkit-seatbelt-*.sb")
-	if err != nil {
-		return "", err
-	}
-	path := f.Name()
-	if _, err := f.WriteString(profile); err != nil {
-		f.Close()
-		os.Remove(path)
-		return "", err
-	}
-	if err := f.Close(); err != nil {
-		os.Remove(path)
-		return "", err
-	}
-	return path, nil
 }
 
 func seatbeltProcessEnv(p Policy) []string {

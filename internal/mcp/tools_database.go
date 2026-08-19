@@ -83,10 +83,12 @@ type dbQueryInput struct {
 
 func (s *Server) toolDBQuery(ctx context.Context, _ *sdk.CallToolRequest, in dbQueryInput) (*sdk.CallToolResult, any, error) {
 	target := s.databaseTarget()
-	if err := GateActiveMCP(ctx, s.deps.Hub, s.deps.Envs, target, target, "db.query", in.SQL, interaction.KindDatabase); err != nil {
+	// Execute against the exact profile the confirmation covered — re-reading
+	// the sticky active target here would race a concurrent SetActiveProfile.
+	id, err := GateActiveMCP(ctx, s.deps.Hub, s.deps.Envs, target, target, "db.query", in.SQL, interaction.KindDatabase)
+	if err != nil {
 		return nil, nil, mapInteractErr(err)
 	}
-	id := s.deps.DB.AgentActiveProfileID()
 	v, err := s.deps.Caller.Call(ctx, "builtin.database", "db:query", "profile:active", meta("query", map[string]any{
 		"profile_id": recordID(id),
 	}), func(callCtx context.Context) (any, error) {

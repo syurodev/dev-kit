@@ -73,11 +73,14 @@ func New(deps Deps) *Service {
 
 // Detail is non-secret conflict metadata plus, for notes, the on-demand
 // decrypted ours/theirs body text for a compare view. Secret item types return
-// no text; the caller offers only Use ours / Use theirs.
+// no text; the caller offers only Use ours / Use theirs. OursDeleted /
+// TheirsDeleted mark a side whose content is a tombstone (no text to show).
 type Detail struct {
 	RecordID       string
 	RecordType     string
 	TheirsCaptured bool
+	OursDeleted    bool
+	TheirsDeleted  bool
 	Mergeable      bool
 	OursText       string
 	TheirsText     string
@@ -96,24 +99,42 @@ func (s *Service) Detail(ctx context.Context, recordID string) (Detail, error) {
 	if err != nil {
 		return Detail{}, err
 	}
-	ours, err := s.deps.Items.Get(recordID)
-	if err != nil {
-		return Detail{}, err
-	}
-	detail := Detail{RecordID: recordID, RecordType: ours.Type}
 	conflict, found, err := s.deps.Conflicts.Get(ctx, account, recordID)
 	if err != nil {
 		return Detail{}, err
 	}
-	detail.TheirsCaptured = found
-	if ours.Type == itemTypeNote {
+	// "Ours" may be a local deletion (trash-vs-edit): the row is gone but the
+	// conflict is still resolvable.
+	ours, oursErr := s.deps.Items.Get(recordID)
+	if oursErr != nil && !errors.Is(oursErr, vaultitem.ErrNotFound) {
+		return Detail{}, oursErr
+	}
+	oursDeleted := errors.Is(oursErr, vaultitem.ErrNotFound)
+	if oursDeleted && !found {
+		return Detail{}, vaultitem.ErrNotFound
+	}
+
+	detail := Detail{
+		RecordID:       recordID,
+		TheirsCaptured: found,
+		OursDeleted:    oursDeleted,
+	}
+	if oursDeleted {
+		detail.RecordType = conflict.RecordType
+	} else {
+		detail.RecordType = ours.Type
+	}
+	if found && conflict.RemoteOperation == replicationsync.OperationDelete {
+		detail.TheirsDeleted = true
+	}
+	if !oursDeleted && ours.Type == itemTypeNote {
 		detail.Mergeable = true
 		oursBody, err := s.deps.Items.OpenPayload(ours, noteBodyKeyID)
 		if err != nil {
 			return Detail{}, err
 		}
 		detail.OursText = string(oursBody)
-		if found {
+		if found && !detail.TheirsDeleted {
 			theirsRecord, err := vaultitem.DecodeRecord(conflict.TheirsSnapshot)
 			if err != nil {
 				return Detail{}, err
@@ -141,6 +162,10 @@ func (s *Service) Resolve(ctx context.Context, recordID, strategy, mergedText st
 		return s.deps.Resolver.ResolveUseTheirs(ctx, account, recordID)
 	case "ours":
 		ours, err := s.deps.Items.Get(recordID)
+		if errors.Is(err, vaultitem.ErrNotFound) {
+			// Keeping a deleted "ours" means choosing the local tombstone.
+			return s.resolveDeleteOurs(ctx, account, recordID)
+		}
 		if err != nil {
 			return err
 		}
@@ -190,6 +215,43 @@ func (s *Service) resolveUseLocal(ctx context.Context, account, recordID string,
 		KeyID:       syncSnapshotKeyID,
 		RecordJSON:  recordJSON,
 		Snapshot:    snapshot,
+		CreatedAt:   time.Now().UTC(),
+	})
+}
+
+// resolveDeleteOurs re-materialises the local tombstone as the chosen "ours"
+// side. The vault row is already gone, so the tombstone snapshot mirrors the
+// normal delete path and the key version is taken from the captured remote
+// record — the only durable copy still holding one.
+func (s *Service) resolveDeleteOurs(ctx context.Context, account, recordID string) error {
+	conflict, found, err := s.deps.Conflicts.Get(ctx, account, recordID)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return vaultitem.ErrNotFound
+	}
+	if conflict.RemoteOperation == replicationsync.OperationDelete {
+		// Delete-vs-delete never captures (it is consensus, not divergence).
+		return errors.New("cannot resolve delete against delete conflict")
+	}
+	theirsRecord, err := vaultitem.DecodeRecord(conflict.TheirsSnapshot)
+	if err != nil {
+		return err
+	}
+	if theirsRecord.KeyVersion <= 0 {
+		return errors.New("captured conflict has no key version")
+	}
+	operationID, err := replicationsync.NewOperationID()
+	if err != nil {
+		return err
+	}
+	return s.deps.Resolver.ResolveUseLocal(ctx, account, recordID, syncstore.LocalResolution{
+		OperationID: operationID,
+		Operation:   replicationsync.OperationDelete,
+		KeyVersion:  uint32(theirsRecord.KeyVersion),
+		KeyID:       syncSnapshotKeyID,
+		Snapshot:    vaultitem.TombstoneSnapshot(recordID, conflict.RecordType),
 		CreatedAt:   time.Now().UTC(),
 	})
 }

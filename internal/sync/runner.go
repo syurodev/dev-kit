@@ -16,6 +16,15 @@ const (
 	defaultRetryDelay            = time.Minute
 	defaultMaxInlinePushAttempts = 3
 	defaultInlinePushBackoff     = 100 * time.Millisecond
+	// defaultDeadLetterAttempts is the number of consecutive preparation
+	// failures after which a poison outbox row is marked failed instead of
+	// retried. Preparation failures are permanent (the stored row cannot encode
+	// a valid push operation), so retrying forever only hammers every SyncNow.
+	defaultDeadLetterAttempts = 5
+	// maxPushBatchOperations matches the wire limit the transport enforces;
+	// "all ready changes" (limit 0) must still respect it or every push would
+	// fail on an oversized backlog and retry forever.
+	maxPushBatchOperations = 1000
 )
 
 // RunReport describes one local push attempt. It contains counts only and no
@@ -25,6 +34,7 @@ type RunReport struct {
 	Sent      int
 	Retried   int
 	Conflicts int
+	Failed    int
 }
 
 // Runner coordinates local outbox state with a push-only transport. It does
@@ -37,6 +47,7 @@ type Runner struct {
 	retryDelay            time.Duration
 	maxInlinePushAttempts int
 	inlinePushBackoff     time.Duration
+	deadLetterAttempts    int
 }
 
 // Coordinator is kept as a descriptive alias for callers that use the
@@ -53,6 +64,9 @@ type RunnerConfig struct {
 	SyncingLease          time.Duration
 	MaxInlinePushAttempts int
 	InlinePushBackoff     time.Duration
+	// DeadLetterAttempts bounds consecutive preparation failures before a
+	// poison row is marked failed (0 keeps the default).
+	DeadLetterAttempts int
 }
 
 func NewRunner(outbox Outbox, transport Transport, config ...RunnerConfig) *Runner {
@@ -63,6 +77,7 @@ func NewRunner(outbox Outbox, transport Transport, config ...RunnerConfig) *Runn
 		retryDelay:            defaultRetryDelay,
 		maxInlinePushAttempts: defaultMaxInlinePushAttempts,
 		inlinePushBackoff:     defaultInlinePushBackoff,
+		deadLetterAttempts:    defaultDeadLetterAttempts,
 	}
 	if len(config) > 0 {
 		if config[0].Clock != nil {
@@ -76,6 +91,9 @@ func NewRunner(outbox Outbox, transport Transport, config ...RunnerConfig) *Runn
 		}
 		if config[0].InlinePushBackoff > 0 {
 			runner.inlinePushBackoff = config[0].InlinePushBackoff
+		}
+		if config[0].DeadLetterAttempts > 0 {
+			runner.deadLetterAttempts = config[0].DeadLetterAttempts
 		}
 	}
 	return runner
@@ -112,7 +130,31 @@ func (r *Runner) Run(ctx context.Context, limit int) (RunReport, error) {
 	if len(changes) == 0 {
 		return report, nil
 	}
-	selected, prepared, prepareErr := preparePushPrefix(changes)
+	selected, prepared, poison := preparePushPrefix(changes)
+	if len(selected) > maxPushBatchOperations {
+		// Keep the oldest prefix; Pending orders by creation time, so the
+		// remaining rows ship on the next Run.
+		selected = selected[:maxPushBatchOperations]
+	}
+
+	// A row that cannot be prepared at all (stored data cannot encode a valid
+	// push operation) is excluded from every batch. Preparation failures are
+	// permanent, so after the dead-letter threshold it is marked failed instead
+	// of retried — it stays visible (and still causally blocks its successors,
+	// which the server would reject as gaps) rather than hammering each SyncNow.
+	for _, change := range poison {
+		if change.Attempts+1 >= r.deadLetterAttempts {
+			if err := r.outbox.MarkFailed(change.IdempotencyKey, FailureInvalidResponse); err != nil {
+				return report, err
+			}
+			report.Failed++
+			continue
+		}
+		if err := r.markRetry(change, FailureInvalidResponse, now); err != nil {
+			return report, err
+		}
+		report.Retried++
+	}
 
 	ready := make([]Change, 0, len(selected))
 	operations := make([]PushOperation, 0, len(selected))
@@ -135,13 +177,6 @@ func (r *Runner) Run(ctx context.Context, limit int) (RunReport, error) {
 		return report, nil
 	}
 	report.Attempted = len(ready)
-	if prepareErr != nil {
-		if retryErr := r.retryAll(ready, FailureInvalidResponse, now); retryErr != nil {
-			return report, retryErr
-		}
-		report.Retried = len(ready)
-		return report, prepareErr
-	}
 
 	result, pushErr := r.pushWithInlineRetry(ctx, operations)
 	if pushErr != nil {
@@ -193,36 +228,38 @@ func (r *Runner) Run(ctx context.Context, limit int) (RunReport, error) {
 }
 
 // preparePushPrefix constructs the largest ready prefix that fits the exact
-// HTTP JSON request budget before any row is marked syncing. Other transports
-// inherit the conservative bound, avoiding a retry loop on aggregate size.
-func preparePushPrefix(changes []Change) ([]Change, map[string]PushOperation, error) {
-	selected := make([]Change, 0, len(changes))
+// HTTP JSON request budget before any row is marked syncing. Changes that
+// cannot be prepared are returned as poison (never part of the batch) so the
+// runner can dead-letter them separately. Other transports inherit the
+// conservative bound, avoiding a retry loop on aggregate size.
+func preparePushPrefix(changes []Change) (selected []Change, prepared map[string]PushOperation, poison []Change) {
+	selected = make([]Change, 0, len(changes))
 	operations := make([]PushOperation, 0, len(changes))
-	prepared := make(map[string]PushOperation, len(changes))
+	prepared = make(map[string]PushOperation, len(changes))
 	for _, change := range changes {
 		operation, err := pushOperationFromChange(change)
 		if err != nil {
-			if len(selected) == 0 {
-				return []Change{change}, prepared, err
-			}
-			break
+			poison = append(poison, change)
+			continue
 		}
 		candidate := append(operations, operation)
 		body, err := json.Marshal(pushRequest{Operations: candidate})
 		if err != nil {
-			return selected, prepared, ErrInvalidTransportResponse
+			// A PushOperation of validated scalar fields cannot fail to marshal;
+			// treat it as a wire-budget failure and keep the prefix so far.
+			return selected, prepared, poison
 		}
 		if len(body) > maxHTTPRequestBytes {
-			if len(selected) == 0 {
-				return []Change{change}, prepared, ErrInvalidTransportResponse
-			}
-			break
+			// The shared snapshot size cap keeps a single change well under the
+			// wire budget, so this is unreachable in production; leave the
+			// unselected rows pending rather than dead-lettering valid data.
+			return selected, prepared, poison
 		}
 		selected = append(selected, change)
 		operations = candidate
 		prepared[change.IdempotencyKey] = operation
 	}
-	return selected, prepared, nil
+	return selected, prepared, poison
 }
 
 type acknowledgedResult struct {

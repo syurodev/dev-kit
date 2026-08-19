@@ -294,51 +294,64 @@ func applyRemoteMutation(ctx context.Context, tx *sql.Tx, mutation RemoteMutatio
 	if err != nil {
 		return err
 	}
+	// Type immutability is an entity invariant, not a divergence signal: a type
+	// change is always corruption-level and still fails the batch.
+	if exists && current.recordType != mutation.RecordType {
+		return ErrRemoteMutationConflict
+	}
 	pendingLocal, err := hasPendingLocalIntent(ctx, tx, mutation.RecordID)
 	if err != nil {
 		return err
 	}
-	if pendingLocal {
-		return ErrRemoteMutationConflict
+	unsyncedOutbox, err := hasUnsyncedOutboxRows(ctx, tx, mutation.AccountID, mutation.RecordID)
+	if err != nil {
+		return err
 	}
-	if exists && current.recordType != mutation.RecordType {
-		return ErrRemoteMutationConflict
-	}
-	// Remote clients may compact several local mutations into the latest
-	// snapshot before syncing. Therefore versions must increase strictly, but
-	// they need not be contiguous and the first accepted version may exceed 1.
+	// Dirty lineage: local writes the server has not acknowledged (unmaterialized
+	// intents or unsynced outbox rows). A remote op that cannot be applied
+	// against such state is a divergence to capture for the user — never a
+	// batch-fatal error that would wedge the account's pull cursor.
+	dirty := pendingLocal || unsyncedOutbox
+
 	if exists && mutation.EntityVersion <= current.entityVersion {
-		// A same-version divergence for a record that lost a push is not a stale
-		// replay: capture the authenticated remote snapshot as "theirs" so the
-		// user can resolve it, and leave ours untouched. Otherwise fail closed.
-		captured, err := captureRemoteConflict(ctx, tx, current, mutation)
-		if err != nil {
-			return err
+		if dirty {
+			// The local ledger head was advanced by unacknowledged local
+			// materializations, so this remote op's content may never have been
+			// seen here regardless of version ordering: keep it as "theirs".
+			return captureRemoteMutation(ctx, tx, mutation)
 		}
-		if captured {
-			return nil
-		}
-		return ErrRemoteMutationConflict
+		// A clean, fully-synced local head at or after this version already
+		// covers this content: server arbitration is monotonic per record, so
+		// two different accepted ops cannot share a version. Consume the stale
+		// replay without touching state so the cursor advances.
+		return nil
 	}
-	if exists {
-		if err := rejectUnsyncedLocalState(ctx, tx, current, mutation); err != nil {
-			return err
+
+	// The op is strictly newer than the local ledger head, or no head exists.
+	var rejectErr error
+	if exists || dirty {
+		rejectErr = rejectUnsyncedLocalState(ctx, tx, current, mutation)
+		if rejectErr != nil && !errors.Is(rejectErr, ErrRemoteMutationConflict) {
+			return rejectErr
 		}
 	}
-	if !exists {
+	if rejectErr == nil && !exists && !dirty {
 		// m9 intentionally does not backfill vault_items. If an untracked local
-		// row nevertheless collides with a remote ID, fail closed rather than
-		// overwrite data whose version history is unknown.
+		// row nevertheless collides with a remote ID, surface it as a conflict
+		// for the user rather than overwrite data whose version history is
+		// unknown.
 		var existingType string
 		err := tx.QueryRowContext(ctx, fmt.Sprintf(
 			"SELECT type FROM %s WHERE id = ?", TableVaultItems,
 		), mutation.RecordID).Scan(&existingType)
 		if err == nil {
-			return ErrRemoteMutationConflict
-		}
-		if !errors.Is(err, sql.ErrNoRows) {
+			rejectErr = ErrRemoteMutationConflict
+		} else if !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
+	}
+	if rejectErr != nil {
+		return captureRemoteMutation(ctx, tx, mutation)
 	}
 
 	if mutation.Operation == replicationsync.OperationDelete {
@@ -401,6 +414,16 @@ func applyRemoteMutation(ctx context.Context, tx *sql.Tx, mutation RemoteMutatio
 		formatTime(time.Now().UTC())); err != nil {
 		return err
 	}
+	if mutation.Operation == replicationsync.OperationDelete {
+		// A pending local delete intent agrees with the applied remote tombstone
+		// (same outcome) — it is superseded, not divergent. Leaving it would wedge
+		// its later materialization against the advanced ledger.
+		if _, err = tx.ExecContext(ctx, fmt.Sprintf(
+			"DELETE FROM %s WHERE record_id = ? AND operation = ? AND entity_version <= ?",
+			TableSyncLocalMutations), mutation.RecordID, string(mutation.Operation), mutation.EntityVersion); err != nil {
+			return err
+		}
+	}
 
 	_, err = tx.ExecContext(ctx, fmt.Sprintf(`
 		INSERT INTO %s (
@@ -461,6 +484,21 @@ func hasPendingLocalIntent(ctx context.Context, tx *sql.Tx, recordID string) (bo
 	if err := tx.QueryRowContext(ctx, fmt.Sprintf(
 		"SELECT COUNT(*) FROM %s WHERE record_id = ?", TableSyncLocalMutations,
 	), recordID).Scan(&count); err != nil {
+		return false, err
+	}
+	return count != 0, nil
+}
+
+func hasUnsyncedOutboxRows(ctx context.Context, tx *sql.Tx, accountID, recordID string) (bool, error) {
+	// Unsynced outbox rows (pending, syncing, failed, or conflicted) are local
+	// writes the server has not acknowledged — the same lineage proof the ack
+	// reconciler uses.
+	var count int
+	err := tx.QueryRowContext(ctx, fmt.Sprintf(
+		"SELECT COUNT(*) FROM %s WHERE account_id = ? AND record_id = ? AND status != ?",
+		TableSyncOutbox), accountID, recordID, string(replicationsync.StatusSynced),
+	).Scan(&count)
+	if err != nil {
 		return false, err
 	}
 	return count != 0, nil

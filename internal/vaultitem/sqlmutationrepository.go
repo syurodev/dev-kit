@@ -152,14 +152,7 @@ func (r *SQLMutationRepository) Delete(id string) (err error) {
 	if err != nil {
 		return err
 	}
-	tombstone, err := json.Marshal(struct {
-		RecordID   string `json:"record_id"`
-		RecordType string `json:"record_type"`
-		Deleted    bool   `json:"deleted"`
-	}{record.ID, record.Type, true})
-	if err != nil {
-		return err
-	}
+	tombstone := TombstoneSnapshot(record.ID, record.Type)
 	if _, err = tx.Exec("DELETE FROM "+localVaultItemsTable+" WHERE id = ?", record.ID); err != nil {
 		return err
 	}
@@ -212,6 +205,22 @@ func validateMutationRecord(record Record) error {
 		return errors.New("vault item key version is invalid")
 	}
 	return ValidateRecordSchema(record.Type, record.Metadata, record.Payload)
+}
+
+// TombstoneSnapshot builds the tombstone snapshot JSON a delete records and a
+// delete conflict resolution re-materialises. It carries identity markers only
+// — never plaintext secrets.
+func TombstoneSnapshot(recordID, recordType string) []byte {
+	data, err := json.Marshal(struct {
+		RecordID   string `json:"record_id"`
+		RecordType string `json:"record_type"`
+		Deleted    bool   `json:"deleted"`
+	}{recordID, recordType, true})
+	if err != nil {
+		// A three-field struct of strings and a bool cannot fail to marshal.
+		return nil
+	}
+	return data
 }
 
 // MarshalForResolution builds the (full record JSON, sync snapshot JSON) pair a

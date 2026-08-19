@@ -76,13 +76,51 @@ func (s *FileKeyringStore) Load() (*crypto.Keyring, error) {
 	return &keyring, nil
 }
 
+// Save writes the keyring durably: a temp file in the same directory is fully
+// written and fsynced, then atomically renamed over the target and the
+// directory entry is fsynced. A crash mid-write can never leave a truncated
+// keyring — the only copy of the wrapped DEKs — behind (os.WriteFile alone
+// would), which would make every encrypted payload undecryptable.
 func (s *FileKeyringStore) Save(keyring *crypto.Keyring) error {
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
+	dir := filepath.Dir(s.path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(keyring, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.path, data, 0o600)
+	temp, err := os.CreateTemp(dir, ".keyring-*")
+	if err != nil {
+		return err
+	}
+	tempName := temp.Name()
+	defer func() {
+		// Best effort: the rename below removes it on success.
+		_ = os.Remove(tempName)
+	}()
+	if err := temp.Chmod(0o600); err != nil {
+		temp.Close()
+		return err
+	}
+	if _, err := temp.Write(data); err != nil {
+		temp.Close()
+		return err
+	}
+	if err := temp.Sync(); err != nil {
+		temp.Close()
+		return err
+	}
+	if err := temp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tempName, s.path); err != nil {
+		return err
+	}
+	dirFile, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer dirFile.Close()
+	return dirFile.Sync()
 }

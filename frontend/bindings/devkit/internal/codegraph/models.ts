@@ -175,6 +175,90 @@ export interface Param {
 }
 
 /**
+ * Plan is the single active plan for a project.
+ */
+export interface Plan {
+    "description": string;
+
+    /**
+     * "draft" | "approved"
+     */
+    "state": string;
+    "nodes": PlanNode[] | null;
+    "edges": PlanEdge[] | null;
+}
+
+/**
+ * PlanEdge is one intended call between two plan nodes. Condition is
+ * plan-time documentation written by the proposing agent for the human
+ * reviewing the canvas — it is never machine-verified against real code
+ * (see the doc's "Điều kiện trên cạnh" section).
+ */
+export interface PlanEdge {
+    /**
+     * PlanNode.PlanNodeID
+     */
+    "from": string;
+
+    /**
+     * PlanNode.PlanNodeID
+     */
+    "to": string;
+    "condition": string;
+}
+
+/**
+ * PlanNode is one intended class or method in a proposed flow. FQN is the
+ * fully-qualified name the agent commits to creating; matching resolves it
+ * against the real index (see this plan's "FQN matching rule").
+ */
+export interface PlanNode {
+    "planNodeId": string;
+    "label": string;
+    "description": string;
+    "fqn": string;
+
+    /**
+     * "class" | "method"
+     */
+    "kind": string;
+}
+
+/**
+ * PlanNodeProgress is one plan node plus its freshly computed status.
+ */
+export interface PlanNodeProgress {
+    "planNodeId": string;
+    "label": string;
+    "description": string;
+    "fqn": string;
+
+    /**
+     * "class" | "method"
+     */
+    "kind": string;
+    "status": string;
+
+    /**
+     * RealNodeID is the indexed node the FQN resolved to, empty when the
+     * status is not_implemented. Lets a caller jump straight to the real
+     * code (e.g. via GetCodeSnippet) without re-resolving the FQN itself.
+     */
+    "realNodeId": string;
+}
+
+/**
+ * PlanProgress is GetPlanProgress's result: every node's status plus the
+ * derived whole-plan status.
+ */
+export interface PlanProgress {
+    "description": string;
+    "state": string;
+    "aggregate": string;
+    "nodes": PlanNodeProgress[] | null;
+}
+
+/**
  * Subgraph is one bounded page of a GetNeighbors result.
  */
 export interface Subgraph {
@@ -204,53 +288,4 @@ export interface SymbolMatch {
     "kind": string;
     "filePath": string;
     "line": number;
-}
-
-/**
- * PlanNode is one intended class or method in a proposed flow.
- */
-export interface PlanNode {
-    "planNodeId": string;
-    "label": string;
-    "description": string;
-    "fqn": string;
-    "kind": string;
-}
-
-/**
- * PlanEdge is one intended call between two plan nodes.
- */
-export interface PlanEdge {
-    "from": string;
-    "to": string;
-    "condition": string;
-}
-
-/**
- * Plan is the single active plan for a project.
- */
-export interface Plan {
-    "description": string;
-    "state": string;
-    "nodes": PlanNode[] | null;
-    "edges": PlanEdge[] | null;
-}
-
-/**
- * PlanNodeProgress is one plan node plus its freshly computed status.
- */
-export interface PlanNodeProgress extends PlanNode {
-    "status": string;
-    "realNodeId": string;
-}
-
-/**
- * PlanProgress is GetPlanProgress's result: every node's status plus the
- * derived whole-plan status.
- */
-export interface PlanProgress {
-    "description": string;
-    "state": string;
-    "aggregate": string;
-    "nodes": PlanNodeProgress[] | null;
 }

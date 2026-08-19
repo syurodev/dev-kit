@@ -78,7 +78,18 @@ func (s *Server) toolKafkaConnectionStatus(ctx context.Context, _ *sdk.CallToolR
 
 func (s *Server) gateKafka(ctx context.Context, tool, summary string) error {
 	target := s.kafkaTarget()
-	return GateActiveMCP(ctx, s.deps.Hub, s.deps.Envs, target, target, tool, summary, interaction.KindKafka)
+	id, err := GateActiveMCP(ctx, s.deps.Hub, s.deps.Envs, target, target, tool, summary, interaction.KindKafka)
+	if err != nil {
+		return err
+	}
+	// Connect only after the confirmation covered this profile id: sealed SASL
+	// credentials must not reach the broker before the user approves.
+	if st := s.deps.Kafka.Status(); !st.Connected || st.ProfileID != id {
+		if err := s.deps.Kafka.Connect(ctx, id); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Server) toolKafkaListTopics(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {

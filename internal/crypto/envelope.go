@@ -16,6 +16,11 @@ const (
 	EnvelopeVersionV2 uint32 = 2
 )
 
+// MaxCiphertextBytes bounds a single envelope's ciphertext (1 MiB, matching
+// the sync wire limit for a record snapshot) so untrusted envelopes cannot
+// force unbounded allocations during Open.
+const MaxCiphertextBytes = 1 << 20
+
 // AssociatedData is the immutable record identity authenticated by SealV2
 // envelopes. It is not persisted in the envelope: the owning record supplies
 // it when decrypting.
@@ -53,6 +58,11 @@ func (e Envelope) Validate() error {
 	// authentication tag, even when the plaintext is empty.
 	if len(e.Ciphertext) < chacha20poly1305.Overhead {
 		return fmt.Errorf("ciphertext must be at least %d bytes", chacha20poly1305.Overhead)
+	}
+	// Bound the ciphertext so a remote/attacker-supplied envelope cannot force
+	// an unbounded allocation during Open.
+	if len(e.Ciphertext) > MaxCiphertextBytes {
+		return fmt.Errorf("ciphertext exceeds %d bytes", MaxCiphertextBytes)
 	}
 
 	return nil

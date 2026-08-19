@@ -31,3 +31,19 @@ func TestSeatbeltProfileDenyReadPaths(t *testing.T) {
 		t.Fatalf("expected file-read deny rule: %s", prof)
 	}
 }
+
+func TestSeatbeltProfileNetworkHostAllowsOutbound(t *testing.T) {
+	prof := buildSeatbeltProfile(Policy{WorkDir: "/tmp/proj", Network: NetworkHost}.withDefaults())
+	if !strings.Contains(prof, "(allow network-outbound)") {
+		t.Fatalf("expected network-outbound allowance for NetworkHost: %s", prof)
+	}
+	if strings.Contains(prof, "(deny network-outbound)") {
+		t.Fatalf("NetworkHost must not deny outbound: %s", prof)
+	}
+	// DNS + logging mach services must be reachable under (deny default).
+	for _, service := range seatbeltNetworkMachServices {
+		if !strings.Contains(prof, service) {
+			t.Fatalf("expected mach-lookup for %q: %s", service, prof)
+		}
+	}
+}

@@ -38,6 +38,15 @@ var (
 	// internally inconsistent (no nodes, duplicate node IDs, or an edge
 	// referencing an unknown node).
 	ErrInvalidPlan = errors.New("codegraph: invalid plan")
+	// ErrBinaryFile is returned by ReadFile when the file's content is not
+	// valid UTF-8 — e.g. a compiled .class file, an image, a jar. The
+	// bridge/frontend can only carry a string across the Wails JSON bridge;
+	// silently returning invalid-UTF-8 bytes as a string would have the
+	// JSON encoder replace the offending bytes with U+FFFD, corrupting the
+	// content in memory — and a subsequent WriteFile would then write that
+	// corrupted content back over the real file on disk. Reject up front
+	// instead.
+	ErrBinaryFile = errors.New("codegraph: file is not text")
 )
 
 // Param is one method parameter's name and type, e.g. {Name: "request", Type:

@@ -5,9 +5,13 @@ target/
 analyzer/target/
 analyzer/dependency-reduced-pom.xml
 
-# Frontend
+# Frontend & Node
+node_modules/
+dist/
 frontend/dist
 frontend/node_modules
+mocksyncserver
+
 
 # Linux packaging
 build/linux/appimage/build

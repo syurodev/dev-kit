@@ -94,6 +94,7 @@ func buildDevice(t *testing.T, vlt *vault.Service) *device {
 		Remote:         syncstore.NewSQLRemoteStore(db),
 		LocalMutations: syncstore.NewSQLLocalMutationStore(db),
 		Outbox:         syncstore.NewSQLOutbox(db),
+		Conflicts:      syncstore.NewSQLConflictStore(db),
 		Vault:          vlt,
 	})
 	if err != nil {

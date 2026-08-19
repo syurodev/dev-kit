@@ -31,10 +31,14 @@ func effectiveHub(hub *interaction.Hub) *interaction.Hub {
 	return hub
 }
 
-// GateActiveMCP ensures an active target exists and env confirmation policy is satisfied.
-// When RequiresConfirmation(env) is true, Confirm runs every call (allow_always ignored).
-// When false, Confirm may short-circuit via allow_always after the user opts in once.
-// A nil hub behaves as headless.
+// GateActiveMCP ensures an active target exists and env confirmation policy is
+// satisfied, returning the profile id the confirmation covered. The caller MUST
+// execute against that exact id: re-reading the sticky active target after the
+// gate would let a concurrent SetActiveProfile swap the target between the
+// user's confirmation and the execution. When RequiresConfirmation(env) is
+// true, Confirm runs every call (allow_always ignored). When false, Confirm may
+// short-circuit via allow_always after the user opts in once. A nil hub behaves
+// as headless.
 func GateActiveMCP(
 	ctx context.Context,
 	hub *interaction.Hub,
@@ -43,21 +47,24 @@ func GateActiveMCP(
 	active ActiveTarget,
 	tool, summary string,
 	kind interaction.Kind,
-) error {
+) (string, error) {
 	id, err := active.EnsureActive(ctx)
 	if err != nil {
-		return err
+		return "", err
 	}
 	envName, err := profiles.EnvForProfile(id)
 	if err != nil {
-		return err
+		return "", err
 	}
 	blocks := env.RequiresConfirmation(envName)
-	return effectiveHub(hub).Confirm(ctx, interaction.ConfirmRequest{
+	if err := effectiveHub(hub).Confirm(ctx, interaction.ConfirmRequest{
 		Env:       envName,
 		Tool:      tool,
 		Summary:   summary,
 		Kind:      kind,
 		EnvBlocks: blocks,
-	})
+	}); err != nil {
+		return "", err
+	}
+	return id, nil
 }

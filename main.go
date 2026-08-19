@@ -16,6 +16,7 @@ import (
 	"devkit/internal/auth"
 	"devkit/internal/bridge"
 	"devkit/internal/cloudconfig"
+	"devkit/internal/codegraph"
 	"devkit/internal/environments"
 	"devkit/internal/interaction"
 	"devkit/internal/mcp"
@@ -209,6 +210,19 @@ func main() {
 	container.Terminal = terminalRegistry
 	container.CodeGraph.SetTerminalRegistry(terminalRegistry)
 	defer terminalRegistry.CloseAll()
+
+	// Dev-time wiring: resolve the Java analyzer jar relative to the working
+	// directory (this binary is always run from the repo root — see
+	// build/Taskfile.yml's run:server/run:desktop tasks). A real packaged
+	// build needs a different resolution strategy (bundled resource path or
+	// an env var override) — deliberately not decided here; see
+	// analyzer_subprocess.go's own doc comment on NewSubprocessAnalyzerWithJar.
+	const codegraphAnalyzerJarPath = "analyzer/target/codegraph-analyzer.jar"
+	if _, err := os.Stat(codegraphAnalyzerJarPath); err == nil {
+		container.CodeGraph.SetAnalyzer(codegraph.NewSubprocessAnalyzerWithJar(codegraphAnalyzerJarPath))
+	} else {
+		log.Printf("codegraph: analyzer jar not found at %q — CodeGraph indexing will report \"analyzer not configured\" until it is built (cd analyzer && mvn package)", codegraphAnalyzerJarPath)
+	}
 
 	defer container.Database.Close()
 	defer container.SSH.Close()

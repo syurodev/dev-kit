@@ -18,3 +18,15 @@ export function unlockVault(masterPassword: string): Promise<void> {
     () => AppService.UnlockVault(masterPassword) as Promise<void>,
   );
 }
+
+export function unlockVaultWithRecovery(recoveryKey: string): Promise<void> {
+  return callBridge(
+    () => AppService.UnlockVaultWithRecovery(recoveryKey) as Promise<void>,
+  );
+}
+
+export function lockVault(): Promise<void> {
+  return callBridge(
+    () => AppService.LockVault() as Promise<void>,
+  );
+}

@@ -3,122 +3,497 @@ import {
   createEnvTag,
   deleteEnvTag,
   listEnvTags,
-  updateEnvTag,
   type EnvTag,
 } from "../../bridge/environments";
 import { errorMessage } from "../../bridge/errors";
-import { McpInstallPanel } from "./McpInstallPanel";
-import { SyncView } from "../sync/SyncView";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Monitor, Moon, Sun } from "lucide-react";
-import { cn } from "@/lib/utils";
+import {
+  authLogout,
+  authStatus,
+  syncConnect,
+  syncNow,
+  syncStatus,
+  type AuthStatus,
+} from "../../bridge/sync";
 import { useTheme } from "@/theme/ThemeProvider";
-import type { ThemePreference } from "@/bridge/preferences";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { SecurityNotice } from "@/components/ui/security-notice";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { McpInstallPanel } from "./McpInstallPanel";
+import {
+  User,
+  Sun,
+  Monitor,
+  SlidersHorizontal,
+  Laptop,
+  LockKeyhole,
+  LogOut,
+  Trash2,
+  Plus,
+  X,
+  RefreshCw,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
 
-export function SettingsView() {
+type SettingsTab = "account" | "appearance" | "sync" | "environments";
+
+export interface SettingsModalProps {
+  open: boolean;
+  onClose: () => void;
+}
+
+export function SettingsModal({ open, onClose }: SettingsModalProps) {
+  const [activeTab, setActiveTab] = useState<SettingsTab>("account");
+
+  // Handle ESC key press to close modal
+  useEffect(() => {
+    if (!open) return;
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
   return (
-    <Tabs defaultValue="appearance" className="gap-4">
-      <TabsList>
-        <TabsTrigger value="appearance">Appearance</TabsTrigger>
-        <TabsTrigger value="environments">Environments</TabsTrigger>
-        <TabsTrigger value="sync">Sync</TabsTrigger>
-      </TabsList>
-      <TabsContent value="appearance">
-        <AppearancePanel />
-      </TabsContent>
-      <TabsContent value="environments">
-        <EnvironmentsPanel />
-      </TabsContent>
-      <TabsContent value="sync">
-        <SyncView />
-      </TabsContent>
-    </Tabs>
+    <TooltipProvider>
+      {/* Blurred Scrim Backdrop Overlay */}
+      <div
+        data-slot="settings-scrim"
+        onClick={(e) => {
+          if (e.target === e.currentTarget) {
+            onClose();
+          }
+        }}
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 backdrop-blur-[12px] p-4 select-none animate-in fade-in duration-200"
+      >
+        {/* Settings Modal Frame 940x620px */}
+        <div
+          data-slot="settings-modal"
+          onClick={(e) => e.stopPropagation()}
+          className="flex h-[620px] w-full max-w-[940px] flex-col overflow-hidden rounded-[18px] border border-border bg-surface-glass-modal shadow-[0px_20px_48px_-8px_rgba(0,0,0,0.56)] backdrop-blur-[16px] text-text-primary animate-in zoom-in-95 duration-200"
+        >
+          {/* Modal Header · 56px */}
+          <div className="flex h-14 w-full shrink-0 items-center justify-between border-b border-border-subtle px-6">
+            <span className="text-[15px] font-medium text-text-primary">Settings</span>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="icon"
+                  onClick={onClose}
+                  aria-label="Close settings"
+                  className="size-8 rounded-[8px]"
+                >
+                  <X className="size-4 text-text-secondary hover:text-text-primary" strokeWidth={1.5} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Close settings (Esc)</TooltipContent>
+            </Tooltip>
+          </div>
+
+          {/* Modal Body: Sidebar (220px) + Content (656px) */}
+          <div className="flex min-h-0 flex-1 overflow-hidden">
+            {/* Sidebar Navigation */}
+            <div className="flex w-[220px] shrink-0 flex-col gap-1 border-r border-border-subtle bg-surface-raised/80 p-3">
+              <NavItem
+                active={activeTab === "account"}
+                icon={User}
+                label="Account"
+                onClick={() => setActiveTab("account")}
+              />
+              <NavItem
+                active={activeTab === "appearance"}
+                icon={Sun}
+                label="Appearance"
+                onClick={() => setActiveTab("appearance")}
+              />
+              <NavItem
+                active={activeTab === "sync"}
+                icon={Monitor}
+                label="Sync & Devices"
+                onClick={() => setActiveTab("sync")}
+              />
+              <NavItem
+                active={activeTab === "environments"}
+                icon={SlidersHorizontal}
+                label="Environments"
+                onClick={() => setActiveTab("environments")}
+              />
+            </div>
+
+            {/* Content Panel Area */}
+            <div className="flex flex-1 flex-col overflow-y-auto p-8 min-h-0">
+              {activeTab === "account" && <AccountTab />}
+              {activeTab === "appearance" && <AppearanceTab />}
+              {activeTab === "sync" && <SyncDevicesTab />}
+              {activeTab === "environments" && <EnvironmentsTab />}
+            </div>
+          </div>
+        </div>
+      </div>
+    </TooltipProvider>
   );
 }
 
-const themeOptions = [
-  { value: "system", label: "System", description: "Follow your operating system", icon: Monitor },
-  { value: "light", label: "Light", description: "Always use the light appearance", icon: Sun },
-  { value: "dark", label: "Dark", description: "Always use the dark appearance", icon: Moon },
-] satisfies Array<{
-  value: ThemePreference;
+export function SettingsView() {
+  return <SettingsModal open={true} onClose={() => {}} />;
+}
+
+function NavItem({
+  active,
+  icon: Icon,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
   label: string;
-  description: string;
-  icon: typeof Monitor;
-}>;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "group relative flex w-full items-center gap-3 rounded-[8px] px-3 py-2 text-[13px] transition-colors outline-none",
+        active
+          ? "bg-action-primary/10 text-text-primary font-medium"
+          : "text-text-secondary hover:bg-surface-base hover:text-text-primary font-normal"
+      )}
+    >
+      {/* 3px Lime Accent line for active nav */}
+      <div
+        className={cn(
+          "h-[18px] w-[3px] rounded-full transition-all shrink-0",
+          active ? "bg-action-primary" : "bg-transparent"
+        )}
+      />
 
-function AppearancePanel() {
-  const { theme, setTheme } = useTheme();
+      <Icon
+        className={cn("size-4 shrink-0 transition-opacity", active ? "opacity-100" : "opacity-60")}
+        strokeWidth={1.5}
+      />
+
+      <span className="truncate">{label}</span>
+    </button>
+  );
+}
+
+// ----------------------------------------------------------------------
+// 1. Account Tab
+// ----------------------------------------------------------------------
+function AccountTab() {
+  const [auth, setAuth] = useState<AuthStatus>({ authenticated: false, expiresAt: "" });
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [saving, setSaving] = useState(false);
 
-  async function selectTheme(nextTheme: ThemePreference) {
-    if (nextTheme === theme) {
-      return;
-    }
-    setError("");
-    setSaving(true);
+  async function loadAuth() {
     try {
-      await setTheme(nextTheme);
-    } catch (cause) {
-      setError(errorMessage(cause));
+      const s = await authStatus();
+      setAuth(s);
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  }
+
+  useEffect(() => {
+    void loadAuth();
+  }, []);
+
+  async function handleSignOut() {
+    setBusy(true);
+    setError("");
+    try {
+      await authLogout();
+      await loadAuth();
+    } catch (e) {
+      setError(errorMessage(e));
     } finally {
-      setSaving(false);
+      setBusy(false);
+    }
+  }
+
+  async function handleSignIn() {
+    setBusy(true);
+    setError("");
+    try {
+      await syncConnect();
+      await loadAuth();
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
     }
   }
 
   return (
-    <section className="max-w-2xl space-y-4">
-      <div>
-        <h2 className="text-lg font-semibold">Appearance</h2>
-        <p className="text-sm text-muted-foreground">
-          Choose how DevKit looks. This also updates the native window frame.
+    <div className="flex flex-col gap-6 max-w-[560px]">
+      <div className="flex flex-col gap-2">
+        <h2 className="text-[28px] font-semibold tracking-tight text-text-primary">Account</h2>
+        <p className="text-[14px] leading-relaxed text-text-secondary">
+          Identity used for sync. Managed by your identity provider — not stored locally.
         </p>
       </div>
-      <div role="radiogroup" aria-label="Application appearance" className="grid gap-2 sm:grid-cols-3">
-        {themeOptions.map((option) => {
-          const Icon = option.icon;
-          const selected = option.value === theme;
-          return (
-            <button
-              key={option.value}
-              type="button"
-              role="radio"
-              aria-checked={selected}
-              disabled={saving}
-              onClick={() => void selectTheme(option.value)}
+
+      {/* Identity Card */}
+      <div className="flex items-center gap-4 py-2">
+        <div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-action-primary text-action-primary-foreground font-semibold text-base select-none">
+          SY
+        </div>
+
+        <div className="flex flex-col gap-1 min-w-0">
+          <span className="text-[14px] font-medium text-text-primary truncate">
+            {auth.authenticated ? "syuro.dev@gmail.com" : "Not signed in"}
+          </span>
+
+          <div className="flex items-center gap-2">
+            <div
               className={cn(
-                "flex min-h-24 flex-col items-start gap-2 rounded-lg border bg-card p-3 text-left transition-colors",
-                selected
-                  ? "border-ring ring-2 ring-ring/20"
-                  : "border-border hover:bg-accent",
+                "size-1.5 rounded-full shrink-0",
+                auth.authenticated ? "bg-status-success" : "bg-text-tertiary"
               )}
-            >
-              <Icon className="size-4" />
-              <span>
-                <span className="block text-sm font-medium">{option.label}</span>
-                <span className="block text-xs text-muted-foreground">{option.description}</span>
-              </span>
-            </button>
-          );
-        })}
+            />
+            <span className="text-[13px] text-text-secondary">
+              {auth.authenticated ? "Signed in — session active" : "Offline / Local only"}
+            </span>
+          </div>
+        </div>
       </div>
-      {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
-    </section>
+
+      {/* Action Button */}
+      <div>
+        {auth.authenticated ? (
+          <Button
+            type="button"
+            variant="secondary"
+            size="default"
+            disabled={busy}
+            onClick={handleSignOut}
+          >
+            <LogOut className="size-3.5" strokeWidth={1.5} />
+            <span>{busy ? "Signing out…" : "Sign out"}</span>
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            variant="default"
+            size="default"
+            disabled={busy}
+            onClick={handleSignIn}
+          >
+            <span>{busy ? "Connecting browser…" : "Sign in with browser"}</span>
+          </Button>
+        )}
+      </div>
+
+      {error ? <p className="text-[12px] text-status-danger">{error}</p> : null}
+
+      {/* Security Notice */}
+      <SecurityNotice
+        type="secure"
+        title="Password never leaves your browser"
+        description="DevKit signs you in through your system browser (PKCE). Your password is never sent to or stored by DevKit."
+      />
+    </div>
   );
 }
 
-/**
- * Sync's own module/manifest registration stays intact (backend still
- * reports a "sync" module — removing the local registration would trip
- * the metadata-parity check) — only the *navigation* is merged here. The
- * Sync module's command surface (e.g. "Sync now" in the command palette)
- * keeps working; its dock icon is what's gone.
- */
-function EnvironmentsPanel() {
+// ----------------------------------------------------------------------
+// 2. Appearance Tab
+// ----------------------------------------------------------------------
+function AppearanceTab() {
+  const { setTheme } = useTheme();
+
+  return (
+    <div className="flex flex-col gap-6 max-w-[560px]">
+      <div className="flex flex-col gap-2">
+        <h2 className="text-[28px] font-semibold tracking-tight text-text-primary">Appearance</h2>
+        <p className="text-[14px] leading-relaxed text-text-secondary">
+          DevKit is dark-first today. Light and System themes are planned for a future release.
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-3 pt-2">
+        <div className="flex items-center gap-2 text-action-primary">
+          <Sun className="size-3.5" strokeWidth={1.5} />
+          <span className="text-[10px] font-medium tracking-wider uppercase">THEME</span>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <Button
+            type="button"
+            variant="default"
+            size="default"
+            onClick={() => void setTheme("dark")}
+            className="w-20"
+          >
+            Dark
+          </Button>
+
+          <Button
+            type="button"
+            variant="secondary"
+            size="default"
+            disabled
+            className="w-20 opacity-40"
+          >
+            Light
+          </Button>
+
+          <Button
+            type="button"
+            variant="secondary"
+            size="default"
+            disabled
+            className="w-20 opacity-40"
+          >
+            System
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------
+// 3. Sync & Devices Tab
+// ----------------------------------------------------------------------
+function SyncDevicesTab() {
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [error, setError] = useState("");
+
+  async function loadSync() {
+    try {
+      await syncStatus();
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  }
+
+  useEffect(() => {
+    void loadSync();
+  }, []);
+
+  async function handleSyncNow() {
+    setIsSyncing(true);
+    setError("");
+    try {
+      await syncNow();
+      await loadSync();
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setIsSyncing(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-6 w-full max-w-[656px]">
+      <div className="flex items-start justify-between">
+        <div className="flex flex-col gap-2 max-w-[500px]">
+          <h2 className="text-[28px] font-semibold tracking-tight text-text-primary">
+            Sync & Devices
+          </h2>
+          <p className="text-[14px] leading-relaxed text-text-secondary">
+            Devices with access to your synced vault. Revoking a device blocks it until it signs in again.
+          </p>
+        </div>
+
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          disabled={isSyncing}
+          onClick={handleSyncNow}
+          className="gap-1.5"
+        >
+          <RefreshCw className={cn("size-3.5", isSyncing && "animate-spin")} strokeWidth={1.5} />
+          <span>Sync now</span>
+        </Button>
+      </div>
+
+      {/* Device List */}
+      <div className="flex flex-col divide-y divide-border-subtle rounded-[14px] border border-border bg-surface-base/60 overflow-hidden">
+        {/* Device 1: Current MacBook Pro */}
+        <div className="flex items-center justify-between p-4">
+          <div className="flex items-center gap-3.5">
+            <div className="flex size-9 items-center justify-center rounded-[8px] bg-surface-raised border border-border-subtle">
+              <Laptop className="size-4 text-text-primary" strokeWidth={1.5} />
+            </div>
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[14px] font-medium text-text-primary">MacBook Pro</span>
+              <span className="text-[12px] text-status-success font-medium">
+                This device · Active now
+              </span>
+            </div>
+          </div>
+          <span className="rounded-full bg-status-success/15 px-2.5 py-1 text-[11px] font-medium text-status-success">
+            Current
+          </span>
+        </div>
+
+        {/* Device 2: Mac mini */}
+        <div className="flex items-center justify-between p-4">
+          <div className="flex items-center gap-3.5">
+            <div className="flex size-9 items-center justify-center rounded-[8px] bg-surface-raised border border-border-subtle">
+              <Monitor className="size-4 text-text-secondary" strokeWidth={1.5} />
+            </div>
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[14px] font-medium text-text-primary">Mac mini (office)</span>
+              <span className="text-[12px] text-text-tertiary">Last active 2 days ago</span>
+            </div>
+          </div>
+          <Button type="button" variant="secondary" size="xs">
+            Revoke
+          </Button>
+        </div>
+
+        {/* Device 3: Studio setup */}
+        <div className="flex items-center justify-between p-4">
+          <div className="flex items-center gap-3.5">
+            <div className="flex size-9 items-center justify-center rounded-[8px] bg-surface-raised border border-border-subtle">
+              <Monitor className="size-4 text-text-secondary" strokeWidth={1.5} />
+            </div>
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[14px] font-medium text-text-primary">Studio setup</span>
+              <span className="text-[12px] text-text-tertiary">Last active 19 days ago</span>
+            </div>
+          </div>
+          <Button type="button" variant="secondary" size="xs">
+            Revoke
+          </Button>
+        </div>
+      </div>
+
+      {error ? <p className="text-[12px] text-status-danger">{error}</p> : null}
+
+      {/* Security Notice */}
+      <SecurityNotice
+        type="irreversible"
+        title="Revoking a device invalidates its session"
+        description="A revoked device is immediately blocked from synchronizing or reading newly updated vault items."
+      />
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------
+// 4. Environments Tab
+// ----------------------------------------------------------------------
+function EnvironmentsTab() {
   const [tags, setTags] = useState<EnvTag[]>([]);
+  const [showNewForm, setShowNewForm] = useState(false);
   const [newName, setNewName] = useState("");
   const [newRequiresConfirmation, setNewRequiresConfirmation] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   async function refresh() {
@@ -133,29 +508,26 @@ function EnvironmentsPanel() {
     void refresh();
   }, []);
 
-  async function onCreate() {
+  async function handleCreateTag(e?: React.FormEvent) {
+    if (e) e.preventDefault();
+    if (!newName.trim()) return;
+
+    setBusy(true);
     setError("");
     try {
-      await createEnvTag(newName, newRequiresConfirmation);
+      await createEnvTag(newName.trim().toLowerCase(), newRequiresConfirmation);
       setNewName("");
       setNewRequiresConfirmation(false);
+      setShowNewForm(false);
       await refresh();
     } catch (e) {
       setError(errorMessage(e));
+    } finally {
+      setBusy(false);
     }
   }
 
-  async function onToggleRequiresConfirmation(tag: EnvTag) {
-    setError("");
-    try {
-      await updateEnvTag(tag.id, !tag.requiresConfirmation);
-      await refresh();
-    } catch (e) {
-      setError(errorMessage(e));
-    }
-  }
-
-  async function onDelete(tag: EnvTag) {
+  async function handleDeleteTag(tag: EnvTag) {
     setError("");
     try {
       await deleteEnvTag(tag.id);
@@ -166,73 +538,124 @@ function EnvironmentsPanel() {
   }
 
   return (
-    <section className="settings-view">
-      <h2>Environments</h2>
-
-      <div className="env-create">
-        <input
-          aria-label="env-name"
-          placeholder="Tag name"
-          value={newName}
-          onChange={(e) => setNewName(e.target.value)}
-        />
-        <label>
-          <input
-            aria-label="env-new-requires-confirmation"
-            type="checkbox"
-            checked={newRequiresConfirmation}
-            onChange={(e) => setNewRequiresConfirmation(e.target.checked)}
-          />
-          Requires confirmation
-        </label>
-        <button type="button" onClick={onCreate}>
-          Create tag
-        </button>
+    <div className="flex flex-col gap-6 w-full max-w-[656px]">
+      <div className="flex flex-col gap-2">
+        <h2 className="text-[28px] font-semibold tracking-tight text-text-primary">
+          Environments
+        </h2>
+        <p className="text-[14px] leading-relaxed text-text-secondary">
+          Env tags required by SSH, Database, and Kafka profiles. prod is locked and always requires confirmation.
+        </p>
       </div>
 
-      <table aria-label="env-tags-table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Requires confirmation</th>
-            <th>Builtin</th>
-            <th>Locked</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {tags.map((tag) => (
-            <tr key={tag.id}>
-              <td>{tag.name}</td>
-              <td>
-                <input
-                  aria-label={`env-requires-confirmation-${tag.name}`}
-                  type="checkbox"
-                  checked={tag.requiresConfirmation}
-                  disabled={tag.locked}
-                  onChange={() => onToggleRequiresConfirmation(tag)}
-                />
-              </td>
-              <td>{tag.isBuiltin ? "yes" : "no"}</td>
-              <td>{tag.locked ? "yes" : "no"}</td>
-              <td>
-                <button
-                  type="button"
-                  aria-label={`env-delete-${tag.name}`}
-                  disabled={tag.isBuiltin}
-                  onClick={() => onDelete(tag)}
-                >
-                  Delete
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      {/* Tag List */}
+      <div className="flex flex-col divide-y divide-border-subtle rounded-[14px] border border-border bg-surface-base/60 overflow-hidden">
+        {tags.map((tag) => {
+          const isProd = tag.name === "prod";
 
-      {error ? <p role="alert">{error}</p> : null}
+          return (
+            <div key={tag.id} className="flex h-[48px] items-center justify-between px-4">
+              <div className="flex items-center gap-3">
+                <span className="font-mono text-[14px] font-medium text-text-primary">
+                  {tag.name}
+                </span>
 
-      <McpInstallPanel />
-    </section>
+                {isProd && (
+                  <div className="flex items-center gap-1.5 rounded-md bg-status-warning/10 border border-status-warning/30 px-2 py-0.5 text-[11px] font-medium text-status-warning">
+                    <LockKeyhole className="size-3" strokeWidth={1.5} />
+                    <span>REQUIRES CONFIRMATION</span>
+                  </div>
+                )}
+              </div>
+
+              {!tag.isBuiltin && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-xs"
+                      onClick={() => void handleDeleteTag(tag)}
+                      aria-label={`Delete ${tag.name}`}
+                    >
+                      <Trash2 className="size-3.5 text-text-tertiary hover:text-status-danger" strokeWidth={1.5} />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Delete environment tag</TooltipContent>
+                </Tooltip>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* New Tag Form */}
+      {showNewForm ? (
+        <form
+          onSubmit={handleCreateTag}
+          className="flex flex-col gap-4 rounded-[14px] border border-border bg-surface-base p-4.5"
+        >
+          <span className="text-[14px] font-semibold text-text-primary">
+            New environment tag
+          </span>
+
+          <div className="flex flex-col gap-1.5 max-w-[360px]">
+            <label className="text-[12px] font-medium text-text-secondary">Tag name</label>
+            <Input
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="e.g. canary, uat, sandbox"
+              autoFocus
+              required
+              className="font-mono text-[13px]"
+            />
+          </div>
+
+          <label className="flex items-center gap-2.5 cursor-pointer py-1">
+            <Checkbox
+              checked={newRequiresConfirmation}
+              onCheckedChange={(checked) => setNewRequiresConfirmation(Boolean(checked))}
+            />
+            <span className="text-[13px] text-text-primary">
+              Require confirmation before executing actions
+            </span>
+          </label>
+
+          <div className="flex items-center gap-2.5 pt-1">
+            <Button
+              type="button"
+              variant="secondary"
+              size="default"
+              onClick={() => setShowNewForm(false)}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" disabled={busy || !newName.trim()} size="default">
+              <span>{busy ? "Adding…" : "Add environment"}</span>
+            </Button>
+          </div>
+        </form>
+      ) : (
+        <div>
+          <Button
+            type="button"
+            variant="default"
+            size="default"
+            onClick={() => setShowNewForm(true)}
+            className="gap-2"
+          >
+            <Plus className="size-3.5" strokeWidth={2} />
+            <span>Add tag</span>
+          </Button>
+        </div>
+      )}
+
+      {error ? <p className="text-[12px] text-status-danger">{error}</p> : null}
+
+      {/* MCP Proxy Install section */}
+      <div className="pt-4 border-t border-border-subtle">
+        <McpInstallPanel />
+      </div>
+    </div>
   );
 }

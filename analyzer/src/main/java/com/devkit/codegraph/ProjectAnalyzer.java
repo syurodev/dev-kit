@@ -14,10 +14,12 @@ import java.io.IOException;
 import java.nio.file.Files;import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Stream;
 
 public class ProjectAnalyzer {
@@ -45,7 +47,16 @@ public class ProjectAnalyzer {
         }
 
         CombinedTypeSolver typeSolver = TypeSolverFactory.build(sourceRoot);
-        StaticJavaParser.setConfiguration(new ParserConfiguration().setSymbolResolver(new JavaSymbolSolver(typeSolver)));
+        // Without an explicit language level, JavaParser defaults to one too
+        // old to parse records, pattern-matching instanceof, or multi-label
+        // switch cases (all Java 14+) — every such file fails to parse and
+        // silently vanishes from the index via parseFile's catch-all below,
+        // with no node, no edge, no error. JAVA_21 matches this project's
+        // own maven.compiler.release; verified against the installed
+        // javaparser-core 3.28.2 jar that this constant exists.
+        StaticJavaParser.setConfiguration(new ParserConfiguration()
+                .setLanguageLevel(ParserConfiguration.LanguageLevel.JAVA_21)
+                .setSymbolResolver(new JavaSymbolSolver(typeSolver)));
 
         List<ParsedFile> files = new ArrayList<>();
         try (Stream<Path> walk = Files.walk(sourceRoot)) {
@@ -62,8 +73,19 @@ public class ProjectAnalyzer {
         for (ParsedFile file : files) {
             collectDeclarations(file, classFile, callSites, result);
         }
+        // Snapshot of every node id pass 1 actually created — pass 2 uses it
+        // to reject edges pointing at a method that resolve() found (e.g. a
+        // JDK/library method via ReflectionTypeSolver, or a project method
+        // whose own signature failed to resolve) but that never became a
+        // node. The Go side's AnalysisResult.Validate rejects the whole
+        // index if any edge references an unknown node — this must not let
+        // one through.
+        Set<String> nodeIds = new HashSet<>();
+        for (Node n : result.nodes) {
+            nodeIds.add(n.id);
+        }
         for (MethodCallSite site : callSites) {
-            addCallEdges(site, classFile, result);
+            addCallEdges(site, classFile, nodeIds, result);
             addFieldAccesses(site, result);
         }
 
@@ -155,7 +177,7 @@ public class ProjectAnalyzer {
         return Optional.of(node.id);
     }
 
-    private void addCallEdges(MethodCallSite site, Map<String, String> classFile, AnalysisResult result) {
+    private void addCallEdges(MethodCallSite site, Map<String, String> classFile, Set<String> nodeIds, AnalysisResult result) {
         for (com.github.javaparser.ast.expr.MethodCallExpr call : site.methodDecl().findAll(com.github.javaparser.ast.expr.MethodCallExpr.class)) {
             ResolvedMethodDeclaration target;
             String targetClass;
@@ -169,6 +191,14 @@ public class ProjectAnalyzer {
                 // Unresolved call (missing jar in the local cache, dynamic
                 // dispatch the solver can't follow, unresolved parameter types, etc.)
                 // — FR-8: this is a gap in the graph, not a fatal error for the whole project.
+                continue;
+            }
+            if (!nodeIds.contains(toNodeId)) {
+                // Resolved successfully (e.g. a JDK/library method via
+                // ReflectionTypeSolver, or a project method whose own
+                // signature failed to resolve in addMethodNode) but no node
+                // exists for it — same policy as an unresolved call: skip,
+                // don't emit a dangling edge.
                 continue;
             }
             result.edges.add(new Edge(site.methodId(), toNodeId, "call"));

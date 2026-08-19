@@ -60,8 +60,9 @@ type opView struct {
 }
 
 type head struct {
-	version uint32
-	idemKey string
+	version    uint32
+	idemKey    string
+	recordType string
 }
 
 type storedOp struct {
@@ -154,8 +155,22 @@ func (s *server) handlePush(w http.ResponseWriter, r *http.Request) {
 	defer s.mu.Unlock()
 	acct := s.account(sess.accountID)
 
+	// Arbitrate the whole batch against staged copies first: like the real
+	// backend's single transaction, a mid-batch validation failure rolls back
+	// everything and leaves the stored state untouched.
+	heads := make(map[string]head, len(acct.heads))
+	for id, h := range acct.heads {
+		heads[id] = h
+	}
+	seen := make(map[string]struct{}, len(acct.seen))
+	for op := range acct.seen {
+		seen[op] = struct{}{}
+	}
+
 	sent := []string{}
 	conflicts := []map[string]any{}
+	staged := make([]storedOp, 0, len(req.Operations))
+	nextSeq := acct.nextSeq
 	for _, raw := range req.Operations {
 		var op opView
 		if err := json.Unmarshal(raw, &op); err != nil {
@@ -171,22 +186,27 @@ func (s *server) handlePush(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if _, replayed := acct.seen[ev.OperationID]; replayed {
+		if _, replayed := seen[ev.OperationID]; replayed {
 			sent = append(sent, op.IdempotencyKey) // idempotent: already applied
 			continue
 		}
 
-		current, exists := acct.heads[ev.RecordID]
+		current, exists := heads[ev.RecordID]
+		// Like the backend, a record's type is immutable across its versions.
+		if exists && current.recordType != ev.RecordType {
+			http.Error(w, "record type does not match entity head", http.StatusUnprocessableEntity)
+			return
+		}
 		expected := uint32(1)
 		if exists {
 			expected = current.version + 1
 		}
 		switch {
 		case ev.EntityVersion == expected:
-			acct.nextSeq++
-			acct.ops = append(acct.ops, storedOp{seq: acct.nextSeq, raw: append(json.RawMessage(nil), raw...)})
-			acct.heads[ev.RecordID] = head{version: ev.EntityVersion, idemKey: op.IdempotencyKey}
-			acct.seen[ev.OperationID] = struct{}{}
+			nextSeq++
+			staged = append(staged, storedOp{seq: nextSeq, raw: append(json.RawMessage(nil), raw...)})
+			heads[ev.RecordID] = head{version: ev.EntityVersion, idemKey: op.IdempotencyKey, recordType: ev.RecordType}
+			seen[ev.OperationID] = struct{}{}
 			sent = append(sent, op.IdempotencyKey)
 		case exists && ev.EntityVersion <= current.version:
 			remote := current.idemKey
@@ -208,6 +228,12 @@ func (s *server) handlePush(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+
+	// Commit the staged batch.
+	acct.heads = heads
+	acct.seen = seen
+	acct.nextSeq = nextSeq
+	acct.ops = append(acct.ops, staged...)
 
 	writeJSON(w, map[string]any{"sent_idempotency_keys": sent, "conflicts": conflicts})
 	log.Printf("push account=%s sent=%d conflicts=%d", sess.accountID, len(sent), len(conflicts))

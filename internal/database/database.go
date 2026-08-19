@@ -246,6 +246,9 @@ func (s *Service) dsn(id string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// Match the SSH/Kafka hygiene: wipe the decrypted bytes once the DSN copy
+	// is built (the url.UserPassword string copy lives only for this call).
+	defer zeroBytes(password)
 	sslmode, err := normalizeSSLMode(meta.Host, meta.SSLMode)
 	if err != nil {
 		return "", err
@@ -324,4 +327,10 @@ func summaryFromRecord(record vaultitem.Record) (ProfileSummary, error) {
 		SSLMode:  meta.SSLMode,
 		Env:      meta.Env,
 	}, nil
+}
+
+func zeroBytes(value []byte) {
+	for i := range value {
+		value[i] = 0
+	}
 }

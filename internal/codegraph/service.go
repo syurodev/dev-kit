@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/fsnotify/fsnotify"
 
@@ -86,6 +87,21 @@ func (s *Service) SetTerminalRegistry(reg *terminal.Registry) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.terminalRegistry = reg
+}
+
+// SetAnalyzer replaces the Analyzer used by OpenProject/runReindex — called
+// once from main.go's post-construction wiring (mirrors SetTerminalRegistry)
+// once the real Java analyzer jar's location is resolved, replacing the
+// zero-value stub container.go constructs Service with. Like
+// SetTerminalRegistry, this must only be called during startup wiring,
+// before the app begins serving requests — OpenProject reads s.analyzer
+// without taking s.mu (it runs the potentially-long Analyze call outside
+// the lock on purpose), so a call racing an in-flight OpenProject would be
+// a genuine data race, not just a logical inconsistency.
+func (s *Service) SetAnalyzer(analyzer Analyzer) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.analyzer = analyzer
 }
 
 // StartTerminal opens a local shell ($SHELL, falling back to /bin/sh) at
@@ -759,6 +775,9 @@ func (s *Service) ReadFile(ctx context.Context, relativePath string) (string, er
 	data, err := os.ReadFile(resolved)
 	if err != nil {
 		return "", fmt.Errorf("codegraph: read file: %w", err)
+	}
+	if !utf8.Valid(data) {
+		return "", ErrBinaryFile
 	}
 	return string(data), nil
 }

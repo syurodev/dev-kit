@@ -377,3 +377,57 @@ type scriptedTransport struct {
 func (t *scriptedTransport) Push(ctx context.Context, operations []PushOperation) (PushResult, error) {
 	return t.push(ctx, operations)
 }
+
+func TestRunnerDeadLettersPermanentlyUnpreparableChange(t *testing.T) {
+	base := time.Unix(100, 0).UTC()
+	outbox := NewMemoryOutbox()
+	healthy := validChange("healthy", base)
+	if err := outbox.Enqueue(healthy); err != nil {
+		t.Fatal(err)
+	}
+	// A poison row (corrupt payload that cannot encode a push operation) is
+	// injected directly: Enqueue's own validation would reject it, which is
+	// exactly the corruption the dead-letter path guards against.
+	poison := validChange("poison", base)
+	poison.Payload = nil
+	outbox.changes["poison"] = poison
+
+	clock := base
+	runner := NewRunner(outbox, NewMemoryTransport(), RunnerConfig{Clock: func() time.Time { return clock }})
+
+	for attempt := 1; attempt <= 4; attempt++ {
+		clock = base.Add(time.Duration(attempt) * time.Hour)
+		report, err := runner.Run(context.Background(), 0)
+		if err != nil {
+			t.Fatalf("run %d: %v", attempt, err)
+		}
+		if report.Failed != 0 || report.Retried != 1 {
+			t.Fatalf("run %d report = %+v", attempt, report)
+		}
+		if attempt == 1 && report.Sent != 1 {
+			t.Fatalf("run 1 report = %+v", report)
+		}
+	}
+
+	// The fifth consecutive preparation failure dead-letters the row; the
+	// healthy change already synced and is not affected.
+	clock = base.Add(5 * time.Hour)
+	report, err := runner.Run(context.Background(), 0)
+	if err != nil {
+		t.Fatalf("dead-letter run: %v", err)
+	}
+	if report.Failed != 1 || report.Retried != 0 {
+		t.Fatalf("dead-letter report = %+v", report)
+	}
+	dead, err := outbox.Get("poison")
+	if err != nil || dead.Status != StatusFailed || dead.LastError != FailureInvalidResponse {
+		t.Fatalf("poison state = %+v, err %v", dead, err)
+	}
+
+	// The failed row never resurfaces in later runs.
+	clock = base.Add(6 * time.Hour)
+	rerun, err := runner.Run(context.Background(), 0)
+	if err != nil || rerun != (RunReport{}) {
+		t.Fatalf("rerun after dead-letter = %+v, err %v", rerun, err)
+	}
+}

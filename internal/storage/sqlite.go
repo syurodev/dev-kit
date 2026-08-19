@@ -498,7 +498,70 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		},
 	}
 
-	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14})
+	m15 := Migration{
+		Version: 15,
+		Name:    "sync conflict delete snapshots and outbox lineage index",
+		Up: func(ctx context.Context) (err error) {
+			// SQLite DDL is transactional, so the rebuild runs in one inner
+			// transaction (the runner itself must not wrap Up). theirs_snapshot
+			// becomes nullable: a captured remote delete is "theirs" with no
+			// record body — the remote_operation column already distinguishes
+			// it. The outbox index serves the per-record lineage probes in
+			// Pending and the apply-guard.
+			tx, txErr := db.BeginTx(ctx, nil)
+			if txErr != nil {
+				return txErr
+			}
+			defer func() {
+				if err != nil {
+					_ = tx.Rollback()
+				}
+			}()
+			if _, err = tx.ExecContext(ctx, fmt.Sprintf(
+				`CREATE TABLE %s (
+					account_id TEXT NOT NULL,
+					record_id TEXT NOT NULL,
+					record_type TEXT NOT NULL,
+					remote_operation_id TEXT NOT NULL,
+					remote_operation TEXT NOT NULL CHECK (remote_operation IN ('create', 'update', 'delete')),
+					remote_entity_version INTEGER NOT NULL CHECK (remote_entity_version > 0),
+					theirs_snapshot BLOB,
+					local_change_key TEXT NOT NULL,
+					detected_at TEXT NOT NULL,
+					PRIMARY KEY (account_id, record_id)
+				)`, TableSyncConflicts+"_rebuild",
+			)); err != nil {
+				return err
+			}
+			if _, err = tx.ExecContext(ctx, fmt.Sprintf(
+				`INSERT INTO %s_rebuild (
+					account_id, record_id, record_type, remote_operation_id, remote_operation,
+					remote_entity_version, theirs_snapshot, local_change_key, detected_at
+				) SELECT account_id, record_id, record_type, remote_operation_id, remote_operation,
+					remote_entity_version, theirs_snapshot, local_change_key, detected_at FROM %s`,
+				TableSyncConflicts, TableSyncConflicts,
+			)); err != nil {
+				return err
+			}
+			if _, err = tx.ExecContext(ctx, fmt.Sprintf("DROP TABLE %s", TableSyncConflicts)); err != nil {
+				return err
+			}
+			if _, err = tx.ExecContext(ctx, fmt.Sprintf(
+				"ALTER TABLE %s_rebuild RENAME TO %s", TableSyncConflicts, TableSyncConflicts,
+			)); err != nil {
+				return err
+			}
+			if _, err = tx.ExecContext(ctx, fmt.Sprintf(
+				`CREATE INDEX IF NOT EXISTS ix_sync_outbox_lineage ON %s (account_id, record_id, entity_version, status)`,
+				TableSyncOutbox,
+			)); err != nil {
+				return err
+			}
+			return tx.Commit()
+		},
+	}
+
+	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15})
 	if err != nil {
 		return err
 	}

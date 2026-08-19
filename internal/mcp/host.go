@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"time"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -30,6 +31,13 @@ func ServeUnix(ctx context.Context, path string, s *Server) error {
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
+	}
+	// Refuse to steal a live socket from another DevKit instance: a successful
+	// probe means some process still owns it. Only a stale (dead) socket is
+	// removed.
+	if conn, dialErr := net.DialTimeout("unix", path, 250*time.Millisecond); dialErr == nil {
+		conn.Close()
+		return fmt.Errorf("mcp socket %s is already in use by another instance", path)
 	}
 	_ = os.Remove(path)
 	ln, err := net.Listen("unix", path)

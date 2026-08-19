@@ -324,6 +324,25 @@ func TestServiceReadWriteFileRoundTrip(t *testing.T) {
 	}
 }
 
+func TestServiceReadFileRejectsBinaryContent(t *testing.T) {
+	dir := t.TempDir()
+	// A compiled .class file's magic bytes (0xCAFEBABE) are not valid UTF-8.
+	if err := os.WriteFile(filepath.Join(dir, "Foo.class"), []byte{0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x34}, 0o644); err != nil {
+		t.Fatalf("seed binary file: %v", err)
+	}
+	svc := NewService(nilStore{}, fakeAnalyzer{result: sampleResult()})
+	if err := svc.SetProjectPath(filepath.Join(t.TempDir(), "index.db")); err != nil {
+		t.Fatalf("SetProjectPath: %v", err)
+	}
+	if err := svc.OpenProject(context.Background(), dir); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+
+	if _, err := svc.ReadFile(context.Background(), "Foo.class"); !errors.Is(err, ErrBinaryFile) {
+		t.Fatalf("ReadFile = %v, want ErrBinaryFile", err)
+	}
+}
+
 func TestServiceReadFileRejectsPathOutsideProject(t *testing.T) {
 	dir := t.TempDir()
 	svc := NewService(nilStore{}, fakeAnalyzer{result: sampleResult()})

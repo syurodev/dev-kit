@@ -60,10 +60,17 @@ func (s *Service) Status() (State, error) {
 // Setup creates the vault on first run. It fails if a keyring already exists,
 // enforcing that a Master Password is chosen exactly once. It returns the
 // recovery key, which must be shown to the user and is never stored.
+//
+// The whole sequence — existence check, keyring derivation, persistence, and
+// DEK installation — runs under the service write lock: a double-clicked Setup
+// cannot replace a keyring concurrently created, and Lock can never interleave
+// between derivation and installation to leave an unlocked vault behind.
 func (s *Service) Setup(masterPassword string) (string, error) {
 	if len(masterPassword) < MinMasterPasswordLength {
 		return "", errors.New("master password too short")
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	exists, err := s.store.Exists()
 	if err != nil {
 		return "", err
@@ -84,14 +91,17 @@ func (s *Service) Setup(masterPassword string) (string, error) {
 		return "", err
 	}
 
-	s.mu.Lock()
 	s.dek = dek
-	s.mu.Unlock()
 	return recoveryKey, nil
 }
 
-// Unlock decrypts the DEK using the Master Password.
+// Unlock decrypts the DEK using the Master Password. Derivation happens under
+// the service write lock so a concurrent Lock cannot complete mid-derivation
+// and then be silently undone by the freshly installed DEK — after Lock
+// returns, the vault stays locked until the next explicit Unlock.
 func (s *Service) Unlock(masterPassword string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	keyring, err := s.store.Load()
 	if err != nil {
 		return err
@@ -100,14 +110,15 @@ func (s *Service) Unlock(masterPassword string) error {
 	if err != nil {
 		return err
 	}
-	s.mu.Lock()
 	s.dek = dek
-	s.mu.Unlock()
 	return nil
 }
 
-// UnlockWithRecovery decrypts the DEK using the recovery key.
+// UnlockWithRecovery decrypts the DEK using the recovery key, serialized
+// against Lock exactly like Unlock.
 func (s *Service) UnlockWithRecovery(recoveryKey string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	keyring, err := s.store.Load()
 	if err != nil {
 		return err
@@ -116,9 +127,7 @@ func (s *Service) UnlockWithRecovery(recoveryKey string) error {
 	if err != nil {
 		return err
 	}
-	s.mu.Lock()
 	s.dek = dek
-	s.mu.Unlock()
 	return nil
 }
 

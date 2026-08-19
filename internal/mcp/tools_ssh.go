@@ -79,20 +79,24 @@ func (s *Server) toolSSHActiveProfile(ctx context.Context, _ *sdk.CallToolReques
 }
 
 type sshRunCommandInput struct {
-	Command    string `json:"command"`
-	Passphrase string `json:"passphrase"`
+	Command string `json:"command"`
 }
 
 func (s *Server) toolSSHRunCommand(ctx context.Context, _ *sdk.CallToolRequest, in sshRunCommandInput) (*sdk.CallToolResult, any, error) {
 	target := s.sshTarget()
-	if err := GateActiveMCP(ctx, s.deps.Hub, s.deps.Envs, target, target, "ssh.runCommand", in.Command, interaction.KindSSH); err != nil {
+	// Execute against the exact profile the confirmation covered — re-reading
+	// the sticky active target here would race a concurrent SetActiveProfile.
+	// Passphrase intentionally never crosses the MCP surface (v1 hard
+	// exclusion): encrypted-PEM profiles must be unlocked per-operation in the
+	// UI, not via tool arguments that agent clients persist in transcripts.
+	id, err := GateActiveMCP(ctx, s.deps.Hub, s.deps.Envs, target, target, "ssh.runCommand", in.Command, interaction.KindSSH)
+	if err != nil {
 		return nil, nil, mapInteractErr(err)
 	}
-	id := s.deps.SSH.AgentActiveProfileID()
 	v, err := s.deps.Caller.Call(ctx, "builtin.ssh", "ssh:connect", "profile:active", meta("run_command", map[string]any{
 		"profile_id": recordID(id),
 	}), func(callCtx context.Context) (any, error) {
-		return s.deps.SSH.RunCommand(callCtx, id, in.Command, in.Passphrase)
+		return s.deps.SSH.RunCommand(callCtx, id, in.Command, "")
 	})
 	if err != nil {
 		return nil, nil, err

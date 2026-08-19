@@ -3,6 +3,7 @@ package cloudconfig
 import (
 	"context"
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -23,9 +24,9 @@ type StartupOptions struct {
 
 // StartupResult is the outcome of startup config resolution.
 type StartupResult struct {
-	AuthConfig    auth.Config
-	HasAuthConfig bool
-	FromEnv       bool
+	AuthConfig     auth.Config
+	HasAuthConfig  bool
+	FromEnv        bool
 	Blocked        error
 	Unavailable    bool
 	IssuerChanged  bool
@@ -62,7 +63,10 @@ func ResolveStartup(ctx context.Context, opts StartupOptions) (StartupResult, er
 	store := NewFileStore(opts.ConfigDir)
 	cachedSnapshot, hadCache, err := store.Load()
 	if err != nil {
-		return StartupResult{}, err
+		// A corrupt cache must never veto launching a local-first app: ignore
+		// it and fall through to a fresh fetch.
+		log.Printf("desktop config: ignoring unreadable cache: %v", err)
+		cachedSnapshot, hadCache, err = Snapshot{}, false, nil
 	}
 	cachedIssuer := strings.TrimSpace(cachedSnapshot.OIDCIssuer)
 
@@ -82,7 +86,8 @@ func ResolveStartup(ctx context.Context, opts StartupOptions) (StartupResult, er
 	case fetchErr == nil:
 		result.StartupFetched = true
 		if err := store.Save(fetched); err != nil {
-			return StartupResult{}, err
+			// A failed cache write must not block applying the fetched config.
+			log.Printf("desktop config: could not write cache: %v", err)
 		}
 		activeSnapshot = fetched
 		if !result.FromEnv && hadCache && cachedIssuer != "" && !sameIssuer(cachedIssuer, fetched.OIDCIssuer) {
@@ -94,10 +99,17 @@ func ResolveStartup(ctx context.Context, opts StartupOptions) (StartupResult, er
 		activeSnapshot = Snapshot{}
 	}
 
-	if below, err := CompareSemver(AppVersion, activeSnapshot.MinAppVersion); err != nil {
-		return StartupResult{}, err
-	} else if below {
-		result.Blocked = ErrAppBelowMinimum
+	if activeSnapshot.MinAppVersion != "" {
+		below, semverErr := CompareSemver(AppVersion, activeSnapshot.MinAppVersion)
+		if semverErr != nil {
+			// The gateway serves min_app_version as an unvalidated string, so a
+			// malformed value can reach clients verbatim. A malformed minimum
+			// skips the gate (like a missing one) instead of failing the launch
+			// of a local-first app; blocking is Sync/AuthLogin-only by spec.
+			log.Printf("desktop config: skipping invalid min_app_version %q: %v", activeSnapshot.MinAppVersion, semverErr)
+		} else if below {
+			result.Blocked = ErrAppBelowMinimum
+		}
 	}
 
 	if !result.FromEnv {

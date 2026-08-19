@@ -10,8 +10,8 @@ import (
 const productionSyncGateway = "https://api.synx.io.vn"
 
 func (s *AppService) syncDependencyErr() error {
-	if s.container.SyncBlocked != nil {
-		return s.container.SyncBlocked
+	if blocked := s.container.SyncBlockedErr(); blocked != nil {
+		return blocked
 	}
 	return syncclient.ErrInvalidDependencies
 }
@@ -38,6 +38,7 @@ type SyncReportDTO struct {
 	PushSent      int `json:"push_sent"`
 	PushRetried   int `json:"push_retried"`
 	PushConflicts int `json:"push_conflicts"`
+	PushFailed    int `json:"push_failed"`
 	Pulled        int `json:"pulled"`
 	Applied       int `json:"applied"`
 }
@@ -54,11 +55,12 @@ type SyncDeviceDTO struct {
 // SyncConflictDTO is non-secret conflict metadata for the UI. No record payload
 // or plaintext secret crosses the boundary.
 type SyncConflictDTO struct {
-	RecordID        string    `json:"record_id"`
-	RecordType      string    `json:"record_type"`
-	LocalChangeKey  string    `json:"local_change_key"`
-	RemoteChangeKey string    `json:"remote_change_key"`
-	DetectedAt      time.Time `json:"detected_at"`
+	RecordID            string    `json:"record_id"`
+	RecordType          string    `json:"record_type"`
+	RemoteOperation     string    `json:"remote_operation"`
+	RemoteEntityVersion uint32    `json:"remote_entity_version"`
+	TheirsDeleted       bool      `json:"theirs_deleted"`
+	DetectedAt          time.Time `json:"detected_at"`
 }
 
 func (s *AppService) SyncConflicts() ([]SyncConflictDTO, error) {
@@ -75,11 +77,12 @@ func (s *AppService) SyncConflicts() ([]SyncConflictDTO, error) {
 		dtos := make([]SyncConflictDTO, 0, len(conflicts))
 		for _, conflict := range conflicts {
 			dtos = append(dtos, SyncConflictDTO{
-				RecordID:        conflict.RecordID,
-				RecordType:      conflict.RecordType,
-				LocalChangeKey:  conflict.LocalChangeKey,
-				RemoteChangeKey: conflict.RemoteChangeKey,
-				DetectedAt:      conflict.DetectedAt,
+				RecordID:            conflict.RecordID,
+				RecordType:          conflict.RecordType,
+				RemoteOperation:     conflict.RemoteOperation,
+				RemoteEntityVersion: conflict.RemoteEntityVersion,
+				TheirsDeleted:       conflict.TheirsDeleted,
+				DetectedAt:          conflict.DetectedAt,
 			})
 		}
 		return dtos, nil
@@ -109,10 +112,11 @@ func (s *AppService) AuthStatus() (AuthStatusDTO, error) {
 	result, err := s.call(context.Background(), "builtin.sync", "sync:manage", "sync:status", map[string]any{
 		"action": "auth_status",
 	}, func(context.Context) (any, error) {
-		if s.container.Auth == nil {
+		authService := s.container.Auth()
+		if authService == nil {
 			return nil, s.syncDependencyErr()
 		}
-		status := s.container.Auth.Status()
+		status := authService.Status()
 		return AuthStatusDTO{Authenticated: status.Authenticated, ExpiresAt: status.ExpiresAt}, nil
 	})
 	if err != nil {
@@ -127,13 +131,14 @@ func (s *AppService) AuthLogin(ctx context.Context) (AuthStatusDTO, error) {
 	result, err := s.call(ctx, "builtin.sync", "sync:manage", "sync:login", map[string]any{
 		"action": "login",
 	}, func(callCtx context.Context) (any, error) {
-		if s.container.SyncBlocked != nil {
-			return nil, s.container.SyncBlocked
+		if blocked := s.container.SyncBlockedErr(); blocked != nil {
+			return nil, blocked
 		}
-		if s.container.Auth == nil {
+		authService := s.container.Auth()
+		if authService == nil {
 			return nil, s.syncDependencyErr()
 		}
-		status, err := s.container.Auth.EnsureAuthenticated(callCtx)
+		status, err := authService.EnsureAuthenticated(callCtx)
 		if err != nil {
 			return nil, err
 		}
@@ -149,13 +154,14 @@ func (s *AppService) AuthLogout() error {
 	_, err := s.call(context.Background(), "builtin.sync", "sync:manage", "sync:logout", map[string]any{
 		"action": "logout",
 	}, func(context.Context) (any, error) {
-		if s.container.Auth == nil {
+		authService := s.container.Auth()
+		if authService == nil {
 			return nil, s.syncDependencyErr()
 		}
 		if s.container.Sync != nil {
 			s.container.Sync.Disconnect()
 		}
-		return nil, s.container.Auth.Logout()
+		return nil, authService.Logout()
 	})
 	return err
 }
@@ -166,16 +172,17 @@ func (s *AppService) SyncConnect(ctx context.Context) error {
 	_, err := s.call(ctx, "builtin.sync", "sync:manage", "sync:connect", map[string]any{
 		"action": "connect",
 	}, func(callCtx context.Context) (any, error) {
-		if s.container.SyncBlocked != nil {
-			return nil, s.container.SyncBlocked
+		if blocked := s.container.SyncBlockedErr(); blocked != nil {
+			return nil, blocked
 		}
-		if s.container.Sync == nil || s.container.Auth == nil {
+		authService := s.container.Auth()
+		if s.container.Sync == nil || authService == nil {
 			return nil, s.syncDependencyErr()
 		}
-		if _, err := s.container.Auth.EnsureAuthenticated(callCtx); err != nil {
+		if _, err := authService.EnsureAuthenticated(callCtx); err != nil {
 			return nil, err
 		}
-		return nil, s.container.Sync.ConnectWithTokenSource(callCtx, productionSyncGateway, s.container.Auth)
+		return nil, s.container.Sync.ConnectWithTokenSource(callCtx, productionSyncGateway, authService)
 	})
 	return err
 }
@@ -213,16 +220,17 @@ func (s *AppService) SyncListDevices(ctx context.Context) ([]SyncDeviceDTO, erro
 	result, err := s.call(ctx, "builtin.sync", "sync:manage", "sync:devices", map[string]any{
 		"action": "list_devices",
 	}, func(callCtx context.Context) (any, error) {
-		if s.container.SyncBlocked != nil {
-			return nil, s.container.SyncBlocked
+		if blocked := s.container.SyncBlockedErr(); blocked != nil {
+			return nil, blocked
 		}
-		if s.container.Sync == nil || s.container.Auth == nil {
+		authService := s.container.Auth()
+		if s.container.Sync == nil || authService == nil {
 			return nil, s.syncDependencyErr()
 		}
-		if _, err := s.container.Auth.EnsureAuthenticated(callCtx); err != nil {
+		if _, err := authService.EnsureAuthenticated(callCtx); err != nil {
 			return nil, err
 		}
-		devices, err := s.container.Sync.ListDevices(callCtx, s.container.Auth, productionSyncGateway)
+		devices, err := s.container.Sync.ListDevices(callCtx, s.container.Auth(), productionSyncGateway)
 		if err != nil {
 			return nil, err
 		}
@@ -248,16 +256,17 @@ func (s *AppService) SyncRevokeDevice(ctx context.Context, targetDeviceID string
 	_, err := s.call(ctx, "builtin.sync", "sync:manage", "sync:devices", map[string]any{
 		"action": "revoke_device",
 	}, func(callCtx context.Context) (any, error) {
-		if s.container.SyncBlocked != nil {
-			return nil, s.container.SyncBlocked
+		if blocked := s.container.SyncBlockedErr(); blocked != nil {
+			return nil, blocked
 		}
-		if s.container.Sync == nil || s.container.Auth == nil {
+		authService := s.container.Auth()
+		if s.container.Sync == nil || authService == nil {
 			return nil, s.syncDependencyErr()
 		}
-		if _, err := s.container.Auth.EnsureAuthenticated(callCtx); err != nil {
+		if _, err := authService.EnsureAuthenticated(callCtx); err != nil {
 			return nil, err
 		}
-		selfRevoked, err := s.container.Sync.RevokeDevice(callCtx, s.container.Auth, productionSyncGateway, targetDeviceID)
+		selfRevoked, err := s.container.Sync.RevokeDevice(callCtx, s.container.Auth(), productionSyncGateway, targetDeviceID)
 		if err != nil {
 			return nil, err
 		}
@@ -285,6 +294,7 @@ func syncReportDTO(report syncclient.Report) SyncReportDTO {
 		PushSent:      report.PushSent,
 		PushRetried:   report.PushRetried,
 		PushConflicts: report.PushConflicts,
+		PushFailed:    report.PushFailed,
 		Pulled:        report.Pulled,
 		Applied:       report.Applied,
 	}

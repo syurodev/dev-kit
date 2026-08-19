@@ -136,7 +136,12 @@ export const useWorkbenchTabsStore = create<WorkbenchTabsState>((set, get) => ({
   },
 
   setActiveTab: (id) =>
-    set((state) => ({ activeTabId: id, tabMru: pushMru(state.tabMru, id) })),
+    set((state) => {
+      if (state.activeTabId === id && state.tabMru[0] === id) {
+        return state;
+      }
+      return { activeTabId: id, tabMru: pushMru(state.tabMru, id) };
+    }),
 
   setTabStatus: (id, status) =>
     set((state) => ({
@@ -173,6 +178,9 @@ export const useWorkbenchTabsStore = create<WorkbenchTabsState>((set, get) => ({
         openTabs.push(moved);
       } else {
         openTabs.splice(insertAt, 0, moved);
+      }
+      if (openTabs.every((tab, index) => tab === state.openTabs[index])) {
+        return state;
       }
       return { openTabs };
     }),

@@ -124,7 +124,7 @@ func (r *SQLConflictResolver) ResolveUseTheirs(ctx context.Context, accountID, r
 		return err
 	}
 
-	if err = clearConflict(ctx, tx, accountID, recordID, conflict.LocalChangeKey); err != nil {
+	if err = clearConflict(ctx, tx, accountID, recordID); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -179,10 +179,14 @@ func (r *SQLConflictResolver) ResolveUseLocal(ctx context.Context, accountID, re
 		return err
 	}
 
-	version, err := resolveNextVersion(ctx, tx, accountID, recordID, conflict.RecordType)
-	if err != nil {
+	// The resolution supersedes the whole losing local lineage, so clear it
+	// before writing the new mutation intent below (clearConflict removes
+	// unmaterialized intents for the record).
+	if err = clearConflict(ctx, tx, accountID, recordID); err != nil {
 		return err
 	}
+
+	version := conflict.RemoteEntityVersion + 1
 
 	now := formatTime(time.Now().UTC())
 	tombstone := 0
@@ -203,6 +207,27 @@ func (r *SQLConflictResolver) ResolveUseLocal(ctx context.Context, accountID, re
 		}
 	}
 
+	// Reset the account ledger to the server truth at capture (the remote op's
+	// version), symmetric with ResolveUseTheirs. The cleared local lineage may
+	// have advanced it speculatively at materialization time; without this
+	// reset, CommitMaterialized would reject the resolution intent at
+	// remote_head+1 as a version regression.
+	theirsTombstone := 0
+	if conflict.RemoteOperation == replicationsync.OperationDelete {
+		theirsTombstone = 1
+	}
+	if _, err = tx.ExecContext(ctx, fmt.Sprintf(`
+		INSERT INTO %s (
+			account_id, record_id, record_type, entity_version, operation_id, operation, tombstone, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(account_id, record_id) DO UPDATE SET
+			record_type=excluded.record_type, entity_version=excluded.entity_version,
+			operation_id=excluded.operation_id, operation=excluded.operation,
+			tombstone=excluded.tombstone, updated_at=excluded.updated_at`, TableSyncEntityVersions),
+		accountID, conflict.RecordID, conflict.RecordType, conflict.RemoteEntityVersion,
+		conflict.RemoteOperationID, string(conflict.RemoteOperation), theirsTombstone, now); err != nil {
+		return err
+	}
 	if _, err = tx.ExecContext(ctx, fmt.Sprintf(`
 		INSERT INTO %s (
 			record_id, record_type, entity_version, operation_id, operation, tombstone, updated_at
@@ -224,9 +249,6 @@ func (r *SQLConflictResolver) ResolveUseLocal(ctx context.Context, accountID, re
 		return err
 	}
 
-	if err = clearConflict(ctx, tx, accountID, recordID, conflict.LocalChangeKey); err != nil {
-		return err
-	}
 	return tx.Commit()
 }
 
@@ -247,53 +269,25 @@ func loadConflictForUpdate(ctx context.Context, tx *sql.Tx, accountID, recordID 
 	return record, nil
 }
 
-// resolveNextVersion returns remote_head + 1, tolerating a higher local head so
-// the new mutation always supersedes both sides.
-func resolveNextVersion(ctx context.Context, tx *sql.Tx, accountID, recordID, recordType string) (uint32, error) {
-	head := uint32(0)
-	read := func(query string, args ...any) error {
-		var storedType string
-		var version int64
-		err := tx.QueryRowContext(ctx, query, args...).Scan(&storedType, &version)
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		if storedType != recordType || version <= 0 || version >= int64(^uint32(0)) {
-			return errors.New("stored entity version is invalid")
-		}
-		if uint32(version) > head {
-			head = uint32(version)
-		}
-		return nil
-	}
-	if err := read(fmt.Sprintf("SELECT record_type, entity_version FROM %s WHERE account_id = ? AND record_id = ?", TableSyncEntityVersions), accountID, recordID); err != nil {
-		return 0, err
-	}
-	if err := read(fmt.Sprintf("SELECT record_type, entity_version FROM %s WHERE record_id = ?", TableSyncLocalEntities), recordID); err != nil {
-		return 0, err
-	}
-	if head == 0 {
-		return 0, errors.New("cannot resolve a record with no version history")
-	}
-	return head + 1, nil
-}
-
-// clearConflict removes the conflict side and the losing outbox push.
-func clearConflict(ctx context.Context, tx *sql.Tx, accountID, recordID, localChangeKey string) error {
+// clearConflict removes the conflict side together with the losing local
+// lineage: every unsynced outbox row and unmaterialized intent for the record.
+// A resolution supersedes the whole divergent line, and stale rows could never
+// ship anyway — the server rejects versions that skip its head.
+func clearConflict(ctx context.Context, tx *sql.Tx, accountID, recordID string) error {
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf(
 		"DELETE FROM %s WHERE account_id = ? AND record_id = ?", TableSyncConflicts,
 	), accountID, recordID); err != nil {
 		return err
 	}
-	if localChangeKey != "" {
-		if _, err := tx.ExecContext(ctx, fmt.Sprintf(
-			"DELETE FROM %s WHERE idempotency_key = ?", TableSyncOutbox,
-		), localChangeKey); err != nil {
-			return err
-		}
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(
+		"DELETE FROM %s WHERE account_id = ? AND record_id = ? AND status != ?", TableSyncOutbox,
+	), accountID, recordID, string(replicationsync.StatusSynced)); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(
+		"DELETE FROM %s WHERE record_id = ?", TableSyncLocalMutations,
+	), recordID); err != nil {
+		return err
 	}
 	return nil
 }

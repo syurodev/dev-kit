@@ -389,5 +389,12 @@ func (s *Service) toSummary(record vaultitem.Record, folderMap map[string]Folder
 	if err != nil {
 		return Summary{}, err
 	}
+	// FR-6 (mcp-agent): notes.list decrypts every body for the preview, so a
+	// locked vault must surface a structured vault_locked error — never a
+	// silently preview-less list that would read as empty notes. Search keeps
+	// the tolerant form (title/tag matching never needs the body).
+	if _, err := s.store.OpenPayload(record, bodyKeyID); err != nil {
+		return Summary{}, err
+	}
 	return s.summaryFrom(record, meta, folderMap), nil
 }

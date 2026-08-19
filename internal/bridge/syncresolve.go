@@ -9,11 +9,14 @@ import (
 
 // SyncConflictDetailDTO carries the on-demand decrypted note text for a
 // conflict so the UI can show ours vs theirs. For non-note (secret) types no
-// text is returned; the UI offers only Use ours / Use theirs.
+// text is returned; the UI offers only Use ours / Use theirs. A deleted side
+// has no text — the UI shows it as "(deleted)".
 type SyncConflictDetailDTO struct {
 	RecordID       string `json:"record_id"`
 	RecordType     string `json:"record_type"`
 	TheirsCaptured bool   `json:"theirs_captured"`
+	OursDeleted    bool   `json:"ours_deleted"`
+	TheirsDeleted  bool   `json:"theirs_deleted"`
 	Mergeable      bool   `json:"mergeable"`
 	OursText       string `json:"ours_text"`
 	TheirsText     string `json:"theirs_text"`
@@ -37,6 +40,8 @@ func (s *AppService) SyncConflictDetail(id string) (SyncConflictDetailDTO, error
 			RecordID:       detail.RecordID,
 			RecordType:     detail.RecordType,
 			TheirsCaptured: detail.TheirsCaptured,
+			OursDeleted:    detail.OursDeleted,
+			TheirsDeleted:  detail.TheirsDeleted,
 			Mergeable:      detail.Mergeable,
 			OursText:       detail.OursText,
 			TheirsText:     detail.TheirsText,

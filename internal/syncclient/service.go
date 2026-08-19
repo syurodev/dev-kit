@@ -61,7 +61,14 @@ type CursorStore interface {
 type RemoteStore interface {
 	ValidateAuthenticatedAccount(ctx context.Context, accountID string) error
 	BindAuthenticatedAccount(ctx context.Context, accountID string) error
+	BoundAccountID(ctx context.Context) (string, bool, error)
 	ApplyRemoteBatch(ctx context.Context, accountID, cursorName, nextCursor string, mutations []syncstore.RemoteMutation) error
+}
+
+// ConflictLister reads the captured "theirs" sides (sync_conflicts) for a bound
+// account — the single conflict source shared with Detail/Resolve.
+type ConflictLister interface {
+	List(ctx context.Context, accountID string) ([]syncstore.ConflictRecord, error)
 }
 
 // LocalMutationStore owns the durable handoff from account-neutral local
@@ -80,6 +87,7 @@ type Dependencies struct {
 	Remote         RemoteStore
 	LocalMutations LocalMutationStore
 	Outbox         replicationsync.Outbox
+	Conflicts      ConflictLister
 	Vault          replicationsync.Vault
 	HTTPClient     *http.Client
 	CursorName     string
@@ -120,17 +128,19 @@ type Report struct {
 	PushSent      int `json:"push_sent"`
 	PushRetried   int `json:"push_retried"`
 	PushConflicts int `json:"push_conflicts"`
+	PushFailed    int `json:"push_failed"`
 	Pulled        int `json:"pulled"`
 	Applied       int `json:"applied"`
 }
 
 // ConflictInfo is non-secret conflict metadata safe for UI/diagnostics.
 type ConflictInfo struct {
-	RecordID        string    `json:"record_id"`
-	RecordType      string    `json:"record_type"`
-	LocalChangeKey  string    `json:"local_change_key"`
-	RemoteChangeKey string    `json:"remote_change_key"`
-	DetectedAt      time.Time `json:"detected_at"`
+	RecordID            string    `json:"record_id"`
+	RecordType          string    `json:"record_type"`
+	RemoteOperation     string    `json:"remote_operation"`
+	RemoteEntityVersion uint32    `json:"remote_entity_version"`
+	TheirsDeleted       bool      `json:"theirs_deleted"`
+	DetectedAt          time.Time `json:"detected_at"`
 }
 
 type sessionProvider struct {
@@ -220,6 +230,7 @@ func New(deps Dependencies) (*Service, error) {
 // NewWithFactories creates a service with injectable network constructors.
 func NewWithFactories(deps Dependencies, factories Factories) (*Service, error) {
 	if deps.DeviceIdentity == nil || deps.Cursors == nil || deps.Remote == nil || deps.Outbox == nil || deps.Vault == nil ||
+		deps.Conflicts == nil ||
 		factories.Authenticator == nil || factories.Transport == nil {
 		return nil, ErrInvalidDependencies
 	}

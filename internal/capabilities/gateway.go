@@ -2,12 +2,18 @@ package capabilities
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 
 	"devkit/internal/audit"
 	"devkit/internal/permissions"
 )
+
+// ErrPermissionDenied is returned when the policy denies a capability request.
+// The wrapping keeps a custom reason while errors.Is still matches, and lets
+// the bridge classify authorization failures without matching message text.
+var ErrPermissionDenied = errors.New("permission denied")
 
 type Handler func(ctx context.Context) (any, error)
 
@@ -71,7 +77,10 @@ func (g *Gateway) Call(ctx context.Context, request CallRequest) (any, error) {
 		Metadata:   audit.RedactMap(request.Metadata),
 	})
 	if !decision.Allowed {
-		return nil, fmt.Errorf("permission denied: %s", decision.Reason)
+		// The sentinel lets the bridge classify authorization failures without
+		// matching on message text; the reason detail stays out of the public
+		// error contract.
+		return nil, fmt.Errorf("%w: %s", ErrPermissionDenied, decision.Reason)
 	}
 
 	return request.Handler(ctx)

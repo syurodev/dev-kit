@@ -98,6 +98,10 @@ export function Call(subject: string, capability: string, scope: string, metadat
     return $Call.ByID(1812104438, subject, capability, scope, metadata, handler);
 }
 
+/**
+ * CodeGraphApprovePlan is human-only — exposed on the bridge for the UI,
+ * deliberately absent from the MCP tool surface.
+ */
 export function CodeGraphApprovePlan(): $CancellablePromise<void> {
     return $Call.ByID(1130561769);
 }

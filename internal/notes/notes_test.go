@@ -1,6 +1,7 @@
 package notes
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -396,5 +397,23 @@ func TestDeleteFolderAtomicValidation(t *testing.T) {
 	folders, _ := s.ListFolders()
 	if len(folders) != 1 {
 		t.Fatalf("folder was deleted: len = %d", len(folders))
+	}
+}
+
+func TestListFailsStructuredWhenVaultLocked(t *testing.T) {
+	v := vault.NewService(vault.NewMemoryKeyringStore())
+	if _, err := v.Setup("correct-horse"); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	s := NewService(vaultitem.NewStore(vaultitem.NewMemoryRepository(), v))
+	if _, err := s.Create("Locked", "secret body", "", nil); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	v.Lock()
+
+	// FR-6: notes.list needs the decrypted body for previews, so a locked vault
+	// returns the structured locked error instead of a preview-less list.
+	if _, err := s.List(); !errors.Is(err, vault.ErrLocked) {
+		t.Fatalf("List error = %v, want vault.ErrLocked", err)
 	}
 }

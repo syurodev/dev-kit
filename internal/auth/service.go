@@ -240,6 +240,13 @@ func (s *Service) Logout() error {
 	if s == nil {
 		return nil
 	}
+	// Serialize against an in-flight token refresh: the refresh path persists
+	// the rotated credential while holding refreshMu, so taking it here
+	// guarantees Logout's keychain delete happens after — an unsynchronized
+	// Logout could otherwise be silently undone by a refresh completing
+	// concurrently.
+	s.refreshMu.Lock()
+	defer s.refreshMu.Unlock()
 	s.mu.Lock()
 	s.accessToken = ""
 	s.expiresAt = time.Time{}
@@ -289,7 +296,10 @@ func (s *Service) interactiveLogin(ctx context.Context) (Status, error) {
 	}
 	verifier := oauth2.GenerateVerifier()
 	redirectURI := "http://" + listener.Addr().String() + s.config.CallbackPath
-	s.oauth.RedirectURL = redirectURI
+	// A per-login copy avoids mutating the shared oauth config while a
+	// concurrent refresh reads it.
+	loginCfg := *s.oauth
+	loginCfg.RedirectURL = redirectURI
 
 	result := make(chan callbackResult, 1)
 	server := &http.Server{Handler: callbackHandler(s.config.CallbackPath, state, result), ReadHeaderTimeout: 5 * time.Second}
@@ -300,7 +310,7 @@ func (s *Service) interactiveLogin(ctx context.Context) (Status, error) {
 		_ = server.Shutdown(shutdownCtx)
 	}()
 
-	authURL := s.oauth.AuthCodeURL(state,
+	authURL := loginCfg.AuthCodeURL(state,
 		oauth2.AccessTypeOffline,
 		oauth2.S256ChallengeOption(verifier),
 	)
@@ -320,7 +330,7 @@ func (s *Service) interactiveLogin(ctx context.Context) (Status, error) {
 			return Status{}, ErrAuthenticationRequired
 		}
 		exchangeCtx := context.WithValue(ctx, oauth2.HTTPClient, s.client)
-		token, err := s.oauth.Exchange(exchangeCtx, callback.code, oauth2.VerifierOption(verifier))
+		token, err := loginCfg.Exchange(exchangeCtx, callback.code, oauth2.VerifierOption(verifier))
 		if err != nil || !validToken(token.AccessToken) || token.RefreshToken == "" || token.Expiry.IsZero() {
 			return Status{}, ErrAuthenticationFailed
 		}

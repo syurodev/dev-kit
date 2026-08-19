@@ -19,6 +19,7 @@ export type SyncReport = {
   pushSent: number;
   pushRetried: number;
   pushConflicts: number;
+  pushFailed: number;
   pulled: number;
   applied: number;
 };
@@ -26,8 +27,9 @@ export type SyncReport = {
 export type SyncConflict = {
   recordId: string;
   recordType: string;
-  localChangeKey: string;
-  remoteChangeKey: string;
+  remoteOperation: string;
+  remoteEntityVersion: number;
+  theirsDeleted: boolean;
   detectedAt: string;
 };
 
@@ -37,8 +39,9 @@ export function syncConflicts(): Promise<SyncConflict[]> {
     return conflicts.map((conflict) => ({
       recordId: conflict.record_id,
       recordType: conflict.record_type,
-      localChangeKey: conflict.local_change_key,
-      remoteChangeKey: conflict.remote_change_key,
+      remoteOperation: conflict.remote_operation,
+      remoteEntityVersion: conflict.remote_entity_version,
+      theirsDeleted: conflict.theirs_deleted,
       detectedAt: conflict.detected_at ? String(conflict.detected_at) : "",
     }));
   });
@@ -48,6 +51,8 @@ export type SyncConflictDetail = {
   recordId: string;
   recordType: string;
   theirsCaptured: boolean;
+  oursDeleted: boolean;
+  theirsDeleted: boolean;
   mergeable: boolean;
   oursText: string;
   theirsText: string;
@@ -62,6 +67,8 @@ export function syncConflictDetail(id: string): Promise<SyncConflictDetail> {
       recordId: detail.record_id,
       recordType: detail.record_type,
       theirsCaptured: detail.theirs_captured,
+      oursDeleted: detail.ours_deleted,
+      theirsDeleted: detail.theirs_deleted,
       mergeable: detail.mergeable,
       oursText: detail.ours_text ?? "",
       theirsText: detail.theirs_text ?? "",
@@ -120,6 +127,7 @@ export function syncNow(): Promise<SyncReport> {
       pushSent: report.push_sent,
       pushRetried: report.push_retried,
       pushConflicts: report.push_conflicts,
+      pushFailed: report.push_failed,
       pulled: report.pulled,
       applied: report.applied,
     };

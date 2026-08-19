@@ -87,7 +87,7 @@ func newSyncBridge(t *testing.T, service app.SyncService) (*AppService, *app.Con
 	t.Helper()
 	container := app.NewContainer()
 	container.Sync = service
-	container.Auth = &fakeAuthService{status: auth.Status{Authenticated: true, ExpiresAt: time.Now().Add(time.Hour)}, token: "test-token"}
+	container.SetAuth(&fakeAuthService{status: auth.Status{Authenticated: true, ExpiresAt: time.Now().Add(time.Hour)}, token: "test-token"})
 	if err := app.RegisterBuiltins(container); err != nil {
 		t.Fatalf("RegisterBuiltins: %v", err)
 	}
@@ -167,7 +167,8 @@ func TestSyncConnectUsesPinnedGatewayWithoutAuditingCredentials(t *testing.T) {
 func TestSyncBridgeListsConflicts(t *testing.T) {
 	detected := time.Date(2026, 8, 5, 4, 0, 0, 0, time.UTC)
 	fake := &fakeSyncService{conflicts: []syncclient.ConflictInfo{
-		{RecordID: "rec-1", RecordType: "note", LocalChangeKey: "k1", RemoteChangeKey: "k2", DetectedAt: detected},
+		{RecordID: "rec-1", RecordType: "note", RemoteOperation: "update", RemoteEntityVersion: 2, DetectedAt: detected},
+		{RecordID: "rec-2", RecordType: "note", RemoteOperation: "delete", RemoteEntityVersion: 3, TheirsDeleted: true, DetectedAt: detected},
 	}}
 	service, container := newSyncBridge(t, fake)
 
@@ -175,9 +176,12 @@ func TestSyncBridgeListsConflicts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SyncConflicts: %v", err)
 	}
-	if len(conflicts) != 1 || conflicts[0].RecordID != "rec-1" || conflicts[0].RecordType != "note" ||
-		conflicts[0].LocalChangeKey != "k1" || conflicts[0].RemoteChangeKey != "k2" || conflicts[0].DetectedAt != detected {
+	if len(conflicts) != 2 || conflicts[0].RecordID != "rec-1" || conflicts[0].RecordType != "note" ||
+		conflicts[0].RemoteOperation != "update" || conflicts[0].RemoteEntityVersion != 2 || conflicts[0].DetectedAt != detected {
 		t.Fatalf("conflicts = %#v", conflicts)
+	}
+	if !conflicts[1].TheirsDeleted || conflicts[1].RemoteOperation != "delete" {
+		t.Fatalf("delete conflict = %#v", conflicts[1])
 	}
 
 	serialized, _ := json.Marshal(conflicts)

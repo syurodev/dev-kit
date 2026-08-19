@@ -10,13 +10,18 @@ const RedactedValue = "[REDACTED]"
 
 var sensitiveKeyParts = []string{
 	"password",
+	"passwd",
 	"passphrase",
+	"pwd",
 	"privatekey",
 	"secret",
 	"token",
 	"apikey",
 	"recovery",
 	"encryptionkey",
+	"credential",
+	"authorization",
+	"cookie",
 }
 
 func RedactMap(input map[string]any) map[string]any {

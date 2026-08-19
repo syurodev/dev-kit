@@ -186,7 +186,12 @@ func (a *ClaudeAdapter) Open(ctx context.Context, cwd string) (SessionRuntime, e
 		return nil, err
 	}
 
-	proc, err := a.runner().StartPiped(ctx, pol, cmd)
+	// The sandbox process outlives the caller's request: sessions opened over
+	// MCP derive ctx from the client connection, and a client disconnect would
+	// SIGKILL the agent (exec.CommandContext) while its session row stays
+	// alive. Lifetime belongs to the runtime/Close, so start detached; only
+	// the handshake below still honors the caller's ctx.
+	proc, err := a.runner().StartPiped(context.Background(), pol, cmd)
 	if err != nil {
 		return nil, mapSandboxErr(err)
 	}
@@ -213,7 +218,18 @@ func (a *ClaudeAdapter) Open(ctx context.Context, cwd string) (SessionRuntime, e
 	rt.serveDone = make(chan struct{})
 	go func() {
 		defer close(rt.serveDone)
-		_ = conn.Serve(serveCtx)
+		serveErr := conn.Serve(serveCtx)
+		// Unexpected exit (agent process death, pipe EOF): mark the runtime
+		// dead so later Prompt/Cancel calls fail fast instead of hanging on a
+		// broken pipe. A deliberate Close() has already set rt.closed.
+		rt.mu.Lock()
+		rt.closed = true
+		// A deliberate Close cancels the serve context first; only record the
+		// exit as abnormal when Serve failed for another reason.
+		if serveErr != nil && !errors.Is(serveErr, context.Canceled) && rt.exitErr == nil {
+			rt.exitErr = serveErr
+		}
+		rt.mu.Unlock()
 	}()
 
 	cleanup := func() {
@@ -334,6 +350,16 @@ type claudeRuntime struct {
 	mu       sync.Mutex
 	handlers RuntimeHandlers
 	closed   bool
+	exitErr  error
+}
+
+// Dead reports whether the agent process exited unexpectedly (crash, pipe
+// EOF). A dead runtime rejects further calls; the owning session should
+// surface status error.
+func (r *claudeRuntime) Dead() (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.closed && r.exitErr != nil, r.exitErr
 }
 
 func (r *claudeRuntime) ACPSessionID() string { return r.acpSessionID }

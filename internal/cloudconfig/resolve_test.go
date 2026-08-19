@@ -147,7 +147,7 @@ func TestResolveStartupRejectsInvalidEnv(t *testing.T) {
 	}
 }
 
-func TestResolveStartupRejectsUnreadableCache(t *testing.T) {
+func TestResolveStartupIgnoresUnreadableCache(t *testing.T) {
 	t.Setenv("DEVKIT_OIDC_ISSUER", "")
 
 	dir := t.TempDir()
@@ -159,8 +159,38 @@ func TestResolveStartupRejectsUnreadableCache(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	_, err := ResolveStartup(context.Background(), StartupOptions{ConfigDir: dir})
-	if err == nil {
-		t.Fatal("expected error")
+	// A corrupt cache must never veto launching a local-first app: resolution
+	// proceeds without it (offline, no issuer -> unavailable, but no error).
+	result, err := ResolveStartup(context.Background(), StartupOptions{ConfigDir: dir})
+	if err != nil {
+		t.Fatalf("ResolveStartup: %v", err)
+	}
+	if !result.Unavailable {
+		t.Fatal("expected unavailable result without cache or env issuer")
+	}
+}
+
+func TestResolveStartupSkipsMalformedMinimum(t *testing.T) {
+	t.Setenv("DEVKIT_OIDC_ISSUER", "https://env.example.test/realms/devkit")
+
+	dir := t.TempDir()
+	store := NewFileStore(dir)
+	if err := store.Save(Snapshot{OIDCIssuer: "https://cache.example.test/realms/devkit", MinAppVersion: "1.x"}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	// A malformed min_app_version (the gateway serves it as an unvalidated
+	// string) skips the version gate like a missing one — it must never fail
+	// the launch of a local-first app.
+	result, err := ResolveStartup(context.Background(), StartupOptions{
+		ConfigDir: dir,
+		Client:    &http.Client{Timeout: startupFetchTimeout},
+		Timeout:   startupFetchTimeout,
+	})
+	if err != nil {
+		t.Fatalf("ResolveStartup: %v", err)
+	}
+	if result.Blocked != nil {
+		t.Fatalf("blocked = %v, want nil for malformed minimum", result.Blocked)
 	}
 }

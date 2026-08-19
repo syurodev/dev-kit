@@ -78,7 +78,7 @@ export function ResolvePanel({ recordId, onClose, onResolved }: Props) {
           The other version has not been pulled yet. Run <strong>Sync now</strong>{" "}
           to fetch “theirs”, then resolve.
         </p>
-      ) : detail.mergeable ? (
+      ) : detail.mergeable && !detail.oursDeleted && !detail.theirsDeleted ? (
         <>
           <pre className="resolve-markers">{`<<<<<<< ours\n${detail.oursText}\n=======\n${detail.theirsText}\n>>>>>>> theirs`}</pre>
           <label className="resolve-merge">
@@ -91,6 +91,15 @@ export function ResolvePanel({ recordId, onClose, onResolved }: Props) {
             />
           </label>
         </>
+      ) : detail.oursDeleted || detail.theirsDeleted ? (
+        <p className="resolve-secret">
+          {detail.oursDeleted && detail.theirsDeleted
+            ? "Both sides deleted this record."
+            : detail.oursDeleted
+              ? "This side deleted the record locally; the remote side kept editing it."
+              : "The remote side deleted this record; this side kept editing it."}{" "}
+          Choose which side to keep — a deleted side is not line-merged.
+        </p>
       ) : (
         <p className="resolve-secret">
           This is a secret item. Choose which encrypted version to keep — secrets
@@ -105,7 +114,7 @@ export function ResolvePanel({ recordId, onClose, onResolved }: Props) {
         <button type="button" onClick={() => resolve("theirs")} disabled={disabled}>
           Use theirs
         </button>
-        {detail.mergeable ? (
+        {detail.mergeable && !detail.oursDeleted && !detail.theirsDeleted ? (
           <button
             type="button"
             className="resolve-merge-save"

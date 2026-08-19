@@ -184,6 +184,8 @@ func publicError(subject string, err error) *apperrors.AppError {
 			return apperrors.Wrap(codeValidationFailed, "Plan node not found.", true, codegraph.ErrPlanNodeNotFound)
 		case errors.Is(err, codegraph.ErrInvalidPlan):
 			return apperrors.Wrap(codeValidationFailed, "Invalid plan.", true, codegraph.ErrInvalidPlan)
+		case errors.Is(err, codegraph.ErrBinaryFile):
+			return apperrors.Wrap(codeValidationFailed, "This file is not text and cannot be opened in the editor.", true, codegraph.ErrBinaryFile)
 		}
 	}
 	if subject == "builtin.mcpinstall" {

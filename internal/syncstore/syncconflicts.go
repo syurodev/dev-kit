@@ -27,24 +27,20 @@ type ConflictRecord struct {
 	DetectedAt          time.Time
 }
 
-// captureRemoteConflict stores the divergent remote op as "theirs" when the
-// target record has an active same-version push conflict, so a subsequent pull
-// no longer silently drops the winning remote snapshot. It returns true when it
-// captured (the caller must then treat the mutation as handled and leave ours
-// untouched); false means this is an ordinary stale replay that should keep
-// failing closed. Runs inside the ApplyRemoteBatch transaction.
-func captureRemoteConflict(ctx context.Context, tx *sql.Tx, current remoteEntityVersion, mutation RemoteMutation) (bool, error) {
-	// Only a same-version divergence is a conflict; a strictly older remote op is
-	// a genuine stale replay and must keep being rejected.
-	if mutation.EntityVersion != current.entityVersion {
-		return false, nil
+// captureRemoteMutation stores a divergent remote op as "theirs" whenever the
+// apply-guard rejects it against local state: a version at or below a dirty
+// local ledger head, a newer remote op against unsynced local edits, or an
+// untracked local row colliding with a first remote op. The op may be a delete,
+// whose "theirs" side has no record body (theirs_snapshot NULL; remote_operation
+// distinguishes it). Upsert keeps re-pulls of the same or a newer divergent op
+// idempotent. Ours (vault_items + ledgers) is deliberately not touched. Runs
+// inside the ApplyRemoteBatch transaction; the op is consumed so the pull
+// cursor advances instead of wedging the account.
+func captureRemoteMutation(ctx context.Context, tx *sql.Tx, mutation RemoteMutation) error {
+	localChangeKey, err := loadLocalChangeKey(ctx, tx, mutation.AccountID, mutation.RecordID)
+	if err != nil {
+		return err
 	}
-	localChangeKey, found, err := loadConflictedLocalChangeKey(ctx, tx, mutation.AccountID, mutation.RecordID, current.entityVersion)
-	if err != nil || !found {
-		return false, err
-	}
-	// Upsert keeps re-pull of the same divergent op idempotent. Ours
-	// (vault_items + sync_entity_versions) is deliberately not touched here.
 	_, err = tx.ExecContext(ctx, fmt.Sprintf(`
 		INSERT INTO %s (
 			account_id, record_id, record_type, remote_operation_id, remote_operation,
@@ -61,29 +57,31 @@ func captureRemoteConflict(ctx context.Context, tx *sql.Tx, current remoteEntity
 		mutation.AccountID, mutation.RecordID, mutation.RecordType, mutation.OperationID,
 		string(mutation.Operation), mutation.EntityVersion, mutation.RecordJSON,
 		localChangeKey, formatTime(time.Now().UTC()))
-	if err != nil {
-		return false, err
-	}
-	return true, nil
+	return err
 }
 
-// loadConflictedLocalChangeKey returns the idempotency key of the conflicted
-// outbox row for this record at the losing version, if one exists.
-func loadConflictedLocalChangeKey(ctx context.Context, tx *sql.Tx, accountID, recordID string, version uint32) (string, bool, error) {
+// loadLocalChangeKey returns the idempotency key of the record's losing local
+// lineage: the conflicted outbox row when one exists (the push the server
+// rejected), else the newest unsynced row. Empty when no local lineage is
+// durable — the conflict is still captured; resolution simply has no outbox
+// row to clear.
+func loadLocalChangeKey(ctx context.Context, tx *sql.Tx, accountID, recordID string) (string, error) {
 	var key string
 	err := tx.QueryRowContext(ctx, fmt.Sprintf(`
 		SELECT idempotency_key FROM %s
-		WHERE account_id = ? AND record_id = ? AND status = ? AND entity_version = ?
-		ORDER BY created_at ASC, idempotency_key ASC
+		WHERE account_id = ? AND record_id = ? AND status != ?
+		ORDER BY CASE status WHEN ? THEN 0 ELSE 1 END,
+			entity_version DESC, created_at ASC, idempotency_key ASC
 		LIMIT 1`, TableSyncOutbox),
-		accountID, recordID, string(replicationsync.StatusConflict), version).Scan(&key)
+		accountID, recordID, string(replicationsync.StatusSynced),
+		string(replicationsync.StatusConflict)).Scan(&key)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", false, nil
+		return "", nil
 	}
 	if err != nil {
-		return "", false, err
+		return "", err
 	}
-	return key, true, nil
+	return key, nil
 }
 
 // SQLConflictStore reads captured conflict sides for presentation and

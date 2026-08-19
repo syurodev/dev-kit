@@ -131,12 +131,16 @@ func (s *Store) Update(id, keyID string, metadata json.RawMessage, secret []byte
 	if err != nil {
 		return Record{}, err
 	}
-	envelope, err := s.vault.SealV2(associatedData(record.Type, id, keyID), secret)
-	if err != nil {
-		return Record{}, err
+	// A nil secret keeps the record payload-less, matching Create's semantics;
+	// an empty-but-non-nil secret still seals an empty-plaintext envelope.
+	if secret != nil {
+		envelope, err := s.vault.SealV2(associatedData(record.Type, id, keyID), secret)
+		if err != nil {
+			return Record{}, err
+		}
+		record.Payload = &envelope
 	}
 	record.Metadata = metadata
-	record.Payload = &envelope
 	record.UpdatedAt = time.Now().UTC()
 	record.SyncState = syncStateLocal
 	if err := s.repo.Put(record); err != nil {

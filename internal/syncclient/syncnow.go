@@ -48,6 +48,7 @@ func (s *Service) SyncNow(ctx context.Context) (Report, error) {
 	report.PushSent = push.Sent
 	report.PushRetried = push.Retried
 	report.PushConflicts = push.Conflicts
+	report.PushFailed = push.Failed
 	if err != nil {
 		logSyncStageFailure("push", err)
 		if errors.Is(err, replicationsync.ErrAuthentication) {

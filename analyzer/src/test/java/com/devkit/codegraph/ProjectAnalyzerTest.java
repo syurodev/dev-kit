@@ -267,6 +267,66 @@ class ProjectAnalyzerTest {
         assertEquals("read", getCount.kind);
     }
 
+    @Test
+    void everyEdgeReferencesAnExistingNode(@TempDir Path tempDir) throws IOException {
+        // Regression test: calling into a JDK/library method (resolvable via
+        // ReflectionTypeSolver, so call.resolve() succeeds) must not produce
+        // an edge pointing at a node that was never created — the Go side's
+        // AnalysisResult.Validate rejects the whole index if any edge does.
+        Path projectRoot = tempDir.resolve("project");
+        Path pkg = projectRoot.resolve("src/main/java/com/acme/jdkcall");
+        Files.createDirectories(pkg);
+        Files.writeString(pkg.resolve("DurationChecker.java"), """
+                package com.acme.jdkcall;
+                import java.time.Duration;
+                public class DurationChecker {
+                    public boolean isNegative(Duration d) {
+                        return d.isNegative();
+                    }
+                }
+                """);
+
+        AnalysisResult result = new ProjectAnalyzer(projectRoot).analyze();
+
+        Set<String> nodeIds = result.nodes.stream().map(n -> n.id).collect(Collectors.toSet());
+        for (Edge e : result.edges) {
+            assertTrue(nodeIds.contains(e.from), "edge.from references unknown node: " + e.from);
+            assertTrue(nodeIds.contains(e.to), "edge.to references unknown node: " + e.to + " (edges: " + result.edges + ")");
+        }
+    }
+
+    @Test
+    void parsesRecordsAndPatternMatchingSwitch(@TempDir Path tempDir) throws IOException {
+        // Regression test: without an explicit LanguageLevel, JavaParser
+        // defaults to a level too old for these Java 14+ constructs — the
+        // whole file silently fails to parse and vanishes from the index.
+        Path projectRoot = tempDir.resolve("project");
+        Path pkg = projectRoot.resolve("src/main/java/com/acme/modern");
+        Files.createDirectories(pkg);
+        Files.writeString(pkg.resolve("Shape.java"), """
+                package com.acme.modern;
+                public class Shape {
+                    public record Circle(double radius) {}
+                    public record Square(double side) {}
+
+                    public double area(Object shape) {
+                        if (shape instanceof Circle c) {
+                            return Math.PI * c.radius() * c.radius();
+                        }
+                        return switch (shape) {
+                            case Square s -> s.side() * s.side();
+                            default -> 0.0;
+                        };
+                    }
+                }
+                """);
+
+        AnalysisResult result = new ProjectAnalyzer(projectRoot).analyze();
+
+        boolean hasClassNode = result.nodes.stream().anyMatch(n -> n.label.equals("com.acme.modern.Shape"));
+        assertTrue(hasClassNode, "class node should exist — file uses records/pattern-matching, must still parse: " + result.nodes);
+    }
+
     private boolean hasCallEdge(AnalysisResult result, String fromLabel, String toLabel) {
         return result.edges.stream().anyMatch(e ->
                 e.kind.equals("call")

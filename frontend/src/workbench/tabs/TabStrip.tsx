@@ -114,9 +114,7 @@ type TabGroupRowProps = {
  * among its own group's siblings, never across groups, so a tab can never
  * leave its module's color cluster.
  *
- * Lives inside the titlebar row. Native InvisibleTitleBarHeight is zero;
- * both this row and its header default to no-drag, and Workbench owns
- * a separate native window-drag handle over the empty traffic-light clearance.
+ * When hosted inside a draggable shell region, this row opts out with no-drag.
  * This is important because Wails detects draggable targets from a capture-
  * phase mousedown before Motion's pointer gesture. Once it invokes the native
  * window move, the OS owns the pointer and React cannot recover the tab drag.
@@ -146,6 +144,14 @@ function TabGroupRow({
   const [visualTabs, setVisualTabs] = useState(tabs);
   const [draggingTabId, setDraggingTabId] = useState<string | null>(null);
   const visualTabsRef = useRef(tabs);
+  // A Reorder.Item is also a button, so WebKit dispatches a click after the
+  // pointerup that ends a drag. Consuming that synthetic click prevents a
+  // reorder of an inactive tab from also activating it and synchronously
+  // hydrating a heavy editor immediately after drop.
+  const suppressActivationForId = useRef<string | null>(null);
+  const suppressionClearTimer = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
 
   useEffect(() => {
     // Store order is committed only once on drop. External open/close/status
@@ -166,6 +172,11 @@ function TabGroupRow({
 
   function handleDragStart(draggedId: string) {
     activeDragId.current = draggedId;
+    suppressActivationForId.current = draggedId;
+    if (suppressionClearTimer.current) {
+      clearTimeout(suppressionClearTimer.current);
+      suppressionClearTimer.current = null;
+    }
     setDraggingTabId(draggedId);
     onDraggingChange(true);
     const index = visualTabsRef.current.findIndex(
@@ -185,15 +196,31 @@ function TabGroupRow({
       const beforeId = visualTabsRef.current[index + 1]?.id ?? null;
       // Skip the store commit when the gesture never actually crossed a
       // neighbor — otherwise every accidental sub-threshold jiggle produces
-      // a new (but content-identical) openTabs array, which defeats
-      // WorkbenchViews' React.memo shallow prop check and re-renders the
-      // whole mounted content tree for zero visible change.
+      // a new (but content-identical) openTabs array and needless strip/store
+      // work. WorkbenchViews also ignores pure order changes as a second
+      // boundary protecting the mounted editor tree.
       if (beforeId !== dragOriginBeforeId.current) {
         onReorder(draggedId, beforeId);
       }
     }
     activeDragId.current = null;
+    // Native click follows mouseup in the same event turn. Clear on the next
+    // task so a missing click (for example, dropping outside) cannot suppress
+    // a later intentional click.
+    suppressionClearTimer.current = setTimeout(() => {
+      suppressActivationForId.current = null;
+      suppressionClearTimer.current = null;
+    }, 0);
   }
+
+  useEffect(
+    () => () => {
+      if (suppressionClearTimer.current) {
+        clearTimeout(suppressionClearTimer.current);
+      }
+    },
+    [],
+  );
 
   return (
     <Reorder.Group
@@ -282,7 +309,18 @@ function TabGroupRow({
               exit={{ opacity: 0, scale: 0.95, width: 0 }}
               type="button"
               data-tab-id={tab.id}
-              onClick={() => onSelect(tab.id)}
+              onClick={(event) => {
+                if (suppressActivationForId.current === tab.id) {
+                  event.preventDefault();
+                  suppressActivationForId.current = null;
+                  if (suppressionClearTimer.current) {
+                    clearTimeout(suppressionClearTimer.current);
+                    suppressionClearTimer.current = null;
+                  }
+                  return;
+                }
+                onSelect(tab.id);
+              }}
               className={cn(
                 // overflow-hidden: at INACTIVE_MIN_WIDTH_PX there isn't
                 // room for icon + reserved close-button space + any title
@@ -606,7 +644,10 @@ export function TabStrip({
   // p-1 (4px each side) + the pill's own 1px border each side.
   const tabWidthValues = visualOrder.map((tab) => widths.get(tab.id));
   const pillWidthPx = tabWidthValues.every((value) => typeof value === "number")
-    ? tabWidthValues.reduce((sum: number, value) => sum + (value as number), 0) +
+    ? tabWidthValues.reduce(
+        (sum: number, value) => sum + (value as number),
+        0,
+      ) +
       Math.max(0, visualOrder.length - 1) * 6 +
       8 +
       2
@@ -640,7 +681,7 @@ export function TabStrip({
           // this outer border and the inner tab has to match, or the ring
           // reads as uneven — most visible around the rounded end caps,
           // where an unequal x/y offset breaks the two pills' concentricity.
-          visualOrder.length > 0 && "rounded-full border border-primary/20 p-1",
+          visualOrder.length > 0 && "rounded-full p-1",
         )}
         style={pillWidthPx !== undefined ? { width: pillWidthPx } : undefined}
       >

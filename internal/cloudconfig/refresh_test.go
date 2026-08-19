@@ -75,7 +75,10 @@ func TestRefreshRateLimitedBackoff(t *testing.T) {
 	}
 
 	var attempts atomic.Int32
-	var slept time.Duration
+	var slept atomic.Int64 // nanoseconds; runRefreshLoop keeps calling Sleep
+	// (one more PollInterval wait, see refresh.go:134) after OnApply cancels
+	// ctx, racing with this test's read of the total below unless the
+	// accumulator itself is safe for concurrent add/load.
 	fetch := func(context.Context, string, string, *http.Client) (Snapshot, error) {
 		switch attempts.Add(1) {
 		case 1:
@@ -93,7 +96,7 @@ func TestRefreshRateLimitedBackoff(t *testing.T) {
 		Fetch:     fetch,
 		Dial:      func(context.Context, string, string) error { return nil },
 		Sleep: func(_ context.Context, d time.Duration) error {
-			slept += d
+			slept.Add(int64(d))
 			return nil
 		},
 		Jitter: func(max time.Duration) time.Duration { return max },
@@ -104,8 +107,8 @@ func TestRefreshRateLimitedBackoff(t *testing.T) {
 	<-ctx.Done()
 
 	want := rateLimitBackoffBase + rateLimitJitterMax
-	if slept < want {
-		t.Fatalf("slept = %v, want >= %v", slept, want)
+	if got := time.Duration(slept.Load()); got < want {
+		t.Fatalf("slept = %v, want >= %v", got, want)
 	}
 	got, found, err := store.Load()
 	if err != nil {

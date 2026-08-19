@@ -64,6 +64,7 @@ func newDevice(t *testing.T, baseURL, token string, vlt *vault.Service) *device 
 		Remote:         syncstore.NewSQLRemoteStore(db),
 		LocalMutations: syncstore.NewSQLLocalMutationStore(db),
 		Outbox:         syncstore.NewSQLOutbox(db),
+		Conflicts:      syncstore.NewSQLConflictStore(db),
 		Vault:          vlt,
 	})
 	if err != nil {
@@ -276,4 +277,134 @@ func assertNoConflicts(t *testing.T, d *device) {
 	if len(conflicts) != 0 {
 		t.Fatalf("conflicts remaining = %d, want 0", len(conflicts))
 	}
+}
+
+// TestE2EAsymmetricDivergenceConverges covers the version-asymmetric wedge
+// scenario: B materializes two offline edits (v2, v3) while A's v2 wins on the
+// server. The old apply-guard failed the whole pull batch forever; now B's pull
+// captures A's v2 as "theirs", the cursor advances, and a use-ours resolution
+// re-materialises B's newest edit at remote_head+1 so both devices converge.
+func TestE2EAsymmetricDivergenceConverges(t *testing.T) {
+	baseURL := newMockServer(t)
+	vlt := vault.NewService(vault.NewMemoryKeyringStore())
+	if _, err := vlt.Setup("master-password"); err != nil {
+		t.Fatalf("vault setup: %v", err)
+	}
+	a := newDevice(t, baseURL, e2eToken, vlt)
+	b := newDevice(t, baseURL, e2eToken, vlt)
+
+	recordID := a.createNote(t, "Asymmetric", "v1 body")
+	a.syncNow(t) // push v1
+	b.syncNow(t) // pull v1
+
+	// B edits twice offline; A edits once and syncs first.
+	b.editNote(t, recordID, "B edit v2")
+	b.editNote(t, recordID, "B edit v3")
+	a.editNote(t, recordID, "A edit v2")
+	a.syncNow(t)
+
+	report := b.syncNow(t)
+	if report.PushConflicts < 1 {
+		t.Fatalf("expected push conflict for B, report = %#v", report)
+	}
+	account := b.account(t)
+	conflict, found, err := b.conflicts.Get(context.Background(), account, recordID)
+	if err != nil || !found {
+		t.Fatalf("asymmetric theirs not captured: found=%v err=%v", found, err)
+	}
+	if conflict.RemoteEntityVersion != 2 {
+		t.Fatalf("captured theirs version = %d, want 2", conflict.RemoteEntityVersion)
+	}
+	if got := b.body(t, recordID); got != "B edit v3" {
+		t.Fatalf("B body = %q, want ours untouched", got)
+	}
+
+	// Use-ours re-materialises B's newest edit at remote_head+1 = 3.
+	resolveUseLocal(t, b, account, recordID, b.mustGet(t, recordID))
+	b.syncNow(t)
+	a.syncNow(t)
+	b.syncNow(t)
+
+	if got := a.body(t, recordID); got != "B edit v3" {
+		t.Fatalf("A body = %q, want converged ours", got)
+	}
+	if got := b.body(t, recordID); got != "B edit v3" {
+		t.Fatalf("B body = %q, want converged ours", got)
+	}
+	assertNoConflicts(t, b)
+}
+
+// setupTrashVsEdit brings two devices into a trash-vs-edit conflict: A deletes
+// the note and syncs its tombstone while B edits offline. B's next sync loses
+// the push and captures the remote delete as "theirs" with no record body.
+func setupTrashVsEdit(t *testing.T) (a, b *device, account, recordID string) {
+	t.Helper()
+	baseURL := newMockServer(t)
+	vlt := vault.NewService(vault.NewMemoryKeyringStore())
+	if _, err := vlt.Setup("master-password"); err != nil {
+		t.Fatalf("vault setup: %v", err)
+	}
+	a = newDevice(t, baseURL, e2eToken, vlt)
+	b = newDevice(t, baseURL, e2eToken, vlt)
+
+	recordID = a.createNote(t, "Doomed", "v1 body")
+	a.syncNow(t) // push v1
+	b.syncNow(t) // pull v1
+
+	if err := a.repo.Delete(recordID); err != nil {
+		t.Fatalf("A delete: %v", err)
+	}
+	a.syncNow(t) // push tombstone v2
+	b.editNote(t, recordID, "B edit while trashed")
+
+	report := b.syncNow(t)
+	if report.PushConflicts < 1 {
+		t.Fatalf("expected push conflict for B, report = %#v", report)
+	}
+	account = b.account(t)
+	conflict, found, err := b.conflicts.Get(context.Background(), account, recordID)
+	if err != nil || !found {
+		t.Fatalf("delete theirs not captured: found=%v err=%v", found, err)
+	}
+	if conflict.RemoteOperation != replicationsync.OperationDelete || conflict.TheirsSnapshot != nil {
+		t.Fatalf("captured conflict = %+v, want delete theirs without snapshot", conflict)
+	}
+	return a, b, account, recordID
+}
+
+func TestE2ETrashVsEditUseTheirsConverges(t *testing.T) {
+	a, b, account, recordID := setupTrashVsEdit(t)
+
+	if err := b.resolver.ResolveUseTheirs(context.Background(), account, recordID); err != nil {
+		t.Fatalf("resolve use theirs (delete): %v", err)
+	}
+	b.syncNow(t)
+	a.syncNow(t)
+	b.syncNow(t)
+
+	if _, err := b.items.Get(recordID); err != vaultitem.ErrNotFound {
+		t.Fatalf("B item after delete resolution = %v, want not found", err)
+	}
+	if _, err := a.items.Get(recordID); err != vaultitem.ErrNotFound {
+		t.Fatalf("A item after convergence = %v, want not found", err)
+	}
+	assertNoConflicts(t, b)
+}
+
+func TestE2ETrashVsEditUseOursResurrects(t *testing.T) {
+	a, b, account, recordID := setupTrashVsEdit(t)
+
+	// Keeping "ours" (the edit) re-pushes it as v3 and resurrects the note on A.
+	resolveUseLocal(t, b, account, recordID, b.mustGet(t, recordID))
+	b.syncNow(t)
+	a.syncNow(t)
+	b.syncNow(t)
+
+	if got := a.body(t, recordID); got != "B edit while trashed" {
+		t.Fatalf("A body = %q, want resurrected ours", got)
+	}
+	if got := b.body(t, recordID); got != "B edit while trashed" {
+		t.Fatalf("B body = %q, want ours", got)
+	}
+	assertNoConflicts(t, b)
 }

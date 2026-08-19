@@ -19,7 +19,13 @@ func TestListAgents(t *testing.T) {
 }
 
 func stableTestCommand(t *testing.T) string {
-	dir := filepath.Join("/workspace", ".mcp-install-test", strings.ReplaceAll(t.Name(), "/", "_"))
+	// Prefer the cloud workspace path when it is writable (the original CI
+	// layout); fall back to the test temp dir on dev machines.
+	base := "/workspace"
+	if err := os.MkdirAll(base, 0o700); err != nil {
+		base = t.TempDir()
+	}
+	dir := filepath.Join(base, ".mcp-install-test", strings.ReplaceAll(t.Name(), "/", "_"))
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}

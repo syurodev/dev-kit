@@ -25,7 +25,7 @@ func TestPublicErrorMapsAppBelowMinimum(t *testing.T) {
 
 func TestAuthLoginReturnsCloudConfigUnavailable(t *testing.T) {
 	container := app.NewContainer()
-	container.SyncBlocked = cloudconfig.ErrUnavailable
+	container.SetSyncBlockedErr(cloudconfig.ErrUnavailable)
 	if err := app.RegisterBuiltins(container); err != nil {
 		t.Fatalf("RegisterBuiltins: %v", err)
 	}
@@ -40,8 +40,8 @@ func TestAuthLoginReturnsCloudConfigUnavailable(t *testing.T) {
 func TestSyncConnectReturnsAppBelowMinimum(t *testing.T) {
 	container := app.NewContainer()
 	container.Sync = &fakeSyncService{}
-	container.Auth = &fakeAuthService{}
-	container.SyncBlocked = cloudconfig.ErrAppBelowMinimum
+	container.SetAuth(&fakeAuthService{})
+	container.SetSyncBlockedErr(cloudconfig.ErrAppBelowMinimum)
 	if err := app.RegisterBuiltins(container); err != nil {
 		t.Fatalf("RegisterBuiltins: %v", err)
 	}

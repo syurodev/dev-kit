@@ -180,6 +180,9 @@ export function SyncView() {
           <div><dt>Push sent</dt><dd>{report.pushSent}</dd></div>
           <div><dt>Push retried</dt><dd>{report.pushRetried}</dd></div>
           <div><dt>Push conflicts</dt><dd>{report.pushConflicts}</dd></div>
+          {report.pushFailed > 0 ? (
+            <div><dt>Dead-lettered</dt><dd>{report.pushFailed}</dd></div>
+          ) : null}
           <div><dt>Pulled</dt><dd>{report.pulled}</dd></div>
           <div><dt>Applied</dt><dd>{report.applied}</dd></div>
         </dl>
@@ -191,9 +194,12 @@ export function SyncView() {
         ) : (
           <ul>
             {conflicts.map((conflict) => (
-              <li key={conflict.localChangeKey}>
+              <li key={conflict.recordId}>
                 <span className="sync-conflict-type">{conflict.recordType}</span>
                 <code>{conflict.recordId}</code>
+                {conflict.theirsDeleted ? (
+                  <span className="sync-conflict-deleted">deleted remotely</span>
+                ) : null}
                 <span className="sync-conflict-detected">
                   {conflict.detectedAt || "—"}
                 </span>
