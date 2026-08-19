@@ -83,6 +83,20 @@ func (s *AppService) CodeGraphWaitForIndexReady() (int, error) {
 	return result.(int), nil
 }
 
+func (s *AppService) CodeGraphGetNeighbors(rootID string, depth int, filter codegraph.NeighborFilter) (codegraph.Subgraph, error) {
+	result, err := s.call(context.Background(), "builtin.codegraph", "codegraph:read", "project:active", map[string]any{
+		"action":  "get_neighbors",
+		"root_id": rootID,
+		"depth":   depth,
+	}, func(ctx context.Context) (any, error) {
+		return s.container.CodeGraph.GetNeighbors(ctx, rootID, depth, filter)
+	})
+	if err != nil {
+		return codegraph.Subgraph{}, err
+	}
+	return result.(codegraph.Subgraph), nil
+}
+
 func (s *AppService) CodeGraphListFiles() ([]codegraph.FileEntry, error) {
 	result, err := s.call(context.Background(), "builtin.codegraph", "codegraph:fs", "project:active", map[string]any{
 		"action": "list_files",

@@ -178,3 +178,30 @@ func TestCodeGraphWaitForIndexReady(t *testing.T) {
 		t.Fatalf("version = %d, want 1", version)
 	}
 }
+
+func TestCodeGraphGetNeighbors(t *testing.T) {
+	s := newTestService(t)
+	result := codegraph.AnalysisResult{
+		Nodes: []codegraph.Node{
+			{ID: "n1", Label: "A", Kind: "class", Layer: "unknown", FilePath: "A.java", Line: 1, EndLine: 1},
+			{ID: "n2", Label: "B", Kind: "class", Layer: "unknown", FilePath: "B.java", Line: 1, EndLine: 1},
+		},
+		Edges: []codegraph.Edge{{From: "n1", To: "n2", Kind: "call"}},
+	}
+	s.container.CodeGraph = codegraph.NewService(codegraph.NewNilStore(), fakeCodeGraphAnalyzer{result: result})
+	if err := s.container.CodeGraph.SetProjectPath(filepath.Join(t.TempDir(), "index.db")); err != nil {
+		t.Fatalf("SetProjectPath: %v", err)
+	}
+	if err := s.container.CodeGraph.OpenProject(context.Background(), "/fake/project"); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+	t.Cleanup(func() { s.container.CodeGraph.Close() })
+
+	sub, err := s.CodeGraphGetNeighbors("n1", 1, codegraph.NeighborFilter{})
+	if err != nil {
+		t.Fatalf("CodeGraphGetNeighbors: %v", err)
+	}
+	if len(sub.Nodes) != 2 {
+		t.Fatalf("unexpected subgraph: %+v", sub)
+	}
+}
