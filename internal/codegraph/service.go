@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/fsnotify/fsnotify"
 )
 
 // maxFlowDepth caps the BFS walk in GetApiFlow so a pathological call graph
@@ -257,6 +259,24 @@ func (s *Service) ListFiles(ctx context.Context) ([]FileEntry, error) {
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
 	return entries, nil
+}
+
+// addRecursive watches root and every subdirectory under it (fsnotify.Add
+// is non-recursive — each directory must be added individually), skipping
+// .git the same way Service.ListFiles does.
+func addRecursive(w *fsnotify.Watcher, root string) error {
+	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() {
+			return nil
+		}
+		if d.Name() == ".git" {
+			return filepath.SkipDir
+		}
+		return w.Add(path)
+	})
 }
 
 func (s *Service) ReadFile(ctx context.Context, relativePath string) (string, error) {

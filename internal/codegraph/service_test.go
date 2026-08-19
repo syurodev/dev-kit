@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/fsnotify/fsnotify"
 )
 
 // fakeAnalyzer is the test double every other test in this package (and the
@@ -547,5 +549,44 @@ func TestServiceGetBlastRadiusBeforeOpenProjectFails(t *testing.T) {
 	svc := NewService(nilStore{}, fakeAnalyzer{})
 	if _, err := svc.GetBlastRadius(context.Background(), "Foo.java"); !errors.Is(err, ErrNoActiveProject) {
 		t.Fatalf("expected ErrNoActiveProject, got %v", err)
+	}
+}
+
+func TestAddRecursiveWatchesNestedDirs(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "src", "main", "java"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+
+	w, err := fsnotify.NewWatcher()
+	if err != nil {
+		t.Fatalf("NewWatcher: %v", err)
+	}
+	defer w.Close()
+
+	if err := addRecursive(w, dir); err != nil {
+		t.Fatalf("addRecursive: %v", err)
+	}
+
+	watched := w.WatchList()
+	has := func(p string) bool {
+		for _, w := range watched {
+			if w == p {
+				return true
+			}
+		}
+		return false
+	}
+	if !has(dir) {
+		t.Fatalf("expected root %q watched, got %v", dir, watched)
+	}
+	if !has(filepath.Join(dir, "src", "main", "java")) {
+		t.Fatalf("expected nested dir watched, got %v", watched)
+	}
+	if has(filepath.Join(dir, ".git")) {
+		t.Fatalf(".git should not be watched, got %v", watched)
 	}
 }
