@@ -2,6 +2,8 @@
 package terminal
 
 import (
+	"os/exec"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -63,4 +65,40 @@ func TestLocalPTYCloseKillsProcess(t *testing.T) {
 	// already-closed file and Process.Kill on an already-dead process both
 	// return an error, not a panic; NewLocalPTY's Close must tolerate that.
 	_ = pty.Close()
+}
+
+func TestLocalPTYCloseReapsZombieProcess(t *testing.T) {
+	dir := t.TempDir()
+	pty, err := NewLocalPTY("/bin/sh", dir, 24, 80)
+	if err != nil {
+		t.Fatalf("NewLocalPTY: %v", err)
+	}
+	lp := pty.(*localPTY)
+	pid := lp.cmd.Process.Pid
+
+	if err := pty.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	// Verify the process is reaped (not left as a zombie).
+	// On Unix/macOS, a zombie process has state 'Z' in `ps -o state= -p <pid>`.
+	// Once reaped by cmd.Wait(), ps will report nothing (or error/exit non-zero) and state won't be 'Z'.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		out, err := exec.Command("ps", "-o", "state=", "-p", strconv.Itoa(pid)).Output()
+		state := strings.TrimSpace(string(out))
+		if err != nil || state == "" {
+			return // process is completely gone from process table — reaped!
+		}
+		if state != "Z" {
+			time.Sleep(10 * time.Millisecond)
+			continue
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	out, err := exec.Command("ps", "-o", "state=", "-p", strconv.Itoa(pid)).Output()
+	state := strings.TrimSpace(string(out))
+	if err == nil && state == "Z" {
+		t.Fatalf("process pid=%d is a zombie (state=Z) after Close", pid)
+	}
 }

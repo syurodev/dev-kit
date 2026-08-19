@@ -77,7 +77,7 @@ type Container struct {
 	// NewContainer/NewContainerWithStores — main.go constructs the real one
 	// (it needs a Wails-aware output callback container.go doesn't have
 	// access to) and wires it into CodeGraph via SetTerminalRegistry.
-	Terminal     *terminal.Registry
+	Terminal *terminal.Registry
 	// ConfigDir is the raw OS user-config directory (os.UserConfigDir()),
 	// set by main before use. Empty in ephemeral/test containers built via
 	// NewContainer/NewContainerWithStores — callers that need a real path

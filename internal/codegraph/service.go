@@ -94,13 +94,15 @@ func (s *Service) SetTerminalRegistry(reg *terminal.Registry) {
 // sequence: Service itself creates the PTY and registers it — the bridge
 // layer only handles the capability check and delegates here.
 func (s *Service) StartTerminal(rows, cols int) (string, error) {
-	_, root, err := s.activeProject()
-	if err != nil {
-		return "", err
-	}
 	s.mu.RLock()
+	active := s.active
+	root := s.projectRoot
 	reg := s.terminalRegistry
 	s.mu.RUnlock()
+
+	if !active {
+		return "", ErrNoActiveProject
+	}
 	if reg == nil {
 		return "", ErrTerminalNotConfigured
 	}

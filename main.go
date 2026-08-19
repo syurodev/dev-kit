@@ -200,9 +200,11 @@ func main() {
 		// verify the exact Events.Emit call shape against @wailsio/runtime's
 		// current API when that plan is written, same "verify, don't guess"
 		// discipline used for every other Wails API touched in this
-		// sequence. Until then this silently drops output — StartTerminal/
-		// Write/Resize/Close all work end-to-end without it (proven by this
-		// plan's own tests), only the live output stream needs the frontend.
+		// sequence. Must remain non-blocking (Wails Events.Emit is non-blocking)
+		// so readLoop is never stalled by slow consumers. Until then this
+		// silently drops output — StartTerminal/Write/Resize/Close all work
+		// end-to-end without it (proven by this plan's own tests), only the live
+		// output stream needs the frontend.
 	})
 	container.Terminal = terminalRegistry
 	container.CodeGraph.SetTerminalRegistry(terminalRegistry)

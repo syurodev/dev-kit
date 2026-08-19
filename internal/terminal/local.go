@@ -20,6 +20,7 @@ func NewLocalPTY(shellPath, workDir string, rows, cols int) (PTY, error) {
 	if err != nil {
 		return nil, err
 	}
+	go func() { _ = cmd.Wait() }()
 	return &localPTY{f: f, cmd: cmd}, nil
 }
 
