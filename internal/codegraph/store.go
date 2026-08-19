@@ -303,17 +303,21 @@ func (s *sqliteStore) GetDependents(ctx context.Context, filePath string) ([]str
 // in the index covers that line (unindexed file, or line past EOF).
 func (s *sqliteStore) FindNodeAtLine(ctx context.Context, filePath string, line int) (Node, bool, error) {
 	var n Node
+	var paramsJSON string
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, label, kind, layer, file_path, line, end_line FROM nodes
+		`SELECT id, label, kind, layer, file_path, line, end_line, summary, params FROM nodes
 		 WHERE file_path = ? AND ? BETWEEN line AND end_line
 		 ORDER BY (end_line - line) ASC LIMIT 1`,
 		filePath, line,
-	).Scan(&n.ID, &n.Label, &n.Kind, &n.Layer, &n.FilePath, &n.Line, &n.EndLine)
+	).Scan(&n.ID, &n.Label, &n.Kind, &n.Layer, &n.FilePath, &n.Line, &n.EndLine, &n.Summary, &paramsJSON)
 	if err == sql.ErrNoRows {
 		return Node{}, false, nil
 	}
 	if err != nil {
 		return Node{}, false, fmt.Errorf("codegraph: FindNodeAtLine: %w", err)
+	}
+	if err := json.Unmarshal([]byte(paramsJSON), &n.Params); err != nil {
+		return Node{}, false, fmt.Errorf("codegraph: unmarshal params for node %q: %w", n.ID, err)
 	}
 	return n, true, nil
 }

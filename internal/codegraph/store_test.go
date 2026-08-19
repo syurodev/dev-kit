@@ -133,7 +133,12 @@ func TestFindNodeAtLineReturnsNarrowestEnclosingNode(t *testing.T) {
 	result := AnalysisResult{
 		Nodes: []Node{
 			{ID: "class1", Label: "com.acme.OrderService", Kind: "class", Layer: "service", FilePath: "OrderService.java", Line: 1, EndLine: 50},
-			{ID: "method1", Label: "com.acme.OrderService.create", Kind: "method", Layer: "service", FilePath: "OrderService.java", Line: 10, EndLine: 20},
+			{
+				ID: "method1", Label: "com.acme.OrderService.create", Kind: "method", Layer: "service",
+				FilePath: "OrderService.java", Line: 10, EndLine: 20,
+				Summary: "Creates order.",
+				Params:  []Param{{Name: "req", Type: "Request"}},
+			},
 		},
 	}
 	if err := store.ReplaceIndex(ctx, result); err != nil {
@@ -149,6 +154,12 @@ func TestFindNodeAtLineReturnsNarrowestEnclosingNode(t *testing.T) {
 	}
 	if node.ID != "method1" {
 		t.Fatalf("node.ID = %q, want method1 (the narrower method, not the enclosing class)", node.ID)
+	}
+	if node.Summary != "Creates order." {
+		t.Fatalf("node.Summary = %q, want 'Creates order.'", node.Summary)
+	}
+	if len(node.Params) != 1 || node.Params[0].Name != "req" {
+		t.Fatalf("unexpected node.Params: %+v", node.Params)
 	}
 }
 

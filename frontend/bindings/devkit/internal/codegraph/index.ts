@@ -3,7 +3,14 @@
 
 export type {
     ApiFlow,
+    CodeSnippet,
+    Edge,
     Endpoint,
+    FileEntry,
     FlowStep,
+    NeighborFilter,
+    Node,
+    Param,
+    Subgraph,
     SymbolMatch
 } from "./models.js";

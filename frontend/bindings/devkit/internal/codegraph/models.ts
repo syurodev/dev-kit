@@ -10,6 +10,28 @@ export interface ApiFlow {
 }
 
 /**
+ * CodeSnippet is the result of GetCodeSnippet: the real source text for a
+ * method/class, plus the boundaries actually used (which may differ from
+ * the requested line/endLine — see GetCodeSnippet's doc comment).
+ */
+export interface CodeSnippet {
+    "filePath": string;
+    "line": number;
+    "endLine": number;
+    "source": string;
+
+    /**
+     * "java" | "json" | "yaml" | "markdown" | "" (unknown extension)
+     */
+    "language": string;
+
+    /**
+     * empty if the snippet didn't match exactly one indexed symbol
+     */
+    "fqn": string;
+}
+
+/**
  * Endpoint is one detected HTTP entry point (e.g. a @GetMapping method).
  */
 export interface Endpoint {
@@ -24,6 +46,19 @@ export interface Endpoint {
 }
 
 /**
+ * FileEntry is one file or directory in the active project, relative to its
+ * root. Deliberately flat (not a nested tree) — simpler to produce here and
+ * just as easy for a frontend to build a tree UI from a sorted flat list.
+ */
+export interface FileEntry {
+    /**
+     * relative to project root, forward-slash separated
+     */
+    "path": string;
+    "isDir": boolean;
+}
+
+/**
  * FlowStep is one hop in an API flow.
  */
 export interface FlowStep {
@@ -33,6 +68,58 @@ export interface FlowStep {
     "label": string;
     "filePath": string;
     "line": number;
+    "summary": string;
+    "params": Param[] | null;
+}
+
+/**
+ * Param is one method parameter's name and type.
+ */
+export interface Param {
+    "name": string;
+    "type": string;
+}
+
+/**
+ * Node is a class or method discovered during indexing.
+ */
+export interface Node {
+    "id": string;
+    "label": string;
+    "kind": string;
+    "layer": string;
+    "filePath": string;
+    "line": number;
+    "endLine": number;
+    "summary": string;
+    "params": Param[] | null;
+}
+
+/**
+ * Edge is a directed call relationship between two Nodes, by Node.ID.
+ */
+export interface Edge {
+    "from": string;
+    "to": string;
+    "kind": string;
+}
+
+/**
+ * NeighborFilter narrows a GetNeighbors query.
+ */
+export interface NeighborFilter {
+    "layers"?: string[] | null;
+    "continuation"?: string;
+}
+
+/**
+ * Subgraph is one bounded page of a GetNeighbors result.
+ */
+export interface Subgraph {
+    "nodes": Node[] | null;
+    "edges": Edge[] | null;
+    "truncated": boolean;
+    "continuation"?: string;
 }
 
 /**
