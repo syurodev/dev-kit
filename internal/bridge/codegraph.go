@@ -146,3 +146,17 @@ func (s *AppService) CodeGraphGetCodeSnippet(filePath string, line, endLine int)
 	}
 	return result.(codegraph.CodeSnippet), nil
 }
+
+func (s *AppService) CodeGraphTraceDataFlow(symbolID, fieldName string) (codegraph.DataFlowTrace, error) {
+	result, err := s.call(context.Background(), "builtin.codegraph", "codegraph:read", "project:active", map[string]any{
+		"action":     "trace_data_flow",
+		"symbol_id":  symbolID,
+		"field_name": fieldName,
+	}, func(ctx context.Context) (any, error) {
+		return s.container.CodeGraph.TraceDataFlow(ctx, symbolID, fieldName)
+	})
+	if err != nil {
+		return codegraph.DataFlowTrace{}, err
+	}
+	return result.(codegraph.DataFlowTrace), nil
+}

@@ -205,3 +205,32 @@ func TestCodeGraphGetNeighbors(t *testing.T) {
 		t.Fatalf("unexpected subgraph: %+v", sub)
 	}
 }
+
+func TestCodeGraphTraceDataFlow(t *testing.T) {
+	s := newTestService(t)
+	result := codegraph.AnalysisResult{
+		Nodes: []codegraph.Node{
+			{ID: "cls", Label: "com.acme.Order", Kind: "class", Layer: "unknown", FilePath: "Order.java", Line: 1, EndLine: 50},
+			{ID: "m1", Label: "com.acme.Order.setTotal", Kind: "method", Layer: "unknown", FilePath: "Order.java", Line: 10, EndLine: 12},
+		},
+		FieldAccesses: []codegraph.FieldAccess{
+			{ClassID: "cls", NodeID: "m1", FieldName: "total", Kind: "write", Line: 11},
+		},
+	}
+	s.container.CodeGraph = codegraph.NewService(codegraph.NewNilStore(), fakeCodeGraphAnalyzer{result: result})
+	if err := s.container.CodeGraph.SetProjectPath(filepath.Join(t.TempDir(), "index.db")); err != nil {
+		t.Fatalf("SetProjectPath: %v", err)
+	}
+	if err := s.container.CodeGraph.OpenProject(context.Background(), "/fake/project"); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+	t.Cleanup(func() { s.container.CodeGraph.Close() })
+
+	trace, err := s.CodeGraphTraceDataFlow("cls", "total")
+	if err != nil {
+		t.Fatalf("CodeGraphTraceDataFlow: %v", err)
+	}
+	if len(trace.Steps) != 1 || trace.Steps[0].Kind != "write" {
+		t.Fatalf("unexpected trace: %+v", trace)
+	}
+}
