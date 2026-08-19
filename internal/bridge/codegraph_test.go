@@ -27,9 +27,7 @@ func TestCodeGraphOpenProjectThenListEndpoints(t *testing.T) {
 		Endpoints: []codegraph.Endpoint{{ID: "ep1", HTTPMethod: "GET", Path: "/a", EntryNode: "n1"}},
 	}
 	s.container.CodeGraph = codegraph.NewService(codegraph.NewNilStore(), fakeCodeGraphAnalyzer{result: result})
-	if err := s.container.CodeGraph.SetProjectPath(t.TempDir() + "/index.db"); err != nil {
-		t.Fatalf("SetProjectPath: %v", err)
-	}
+	s.container.ConfigDir = t.TempDir()
 
 	if err := s.CodeGraphOpenProject("/fake/project"); err != nil {
 		t.Fatalf("CodeGraphOpenProject: %v", err)
@@ -41,6 +39,31 @@ func TestCodeGraphOpenProjectThenListEndpoints(t *testing.T) {
 	}
 	if len(endpoints) != 1 || endpoints[0].Path != "/a" {
 		t.Fatalf("unexpected endpoints: %+v", endpoints)
+	}
+}
+
+func TestCodeGraphOpenProjectTwiceReusesSameStore(t *testing.T) {
+	s := newTestService(t)
+	result := codegraph.AnalysisResult{
+		Nodes:     []codegraph.Node{{ID: "n1", Label: "A.foo", Kind: "method", Layer: "controller"}},
+		Endpoints: []codegraph.Endpoint{{ID: "ep1", HTTPMethod: "GET", Path: "/a", EntryNode: "n1"}},
+	}
+	s.container.CodeGraph = codegraph.NewService(codegraph.NewNilStore(), fakeCodeGraphAnalyzer{result: result})
+	s.container.ConfigDir = t.TempDir()
+
+	if err := s.CodeGraphOpenProject("/fake/project"); err != nil {
+		t.Fatalf("first CodeGraphOpenProject: %v", err)
+	}
+	if err := s.CodeGraphOpenProject("/fake/project"); err != nil {
+		t.Fatalf("second CodeGraphOpenProject: %v", err)
+	}
+
+	endpoints, err := s.CodeGraphListEndpoints()
+	if err != nil {
+		t.Fatalf("CodeGraphListEndpoints: %v", err)
+	}
+	if len(endpoints) != 1 {
+		t.Fatalf("expected 1 endpoint after re-index, got %d: %+v", len(endpoints), endpoints)
 	}
 }
 

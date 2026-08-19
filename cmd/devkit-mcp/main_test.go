@@ -11,6 +11,7 @@ import (
 func TestRunProxyMissingSocket(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", cfg)
+	t.Setenv("HOME", cfg)
 	// Ensure DevKit dir exists but no socket.
 	if err := os.MkdirAll(filepath.Join(cfg, "DevKit"), 0o700); err != nil {
 		t.Fatal(err)

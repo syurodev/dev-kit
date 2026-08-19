@@ -11,6 +11,10 @@ func (s *AppService) CodeGraphOpenProject(path string) error {
 	_, err := s.call(context.Background(), "builtin.codegraph", "codegraph:index", "project:new", map[string]any{
 		"action": "open_project",
 	}, func(ctx context.Context) (any, error) {
+		dbPath := codegraph.ProjectDBPath(s.container.ConfigDir, path)
+		if err := s.container.CodeGraph.SetProjectPath(dbPath); err != nil {
+			return nil, err
+		}
 		return nil, s.container.CodeGraph.OpenProject(ctx, path)
 	})
 	return err
