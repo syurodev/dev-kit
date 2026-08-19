@@ -59,6 +59,15 @@ func RegisterBuiltins(container *Container) error {
 			Capabilities: []string{"kafka:connect", "kafka:produce"},
 		},
 		{
+			ID:           "codegraph",
+			Title:        "Code Graph",
+			Version:      "1.0.0",
+			APIVersion:   modules.CurrentAPIVersion,
+			Commands:     []string{"codegraph.open_project"},
+			Views:        []string{"codegraph.explorer"},
+			Capabilities: []string{"codegraph:index", "codegraph:read"},
+		},
+		{
 			ID:           "agenthub",
 			Title:        "Agent Hub",
 			Version:      "1.0.0",

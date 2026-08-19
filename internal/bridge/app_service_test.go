@@ -25,18 +25,19 @@ func TestAppServiceListsModules(t *testing.T) {
 	service := newTestService(t)
 	moduleList := service.ListModules()
 
-	if len(moduleList) != 8 {
-		t.Fatalf("len(modules) = %d, want 8", len(moduleList))
+	if len(moduleList) != 9 {
+		t.Fatalf("len(modules) = %d, want 9", len(moduleList))
 	}
 	wantCapabilities := map[string][]string{
-		"tools":    {"tools:hash"},
-		"notes":    {"notes:read", "notes:write"},
-		"database": {"db:query"},
-		"ssh":      {"ssh:connect", "ssh:forward"},
-		"kafka":    {"kafka:connect", "kafka:produce"},
-		"sync":     {"sync:manage"},
-		"settings": {"env:read", "env:write", "preferences:read", "preferences:write"},
-		"agenthub": {"agenthub:read", "agenthub:execute"},
+		"tools":     {"tools:hash"},
+		"notes":     {"notes:read", "notes:write"},
+		"database":  {"db:query"},
+		"ssh":       {"ssh:connect", "ssh:forward"},
+		"kafka":     {"kafka:connect", "kafka:produce"},
+		"sync":      {"sync:manage"},
+		"settings":  {"env:read", "env:write", "preferences:read", "preferences:write"},
+		"agenthub":  {"agenthub:read", "agenthub:execute"},
+		"codegraph": {"codegraph:index", "codegraph:read"},
 	}
 	found := map[string]bool{}
 	for _, m := range moduleList {
@@ -59,8 +60,8 @@ func TestAppServiceListsModules(t *testing.T) {
 			t.Errorf("module %q capabilities = %s, want %s", m.ID, got, wantJSON)
 		}
 	}
-	if !found["tools"] || !found["notes"] || !found["database"] || !found["ssh"] || !found["kafka"] || !found["sync"] || !found["settings"] || !found["agenthub"] {
-		t.Fatalf("modules = %+v, want tools, notes, database, ssh, kafka, sync, settings and agenthub", moduleList)
+	if !found["tools"] || !found["notes"] || !found["database"] || !found["ssh"] || !found["kafka"] || !found["sync"] || !found["settings"] || !found["agenthub"] || !found["codegraph"] {
+		t.Fatalf("modules = %+v, want tools, notes, database, ssh, kafka, sync, settings, agenthub and codegraph", moduleList)
 	}
 }
 

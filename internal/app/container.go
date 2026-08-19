@@ -8,6 +8,7 @@ import (
 	"devkit/internal/audit"
 	"devkit/internal/auth"
 	"devkit/internal/capabilities"
+	"devkit/internal/codegraph"
 	"devkit/internal/commands"
 	"devkit/internal/database"
 	"devkit/internal/environments"
@@ -69,6 +70,7 @@ type Container struct {
 	Preferences  *preferences.Service
 	Database     *database.Service
 	SSH          *sshservice.Service
+	CodeGraph    *codegraph.Service
 	Kafka        *kafka.Service
 	Sync         SyncService
 	Auth         AuthService
@@ -128,6 +130,8 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.ssh", Capability: "ssh:forward", Scope: "profile:*"},
 		{SubjectID: "builtin.ssh", Capability: "ssh:forward", Scope: "forward:list"},
 		{SubjectID: "builtin.ssh", Capability: "ssh:forward", Scope: "forward:*"},
+		{SubjectID: "builtin.codegraph", Capability: "codegraph:index", Scope: "project:new"},
+		{SubjectID: "builtin.codegraph", Capability: "codegraph:read", Scope: "project:active"},
 		{SubjectID: "builtin.kafka", Capability: "kafka:connect", Scope: "profile:list"},
 		{SubjectID: "builtin.kafka", Capability: "kafka:connect", Scope: "profile:new"},
 		{SubjectID: "builtin.kafka", Capability: "kafka:connect", Scope: "profile:*"},
@@ -178,6 +182,7 @@ func NewContainerWithStores(
 		Preferences:  preferences.NewService(preferences.NewMemoryRepository()),
 		Database:     database.NewService(itemStore, envService),
 		SSH:          sshservice.NewService(itemStore, envService),
+		CodeGraph:    codegraph.NewService(codegraph.NewNilStore(), codegraph.NewSubprocessAnalyzer()),
 		Kafka:        kafka.NewService(itemStore, envService, nil),
 	}
 }

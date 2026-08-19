@@ -8,6 +8,7 @@ import (
 	"devkit/internal/agenthub"
 	"devkit/internal/apperrors"
 	"devkit/internal/cloudconfig"
+	"devkit/internal/codegraph"
 	"devkit/internal/environments"
 	"devkit/internal/interaction"
 	"devkit/internal/kafka"
@@ -168,6 +169,16 @@ func publicError(subject string, err error) *apperrors.AppError {
 	}
 	if _, safe := safeValidationMessages[err.Error()]; safe {
 		return apperrors.New(codeValidationFailed, err.Error(), true)
+	}
+	if subject == "builtin.codegraph" {
+		switch {
+		case errors.Is(err, codegraph.ErrNoActiveProject):
+			return apperrors.Wrap(codeValidationFailed, "No active CodeGraph project.", true, codegraph.ErrNoActiveProject)
+		case errors.Is(err, codegraph.ErrNodeNotFound):
+			return apperrors.Wrap(codeValidationFailed, "CodeGraph node not found.", true, codegraph.ErrNodeNotFound)
+		case errors.Is(err, codegraph.ErrAnalyzerNotConfigured):
+			return apperrors.Wrap(codeConnectionFailed, "CodeGraph analyzer not configured.", true, codegraph.ErrAnalyzerNotConfigured)
+		}
 	}
 	if subject == "builtin.mcpinstall" {
 		switch {
