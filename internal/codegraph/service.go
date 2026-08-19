@@ -177,7 +177,10 @@ func (nilStore) GetEndpoint(context.Context, string) (Endpoint, error)     { ret
 func (nilStore) GetNode(context.Context, string) (Node, error)             { return Node{}, ErrNoActiveProject }
 func (nilStore) GetOutEdges(context.Context, string) ([]Edge, error)       { return nil, ErrNoActiveProject }
 func (nilStore) SearchSymbol(context.Context, string) ([]SymbolMatch, error) { return nil, ErrNoActiveProject }
-func (nilStore) Close() error                                              { return nil }
+func (nilStore) FindNodeAtLine(context.Context, string, int) (Node, bool, error) {
+	return Node{}, false, ErrNoActiveProject
+}
+func (nilStore) Close() error { return nil }
 
 // NewNilStore returns a placeholder Store that always reports no active
 // project. internal/app/container.go uses this to construct Service before

@@ -188,3 +188,25 @@ func (s *sqliteStore) SearchSymbol(ctx context.Context, query string) ([]SymbolM
 	}
 	return out, rows.Err()
 }
+
+// FindNodeAtLine returns the narrowest node in filePath whose [line, end_line]
+// range contains line — e.g. a method nested inside a class both technically
+// contain the line, but the method (the smaller range) is the useful answer
+// for "what am I looking at". Returns ok=false, not an error, when nothing
+// in the index covers that line (unindexed file, or line past EOF).
+func (s *sqliteStore) FindNodeAtLine(ctx context.Context, filePath string, line int) (Node, bool, error) {
+	var n Node
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, label, kind, layer, file_path, line, end_line FROM nodes
+		 WHERE file_path = ? AND ? BETWEEN line AND end_line
+		 ORDER BY (end_line - line) ASC LIMIT 1`,
+		filePath, line,
+	).Scan(&n.ID, &n.Label, &n.Kind, &n.Layer, &n.FilePath, &n.Line, &n.EndLine)
+	if err == sql.ErrNoRows {
+		return Node{}, false, nil
+	}
+	if err != nil {
+		return Node{}, false, fmt.Errorf("codegraph: FindNodeAtLine: %w", err)
+	}
+	return n, true, nil
+}

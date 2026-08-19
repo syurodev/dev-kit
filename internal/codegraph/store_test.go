@@ -125,3 +125,64 @@ func TestStoreSearchSymbol(t *testing.T) {
 		t.Fatalf("unexpected matches: %+v", matches)
 	}
 }
+
+func TestFindNodeAtLineReturnsNarrowestEnclosingNode(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	result := AnalysisResult{
+		Nodes: []Node{
+			{ID: "class1", Label: "com.acme.OrderService", Kind: "class", Layer: "service", FilePath: "OrderService.java", Line: 1, EndLine: 50},
+			{ID: "method1", Label: "com.acme.OrderService.create", Kind: "method", Layer: "service", FilePath: "OrderService.java", Line: 10, EndLine: 20},
+		},
+	}
+	if err := store.ReplaceIndex(ctx, result); err != nil {
+		t.Fatalf("ReplaceIndex: %v", err)
+	}
+
+	node, ok, err := store.FindNodeAtLine(ctx, "OrderService.java", 15)
+	if err != nil {
+		t.Fatalf("FindNodeAtLine: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected a match")
+	}
+	if node.ID != "method1" {
+		t.Fatalf("node.ID = %q, want method1 (the narrower method, not the enclosing class)", node.ID)
+	}
+}
+
+func TestFindNodeAtLineNoMatch(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	if err := store.ReplaceIndex(ctx, AnalysisResult{
+		Nodes: []Node{{ID: "n1", Label: "com.acme.Foo", Kind: "class", Layer: "unknown", FilePath: "Foo.java", Line: 1, EndLine: 10}},
+	}); err != nil {
+		t.Fatalf("ReplaceIndex: %v", err)
+	}
+
+	_, ok, err := store.FindNodeAtLine(ctx, "Foo.java", 100)
+	if err != nil {
+		t.Fatalf("FindNodeAtLine: %v", err)
+	}
+	if ok {
+		t.Fatal("expected no match for a line outside every node's range")
+	}
+}
+
+func TestFindNodeAtLineWrongFile(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	if err := store.ReplaceIndex(ctx, AnalysisResult{
+		Nodes: []Node{{ID: "n1", Label: "com.acme.Foo", Kind: "class", Layer: "unknown", FilePath: "Foo.java", Line: 1, EndLine: 10}},
+	}); err != nil {
+		t.Fatalf("ReplaceIndex: %v", err)
+	}
+
+	_, ok, err := store.FindNodeAtLine(ctx, "Bar.java", 5)
+	if err != nil {
+		t.Fatalf("FindNodeAtLine: %v", err)
+	}
+	if ok {
+		t.Fatal("expected no match for a different file")
+	}
+}
