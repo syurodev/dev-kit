@@ -9,17 +9,17 @@ import (
 )
 
 type fakeCodeGraphAPI struct {
-	endpoints    []codegraph.Endpoint
-	flow         codegraph.ApiFlow
-	matches      []codegraph.SymbolMatch
-	files        []codegraph.FileEntry
-	fileContent  string
-	snippet      codegraph.CodeSnippet
-	blastRadius  []string
-	indexVersion int
-	subgraph     codegraph.Subgraph
+	endpoints     []codegraph.Endpoint
+	flow          codegraph.ApiFlow
+	matches       []codegraph.SymbolMatch
+	files         []codegraph.FileEntry
+	fileContent   string
+	snippet       codegraph.CodeSnippet
+	blastRadius   []string
+	indexVersion  int
+	subgraph      codegraph.Subgraph
 	dataFlowTrace codegraph.DataFlowTrace
-	err          error
+	err           error
 }
 
 func (f fakeCodeGraphAPI) ListEndpoints(ctx context.Context) ([]codegraph.Endpoint, error) {

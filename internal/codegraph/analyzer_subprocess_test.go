@@ -79,6 +79,17 @@ func TestSubprocessAnalyzerAnalyzesSampleProject(t *testing.T) {
 	if !foundCreateMethod {
 		t.Fatalf("RefundController.create method node not found in result: %+v", result.Nodes)
 	}
+
+	// Verify field accesses are emitted
+	var foundRefundRepoAccess bool
+	for _, fa := range result.FieldAccesses {
+		if fa.ClassID == "com.acme.refund.RefundService" && fa.FieldName == "refundRepository" && fa.Kind == "read" {
+			foundRefundRepoAccess = true
+		}
+	}
+	if !foundRefundRepoAccess {
+		t.Fatalf("RefundService.refundRepository field access not found in result: %+v", result.FieldAccesses)
+	}
 }
 
 func TestSubprocessAnalyzerWithoutJarConfiguredReturnsNotConfigured(t *testing.T) {

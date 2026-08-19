@@ -64,6 +64,7 @@ public class ProjectAnalyzer {
         }
         for (MethodCallSite site : callSites) {
             addCallEdges(site, classFile, result);
+            addFieldAccesses(site, result);
         }
 
         result.edges = dedupeEdges(result.edges);
@@ -182,6 +183,63 @@ public class ProjectAnalyzer {
                 result.fileDependencies.add(new FileDependency(site.filePath(), targetFile));
             }
         }
+    }
+
+    private void addFieldAccesses(MethodCallSite site, AnalysisResult result) {
+        for (com.github.javaparser.ast.expr.FieldAccessExpr fae : site.methodDecl().findAll(com.github.javaparser.ast.expr.FieldAccessExpr.class)) {
+            try {
+                recordFieldAccess(fae.resolve(), fae, site, result);
+            } catch (RuntimeException | StackOverflowError ignored) {
+            }
+        }
+        for (com.github.javaparser.ast.expr.NameExpr ne : site.methodDecl().findAll(com.github.javaparser.ast.expr.NameExpr.class)) {
+            try {
+                recordFieldAccess(ne.resolve(), ne, site, result);
+            } catch (RuntimeException | StackOverflowError ignored) {
+            }
+        }
+    }
+
+    private void recordFieldAccess(com.github.javaparser.resolution.declarations.ResolvedValueDeclaration resolved, com.github.javaparser.ast.expr.Expression expr, MethodCallSite site, AnalysisResult result) {
+        if (resolved != null && resolved.isField()) {
+            com.github.javaparser.resolution.declarations.ResolvedFieldDeclaration field = resolved.asField();
+            String classId;
+            try {
+                classId = field.declaringType().getQualifiedName();
+            } catch (RuntimeException | StackOverflowError e) {
+                return;
+            }
+            String fieldName = field.getName();
+            String kind = determineAccessKind(expr);
+            int line = expr.getRange().map(r -> r.begin.line).orElse(0);
+            result.fieldAccesses.add(new FieldAccess(classId, site.methodId(), fieldName, kind, line));
+        }
+    }
+
+    private String determineAccessKind(com.github.javaparser.ast.expr.Expression expr) {
+        com.github.javaparser.ast.Node current = expr;
+        while (current.getParentNode().isPresent() && current.getParentNode().get() instanceof com.github.javaparser.ast.expr.EnclosedExpr) {
+            current = current.getParentNode().get();
+        }
+        Optional<com.github.javaparser.ast.Node> parentOpt = current.getParentNode();
+        if (parentOpt.isPresent()) {
+            com.github.javaparser.ast.Node parent = parentOpt.get();
+            if (parent instanceof com.github.javaparser.ast.expr.AssignExpr assign) {
+                if (assign.getTarget() == current) {
+                    return "write";
+                }
+            } else if (parent instanceof com.github.javaparser.ast.expr.UnaryExpr unary) {
+                switch (unary.getOperator()) {
+                    case PREFIX_INCREMENT, POSTFIX_INCREMENT, PREFIX_DECREMENT, POSTFIX_DECREMENT -> {
+                        if (unary.getExpression() == current) {
+                            return "write";
+                        }
+                    }
+                    default -> {}
+                }
+            }
+        }
+        return "read";
     }
 
     // The same target called repeatedly in one body yields identical edges;

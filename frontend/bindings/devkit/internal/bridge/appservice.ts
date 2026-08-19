@@ -102,16 +102,48 @@ export function CodeGraphGetApiFlow(endpointID: string): $CancellablePromise<cod
     return $Call.ByID(3432526133, endpointID);
 }
 
+export function CodeGraphGetBlastRadius(filePath: string): $CancellablePromise<string[] | null> {
+    return $Call.ByID(2797018901, filePath);
+}
+
+export function CodeGraphGetCodeSnippet(filePath: string, line: number, endLine: number): $CancellablePromise<codegraph$0.CodeSnippet> {
+    return $Call.ByID(3767815479, filePath, line, endLine);
+}
+
+export function CodeGraphGetNeighbors(rootID: string, depth: number, filter: codegraph$0.NeighborFilter): $CancellablePromise<codegraph$0.Subgraph> {
+    return $Call.ByID(1258187406, rootID, depth, filter);
+}
+
 export function CodeGraphListEndpoints(): $CancellablePromise<codegraph$0.Endpoint[] | null> {
     return $Call.ByID(1712846729);
+}
+
+export function CodeGraphListFiles(): $CancellablePromise<codegraph$0.FileEntry[] | null> {
+    return $Call.ByID(1096722516);
 }
 
 export function CodeGraphOpenProject(path: string): $CancellablePromise<void> {
     return $Call.ByID(1356804218, path);
 }
 
+export function CodeGraphReadFile(relativePath: string): $CancellablePromise<string> {
+    return $Call.ByID(3854829099, relativePath);
+}
+
 export function CodeGraphSearchSymbol(query: string): $CancellablePromise<codegraph$0.SymbolMatch[] | null> {
     return $Call.ByID(2248851381, query);
+}
+
+export function CodeGraphTraceDataFlow(symbolID: string, fieldName: string): $CancellablePromise<codegraph$0.DataFlowTrace> {
+    return $Call.ByID(2118159762, symbolID, fieldName);
+}
+
+export function CodeGraphWaitForIndexReady(): $CancellablePromise<number> {
+    return $Call.ByID(1296963836);
+}
+
+export function CodeGraphWriteFile(relativePath: string, content: string): $CancellablePromise<void> {
+    return $Call.ByID(3478134130, relativePath, content);
 }
 
 export function DBActiveProfile(): $CancellablePromise<$models.ActiveProfileDTO> {

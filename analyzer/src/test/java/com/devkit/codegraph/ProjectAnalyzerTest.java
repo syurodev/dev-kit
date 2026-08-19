@@ -211,6 +211,62 @@ class ProjectAnalyzerTest {
         assertEquals("List<String>", methodNode.params.get(1).type);
     }
 
+    @Test
+    void extractsFieldReadsAndWrites(@TempDir Path tempDir) throws IOException {
+        Path projectRoot = tempDir.resolve("project");
+        Path pkg = projectRoot.resolve("src/main/java/com/acme/data");
+        Files.createDirectories(pkg);
+        Files.writeString(pkg.resolve("Counter.java"), """
+                package com.acme.data;
+
+                public class Counter {
+                    private int count;
+                    private String label;
+
+                    public void increment() {
+                        count++;
+                    }
+
+                    public void reset(String newLabel) {
+                        this.count = 0;
+                        label = newLabel;
+                    }
+
+                    public int getCount() {
+                        return count;
+                    }
+                }
+                """);
+
+        AnalysisResult result = new ProjectAnalyzer(projectRoot).analyze();
+
+        assertEquals(4, result.fieldAccesses.size(), "field accesses size = " + result.fieldAccesses.size());
+
+        FieldAccess inc = result.fieldAccesses.stream()
+                .filter(fa -> fa.fieldName.equals("count") && fa.nodeId.contains("increment"))
+                .findFirst().orElseThrow();
+        assertEquals("com.acme.data.Counter", inc.classId);
+        assertEquals("write", inc.kind);
+
+        FieldAccess resetCount = result.fieldAccesses.stream()
+                .filter(fa -> fa.fieldName.equals("count") && fa.nodeId.contains("reset"))
+                .findFirst().orElseThrow();
+        assertEquals("com.acme.data.Counter", resetCount.classId);
+        assertEquals("write", resetCount.kind);
+
+        FieldAccess resetLabel = result.fieldAccesses.stream()
+                .filter(fa -> fa.fieldName.equals("label") && fa.nodeId.contains("reset"))
+                .findFirst().orElseThrow();
+        assertEquals("com.acme.data.Counter", resetLabel.classId);
+        assertEquals("write", resetLabel.kind);
+
+        FieldAccess getCount = result.fieldAccesses.stream()
+                .filter(fa -> fa.fieldName.equals("count") && fa.nodeId.contains("getCount"))
+                .findFirst().orElseThrow();
+        assertEquals("com.acme.data.Counter", getCount.classId);
+        assertEquals("read", getCount.kind);
+    }
+
     private boolean hasCallEdge(AnalysisResult result, String fromLabel, String toLabel) {
         return result.edges.stream().anyMatch(e ->
                 e.kind.equals("call")
