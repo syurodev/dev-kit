@@ -202,6 +202,40 @@ func (s *Service) ListFiles(ctx context.Context) ([]FileEntry, error) {
 	return entries, nil
 }
 
+func (s *Service) ReadFile(ctx context.Context, relativePath string) (string, error) {
+	_, root, err := s.activeProject()
+	if err != nil {
+		return "", err
+	}
+	resolved, err := resolvePath(root, relativePath)
+	if err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(resolved)
+	if err != nil {
+		return "", fmt.Errorf("codegraph: read file: %w", err)
+	}
+	return string(data), nil
+}
+
+// WriteFile re-validates relativePath against the *current* project root
+// (not whatever was active when the file was opened for editing) — the
+// active project can change between a UI open and a Ctrl+S save.
+func (s *Service) WriteFile(ctx context.Context, relativePath, content string) error {
+	_, root, err := s.activeProject()
+	if err != nil {
+		return err
+	}
+	resolved, err := resolvePath(root, relativePath)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(resolved, []byte(content), 0o644); err != nil {
+		return fmt.Errorf("codegraph: write file: %w", err)
+	}
+	return nil
+}
+
 // nilStore is the container's placeholder Store before any project has been
 // opened. Every method is unreachable in practice because Service checks
 // s.active first — but a safe zero-value beats a nil-pointer panic if that

@@ -294,3 +294,55 @@ func TestServiceListFilesBeforeOpenProjectFails(t *testing.T) {
 		t.Fatalf("expected ErrNoActiveProject, got %v", err)
 	}
 }
+
+func TestServiceReadWriteFileRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	svc := NewService(nilStore{}, fakeAnalyzer{result: sampleResult()})
+	if err := svc.SetProjectPath(filepath.Join(t.TempDir(), "index.db")); err != nil {
+		t.Fatalf("SetProjectPath: %v", err)
+	}
+	if err := svc.OpenProject(context.Background(), dir); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+
+	if err := svc.WriteFile(context.Background(), "notes.md", "# hello"); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	got, err := svc.ReadFile(context.Background(), "notes.md")
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if got != "# hello" {
+		t.Fatalf("ReadFile = %q, want %q", got, "# hello")
+	}
+}
+
+func TestServiceReadFileRejectsPathOutsideProject(t *testing.T) {
+	dir := t.TempDir()
+	svc := NewService(nilStore{}, fakeAnalyzer{result: sampleResult()})
+	if err := svc.SetProjectPath(filepath.Join(t.TempDir(), "index.db")); err != nil {
+		t.Fatalf("SetProjectPath: %v", err)
+	}
+	if err := svc.OpenProject(context.Background(), dir); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+
+	if _, err := svc.ReadFile(context.Background(), "../../etc/passwd"); !errors.Is(err, ErrPathOutsideProject) {
+		t.Fatalf("ReadFile = %v, want ErrPathOutsideProject", err)
+	}
+}
+
+func TestServiceWriteFileRejectsPathOutsideProject(t *testing.T) {
+	dir := t.TempDir()
+	svc := NewService(nilStore{}, fakeAnalyzer{result: sampleResult()})
+	if err := svc.SetProjectPath(filepath.Join(t.TempDir(), "index.db")); err != nil {
+		t.Fatalf("SetProjectPath: %v", err)
+	}
+	if err := svc.OpenProject(context.Background(), dir); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+
+	if err := svc.WriteFile(context.Background(), "../../etc/passwd", "pwned"); !errors.Is(err, ErrPathOutsideProject) {
+		t.Fatalf("WriteFile = %v, want ErrPathOutsideProject", err)
+	}
+}
