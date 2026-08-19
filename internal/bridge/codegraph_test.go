@@ -134,3 +134,27 @@ func TestCodeGraphGetCodeSnippet(t *testing.T) {
 		t.Fatalf("snippet.FQN = %q, want com.acme.Foo.bar", snippet.FQN)
 	}
 }
+
+func TestCodeGraphGetBlastRadius(t *testing.T) {
+	s := newTestService(t)
+	result := codegraph.AnalysisResult{
+		FileDependencies: []codegraph.FileDependency{
+			{FilePath: "Controller.java", DependsOnFilePath: "Service.java"},
+		},
+	}
+	s.container.CodeGraph = codegraph.NewService(codegraph.NewNilStore(), fakeCodeGraphAnalyzer{result: result})
+	if err := s.container.CodeGraph.SetProjectPath(filepath.Join(t.TempDir(), "index.db")); err != nil {
+		t.Fatalf("SetProjectPath: %v", err)
+	}
+	if err := s.container.CodeGraph.OpenProject(context.Background(), "/fake/project"); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+
+	radius, err := s.CodeGraphGetBlastRadius("Service.java")
+	if err != nil {
+		t.Fatalf("CodeGraphGetBlastRadius: %v", err)
+	}
+	if len(radius) != 1 || radius[0] != "Controller.java" {
+		t.Fatalf("unexpected radius: %+v", radius)
+	}
+}

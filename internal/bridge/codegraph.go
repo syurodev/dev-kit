@@ -58,6 +58,19 @@ func (s *AppService) CodeGraphSearchSymbol(query string) ([]codegraph.SymbolMatc
 	return result.([]codegraph.SymbolMatch), nil
 }
 
+func (s *AppService) CodeGraphGetBlastRadius(filePath string) ([]string, error) {
+	result, err := s.call(context.Background(), "builtin.codegraph", "codegraph:read", "project:active", map[string]any{
+		"action":    "get_blast_radius",
+		"file_path": filePath,
+	}, func(ctx context.Context) (any, error) {
+		return s.container.CodeGraph.GetBlastRadius(ctx, filePath)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]string), nil
+}
+
 func (s *AppService) CodeGraphListFiles() ([]codegraph.FileEntry, error) {
 	result, err := s.call(context.Background(), "builtin.codegraph", "codegraph:fs", "project:active", map[string]any{
 		"action": "list_files",
