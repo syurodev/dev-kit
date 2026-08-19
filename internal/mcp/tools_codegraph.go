@@ -63,6 +63,12 @@ func (s *Server) registerCodeGraph() {
 		Description: "Get a bounded subgraph (nodes + edges) around one symbol, both call directions, paginated",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolCodeGraphGetNeighbors)
+
+	sdk.AddTool(s.mcp, &sdk.Tool{
+		Name:        "codegraph.traceDataFlow",
+		Description: "List methods that read or write a field on a class, using the already-resolved index",
+		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
+	}, s.toolCodeGraphTraceDataFlow)
 }
 
 func (s *Server) toolCodeGraphListEndpoints(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {
@@ -178,6 +184,21 @@ func (s *Server) toolCodeGraphGetNeighbors(ctx context.Context, _ *sdk.CallToolR
 	filter := codegraph.NeighborFilter{Layers: in.Layers, Continuation: in.Continuation}
 	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:read", "project:active", meta("get_neighbors", map[string]any{"root_id": in.RootID, "depth": in.Depth}), func(context.Context) (any, error) {
 		return s.deps.CodeGraph.GetNeighbors(ctx, in.RootID, in.Depth, filter)
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, v, nil
+}
+
+type codeGraphTraceDataFlowInput struct {
+	SymbolID  string `json:"symbolId"`
+	FieldName string `json:"fieldName"`
+}
+
+func (s *Server) toolCodeGraphTraceDataFlow(ctx context.Context, _ *sdk.CallToolRequest, in codeGraphTraceDataFlowInput) (*sdk.CallToolResult, any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:read", "project:active", meta("trace_data_flow", map[string]any{"symbol_id": in.SymbolID, "field_name": in.FieldName}), func(context.Context) (any, error) {
+		return s.deps.CodeGraph.TraceDataFlow(ctx, in.SymbolID, in.FieldName)
 	})
 	if err != nil {
 		return nil, nil, err

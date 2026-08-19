@@ -18,6 +18,7 @@ type fakeCodeGraphAPI struct {
 	blastRadius  []string
 	indexVersion int
 	subgraph     codegraph.Subgraph
+	dataFlowTrace codegraph.DataFlowTrace
 	err          error
 }
 
@@ -47,6 +48,9 @@ func (f fakeCodeGraphAPI) WaitForIndexReady(ctx context.Context) (int, error) {
 }
 func (f fakeCodeGraphAPI) GetNeighbors(ctx context.Context, rootID string, depth int, filter codegraph.NeighborFilter) (codegraph.Subgraph, error) {
 	return f.subgraph, f.err
+}
+func (f fakeCodeGraphAPI) TraceDataFlow(ctx context.Context, symbolID, fieldName string) (codegraph.DataFlowTrace, error) {
+	return f.dataFlowTrace, f.err
 }
 
 func TestToolCodeGraphListEndpoints(t *testing.T) {
@@ -127,6 +131,25 @@ func TestToolCodeGraphGetNeighbors(t *testing.T) {
 	}
 	sub, ok := v.(codegraph.Subgraph)
 	if !ok || len(sub.Nodes) != 1 || sub.Nodes[0].ID != "n1" {
+		t.Fatalf("unexpected result: %#v", v)
+	}
+}
+
+func TestToolCodeGraphTraceDataFlow(t *testing.T) {
+	deps := Deps{
+		Caller: &fakeCaller{},
+		CodeGraph: fakeCodeGraphAPI{dataFlowTrace: codegraph.DataFlowTrace{
+			SymbolID: "cls", FieldName: "total",
+			Steps: []codegraph.DataFlowStep{{NodeID: "m1", Kind: "write"}},
+		}},
+	}
+	s := NewServer(deps)
+	_, v, err := s.toolCodeGraphTraceDataFlow(context.Background(), nil, codeGraphTraceDataFlowInput{SymbolID: "cls", FieldName: "total"})
+	if err != nil {
+		t.Fatalf("toolCodeGraphTraceDataFlow: %v", err)
+	}
+	trace, ok := v.(codegraph.DataFlowTrace)
+	if !ok || len(trace.Steps) != 1 || trace.Steps[0].Kind != "write" {
 		t.Fatalf("unexpected result: %#v", v)
 	}
 }
