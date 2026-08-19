@@ -3,6 +3,7 @@ package codegraph
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -316,5 +317,84 @@ func TestStoreGetNodePersistsSummaryAndParams(t *testing.T) {
 	}
 	if gotClass.Summary != "" || len(gotClass.Params) != 0 {
 		t.Fatalf("expected empty Summary/Params for a class node, got %+v", gotClass)
+	}
+}
+
+func TestStoreMigratesOldSchemaWithoutSummaryOrParams(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "legacy.db")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	// Create legacy 7-column schema
+	legacySchema := `
+CREATE TABLE nodes (
+	id TEXT PRIMARY KEY,
+	label TEXT NOT NULL,
+	kind TEXT NOT NULL,
+	layer TEXT NOT NULL,
+	file_path TEXT NOT NULL,
+	line INTEGER NOT NULL,
+	end_line INTEGER NOT NULL
+);
+CREATE TABLE edges (
+	from_id TEXT NOT NULL,
+	to_id TEXT NOT NULL,
+	kind TEXT NOT NULL
+);
+CREATE TABLE endpoints (
+	id TEXT PRIMARY KEY,
+	http_method TEXT NOT NULL,
+	path TEXT NOT NULL,
+	entry_node TEXT NOT NULL
+);
+`
+	if _, err := db.Exec(legacySchema); err != nil {
+		t.Fatalf("create legacy schema: %v", err)
+	}
+	// Insert legacy row
+	if _, err := db.Exec(`INSERT INTO nodes VALUES ('n1', 'Foo.bar', 'method', 'service', 'Foo.java', 1, 10)`); err != nil {
+		t.Fatalf("insert legacy row: %v", err)
+	}
+	db.Close()
+
+	// Open with newSQLiteStore — should migrate missing summary and params columns
+	store, err := newSQLiteStore(dbPath)
+	if err != nil {
+		t.Fatalf("newSQLiteStore on legacy db: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	// Read existing legacy row
+	node, err := store.GetNode(ctx, "n1")
+	if err != nil {
+		t.Fatalf("GetNode on migrated row: %v", err)
+	}
+	if node.ID != "n1" || node.Summary != "" || len(node.Params) != 0 {
+		t.Fatalf("unexpected node values: %+v", node)
+	}
+
+	// Overwrite with new ReplaceIndex
+	newResult := AnalysisResult{
+		Nodes: []Node{
+			{
+				ID: "n2", Label: "Foo.baz", Kind: "method", Layer: "service",
+				FilePath: "Foo.java", Line: 12, EndLine: 20,
+				Summary: "Performs baz operation.",
+				Params:  []Param{{Name: "count", Type: "int"}},
+			},
+		},
+	}
+	if err := store.ReplaceIndex(ctx, newResult); err != nil {
+		t.Fatalf("ReplaceIndex on migrated store: %v", err)
+	}
+
+	node2, err := store.GetNode(ctx, "n2")
+	if err != nil {
+		t.Fatalf("GetNode on new row: %v", err)
+	}
+	if node2.Summary != "Performs baz operation." || len(node2.Params) != 1 || node2.Params[0].Name != "count" {
+		t.Fatalf("unexpected node2: %+v", node2)
 	}
 }

@@ -65,6 +65,20 @@ func TestSubprocessAnalyzerAnalyzesSampleProject(t *testing.T) {
 			t.Fatalf("unexpected file dependency %+v (want set %+v)", fd, want)
 		}
 	}
+
+	// Verify params are emitted for methods
+	var foundCreateMethod bool
+	for _, n := range result.Nodes {
+		if n.Kind == "method" && n.Label == "com.acme.refund.RefundController.create" {
+			foundCreateMethod = true
+			if len(n.Params) != 1 || n.Params[0].Name != "requestId" || n.Params[0].Type != "String" {
+				t.Fatalf("unexpected params for create method: %+v", n.Params)
+			}
+		}
+	}
+	if !foundCreateMethod {
+		t.Fatalf("RefundController.create method node not found in result: %+v", result.Nodes)
+	}
 }
 
 func TestSubprocessAnalyzerWithoutJarConfiguredReturnsNotConfigured(t *testing.T) {

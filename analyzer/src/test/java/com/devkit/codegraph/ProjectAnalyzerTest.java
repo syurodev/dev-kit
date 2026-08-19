@@ -162,6 +162,55 @@ class ProjectAnalyzerTest {
         assertEquals(want, deps, "file dependencies = %s".formatted(deps));
     }
 
+    @Test
+    void extractsJavadocSummaryAndMethodParameters(@TempDir Path tempDir) throws IOException {
+        Path projectRoot = tempDir.resolve("project");
+        Path pkg = projectRoot.resolve("src/main/java/com/acme/doc");
+        Files.createDirectories(pkg);
+        Files.writeString(pkg.resolve("OrderService.java"), """
+                package com.acme.doc;
+
+                import java.util.List;
+
+                /**
+                 * Manages orders in the system.
+                 *
+                 * @author Alice
+                 */
+                public class OrderService {
+
+                    /**
+                     * Processes a refund request.
+                     *
+                     * @param orderId the ID of the order
+                     * @param items list of item keys
+                     * @return status
+                     */
+                    public boolean processRefund(String orderId, List<String> items) {
+                        return true;
+                    }
+                }
+                """);
+
+        AnalysisResult result = new ProjectAnalyzer(projectRoot).analyze();
+
+        Node classNode = result.nodes.stream()
+                .filter(n -> n.label.equals("com.acme.doc.OrderService"))
+                .findFirst().orElseThrow(() -> new AssertionError("OrderService class not found"));
+        assertTrue(classNode.summary.contains("Manages orders in the system."), "class summary = " + classNode.summary);
+        assertTrue(classNode.params.isEmpty(), "class params must be empty");
+
+        Node methodNode = result.nodes.stream()
+                .filter(n -> n.label.equals("com.acme.doc.OrderService.processRefund"))
+                .findFirst().orElseThrow(() -> new AssertionError("processRefund method not found"));
+        assertTrue(methodNode.summary.contains("Processes a refund request."), "method summary = " + methodNode.summary);
+        assertEquals(2, methodNode.params.size());
+        assertEquals("orderId", methodNode.params.get(0).name);
+        assertEquals("String", methodNode.params.get(0).type);
+        assertEquals("items", methodNode.params.get(1).name);
+        assertEquals("List<String>", methodNode.params.get(1).type);
+    }
+
     private boolean hasCallEdge(AnalysisResult result, String fromLabel, String toLabel) {
         return result.edges.stream().anyMatch(e ->
                 e.kind.equals("call")

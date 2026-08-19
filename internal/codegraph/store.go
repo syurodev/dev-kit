@@ -58,7 +58,46 @@ func newSQLiteStore(path string) (*sqliteStore, error) {
 		db.Close()
 		return nil, fmt.Errorf("codegraph: create schema: %w", err)
 	}
+	if err := migrateSchema(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("codegraph: migrate schema: %w", err)
+	}
 	return &sqliteStore{db: db}, nil
+}
+
+func migrateSchema(db *sql.DB) error {
+	rows, err := db.Query("PRAGMA table_info(nodes)")
+	if err != nil {
+		return fmt.Errorf("codegraph: inspect nodes table: %w", err)
+	}
+	defer rows.Close()
+
+	cols := make(map[string]bool)
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dflt *string
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			return fmt.Errorf("codegraph: scan table_info: %w", err)
+		}
+		cols[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("codegraph: table_info rows: %w", err)
+	}
+
+	if !cols["summary"] {
+		if _, err := db.Exec("ALTER TABLE nodes ADD COLUMN summary TEXT NOT NULL DEFAULT ''"); err != nil {
+			return fmt.Errorf("codegraph: add summary column: %w", err)
+		}
+	}
+	if !cols["params"] {
+		if _, err := db.Exec("ALTER TABLE nodes ADD COLUMN params TEXT NOT NULL DEFAULT '[]'"); err != nil {
+			return fmt.Errorf("codegraph: add params column: %w", err)
+		}
+	}
+	return nil
 }
 
 func (s *sqliteStore) Close() error { return s.db.Close() }

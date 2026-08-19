@@ -99,7 +99,7 @@ public class ProjectAnalyzer {
             classFile.putIfAbsent(className, file.relativePath());
             String layer = LayerClassifier.classify(classDecl);
 
-            result.nodes.add(classNode(className, layer, file.relativePath(), classDecl.getRange()));
+            result.nodes.add(classNode(classDecl, className, layer, file.relativePath(), classDecl.getRange()));
 
             for (MethodDeclaration methodDecl : classDecl.getMethods()) {
                 Optional<String> methodId = addMethodNode(methodDecl, layer, file.relativePath(), result);
@@ -138,6 +138,12 @@ public class ProjectAnalyzer {
         node.kind = "method";
         node.layer = layer;
         node.filePath = relativePath;
+        node.summary = methodDecl.getJavadoc()
+                .map(j -> j.getDescription().toText().trim())
+                .orElse("");
+        for (com.github.javaparser.ast.body.Parameter p : methodDecl.getParameters()) {
+            node.params.add(new Param(p.getNameAsString(), p.getType().asString()));
+        }
         Range range = methodDecl.getRange().orElse(null);
         if (range != null) {
             node.line = range.begin.line;
@@ -198,13 +204,16 @@ public class ProjectAnalyzer {
         return new ArrayList<>(byKey.values());
     }
 
-    private Node classNode(String qualifiedName, String layer, String relativePath, Optional<Range> range) {
+    private Node classNode(ClassOrInterfaceDeclaration classDecl, String qualifiedName, String layer, String relativePath, Optional<Range> range) {
         Node node = new Node();
         node.id = qualifiedName;
         node.label = qualifiedName;
         node.kind = "class";
         node.layer = layer;
         node.filePath = relativePath;
+        node.summary = classDecl.getJavadoc()
+                .map(j -> j.getDescription().toText().trim())
+                .orElse("");
         range.ifPresent(r -> {
             node.line = r.begin.line;
             node.endLine = r.end.line;
