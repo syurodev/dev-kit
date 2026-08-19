@@ -181,6 +181,7 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.codegraph", Capability: "codegraph:fs", Scope: "file:*"},
 		{SubjectID: "builtin.codegraph", Capability: "codegraph:terminal", Scope: "project:active"},
 		{SubjectID: "builtin.codegraph", Capability: "terminal:io", Scope: "session:*"},
+		{SubjectID: "builtin.codegraph", Capability: "codegraph:plan", Scope: "plan:active"},
 		{SubjectID: "builtin.kafka", Capability: "kafka:connect", Scope: "profile:list"},
 		{SubjectID: "builtin.kafka", Capability: "kafka:connect", Scope: "profile:new"},
 		{SubjectID: "builtin.kafka", Capability: "kafka:connect", Scope: "profile:*"},
