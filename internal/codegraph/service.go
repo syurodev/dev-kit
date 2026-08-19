@@ -18,10 +18,11 @@ const maxFlowDepth = 32
 // Service is the CodeGraph domain service. It owns exactly one active
 // project's index at a time (FR-1: no multi-project registry in v1).
 type Service struct {
-	mu       sync.RWMutex
-	store    Store
-	analyzer Analyzer
-	active   bool
+	mu          sync.RWMutex
+	store       Store
+	analyzer    Analyzer
+	active      bool
+	projectRoot string
 }
 
 func NewService(store Store, analyzer Analyzer) *Service {
@@ -66,22 +67,27 @@ func (s *Service) OpenProject(ctx context.Context, projectPath string) error {
 		return fmt.Errorf("codegraph: replace index: %w", err)
 	}
 	s.active = true
+	s.projectRoot = projectPath
 	return nil
 }
 
-// activeStore returns the current store under the read lock, so the s.store
-// field itself is never read concurrently with the writes SetProjectPath/
-// OpenProject make to it under s.mu.Lock(). The returned Store is used after
-// the lock is released — *sql.DB (what sqliteStore wraps) is already safe
-// for concurrent use, so holding s.mu for the actual query would only add
-// unnecessary contention between unrelated reads.
-func (s *Service) activeStore() (Store, error) {
+// activeProject returns the current store and project root under the read
+// lock, so neither field is ever read concurrently with the writes
+// SetProjectPath/OpenProject make to them under s.mu.Lock(). Both are used
+// after the lock is released — *sql.DB (what sqliteStore wraps) and a plain
+// string are both safe to use unsynchronized once captured.
+func (s *Service) activeProject() (Store, string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if !s.active {
-		return nil, ErrNoActiveProject
+		return nil, "", ErrNoActiveProject
 	}
-	return s.store, nil
+	return s.store, s.projectRoot, nil
+}
+
+func (s *Service) activeStore() (Store, error) {
+	store, _, err := s.activeProject()
+	return store, err
 }
 
 func (s *Service) ListEndpoints(ctx context.Context) ([]Endpoint, error) {

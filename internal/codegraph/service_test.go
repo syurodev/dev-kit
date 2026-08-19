@@ -180,6 +180,24 @@ func TestServiceSetProjectPathCreatesParentDir(t *testing.T) {
 	}
 }
 
+func TestServiceOpenProjectSetsProjectRoot(t *testing.T) {
+	svc := NewService(nilStore{}, fakeAnalyzer{result: sampleResult()})
+	if err := svc.SetProjectPath(filepath.Join(t.TempDir(), "index.db")); err != nil {
+		t.Fatalf("SetProjectPath: %v", err)
+	}
+	if err := svc.OpenProject(context.Background(), "/fake/project"); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+
+	_, root, err := svc.activeProject()
+	if err != nil {
+		t.Fatalf("activeProject: %v", err)
+	}
+	if root != "/fake/project" {
+		t.Fatalf("projectRoot = %q, want /fake/project", root)
+	}
+}
+
 // TestServiceConcurrentAccessIsRaceFree pits SetProjectPath/OpenProject
 // (writers of s.store/s.active) against ListEndpoints (a reader) running at
 // the same time. Before activeStore() existed, ListEndpoints read s.store
