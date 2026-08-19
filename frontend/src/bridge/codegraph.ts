@@ -89,3 +89,44 @@ export async function readCodeGraphFile(relativePath: string): Promise<string> {
 export async function writeCodeGraphFile(relativePath: string, content: string): Promise<void> {
   return callBridge(() => AppService.CodeGraphWriteFile(relativePath, content));
 }
+
+export type CodeGraphNode = {
+  id: string;
+  label: string;
+  kind: string;
+  layer: string;
+  filePath: string;
+  line: number;
+  endLine: number;
+  summary: string;
+};
+
+export type CodeGraphEdge = {
+  from: string;
+  to: string;
+  kind: string;
+};
+
+export type CodeGraphSubgraph = {
+  nodes: CodeGraphNode[];
+  edges: CodeGraphEdge[];
+  truncated: boolean;
+  continuation?: string;
+};
+
+export async function getCodeGraphNeighbors(
+  rootId: string,
+  depth: number,
+  filter?: { layers?: string[]; continuation?: string },
+): Promise<CodeGraphSubgraph> {
+  const result = await callBridge(() =>
+    AppService.CodeGraphGetNeighbors(rootId, depth, filter ?? {}),
+  );
+  return {
+    nodes: result.nodes ?? [],
+    edges: result.edges ?? [],
+    truncated: result.truncated ?? false,
+    continuation: result.continuation,
+  };
+}
+
