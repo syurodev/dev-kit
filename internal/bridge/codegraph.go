@@ -160,3 +160,15 @@ func (s *AppService) CodeGraphTraceDataFlow(symbolID, fieldName string) (codegra
 	}
 	return result.(codegraph.DataFlowTrace), nil
 }
+
+func (s *AppService) CodeGraphStartTerminal(rows, cols int) (string, error) {
+	result, err := s.call(context.Background(), "builtin.codegraph", "codegraph:terminal", "project:active", map[string]any{
+		"action": "start_terminal",
+	}, func(ctx context.Context) (any, error) {
+		return s.container.CodeGraph.StartTerminal(rows, cols)
+	})
+	if err != nil {
+		return "", err
+	}
+	return result.(string), nil
+}
