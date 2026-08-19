@@ -13,6 +13,10 @@ import com.github.javaparser.symbolsolver.resolution.typesolvers.CombinedTypeSol
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Stream;
 
@@ -48,17 +52,33 @@ public class ProjectAnalyzer {
                 analyzeFile(javaFile, result);
             }
         }
+        result.edges = dedupeEdges(result.edges);
         return result;
+    }
+
+    // The same target called repeatedly in one body yields identical edges;
+    // keep the first of each from/to/kind triple, preserving order. One pass
+    // at the end instead of a contains-check per added edge keeps large
+    // projects linear rather than quadratic.
+    private static List<Edge> dedupeEdges(List<Edge> edges) {
+        Map<String, Edge> byKey = new LinkedHashMap<>();
+        for (Edge e : edges) {
+            byKey.putIfAbsent(e.from + "\n" + e.to + "\n" + e.kind, e);
+        }
+        return new ArrayList<>(byKey.values());
     }
 
     private void analyzeFile(Path javaFile, AnalysisResult result) throws IOException {
         CompilationUnit cu;
+        // ParseProblemException is a RuntimeException; deeply nested
+        // expressions can overflow the parser's stack. Either way, one bad
+        // file must not abort indexing the rest of the project (FR-8's
+        // "unresolved, not fatal" principle applied one level up:
+        // unparseable, not just unresolvable). Real errors (OOM etc.)
+        // still propagate.
         try {
             cu = StaticJavaParser.parse(javaFile);
-        } catch (Throwable e) {
-            // A single file with a parse error must not abort indexing the
-            // rest of the project (FR-8's "unresolved, not fatal" principle
-            // applied one level up: unparseable, not just unresolvable).
+        } catch (RuntimeException | StackOverflowError e) {
             return;
         }
 
@@ -68,7 +88,7 @@ public class ProjectAnalyzer {
             String className;
             try {
                 className = classDecl.resolve().getQualifiedName();
-            } catch (Throwable e) {
+            } catch (RuntimeException | StackOverflowError e) {
                 // If resolving class declaration fails, fallback to AST fully-qualified name or simple name
                 className = classDecl.getFullyQualifiedName().orElse(classDecl.getNameAsString());
             }
@@ -102,7 +122,7 @@ public class ProjectAnalyzer {
             // getSignature() throws UnsolvedSymbolException. We catch Throwable to handle this safely (FR-8).
             methodId = resolved.declaringType().getQualifiedName() + "." + resolved.getSignature();
             methodLabel = resolved.getQualifiedName();
-        } catch (Throwable e) {
+        } catch (RuntimeException | StackOverflowError e) {
             return Optional.empty(); // can't resolve this method's declaration or signature — skip it, not fatal
         }
 
@@ -130,17 +150,13 @@ public class ProjectAnalyzer {
                 ResolvedMethodDeclaration target = call.resolve();
                 // target.getSignature() can also lazily throw UnsolvedSymbolException if its params are missing
                 toNodeId = target.declaringType().getQualifiedName() + "." + target.getSignature();
-            } catch (Throwable e) {
+            } catch (RuntimeException | StackOverflowError e) {
                 // Unresolved call (missing jar in the local cache, dynamic
                 // dispatch the solver can't follow, unresolved parameter types, etc.)
                 // — FR-8: this is a gap in the graph, not a fatal error for the whole project.
                 continue;
             }
-            boolean alreadyExists = result.edges.stream().anyMatch(e ->
-                    e.from.equals(fromNodeId) && e.to.equals(toNodeId) && "call".equals(e.kind));
-            if (!alreadyExists) {
-                result.edges.add(new Edge(fromNodeId, toNodeId, "call"));
-            }
+            result.edges.add(new Edge(fromNodeId, toNodeId, "call"));
         }
     }
 

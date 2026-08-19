@@ -72,6 +72,29 @@ class EndpointExtractorTest {
     }
 
     @Test
+    void extractsFirstListedMethodFromMultiMethodRequestMappingArray() {
+        var cu = StaticJavaParser.parse("""
+                @RestController
+                @RequestMapping("/api")
+                class RefundController {
+                    @RequestMapping(value = "/sync", method = {RequestMethod.POST, RequestMethod.GET})
+                    void sync() {}
+                }
+                """);
+        ClassOrInterfaceDeclaration classDecl = cu.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow();
+        MethodDeclaration methodDecl = cu.findFirst(MethodDeclaration.class).orElseThrow();
+
+        Optional<EndpointExtractor.HttpMapping> mapping = EndpointExtractor.extract(classDecl, methodDecl);
+
+        assertTrue(mapping.isPresent());
+        // Spring registers one endpoint per listed method, but this extractor
+        // records a single (first-listed) one — POST here, not the GET that a
+        // fixed-priority scan would pick.
+        assertEquals("POST", mapping.get().httpMethod());
+        assertEquals("/api/sync", mapping.get().path());
+    }
+
+    @Test
     void extractsPathFromNormalAnnotationWithPathAttributeAndArray() {
         var cu = StaticJavaParser.parse("""
                 @RestController

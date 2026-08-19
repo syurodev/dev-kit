@@ -71,16 +71,28 @@ public class EndpointExtractor {
         if (annotation instanceof NormalAnnotationExpr normal) {
             for (var pair : normal.getPairs()) {
                 if ("method".equals(pair.getNameAsString())) {
-                    String methodVal = pair.getValue().toString();
-                    for (String method : new String[]{"GET", "POST", "PUT", "DELETE", "PATCH"}) {
-                        if (methodVal.contains(method)) {
-                            return Optional.of(method);
-                        }
-                    }
+                    return httpMethodOf(pair.getValue());
                 }
             }
         }
         return Optional.empty();
+    }
+
+    // The value is RequestMethod.CONSTANT, possibly in an array when several
+    // methods are mapped. Spring registers one route per listed method; this
+    // extractor records the first-listed one. The constant name is the last
+    // dotted segment, so this also tolerates fully-qualified references.
+    private static Optional<String> httpMethodOf(Expression expr) {
+        if (expr instanceof ArrayInitializerExpr array && !array.getValues().isEmpty()) {
+            expr = array.getValues().get(0);
+        }
+        String name = expr.toString();
+        int lastDot = name.lastIndexOf('.');
+        if (lastDot >= 0) {
+            name = name.substring(lastDot + 1);
+        }
+        name = name.trim().toUpperCase();
+        return MAPPING_ANNOTATION_TO_HTTP_METHOD.containsValue(name) ? Optional.of(name) : Optional.empty();
     }
 
     private static String extractStringFromExpr(Expression expr) {
