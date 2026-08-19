@@ -477,3 +477,153 @@ func TestStoreReplaceIndexClearsOldFieldAccesses(t *testing.T) {
 		t.Fatalf("expected accesses cleared after replace, got: %+v", accesses)
 	}
 }
+
+func samplePlan() Plan {
+	return Plan{
+		Description: "Refund flow",
+		State:       PlanStateDraft,
+		Nodes: []PlanNode{
+			{PlanNodeID: "pn-1", Label: "Nhận yêu cầu hoàn tiền", Description: "controller entry", FQN: "com.acme.refund.RefundController.create", Kind: "method"},
+			{PlanNodeID: "pn-2", Label: "Xử lý hoàn tiền", Description: "core logic", FQN: "com.acme.refund.RefundService.process", Kind: "method"},
+		},
+		Edges: []PlanEdge{
+			{From: "pn-1", To: "pn-2", Condition: "chỉ khi type == REFUND"},
+		},
+	}
+}
+
+func TestStoreSavePlanThenGetPlan(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	if err := store.SavePlan(ctx, samplePlan()); err != nil {
+		t.Fatalf("SavePlan: %v", err)
+	}
+
+	got, err := store.GetPlan(ctx)
+	if err != nil {
+		t.Fatalf("GetPlan: %v", err)
+	}
+	if got.Description != "Refund flow" || got.State != PlanStateDraft {
+		t.Fatalf("plan = %+v", got)
+	}
+	if len(got.Nodes) != 2 || got.Nodes[0].PlanNodeID != "pn-1" || got.Nodes[1].FQN != "com.acme.refund.RefundService.process" {
+		t.Fatalf("nodes = %+v", got.Nodes)
+	}
+	if len(got.Edges) != 1 || got.Edges[0].Condition != "chỉ khi type == REFUND" {
+		t.Fatalf("edges = %+v", got.Edges)
+	}
+}
+
+func TestStoreGetPlanWhenNoneFails(t *testing.T) {
+	store := newTestStore(t)
+	if _, err := store.GetPlan(context.Background()); !errors.Is(err, ErrNoPlan) {
+		t.Fatalf("GetPlan = %v, want ErrNoPlan", err)
+	}
+}
+
+func TestStoreSavePlanReplacesPrevious(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	if err := store.SavePlan(ctx, samplePlan()); err != nil {
+		t.Fatalf("first SavePlan: %v", err)
+	}
+
+	second := Plan{
+		Description: "Something else",
+		State:       PlanStateDraft,
+		Nodes:       []PlanNode{{PlanNodeID: "pn-9", Label: "Only node", FQN: "com.acme.Other.run", Kind: "method"}},
+	}
+	if err := store.SavePlan(ctx, second); err != nil {
+		t.Fatalf("second SavePlan: %v", err)
+	}
+
+	got, err := store.GetPlan(ctx)
+	if err != nil {
+		t.Fatalf("GetPlan: %v", err)
+	}
+	if got.Description != "Something else" || len(got.Nodes) != 1 || got.Nodes[0].PlanNodeID != "pn-9" {
+		t.Fatalf("plan = %+v", got)
+	}
+	if len(got.Edges) != 0 {
+		t.Fatalf("expected the previous plan's edges cleared, got %+v", got.Edges)
+	}
+}
+
+func TestStoreSetPlanState(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	if err := store.SavePlan(ctx, samplePlan()); err != nil {
+		t.Fatalf("SavePlan: %v", err)
+	}
+
+	if err := store.SetPlanState(ctx, PlanStateApproved); err != nil {
+		t.Fatalf("SetPlanState: %v", err)
+	}
+	got, err := store.GetPlan(ctx)
+	if err != nil {
+		t.Fatalf("GetPlan: %v", err)
+	}
+	if got.State != PlanStateApproved {
+		t.Fatalf("state = %q, want approved", got.State)
+	}
+}
+
+func TestStoreSetPlanNodeFQN(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	if err := store.SavePlan(ctx, samplePlan()); err != nil {
+		t.Fatalf("SavePlan: %v", err)
+	}
+
+	if err := store.SetPlanNodeFQN(ctx, "pn-2", "com.acme.refund.RefundService.handle"); err != nil {
+		t.Fatalf("SetPlanNodeFQN: %v", err)
+	}
+	got, err := store.GetPlan(ctx)
+	if err != nil {
+		t.Fatalf("GetPlan: %v", err)
+	}
+	if got.Nodes[1].FQN != "com.acme.refund.RefundService.handle" {
+		t.Fatalf("fqn = %q", got.Nodes[1].FQN)
+	}
+
+	if err := store.SetPlanNodeFQN(ctx, "does-not-exist", "com.acme.X.y"); !errors.Is(err, ErrPlanNodeNotFound) {
+		t.Fatalf("SetPlanNodeFQN on unknown node = %v, want ErrPlanNodeNotFound", err)
+	}
+}
+
+func TestStoreResolveFQNPrefersIDWhenParamsGiven(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	result := AnalysisResult{
+		Nodes: []Node{
+			{ID: "com.acme.A.foo(java.lang.String)", Label: "com.acme.A.foo", Kind: "method", Layer: "service", FilePath: "A.java", Line: 1, EndLine: 2},
+			{ID: "com.acme.A.foo(int)", Label: "com.acme.A.foo", Kind: "method", Layer: "service", FilePath: "A.java", Line: 4, EndLine: 5},
+		},
+	}
+	if err := store.ReplaceIndex(ctx, result); err != nil {
+		t.Fatalf("ReplaceIndex: %v", err)
+	}
+
+	// With parameter types: exact id match, unambiguous.
+	node, ok, err := store.ResolveFQN(ctx, "com.acme.A.foo(int)")
+	if err != nil {
+		t.Fatalf("ResolveFQN: %v", err)
+	}
+	if !ok || node.ID != "com.acme.A.foo(int)" {
+		t.Fatalf("node = %+v, ok = %v", node, ok)
+	}
+
+	// Without parameter types: label match, lowest id wins for determinism.
+	node, ok, err = store.ResolveFQN(ctx, "com.acme.A.foo")
+	if err != nil {
+		t.Fatalf("ResolveFQN: %v", err)
+	}
+	if !ok || node.ID != "com.acme.A.foo(int)" {
+		t.Fatalf("expected the lowest-sorted overload id, got %+v", node)
+	}
+
+	if _, ok, err = store.ResolveFQN(ctx, "com.acme.Nope.bar"); err != nil || ok {
+		t.Fatalf("expected no match, got ok=%v err=%v", ok, err)
+	}
+}

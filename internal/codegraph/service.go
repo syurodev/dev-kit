@@ -870,6 +870,13 @@ func (nilStore) GetDependents(context.Context, string) ([]string, error) {
 func (nilStore) GetFieldAccesses(context.Context, string, string) ([]FieldAccess, error) {
 	return nil, ErrNoActiveProject
 }
+func (nilStore) SavePlan(context.Context, Plan) error                 { return ErrNoActiveProject }
+func (nilStore) GetPlan(context.Context) (Plan, error)                { return Plan{}, ErrNoActiveProject }
+func (nilStore) SetPlanState(context.Context, string) error           { return ErrNoActiveProject }
+func (nilStore) SetPlanNodeFQN(context.Context, string, string) error { return ErrNoActiveProject }
+func (nilStore) ResolveFQN(context.Context, string) (Node, bool, error) {
+	return Node{}, false, ErrNoActiveProject
+}
 func (nilStore) Close() error { return nil }
 
 // NewNilStore returns a placeholder Store that always reports no active

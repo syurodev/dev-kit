@@ -48,6 +48,24 @@ CREATE TABLE IF NOT EXISTS field_accesses (
 	line INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_field_accesses_lookup ON field_accesses(class_id, field_name);
+CREATE TABLE IF NOT EXISTS plan_meta (
+	id INTEGER PRIMARY KEY CHECK (id = 1),
+	description TEXT NOT NULL,
+	state TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS plan_nodes (
+	plan_node_id TEXT PRIMARY KEY,
+	label TEXT NOT NULL,
+	description TEXT NOT NULL,
+	fqn TEXT NOT NULL,
+	kind TEXT NOT NULL,
+	ordinal INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS plan_edges (
+	from_plan_node_id TEXT NOT NULL,
+	to_plan_node_id TEXT NOT NULL,
+	condition TEXT NOT NULL
+);
 `
 
 // sqliteStore is a Store backed by one SQLite file per project. It is not

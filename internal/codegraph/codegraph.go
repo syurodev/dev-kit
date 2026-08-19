@@ -27,6 +27,17 @@ var (
 	// container always wires a real one (see main.go), this only fires for
 	// an ephemeral/test Service that never called SetTerminalRegistry.
 	ErrTerminalNotConfigured = errors.New("codegraph: terminal registry not configured")
+	// ErrNoPlan is returned when a plan operation runs against a project
+	// that has no active plan (none proposed yet, per "1 plan active tại 1
+	// thời điểm").
+	ErrNoPlan = errors.New("codegraph: no active plan")
+	// ErrPlanNodeNotFound is returned by RelinkPlanNode for a plan node ID
+	// that is not part of the active plan.
+	ErrPlanNodeNotFound = errors.New("codegraph: plan node not found")
+	// ErrInvalidPlan is returned by ProposeFlow when the submitted plan is
+	// internally inconsistent (no nodes, duplicate node IDs, or an edge
+	// referencing an unknown node).
+	ErrInvalidPlan = errors.New("codegraph: invalid plan")
 )
 
 // Param is one method parameter's name and type, e.g. {Name: "request", Type:
@@ -234,5 +245,10 @@ type Store interface {
 	FindNodeAtLine(ctx context.Context, filePath string, line int) (Node, bool, error)
 	GetDependents(ctx context.Context, filePath string) ([]string, error)
 	GetFieldAccesses(ctx context.Context, classID, fieldName string) ([]FieldAccess, error)
+	SavePlan(ctx context.Context, plan Plan) error
+	GetPlan(ctx context.Context) (Plan, error)
+	SetPlanState(ctx context.Context, state string) error
+	SetPlanNodeFQN(ctx context.Context, planNodeID, fqn string) error
+	ResolveFQN(ctx context.Context, fqn string) (Node, bool, error)
 	Close() error
 }
