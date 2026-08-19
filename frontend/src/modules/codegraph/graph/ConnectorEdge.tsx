@@ -1,0 +1,81 @@
+import {
+  BaseEdge,
+  EdgeLabelRenderer,
+  getSmoothStepPath,
+  type EdgeProps,
+} from "@xyflow/react";
+import { EDGE } from "./tokens";
+
+export type ConnectorEdgeData = {
+  /** codegraph.Edge.kind — "di" renders dashed and labels itself "injects". */
+  kind: string;
+  /** Labels default off: a sequential call adds no information by saying "calls". */
+  showLabel?: boolean;
+};
+
+export function ConnectorEdge({ id, data, markerEnd, ...props }: EdgeProps) {
+  const kind = (data as ConnectorEdgeData | undefined)?.kind ?? "call";
+  const showLabel = (data as ConnectorEdgeData | undefined)?.showLabel ?? false;
+  const dashed = kind === "di";
+
+  const [path, labelX, labelY] = getSmoothStepPath({
+    ...props,
+    borderRadius: EDGE.elbowRadius,
+  });
+
+  return (
+    <>
+      <BaseEdge
+        id={id}
+        path={path}
+        markerEnd={markerEnd}
+        style={{
+          stroke: "var(--icon-secondary)",
+          strokeWidth: EDGE.strokeWidth,
+          strokeDasharray: dashed ? EDGE.dashArray : undefined,
+        }}
+      />
+      {showLabel && (
+        <EdgeLabelRenderer>
+          <div
+            className="nodrag nopan pointer-events-none absolute"
+            style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}
+          >
+            <EdgeLabelPill kind={dashed ? "di" : "call"}>
+              {dashed ? "injects" : "calls"}
+            </EdgeLabelPill>
+          </div>
+        </EdgeLabelRenderer>
+      )}
+    </>
+  );
+}
+
+/**
+ * The DI variant stacks a tint over an opaque base rather than using one
+ * low-opacity fill: the canvas has a dot grid behind it, and a translucent chip
+ * lets the dots read straight through the label.
+ */
+export function EdgeLabelPill({ kind, children }: { kind: "call" | "di"; children: string }) {
+  const info = "var(--status-info)";
+  return (
+    <span
+      className="rounded-full border px-2.25 py-1 font-mono text-[10px] font-medium tracking-[0.02em] shadow-[0_2px_6px_rgba(0,0,0,0.45)]"
+      style={
+        kind === "di"
+          ? {
+              backgroundColor: `color-mix(in srgb, ${info} 20%, var(--surface-raised))`,
+              borderColor: `color-mix(in srgb, ${info} 55%, transparent)`,
+              color: info,
+            }
+          : {
+              backgroundColor: "var(--surface-raised)",
+              borderColor: "var(--border-subtle)",
+              color: "var(--text-secondary)",
+            }
+      }
+    >
+      {children}
+    </span>
+  );
+}
