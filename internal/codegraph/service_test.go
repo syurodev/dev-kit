@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 )
 
 // fakeAnalyzer is the test double every other test in this package (and the
@@ -459,5 +460,92 @@ func TestServiceGetCodeSnippetRejectsPathOutsideProject(t *testing.T) {
 
 	if _, err := svc.GetCodeSnippet(context.Background(), "../../etc/passwd", 1, 1); !errors.Is(err, ErrPathOutsideProject) {
 		t.Fatalf("GetCodeSnippet = %v, want ErrPathOutsideProject", err)
+	}
+}
+
+func TestServiceGetBlastRadiusTransitive(t *testing.T) {
+	// Controller depends on Service, Service depends on Repository.
+	// Editing Repository.java should report both Service.java (direct) and
+	// Controller.java (transitive, via Service).
+	result := AnalysisResult{
+		Nodes: []Node{{ID: "n1", Label: "Controller.handle", Kind: "method", Layer: "controller", FilePath: "Controller.java", Line: 1, EndLine: 5}},
+		FileDependencies: []FileDependency{
+			{FilePath: "Controller.java", DependsOnFilePath: "Service.java"},
+			{FilePath: "Service.java", DependsOnFilePath: "Repository.java"},
+		},
+	}
+	svc := newTestService(t, fakeAnalyzer{result: result})
+	if err := svc.OpenProject(context.Background(), "/fake/project"); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+
+	radius, err := svc.GetBlastRadius(context.Background(), "Repository.java")
+	if err != nil {
+		t.Fatalf("GetBlastRadius: %v", err)
+	}
+	if len(radius) != 2 {
+		t.Fatalf("radius = %v, want 2 entries", radius)
+	}
+	want := map[string]bool{"Controller.java": true, "Service.java": true}
+	for _, f := range radius {
+		if !want[f] {
+			t.Fatalf("unexpected file in radius: %q (full: %v)", f, radius)
+		}
+	}
+}
+
+func TestServiceGetBlastRadiusNoDependents(t *testing.T) {
+	svc := newTestService(t, fakeAnalyzer{result: sampleResult()})
+	if err := svc.OpenProject(context.Background(), "/fake/project"); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+
+	radius, err := svc.GetBlastRadius(context.Background(), "Nobody.java")
+	if err != nil {
+		t.Fatalf("GetBlastRadius: %v", err)
+	}
+	if len(radius) != 0 {
+		t.Fatalf("expected empty radius, got: %v", radius)
+	}
+}
+
+func TestServiceGetBlastRadiusHandlesCycle(t *testing.T) {
+	// A depends on B, B depends on A — a real possibility with Java's mutual
+	// class references. The visited-set must stop this from looping forever.
+	result := AnalysisResult{
+		FileDependencies: []FileDependency{
+			{FilePath: "A.java", DependsOnFilePath: "B.java"},
+			{FilePath: "B.java", DependsOnFilePath: "A.java"},
+		},
+	}
+	svc := newTestService(t, fakeAnalyzer{result: result})
+	if err := svc.OpenProject(context.Background(), "/fake/project"); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+
+	done := make(chan struct{})
+	var radius []string
+	var err error
+	go func() {
+		radius, err = svc.GetBlastRadius(context.Background(), "A.java")
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("GetBlastRadius did not return — likely an infinite loop on the cycle")
+	}
+	if err != nil {
+		t.Fatalf("GetBlastRadius: %v", err)
+	}
+	if len(radius) != 1 || radius[0] != "B.java" {
+		t.Fatalf("radius = %v, want exactly [B.java]", radius)
+	}
+}
+
+func TestServiceGetBlastRadiusBeforeOpenProjectFails(t *testing.T) {
+	svc := NewService(nilStore{}, fakeAnalyzer{})
+	if _, err := svc.GetBlastRadius(context.Background(), "Foo.java"); !errors.Is(err, ErrNoActiveProject) {
+		t.Fatalf("expected ErrNoActiveProject, got %v", err)
 	}
 }

@@ -167,6 +167,48 @@ func walkFlow(ctx context.Context, store Store, rootNodeID string) ([]FlowStep, 
 	return steps, nil
 }
 
+// maxBlastRadiusDepth bounds GetBlastRadius's BFS the same way maxFlowDepth
+// bounds walkFlow — the visited set alone already guarantees termination
+// even on a cyclic dependency graph (Java allows mutual class references),
+// this is purely a latency/result-size ceiling for a pathologically
+// deep/wide dependency chain in a very large project.
+const maxBlastRadiusDepth = 32
+
+// GetBlastRadius returns every file that transitively depends on filePath —
+// "if I change this file, what else might be affected" — via repeated
+// one-hop Store.GetDependents lookups. filePath itself is never included in
+// the result even if a cycle routes back to it.
+func (s *Service) GetBlastRadius(ctx context.Context, filePath string) ([]string, error) {
+	store, err := s.activeStore()
+	if err != nil {
+		return nil, err
+	}
+
+	visited := map[string]bool{filePath: true}
+	var result []string
+	frontier := []string{filePath}
+	for depth := 0; len(frontier) > 0 && depth <= maxBlastRadiusDepth; depth++ {
+		var next []string
+		for _, f := range frontier {
+			dependents, err := store.GetDependents(ctx, f)
+			if err != nil {
+				return nil, err
+			}
+			for _, d := range dependents {
+				if visited[d] {
+					continue
+				}
+				visited[d] = true
+				result = append(result, d)
+				next = append(next, d)
+			}
+		}
+		frontier = next
+	}
+	sort.Strings(result)
+	return result, nil
+}
+
 // ListFiles walks the active project's root and returns every file and
 // directory (except .git) as a flat, path-sorted list. Symlinked entries are
 // listed but not followed further — WalkDir does not descend into a symlink
