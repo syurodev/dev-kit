@@ -1,0 +1,142 @@
+import { useEffect, useMemo, useState } from "react";
+import {
+  Background,
+  MarkerType,
+  Panel,
+  ReactFlow,
+  ReactFlowProvider,
+  useNodesInitialized,
+  useReactFlow,
+  type Edge,
+  type Node,
+} from "@xyflow/react";
+import "@xyflow/react/dist/style.css";
+import { ApiNode } from "./ApiNode";
+import { ConnectorEdge } from "./ConnectorEdge";
+import { LayerLegend } from "./LayerLegend";
+import { CanvasToolbar } from "./CanvasToolbar";
+import { rankGraph } from "./rank";
+import { place } from "./place";
+import type { CodeGraphEdge, CodeGraphNode } from "@/bridge/codegraph";
+
+const nodeTypes = { apiNode: ApiNode };
+const edgeTypes = { connector: ConnectorEdge };
+
+export type FlowCanvasProps = {
+  rootId: string;
+  nodes: CodeGraphNode[];
+  edges: CodeGraphEdge[];
+  onSelect: (nodeId: string) => void;
+};
+
+export function FlowCanvas(props: FlowCanvasProps) {
+  return (
+    <ReactFlowProvider>
+      <Canvas {...props} />
+    </ReactFlowProvider>
+  );
+}
+
+function Canvas({ rootId, nodes, edges, onSelect }: FlowCanvasProps) {
+  const { getNodes, setNodes, fitView } = useReactFlow();
+  const nodesInitialized = useNodesInitialized();
+  const [placed, setPlaced] = useState(false);
+
+  const ranks = useMemo(
+    () => rankGraph({ rootId, nodeIds: nodes.map((n) => n.id), edges }),
+    [rootId, nodes, edges],
+  );
+
+  // Everything starts at the origin and stays invisible until it has been
+  // measured and placed — that is what lets place() refuse to guess a size.
+  const initialNodes: Node[] = useMemo(
+    () =>
+      nodes.map((n) => ({
+        id: n.id,
+        type: "apiNode",
+        position: { x: 0, y: 0 },
+        data: {
+          layer: n.layer,
+          title: n.label,
+          detail: `${n.filePath.split("/").pop()}:${n.line}`,
+        },
+      })),
+    [nodes],
+  );
+
+  const flowEdges: Edge[] = useMemo(
+    () =>
+      edges.flatMap((e) => {
+        const from = ranks.get(e.from);
+        const to = ranks.get(e.to);
+        if (!from || !to) return [];
+        // A target in the same column continues the trunk and enters from the
+        // top; anything offset sideways is a branch and enters from the left.
+        const sameColumn = from.order === to.order;
+        return [
+          {
+            id: `${e.from}->${e.to}`,
+            source: e.from,
+            target: e.to,
+            sourceHandle: "bottom",
+            targetHandle: sameColumn ? "top" : "left",
+            type: "connector",
+            data: { kind: e.kind, showLabel: e.kind === "di" },
+            markerEnd: { type: MarkerType.Arrow, color: "var(--icon-secondary)" },
+          },
+        ];
+      }),
+    [edges, ranks],
+  );
+
+  useEffect(() => setPlaced(false), [initialNodes, flowEdges]);
+
+  useEffect(() => {
+    if (!nodesInitialized || placed) return;
+    const sizes = new Map(
+      getNodes().flatMap((n) =>
+        n.measured?.width && n.measured?.height
+          ? [[n.id, { width: n.measured.width, height: n.measured.height }] as const]
+          : [],
+      ),
+    );
+    const positions = place(ranks, sizes);
+    if (!positions) return;
+    setNodes((current) =>
+      current.map((n) => ({ ...n, position: positions.get(n.id) ?? n.position })),
+    );
+    setPlaced(true);
+    void fitView({ padding: 0.2, duration: 200 });
+  }, [nodesInitialized, placed, ranks, getNodes, setNodes, fitView]);
+
+  return (
+    <div className={placed ? "size-full" : "size-full opacity-0"}>
+      <ReactFlow
+        defaultNodes={initialNodes}
+        defaultEdges={flowEdges}
+        nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
+        // Read-only view: positions come from the layout, and nobody authors
+        // edges by hand, so both editing affordances are off.
+        nodesDraggable={false}
+        nodesConnectable={false}
+        onlyRenderVisibleElements
+        onNodeClick={(_, node) => onSelect(node.id)}
+        proOptions={{ hideAttribution: false }}
+      >
+        <Background gap={24} size={2} color="var(--text-tertiary)" />
+        <Panel position="bottom-left">
+          <LayerLegend />
+        </Panel>
+        <Panel position="top-right">
+          <CanvasToolbar
+            onSearch={() => {}}
+            onFit={() => void fitView({ padding: 0.2, duration: 200 })}
+            onExpand={() => {}}
+            fitActive
+          />
+        </Panel>
+      </ReactFlow>
+    </div>
+  );
+}
