@@ -253,3 +253,28 @@ func TestStoreGetDependentsNoMatch(t *testing.T) {
 		t.Fatalf("expected no dependents, got: %+v", dependents)
 	}
 }
+
+func TestStoreGetInEdges(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	if err := store.ReplaceIndex(ctx, sampleResult()); err != nil {
+		t.Fatalf("ReplaceIndex: %v", err)
+	}
+
+	// sampleResult has one edge: n1 -> n2.
+	edges, err := store.GetInEdges(ctx, "n2")
+	if err != nil {
+		t.Fatalf("GetInEdges: %v", err)
+	}
+	if len(edges) != 1 || edges[0].From != "n1" {
+		t.Fatalf("unexpected edges: %+v", edges)
+	}
+
+	none, err := store.GetInEdges(ctx, "n1")
+	if err != nil {
+		t.Fatalf("GetInEdges: %v", err)
+	}
+	if len(none) != 0 {
+		t.Fatalf("expected no in-edges for n1, got: %+v", none)
+	}
+}

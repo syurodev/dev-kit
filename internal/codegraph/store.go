@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS edges (
 	kind TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_edges_from ON edges(from_id);
+CREATE INDEX IF NOT EXISTS idx_edges_to ON edges(to_id);
 CREATE TABLE IF NOT EXISTS endpoints (
 	id TEXT PRIMARY KEY,
 	http_method TEXT NOT NULL,
@@ -167,6 +168,27 @@ func (s *sqliteStore) GetOutEdges(ctx context.Context, nodeID string) ([]Edge, e
 	rows, err := s.db.QueryContext(ctx, `SELECT from_id, to_id, kind FROM edges WHERE from_id = ?`, nodeID)
 	if err != nil {
 		return nil, fmt.Errorf("codegraph: GetOutEdges: %w", err)
+	}
+	defer rows.Close()
+
+	var out []Edge
+	for rows.Next() {
+		var e Edge
+		if err := rows.Scan(&e.From, &e.To, &e.Kind); err != nil {
+			return nil, fmt.Errorf("codegraph: scan edge: %w", err)
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// GetInEdges returns every edge pointing at nodeID — the reverse of
+// GetOutEdges. Used by GetNeighbors, which explores both directions around a
+// node (unlike walkFlow's directed-only call-chain walk).
+func (s *sqliteStore) GetInEdges(ctx context.Context, nodeID string) ([]Edge, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT from_id, to_id, kind FROM edges WHERE to_id = ? ORDER BY from_id`, nodeID)
+	if err != nil {
+		return nil, fmt.Errorf("codegraph: GetInEdges: %w", err)
 	}
 	defer rows.Close()
 

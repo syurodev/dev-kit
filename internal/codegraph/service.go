@@ -603,6 +603,7 @@ func (nilStore) GetEndpoint(context.Context, string) (Endpoint, error) {
 }
 func (nilStore) GetNode(context.Context, string) (Node, error)       { return Node{}, ErrNoActiveProject }
 func (nilStore) GetOutEdges(context.Context, string) ([]Edge, error) { return nil, ErrNoActiveProject }
+func (nilStore) GetInEdges(context.Context, string) ([]Edge, error)  { return nil, ErrNoActiveProject }
 func (nilStore) SearchSymbol(context.Context, string) ([]SymbolMatch, error) {
 	return nil, ErrNoActiveProject
 }

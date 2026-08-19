@@ -152,6 +152,7 @@ type Store interface {
 	GetEndpoint(ctx context.Context, endpointID string) (Endpoint, error)
 	GetNode(ctx context.Context, nodeID string) (Node, error)
 	GetOutEdges(ctx context.Context, nodeID string) ([]Edge, error)
+	GetInEdges(ctx context.Context, nodeID string) ([]Edge, error)
 	SearchSymbol(ctx context.Context, query string) ([]SymbolMatch, error)
 	FindNodeAtLine(ctx context.Context, filePath string, line int) (Node, bool, error)
 	GetDependents(ctx context.Context, filePath string) ([]string, error)
