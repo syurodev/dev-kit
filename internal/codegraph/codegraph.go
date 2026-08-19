@@ -48,24 +48,24 @@ type Endpoint struct {
 
 // FlowStep is one hop in an API flow.
 type FlowStep struct {
-	Label    string // matches the Node.Label it came from
-	FilePath string
-	Line     int
+	Label    string `json:"label"` // matches the Node.Label it came from
+	FilePath string `json:"filePath"`
+	Line     int    `json:"line"`
 }
 
 // ApiFlow is the full call chain discovered for one endpoint.
 type ApiFlow struct {
-	EndpointID string
-	Steps      []FlowStep
+	EndpointID string     `json:"endpointId"`
+	Steps      []FlowStep `json:"steps"`
 }
 
 // SymbolMatch is one SearchSymbol result.
 type SymbolMatch struct {
-	NodeID   string
-	Label    string
-	Kind     string
-	FilePath string
-	Line     int
+	NodeID   string `json:"nodeId"`
+	Label    string `json:"label"`
+	Kind     string `json:"kind"`
+	FilePath string `json:"filePath"`
+	Line     int    `json:"line"`
 }
 
 // AnalysisResult is everything an Analyzer produces for one project.

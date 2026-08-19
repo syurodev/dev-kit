@@ -13,6 +13,9 @@ import * as agenthub$0 from "../agenthub/models.js";
 import * as capabilities$0 from "../capabilities/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as codegraph$0 from "../codegraph/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as database$0 from "../database/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -93,6 +96,22 @@ export function AuthStatus(): $CancellablePromise<$models.AuthStatusDTO> {
  */
 export function Call(subject: string, capability: string, scope: string, metadata: { [_ in string]?: any } | null, handler: capabilities$0.Handler): $CancellablePromise<any> {
     return $Call.ByID(1812104438, subject, capability, scope, metadata, handler);
+}
+
+export function CodeGraphGetApiFlow(endpointID: string): $CancellablePromise<codegraph$0.ApiFlow> {
+    return $Call.ByID(3432526133, endpointID);
+}
+
+export function CodeGraphListEndpoints(): $CancellablePromise<codegraph$0.Endpoint[] | null> {
+    return $Call.ByID(1712846729);
+}
+
+export function CodeGraphOpenProject(path: string): $CancellablePromise<void> {
+    return $Call.ByID(1356804218, path);
+}
+
+export function CodeGraphSearchSymbol(query: string): $CancellablePromise<codegraph$0.SymbolMatch[] | null> {
+    return $Call.ByID(2248851381, query);
 }
 
 export function DBActiveProfile(): $CancellablePromise<$models.ActiveProfileDTO> {

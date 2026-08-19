@@ -38,20 +38,24 @@ export interface ModuleDTO {
 export interface SyncConflictDTO {
     "record_id": string;
     "record_type": string;
-    "local_change_key": string;
-    "remote_change_key": string;
+    "remote_operation": string;
+    "remote_entity_version": number;
+    "theirs_deleted": boolean;
     "detected_at": string;
 }
 
 /**
  * SyncConflictDetailDTO carries the on-demand decrypted note text for a
  * conflict so the UI can show ours vs theirs. For non-note (secret) types no
- * text is returned; the UI offers only Use ours / Use theirs.
+ * text is returned; the UI offers only Use ours / Use theirs. A deleted side
+ * has no text — the UI shows it as "(deleted)".
  */
 export interface SyncConflictDetailDTO {
     "record_id": string;
     "record_type": string;
     "theirs_captured": boolean;
+    "ours_deleted": boolean;
+    "theirs_deleted": boolean;
     "mergeable": boolean;
     "ours_text": string;
     "theirs_text": string;
@@ -76,6 +80,7 @@ export interface SyncReportDTO {
     "push_sent": number;
     "push_retried": number;
     "push_conflicts": number;
+    "push_failed": number;
     "pulled": number;
     "applied": number;
 }
