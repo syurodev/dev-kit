@@ -9,10 +9,13 @@ import (
 )
 
 type fakeCodeGraphAPI struct {
-	endpoints []codegraph.Endpoint
-	flow      codegraph.ApiFlow
-	matches   []codegraph.SymbolMatch
-	err       error
+	endpoints   []codegraph.Endpoint
+	flow        codegraph.ApiFlow
+	matches     []codegraph.SymbolMatch
+	files       []codegraph.FileEntry
+	fileContent string
+	snippet     codegraph.CodeSnippet
+	err         error
 }
 
 func (f fakeCodeGraphAPI) ListEndpoints(ctx context.Context) ([]codegraph.Endpoint, error) {
@@ -23,6 +26,15 @@ func (f fakeCodeGraphAPI) GetApiFlow(ctx context.Context, id string) (codegraph.
 }
 func (f fakeCodeGraphAPI) SearchSymbol(ctx context.Context, q string) ([]codegraph.SymbolMatch, error) {
 	return f.matches, f.err
+}
+func (f fakeCodeGraphAPI) ListFiles(ctx context.Context) ([]codegraph.FileEntry, error) {
+	return f.files, f.err
+}
+func (f fakeCodeGraphAPI) ReadFile(ctx context.Context, relativePath string) (string, error) {
+	return f.fileContent, f.err
+}
+func (f fakeCodeGraphAPI) GetCodeSnippet(ctx context.Context, filePath string, line, endLine int) (codegraph.CodeSnippet, error) {
+	return f.snippet, f.err
 }
 
 func TestToolCodeGraphListEndpoints(t *testing.T) {
@@ -37,6 +49,22 @@ func TestToolCodeGraphListEndpoints(t *testing.T) {
 	}
 	endpoints, ok := v.([]codegraph.Endpoint)
 	if !ok || len(endpoints) != 1 || endpoints[0].Path != "/orders" {
+		t.Fatalf("unexpected result: %#v", v)
+	}
+}
+
+func TestToolCodeGraphReadFile(t *testing.T) {
+	deps := Deps{
+		Caller:    &fakeCaller{},
+		CodeGraph: fakeCodeGraphAPI{fileContent: "package com.acme;"},
+	}
+	s := NewServer(deps)
+	_, v, err := s.toolCodeGraphReadFile(context.Background(), nil, codeGraphReadFileInput{RelativePath: "Foo.java"})
+	if err != nil {
+		t.Fatalf("toolCodeGraphReadFile: %v", err)
+	}
+	content, ok := v.(string)
+	if !ok || content != "package com.acme;" {
 		t.Fatalf("unexpected result: %#v", v)
 	}
 }

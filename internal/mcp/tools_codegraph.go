@@ -25,6 +25,24 @@ func (s *Server) registerCodeGraph() {
 		Description: "Search classes/methods by name in the active CodeGraph project",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolCodeGraphSearchSymbol)
+
+	sdk.AddTool(s.mcp, &sdk.Tool{
+		Name:        "codegraph.listFiles",
+		Description: "List every file and directory in the active CodeGraph project (not just .java)",
+		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
+	}, s.toolCodeGraphListFiles)
+
+	sdk.AddTool(s.mcp, &sdk.Tool{
+		Name:        "codegraph.readFile",
+		Description: "Read the full contents of one file in the active CodeGraph project",
+		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
+	}, s.toolCodeGraphReadFile)
+
+	sdk.AddTool(s.mcp, &sdk.Tool{
+		Name:        "codegraph.getCodeSnippet",
+		Description: "Get the real source for a method/class, snapped to its actual boundaries from the index",
+		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
+	}, s.toolCodeGraphGetCodeSnippet)
 }
 
 func (s *Server) toolCodeGraphListEndpoints(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {
@@ -58,6 +76,46 @@ type codeGraphSearchSymbolInput struct {
 func (s *Server) toolCodeGraphSearchSymbol(ctx context.Context, _ *sdk.CallToolRequest, in codeGraphSearchSymbolInput) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:read", "project:active", meta("search_symbol", map[string]any{"query": in.Query}), func(context.Context) (any, error) {
 		return s.deps.CodeGraph.SearchSymbol(ctx, in.Query)
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, v, nil
+}
+
+func (s *Server) toolCodeGraphListFiles(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:fs", "project:active", meta("list_files", nil), func(context.Context) (any, error) {
+		return s.deps.CodeGraph.ListFiles(ctx)
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, v, nil
+}
+
+type codeGraphReadFileInput struct {
+	RelativePath string `json:"relativePath"`
+}
+
+func (s *Server) toolCodeGraphReadFile(ctx context.Context, _ *sdk.CallToolRequest, in codeGraphReadFileInput) (*sdk.CallToolResult, any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:fs", "file:"+in.RelativePath, meta("read_file", map[string]any{"relative_path": in.RelativePath}), func(context.Context) (any, error) {
+		return s.deps.CodeGraph.ReadFile(ctx, in.RelativePath)
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, v, nil
+}
+
+type codeGraphGetCodeSnippetInput struct {
+	FilePath string `json:"filePath"`
+	Line     int    `json:"line"`
+	EndLine  int    `json:"endLine"`
+}
+
+func (s *Server) toolCodeGraphGetCodeSnippet(ctx context.Context, _ *sdk.CallToolRequest, in codeGraphGetCodeSnippetInput) (*sdk.CallToolResult, any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:fs", "file:"+in.FilePath, meta("get_code_snippet", map[string]any{"file_path": in.FilePath, "line": in.Line, "end_line": in.EndLine}), func(context.Context) (any, error) {
+		return s.deps.CodeGraph.GetCodeSnippet(ctx, in.FilePath, in.Line, in.EndLine)
 	})
 	if err != nil {
 		return nil, nil, err

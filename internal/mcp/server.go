@@ -107,6 +107,9 @@ type CodeGraphAPI interface {
 	ListEndpoints(ctx context.Context) ([]codegraph.Endpoint, error)
 	GetApiFlow(ctx context.Context, endpointID string) (codegraph.ApiFlow, error)
 	SearchSymbol(ctx context.Context, query string) ([]codegraph.SymbolMatch, error)
+	ListFiles(ctx context.Context) ([]codegraph.FileEntry, error)
+	ReadFile(ctx context.Context, relativePath string) (string, error)
+	GetCodeSnippet(ctx context.Context, filePath string, line, endLine int) (codegraph.CodeSnippet, error)
 }
 
 // VaultStatusResult is the structured output of vault.status.
