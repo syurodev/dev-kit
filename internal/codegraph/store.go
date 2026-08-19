@@ -4,6 +4,7 @@ package codegraph
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 
 	_ "modernc.org/sqlite"
@@ -17,7 +18,9 @@ CREATE TABLE IF NOT EXISTS nodes (
 	layer TEXT NOT NULL,
 	file_path TEXT NOT NULL,
 	line INTEGER NOT NULL,
-	end_line INTEGER NOT NULL
+	end_line INTEGER NOT NULL,
+	summary TEXT NOT NULL DEFAULT '',
+	params TEXT NOT NULL DEFAULT '[]'
 );
 CREATE TABLE IF NOT EXISTS edges (
 	from_id TEXT NOT NULL,
@@ -76,9 +79,13 @@ func (s *sqliteStore) ReplaceIndex(ctx context.Context, result AnalysisResult) e
 		}
 	}
 	for _, n := range result.Nodes {
+		paramsJSON, err := json.Marshal(n.Params)
+		if err != nil {
+			return fmt.Errorf("codegraph: marshal params for node %q: %w", n.ID, err)
+		}
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO nodes (id, label, kind, layer, file_path, line, end_line) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			n.ID, n.Label, n.Kind, n.Layer, n.FilePath, n.Line, n.EndLine); err != nil {
+			`INSERT INTO nodes (id, label, kind, layer, file_path, line, end_line, summary, params) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			n.ID, n.Label, n.Kind, n.Layer, n.FilePath, n.Line, n.EndLine, n.Summary, string(paramsJSON)); err != nil {
 			return fmt.Errorf("codegraph: insert node %q: %w", n.ID, err)
 		}
 	}
@@ -152,14 +159,18 @@ func (s *sqliteStore) GetEndpoint(ctx context.Context, endpointID string) (Endpo
 
 func (s *sqliteStore) GetNode(ctx context.Context, nodeID string) (Node, error) {
 	var n Node
+	var paramsJSON string
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, label, kind, layer, file_path, line, end_line FROM nodes WHERE id = ?`, nodeID,
-	).Scan(&n.ID, &n.Label, &n.Kind, &n.Layer, &n.FilePath, &n.Line, &n.EndLine)
+		`SELECT id, label, kind, layer, file_path, line, end_line, summary, params FROM nodes WHERE id = ?`, nodeID,
+	).Scan(&n.ID, &n.Label, &n.Kind, &n.Layer, &n.FilePath, &n.Line, &n.EndLine, &n.Summary, &paramsJSON)
 	if err == sql.ErrNoRows {
 		return Node{}, ErrNodeNotFound
 	}
 	if err != nil {
 		return Node{}, fmt.Errorf("codegraph: GetNode: %w", err)
+	}
+	if err := json.Unmarshal([]byte(paramsJSON), &n.Params); err != nil {
+		return Node{}, fmt.Errorf("codegraph: unmarshal params for node %q: %w", nodeID, err)
 	}
 	return n, nil
 }

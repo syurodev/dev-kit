@@ -278,3 +278,43 @@ func TestStoreGetInEdges(t *testing.T) {
 		t.Fatalf("expected no in-edges for n1, got: %+v", none)
 	}
 }
+
+func TestStoreGetNodePersistsSummaryAndParams(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	result := AnalysisResult{
+		Nodes: []Node{
+			{
+				ID: "n1", Label: "OrderService.create", Kind: "method", Layer: "service",
+				FilePath: "OrderService.java", Line: 10, EndLine: 20,
+				Summary: "Creates a new order for the given request.",
+				Params:  []Param{{Name: "request", Type: "OrderRequest"}, {Name: "userId", Type: "String"}},
+			},
+			// A class node with no summary/params — must round-trip as empty, not error.
+			{ID: "n2", Label: "OrderService", Kind: "class", Layer: "service", FilePath: "OrderService.java", Line: 1, EndLine: 40},
+		},
+	}
+	if err := store.ReplaceIndex(ctx, result); err != nil {
+		t.Fatalf("ReplaceIndex: %v", err)
+	}
+
+	got, err := store.GetNode(ctx, "n1")
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+	if got.Summary != "Creates a new order for the given request." {
+		t.Fatalf("Summary = %q", got.Summary)
+	}
+	if len(got.Params) != 2 || got.Params[0] != (Param{Name: "request", Type: "OrderRequest"}) || got.Params[1] != (Param{Name: "userId", Type: "String"}) {
+		t.Fatalf("Params = %+v", got.Params)
+	}
+
+	gotClass, err := store.GetNode(ctx, "n2")
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+	if gotClass.Summary != "" || len(gotClass.Params) != 0 {
+		t.Fatalf("expected empty Summary/Params for a class node, got %+v", gotClass)
+	}
+}
