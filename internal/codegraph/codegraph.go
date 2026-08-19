@@ -63,6 +63,30 @@ type ApiFlow struct {
 	Steps      []FlowStep `json:"steps"`
 }
 
+// NeighborFilter narrows a GetNeighbors query. Layers, when non-empty,
+// restricts results to nodes in one of the listed layers — the doc's own
+// "màu theo layer" framing is the only filter dimension asked for in v1;
+// add Kind/edge-kind filters later only if a real UI need shows up (YAGNI).
+//
+// Continuation carries pagination state: empty to start a fresh query from
+// rootID, or the exact string a previous truncated Subgraph.Continuation
+// returned to resume. It is an opaque decimal offset into a deterministic
+// (sorted-by-ID) ordering of the full depth-bounded neighborhood — see
+// GetNeighbors's doc comment for why an offset is enough (no server-side
+// cursor/session state needed).
+type NeighborFilter struct {
+	Layers       []string `json:"layers,omitempty"`
+	Continuation string   `json:"continuation,omitempty"`
+}
+
+// Subgraph is one bounded page of a GetNeighbors result.
+type Subgraph struct {
+	Nodes        []Node `json:"nodes"`
+	Edges        []Edge `json:"edges"`
+	Truncated    bool   `json:"truncated"`
+	Continuation string `json:"continuation,omitempty"` // pass back as NeighborFilter.Continuation to fetch the next page; empty when Truncated is false
+}
+
 // SymbolMatch is one SearchSymbol result.
 type SymbolMatch struct {
 	NodeID   string `json:"nodeId"`
