@@ -279,6 +279,143 @@ func addRecursive(w *fsnotify.Watcher, root string) error {
 	})
 }
 
+// restartWatcher stops any watcher from a previously opened project (waiting
+// for its goroutine to fully exit, so its *fsnotify.Watcher is closed before
+// a new one opens — avoids two watchers racing on the same underlying OS
+// resources across a rapid re-open) and starts a fresh one for root.
+func (s *Service) restartWatcher(root string) error {
+	s.mu.Lock()
+	oldCancel := s.watchCancel
+	oldDone := s.watchDone
+	s.mu.Unlock()
+	if oldCancel != nil {
+		oldCancel()
+		<-oldDone
+	}
+
+	w, err := fsnotify.NewWatcher()
+	if err != nil {
+		return fmt.Errorf("codegraph: create watcher: %w", err)
+	}
+	if err := addRecursive(w, root); err != nil {
+		w.Close()
+		return fmt.Errorf("codegraph: watch %q: %w", root, err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	s.mu.Lock()
+	s.watchCancel = cancel
+	s.watchDone = done
+	s.mu.Unlock()
+
+	go s.watchLoop(ctx, w, done)
+	return nil
+}
+
+// watchLoop owns w for its entire lifetime (closes it on exit) and debounces
+// fsnotify events into background re-index runs. A newer event cancels a
+// still-running re-index rather than letting it overwrite the index with
+// stale results once a fresher analyze has already started.
+func (s *Service) watchLoop(ctx context.Context, w *fsnotify.Watcher, done chan struct{}) {
+	defer close(done)
+	defer w.Close()
+
+	var timer *time.Timer
+	var timerC <-chan time.Time
+	var reindexCancel context.CancelFunc
+
+	resetDebounce := func() {
+		s.mu.RLock()
+		interval := s.debounceInterval
+		s.mu.RUnlock()
+		if timer == nil {
+			timer = time.NewTimer(interval)
+		} else {
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			timer.Reset(interval)
+		}
+		timerC = timer.C
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			if timer != nil {
+				timer.Stop()
+			}
+			if reindexCancel != nil {
+				reindexCancel()
+			}
+			return
+
+		case event, ok := <-w.Events:
+			if !ok {
+				return
+			}
+			if event.Has(fsnotify.Create) {
+				if info, statErr := os.Stat(event.Name); statErr == nil && info.IsDir() && filepath.Base(event.Name) != ".git" {
+					_ = w.Add(event.Name) // best-effort: a new package/dir created after watching started
+				}
+			}
+			resetDebounce()
+
+		case <-timerC:
+			timerC = nil
+			if reindexCancel != nil {
+				reindexCancel() // a slower-than-debounce previous run is still in flight — cancel it, its result would already be stale
+			}
+			reindexCtx, cancel := context.WithCancel(ctx)
+			reindexCancel = cancel
+			go s.runReindex(reindexCtx)
+
+		case _, ok := <-w.Errors:
+			if !ok {
+				return
+			}
+			// best-effort: a single watcher error (e.g. a transient OS-level
+			// read error) doesn't stop watching — the loop keeps running.
+		}
+	}
+}
+
+// runReindex is the background counterpart to OpenProject's analyze+replace
+// — deliberately more lenient on failure. OpenProject (an explicit, foreground
+// user action) marks the project inactive on any error, per its own existing
+// contract. A background trigger must not do that: a transient failure (e.g.
+// catching a file mid-save with temporarily invalid syntax, or ctx cancelled
+// by a newer event) should silently leave the last known-good index in
+// place, not blow away an already-working project out from under the user.
+// The next debounced trigger (or a manual re-index) gets another chance.
+func (s *Service) runReindex(ctx context.Context) {
+	s.mu.Lock()
+	s.reindexing = true
+	root := s.projectRoot
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		s.reindexing = false
+		s.mu.Unlock()
+	}()
+
+	result, err := s.analyzer.Analyze(ctx, root)
+	if err != nil {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.store.ReplaceIndex(ctx, result); err != nil {
+		return
+	}
+	s.indexVersion++
+}
+
 func (s *Service) ReadFile(ctx context.Context, relativePath string) (string, error) {
 	_, root, err := s.activeProject()
 	if err != nil {
