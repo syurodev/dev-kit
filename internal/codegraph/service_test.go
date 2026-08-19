@@ -346,3 +346,94 @@ func TestServiceWriteFileRejectsPathOutsideProject(t *testing.T) {
 		t.Fatalf("WriteFile = %v, want ErrPathOutsideProject", err)
 	}
 }
+
+func TestServiceGetCodeSnippetSnapsToEnclosingNode(t *testing.T) {
+	dir := t.TempDir()
+	javaSrc := "package com.acme;\n\nclass OrderService {\n    void create() {\n        // line 5\n        // line 6\n    }\n}\n"
+	if err := os.WriteFile(filepath.Join(dir, "OrderService.java"), []byte(javaSrc), 0o644); err != nil {
+		t.Fatalf("seed source: %v", err)
+	}
+	result := AnalysisResult{
+		Nodes: []Node{
+			{ID: "method1", Label: "com.acme.OrderService.create", Kind: "method", Layer: "service", FilePath: "OrderService.java", Line: 4, EndLine: 7},
+		},
+	}
+	svc := NewService(nilStore{}, fakeAnalyzer{result: result})
+	if err := svc.SetProjectPath(filepath.Join(t.TempDir(), "index.db")); err != nil {
+		t.Fatalf("SetProjectPath: %v", err)
+	}
+	if err := svc.OpenProject(context.Background(), dir); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+
+	// Ask for line 5 (mid-method) — the real answer should snap to the whole
+	// method's 4-7 range, not just line 5.
+	snippet, err := svc.GetCodeSnippet(context.Background(), "OrderService.java", 5, 5)
+	if err != nil {
+		t.Fatalf("GetCodeSnippet: %v", err)
+	}
+	if snippet.Line != 4 || snippet.EndLine != 7 {
+		t.Fatalf("snippet bounds = %d-%d, want 4-7 (snapped to enclosing method)", snippet.Line, snippet.EndLine)
+	}
+	if snippet.FQN != "com.acme.OrderService.create" {
+		t.Fatalf("snippet.FQN = %q, want com.acme.OrderService.create", snippet.FQN)
+	}
+	if snippet.FilePath != "OrderService.java" {
+		t.Fatalf("snippet.FilePath = %q, want OrderService.java", snippet.FilePath)
+	}
+	if snippet.Language != "java" {
+		t.Fatalf("snippet.Language = %q, want java", snippet.Language)
+	}
+	wantSource := "    void create() {\n        // line 5\n        // line 6\n    }"
+	if snippet.Source != wantSource {
+		t.Fatalf("snippet.Source = %q, want %q", snippet.Source, wantSource)
+	}
+}
+
+func TestServiceGetCodeSnippetFallsBackToInputWhenNoNodeMatches(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("line1\nline2\nline3\n"), 0o644); err != nil {
+		t.Fatalf("seed source: %v", err)
+	}
+	svc := NewService(nilStore{}, fakeAnalyzer{result: sampleResult()})
+	if err := svc.SetProjectPath(filepath.Join(t.TempDir(), "index.db")); err != nil {
+		t.Fatalf("SetProjectPath: %v", err)
+	}
+	if err := svc.OpenProject(context.Background(), dir); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+
+	// README.md is never in the index (only .java files are analyzed), so no
+	// node covers it — GetCodeSnippet must fall back to the input range as-is.
+	snippet, err := svc.GetCodeSnippet(context.Background(), "README.md", 1, 2)
+	if err != nil {
+		t.Fatalf("GetCodeSnippet: %v", err)
+	}
+	if snippet.Line != 1 || snippet.EndLine != 2 {
+		t.Fatalf("snippet bounds = %d-%d, want 1-2 (input, unchanged)", snippet.Line, snippet.EndLine)
+	}
+	if snippet.FQN != "" {
+		t.Fatalf("snippet.FQN = %q, want empty (no node matched)", snippet.FQN)
+	}
+	if snippet.Language != "markdown" {
+		t.Fatalf("snippet.Language = %q, want markdown", snippet.Language)
+	}
+	if snippet.Source != "line1\nline2" {
+		t.Fatalf("snippet.Source = %q, want %q", snippet.Source, "line1\nline2")
+	}
+}
+
+func TestServiceGetCodeSnippetRejectsPathOutsideProject(t *testing.T) {
+	dir := t.TempDir()
+	svc := NewService(nilStore{}, fakeAnalyzer{result: sampleResult()})
+	if err := svc.SetProjectPath(filepath.Join(t.TempDir(), "index.db")); err != nil {
+		t.Fatalf("SetProjectPath: %v", err)
+	}
+	if err := svc.OpenProject(context.Background(), dir); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+
+	if _, err := svc.GetCodeSnippet(context.Background(), "../../etc/passwd", 1, 1); !errors.Is(err, ErrPathOutsideProject) {
+		t.Fatalf("GetCodeSnippet = %v, want ErrPathOutsideProject", err)
+	}
+}

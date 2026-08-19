@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 )
 
@@ -234,6 +235,65 @@ func (s *Service) WriteFile(ctx context.Context, relativePath, content string) e
 		return fmt.Errorf("codegraph: write file: %w", err)
 	}
 	return nil
+}
+
+// GetCodeSnippet returns the real source text for filePath, snapped to the
+// enclosing method/class's actual boundaries when the index has one covering
+// line — the caller does not need to already know a method's exact line
+// range, e.g. clicking anywhere inside a graph node's body should still show
+// the whole method. Falls back to the input line/endLine verbatim when
+// nothing in the index covers that line (a non-Java file, or an unindexed
+// location) — still useful for arbitrary text files' File editing preview.
+func (s *Service) GetCodeSnippet(ctx context.Context, filePath string, line, endLine int) (CodeSnippet, error) {
+	store, root, err := s.activeProject()
+	if err != nil {
+		return CodeSnippet{}, err
+	}
+	resolved, err := resolvePath(root, filePath)
+	if err != nil {
+		return CodeSnippet{}, err
+	}
+
+	useLine, useEndLine, fqn := line, endLine, ""
+	if node, ok, err := store.FindNodeAtLine(ctx, filePath, line); err != nil {
+		return CodeSnippet{}, err
+	} else if ok {
+		useLine, useEndLine, fqn = node.Line, node.EndLine, node.Label
+	}
+
+	data, err := os.ReadFile(resolved)
+	if err != nil {
+		return CodeSnippet{}, fmt.Errorf("codegraph: read file: %w", err)
+	}
+	lines := strings.Split(string(data), "\n")
+	if useLine < 1 || useEndLine > len(lines) || useLine > useEndLine {
+		return CodeSnippet{}, fmt.Errorf("codegraph: line range %d-%d out of bounds for %q (%d lines)", useLine, useEndLine, filePath, len(lines))
+	}
+	source := strings.Join(lines[useLine-1:useEndLine], "\n")
+
+	return CodeSnippet{
+		FilePath: filePath,
+		Line:     useLine,
+		EndLine:  useEndLine,
+		Source:   source,
+		Language: languageForPath(filePath),
+		FQN:      fqn,
+	}, nil
+}
+
+func languageForPath(path string) string {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".java":
+		return "java"
+	case ".json":
+		return "json"
+	case ".yaml", ".yml":
+		return "yaml"
+	case ".md":
+		return "markdown"
+	default:
+		return ""
+	}
 }
 
 // nilStore is the container's placeholder Store before any project has been

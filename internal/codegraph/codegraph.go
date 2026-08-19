@@ -80,6 +80,18 @@ type FileEntry struct {
 	IsDir bool   `json:"isDir"`
 }
 
+// CodeSnippet is the result of GetCodeSnippet: the real source text for a
+// method/class, plus the boundaries actually used (which may differ from
+// the requested line/endLine — see GetCodeSnippet's doc comment).
+type CodeSnippet struct {
+	FilePath string `json:"filePath"`
+	Line     int    `json:"line"`
+	EndLine  int    `json:"endLine"`
+	Source   string `json:"source"`
+	Language string `json:"language"` // "java" | "json" | "yaml" | "markdown" | "" (unknown extension)
+	FQN      string `json:"fqn"`      // empty if the snippet didn't match exactly one indexed symbol
+}
+
 // AnalysisResult is everything an Analyzer produces for one project.
 type AnalysisResult struct {
 	Nodes     []Node     `json:"nodes"`
