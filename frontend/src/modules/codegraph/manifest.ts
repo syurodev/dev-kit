@@ -10,7 +10,7 @@ export const codegraphModule: ModuleManifest = {
   capabilities: ["codegraph:index", "codegraph:read"],
   commands: [
     {
-      id: "codegraph.openProject",
+      id: "codegraph.open_project",
       title: "Open Java project",
     },
   ],
