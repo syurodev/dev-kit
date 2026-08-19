@@ -33,12 +33,14 @@
     --color-bg-canvas: var(--background-canvas);
     --color-surface-base: var(--surface-base);
     --color-surface-raised: var(--surface-raised);
+    --color-surface-tinted: var(--surface-tinted);
     --color-surface-glass-floating: var(--surface-glass-floating);
     --color-surface-glass-modal: var(--surface-glass-modal);
 
     --color-text-primary: var(--text-primary);
     --color-text-secondary: var(--text-secondary);
     --color-text-tertiary: var(--text-tertiary);
+    --color-icon-secondary: var(--icon-secondary);
 
     --color-action-primary: var(--action-primary);
     --color-action-primary-foreground: var(--action-primary-foreground);
@@ -111,10 +113,12 @@
     --surface-raised: #23212c;
     --surface-glass-floating: rgba(35, 33, 44, 0.78);
     --surface-glass-modal: rgba(35, 33, 44, 0.92);
+    --surface-tinted: #32292f;
 
     --text-primary: #f0f1eb;
     --text-secondary: #c6c8c2;
     --text-tertiary: #8b8e8a;
+    --icon-secondary: #c6c8c2;
 
     --action-primary: #c6ff34;
     --action-primary-foreground: #020202;
