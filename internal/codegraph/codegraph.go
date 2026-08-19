@@ -92,11 +92,22 @@ type CodeSnippet struct {
 	FQN      string `json:"fqn"`      // empty if the snippet didn't match exactly one indexed symbol
 }
 
+// FileDependency is one file-level "depends on" edge — filePath imports or
+// otherwise references a symbol declared in dependsOnFilePath. Produced as a
+// byproduct of the analyzer's symbol resolution (it already knows this while
+// resolving Node/Edge — see AnalysisResult's doc comment); kept for
+// GetBlastRadius rather than recomputed later.
+type FileDependency struct {
+	FilePath          string `json:"filePath"`
+	DependsOnFilePath string `json:"dependsOnFilePath"`
+}
+
 // AnalysisResult is everything an Analyzer produces for one project.
 type AnalysisResult struct {
-	Nodes     []Node     `json:"nodes"`
-	Edges     []Edge     `json:"edges"`
-	Endpoints []Endpoint `json:"endpoints"`
+	Nodes            []Node           `json:"nodes"`
+	Edges            []Edge           `json:"edges"`
+	Endpoints        []Endpoint       `json:"endpoints"`
+	FileDependencies []FileDependency `json:"fileDependencies"`
 }
 
 // Validate checks internal consistency: every Edge and Endpoint must
