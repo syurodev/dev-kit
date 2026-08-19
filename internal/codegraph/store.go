@@ -40,6 +40,14 @@ CREATE TABLE IF NOT EXISTS file_dependencies (
 	depends_on_file_path TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_file_deps_depends_on ON file_dependencies(depends_on_file_path);
+CREATE TABLE IF NOT EXISTS field_accesses (
+	class_id TEXT NOT NULL,
+	node_id TEXT NOT NULL,
+	field_name TEXT NOT NULL,
+	kind TEXT NOT NULL,
+	line INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_field_accesses_lookup ON field_accesses(class_id, field_name);
 `
 
 // sqliteStore is a Store backed by one SQLite file per project. It is not
@@ -112,7 +120,7 @@ func (s *sqliteStore) ReplaceIndex(ctx context.Context, result AnalysisResult) e
 	}
 	defer tx.Rollback()
 
-	for _, table := range []string{"nodes", "edges", "endpoints", "file_dependencies"} {
+	for _, table := range []string{"nodes", "edges", "endpoints", "file_dependencies", "field_accesses"} {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table); err != nil {
 			return fmt.Errorf("codegraph: clear %s: %w", table, err)
 		}
@@ -147,6 +155,13 @@ func (s *sqliteStore) ReplaceIndex(ctx context.Context, result AnalysisResult) e
 			`INSERT INTO file_dependencies (file_path, depends_on_file_path) VALUES (?, ?)`,
 			fd.FilePath, fd.DependsOnFilePath); err != nil {
 			return fmt.Errorf("codegraph: insert file dependency %q->%q: %w", fd.FilePath, fd.DependsOnFilePath, err)
+		}
+	}
+	for _, fa := range result.FieldAccesses {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO field_accesses (class_id, node_id, field_name, kind, line) VALUES (?, ?, ?, ?, ?)`,
+			fa.ClassID, fa.NodeID, fa.FieldName, fa.Kind, fa.Line); err != nil {
+			return fmt.Errorf("codegraph: insert field access %q.%q: %w", fa.ClassID, fa.FieldName, err)
 		}
 	}
 	if err := tx.Commit(); err != nil {
@@ -292,6 +307,26 @@ func (s *sqliteStore) GetDependents(ctx context.Context, filePath string) ([]str
 			return nil, fmt.Errorf("codegraph: scan dependent: %w", err)
 		}
 		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
+func (s *sqliteStore) GetFieldAccesses(ctx context.Context, classID, fieldName string) ([]FieldAccess, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT class_id, node_id, field_name, kind, line FROM field_accesses WHERE class_id = ? AND field_name = ? ORDER BY line`,
+		classID, fieldName)
+	if err != nil {
+		return nil, fmt.Errorf("codegraph: GetFieldAccesses: %w", err)
+	}
+	defer rows.Close()
+
+	var out []FieldAccess
+	for rows.Next() {
+		var fa FieldAccess
+		if err := rows.Scan(&fa.ClassID, &fa.NodeID, &fa.FieldName, &fa.Kind, &fa.Line); err != nil {
+			return nil, fmt.Errorf("codegraph: scan field access: %w", err)
+		}
+		out = append(out, fa)
 	}
 	return out, rows.Err()
 }

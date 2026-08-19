@@ -409,3 +409,71 @@ CREATE TABLE endpoints (
 		t.Fatalf("unexpected node2: %+v", node2)
 	}
 }
+
+func TestStoreGetFieldAccesses(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	result := sampleResult()
+	result.FieldAccesses = []FieldAccess{
+		{ClassID: "n1", NodeID: "n1", FieldName: "total", Kind: "write", Line: 12},
+		{ClassID: "n1", NodeID: "n2", FieldName: "total", Kind: "read", Line: 22},
+		{ClassID: "n1", NodeID: "n2", FieldName: "status", Kind: "write", Line: 25}, // different field — must not show up
+	}
+	if err := store.ReplaceIndex(ctx, result); err != nil {
+		t.Fatalf("ReplaceIndex: %v", err)
+	}
+
+	accesses, err := store.GetFieldAccesses(ctx, "n1", "total")
+	if err != nil {
+		t.Fatalf("GetFieldAccesses: %v", err)
+	}
+	if len(accesses) != 2 {
+		t.Fatalf("accesses = %+v, want 2", accesses)
+	}
+	if accesses[0].Line != 12 || accesses[0].Kind != "write" {
+		t.Fatalf("accesses[0] = %+v, want line 12 write (ordered by line)", accesses[0])
+	}
+	if accesses[1].Line != 22 || accesses[1].Kind != "read" {
+		t.Fatalf("accesses[1] = %+v, want line 22 read", accesses[1])
+	}
+}
+
+func TestStoreGetFieldAccessesNoMatch(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	if err := store.ReplaceIndex(ctx, sampleResult()); err != nil {
+		t.Fatalf("ReplaceIndex: %v", err)
+	}
+
+	accesses, err := store.GetFieldAccesses(ctx, "n1", "nonexistentField")
+	if err != nil {
+		t.Fatalf("GetFieldAccesses: %v", err)
+	}
+	if len(accesses) != 0 {
+		t.Fatalf("expected no accesses, got: %+v", accesses)
+	}
+}
+
+func TestStoreReplaceIndexClearsOldFieldAccesses(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	first := sampleResult()
+	first.FieldAccesses = []FieldAccess{{ClassID: "n1", NodeID: "n1", FieldName: "total", Kind: "write", Line: 12}}
+	if err := store.ReplaceIndex(ctx, first); err != nil {
+		t.Fatalf("first ReplaceIndex: %v", err)
+	}
+
+	if err := store.ReplaceIndex(ctx, sampleResult()); err != nil { // no FieldAccesses
+		t.Fatalf("second ReplaceIndex: %v", err)
+	}
+
+	accesses, err := store.GetFieldAccesses(ctx, "n1", "total")
+	if err != nil {
+		t.Fatalf("GetFieldAccesses: %v", err)
+	}
+	if len(accesses) != 0 {
+		t.Fatalf("expected accesses cleared after replace, got: %+v", accesses)
+	}
+}

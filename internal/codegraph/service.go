@@ -240,6 +240,46 @@ func (s *Service) GetBlastRadius(ctx context.Context, filePath string) ([]string
 	return result, nil
 }
 
+// TraceDataFlow lists every method already in the index that reads or
+// writes fieldName on the class symbolID — a filtered lookup over data the
+// analyzer already resolved, not a fresh call-graph walk (an agent wanting
+// "who calls the method that writes this field" already has GetNeighbors or
+// GetBlastRadius to compose with, once it has one of these NodeIDs). Not
+// cached — per the design doc, cheap enough to recompute every call.
+func (s *Service) TraceDataFlow(ctx context.Context, symbolID, fieldName string) (DataFlowTrace, error) {
+	store, err := s.activeStore()
+	if err != nil {
+		return DataFlowTrace{}, err
+	}
+	if _, err := store.GetNode(ctx, symbolID); err != nil {
+		return DataFlowTrace{}, err
+	}
+
+	accesses, err := store.GetFieldAccesses(ctx, symbolID, fieldName)
+	if err != nil {
+		return DataFlowTrace{}, err
+	}
+
+	steps := make([]DataFlowStep, 0, len(accesses))
+	for _, a := range accesses {
+		node, err := store.GetNode(ctx, a.NodeID)
+		if err != nil {
+			if errors.Is(err, ErrNodeNotFound) {
+				continue // index drifted between the two reads; skip rather than fail the whole trace
+			}
+			return DataFlowTrace{}, err
+		}
+		steps = append(steps, DataFlowStep{
+			NodeID:   a.NodeID,
+			Label:    node.Label,
+			FilePath: node.FilePath,
+			Line:     a.Line,
+			Kind:     a.Kind,
+		})
+	}
+	return DataFlowTrace{SymbolID: symbolID, FieldName: fieldName, Steps: steps}, nil
+}
+
 const (
 	// maxNeighborDepth bounds how many hops GetNeighbors will walk, same
 	// defensive-ceiling reasoning as maxFlowDepth/maxBlastRadiusDepth.
@@ -781,6 +821,9 @@ func (nilStore) FindNodeAtLine(context.Context, string, int) (Node, bool, error)
 	return Node{}, false, ErrNoActiveProject
 }
 func (nilStore) GetDependents(context.Context, string) ([]string, error) {
+	return nil, ErrNoActiveProject
+}
+func (nilStore) GetFieldAccesses(context.Context, string, string) ([]FieldAccess, error) {
 	return nil, ErrNoActiveProject
 }
 func (nilStore) Close() error { return nil }

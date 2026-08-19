@@ -1203,3 +1203,74 @@ func TestServiceGetNeighborsCarriesSummaryAndParams(t *testing.T) {
 		t.Fatalf("Params = %+v", sub.Nodes[0].Params)
 	}
 }
+
+func dataFlowFixture() AnalysisResult {
+	return AnalysisResult{
+		Nodes: []Node{
+			{ID: "cls", Label: "com.acme.Order", Kind: "class", Layer: "unknown", FilePath: "Order.java", Line: 1, EndLine: 50},
+			{ID: "m1", Label: "com.acme.Order.setTotal", Kind: "method", Layer: "unknown", FilePath: "Order.java", Line: 10, EndLine: 12},
+			{ID: "m2", Label: "com.acme.Order.getTotal", Kind: "method", Layer: "unknown", FilePath: "Order.java", Line: 14, EndLine: 16},
+		},
+		FieldAccesses: []FieldAccess{
+			{ClassID: "cls", NodeID: "m1", FieldName: "total", Kind: "write", Line: 11},
+			{ClassID: "cls", NodeID: "m2", FieldName: "total", Kind: "read", Line: 15},
+		},
+	}
+}
+
+func TestServiceTraceDataFlow(t *testing.T) {
+	svc := newTestService(t, fakeAnalyzer{result: dataFlowFixture()})
+	if err := svc.OpenProject(context.Background(), "/fake/project"); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+
+	trace, err := svc.TraceDataFlow(context.Background(), "cls", "total")
+	if err != nil {
+		t.Fatalf("TraceDataFlow: %v", err)
+	}
+	if trace.SymbolID != "cls" || trace.FieldName != "total" {
+		t.Fatalf("trace = %+v", trace)
+	}
+	if len(trace.Steps) != 2 {
+		t.Fatalf("steps = %+v, want 2", trace.Steps)
+	}
+	if trace.Steps[0].NodeID != "m1" || trace.Steps[0].Kind != "write" || trace.Steps[0].Label != "com.acme.Order.setTotal" {
+		t.Fatalf("steps[0] = %+v", trace.Steps[0])
+	}
+	if trace.Steps[1].NodeID != "m2" || trace.Steps[1].Kind != "read" || trace.Steps[1].Label != "com.acme.Order.getTotal" {
+		t.Fatalf("steps[1] = %+v", trace.Steps[1])
+	}
+}
+
+func TestServiceTraceDataFlowNoAccessesReturnsEmpty(t *testing.T) {
+	svc := newTestService(t, fakeAnalyzer{result: dataFlowFixture()})
+	if err := svc.OpenProject(context.Background(), "/fake/project"); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+
+	trace, err := svc.TraceDataFlow(context.Background(), "cls", "nonexistentField")
+	if err != nil {
+		t.Fatalf("TraceDataFlow: %v", err)
+	}
+	if len(trace.Steps) != 0 {
+		t.Fatalf("steps = %+v, want none", trace.Steps)
+	}
+}
+
+func TestServiceTraceDataFlowUnknownSymbolFails(t *testing.T) {
+	svc := newTestService(t, fakeAnalyzer{result: dataFlowFixture()})
+	if err := svc.OpenProject(context.Background(), "/fake/project"); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+
+	if _, err := svc.TraceDataFlow(context.Background(), "does-not-exist", "total"); !errors.Is(err, ErrNodeNotFound) {
+		t.Fatalf("expected ErrNodeNotFound, got %v", err)
+	}
+}
+
+func TestServiceTraceDataFlowBeforeOpenProjectFails(t *testing.T) {
+	svc := NewService(nilStore{}, fakeAnalyzer{})
+	if _, err := svc.TraceDataFlow(context.Background(), "cls", "total"); !errors.Is(err, ErrNoActiveProject) {
+		t.Fatalf("expected ErrNoActiveProject, got %v", err)
+	}
+}

@@ -143,12 +143,43 @@ type FileDependency struct {
 	DependsOnFilePath string `json:"dependsOnFilePath"`
 }
 
+// FieldAccess is one "method X reads/writes field Y" fact, scoped to the
+// class that declares the field (classID is that class's Node.ID) — Java
+// field access is normally limited to the declaring class (or a subclass),
+// so accesses are always looked up together with the class they belong to,
+// never by field name alone across the whole project.
+type FieldAccess struct {
+	ClassID   string `json:"classId"`
+	NodeID    string `json:"nodeId"` // the method Node.ID that performs the access
+	FieldName string `json:"fieldName"`
+	Kind      string `json:"kind"` // "read" | "write"
+	Line      int    `json:"line"`
+}
+
+// DataFlowStep is one method that reads or writes the traced field.
+type DataFlowStep struct {
+	NodeID   string `json:"nodeId"`
+	Label    string `json:"label"`
+	FilePath string `json:"filePath"`
+	Line     int    `json:"line"`
+	Kind     string `json:"kind"` // "read" | "write"
+}
+
+// DataFlowTrace is TraceDataFlow's result: every already-indexed method that
+// touches one field on one class.
+type DataFlowTrace struct {
+	SymbolID  string         `json:"symbolId"`
+	FieldName string         `json:"fieldName"`
+	Steps     []DataFlowStep `json:"steps"`
+}
+
 // AnalysisResult is everything an Analyzer produces for one project.
 type AnalysisResult struct {
 	Nodes            []Node           `json:"nodes"`
 	Edges            []Edge           `json:"edges"`
 	Endpoints        []Endpoint       `json:"endpoints"`
 	FileDependencies []FileDependency `json:"fileDependencies"`
+	FieldAccesses    []FieldAccess    `json:"fieldAccesses"`
 }
 
 // Validate checks internal consistency: every Edge and Endpoint must
@@ -197,5 +228,6 @@ type Store interface {
 	SearchSymbol(ctx context.Context, query string) ([]SymbolMatch, error)
 	FindNodeAtLine(ctx context.Context, filePath string, line int) (Node, bool, error)
 	GetDependents(ctx context.Context, filePath string) ([]string, error)
+	GetFieldAccesses(ctx context.Context, classID, fieldName string) ([]FieldAccess, error)
 	Close() error
 }
