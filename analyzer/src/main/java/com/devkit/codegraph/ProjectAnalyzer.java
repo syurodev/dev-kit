@@ -68,6 +68,14 @@ public class ProjectAnalyzer {
 
             for (MethodDeclaration methodDecl : classDecl.getMethods()) {
                 addMethodNode(methodDecl, layer, relativePath, result);
+                EndpointExtractor.extract(classDecl, methodDecl).ifPresent(mapping -> {
+                    Endpoint endpoint = new Endpoint();
+                    endpoint.id = mapping.httpMethod() + " " + mapping.path();
+                    endpoint.httpMethod = mapping.httpMethod();
+                    endpoint.path = mapping.path();
+                    endpoint.entryNode = className + "." + methodDecl.resolve().getSignature();
+                    result.endpoints.add(endpoint);
+                });
             }
         }
     }

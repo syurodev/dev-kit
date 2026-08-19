@@ -73,6 +73,18 @@ class ProjectAnalyzerTest {
         assertTrue(hasMethodB, "method b() should still be indexed even though method a() has an unresolvable call");
     }
 
+    @Test
+    void detectsEndpointFromControllerAnnotations() throws IOException {
+        Path projectRoot = Path.of("src/test/resources/sample-project");
+        AnalysisResult result = new ProjectAnalyzer(projectRoot).analyze();
+
+        assertEquals(1, result.endpoints.size(), "expected exactly the RefundController.create endpoint: " + result.endpoints);
+        Endpoint endpoint = result.endpoints.get(0);
+        assertEquals("POST", endpoint.httpMethod);
+        assertEquals("/refunds", endpoint.path);
+        assertEquals("POST /refunds", endpoint.id);
+    }
+
     private boolean hasCallEdge(AnalysisResult result, String fromLabel, String toLabel) {
         return result.edges.stream().anyMatch(e ->
                 e.kind.equals("call")

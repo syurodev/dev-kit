@@ -17,6 +17,7 @@ public class Main {
     }
 
     public static void run(String projectPath, String outputPath) throws IOException {
-        AnalysisResultWriter.write(Path.of(outputPath), new AnalysisResult());
+        AnalysisResult result = new ProjectAnalyzer(Path.of(projectPath)).analyze();
+        AnalysisResultWriter.write(Path.of(outputPath), result);
     }
 }
