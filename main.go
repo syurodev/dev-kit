@@ -210,17 +210,18 @@ func main() {
 		return applyNativeTheme(mainWindow, theme)
 	})
 	mcpServer := mcp.NewServerFromContainer(mcp.Deps{
-		Caller:   appService,
-		Notes:    container.Notes,
-		Vault:    container.Vault,
-		Search:   mcp.NewSearchAPI(container.Items),
-		Tools:    container.HashTools,
-		Envs:     container.Environments,
-		SSH:      container.SSH,
-		DB:       container.Database,
-		Kafka:    container.Kafka,
-		AgentHub: container.AgentHub,
-		Hub:      hub,
+		Caller:    appService,
+		Notes:     container.Notes,
+		Vault:     container.Vault,
+		Search:    mcp.NewSearchAPI(container.Items),
+		Tools:     container.HashTools,
+		Envs:      container.Environments,
+		SSH:       container.SSH,
+		DB:        container.Database,
+		Kafka:     container.Kafka,
+		CodeGraph: container.CodeGraph,
+		AgentHub:  container.AgentHub,
+		Hub:       hub,
 	})
 	mcpCtx, mcpCancel := context.WithCancel(context.Background())
 	defer mcpCancel()

@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"devkit/internal/capabilities"
+	"devkit/internal/codegraph"
 	"devkit/internal/database"
 	"devkit/internal/environments"
 	"devkit/internal/interaction"
@@ -101,6 +102,13 @@ type KafkaAPI interface {
 	PublishMessage(ctx context.Context, req kafka.PublishRequest) (kafka.PublishResult, error)
 }
 
+// CodeGraphAPI is the codegraph domain surface MCP tools invoke.
+type CodeGraphAPI interface {
+	ListEndpoints(ctx context.Context) ([]codegraph.Endpoint, error)
+	GetApiFlow(ctx context.Context, endpointID string) (codegraph.ApiFlow, error)
+	SearchSymbol(ctx context.Context, query string) ([]codegraph.SymbolMatch, error)
+}
+
 // VaultStatusResult is the structured output of vault.status.
 type VaultStatusResult struct {
 	State string `json:"state"`
@@ -120,10 +128,11 @@ type Deps struct {
 	Tools    ToolsAPI
 	Envs     EnvAPI
 	SSH      SSHAPI
-	DB       DatabaseAPI
-	Kafka    KafkaAPI
-	AgentHub AgentHubAPI      // optional nil until wired from main
-	Hub      *interaction.Hub // optional nil → headless
+	DB        DatabaseAPI
+	Kafka     KafkaAPI
+	CodeGraph CodeGraphAPI
+	AgentHub  AgentHubAPI      // optional nil until wired from main
+	Hub       *interaction.Hub // optional nil → headless
 }
 
 // Server hosts the MCP tool registry for DevKit.
@@ -145,6 +154,7 @@ func NewServer(d Deps) *Server {
 	s.registerDatabase()
 	s.registerKafka()
 	s.registerAgentHub()
+	s.registerCodeGraph()
 	return s
 }
 
