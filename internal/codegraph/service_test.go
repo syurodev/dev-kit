@@ -172,6 +172,14 @@ func TestServiceSetProjectPathSwapsStore(t *testing.T) {
 	}
 }
 
+func TestServiceSetProjectPathCreatesParentDir(t *testing.T) {
+	svc := NewService(nilStore{}, fakeAnalyzer{})
+	nested := filepath.Join(t.TempDir(), "does", "not", "exist", "yet", "index.db")
+	if err := svc.SetProjectPath(nested); err != nil {
+		t.Fatalf("SetProjectPath with nested new dir: %v", err)
+	}
+}
+
 // TestServiceConcurrentAccessIsRaceFree pits SetProjectPath/OpenProject
 // (writers of s.store/s.active) against ListEndpoints (a reader) running at
 // the same time. Before activeStore() existed, ListEndpoints read s.store

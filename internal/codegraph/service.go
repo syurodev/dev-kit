@@ -4,6 +4,8 @@ package codegraph
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 )
 
@@ -31,6 +33,9 @@ func NewService(store Store, analyzer Analyzer) *Service {
 // previous one. Call this once per OpenProject, before running the analyzer,
 // so a fresh analyze always starts from a clean per-project store.
 func (s *Service) SetProjectPath(dbPath string) error {
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
+		return fmt.Errorf("codegraph: create project store dir: %w", err)
+	}
 	store, err := newSQLiteStore(dbPath)
 	if err != nil {
 		return fmt.Errorf("codegraph: open project store: %w", err)
