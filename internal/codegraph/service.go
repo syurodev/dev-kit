@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 // maxFlowDepth caps the BFS walk in GetApiFlow so a pathological call graph
@@ -26,10 +27,23 @@ type Service struct {
 	analyzer    Analyzer
 	active      bool
 	projectRoot string
+
+	indexVersion int
+	reindexing   bool
+	// debounceInterval is the quiet period after the last fsnotify event
+	// before a re-index actually runs. 750ms in production; tests shorten it
+	// (this is an unexported field set directly in-package, same pattern
+	// internal/cloudconfig.RefreshOptions uses for its own test-shortenable
+	// PollInterval, just without needing an exported options struct here
+	// since Service already owns its own lifecycle).
+	debounceInterval time.Duration
+
+	watchCancel context.CancelFunc
+	watchDone   chan struct{}
 }
 
 func NewService(store Store, analyzer Analyzer) *Service {
-	return &Service{store: store, analyzer: analyzer}
+	return &Service{store: store, analyzer: analyzer, debounceInterval: 750 * time.Millisecond}
 }
 
 // SetProjectPath points the service at a new project's on-disk index file,
