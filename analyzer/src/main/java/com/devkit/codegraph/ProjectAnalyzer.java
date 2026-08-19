@@ -92,6 +92,24 @@ public class ProjectAnalyzer {
             node.endLine = range.end.line;
         }
         result.nodes.add(node);
+
+        addCallEdges(methodDecl, node.id, result);
+    }
+
+    private void addCallEdges(MethodDeclaration methodDecl, String fromNodeId, AnalysisResult result) {
+        for (com.github.javaparser.ast.expr.MethodCallExpr call : methodDecl.findAll(com.github.javaparser.ast.expr.MethodCallExpr.class)) {
+            ResolvedMethodDeclaration target;
+            try {
+                target = call.resolve();
+            } catch (Exception e) {
+                // Unresolved call (missing jar in the local cache, dynamic
+                // dispatch the solver can't follow, etc.) — FR-8: this is a
+                // gap in the graph, not a fatal error for the whole project.
+                continue;
+            }
+            String toNodeId = target.declaringType().getQualifiedName() + "." + target.getSignature();
+            result.edges.add(new Edge(fromNodeId, toNodeId, "call"));
+        }
     }
 
     private Node classNode(String qualifiedName, String layer, String relativePath, Optional<Range> range) {
