@@ -3,11 +3,13 @@ package codegraph
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -230,6 +232,152 @@ func (s *Service) GetBlastRadius(ctx context.Context, filePath string) ([]string
 	}
 	sort.Strings(result)
 	return result, nil
+}
+
+const (
+	// maxNeighborDepth bounds how many hops GetNeighbors will walk, same
+	// defensive-ceiling reasoning as maxFlowDepth/maxBlastRadiusDepth.
+	maxNeighborDepth = 6
+	// maxNeighborNodes is the hard per-page node ceiling frontend-performance.mdx
+	// requires ("Ceiling node/edge cứng"). Chosen as a reasonable single-screen
+	// subgraph size for v1 — no UI exists yet to tune this against real usage.
+	maxNeighborNodes = 200
+)
+
+// GetNeighbors returns a bounded subgraph around rootID: every node
+// reachable within depth hops in EITHER edge direction (unlike GetApiFlow's
+// directed-only walk — this is "what's connected to this node", not a call
+// chain), filtered by filter.Layers, paginated to at most maxNeighborNodes
+// per call.
+//
+// Pagination: the full depth-bounded neighborhood is computed first (bounded
+// by the capped depth, same as GetBlastRadius's transitive closure), then
+// sorted by node ID for a stable, deterministic order, then sliced by
+// filter.Continuation's offset. This keeps Continuation a plain string
+// offset — no server-side cursor/session state — at the cost of a stale
+// offset silently skipping/duplicating a node if the index changes between
+// pages (e.g. a background re-index lands mid-pagination); accepted for v1,
+// same class of tradeoff the design doc's "layout cache invalidates on
+// re-index" note already expects callers to handle.
+func (s *Service) GetNeighbors(ctx context.Context, rootID string, depth int, filter NeighborFilter) (Subgraph, error) {
+	store, err := s.activeStore()
+	if err != nil {
+		return Subgraph{}, err
+	}
+
+	root, err := store.GetNode(ctx, rootID)
+	if err != nil {
+		return Subgraph{}, err
+	}
+
+	if depth < 0 {
+		depth = 0
+	}
+	if depth > maxNeighborDepth {
+		depth = maxNeighborDepth
+	}
+	allowedLayer := func(n Node) bool {
+		if len(filter.Layers) == 0 {
+			return true
+		}
+		for _, l := range filter.Layers {
+			if l == n.Layer {
+				return true
+			}
+		}
+		return false
+	}
+
+	visited := map[string]Node{rootID: root}
+	edgeSeen := map[string]bool{}
+	var allEdges []Edge
+	frontier := []string{rootID}
+
+	for d := 0; d < depth && len(frontier) > 0; d++ {
+		sort.Strings(frontier)
+		var next []string
+		for _, id := range frontier {
+			outEdges, err := store.GetOutEdges(ctx, id)
+			if err != nil {
+				return Subgraph{}, err
+			}
+			inEdges, err := store.GetInEdges(ctx, id)
+			if err != nil {
+				return Subgraph{}, err
+			}
+			for _, e := range append(outEdges, inEdges...) {
+				key := e.From + "->" + e.To
+				if !edgeSeen[key] {
+					edgeSeen[key] = true
+					allEdges = append(allEdges, e)
+				}
+				other := e.To
+				if other == id {
+					other = e.From
+				}
+				if _, ok := visited[other]; ok {
+					continue
+				}
+				n, err := store.GetNode(ctx, other)
+				if err != nil {
+					if errors.Is(err, ErrNodeNotFound) {
+						continue
+					}
+					return Subgraph{}, err
+				}
+				if !allowedLayer(n) {
+					continue
+				}
+				visited[n.ID] = n
+				next = append(next, n.ID)
+			}
+		}
+		frontier = next
+	}
+
+	ids := make([]string, 0, len(visited))
+	for id := range visited {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	offset := 0
+	if filter.Continuation != "" {
+		parsed, convErr := strconv.Atoi(filter.Continuation)
+		if convErr != nil || parsed < 0 {
+			return Subgraph{}, fmt.Errorf("codegraph: invalid continuation %q", filter.Continuation)
+		}
+		offset = parsed
+	}
+	if offset > len(ids) {
+		offset = len(ids)
+	}
+	end := offset + maxNeighborNodes
+	truncated := end < len(ids)
+	if end > len(ids) {
+		end = len(ids)
+	}
+	pageIDs := ids[offset:end]
+
+	nodes := make([]Node, 0, len(pageIDs))
+	pageSet := make(map[string]bool, len(pageIDs))
+	for _, id := range pageIDs {
+		nodes = append(nodes, visited[id])
+		pageSet[id] = true
+	}
+
+	var edges []Edge
+	for _, e := range allEdges {
+		if pageSet[e.From] && pageSet[e.To] {
+			edges = append(edges, e)
+		}
+	}
+
+	continuation := ""
+	if truncated {
+		continuation = strconv.Itoa(end)
+	}
+	return Subgraph{Nodes: nodes, Edges: edges, Truncated: truncated, Continuation: continuation}, nil
 }
 
 // ListFiles walks the active project's root and returns every file and

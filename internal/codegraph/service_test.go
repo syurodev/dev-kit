@@ -4,6 +4,7 @@ package codegraph
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -897,4 +898,194 @@ func TestServiceStaleReindexDoesNotClobberNewProject(t *testing.T) {
 	if len(nodesA) != 0 {
 		t.Fatalf("expected no symbols from project A in project B, got: %+v", nodesA)
 	}
+}
+
+func neighborsFixture() AnalysisResult {
+	// n1(controller) -> n2(service) -> n3(repository); n4(controller) is
+	// isolated, unreachable from n1 within any depth.
+	return AnalysisResult{
+		Nodes: []Node{
+			{ID: "n1", Label: "Controller.handle", Kind: "method", Layer: "controller", FilePath: "C.java", Line: 1, EndLine: 5},
+			{ID: "n2", Label: "Service.process", Kind: "method", Layer: "service", FilePath: "S.java", Line: 1, EndLine: 5},
+			{ID: "n3", Label: "Repository.save", Kind: "method", Layer: "repository", FilePath: "R.java", Line: 1, EndLine: 5},
+			{ID: "n4", Label: "Other.handle", Kind: "method", Layer: "controller", FilePath: "O.java", Line: 1, EndLine: 5},
+		},
+		Edges: []Edge{
+			{From: "n1", To: "n2", Kind: "call"},
+			{From: "n2", To: "n3", Kind: "call"},
+		},
+	}
+}
+
+func TestServiceGetNeighborsDepthOne(t *testing.T) {
+	svc := newTestService(t, fakeAnalyzer{result: neighborsFixture()})
+	if err := svc.OpenProject(context.Background(), "/fake/project"); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+
+	sub, err := svc.GetNeighbors(context.Background(), "n2", 1, NeighborFilter{})
+	if err != nil {
+		t.Fatalf("GetNeighbors: %v", err)
+	}
+	ids := nodeIDs(sub.Nodes)
+	// n2 itself, plus n1 (in-edge) and n3 (out-edge) — n4 is unreachable.
+	wantIDs := map[string]bool{"n1": true, "n2": true, "n3": true}
+	if len(ids) != 3 {
+		t.Fatalf("nodes = %v, want exactly n1,n2,n3", ids)
+	}
+	for _, id := range ids {
+		if !wantIDs[id] {
+			t.Fatalf("unexpected node %q in result: %v", id, ids)
+		}
+	}
+	if len(sub.Edges) != 2 {
+		t.Fatalf("edges = %+v, want 2 (n1->n2, n2->n3)", sub.Edges)
+	}
+	if sub.Truncated {
+		t.Fatal("did not expect truncation for a 3-node result under any reasonable ceiling")
+	}
+}
+
+func TestServiceGetNeighborsDepthZeroReturnsOnlyRoot(t *testing.T) {
+	svc := newTestService(t, fakeAnalyzer{result: neighborsFixture()})
+	if err := svc.OpenProject(context.Background(), "/fake/project"); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+
+	sub, err := svc.GetNeighbors(context.Background(), "n2", 0, NeighborFilter{})
+	if err != nil {
+		t.Fatalf("GetNeighbors: %v", err)
+	}
+	if len(sub.Nodes) != 1 || sub.Nodes[0].ID != "n2" {
+		t.Fatalf("nodes = %v, want exactly [n2]", nodeIDs(sub.Nodes))
+	}
+	if len(sub.Edges) != 0 {
+		t.Fatalf("edges = %+v, want none at depth 0", sub.Edges)
+	}
+}
+
+func TestServiceGetNeighborsFiltersByLayer(t *testing.T) {
+	svc := newTestService(t, fakeAnalyzer{result: neighborsFixture()})
+	if err := svc.OpenProject(context.Background(), "/fake/project"); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+
+	sub, err := svc.GetNeighbors(context.Background(), "n2", 2, NeighborFilter{Layers: []string{"service"}})
+	if err != nil {
+		t.Fatalf("GetNeighbors: %v", err)
+	}
+	// Only n2 itself matches "service" — n1 (controller) and n3 (repository)
+	// are excluded even though they're within depth 2.
+	if len(sub.Nodes) != 1 || sub.Nodes[0].ID != "n2" {
+		t.Fatalf("nodes = %v, want exactly [n2]", nodeIDs(sub.Nodes))
+	}
+}
+
+func TestServiceGetNeighborsTruncatesAndResumes(t *testing.T) {
+	// Star graph: root n0 directly connected to 5 others. Force the ceiling
+	// down via a tiny artificial limit isn't possible without exporting it,
+	// so this test instead drives a large-enough fixture with the real
+	// constant and asserts the offset/resume contract, not an exact count —
+	// see Step 3's maxNeighborNodes value before finalizing the fixture size.
+	nodes := []Node{{ID: "root", Label: "Root", Kind: "class", Layer: "unknown", FilePath: "Root.java", Line: 1, EndLine: 1}}
+	var edges []Edge
+	const spokes = maxNeighborNodes + 10
+	for i := 0; i < spokes; i++ {
+		id := fmt.Sprintf("leaf%03d", i)
+		nodes = append(nodes, Node{ID: id, Label: id, Kind: "class", Layer: "unknown", FilePath: id + ".java", Line: 1, EndLine: 1})
+		edges = append(edges, Edge{From: "root", To: id, Kind: "call"})
+	}
+	svc := newTestService(t, fakeAnalyzer{result: AnalysisResult{Nodes: nodes, Edges: edges}})
+	if err := svc.OpenProject(context.Background(), "/fake/project"); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+
+	first, err := svc.GetNeighbors(context.Background(), "root", 1, NeighborFilter{})
+	if err != nil {
+		t.Fatalf("GetNeighbors (first page): %v", err)
+	}
+	if !first.Truncated {
+		t.Fatalf("expected truncation with %d spokes against maxNeighborNodes=%d", spokes, maxNeighborNodes)
+	}
+	if len(first.Nodes) != maxNeighborNodes {
+		t.Fatalf("first page = %d nodes, want exactly maxNeighborNodes=%d", len(first.Nodes), maxNeighborNodes)
+	}
+	if first.Continuation == "" {
+		t.Fatal("expected a non-empty Continuation when truncated")
+	}
+
+	second, err := svc.GetNeighbors(context.Background(), "root", 1, NeighborFilter{Continuation: first.Continuation})
+	if err != nil {
+		t.Fatalf("GetNeighbors (second page): %v", err)
+	}
+
+	firstIDs := nodeIDs(first.Nodes)
+	secondIDs := nodeIDs(second.Nodes)
+	overlap := map[string]bool{}
+	for _, id := range firstIDs {
+		overlap[id] = true
+	}
+	for _, id := range secondIDs {
+		if overlap[id] {
+			t.Fatalf("node %q appeared in both pages — resumption is not skipping already-returned nodes", id)
+		}
+	}
+	if len(firstIDs)+len(secondIDs) == 0 {
+		t.Fatal("both pages empty")
+	}
+}
+
+func TestServiceGetNeighborsHandlesCycle(t *testing.T) {
+	result := AnalysisResult{
+		Nodes: []Node{
+			{ID: "a", Label: "A", Kind: "class", Layer: "unknown", FilePath: "A.java", Line: 1, EndLine: 1},
+			{ID: "b", Label: "B", Kind: "class", Layer: "unknown", FilePath: "B.java", Line: 1, EndLine: 1},
+		},
+		Edges: []Edge{
+			{From: "a", To: "b", Kind: "call"},
+			{From: "b", To: "a", Kind: "call"},
+		},
+	}
+	svc := newTestService(t, fakeAnalyzer{result: result})
+	if err := svc.OpenProject(context.Background(), "/fake/project"); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+
+	done := make(chan struct{})
+	var sub Subgraph
+	var err error
+	go func() {
+		sub, err = svc.GetNeighbors(context.Background(), "a", 5, NeighborFilter{})
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("GetNeighbors did not return — likely an infinite loop on the cycle")
+	}
+	if err != nil {
+		t.Fatalf("GetNeighbors: %v", err)
+	}
+	if len(sub.Nodes) != 2 {
+		t.Fatalf("nodes = %v, want exactly [a, b]", nodeIDs(sub.Nodes))
+	}
+}
+
+func TestServiceGetNeighborsUnknownRootFails(t *testing.T) {
+	svc := newTestService(t, fakeAnalyzer{result: neighborsFixture()})
+	if err := svc.OpenProject(context.Background(), "/fake/project"); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+
+	if _, err := svc.GetNeighbors(context.Background(), "does-not-exist", 1, NeighborFilter{}); !errors.Is(err, ErrNodeNotFound) {
+		t.Fatalf("expected ErrNodeNotFound, got %v", err)
+	}
+}
+
+func nodeIDs(nodes []Node) []string {
+	ids := make([]string, len(nodes))
+	for i, n := range nodes {
+		ids[i] = n.ID
+	}
+	return ids
 }
