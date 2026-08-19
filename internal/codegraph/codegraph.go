@@ -18,6 +18,10 @@ var (
 	// ErrNodeNotFound is returned when a node/endpoint ID does not exist in
 	// the active project's index.
 	ErrNodeNotFound = errors.New("codegraph: node not found")
+	// ErrPathOutsideProject is returned by ReadFile/WriteFile/GetCodeSnippet
+	// when the resolved path (symlinks included) falls outside the active
+	// project's root.
+	ErrPathOutsideProject = errors.New("codegraph: path outside project root")
 )
 
 // Node is a class or method discovered during indexing.
