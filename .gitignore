@@ -1,6 +1,8 @@
 # Task / build output
 .task
 bin
+target/
+analyzer/target/
 
 # Frontend
 frontend/dist
