@@ -80,13 +80,17 @@ func (s *Service) OpenProject(ctx context.Context, projectPath string) error {
 		return fmt.Errorf("codegraph: analyze %q: %w", projectPath, err)
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if err := s.store.ReplaceIndex(ctx, result); err != nil {
 		s.active = false
+		s.mu.Unlock()
 		return fmt.Errorf("codegraph: replace index: %w", err)
 	}
 	s.active = true
 	s.projectRoot = projectPath
+	s.indexVersion++
+	s.mu.Unlock()
+
+	_ = s.restartWatcher(projectPath) // non-fatal: see restartWatcher's doc comment
 	return nil
 }
 
@@ -414,6 +418,23 @@ func (s *Service) runReindex(ctx context.Context) {
 		return
 	}
 	s.indexVersion++
+}
+
+// Close stops the background file watcher, if one is running, and waits for
+// its goroutine to fully exit. Safe to call even if no project was ever
+// opened (watchCancel is nil then — a no-op). Does not close the Store; the
+// container that constructed this Service owns that lifecycle separately
+// (see internal/app/container.go's existing Database/SSH/Kafka Close calls).
+func (s *Service) Close() error {
+	s.mu.Lock()
+	cancel := s.watchCancel
+	done := s.watchDone
+	s.mu.Unlock()
+	if cancel != nil {
+		cancel()
+		<-done
+	}
+	return nil
 }
 
 func (s *Service) ReadFile(ctx context.Context, relativePath string) (string, error) {

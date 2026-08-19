@@ -590,3 +590,22 @@ func TestAddRecursiveWatchesNestedDirs(t *testing.T) {
 		t.Fatalf(".git should not be watched, got %v", watched)
 	}
 }
+
+func TestServiceOpenProjectStartsWatcherNonFatally(t *testing.T) {
+	// A project path that doesn't exist on disk can't be watched (fsnotify.Add
+	// fails), but OpenProject must still succeed — auto-trigger degrades
+	// gracefully, it never blocks the project from opening.
+	svc := newTestService(t, fakeAnalyzer{result: sampleResult()})
+	if err := svc.OpenProject(context.Background(), "/fake/project"); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+	t.Cleanup(func() { svc.Close() })
+
+	endpoints, err := svc.ListEndpoints(context.Background())
+	if err != nil {
+		t.Fatalf("ListEndpoints: %v", err)
+	}
+	if len(endpoints) == 0 {
+		t.Fatal("expected the project to still be usable despite the watcher failing to start")
+	}
+}
