@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+
+	"devkit/internal/terminal"
 )
 
 // maxFlowDepth caps the BFS walk in GetApiFlow so a pathological call graph
@@ -31,6 +33,8 @@ type Service struct {
 	analyzer    Analyzer
 	active      bool
 	projectRoot string
+
+	terminalRegistry *terminal.Registry
 
 	indexVersion   int
 	reindexing     bool
@@ -72,6 +76,44 @@ func (s *Service) SetProjectPath(dbPath string) error {
 		old.Close()
 	}
 	return nil
+}
+
+// SetTerminalRegistry wires the shared Terminal primitive's Registry into
+// this Service — called once from container construction (see main.go),
+// separately from NewService so NewService's signature (used by every
+// existing test in this package) doesn't need to change.
+func (s *Service) SetTerminalRegistry(reg *terminal.Registry) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.terminalRegistry = reg
+}
+
+// StartTerminal opens a local shell ($SHELL, falling back to /bin/sh) at
+// the active project's root and registers it with the shared Terminal
+// Registry, returning its session ID. Matches the design doc's own
+// sequence: Service itself creates the PTY and registers it — the bridge
+// layer only handles the capability check and delegates here.
+func (s *Service) StartTerminal(rows, cols int) (string, error) {
+	_, root, err := s.activeProject()
+	if err != nil {
+		return "", err
+	}
+	s.mu.RLock()
+	reg := s.terminalRegistry
+	s.mu.RUnlock()
+	if reg == nil {
+		return "", ErrTerminalNotConfigured
+	}
+
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "/bin/sh"
+	}
+	pty, err := terminal.NewLocalPTY(shell, root, rows, cols)
+	if err != nil {
+		return "", fmt.Errorf("codegraph: start terminal: %w", err)
+	}
+	return reg.Register("builtin.codegraph", pty), nil
 }
 
 // OpenProject runs the analyzer over projectPath and replaces the active

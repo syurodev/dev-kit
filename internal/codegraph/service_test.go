@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+
+	"devkit/internal/terminal"
 )
 
 // fakeAnalyzer is the test double every other test in this package (and the
@@ -1272,5 +1274,44 @@ func TestServiceTraceDataFlowBeforeOpenProjectFails(t *testing.T) {
 	svc := NewService(nilStore{}, fakeAnalyzer{})
 	if _, err := svc.TraceDataFlow(context.Background(), "cls", "total"); !errors.Is(err, ErrNoActiveProject) {
 		t.Fatalf("expected ErrNoActiveProject, got %v", err)
+	}
+}
+
+func TestServiceStartTerminalUsesProjectRootAsCwd(t *testing.T) {
+	dir := t.TempDir()
+	svc := newTestService(t, fakeAnalyzer{result: sampleResult()})
+	reg := terminal.NewRegistry(nil)
+	svc.SetTerminalRegistry(reg)
+	if err := svc.OpenProject(context.Background(), dir); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+
+	sessionID, err := svc.StartTerminal(24, 80)
+	if err != nil {
+		t.Fatalf("StartTerminal: %v", err)
+	}
+	defer reg.Close(sessionID)
+
+	owner, ok := reg.Owner(sessionID)
+	if !ok || owner != "builtin.codegraph" {
+		t.Fatalf("Owner = %q, %v", owner, ok)
+	}
+}
+
+func TestServiceStartTerminalBeforeOpenProjectFails(t *testing.T) {
+	svc := NewService(nilStore{}, fakeAnalyzer{})
+	svc.SetTerminalRegistry(terminal.NewRegistry(nil))
+	if _, err := svc.StartTerminal(24, 80); !errors.Is(err, ErrNoActiveProject) {
+		t.Fatalf("expected ErrNoActiveProject, got %v", err)
+	}
+}
+
+func TestServiceStartTerminalWithoutRegistryFails(t *testing.T) {
+	svc := newTestService(t, fakeAnalyzer{result: sampleResult()})
+	if err := svc.OpenProject(context.Background(), t.TempDir()); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+	if _, err := svc.StartTerminal(24, 80); !errors.Is(err, ErrTerminalNotConfigured) {
+		t.Fatalf("expected ErrTerminalNotConfigured, got %v", err)
 	}
 }

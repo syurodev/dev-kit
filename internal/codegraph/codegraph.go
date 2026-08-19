@@ -22,6 +22,11 @@ var (
 	// when the resolved path (symlinks included) falls outside the active
 	// project's root.
 	ErrPathOutsideProject = errors.New("codegraph: path outside project root")
+	// ErrTerminalNotConfigured is returned by StartTerminal when no
+	// *terminal.Registry has been wired in via SetTerminalRegistry — the
+	// container always wires a real one (see main.go), this only fires for
+	// an ephemeral/test Service that never called SetTerminalRegistry.
+	ErrTerminalNotConfigured = errors.New("codegraph: terminal registry not configured")
 )
 
 // Param is one method parameter's name and type, e.g. {Name: "request", Type:
