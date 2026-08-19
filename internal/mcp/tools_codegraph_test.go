@@ -9,14 +9,15 @@ import (
 )
 
 type fakeCodeGraphAPI struct {
-	endpoints   []codegraph.Endpoint
-	flow        codegraph.ApiFlow
-	matches     []codegraph.SymbolMatch
-	files       []codegraph.FileEntry
-	fileContent string
-	snippet     codegraph.CodeSnippet
-	blastRadius []string
-	err         error
+	endpoints    []codegraph.Endpoint
+	flow         codegraph.ApiFlow
+	matches      []codegraph.SymbolMatch
+	files        []codegraph.FileEntry
+	fileContent  string
+	snippet      codegraph.CodeSnippet
+	blastRadius  []string
+	indexVersion int
+	err          error
 }
 
 func (f fakeCodeGraphAPI) ListEndpoints(ctx context.Context) ([]codegraph.Endpoint, error) {
@@ -39,6 +40,9 @@ func (f fakeCodeGraphAPI) GetCodeSnippet(ctx context.Context, filePath string, l
 }
 func (f fakeCodeGraphAPI) GetBlastRadius(ctx context.Context, filePath string) ([]string, error) {
 	return f.blastRadius, f.err
+}
+func (f fakeCodeGraphAPI) WaitForIndexReady(ctx context.Context) (int, error) {
+	return f.indexVersion, f.err
 }
 
 func TestToolCodeGraphListEndpoints(t *testing.T) {
@@ -85,6 +89,22 @@ func TestToolCodeGraphGetBlastRadius(t *testing.T) {
 	}
 	radius, ok := v.([]string)
 	if !ok || len(radius) != 1 || radius[0] != "Controller.java" {
+		t.Fatalf("unexpected result: %#v", v)
+	}
+}
+
+func TestToolCodeGraphWaitForIndexReady(t *testing.T) {
+	deps := Deps{
+		Caller:    &fakeCaller{},
+		CodeGraph: fakeCodeGraphAPI{indexVersion: 3},
+	}
+	s := NewServer(deps)
+	_, v, err := s.toolCodeGraphWaitForIndexReady(context.Background(), nil, struct{}{})
+	if err != nil {
+		t.Fatalf("toolCodeGraphWaitForIndexReady: %v", err)
+	}
+	version, ok := v.(int)
+	if !ok || version != 3 {
 		t.Fatalf("unexpected result: %#v", v)
 	}
 }

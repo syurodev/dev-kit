@@ -71,6 +71,18 @@ func (s *AppService) CodeGraphGetBlastRadius(filePath string) ([]string, error) 
 	return result.([]string), nil
 }
 
+func (s *AppService) CodeGraphWaitForIndexReady() (int, error) {
+	result, err := s.call(context.Background(), "builtin.codegraph", "codegraph:read", "project:active", map[string]any{
+		"action": "wait_for_index_ready",
+	}, func(ctx context.Context) (any, error) {
+		return s.container.CodeGraph.WaitForIndexReady(ctx)
+	})
+	if err != nil {
+		return 0, err
+	}
+	return result.(int), nil
+}
+
 func (s *AppService) CodeGraphListFiles() ([]codegraph.FileEntry, error) {
 	result, err := s.call(context.Background(), "builtin.codegraph", "codegraph:fs", "project:active", map[string]any{
 		"action": "list_files",

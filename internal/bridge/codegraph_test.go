@@ -158,3 +158,23 @@ func TestCodeGraphGetBlastRadius(t *testing.T) {
 		t.Fatalf("unexpected radius: %+v", radius)
 	}
 }
+
+func TestCodeGraphWaitForIndexReady(t *testing.T) {
+	s := newTestService(t)
+	s.container.CodeGraph = codegraph.NewService(codegraph.NewNilStore(), fakeCodeGraphAnalyzer{result: codegraph.AnalysisResult{}})
+	if err := s.container.CodeGraph.SetProjectPath(filepath.Join(t.TempDir(), "index.db")); err != nil {
+		t.Fatalf("SetProjectPath: %v", err)
+	}
+	if err := s.container.CodeGraph.OpenProject(context.Background(), "/fake/project"); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+	t.Cleanup(func() { s.container.CodeGraph.Close() })
+
+	version, err := s.CodeGraphWaitForIndexReady()
+	if err != nil {
+		t.Fatalf("CodeGraphWaitForIndexReady: %v", err)
+	}
+	if version != 1 {
+		t.Fatalf("version = %d, want 1", version)
+	}
+}

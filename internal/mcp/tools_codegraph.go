@@ -49,6 +49,12 @@ func (s *Server) registerCodeGraph() {
 		Description: "List files that depend (import/reference) on a given file, transitively",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolCodeGraphGetBlastRadius)
+
+	sdk.AddTool(s.mcp, &sdk.Tool{
+		Name:        "codegraph.waitForIndexReady",
+		Description: "Block until any pending or in-progress re-index finishes, then return the current index version",
+		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
+	}, s.toolCodeGraphWaitForIndexReady)
 }
 
 func (s *Server) toolCodeGraphListEndpoints(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {
@@ -136,6 +142,16 @@ type codeGraphGetBlastRadiusInput struct {
 func (s *Server) toolCodeGraphGetBlastRadius(ctx context.Context, _ *sdk.CallToolRequest, in codeGraphGetBlastRadiusInput) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:read", "project:active", meta("get_blast_radius", map[string]any{"file_path": in.FilePath}), func(context.Context) (any, error) {
 		return s.deps.CodeGraph.GetBlastRadius(ctx, in.FilePath)
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, v, nil
+}
+
+func (s *Server) toolCodeGraphWaitForIndexReady(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:read", "project:active", meta("wait_for_index_ready", nil), func(context.Context) (any, error) {
+		return s.deps.CodeGraph.WaitForIndexReady(ctx)
 	})
 	if err != nil {
 		return nil, nil, err
