@@ -171,6 +171,8 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.ssh", Capability: "ssh:forward", Scope: "forward:*"},
 		{SubjectID: "builtin.codegraph", Capability: "codegraph:index", Scope: "project:new"},
 		{SubjectID: "builtin.codegraph", Capability: "codegraph:read", Scope: "project:active"},
+		{SubjectID: "builtin.codegraph", Capability: "codegraph:fs", Scope: "project:active"},
+		{SubjectID: "builtin.codegraph", Capability: "codegraph:fs", Scope: "file:*"},
 		{SubjectID: "builtin.kafka", Capability: "kafka:connect", Scope: "profile:list"},
 		{SubjectID: "builtin.kafka", Capability: "kafka:connect", Scope: "profile:new"},
 		{SubjectID: "builtin.kafka", Capability: "kafka:connect", Scope: "profile:*"},
