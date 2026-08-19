@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -678,5 +679,88 @@ func TestServiceCloseStopsWatcher(t *testing.T) {
 		// watchLoop goroutine exited, as expected
 	case <-time.After(time.Second):
 		t.Fatal("watchLoop did not exit after Close")
+	}
+}
+
+type countingAnalyzer struct {
+	result AnalysisResult
+	calls  *atomic.Int32
+}
+
+func (c countingAnalyzer) Analyze(ctx context.Context, projectPath string) (AnalysisResult, error) {
+	c.calls.Add(1)
+	return c.result, nil
+}
+
+func TestServiceAutoReindexOnFileChange(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "Foo.java"), []byte("class Foo {}"), 0o644); err != nil {
+		t.Fatalf("seed file: %v", err)
+	}
+
+	var calls atomic.Int32
+	svc := newTestService(t, countingAnalyzer{result: sampleResult(), calls: &calls})
+	svc.debounceInterval = 20 * time.Millisecond
+	if err := svc.OpenProject(context.Background(), dir); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+	t.Cleanup(func() { svc.Close() })
+
+	initialCalls := calls.Load()
+
+	if err := os.WriteFile(filepath.Join(dir, "Foo.java"), []byte("class Foo { void bar() {} }"), 0o644); err != nil {
+		t.Fatalf("modify file: %v", err)
+	}
+	// Give fsnotify time to actually deliver the OS-level event before
+	// polling — WaitForIndexReady only observes state that has already been
+	// set by the watch loop, it cannot wait for an event that hasn't arrived
+	// yet (see this plan's "Known limitation"). 50ms is generous headroom
+	// over real fsnotify delivery latency (typically sub-5ms locally) while
+	// staying well under the debounce interval's own margin below.
+	time.Sleep(50 * time.Millisecond)
+
+	waitCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := svc.WaitForIndexReady(waitCtx); err != nil {
+		t.Fatalf("WaitForIndexReady: %v", err)
+	}
+
+	if calls.Load() <= initialCalls {
+		t.Fatalf("expected the analyzer to be called again after the file change, calls = %d (was %d)", calls.Load(), initialCalls)
+	}
+}
+
+func TestServiceReopeningStopsWatchingOldProject(t *testing.T) {
+	dirA := t.TempDir()
+	dirB := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dirA, "Foo.java"), []byte("class Foo {}"), 0o644); err != nil {
+		t.Fatalf("seed A: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dirB, "Bar.java"), []byte("class Bar {}"), 0o644); err != nil {
+		t.Fatalf("seed B: %v", err)
+	}
+
+	var calls atomic.Int32
+	svc := newTestService(t, countingAnalyzer{result: sampleResult(), calls: &calls})
+	svc.debounceInterval = 20 * time.Millisecond
+	if err := svc.OpenProject(context.Background(), dirA); err != nil {
+		t.Fatalf("OpenProject A: %v", err)
+	}
+	if err := svc.OpenProject(context.Background(), dirB); err != nil {
+		t.Fatalf("OpenProject B: %v", err)
+	}
+	t.Cleanup(func() { svc.Close() })
+
+	callsAfterBothOpens := calls.Load()
+
+	// Modify a file in the now-abandoned project A — must NOT trigger a
+	// reindex; the watcher should have moved entirely to B.
+	if err := os.WriteFile(filepath.Join(dirA, "Foo.java"), []byte("class Foo { void bar() {} }"), 0o644); err != nil {
+		t.Fatalf("modify A: %v", err)
+	}
+	time.Sleep(100 * time.Millisecond) // comfortably longer than debounceInterval
+
+	if calls.Load() != callsAfterBothOpens {
+		t.Fatalf("expected no reindex from changes in the abandoned project, calls = %d (was %d)", calls.Load(), callsAfterBothOpens)
 	}
 }
