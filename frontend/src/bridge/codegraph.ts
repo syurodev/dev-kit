@@ -69,3 +69,23 @@ export async function searchCodeGraphSymbol(query: string): Promise<CodeGraphSym
     }));
   });
 }
+
+export type CodeGraphFileEntry = {
+  path: string;
+  isDir: boolean;
+};
+
+export async function listCodeGraphFiles(): Promise<CodeGraphFileEntry[]> {
+  return callBridge(async () => {
+    const list = await AppService.CodeGraphListFiles();
+    return (list ?? []).map((f) => ({ path: f.path, isDir: f.isDir }));
+  });
+}
+
+export async function readCodeGraphFile(relativePath: string): Promise<string> {
+  return callBridge(() => AppService.CodeGraphReadFile(relativePath));
+}
+
+export async function writeCodeGraphFile(relativePath: string, content: string): Promise<void> {
+  return callBridge(() => AppService.CodeGraphWriteFile(relativePath, content));
+}
