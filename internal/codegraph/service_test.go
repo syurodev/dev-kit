@@ -561,6 +561,12 @@ func TestAddRecursiveWatchesNestedDirs(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {
 		t.Fatalf("mkdir .git: %v", err)
 	}
+	if err := os.MkdirAll(filepath.Join(dir, "target", "classes"), 0o755); err != nil {
+		t.Fatalf("mkdir target: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "node_modules", "pkg"), 0o755); err != nil {
+		t.Fatalf("mkdir node_modules: %v", err)
+	}
 
 	w, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -589,6 +595,12 @@ func TestAddRecursiveWatchesNestedDirs(t *testing.T) {
 	}
 	if has(filepath.Join(dir, ".git")) {
 		t.Fatalf(".git should not be watched, got %v", watched)
+	}
+	if has(filepath.Join(dir, "target")) || has(filepath.Join(dir, "target", "classes")) {
+		t.Fatalf("target should not be watched, got %v", watched)
+	}
+	if has(filepath.Join(dir, "node_modules")) || has(filepath.Join(dir, "node_modules", "pkg")) {
+		t.Fatalf("node_modules should not be watched, got %v", watched)
 	}
 }
 
@@ -762,5 +774,127 @@ func TestServiceReopeningStopsWatchingOldProject(t *testing.T) {
 
 	if calls.Load() != callsAfterBothOpens {
 		t.Fatalf("expected no reindex from changes in the abandoned project, calls = %d (was %d)", calls.Load(), callsAfterBothOpens)
+	}
+}
+
+func TestServiceWaitForIndexReadyWaitsDuringDebounce(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "Foo.java"), []byte("class Foo {}"), 0o644); err != nil {
+		t.Fatalf("seed file: %v", err)
+	}
+
+	var calls atomic.Int32
+	svc := newTestService(t, countingAnalyzer{result: sampleResult(), calls: &calls})
+	// Use a 150ms debounce interval to ensure the debounce window is comfortably observable
+	svc.debounceInterval = 150 * time.Millisecond
+	if err := svc.OpenProject(context.Background(), dir); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+	t.Cleanup(func() { svc.Close() })
+
+	initialCalls := calls.Load()
+
+	if err := os.WriteFile(filepath.Join(dir, "Foo.java"), []byte("class Foo { void bar() {} }"), 0o644); err != nil {
+		t.Fatalf("modify file: %v", err)
+	}
+	// Give fsnotify 10ms to deliver event and set reindexPending = true
+	time.Sleep(10 * time.Millisecond)
+
+	start := time.Now()
+	waitCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := svc.WaitForIndexReady(waitCtx); err != nil {
+		t.Fatalf("WaitForIndexReady: %v", err)
+	}
+	elapsed := time.Since(start)
+
+	// Must have waited at least ~100ms (debounce remaining) and reindexed
+	if elapsed < 80*time.Millisecond {
+		t.Fatalf("WaitForIndexReady returned too quickly (%v), likely skipped debounce window", elapsed)
+	}
+	if calls.Load() <= initialCalls {
+		t.Fatalf("expected analyzer to be called after file change, calls = %d (was %d)", calls.Load(), initialCalls)
+	}
+}
+
+type funcAnalyzer struct {
+	analyzeFunc func(ctx context.Context, path string) (AnalysisResult, error)
+}
+
+func (f funcAnalyzer) Analyze(ctx context.Context, path string) (AnalysisResult, error) {
+	return f.analyzeFunc(ctx, path)
+}
+
+func TestServiceStaleReindexDoesNotClobberNewProject(t *testing.T) {
+	dirA := t.TempDir()
+	dirB := t.TempDir()
+
+	resultA := AnalysisResult{
+		Nodes: []Node{{ID: "nA", Label: "A.foo", Kind: "method", Layer: "controller"}},
+	}
+	resultB := AnalysisResult{
+		Nodes: []Node{{ID: "nB", Label: "B.bar", Kind: "method", Layer: "service"}},
+	}
+
+	analyzingA := make(chan struct{})
+	unblockA := make(chan struct{})
+
+	// Only the SECOND analyze of dirA — the background reindex's, not
+	// OpenProject's initial one — may block; gating every dirA analyze would
+	// deadlock OpenProject(A) itself before the test even reaches the
+	// interesting interleaving.
+	var aCalls atomic.Int32
+	customAnalyzer := funcAnalyzer{
+		analyzeFunc: func(ctx context.Context, path string) (AnalysisResult, error) {
+			if path == dirA {
+				if aCalls.Add(1) == 2 {
+					close(analyzingA)
+					<-unblockA
+				}
+				return resultA, nil
+			}
+			return resultB, nil
+		},
+	}
+
+	svc := newTestService(t, customAnalyzer)
+	if err := svc.OpenProject(context.Background(), dirA); err != nil {
+		t.Fatalf("OpenProject A: %v", err)
+	}
+
+	// Start runReindex for project A in a background goroutine
+	doneReindex := make(chan struct{})
+	go func() {
+		svc.runReindex(context.Background())
+		close(doneReindex)
+	}()
+
+	// Wait until runReindex is inside Analyze for dirA
+	<-analyzingA
+
+	// Now open project B while project A's reindex is in-flight
+	if err := svc.OpenProject(context.Background(), dirB); err != nil {
+		t.Fatalf("OpenProject B: %v", err)
+	}
+	t.Cleanup(func() { svc.Close() })
+
+	// Unblock project A reindex
+	close(unblockA)
+	<-doneReindex
+
+	// Project B index must NOT be overwritten by project A
+	nodes, err := svc.SearchSymbol(context.Background(), "B.bar")
+	if err != nil {
+		t.Fatalf("SearchSymbol: %v", err)
+	}
+	if len(nodes) != 1 || nodes[0].NodeID != "nB" {
+		t.Fatalf("expected project B index to remain intact, got: %+v", nodes)
+	}
+	nodesA, err := svc.SearchSymbol(context.Background(), "A.foo")
+	if err != nil {
+		t.Fatalf("SearchSymbol: %v", err)
+	}
+	if len(nodesA) != 0 {
+		t.Fatalf("expected no symbols from project A in project B, got: %+v", nodesA)
 	}
 }

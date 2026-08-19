@@ -30,8 +30,9 @@ type Service struct {
 	active      bool
 	projectRoot string
 
-	indexVersion int
-	reindexing   bool
+	indexVersion   int
+	reindexing     bool
+	reindexPending bool
 	// debounceInterval is the quiet period after the last fsnotify event
 	// before a re-index actually runs. 750ms in production; tests shorten it
 	// (this is an unexported field set directly in-package, same pattern
@@ -77,12 +78,14 @@ func (s *Service) SetProjectPath(dbPath string) error {
 func (s *Service) OpenProject(ctx context.Context, projectPath string) error {
 	result, err := s.analyzer.Analyze(ctx, projectPath)
 	if err != nil {
+		s.stopWatcher()
 		return fmt.Errorf("codegraph: analyze %q: %w", projectPath, err)
 	}
 	s.mu.Lock()
 	if err := s.store.ReplaceIndex(ctx, result); err != nil {
 		s.active = false
 		s.mu.Unlock()
+		s.stopWatcher()
 		return fmt.Errorf("codegraph: replace index: %w", err)
 	}
 	s.active = true
@@ -265,9 +268,19 @@ func (s *Service) ListFiles(ctx context.Context) ([]FileEntry, error) {
 	return entries, nil
 }
 
+// ignoredDirs lists directories that should never be watched or indexed.
+var ignoredDirs = map[string]bool{
+	".git":         true,
+	"target":       true,
+	"build":        true,
+	"node_modules": true,
+	".idea":        true,
+	".gradle":      true,
+}
+
 // addRecursive watches root and every subdirectory under it (fsnotify.Add
 // is non-recursive — each directory must be added individually), skipping
-// .git the same way Service.ListFiles does.
+// ignored build/vcs directories.
 func addRecursive(w *fsnotify.Watcher, root string) error {
 	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -276,11 +289,27 @@ func addRecursive(w *fsnotify.Watcher, root string) error {
 		if !d.IsDir() {
 			return nil
 		}
-		if d.Name() == ".git" {
+		if ignoredDirs[d.Name()] {
 			return filepath.SkipDir
 		}
 		return w.Add(path)
 	})
+}
+
+// stopWatcher stops any running background file watcher and waits for its
+// goroutine to fully exit.
+func (s *Service) stopWatcher() {
+	s.mu.Lock()
+	cancel := s.watchCancel
+	done := s.watchDone
+	s.watchCancel = nil
+	s.watchDone = nil
+	s.reindexPending = false
+	s.mu.Unlock()
+	if cancel != nil {
+		cancel()
+		<-done
+	}
 }
 
 // restartWatcher stops any watcher from a previously opened project (waiting
@@ -288,14 +317,7 @@ func addRecursive(w *fsnotify.Watcher, root string) error {
 // a new one opens — avoids two watchers racing on the same underlying OS
 // resources across a rapid re-open) and starts a fresh one for root.
 func (s *Service) restartWatcher(root string) error {
-	s.mu.Lock()
-	oldCancel := s.watchCancel
-	oldDone := s.watchDone
-	s.mu.Unlock()
-	if oldCancel != nil {
-		oldCancel()
-		<-oldDone
-	}
+	s.stopWatcher()
 
 	w, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -330,9 +352,10 @@ func (s *Service) watchLoop(ctx context.Context, w *fsnotify.Watcher, done chan 
 	var reindexCancel context.CancelFunc
 
 	resetDebounce := func() {
-		s.mu.RLock()
+		s.mu.Lock()
+		s.reindexPending = true
 		interval := s.debounceInterval
-		s.mu.RUnlock()
+		s.mu.Unlock()
 		if timer == nil {
 			timer = time.NewTimer(interval)
 		} else {
@@ -356,6 +379,9 @@ func (s *Service) watchLoop(ctx context.Context, w *fsnotify.Watcher, done chan 
 			if reindexCancel != nil {
 				reindexCancel()
 			}
+			s.mu.Lock()
+			s.reindexPending = false
+			s.mu.Unlock()
 			return
 
 		case event, ok := <-w.Events:
@@ -363,7 +389,7 @@ func (s *Service) watchLoop(ctx context.Context, w *fsnotify.Watcher, done chan 
 				return
 			}
 			if event.Has(fsnotify.Create) {
-				if info, statErr := os.Stat(event.Name); statErr == nil && info.IsDir() && filepath.Base(event.Name) != ".git" {
+				if info, statErr := os.Stat(event.Name); statErr == nil && info.IsDir() && !ignoredDirs[filepath.Base(event.Name)] {
 					_ = w.Add(event.Name) // best-effort: a new package/dir created after watching started
 				}
 			}
@@ -399,6 +425,7 @@ func (s *Service) watchLoop(ctx context.Context, w *fsnotify.Watcher, done chan 
 func (s *Service) runReindex(ctx context.Context) {
 	s.mu.Lock()
 	s.reindexing = true
+	s.reindexPending = false
 	root := s.projectRoot
 	s.mu.Unlock()
 	defer func() {
@@ -414,6 +441,9 @@ func (s *Service) runReindex(ctx context.Context) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if !s.active || s.projectRoot != root {
+		return
+	}
 	if err := s.store.ReplaceIndex(ctx, result); err != nil {
 		return
 	}
@@ -426,14 +456,7 @@ func (s *Service) runReindex(ctx context.Context) {
 // container that constructed this Service owns that lifecycle separately
 // (see internal/app/container.go's existing Database/SSH/Kafka Close calls).
 func (s *Service) Close() error {
-	s.mu.Lock()
-	cancel := s.watchCancel
-	done := s.watchDone
-	s.mu.Unlock()
-	if cancel != nil {
-		cancel()
-		<-done
-	}
+	s.stopWatcher()
 	return nil
 }
 
@@ -444,28 +467,28 @@ func (s *Service) Close() error {
 // one narrow timing edge this does not close.
 //
 // Implemented as a short poll rather than a sync.Cond: the debounce interval
-// is hundreds of milliseconds, so a 50ms poll is imperceptible, and it composes
+// is hundreds of milliseconds, so a 20ms poll is imperceptible, and it composes
 // cleanly with ctx cancellation (sync.Cond.Wait does not, without extra
 // goroutine plumbing this doesn't otherwise need).
 func (s *Service) WaitForIndexReady(ctx context.Context) (int, error) {
 	for {
 		s.mu.RLock()
 		active := s.active
-		reindexing := s.reindexing
+		busy := s.reindexing || s.reindexPending
 		version := s.indexVersion
 		s.mu.RUnlock()
 
 		if !active {
 			return 0, ErrNoActiveProject
 		}
-		if !reindexing {
+		if !busy {
 			return version, nil
 		}
 
 		select {
 		case <-ctx.Done():
 			return 0, ctx.Err()
-		case <-time.After(50 * time.Millisecond):
+		case <-time.After(20 * time.Millisecond):
 		}
 	}
 }
