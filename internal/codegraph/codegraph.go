@@ -81,10 +81,14 @@ type NeighborFilter struct {
 
 // Subgraph is one bounded page of a GetNeighbors result.
 type Subgraph struct {
-	Nodes        []Node `json:"nodes"`
-	Edges        []Edge `json:"edges"`
+	Nodes []Node `json:"nodes"`
+	Edges []Edge `json:"edges"`
+	// Truncated reports the page hit a ceiling. Node-side: more node pages
+	// exist and Continuation fetches them. Edge-side: this page's edge list
+	// was cut at the per-page edge cap (node-complete but edge-partial) and
+	// Continuation is empty — there is no edge continuation.
 	Truncated    bool   `json:"truncated"`
-	Continuation string `json:"continuation,omitempty"` // pass back as NeighborFilter.Continuation to fetch the next page; empty when Truncated is false
+	Continuation string `json:"continuation,omitempty"` // next page's offset; empty when no further node page exists
 }
 
 // SymbolMatch is one SearchSymbol result.

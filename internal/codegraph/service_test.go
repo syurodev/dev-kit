@@ -1071,6 +1071,56 @@ func TestServiceGetNeighborsHandlesCycle(t *testing.T) {
 	}
 }
 
+// The design doc requires a hard ceiling on BOTH nodes and edges per page
+// ("Ceiling node/edge cứng"). A dense cluster fits under the node ceiling
+// but its intra-page edge count must still be capped.
+func TestServiceGetNeighborsCapsEdgesPerPage(t *testing.T) {
+	// root + 60 nodes, every pair connected: 61*60/2 = 1830 edges — one
+	// 61-node page (under maxNeighborNodes) carrying 1830 intra-page edges.
+	const others = 60
+	ids := make([]string, 0, others+1)
+	ids = append(ids, "root")
+	nodes := []Node{{ID: "root", Label: "Root", Kind: "class", Layer: "unknown", FilePath: "Root.java", Line: 1, EndLine: 1}}
+	var edges []Edge
+	for i := 0; i < others; i++ {
+		id := fmt.Sprintf("n%03d", i)
+		ids = append(ids, id)
+		nodes = append(nodes, Node{ID: id, Label: id, Kind: "class", Layer: "unknown", FilePath: id + ".java", Line: 1, EndLine: 1})
+	}
+	for i := 0; i < len(ids); i++ {
+		for j := i + 1; j < len(ids); j++ {
+			edges = append(edges, Edge{From: ids[i], To: ids[j], Kind: "call"})
+		}
+	}
+	svc := newTestService(t, fakeAnalyzer{result: AnalysisResult{Nodes: nodes, Edges: edges}})
+	if err := svc.OpenProject(context.Background(), "/fake/project"); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+
+	// Depth 2: level 0 collects root's edges, level 1 walks every leaf's
+	// in/out edges — only then does the BFS see the leaf↔leaf edges of the
+	// dense cluster. All 61 nodes still land in a single under-ceiling page.
+	sub, err := svc.GetNeighbors(context.Background(), "root", 2, NeighborFilter{})
+	if err != nil {
+		t.Fatalf("GetNeighbors: %v", err)
+	}
+	if len(sub.Nodes) != others+1 {
+		t.Fatalf("nodes = %d, want all %d in one page (under the node ceiling)", len(sub.Nodes), others+1)
+	}
+	if len(sub.Edges) > maxNeighborEdges {
+		t.Fatalf("edges = %d, want at most maxNeighborEdges=%d", len(sub.Edges), maxNeighborEdges)
+	}
+	if len(sub.Edges) < maxNeighborEdges {
+		t.Fatalf("edges = %d, expected the full cap to be exercised (fixture has %d intra-page edges)", len(sub.Edges), len(edges))
+	}
+	if !sub.Truncated {
+		t.Fatal("expected Truncated=true when the edge ceiling is hit, even though all nodes fit in one page")
+	}
+	if sub.Continuation != "" {
+		t.Fatalf("continuation = %q, want empty (no further node pages exist; the truncation is edge-side)", sub.Continuation)
+	}
+}
+
 func TestServiceGetNeighborsUnknownRootFails(t *testing.T) {
 	svc := newTestService(t, fakeAnalyzer{result: neighborsFixture()})
 	if err := svc.OpenProject(context.Background(), "/fake/project"); err != nil {

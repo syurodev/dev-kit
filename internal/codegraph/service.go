@@ -242,13 +242,20 @@ const (
 	// requires ("Ceiling node/edge cứng"). Chosen as a reasonable single-screen
 	// subgraph size for v1 — no UI exists yet to tune this against real usage.
 	maxNeighborNodes = 200
+	// maxNeighborEdges is the other half of that "Ceiling node/edge cứng"
+	// requirement: intra-page edges are capped independently of nodes, so a
+	// dense cluster that fits under the node ceiling can't balloon the
+	// response to O(nodes²) edges.
+	maxNeighborEdges = 1000
 )
 
 // GetNeighbors returns a bounded subgraph around rootID: every node
 // reachable within depth hops in EITHER edge direction (unlike GetApiFlow's
 // directed-only walk — this is "what's connected to this node", not a call
 // chain), filtered by filter.Layers, paginated to at most maxNeighborNodes
-// per call.
+// nodes and maxNeighborEdges intra-page edges per call — the design doc's
+// "Ceiling node/edge cứng" is a hard ceiling on both dimensions, so a dense
+// cluster that fits under the node ceiling cannot balloon the response.
 //
 // Pagination: the full depth-bounded neighborhood is computed first (bounded
 // by the capped depth, same as GetBlastRadius's transitive closure), then
@@ -353,7 +360,6 @@ func (s *Service) GetNeighbors(ctx context.Context, rootID string, depth int, fi
 		offset = len(ids)
 	}
 	end := offset + maxNeighborNodes
-	truncated := end < len(ids)
 	if end > len(ids) {
 		end = len(ids)
 	}
@@ -372,9 +378,19 @@ func (s *Service) GetNeighbors(ctx context.Context, rootID string, depth int, fi
 			edges = append(edges, e)
 		}
 	}
+	edgesTruncated := false
+	if len(edges) > maxNeighborEdges {
+		edges = edges[:maxNeighborEdges]
+		edgesTruncated = true
+	}
 
+	// Truncated reports that this page hit a ceiling — node-side (more pages
+	// exist; Continuation fetches them) or edge-side (this page's edge list
+	// was cut at maxNeighborEdges; there is no edge continuation — the caller
+	// sees a node-complete but edge-partial page).
+	truncated := end < len(ids) || edgesTruncated
 	continuation := ""
-	if truncated {
+	if end < len(ids) {
 		continuation = strconv.Itoa(end)
 	}
 	return Subgraph{Nodes: nodes, Edges: edges, Truncated: truncated, Continuation: continuation}, nil
