@@ -1,4 +1,4 @@
-import { memo, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Events, Window } from "@wailsio/runtime";
 import { Search, Settings as SettingsIcon } from "lucide-react";
 import { listModules, type ModuleDTO } from "../bridge/commands";
@@ -23,6 +23,13 @@ import { kafkaModule } from "../modules/kafka/manifest";
 import { agenthubModule } from "../modules/agenthub/manifest";
 import { syncModule } from "../modules/sync/manifest";
 import { settingsModule } from "../modules/settings/manifest";
+import { codegraphModule } from "../modules/codegraph/manifest";
+
+const SettingsModal = lazy(() =>
+  import("../modules/settings/SettingsView").then((module) => ({
+    default: module.SettingsModal,
+  })),
+);
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Kbd } from "@/components/ui/kbd";
@@ -30,8 +37,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { SplitPanelProvider, SplitPanelSlot } from "@/components/ui/split-panel";
 import { useModuleActionsStore } from "../stores/moduleActions";
 import { useWorkbenchTabsStore, type WorkbenchTab } from "../stores/workbenchTabs";
-import { TabStrip } from "./tabs/TabStrip";
 import { cn } from "@/lib/utils";
+import { haveSameTabMembers } from "./workbenchViewMemo";
 
 // Settings absorbs Sync as a tab (SettingsView) — both stay registered
 // modules (backend still reports "sync", so removing its registration
@@ -53,6 +60,7 @@ registerModule(kafkaModule);
 registerModule(agenthubModule);
 registerModule(syncModule);
 registerModule(settingsModule);
+registerModule(codegraphModule);
 
 type WorkbenchViewsProps = {
   availableModules: ModuleManifest[];
@@ -60,6 +68,18 @@ type WorkbenchViewsProps = {
   openTabs: WorkbenchTab[];
   activeTabId: string;
 };
+
+function areWorkbenchViewsPropsEqual(
+  previous: WorkbenchViewsProps,
+  next: WorkbenchViewsProps,
+): boolean {
+  return (
+    previous.availableModules === next.availableModules &&
+    previous.hasMetadataWarning === next.hasMetadataWarning &&
+    previous.activeTabId === next.activeTabId &&
+    haveSameTabMembers(previous.openTabs, next.openTabs)
+  );
+}
 
 /**
  * MRU-tracked set of non-exempt module ids allowed to stay mounted: the
@@ -134,92 +154,107 @@ function useMountedModuleIds(
  * The explicit props keep tab activation atomic: preview replacement and its
  * active id are rendered from the same Zustand snapshot.
  */
-const WorkbenchViews = memo(function WorkbenchViews({
-  availableModules,
-  hasMetadataWarning,
-  openTabs,
-  activeTabId,
-}: WorkbenchViewsProps) {
-  const activeTab = openTabs.find((tab) => tab.id === activeTabId);
-  const activeModule =
-    availableModules.find((module) => module.id === activeTab?.moduleId) ??
-    availableModules[0];
-  const recentModuleIds = useMountedModuleIds(
-    activeTab?.moduleId ?? "",
-    HEADER_ONLY_MODULE_IDS,
-  );
-  // The active module is unioned in directly (not only through
-  // recentModuleIds) because useMountedModuleIds only learns about it via
-  // an effect, which runs one render after activeTab already changed —
-  // without this, the just-activated tab would render null for that one
-  // frame. React Compiler memoizes this automatically; no manual useMemo
-  // needed (and the previous one didn't work anyway — recentModuleIds is a
-  // new Set identity every render, so its dependency never matched).
-  const mountedModuleIds = new Set([
-    ...HEADER_ONLY_MODULE_IDS,
-    ...(activeTab ? [activeTab.moduleId] : []),
-    ...recentModuleIds,
-  ]);
+const WorkbenchViews = memo(
+  function WorkbenchViews({
+    availableModules,
+    hasMetadataWarning,
+    openTabs,
+    activeTabId,
+  }: WorkbenchViewsProps) {
+    const activeTab = openTabs.find((tab) => tab.id === activeTabId);
+    const activeModule =
+      availableModules.find((module) => module.id === activeTab?.moduleId) ??
+      availableModules[0];
+    const recentModuleIds = useMountedModuleIds(
+      activeTab?.moduleId ?? "",
+      HEADER_ONLY_MODULE_IDS,
+    );
+    // The active module is unioned in directly (not only through
+    // recentModuleIds) because useMountedModuleIds only learns about it via
+    // an effect, which runs one render after activeTab already changed —
+    // without this, the just-activated tab would render null for that one
+    // frame. React Compiler memoizes this automatically; no manual useMemo
+    // needed (and the previous one didn't work anyway — recentModuleIds is a
+    // new Set identity every render, so its dependency never matched).
+    const mountedModuleIds = new Set([
+      ...HEADER_ONLY_MODULE_IDS,
+      ...(activeTab ? [activeTab.moduleId] : []),
+      ...recentModuleIds,
+    ]);
 
-  return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card">
-      {hasMetadataWarning ? (
-        <Alert variant="destructive" className="m-4 mb-0 w-auto">
-          <AlertDescription>Module metadata is unavailable or out of sync.</AlertDescription>
-        </Alert>
-      ) : null}
-      <section
-        className={cn(
-          "flex min-h-0 flex-1 flex-col",
-          activeModule?.id === "notes" ? "overflow-hidden p-0" : "overflow-auto p-4",
-        )}
-      >
-        {openTabs.length === 0 ? (
-          <p role="status" className="text-sm text-muted-foreground">
-            {availableModules.length === 0
-              ? "No modules are currently available."
-              : "No view is currently available."}
-          </p>
-        ) : (
-          openTabs.map((tab) => {
-            // Tabs outside the active module's grace/cap window aren't
-            // mounted at all — see useMountedModuleIds above. Their tab
-            // stays in openTabs (visible, clickable) and remounts fresh
-            // when reactivated; background work belonging to that module
-            // (e.g. Agent Hub sessions) lives outside this render tree and
-            // is unaffected either way.
-            if (!mountedModuleIds.has(tab.moduleId)) {
-              return null;
-            }
-            const module = getModule(tab.moduleId);
-            const view = module?.views.find((candidate) => candidate.id === tab.viewId);
-            if (!view) {
-              return null;
-            }
-            const TabView = view.component;
-            // Keep same-module inactive tabs mounted so in-progress edits
-            // and scroll position survive switching between tabs of one
-            // module, while `contents` preserves the active view's flex
-            // participation without an extra layout wrapper.
-            return (
-              <div key={tab.id} className={tab.id === activeTabId ? "contents" : "hidden"}>
-                <Suspense
-                  fallback={
-                    <div role="status" className="p-4 text-sm text-muted-foreground">
-                      Loading {tab.title}...
-                    </div>
-                  }
+    return (
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card">
+        {hasMetadataWarning ? (
+          <Alert variant="destructive" className="m-4 mb-0 w-auto">
+            <AlertDescription>
+              Module metadata is unavailable or out of sync.
+            </AlertDescription>
+          </Alert>
+        ) : null}
+        <section
+          className={cn(
+            "flex min-h-0 flex-1 flex-col",
+            activeModule?.id === "notes"
+              ? "overflow-hidden p-0"
+              : "overflow-auto p-4",
+          )}
+        >
+          {openTabs.length === 0 ? (
+            <p role="status" className="text-sm text-muted-foreground">
+              {availableModules.length === 0
+                ? "No modules are currently available."
+                : "No view is currently available."}
+            </p>
+          ) : (
+            openTabs.map((tab) => {
+              // Tabs outside the active module's grace/cap window aren't
+              // mounted at all — see useMountedModuleIds above. Their tab
+              // stays in openTabs (visible, clickable) and remounts fresh
+              // when reactivated; background work belonging to that module
+              // (e.g. Agent Hub sessions) lives outside this render tree and
+              // is unaffected either way.
+              if (!mountedModuleIds.has(tab.moduleId)) {
+                return null;
+              }
+              const module = getModule(tab.moduleId);
+              const view = module?.views.find(
+                (candidate) => candidate.id === tab.viewId,
+              );
+              if (!view) {
+                return null;
+              }
+              const TabView = view.component;
+              // Keep same-module inactive tabs mounted so in-progress edits
+              // and scroll position survive switching between tabs of one
+              // module, while `contents` preserves the active view's flex
+              // participation without an extra layout wrapper.
+              return (
+                <div
+                  key={tab.id}
+                  className={tab.id === activeTabId ? "contents" : "hidden"}
                 >
-                  <TabView params={tab.params} />
-                </Suspense>
-              </div>
-            );
-          })
-        )}
-      </section>
-    </div>
-  );
-});
+                  <Suspense
+                    fallback={
+                      <div
+                        role="status"
+                        className="p-4 text-sm text-muted-foreground"
+                      >
+                        Loading {tab.title}...
+                      </div>
+                    }
+                  >
+                    <TabView params={tab.params} />
+                  </Suspense>
+                </div>
+              );
+            })
+          )}
+        </section>
+      </div>
+    );
+  },
+  areWorkbenchViewsPropsEqual,
+);
 
 export function Workbench() {
   const modules = useMemo(() => listRegisteredModules(), []);
@@ -232,14 +267,12 @@ export function Workbench() {
   // ⌘⇧E press. "popup": the detail popup (TabSwitcher.tsx) — reached by
   // holding the key down or pressing it again while already browsing.
   const [switcher, setSwitcher] = useState<"closed" | "browsing" | "popup">("closed");
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const moduleActions = useModuleActionsStore((s) => s.actions);
   const openTabs = useWorkbenchTabsStore((state) => state.openTabs);
   const activeTabId = useWorkbenchTabsStore((state) => state.activeTabId);
   const openTab = useWorkbenchTabsStore((state) => state.openTab);
-  const closeTab = useWorkbenchTabsStore((state) => state.closeTab);
-  const setActiveTab = useWorkbenchTabsStore((state) => state.setActiveTab);
-  const reorderTab = useWorkbenchTabsStore((state) => state.reorderTab);
 
   useEffect(() => {
     // Accept either ⌘ or Ctrl rather than branching on navigator.platform:
@@ -263,6 +296,11 @@ export function Workbench() {
     let browsingStartedAt = 0;
 
     function handleKeyDown(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key === ",") {
+        event.preventDefault();
+        setSettingsOpen((current) => !current);
+        return;
+      }
       if (event.key.toLowerCase() !== "e" || !isTriggerModifier(event)) {
         return;
       }
@@ -451,57 +489,30 @@ export function Workbench() {
           Only the content card below (bg-card) stays opaque. */}
       <div className="relative flex h-svh w-full flex-col overflow-hidden bg-transparent">
         <AgentSessionsSubscriber />
-        {/* The header shares this row with AppKit's traffic lights. main.go
-            intentionally leaves InvisibleTitleBarHeight at zero because
-            Wails implements it as an unconditional native drag hit-zone. The
-            explicit CSS handle below is the only draggable web region. */}
-        {/* Keep the interactive titlebar no-drag by default. Wails listens for
-            mousedown at window capture phase, before React/Motion can claim a
-            tab gesture, so a draggable ancestor is too broad a fallback here.
-            Only the empty traffic-light clearance is an explicit native window
-            drag handle; tabs and controls can own their gestures reliably. */}
+        {/* The whole compact row is the window drag surface. Interactive
+            module/global actions opt out individually with no-drag so Wails
+            leaves their pointer events to the webview. main.go deliberately
+            keeps InvisibleTitleBarHeight at zero: that native hit-zone cannot
+            make the same child-level distinction. */}
         <header
           className={cn(
-            // 50px, matching this app's original pre-compact-redesign value
-            // (see 320d85b) — confirmed to keep the traffic lights aligned
-            // with this row under Mac.TitleBar = HiddenInset (main.go).
-            "relative flex h-[50px] shrink-0 items-center pt-0.5 pr-4 transition-[padding-left] duration-300 ease-out motion-reduce:transition-none [--wails-draggable:no-drag]",
+            "relative flex h-[30px] shrink-0 items-center pt-0.5 pr-4 transition-[padding-left] duration-300 ease-out motion-reduce:transition-none [--wails-draggable:drag]",
             isFullscreen ? "pl-1" : "pl-20",
           )}
         >
-          <div
-            aria-hidden="true"
-            className={cn(
-              "absolute inset-y-0 left-0 transition-[width] duration-300 ease-out motion-reduce:transition-none [--wails-draggable:drag]",
-              isFullscreen ? "w-1" : "w-20",
-            )}
-          />
           {/* 1fr/5fr/1fr, not flex-grow ratios: Grid's fr unit divides the
               full track width by ratio regardless of each column's own
               content size, which is what an even 1:5:1 split actually
               requires — flex-grow only distributes space left over after
               content sizing, so an empty left column wouldn't reliably end
               up the same width as a busy right column under flex.
-              minmax(0,_) on every track, not bare fr: a bare `Nfr` track's
-              implicit minimum is its content's min-content size, not 0 — with
-              every tab in the strip set to shrink-0, that min-content size is
-              large, so the middle track was blowing out past its fr share
-              and eating the side columns' space entirely. minmax(0,Nfr) is
-              the standard fix: it lets the fr ratio actually win. */}
-          <div className="grid w-full grid-cols-[minmax(0,1fr)_minmax(0,5fr)_minmax(0,1fr)] items-center gap-2">
-            {/* Status column — reserved layout space only. Content (agent
-                status, index status, ...) isn't built yet. */}
-            <div />
-            <TabStrip
-              tabs={openTabs}
-              activeTabId={activeTabId}
-              onSelect={setActiveTab}
-              onClose={closeTab}
-              onReorder={reorderTab}
-              keyboardBrowsing={switcher === "browsing"}
-              onExitBrowsing={() => setSwitcher("closed")}
-            />
-            <div className="flex min-w-0 items-center justify-end gap-2">
+              minmax(0,_) on every track keeps long status/action content from
+              expanding one region into its siblings. */}
+          <div className="grid h-full w-full grid-cols-[minmax(0,1fr)_minmax(0,5fr)_minmax(0,1fr)] items-center gap-2">
+            <div className="min-w-0 select-none truncate text-xs text-muted-foreground">
+              {metadataLoading ? "Loading module metadata..." : null}
+            </div>
+            <div className="flex min-w-0 items-center justify-center gap-2">
               {moduleActions.map((action) => (
                 <Tooltip key={action.id}>
                   <TooltipTrigger asChild>
@@ -522,14 +533,8 @@ export function Workbench() {
                   <TooltipContent side="bottom">{action.label}</TooltipContent>
                 </Tooltip>
               ))}
-              {metadataLoading ? (
-                <span
-                  role="status"
-                  className="shrink-0 text-xs text-muted-foreground [--wails-draggable:no-drag]"
-                >
-                  Loading module metadata...
-                </span>
-              ) : null}
+            </div>
+            <div className="flex min-w-0 items-center justify-end gap-2">
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -553,7 +558,7 @@ export function Workbench() {
                     size="icon-xs"
                     aria-label="Settings"
                     className="shrink-0 [--wails-draggable:no-drag]"
-                    onClick={() => focusModule("settings")}
+                    onClick={() => setSettingsOpen(true)}
                   >
                     <SettingsIcon className="size-3.5" />
                   </Button>
@@ -588,6 +593,12 @@ export function Workbench() {
           commands={commands}
           onClose={() => setPaletteOpen(false)}
         />
+        <Suspense fallback={null}>
+          <SettingsModal
+            open={settingsOpen}
+            onClose={() => setSettingsOpen(false)}
+          />
+        </Suspense>
         <TabSwitcher open={switcher === "popup"} onClose={() => setSwitcher("closed")} />
         <InteractionHost />
       </div>
