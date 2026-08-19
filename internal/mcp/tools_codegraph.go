@@ -43,6 +43,12 @@ func (s *Server) registerCodeGraph() {
 		Description: "Get the real source for a method/class, snapped to its actual boundaries from the index",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolCodeGraphGetCodeSnippet)
+
+	sdk.AddTool(s.mcp, &sdk.Tool{
+		Name:        "codegraph.getBlastRadius",
+		Description: "List files that depend (import/reference) on a given file, transitively",
+		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
+	}, s.toolCodeGraphGetBlastRadius)
 }
 
 func (s *Server) toolCodeGraphListEndpoints(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {
@@ -116,6 +122,20 @@ type codeGraphGetCodeSnippetInput struct {
 func (s *Server) toolCodeGraphGetCodeSnippet(ctx context.Context, _ *sdk.CallToolRequest, in codeGraphGetCodeSnippetInput) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:fs", "file:"+in.FilePath, meta("get_code_snippet", map[string]any{"file_path": in.FilePath, "line": in.Line, "end_line": in.EndLine}), func(context.Context) (any, error) {
 		return s.deps.CodeGraph.GetCodeSnippet(ctx, in.FilePath, in.Line, in.EndLine)
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, v, nil
+}
+
+type codeGraphGetBlastRadiusInput struct {
+	FilePath string `json:"filePath"`
+}
+
+func (s *Server) toolCodeGraphGetBlastRadius(ctx context.Context, _ *sdk.CallToolRequest, in codeGraphGetBlastRadiusInput) (*sdk.CallToolResult, any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:read", "project:active", meta("get_blast_radius", map[string]any{"file_path": in.FilePath}), func(context.Context) (any, error) {
+		return s.deps.CodeGraph.GetBlastRadius(ctx, in.FilePath)
 	})
 	if err != nil {
 		return nil, nil, err

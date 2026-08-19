@@ -15,6 +15,7 @@ type fakeCodeGraphAPI struct {
 	files       []codegraph.FileEntry
 	fileContent string
 	snippet     codegraph.CodeSnippet
+	blastRadius []string
 	err         error
 }
 
@@ -35,6 +36,9 @@ func (f fakeCodeGraphAPI) ReadFile(ctx context.Context, relativePath string) (st
 }
 func (f fakeCodeGraphAPI) GetCodeSnippet(ctx context.Context, filePath string, line, endLine int) (codegraph.CodeSnippet, error) {
 	return f.snippet, f.err
+}
+func (f fakeCodeGraphAPI) GetBlastRadius(ctx context.Context, filePath string) ([]string, error) {
+	return f.blastRadius, f.err
 }
 
 func TestToolCodeGraphListEndpoints(t *testing.T) {
@@ -65,6 +69,22 @@ func TestToolCodeGraphReadFile(t *testing.T) {
 	}
 	content, ok := v.(string)
 	if !ok || content != "package com.acme;" {
+		t.Fatalf("unexpected result: %#v", v)
+	}
+}
+
+func TestToolCodeGraphGetBlastRadius(t *testing.T) {
+	deps := Deps{
+		Caller:    &fakeCaller{},
+		CodeGraph: fakeCodeGraphAPI{blastRadius: []string{"Controller.java"}},
+	}
+	s := NewServer(deps)
+	_, v, err := s.toolCodeGraphGetBlastRadius(context.Background(), nil, codeGraphGetBlastRadiusInput{FilePath: "Service.java"})
+	if err != nil {
+		t.Fatalf("toolCodeGraphGetBlastRadius: %v", err)
+	}
+	radius, ok := v.([]string)
+	if !ok || len(radius) != 1 || radius[0] != "Controller.java" {
 		t.Fatalf("unexpected result: %#v", v)
 	}
 }

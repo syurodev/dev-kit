@@ -110,6 +110,7 @@ type CodeGraphAPI interface {
 	ListFiles(ctx context.Context) ([]codegraph.FileEntry, error)
 	ReadFile(ctx context.Context, relativePath string) (string, error)
 	GetCodeSnippet(ctx context.Context, filePath string, line, endLine int) (codegraph.CodeSnippet, error)
+	GetBlastRadius(ctx context.Context, filePath string) ([]string, error)
 }
 
 // VaultStatusResult is the structured output of vault.status.
