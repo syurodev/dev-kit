@@ -26,6 +26,7 @@ import (
 	"devkit/internal/syncclient"
 	"devkit/internal/syncconflict"
 	"devkit/internal/syncstore"
+	"devkit/internal/terminal"
 	"devkit/internal/vault"
 	"devkit/internal/vaultitem"
 
@@ -193,6 +194,20 @@ func main() {
 	agentSvc.ResolvePermission = agentWaiter.Resolve
 	container.AgentHub = agentSvc
 	container.AgentHubPermissions = agentWaiter
+
+	terminalRegistry := terminal.NewRegistry(func(sessionID string, chunk []byte) {
+		// TODO(frontend Terminal component): wire to the real Wails event —
+		// verify the exact Events.Emit call shape against @wailsio/runtime's
+		// current API when that plan is written, same "verify, don't guess"
+		// discipline used for every other Wails API touched in this
+		// sequence. Until then this silently drops output — StartTerminal/
+		// Write/Resize/Close all work end-to-end without it (proven by this
+		// plan's own tests), only the live output stream needs the frontend.
+	})
+	container.Terminal = terminalRegistry
+	container.CodeGraph.SetTerminalRegistry(terminalRegistry)
+	defer terminalRegistry.CloseAll()
+
 	defer container.Database.Close()
 	defer container.SSH.Close()
 	defer container.Kafka.Close()

@@ -22,6 +22,7 @@ import (
 	sshservice "devkit/internal/ssh"
 	"devkit/internal/syncclient"
 	"devkit/internal/syncconflict"
+	"devkit/internal/terminal"
 	"devkit/internal/tools"
 	"devkit/internal/vault"
 	"devkit/internal/vaultitem"
@@ -72,6 +73,11 @@ type Container struct {
 	Database     *database.Service
 	SSH          *sshservice.Service
 	CodeGraph    *codegraph.Service
+	// Terminal is nil in ephemeral/test containers built via
+	// NewContainer/NewContainerWithStores — main.go constructs the real one
+	// (it needs a Wails-aware output callback container.go doesn't have
+	// access to) and wires it into CodeGraph via SetTerminalRegistry.
+	Terminal     *terminal.Registry
 	// ConfigDir is the raw OS user-config directory (os.UserConfigDir()),
 	// set by main before use. Empty in ephemeral/test containers built via
 	// NewContainer/NewContainerWithStores — callers that need a real path
@@ -173,6 +179,8 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.codegraph", Capability: "codegraph:read", Scope: "project:active"},
 		{SubjectID: "builtin.codegraph", Capability: "codegraph:fs", Scope: "project:active"},
 		{SubjectID: "builtin.codegraph", Capability: "codegraph:fs", Scope: "file:*"},
+		{SubjectID: "builtin.codegraph", Capability: "codegraph:terminal", Scope: "project:active"},
+		{SubjectID: "builtin.codegraph", Capability: "terminal:io", Scope: "session:*"},
 		{SubjectID: "builtin.kafka", Capability: "kafka:connect", Scope: "profile:list"},
 		{SubjectID: "builtin.kafka", Capability: "kafka:connect", Scope: "profile:new"},
 		{SubjectID: "builtin.kafka", Capability: "kafka:connect", Scope: "profile:*"},
