@@ -24,15 +24,26 @@ var (
 	ErrPathOutsideProject = errors.New("codegraph: path outside project root")
 )
 
+// Param is one method parameter's name and type, e.g. {Name: "request", Type:
+// "RefundRequest"}. Populated by the analyzer for method nodes; always empty
+// for class nodes and for any node the analyzer hasn't resolved a signature
+// for.
+type Param struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
 // Node is a class or method discovered during indexing.
 type Node struct {
-	ID       string `json:"id"`
-	Label    string `json:"label"` // fully-qualified, e.g. "com.acme.OrderService.create"
-	Kind     string `json:"kind"`  // "class" | "method"
-	Layer    string `json:"layer"` // "controller" | "service" | "repository" | "unknown"
-	FilePath string `json:"filePath"`
-	Line     int    `json:"line"`
-	EndLine  int    `json:"endLine"`
+	ID       string  `json:"id"`
+	Label    string  `json:"label"` // fully-qualified, e.g. "com.acme.OrderService.create"
+	Kind     string  `json:"kind"`  // "class" | "method"
+	Layer    string  `json:"layer"` // "controller" | "service" | "repository" | "unknown"
+	FilePath string  `json:"filePath"`
+	Line     int     `json:"line"`
+	EndLine  int     `json:"endLine"`
+	Summary  string  `json:"summary"` // Javadoc summary text, empty if none/not a doc comment
+	Params   []Param `json:"params"`  // full parameter signature, empty for class nodes
 }
 
 // Edge is a directed call relationship between two Nodes, by Node.ID.
@@ -52,9 +63,11 @@ type Endpoint struct {
 
 // FlowStep is one hop in an API flow.
 type FlowStep struct {
-	Label    string `json:"label"` // matches the Node.Label it came from
-	FilePath string `json:"filePath"`
-	Line     int    `json:"line"`
+	Label    string  `json:"label"` // matches the Node.Label it came from
+	FilePath string  `json:"filePath"`
+	Line     int     `json:"line"`
+	Summary  string  `json:"summary"`
+	Params   []Param `json:"params"`
 }
 
 // ApiFlow is the full call chain discovered for one endpoint.
