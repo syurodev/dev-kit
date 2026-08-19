@@ -8,12 +8,17 @@ import java.nio.file.Path;
  */
 public class Main {
 
-    public static void main(String[] args) throws IOException {
+    public static void main(String[] args) {
         if (args.length != 2) {
             System.err.println("Usage: codegraph-analyzer <projectPath> <outputPath>");
             System.exit(2);
         }
-        run(args[0], args[1]);
+        try {
+            run(args[0], args[1]);
+        } catch (Exception e) {
+            System.err.println("Error analyzing project: " + e.getMessage());
+            System.exit(1);
+        }
     }
 
     public static void run(String projectPath, String outputPath) throws IOException {

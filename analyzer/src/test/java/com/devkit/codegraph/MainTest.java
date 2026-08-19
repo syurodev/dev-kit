@@ -25,4 +25,12 @@ class MainTest {
         assertTrue(content.contains("\"edges\""), "output should have an edges field: " + content);
         assertTrue(content.contains("\"endpoints\""), "output should have an endpoints field: " + content);
     }
+
+    @Test
+    void nonExistentProjectPathThrowsException(@TempDir Path tempDir) {
+        Path nonExistent = tempDir.resolve("does-not-exist-folder-1234");
+        Path outputFile = tempDir.resolve("index.json");
+
+        assertThrows(IllegalArgumentException.class, () -> Main.run(nonExistent.toString(), outputFile.toString()));
+    }
 }

@@ -31,6 +31,10 @@ public class ProjectAnalyzer {
     }
 
     public AnalysisResult analyze() throws IOException {
+        if (!Files.exists(projectRoot) || !Files.isDirectory(projectRoot)) {
+            throw new IllegalArgumentException("Project directory does not exist or is not a directory: " + projectRoot);
+        }
+
         AnalysisResult result = new AnalysisResult();
         if (!Files.isDirectory(sourceRoot)) {
             return result;
@@ -51,7 +55,7 @@ public class ProjectAnalyzer {
         CompilationUnit cu;
         try {
             cu = StaticJavaParser.parse(javaFile);
-        } catch (Exception e) {
+        } catch (Throwable e) {
             // A single file with a parse error must not abort indexing the
             // rest of the project (FR-8's "unresolved, not fatal" principle
             // applied one level up: unparseable, not just unresolvable).
@@ -61,36 +65,50 @@ public class ProjectAnalyzer {
         String relativePath = projectRoot.relativize(javaFile).toString();
 
         for (ClassOrInterfaceDeclaration classDecl : cu.findAll(ClassOrInterfaceDeclaration.class)) {
-            String className = classDecl.resolve().getQualifiedName();
+            String className;
+            try {
+                className = classDecl.resolve().getQualifiedName();
+            } catch (Throwable e) {
+                // If resolving class declaration fails, fallback to AST fully-qualified name or simple name
+                className = classDecl.getFullyQualifiedName().orElse(classDecl.getNameAsString());
+            }
             String layer = LayerClassifier.classify(classDecl);
 
             result.nodes.add(classNode(className, layer, relativePath, classDecl.getRange()));
 
             for (MethodDeclaration methodDecl : classDecl.getMethods()) {
-                addMethodNode(methodDecl, layer, relativePath, result);
-                EndpointExtractor.extract(classDecl, methodDecl).ifPresent(mapping -> {
-                    Endpoint endpoint = new Endpoint();
-                    endpoint.id = mapping.httpMethod() + " " + mapping.path();
-                    endpoint.httpMethod = mapping.httpMethod();
-                    endpoint.path = mapping.path();
-                    endpoint.entryNode = className + "." + methodDecl.resolve().getSignature();
-                    result.endpoints.add(endpoint);
-                });
+                Optional<String> methodId = addMethodNode(methodDecl, layer, relativePath, result);
+                if (methodId.isPresent()) {
+                    EndpointExtractor.extract(classDecl, methodDecl).ifPresent(mapping -> {
+                        Endpoint endpoint = new Endpoint();
+                        endpoint.id = mapping.httpMethod() + " " + mapping.path();
+                        endpoint.httpMethod = mapping.httpMethod();
+                        endpoint.path = mapping.path();
+                        endpoint.entryNode = methodId.get();
+                        result.endpoints.add(endpoint);
+                    });
+                }
             }
         }
     }
 
-    private void addMethodNode(MethodDeclaration methodDecl, String layer, String relativePath, AnalysisResult result) {
-        ResolvedMethodDeclaration resolved;
+    private Optional<String> addMethodNode(MethodDeclaration methodDecl, String layer, String relativePath, AnalysisResult result) {
+        String methodId;
+        String methodLabel;
         try {
-            resolved = methodDecl.resolve();
-        } catch (Exception e) {
-            return; // can't resolve this method's own declaration — skip it, not fatal
+            ResolvedMethodDeclaration resolved = methodDecl.resolve();
+            // Note: getSignature() and getQualifiedName() can lazily trigger type resolution
+            // for parameters and return types. If a parameter type is not on the classpath,
+            // getSignature() throws UnsolvedSymbolException. We catch Throwable to handle this safely (FR-8).
+            methodId = resolved.declaringType().getQualifiedName() + "." + resolved.getSignature();
+            methodLabel = resolved.getQualifiedName();
+        } catch (Throwable e) {
+            return Optional.empty(); // can't resolve this method's declaration or signature — skip it, not fatal
         }
 
         Node node = new Node();
-        node.id = resolved.declaringType().getQualifiedName() + "." + resolved.getSignature();
-        node.label = resolved.getQualifiedName();
+        node.id = methodId;
+        node.label = methodLabel;
         node.kind = "method";
         node.layer = layer;
         node.filePath = relativePath;
@@ -102,21 +120,27 @@ public class ProjectAnalyzer {
         result.nodes.add(node);
 
         addCallEdges(methodDecl, node.id, result);
+        return Optional.of(node.id);
     }
 
     private void addCallEdges(MethodDeclaration methodDecl, String fromNodeId, AnalysisResult result) {
         for (com.github.javaparser.ast.expr.MethodCallExpr call : methodDecl.findAll(com.github.javaparser.ast.expr.MethodCallExpr.class)) {
-            ResolvedMethodDeclaration target;
+            String toNodeId;
             try {
-                target = call.resolve();
-            } catch (Exception e) {
+                ResolvedMethodDeclaration target = call.resolve();
+                // target.getSignature() can also lazily throw UnsolvedSymbolException if its params are missing
+                toNodeId = target.declaringType().getQualifiedName() + "." + target.getSignature();
+            } catch (Throwable e) {
                 // Unresolved call (missing jar in the local cache, dynamic
-                // dispatch the solver can't follow, etc.) — FR-8: this is a
-                // gap in the graph, not a fatal error for the whole project.
+                // dispatch the solver can't follow, unresolved parameter types, etc.)
+                // — FR-8: this is a gap in the graph, not a fatal error for the whole project.
                 continue;
             }
-            String toNodeId = target.declaringType().getQualifiedName() + "." + target.getSignature();
-            result.edges.add(new Edge(fromNodeId, toNodeId, "call"));
+            boolean alreadyExists = result.edges.stream().anyMatch(e ->
+                    e.from.equals(fromNodeId) && e.to.equals(toNodeId) && "call".equals(e.kind));
+            if (!alreadyExists) {
+                result.edges.add(new Edge(fromNodeId, toNodeId, "call"));
+            }
         }
     }
 

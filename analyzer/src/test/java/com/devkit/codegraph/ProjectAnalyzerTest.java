@@ -74,6 +74,67 @@ class ProjectAnalyzerTest {
     }
 
     @Test
+    void unresolvedParameterTypeDoesNotAbortAnalysisOfRestOfFile(@TempDir Path tempDir) throws IOException {
+        Path projectRoot = tempDir.resolve("project");
+        Path pkg = projectRoot.resolve("src/main/java/com/acme/missingparam");
+        Files.createDirectories(pkg);
+        Files.writeString(pkg.resolve("ControllerWithMissingParam.java"), """
+                package com.acme.missingparam;
+                public class ControllerWithMissingParam {
+                    public void process(com.totally.unknown.MissingDto dto) {
+                        System.out.println("missing param type");
+                    }
+                    public void validMethod(String input) {
+                        System.out.println("valid method: " + input);
+                    }
+                }
+                """);
+
+        AnalysisResult result = new ProjectAnalyzer(projectRoot).analyze();
+
+        boolean hasClassNode = result.nodes.stream().anyMatch(n -> n.label.equals("com.acme.missingparam.ControllerWithMissingParam"));
+        assertTrue(hasClassNode, "class node should still exist despite unresolved parameter type in one method");
+        boolean hasValidMethod = result.nodes.stream().anyMatch(n -> n.label.equals("com.acme.missingparam.ControllerWithMissingParam.validMethod"));
+        assertTrue(hasValidMethod, "validMethod() should still be indexed even though process() has an unresolved parameter type");
+    }
+
+    @Test
+    void duplicateMethodCallsDoNotProduceDuplicateEdges(@TempDir Path tempDir) throws IOException {
+        Path projectRoot = tempDir.resolve("project");
+        Path pkg = projectRoot.resolve("src/main/java/com/acme/dup");
+        Files.createDirectories(pkg);
+        Files.writeString(pkg.resolve("Caller.java"), """
+                package com.acme.dup;
+                public class Caller {
+                    private Callee callee;
+                    public void doWork() {
+                        callee.help();
+                        callee.help();
+                    }
+                }
+                """);
+        Files.writeString(pkg.resolve("Callee.java"), """
+                package com.acme.dup;
+                public class Callee {
+                    public void help() {}
+                }
+                """);
+
+        AnalysisResult result = new ProjectAnalyzer(projectRoot).analyze();
+        long callEdgeCount = result.edges.stream()
+                .filter(e -> labelOf(result, e.from).equals("com.acme.dup.Caller.doWork")
+                        && labelOf(result, e.to).equals("com.acme.dup.Callee.help"))
+                .count();
+        assertEquals(1, callEdgeCount, "expected duplicate calls to be deduped to 1 edge");
+    }
+
+    @Test
+    void nonExistentProjectPathThrowsException() {
+        Path nonExistent = Path.of("/tmp/non-existent-path-for-test-xyz-987654");
+        assertThrows(IllegalArgumentException.class, () -> new ProjectAnalyzer(nonExistent).analyze());
+    }
+
+    @Test
     void detectsEndpointFromControllerAnnotations() throws IOException {
         Path projectRoot = Path.of("src/test/resources/sample-project");
         AnalysisResult result = new ProjectAnalyzer(projectRoot).analyze();

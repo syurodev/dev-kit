@@ -3,6 +3,9 @@ package com.devkit.codegraph;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.expr.AnnotationExpr;
+import com.github.javaparser.ast.expr.ArrayInitializerExpr;
+import com.github.javaparser.ast.expr.Expression;
+import com.github.javaparser.ast.expr.NormalAnnotationExpr;
 import com.github.javaparser.ast.expr.SingleMemberAnnotationExpr;
 
 import java.util.Map;
@@ -37,7 +40,8 @@ public class EndpointExtractor {
         }
         Optional<AnnotationExpr> requestMapping = methodDecl.getAnnotationByName("RequestMapping");
         if (requestMapping.isPresent()) {
-            return Optional.of(new HttpMapping("GET", joinPath(classPath(classDecl), annotationPath(requestMapping.get()))));
+            String httpMethod = annotationMethod(requestMapping.get()).orElse("GET");
+            return Optional.of(new HttpMapping(httpMethod, joinPath(classPath(classDecl), annotationPath(requestMapping.get()))));
         }
         return Optional.empty();
     }
@@ -50,9 +54,40 @@ public class EndpointExtractor {
 
     private static String annotationPath(AnnotationExpr annotation) {
         if (annotation instanceof SingleMemberAnnotationExpr single) {
-            return stripQuotes(single.getMemberValue().toString());
+            return extractStringFromExpr(single.getMemberValue());
+        }
+        if (annotation instanceof NormalAnnotationExpr normal) {
+            for (var pair : normal.getPairs()) {
+                String name = pair.getNameAsString();
+                if ("value".equals(name) || "path".equals(name)) {
+                    return extractStringFromExpr(pair.getValue());
+                }
+            }
         }
         return "";
+    }
+
+    private static Optional<String> annotationMethod(AnnotationExpr annotation) {
+        if (annotation instanceof NormalAnnotationExpr normal) {
+            for (var pair : normal.getPairs()) {
+                if ("method".equals(pair.getNameAsString())) {
+                    String methodVal = pair.getValue().toString();
+                    for (String method : new String[]{"GET", "POST", "PUT", "DELETE", "PATCH"}) {
+                        if (methodVal.contains(method)) {
+                            return Optional.of(method);
+                        }
+                    }
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    private static String extractStringFromExpr(Expression expr) {
+        if (expr instanceof ArrayInitializerExpr array && !array.getValues().isEmpty()) {
+            return stripQuotes(array.getValues().get(0).toString());
+        }
+        return stripQuotes(expr.toString());
     }
 
     private static String stripQuotes(String literal) {
