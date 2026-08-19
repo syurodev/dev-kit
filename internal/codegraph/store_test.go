@@ -186,3 +186,70 @@ func TestFindNodeAtLineWrongFile(t *testing.T) {
 		t.Fatal("expected no match for a different file")
 	}
 }
+
+func TestStoreReplaceIndexPersistsFileDependencies(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	result := sampleResult()
+	result.FileDependencies = []FileDependency{
+		{FilePath: "Order.java", DependsOnFilePath: "OrderService.java"},
+	}
+	if err := store.ReplaceIndex(ctx, result); err != nil {
+		t.Fatalf("ReplaceIndex: %v", err)
+	}
+
+	dependents, err := store.GetDependents(ctx, "OrderService.java")
+	if err != nil {
+		t.Fatalf("GetDependents: %v", err)
+	}
+	if len(dependents) != 1 || dependents[0] != "Order.java" {
+		t.Fatalf("unexpected dependents: %+v", dependents)
+	}
+}
+
+func TestStoreReplaceIndexClearsOldFileDependencies(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	first := sampleResult()
+	first.FileDependencies = []FileDependency{
+		{FilePath: "Order.java", DependsOnFilePath: "OrderService.java"},
+	}
+	if err := store.ReplaceIndex(ctx, first); err != nil {
+		t.Fatalf("first ReplaceIndex: %v", err)
+	}
+
+	// Second index has no file dependencies at all — must fully replace, not merge.
+	second := AnalysisResult{
+		Nodes:     []Node{{ID: "n9", Label: "Health.check", Kind: "method", Layer: "controller"}},
+		Endpoints: []Endpoint{{ID: "ep9", HTTPMethod: "GET", Path: "/health", EntryNode: "n9"}},
+	}
+	if err := store.ReplaceIndex(ctx, second); err != nil {
+		t.Fatalf("second ReplaceIndex: %v", err)
+	}
+
+	dependents, err := store.GetDependents(ctx, "OrderService.java")
+	if err != nil {
+		t.Fatalf("GetDependents: %v", err)
+	}
+	if len(dependents) != 0 {
+		t.Fatalf("expected no dependents after replace, got: %+v", dependents)
+	}
+}
+
+func TestStoreGetDependentsNoMatch(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	if err := store.ReplaceIndex(ctx, sampleResult()); err != nil {
+		t.Fatalf("ReplaceIndex: %v", err)
+	}
+
+	dependents, err := store.GetDependents(ctx, "Nobody.java")
+	if err != nil {
+		t.Fatalf("GetDependents: %v", err)
+	}
+	if len(dependents) != 0 {
+		t.Fatalf("expected no dependents, got: %+v", dependents)
+	}
+}

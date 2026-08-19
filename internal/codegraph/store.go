@@ -31,6 +31,11 @@ CREATE TABLE IF NOT EXISTS endpoints (
 	path TEXT NOT NULL,
 	entry_node TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS file_dependencies (
+	file_path TEXT NOT NULL,
+	depends_on_file_path TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_file_deps_depends_on ON file_dependencies(depends_on_file_path);
 `
 
 // sqliteStore is a Store backed by one SQLite file per project. It is not
@@ -64,7 +69,7 @@ func (s *sqliteStore) ReplaceIndex(ctx context.Context, result AnalysisResult) e
 	}
 	defer tx.Rollback()
 
-	for _, table := range []string{"nodes", "edges", "endpoints"} {
+	for _, table := range []string{"nodes", "edges", "endpoints", "file_dependencies"} {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table); err != nil {
 			return fmt.Errorf("codegraph: clear %s: %w", table, err)
 		}
@@ -88,6 +93,13 @@ func (s *sqliteStore) ReplaceIndex(ctx context.Context, result AnalysisResult) e
 			`INSERT INTO endpoints (id, http_method, path, entry_node) VALUES (?, ?, ?, ?)`,
 			ep.ID, ep.HTTPMethod, ep.Path, ep.EntryNode); err != nil {
 			return fmt.Errorf("codegraph: insert endpoint %q: %w", ep.ID, err)
+		}
+	}
+	for _, fd := range result.FileDependencies {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO file_dependencies (file_path, depends_on_file_path) VALUES (?, ?)`,
+			fd.FilePath, fd.DependsOnFilePath); err != nil {
+			return fmt.Errorf("codegraph: insert file dependency %q->%q: %w", fd.FilePath, fd.DependsOnFilePath, err)
 		}
 	}
 	if err := tx.Commit(); err != nil {
@@ -185,6 +197,29 @@ func (s *sqliteStore) SearchSymbol(ctx context.Context, query string) ([]SymbolM
 			return nil, fmt.Errorf("codegraph: scan symbol match: %w", err)
 		}
 		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+// GetDependents returns every file that directly depends on filePath (i.e.
+// filePath appears as their depends_on_file_path) — one hop, not transitive.
+// GetBlastRadius (Service) walks this repeatedly for the transitive closure.
+func (s *sqliteStore) GetDependents(ctx context.Context, filePath string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT DISTINCT file_path FROM file_dependencies WHERE depends_on_file_path = ? ORDER BY file_path`,
+		filePath)
+	if err != nil {
+		return nil, fmt.Errorf("codegraph: GetDependents: %w", err)
+	}
+	defer rows.Close()
+
+	var out []string
+	for rows.Next() {
+		var f string
+		if err := rows.Scan(&f); err != nil {
+			return nil, fmt.Errorf("codegraph: scan dependent: %w", err)
+		}
+		out = append(out, f)
 	}
 	return out, rows.Err()
 }

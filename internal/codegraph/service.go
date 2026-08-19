@@ -319,6 +319,9 @@ func (nilStore) SearchSymbol(context.Context, string) ([]SymbolMatch, error) {
 func (nilStore) FindNodeAtLine(context.Context, string, int) (Node, bool, error) {
 	return Node{}, false, ErrNoActiveProject
 }
+func (nilStore) GetDependents(context.Context, string) ([]string, error) {
+	return nil, ErrNoActiveProject
+}
 func (nilStore) Close() error { return nil }
 
 // NewNilStore returns a placeholder Store that always reports no active
