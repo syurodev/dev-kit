@@ -32,6 +32,44 @@ export interface CodeSnippet {
 }
 
 /**
+ * DataFlowStep is one method that reads or writes the traced field.
+ */
+export interface DataFlowStep {
+    "nodeId": string;
+    "label": string;
+    "filePath": string;
+    "line": number;
+
+    /**
+     * "read" | "write"
+     */
+    "kind": string;
+}
+
+/**
+ * DataFlowTrace is TraceDataFlow's result: every already-indexed method that
+ * touches one field on one class.
+ */
+export interface DataFlowTrace {
+    "symbolId": string;
+    "fieldName": string;
+    "steps": DataFlowStep[] | null;
+}
+
+/**
+ * Edge is a directed call relationship between two Nodes, by Node.ID.
+ */
+export interface Edge {
+    "from": string;
+    "to": string;
+
+    /**
+     * "call" | "di"
+     */
+    "kind": string;
+}
+
+/**
  * Endpoint is one detected HTTP entry point (e.g. a @GetMapping method).
  */
 export interface Endpoint {
@@ -73,11 +111,21 @@ export interface FlowStep {
 }
 
 /**
- * Param is one method parameter's name and type.
+ * NeighborFilter narrows a GetNeighbors query. Layers, when non-empty,
+ * restricts results to nodes in one of the listed layers — the doc's own
+ * "màu theo layer" framing is the only filter dimension asked for in v1;
+ * add Kind/edge-kind filters later only if a real UI need shows up (YAGNI).
+ * 
+ * Continuation carries pagination state: empty to start a fresh query from
+ * rootID, or the exact string a previous truncated Subgraph.Continuation
+ * returned to resume. It is an opaque decimal offset into a deterministic
+ * (sorted-by-ID) ordering of the full depth-bounded neighborhood — see
+ * GetNeighbors's doc comment for why an offset is enough (no server-side
+ * cursor/session state needed).
  */
-export interface Param {
-    "name": string;
-    "type": string;
+export interface NeighborFilter {
+    "layers"?: string[] | null;
+    "continuation"?: string;
 }
 
 /**
@@ -85,31 +133,45 @@ export interface Param {
  */
 export interface Node {
     "id": string;
+
+    /**
+     * fully-qualified, e.g. "com.acme.OrderService.create"
+     */
     "label": string;
+
+    /**
+     * "class" | "method"
+     */
     "kind": string;
+
+    /**
+     * "controller" | "service" | "repository" | "unknown"
+     */
     "layer": string;
     "filePath": string;
     "line": number;
     "endLine": number;
+
+    /**
+     * Javadoc summary text, empty if none/not a doc comment
+     */
     "summary": string;
+
+    /**
+     * full parameter signature, empty for class nodes
+     */
     "params": Param[] | null;
 }
 
 /**
- * Edge is a directed call relationship between two Nodes, by Node.ID.
+ * Param is one method parameter's name and type, e.g. {Name: "request", Type:
+ * "RefundRequest"}. Populated by the analyzer for method nodes; always empty
+ * for class nodes and for any node the analyzer hasn't resolved a signature
+ * for.
  */
-export interface Edge {
-    "from": string;
-    "to": string;
-    "kind": string;
-}
-
-/**
- * NeighborFilter narrows a GetNeighbors query.
- */
-export interface NeighborFilter {
-    "layers"?: string[] | null;
-    "continuation"?: string;
+export interface Param {
+    "name": string;
+    "type": string;
 }
 
 /**
@@ -118,7 +180,18 @@ export interface NeighborFilter {
 export interface Subgraph {
     "nodes": Node[] | null;
     "edges": Edge[] | null;
+
+    /**
+     * Truncated reports the page hit a ceiling. Node-side: more node pages
+     * exist and Continuation fetches them. Edge-side: this page's edge list
+     * was cut at the per-page edge cap (node-complete but edge-partial) and
+     * Continuation is empty — there is no edge continuation.
+     */
     "truncated": boolean;
+
+    /**
+     * next page's offset; empty when no further node page exists
+     */
     "continuation"?: string;
 }
 
@@ -134,33 +207,50 @@ export interface SymbolMatch {
 }
 
 /**
- * DataFlowStep is one method that reads or writes the traced field.
+ * PlanNode is one intended class or method in a proposed flow.
  */
-export interface DataFlowStep {
-    "nodeId": string;
+export interface PlanNode {
+    "planNodeId": string;
     "label": string;
-    "filePath": string;
-    "line": number;
+    "description": string;
+    "fqn": string;
     "kind": string;
 }
 
 /**
- * DataFlowTrace is TraceDataFlow's result: every already-indexed method that
- * touches one field on one class.
+ * PlanEdge is one intended call between two plan nodes.
  */
-export interface DataFlowTrace {
-    "symbolId": string;
-    "fieldName": string;
-    "steps": DataFlowStep[] | null;
+export interface PlanEdge {
+    "from": string;
+    "to": string;
+    "condition": string;
 }
 
 /**
- * FieldAccess is one "method X reads/writes field Y" fact.
+ * Plan is the single active plan for a project.
  */
-export interface FieldAccess {
-    "classId": string;
-    "nodeId": string;
-    "fieldName": string;
-    "kind": string;
-    "line": number;
+export interface Plan {
+    "description": string;
+    "state": string;
+    "nodes": PlanNode[] | null;
+    "edges": PlanEdge[] | null;
+}
+
+/**
+ * PlanNodeProgress is one plan node plus its freshly computed status.
+ */
+export interface PlanNodeProgress extends PlanNode {
+    "status": string;
+    "realNodeId": string;
+}
+
+/**
+ * PlanProgress is GetPlanProgress's result: every node's status plus the
+ * derived whole-plan status.
+ */
+export interface PlanProgress {
+    "description": string;
+    "state": string;
+    "aggregate": string;
+    "nodes": PlanNodeProgress[] | null;
 }

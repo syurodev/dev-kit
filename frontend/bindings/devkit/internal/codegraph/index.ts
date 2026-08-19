@@ -8,12 +8,16 @@ export type {
     DataFlowTrace,
     Edge,
     Endpoint,
-    FieldAccess,
     FileEntry,
     FlowStep,
     NeighborFilter,
     Node,
     Param,
+    Plan,
+    PlanEdge,
+    PlanNode,
+    PlanNodeProgress,
+    PlanProgress,
     Subgraph,
     SymbolMatch
 } from "./models.js";

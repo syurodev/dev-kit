@@ -98,6 +98,10 @@ export function Call(subject: string, capability: string, scope: string, metadat
     return $Call.ByID(1812104438, subject, capability, scope, metadata, handler);
 }
 
+export function CodeGraphApprovePlan(): $CancellablePromise<void> {
+    return $Call.ByID(1130561769);
+}
+
 export function CodeGraphGetApiFlow(endpointID: string): $CancellablePromise<codegraph$0.ApiFlow> {
     return $Call.ByID(3432526133, endpointID);
 }
@@ -114,6 +118,14 @@ export function CodeGraphGetNeighbors(rootID: string, depth: number, filter: cod
     return $Call.ByID(1258187406, rootID, depth, filter);
 }
 
+export function CodeGraphGetPlanProgress(): $CancellablePromise<codegraph$0.PlanProgress> {
+    return $Call.ByID(3915858491);
+}
+
+export function CodeGraphGetPlannedFlow(): $CancellablePromise<codegraph$0.Plan> {
+    return $Call.ByID(3322703391);
+}
+
 export function CodeGraphListEndpoints(): $CancellablePromise<codegraph$0.Endpoint[] | null> {
     return $Call.ByID(1712846729);
 }
@@ -126,12 +138,24 @@ export function CodeGraphOpenProject(path: string): $CancellablePromise<void> {
     return $Call.ByID(1356804218, path);
 }
 
+export function CodeGraphProposeFlow(plan: codegraph$0.Plan): $CancellablePromise<codegraph$0.PlanProgress> {
+    return $Call.ByID(2353915709, plan);
+}
+
 export function CodeGraphReadFile(relativePath: string): $CancellablePromise<string> {
     return $Call.ByID(3854829099, relativePath);
 }
 
+export function CodeGraphRelinkPlanNode(planNodeID: string, fqn: string): $CancellablePromise<void> {
+    return $Call.ByID(3570264843, planNodeID, fqn);
+}
+
 export function CodeGraphSearchSymbol(query: string): $CancellablePromise<codegraph$0.SymbolMatch[] | null> {
     return $Call.ByID(2248851381, query);
+}
+
+export function CodeGraphStartTerminal(rows: number, cols: number): $CancellablePromise<string> {
+    return $Call.ByID(3969464523, rows, cols);
 }
 
 export function CodeGraphTraceDataFlow(symbolID: string, fieldName: string): $CancellablePromise<codegraph$0.DataFlowTrace> {
@@ -440,6 +464,18 @@ export function SyncRevokeDevice(targetDeviceID: string): $CancellablePromise<vo
 
 export function SyncStatus(): $CancellablePromise<$models.SyncStatusDTO> {
     return $Call.ByID(1672945227);
+}
+
+export function TerminalClose(sessionID: string): $CancellablePromise<void> {
+    return $Call.ByID(4008598614, sessionID);
+}
+
+export function TerminalResize(sessionID: string, rows: number, cols: number): $CancellablePromise<void> {
+    return $Call.ByID(3976446670, sessionID, rows, cols);
+}
+
+export function TerminalWrite(sessionID: string, data: string | null): $CancellablePromise<void> {
+    return $Call.ByID(4022930037, sessionID, data);
 }
 
 export function UnlockVault(masterPassword: string): $CancellablePromise<void> {

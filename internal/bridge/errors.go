@@ -2,8 +2,8 @@ package bridge
 
 import (
 	"context"
+	"devkit/internal/capabilities"
 	"errors"
-	"strings"
 
 	"devkit/internal/agenthub"
 	"devkit/internal/apperrors"
@@ -96,7 +96,7 @@ func publicError(subject string, err error) *apperrors.AppError {
 	// Authorization failures are classified before subject-specific adapters so
 	// adding a new module cannot accidentally hide a denied capability as a
 	// connection or service failure.
-	if strings.HasPrefix(err.Error(), "permission denied:") {
+	if errors.Is(err, capabilities.ErrPermissionDenied) {
 		return apperrors.New(codePermissionDenied, "Permission denied.", false)
 	}
 	var existing *apperrors.AppError
@@ -178,6 +178,12 @@ func publicError(subject string, err error) *apperrors.AppError {
 			return apperrors.Wrap(codeValidationFailed, "CodeGraph node not found.", true, codegraph.ErrNodeNotFound)
 		case errors.Is(err, codegraph.ErrAnalyzerNotConfigured):
 			return apperrors.Wrap(codeConnectionFailed, "CodeGraph analyzer not configured.", true, codegraph.ErrAnalyzerNotConfigured)
+		case errors.Is(err, codegraph.ErrNoPlan):
+			return apperrors.Wrap(codeValidationFailed, "No active plan.", true, codegraph.ErrNoPlan)
+		case errors.Is(err, codegraph.ErrPlanNodeNotFound):
+			return apperrors.Wrap(codeValidationFailed, "Plan node not found.", true, codegraph.ErrPlanNodeNotFound)
+		case errors.Is(err, codegraph.ErrInvalidPlan):
+			return apperrors.Wrap(codeValidationFailed, "Invalid plan.", true, codegraph.ErrInvalidPlan)
 		}
 	}
 	if subject == "builtin.mcpinstall" {
