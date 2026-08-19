@@ -1139,3 +1139,67 @@ func nodeIDs(nodes []Node) []string {
 	}
 	return ids
 }
+
+func TestServiceGetApiFlowCarriesSummaryAndParams(t *testing.T) {
+	result := AnalysisResult{
+		Nodes: []Node{
+			{
+				ID: "n1", Label: "OrderController.create", Kind: "method", Layer: "controller",
+				FilePath: "Order.java", Line: 10, EndLine: 15,
+				Summary: "Handles order creation requests.",
+				Params:  []Param{{Name: "request", Type: "CreateOrderRequest"}},
+			},
+		},
+		Endpoints: []Endpoint{{ID: "ep1", HTTPMethod: "POST", Path: "/orders", EntryNode: "n1"}},
+	}
+	svc := newTestService(t, fakeAnalyzer{result: result})
+	if err := svc.OpenProject(context.Background(), "/fake/project"); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+
+	flow, err := svc.GetApiFlow(context.Background(), "ep1")
+	if err != nil {
+		t.Fatalf("GetApiFlow: %v", err)
+	}
+	if len(flow.Steps) != 1 {
+		t.Fatalf("steps = %+v, want 1", flow.Steps)
+	}
+	step := flow.Steps[0]
+	if step.Summary != "Handles order creation requests." {
+		t.Fatalf("Summary = %q", step.Summary)
+	}
+	if len(step.Params) != 1 || step.Params[0] != (Param{Name: "request", Type: "CreateOrderRequest"}) {
+		t.Fatalf("Params = %+v", step.Params)
+	}
+}
+
+func TestServiceGetNeighborsCarriesSummaryAndParams(t *testing.T) {
+	result := AnalysisResult{
+		Nodes: []Node{
+			{
+				ID: "n1", Label: "OrderService.process", Kind: "method", Layer: "service",
+				FilePath: "OrderService.java", Line: 1, EndLine: 5,
+				Summary: "Processes a validated order.",
+				Params:  []Param{{Name: "order", Type: "Order"}},
+			},
+		},
+	}
+	svc := newTestService(t, fakeAnalyzer{result: result})
+	if err := svc.OpenProject(context.Background(), "/fake/project"); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+
+	sub, err := svc.GetNeighbors(context.Background(), "n1", 1, NeighborFilter{})
+	if err != nil {
+		t.Fatalf("GetNeighbors: %v", err)
+	}
+	if len(sub.Nodes) != 1 {
+		t.Fatalf("nodes = %+v, want 1", sub.Nodes)
+	}
+	if sub.Nodes[0].Summary != "Processes a validated order." {
+		t.Fatalf("Summary = %q", sub.Nodes[0].Summary)
+	}
+	if len(sub.Nodes[0].Params) != 1 || sub.Nodes[0].Params[0] != (Param{Name: "order", Type: "Order"}) {
+		t.Fatalf("Params = %+v", sub.Nodes[0].Params)
+	}
+}

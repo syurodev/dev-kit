@@ -169,7 +169,13 @@ func walkFlow(ctx context.Context, store Store, rootNodeID string) ([]FlowStep, 
 		if err != nil {
 			return err
 		}
-		steps = append(steps, FlowStep{Label: node.Label, FilePath: node.FilePath, Line: node.Line})
+		steps = append(steps, FlowStep{
+			Label:    node.Label,
+			FilePath: node.FilePath,
+			Line:     node.Line,
+			Summary:  node.Summary,
+			Params:   node.Params,
+		})
 
 		edges, err := store.GetOutEdges(ctx, nodeID)
 		if err != nil {
