@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -57,6 +58,15 @@ func evalSymlinksNonExistent(path string) (string, error) {
 		return resolved, nil
 	}
 
+	// If the leaf itself exists on disk as a symlink (mode ModeSymlink),
+	// but filepath.EvalSymlinks failed above, it is a broken/dangling symlink.
+	// Dangling symlinks must never be treated as "non-existent new files",
+	// because writing to a dangling symlink would follow it and create a file
+	// at its (potentially external) target.
+	if fi, err := os.Lstat(path); err == nil && (fi.Mode()&os.ModeSymlink != 0) {
+		return "", ErrPathOutsideProject
+	}
+
 	var rest []string
 	curr := path
 	for {
@@ -68,6 +78,9 @@ func evalSymlinksNonExistent(path string) (string, error) {
 		curr = parent
 		if resolved, err := filepath.EvalSymlinks(curr); err == nil {
 			return filepath.Join(append([]string{resolved}, rest...)...), nil
+		}
+		if fi, err := os.Lstat(curr); err == nil && (fi.Mode()&os.ModeSymlink != 0) {
+			return "", ErrPathOutsideProject
 		}
 	}
 	return filepath.Clean(path), nil

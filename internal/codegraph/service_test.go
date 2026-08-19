@@ -347,6 +347,30 @@ func TestServiceWriteFileRejectsPathOutsideProject(t *testing.T) {
 	}
 }
 
+func TestServiceWriteFileRejectsDanglingSymlink(t *testing.T) {
+	dir := t.TempDir()
+	outside := t.TempDir()
+	pwnedPath := filepath.Join(outside, "pwned.txt")
+	if err := os.Symlink(pwnedPath, filepath.Join(dir, "link.txt")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	svc := NewService(nilStore{}, fakeAnalyzer{result: sampleResult()})
+	if err := svc.SetProjectPath(filepath.Join(t.TempDir(), "index.db")); err != nil {
+		t.Fatalf("SetProjectPath: %v", err)
+	}
+	if err := svc.OpenProject(context.Background(), dir); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+
+	if err := svc.WriteFile(context.Background(), "link.txt", "pwned"); !errors.Is(err, ErrPathOutsideProject) {
+		t.Fatalf("WriteFile = %v, want ErrPathOutsideProject", err)
+	}
+	if _, err := os.Stat(pwnedPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("pwned.txt should not have been created, stat returned: %v", err)
+	}
+}
+
 func TestServiceGetCodeSnippetSnapsToEnclosingNode(t *testing.T) {
 	dir := t.TempDir()
 	javaSrc := "package com.acme;\n\nclass OrderService {\n    void create() {\n        // line 5\n        // line 6\n    }\n}\n"

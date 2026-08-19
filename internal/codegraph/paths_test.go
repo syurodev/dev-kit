@@ -95,3 +95,27 @@ func TestResolvePathRejectsAbsolutePathEscape(t *testing.T) {
 		t.Fatalf("resolvePath = %v, want ErrPathOutsideProject", err)
 	}
 }
+
+func TestResolvePathRejectsDanglingSymlink(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	// link.txt points to outside/nonexistent.txt which does not exist
+	if err := os.Symlink(filepath.Join(outside, "nonexistent.txt"), filepath.Join(root, "link.txt")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	if _, err := resolvePath(root, "link.txt"); !errors.Is(err, ErrPathOutsideProject) {
+		t.Fatalf("resolvePath = %v, want ErrPathOutsideProject", err)
+	}
+}
+
+func TestResolvePathRejectsDanglingDirectorySymlink(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	// dangling_dir points to outside/nonexistent_dir
+	if err := os.Symlink(filepath.Join(outside, "nonexistent_dir"), filepath.Join(root, "dangling_dir")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	if _, err := resolvePath(root, "dangling_dir/file.txt"); !errors.Is(err, ErrPathOutsideProject) {
+		t.Fatalf("resolvePath = %v, want ErrPathOutsideProject", err)
+	}
+}

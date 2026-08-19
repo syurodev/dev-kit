@@ -231,6 +231,9 @@ func (s *Service) WriteFile(ctx context.Context, relativePath, content string) e
 	if err != nil {
 		return err
 	}
+	if fi, err := os.Lstat(resolved); err == nil && (fi.Mode()&os.ModeSymlink != 0) {
+		return fmt.Errorf("codegraph: refusing to write through symlink %q: %w", relativePath, ErrPathOutsideProject)
+	}
 	if err := os.WriteFile(resolved, []byte(content), 0o644); err != nil {
 		return fmt.Errorf("codegraph: write file: %w", err)
 	}
@@ -302,13 +305,17 @@ func languageForPath(path string) string {
 // invariant is ever broken by a future change.
 type nilStore struct{}
 
-func (nilStore) ReplaceIndex(context.Context, AnalysisResult) error         { return ErrNoActiveProject }
-func (nilStore) HasIndex(context.Context) (bool, error)                    { return false, nil }
-func (nilStore) ListEndpoints(context.Context) ([]Endpoint, error)         { return nil, ErrNoActiveProject }
-func (nilStore) GetEndpoint(context.Context, string) (Endpoint, error)     { return Endpoint{}, ErrNoActiveProject }
-func (nilStore) GetNode(context.Context, string) (Node, error)             { return Node{}, ErrNoActiveProject }
-func (nilStore) GetOutEdges(context.Context, string) ([]Edge, error)       { return nil, ErrNoActiveProject }
-func (nilStore) SearchSymbol(context.Context, string) ([]SymbolMatch, error) { return nil, ErrNoActiveProject }
+func (nilStore) ReplaceIndex(context.Context, AnalysisResult) error { return ErrNoActiveProject }
+func (nilStore) HasIndex(context.Context) (bool, error)             { return false, nil }
+func (nilStore) ListEndpoints(context.Context) ([]Endpoint, error)  { return nil, ErrNoActiveProject }
+func (nilStore) GetEndpoint(context.Context, string) (Endpoint, error) {
+	return Endpoint{}, ErrNoActiveProject
+}
+func (nilStore) GetNode(context.Context, string) (Node, error)       { return Node{}, ErrNoActiveProject }
+func (nilStore) GetOutEdges(context.Context, string) ([]Edge, error) { return nil, ErrNoActiveProject }
+func (nilStore) SearchSymbol(context.Context, string) ([]SymbolMatch, error) {
+	return nil, ErrNoActiveProject
+}
 func (nilStore) FindNodeAtLine(context.Context, string, int) (Node, bool, error) {
 	return Node{}, false, ErrNoActiveProject
 }
