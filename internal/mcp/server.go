@@ -112,6 +112,7 @@ type CodeGraphAPI interface {
 	GetCodeSnippet(ctx context.Context, filePath string, line, endLine int) (codegraph.CodeSnippet, error)
 	GetBlastRadius(ctx context.Context, filePath string) ([]string, error)
 	WaitForIndexReady(ctx context.Context) (int, error)
+	GetNeighbors(ctx context.Context, rootID string, depth int, filter codegraph.NeighborFilter) (codegraph.Subgraph, error)
 }
 
 // VaultStatusResult is the structured output of vault.status.

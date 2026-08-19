@@ -17,6 +17,7 @@ type fakeCodeGraphAPI struct {
 	snippet      codegraph.CodeSnippet
 	blastRadius  []string
 	indexVersion int
+	subgraph     codegraph.Subgraph
 	err          error
 }
 
@@ -43,6 +44,9 @@ func (f fakeCodeGraphAPI) GetBlastRadius(ctx context.Context, filePath string) (
 }
 func (f fakeCodeGraphAPI) WaitForIndexReady(ctx context.Context) (int, error) {
 	return f.indexVersion, f.err
+}
+func (f fakeCodeGraphAPI) GetNeighbors(ctx context.Context, rootID string, depth int, filter codegraph.NeighborFilter) (codegraph.Subgraph, error) {
+	return f.subgraph, f.err
 }
 
 func TestToolCodeGraphListEndpoints(t *testing.T) {
@@ -105,6 +109,24 @@ func TestToolCodeGraphWaitForIndexReady(t *testing.T) {
 	}
 	version, ok := v.(int)
 	if !ok || version != 3 {
+		t.Fatalf("unexpected result: %#v", v)
+	}
+}
+
+func TestToolCodeGraphGetNeighbors(t *testing.T) {
+	deps := Deps{
+		Caller: &fakeCaller{},
+		CodeGraph: fakeCodeGraphAPI{subgraph: codegraph.Subgraph{
+			Nodes: []codegraph.Node{{ID: "n1", Label: "A"}},
+		}},
+	}
+	s := NewServer(deps)
+	_, v, err := s.toolCodeGraphGetNeighbors(context.Background(), nil, codeGraphGetNeighborsInput{RootID: "n1", Depth: 1})
+	if err != nil {
+		t.Fatalf("toolCodeGraphGetNeighbors: %v", err)
+	}
+	sub, ok := v.(codegraph.Subgraph)
+	if !ok || len(sub.Nodes) != 1 || sub.Nodes[0].ID != "n1" {
 		t.Fatalf("unexpected result: %#v", v)
 	}
 }

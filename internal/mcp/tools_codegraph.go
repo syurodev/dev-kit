@@ -4,6 +4,8 @@ package mcp
 import (
 	"context"
 
+	"devkit/internal/codegraph"
+
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -55,6 +57,12 @@ func (s *Server) registerCodeGraph() {
 		Description: "Block until any pending or in-progress re-index finishes, then return the current index version",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolCodeGraphWaitForIndexReady)
+
+	sdk.AddTool(s.mcp, &sdk.Tool{
+		Name:        "codegraph.getNeighbors",
+		Description: "Get a bounded subgraph (nodes + edges) around one symbol, both call directions, paginated",
+		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
+	}, s.toolCodeGraphGetNeighbors)
 }
 
 func (s *Server) toolCodeGraphListEndpoints(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {
@@ -152,6 +160,24 @@ func (s *Server) toolCodeGraphGetBlastRadius(ctx context.Context, _ *sdk.CallToo
 func (s *Server) toolCodeGraphWaitForIndexReady(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:read", "project:active", meta("wait_for_index_ready", nil), func(context.Context) (any, error) {
 		return s.deps.CodeGraph.WaitForIndexReady(ctx)
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, v, nil
+}
+
+type codeGraphGetNeighborsInput struct {
+	RootID       string   `json:"rootId"`
+	Depth        int      `json:"depth"`
+	Layers       []string `json:"layers,omitempty"`
+	Continuation string   `json:"continuation,omitempty"`
+}
+
+func (s *Server) toolCodeGraphGetNeighbors(ctx context.Context, _ *sdk.CallToolRequest, in codeGraphGetNeighborsInput) (*sdk.CallToolResult, any, error) {
+	filter := codegraph.NeighborFilter{Layers: in.Layers, Continuation: in.Continuation}
+	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:read", "project:active", meta("get_neighbors", map[string]any{"root_id": in.RootID, "depth": in.Depth}), func(context.Context) (any, error) {
+		return s.deps.CodeGraph.GetNeighbors(ctx, in.RootID, in.Depth, filter)
 	})
 	if err != nil {
 		return nil, nil, err
