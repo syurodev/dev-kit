@@ -132,3 +132,35 @@ export interface SymbolMatch {
     "filePath": string;
     "line": number;
 }
+
+/**
+ * DataFlowStep is one method that reads or writes the traced field.
+ */
+export interface DataFlowStep {
+    "nodeId": string;
+    "label": string;
+    "filePath": string;
+    "line": number;
+    "kind": string;
+}
+
+/**
+ * DataFlowTrace is TraceDataFlow's result: every already-indexed method that
+ * touches one field on one class.
+ */
+export interface DataFlowTrace {
+    "symbolId": string;
+    "fieldName": string;
+    "steps": DataFlowStep[] | null;
+}
+
+/**
+ * FieldAccess is one "method X reads/writes field Y" fact.
+ */
+export interface FieldAccess {
+    "classId": string;
+    "nodeId": string;
+    "fieldName": string;
+    "kind": string;
+    "line": number;
+}

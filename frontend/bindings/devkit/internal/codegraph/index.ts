@@ -4,8 +4,11 @@
 export type {
     ApiFlow,
     CodeSnippet,
+    DataFlowStep,
+    DataFlowTrace,
     Edge,
     Endpoint,
+    FieldAccess,
     FileEntry,
     FlowStep,
     NeighborFilter,
