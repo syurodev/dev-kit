@@ -196,6 +196,7 @@ func main() {
 	defer container.Database.Close()
 	defer container.SSH.Close()
 	defer container.Kafka.Close()
+	defer container.CodeGraph.Close()
 	if err := app.RegisterBuiltins(container); err != nil {
 		log.Fatal(err)
 	}

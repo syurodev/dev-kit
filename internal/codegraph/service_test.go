@@ -657,3 +657,26 @@ func TestServiceWaitForIndexReadyRespectsContextCancellation(t *testing.T) {
 		t.Fatalf("expected context.DeadlineExceeded, got %v", err)
 	}
 }
+
+func TestServiceCloseStopsWatcher(t *testing.T) {
+	svc := newTestService(t, fakeAnalyzer{result: sampleResult()})
+	dir := t.TempDir()
+	if err := svc.OpenProject(context.Background(), dir); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+
+	svc.mu.RLock()
+	done := svc.watchDone
+	svc.mu.RUnlock()
+
+	if err := svc.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	select {
+	case <-done:
+		// watchLoop goroutine exited, as expected
+	case <-time.After(time.Second):
+		t.Fatal("watchLoop did not exit after Close")
+	}
+}
