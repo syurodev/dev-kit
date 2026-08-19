@@ -8,15 +8,16 @@ import { yaml } from "@codemirror/lang-yaml";
 import { markdown } from "@codemirror/lang-markdown";
 import { CodeEditor } from "@/components/code-editor/CodeEditor";
 import { FileTree } from "./FileTree";
+import { FlowCanvas } from "./graph/FlowCanvas";
 import {
   openCodeGraphProject,
   listCodeGraphEndpoints,
-  getCodeGraphApiFlow,
+  getCodeGraphNeighbors,
   listCodeGraphFiles,
   readCodeGraphFile,
   writeCodeGraphFile,
   type CodeGraphEndpoint,
-  type CodeGraphApiFlow,
+  type CodeGraphSubgraph,
   type CodeGraphFileEntry,
 } from "../../bridge/codegraph";
 import { errorMessage } from "../../bridge/errors";
@@ -45,7 +46,9 @@ function languageExtensionForPath(path: string): Extension[] {
 export function CodeGraphView() {
   const [projectPath, setProjectPath] = useState("");
   const [endpoints, setEndpoints] = useState<CodeGraphEndpoint[]>([]);
-  const [selectedFlow, setSelectedFlow] = useState<CodeGraphApiFlow | null>(null);
+  const [subgraph, setSubgraph] = useState<CodeGraphSubgraph | null>(null);
+  const [rootId, setRootId] = useState<string | null>(null);
+  const [, setSelectedNodeId] = useState<string | null>(null);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -93,7 +96,9 @@ export function CodeGraphView() {
     setBusy(true);
     setStatus("Indexing…");
     setError("");
-    setSelectedFlow(null);
+    setSubgraph(null);
+    setRootId(null);
+    setSelectedNodeId(null);
     try {
       await openCodeGraphProject(path);
       const list = await listCodeGraphEndpoints();
@@ -113,10 +118,12 @@ export function CodeGraphView() {
   async function viewFlow(endpoint: CodeGraphEndpoint) {
     setError("");
     try {
-      const flow = await getCodeGraphApiFlow(endpoint.id);
-      setSelectedFlow(flow);
+      const sub = await getCodeGraphNeighbors(endpoint.entryNode, 3);
+      setSubgraph(sub);
+      setRootId(endpoint.entryNode);
+      setSelectedNodeId(endpoint.entryNode);
     } catch (e) {
-      setSelectedFlow(null);
+      setSubgraph(null);
       setError(errorMessage(e));
     }
   }
@@ -208,20 +215,23 @@ export function CodeGraphView() {
             )}
           </ul>
 
-          <div className="flex-1 overflow-y-auto">
-            {selectedFlow ? (
-              <ol className="list-decimal pl-5 space-y-2">
-                {selectedFlow.steps.map((step, i) => (
-                  <li key={i} className="font-mono text-sm">
-                    <span className="font-medium text-foreground">{step.label}</span>{" "}
-                    <span className="text-muted-foreground">({step.filePath}:{step.line})</span>
-                  </li>
-                ))}
-              </ol>
-            ) : (
-              <p className="text-sm text-muted-foreground">Select an endpoint to see its flow.</p>
-            )}
-          </div>
+          {subgraph && rootId ? (
+            <div className="flex flex-1 flex-col overflow-hidden">
+              <span className="px-1 pb-2 font-mono text-[11px] text-text-tertiary">
+                {subgraph.nodes.length} nodes · {subgraph.edges.length} edges
+              </span>
+              <div className="flex-1 overflow-hidden">
+                <FlowCanvas
+                  rootId={rootId}
+                  nodes={subgraph.nodes}
+                  edges={subgraph.edges}
+                  onSelect={setSelectedNodeId}
+                />
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">Select an endpoint to see its flow.</p>
+          )}
         </div>
       )}
 
