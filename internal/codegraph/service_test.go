@@ -1315,3 +1315,138 @@ func TestServiceStartTerminalWithoutRegistryFails(t *testing.T) {
 		t.Fatalf("expected ErrTerminalNotConfigured, got %v", err)
 	}
 }
+
+func planFixtureAnalysis() AnalysisResult {
+	// Real code that already contains RefundController.create calling
+	// RefundService.process — used to exercise the "plan is already
+	// complete the moment it is proposed" case.
+	return AnalysisResult{
+		Nodes: []Node{
+			{ID: "com.acme.RefundController.create(com.acme.Req)", Label: "com.acme.RefundController.create", Kind: "method", Layer: "controller", FilePath: "C.java", Line: 1, EndLine: 5},
+			{ID: "com.acme.RefundService.process(com.acme.Req)", Label: "com.acme.RefundService.process", Kind: "method", Layer: "service", FilePath: "S.java", Line: 1, EndLine: 5},
+		},
+		Edges: []Edge{
+			{From: "com.acme.RefundController.create(com.acme.Req)", To: "com.acme.RefundService.process(com.acme.Req)", Kind: "call"},
+		},
+	}
+}
+
+func TestServiceProposeFlowStoresDraftAndReportsProgress(t *testing.T) {
+	svc := newTestService(t, fakeAnalyzer{result: AnalysisResult{}})
+	if err := svc.OpenProject(context.Background(), "/fake/project"); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+
+	progress, err := svc.ProposeFlow(context.Background(), Plan{
+		Description: "Refund flow",
+		Nodes: []PlanNode{
+			{PlanNodeID: "pn-1", Label: "Entry", FQN: "com.acme.RefundController.create", Kind: "method"},
+			{PlanNodeID: "pn-2", Label: "Core", FQN: "com.acme.RefundService.process", Kind: "method"},
+		},
+		Edges: []PlanEdge{{From: "pn-1", To: "pn-2", Condition: "always"}},
+	})
+	if err != nil {
+		t.Fatalf("ProposeFlow: %v", err)
+	}
+	if progress.State != PlanStateDraft {
+		t.Fatalf("state = %q, want draft", progress.State)
+	}
+	// Index is empty, so nothing resolves.
+	if progress.Aggregate != PlanAggregateNotStarted {
+		t.Fatalf("aggregate = %q, want not_started", progress.Aggregate)
+	}
+	if len(progress.Nodes) != 2 || progress.Nodes[0].Status != PlanStatusNotImplemented {
+		t.Fatalf("nodes = %+v", progress.Nodes)
+	}
+}
+
+func TestServiceProposeFlowCompleteImmediatelyWhenCodeAlreadyMatches(t *testing.T) {
+	// The doc's explicit special case: every planned method already exists
+	// and the flow already matches reality, so the plan is complete the
+	// moment it is proposed — no approve/implement cycle needed.
+	svc := newTestService(t, fakeAnalyzer{result: planFixtureAnalysis()})
+	if err := svc.OpenProject(context.Background(), "/fake/project"); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+
+	progress, err := svc.ProposeFlow(context.Background(), Plan{
+		Description: "Already built",
+		Nodes: []PlanNode{
+			{PlanNodeID: "pn-1", Label: "Entry", FQN: "com.acme.RefundController.create", Kind: "method"},
+			{PlanNodeID: "pn-2", Label: "Core", FQN: "com.acme.RefundService.process", Kind: "method"},
+		},
+		Edges: []PlanEdge{{From: "pn-1", To: "pn-2"}},
+	})
+	if err != nil {
+		t.Fatalf("ProposeFlow: %v", err)
+	}
+	if progress.Aggregate != PlanAggregateComplete {
+		t.Fatalf("aggregate = %q, want complete; nodes = %+v", progress.Aggregate, progress.Nodes)
+	}
+	if progress.Nodes[0].RealNodeID != "com.acme.RefundController.create(com.acme.Req)" {
+		t.Fatalf("RealNodeID = %q", progress.Nodes[0].RealNodeID)
+	}
+}
+
+func TestServiceProposeFlowReplacesPreviousPlan(t *testing.T) {
+	svc := newTestService(t, fakeAnalyzer{result: AnalysisResult{}})
+	if err := svc.OpenProject(context.Background(), "/fake/project"); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+	first := Plan{Description: "First", Nodes: []PlanNode{{PlanNodeID: "pn-1", Label: "A", FQN: "com.acme.A.a", Kind: "method"}}}
+	if _, err := svc.ProposeFlow(context.Background(), first); err != nil {
+		t.Fatalf("first ProposeFlow: %v", err)
+	}
+
+	second := Plan{Description: "Second", Nodes: []PlanNode{{PlanNodeID: "pn-9", Label: "B", FQN: "com.acme.B.b", Kind: "method"}}}
+	if _, err := svc.ProposeFlow(context.Background(), second); err != nil {
+		t.Fatalf("second ProposeFlow: %v", err)
+	}
+
+	flow, err := svc.GetPlannedFlow(context.Background())
+	if err != nil {
+		t.Fatalf("GetPlannedFlow: %v", err)
+	}
+	if flow.Description != "Second" || len(flow.Nodes) != 1 || flow.Nodes[0].PlanNodeID != "pn-9" {
+		t.Fatalf("plan = %+v", flow)
+	}
+}
+
+func TestServiceProposeFlowRejectsInvalidPlans(t *testing.T) {
+	svc := newTestService(t, fakeAnalyzer{result: AnalysisResult{}})
+	if err := svc.OpenProject(context.Background(), "/fake/project"); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+
+	cases := []struct {
+		name string
+		plan Plan
+	}{
+		{"no nodes", Plan{Description: "empty"}},
+		{"duplicate node id", Plan{Description: "dup", Nodes: []PlanNode{
+			{PlanNodeID: "pn-1", Label: "A", FQN: "com.acme.A.a", Kind: "method"},
+			{PlanNodeID: "pn-1", Label: "B", FQN: "com.acme.B.b", Kind: "method"},
+		}}},
+		{"node without fqn", Plan{Description: "nofqn", Nodes: []PlanNode{
+			{PlanNodeID: "pn-1", Label: "A", Kind: "method"},
+		}}},
+		{"edge to unknown node", Plan{Description: "badedge", Nodes: []PlanNode{
+			{PlanNodeID: "pn-1", Label: "A", FQN: "com.acme.A.a", Kind: "method"},
+		}, Edges: []PlanEdge{{From: "pn-1", To: "pn-404"}}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := svc.ProposeFlow(context.Background(), tc.plan); !errors.Is(err, ErrInvalidPlan) {
+				t.Fatalf("ProposeFlow = %v, want ErrInvalidPlan", err)
+			}
+		})
+	}
+}
+
+func TestServiceProposeFlowBeforeOpenProjectFails(t *testing.T) {
+	svc := NewService(nilStore{}, fakeAnalyzer{})
+	plan := Plan{Description: "x", Nodes: []PlanNode{{PlanNodeID: "pn-1", Label: "A", FQN: "com.acme.A.a", Kind: "method"}}}
+	if _, err := svc.ProposeFlow(context.Background(), plan); !errors.Is(err, ErrNoActiveProject) {
+		t.Fatalf("expected ErrNoActiveProject, got %v", err)
+	}
+}
