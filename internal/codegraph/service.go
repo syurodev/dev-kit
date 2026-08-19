@@ -4,8 +4,10 @@ package codegraph
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 )
 
@@ -162,6 +164,42 @@ func walkFlow(ctx context.Context, store Store, rootNodeID string) ([]FlowStep, 
 		return nil, err
 	}
 	return steps, nil
+}
+
+// ListFiles walks the active project's root and returns every file and
+// directory (except .git) as a flat, path-sorted list. Symlinked entries are
+// listed but not followed further — WalkDir does not descend into a symlink
+// target, matching the same "don't silently trust symlinks" stance resolvePath
+// enforces for individual reads/writes.
+func (s *Service) ListFiles(ctx context.Context) ([]FileEntry, error) {
+	_, root, err := s.activeProject()
+	if err != nil {
+		return nil, err
+	}
+
+	var entries []FileEntry
+	walkErr := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if path == root {
+			return nil
+		}
+		if d.IsDir() && d.Name() == ".git" {
+			return filepath.SkipDir
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		entries = append(entries, FileEntry{Path: filepath.ToSlash(rel), IsDir: d.IsDir()})
+		return nil
+	})
+	if walkErr != nil {
+		return nil, fmt.Errorf("codegraph: list files: %w", walkErr)
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
+	return entries, nil
 }
 
 // nilStore is the container's placeholder Store before any project has been

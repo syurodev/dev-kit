@@ -4,6 +4,7 @@ package codegraph
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -236,4 +237,60 @@ func TestServiceConcurrentAccessIsRaceFree(t *testing.T) {
 		}
 	}()
 	wg.Wait()
+}
+
+func TestServiceListFiles(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("hi"), 0o644); err != nil {
+		t.Fatalf("seed a.txt: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "src"), 0o755); err != nil {
+		t.Fatalf("mkdir src: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "src", "b.java"), []byte("class B {}"), 0o644); err != nil {
+		t.Fatalf("seed b.java: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".git", "HEAD"), []byte("ref: refs/heads/main"), 0o644); err != nil {
+		t.Fatalf("seed .git/HEAD: %v", err)
+	}
+
+	svc := NewService(nilStore{}, fakeAnalyzer{result: sampleResult()})
+	if err := svc.SetProjectPath(filepath.Join(t.TempDir(), "index.db")); err != nil {
+		t.Fatalf("SetProjectPath: %v", err)
+	}
+	if err := svc.OpenProject(context.Background(), dir); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+
+	entries, err := svc.ListFiles(context.Background())
+	if err != nil {
+		t.Fatalf("ListFiles: %v", err)
+	}
+
+	byPath := make(map[string]FileEntry, len(entries))
+	for _, e := range entries {
+		byPath[e.Path] = e
+	}
+	if e, ok := byPath["a.txt"]; !ok || e.IsDir {
+		t.Fatalf("expected file entry a.txt, got %+v ok=%v", e, ok)
+	}
+	if e, ok := byPath["src"]; !ok || !e.IsDir {
+		t.Fatalf("expected dir entry src, got %+v ok=%v", e, ok)
+	}
+	if e, ok := byPath[filepath.ToSlash(filepath.Join("src", "b.java"))]; !ok || e.IsDir {
+		t.Fatalf("expected file entry src/b.java, got %+v ok=%v", e, ok)
+	}
+	if _, ok := byPath[".git"]; ok {
+		t.Fatal(".git should be skipped")
+	}
+}
+
+func TestServiceListFilesBeforeOpenProjectFails(t *testing.T) {
+	svc := NewService(nilStore{}, fakeAnalyzer{})
+	if _, err := svc.ListFiles(context.Background()); !errors.Is(err, ErrNoActiveProject) {
+		t.Fatalf("expected ErrNoActiveProject, got %v", err)
+	}
 }

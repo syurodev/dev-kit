@@ -72,6 +72,14 @@ type SymbolMatch struct {
 	Line     int    `json:"line"`
 }
 
+// FileEntry is one file or directory in the active project, relative to its
+// root. Deliberately flat (not a nested tree) — simpler to produce here and
+// just as easy for a frontend to build a tree UI from a sorted flat list.
+type FileEntry struct {
+	Path  string `json:"path"` // relative to project root, forward-slash separated
+	IsDir bool   `json:"isDir"`
+}
+
 // AnalysisResult is everything an Analyzer produces for one project.
 type AnalysisResult struct {
 	Nodes     []Node     `json:"nodes"`
