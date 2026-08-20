@@ -88,7 +88,15 @@ export function SidebarSurface({ activeModuleId }: { activeModuleId: string | nu
         transition={isResizing ? { duration: 0 } : { duration: 0.22, ease: "easeInOut" }}
         className="flex min-h-0 shrink-0 overflow-hidden"
       >
-        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card">
+        {/* Deliberately NOT the bg-card + border treatment SplitPanelSlot and
+            the content card use. In the App Shell component in Figma,
+            sidebar-surface is filled with background/app and has no stroke,
+            while content-surface is surface/base with a border — the sidebar
+            reads as a recessed dark rail against the raised content card, not
+            as a third card. bg-sidebar is that token (--sidebar resolves to
+            --background-app) and is what the vendored shadcn Sidebar in Notes
+            already paints with. */}
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl bg-sidebar">
           {content}
         </div>
         {open ? (
