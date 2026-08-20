@@ -24,6 +24,7 @@ import (
 	"devkit/internal/syncconflict"
 	"devkit/internal/terminal"
 	"devkit/internal/tools"
+	"devkit/internal/uistate"
 	"devkit/internal/vault"
 	"devkit/internal/vaultitem"
 )
@@ -70,6 +71,7 @@ type Container struct {
 	Notes        *notes.Service
 	Environments *environments.Service
 	Preferences  *preferences.Service
+	UIState      *uistate.Service
 	Database     *database.Service
 	SSH          *sshservice.Service
 	CodeGraph    *codegraph.Service
@@ -211,6 +213,8 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.mcpinstall", Capability: "mcp:install", Scope: "agent:codex"},
 		{SubjectID: "builtin.settings", Capability: "preferences:read", Scope: "theme"},
 		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "theme"},
+		{SubjectID: "builtin.uistate", Capability: "ui:read", Scope: "key:*"},
+		{SubjectID: "builtin.uistate", Capability: "ui:write", Scope: "key:*"},
 	})
 
 	vaultService := vault.NewService(keyringStore)
@@ -230,6 +234,7 @@ func NewContainerWithStores(
 		Notes:        notes.NewService(itemStore),
 		Environments: envService,
 		Preferences:  preferences.NewService(preferences.NewMemoryRepository()),
+		UIState:      uistate.NewService(uistate.NewMemoryRepository()),
 		Database:     database.NewService(itemStore, envService),
 		SSH:          sshservice.NewService(itemStore, envService),
 		CodeGraph:    codegraph.NewService(codegraph.NewNilStore(), codegraph.NewSubprocessAnalyzer()),

@@ -28,6 +28,7 @@ import (
 	"devkit/internal/syncconflict"
 	"devkit/internal/syncstore"
 	"devkit/internal/terminal"
+	"devkit/internal/uistate"
 	"devkit/internal/vault"
 	"devkit/internal/vaultitem"
 
@@ -80,6 +81,7 @@ func main() {
 	)
 	container.ConfigDir = configDir
 	container.Preferences = preferences.NewService(preferences.NewSQLRepository(db))
+	container.UIState = uistate.NewService(uistate.NewSQLRepository(db))
 	themePreference, err := container.Preferences.Theme()
 	if err != nil {
 		log.Fatal(err)
