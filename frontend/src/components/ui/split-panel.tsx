@@ -2,6 +2,8 @@ import * as React from "react";
 import { AnimatePresence, LazyMotion, domAnimation, m } from "framer-motion";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useResizableWidth } from "@/workbench/useResizableWidth";
+import { usePanelWidthsStore } from "@/stores/panelWidths";
 import { cn } from "@/lib/utils";
 
 type PanelState = {
@@ -67,10 +69,9 @@ const GAP_WIDTH = 4;
  */
 export function SplitPanelSlot() {
   const { panel } = useSplitPanel();
-  const [width, setWidth] = React.useState(panel?.width ?? 420);
+  const width = usePanelWidthsStore((s) => s.splitPanelWidth);
+  const setWidth = usePanelWidthsStore((s) => s.setSplitPanelWidth);
   const wasOpenRef = React.useRef(false);
-  const [isResizing, setIsResizing] = React.useState(false);
-  const resizeStart = React.useRef<{ x: number; width: number } | null>(null);
 
   // Sync from the caller's requested width only on the closed -> open
   // transition, so an in-progress drag-resize survives openPanel() being
@@ -82,45 +83,15 @@ export function SplitPanelSlot() {
       setWidth(panel!.width);
     }
     wasOpenRef.current = isOpen;
-  }, [panel]);
+  }, [panel, setWidth]);
 
-  React.useEffect(() => {
-    if (!isResizing) {
-      return;
-    }
-    function onMove(e: PointerEvent) {
-      if (!resizeStart.current) {
-        return;
-      }
-      const delta = resizeStart.current.x - e.clientX;
-      setWidth(
-        Math.min(
-          MAX_PANEL_WIDTH,
-          Math.max(MIN_PANEL_WIDTH, resizeStart.current.width + delta),
-        ),
-      );
-    }
-    function onUp() {
-      resizeStart.current = null;
-      setIsResizing(false);
-    }
-    document.addEventListener("pointermove", onMove);
-    document.addEventListener("pointerup", onUp);
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-    return () => {
-      document.removeEventListener("pointermove", onMove);
-      document.removeEventListener("pointerup", onUp);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-    };
-  }, [isResizing]);
-
-  function onResizePointerDown(e: React.PointerEvent) {
-    e.preventDefault();
-    resizeStart.current = { x: e.clientX, width };
-    setIsResizing(true);
-  }
+  const { isResizing, onPointerDown } = useResizableWidth({
+    width,
+    onWidthChange: setWidth,
+    min: MIN_PANEL_WIDTH,
+    max: MAX_PANEL_WIDTH,
+    sign: -1,
+  });
 
   return (
     <LazyMotion features={domAnimation}>
@@ -135,7 +106,7 @@ export function SplitPanelSlot() {
             role="separator"
             aria-orientation="vertical"
             aria-label="Resize panel"
-            onPointerDown={onResizePointerDown}
+            onPointerDown={onPointerDown}
             style={{ width: GAP_WIDTH }}
             className="group flex shrink-0 cursor-col-resize items-center justify-center"
           >
