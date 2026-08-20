@@ -660,21 +660,25 @@ export function Workbench() {
         {/* Transparent row: the main content card and the split panel are two
             independent bg-card boxes, separated by a gap that shows the same
             transparent/vibrancy background as the mx-1/mb-1 margins around
-            this whole row — not one shared card with an internal divider.
-            The bottom slot is a full-width sibling *under* all three, so the
-            mx-1/mb-1 margins move out here to the column that holds both. */}
-        <div className="mx-1 mb-1 flex min-h-0 flex-1 flex-col">
-          <div className="flex min-h-0 flex-1">
-            <SidebarSurface activeModuleId={activeModule?.id ?? null} />
+            this whole row — not one shared card with an internal divider. */}
+        <div className="mx-1 mb-1 flex min-h-0 flex-1">
+          <SidebarSurface activeModuleId={activeModule?.id ?? null} />
+          {/* The bottom slot is stacked under the module content ONLY — the
+              sidebar and the split panel keep their full height either side of
+              it, so opening it never shortens them. min-w-0 because this
+              column has no overflow-hidden of its own to zero its automatic
+              minimum width, and without it the two side panels could not
+              squeeze it. */}
+          <div className="flex min-w-0 min-h-0 flex-1 flex-col">
             <WorkbenchViews
               availableModules={availableModules}
               hasMetadataWarning={hasMetadataWarning}
               openTabs={openTabs}
               activeTabId={activeTabId}
             />
-            <SplitPanelSlot />
+            <BottomSlotSurface activeModuleId={activeModule?.id ?? null} />
           </div>
-          <BottomSlotSurface activeModuleId={activeModule?.id ?? null} />
+          <SplitPanelSlot />
         </div>
         <Dock
           activeModuleId={activeModule?.id ?? ""}

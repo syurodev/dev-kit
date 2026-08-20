@@ -39,14 +39,20 @@ const MIN_BOTTOM_HEIGHT = 120;
 const MAX_BOTTOM_HEIGHT = 600;
 
 /**
- * The rendered bottom surface. Flex sibling *below* the row that holds the
- * sidebar, the module views and the split panel (see Workbench.tsx) — so it
- * spans the full window width, under all three, the way the Figma App Shell's
- * Bottom=Open variant draws it.
+ * The rendered bottom surface. Stacked directly under WorkbenchViews inside
+ * the module-content column (see Workbench.tsx), so it is exactly as wide as
+ * the module content — the sidebar and the split panel run full height either
+ * side of it and opening this never shortens them.
+ *
+ * That is a deliberate departure from the Figma App Shell's Bottom=Open
+ * variant, which draws the bottom surface spanning the full window width and
+ * cutting across the sidebar. The vertical extent is unchanged.
  *
  * The dock floats over this surface on purpose (Dock.tsx is `fixed bottom-2`,
  * and the Figma places the pill inside the bottom surface's bounds) — there is
- * deliberately no bottom padding here to make room for it.
+ * deliberately no bottom padding here to make room for it. Note the dock
+ * centres on the *window*, not on this column, so with the sidebar open the
+ * pill no longer sits over this surface's own centre.
  */
 export function BottomSlotSurface({ activeModuleId }: { activeModuleId: string | null }) {
   const open = useBottomSlotStore((s) => s.open);

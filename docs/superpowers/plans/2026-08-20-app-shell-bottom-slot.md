@@ -51,7 +51,7 @@ Read these before Task 1. They are short and every one of them is load-bearing.
 | `frontend/src/components/ui/split-panel.tsx` | Updated to the renamed hook. |
 | `frontend/src/workbench/panelLayout.ts` | Adds `TITLE_BAR_HEIGHT`, `CONTENT_MIN_HEIGHT`, `useWindowHeight`, `maxBottomHeight`. |
 | `frontend/src/workbench/panelLayout.test.ts` | Adds `maxBottomHeight` cases. |
-| `frontend/src/workbench/Workbench.tsx` | Wraps the content row so the slot can sit under it; adds the title-bar toggle. |
+| `frontend/src/workbench/Workbench.tsx` | Wraps the module content in a column so the slot can sit under it, between the two full-height side panels; adds the title-bar toggle. |
 
 ---
 
@@ -60,20 +60,23 @@ Read these before Task 1. They are short and every one of them is load-bearing.
 Taken from the App Shell component in Figma (page **07 App Shell**, component set `107:137`, variant `Bottom=Open`) at its 1440×900 frame size:
 
 ```
-y=0    ┌──────────────────────────────┐
-       │ title bar               h=30 │
-y=30   ├──────────────────────────────┤
-       │ content row            h=642 │   sidebar | views | split panel
-y=672  ├──────────────────────────────┤
-       │ gutter                   h=4 │   = GAP_WIDTH
-y=676  ├──────────────────────────────┤
-       │ bottom surface         h=220 │   ← this plan
-y=896  ├──────────────────────────────┤
-       │ window margin            h=4 │   = the existing mb-1
-y=900  └──────────────────────────────┘
+        │ sidebar │      module column      │ split │
+y=0    ┌─────────────────────────────────────────────┐
+       │ title bar                              h=30 │
+y=30   ├─────────┬─────────────────────────┬─────────┤
+       │         │ module views      h=642 │         │
+y=672  │         ├─────────────────────────┤         │
+       │ h=866   │ gutter              h=4 │  h=866  │  = GAP_WIDTH
+y=676  │         ├─────────────────────────┤         │
+       │         │ bottom surface    h=220 │         │  ← this plan
+y=896  ├─────────┴─────────────────────────┴─────────┤
+       │ window margin                           h=4 │  = the existing mb-1
+y=900  └─────────────────────────────────────────────┘
 ```
 
 So: **default height 220**, gutter `GAP_WIDTH` (4, already the shared constant), and the surface ends at the same `mb-1` the content row already has.
+
+**The slot is as wide as the module content, not as wide as the window.** The sidebar and the split panel run full height either side of it, so opening the slot never shortens them. This is a deliberate departure from the Figma App Shell's `Bottom=Open` variant, which draws the bottom surface spanning the whole window and cutting across the sidebar — the vertical grid above is Figma's and is unchanged. One knock-on: `Dock.tsx` centres the pill on the *window*, so with the sidebar open the pill no longer sits over this surface's own centre.
 
 `MIN_BOTTOM_HEIGHT = 120` and `MAX_BOTTOM_HEIGHT = 600` are **choices, not Figma values** — 120 is roughly six rows of monospace text plus chrome, 600 keeps a 900px window from being all panel. `CONTENT_MIN_HEIGHT = 240` is the same kind of choice as the existing `CONTENT_MIN_WIDTH = 480`.
 
@@ -632,14 +635,20 @@ const MIN_BOTTOM_HEIGHT = 120;
 const MAX_BOTTOM_HEIGHT = 600;
 
 /**
- * The rendered bottom surface. Flex sibling *below* the row that holds the
- * sidebar, the module views and the split panel (see Workbench.tsx) — so it
- * spans the full window width, under all three, the way the Figma App Shell's
- * Bottom=Open variant draws it.
+ * The rendered bottom surface. Stacked directly under WorkbenchViews inside
+ * the module-content column (see Workbench.tsx), so it is exactly as wide as
+ * the module content — the sidebar and the split panel run full height either
+ * side of it and opening this never shortens them.
+ *
+ * That is a deliberate departure from the Figma App Shell's Bottom=Open
+ * variant, which draws the bottom surface spanning the full window width and
+ * cutting across the sidebar. The vertical extent is unchanged.
  *
  * The dock floats over this surface on purpose (Dock.tsx is `fixed bottom-2`,
  * and the Figma places the pill inside the bottom surface's bounds) — there is
- * deliberately no bottom padding here to make room for it.
+ * deliberately no bottom padding here to make room for it. Note the dock
+ * centres on the *window*, not on this column, so with the sidebar open the
+ * pill no longer sits over this surface's own centre.
  */
 export function BottomSlotSurface({ activeModuleId }: { activeModuleId: string | null }) {
   const open = useBottomSlotStore((s) => s.open);
@@ -823,21 +832,25 @@ with:
         {/* Transparent row: the main content card and the split panel are two
             independent bg-card boxes, separated by a gap that shows the same
             transparent/vibrancy background as the mx-1/mb-1 margins around
-            this whole row — not one shared card with an internal divider.
-            The bottom slot is a full-width sibling *under* all three, so the
-            mx-1/mb-1 margins move out here to the column that holds both. */}
-        <div className="mx-1 mb-1 flex min-h-0 flex-1 flex-col">
-          <div className="flex min-h-0 flex-1">
-            <SidebarSurface activeModuleId={activeModule?.id ?? null} />
+            this whole row — not one shared card with an internal divider. */}
+        <div className="mx-1 mb-1 flex min-h-0 flex-1">
+          <SidebarSurface activeModuleId={activeModule?.id ?? null} />
+          {/* The bottom slot is stacked under the module content ONLY — the
+              sidebar and the split panel keep their full height either side of
+              it, so opening it never shortens them. min-w-0 because this
+              column has no overflow-hidden of its own to zero its automatic
+              minimum width, and without it the two side panels could not
+              squeeze it. */}
+          <div className="flex min-w-0 min-h-0 flex-1 flex-col">
             <WorkbenchViews
               availableModules={availableModules}
               hasMetadataWarning={hasMetadataWarning}
               openTabs={openTabs}
               activeTabId={activeTabId}
             />
-            <SplitPanelSlot />
+            <BottomSlotSurface activeModuleId={activeModule?.id ?? null} />
           </div>
-          <BottomSlotSurface activeModuleId={activeModule?.id ?? null} />
+          <SplitPanelSlot />
         </div>
 ```
 
@@ -922,7 +935,7 @@ Run: `cd dev-kit-app && task run:desktop` (or the project's usual desktop run ta
 Check each of these:
 
 1. The title bar's right edge shows three icons: Search, Settings, and a new panel icon. The panel icon is present in every module, including ones with no bottom content.
-2. Clicking it opens a full-width surface at the bottom, over which the dock pill floats. It reads "This module has nothing to show down here yet."
+2. Clicking it opens a surface at the bottom of the module content, over which the dock pill floats. It reads "This module has nothing to show down here yet." Open the sidebar as well: the sidebar still runs the full height of the window and the slot starts at its right edge, not under it.
 3. Clicking it again closes the surface; the content row grows back to fill the space, animating over ~0.22s.
 4. Dragging the 4px gutter along the surface's top edge resizes it. The cursor becomes `row-resize` while dragging. It stops growing at 600px, and at the point where the content row above would drop under 240px, whichever comes first.
 5. With the slot open, drag it as tall as it will go, then drag the window's own bottom edge up until the window is short. The slot shrinks with the window and the content row above it never disappears. Make the window tall again: the slot returns to the height you dragged it to.
