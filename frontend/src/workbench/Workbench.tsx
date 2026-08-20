@@ -506,6 +506,30 @@ export function Workbench() {
             isFullscreen ? "pl-1" : "pl-20",
           )}
         >
+          {/* Sidebar toggle sits immediately after the traffic lights and
+              deliberately OUTSIDE the three zones below — it is not a status
+              item, a module action, or an app action, so it does not belong to
+              any of them. mx-2 lands it at x=88 against the header's pl-20
+              (80px) traffic-light reservation, matching sidebar-toggle's own
+              x=88 in the App Shell component in Figma. */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                aria-label="Toggle sidebar"
+                aria-pressed={sidebarOpen}
+                className={cn(
+                  sidebarOpen && "bg-accent text-foreground",
+                  "mx-2 shrink-0 [--wails-draggable:no-drag]",
+                )}
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+              >
+                <PanelLeft className="size-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Toggle sidebar</TooltipContent>
+          </Tooltip>
           {/* 1fr/5fr/1fr, not flex-grow ratios: Grid's fr unit divides the
               full track width by ratio regardless of each column's own
               content size, which is what an even 1:5:1 split actually
@@ -514,7 +538,7 @@ export function Workbench() {
               up the same width as a busy right column under flex.
               minmax(0,_) on every track keeps long status/action content from
               expanding one region into its siblings. */}
-          <div className="grid h-full w-full grid-cols-[minmax(0,1fr)_minmax(0,5fr)_minmax(0,1fr)] items-center gap-2">
+          <div className="grid h-full min-w-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(0,5fr)_minmax(0,1fr)] items-center gap-2">
             <div className="min-w-0 select-none truncate text-xs text-muted-foreground">
               {metadataLoading ? "Loading module metadata..." : null}
             </div>
@@ -541,24 +565,6 @@ export function Workbench() {
               ))}
             </div>
             <div className="flex min-w-0 items-center justify-end gap-2">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    aria-label="Toggle sidebar"
-                    aria-pressed={sidebarOpen}
-                    className={cn(
-                      sidebarOpen && "bg-accent text-foreground",
-                      "shrink-0 [--wails-draggable:no-drag]",
-                    )}
-                    onClick={() => setSidebarOpen(!sidebarOpen)}
-                  >
-                    <PanelLeft className="size-3.5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">Toggle sidebar</TooltipContent>
-              </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
