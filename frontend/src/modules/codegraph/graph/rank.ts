@@ -14,10 +14,8 @@ export type Ranked = {
 /**
  * Longest-path ranking, then contiguous ordering within each rank.
  *
- * Longest path rather than BFS depth: given `a->c` alongside `a->b->c`, BFS
- * would put b and c in the same rank and the b->c connector would have to run
- * sideways or upward. Longest path guarantees every edge descends by at least
- * one rank, which is what makes the elbow connector always drawable.
+ * Traverses ONLY downstream nodes reachable from rootId via outgoing edges.
+ * Callers or unreachable nodes are excluded so the entry point remains at the top.
  */
 export function rankGraph(input: RankInput): Map<string, Ranked> {
   const known = new Set(input.nodeIds);
@@ -43,15 +41,15 @@ export function rankGraph(input: RankInput): Map<string, Ranked> {
     onPath.delete(id);
   };
 
-  if (known.has(input.rootId)) visit(input.rootId, 0);
-  for (const id of input.nodeIds) {
-    if (!rank.has(id)) visit(id, 0);
+  if (known.has(input.rootId)) {
+    visit(input.rootId, 0);
   }
 
   const counters = new Map<number, number>();
   const out = new Map<string, Ranked>();
   for (const id of input.nodeIds) {
-    const r = rank.get(id) ?? 0;
+    if (!rank.has(id)) continue;
+    const r = rank.get(id)!;
     const order = counters.get(r) ?? 0;
     counters.set(r, order + 1);
     out.set(id, { rank: r, order });

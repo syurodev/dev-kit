@@ -26,7 +26,7 @@ export type FlowCanvasProps = {
   rootId: string;
   nodes: CodeGraphNode[];
   edges: CodeGraphEdge[];
-  onSelect: (nodeId: string) => void;
+  onSelect?: (nodeId: string) => void;
 };
 
 export function FlowCanvas(props: FlowCanvasProps) {
@@ -47,11 +47,17 @@ function Canvas({ rootId, nodes, edges, onSelect }: FlowCanvasProps) {
     [rootId, nodes, edges],
   );
 
+  // Keep only reachable downstream nodes
+  const reachableNodes = useMemo(
+    () => nodes.filter((n) => ranks.has(n.id)),
+    [nodes, ranks],
+  );
+
   // Everything starts at the origin and stays invisible until it has been
   // measured and placed — that is what lets place() refuse to guess a size.
   const initialNodes: Node[] = useMemo(
     () =>
-      nodes.map((n) => ({
+      reachableNodes.map((n) => ({
         id: n.id,
         type: "apiNode",
         position: { x: 0, y: 0 },
@@ -61,7 +67,7 @@ function Canvas({ rootId, nodes, edges, onSelect }: FlowCanvasProps) {
           detail: `${n.filePath.split("/").pop()}:${n.line}`,
         },
       })),
-    [nodes],
+    [reachableNodes],
   );
 
   const flowEdges: Edge[] = useMemo(
@@ -70,9 +76,11 @@ function Canvas({ rootId, nodes, edges, onSelect }: FlowCanvasProps) {
         const from = ranks.get(e.from);
         const to = ranks.get(e.to);
         if (!from || !to) return [];
-        // A target in the same column continues the trunk and enters from the
-        // top; anything offset sideways is a branch and enters from the left.
-        const sameColumn = from.order === to.order;
+        // A target in the same column directly descending by 1 rank continues
+        // the trunk and enters from the top; anything offset sideways or skipping
+        // ranks is a branch and enters from the left to avoid crossing intermediate cards.
+        const isDirectNextRank = to.rank - from.rank === 1;
+        const sameColumn = from.order === to.order && isDirectNextRank;
         return [
           {
             id: `${e.from}->${e.to}`,
@@ -121,10 +129,10 @@ function Canvas({ rootId, nodes, edges, onSelect }: FlowCanvasProps) {
         nodesDraggable={false}
         nodesConnectable={false}
         onlyRenderVisibleElements
-        onNodeClick={(_, node) => onSelect(node.id)}
+        onNodeClick={(_, node) => onSelect?.(node.id)}
         proOptions={{ hideAttribution: false }}
       >
-        <Background gap={24} size={2} color="var(--text-tertiary)" />
+        <Background gap={24} size={2} color="color-mix(in srgb, var(--text-primary) 8%, transparent)" />
         <Panel position="bottom-left">
           <LayerLegend />
         </Panel>

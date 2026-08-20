@@ -58,9 +58,15 @@ test("a cycle terminates instead of hanging", () => {
   expect(r.size).toBe(2);
 });
 
-test("nodes unreachable from the root are still ranked", () => {
-  const r = rankGraph({ rootId: "a", nodeIds: ids("a", "orphan"), edges: [] });
-  expect(r.has("orphan")).toBe(true);
+test("nodes unreachable from the root (such as callers) are excluded", () => {
+  const r = rankGraph({
+    rootId: "a",
+    nodeIds: ids("a", "caller", "orphan"),
+    edges: [{ from: "caller", to: "a" }],
+  });
+  expect(r.has("a")).toBe(true);
+  expect(r.has("caller")).toBe(false);
+  expect(r.has("orphan")).toBe(false);
 });
 
 test("edges referencing unknown nodes are ignored", () => {

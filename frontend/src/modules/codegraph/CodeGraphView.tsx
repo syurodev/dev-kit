@@ -48,7 +48,6 @@ export function CodeGraphView() {
   const [endpoints, setEndpoints] = useState<CodeGraphEndpoint[]>([]);
   const [subgraph, setSubgraph] = useState<CodeGraphSubgraph | null>(null);
   const [rootId, setRootId] = useState<string | null>(null);
-  const [, setSelectedNodeId] = useState<string | null>(null);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -98,7 +97,6 @@ export function CodeGraphView() {
     setError("");
     setSubgraph(null);
     setRootId(null);
-    setSelectedNodeId(null);
     try {
       await openCodeGraphProject(path);
       const list = await listCodeGraphEndpoints();
@@ -121,7 +119,6 @@ export function CodeGraphView() {
       const sub = await getCodeGraphNeighbors(endpoint.entryNode, 3);
       setSubgraph(sub);
       setRootId(endpoint.entryNode);
-      setSelectedNodeId(endpoint.entryNode);
     } catch (e) {
       setSubgraph(null);
       setError(errorMessage(e));
@@ -222,10 +219,10 @@ export function CodeGraphView() {
               </span>
               <div className="flex-1 overflow-hidden">
                 <FlowCanvas
+                  key={rootId}
                   rootId={rootId}
                   nodes={subgraph.nodes}
                   edges={subgraph.edges}
-                  onSelect={setSelectedNodeId}
                 />
               </div>
             </div>

@@ -15,7 +15,7 @@ export function CanvasToolbar({ onSearch, onFit, onExpand, fitActive }: CanvasTo
     { icon: Maximize, action: onExpand, active: false, label: "Expand all" },
   ];
   return (
-    <div className="flex gap-0.5 rounded-2.25 border border-border-subtle bg-surface-raised p-0.75">
+    <div className="flex gap-0.5 rounded-[9px] border border-border-subtle bg-surface-raised p-0.75">
       {buttons.map(({ icon: Icon, action, active, label }) => (
         <button
           key={label}
