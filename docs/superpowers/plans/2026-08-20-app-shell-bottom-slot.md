@@ -275,20 +275,23 @@ Append to `frontend/src/workbench/panelLayout.test.ts`:
 
 ```ts
 test("the bottom slot may grow to its hard maximum on a tall window", () => {
-  const max = maxBottomHeight({ windowHeight: 1400, min: 120, hardMax: 600 });
-  expect(max).toBe(600);
+  expect(maxBottomHeight({ windowHeight: 1400, min: 120, hardMax: 600 })).toBe(600);
+  // Including at the 900px Figma frame height: the raw budget there is 622,
+  // so the hard max is what actually caps the slot on the design target.
+  expect(maxBottomHeight({ windowHeight: 900, min: 120, hardMax: 600 })).toBe(600);
 });
 
 test("the bottom slot's ceiling leaves the content row its floor", () => {
-  // 900 is the Figma frame height and the smallest window worth designing
-  // for; the arithmetic must still leave CONTENT_MIN_HEIGHT above the slot.
-  const windowHeight = 900;
+  // 800, not the 900 design height: at 900 the hard max binds first and this
+  // assertion would pass without the content floor doing any work at all.
+  const windowHeight = 800;
   const max = maxBottomHeight({ windowHeight, min: 120, hardMax: 600 });
+  expect(max).toBeLessThan(600);
   expect(max).toBe(
     windowHeight - TITLE_BAR_HEIGHT - CONTENT_MIN_HEIGHT - GAP_WIDTH * 2,
   );
   const contentRow = windowHeight - TITLE_BAR_HEIGHT - max - GAP_WIDTH * 2;
-  expect(contentRow).toBeGreaterThanOrEqual(CONTENT_MIN_HEIGHT);
+  expect(contentRow).toBe(CONTENT_MIN_HEIGHT);
 });
 
 test("never returns below the slot's own minimum", () => {

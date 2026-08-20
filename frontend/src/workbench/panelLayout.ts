@@ -46,3 +46,49 @@ export function maxPanelWidth(opts: {
   const available = windowWidth - otherEffectiveWidth - CONTENT_MIN_WIDTH - GAP_WIDTH * 2;
   return Math.max(min, Math.min(hardMax, available));
 }
+
+/**
+ * The title bar's fixed height. Mirrors the `h-[30px]` on Workbench.tsx's
+ * <header> — a Tailwind class cannot be read from here, so the two are kept
+ * in step by hand. Change one, change the other.
+ */
+export const TITLE_BAR_HEIGHT = 30;
+
+/** Hard floor for the centre content row, whatever the bottom slot does. */
+export const CONTENT_MIN_HEIGHT = 240;
+
+/** Tracks the live viewport height, for the bottom slot's clamp. */
+export function useWindowHeight(): number {
+  const [height, setHeight] = useState(() => window.innerHeight);
+  useEffect(() => {
+    const onResize = () => setHeight(window.innerHeight);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  return height;
+}
+
+/**
+ * How tall the bottom slot may grow.
+ *
+ * Deliberately not maxPanelWidth with different constants: the two side
+ * panels clamp against *each other* because they share one horizontal budget,
+ * and the bottom slot has no such neighbour — it only owes the content row
+ * above it a floor. Passing a fake `otherEffectiveWidth: 0` through the other
+ * function would have hidden that difference behind a coincidence.
+ *
+ * The two GAP_WIDTHs are different things that happen to be equal: the gutter
+ * between the content row and this slot, and the window margin below it (the
+ * `mb-1` on Workbench.tsx's content wrapper).
+ *
+ * Never returns less than `min`, for the same reason maxPanelWidth does not.
+ */
+export function maxBottomHeight(opts: {
+  windowHeight: number;
+  min: number;
+  hardMax: number;
+}): number {
+  const { windowHeight, min, hardMax } = opts;
+  const available = windowHeight - TITLE_BAR_HEIGHT - CONTENT_MIN_HEIGHT - GAP_WIDTH * 2;
+  return Math.max(min, Math.min(hardMax, available));
+}
