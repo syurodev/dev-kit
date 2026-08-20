@@ -2,7 +2,7 @@ import * as React from "react";
 import { AnimatePresence, LazyMotion, domAnimation, m } from "framer-motion";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useResizableWidth } from "@/workbench/useResizableWidth";
+import { useResizableSize } from "@/workbench/useResizableSize";
 import {
   GAP_WIDTH,
   maxPanelWidth,
@@ -93,9 +93,9 @@ export function SplitPanelSlot() {
     wasOpenRef.current = isOpen;
   }, [panel, setWidth]);
 
-  const { isResizing, onPointerDown } = useResizableWidth({
-    width,
-    onWidthChange: setWidth,
+  const { isResizing, onPointerDown } = useResizableSize({
+    size: width,
+    onSizeChange: setWidth,
     min: MIN_PANEL_WIDTH,
     // Clamped against the sidebar, not just a flat ceiling: with both panels
     // open on a narrow window, a flat 720 here would crush the centre content
@@ -106,6 +106,7 @@ export function SplitPanelSlot() {
       min: MIN_PANEL_WIDTH,
       hardMax: MAX_PANEL_WIDTH,
     }),
+    axis: "x",
     sign: -1,
   });
 

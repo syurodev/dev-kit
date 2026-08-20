@@ -1,6 +1,6 @@
 import * as React from "react";
 import { LazyMotion, domAnimation, m } from "framer-motion";
-import { useResizableWidth } from "@/workbench/useResizableWidth";
+import { useResizableSize } from "@/workbench/useResizableSize";
 import {
   GAP_WIDTH,
   maxPanelWidth,
@@ -66,11 +66,12 @@ export function SidebarSurface({ activeModuleId }: { activeModuleId: string | nu
     hardMax: MAX_SIDEBAR_WIDTH,
   });
 
-  const { isResizing, onPointerDown } = useResizableWidth({
-    width: sidebarWidth,
-    onWidthChange: setSidebarWidth,
+  const { isResizing, onPointerDown } = useResizableSize({
+    size: sidebarWidth,
+    onSizeChange: setSidebarWidth,
     min: MIN_SIDEBAR_WIDTH,
     max,
+    axis: "x",
     sign: 1,
   });
 
