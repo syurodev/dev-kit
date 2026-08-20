@@ -16,7 +16,7 @@ export function CollapsedDock({
   activeIndex: number;
 }) {
   return (
-    <div className="flex items-center gap-1 px-2 py-[5px]">
+    <div aria-hidden="true" className="flex items-center gap-1 px-2 py-[5px]">
       {Array.from({ length: count }, (_, i) => (
         <span
           key={i}
