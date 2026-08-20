@@ -35,7 +35,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Kbd } from "@/components/ui/kbd";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { SplitPanelProvider, SplitPanelSlot } from "@/components/ui/split-panel";
-import { SidebarProvider, SidebarSurface, SidebarModuleIdContext } from "@/components/ui/sidebar-shell";
+import { SidebarSurface, SidebarModuleIdContext } from "@/components/ui/sidebar-shell";
 import { useModuleActionsStore } from "../stores/moduleActions";
 import { useWorkbenchTabsStore, type WorkbenchTab } from "../stores/workbenchTabs";
 import { useSidebarOpenStore } from "../stores/sidebarShell";
@@ -489,8 +489,7 @@ export function Workbench() {
   const hasMetadataWarning = metadataError || parityIssues.length > 0;
 
   return (
-    <SidebarProvider>
-      <SplitPanelProvider>
+    <SplitPanelProvider>
       {/* Transparent, not bg-background: this outer frame is what the native
           macOS vibrancy blur (Mac.Backdrop in main.go) needs to show through.
           Only the content card below (bg-card) stays opaque. */}
@@ -629,6 +628,5 @@ export function Workbench() {
         <InteractionHost />
       </div>
     </SplitPanelProvider>
-    </SidebarProvider>
   );
 }

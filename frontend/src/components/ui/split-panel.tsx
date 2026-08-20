@@ -3,6 +3,11 @@ import { AnimatePresence, LazyMotion, domAnimation, m } from "framer-motion";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useResizableWidth } from "@/workbench/useResizableWidth";
+import {
+  GAP_WIDTH,
+  maxPanelWidth,
+  useWindowWidth,
+} from "@/workbench/panelLayout";
 import { usePanelWidthsStore } from "@/stores/panelWidths";
 import { cn } from "@/lib/utils";
 
@@ -54,12 +59,6 @@ export function useSplitPanel(): SplitPanelContextValue {
 
 const MIN_PANEL_WIDTH = 320;
 const MAX_PANEL_WIDTH = 720;
-// Matches the mx-1/mb-1 (4px) transparent margins around the whole content
-// row — the gutter between the two cards is styled the same, not a bespoke
-// gap width, so it reads as "the same transparent frame", not a new one.
-// Drives the gutter's actual rendered width via inline style below (not a
-// Tailwind class) so the two can never drift out of sync again.
-const GAP_WIDTH = 4;
 
 /**
  * Renders as a flex sibling of the active module's content (see
@@ -71,7 +70,16 @@ export function SplitPanelSlot() {
   const { panel } = useSplitPanel();
   const width = usePanelWidthsStore((s) => s.splitPanelWidth);
   const setWidth = usePanelWidthsStore((s) => s.setSplitPanelWidth);
+  const setSplitPanelOpen = usePanelWidthsStore((s) => s.setSplitPanelOpen);
+  const sidebarWidth = usePanelWidthsStore((s) => s.sidebarWidth);
+  const sidebarOpen = usePanelWidthsStore((s) => s.sidebarOpen);
+  const windowWidth = useWindowWidth();
   const wasOpenRef = React.useRef(false);
+
+  // Publish this panel's occupancy so SidebarSurface can clamp against it.
+  React.useEffect(() => {
+    setSplitPanelOpen(panel !== null);
+  }, [panel, setSplitPanelOpen]);
 
   // Sync from the caller's requested width only on the closed -> open
   // transition, so an in-progress drag-resize survives openPanel() being
@@ -89,7 +97,15 @@ export function SplitPanelSlot() {
     width,
     onWidthChange: setWidth,
     min: MIN_PANEL_WIDTH,
-    max: MAX_PANEL_WIDTH,
+    // Clamped against the sidebar, not just a flat ceiling: with both panels
+    // open on a narrow window, a flat 720 here would crush the centre content
+    // area straight through its floor.
+    max: maxPanelWidth({
+      windowWidth,
+      otherEffectiveWidth: sidebarOpen ? sidebarWidth : 0,
+      min: MIN_PANEL_WIDTH,
+      hardMax: MAX_PANEL_WIDTH,
+    }),
     sign: -1,
   });
 
