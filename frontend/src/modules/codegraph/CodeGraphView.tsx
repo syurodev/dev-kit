@@ -7,7 +7,8 @@ import { json } from "@codemirror/lang-json";
 import { yaml } from "@codemirror/lang-yaml";
 import { markdown } from "@codemirror/lang-markdown";
 import { CodeEditor } from "@/components/code-editor/CodeEditor";
-import { FileTree } from "./FileTree";
+import { useSidebarContent } from "@/components/ui/sidebar-shell";
+import { CodeGraphSidebar } from "./CodeGraphSidebar";
 import { FlowCanvas } from "./graph/FlowCanvas";
 import {
   openCodeGraphProject,
@@ -21,7 +22,6 @@ import {
   type CodeGraphFileEntry,
 } from "../../bridge/codegraph";
 import { errorMessage } from "../../bridge/errors";
-import { Button } from "../../components/ui/button";
 
 // Mirrors internal/codegraph/service.go's languageForPath exactly (same 4
 // extensions, same default-to-none for anything else) — kept in sync by
@@ -167,54 +167,32 @@ export function CodeGraphView() {
     [selectedFile, saveKeymap],
   );
 
+  useSidebarContent(
+    <CodeGraphSidebar
+      projectPath={projectPath}
+      busy={busy}
+      status={status}
+      error={error}
+      activeTab={activeTab}
+      onTabChange={setActiveTab}
+      onPickProject={pickAndOpenProject}
+      onReindex={() => reindex(projectPath)}
+      endpoints={endpoints}
+      selectedEndpointId={rootId}
+      onSelectEndpoint={viewFlow}
+      files={files}
+      selectedFile={selectedFile}
+      onSelectFile={openFile}
+    />,
+  );
+
   return (
-    <div className="flex h-full flex-col gap-4 p-4">
-      <div className="flex items-center gap-2">
-        <Button onClick={pickAndOpenProject} disabled={busy} size="sm">
-          Open Java project…
-        </Button>
-        {projectPath && (
-          <Button onClick={() => reindex(projectPath)} disabled={busy} variant="secondary" size="sm">
-            Re-index
-          </Button>
-        )}
-        {projectPath && <span className="text-sm text-muted-foreground truncate">{projectPath}</span>}
-      </div>
-
-      {status && <p className="text-sm text-muted-foreground">{status}</p>}
-      {error && <p className="text-sm text-destructive">{error}</p>}
-
-      <div className="flex items-center gap-2 border-b pb-2">
-        <Button variant={activeTab === "endpoints" ? "secondary" : "ghost"} size="sm" onClick={() => setActiveTab("endpoints")}>
-          Endpoints
-        </Button>
-        <Button variant={activeTab === "files" ? "secondary" : "ghost"} size="sm" onClick={() => setActiveTab("files")}>
-          Files
-        </Button>
-      </div>
-
+    <div className="flex h-full w-full flex-col overflow-hidden">
       {activeTab === "endpoints" && (
-        <div className="flex flex-1 gap-4 overflow-hidden">
-          <ul className="w-1/3 overflow-y-auto border-r pr-2 space-y-1">
-            {endpoints.map((ep) => (
-              <li key={ep.id}>
-                <button
-                  className="w-full text-left rounded px-2 py-1 hover:bg-surface-raised transition-colors"
-                  onClick={() => viewFlow(ep)}
-                >
-                  <span className="font-mono text-xs font-semibold uppercase text-status-info mr-1.5">{ep.httpMethod}</span>
-                  <span className="text-sm">{ep.path}</span>
-                </button>
-              </li>
-            ))}
-            {endpoints.length === 0 && !busy && (
-              <li className="text-sm text-muted-foreground py-2">No endpoints yet — open a project to index it.</li>
-            )}
-          </ul>
-
+        <div className="flex flex-1 flex-col overflow-hidden">
           {subgraph && rootId ? (
             <div className="flex flex-1 flex-col overflow-hidden">
-              <span className="px-1 pb-2 font-mono text-[11px] text-text-tertiary">
+              <span className="px-3 pt-2 font-mono text-[11px] text-text-tertiary">
                 {subgraph.nodes.length} nodes · {subgraph.edges.length} edges
               </span>
               <div className="flex-1 overflow-hidden">
@@ -227,41 +205,40 @@ export function CodeGraphView() {
               </div>
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground">Select an endpoint to see its flow.</p>
+            <div className="flex h-full items-center justify-center p-4 text-sm text-muted-foreground">
+              Select an endpoint from the sidebar to view its flow graph.
+            </div>
           )}
         </div>
       )}
 
       {activeTab === "files" && (
-        <div className="flex flex-1 gap-4 overflow-hidden">
-          <div className="w-1/4 overflow-hidden border-r">
-            <FileTree entries={files} selectedPath={selectedFile} onSelectFile={openFile} />
-          </div>
-          <div className="flex flex-1 flex-col overflow-hidden">
-            {selectedFile ? (
-              <>
-                <div className="flex items-center justify-between border-b px-2 py-1 text-sm text-muted-foreground">
-                  <span className="truncate font-mono">{selectedFile}</span>
-                  {fileDirty && <span className="text-status-warning">unsaved</span>}
-                </div>
-                <div className="flex-1 overflow-hidden">
-                  <CodeEditor
-                    value={fileContent}
-                    onChange={(v) => {
-                      setFileContent(v);
-                      setFileDirty(true);
-                    }}
-                    extensions={editorExtensions}
-                  />
-                </div>
-              </>
-            ) : (
-              <p className="p-4 text-sm text-muted-foreground">Select a file to edit it. Ctrl/Cmd+S saves.</p>
-            )}
-          </div>
+        <div className="flex flex-1 flex-col overflow-hidden">
+          {selectedFile ? (
+            <div className="flex flex-1 flex-col overflow-hidden">
+              <div className="flex items-center justify-between border-b px-3 py-1.5 text-sm text-muted-foreground">
+                <span className="truncate font-mono">{selectedFile}</span>
+                {fileDirty && <span className="text-status-warning text-xs font-mono">unsaved</span>}
+              </div>
+              <div className="flex-1 overflow-hidden">
+                <CodeEditor
+                  value={fileContent}
+                  onChange={(v) => {
+                    setFileContent(v);
+                    setFileDirty(true);
+                  }}
+                  extensions={editorExtensions}
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="flex h-full items-center justify-center p-4 text-sm text-muted-foreground">
+              Select a file from the sidebar to edit it. Ctrl/Cmd+S saves.
+            </div>
+          )}
+          {fileError && <p className="px-3 py-1 text-xs text-destructive">{fileError}</p>}
         </div>
       )}
-      {fileError && <p className="text-sm text-destructive">{fileError}</p>}
     </div>
   );
 }
