@@ -3,6 +3,7 @@ import { Events, Window } from "@wailsio/runtime";
 import { PanelLeft, Search, Settings as SettingsIcon } from "lucide-react";
 import { listModules, type ModuleDTO } from "../bridge/commands";
 import { Dock } from "./dock/Dock";
+import { moduleIndexFromEvent } from "./dock/dockActivation";
 import { AgentSessionsSubscriber } from "./AgentSessionsSubscriber";
 import { CommandPalette } from "./CommandPalette";
 import { TabSwitcher } from "./TabSwitcher";
@@ -302,6 +303,23 @@ export function Workbench() {
     let browsingStartedAt = 0;
 
     function handleKeyDown(event: KeyboardEvent) {
+      // ⌘1–⌘9 select the nth dock module. Read through refs because this
+      // listener is registered once (empty deps) and must never see a
+      // stale module list — same reason stores/moduleActions.ts reads
+      // onClick through a ref inside its long-lived registration.
+      const moduleIndex = moduleIndexFromEvent(event);
+      if (moduleIndex !== null) {
+        const target = dockModulesRef.current[moduleIndex];
+        if (target && !target.unavailable) {
+          event.preventDefault();
+          focusModuleRef.current(target.id);
+        }
+        // preventDefault stays inside the branch above: an unusable index
+        // (⌘8 with seven modules) has no default worth suppressing — the
+        // menu Wails installs binds ⌘0 but no ⌘1–⌘9, and ⌘0 never gets
+        // here — so leave it for whatever else might want it.
+        return;
+      }
       if ((event.metaKey || event.ctrlKey) && event.key === ",") {
         event.preventDefault();
         setSettingsOpen((current) => !current);
@@ -479,6 +497,13 @@ export function Workbench() {
       });
     }
   }
+
+  // Mirrors for the mount-once keydown listener above, which must not close
+  // over the first render's values. Declared here, after both definitions.
+  const dockModulesRef = useRef(dockModules);
+  dockModulesRef.current = dockModules;
+  const focusModuleRef = useRef(focusModule);
+  focusModuleRef.current = focusModule;
 
   useEffect(() => {
     if (openTabs.length === 0 && availableModules.length > 0) {
