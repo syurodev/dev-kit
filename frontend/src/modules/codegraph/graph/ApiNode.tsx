@@ -6,6 +6,9 @@ export type ApiNodeData = {
   layer: string;
   title: string;
   detail: string;
+  /** Full text for the native tooltip, since the card truncates both lines. */
+  titleTooltip?: string;
+  detailTooltip?: string;
 };
 
 /**
@@ -51,10 +54,18 @@ export function ApiNode({ data, selected }: NodeProps & { data: ApiNodeData }) {
           >
             {visual.label}
           </span>
-          <span className="truncate text-sm font-semibold text-text-primary">{data.title}</span>
+          <span
+            title={data.titleTooltip ?? data.title}
+            className="truncate text-sm font-semibold text-text-primary"
+          >
+            {data.title}
+          </span>
         </span>
       </div>
-      <span className="truncate rounded-lg bg-surface-tinted px-2.5 py-[7px] font-mono text-[11px] text-text-secondary">
+      <span
+        title={data.detailTooltip ?? data.detail}
+        className="truncate rounded-lg bg-surface-tinted px-2.5 py-[7px] font-mono text-[11px] text-text-secondary"
+      >
         {data.detail}
       </span>
     </div>

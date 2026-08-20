@@ -17,6 +17,7 @@ import { LayerLegend } from "./LayerLegend";
 import { CanvasToolbar } from "./CanvasToolbar";
 import { rankGraph } from "./rank";
 import { place } from "./place";
+import { shortLabel } from "./labels";
 import type { CodeGraphEdge, CodeGraphNode } from "@/bridge/codegraph";
 
 const nodeTypes = { apiNode: ApiNode };
@@ -63,8 +64,13 @@ function Canvas({ rootId, nodes, edges, onSelect }: FlowCanvasProps) {
         position: { x: 0, y: 0 },
         data: {
           layer: n.layer,
-          title: n.label,
+          // Short name on the card, fully-qualified name in the tooltip — the
+          // card is too narrow to show an FQN without truncating away the only
+          // part that identifies the node. See graph/labels.ts.
+          title: shortLabel(n.label, n.kind),
+          titleTooltip: n.label,
           detail: `${n.filePath.split("/").pop()}:${n.line}`,
+          detailTooltip: `${n.filePath}:${n.line}`,
         },
       })),
     [reachableNodes],
