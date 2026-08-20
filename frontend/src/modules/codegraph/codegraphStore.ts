@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type {
+  CodeGraphCodeSnippet,
   CodeGraphEndpoint,
   CodeGraphFileEntry,
   CodeGraphSubgraph,
@@ -14,12 +15,25 @@ type CodeGraphState = {
   error: string;
   busy: boolean;
 
+  /** True while fetching the next page of a truncated subgraph. */
+  loadingMore: boolean;
+
+  /** Whether the node-preview SplitPanel is open. Separate from `snippet`:
+   *  a node with no source yet still opens the panel, to say so. */
+  snippetOpen: boolean;
+  snippet: CodeGraphCodeSnippet | null;
+  snippetLoading: boolean;
+  snippetError: string;
+
   activeTab: "endpoints" | "files";
   files: CodeGraphFileEntry[];
   selectedFile: string | null;
   fileContent: string;
   fileDirty: boolean;
   fileError: string;
+
+  /** Filters the sidebar's visible list; applies to whichever tab is active. */
+  query: string;
 
   set: (patch: Partial<CodeGraphState>) => void;
 };
@@ -46,6 +60,12 @@ export const useCodeGraphStore = create<CodeGraphState>((set) => ({
   status: "",
   error: "",
   busy: false,
+  loadingMore: false,
+
+  snippetOpen: false,
+  snippet: null,
+  snippetLoading: false,
+  snippetError: "",
 
   activeTab: "endpoints",
   files: [],
@@ -53,6 +73,7 @@ export const useCodeGraphStore = create<CodeGraphState>((set) => ({
   fileContent: "",
   fileDirty: false,
   fileError: "",
+  query: "",
 
   set: (patch) => set(patch),
 }));

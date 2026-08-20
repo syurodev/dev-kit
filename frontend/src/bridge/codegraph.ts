@@ -130,3 +130,24 @@ export async function getCodeGraphNeighbors(
   };
 }
 
+
+export type CodeGraphCodeSnippet = {
+  filePath: string;
+  /** Boundaries actually used, which may differ from the ones requested — Go
+   *  snaps a line inside a method body back to that method's real start. */
+  line: number;
+  endLine: number;
+  source: string;
+  /** "java" | "json" | "yaml" | "markdown" | "" — drives the editor's language extension. */
+  language: string;
+  /** Fully-qualified name of the symbol shown; empty if it matched no single symbol. */
+  fqn: string;
+};
+
+export async function getCodeGraphCodeSnippet(
+  filePath: string,
+  line: number,
+  endLine: number,
+): Promise<CodeGraphCodeSnippet> {
+  return callBridge(() => AppService.CodeGraphGetCodeSnippet(filePath, line, endLine));
+}

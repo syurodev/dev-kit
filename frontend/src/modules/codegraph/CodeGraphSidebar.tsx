@@ -12,6 +12,8 @@ type CodeGraphSidebarProps = {
   error: string;
   activeTab: "endpoints" | "files";
   onTabChange: (tab: "endpoints" | "files") => void;
+  query: string;
+  onQueryChange: (query: string) => void;
   onPickProject: () => void;
   onReindex: () => void;
   endpoints: CodeGraphEndpoint[];
@@ -30,6 +32,8 @@ export function CodeGraphSidebar(props: CodeGraphSidebarProps) {
     error,
     activeTab,
     onTabChange,
+    query,
+    onQueryChange,
     onPickProject,
     onReindex,
     endpoints,
@@ -39,6 +43,22 @@ export function CodeGraphSidebar(props: CodeGraphSidebarProps) {
     selectedFile,
     onSelectFile,
   } = props;
+
+  // Client-side filter over lists already in memory — the placeholder promises
+  // "files or endpoints", which is exactly these two lists, so this needs no
+  // bridge call. Symbol search (searchCodeGraphSymbol) is a different feature:
+  // it reaches classes and methods that are in the index but in neither list.
+  const needle = query.trim().toLowerCase();
+  const shownEndpoints = needle
+    ? endpoints.filter(
+        (ep) =>
+          ep.path.toLowerCase().includes(needle) ||
+          ep.httpMethod.toLowerCase().includes(needle),
+      )
+    : endpoints;
+  const shownFiles = needle
+    ? files.filter((f) => f.path.toLowerCase().includes(needle))
+    : files;
 
   return (
     <div className="flex h-full flex-col gap-3 p-3 text-sm">
@@ -63,6 +83,15 @@ export function CodeGraphSidebar(props: CodeGraphSidebarProps) {
       {status && <p className="text-xs text-muted-foreground">{status}</p>}
       {error && <p className="text-xs text-destructive">{error}</p>}
 
+      <input
+        type="search"
+        value={query}
+        onChange={(e) => onQueryChange(e.target.value)}
+        placeholder="Search files or endpoints…"
+        aria-label="Search files or endpoints"
+        className="w-full rounded-md border border-border-subtle bg-surface-tinted px-2.5 py-1.5 text-xs text-text-primary placeholder:text-text-tertiary focus-visible:border-ring focus-visible:outline-none"
+      />
+
       <div className="flex items-center gap-1 border-b pb-2">
         <Button
           variant={activeTab === "endpoints" ? "secondary" : "ghost"}
@@ -70,7 +99,7 @@ export function CodeGraphSidebar(props: CodeGraphSidebarProps) {
           className="flex-1"
           onClick={() => onTabChange("endpoints")}
         >
-          Endpoints ({endpoints.length})
+          Endpoints ({shownEndpoints.length})
         </Button>
         <Button
           variant={activeTab === "files" ? "secondary" : "ghost"}
@@ -84,7 +113,7 @@ export function CodeGraphSidebar(props: CodeGraphSidebarProps) {
 
       {activeTab === "endpoints" && (
         <ul className="flex-1 overflow-y-auto space-y-1">
-          {endpoints.map((ep) => (
+          {shownEndpoints.map((ep) => (
             <li key={ep.id}>
               <button
                 className={`w-full text-left rounded px-2 py-1.5 hover:bg-surface-raised transition-colors flex items-center gap-2 ${
@@ -99,7 +128,7 @@ export function CodeGraphSidebar(props: CodeGraphSidebarProps) {
               </button>
             </li>
           ))}
-          {endpoints.length === 0 && !busy && (
+          {shownEndpoints.length === 0 && !busy && (
             <li className="text-xs text-muted-foreground py-2 text-center">
               No endpoints yet — open a project to index it.
             </li>
@@ -109,7 +138,7 @@ export function CodeGraphSidebar(props: CodeGraphSidebarProps) {
 
       {activeTab === "files" && (
         <div className="flex-1 overflow-hidden">
-          <FileTree entries={files} selectedPath={selectedFile} onSelectFile={onSelectFile} />
+          <FileTree entries={shownFiles} selectedPath={selectedFile} onSelectFile={onSelectFile} />
         </div>
       )}
     </div>
