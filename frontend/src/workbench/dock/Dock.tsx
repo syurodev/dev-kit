@@ -6,7 +6,7 @@ import { useAgentSessionsStore } from "../../stores/agentSessions";
 import { useDockStore } from "./dock-store";
 import { DockItem } from "./DockItem";
 import { CollapsedDock } from "./CollapsedDock";
-import { isPointerNear, shortcutLabel } from "./dockActivation";
+import { ACTIVATION_MARGIN, EXPAND_LIFT, isPointerNear, shortcutLabel } from "./dockActivation";
 import { AgentHubDockPanel } from "./AgentHubDockPanel";
 import { getModule } from "../../modules/registry";
 import type { DockEntry } from "./types";
@@ -19,10 +19,9 @@ type DockProps = {
   onSelectModule: (moduleId: string) => void;
 };
 
-/** Pointer distance that expands the dock. Generous on purpose — it costs
- *  nothing, because the dock never claims events outside its own pixels. */
-const ACTIVATION_MARGIN = 64;
-/** Rows from the window bottom worth measuring at all. */
+/** Rows from the window bottom worth measuring at all. Must stay clear of the
+ *  expanded pill's whole trigger zone — 46px tall + EXPAND_LIFT + margin — or
+ *  the cheap reject below would slam the dock shut while it is still open. */
 const BOTTOM_ZONE = 160;
 
 export function Dock({ modules, activeModuleId, onSelectModule }: DockProps) {
@@ -136,6 +135,10 @@ export function Dock({ modules, activeModuleId, onSelectModule }: DockProps) {
     if (!box || !form) return;
     box.style.width = `${form.offsetWidth}px`;
     box.style.height = `${form.offsetHeight}px`;
+    // Lift too: the resting pill hugs the window edge, the open one should not.
+    // Written here rather than as a -translate-y-4 class so the number the
+    // activation maths depends on has exactly one home.
+    box.style.translate = expanded ? `0 -${EXPAND_LIFT}px` : "0 0";
   }, [expanded, items.length]);
 
   // Centered on the box so both forms stay put while it springs around them.
@@ -203,7 +206,7 @@ export function Dock({ modules, activeModuleId, onSelectModule }: DockProps) {
             // No overflow-hidden: DockItem's AgentHub panel opens above the
             // pill (absolute bottom-full) and a clipping ancestor would swallow
             // it. The outgoing form is out of sight on opacity alone.
-            "motion-safe:transition-[width,height,border-radius]",
+            "motion-safe:transition-[width,height,border-radius,translate]",
             expanded
               // Opening pops: liquid-taffy's house spring, 22% overshoot.
               ? "rounded-2xl motion-safe:duration-500 motion-safe:ease-house-spring"

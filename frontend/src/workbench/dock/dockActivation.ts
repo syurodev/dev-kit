@@ -1,3 +1,26 @@
+/**
+ * How far from the pill the pointer expands the dock.
+ *
+ * Started at 64 and came down: the pill rests 8px off the window bottom and is
+ * 15px tall, so 64 opened the dock while the pointer was still 80px up the
+ * window — a long way from anything that looks clickable.
+ */
+export const ACTIVATION_MARGIN = 32;
+
+/**
+ * How far the pill rises when it opens, so the expanded dock is not glued to
+ * the window edge the way the resting one is.
+ *
+ * Bounded by ACTIVATION_MARGIN, and the reason is subtle enough that
+ * dockActivation.test.ts asserts it: lifting moves the dock away from the
+ * pointer that just opened it, so a pointer resting at the edge of the trigger
+ * zone could open it, fall out of the zone, close it, and oscillate forever.
+ * That does not happen here only because the pill grows UPWARD by 31px as it
+ * opens — more than it lifts — and because the margin below it already reaches
+ * past the window edge, where no pointer can be.
+ */
+export const EXPAND_LIFT = 16;
+
 export type Point = { x: number; y: number };
 export type Bounds = { left: number; top: number; right: number; bottom: number };
 
