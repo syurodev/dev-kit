@@ -5,8 +5,8 @@ import { cn } from "@/lib/utils";
  * that it can float over content — including the bottom slot's terminal —
  * without a reserved band.
  *
- * Lines only, no labels: position is the cue, and dock order is the fixed
- * registerModule order in Workbench.tsx, so it is learnable.
+ * Lines only, no labels: position is the cue, and dock order is the stable
+ * alphabetical-by-id sort in listRegisteredModules(), so it is learnable.
  */
 export function CollapsedDock({
   count,
