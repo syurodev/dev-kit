@@ -1,6 +1,6 @@
 import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Events, Window } from "@wailsio/runtime";
-import { Search, Settings as SettingsIcon } from "lucide-react";
+import { PanelLeft, Search, Settings as SettingsIcon } from "lucide-react";
 import { listModules, type ModuleDTO } from "../bridge/commands";
 import { Dock } from "./dock/Dock";
 import { AgentSessionsSubscriber } from "./AgentSessionsSubscriber";
@@ -35,8 +35,10 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Kbd } from "@/components/ui/kbd";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { SplitPanelProvider, SplitPanelSlot } from "@/components/ui/split-panel";
+import { SidebarProvider, SidebarSurface, SidebarModuleIdContext } from "@/components/ui/sidebar-shell";
 import { useModuleActionsStore } from "../stores/moduleActions";
 import { useWorkbenchTabsStore, type WorkbenchTab } from "../stores/workbenchTabs";
+import { useSidebarOpenStore } from "../stores/sidebarShell";
 import { cn } from "@/lib/utils";
 import { haveSameTabMembers } from "./workbenchViewMemo";
 
@@ -243,7 +245,9 @@ const WorkbenchViews = memo(
                       </div>
                     }
                   >
-                    <TabView params={tab.params} />
+                    <SidebarModuleIdContext.Provider value={tab.moduleId}>
+                      <TabView params={tab.params} />
+                    </SidebarModuleIdContext.Provider>
                   </Suspense>
                 </div>
               );
@@ -269,6 +273,8 @@ export function Workbench() {
   const [switcher, setSwitcher] = useState<"closed" | "browsing" | "popup">("closed");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const sidebarOpen = useSidebarOpenStore((s) => s.open);
+  const setSidebarOpen = useSidebarOpenStore((s) => s.setOpen);
   const moduleActions = useModuleActionsStore((s) => s.actions);
   const openTabs = useWorkbenchTabsStore((state) => state.openTabs);
   const activeTabId = useWorkbenchTabsStore((state) => state.activeTabId);
@@ -483,7 +489,8 @@ export function Workbench() {
   const hasMetadataWarning = metadataError || parityIssues.length > 0;
 
   return (
-    <SplitPanelProvider>
+    <SidebarProvider>
+      <SplitPanelProvider>
       {/* Transparent, not bg-background: this outer frame is what the native
           macOS vibrancy blur (Mac.Backdrop in main.go) needs to show through.
           Only the content card below (bg-card) stays opaque. */}
@@ -540,6 +547,24 @@ export function Workbench() {
                   <Button
                     variant="ghost"
                     size="icon-xs"
+                    aria-label="Toggle sidebar"
+                    aria-pressed={sidebarOpen}
+                    className={cn(
+                      sidebarOpen && "bg-accent text-foreground",
+                      "shrink-0 [--wails-draggable:no-drag]",
+                    )}
+                    onClick={() => setSidebarOpen(!sidebarOpen)}
+                  >
+                    <PanelLeft className="size-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Toggle sidebar</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
                     aria-label="Commands"
                     className="shrink-0 [--wails-draggable:no-drag]"
                     onClick={() => setPaletteOpen(true)}
@@ -575,6 +600,7 @@ export function Workbench() {
             transparent/vibrancy background as the mx-1/mb-1 margins around
             this whole row — not one shared card with an internal divider. */}
         <div className="mx-1 mb-1 flex min-h-0 flex-1">
+          <SidebarSurface activeModuleId={activeModule?.id ?? null} />
           <WorkbenchViews
             availableModules={availableModules}
             hasMetadataWarning={hasMetadataWarning}
@@ -603,5 +629,6 @@ export function Workbench() {
         <InteractionHost />
       </div>
     </SplitPanelProvider>
+    </SidebarProvider>
   );
 }
