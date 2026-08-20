@@ -482,6 +482,14 @@ export function TerminalWrite(sessionID: string, data: string | null): $Cancella
     return $Call.ByID(4022930037, sessionID, data);
 }
 
+export function UIStateGet(key: string): $CancellablePromise<string> {
+    return $Call.ByID(2870663355, key);
+}
+
+export function UIStateSet(key: string, value: string): $CancellablePromise<void> {
+    return $Call.ByID(419551663, key, value);
+}
+
 export function UnlockVault(masterPassword: string): $CancellablePromise<void> {
     return $Call.ByID(4175507442, masterPassword);
 }
