@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import type { WorkbenchTab } from "../src/stores/workbenchTabs";
-import { useWorkbenchTabsStore } from "../src/stores/workbenchTabs";
-import { haveSameTabMembers } from "../src/workbench/workbenchViewMemo";
+import type { WorkbenchTab } from "@/stores/workbenchTabs";
+import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
+import { haveSameTabMembers } from "./workbenchViewMemo";
 
 const first: WorkbenchTab = {
   id: "notes:edit:id=first",

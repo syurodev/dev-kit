@@ -27,5 +27,9 @@
     "noImplicitAny": false,
     "noFallthroughCasesInSwitch": true
   },
+  // Tests live beside the code they exercise, as .test.ts files inside src —
+  // not in a separate top-level tests directory. Not only a style choice:
+  // anything outside these roots is invisible to `tsc --noEmit`, so a test
+  // kept elsewhere never gets typechecked by `bun run build`.
   "include": ["src", "bindings"],
 }
