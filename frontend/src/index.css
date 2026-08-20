@@ -14,6 +14,15 @@
     --font-sans: 'Geist Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     --font-mono: 'Geist Mono Variable', monospace;
 
+    /* The house spring, shared with the liquid-taffy sibling project: ζ=0.434,
+       ω=22.46 — 22% overshoot, ring, settle. Sampled straight from that
+       project's HOUSE_SPRING_POINTS (src/components/liquid/springs.ts), which
+       feeds GSAP a CustomEase from the same 36 points. Emitted here as a CSS
+       linear() so a size morph springs with zero JS and zero bundle. */
+    --ease-house-spring: linear(0, 0.0289 2.8%, 0.1062 5.6%, 0.2182 8.3%, 0.3519 11.1%, 0.4957 13.9%, 0.6396 16.7%, 0.7755 19.4%, 0.8974 22.2%, 1.0013 25%, 1.0849 27.8%, 1.1474 30.6%, 1.1896 33.3%, 1.213 36.1%, 1.22 38.9%, 1.2134 41.7%, 1.1961 44.4%, 1.1714 47.2%, 1.1419 50%, 1.1102 52.8%, 1.0786 55.6%, 1.0487 58.3%, 1.022 61.1%, 0.9992 63.9%, 0.981 66.7%, 0.9673 69.4%, 0.9581 72.2%, 0.9531 75%, 0.9516 77.8%, 0.9531 80.6%, 0.957 83.3%, 0.9624 86.1%, 0.969 88.9%, 0.9759 91.7%, 0.9829 94.4%, 0.9894 97.2%, 1 100%);
+    /* Same file's OUT_STRONG — the family's non-overshooting exit curve. */
+    --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
+
     /* Palette anchors from Figma Design System (01 Foundations) */
     --color-palette-onyx: var(--palette-onyx);
     --color-palette-carbon: var(--palette-carbon);
