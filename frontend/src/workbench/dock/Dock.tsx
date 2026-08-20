@@ -6,7 +6,7 @@ import { useAgentSessionsStore } from "../../stores/agentSessions";
 import { useDockStore } from "./dock-store";
 import { DockItem } from "./DockItem";
 import { CollapsedDock } from "./CollapsedDock";
-import { ACTIVATION_MARGIN, EXPAND_LIFT, isPointerNear, shortcutLabel } from "./dockActivation";
+import { EXPAND_LIFT, isPointerOverDock, shortcutLabel } from "./dockActivation";
 import { AgentHubDockPanel } from "./AgentHubDockPanel";
 import { getModule } from "../../modules/registry";
 import type { DockEntry } from "./types";
@@ -20,8 +20,11 @@ type DockProps = {
 };
 
 /** Rows from the window bottom worth measuring at all. Must stay clear of the
- *  expanded pill's whole trigger zone — 46px tall + EXPAND_LIFT + margin — or
- *  the cheap reject below would slam the dock shut while it is still open. */
+ *  expanded pill's top edge — 46px tall, sitting EXPAND_LIFT + 8 up from the
+ *  window bottom, and taller still at the peak of the spring's overshoot — or
+ *  the cheap reject below would slam the dock shut while it is still open.
+ *  Left generous at 160: it costs one rect read per frame in a band nobody is
+ *  hovering, and being wrong here is a visible bug. */
 const BOTTOM_ZONE = 160;
 
 export function Dock({ modules, activeModuleId, onSelectModule }: DockProps) {
@@ -66,7 +69,7 @@ export function Dock({ modules, activeModuleId, onSelectModule }: DockProps) {
         // rather than the layout that was current when the event fired.
         const rect = pillRef.current?.getBoundingClientRect();
         if (!rect || !pending) return;
-        setPointerNear(isPointerNear(pending, rect, ACTIVATION_MARGIN));
+        setPointerNear(isPointerOverDock(pending, rect));
       });
     }
     window.addEventListener("pointermove", onPointerMove);

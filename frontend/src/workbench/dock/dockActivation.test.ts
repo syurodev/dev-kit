@@ -1,45 +1,32 @@
 import { expect, test } from "bun:test";
-import {
-  ACTIVATION_MARGIN,
-  isPointerNear,
-  shortcutLabel,
-  moduleIndexFromEvent,
-} from "./dockActivation";
+import { isPointerOverDock, shortcutLabel, moduleIndexFromEvent } from "./dockActivation";
 
 // A 900px-tall window: the resting pill is 126x15, centred, 7px off the bottom.
 const rect = { left: 660, top: 878, right: 786, bottom: 893 };
 
-test("a pointer inside the pill is near", () => {
-  expect(isPointerNear({ x: 700, y: 885 }, rect, ACTIVATION_MARGIN)).toBe(true);
+test("a pointer on the pill is on the dock", () => {
+  expect(isPointerOverDock({ x: 700, y: 885 }, rect)).toBe(true);
 });
 
-test("a pointer within the activation margin is near", () => {
-  expect(
-    isPointerNear({ x: 700, y: rect.top - ACTIVATION_MARGIN + 1 }, rect, ACTIVATION_MARGIN),
-  ).toBe(true);
-  expect(
-    isPointerNear({ x: rect.left - ACTIVATION_MARGIN + 1, y: 885 }, rect, ACTIVATION_MARGIN),
-  ).toBe(true);
+test("a pointer just off the pill's sides is not", () => {
+  // One pixel out, on purpose: there is no approach zone left to absorb it.
+  expect(isPointerOverDock({ x: rect.left - 1, y: 885 }, rect)).toBe(false);
+  expect(isPointerOverDock({ x: rect.right + 1, y: 885 }, rect)).toBe(false);
 });
 
-test("a pointer beyond the margin is not near", () => {
-  expect(
-    isPointerNear({ x: 700, y: rect.top - ACTIVATION_MARGIN - 1 }, rect, ACTIVATION_MARGIN),
-  ).toBe(false);
-  expect(
-    isPointerNear({ x: rect.left - ACTIVATION_MARGIN - 1, y: 885 }, rect, ACTIVATION_MARGIN),
-  ).toBe(false);
+test("a pointer just above the pill is not", () => {
+  expect(isPointerOverDock({ x: 700, y: rect.top - 1 }, rect)).toBe(false);
 });
 
 test("there is no bottom bound at all", () => {
   // The few px between the pill and the window edge must count, or flicking
   // the mouse to the bottom of the screen never opens the dock. They are
   // covered by there being no lower bound rather than by a margin — see
-  // isPointerNear's own comment for why a small one would flicker.
-  expect(isPointerNear({ x: 700, y: 899 }, rect, ACTIVATION_MARGIN)).toBe(true);
-  // Far below the pill, past anything a margin would have reached: still near,
+  // isPointerOverDock's own comment for why a small one would flicker.
+  expect(isPointerOverDock({ x: 700, y: 899 }, rect)).toBe(true);
+  // Far below the pill, past anything a margin would have reached: still on,
   // because nothing can be down there but the window edge.
-  expect(isPointerNear({ x: 700, y: 5000 }, rect, ACTIVATION_MARGIN)).toBe(true);
+  expect(isPointerOverDock({ x: 700, y: 5000 }, rect)).toBe(true);
 });
 
 test("shortcut labels are one-based", () => {

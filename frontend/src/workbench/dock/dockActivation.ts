@@ -1,22 +1,13 @@
 /**
- * How far from the pill the pointer expands the dock.
- *
- * Started at 64 and came down: the pill rests 8px off the window bottom and is
- * 15px tall, so 64 opened the dock while the pointer was still 80px up the
- * window — a long way from anything that looks clickable.
- */
-export const ACTIVATION_MARGIN = 32;
-
-/**
  * How far the pill rises when it opens, so the expanded dock is not glued to
  * the window edge the way the resting one is.
  *
  * Lifting moves the dock AWAY from the pointer that just opened it, which is
  * how a dock ends up flickering under a motionless mouse: open, fall outside
- * the moved zone, close, repeat. This value used to be bounded by
- * ACTIVATION_MARGIN to prevent that. It no longer is — isPointerNear has no
- * lower bound, so the trigger zone can only ever grow when the pill rises, and
- * no lift can strand a pointer below it. Free to change on how it looks.
+ * the moved zone, close, repeat. This used to be bounded by an activation
+ * margin to prevent that. There is no margin any more, and isPointerOverDock
+ * has no lower bound, so the zone can only grow when the pill rises and no
+ * lift can strand a pointer below it. Free to change on how it looks.
  */
 export const EXPAND_LIFT = 16;
 
@@ -24,31 +15,29 @@ export type Point = { x: number; y: number };
 export type Bounds = { left: number; top: number; right: number; bottom: number };
 
 /**
- * Whether the pointer is close enough to expand the dock.
+ * Whether the pointer is on the dock, and so whether the dock should be open.
  *
- * Deliberately a distance test against the pill's real rect rather than an
- * invisible padded hit area: a padded `pointer-events-auto` element would
- * intercept clicks and drags across the bottom band and break text selection
- * in whatever is rendered there. This keeps the activation distance generous
- * while the dock still claims events only where it actually draws.
+ * There is no proximity slack. The pill used to expand from up to 32px away on
+ * every side, and that transparent approach zone is gone: an expanded dock is
+ * 262x46 of opaque, event-claiming surface sitting over the bottom slot, and
+ * anything that popped it open without the pointer being on it was putting
+ * that surface in the way of whatever the slot is for.
  *
- * Open at the bottom, on purpose. The pill is pinned near the window's bottom
- * edge, so the only thing under it is the handful of pixels it leaves free —
- * a margin there bought nothing but a band hanging off the screen where no
- * pointer can go.
+ * Kept as a rect test against the pill's own bounds rather than a CSS :hover
+ * (or a padded hit area) for the one thing CSS cannot express — the open
+ * bottom below. The pill is pinned a few px above the window edge, and those
+ * px have to count or flicking the mouse to the bottom of the screen, the one
+ * gesture the edge makes easy, would miss the target. Extending the pill's own
+ * box down there instead would claim events in that strip; this claims none.
  *
- * A *small* bottom margin would be worse than none rather than a tidier
- * version of it: the pill sits EXPAND_LIFT higher once open, so any fixed
- * value big enough to reach the window edge at rest falls EXPAND_LIFT short of
- * it when expanded. A pointer resting in those last rows would open the dock,
- * find itself outside the moved zone, close it, and flicker without moving.
+ * Unbounded rather than a small bottom margin, and that is not tidiness: the
+ * pill sits EXPAND_LIFT higher once open, so any fixed value big enough to
+ * reach the window edge at rest falls EXPAND_LIFT short of it when expanded. A
+ * pointer resting in those last rows would open the dock, find itself outside
+ * the moved zone, close it, and flicker without moving.
  */
-export function isPointerNear(pointer: Point, rect: Bounds, margin: number): boolean {
-  return (
-    pointer.x >= rect.left - margin &&
-    pointer.x <= rect.right + margin &&
-    pointer.y >= rect.top - margin
-  );
+export function isPointerOverDock(pointer: Point, rect: Bounds): boolean {
+  return pointer.x >= rect.left && pointer.x <= rect.right && pointer.y >= rect.top;
 }
 
 /** Modules past the ninth get no shortcut — there is no ⌘10. */
