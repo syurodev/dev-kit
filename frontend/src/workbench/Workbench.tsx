@@ -1,6 +1,6 @@
 import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Events, Window } from "@wailsio/runtime";
-import { PanelLeft, Search, Settings as SettingsIcon } from "lucide-react";
+import { PanelBottom, PanelLeft, Search, Settings as SettingsIcon } from "lucide-react";
 import { listModules, type ModuleDTO } from "../bridge/commands";
 import { Dock } from "./dock/Dock";
 import { moduleIndexFromEvent } from "./dock/dockActivation";
@@ -37,9 +37,11 @@ import { Kbd } from "@/components/ui/kbd";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { SplitPanelProvider, SplitPanelSlot } from "@/components/ui/split-panel";
 import { SidebarSurface, SidebarModuleIdContext } from "@/components/ui/sidebar-shell";
+import { BottomSlotSurface } from "@/components/ui/bottom-slot";
 import { useModuleActionsStore } from "../stores/moduleActions";
 import { useWorkbenchTabsStore, type WorkbenchTab } from "../stores/workbenchTabs";
 import { useSidebarOpenStore } from "../stores/sidebarShell";
+import { useBottomSlotStore } from "../stores/bottomSlot";
 import { cn } from "@/lib/utils";
 import { haveSameTabMembers } from "./workbenchViewMemo";
 
@@ -276,6 +278,8 @@ export function Workbench() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const sidebarOpen = useSidebarOpenStore((s) => s.open);
   const setSidebarOpen = useSidebarOpenStore((s) => s.setOpen);
+  const bottomOpen = useBottomSlotStore((s) => s.open);
+  const setBottomOpen = useBottomSlotStore((s) => s.setOpen);
   const moduleActions = useModuleActionsStore((s) => s.actions);
   const openTabs = useWorkbenchTabsStore((state) => state.openTabs);
   const activeTabId = useWorkbenchTabsStore((state) => state.activeTabId);
@@ -622,22 +626,55 @@ export function Workbench() {
                   Settings <Kbd>⌘,</Kbd>
                 </TooltipContent>
               </Tooltip>
+              {/* Zone 3, after Settings — the rightmost item in the title bar.
+                  The sidebar toggle is pinned at the far left, outside the
+                  three zones, because Figma's App Shell puts it there against
+                  the traffic lights; this one has no such constraint, so the
+                  two layout toggles bracket the bar at its outer edges.
+
+                  Always rendered and always enabled, even when the active
+                  module contributes no panel: it toggles the surface, and the
+                  surface explains its own emptiness. Disabling it would make
+                  the control flicker in and out as the user changes module. */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label="Toggle bottom panel"
+                    aria-pressed={bottomOpen}
+                    className={cn(
+                      bottomOpen && "bg-accent text-foreground",
+                      "shrink-0 [--wails-draggable:no-drag]",
+                    )}
+                    onClick={() => setBottomOpen(!bottomOpen)}
+                  >
+                    <PanelBottom className="size-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Toggle bottom panel</TooltipContent>
+              </Tooltip>
             </div>
           </div>
         </header>
         {/* Transparent row: the main content card and the split panel are two
             independent bg-card boxes, separated by a gap that shows the same
             transparent/vibrancy background as the mx-1/mb-1 margins around
-            this whole row — not one shared card with an internal divider. */}
-        <div className="mx-1 mb-1 flex min-h-0 flex-1">
-          <SidebarSurface activeModuleId={activeModule?.id ?? null} />
-          <WorkbenchViews
-            availableModules={availableModules}
-            hasMetadataWarning={hasMetadataWarning}
-            openTabs={openTabs}
-            activeTabId={activeTabId}
-          />
-          <SplitPanelSlot />
+            this whole row — not one shared card with an internal divider.
+            The bottom slot is a full-width sibling *under* all three, so the
+            mx-1/mb-1 margins move out here to the column that holds both. */}
+        <div className="mx-1 mb-1 flex min-h-0 flex-1 flex-col">
+          <div className="flex min-h-0 flex-1">
+            <SidebarSurface activeModuleId={activeModule?.id ?? null} />
+            <WorkbenchViews
+              availableModules={availableModules}
+              hasMetadataWarning={hasMetadataWarning}
+              openTabs={openTabs}
+              activeTabId={activeTabId}
+            />
+            <SplitPanelSlot />
+          </div>
+          <BottomSlotSurface activeModuleId={activeModule?.id ?? null} />
         </div>
         <Dock
           activeModuleId={activeModule?.id ?? ""}
