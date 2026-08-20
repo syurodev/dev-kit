@@ -131,9 +131,29 @@ export function Dock({ modules, activeModuleId, onSelectModule }: DockProps) {
           // Tabbing here fires onFocusCapture, which expands the dock, and the
           // next Tab steps into the real module buttons. Focus survives the
           // flip to -1, so the pill does not steal a second stop once open.
+          //
+          // Two consequences a maintainer would not expect, both accepted: the
+          // flip is driven by `expanded`, so a keyboard-only user's tab order
+          // varies with where the mouse happens to be resting, and Shift+Tab
+          // from the first module button exits the nav rather than returning
+          // to the pill (it is already -1 by then).
           tabIndex={expanded ? -1 : 0}
+          // A group of controls, honestly labelled. Not role="button": Enter
+          // and Space do nothing here, and promising activation that does not
+          // exist is worse than a plain labelled focus stop.
+          role="group"
           aria-label="Switch module"
-          onFocusCapture={() => setFocusWithin(true)}
+          // :focus-visible, not bare focus. On WebView2 and WebKitGTK clicking
+          // a module focuses its button, which would latch focusWithin true and
+          // strand the dock expanded over content the moment the pointer left,
+          // with no pointer motion able to recover it. WKWebView does not focus
+          // buttons on click, so this is invisible on macOS — do not simplify
+          // it back to a bare setter.
+          onFocusCapture={(e) => {
+            if ((e.target as HTMLElement).matches(":focus-visible")) {
+              setFocusWithin(true);
+            }
+          }}
           onBlurCapture={(e) => {
             if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
               setFocusWithin(false);

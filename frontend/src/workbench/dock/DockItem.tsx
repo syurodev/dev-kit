@@ -19,6 +19,12 @@ export function DockItem({ item }: { item: DockEntry }) {
       disabled={item.unavailable}
       aria-disabled={item.unavailable}
       aria-label={item.title}
+      // Which module you are in is otherwise conveyed only by background
+      // colour, and at rest not at all — the resting pill is aria-hidden.
+      aria-current={item.isActive ? "true" : undefined}
+      // Announce the shortcut the tooltip draws. shortcutLabel returns "⌘n",
+      // and ⌘ is one UTF-16 unit, so slice(1) is the digit.
+      aria-keyshortcuts={item.shortcut ? `Meta+${item.shortcut.slice(1)}` : undefined}
       onClick={item.onClick}
       onMouseEnter={() => {
         item.onPreload?.();
