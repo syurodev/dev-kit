@@ -320,6 +320,13 @@ func main() {
 		Title:  "DevKit",
 		Width:  1200,
 		Height: 760,
+		// Floor derived from Sidebar (240px min) + its gutter (4px) + the
+		// content area's own hard floor (480px) + SplitPanel's gutter (4px) +
+		// SplitPanel (320px min), both open at once, plus the outer mx-1/mb-1
+		// margins (8px) — see docs/superpowers/specs/2026-08-20-app-shell-
+		// sidebar-design.md § Resize. No floor existed before this.
+		MinWidth:  1080,
+		MinHeight: 700,
 		Mac: application.MacWindow{
 			// Do not use InvisibleTitleBarHeight here. In Wails beta.8 it is a
 			// native AppKit hit zone: every first mouse-down in the top N pixels
