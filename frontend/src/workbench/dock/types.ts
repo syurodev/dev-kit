@@ -17,5 +17,7 @@ export type DockEntry = {
   unavailable?: boolean;
   badge?: string | null;
   urgent?: boolean;
+  /** Display only — e.g. "⌘3". The handler lives in Workbench.tsx. */
+  shortcut?: string | null;
   panel?: () => ReactNode;
 };

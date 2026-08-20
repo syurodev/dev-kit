@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { AnimatePresence, m } from "framer-motion";
+import { Kbd } from "@/components/ui/kbd";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { DockEntry } from "./types";
@@ -72,7 +73,10 @@ export function DockItem({ item }: { item: DockEntry }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>{button}</TooltipTrigger>
-      <TooltipContent side="top">{item.title}</TooltipContent>
+      <TooltipContent side="top">
+        {item.title}
+        {item.shortcut ? <Kbd className="ml-1.5">{item.shortcut}</Kbd> : null}
+      </TooltipContent>
     </Tooltip>
   );
 }
