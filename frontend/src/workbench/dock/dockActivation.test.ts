@@ -1,14 +1,12 @@
 import { expect, test } from "bun:test";
 import {
   ACTIVATION_MARGIN,
-  EXPAND_LIFT,
   isPointerNear,
   shortcutLabel,
   moduleIndexFromEvent,
 } from "./dockActivation";
 
 // A 900px-tall window: the resting pill is 126x15, centred, 7px off the bottom.
-const WINDOW_HEIGHT = 900;
 const rect = { left: 660, top: 878, right: 786, bottom: 893 };
 
 test("a pointer inside the pill is near", () => {
@@ -33,39 +31,15 @@ test("a pointer beyond the margin is not near", () => {
   ).toBe(false);
 });
 
-test("the margin applies on every side, including below the pill", () => {
-  // The pill sits a few px off the window bottom; those px must still count,
-  // or approaching from the very edge never expands it.
+test("there is no bottom bound at all", () => {
+  // The few px between the pill and the window edge must count, or flicking
+  // the mouse to the bottom of the screen never opens the dock. They are
+  // covered by there being no lower bound rather than by a margin — see
+  // isPointerNear's own comment for why a small one would flicker.
   expect(isPointerNear({ x: 700, y: 899 }, rect, ACTIVATION_MARGIN)).toBe(true);
-});
-
-test("opening the dock never moves it out of its own trigger zone", () => {
-  // The pill lifts as it opens, which moves it AWAY from the pointer that just
-  // opened it. Left unchecked that oscillates: a pointer resting at the edge
-  // of the zone opens the dock, falls outside the moved zone, closes it, and
-  // the dock flickers under a motionless mouse. It is safe here only because
-  // the pill grows upward (15px tall -> 46px) by more than it lifts.
-  //
-  // Points below the window are excluded on purpose, not for convenience —
-  // that is where the invariant genuinely fails, and it holds in practice
-  // because pointermove never reports a clientY past the viewport.
-  const open = {
-    left: 592,
-    right: 854,
-    bottom: rect.bottom - EXPAND_LIFT,
-    top: rect.bottom - EXPAND_LIFT - 46,
-  };
-  let checked = 0;
-  for (let x = 400; x <= 1040; x += 1) {
-    for (let y = WINDOW_HEIGHT - 220; y <= WINDOW_HEIGHT; y += 1) {
-      const pointer = { x, y };
-      if (!isPointerNear(pointer, rect, ACTIVATION_MARGIN)) continue;
-      checked += 1;
-      expect(isPointerNear(pointer, open, ACTIVATION_MARGIN)).toBe(true);
-    }
-  }
-  // Guards the guard: a typo in the sweep bounds would pass vacuously.
-  expect(checked).toBeGreaterThan(5000);
+  // Far below the pill, past anything a margin would have reached: still near,
+  // because nothing can be down there but the window edge.
+  expect(isPointerNear({ x: 700, y: 5000 }, rect, ACTIVATION_MARGIN)).toBe(true);
 });
 
 test("shortcut labels are one-based", () => {

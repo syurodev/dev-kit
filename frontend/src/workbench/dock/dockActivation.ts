@@ -11,13 +11,12 @@ export const ACTIVATION_MARGIN = 32;
  * How far the pill rises when it opens, so the expanded dock is not glued to
  * the window edge the way the resting one is.
  *
- * Bounded by ACTIVATION_MARGIN, and the reason is subtle enough that
- * dockActivation.test.ts asserts it: lifting moves the dock away from the
- * pointer that just opened it, so a pointer resting at the edge of the trigger
- * zone could open it, fall out of the zone, close it, and oscillate forever.
- * That does not happen here only because the pill grows UPWARD by 31px as it
- * opens — more than it lifts — and because the margin below it already reaches
- * past the window edge, where no pointer can be.
+ * Lifting moves the dock AWAY from the pointer that just opened it, which is
+ * how a dock ends up flickering under a motionless mouse: open, fall outside
+ * the moved zone, close, repeat. This value used to be bounded by
+ * ACTIVATION_MARGIN to prevent that. It no longer is — isPointerNear has no
+ * lower bound, so the trigger zone can only ever grow when the pill rises, and
+ * no lift can strand a pointer below it. Free to change on how it looks.
  */
 export const EXPAND_LIFT = 16;
 
@@ -32,13 +31,23 @@ export type Bounds = { left: number; top: number; right: number; bottom: number 
  * intercept clicks and drags across the bottom band and break text selection
  * in whatever is rendered there. This keeps the activation distance generous
  * while the dock still claims events only where it actually draws.
+ *
+ * Open at the bottom, on purpose. The pill is pinned near the window's bottom
+ * edge, so the only thing under it is the handful of pixels it leaves free —
+ * a margin there bought nothing but a band hanging off the screen where no
+ * pointer can go.
+ *
+ * A *small* bottom margin would be worse than none rather than a tidier
+ * version of it: the pill sits EXPAND_LIFT higher once open, so any fixed
+ * value big enough to reach the window edge at rest falls EXPAND_LIFT short of
+ * it when expanded. A pointer resting in those last rows would open the dock,
+ * find itself outside the moved zone, close it, and flicker without moving.
  */
 export function isPointerNear(pointer: Point, rect: Bounds, margin: number): boolean {
   return (
     pointer.x >= rect.left - margin &&
     pointer.x <= rect.right + margin &&
-    pointer.y >= rect.top - margin &&
-    pointer.y <= rect.bottom + margin
+    pointer.y >= rect.top - margin
   );
 }
 
