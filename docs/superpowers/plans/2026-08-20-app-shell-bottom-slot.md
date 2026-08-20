@@ -407,14 +407,21 @@ Create `frontend/src/stores/bottomContent.test.ts`:
 
 ```ts
 import { expect, test, beforeEach } from "bun:test";
+import { createElement } from "react";
 import { useBottomContentStore } from "./bottomContent";
+
+// Real elements, not plain objects: the store's value type is ReactNode, and
+// createElement returns a fresh object every call — so `toBe` below is testing
+// identity, which is exactly what the store's bail-out compares. A string
+// would typecheck too but make the identity test vacuous.
+const panel = (marker: string) => createElement("div", null, marker);
 
 beforeEach(() => {
   useBottomContentStore.setState({ content: {} });
 });
 
 test("registering content stores it under the module's id", () => {
-  const node = { marker: "codegraph panel" };
+  const node = panel("codegraph panel");
   useBottomContentStore.getState().setContent("codegraph", node);
   expect(useBottomContentStore.getState().content.codegraph).toBe(node);
 });
@@ -426,7 +433,7 @@ test("re-registering the same node does not produce a new state object", () => {
   // re-render, the module would re-render, and the effect would fire again —
   // the "Maximum update depth exceeded" loop stores/sidebarContent.ts
   // documents.
-  const node = { marker: "codegraph panel" };
+  const node = panel("codegraph panel");
   const setContent = useBottomContentStore.getState().setContent;
   setContent("codegraph", node);
   const first = useBottomContentStore.getState().content;
@@ -436,7 +443,7 @@ test("re-registering the same node does not produce a new state object", () => {
 
 test("registering null removes the module's entry", () => {
   const setContent = useBottomContentStore.getState().setContent;
-  setContent("codegraph", { marker: "x" });
+  setContent("codegraph", panel("x"));
   setContent("codegraph", null);
   expect("codegraph" in useBottomContentStore.getState().content).toBe(false);
 });
@@ -451,8 +458,8 @@ test("two modules can be registered at once", () => {
   // Modules stay mounted-but-hidden after being visited (WorkbenchViews' mount
   // policy), so a background module must not clobber the active one's panel.
   const setContent = useBottomContentStore.getState().setContent;
-  const a = { marker: "a" };
-  const b = { marker: "b" };
+  const a = panel("a");
+  const b = panel("b");
   setContent("codegraph", a);
   setContent("ssh", b);
   expect(useBottomContentStore.getState().content.codegraph).toBe(a);
