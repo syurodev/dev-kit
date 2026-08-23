@@ -9,6 +9,7 @@ import { CodeGraphSidebar } from "./CodeGraphSidebar";
 import { NodeInspector } from "./inspector/NodeInspector";
 import { PlanBar } from "./plan/PlanBar";
 import { PlanNodeDetail } from "./plan/PlanNodeDetail";
+import { PlanCommentsPopover } from "./plan/PlanCommentsPopover";
 import { languageExtensionForPath } from "./editorLanguage";
 import { FlowCanvas } from "./graph/FlowCanvas";
 import { shortLabel } from "./graph/labels";
@@ -24,6 +25,7 @@ import {
 } from "../../bridge/codegraph";
 import {
   approveCodeGraphPlan,
+  countCodeGraphPlanNodeComments,
   relinkCodeGraphPlanNode,
   getCodeGraphPlanEdges,
   getCodeGraphPlanProgress,
@@ -157,11 +159,12 @@ async function inspectNode(nodeId: string) {
 async function loadPlan() {
   set({ planBusy: true, planError: "" });
   try {
-    const [plan, planEdges] = await Promise.all([
+    const [plan, planEdges, commentCounts] = await Promise.all([
       getCodeGraphPlanProgress(),
       getCodeGraphPlanEdges(),
+      countCodeGraphPlanNodeComments(),
     ]);
-    set({ plan, planEdges });
+    set({ plan, planEdges, commentCounts });
   } catch (e) {
     // Having no plan is the normal state for most projects, not a failure
     // worth shouting about — the empty state says what creates one.
@@ -257,6 +260,8 @@ export function CodeGraphView() {
   const planBusy = useCodeGraphStore((s) => s.planBusy);
   const planError = useCodeGraphStore((s) => s.planError);
   const selectedPlanNodeId = useCodeGraphStore((s) => s.selectedPlanNodeId);
+  const commentsPlanNodeId = useCodeGraphStore((s) => s.commentsPlanNodeId);
+  const commentCounts = useCodeGraphStore((s) => s.commentCounts);
 
   // The plan canvas reuses FlowCanvas whole. Plan nodes travel in the same
   // shape as real ones with an empty filePath — a shape the view already
@@ -439,12 +444,29 @@ export function CodeGraphView() {
                       title: shortLabel(n.label, n.kind),
                       fqn: p?.fqn ?? "",
                       status: p?.status ?? "not_implemented",
-                      commentCount: 0,
+                      commentCount: commentCounts[n.id] ?? 0,
                     };
                   }}
                   edgeLabel={(e) => conditionByEdge.get(`${e.from}->${e.to}`) || undefined}
                   selectedNodeId={selectedPlanNodeId}
-                  onSelect={(id) => set({ selectedPlanNodeId: id })}
+                  onSelect={(id) => set({ selectedPlanNodeId: id, commentsPlanNodeId: id })}
+                  inspector={
+                    commentsPlanNodeId ? (
+                      <PlanCommentsPopover
+                        planNodeId={commentsPlanNodeId}
+                        label={planById.get(commentsPlanNodeId)?.fqn ?? commentsPlanNodeId}
+                        onClose={() => set({ commentsPlanNodeId: null })}
+                        onCountChange={(n) =>
+                          set({
+                            commentCounts: {
+                              ...snapshot().commentCounts,
+                              [commentsPlanNodeId]: n,
+                            },
+                          })
+                        }
+                      />
+                    ) : null
+                  }
                 />
               </div>
             </>

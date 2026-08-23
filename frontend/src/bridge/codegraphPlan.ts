@@ -73,3 +73,34 @@ export async function relinkCodeGraphPlanNode(planNodeId: string, fqn: string): 
 // proposes over MCP and a human approves here; a UI "propose" button would
 // erase that split. The bridge method exists for completeness — the frontend
 // simply has no business calling it.
+
+export type CodeGraphPlanComment = {
+  planNodeId: string;
+  commentId: string;
+  author: "user" | "agent";
+  body: string;
+  /** Unix seconds. */
+  createdAt: number;
+  /** Which agent session it was delivered into; empty when it was only stored. */
+  sessionId: string;
+};
+
+export async function listCodeGraphPlanNodeComments(
+  planNodeId: string,
+): Promise<CodeGraphPlanComment[]> {
+  return callBridge(
+    async () =>
+      ((await AppService.CodeGraphListPlanNodeComments(planNodeId)) ??
+        []) as CodeGraphPlanComment[],
+  );
+}
+
+export async function commentCodeGraphPlanNode(planNodeId: string, body: string): Promise<void> {
+  return callBridge(() => AppService.CodeGraphCommentPlanNode(planNodeId, body));
+}
+
+/** Thread length per plan node, for the canvas badge. One call for the whole canvas. */
+export async function countCodeGraphPlanNodeComments(): Promise<Record<string, number>> {
+  const counts = await callBridge(() => AppService.CodeGraphCountPlanNodeComments());
+  return (counts ?? {}) as Record<string, number>;
+}

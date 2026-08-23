@@ -38,6 +38,10 @@ type CodeGraphState = {
   planBusy: boolean;
   /** Which plan node the canvas should highlight, chosen from the sidebar. */
   selectedPlanNodeId: string | null;
+  /** Which plan node has its comment thread open, or null. */
+  commentsPlanNodeId: string | null;
+  /** Thread length per plan node, for the node badge. */
+  commentCounts: Record<string, number>;
   planError: string;
   files: CodeGraphFileEntry[];
   selectedFile: string | null;
@@ -85,6 +89,8 @@ export const useCodeGraphStore = create<CodeGraphState>((set) => ({
   planEdges: [],
   planBusy: false,
   selectedPlanNodeId: null,
+  commentsPlanNodeId: null,
+  commentCounts: {},
   planError: "",
   files: [],
   selectedFile: null,
