@@ -254,3 +254,19 @@
 .cm-surfaceless .cm-editor.cm-focused {
   outline: none;
 }
+
+/* Hanging indent for wrapped rows.
+ *
+ * CodeMirror wraps to column zero, so a continuation lands further left than
+ * the statement it belongs to and reads as a new line. wrapIndent.ts sets
+ * --cm-wrap-indent per line (its own indentation plus a hanging amount); the
+ * negative text-indent cancels the padding for the FIRST row only, so the line
+ * starts where it always did and only the wrapped rows move right.
+ *
+ * The 6px matches CodeMirror's own .cm-line padding, kept so this does not
+ * silently reflow the non-wrapping editor.
+ */
+.cm-surfaceless .cm-line {
+  padding-left: calc(6px + var(--cm-wrap-indent, 0ch));
+  text-indent: calc(-1 * var(--cm-wrap-indent, 0ch));
+}

@@ -4,6 +4,7 @@ import { EditorView, basicSetup } from "codemirror";
 import { EditorState, Compartment, type Extension } from "@codemirror/state";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { useTheme } from "@/theme/ThemeProvider";
+import { wrapIndent } from "./wrapIndent";
 
 export type CodeEditorProps = {
   value: string;
@@ -51,7 +52,7 @@ export function CodeEditor({ value, onChange, extensions, readOnly, wrap }: Code
           languageCompartment.of(extensions ?? []),
           readOnlyCompartment.of(EditorState.readOnly.of(!!readOnly)),
           themeCompartment.of(resolvedTheme === "dark" ? [oneDark] : []),
-          wrapCompartment.of(wrap ? EditorView.lineWrapping : []),
+          wrapCompartment.of(wrap ? [EditorView.lineWrapping, wrapIndent] : []),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
               onChangeRef.current(update.state.doc.toString());
@@ -101,7 +102,7 @@ export function CodeEditor({ value, onChange, extensions, readOnly, wrap }: Code
 
   useEffect(() => {
     viewRef.current?.dispatch({
-      effects: wrapCompartment.reconfigure(wrap ? EditorView.lineWrapping : []),
+      effects: wrapCompartment.reconfigure(wrap ? [EditorView.lineWrapping, wrapIndent] : []),
     });
   }, [wrap, wrapCompartment]);
 
