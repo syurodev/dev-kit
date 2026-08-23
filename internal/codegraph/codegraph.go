@@ -194,20 +194,38 @@ type CallSite struct {
 	Unresolved string `json:"unresolved"`
 }
 
-// DataFlowStep is one method that reads or writes the traced field.
+// DataFlowStep is one event in the trace: a read, a write, or a call the flow
+// continues into. Depth is how many calls were followed to reach it, so a flat
+// slice renders as an indented tree without the JSON having to nest.
 type DataFlowStep struct {
 	NodeID   string `json:"nodeId"`
 	Label    string `json:"label"`
 	FilePath string `json:"filePath"`
 	Line     int    `json:"line"`
-	Kind     string `json:"kind"` // "read" | "write"
+	Kind     string `json:"kind"` // "read" | "write" | "call"
+	Depth    int    `json:"depth"`
+	// TargetID is the callee for kind=="call", empty otherwise.
+	TargetID string `json:"targetId"`
+	// Unresolved is empty when nothing was lost. Otherwise it names the wall the
+	// trace hit: "library" (bytecode — there is no body to read, ever),
+	// "interface" (the implementation is not knowable statically), "unresolved"
+	// (the solver could not resolve the call), "depth" (the ceiling below) or
+	// "cycle" (this method is already on the current path).
+	Unresolved string `json:"unresolved"`
 }
 
 // DataFlowTrace is TraceDataFlow's result: every already-indexed method that
-// touches one field on one class.
+// touches one field on one class, in call-graph order, with the calls between
+// them shown.
 type DataFlowTrace struct {
-	SymbolID  string         `json:"symbolId"`
-	FieldName string         `json:"fieldName"`
+	SymbolID  string `json:"symbolId"`
+	FieldName string `json:"fieldName"`
+	// OrderedBy is always "source" in v1 and is in the payload so no consumer
+	// mistakes it for execution order. Events within a method are sorted by
+	// line; branches, loops and early returns are not modelled, so a write in
+	// an else-branch still sorts before a read on a later line. Modelling that
+	// needs a control-flow graph, which JavaParser does not build.
+	OrderedBy string         `json:"orderedBy"`
 	Steps     []DataFlowStep `json:"steps"`
 }
 
@@ -277,6 +295,7 @@ type Store interface {
 	FindNodeAtLine(ctx context.Context, filePath string, line int) (Node, bool, error)
 	GetDependents(ctx context.Context, filePath string) ([]string, error)
 	GetFieldAccesses(ctx context.Context, classID, fieldName string) ([]FieldAccess, error)
+	GetCallSites(ctx context.Context, fromID string) ([]CallSite, error)
 	SavePlan(ctx context.Context, plan Plan) error
 	GetPlan(ctx context.Context) (Plan, error)
 	SetPlanState(ctx context.Context, state string) error

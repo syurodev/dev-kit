@@ -300,12 +300,22 @@ func (s *Service) GetBlastRadius(ctx context.Context, filePath string) ([]string
 	return result, nil
 }
 
-// TraceDataFlow lists every method already in the index that reads or
-// writes fieldName on the class symbolID — a filtered lookup over data the
-// analyzer already resolved, not a fresh call-graph walk (an agent wanting
-// "who calls the method that writes this field" already has GetNeighbors or
-// GetBlastRadius to compose with, once it has one of these NodeIDs). Not
-// cached — per the design doc, cheap enough to recompute every call.
+// maxDataFlowDepth bounds how many calls the trace will follow, the same
+// defensive ceiling as maxNeighborDepth/maxFlowDepth. A trace that hits it says
+// so in the step rather than just stopping.
+const maxDataFlowDepth = 6
+
+// TraceDataFlow walks the field's accesses in call-graph order.
+//
+// Two passes on purpose. First, find every method that touches the field —
+// those are the only methods worth walking. Then depth-first from the ones that
+// nothing else in that set calls, so the trace starts where the value starts
+// rather than in the middle.
+//
+// Within a method, field accesses and outgoing call sites are merged and sorted
+// by line, which is what puts "the write, then the call it flows into" next to
+// each other. That ordering is SOURCE order, not execution order — see
+// DataFlowTrace.OrderedBy.
 func (s *Service) TraceDataFlow(ctx context.Context, symbolID, fieldName string) (DataFlowTrace, error) {
 	store, err := s.activeStore()
 	if err != nil {
@@ -320,24 +330,118 @@ func (s *Service) TraceDataFlow(ctx context.Context, symbolID, fieldName string)
 		return DataFlowTrace{}, err
 	}
 
-	steps := make([]DataFlowStep, 0, len(accesses))
+	touching := make(map[string]bool, len(accesses))
+	byMethod := make(map[string][]FieldAccess, len(accesses))
 	for _, a := range accesses {
-		node, err := store.GetNode(ctx, a.NodeID)
+		touching[a.NodeID] = true
+		byMethod[a.NodeID] = append(byMethod[a.NodeID], a)
+	}
+
+	// A root is a touching method that no other touching method calls. If every
+	// one is called by another (a cycle among them), fall back to all of them so
+	// the trace is never empty just because the graph loops.
+	calledByTouching := make(map[string]bool)
+	for id := range touching {
+		sites, err := store.GetCallSites(ctx, id)
 		if err != nil {
-			if errors.Is(err, ErrNodeNotFound) {
-				continue // index drifted between the two reads; skip rather than fail the whole trace
-			}
 			return DataFlowTrace{}, err
 		}
-		steps = append(steps, DataFlowStep{
-			NodeID:   a.NodeID,
-			Label:    node.Label,
-			FilePath: node.FilePath,
-			Line:     a.Line,
-			Kind:     a.Kind,
-		})
+		for _, c := range sites {
+			if c.To != "" && touching[c.To] {
+				calledByTouching[c.To] = true
+			}
+		}
 	}
-	return DataFlowTrace{SymbolID: symbolID, FieldName: fieldName, Steps: steps}, nil
+	roots := make([]string, 0, len(touching))
+	for id := range touching {
+		if !calledByTouching[id] {
+			roots = append(roots, id)
+		}
+	}
+	if len(roots) == 0 {
+		for id := range touching {
+			roots = append(roots, id)
+		}
+	}
+	sort.Strings(roots) // stable output for the same index
+
+	trace := DataFlowTrace{SymbolID: symbolID, FieldName: fieldName, OrderedBy: "source"}
+	onPath := make(map[string]bool)
+
+	var walk func(nodeID string, depth int) error
+	walk = func(nodeID string, depth int) error {
+		node, err := store.GetNode(ctx, nodeID)
+		if err != nil {
+			if errors.Is(err, ErrNodeNotFound) {
+				return nil // index drifted between reads; skip rather than fail the whole trace
+			}
+			return err
+		}
+		sites, err := store.GetCallSites(ctx, nodeID)
+		if err != nil {
+			return err
+		}
+
+		type event struct {
+			line       int
+			kind       string
+			targetID   string
+			unresolved string
+		}
+		events := make([]event, 0, len(byMethod[nodeID])+len(sites))
+		for _, a := range byMethod[nodeID] {
+			events = append(events, event{line: a.Line, kind: a.Kind})
+		}
+		for _, c := range sites {
+			// Calls that lead nowhere useful are still worth a step when they
+			// were lost; a resolved call to a method that never touches the
+			// field is just noise.
+			if c.Unresolved == "" && !touching[c.To] {
+				continue
+			}
+			events = append(events, event{line: c.Line, kind: "call", targetID: c.To, unresolved: c.Unresolved})
+		}
+		sort.SliceStable(events, func(i, j int) bool { return events[i].line < events[j].line })
+
+		onPath[nodeID] = true
+		defer delete(onPath, nodeID)
+
+		for _, e := range events {
+			step := DataFlowStep{
+				NodeID:     nodeID,
+				Label:      node.Label,
+				FilePath:   node.FilePath,
+				Line:       e.line,
+				Kind:       e.kind,
+				Depth:      depth,
+				TargetID:   e.targetID,
+				Unresolved: e.unresolved,
+			}
+			if e.kind == "call" && e.unresolved == "" {
+				switch {
+				case onPath[e.targetID]:
+					step.Unresolved = "cycle"
+				case depth+1 > maxDataFlowDepth:
+					step.Unresolved = "depth"
+				}
+			}
+			trace.Steps = append(trace.Steps, step)
+
+			if e.kind == "call" && step.Unresolved == "" {
+				if err := walk(e.targetID, depth+1); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+
+	for _, root := range roots {
+		if err := walk(root, 0); err != nil {
+			return DataFlowTrace{}, err
+		}
+	}
+	return trace, nil
 }
 
 const (
@@ -1044,6 +1148,9 @@ func (nilStore) GetDependents(context.Context, string) ([]string, error) {
 	return nil, ErrNoActiveProject
 }
 func (nilStore) GetFieldAccesses(context.Context, string, string) ([]FieldAccess, error) {
+	return nil, ErrNoActiveProject
+}
+func (nilStore) GetCallSites(context.Context, string) ([]CallSite, error) {
 	return nil, ErrNoActiveProject
 }
 func (nilStore) SavePlan(context.Context, Plan) error                 { return ErrNoActiveProject }

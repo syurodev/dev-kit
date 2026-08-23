@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -1616,4 +1617,143 @@ type swappableAnalyzer struct {
 
 func (a *swappableAnalyzer) Analyze(ctx context.Context, projectPath string) (AnalysisResult, error) {
 	return a.result, nil
+}
+
+// traceFixture: Controller.create calls Service.process, which writes `status`,
+// calls Repository.save (which reads it), and then reads it again. Repository.save
+// also calls into a library, which is where the trace has to stop and say so.
+func traceFixture() AnalysisResult {
+	return AnalysisResult{
+		Nodes: []Node{
+			{ID: "a.Refund", Label: "Refund", Kind: "class", FilePath: "Refund.java", Line: 1},
+			{ID: "a.Controller.create()", Label: "Controller.create", Kind: "method", FilePath: "Controller.java", Line: 10},
+			{ID: "a.Service.process()", Label: "Service.process", Kind: "method", FilePath: "Service.java", Line: 20},
+			{ID: "a.Repository.save()", Label: "Repository.save", Kind: "method", FilePath: "Repository.java", Line: 30},
+		},
+		Edges: []Edge{
+			{From: "a.Controller.create()", To: "a.Service.process()", Kind: "call"},
+			{From: "a.Service.process()", To: "a.Repository.save()", Kind: "call"},
+		},
+		CallSites: []CallSite{
+			{From: "a.Controller.create()", To: "a.Service.process()", Line: 12},
+			{From: "a.Service.process()", To: "a.Repository.save()", Line: 23},
+			{From: "a.Repository.save()", To: "", Line: 32, Unresolved: "library"},
+		},
+		FieldAccesses: []FieldAccess{
+			{ClassID: "a.Refund", NodeID: "a.Service.process()", FieldName: "status", Kind: "write", Line: 22},
+			{ClassID: "a.Refund", NodeID: "a.Service.process()", FieldName: "status", Kind: "read", Line: 25},
+			{ClassID: "a.Refund", NodeID: "a.Repository.save()", FieldName: "status", Kind: "read", Line: 31},
+		},
+	}
+}
+
+func TestTraceDataFlowOrdersEventsBySourceLineWithinAMethod(t *testing.T) {
+	svc := newTestService(t, fakeAnalyzer{result: traceFixture()})
+	if err := svc.OpenProject(context.Background(), "/fake/project"); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+
+	trace, err := svc.TraceDataFlow(context.Background(), "a.Refund", "status")
+	if err != nil {
+		t.Fatalf("TraceDataFlow: %v", err)
+	}
+	if trace.OrderedBy != "source" {
+		t.Errorf("OrderedBy = %q, want %q", trace.OrderedBy, "source")
+	}
+
+	// Service.process: write@22, call@23, read@25 — the call has to sit between
+	// the write and the read, or the reader cannot see that the written value is
+	// what flows into save().
+	var got []string
+	for _, s := range trace.Steps {
+		if s.NodeID == "a.Service.process()" {
+			got = append(got, fmt.Sprintf("%s@%d", s.Kind, s.Line))
+		}
+	}
+	want := []string{"write@22", "call@23", "read@25"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Service.process events = %v, want %v", got, want)
+	}
+}
+
+func TestTraceDataFlowFollowsCallsAndDeepens(t *testing.T) {
+	svc := newTestService(t, fakeAnalyzer{result: traceFixture()})
+	if err := svc.OpenProject(context.Background(), "/fake/project"); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+
+	trace, err := svc.TraceDataFlow(context.Background(), "a.Refund", "status")
+	if err != nil {
+		t.Fatalf("TraceDataFlow: %v", err)
+	}
+
+	depth := map[string]int{}
+	for _, s := range trace.Steps {
+		if _, seen := depth[s.NodeID]; !seen {
+			depth[s.NodeID] = s.Depth
+		}
+	}
+	if depth["a.Service.process()"] != 0 {
+		t.Errorf("Service.process depth = %d, want 0 — it is the root, nothing above it touches the field", depth["a.Service.process()"])
+	}
+	if depth["a.Repository.save()"] != 1 {
+		t.Errorf("Repository.save depth = %d, want 1 — reached by following one call", depth["a.Repository.save()"])
+	}
+	// Controller.create never touches `status` and is not called from a method
+	// that does, so it must not appear at all.
+	if _, present := depth["a.Controller.create()"]; present {
+		t.Error("Controller.create is in the trace, but it never touches the field")
+	}
+}
+
+func TestTraceDataFlowSaysWhereItLostTheFlow(t *testing.T) {
+	svc := newTestService(t, fakeAnalyzer{result: traceFixture()})
+	if err := svc.OpenProject(context.Background(), "/fake/project"); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+
+	trace, err := svc.TraceDataFlow(context.Background(), "a.Refund", "status")
+	if err != nil {
+		t.Fatalf("TraceDataFlow: %v", err)
+	}
+
+	// The whole reason unresolved calls are recorded: silence here would read as
+	// "the flow ends", when the truth is "we cannot see any further".
+	var found bool
+	for _, s := range trace.Steps {
+		if s.Kind == "call" && s.Unresolved == "library" && s.Line == 32 {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("no step marks the library call at Repository.java:32 as a wall")
+	}
+}
+
+func TestTraceDataFlowStopsOnACycle(t *testing.T) {
+	result := traceFixture()
+	result.CallSites = append(result.CallSites,
+		CallSite{From: "a.Repository.save()", To: "a.Service.process()", Line: 33})
+	result.Edges = append(result.Edges,
+		Edge{From: "a.Repository.save()", To: "a.Service.process()", Kind: "call"})
+
+	svc := newTestService(t, fakeAnalyzer{result: result})
+	if err := svc.OpenProject(context.Background(), "/fake/project"); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+
+	// Must terminate, and must say why rather than silently truncating.
+	trace, err := svc.TraceDataFlow(context.Background(), "a.Refund", "status")
+	if err != nil {
+		t.Fatalf("TraceDataFlow: %v", err)
+	}
+	var cycles int
+	for _, s := range trace.Steps {
+		if s.Unresolved == "cycle" {
+			cycles++
+		}
+	}
+	if cycles == 0 {
+		t.Error("a recursive call produced no step marked \"cycle\"")
+	}
 }
