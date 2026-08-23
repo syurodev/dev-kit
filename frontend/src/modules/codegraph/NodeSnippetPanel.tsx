@@ -66,7 +66,13 @@ export function NodeSnippetPanel({ snippet, loading, error, onEdit }: NodeSnippe
       <div className="flex-1 overflow-hidden">
         {/* Boundaries come from the AST the indexer already walked, so the
             snippet is exactly the method or class — not a guessed ±N lines. */}
-        <CodeEditor value={snippet.source} onChange={() => {}} extensions={extensions} readOnly />
+        <CodeEditor
+          value={snippet.source}
+          onChange={() => {}}
+          extensions={extensions}
+          readOnly
+          wrap
+        />
       </div>
     </div>
   );

@@ -10,7 +10,32 @@ export type CodeEditorProps = {
   onChange: (value: string) => void;
   extensions?: Extension[];
   readOnly?: boolean;
+  /**
+   * Wrap long lines instead of scrolling horizontally. Off by default, which
+   * is what a full-width file editor wants; a narrow preview wants it on,
+   * because a horizontal scrollbar under two visible lines is worse than a
+   * wrapped line.
+   */
+  wrap?: boolean;
 };
+
+/**
+ * oneDark paints the editor, the gutters and the active line with its own
+ * opaque #282c34 — a colour from no DevKit token, so the editor reads as a
+ * grey box pasted onto whichever surface hosts it. Strip those backgrounds and
+ * let the host show through; oneDark's syntax colours, the only reason it is
+ * here, are untouched.
+ *
+ * Applied after oneDark in the same compartment so it always wins, and in
+ * light mode too, where basicSetup's default theme paints white.
+ */
+const surfaceless = EditorView.theme({
+  "&": { backgroundColor: "transparent" },
+  "&.cm-focused": { outline: "none" },
+  ".cm-gutters": { backgroundColor: "transparent", border: "none" },
+  ".cm-activeLine": { backgroundColor: "transparent" },
+  ".cm-activeLineGutter": { backgroundColor: "transparent" },
+});
 
 // Headless CodeMirror 6 wrapper — no language or schema knowledge of its
 // own, per base-doc code-editor.mdx. Every prop that can change after mount
@@ -18,15 +43,16 @@ export type CodeEditorProps = {
 // remounting the EditorView, which would lose undo history and cursor
 // position — the doc's explicit requirement, and CodeMirror's own
 // documented pattern for dynamic reconfiguration, not a DevKit invention.
-export function CodeEditor({ value, onChange, extensions, readOnly }: CodeEditorProps) {
+export function CodeEditor({ value, onChange, extensions, readOnly, wrap }: CodeEditorProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
   const languageCompartment = useRef(new Compartment()).current;
   const readOnlyCompartment = useRef(new Compartment()).current;
   const themeCompartment = useRef(new Compartment()).current;
+  const wrapCompartment = useRef(new Compartment()).current;
 
   // onChange is very likely a new function identity on every parent render
-  // in React — a ref sidesteps needing a 4th Compartment (or a stale
+  // in React — a ref sidesteps needing another Compartment (or a stale
   // closure) just to keep the update listener current.
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
@@ -42,7 +68,8 @@ export function CodeEditor({ value, onChange, extensions, readOnly }: CodeEditor
           basicSetup,
           languageCompartment.of(extensions ?? []),
           readOnlyCompartment.of(EditorState.readOnly.of(!!readOnly)),
-          themeCompartment.of(resolvedTheme === "dark" ? [oneDark] : []),
+          themeCompartment.of(resolvedTheme === "dark" ? [oneDark, surfaceless] : [surfaceless]),
+          wrapCompartment.of(wrap ? EditorView.lineWrapping : []),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
               onChangeRef.current(update.state.doc.toString());
@@ -86,9 +113,17 @@ export function CodeEditor({ value, onChange, extensions, readOnly }: CodeEditor
 
   useEffect(() => {
     viewRef.current?.dispatch({
-      effects: themeCompartment.reconfigure(resolvedTheme === "dark" ? [oneDark] : []),
+      effects: themeCompartment.reconfigure(
+        resolvedTheme === "dark" ? [oneDark, surfaceless] : [surfaceless],
+      ),
     });
   }, [resolvedTheme, themeCompartment]);
+
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: wrapCompartment.reconfigure(wrap ? EditorView.lineWrapping : []),
+    });
+  }, [wrap, wrapCompartment]);
 
   return <div ref={containerRef} className="h-full w-full overflow-auto" />;
 }
