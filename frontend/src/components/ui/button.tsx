@@ -10,11 +10,11 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          "bg-action-primary text-action-primary-foreground hover:brightness-110 active:brightness-95",
+          "bg-action-primary text-action-primary-foreground hover:bg-(--action-primary-hover) active:bg-(--action-primary-pressed)",
         primary:
-          "bg-action-primary text-action-primary-foreground hover:brightness-110 active:brightness-95",
+          "bg-action-primary text-action-primary-foreground hover:bg-(--action-primary-hover) active:bg-(--action-primary-pressed)",
         secondary:
-          "bg-surface-raised border border-border text-text-primary hover:border-status-info hover:bg-surface-raised/90 active:bg-surface-base",
+          "bg-(--glass-panel-bg) border border-(--glass-border) text-text-primary hover:border-status-info hover:bg-(--glass-float-bg) active:bg-(--glass-panel-bg)",
         outline:
           "border border-border bg-transparent text-text-primary hover:bg-surface-raised hover:border-status-info active:bg-surface-base",
         ghost:

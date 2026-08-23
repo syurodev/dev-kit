@@ -20,7 +20,7 @@ function VaultShell({
     <div
       data-slot="vault-shell"
       className={cn(
-        "relative flex flex-col w-full max-w-[960px] min-h-[540px] rounded-[18px] bg-bg-canvas border border-border overflow-hidden shadow-2xl transition-all",
+        "relative flex flex-col w-full max-w-[960px] min-h-[540px] rounded-[18px] bg-(--surface-glass-modal) backdrop-blur-2xl border border-(--glass-border) overflow-hidden shadow-2xl transition-all",
         className
       )}
       {...props}
@@ -28,7 +28,7 @@ function VaultShell({
       {/* 30px Title Bar / Header */}
       <div
         data-slot="vault-shell-header"
-        className="flex h-[30px] w-full shrink-0 items-center justify-between border-b border-border-subtle bg-surface-base px-4 select-none"
+        className="flex h-[30px] w-full shrink-0 items-center justify-between border-b border-border-subtle bg-foreground/3 px-4 select-none"
       >
         <div className="flex items-center gap-2">
           <Vault className="size-3.5 text-text-secondary" strokeWidth={1.5} />
@@ -47,7 +47,7 @@ function VaultShell({
         data-slot="vault-shell-content"
         className="flex flex-1 items-center justify-center p-6 md:p-10"
       >
-        <div className="flex flex-col items-center w-full max-w-[640px] min-h-[380px] rounded-[18px] bg-surface-base border border-border-subtle p-6 md:p-8 relative">
+        <div className="flex flex-col items-center w-full max-w-[640px] min-h-[380px] rounded-[18px] bg-foreground/2 border border-border-subtle p-6 md:p-8 relative">
           {children}
         </div>
       </div>

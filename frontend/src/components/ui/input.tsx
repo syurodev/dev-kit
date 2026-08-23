@@ -12,7 +12,7 @@ function Input({ className, type, inputSize = "default", ...props }: InputProps)
       type={type}
       data-slot="input"
       className={cn(
-        "w-full min-w-0 rounded-[8px] border border-border bg-surface-base px-3 text-[14px] text-text-primary transition-colors outline-none",
+        "w-full min-w-0 rounded-[8px] border border-border bg-foreground/5 px-3 text-[14px] text-text-primary transition-colors outline-none",
         "placeholder:text-text-tertiary",
         "focus-visible:border-[1.5px] focus-visible:border-status-info focus-visible:outline-none focus-visible:ring-0",
         "disabled:pointer-events-none disabled:cursor-not-allowed disabled:bg-surface-raised disabled:opacity-38 disabled:text-text-tertiary",

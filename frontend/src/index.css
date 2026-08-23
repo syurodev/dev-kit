@@ -106,8 +106,8 @@
     --background-canvas: var(--palette-carbon);
     --surface-base: var(--palette-jet-black);
     --surface-raised: var(--palette-cosmic);
-    --surface-glass-floating: rgba(35, 33, 44, 0.72);
-    --surface-glass-modal: rgba(35, 33, 44, 0.85);
+    --surface-glass-floating: rgba(29, 29, 29, 0.72);
+    --surface-glass-modal: rgba(29, 29, 29, 0.85);
     --surface-tinted: var(--palette-wine-ash);
 
     --text-primary: #f0f1eb;
@@ -117,6 +117,9 @@
 
     --action-primary: var(--palette-lime);
     --action-primary-foreground: var(--palette-onyx);
+    /* Figma: derived/lime-hover, derived/lime-pressed */
+    --action-primary-hover: #d2ff64;
+    --action-primary-pressed: #add92e;
 
     --status-info: var(--palette-candy-blue);
     --status-success: var(--palette-turquoise);
@@ -138,7 +141,9 @@
     --border-default: rgba(178, 213, 229, 0.16);
     --border-subtle: rgba(178, 213, 229, 0.08);
 
-    /* Glass materials (Figma "Glass materials" frame). One cosmic tint,
+    /* Glass materials (Figma "Glass materials" frame). One neutral jet tint
+       (same hue as the background, Apple-style — the lavender/orchid ambience
+       comes from the vibrancy blobs BEHIND the glass, not from the tint);
        three opacities; depth is encoded by opacity and blur, never new color.
        - rail:  sidebar/titlebar/window chrome — fully transparent, the native
          vibrancy carries it
@@ -148,9 +153,9 @@
          the desktop behind the window is already blurred by the native
          NSVisualEffectView backdrop, so docked surfaces need tint alone. */
     --glass-rail-bg: transparent;
-    --glass-panel-bg: rgba(35, 33, 44, 0.55);
-    --glass-float-bg: rgba(35, 33, 44, 0.62);
-    --glass-border: rgba(178, 213, 229, 0.14);
+    --glass-panel-bg: rgba(29, 29, 29, 0.55);
+    --glass-float-bg: rgba(29, 29, 29, 0.62);
+    --glass-border: rgba(255, 255, 255, 0.1);
     --glass-highlight: rgba(255, 255, 255, 0.06);
     --glass-blur: 40px;
     --glass-saturate: 170%;
