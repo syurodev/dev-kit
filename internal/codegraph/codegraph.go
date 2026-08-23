@@ -181,6 +181,19 @@ type FieldAccess struct {
 	Line      int    `json:"line"`
 }
 
+// CallSite is one call expression, un-deduped and with its source line —
+// everything Edge throws away for the sake of a clean graph. To is empty when
+// the callee could not be turned into a node, and Unresolved says which wall
+// the analyzer hit: "library" (bytecode, no body to read), "interface" (the
+// implementation is not knowable statically) or "unresolved" (the solver could
+// not resolve the call at all).
+type CallSite struct {
+	From       string `json:"from"`
+	To         string `json:"to"`
+	Line       int    `json:"line"`
+	Unresolved string `json:"unresolved"`
+}
+
 // DataFlowStep is one method that reads or writes the traced field.
 type DataFlowStep struct {
 	NodeID   string `json:"nodeId"`
@@ -205,6 +218,7 @@ type AnalysisResult struct {
 	Endpoints        []Endpoint       `json:"endpoints"`
 	FileDependencies []FileDependency `json:"fileDependencies"`
 	FieldAccesses    []FieldAccess    `json:"fieldAccesses"`
+	CallSites        []CallSite       `json:"callSites"`
 }
 
 // Validate checks internal consistency: every Edge and Endpoint must
@@ -221,6 +235,15 @@ func (r AnalysisResult) Validate() error {
 		}
 		if !ids[e.To] {
 			return fmt.Errorf("codegraph: edge references unknown node %q", e.To)
+		}
+	}
+	for _, c := range r.CallSites {
+		if !ids[c.From] {
+			return fmt.Errorf("codegraph: call site references unknown node %q", c.From)
+		}
+		// An empty To is the recorded shape of an unresolved call, not a defect.
+		if c.To != "" && !ids[c.To] {
+			return fmt.Errorf("codegraph: call site references unknown node %q", c.To)
 		}
 	}
 	for _, ep := range r.Endpoints {
