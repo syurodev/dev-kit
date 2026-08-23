@@ -32,7 +32,9 @@ export interface CodeSnippet {
 }
 
 /**
- * DataFlowStep is one method that reads or writes the traced field.
+ * DataFlowStep is one event in the trace: a read, a write, or a call the flow
+ * continues into. Depth is how many calls were followed to reach it, so a flat
+ * slice renders as an indented tree without the JSON having to nest.
  */
 export interface DataFlowStep {
     "nodeId": string;
@@ -41,18 +43,43 @@ export interface DataFlowStep {
     "line": number;
 
     /**
-     * "read" | "write"
+     * "read" | "write" | "call"
      */
     "kind": string;
+    "depth": number;
+
+    /**
+     * TargetID is the callee for kind=="call", empty otherwise.
+     */
+    "targetId": string;
+
+    /**
+     * Unresolved is empty when nothing was lost. Otherwise it names the wall the
+     * trace hit: "library" (bytecode — there is no body to read, ever),
+     * "interface" (the implementation is not knowable statically), "unresolved"
+     * (the solver could not resolve the call), "depth" (the ceiling below) or
+     * "cycle" (this method is already on the current path).
+     */
+    "unresolved": string;
 }
 
 /**
  * DataFlowTrace is TraceDataFlow's result: every already-indexed method that
- * touches one field on one class.
+ * touches one field on one class, in call-graph order, with the calls between
+ * them shown.
  */
 export interface DataFlowTrace {
     "symbolId": string;
     "fieldName": string;
+
+    /**
+     * OrderedBy is always "source" in v1 and is in the payload so no consumer
+     * mistakes it for execution order. Events within a method are sorted by
+     * line; branches, loops and early returns are not modelled, so a write in
+     * an else-branch still sorts before a read on a later line. Modelling that
+     * needs a control-flow graph, which JavaParser does not build.
+     */
+    "orderedBy": string;
     "steps": DataFlowStep[] | null;
 }
 

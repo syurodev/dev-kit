@@ -151,3 +151,39 @@ export async function getCodeGraphCodeSnippet(
 ): Promise<CodeGraphCodeSnippet> {
   return callBridge(() => AppService.CodeGraphGetCodeSnippet(filePath, line, endLine));
 }
+
+/** One event in a data-flow trace: a field read, a field write, or a call the
+ *  flow continues into. Flat, not nested — `depth` is the indent level. */
+export type CodeGraphDataFlowStep = {
+  nodeId: string;
+  label: string;
+  filePath: string;
+  line: number;
+  kind: "read" | "write" | "call";
+  depth: number;
+  /** The callee, for kind === "call". Empty otherwise. */
+  targetId: string;
+  /** Empty when nothing was lost; otherwise the wall the trace hit. */
+  unresolved: "" | "library" | "interface" | "unresolved" | "depth" | "cycle";
+};
+
+export type CodeGraphDataFlowTrace = {
+  symbolId: string;
+  fieldName: string;
+  /** Always "source" — line order within a method, NOT execution order. */
+  orderedBy: string;
+  steps: CodeGraphDataFlowStep[];
+};
+
+export async function traceCodeGraphDataFlow(
+  symbolId: string,
+  fieldName: string,
+): Promise<CodeGraphDataFlowTrace> {
+  const trace = await callBridge(() => AppService.CodeGraphTraceDataFlow(symbolId, fieldName));
+  return {
+    symbolId: trace.symbolId,
+    fieldName: trace.fieldName,
+    orderedBy: trace.orderedBy,
+    steps: (trace.steps ?? []) as CodeGraphDataFlowStep[],
+  };
+}
