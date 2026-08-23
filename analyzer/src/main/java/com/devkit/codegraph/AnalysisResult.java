@@ -9,4 +9,5 @@ public class AnalysisResult {
     public List<Endpoint> endpoints = new ArrayList<>();
     public List<FileDependency> fileDependencies = new ArrayList<>();
     public List<FieldAccess> fieldAccesses = new ArrayList<>();
+    public List<CallSite> callSites = new ArrayList<>();
 }
