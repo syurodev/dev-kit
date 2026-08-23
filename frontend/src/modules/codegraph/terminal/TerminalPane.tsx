@@ -37,6 +37,23 @@ function surfaceBehind(el: HTMLElement): string {
   return "#1d1d1d";
 }
 
+/**
+ * The mono stack as a literal font list.
+ *
+ * `var(--font-mono)` cannot be handed to xterm: it applies the family to a DOM
+ * node (where var() resolves) but MEASURES cell width through a canvas, where
+ * var() does not resolve at all. The result is glyphs from one font sitting in
+ * cells sized for another — the letters look loose and misaligned. Unlike
+ * `--card`, this custom property is declared as a real font list, so reading it
+ * gives a usable value rather than the literal `var(...)`.
+ */
+function monoStack(): string {
+  const value = getComputedStyle(document.documentElement)
+    .getPropertyValue("--font-mono")
+    .trim();
+  return value || "monospace";
+}
+
 export function TerminalPane() {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const [error, setError] = useState("");
@@ -57,7 +74,7 @@ export function TerminalPane() {
     setError("");
     const term = new Terminal({
       fontSize: 12,
-      fontFamily: "var(--font-mono), monospace",
+      fontFamily: monoStack(),
       convertEol: true,
       cursorBlink: true,
       // Painted with the surface's OWN resolved colour rather than left
@@ -71,6 +88,19 @@ export function TerminalPane() {
     term.loadAddon(fit);
     term.open(host);
     fit.fit();
+
+    // xterm sizes its cells ONCE, from whatever font was available at that
+    // moment. Geist Mono arrives as a webfont, so the first measurement can
+    // land on the fallback and every column stays wrong afterwards. Re-measure
+    // when the font is really there — assigning a different value first, since
+    // xterm ignores a write that does not change the option.
+    void document.fonts.ready.then(() => {
+      if (disposed) return;
+      term.options.fontFamily = "monospace";
+      term.options.fontFamily = monoStack();
+      fit.fit();
+      if (sessionId) void resizeTerminal(sessionId, term.rows, term.cols);
+    });
 
     void (async () => {
       try {
