@@ -187,3 +187,15 @@ export async function traceCodeGraphDataFlow(
     steps: (trace.steps ?? []) as CodeGraphDataFlowStep[],
   };
 }
+
+/** One field a node touches. `classId` is what TraceDataFlow calls symbolId. */
+export type CodeGraphFieldRef = {
+  classId: string;
+  fieldName: string;
+  reads: number;
+  writes: number;
+};
+
+export async function listCodeGraphFields(nodeId: string): Promise<CodeGraphFieldRef[]> {
+  return callBridge(async () => (await AppService.CodeGraphListFields(nodeId)) ?? []);
+}
