@@ -695,3 +695,64 @@ func TestReplaceIndexClearsCallSites(t *testing.T) {
 		t.Fatalf("len = %d, want 0 — re-indexing must clear the old call sites", len(got))
 	}
 }
+
+func TestStoreListFieldsByClassAndByMethod(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	result := sampleResult()
+	result.FieldAccesses = []FieldAccess{
+		{ClassID: "n1", NodeID: "n1", FieldName: "total", Kind: "write", Line: 12},
+		{ClassID: "n1", NodeID: "n2", FieldName: "total", Kind: "read", Line: 22},
+		{ClassID: "n1", NodeID: "n2", FieldName: "status", Kind: "write", Line: 25},
+	}
+	if err := store.ReplaceIndex(ctx, result); err != nil {
+		t.Fatalf("ReplaceIndex: %v", err)
+	}
+
+	// By class: every field the class has, with both accesses of "total" counted.
+	byClass, err := store.ListFields(ctx, "n1")
+	if err != nil {
+		t.Fatalf("ListFields: %v", err)
+	}
+	if len(byClass) != 2 {
+		t.Fatalf("byClass = %+v, want 2 fields", byClass)
+	}
+	if byClass[0].FieldName != "status" || byClass[1].FieldName != "total" {
+		t.Fatalf("byClass = %+v, want alphabetical order", byClass)
+	}
+	if byClass[1].Reads != 1 || byClass[1].Writes != 1 {
+		t.Fatalf("total = %+v, want 1 read 1 write", byClass[1])
+	}
+	if byClass[0].ClassID != "n1" {
+		t.Fatalf("status.ClassID = %q, want n1 — the trace needs it to call TraceDataFlow", byClass[0].ClassID)
+	}
+
+	// By method: only the fields that method touches.
+	byMethod, err := store.ListFields(ctx, "n2")
+	if err != nil {
+		t.Fatalf("ListFields: %v", err)
+	}
+	if len(byMethod) != 2 {
+		t.Fatalf("byMethod = %+v, want 2", byMethod)
+	}
+	if byMethod[0].Reads != 0 || byMethod[0].Writes != 1 {
+		t.Fatalf("status seen from n2 = %+v, want 0 read 1 write", byMethod[0])
+	}
+}
+
+func TestStoreListFieldsNoAccesses(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	if err := store.ReplaceIndex(ctx, sampleResult()); err != nil {
+		t.Fatalf("ReplaceIndex: %v", err)
+	}
+
+	fields, err := store.ListFields(ctx, "n1")
+	if err != nil {
+		t.Fatalf("ListFields: %v", err)
+	}
+	if len(fields) != 0 {
+		t.Fatalf("expected no fields, got %+v", fields)
+	}
+}

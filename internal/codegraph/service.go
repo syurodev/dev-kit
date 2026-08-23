@@ -1153,6 +1153,10 @@ func (nilStore) GetFieldAccesses(context.Context, string, string) ([]FieldAccess
 func (nilStore) GetCallSites(context.Context, string) ([]CallSite, error) {
 	return nil, ErrNoActiveProject
 }
+
+func (nilStore) ListFields(context.Context, string) ([]FieldRef, error) {
+	return nil, ErrNoActiveProject
+}
 func (nilStore) SavePlan(context.Context, Plan) error                 { return ErrNoActiveProject }
 func (nilStore) GetPlan(context.Context) (Plan, error)                { return Plan{}, ErrNoActiveProject }
 func (nilStore) SetPlanState(context.Context, string) error           { return ErrNoActiveProject }

@@ -181,6 +181,20 @@ type FieldAccess struct {
 	Line      int    `json:"line"`
 }
 
+// FieldRef is one field a node touches, with how often — enough for a picker
+// to list the fields worth tracing without the caller guessing a name. Reads
+// and Writes are counted over whatever scope was asked for: every method on
+// the class when ListFields was given a class, or the one method when it was
+// given a method.
+type FieldRef struct {
+	// ClassID is the class that declares the field. Pass it straight back to
+	// TraceDataFlow — it is what that method means by symbolID.
+	ClassID   string `json:"classId"`
+	FieldName string `json:"fieldName"`
+	Reads     int    `json:"reads"`
+	Writes    int    `json:"writes"`
+}
+
 // CallSite is one call expression, un-deduped and with its source line —
 // everything Edge throws away for the sake of a clean graph. To is empty when
 // the callee could not be turned into a node, and Unresolved says which wall
@@ -295,6 +309,7 @@ type Store interface {
 	FindNodeAtLine(ctx context.Context, filePath string, line int) (Node, bool, error)
 	GetDependents(ctx context.Context, filePath string) ([]string, error)
 	GetFieldAccesses(ctx context.Context, classID, fieldName string) ([]FieldAccess, error)
+	ListFields(ctx context.Context, nodeID string) ([]FieldRef, error)
 	GetCallSites(ctx context.Context, fromID string) ([]CallSite, error)
 	SavePlan(ctx context.Context, plan Plan) error
 	GetPlan(ctx context.Context) (Plan, error)
