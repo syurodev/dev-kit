@@ -18,9 +18,10 @@ type CodeGraphState = {
   /** True while fetching the next page of a truncated subgraph. */
   loadingMore: boolean;
 
-  /** Whether the node-preview SplitPanel is open. Separate from `snippet`:
-   *  a node with no source yet still opens the panel, to say so. */
-  snippetOpen: boolean;
+  /** The node whose inspector is open, or null. Replaces snippetOpen: the
+   *  inspector is anchored to a specific node, so "which node" IS the
+   *  open/closed state. */
+  inspectorNodeId: string | null;
   snippet: CodeGraphCodeSnippet | null;
   snippetLoading: boolean;
   snippetError: string;
@@ -62,7 +63,7 @@ export const useCodeGraphStore = create<CodeGraphState>((set) => ({
   busy: false,
   loadingMore: false,
 
-  snippetOpen: false,
+  inspectorNodeId: null,
   snippet: null,
   snippetLoading: false,
   snippetError: "",
