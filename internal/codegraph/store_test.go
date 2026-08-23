@@ -627,3 +627,71 @@ func TestStoreResolveFQNPrefersIDWhenParamsGiven(t *testing.T) {
 		t.Fatalf("expected no match, got ok=%v err=%v", ok, err)
 	}
 }
+
+func TestCallSitesRoundTrip(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	result := AnalysisResult{
+		Nodes: []Node{
+			{ID: "a.B.c()", Label: "B.c", Kind: "method", FilePath: "B.java", Line: 3},
+			{ID: "a.D.e()", Label: "D.e", Kind: "method", FilePath: "D.java", Line: 9},
+		},
+		CallSites: []CallSite{
+			{From: "a.B.c()", To: "a.D.e()", Line: 5},
+			{From: "a.B.c()", To: "", Line: 6, Unresolved: "library"},
+			{From: "a.B.c()", To: "a.D.e()", Line: 7},
+		},
+	}
+	if err := store.ReplaceIndex(ctx, result); err != nil {
+		t.Fatalf("ReplaceIndex: %v", err)
+	}
+
+	got, err := store.GetCallSites(ctx, "a.B.c()")
+	if err != nil {
+		t.Fatalf("GetCallSites: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("len = %d, want 3 (repeated calls must not be deduped)", len(got))
+	}
+	for i, want := range []int{5, 6, 7} {
+		if got[i].Line != want {
+			t.Errorf("got[%d].Line = %d, want %d — call sites must come back in line order", i, got[i].Line, want)
+		}
+	}
+	if got[1].Unresolved != "library" {
+		t.Errorf("got[1].Unresolved = %q, want %q", got[1].Unresolved, "library")
+	}
+	if got[1].To != "" {
+		t.Errorf("got[1].To = %q, want empty", got[1].To)
+	}
+}
+
+func TestReplaceIndexClearsCallSites(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	first := AnalysisResult{
+		Nodes:     []Node{{ID: "a.B.c()", Label: "B.c", Kind: "method"}},
+		CallSites: []CallSite{{From: "a.B.c()", To: "", Line: 5, Unresolved: "library"}},
+	}
+	if err := store.ReplaceIndex(ctx, first); err != nil {
+		t.Fatalf("ReplaceIndex(first): %v", err)
+	}
+	second := AnalysisResult{
+		Nodes: []Node{{ID: "a.B.c()", Label: "B.c", Kind: "method"}},
+	}
+	if err := store.ReplaceIndex(ctx, second); err != nil {
+		t.Fatalf("ReplaceIndex(second): %v", err)
+	}
+
+	// A re-index that finds no calls must leave none behind, or a stale row
+	// would send the trace walking into a method the code no longer calls.
+	got, err := store.GetCallSites(ctx, "a.B.c()")
+	if err != nil {
+		t.Fatalf("GetCallSites: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("len = %d, want 0 — re-indexing must clear the old call sites", len(got))
+	}
+}

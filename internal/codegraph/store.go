@@ -48,6 +48,13 @@ CREATE TABLE IF NOT EXISTS field_accesses (
 	line INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_field_accesses_lookup ON field_accesses(class_id, field_name);
+CREATE TABLE IF NOT EXISTS call_sites (
+	from_id TEXT NOT NULL,
+	to_id TEXT NOT NULL,
+	line INTEGER NOT NULL,
+	unresolved TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_call_sites_from ON call_sites(from_id);
 CREATE TABLE IF NOT EXISTS plan_meta (
 	id INTEGER PRIMARY KEY CHECK (id = 1),
 	description TEXT NOT NULL,
@@ -138,7 +145,7 @@ func (s *sqliteStore) ReplaceIndex(ctx context.Context, result AnalysisResult) e
 	}
 	defer tx.Rollback()
 
-	for _, table := range []string{"nodes", "edges", "endpoints", "file_dependencies", "field_accesses"} {
+	for _, table := range []string{"nodes", "edges", "endpoints", "file_dependencies", "field_accesses", "call_sites"} {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table); err != nil {
 			return fmt.Errorf("codegraph: clear %s: %w", table, err)
 		}
@@ -180,6 +187,13 @@ func (s *sqliteStore) ReplaceIndex(ctx context.Context, result AnalysisResult) e
 			`INSERT INTO field_accesses (class_id, node_id, field_name, kind, line) VALUES (?, ?, ?, ?, ?)`,
 			fa.ClassID, fa.NodeID, fa.FieldName, fa.Kind, fa.Line); err != nil {
 			return fmt.Errorf("codegraph: insert field access %q.%q: %w", fa.ClassID, fa.FieldName, err)
+		}
+	}
+	for _, c := range result.CallSites {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO call_sites (from_id, to_id, line, unresolved) VALUES (?, ?, ?, ?)`,
+			c.From, c.To, c.Line, c.Unresolved); err != nil {
+			return fmt.Errorf("codegraph: insert call site %q->%q: %w", c.From, c.To, err)
 		}
 	}
 	if err := tx.Commit(); err != nil {
@@ -345,6 +359,29 @@ func (s *sqliteStore) GetFieldAccesses(ctx context.Context, classID, fieldName s
 			return nil, fmt.Errorf("codegraph: scan field access: %w", err)
 		}
 		out = append(out, fa)
+	}
+	return out, rows.Err()
+}
+
+// GetCallSites returns every call expression in one method, in source order.
+// Repeats are preserved: a method that calls the same target twice has two
+// rows, and losing one would put the trace's events in the wrong order.
+func (s *sqliteStore) GetCallSites(ctx context.Context, fromID string) ([]CallSite, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT from_id, to_id, line, unresolved FROM call_sites WHERE from_id = ? ORDER BY line`,
+		fromID)
+	if err != nil {
+		return nil, fmt.Errorf("codegraph: GetCallSites: %w", err)
+	}
+	defer rows.Close()
+
+	var out []CallSite
+	for rows.Next() {
+		var c CallSite
+		if err := rows.Scan(&c.From, &c.To, &c.Line, &c.Unresolved); err != nil {
+			return nil, fmt.Errorf("codegraph: scan call site: %w", err)
+		}
+		out = append(out, c)
 	}
 	return out, rows.Err()
 }
