@@ -7,41 +7,37 @@ import {
   agentHubResolvePermission,
   cancelledPermissionOutcome,
   isSandboxUnavailableError,
-  onAgentHubPermission,
-  onAgentHubSessionUpdate,
   parsePermissionOptions,
   permissionToolTitle,
   sandboxUnavailableMessage,
   selectedPermissionOutcome,
   type AgentVendor,
-  type PendingPermission,
 } from "../../bridge/agenthub";
 import { errorMessage } from "../../bridge/errors";
-import { appendUpdateLine, SessionTab, type TranscriptLine } from "./SessionTab";
-import { useAgentSessionsStore } from "../../stores/agentSessions";
-
-type TranscriptState = {
-  lines: TranscriptLine[];
-  prompt: string;
-};
+import { SessionTab } from "./SessionTab";
+import { EMPTY_TRANSCRIPT, useAgentSessionsStore } from "../../stores/agentSessions";
 
 const DEFAULT_VENDORS: AgentVendor[] = ["mock", "claude"];
-const EMPTY_TRANSCRIPT: TranscriptState = { lines: [], prompt: "" };
 
 export function AgentHubView() {
   const sessions = useAgentSessionsStore((state) => state.sessions);
   const activeSessionId = useAgentSessionsStore((state) => state.activeSessionId);
   const setActiveSessionId = useAgentSessionsStore((state) => state.setActiveSessionId);
   const upsertSession = useAgentSessionsStore((state) => state.upsertSession);
+  // Transcripts and the pending permission live in the store now: they must
+  // outlive this view, because the agent keeps working after you navigate away.
+  const transcripts = useAgentSessionsStore((state) => state.transcripts);
+  const setPrompt = useAgentSessionsStore((state) => state.setPrompt);
+  const updateLines = useAgentSessionsStore((state) => state.updateLines);
+  const pending = useAgentSessionsStore((state) => state.pending);
+  const setPending = useAgentSessionsStore((state) => state.setPending);
 
   const [vendors, setVendors] = useState<string[]>(DEFAULT_VENDORS);
   const [vendor, setVendor] = useState<string>("mock");
   const [cwd, setCwd] = useState(".");
-  const [transcripts, setTranscripts] = useState<Record<string, TranscriptState>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [sandboxHint, setSandboxHint] = useState("");
-  const [pending, setPending] = useState<PendingPermission | null>(null);
   const [permBusy, setPermBusy] = useState(false);
 
   const activeSession = useMemo(
@@ -75,28 +71,6 @@ export function AgentHubView() {
       });
     return () => {
       mounted = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    const offUpdate = onAgentHubSessionUpdate((event) => {
-      setTranscripts((prev) => {
-        const current = prev[event.sessionId] ?? EMPTY_TRANSCRIPT;
-        return {
-          ...prev,
-          [event.sessionId]: {
-            ...current,
-            lines: appendUpdateLine(current.lines, event.update),
-          },
-        };
-      });
-    });
-    const offPermission = onAgentHubPermission((next) => {
-      setPending(next);
-    });
-    return () => {
-      offUpdate();
-      offPermission();
     };
   }, []);
 
@@ -191,21 +165,8 @@ export function AgentHubView() {
           lines={activeTranscript.lines}
           prompt={activeTranscript.prompt}
           busy={busy}
-          onPromptChange={(prompt) =>
-            setTranscripts((prev) => ({
-              ...prev,
-              [activeSession.id]: { ...(prev[activeSession.id] ?? EMPTY_TRANSCRIPT), prompt },
-            }))
-          }
-          onLinesChange={(updater) =>
-            setTranscripts((prev) => ({
-              ...prev,
-              [activeSession.id]: {
-                ...(prev[activeSession.id] ?? EMPTY_TRANSCRIPT),
-                lines: updater(prev[activeSession.id]?.lines ?? []),
-              },
-            }))
-          }
+          onPromptChange={(prompt) => setPrompt(activeSession.id, prompt)}
+          onLinesChange={(updater) => updateLines(activeSession.id, updater)}
           onSessionChange={(session) => upsertSession(session)}
           onError={setError}
         />
