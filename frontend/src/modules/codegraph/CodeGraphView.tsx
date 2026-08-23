@@ -1,9 +1,10 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { Dialogs } from "@wailsio/runtime";
 import { keymap } from "@codemirror/view";
 import { CodeEditor } from "@/components/code-editor/CodeEditor";
 import { Button } from "@/components/ui/button";
 import { useSidebarContent } from "@/components/ui/sidebar-shell";
+import { useSplitPanel } from "@/components/ui/split-panel";
 import { CodeGraphSidebar } from "./CodeGraphSidebar";
 import { NodeInspector } from "./inspector/NodeInspector";
 import { PlanBar } from "./plan/PlanBar";
@@ -247,6 +248,10 @@ export function CodeGraphView() {
   const loadingMore = useCodeGraphStore((s) => s.loadingMore);
   const query = useCodeGraphStore((s) => s.query);
   const inspectorNodeId = useCodeGraphStore((s) => s.inspectorNodeId);
+  const inspectorNode = useMemo(
+    () => subgraph?.nodes.find((n) => n.id === inspectorNodeId) ?? null,
+    [subgraph, inspectorNodeId],
+  );
   const plan = useCodeGraphStore((s) => s.plan);
   const planEdges = useCodeGraphStore((s) => s.planEdges);
   const planBusy = useCodeGraphStore((s) => s.planBusy);
@@ -292,6 +297,37 @@ export function CodeGraphView() {
   const snippet = useCodeGraphStore((s) => s.snippet);
   const snippetLoading = useCodeGraphStore((s) => s.snippetLoading);
   const snippetError = useCodeGraphStore((s) => s.snippetError);
+
+  const { openPanel, closePanel } = useSplitPanel();
+
+  useEffect(() => {
+    if (!inspectorNode) {
+      closePanel();
+      return;
+    }
+    openPanel(
+      <NodeInspector
+        node={inspectorNode}
+        snippet={snippet}
+        snippetLoading={snippetLoading}
+        snippetError={snippetError}
+        onEdit={
+          snippet
+            ? () => {
+                void openFile(snippet.filePath);
+                set({ activeTab: "files", inspectorNodeId: null, snippet: null });
+              }
+            : undefined
+        }
+        onJump={(id) => void inspectNode(id)}
+      />,
+      {
+        width: 520,
+        onClose: () => set({ inspectorNodeId: null, snippet: null, snippetError: "" }),
+      },
+    );
+    return () => closePanel();
+  }, [inspectorNode, snippet, snippetLoading, snippetError, openPanel, closePanel]);
 
   const editorExtensions = useMemo(
     () => (selectedFile ? [...languageExtensionForPath(selectedFile), saveKeymap] : []),
@@ -362,28 +398,6 @@ export function CodeGraphView() {
                   nodes={subgraph.nodes}
                   edges={subgraph.edges}
                   onSelect={(nodeId) => void inspectNode(nodeId)}
-                  inspector={
-                    inspectorNodeId ? (
-                      <NodeInspector
-                        nodeId={inspectorNodeId}
-                        snippet={snippet}
-                        snippetLoading={snippetLoading}
-                        snippetError={snippetError}
-                        onEdit={
-                          snippet
-                            ? () => {
-                                void openFile(snippet.filePath);
-                                set({ activeTab: "files", inspectorNodeId: null, snippet: null });
-                              }
-                            : undefined
-                        }
-                        onJump={(id) => void inspectNode(id)}
-                        onClose={() =>
-                          set({ inspectorNodeId: null, snippet: null, snippetError: "" })
-                        }
-                      />
-                    ) : null
-                  }
                 />
               </div>
             </div>
