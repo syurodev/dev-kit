@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"embed"
+	"encoding/base64"
 	"encoding/json"
 	"log"
 	"os"
@@ -199,15 +200,18 @@ func main() {
 	container.AgentHubPermissions = agentWaiter
 
 	terminalRegistry := terminal.NewRegistry(func(sessionID string, chunk []byte) {
-		// TODO(frontend Terminal component): wire to the real Wails event —
-		// verify the exact Events.Emit call shape against @wailsio/runtime's
-		// current API when that plan is written, same "verify, don't guess"
-		// discipline used for every other Wails API touched in this
-		// sequence. Must remain non-blocking (Wails Events.Emit is non-blocking)
-		// so readLoop is never stalled by slow consumers. Until then this
-		// silently drops output — StartTerminal/Write/Resize/Close all work
-		// end-to-end without it (proven by this plan's own tests), only the live
-		// output stream needs the frontend.
+		// Base64 explicitly rather than letting encoding/json decide what a
+		// []byte becomes on the wire: PTY output is arbitrary bytes, a
+		// multibyte rune can straddle two chunks, and a plain string() here
+		// would corrupt it. The frontend decodes back to bytes and hands them
+		// to xterm, which does its own UTF-8 reassembly across writes.
+		//
+		// Emit is non-blocking, which is what lets readLoop call it without a
+		// slow consumer stalling the PTY reader.
+		emitAppEvent("terminal:output", map[string]any{
+			"sessionId": sessionID,
+			"chunk":     base64.StdEncoding.EncodeToString(chunk),
+		})
 	})
 	container.Terminal = terminalRegistry
 	// A finished re-index used to tell the frontend nothing, so endpoint lists

@@ -5,8 +5,10 @@ import { CodeEditor } from "@/components/code-editor/CodeEditor";
 import { Button } from "@/components/ui/button";
 import { useSidebarContent } from "@/components/ui/sidebar-shell";
 import { useSplitPanel } from "@/components/ui/split-panel";
+import { useBottomContent } from "@/components/ui/bottom-slot";
 import { CodeGraphSidebar } from "./CodeGraphSidebar";
 import { BlastRadiusPanel } from "./BlastRadiusPanel";
+import { TerminalPane } from "./terminal/TerminalPane";
 import { NodeInspector } from "./inspector/NodeInspector";
 import { PlanBar } from "./plan/PlanBar";
 import { PlanNodeDetail } from "./plan/PlanNodeDetail";
@@ -263,6 +265,9 @@ const saveKeymap = keymap.of([
   },
 ]);
 
+/** Stable element: see useBottomContent below for why this cannot be inline. */
+const TERMINAL_PANE = <TerminalPane />;
+
 export function CodeGraphView() {
   const projectPath = useCodeGraphStore((s) => s.projectPath);
   const endpoints = useCodeGraphStore((s) => s.endpoints);
@@ -371,6 +376,11 @@ export function CodeGraphView() {
     () => (selectedFile ? [...languageExtensionForPath(selectedFile), saveKeymap] : []),
     [selectedFile],
   );
+
+  // Hoisted, not inline JSX: useBottomContent stores the element and re-runs
+  // its effect whenever the identity changes, and a new element every render
+  // would tear down the shell and start another one.
+  useBottomContent(projectPath ? TERMINAL_PANE : null);
 
   useSidebarContent(
     <CodeGraphSidebar
