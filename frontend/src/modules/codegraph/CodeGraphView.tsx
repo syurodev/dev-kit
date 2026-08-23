@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { useSidebarContent } from "@/components/ui/sidebar-shell";
 import { useSplitPanel } from "@/components/ui/split-panel";
 import { CodeGraphSidebar } from "./CodeGraphSidebar";
+import { BlastRadiusPanel } from "./BlastRadiusPanel";
 import { NodeInspector } from "./inspector/NodeInspector";
 import { PlanBar } from "./plan/PlanBar";
 import { PlanNodeDetail } from "./plan/PlanNodeDetail";
@@ -19,6 +20,7 @@ import {
   getCodeGraphNeighbors,
   getCodeGraphCodeSnippet,
   listCodeGraphFiles,
+  onCodeGraphIndexUpdated,
   readCodeGraphFile,
   writeCodeGraphFile,
   type CodeGraphEndpoint,
@@ -200,6 +202,33 @@ async function relinkPlanNode(planNodeID: string, fqn: string) {
   await loadPlan();
 }
 
+/**
+ * Re-reads whatever is currently on screen after a background re-index.
+ *
+ * Everything here is derived from the index, so it goes stale silently — plan
+ * status especially, since Go recomputes the diff on every read and the UI
+ * would otherwise keep showing the answer from before the agent's last commit.
+ *
+ * The open file is deliberately NOT re-read: that buffer may hold unsaved
+ * edits, and refreshing it would throw them away to fix a staleness the user
+ * can see and control.
+ */
+async function refreshAfterReindex() {
+  const { rootId, activeTab } = snapshot();
+  try {
+    set({ endpoints: await listCodeGraphEndpoints() });
+    await loadFiles();
+    if (rootId) {
+      set({ subgraph: await getCodeGraphNeighbors(rootId, NEIGHBOR_DEPTH) });
+    }
+  } catch (e) {
+    set({ error: errorMessage(e) });
+  }
+  if (activeTab === "plan") {
+    await loadPlan();
+  }
+}
+
 async function openFile(path: string) {
   set({ fileError: "" });
   try {
@@ -302,6 +331,10 @@ export function CodeGraphView() {
   const snippet = useCodeGraphStore((s) => s.snippet);
   const snippetLoading = useCodeGraphStore((s) => s.snippetLoading);
   const snippetError = useCodeGraphStore((s) => s.snippetError);
+
+  // Subscribed once: the handler reads live state through snapshot(), so it
+  // never needs to re-subscribe and cannot capture a stale closure.
+  useEffect(() => onCodeGraphIndexUpdated(() => void refreshAfterReindex()), []);
 
   const { openPanel, closePanel } = useSplitPanel();
 
@@ -500,6 +533,9 @@ export function CodeGraphView() {
             <div className="flex h-full items-center justify-center p-4 text-sm text-muted-foreground">
               Select a file from the sidebar to edit it. Ctrl/Cmd+S saves.
             </div>
+          )}
+          {selectedFile && (
+            <BlastRadiusPanel key={selectedFile} filePath={selectedFile} onOpenFile={openFile} />
           )}
           {fileError && <p className="px-3 py-1 text-xs text-destructive">{fileError}</p>}
         </div>

@@ -182,14 +182,14 @@ func main() {
 	agentReg.Register(agenthub.NewMockAdapter())
 	agentReg.Register(agenthub.NewClaudeAdapter(agenthub.ClaudeOptions{AllowNpx: true}))
 	agentWaiter := agenthub.NewPermissionWaiter(func(p agenthub.PendingPermission) {
-		emitAgentHubEvent("agenthub:permission", map[string]any{
+		emitAppEvent("agenthub:permission", map[string]any{
 			"id":        p.ID,
 			"sessionId": p.SessionID,
 			"params":    rawJSON(p.Params),
 		})
 	})
 	agentSvc := agenthub.NewService(agentReg, agenthub.NewSQLStore(db), func(sessionID string, update json.RawMessage) {
-		emitAgentHubEvent("agenthub:sessionUpdate", map[string]any{
+		emitAppEvent("agenthub:sessionUpdate", map[string]any{
 			"sessionId": sessionID,
 			"update":    rawJSON(update),
 		})
@@ -210,6 +210,12 @@ func main() {
 		// output stream needs the frontend.
 	})
 	container.Terminal = terminalRegistry
+	// A finished re-index used to tell the frontend nothing, so endpoint lists
+	// and plan statuses silently went stale — see codegraph.mdx on the diff
+	// recomputing itself after every incremental re-index.
+	container.CodeGraph.OnIndexUpdated = func(version int) {
+		emitAppEvent("codegraph:indexUpdated", map[string]any{"version": version})
+	}
 	container.CodeGraph.SetTerminalRegistry(terminalRegistry)
 	defer terminalRegistry.CloseAll()
 
@@ -386,9 +392,11 @@ func main() {
 	}
 }
 
-// emitAgentHubEvent forwards hub callbacks to the Wails/server event bus once
-// the application singleton exists (Invoke/permission happen after Run starts).
-func emitAgentHubEvent(name string, data map[string]any) {
+// emitAppEvent forwards a backend callback to the Wails/server event bus once
+// the application singleton exists (these fire after Run starts). Non-blocking:
+// app.Event.Emit does not wait for listeners, which is what lets the file
+// watcher and the PTY reader call it without stalling.
+func emitAppEvent(name string, data map[string]any) {
 	app := application.Get()
 	if app == nil {
 		return
