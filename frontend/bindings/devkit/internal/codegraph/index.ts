@@ -8,6 +8,7 @@ export type {
     DataFlowTrace,
     Edge,
     Endpoint,
+    FieldRef,
     FileEntry,
     FlowStep,
     NeighborFilter,

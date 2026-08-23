@@ -111,6 +111,24 @@ export interface Endpoint {
 }
 
 /**
+ * FieldRef is one field a node touches, with how often — enough for a picker
+ * to list the fields worth tracing without the caller guessing a name. Reads
+ * and Writes are counted over whatever scope was asked for: every method on
+ * the class when ListFields was given a class, or the one method when it was
+ * given a method.
+ */
+export interface FieldRef {
+    /**
+     * ClassID is the class that declares the field. Pass it straight back to
+     * TraceDataFlow — it is what that method means by symbolID.
+     */
+    "classId": string;
+    "fieldName": string;
+    "reads": number;
+    "writes": number;
+}
+
+/**
  * FileEntry is one file or directory in the active project, relative to its
  * root. Deliberately flat (not a nested tree) — simpler to produce here and
  * just as easy for a frontend to build a tree UI from a sorted flat list.

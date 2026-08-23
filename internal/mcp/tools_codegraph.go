@@ -69,6 +69,12 @@ func (s *Server) registerCodeGraph() {
 		Description: "List methods that read or write a field on a class, using the already-resolved index",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolCodeGraphTraceDataFlow)
+
+	sdk.AddTool(s.mcp, &sdk.Tool{
+		Name:        "codegraph.listFields",
+		Description: "List the fields a class or method touches, with read/write counts — use it to find a field name for codegraph.traceDataFlow",
+		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
+	}, s.toolCodeGraphListFields)
 }
 
 func (s *Server) toolCodeGraphListEndpoints(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {
@@ -199,6 +205,20 @@ type codeGraphTraceDataFlowInput struct {
 func (s *Server) toolCodeGraphTraceDataFlow(ctx context.Context, _ *sdk.CallToolRequest, in codeGraphTraceDataFlowInput) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:read", "project:active", meta("trace_data_flow", map[string]any{"symbol_id": in.SymbolID, "field_name": in.FieldName}), func(context.Context) (any, error) {
 		return s.deps.CodeGraph.TraceDataFlow(ctx, in.SymbolID, in.FieldName)
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, v, nil
+}
+
+type codeGraphListFieldsInput struct {
+	NodeID string `json:"nodeId"`
+}
+
+func (s *Server) toolCodeGraphListFields(ctx context.Context, _ *sdk.CallToolRequest, in codeGraphListFieldsInput) (*sdk.CallToolResult, any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:read", "project:active", meta("list_fields", map[string]any{"node_id": in.NodeID}), func(context.Context) (any, error) {
+		return s.deps.CodeGraph.ListFields(ctx, in.NodeID)
 	})
 	if err != nil {
 		return nil, nil, err

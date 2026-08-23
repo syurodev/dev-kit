@@ -161,6 +161,19 @@ func (s *AppService) CodeGraphTraceDataFlow(symbolID, fieldName string) (codegra
 	return result.(codegraph.DataFlowTrace), nil
 }
 
+func (s *AppService) CodeGraphListFields(nodeID string) ([]codegraph.FieldRef, error) {
+	result, err := s.call(context.Background(), "builtin.codegraph", "codegraph:read", "project:active", map[string]any{
+		"action":  "list_fields",
+		"node_id": nodeID,
+	}, func(ctx context.Context) (any, error) {
+		return s.container.CodeGraph.ListFields(ctx, nodeID)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]codegraph.FieldRef), nil
+}
+
 func (s *AppService) CodeGraphStartTerminal(rows, cols int) (string, error) {
 	result, err := s.call(context.Background(), "builtin.codegraph", "codegraph:terminal", "project:active", map[string]any{
 		"action": "start_terminal",

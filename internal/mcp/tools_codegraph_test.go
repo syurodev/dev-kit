@@ -19,6 +19,7 @@ type fakeCodeGraphAPI struct {
 	indexVersion  int
 	subgraph      codegraph.Subgraph
 	dataFlowTrace codegraph.DataFlowTrace
+	fieldRefs     []codegraph.FieldRef
 	plan          codegraph.Plan
 	planProgress  codegraph.PlanProgress
 	err           error
@@ -53,6 +54,9 @@ func (f fakeCodeGraphAPI) GetNeighbors(ctx context.Context, rootID string, depth
 }
 func (f fakeCodeGraphAPI) TraceDataFlow(ctx context.Context, symbolID, fieldName string) (codegraph.DataFlowTrace, error) {
 	return f.dataFlowTrace, f.err
+}
+func (f fakeCodeGraphAPI) ListFields(ctx context.Context, nodeID string) ([]codegraph.FieldRef, error) {
+	return f.fieldRefs, f.err
 }
 func (f fakeCodeGraphAPI) ProposeFlow(ctx context.Context, plan codegraph.Plan) (codegraph.PlanProgress, error) {
 	return f.planProgress, f.err

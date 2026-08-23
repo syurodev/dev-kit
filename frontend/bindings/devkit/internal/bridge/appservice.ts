@@ -134,6 +134,10 @@ export function CodeGraphListEndpoints(): $CancellablePromise<codegraph$0.Endpoi
     return $Call.ByID(1712846729);
 }
 
+export function CodeGraphListFields(nodeID: string): $CancellablePromise<codegraph$0.FieldRef[] | null> {
+    return $Call.ByID(2204147728, nodeID);
+}
+
 export function CodeGraphListFiles(): $CancellablePromise<codegraph$0.FileEntry[] | null> {
     return $Call.ByID(1096722516);
 }
