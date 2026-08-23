@@ -363,6 +363,38 @@ func (s *sqliteStore) GetFieldAccesses(ctx context.Context, classID, fieldName s
 	return out, rows.Err()
 }
 
+// ListFields returns every field reachable from one node, for a field picker.
+//
+// nodeID may be either a class or a method and the caller does not have to
+// know which: field_accesses stores both the declaring class and the accessing
+// method, so one OR matches whichever it is. A class yields all of its fields;
+// a method yields only the fields it itself touches.
+func (s *sqliteStore) ListFields(ctx context.Context, nodeID string) ([]FieldRef, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT class_id,
+		       field_name,
+		       SUM(CASE WHEN kind = 'read' THEN 1 ELSE 0 END),
+		       SUM(CASE WHEN kind = 'write' THEN 1 ELSE 0 END)
+		  FROM field_accesses
+		 WHERE class_id = ? OR node_id = ?
+		 GROUP BY class_id, field_name
+		 ORDER BY field_name`, nodeID, nodeID)
+	if err != nil {
+		return nil, fmt.Errorf("codegraph: ListFields: %w", err)
+	}
+	defer rows.Close()
+
+	var out []FieldRef
+	for rows.Next() {
+		var f FieldRef
+		if err := rows.Scan(&f.ClassID, &f.FieldName, &f.Reads, &f.Writes); err != nil {
+			return nil, fmt.Errorf("codegraph: scan field ref: %w", err)
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
 // GetCallSites returns every call expression in one method, in source order.
 // Repeats are preserved: a method that calls the same target twice has two
 // rows, and losing one would put the trace's events in the wrong order.

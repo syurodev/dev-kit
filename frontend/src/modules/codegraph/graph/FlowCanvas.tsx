@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Background,
   MarkerType,
@@ -28,6 +28,8 @@ export type FlowCanvasProps = {
   nodes: CodeGraphNode[];
   edges: CodeGraphEdge[];
   onSelect?: (nodeId: string) => void;
+  /** Rendered inside ReactFlow — NodeToolbar-based overlays need that context. */
+  inspector?: ReactNode;
 };
 
 export function FlowCanvas(props: FlowCanvasProps) {
@@ -38,7 +40,7 @@ export function FlowCanvas(props: FlowCanvasProps) {
   );
 }
 
-function Canvas({ rootId, nodes, edges, onSelect }: FlowCanvasProps) {
+function Canvas({ rootId, nodes, edges, onSelect, inspector }: FlowCanvasProps) {
   const { getNodes, setNodes, fitView } = useReactFlow();
   const nodesInitialized = useNodesInitialized();
   const [placed, setPlaced] = useState(false);
@@ -150,6 +152,7 @@ function Canvas({ rootId, nodes, edges, onSelect }: FlowCanvasProps) {
             fitActive
           />
         </Panel>
+        {inspector}
       </ReactFlow>
     </div>
   );

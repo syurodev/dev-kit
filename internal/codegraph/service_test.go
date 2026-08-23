@@ -1757,3 +1757,10 @@ func TestTraceDataFlowStopsOnACycle(t *testing.T) {
 		t.Error("a recursive call produced no step marked \"cycle\"")
 	}
 }
+
+func TestServiceListFieldsRequiresActiveProject(t *testing.T) {
+	svc := NewService(nilStore{}, fakeAnalyzer{})
+	if _, err := svc.ListFields(context.Background(), "n1"); !errors.Is(err, ErrNoActiveProject) {
+		t.Fatalf("err = %v, want ErrNoActiveProject", err)
+	}
+}

@@ -305,6 +305,16 @@ func (s *Service) GetBlastRadius(ctx context.Context, filePath string) ([]string
 // so in the step rather than just stopping.
 const maxDataFlowDepth = 6
 
+// ListFields returns the fields one node touches — the entry point for a data
+// flow trace, since TraceDataFlow needs a field name the caller cannot guess.
+func (s *Service) ListFields(ctx context.Context, nodeID string) ([]FieldRef, error) {
+	store, err := s.activeStore()
+	if err != nil {
+		return nil, err
+	}
+	return store.ListFields(ctx, nodeID)
+}
+
 // TraceDataFlow walks the field's accesses in call-graph order.
 //
 // Two passes on purpose. First, find every method that touches the field —
@@ -1151,6 +1161,10 @@ func (nilStore) GetFieldAccesses(context.Context, string, string) ([]FieldAccess
 	return nil, ErrNoActiveProject
 }
 func (nilStore) GetCallSites(context.Context, string) ([]CallSite, error) {
+	return nil, ErrNoActiveProject
+}
+
+func (nilStore) ListFields(context.Context, string) ([]FieldRef, error) {
 	return nil, ErrNoActiveProject
 }
 func (nilStore) SavePlan(context.Context, Plan) error                 { return ErrNoActiveProject }
