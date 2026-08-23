@@ -69,7 +69,11 @@ export function NodeInspector(props: NodeInspectorProps) {
   const card = (
     <div
       style={{ width: placement.width, height: placement.height }}
-      className="flex flex-col overflow-hidden rounded-xl border border-border-subtle bg-surface-raised shadow-[0_12px_32px_rgba(0,0,0,0.45)]"
+      // nowheel/nopan are React Flow's own escape hatches: without them the
+      // canvas swallows wheel and drag inside the panel, so scrolling the code
+      // zoomed the graph instead. React Flow looks for these class names on
+      // any ancestor of the event target.
+      className="nowheel nopan flex flex-col overflow-hidden rounded-xl border border-border-subtle bg-surface-raised shadow-[0_12px_32px_rgba(0,0,0,0.45)]"
     >
       <Tabs defaultValue="detail" className="flex min-h-0 flex-1 flex-col gap-0">
         <div className="flex shrink-0 items-center gap-2 border-b border-border-subtle px-3 py-2">

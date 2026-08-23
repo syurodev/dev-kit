@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { lineNumbers } from "@codemirror/view";
 import { CodeEditor } from "@/components/code-editor/CodeEditor";
 import { Button } from "@/components/ui/button";
 import { languageExtensionForPath } from "./editorLanguage";
@@ -21,8 +22,22 @@ export type NodeSnippetPanelProps = {
  * node. "Edit" hands off to the real file-editing flow (Ctrl+S writes to disk).
  */
 export function NodeSnippetPanel({ snippet, loading, error, onEdit }: NodeSnippetPanelProps) {
+  // The snippet is cut out of the middle of a file, so CodeMirror's own
+  // numbering would start at 1 and quietly disagree with the ":26" in the
+  // header above it. Offsetting by the real start line makes every number in
+  // the gutter one you can actually navigate to.
+  //
+  // Passing lineNumbers() again alongside basicSetup's is safe: its gutter is
+  // a single shared extension value, which CodeMirror dedupes, and only this
+  // config sets formatNumber, so there is nothing for the facet to conflict on.
   const extensions = useMemo(
-    () => (snippet ? languageExtensionForPath(snippet.filePath) : []),
+    () =>
+      snippet
+        ? [
+            ...languageExtensionForPath(snippet.filePath),
+            lineNumbers({ formatNumber: (n) => String(n + snippet.line - 1) }),
+          ]
+        : [],
     [snippet],
   );
 
