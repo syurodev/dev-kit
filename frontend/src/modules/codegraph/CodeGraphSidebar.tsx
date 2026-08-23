@@ -1,5 +1,8 @@
 import { Button } from "@/components/ui/button";
 import { FileTree } from "./FileTree";
+import { PLAN_STATUS, planStatusOrder } from "./plan/planStatus";
+import { cn } from "@/lib/utils";
+import type { CodeGraphPlanProgress } from "../../bridge/codegraphPlan";
 import type {
   CodeGraphEndpoint,
   CodeGraphFileEntry,
@@ -10,8 +13,8 @@ type CodeGraphSidebarProps = {
   busy: boolean;
   status: string;
   error: string;
-  activeTab: "endpoints" | "files";
-  onTabChange: (tab: "endpoints" | "files") => void;
+  activeTab: "endpoints" | "files" | "plan";
+  onTabChange: (tab: "endpoints" | "files" | "plan") => void;
   query: string;
   onQueryChange: (query: string) => void;
   onPickProject: () => void;
@@ -22,6 +25,9 @@ type CodeGraphSidebarProps = {
   files: CodeGraphFileEntry[];
   selectedFile: string | null;
   onSelectFile: (path: string) => void;
+  plan: CodeGraphPlanProgress | null;
+  planError: string;
+  onSelectPlanNode: (planNodeId: string) => void;
 };
 
 export function CodeGraphSidebar(props: CodeGraphSidebarProps) {
@@ -42,6 +48,9 @@ export function CodeGraphSidebar(props: CodeGraphSidebarProps) {
     files,
     selectedFile,
     onSelectFile,
+    plan,
+    planError,
+    onSelectPlanNode,
   } = props;
 
   // Client-side filter over lists already in memory — the placeholder promises
@@ -59,6 +68,14 @@ export function CodeGraphSidebar(props: CodeGraphSidebarProps) {
   const shownFiles = needle
     ? files.filter((f) => f.path.toLowerCase().includes(needle))
     : files;
+
+  // Diverged first, done last — the sidebar is a worklist, not a plan dump.
+  // Filtered by the same needle as the other two tabs, so the search box means
+  // one thing everywhere.
+  const planNodes = (plan?.nodes ?? [])
+    .filter((n) => !needle || n.label.toLowerCase().includes(needle) || n.fqn.toLowerCase().includes(needle))
+    .slice()
+    .sort((a, b) => planStatusOrder(a.status) - planStatusOrder(b.status));
 
   return (
     <div className="flex h-full flex-col gap-3 p-3 text-sm">
@@ -109,6 +126,14 @@ export function CodeGraphSidebar(props: CodeGraphSidebarProps) {
         >
           Files
         </Button>
+        <Button
+          variant={activeTab === "plan" ? "secondary" : "ghost"}
+          size="sm"
+          className="flex-1"
+          onClick={() => onTabChange("plan")}
+        >
+          Plan
+        </Button>
       </div>
 
       {activeTab === "endpoints" && (
@@ -140,6 +165,41 @@ export function CodeGraphSidebar(props: CodeGraphSidebarProps) {
         <div className="flex-1 overflow-hidden">
           <FileTree entries={shownFiles} selectedPath={selectedFile} onSelectFile={onSelectFile} />
         </div>
+      )}
+
+      {activeTab === "plan" && (
+        <ul className="flex-1 space-y-1 overflow-y-auto">
+          {planNodes.map((n) => (
+            <li key={n.planNodeId}>
+              <button
+                className="flex w-full flex-col gap-0.5 rounded px-2 py-1.5 text-left transition-colors hover:bg-surface-raised"
+                onClick={() => onSelectPlanNode(n.planNodeId)}
+              >
+                <span className="flex items-center gap-2">
+                  <span
+                    className={cn(
+                      "shrink-0 rounded px-1 text-[10px] font-medium",
+                      PLAN_STATUS[n.status].badge,
+                    )}
+                  >
+                    {PLAN_STATUS[n.status].label}
+                  </span>
+                  <span className="truncate text-xs">{n.label}</span>
+                </span>
+                <span className="truncate font-mono text-[10px] text-text-tertiary" title={n.fqn}>
+                  {n.fqn}
+                </span>
+              </button>
+            </li>
+          ))}
+          {planNodes.length === 0 && (
+            <li className="py-2 text-center text-xs text-muted-foreground">
+              {planError
+                ? "No plan for this project yet."
+                : "No plan nodes. An agent creates one with codegraph.proposeFlow."}
+            </li>
+          )}
+        </ul>
       )}
     </div>
   );

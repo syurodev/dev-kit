@@ -55,6 +55,15 @@ CREATE TABLE IF NOT EXISTS call_sites (
 	unresolved TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_call_sites_from ON call_sites(from_id);
+CREATE TABLE IF NOT EXISTS plan_node_comments (
+	plan_node_id TEXT NOT NULL,
+	comment_id   TEXT NOT NULL PRIMARY KEY,
+	author       TEXT NOT NULL,
+	body         TEXT NOT NULL,
+	created_at   INTEGER NOT NULL,
+	session_id   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_plan_node_comments ON plan_node_comments(plan_node_id, created_at);
 CREATE TABLE IF NOT EXISTS plan_meta (
 	id INTEGER PRIMARY KEY CHECK (id = 1),
 	description TEXT NOT NULL,

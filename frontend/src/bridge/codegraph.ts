@@ -1,3 +1,4 @@
+import { Events } from "@wailsio/runtime";
 import { callBridge } from "./client";
 import { AppService } from "../../bindings/devkit/internal/bridge";
 
@@ -198,4 +199,27 @@ export type CodeGraphFieldRef = {
 
 export async function listCodeGraphFields(nodeId: string): Promise<CodeGraphFieldRef[]> {
   return callBridge(async () => (await AppService.CodeGraphListFields(nodeId)) ?? []);
+}
+
+/** Every file that transitively depends on this one — what a change here can break. */
+export async function getCodeGraphBlastRadius(filePath: string): Promise<string[]> {
+  return callBridge(async () => (await AppService.CodeGraphGetBlastRadius(filePath)) ?? []);
+}
+
+/** Blocks until no re-index is pending, then resolves to the index version. */
+export async function waitForCodeGraphIndexReady(): Promise<number> {
+  return callBridge(() => AppService.CodeGraphWaitForIndexReady());
+}
+
+const INDEX_UPDATED_EVENT = "codegraph:indexUpdated";
+
+/**
+ * Fires after a background re-index actually changed the index — the file
+ * watcher's whole point, since it means the UI never has to poll. Returns an
+ * unsubscribe function, like the agenthub subscriptions.
+ */
+export function onCodeGraphIndexUpdated(handler: (version: number) => void): () => void {
+  return Events.On(INDEX_UPDATED_EVENT, (ev) => {
+    handler(Number(ev.data?.version ?? 0));
+  });
 }

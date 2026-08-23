@@ -1,6 +1,6 @@
 import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Events, Window } from "@wailsio/runtime";
-import { PanelBottom, PanelLeft, Search, Settings as SettingsIcon } from "lucide-react";
+import { MessageSquare, PanelBottom, PanelLeft, Search, Settings as SettingsIcon } from "lucide-react";
 import { listModules, type ModuleDTO } from "../bridge/commands";
 import { Dock } from "./dock/Dock";
 import { moduleIndexFromEvent } from "./dock/dockActivation";
@@ -42,6 +42,8 @@ import { useModuleActionsStore } from "../stores/moduleActions";
 import { useWorkbenchTabsStore, type WorkbenchTab } from "../stores/workbenchTabs";
 import { useSidebarOpenStore } from "../stores/sidebarShell";
 import { useBottomSlotStore } from "../stores/bottomSlot";
+import { useAgentSessionsStore } from "../stores/agentSessions";
+import { AgentCompanionSlot } from "./AgentCompanionSlot";
 import { cn } from "@/lib/utils";
 import { haveSameTabMembers } from "./workbenchViewMemo";
 
@@ -280,6 +282,9 @@ export function Workbench() {
   const setSidebarOpen = useSidebarOpenStore((s) => s.setOpen);
   const bottomOpen = useBottomSlotStore((s) => s.open);
   const setBottomOpen = useBottomSlotStore((s) => s.setOpen);
+  const chatOpen = useAgentSessionsStore((s) => s.chatOpen);
+  const setChatOpen = useAgentSessionsStore((s) => s.setChatOpen);
+
   const moduleActions = useModuleActionsStore((s) => s.actions);
   const openTabs = useWorkbenchTabsStore((state) => state.openTabs);
   const activeTabId = useWorkbenchTabsStore((state) => state.activeTabId);
@@ -654,6 +659,28 @@ export function Workbench() {
                 </TooltipTrigger>
                 <TooltipContent side="bottom">Toggle bottom panel</TooltipContent>
               </Tooltip>
+
+              {/* Always visible, like the bottom-panel toggle beside it: the
+                  conversation belongs to the shell, so its control cannot
+                  appear and disappear with the active module. */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label="Toggle agent conversation"
+                    aria-pressed={chatOpen}
+                    className={cn(
+                      chatOpen && "bg-accent text-foreground",
+                      "shrink-0 [--wails-draggable:no-drag]",
+                    )}
+                    onClick={() => setChatOpen(!chatOpen)}
+                  >
+                    <MessageSquare className="size-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Toggle agent conversation</TooltipContent>
+              </Tooltip>
             </div>
           </div>
         </header>
@@ -678,6 +705,7 @@ export function Workbench() {
             />
             <BottomSlotSurface activeModuleId={activeModule?.id ?? null} />
           </div>
+          <AgentCompanionSlot />
           <SplitPanelSlot />
         </div>
         <Dock

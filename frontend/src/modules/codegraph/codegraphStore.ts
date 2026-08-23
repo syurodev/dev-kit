@@ -1,5 +1,9 @@
 import { create } from "zustand";
 import type {
+  CodeGraphPlanEdge,
+  CodeGraphPlanProgress,
+} from "@/bridge/codegraphPlan";
+import type {
   CodeGraphCodeSnippet,
   CodeGraphEndpoint,
   CodeGraphFileEntry,
@@ -26,7 +30,19 @@ type CodeGraphState = {
   snippetLoading: boolean;
   snippetError: string;
 
-  activeTab: "endpoints" | "files";
+  activeTab: "endpoints" | "files" | "plan";
+
+  /** Per-node status plus the aggregate, recomputed by Go on every read. */
+  plan: CodeGraphPlanProgress | null;
+  planEdges: CodeGraphPlanEdge[];
+  planBusy: boolean;
+  /** Which plan node the canvas should highlight, chosen from the sidebar. */
+  selectedPlanNodeId: string | null;
+  /** Which plan node has its comment thread open, or null. */
+  commentsPlanNodeId: string | null;
+  /** Thread length per plan node, for the node badge. */
+  commentCounts: Record<string, number>;
+  planError: string;
   files: CodeGraphFileEntry[];
   selectedFile: string | null;
   fileContent: string;
@@ -69,6 +85,13 @@ export const useCodeGraphStore = create<CodeGraphState>((set) => ({
   snippetError: "",
 
   activeTab: "endpoints",
+  plan: null,
+  planEdges: [],
+  planBusy: false,
+  selectedPlanNodeId: null,
+  commentsPlanNodeId: null,
+  commentCounts: {},
+  planError: "",
   files: [],
   selectedFile: null,
   fileContent: "",

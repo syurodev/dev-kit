@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"embed"
+	"encoding/base64"
 	"encoding/json"
 	"log"
 	"os"
@@ -182,14 +183,14 @@ func main() {
 	agentReg.Register(agenthub.NewMockAdapter())
 	agentReg.Register(agenthub.NewClaudeAdapter(agenthub.ClaudeOptions{AllowNpx: true}))
 	agentWaiter := agenthub.NewPermissionWaiter(func(p agenthub.PendingPermission) {
-		emitAgentHubEvent("agenthub:permission", map[string]any{
+		emitAppEvent("agenthub:permission", map[string]any{
 			"id":        p.ID,
 			"sessionId": p.SessionID,
 			"params":    rawJSON(p.Params),
 		})
 	})
 	agentSvc := agenthub.NewService(agentReg, agenthub.NewSQLStore(db), func(sessionID string, update json.RawMessage) {
-		emitAgentHubEvent("agenthub:sessionUpdate", map[string]any{
+		emitAppEvent("agenthub:sessionUpdate", map[string]any{
 			"sessionId": sessionID,
 			"update":    rawJSON(update),
 		})
@@ -199,17 +200,26 @@ func main() {
 	container.AgentHubPermissions = agentWaiter
 
 	terminalRegistry := terminal.NewRegistry(func(sessionID string, chunk []byte) {
-		// TODO(frontend Terminal component): wire to the real Wails event —
-		// verify the exact Events.Emit call shape against @wailsio/runtime's
-		// current API when that plan is written, same "verify, don't guess"
-		// discipline used for every other Wails API touched in this
-		// sequence. Must remain non-blocking (Wails Events.Emit is non-blocking)
-		// so readLoop is never stalled by slow consumers. Until then this
-		// silently drops output — StartTerminal/Write/Resize/Close all work
-		// end-to-end without it (proven by this plan's own tests), only the live
-		// output stream needs the frontend.
+		// Base64 explicitly rather than letting encoding/json decide what a
+		// []byte becomes on the wire: PTY output is arbitrary bytes, a
+		// multibyte rune can straddle two chunks, and a plain string() here
+		// would corrupt it. The frontend decodes back to bytes and hands them
+		// to xterm, which does its own UTF-8 reassembly across writes.
+		//
+		// Emit is non-blocking, which is what lets readLoop call it without a
+		// slow consumer stalling the PTY reader.
+		emitAppEvent("terminal:output", map[string]any{
+			"sessionId": sessionID,
+			"chunk":     base64.StdEncoding.EncodeToString(chunk),
+		})
 	})
 	container.Terminal = terminalRegistry
+	// A finished re-index used to tell the frontend nothing, so endpoint lists
+	// and plan statuses silently went stale — see codegraph.mdx on the diff
+	// recomputing itself after every incremental re-index.
+	container.CodeGraph.OnIndexUpdated = func(version int) {
+		emitAppEvent("codegraph:indexUpdated", map[string]any{"version": version})
+	}
 	container.CodeGraph.SetTerminalRegistry(terminalRegistry)
 	defer terminalRegistry.CloseAll()
 
@@ -386,9 +396,11 @@ func main() {
 	}
 }
 
-// emitAgentHubEvent forwards hub callbacks to the Wails/server event bus once
-// the application singleton exists (Invoke/permission happen after Run starts).
-func emitAgentHubEvent(name string, data map[string]any) {
+// emitAppEvent forwards a backend callback to the Wails/server event bus once
+// the application singleton exists (these fire after Run starts). Non-blocking:
+// app.Event.Emit does not wait for listeners, which is what lets the file
+// watcher and the PTY reader call it without stalling.
+func emitAppEvent(name string, data map[string]any) {
 	app := application.Get()
 	if app == nil {
 		return

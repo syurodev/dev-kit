@@ -1764,3 +1764,79 @@ func TestServiceListFieldsRequiresActiveProject(t *testing.T) {
 		t.Fatalf("err = %v, want ErrNoActiveProject", err)
 	}
 }
+
+// The watcher's whole point is that the UI need not poll, which only works if
+// a finished re-index actually announces itself.
+func TestRunReindexNotifiesOnlyWhenTheIndexChanged(t *testing.T) {
+	dir := t.TempDir()
+	store := newTestStore(t)
+	svc := NewService(store, fakeAnalyzer{result: sampleResult()})
+	if err := svc.OpenProject(context.Background(), dir); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+	t.Cleanup(func() { svc.Close() })
+
+	var mu sync.Mutex
+	var versions []int
+	svc.OnIndexUpdated = func(v int) {
+		mu.Lock()
+		versions = append(versions, v)
+		mu.Unlock()
+	}
+
+	svc.runReindex(context.Background())
+
+	mu.Lock()
+	got := append([]int(nil), versions...)
+	mu.Unlock()
+	if len(got) != 1 {
+		t.Fatalf("versions = %v, want exactly one notification", got)
+	}
+
+	// A run whose analyzer fails changes nothing, so it must stay silent —
+	// otherwise the UI refetches on every failed rebuild.
+	svc.SetAnalyzer(fakeAnalyzer{err: errors.New("boom")})
+	svc.runReindex(context.Background())
+
+	mu.Lock()
+	got = append([]int(nil), versions...)
+	mu.Unlock()
+	if len(got) != 1 {
+		t.Fatalf("versions = %v, want no extra notification from a failed re-index", got)
+	}
+}
+
+// The listener must not be holding the service lock, or the watch loop it runs
+// on deadlocks the moment a listener asks the service anything.
+func TestOnIndexUpdatedRunsWithoutHoldingTheLock(t *testing.T) {
+	dir := t.TempDir()
+	store := newTestStore(t)
+	svc := NewService(store, fakeAnalyzer{result: sampleResult()})
+	if err := svc.OpenProject(context.Background(), dir); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+	t.Cleanup(func() { svc.Close() })
+
+	done := make(chan int, 1)
+	svc.OnIndexUpdated = func(int) {
+		// Re-entering the service from the callback is exactly what a UI
+		// listener does; if this blocks, the test times out rather than hangs
+		// forever thanks to the buffered channel plus the select below.
+		v, err := svc.WaitForIndexReady(context.Background())
+		if err != nil {
+			t.Errorf("WaitForIndexReady from callback: %v", err)
+		}
+		done <- v
+	}
+
+	go svc.runReindex(context.Background())
+
+	select {
+	case v := <-done:
+		if v == 0 {
+			t.Fatal("callback saw version 0; the index should be ready by then")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("callback deadlocked: it is being called while the service lock is held")
+	}
+}

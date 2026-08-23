@@ -4,12 +4,19 @@ type PanelWidthsState = {
   sidebarWidth: number;
   splitPanelWidth: number;
   /**
+   * Height of the right column's TOP slot when both slots are open. Absolute,
+   * not a ratio, so a drag means the same thing after the window changes —
+   * splitColumn() clamps it at render instead.
+   */
+  splitTopHeight: number;
+  /**
    * Whether each panel is currently occupying space. Both keep their last
    * dragged width above while closed, so the widths alone cannot tell the
    * cross-clamp how much room is actually free — see panelLayout.maxPanelWidth.
    */
   sidebarOpen: boolean;
   splitPanelOpen: boolean;
+  setSplitTopHeight: (height: number) => void;
   setSidebarWidth: (width: number) => void;
   setSplitPanelWidth: (width: number) => void;
   setSidebarOpen: (open: boolean) => void;
@@ -27,8 +34,10 @@ type PanelWidthsState = {
 export const usePanelWidthsStore = create<PanelWidthsState>((set) => ({
   sidebarWidth: 320,
   splitPanelWidth: 420,
+  splitTopHeight: 430,
   sidebarOpen: false,
   splitPanelOpen: false,
+  setSplitTopHeight: (height) => set({ splitTopHeight: height }),
   setSidebarWidth: (width) => set({ sidebarWidth: width }),
   setSplitPanelWidth: (width) => set({ splitPanelWidth: width }),
   setSidebarOpen: (open) => set({ sidebarOpen: open }),

@@ -39,6 +39,12 @@ func (s *Server) registerCodeGraphPlan() {
 		Name:        "codegraph.relinkPlanNode",
 		Description: "Repoint one plan node at a different fully-qualified name, after a deliberate rename",
 	}, s.toolCodeGraphRelinkPlanNode)
+
+	sdk.AddTool(s.mcp, &sdk.Tool{
+		Name: "codegraph.replyPlanNode",
+		Description: "Reply to a comment thread on a plan node. Text only — it changes no code and " +
+			"has no effect until a person reads it.",
+	}, s.toolCodeGraphReplyPlanNode)
 }
 
 type codeGraphProposeFlowInput struct {
@@ -63,6 +69,15 @@ func (s *Server) toolCodeGraphProposeFlow(ctx context.Context, _ *sdk.CallToolRe
 type plannedFlowResult struct {
 	Plan        codegraph.Plan `json:"plan"`
 	Instruction string         `json:"instruction"`
+	// Comments carries each node's thread, keyed by plan node id, for nodes
+	// that have one. It rides here rather than on codegraph.Plan because Plan
+	// is what SavePlan/GetPlan round-trip: widening it would push comments
+	// through the save path, where they do not belong.
+	//
+	// Returned with the plan on purpose — a comment steers implementation, so
+	// the agent has to see it without being told to go and look
+	// (codegraph.mdx § "Comment agent đọc được").
+	Comments map[string][]codegraph.PlanComment `json:"comments,omitempty"`
 }
 
 func (s *Server) toolCodeGraphGetPlannedFlow(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {
@@ -71,7 +86,17 @@ func (s *Server) toolCodeGraphGetPlannedFlow(ctx context.Context, _ *sdk.CallToo
 		if err != nil {
 			return nil, err
 		}
-		return plannedFlowResult{Plan: plan, Instruction: planFQNInstruction}, nil
+		comments := map[string][]codegraph.PlanComment{}
+		for _, n := range plan.Nodes {
+			thread, err := s.deps.CodeGraph.ListPlanNodeComments(ctx, n.PlanNodeID)
+			if err != nil {
+				return nil, err
+			}
+			if len(thread) > 0 {
+				comments[n.PlanNodeID] = thread
+			}
+		}
+		return plannedFlowResult{Plan: plan, Instruction: planFQNInstruction, Comments: comments}, nil
 	})
 	if err != nil {
 		return nil, nil, err
@@ -98,6 +123,24 @@ func (s *Server) toolCodeGraphRelinkPlanNode(ctx context.Context, _ *sdk.CallToo
 	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:plan", "plan:active", meta("relink_plan_node", map[string]any{"plan_node_id": in.PlanNodeID, "fqn": in.FQN}), func(context.Context) (any, error) {
 		return nil, s.deps.CodeGraph.RelinkPlanNode(ctx, in.PlanNodeID, in.FQN)
 	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, v, nil
+}
+
+type codeGraphReplyPlanNodeInput struct {
+	PlanNodeID string `json:"planNodeId"`
+	Body       string `json:"body"`
+	SessionID  string `json:"sessionId"`
+}
+
+func (s *Server) toolCodeGraphReplyPlanNode(ctx context.Context, _ *sdk.CallToolRequest, in codeGraphReplyPlanNodeInput) (*sdk.CallToolResult, any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:plan", "plan:active",
+		meta("reply_plan_node", map[string]any{"plan_node_id": in.PlanNodeID}),
+		func(context.Context) (any, error) {
+			return nil, s.deps.CodeGraph.ReplyPlanNode(ctx, in.PlanNodeID, in.Body, in.SessionID)
+		})
 	if err != nil {
 		return nil, nil, err
 	}

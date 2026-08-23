@@ -234,6 +234,28 @@ export interface Plan {
 }
 
 /**
+ * PlanComment is one message on a plan node's thread. Author is "user" or
+ * "agent". SessionID records which agent session the comment was delivered
+ * into, so a thread read back later says which run it belonged to — it is not
+ * used for routing.
+ * 
+ * Threads are read-only history: no resolve, reopen, edit or delete
+ * (codegraph.mdx § Non-goals). A thread dies with the plan it belongs to.
+ */
+export interface PlanComment {
+    "planNodeId": string;
+    "commentId": string;
+    "author": string;
+    "body": string;
+
+    /**
+     * unix seconds
+     */
+    "createdAt": number;
+    "sessionId": string;
+}
+
+/**
  * PlanEdge is one intended call between two plan nodes. Condition is
  * plan-time documentation written by the proposing agent for the human
  * reviewing the canvas — it is never machine-verified against real code

@@ -18,7 +18,10 @@ func (s *sqliteStore) SavePlan(ctx context.Context, plan Plan) error {
 	}
 	defer tx.Rollback()
 
-	for _, table := range []string{"plan_meta", "plan_nodes", "plan_edges"} {
+	// plan_node_comments goes with them: a thread belongs to the node it was
+	// written on, not to a name that happens to reappear in the next plan
+	// (codegraph.mdx § Non-goals).
+	for _, table := range []string{"plan_meta", "plan_nodes", "plan_edges", "plan_node_comments"} {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table); err != nil {
 			return fmt.Errorf("codegraph: clear %s: %w", table, err)
 		}

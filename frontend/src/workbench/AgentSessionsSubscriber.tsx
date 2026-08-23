@@ -3,8 +3,9 @@ import {
   agentHubGetStatus,
   agentHubListAgents,
   onAgentHubPermission,
+  onAgentHubSessionUpdate,
 } from "../bridge/agenthub";
-import { useAgentSessionsStore } from "../stores/agentSessions";
+import { appendUpdateLine, useAgentSessionsStore } from "../stores/agentSessions";
 
 /**
  * Keeps the shared Agent Hub session store in sync regardless of which
@@ -15,6 +16,8 @@ import { useAgentSessionsStore } from "../stores/agentSessions";
 export function AgentSessionsSubscriber() {
   const setSessions = useAgentSessionsStore((state) => state.setSessions);
   const upsertSession = useAgentSessionsStore((state) => state.upsertSession);
+  const updateLines = useAgentSessionsStore((state) => state.updateLines);
+  const setPending = useAgentSessionsStore((state) => state.setPending);
 
   useEffect(() => {
     let mounted = true;
@@ -33,8 +36,22 @@ export function AgentSessionsSubscriber() {
     };
   }, [setSessions]);
 
+  /**
+   * The transcript stream. This used to be subscribed inside AgentHubView,
+   * which tore it down on every module switch: an agent that kept working
+   * while you looked at something else streamed into a handler nobody had
+   * registered, and those turns were lost outright. It belongs here, beside
+   * the session sync, for exactly the reason in this file's header.
+   */
+  useEffect(() => {
+    return onAgentHubSessionUpdate((event) => {
+      updateLines(event.sessionId, (prev) => appendUpdateLine(prev, event.update));
+    });
+  }, [updateLines]);
+
   useEffect(() => {
     return onAgentHubPermission(async (pending) => {
+      setPending(pending);
       const session = useAgentSessionsStore
         .getState()
         .sessions.find((s) => s.id === pending.sessionId);
@@ -52,7 +69,7 @@ export function AgentSessionsSubscriber() {
         // Hub unavailable or session gone — nothing to show.
       }
     });
-  }, [upsertSession]);
+  }, [upsertSession, setPending]);
 
   return null;
 }

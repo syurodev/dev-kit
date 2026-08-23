@@ -37,8 +37,14 @@ type Service struct {
 
 	terminalRegistry *terminal.Registry
 
-	indexVersion   int
-	reindexing     bool
+	indexVersion int
+	reindexing   bool
+
+	// OnIndexUpdated fires after every re-index that actually changed the
+	// index, on the background goroutine that performed it. Non-blocking
+	// implementations only: a slow listener stalls the file watcher. nil means
+	// nobody is listening, which is the normal case in tests.
+	OnIndexUpdated func(version int)
 	reindexPending bool
 	// debounceInterval is the quiet period after the last fsnotify event
 	// before a re-index actually runs. 750ms in production; tests shorten it
@@ -811,11 +817,23 @@ func (s *Service) runReindex(ctx context.Context) {
 	s.reindexing = true
 	s.reindexPending = false
 	root := s.projectRoot
+	startVersion := s.indexVersion
 	s.mu.Unlock()
+
+	// Notifying from the cleanup covers every success path without repeating
+	// itself at each early return, and it runs AFTER reindexing is cleared, so
+	// a listener that immediately asks whether the index is ready gets the
+	// truthful answer. The call itself is made outside the lock: a listener
+	// that blocked, or that called back into the service, would otherwise
+	// deadlock the watch loop.
 	defer func() {
 		s.mu.Lock()
 		s.reindexing = false
+		notify, version := s.OnIndexUpdated, s.indexVersion
 		s.mu.Unlock()
+		if notify != nil && version != startVersion {
+			notify(version)
+		}
 	}()
 
 	result, err := s.analyzer.Analyze(ctx, root)
@@ -1161,6 +1179,14 @@ func (nilStore) GetFieldAccesses(context.Context, string, string) ([]FieldAccess
 	return nil, ErrNoActiveProject
 }
 func (nilStore) GetCallSites(context.Context, string) ([]CallSite, error) {
+	return nil, ErrNoActiveProject
+}
+
+func (nilStore) AddComment(context.Context, PlanComment) error { return ErrNoActiveProject }
+func (nilStore) ListComments(context.Context, string) ([]PlanComment, error) {
+	return nil, ErrNoActiveProject
+}
+func (nilStore) CountComments(context.Context) (map[string]int, error) {
 	return nil, ErrNoActiveProject
 }
 

@@ -15,6 +15,7 @@ export type {
     Node,
     Param,
     Plan,
+    PlanComment,
     PlanEdge,
     PlanNode,
     PlanNodeProgress,

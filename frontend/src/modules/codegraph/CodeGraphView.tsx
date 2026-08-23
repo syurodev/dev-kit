@@ -1,23 +1,37 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { Dialogs } from "@wailsio/runtime";
 import { keymap } from "@codemirror/view";
 import { CodeEditor } from "@/components/code-editor/CodeEditor";
 import { Button } from "@/components/ui/button";
 import { useSidebarContent } from "@/components/ui/sidebar-shell";
+import { useSplitPanel } from "@/components/ui/split-panel";
 import { CodeGraphSidebar } from "./CodeGraphSidebar";
+import { BlastRadiusPanel } from "./BlastRadiusPanel";
 import { NodeInspector } from "./inspector/NodeInspector";
+import { PlanBar } from "./plan/PlanBar";
+import { PlanNodeDetail } from "./plan/PlanNodeDetail";
+import { PlanCommentsPopover } from "./plan/PlanCommentsPopover";
 import { languageExtensionForPath } from "./editorLanguage";
 import { FlowCanvas } from "./graph/FlowCanvas";
+import { shortLabel } from "./graph/labels";
 import {
   openCodeGraphProject,
   listCodeGraphEndpoints,
   getCodeGraphNeighbors,
   getCodeGraphCodeSnippet,
   listCodeGraphFiles,
+  onCodeGraphIndexUpdated,
   readCodeGraphFile,
   writeCodeGraphFile,
   type CodeGraphEndpoint,
 } from "../../bridge/codegraph";
+import {
+  approveCodeGraphPlan,
+  countCodeGraphPlanNodeComments,
+  relinkCodeGraphPlanNode,
+  getCodeGraphPlanEdges,
+  getCodeGraphPlanProgress,
+} from "../../bridge/codegraphPlan";
 import { errorMessage } from "../../bridge/errors";
 import { useCodeGraphStore } from "./codegraphStore";
 
@@ -35,7 +49,13 @@ async function loadFiles() {
 }
 
 async function reindex(path: string) {
-  set({ busy: true, status: "Indexing…", error: "", subgraph: null, rootId: null });
+  set({
+    busy: true,
+    status: "Indexing…",
+    error: "",
+    subgraph: null,
+    rootId: null,
+  });
   try {
     await openCodeGraphProject(path);
     const list = await listCodeGraphEndpoints();
@@ -138,6 +158,83 @@ async function inspectNode(nodeId: string) {
   }
 }
 
+/**
+ * Loads the plan and its edges together.
+ *
+ * Status is recomputed by Go on every read, so this is also how the canvas
+ * picks up an agent's progress — no diffing here, and nothing cached.
+ */
+async function loadPlan() {
+  set({ planBusy: true, planError: "" });
+  try {
+    const [plan, planEdges, commentCounts] = await Promise.all([
+      getCodeGraphPlanProgress(),
+      getCodeGraphPlanEdges(),
+      countCodeGraphPlanNodeComments(),
+    ]);
+    set({ plan, planEdges, commentCounts });
+  } catch (e) {
+    // Having no plan is the normal state for most projects, not a failure
+    // worth shouting about — the empty state says what creates one.
+    set({ plan: null, planEdges: [], planError: errorMessage(e) });
+  } finally {
+    set({ planBusy: false });
+  }
+}
+
+async function approvePlan() {
+  set({ planBusy: true, planError: "" });
+  try {
+    await approveCodeGraphPlan();
+  } catch (e) {
+    set({ planError: errorMessage(e) });
+  } finally {
+    set({ planBusy: false });
+  }
+  await loadPlan();
+}
+
+async function relinkPlanNode(planNodeID: string, fqn: string) {
+  set({ planBusy: true, planError: "" });
+  try {
+    await relinkCodeGraphPlanNode(planNodeID, fqn);
+  } catch (e) {
+    set({ planError: errorMessage(e) });
+  } finally {
+    set({ planBusy: false });
+  }
+  // Status is derived from the FQN, so the whole plan is re-read rather than
+  // patched — the relinked node may now resolve, and its edges with it.
+  await loadPlan();
+}
+
+/**
+ * Re-reads whatever is currently on screen after a background re-index.
+ *
+ * Everything here is derived from the index, so it goes stale silently — plan
+ * status especially, since Go recomputes the diff on every read and the UI
+ * would otherwise keep showing the answer from before the agent's last commit.
+ *
+ * The open file is deliberately NOT re-read: that buffer may hold unsaved
+ * edits, and refreshing it would throw them away to fix a staleness the user
+ * can see and control.
+ */
+async function refreshAfterReindex() {
+  const { rootId, activeTab } = snapshot();
+  try {
+    set({ endpoints: await listCodeGraphEndpoints() });
+    await loadFiles();
+    if (rootId) {
+      set({ subgraph: await getCodeGraphNeighbors(rootId, NEIGHBOR_DEPTH) });
+    }
+  } catch (e) {
+    set({ error: errorMessage(e) });
+  }
+  if (activeTab === "plan") {
+    await loadPlan();
+  }
+}
+
 async function openFile(path: string) {
   set({ fileError: "" });
   try {
@@ -189,9 +286,92 @@ export function CodeGraphView() {
   const loadingMore = useCodeGraphStore((s) => s.loadingMore);
   const query = useCodeGraphStore((s) => s.query);
   const inspectorNodeId = useCodeGraphStore((s) => s.inspectorNodeId);
+  const inspectorNode = useMemo(
+    () => subgraph?.nodes.find((n) => n.id === inspectorNodeId) ?? null,
+    [subgraph, inspectorNodeId],
+  );
+  const plan = useCodeGraphStore((s) => s.plan);
+  const planEdges = useCodeGraphStore((s) => s.planEdges);
+  const planBusy = useCodeGraphStore((s) => s.planBusy);
+  const planError = useCodeGraphStore((s) => s.planError);
+  const selectedPlanNodeId = useCodeGraphStore((s) => s.selectedPlanNodeId);
+  const commentsPlanNodeId = useCodeGraphStore((s) => s.commentsPlanNodeId);
+  const commentCounts = useCodeGraphStore((s) => s.commentCounts);
+
+  // The plan canvas reuses FlowCanvas whole. Plan nodes travel in the same
+  // shape as real ones with an empty filePath — a shape the view already
+  // handles, since a not_implemented node has no source to show either.
+  const planFlowNodes = useMemo(
+    () =>
+      (plan?.nodes ?? []).map((n) => ({
+        id: n.planNodeId,
+        label: n.label,
+        kind: n.kind,
+        layer: "",
+        filePath: "",
+        line: 0,
+        endLine: 0,
+        summary: n.description,
+      })),
+    [plan],
+  );
+  const planFlowEdges = useMemo(
+    () => planEdges.map((e) => ({ from: e.from, to: e.to, kind: "call" })),
+    [planEdges],
+  );
+  const planById = useMemo(
+    () => new Map((plan?.nodes ?? []).map((n) => [n.planNodeId, n])),
+    [plan],
+  );
+  const selectedPlanNode = selectedPlanNodeId ? (planById.get(selectedPlanNodeId) ?? null) : null;
+  const conditionByEdge = useMemo(
+    () => new Map(planEdges.map((e) => [`${e.from}->${e.to}`, e.condition])),
+    [planEdges],
+  );
+  // A root is a node nothing points at. Without one, rankGraph has no place to
+  // start; falling back to the first node keeps a cyclic plan renderable.
+  const planRootId = useMemo(() => {
+    const targets = new Set(planEdges.map((e) => e.to));
+    return planFlowNodes.find((n) => !targets.has(n.id))?.id ?? planFlowNodes[0]?.id ?? null;
+  }, [planFlowNodes, planEdges]);
   const snippet = useCodeGraphStore((s) => s.snippet);
   const snippetLoading = useCodeGraphStore((s) => s.snippetLoading);
   const snippetError = useCodeGraphStore((s) => s.snippetError);
+
+  // Subscribed once: the handler reads live state through snapshot(), so it
+  // never needs to re-subscribe and cannot capture a stale closure.
+  useEffect(() => onCodeGraphIndexUpdated(() => void refreshAfterReindex()), []);
+
+  const { openPanel, closePanel } = useSplitPanel();
+
+  useEffect(() => {
+    if (!inspectorNode) {
+      closePanel();
+      return;
+    }
+    openPanel(
+      <NodeInspector
+        node={inspectorNode}
+        snippet={snippet}
+        snippetLoading={snippetLoading}
+        snippetError={snippetError}
+        onEdit={
+          snippet
+            ? () => {
+                void openFile(snippet.filePath);
+                set({ activeTab: "files", inspectorNodeId: null, snippet: null });
+              }
+            : undefined
+        }
+        onJump={(id) => void inspectNode(id)}
+      />,
+      {
+        width: 520,
+        onClose: () => set({ inspectorNodeId: null, snippet: null, snippetError: "" }),
+      },
+    );
+    return () => closePanel();
+  }, [inspectorNode, snippet, snippetLoading, snippetError, openPanel, closePanel]);
 
   const editorExtensions = useMemo(
     () => (selectedFile ? [...languageExtensionForPath(selectedFile), saveKeymap] : []),
@@ -205,7 +385,10 @@ export function CodeGraphView() {
       status={status}
       error={error}
       activeTab={activeTab}
-      onTabChange={(tab) => set({ activeTab: tab })}
+      onTabChange={(tab) => {
+        set({ activeTab: tab });
+        if (tab === "plan") void loadPlan();
+      }}
       query={query}
       onQueryChange={(q) => set({ query: q })}
       onPickProject={pickAndOpenProject}
@@ -216,6 +399,9 @@ export function CodeGraphView() {
       files={files}
       selectedFile={selectedFile}
       onSelectFile={openFile}
+      plan={plan}
+      planError={planError}
+      onSelectPlanNode={(id) => set({ selectedPlanNodeId: id })}
     />,
   );
 
@@ -256,34 +442,78 @@ export function CodeGraphView() {
                   nodes={subgraph.nodes}
                   edges={subgraph.edges}
                   onSelect={(nodeId) => void inspectNode(nodeId)}
-                  inspector={
-                    inspectorNodeId ? (
-                      <NodeInspector
-                        nodeId={inspectorNodeId}
-                        snippet={snippet}
-                        snippetLoading={snippetLoading}
-                        snippetError={snippetError}
-                        onEdit={
-                          snippet
-                            ? () => {
-                                void openFile(snippet.filePath);
-                                set({ activeTab: "files", inspectorNodeId: null, snippet: null });
-                              }
-                            : undefined
-                        }
-                        onJump={(id) => void inspectNode(id)}
-                        onClose={() =>
-                          set({ inspectorNodeId: null, snippet: null, snippetError: "" })
-                        }
-                      />
-                    ) : null
-                  }
                 />
               </div>
             </div>
           ) : (
             <div className="flex h-full items-center justify-center p-4 text-sm text-muted-foreground">
               Select an endpoint from the sidebar to view its flow graph.
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === "plan" && (
+        <div className="flex flex-1 flex-col overflow-hidden">
+          {plan && planRootId ? (
+            <>
+              <PlanBar
+                plan={plan}
+                busy={planBusy}
+                onApprove={() => void approvePlan()}
+                onRefresh={() => void loadPlan()}
+              />
+              {selectedPlanNode && (
+                <PlanNodeDetail
+                  node={selectedPlanNode}
+                  busy={planBusy}
+                  onRelink={(fqn) => void relinkPlanNode(selectedPlanNode.planNodeId, fqn)}
+                />
+              )}
+              <div className="flex-1 overflow-hidden">
+                <FlowCanvas
+                  key={`plan-${planRootId}`}
+                  rootId={planRootId}
+                  nodes={planFlowNodes}
+                  edges={planFlowEdges}
+                  nodeType="planNode"
+                  buildData={(n) => {
+                    const p = planById.get(n.id);
+                    return {
+                      title: shortLabel(n.label, n.kind),
+                      fqn: p?.fqn ?? "",
+                      status: p?.status ?? "not_implemented",
+                      commentCount: commentCounts[n.id] ?? 0,
+                    };
+                  }}
+                  edgeLabel={(e) => conditionByEdge.get(`${e.from}->${e.to}`) || undefined}
+                  selectedNodeId={selectedPlanNodeId}
+                  onSelect={(id) => set({ selectedPlanNodeId: id, commentsPlanNodeId: id })}
+                  inspector={
+                    commentsPlanNodeId ? (
+                      <PlanCommentsPopover
+                        planNodeId={commentsPlanNodeId}
+                        label={planById.get(commentsPlanNodeId)?.fqn ?? commentsPlanNodeId}
+                        onClose={() => set({ commentsPlanNodeId: null })}
+                        onCountChange={(n) =>
+                          set({
+                            commentCounts: {
+                              ...snapshot().commentCounts,
+                              [commentsPlanNodeId]: n,
+                            },
+                          })
+                        }
+                      />
+                    ) : null
+                  }
+                />
+              </div>
+            </>
+          ) : (
+            <div className="flex h-full items-center justify-center p-4 text-center text-sm text-muted-foreground">
+              {planBusy
+                ? "Loading plan…"
+                : "No plan for this project yet. An agent creates one with codegraph.proposeFlow; you approve it here."}
             </div>
           )}
         </div>
@@ -309,6 +539,9 @@ export function CodeGraphView() {
             <div className="flex h-full items-center justify-center p-4 text-sm text-muted-foreground">
               Select a file from the sidebar to edit it. Ctrl/Cmd+S saves.
             </div>
+          )}
+          {selectedFile && (
+            <BlastRadiusPanel key={selectedFile} filePath={selectedFile} onOpenFile={openFile} />
           )}
           {fileError && <p className="px-3 py-1 text-xs text-destructive">{fileError}</p>}
         </div>

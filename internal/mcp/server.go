@@ -119,6 +119,8 @@ type CodeGraphAPI interface {
 	GetPlannedFlow(ctx context.Context) (codegraph.Plan, error)
 	GetPlanProgress(ctx context.Context) (codegraph.PlanProgress, error)
 	RelinkPlanNode(ctx context.Context, planNodeID, fqn string) error
+	ReplyPlanNode(ctx context.Context, planNodeID, body, sessionID string) error
+	ListPlanNodeComments(ctx context.Context, planNodeID string) ([]codegraph.PlanComment, error)
 }
 
 // VaultStatusResult is the structured output of vault.status.

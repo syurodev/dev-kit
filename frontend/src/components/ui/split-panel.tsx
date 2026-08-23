@@ -3,11 +3,8 @@ import { AnimatePresence, LazyMotion, domAnimation, m } from "framer-motion";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useResizableSize } from "@/workbench/useResizableSize";
-import {
-  GAP_WIDTH,
-  maxPanelWidth,
-  useWindowWidth,
-} from "@/workbench/panelLayout";
+import { GAP_WIDTH, maxPanelWidth, useWindowWidth } from "@/workbench/panelLayout";
+import { SPLIT_MIN_HEIGHT, splitColumn } from "@/workbench/splitColumn";
 import { usePanelWidthsStore } from "@/stores/panelWidths";
 import { cn } from "@/lib/utils";
 
@@ -24,12 +21,28 @@ type SplitPanelContextValue = {
     opts: { width?: number; onClose: () => void },
   ) => void;
   closePanel: () => void;
+  companion: PanelState | null;
+  openCompanion: (content: React.ReactNode, opts: { onClose: () => void }) => void;
+  closeCompanion: () => void;
 };
 
 const SplitPanelContext = React.createContext<SplitPanelContextValue | null>(null);
 
+/**
+ * The right column, shared by two stacked slots.
+ *
+ * `panel` belongs to the active module and dies with it — that is the existing
+ * contract every module already uses, unchanged. `companion` belongs to the
+ * shell, so it survives module switches; it is where a conversation lives,
+ * because a module's subtree is unmounted the moment you leave it (see
+ * modules/codegraph/codegraphStore.ts for the same lesson learned the hard
+ * way).
+ *
+ * Width is shared by both. Only the split between them is separately dragged.
+ */
 export function SplitPanelProvider({ children }: { children: React.ReactNode }) {
   const [panel, setPanel] = React.useState<PanelState | null>(null);
+  const [companion, setCompanion] = React.useState<PanelState | null>(null);
 
   const openPanel = React.useCallback(
     (content: React.ReactNode, opts: { width?: number; onClose: () => void }) => {
@@ -39,9 +52,19 @@ export function SplitPanelProvider({ children }: { children: React.ReactNode }) 
   );
   const closePanel = React.useCallback(() => setPanel(null), []);
 
+  const openCompanion = React.useCallback(
+    (content: React.ReactNode, opts: { onClose: () => void }) => {
+      // No width of its own: it shares the column, and letting it request one
+      // would mean the column jumped every time the companion opened.
+      setCompanion({ content, width: 0, onClose: opts.onClose });
+    },
+    [],
+  );
+  const closeCompanion = React.useCallback(() => setCompanion(null), []);
+
   const value = React.useMemo(
-    () => ({ panel, openPanel, closePanel }),
-    [panel, openPanel, closePanel],
+    () => ({ panel, openPanel, closePanel, companion, openCompanion, closeCompanion }),
+    [panel, openPanel, closePanel, companion, openCompanion, closeCompanion],
   );
 
   return (
@@ -49,16 +72,60 @@ export function SplitPanelProvider({ children }: { children: React.ReactNode }) 
   );
 }
 
-export function useSplitPanel(): SplitPanelContextValue {
+export function useSplitPanel() {
   const ctx = React.useContext(SplitPanelContext);
-  if (!ctx) {
-    throw new Error("useSplitPanel must be used within a SplitPanelProvider.");
-  }
+  if (!ctx) throw new Error("useSplitPanel must be used within a SplitPanelProvider");
   return ctx;
 }
 
 const MIN_PANEL_WIDTH = 320;
 const MAX_PANEL_WIDTH = 720;
+
+/** One slot's card: rounded surface, close button, fading content. */
+function PanelCard({
+  state,
+  className,
+  style,
+  label,
+}: {
+  state: PanelState;
+  className?: string;
+  style?: React.CSSProperties;
+  label: string;
+}) {
+  return (
+    <div
+      style={style}
+      className={cn(
+        "relative flex min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-card",
+        className,
+      )}
+    >
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        aria-label={label}
+        className="absolute top-2 right-2 z-10"
+        onClick={state.onClose}
+      >
+        <X className="size-4" />
+      </Button>
+      <AnimatePresence>
+        <m.div
+          key="panel-content"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.15 }}
+          className="flex min-h-0 flex-1 flex-col overflow-auto"
+        >
+          {state.content}
+        </m.div>
+      </AnimatePresence>
+    </div>
+  );
+}
 
 /**
  * Renders as a flex sibling of the active module's content (see
@@ -67,30 +134,50 @@ const MAX_PANEL_WIDTH = 720;
  * parent/child).
  */
 export function SplitPanelSlot() {
-  const { panel } = useSplitPanel();
+  const { panel, companion } = useSplitPanel();
   const width = usePanelWidthsStore((s) => s.splitPanelWidth);
   const setWidth = usePanelWidthsStore((s) => s.setSplitPanelWidth);
+  const topHeight = usePanelWidthsStore((s) => s.splitTopHeight);
+  const setTopHeight = usePanelWidthsStore((s) => s.setSplitTopHeight);
   const setSplitPanelOpen = usePanelWidthsStore((s) => s.setSplitPanelOpen);
   const sidebarWidth = usePanelWidthsStore((s) => s.sidebarWidth);
   const sidebarOpen = usePanelWidthsStore((s) => s.sidebarOpen);
   const windowWidth = useWindowWidth();
   const wasOpenRef = React.useRef(false);
 
+  const open = panel !== null || companion !== null;
+  const bothOpen = panel !== null && companion !== null;
+
+  // Measured, not derived: the column's height depends on the title bar, the
+  // bottom slot and any padding above it, and re-deriving that sum here would
+  // drift the moment one of them changes.
+  const columnRef = React.useRef<HTMLDivElement | null>(null);
+  const [columnHeight, setColumnHeight] = React.useState(0);
+  React.useLayoutEffect(() => {
+    const el = columnRef.current;
+    if (!el) return;
+    setColumnHeight(el.getBoundingClientRect().height);
+    const observer = new ResizeObserver((entries) => {
+      setColumnHeight(entries[0].contentRect.height);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   // Publish this panel's occupancy so SidebarSurface can clamp against it.
   React.useEffect(() => {
-    setSplitPanelOpen(panel !== null);
-  }, [panel, setSplitPanelOpen]);
+    setSplitPanelOpen(open);
+  }, [open, setSplitPanelOpen]);
 
   // Sync from the caller's requested width only on the closed -> open
   // transition, so an in-progress drag-resize survives openPanel() being
   // re-called with the same width while content refreshes (e.g. NoteEditor
   // re-pushes its panel content on every metadata edit).
   React.useEffect(() => {
-    const isOpen = panel !== null;
-    if (isOpen && !wasOpenRef.current) {
-      setWidth(panel!.width);
+    if (panel !== null && !wasOpenRef.current) {
+      setWidth(panel.width);
     }
-    wasOpenRef.current = isOpen;
+    wasOpenRef.current = panel !== null;
   }, [panel, setWidth]);
 
   const { isResizing, onPointerDown } = useResizableSize({
@@ -110,15 +197,32 @@ export function SplitPanelSlot() {
     sign: -1,
   });
 
+  const sizes = splitColumn({
+    columnHeight,
+    topOpen: panel !== null,
+    bottomOpen: companion !== null,
+    topHeight,
+  });
+
+  // sign +1: the handle sits under the top slot, so dragging down grows it.
+  const splitDrag = useResizableSize({
+    size: topHeight,
+    onSizeChange: setTopHeight,
+    min: SPLIT_MIN_HEIGHT,
+    max: Math.max(SPLIT_MIN_HEIGHT, columnHeight - GAP_WIDTH - SPLIT_MIN_HEIGHT),
+    axis: "y",
+    sign: 1,
+  });
+
   return (
     <LazyMotion features={domAnimation}>
       <m.div
         initial={{ width: 0 }}
-        animate={{ width: panel ? width + GAP_WIDTH : 0 }}
+        animate={{ width: open ? width + GAP_WIDTH : 0 }}
         transition={isResizing ? { duration: 0 } : { duration: 0.22, ease: "easeInOut" }}
         className="flex min-h-0 shrink-0 overflow-hidden"
       >
-        {panel ? (
+        {open ? (
           <div
             role="separator"
             aria-orientation="vertical"
@@ -135,33 +239,43 @@ export function SplitPanelSlot() {
             />
           </div>
         ) : null}
-        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card">
+
+        <div ref={columnRef} className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {panel ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              aria-label="Close panel"
-              className="absolute top-2 right-2 z-10"
-              onClick={panel.onClose}
-            >
-              <X className="size-4" />
-            </Button>
+            <PanelCard
+              state={panel}
+              label="Close panel"
+              className={bothOpen ? "shrink-0" : "flex-1"}
+              style={bothOpen ? { height: sizes.top } : undefined}
+            />
           ) : null}
-          <AnimatePresence>
-            {panel ? (
-              <m.div
-                key="panel-content"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.15 }}
-                className="flex min-h-0 flex-1 flex-col overflow-auto"
-              >
-                {panel.content}
-              </m.div>
-            ) : null}
-          </AnimatePresence>
+
+          {bothOpen ? (
+            <div
+              role="separator"
+              aria-orientation="horizontal"
+              aria-label="Resize panel split"
+              onPointerDown={splitDrag.onPointerDown}
+              style={{ height: GAP_WIDTH }}
+              className="group flex shrink-0 cursor-row-resize items-center justify-center"
+            >
+              <div
+                className={cn(
+                  "h-px w-full bg-transparent transition-colors",
+                  splitDrag.isResizing ? "bg-ring" : "group-hover:bg-border",
+                )}
+              />
+            </div>
+          ) : null}
+
+          {companion ? (
+            <PanelCard
+              state={companion}
+              label="Close conversation"
+              className={bothOpen ? "shrink-0" : "flex-1"}
+              style={bothOpen ? { height: sizes.bottom } : undefined}
+            />
+          ) : null}
         </div>
       </m.div>
     </LazyMotion>
