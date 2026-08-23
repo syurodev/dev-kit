@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -325,6 +326,108 @@ class ProjectAnalyzerTest {
 
         boolean hasClassNode = result.nodes.stream().anyMatch(n -> n.label.equals("com.acme.modern.Shape"));
         assertTrue(hasClassNode, "class node should exist — file uses records/pattern-matching, must still parse: " + result.nodes);
+    }
+
+    @Test
+    void recordsCallSiteWithLineForAResolvedProjectCall() throws Exception {
+        AnalysisResult result = new ProjectAnalyzer(sampleProjectRoot()).analyze();
+
+        List<CallSite> resolved = result.callSites.stream()
+                .filter(c -> c.unresolved.isEmpty())
+                .toList();
+
+        assertFalse(resolved.isEmpty(), "expected at least one resolved call site");
+        for (CallSite c : resolved) {
+            assertFalse(c.from.isEmpty(), "from must be set");
+            assertFalse(c.to.isEmpty(), "a resolved call site must name its callee");
+            assertTrue(c.line > 0, "a call site must carry the line it appears on");
+        }
+    }
+
+    @Test
+    void recordsUnresolvedCallsInsteadOfDroppingThem(@TempDir Path tempDir) throws IOException {
+        Path projectRoot = tempDir.resolve("project");
+        Path pkg = projectRoot.resolve("src/main/java/com/acme/walls");
+        Files.createDirectories(pkg);
+        // Two different walls in one method. String is a class the solver
+        // resolves through the JDK but never turns into a node -> "library".
+        // List is resolved the same way but is an interface, and the trace
+        // reads very differently for the two: a library method has no body we
+        // can ever read, an interface method has one somewhere we cannot find.
+        Files.writeString(pkg.resolve("Walls.java"), """
+                package com.acme.walls;
+
+                import java.util.List;
+
+                public class Walls {
+                    public String touchWalls(String raw, List<String> items) {
+                        items.add(raw);
+                        return raw.trim();
+                    }
+                }
+                """);
+
+        AnalysisResult result = new ProjectAnalyzer(projectRoot).analyze();
+
+        Map<String, Long> reasons = result.callSites.stream()
+                .filter(c -> !c.unresolved.isEmpty())
+                .collect(Collectors.groupingBy(c -> c.unresolved, Collectors.counting()));
+
+        assertEquals(1L, reasons.getOrDefault("library", 0L), "String.trim should be recorded as a library wall");
+        assertEquals(1L, reasons.getOrDefault("interface", 0L), "List.add should be recorded as an interface wall");
+
+        for (CallSite c : result.callSites) {
+            if (!c.unresolved.isEmpty()) {
+                assertTrue(c.to.isEmpty(), "an unresolved call site must not name a callee");
+                assertTrue(c.line > 0, "even an unresolved call site must carry its line");
+            }
+        }
+        // The point of the whole task: the old code hit `continue` here and both
+        // calls vanished, leaving a trace unable to say why it stopped.
+        assertEquals(0, result.edges.size(), "neither wall should produce an edge");
+    }
+
+    @Test
+    void callSitesAreNotDedupedTheWayEdgesAre(@TempDir Path tempDir) throws IOException {
+        Path projectRoot = tempDir.resolve("project");
+        Path pkg = projectRoot.resolve("src/main/java/com/acme/twice");
+        Files.createDirectories(pkg);
+        Files.writeString(pkg.resolve("Callee.java"), """
+                package com.acme.twice;
+
+                public class Callee {
+                    public void work() {}
+                }
+                """);
+        Files.writeString(pkg.resolve("Caller.java"), """
+                package com.acme.twice;
+
+                public class Caller {
+                    private final Callee callee = new Callee();
+
+                    public void run() {
+                        callee.work();
+                        callee.work();
+                    }
+                }
+                """);
+
+        AnalysisResult result = new ProjectAnalyzer(projectRoot).analyze();
+
+        List<Edge> callEdges = result.edges.stream()
+                .filter(e -> e.to.contains("Callee.work"))
+                .toList();
+        List<CallSite> sites = result.callSites.stream()
+                .filter(c -> c.to.contains("Callee.work"))
+                .toList();
+
+        assertEquals(1, callEdges.size(), "edges collapse the repeated call, as they always have");
+        assertEquals(2, sites.size(), "call sites must keep both, or the second line is lost");
+        assertNotEquals(sites.get(0).line, sites.get(1).line, "the two call sites must be on different lines");
+    }
+
+    private static Path sampleProjectRoot() {
+        return Path.of("src/test/resources/sample-project");
     }
 
     private boolean hasCallEdge(AnalysisResult result, String fromLabel, String toLabel) {

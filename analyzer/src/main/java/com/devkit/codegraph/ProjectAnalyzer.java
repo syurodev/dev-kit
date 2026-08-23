@@ -179,6 +179,7 @@ public class ProjectAnalyzer {
 
     private void addCallEdges(MethodCallSite site, Map<String, String> classFile, Set<String> nodeIds, AnalysisResult result) {
         for (com.github.javaparser.ast.expr.MethodCallExpr call : site.methodDecl().findAll(com.github.javaparser.ast.expr.MethodCallExpr.class)) {
+            int line = call.getRange().map(r -> r.begin.line).orElse(0);
             ResolvedMethodDeclaration target;
             String targetClass;
             String toNodeId;
@@ -191,16 +192,27 @@ public class ProjectAnalyzer {
                 // Unresolved call (missing jar in the local cache, dynamic
                 // dispatch the solver can't follow, unresolved parameter types, etc.)
                 // — FR-8: this is a gap in the graph, not a fatal error for the whole project.
+                // Recorded rather than dropped: a trace that runs into this has to be
+                // able to say the flow was lost here, not just end.
+                result.callSites.add(new CallSite(site.methodId(), "", line, "unresolved"));
                 continue;
             }
             if (!nodeIds.contains(toNodeId)) {
-                // Resolved successfully (e.g. a JDK/library method via
-                // ReflectionTypeSolver, or a project method whose own
-                // signature failed to resolve in addMethodNode) but no node
-                // exists for it — same policy as an unresolved call: skip,
-                // don't emit a dangling edge.
+                // Resolved successfully but no node exists for it. Two different
+                // walls, and the trace reads very differently depending on which:
+                // an interface method has a body somewhere we cannot find, a
+                // library method has no body we can ever read.
+                boolean isInterface;
+                try {
+                    isInterface = target.declaringType().isInterface();
+                } catch (RuntimeException | StackOverflowError e) {
+                    isInterface = false;
+                }
+                result.callSites.add(new CallSite(
+                        site.methodId(), "", line, isInterface ? "interface" : "library"));
                 continue;
             }
+            result.callSites.add(new CallSite(site.methodId(), toNodeId, line, ""));
             result.edges.add(new Edge(site.methodId(), toNodeId, "call"));
 
             // File-level dependency: only when the callee is declared in this
