@@ -298,21 +298,26 @@ func main() {
 	})
 	openBrowser = wailsApp.Browser.OpenURL
 
-	// A fully transparent window background is what actually lets the Mac
-	// vibrancy backdrop below show through — an opaque colour here paints
-	// over it regardless of Backdrop being set. Scoped to darwin: Windows
-	// needs its own separate BackgroundType/BackdropType opt-in (Mica/
-	// Acrylic) that isn't wired up yet, and an unconditionally transparent
-	// window would just show raw desktop content (no blur) on platforms
-	// without a compositor-level backdrop.
+	// A fully transparent window background is what actually lets a native
+	// backdrop show through — an opaque colour paints over it regardless of
+	// the backdrop option. Two platforms have one: macOS (Mac.Backdrop
+	// vibrancy) and Windows 11 22H2+ (Mica, see native_backdrop_windows.go).
+	// Everywhere else the window stays solid, painted with the same values as
+	// the frontend's --background-app token so the transparent html/body the
+	// frontend uses inside Wails (main.tsx's .native class) sits on an
+	// identical colour instead of a slightly different one.
 	resolvedDark := themePreference == preferences.ThemeDark ||
 		(themePreference == preferences.ThemeSystem && wailsApp.Env.IsDarkMode())
-	backgroundColour := application.NewRGB(245, 246, 247)
+	backgroundColour := application.NewRGB(233, 234, 238)
 	if resolvedDark {
-		backgroundColour = application.NewRGB(16, 18, 20)
+		backgroundColour = application.NewRGB(2, 2, 2)
 	}
+	backgroundType := application.BackgroundTypeSolid
 	if runtime.GOOS == "darwin" {
 		backgroundColour = application.NewRGBA(0, 0, 0, 0)
+	} else if nativeBackdropTranslucent() {
+		backgroundColour = application.NewRGBA(0, 0, 0, 0)
+		backgroundType = application.BackgroundTypeTranslucent
 	}
 
 	macAppearance := application.DefaultAppearance
@@ -353,7 +358,11 @@ func main() {
 		},
 		Windows: application.WindowsWindow{
 			Theme: windowsTheme,
+			// Only takes effect when backgroundType resolved to Translucent
+			// above (Windows 11 22H2+); Wails ignores it on a solid window.
+			BackdropType: application.Mica,
 		},
+		BackgroundType:   backgroundType,
 		BackgroundColour: backgroundColour,
 		URL:              "/",
 	})

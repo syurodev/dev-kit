@@ -42,10 +42,15 @@ func applyNativeTheme(window application.Window, theme preferences.Theme) error 
 	if result != 0 {
 		return fmt.Errorf("set native window theme: %w", callErr)
 	}
-	if dark != 0 {
-		window.SetBackgroundColour(application.NewRGB(16, 18, 20))
-	} else {
-		window.SetBackgroundColour(application.NewRGB(245, 246, 247))
+	// With the Mica backdrop active the window colour must stay transparent —
+	// repainting it opaque here would cover the backdrop. Solid-window builds
+	// (pre-22621) repaint with the frontend's --background-app token values.
+	if !nativeBackdropTranslucent() {
+		if dark != 0 {
+			window.SetBackgroundColour(application.NewRGB(2, 2, 2))
+		} else {
+			window.SetBackgroundColour(application.NewRGB(233, 234, 238))
+		}
 	}
 	return nil
 }
