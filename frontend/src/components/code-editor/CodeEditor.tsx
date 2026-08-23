@@ -19,24 +19,6 @@ export type CodeEditorProps = {
   wrap?: boolean;
 };
 
-/**
- * oneDark paints the editor, the gutters and the active line with its own
- * opaque #282c34 — a colour from no DevKit token, so the editor reads as a
- * grey box pasted onto whichever surface hosts it. Strip those backgrounds and
- * let the host show through; oneDark's syntax colours, the only reason it is
- * here, are untouched.
- *
- * Applied after oneDark in the same compartment so it always wins, and in
- * light mode too, where basicSetup's default theme paints white.
- */
-const surfaceless = EditorView.theme({
-  "&": { backgroundColor: "transparent" },
-  "&.cm-focused": { outline: "none" },
-  ".cm-gutters": { backgroundColor: "transparent", border: "none" },
-  ".cm-activeLine": { backgroundColor: "transparent" },
-  ".cm-activeLineGutter": { backgroundColor: "transparent" },
-});
-
 // Headless CodeMirror 6 wrapper — no language or schema knowledge of its
 // own, per base-doc code-editor.mdx. Every prop that can change after mount
 // is applied through a Compartment (or, for onChange, a ref) instead of
@@ -68,7 +50,7 @@ export function CodeEditor({ value, onChange, extensions, readOnly, wrap }: Code
           basicSetup,
           languageCompartment.of(extensions ?? []),
           readOnlyCompartment.of(EditorState.readOnly.of(!!readOnly)),
-          themeCompartment.of(resolvedTheme === "dark" ? [oneDark, surfaceless] : [surfaceless]),
+          themeCompartment.of(resolvedTheme === "dark" ? [oneDark] : []),
           wrapCompartment.of(wrap ? EditorView.lineWrapping : []),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
@@ -113,9 +95,7 @@ export function CodeEditor({ value, onChange, extensions, readOnly, wrap }: Code
 
   useEffect(() => {
     viewRef.current?.dispatch({
-      effects: themeCompartment.reconfigure(
-        resolvedTheme === "dark" ? [oneDark, surfaceless] : [surfaceless],
-      ),
+      effects: themeCompartment.reconfigure(resolvedTheme === "dark" ? [oneDark] : []),
     });
   }, [resolvedTheme, themeCompartment]);
 
@@ -125,5 +105,10 @@ export function CodeEditor({ value, onChange, extensions, readOnly, wrap }: Code
     });
   }, [wrap, wrapCompartment]);
 
-  return <div ref={containerRef} className="h-full w-full overflow-auto" />;
+  // cm-surfaceless is styled in index.css, not through EditorView.theme: a
+  // theme extension ties oneDark on specificity (.cm-editor.<theme-class>) and
+  // then depends on stylesheet order to win, which it does not reliably. App
+  // CSS is the supported way — style-mod deliberately injects CodeMirror's
+  // styles as head's first child so later stylesheets can override them.
+  return <div ref={containerRef} className="cm-surfaceless h-full w-full overflow-auto" />;
 }

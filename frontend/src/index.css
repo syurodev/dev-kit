@@ -227,3 +227,30 @@
   font-family: 'Inter Variable', sans-serif;
   font-feature-settings: "calt", "kern", "liga", "ss03";
 }
+
+/* CodeMirror surface overrides.
+ *
+ * oneDark hard-codes #282c34 for the editor, the gutters and the active line —
+ * a colour from no DevKit token, so the editor reads as a grey box pasted onto
+ * whichever surface hosts it. These rules must live here rather than in an
+ * EditorView.theme: a theme generates `.cm-editor.<class>` selectors that tie
+ * oneDark's own specificity, leaving the winner to stylesheet order. Scoping to
+ * .cm-surfaceless (set by CodeEditor.tsx) matches that specificity and lands
+ * later in the cascade, and must stay outside @layer so it also outranks
+ * CodeMirror's unlayered styles.
+ */
+.cm-surfaceless .cm-editor,
+.cm-surfaceless .cm-scroller,
+.cm-surfaceless .cm-gutters,
+.cm-surfaceless .cm-activeLine,
+.cm-surfaceless .cm-activeLineGutter {
+  background-color: transparent;
+}
+
+.cm-surfaceless .cm-gutters {
+  border: none;
+}
+
+.cm-surfaceless .cm-editor.cm-focused {
+  outline: none;
+}
