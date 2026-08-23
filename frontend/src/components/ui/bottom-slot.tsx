@@ -121,7 +121,7 @@ export function BottomSlotSurface({ activeModuleId }: { activeModuleId: string |
         {/* Same treatment as SplitPanelSlot's own box — a raised content card,
             not the recessed bg-sidebar rail. A terminal or a task log reads as
             content, not as navigation chrome. */}
-        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card">
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl glass-panel">
           {/* The workspace owns this surface: terminals belong to the shell so
               they survive a module switch, the way a build running in one must.
               Module-registered content still gets a tab beside them. */}

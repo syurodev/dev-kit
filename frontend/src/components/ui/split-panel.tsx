@@ -97,7 +97,7 @@ function PanelCard({
     <div
       style={style}
       className={cn(
-        "relative flex min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-card",
+        "relative flex min-h-0 flex-col overflow-hidden rounded-xl glass-panel",
         className,
       )}
     >

@@ -190,7 +190,7 @@ const WorkbenchViews = memo(
     ]);
 
     return (
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl glass-panel">
         {hasMetadataWarning ? (
           <Alert variant="destructive" className="m-4 mb-0 w-auto">
             <AlertDescription>

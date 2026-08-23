@@ -23,20 +23,6 @@
     /* Same file's OUT_STRONG — the family's non-overshooting exit curve. */
     --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
 
-    /* Palette anchors from Figma Design System (01 Foundations) */
-    --color-palette-onyx: var(--palette-onyx);
-    --color-palette-carbon: var(--palette-carbon);
-    --color-palette-jet-black: var(--palette-jet-black);
-    --color-palette-cosmic: var(--palette-cosmic);
-    --color-palette-wine-ash: var(--palette-wine-ash);
-    --color-palette-violet: var(--palette-violet);
-    --color-palette-lavender: var(--palette-lavender);
-    --color-palette-orchid: var(--palette-orchid);
-    --color-palette-candy-blue: var(--palette-candy-blue);
-    --color-palette-turquoise: var(--palette-turquoise);
-    --color-palette-vanilla: var(--palette-vanilla);
-    --color-palette-lime: var(--palette-lime);
-
     /* Semantic tokens */
     --color-bg-app: var(--background-app);
     --color-bg-canvas: var(--background-canvas);
@@ -101,7 +87,7 @@
 }
 
 :root {
-    /* 01 Foundations: Palette Anchors */
+    /* 01 Foundations: Palette Anchors (Figma "01 Foundations", v2 glass) */
     --palette-onyx: #020202;
     --palette-carbon: #171717;
     --palette-jet-black: #1d1d1d;
@@ -115,31 +101,59 @@
     --palette-vanilla: #f1fec8;
     --palette-lime: #c6ff34;
 
-    /* Semantic Tokens (Dark-first by default) */
-    --background-app: #020202;
-    --background-canvas: #171717;
-    --surface-base: #1d1d1d;
-    --surface-raised: #23212c;
-    --surface-glass-floating: rgba(35, 33, 44, 0.78);
-    --surface-glass-modal: rgba(35, 33, 44, 0.92);
-    --surface-tinted: #32292f;
+    /* Semantic Tokens (dark-first; light overrides under [data-theme="light"]) */
+    --background-app: var(--palette-onyx);
+    --background-canvas: var(--palette-carbon);
+    --surface-base: var(--palette-jet-black);
+    --surface-raised: var(--palette-cosmic);
+    --surface-glass-floating: rgba(35, 33, 44, 0.72);
+    --surface-glass-modal: rgba(35, 33, 44, 0.85);
+    --surface-tinted: var(--palette-wine-ash);
 
     --text-primary: #f0f1eb;
     --text-secondary: #c6c8c2;
     --text-tertiary: #8b8e8a;
     --icon-secondary: #c6c8c2;
 
-    --action-primary: #c6ff34;
-    --action-primary-foreground: #020202;
+    --action-primary: var(--palette-lime);
+    --action-primary-foreground: var(--palette-onyx);
 
-    --status-info: #b2d5e5;
-    --status-success: #99e1d9;
-    --status-warning: #f1fec8;
-    --status-recovery: #e5bddf;
+    --status-info: var(--palette-candy-blue);
+    --status-success: var(--palette-turquoise);
+    --status-warning: var(--palette-vanilla);
+    --status-recovery: var(--palette-orchid);
     --status-danger: #d87886;
+
+    /* Agent/session states + brand, consumed by app.css.
+       --brand-text is the accent for text/icons: lime in dark, the darker
+       light-pair in light (lime text on white is illegible). */
+    --brand: var(--action-primary);
+    --brand-text: var(--action-primary);
+    --status-idle: var(--text-tertiary);
+    --status-running: var(--status-info);
+    --status-error: var(--status-danger);
+    --status-permission: var(--status-warning);
+    --status-permission-soft: color-mix(in srgb, var(--status-warning) 14%, transparent);
 
     --border-default: rgba(178, 213, 229, 0.16);
     --border-subtle: rgba(178, 213, 229, 0.08);
+
+    /* Glass materials (Figma "Glass materials" frame). One cosmic tint,
+       three opacities; depth is encoded by opacity and blur, never new color.
+       - rail:  sidebar/titlebar/window chrome — fully transparent, the native
+         vibrancy carries it
+       - panel: docked shell cards (content, bottom slot, split panel)
+       - float: surfaces floating OVER web content (dock, popovers) — the only
+         tier with backdrop-filter, because CSS blur only samples web content;
+         the desktop behind the window is already blurred by the native
+         NSVisualEffectView backdrop, so docked surfaces need tint alone. */
+    --glass-rail-bg: transparent;
+    --glass-panel-bg: rgba(35, 33, 44, 0.55);
+    --glass-float-bg: rgba(35, 33, 44, 0.62);
+    --glass-border: rgba(178, 213, 229, 0.14);
+    --glass-highlight: rgba(255, 255, 255, 0.06);
+    --glass-blur: 40px;
+    --glass-saturate: 170%;
 
     /* Mapped UI Tokens */
     --background: var(--background-app);
@@ -171,6 +185,42 @@
     --sidebar-accent-foreground: var(--text-primary);
     --sidebar-border: var(--border-subtle);
     --sidebar-ring: var(--status-info);
+}
+
+/* Light mode. ThemeProvider stamps data-theme on <html>; dark stays the
+   :root default so the pre-hydration paint matches the dark-first product.
+   Accents follow the Figma "Light mode accent pairs": same hue, darker. */
+:root[data-theme="light"] {
+    --background-app: #e9eaee;
+    --background-canvas: #f4f5f7;
+    --surface-base: #ffffff;
+    --surface-raised: #f4f5f7;
+    --surface-glass-floating: rgba(255, 255, 255, 0.72);
+    --surface-glass-modal: rgba(255, 255, 255, 0.9);
+    --surface-tinted: #e8e9ec;
+
+    --text-primary: #1d1d1f;
+    --text-secondary: #55565b;
+    --text-tertiary: #7c7e85;
+    --icon-secondary: #55565b;
+
+    /* --action-primary stays lime: button fills keep the brand (onyx text on
+       lime passes in both modes). Only text/icon accents flip via the pairs. */
+    --brand-text: #6b8f00;
+
+    --status-info: #0b7ca8;
+    --status-success: #1e7a6e;
+    --status-warning: #a36b00;
+    --status-recovery: #9c4f8f;
+    --status-danger: #b3374a;
+
+    --border-default: rgba(29, 29, 31, 0.12);
+    --border-subtle: rgba(29, 29, 31, 0.06);
+
+    --glass-panel-bg: rgba(255, 255, 255, 0.6);
+    --glass-float-bg: rgba(255, 255, 255, 0.72);
+    --glass-border: rgba(29, 29, 31, 0.08);
+    --glass-highlight: rgba(255, 255, 255, 0.6);
 }
 
 .dark {
@@ -212,9 +262,70 @@
     background-color: var(--background-app);
     color-scheme: dark;
   }
+  /* .native is set by main.tsx when running inside Wails: the window there is
+     transparent and backed by native vibrancy, which an opaque html/body
+     would paint over. Plain browsers keep the opaque fallback above. */
+  html.native,
+  html.native body {
+    background-color: transparent;
+  }
   code, kbd, samp, pre {
     font-family: var(--font-mono);
   }
+}
+
+/* Glass materials — see the tier comment on the --glass-* tokens above.
+   Plain classes (not @utility) so a media-query fallback can retint all
+   three at once. */
+.glass-rail {
+  background-color: var(--glass-rail-bg);
+}
+
+.glass-panel {
+  background-color: var(--glass-panel-bg);
+  border: 1px solid var(--glass-border);
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
+}
+
+.glass-float {
+  background-color: var(--glass-float-bg);
+  border: 1px solid var(--glass-border);
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    0 8px 32px rgba(0, 0, 0, 0.35);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .glass-rail {
+    background-color: var(--background-app);
+  }
+  .glass-panel {
+    background-color: var(--surface-base);
+  }
+  .glass-float {
+    background-color: var(--surface-raised);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* xterm v6 wraps the terminal in .xterm-scrollable-element and paints it with
+   an OPAQUE inline background derived from theme.background — the alpha in
+   rgba(0,0,0,0) is dropped on this wrapper even with allowTransparency on
+   (verified against @xterm/xterm 6.0: the inline style lands as rgb(0,0,0)).
+   A stylesheet !important is the one thing that outranks an inline style, so
+   this is the override that lets the glass bottom slot show through.
+   .xterm-viewport is the second black layer beneath it — xterm.css paints it
+   #000 from the stylesheet — so the same rule covers it (and .xterm-screen,
+   the last wrapper that could ever gain a default). Scoped
+   to .terminal-glass (set by TerminalPane) to leave any future opaque
+   terminal alone. Outside @layer so it also outranks xterm's own styles. */
+.terminal-glass .xterm-scrollable-element,
+.terminal-glass .xterm-viewport,
+.terminal-glass .xterm-screen {
+  background-color: transparent !important;
 }
 
 /* Scoped typography helpers */

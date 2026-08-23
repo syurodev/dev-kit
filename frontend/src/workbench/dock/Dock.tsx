@@ -205,7 +205,7 @@ export function Dock({ modules, activeModuleId, onSelectModule }: DockProps) {
             }
           }}
           className={cn(
-            "pointer-events-auto relative box-content border border-foreground/10 bg-card/90 backdrop-blur-xl",
+            "pointer-events-auto relative box-content glass-float",
             // No overflow-hidden: DockItem's AgentHub panel opens above the
             // pill (absolute bottom-full) and a clipping ancestor would swallow
             // it. The outgoing form is out of sight on opacity alone.
