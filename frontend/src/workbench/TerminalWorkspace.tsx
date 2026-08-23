@@ -30,35 +30,47 @@ export function TerminalWorkspace({ moduleContent }: { moduleContent?: React.Rea
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <Tabs
-        value={value}
-        onValueChange={setActive}
-        className="flex shrink-0 items-center gap-2 border-b border-border-subtle px-2 py-1.5"
-      >
-        <TabsList variant="line" className="min-w-0 flex-1 justify-start overflow-x-auto">
-          {showModule && <TabsTrigger value={MODULE_KEY}>Panel</TabsTrigger>}
-          {tabs.map((t) => (
-            <TabsTrigger key={t.key} value={t.key} className="group/tab gap-1 pr-1">
-              {t.title}
-              <span
-                role="button"
-                tabIndex={-1}
-                aria-label={`Close ${t.title}`}
-                onPointerDown={(e) => {
-                  // pointerdown, not click: the trigger activates on pointer
-                  // down, so a click handler would first switch to the tab it
-                  // is about to close.
-                  e.preventDefault();
-                  e.stopPropagation();
-                  closeTab(t.key);
-                }}
-                className="rounded p-0.5 opacity-50 hover:bg-foreground/10 hover:opacity-100"
-              >
-                <X size={11} />
-              </span>
-            </TabsTrigger>
-          ))}
-        </TabsList>
+      {/* The Tabs root is a COLUMN by design (list above, content below), so it
+          wraps the strip only. Putting the + button inside it pushed the button
+          onto a second row and centred everything. Row layout is this div's
+          job, not the primitive's. */}
+      <div className="flex shrink-0 items-center gap-1 border-b border-border-subtle px-2 py-1">
+        <Tabs value={value} onValueChange={setActive} className="min-w-0 flex-1 gap-0">
+          {/* Default (segmented) rather than line: this card is bg-card, which
+              resolves to surface/base, while the track is bg-muted =
+              surface/raised. Two different colours, so the track reads. On the
+              old popover those were the same colour and it would not have. */}
+          <TabsList className="max-w-full justify-start overflow-x-auto [&::-webkit-scrollbar]:hidden">
+            {showModule && (
+              <TabsTrigger value={MODULE_KEY} className="flex-none px-2 text-xs">
+                Panel
+              </TabsTrigger>
+            )}
+            {tabs.map((t) => (
+              <TabsTrigger key={t.key} value={t.key} className="flex-none gap-1 px-2 pr-1 text-xs">
+                {t.title}
+                <span
+                  role="button"
+                  tabIndex={-1}
+                  aria-label={`Close ${t.title}`}
+                  onPointerDown={(e) => {
+                    // pointerdown, not click: the trigger activates on pointer
+                    // down, so a click handler would first switch to the tab it
+                    // is about to close.
+                    e.preventDefault();
+                    e.stopPropagation();
+                    closeTab(t.key);
+                  }}
+                  className="rounded p-0.5 opacity-40 hover:bg-foreground/10 hover:opacity-100"
+                >
+                  {/* Sized by class: TabsTrigger forces size-4 on any svg that
+                      has no size class of its own. */}
+                  <X className="size-3" />
+                </span>
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
         <Button
           size="icon"
           variant="ghost"
@@ -66,9 +78,9 @@ export function TerminalWorkspace({ moduleContent }: { moduleContent?: React.Rea
           aria-label="New terminal"
           onClick={openTab}
         >
-          <Plus size={14} />
+          <Plus className="size-3.5" />
         </Button>
-      </Tabs>
+      </div>
 
       <div className="relative min-h-0 flex-1">
         {showModule && (
