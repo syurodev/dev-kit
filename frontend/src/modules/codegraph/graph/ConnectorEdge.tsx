@@ -11,11 +11,18 @@ export type ConnectorEdgeData = {
   kind: string;
   /** Labels default off: a sequential call adds no information by saying "calls". */
   showLabel?: boolean;
+  /**
+   * Overrides the derived text. Plan edges carry a human-written `condition`
+   * ("only when type == REFUND") — far more informative than "calls", and the
+   * whole reason the plan canvas shows labels at all.
+   */
+  label?: string;
 };
 
 export function ConnectorEdge({ id, data, markerEnd, ...props }: EdgeProps) {
   const kind = (data as ConnectorEdgeData | undefined)?.kind ?? "call";
   const showLabel = (data as ConnectorEdgeData | undefined)?.showLabel ?? false;
+  const label = (data as ConnectorEdgeData | undefined)?.label;
   const dashed = kind === "di";
 
   const [path, labelX, labelY] = getSmoothStepPath({
@@ -42,7 +49,7 @@ export function ConnectorEdge({ id, data, markerEnd, ...props }: EdgeProps) {
             style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}
           >
             <EdgeLabelPill kind={dashed ? "di" : "call"}>
-              {dashed ? "injects" : "calls"}
+              {label ?? (dashed ? "injects" : "calls")}
             </EdgeLabelPill>
           </div>
         </EdgeLabelRenderer>

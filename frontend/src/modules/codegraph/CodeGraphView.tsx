@@ -6,8 +6,10 @@ import { Button } from "@/components/ui/button";
 import { useSidebarContent } from "@/components/ui/sidebar-shell";
 import { CodeGraphSidebar } from "./CodeGraphSidebar";
 import { NodeInspector } from "./inspector/NodeInspector";
+import { PlanBar } from "./plan/PlanBar";
 import { languageExtensionForPath } from "./editorLanguage";
 import { FlowCanvas } from "./graph/FlowCanvas";
+import { shortLabel } from "./graph/labels";
 import {
   openCodeGraphProject,
   listCodeGraphEndpoints,
@@ -18,6 +20,11 @@ import {
   writeCodeGraphFile,
   type CodeGraphEndpoint,
 } from "../../bridge/codegraph";
+import {
+  approveCodeGraphPlan,
+  getCodeGraphPlanEdges,
+  getCodeGraphPlanProgress,
+} from "../../bridge/codegraphPlan";
 import { errorMessage } from "../../bridge/errors";
 import { useCodeGraphStore } from "./codegraphStore";
 
@@ -138,6 +145,41 @@ async function inspectNode(nodeId: string) {
   }
 }
 
+/**
+ * Loads the plan and its edges together.
+ *
+ * Status is recomputed by Go on every read, so this is also how the canvas
+ * picks up an agent's progress — no diffing here, and nothing cached.
+ */
+async function loadPlan() {
+  set({ planBusy: true, planError: "" });
+  try {
+    const [plan, planEdges] = await Promise.all([
+      getCodeGraphPlanProgress(),
+      getCodeGraphPlanEdges(),
+    ]);
+    set({ plan, planEdges });
+  } catch (e) {
+    // Having no plan is the normal state for most projects, not a failure
+    // worth shouting about — the empty state says what creates one.
+    set({ plan: null, planEdges: [], planError: errorMessage(e) });
+  } finally {
+    set({ planBusy: false });
+  }
+}
+
+async function approvePlan() {
+  set({ planBusy: true, planError: "" });
+  try {
+    await approveCodeGraphPlan();
+  } catch (e) {
+    set({ planError: errorMessage(e) });
+  } finally {
+    set({ planBusy: false });
+  }
+  await loadPlan();
+}
+
 async function openFile(path: string) {
   set({ fileError: "" });
   try {
@@ -189,6 +231,47 @@ export function CodeGraphView() {
   const loadingMore = useCodeGraphStore((s) => s.loadingMore);
   const query = useCodeGraphStore((s) => s.query);
   const inspectorNodeId = useCodeGraphStore((s) => s.inspectorNodeId);
+  const plan = useCodeGraphStore((s) => s.plan);
+  const planEdges = useCodeGraphStore((s) => s.planEdges);
+  const planBusy = useCodeGraphStore((s) => s.planBusy);
+  const planError = useCodeGraphStore((s) => s.planError);
+  const selectedPlanNodeId = useCodeGraphStore((s) => s.selectedPlanNodeId);
+
+  // The plan canvas reuses FlowCanvas whole. Plan nodes travel in the same
+  // shape as real ones with an empty filePath — a shape the view already
+  // handles, since a not_implemented node has no source to show either.
+  const planFlowNodes = useMemo(
+    () =>
+      (plan?.nodes ?? []).map((n) => ({
+        id: n.planNodeId,
+        label: n.label,
+        kind: n.kind,
+        layer: "",
+        filePath: "",
+        line: 0,
+        endLine: 0,
+        summary: n.description,
+      })),
+    [plan],
+  );
+  const planFlowEdges = useMemo(
+    () => planEdges.map((e) => ({ from: e.from, to: e.to, kind: "call" })),
+    [planEdges],
+  );
+  const planById = useMemo(
+    () => new Map((plan?.nodes ?? []).map((n) => [n.planNodeId, n])),
+    [plan],
+  );
+  const conditionByEdge = useMemo(
+    () => new Map(planEdges.map((e) => [`${e.from}->${e.to}`, e.condition])),
+    [planEdges],
+  );
+  // A root is a node nothing points at. Without one, rankGraph has no place to
+  // start; falling back to the first node keeps a cyclic plan renderable.
+  const planRootId = useMemo(() => {
+    const targets = new Set(planEdges.map((e) => e.to));
+    return planFlowNodes.find((n) => !targets.has(n.id))?.id ?? planFlowNodes[0]?.id ?? null;
+  }, [planFlowNodes, planEdges]);
   const snippet = useCodeGraphStore((s) => s.snippet);
   const snippetLoading = useCodeGraphStore((s) => s.snippetLoading);
   const snippetError = useCodeGraphStore((s) => s.snippetError);
@@ -205,7 +288,10 @@ export function CodeGraphView() {
       status={status}
       error={error}
       activeTab={activeTab}
-      onTabChange={(tab) => set({ activeTab: tab })}
+      onTabChange={(tab) => {
+        set({ activeTab: tab });
+        if (tab === "plan") void loadPlan();
+      }}
       query={query}
       onQueryChange={(q) => set({ query: q })}
       onPickProject={pickAndOpenProject}
@@ -216,6 +302,9 @@ export function CodeGraphView() {
       files={files}
       selectedFile={selectedFile}
       onSelectFile={openFile}
+      plan={plan}
+      planError={planError}
+      onSelectPlanNode={(id) => set({ selectedPlanNodeId: id })}
     />,
   );
 
@@ -284,6 +373,48 @@ export function CodeGraphView() {
           ) : (
             <div className="flex h-full items-center justify-center p-4 text-sm text-muted-foreground">
               Select an endpoint from the sidebar to view its flow graph.
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === "plan" && (
+        <div className="flex flex-1 flex-col overflow-hidden">
+          {plan && planRootId ? (
+            <>
+              <PlanBar
+                plan={plan}
+                busy={planBusy}
+                onApprove={() => void approvePlan()}
+                onRefresh={() => void loadPlan()}
+              />
+              <div className="flex-1 overflow-hidden">
+                <FlowCanvas
+                  key={`plan-${planRootId}`}
+                  rootId={planRootId}
+                  nodes={planFlowNodes}
+                  edges={planFlowEdges}
+                  nodeType="planNode"
+                  buildData={(n) => {
+                    const p = planById.get(n.id);
+                    return {
+                      title: shortLabel(n.label, n.kind),
+                      fqn: p?.fqn ?? "",
+                      status: p?.status ?? "not_implemented",
+                      commentCount: 0,
+                    };
+                  }}
+                  edgeLabel={(e) => conditionByEdge.get(`${e.from}->${e.to}`) || undefined}
+                  selectedNodeId={selectedPlanNodeId}
+                  onSelect={(id) => set({ selectedPlanNodeId: id })}
+                />
+              </div>
+            </>
+          ) : (
+            <div className="flex h-full items-center justify-center p-4 text-center text-sm text-muted-foreground">
+              {planBusy
+                ? "Loading plan…"
+                : "No plan for this project yet. An agent creates one with codegraph.proposeFlow; you approve it here."}
             </div>
           )}
         </div>

@@ -12,6 +12,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { ApiNode } from "./ApiNode";
+import { PlanNode } from "../plan/PlanNode";
 import { ConnectorEdge } from "./ConnectorEdge";
 import { LayerLegend } from "./LayerLegend";
 import { CanvasToolbar } from "./CanvasToolbar";
@@ -20,7 +21,7 @@ import { place } from "./place";
 import { shortLabel } from "./labels";
 import type { CodeGraphEdge, CodeGraphNode } from "@/bridge/codegraph";
 
-const nodeTypes = { apiNode: ApiNode };
+const nodeTypes = { apiNode: ApiNode, planNode: PlanNode };
 const edgeTypes = { connector: ConnectorEdge };
 
 export type FlowCanvasProps = {
@@ -30,6 +31,22 @@ export type FlowCanvasProps = {
   onSelect?: (nodeId: string) => void;
   /** Rendered inside ReactFlow — NodeToolbar-based overlays need that context. */
   inspector?: ReactNode;
+  /**
+   * Which registered node component to render. The plan canvas reuses this
+   * whole file — ranking, placement, connectors — and differs only in the card
+   * it draws and the data that card needs.
+   */
+  nodeType?: keyof typeof nodeTypes;
+  /** Builds the node's `data`. Defaults to the API-node shape. */
+  buildData?: (node: CodeGraphNode) => Record<string, unknown>;
+  /** Per-edge label text, for plan conditions. */
+  edgeLabel?: (edge: CodeGraphEdge) => string | undefined;
+  /**
+   * Marks one node selected from outside the canvas — picking a row in the
+   * sidebar should show you which card it means, and React Flow's own
+   * selection only reacts to clicks on the canvas itself.
+   */
+  selectedNodeId?: string | null;
 };
 
 export function FlowCanvas(props: FlowCanvasProps) {
@@ -40,7 +57,7 @@ export function FlowCanvas(props: FlowCanvasProps) {
   );
 }
 
-function Canvas({ rootId, nodes, edges, onSelect, inspector }: FlowCanvasProps) {
+function Canvas({ rootId, nodes, edges, onSelect, inspector, nodeType = "apiNode", buildData, edgeLabel, selectedNodeId }: FlowCanvasProps) {
   const { getNodes, setNodes, fitView } = useReactFlow();
   const nodesInitialized = useNodesInitialized();
   const [placed, setPlaced] = useState(false);
@@ -62,9 +79,10 @@ function Canvas({ rootId, nodes, edges, onSelect, inspector }: FlowCanvasProps) 
     () =>
       reachableNodes.map((n) => ({
         id: n.id,
-        type: "apiNode",
+        type: nodeType,
+        selected: n.id === selectedNodeId,
         position: { x: 0, y: 0 },
-        data: {
+        data: buildData?.(n) ?? {
           layer: n.layer,
           // Short name on the card, fully-qualified name in the tooltip — the
           // card is too narrow to show an FQN without truncating away the only
@@ -75,7 +93,7 @@ function Canvas({ rootId, nodes, edges, onSelect, inspector }: FlowCanvasProps) 
           detailTooltip: `${n.filePath}:${n.line}`,
         },
       })),
-    [reachableNodes],
+    [reachableNodes, nodeType, buildData, selectedNodeId],
   );
 
   const flowEdges: Edge[] = useMemo(
@@ -97,12 +115,16 @@ function Canvas({ rootId, nodes, edges, onSelect, inspector }: FlowCanvasProps) 
             sourceHandle: "bottom",
             targetHandle: sameColumn ? "top" : "left",
             type: "connector",
-            data: { kind: e.kind, showLabel: e.kind === "di" },
+            data: {
+              kind: e.kind,
+              label: edgeLabel?.(e),
+              showLabel: e.kind === "di" || !!edgeLabel?.(e),
+            },
             markerEnd: { type: MarkerType.Arrow, color: "var(--icon-secondary)" },
           },
         ];
       }),
-    [edges, ranks],
+    [edges, ranks, edgeLabel],
   );
 
   useEffect(() => setPlaced(false), [initialNodes, flowEdges]);
