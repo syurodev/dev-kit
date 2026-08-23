@@ -22,8 +22,22 @@ import { SecurityNotice } from "@/components/ui/security-notice";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { McpInstallPanel } from "./McpInstallPanel";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  monoFontOptions,
+  monoFontStack,
+  useAppearanceStore,
+  type MonoFont,
+} from "@/stores/appearance";
+import {
   User,
   Sun,
+  Code,
   Monitor,
   SlidersHorizontal,
   Laptop,
@@ -309,15 +323,69 @@ function AccountTab() {
 // ----------------------------------------------------------------------
 // 2. Appearance Tab
 // ----------------------------------------------------------------------
+function FontSettingRow({
+  label,
+  font,
+  size,
+  onFont,
+  onSize,
+}: {
+  label: string;
+  font: MonoFont;
+  size: number;
+  onFont: (font: MonoFont) => void;
+  onSize: (size: number) => void;
+}) {
+  return (
+    <div className="flex items-end gap-3">
+      <div className="flex flex-col gap-1.5">
+        <span className="text-[12px] text-text-secondary">{label}</span>
+        <Select value={font} onValueChange={(value) => onFont(value as MonoFont)}>
+          <SelectTrigger className="w-[220px] font-mono-devkit text-[13px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {monoFontOptions.map((option) => (
+              <SelectItem
+                key={option}
+                value={option}
+                className="font-mono-devkit text-[13px]"
+                style={{ fontFamily: monoFontStack(option) }}
+              >
+                {option}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <span className="text-[12px] text-text-secondary">Size</span>
+        <Input
+          type="number"
+          min={10}
+          max={24}
+          value={size}
+          onChange={(e) => {
+            const next = Number(e.target.value);
+            if (Number.isFinite(next)) onSize(Math.min(24, Math.max(10, next)));
+          }}
+          className="w-[72px] font-mono-devkit text-[13px]"
+        />
+      </div>
+    </div>
+  );
+}
+
 function AppearanceTab() {
-  const { setTheme } = useTheme();
+  const { theme, setTheme } = useTheme();
+  const { codeFont, codeSize, terminalFont, terminalSize, setAppearance } = useAppearanceStore();
 
   return (
     <div className="flex flex-col gap-6 max-w-[560px]">
       <div className="flex flex-col gap-2">
         <h2 className="text-[28px] font-semibold tracking-tight text-text-primary">Appearance</h2>
         <p className="text-[14px] leading-relaxed text-text-secondary">
-          DevKit is dark-first today. Light and System themes are planned for a future release.
+          Theme follows your explicit choice, or the OS when set to System.
         </p>
       </div>
 
@@ -328,36 +396,48 @@ function AppearanceTab() {
         </div>
 
         <div className="flex items-center gap-3">
-          <Button
-            type="button"
-            variant="default"
-            size="default"
-            onClick={() => void setTheme("dark")}
-            className="w-20"
-          >
-            Dark
-          </Button>
-
-          <Button
-            type="button"
-            variant="secondary"
-            size="default"
-            disabled
-            className="w-20 opacity-40"
-          >
-            Light
-          </Button>
-
-          <Button
-            type="button"
-            variant="secondary"
-            size="default"
-            disabled
-            className="w-20 opacity-40"
-          >
-            System
-          </Button>
+          {(["dark", "light", "system"] as const).map((option) => (
+            <Button
+              key={option}
+              type="button"
+              variant={theme === option ? "default" : "secondary"}
+              size="default"
+              onClick={() => void setTheme(option)}
+              className="w-20 capitalize"
+            >
+              {option}
+            </Button>
+          ))}
         </div>
+      </div>
+
+      <div className="flex flex-col gap-4 pt-2">
+        <div className="flex items-center gap-2 text-action-primary">
+          <Code className="size-3.5" strokeWidth={1.5} />
+          <span className="text-[10px] font-medium tracking-wider uppercase">CODE & TERMINAL</span>
+        </div>
+
+        <FontSettingRow
+          label="Code font"
+          font={codeFont}
+          size={codeSize}
+          onFont={(font) => setAppearance({ codeFont: font })}
+          onSize={(size) => setAppearance({ codeSize: size })}
+        />
+        <FontSettingRow
+          label="Terminal font"
+          font={terminalFont}
+          size={terminalSize}
+          onFont={(font) => setAppearance({ terminalFont: font })}
+          onSize={(size) => setAppearance({ terminalSize: size })}
+        />
+
+        <p
+          className="text-text-tertiary"
+          style={{ fontFamily: monoFontStack(codeFont), fontSize: codeSize }}
+        >
+          {`const vault = unlock(masterKey); // ${codeSize}px preview`}
+        </p>
       </div>
     </div>
   );

@@ -11,6 +11,7 @@ import {
 } from "@/bridge/terminal";
 import { errorMessage } from "@/bridge/errors";
 import { Button } from "@/components/ui/button";
+import { monoFontStack, useAppearanceStore } from "@/stores/appearance";
 
 /**
  * A shell rooted at the open project, in the bottom slot.
@@ -22,37 +23,11 @@ import { Button } from "@/components/ui/button";
  * between mount and the session id coming back — without it, unmounting during
  * startup leaks a PTY nobody is reading.
  */
-/**
- * The nearest ancestor colour that is actually painted.
- *
- * Reading the `--card` custom property would return the literal
- * `var(--surface-base)` it is declared as, not a colour; getComputedStyle on a
- * real element resolves the whole chain.
- */
-function surfaceBehind(el: HTMLElement): string {
-  for (let node: HTMLElement | null = el; node; node = node.parentElement) {
-    const bg = getComputedStyle(node).backgroundColor;
-    if (bg && bg !== "transparent" && !/^rgba\(.*,\s*0\)$/.test(bg)) return bg;
-  }
-  return "#1d1d1d";
-}
-
-/**
- * The mono stack as a literal font list.
- *
- * `var(--font-mono)` cannot be handed to xterm: it applies the family to a DOM
- * node (where var() resolves) but MEASURES cell width through a canvas, where
- * var() does not resolve at all. The result is glyphs from one font sitting in
- * cells sized for another — the letters look loose and misaligned. Unlike
- * `--card`, this custom property is declared as a real font list, so reading it
- * gives a usable value rather than the literal `var(...)`.
- */
-function monoStack(): string {
-  const value = getComputedStyle(document.documentElement)
-    .getPropertyValue("--font-mono")
-    .trim();
-  return value || "monospace";
-}
+// Font prefs come from Settings > Appearance. monoFontStack returns a literal
+// font list — `var(--font-mono)` cannot be handed to xterm: it applies the
+// family to a DOM node (where var() resolves) but MEASURES cell width through
+// a canvas, where var() does not resolve at all. The result is glyphs from one
+// font sitting in cells sized for another.
 
 export function TerminalPane() {
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -72,17 +47,19 @@ export function TerminalPane() {
     let offOutput: (() => void) | undefined;
 
     setError("");
+    const prefs = useAppearanceStore.getState();
     const term = new Terminal({
-      fontSize: 12,
-      fontFamily: monoStack(),
+      fontSize: prefs.terminalSize,
+      fontFamily: monoFontStack(prefs.terminalFont),
       convertEol: true,
       cursorBlink: true,
-      // Painted with the surface's OWN resolved colour rather than left
-      // transparent. Transparency depends on xterm's renderer honouring an
-      // alpha background, which it did not here — the pane read as a black
-      // hole cut into the panel. Measuring the ancestor that actually paints
-      // works regardless of renderer, and follows the theme for free.
-      theme: { background: surfaceBehind(host) },
+      // The bottom slot is glass now, so the terminal must not paint its own
+      // background — the pane shows the panel's tint and the vibrancy behind
+      // it. allowTransparency is the switch that makes xterm honour an alpha
+      // background; without it the renderer clamps alpha to 1 and the pane
+      // reads as an opaque hole cut into the glass (the bug this replaces).
+      allowTransparency: true,
+      theme: { background: "rgba(0, 0, 0, 0)" },
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -97,7 +74,16 @@ export function TerminalPane() {
     void document.fonts.ready.then(() => {
       if (disposed) return;
       term.options.fontFamily = "monospace";
-      term.options.fontFamily = monoStack();
+      term.options.fontFamily = monoFontStack(useAppearanceStore.getState().terminalFont);
+      fit.fit();
+      if (sessionId) void resizeTerminal(sessionId, term.rows, term.cols);
+    });
+
+    // Live font/size changes from Settings > Appearance. Same lifetime as the
+    // terminal itself, so the subscription lives in this effect too.
+    const offAppearance = useAppearanceStore.subscribe((s) => {
+      term.options.fontSize = s.terminalSize;
+      term.options.fontFamily = monoFontStack(s.terminalFont);
       fit.fit();
       if (sessionId) void resizeTerminal(sessionId, term.rows, term.cols);
     });
@@ -126,6 +112,7 @@ export function TerminalPane() {
     return () => {
       disposed = true;
       observer.disconnect();
+      offAppearance();
       offOutput?.();
       if (sessionId) void closeTerminal(sessionId);
       // Last: nothing may write into a disposed terminal.
@@ -143,7 +130,7 @@ export function TerminalPane() {
           </Button>
         </div>
       )}
-      <div ref={hostRef} className="min-h-0 flex-1 overflow-hidden p-2" />
+      <div ref={hostRef} className="terminal-glass min-h-0 flex-1 overflow-hidden p-2" />
     </div>
   );
 }

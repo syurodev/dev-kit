@@ -6,6 +6,17 @@ import { oneDark } from "@codemirror/theme-one-dark";
 import { useTheme } from "@/theme/ThemeProvider";
 import { wrapIndent } from "./wrapIndent";
 
+// Settings > Appearance drives these two custom properties (stores/
+// appearance.ts writes them on <html>). CodeMirror renders in the DOM, where
+// var() resolves live — so font changes apply to every open editor without a
+// remount or a Compartment.
+const fontTheme = EditorView.theme({
+  ".cm-scroller": {
+    fontFamily: "var(--code-font-family, var(--font-mono))",
+    fontSize: "var(--code-font-size, 13px)",
+  },
+});
+
 export type CodeEditorProps = {
   value: string;
   onChange: (value: string) => void;
@@ -49,6 +60,7 @@ export function CodeEditor({ value, onChange, extensions, readOnly, wrap }: Code
         doc: value,
         extensions: [
           basicSetup,
+          fontTheme,
           languageCompartment.of(extensions ?? []),
           readOnlyCompartment.of(EditorState.readOnly.of(!!readOnly)),
           themeCompartment.of(resolvedTheme === "dark" ? [oneDark] : []),
