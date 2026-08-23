@@ -22,6 +22,21 @@ import { Button } from "@/components/ui/button";
  * between mount and the session id coming back — without it, unmounting during
  * startup leaks a PTY nobody is reading.
  */
+/**
+ * The nearest ancestor colour that is actually painted.
+ *
+ * Reading the `--card` custom property would return the literal
+ * `var(--surface-base)` it is declared as, not a colour; getComputedStyle on a
+ * real element resolves the whole chain.
+ */
+function surfaceBehind(el: HTMLElement): string {
+  for (let node: HTMLElement | null = el; node; node = node.parentElement) {
+    const bg = getComputedStyle(node).backgroundColor;
+    if (bg && bg !== "transparent" && !/^rgba\(.*,\s*0\)$/.test(bg)) return bg;
+  }
+  return "#1d1d1d";
+}
+
 export function TerminalPane() {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const [error, setError] = useState("");
@@ -45,11 +60,12 @@ export function TerminalPane() {
       fontFamily: "var(--font-mono), monospace",
       convertEol: true,
       cursorBlink: true,
-      // allowTransparency is what actually lets the slot's own surface show
-      // through; without it xterm paints its theme background opaque and the
-      // pane reads as a black hole cut into the panel.
-      allowTransparency: true,
-      theme: { background: "rgba(0, 0, 0, 0)" },
+      // Painted with the surface's OWN resolved colour rather than left
+      // transparent. Transparency depends on xterm's renderer honouring an
+      // alpha background, which it did not here — the pane read as a black
+      // hole cut into the panel. Measuring the ancestor that actually paints
+      // works regardless of renderer, and follows the theme for free.
+      theme: { background: surfaceBehind(host) },
     });
     const fit = new FitAddon();
     term.loadAddon(fit);

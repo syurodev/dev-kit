@@ -5,10 +5,8 @@ import { CodeEditor } from "@/components/code-editor/CodeEditor";
 import { Button } from "@/components/ui/button";
 import { useSidebarContent } from "@/components/ui/sidebar-shell";
 import { useSplitPanel } from "@/components/ui/split-panel";
-import { useBottomContent } from "@/components/ui/bottom-slot";
 import { CodeGraphSidebar } from "./CodeGraphSidebar";
 import { BlastRadiusPanel } from "./BlastRadiusPanel";
-import { TerminalPane } from "./terminal/TerminalPane";
 import { NodeInspector } from "./inspector/NodeInspector";
 import { PlanBar } from "./plan/PlanBar";
 import { PlanNodeDetail } from "./plan/PlanNodeDetail";
@@ -57,17 +55,15 @@ async function reindex(path: string) {
     error: "",
     subgraph: null,
     rootId: null,
-    projectReady: false,
   });
   try {
     await openCodeGraphProject(path);
-    set({ projectReady: true });
     const list = await listCodeGraphEndpoints();
     set({ endpoints: list });
     await loadFiles();
     set({ status: `Indexed. ${list.length} endpoint(s) found.` });
   } catch (e) {
-    set({ endpoints: [], files: [], status: "", error: errorMessage(e), projectReady: false });
+    set({ endpoints: [], files: [], status: "", error: errorMessage(e) });
   } finally {
     set({ busy: false });
   }
@@ -273,12 +269,8 @@ const saveKeymap = keymap.of([
   },
 ]);
 
-/** Stable element: see useBottomContent below for why this cannot be inline. */
-const TERMINAL_PANE = <TerminalPane />;
-
 export function CodeGraphView() {
   const projectPath = useCodeGraphStore((s) => s.projectPath);
-  const projectReady = useCodeGraphStore((s) => s.projectReady);
   const endpoints = useCodeGraphStore((s) => s.endpoints);
   const subgraph = useCodeGraphStore((s) => s.subgraph);
   const rootId = useCodeGraphStore((s) => s.rootId);
@@ -385,15 +377,6 @@ export function CodeGraphView() {
     () => (selectedFile ? [...languageExtensionForPath(selectedFile), saveKeymap] : []),
     [selectedFile],
   );
-
-  // Gated on projectReady, not projectPath: the picker sets the path before
-  // Go has opened anything, and a shell started in that window dies with
-  // "No active CodeGraph project" and never retries.
-  //
-  // Hoisted, not inline JSX: useBottomContent stores the element and re-runs
-  // its effect whenever the identity changes, and a new element every render
-  // would tear down the shell and start another one.
-  useBottomContent(projectReady ? TERMINAL_PANE : null);
 
   useSidebarContent(
     <CodeGraphSidebar

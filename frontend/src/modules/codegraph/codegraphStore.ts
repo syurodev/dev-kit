@@ -12,12 +12,6 @@ import type {
 
 type CodeGraphState = {
   projectPath: string;
-  /**
-   * True only once Go has actually opened the project. `projectPath` is set the
-   * instant the picker returns, which is BEFORE the backend knows anything —
-   * anything that calls into the backend must gate on this instead.
-   */
-  projectReady: boolean;
   endpoints: CodeGraphEndpoint[];
   subgraph: CodeGraphSubgraph | null;
   rootId: string | null;
@@ -77,7 +71,6 @@ type CodeGraphState = {
  */
 export const useCodeGraphStore = create<CodeGraphState>((set) => ({
   projectPath: "",
-  projectReady: false,
   endpoints: [],
   subgraph: null,
   rootId: null,

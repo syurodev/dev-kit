@@ -7,6 +7,7 @@ import {
   useWindowHeight,
 } from "@/workbench/panelLayout";
 import { useBottomContentStore } from "@/stores/bottomContent";
+import { TerminalWorkspace } from "@/workbench/TerminalWorkspace";
 import { useBottomSlotStore } from "@/stores/bottomSlot";
 import { SidebarModuleIdContext } from "@/components/ui/sidebar-shell";
 
@@ -121,12 +122,11 @@ export function BottomSlotSurface({ activeModuleId }: { activeModuleId: string |
             not the recessed bg-sidebar rail. A terminal or a task log reads as
             content, not as navigation chrome. */}
         <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card">
-          {content ?? (
-            <p className="flex h-full items-center justify-center px-4 text-sm text-muted-foreground">
-              This module has nothing to show down here yet.
-            </p>
-          )}
-        </div>
+          {/* The workspace owns this surface: terminals belong to the shell so
+              they survive a module switch, the way a build running in one must.
+              Module-registered content still gets a tab beside them. */}
+          <TerminalWorkspace moduleContent={content ?? undefined} />
+</div>
       </m.div>
     </LazyMotion>
   );
