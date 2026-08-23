@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
@@ -10,6 +10,7 @@ import {
   writeTerminal,
 } from "@/bridge/terminal";
 import { errorMessage } from "@/bridge/errors";
+import { Button } from "@/components/ui/button";
 
 /**
  * A shell rooted at the open project, in the bottom slot.
@@ -24,6 +25,11 @@ import { errorMessage } from "@/bridge/errors";
 export function TerminalPane() {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const [error, setError] = useState("");
+  // Bumping this re-runs the whole effect, which is the only correct way to
+  // retry: a failed start leaves no session, no subscription and a terminal
+  // that must be rebuilt, not patched.
+  const [attempt, setAttempt] = useState(0);
+  const retry = useCallback(() => setAttempt((n) => n + 1), []);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -33,12 +39,17 @@ export function TerminalPane() {
     let sessionId = "";
     let offOutput: (() => void) | undefined;
 
+    setError("");
     const term = new Terminal({
       fontSize: 12,
       fontFamily: "var(--font-mono), monospace",
       convertEol: true,
       cursorBlink: true,
-      theme: { background: "#00000000" },
+      // allowTransparency is what actually lets the slot's own surface show
+      // through; without it xterm paints its theme background opaque and the
+      // pane reads as a black hole cut into the panel.
+      allowTransparency: true,
+      theme: { background: "rgba(0, 0, 0, 0)" },
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -74,11 +85,18 @@ export function TerminalPane() {
       // Last: nothing may write into a disposed terminal.
       term.dispose();
     };
-  }, []);
+  }, [attempt]);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {error && <p className="shrink-0 px-3 py-1.5 text-xs text-destructive">{error}</p>}
+      {error && (
+        <div className="flex shrink-0 items-center gap-2 px-3 py-1.5">
+          <p className="min-w-0 flex-1 truncate text-xs text-destructive">{error}</p>
+          <Button size="sm" variant="secondary" className="h-6 shrink-0 px-2 text-xs" onClick={retry}>
+            Retry
+          </Button>
+        </div>
+      )}
       <div ref={hostRef} className="min-h-0 flex-1 overflow-hidden p-2" />
     </div>
   );
