@@ -315,6 +315,9 @@ type Store interface {
 	GetPlan(ctx context.Context) (Plan, error)
 	SetPlanState(ctx context.Context, state string) error
 	SetPlanNodeFQN(ctx context.Context, planNodeID, fqn string) error
+	AddComment(ctx context.Context, c PlanComment) error
+	ListComments(ctx context.Context, planNodeID string) ([]PlanComment, error)
+	CountComments(ctx context.Context) (map[string]int, error)
 	ResolveFQN(ctx context.Context, fqn string) (Node, bool, error)
 	Close() error
 }

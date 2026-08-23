@@ -106,6 +106,19 @@ export function CodeGraphApprovePlan(): $CancellablePromise<void> {
     return $Call.ByID(1130561769);
 }
 
+/**
+ * CodeGraphCommentPlanNode is the human write. The body is deliberately absent
+ * from the audit payload — comment text is content, not a parameter worth
+ * recording on every call, the same reason CodeGraphWriteFile omits content.
+ */
+export function CodeGraphCommentPlanNode(planNodeID: string, body: string): $CancellablePromise<void> {
+    return $Call.ByID(379853061, planNodeID, body);
+}
+
+export function CodeGraphCountPlanNodeComments(): $CancellablePromise<{ [_ in string]?: number } | null> {
+    return $Call.ByID(1373712737);
+}
+
 export function CodeGraphGetApiFlow(endpointID: string): $CancellablePromise<codegraph$0.ApiFlow> {
     return $Call.ByID(3432526133, endpointID);
 }
@@ -140,6 +153,10 @@ export function CodeGraphListFields(nodeID: string): $CancellablePromise<codegra
 
 export function CodeGraphListFiles(): $CancellablePromise<codegraph$0.FileEntry[] | null> {
     return $Call.ByID(1096722516);
+}
+
+export function CodeGraphListPlanNodeComments(planNodeID: string): $CancellablePromise<codegraph$0.PlanComment[] | null> {
+    return $Call.ByID(44393988, planNodeID);
 }
 
 export function CodeGraphOpenProject(path: string): $CancellablePromise<void> {

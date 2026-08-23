@@ -1164,6 +1164,14 @@ func (nilStore) GetCallSites(context.Context, string) ([]CallSite, error) {
 	return nil, ErrNoActiveProject
 }
 
+func (nilStore) AddComment(context.Context, PlanComment) error { return ErrNoActiveProject }
+func (nilStore) ListComments(context.Context, string) ([]PlanComment, error) {
+	return nil, ErrNoActiveProject
+}
+func (nilStore) CountComments(context.Context) (map[string]int, error) {
+	return nil, ErrNoActiveProject
+}
+
 func (nilStore) ListFields(context.Context, string) ([]FieldRef, error) {
 	return nil, ErrNoActiveProject
 }

@@ -54,6 +54,22 @@ type Plan struct {
 	Edges       []PlanEdge `json:"edges"`
 }
 
+// PlanComment is one message on a plan node's thread. Author is "user" or
+// "agent". SessionID records which agent session the comment was delivered
+// into, so a thread read back later says which run it belonged to — it is not
+// used for routing.
+//
+// Threads are read-only history: no resolve, reopen, edit or delete
+// (codegraph.mdx § Non-goals). A thread dies with the plan it belongs to.
+type PlanComment struct {
+	PlanNodeID string `json:"planNodeId"`
+	CommentID  string `json:"commentId"`
+	Author     string `json:"author"`
+	Body       string `json:"body"`
+	CreatedAt  int64  `json:"createdAt"` // unix seconds
+	SessionID  string `json:"sessionId"`
+}
+
 // PlanNodeProgress is one plan node plus its freshly computed status.
 type PlanNodeProgress struct {
 	PlanNode

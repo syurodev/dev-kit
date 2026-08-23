@@ -65,3 +65,41 @@ func (s *AppService) CodeGraphRelinkPlanNode(planNodeID, fqn string) error {
 	})
 	return err
 }
+
+// CodeGraphCommentPlanNode is the human write. The body is deliberately absent
+// from the audit payload — comment text is content, not a parameter worth
+// recording on every call, the same reason CodeGraphWriteFile omits content.
+func (s *AppService) CodeGraphCommentPlanNode(planNodeID, body string) error {
+	_, err := s.call(context.Background(), "builtin.codegraph", "codegraph:plan", "plan:active", map[string]any{
+		"action":       "comment_plan_node",
+		"plan_node_id": planNodeID,
+	}, func(ctx context.Context) (any, error) {
+		return nil, s.container.CodeGraph.CommentPlanNode(ctx, planNodeID, body)
+	})
+	return err
+}
+
+func (s *AppService) CodeGraphListPlanNodeComments(planNodeID string) ([]codegraph.PlanComment, error) {
+	result, err := s.call(context.Background(), "builtin.codegraph", "codegraph:plan", "plan:active", map[string]any{
+		"action":       "list_plan_node_comments",
+		"plan_node_id": planNodeID,
+	}, func(ctx context.Context) (any, error) {
+		return s.container.CodeGraph.ListPlanNodeComments(ctx, planNodeID)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]codegraph.PlanComment), nil
+}
+
+func (s *AppService) CodeGraphCountPlanNodeComments() (map[string]int, error) {
+	result, err := s.call(context.Background(), "builtin.codegraph", "codegraph:plan", "plan:active", map[string]any{
+		"action": "count_plan_node_comments",
+	}, func(ctx context.Context) (any, error) {
+		return s.container.CodeGraph.CountPlanNodeComments(ctx)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(map[string]int), nil
+}
