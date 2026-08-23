@@ -7,6 +7,7 @@ import { useSidebarContent } from "@/components/ui/sidebar-shell";
 import { CodeGraphSidebar } from "./CodeGraphSidebar";
 import { NodeInspector } from "./inspector/NodeInspector";
 import { PlanBar } from "./plan/PlanBar";
+import { PlanNodeDetail } from "./plan/PlanNodeDetail";
 import { languageExtensionForPath } from "./editorLanguage";
 import { FlowCanvas } from "./graph/FlowCanvas";
 import { shortLabel } from "./graph/labels";
@@ -22,6 +23,7 @@ import {
 } from "../../bridge/codegraph";
 import {
   approveCodeGraphPlan,
+  relinkCodeGraphPlanNode,
   getCodeGraphPlanEdges,
   getCodeGraphPlanProgress,
 } from "../../bridge/codegraphPlan";
@@ -180,6 +182,20 @@ async function approvePlan() {
   await loadPlan();
 }
 
+async function relinkPlanNode(planNodeID: string, fqn: string) {
+  set({ planBusy: true, planError: "" });
+  try {
+    await relinkCodeGraphPlanNode(planNodeID, fqn);
+  } catch (e) {
+    set({ planError: errorMessage(e) });
+  } finally {
+    set({ planBusy: false });
+  }
+  // Status is derived from the FQN, so the whole plan is re-read rather than
+  // patched — the relinked node may now resolve, and its edges with it.
+  await loadPlan();
+}
+
 async function openFile(path: string) {
   set({ fileError: "" });
   try {
@@ -262,6 +278,7 @@ export function CodeGraphView() {
     () => new Map((plan?.nodes ?? []).map((n) => [n.planNodeId, n])),
     [plan],
   );
+  const selectedPlanNode = selectedPlanNodeId ? (planById.get(selectedPlanNodeId) ?? null) : null;
   const conditionByEdge = useMemo(
     () => new Map(planEdges.map((e) => [`${e.from}->${e.to}`, e.condition])),
     [planEdges],
@@ -388,6 +405,13 @@ export function CodeGraphView() {
                 onApprove={() => void approvePlan()}
                 onRefresh={() => void loadPlan()}
               />
+              {selectedPlanNode && (
+                <PlanNodeDetail
+                  node={selectedPlanNode}
+                  busy={planBusy}
+                  onRelink={(fqn) => void relinkPlanNode(selectedPlanNode.planNodeId, fqn)}
+                />
+              )}
               <div className="flex-1 overflow-hidden">
                 <FlowCanvas
                   key={`plan-${planRootId}`}
