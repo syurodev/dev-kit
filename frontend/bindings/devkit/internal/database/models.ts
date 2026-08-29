@@ -21,6 +21,12 @@ export interface CreateProfileInput {
     "password": string;
     "ssl_mode": string;
     "env": string;
+
+    /**
+     * SSHProfileID is accepted at creation so a tunnelled profile never exists
+     * with a direct connection path, however briefly.
+     */
+    "ssh_profile_id": string;
 }
 
 /**

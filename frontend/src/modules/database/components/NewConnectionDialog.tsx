@@ -3,7 +3,7 @@ import { Database, X, AlertTriangle, Radio } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useDatabaseStore } from "../databaseStore";
-import { createProfile } from "../../../bridge/database";
+import { createProfile, testNewConnection } from "../../../bridge/database";
 import { errorMessage } from "../../../bridge/errors";
 
 export function NewConnectionDialog() {
@@ -28,6 +28,8 @@ export function NewConnectionDialog() {
   const [sshProfileId, setSshProfileId] = useState("");
 
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState("");
   const [error, setError] = useState("");
 
   if (!showNewConnectionDialog) return null;
@@ -63,6 +65,7 @@ export function NewConnectionDialog() {
         password,
         sslMode,
         env,
+        sshProfileId,
       });
 
       setShowNewConnectionDialog(false);
@@ -72,6 +75,31 @@ export function NewConnectionDialog() {
       setError(errorMessage(e));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleTest() {
+    setTesting(true);
+    setError("");
+    setTestResult("");
+    try {
+      await testNewConnection({
+        name: name.trim(),
+        engine,
+        host: host.trim(),
+        port: Number(port),
+        database: database.trim(),
+        username: username.trim(),
+        password,
+        sslMode,
+        env,
+        sshProfileId,
+      });
+      setTestResult("Connected.");
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setTesting(false);
     }
   }
 
@@ -243,7 +271,21 @@ export function NewConnectionDialog() {
         )}
 
         {/* Dialog Actions */}
-        <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">
+        <div className="flex items-center gap-2 pt-3 border-t border-border">
+          {/* Dialling before saving is the point: otherwise the only way to
+              learn a profile is wrong is to commit it first. */}
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={handleTest}
+            disabled={testing || saving}
+          >
+            {testing ? "Testing…" : "Test connection"}
+          </Button>
+          {testResult && (
+            <span className="text-xs text-status-success">{testResult}</span>
+          )}
+          <div className="flex-1" />
           <Button
             variant="outline"
             size="sm"

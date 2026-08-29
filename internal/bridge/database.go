@@ -46,6 +46,20 @@ func (s *AppService) DBDeleteProfile(id string) error {
 	return err
 }
 
+// DBTestNewConnection dials a profile that has not been saved yet, so the user
+// finds out before committing rather than after. Audit records the engine and
+// host; the password arrives as a parameter and never reaches the trail.
+func (s *AppService) DBTestNewConnection(ctx context.Context, input database.CreateProfileInput) error {
+	_, err := s.call(ctx, "builtin.database", "db:query", "profile:new", map[string]any{
+		"action": "test_new_connection",
+		"engine": input.Engine,
+		"host":   input.Host,
+	}, func(callCtx context.Context) (any, error) {
+		return nil, s.container.Database.TestNewConnection(callCtx, input)
+	})
+	return err
+}
+
 func (s *AppService) DBTestConnection(ctx context.Context, id string) error {
 	opaqueID := recordID(id)
 	_, err := s.call(ctx, "builtin.database", "db:query", "profile:"+opaqueID, map[string]any{

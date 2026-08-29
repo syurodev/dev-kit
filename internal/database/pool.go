@@ -121,3 +121,26 @@ func (m *PoolManager) Close() {
 func queryContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(ctx, queryTimeout)
 }
+
+// openProbeTunnel and closeProbeTunnel serve connection tests for a profile
+// that does not exist yet: the forward is opened and closed by the caller
+// rather than being tied to a cached connection, because there is no profile
+// id to tie it to.
+func (m *PoolManager) openProbeTunnel(ctx context.Context, spec TunnelSpec) (TunnelHandle, error) {
+	m.mu.Lock()
+	tunnels := m.tunnels
+	m.mu.Unlock()
+	if tunnels == nil {
+		return TunnelHandle{}, ErrSSHProfileMissing
+	}
+	return tunnels.Open(ctx, spec)
+}
+
+func (m *PoolManager) closeProbeTunnel(id string) {
+	m.mu.Lock()
+	tunnels := m.tunnels
+	m.mu.Unlock()
+	if tunnels != nil && id != "" {
+		_ = tunnels.Close(id)
+	}
+}

@@ -361,3 +361,72 @@ func TestUpdateProfileOptionsInvalidatesPoolOnReadOnlyChange(t *testing.T) {
 		t.Fatal("expected pool to be removed from PoolManager after read_only toggle")
 	}
 }
+
+func TestTestNewConnectionWritesNothing(t *testing.T) {
+	svc, store := newServiceWithStore(t)
+
+	before, err := store.ListByType("db-profile")
+	if err != nil {
+		t.Fatalf("ListByType: %v", err)
+	}
+	// Port 1 refuses; the dial failing is fine — what matters is the absence of
+	// side effects on the way there.
+	_ = svc.TestNewConnection(context.Background(), CreateProfileInput{
+		Name: "probe", Host: "127.0.0.1", Port: 1, Database: "d",
+		Username: "u", Password: "p", SSLMode: "disable", Env: "dev",
+	})
+
+	after, err := store.ListByType("db-profile")
+	if err != nil {
+		t.Fatalf("ListByType: %v", err)
+	}
+	if len(after) != len(before) {
+		t.Fatalf("a connection test created %d profile(s)", len(after)-len(before))
+	}
+	svc.pools.mu.Lock()
+	pooled := len(svc.pools.conns)
+	svc.pools.mu.Unlock()
+	if pooled != 0 {
+		t.Fatalf("a throwaway probe left %d connection(s) cached", pooled)
+	}
+}
+
+func TestTestNewConnectionValidatesLikeCreate(t *testing.T) {
+	svc := newService(t)
+	// A connection that tests green must not fail validation a second later on
+	// save, so both paths share one normaliser.
+	for name, input := range map[string]CreateProfileInput{
+		"no name":      {Host: "127.0.0.1", Env: "dev", SSLMode: "disable"},
+		"no env":       {Name: "p", Host: "127.0.0.1", SSLMode: "disable"},
+		"unknown env":  {Name: "p", Host: "127.0.0.1", Env: "nope", SSLMode: "disable"},
+		"bad engine":   {Name: "p", Host: "127.0.0.1", Env: "dev", Engine: "oracle"},
+		"remote + off": {Name: "p", Host: "db.acme.internal", Env: "dev", SSLMode: "disable"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := svc.TestNewConnection(context.Background(), input); err == nil {
+				t.Fatalf("%s was accepted by the test path but would be rejected on save", name)
+			}
+		})
+	}
+}
+
+func TestCreateProfileCarriesTheTunnel(t *testing.T) {
+	svc := newService(t)
+	summary, err := svc.CreateProfile(CreateProfileInput{
+		Name: "remote", Host: "db.internal", Port: 5432, Database: "app",
+		Username: "devkit", Password: "pw", SSLMode: "verify-full", Env: "dev",
+		SSHProfileID: "bastion-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateProfile: %v", err)
+	}
+	// Creating then patching would leave a window where the profile exists with
+	// a direct connection path — exactly what ErrSSHProfileMissing prevents.
+	target, err := svc.target(summary.ID)
+	if err != nil {
+		t.Fatalf("target: %v", err)
+	}
+	if target.sshProfileID != "bastion-1" {
+		t.Fatalf("sshProfileID = %q, want it set at creation", target.sshProfileID)
+	}
+}

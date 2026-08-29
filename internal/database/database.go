@@ -63,6 +63,9 @@ type CreateProfileInput struct {
 	Password string `json:"password"`
 	SSLMode  string `json:"ssl_mode"`
 	Env      string `json:"env"`
+	// SSHProfileID is accepted at creation so a tunnelled profile never exists
+	// with a direct connection path, however briefly.
+	SSHProfileID string `json:"ssh_profile_id"`
 }
 
 type UpdateProfileOptionsInput struct {
@@ -125,43 +128,96 @@ func NewService(store Store, envs EnvLookup) *Service {
 	return &Service{store: store, envs: envs, pools: NewPoolManager(), maxRows: DefaultMaxRows}
 }
 
-func (s *Service) CreateProfile(input CreateProfileInput) (ProfileSummary, error) {
+// normalizeCreateInput applies the same rules to a profile whether it is about
+// to be saved or only tested, so a connection that tests green cannot fail
+// validation a second later on save.
+func (s *Service) normalizeCreateInput(input CreateProfileInput) (CreateProfileInput, error) {
 	if input.Name == "" {
-		return ProfileSummary{}, errors.New("name is required")
+		return input, errors.New("name is required")
 	}
 	if input.Host == "" {
-		return ProfileSummary{}, errors.New("host is required")
+		return input, errors.New("host is required")
 	}
 	if input.Env == "" {
-		return ProfileSummary{}, errors.New("env is required")
+		return input, errors.New("env is required")
 	}
 	if !s.envs.Exists(input.Env) {
-		return ProfileSummary{}, fmt.Errorf("unknown env tag %q", input.Env)
+		return input, fmt.Errorf("unknown env tag %q", input.Env)
 	}
 	if input.Engine == "" {
 		input.Engine = EnginePostgres
 	}
 	if _, err := driverFor(input.Engine); err != nil {
-		return ProfileSummary{}, err
+		return input, err
 	}
 	if input.Port == 0 {
 		input.Port = DefaultPort(input.Engine)
 	}
 	sslMode, err := normalizeSSLMode(input.Host, input.SSLMode)
 	if err != nil {
-		return ProfileSummary{}, err
+		return input, err
 	}
 	input.SSLMode = sslMode
+	return input, nil
+}
+
+// TestNewConnection dials a profile that does not exist yet. Nothing is
+// written: no vault item, and no pool entry — there is no profile id to cache
+// under, and a throwaway probe should not outlive the dialog that made it.
+func (s *Service) TestNewConnection(ctx context.Context, input CreateProfileInput) error {
+	input, err := s.normalizeCreateInput(input)
+	if err != nil {
+		return err
+	}
+	driver, err := driverFor(input.Engine)
+	if err != nil {
+		return err
+	}
+	cfg := ConnConfig{
+		Engine: input.Engine, Host: input.Host, Port: input.Port,
+		Database: input.Database, Username: input.Username,
+		Password: input.Password, SSLMode: input.SSLMode,
+	}
+	if input.SSHProfileID != "" {
+		handle, err := s.pools.openProbeTunnel(ctx, TunnelSpec{
+			SSHProfileID: input.SSHProfileID,
+			TargetHost:   input.Host,
+			TargetPort:   input.Port,
+		})
+		if err != nil {
+			return err
+		}
+		defer s.pools.closeProbeTunnel(handle.ID)
+		cfg.TLSServerName = cfg.Host
+		cfg.Host = handle.LocalHost
+		cfg.Port = handle.LocalPort
+	}
+	ctx, cancel := queryContext(ctx)
+	defer cancel()
+	conn, err := driver.Dial(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	return conn.Ping(ctx)
+}
+
+func (s *Service) CreateProfile(input CreateProfileInput) (ProfileSummary, error) {
+	input, err := s.normalizeCreateInput(input)
+	if err != nil {
+		return ProfileSummary{}, err
+	}
 
 	meta, err := json.Marshal(metadata{
-		Engine:   input.Engine,
-		Name:     input.Name,
-		Host:     input.Host,
-		Port:     input.Port,
-		Database: input.Database,
-		Username: input.Username,
-		SSLMode:  input.SSLMode,
-		Env:      input.Env,
+		Engine:       input.Engine,
+		SSHProfileID: input.SSHProfileID,
+		Name:         input.Name,
+		Host:         input.Host,
+		Port:         input.Port,
+		Database:     input.Database,
+		Username:     input.Username,
+		SSLMode:      input.SSLMode,
+		Env:          input.Env,
 	})
 	if err != nil {
 		return ProfileSummary{}, err

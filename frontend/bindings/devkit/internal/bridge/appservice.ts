@@ -322,6 +322,15 @@ export function DBTestConnection(id: string): $CancellablePromise<void> {
     return $Call.ByID(3559263668, id);
 }
 
+/**
+ * DBTestNewConnection dials a profile that has not been saved yet, so the user
+ * finds out before committing rather than after. Audit records the engine and
+ * host; the password arrives as a parameter and never reaches the trail.
+ */
+export function DBTestNewConnection(input: database$0.CreateProfileInput): $CancellablePromise<void> {
+    return $Call.ByID(3346566534, input);
+}
+
 export function DBUpdateProfileOptions(id: string, opts: database$0.UpdateProfileOptionsInput): $CancellablePromise<database$0.ProfileSummary> {
     return $Call.ByID(867379260, id, opts);
 }

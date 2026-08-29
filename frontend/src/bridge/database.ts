@@ -26,6 +26,8 @@ export type CreateProfileInput = {
   sslMode: string;
   env: string;
   engine?: string;
+  /** Set at creation so a tunnelled profile never exists with a direct path. */
+  sshProfileId?: string;
 };
 
 export type UpdateProfileOptionsInput = {
@@ -209,6 +211,9 @@ export function createProfile(input: CreateProfileInput): Promise<ConnectionProf
       password: input.password,
       ssl_mode: input.sslMode,
       env: input.env,
+      // Sent at creation, not patched afterwards: a tunnelled profile must
+      // never exist with a direct connection path, however briefly.
+      ssh_profile_id: input.sshProfileId ?? "",
     });
     return toProfile(created);
   });
@@ -230,6 +235,25 @@ export function updateProfileOptions(
 
 export function deleteProfile(id: string): Promise<void> {
   return callBridge(() => AppService.DBDeleteProfile(id) as Promise<void>);
+}
+
+/** Dials a profile that has not been saved yet. */
+export function testNewConnection(input: CreateProfileInput): Promise<void> {
+  return callBridge(
+    () =>
+      AppService.DBTestNewConnection({
+        engine: input.engine ?? "",
+        name: input.name,
+        host: input.host,
+        port: input.port,
+        database: input.database,
+        username: input.username,
+        password: input.password,
+        ssl_mode: input.sslMode,
+        env: input.env,
+        ssh_profile_id: input.sshProfileId ?? "",
+      }) as Promise<void>,
+  );
 }
 
 export function testConnection(id: string): Promise<void> {
