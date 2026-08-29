@@ -30,6 +30,9 @@ export type DatabaseStoreState = {
   // Cosmetic folder groups (uistate)
   folders: Record<string, string[]>; // folderName -> profileIds
   expandedFolders: Record<string, boolean>;
+  // Which sidebar panes are open. Cosmetic like the folders above, and
+  // persisted for the same reason: it survives switching module and back.
+  openSidebarSections: Record<string, boolean>;
 
   // Schema state
   schemaSnapshot: SchemaSnapshot | null;
@@ -70,6 +73,7 @@ export type DatabaseStoreState = {
 
   // Folder actions
   toggleFolder: (folderName: string) => void;
+  toggleSidebarSection: (section: string) => void;
   assignProfileToFolder: (profileId: string, folderName: string) => void;
 
   // Schema actions
@@ -101,6 +105,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
 
   folders: DEFAULT_FOLDERS,
   expandedFolders: { "Production": true, "Development": true },
+  openSidebarSections: { connections: true, tables: true },
 
   schemaSnapshot: null,
   indexingSchema: false,
@@ -168,6 +173,11 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   toggleFolder: (folderName: string) => {
     const current = get().expandedFolders;
     set({ expandedFolders: { ...current, [folderName]: !current[folderName] } });
+  },
+
+  toggleSidebarSection: (section: string) => {
+    const current = get().openSidebarSections;
+    set({ openSidebarSections: { ...current, [section]: current[section] === false } });
   },
 
   assignProfileToFolder: (profileId: string, folderName: string) => {
@@ -281,6 +291,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       partialize: (state) => ({
         folders: state.folders,
         expandedFolders: state.expandedFolders,
+        openSidebarSections: state.openSidebarSections,
       }),
     },
   ),

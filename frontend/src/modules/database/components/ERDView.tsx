@@ -846,7 +846,7 @@ export function ERDView() {
           repeat what the diagram shows. Both were paying canvas height for
           nothing. What is left is the two things that change what you see —
           schema and focus — and the two counts that are actually data. */}
-      <div className="px-3 h-12 border-b border-border bg-surface-raised/30 flex items-center gap-2 shrink-0">
+      <div className="px-3 min-h-12 py-2 border-b border-border bg-surface-raised/30 flex flex-wrap items-center gap-2 shrink-0">
         <ControlSelect
           icon={<Database className="w-3.5 h-3.5 text-text-tertiary" />}
           value={selectedSchema}

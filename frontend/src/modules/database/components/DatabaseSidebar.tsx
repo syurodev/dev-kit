@@ -85,6 +85,8 @@ export function DatabaseSidebar() {
     folders,
     expandedFolders,
     toggleFolder,
+    openSidebarSections,
+    toggleSidebarSection,
     schemaSnapshot,
     indexingSchema,
     refreshSchema,
@@ -104,11 +106,12 @@ export function DatabaseSidebar() {
   } = useDatabaseStore();
 
   const [filterQuery, setFilterQuery] = useState("");
-  // Which of the two panes are open. Local: a collapsed pane is a glance-level
-  // decision, not something worth writing through ui_state.
-  const [openSections, setOpenSections] = useState({ connections: true, tables: true });
-  const toggleSection = (key: "connections" | "tables") =>
-    setOpenSections((current) => ({ ...current, [key]: !current[key] }));
+  // Open unless explicitly closed, so a store written before this existed does
+  // not come back with both panes shut.
+  const openSections = {
+    connections: openSidebarSections.connections !== false,
+    tables: openSidebarSections.tables !== false,
+  };
 
   const allTableNames = Object.values(schemaSnapshot?.namespace || {}).flatMap((tables) =>
     Object.keys(tables || {}),
@@ -173,7 +176,7 @@ export function DatabaseSidebar() {
           label="Connections"
           count={profiles.length}
           open={openSections.connections}
-          onToggle={() => toggleSection("connections")}
+          onToggle={() => toggleSidebarSection("connections")}
         />
         <div className="flex items-center gap-1">
             <Button
@@ -319,7 +322,7 @@ export function DatabaseSidebar() {
             label="Tables"
             count={filterQuery ? matchingTables : totalTables}
             open={openSections.tables}
-            onToggle={() => toggleSection("tables")}
+            onToggle={() => toggleSidebarSection("tables")}
           />
 
           {/* Staleness is the only thing the timestamp is asked, so it reads as

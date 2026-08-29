@@ -106,13 +106,13 @@ export function LiveActivityView() {
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden select-none">
       {/* Header Toolbar */}
-      <div className="px-4 py-3 border-b border-border bg-surface-raised/40 flex flex-wrap items-center justify-between gap-3 shrink-0">
+      {/* No heading: the tab strip directly above already names this view, and
+          the same bar height across tabs stops the content jumping on switch. */}
+      <div className="px-3 min-h-12 py-2 border-b border-border bg-surface-raised/30 flex flex-wrap items-center justify-between gap-3 shrink-0">
         <div className="flex items-center gap-2">
-          <Activity className="w-4 h-4 text-action-primary" />
-          <h2 className="text-sm font-semibold text-text-primary">Live Activity Snapshot</h2>
           {!engineHasNoSessions && (
-            <span className="text-xs text-text-tertiary">
-              ({sessions.length} active sessions)
+            <span className="text-xs text-text-secondary">
+              {sessions.length} active {sessions.length === 1 ? "session" : "sessions"}
             </span>
           )}
         </div>
