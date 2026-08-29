@@ -3,6 +3,8 @@ import {
   ReactFlow,
   useNodesState,
   useEdgesState,
+  useNodesInitialized,
+  useReactFlow,
   Background,
   Controls,
   MiniMap,
@@ -10,7 +12,6 @@ import {
   Position,
   type Node,
   type Edge,
-  type ReactFlowInstance,
   MarkerType,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -164,6 +165,29 @@ function TableNode({ data }: { data: TableNodeData }) {
 const nodeTypes = {
   tableNode: TableNode,
 };
+
+/**
+ * Refit the viewport when the visible set of tables changes — and only then, so
+ * expanding a node leaves the user's zoom alone.
+ *
+ * Timing is the whole problem here: fitView needs measured nodes, and guessing
+ * at that with a frame or two either fires too early or gets cancelled by the
+ * very state update it was waiting for. useNodesInitialized reports the fact
+ * instead of guessing. Rendered inside ReactFlow to reach its context.
+ */
+function FitOnFocusChange({ trigger }: { trigger: string }) {
+  const initialized = useNodesInitialized();
+  const { fitView } = useReactFlow();
+  const fitted = useRef("");
+
+  useEffect(() => {
+    if (!initialized || fitted.current === trigger) return;
+    fitted.current = trigger;
+    void fitView({ duration: 200 });
+  }, [initialized, trigger, fitView]);
+
+  return null;
+}
 
 /**
  * Resolve which table a `<x>_id` column points at, by name alone.
@@ -514,26 +538,6 @@ export function ERDView() {
     });
   }, [computedNodes, layoutKey, setNodes]);
 
-  // Refitting used to be done by remounting the canvas with a key, which threw
-  // away the viewport — every click that expanded a node zoomed back out. Fit
-  // through the instance instead, and only when the visible set changed. The
-  // nested frame lets React Flow measure the new nodes before it fits them.
-  const flowRef = useRef<ReactFlowInstance | null>(null);
-  const lastFitKey = useRef(layoutKey);
-
-  useEffect(() => {
-    if (lastFitKey.current === layoutKey) return;
-    lastFitKey.current = layoutKey;
-    let inner = 0;
-    const outer = requestAnimationFrame(() => {
-      inner = requestAnimationFrame(() => flowRef.current?.fitView());
-    });
-    return () => {
-      cancelAnimationFrame(outer);
-      cancelAnimationFrame(inner);
-    };
-  }, [layoutKey, nodes]);
-
   useEffect(() => {
     setEdges(computedEdges);
   }, [computedEdges, setEdges]);
@@ -632,7 +636,6 @@ export function ERDView() {
       <div className="flex-1 relative">
         {nodes.length > 0 ? (
           <ReactFlow
-            onInit={(instance) => (flowRef.current = instance)}
             nodes={nodes}
             edges={edges}
             onNodesChange={onNodesChange}
@@ -642,6 +645,7 @@ export function ERDView() {
             minZoom={0.2}
             maxZoom={2}
           >
+            <FitOnFocusChange trigger={layoutKey} />
             <Background color="var(--border)" gap={20} size={1} />
             <Controls className="bg-surface-raised border-border text-text-primary fill-current" />
             <MiniMap
