@@ -73,7 +73,7 @@ export function DatabaseSidebar() {
   }
 
   return (
-    <aside className="w-72 shrink-0 border-r border-border bg-surface-base flex flex-col h-full select-none">
+    <div className="flex h-full flex-col select-none">
       {/* Search and Action Bar */}
       <div className="p-3 border-b border-border flex flex-col gap-2">
         <div className="flex items-center justify-between">
@@ -217,7 +217,7 @@ export function DatabaseSidebar() {
       </div>
 
       {/* Schema Tree Section (F3) */}
-      <div className="h-1/2 flex flex-col bg-surface-base">
+      <div className="h-1/2 flex flex-col">
         <div className="p-2.5 border-b border-border/60 flex items-center justify-between bg-surface-raised/40">
           <div className="flex items-center gap-1.5">
             <span className="text-[11px] font-semibold text-text-secondary">Schema Explorer</span>
@@ -361,7 +361,7 @@ export function DatabaseSidebar() {
           )}
         </div>
       </div>
-    </aside>
+    </div>
   );
 }
 

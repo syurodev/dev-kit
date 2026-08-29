@@ -1,4 +1,5 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
+import { useSidebarContent } from "@/components/ui/sidebar-shell";
 import { useDatabaseStore } from "./databaseStore";
 import { DatabaseSidebar } from "./components/DatabaseSidebar";
 import { DatabaseHeader } from "./components/DatabaseHeader";
@@ -21,13 +22,16 @@ export function DatabaseView() {
     void fetchProfiles();
   }, [fetchProfiles]);
 
-  return (
-    <div className="h-full w-full flex overflow-hidden bg-surface-base text-text-primary">
-      {/* Left Column: Sidebar with Connections, Folders, and Schema Explorer */}
-      <DatabaseSidebar />
+  // The shell owns the sidebar rail — its width, its resize handle and its
+  // visibility toggle. A module registers content and never lays it out itself,
+  // otherwise the rail sits empty while a second panel floats in the content
+  // area. DatabaseSidebar reads the store directly, so one element is enough.
+  const sidebar = useMemo(() => <DatabaseSidebar />, []);
+  useSidebarContent(sidebar);
 
-      {/* Right Column: Active Profile Header & Main Subview Router */}
-      <main className="flex-1 flex flex-col h-full overflow-hidden min-w-0 bg-surface-base">
+  return (
+    <div className="h-full w-full flex overflow-hidden text-text-primary">
+      <main className="flex-1 flex flex-col h-full overflow-hidden min-w-0">
         <DatabaseHeader />
         <DatabaseBanners />
 
