@@ -224,7 +224,9 @@ func NewContainerWithStores(
 	itemStore := vaultitem.NewStore(itemRepo, vaultService)
 	envService := environments.NewService(envRepo, newVaultItemEnvUsage(itemStore))
 
+	sshService := sshservice.NewService(itemStore, envService)
 	dbService := database.NewService(itemStore, envService)
+	dbService.SetTunnel(sshTunnel{ssh: sshService})
 	// In-memory history by default; main.go swaps in the SQL-backed table.
 	// History never goes through itemStore — see internal/database/queryhistory.go.
 	dbService.SetQueryLog(database.NewMemoryQueryHistory(), vaultService)
@@ -243,7 +245,7 @@ func NewContainerWithStores(
 		Preferences:  preferences.NewService(preferences.NewMemoryRepository()),
 		UIState:      uistate.NewService(uistate.NewMemoryRepository()),
 		Database:     dbService,
-		SSH:          sshservice.NewService(itemStore, envService),
+		SSH:          sshService,
 		CodeGraph:    codegraph.NewService(codegraph.NewNilStore(), codegraph.NewSubprocessAnalyzer()),
 		Kafka:        kafka.NewService(itemStore, envService, nil),
 	}

@@ -46,6 +46,9 @@ type ProfileSummary struct {
 	SSLMode  string `json:"ssl_mode"`
 	Env      string `json:"env"`
 	ReadOnly bool   `json:"read_only"`
+	// SSHProfileID is optional. When set, Host/Port are addresses as seen from
+	// the SSH server, not from this machine.
+	SSHProfileID string `json:"ssh_profile_id,omitempty"`
 }
 
 type CreateProfileInput struct {
@@ -62,6 +65,8 @@ type CreateProfileInput struct {
 type UpdateProfileOptionsInput struct {
 	Env      string `json:"env"`
 	ReadOnly bool   `json:"read_only"`
+	// SSHProfileID empty means connect directly.
+	SSHProfileID string `json:"ssh_profile_id"`
 }
 
 type QueryResult struct {
@@ -91,6 +96,9 @@ type metadata struct {
 	SSLMode  string `json:"ssl_mode"`
 	Env      string `json:"env"`
 	ReadOnly bool   `json:"read_only"`
+	// SSHProfileID is optional. When set, Host/Port are addresses as seen from
+	// the SSH server, not from this machine.
+	SSHProfileID string `json:"ssh_profile_id,omitempty"`
 }
 
 type Service struct {
@@ -185,10 +193,13 @@ func (s *Service) UpdateProfileOptions(id string, opts UpdateProfileOptionsInput
 		return ProfileSummary{}, err
 	}
 
-	readOnlyChanged := meta.ReadOnly != opts.ReadOnly
+	// env costs nothing at runtime; read_only needs a fresh pool so AfterConnect
+	// runs again; the tunnel needs the forward torn down with it.
+	poolChanged := meta.ReadOnly != opts.ReadOnly || meta.SSHProfileID != opts.SSHProfileID
 
 	meta.Env = opts.Env
 	meta.ReadOnly = opts.ReadOnly
+	meta.SSHProfileID = opts.SSHProfileID
 
 	rawMeta, err := json.Marshal(meta)
 	if err != nil {
@@ -200,7 +211,7 @@ func (s *Service) UpdateProfileOptions(id string, opts UpdateProfileOptionsInput
 		return ProfileSummary{}, err
 	}
 
-	if readOnlyChanged {
+	if poolChanged {
 		s.pools.Remove(id)
 	}
 
@@ -221,6 +232,9 @@ func (s *Service) DeleteProfile(id string) error {
 	return nil
 }
 
+// SetTunnel wires SSH port forwarding for profiles that use one.
+func (s *Service) SetTunnel(t Tunnel) { s.pools.SetTunnel(t) }
+
 // Close releases all PostgreSQL pools during application shutdown.
 func (s *Service) Close() { s.pools.Close() }
 
@@ -233,7 +247,7 @@ func (s *Service) TestConnection(ctx context.Context, id string) error {
 	ctx, cancel := queryContext(ctx)
 	defer cancel()
 
-	pool, err := s.pool(ctx, id, target.dsn, target.readOnly)
+	pool, err := s.pool(ctx, id, target)
 	if err != nil {
 		return err
 	}
@@ -249,7 +263,7 @@ func (s *Service) Query(ctx context.Context, id string, sql string) (QueryResult
 	ctx, cancel := queryContext(ctx)
 	defer cancel()
 
-	pool, err := s.pool(ctx, id, target.dsn, target.readOnly)
+	pool, err := s.pool(ctx, id, target)
 	if err != nil {
 		return QueryResult{}, err
 	}
@@ -291,8 +305,11 @@ func (s *Service) Query(ctx context.Context, id string, sql string) (QueryResult
 }
 
 type connectionTarget struct {
-	dsn      string
-	readOnly bool
+	dsn          string
+	readOnly     bool
+	host         string
+	port         int
+	sshProfileID string
 }
 
 func (s *Service) target(id string) (connectionTarget, error) {
@@ -324,7 +341,13 @@ func (s *Service) target(id string) (connectionTarget, error) {
 	query := u.Query()
 	query.Set("sslmode", sslmode)
 	u.RawQuery = query.Encode()
-	return connectionTarget{dsn: u.String(), readOnly: meta.ReadOnly}, nil
+	return connectionTarget{
+		dsn:          u.String(),
+		readOnly:     meta.ReadOnly,
+		host:         meta.Host,
+		port:         meta.Port,
+		sshProfileID: meta.SSHProfileID,
+	}, nil
 }
 
 func (s *Service) dsn(id string) (string, error) {
@@ -335,8 +358,16 @@ func (s *Service) dsn(id string) (string, error) {
 	return t.dsn, nil
 }
 
-func (s *Service) pool(ctx context.Context, id, dsn string, readOnly bool) (*pgxpool.Pool, error) {
-	return s.pools.Get(ctx, id, dsn, readOnly)
+func (s *Service) pool(ctx context.Context, id string, target connectionTarget) (*pgxpool.Pool, error) {
+	spec := connectionSpec{profileID: id, dsn: target.dsn, readOnly: target.readOnly, host: target.host}
+	if target.sshProfileID != "" {
+		spec.tunnel = &TunnelSpec{
+			SSHProfileID: target.sshProfileID,
+			TargetHost:   target.host,
+			TargetPort:   target.port,
+		}
+	}
+	return s.pools.Get(ctx, spec)
 }
 
 func normalizeSSLMode(host, sslMode string) (string, error) {

@@ -337,7 +337,7 @@ func TestUpdateProfileOptionsInvalidatesPoolOnReadOnlyChange(t *testing.T) {
 	}
 
 	// Populate a pool entry
-	pool, err := svc.pools.Get(context.Background(), summary.ID, "postgres://devkit:pass@127.0.0.1:5432/devkitdb?sslmode=disable", false)
+	pool, err := svc.pools.Get(context.Background(), connectionSpec{profileID: summary.ID, dsn: "postgres://devkit:pass@127.0.0.1:5432/devkitdb?sslmode=disable", readOnly: false})
 	if err != nil {
 		t.Fatalf("pools.Get: %v", err)
 	}

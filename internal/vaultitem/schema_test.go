@@ -25,6 +25,7 @@ func TestValidateRecordSchemaAcceptsSupportedModuleRecords(t *testing.T) {
 		// fields, so a validator missing one field makes the record unwritable —
 		// which is exactly how env slipped through for both modules.
 		{name: "database", itemType: ItemTypeDatabase, metadata: `{"name":"Primary","host":"db.internal","port":5432,"database":"app","username":"devkit","ssl_mode":"verify-full","env":"prod","read_only":false}`, keyID: "db-password"},
+		{name: "database through a tunnel", itemType: ItemTypeDatabase, metadata: `{"name":"Primary","host":"db.internal","port":5432,"database":"app","username":"devkit","ssl_mode":"verify-full","env":"prod","read_only":false,"ssh_profile_id":"aabbccddeeff001122334455"}`, keyID: "db-password"},
 		{name: "ssh", itemType: ItemTypeSSH, metadata: `{"name":"Bastion","host":"ssh.internal","port":22,"username":"devkit","auth_method":"key","host_key_fingerprint":"SHA256:test","env":"prod"}`, keyID: "ssh-secret"},
 		{name: "db-query saved", itemType: ItemTypeDatabaseQuery, metadata: `{"profile_id":"aabbccddeeff001122334455","name":"monthly totals"}`, keyID: "db-query-body"},
 		{name: "kafka", itemType: ItemTypeKafka, metadata: `{"name":"Events","bootstrap_servers":["kafka.internal:9092"],"security_protocol":"PLAINTEXT","env":"prod"}`, keyID: "kafka-secret"},
