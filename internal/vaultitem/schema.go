@@ -15,6 +15,10 @@ const (
 	ItemTypeDatabase   = "db-profile"
 	ItemTypeSSH        = "ssh-profile"
 	ItemTypeKafka      = "kafka-profile"
+	// ItemTypeDatabaseQuery covers *saved* queries only. Query history is
+	// deliberately not a vault item: everything in vault_items is sync-bound
+	// by construction, and history must never leave the device.
+	ItemTypeDatabaseQuery = "db-query"
 )
 
 // ErrInvalidRecordSchema means a vault item does not satisfy the contract of
@@ -27,7 +31,7 @@ var ErrInvalidRecordSchema = errors.New("vault item schema is invalid")
 // snapshots and tombstones so arbitrary records cannot enter its ledgers.
 func IsSupportedItemType(itemType string) bool {
 	switch itemType {
-	case ItemTypeNote, ItemTypeNoteFolder, ItemTypeDatabase, ItemTypeSSH, ItemTypeKafka:
+	case ItemTypeNote, ItemTypeNoteFolder, ItemTypeDatabase, ItemTypeSSH, ItemTypeKafka, ItemTypeDatabaseQuery:
 		return true
 	default:
 		return false
@@ -77,11 +81,26 @@ func ValidateRecordSchema(itemType string, metadata json.RawMessage, payload *cr
 			Database string `json:"database"`
 			Username string `json:"username"`
 			SSLMode  string `json:"ssl_mode"`
+			Env      string `json:"env"`
+			ReadOnly bool   `json:"read_only"`
 		}
-		if decodeMetadataObject(metadata, &value) != nil || value.Name == "" || value.Host == "" || value.Port == 0 || value.SSLMode == "" {
+		if decodeMetadataObject(metadata, &value) != nil || value.Name == "" || value.Host == "" || value.Port == 0 || value.SSLMode == "" || value.Env == "" {
 			return ErrInvalidRecordSchema
 		}
 		expectedKeyID = "db-password"
+
+	case ItemTypeDatabaseQuery:
+		var value struct {
+			ProfileID string `json:"profile_id"`
+			Name      string `json:"name"`
+		}
+		// The SQL itself lives in the payload — a saved query can carry
+		// literals. Only the profile it belongs to and the name the user gave
+		// it are safe as plaintext metadata.
+		if decodeMetadataObject(metadata, &value) != nil || value.ProfileID == "" || value.Name == "" {
+			return ErrInvalidRecordSchema
+		}
+		expectedKeyID = "db-query-body"
 
 	case ItemTypeSSH:
 		var value struct {
@@ -91,8 +110,9 @@ func ValidateRecordSchema(itemType string, metadata json.RawMessage, payload *cr
 			Username           string `json:"username"`
 			AuthMethod         string `json:"auth_method"`
 			HostKeyFingerprint string `json:"host_key_fingerprint"`
+			Env                string `json:"env"`
 		}
-		if decodeMetadataObject(metadata, &value) != nil || value.Name == "" || value.Host == "" || value.Port == 0 || value.Username == "" ||
+		if decodeMetadataObject(metadata, &value) != nil || value.Name == "" || value.Host == "" || value.Port == 0 || value.Username == "" || value.Env == "" ||
 			(value.AuthMethod != "password" && value.AuthMethod != "key") {
 			return ErrInvalidRecordSchema
 		}

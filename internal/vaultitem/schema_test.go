@@ -20,8 +20,13 @@ func TestValidateRecordSchemaAcceptsSupportedModuleRecords(t *testing.T) {
 		{name: "note with org fields", itemType: ItemTypeNote, metadata: `{"title":"Deploy notes","folder_id":"aabbccddeeff001122334455","tags":["ops"]}`, keyID: "note-body"},
 		{name: "note with color", itemType: ItemTypeNote, metadata: `{"title":"Deploy notes","color":"blue"}`, keyID: "note-body"},
 		{name: "note-folder", itemType: ItemTypeNoteFolder, metadata: `{"name":"Work","color":"blue","tags":["work"]}`, keyID: "note-folder"},
-		{name: "database", itemType: ItemTypeDatabase, metadata: `{"name":"Primary","host":"db.internal","port":5432,"database":"app","username":"devkit","ssl_mode":"verify-full"}`, keyID: "db-password"},
-		{name: "ssh", itemType: ItemTypeSSH, metadata: `{"name":"Bastion","host":"ssh.internal","port":22,"username":"devkit","auth_method":"key","host_key_fingerprint":"SHA256:test"}`, keyID: "ssh-secret"},
+		// These two must mirror what internal/database and internal/ssh actually
+		// persist, not a reduced shape. decodeMetadataObject disallows unknown
+		// fields, so a validator missing one field makes the record unwritable —
+		// which is exactly how env slipped through for both modules.
+		{name: "database", itemType: ItemTypeDatabase, metadata: `{"name":"Primary","host":"db.internal","port":5432,"database":"app","username":"devkit","ssl_mode":"verify-full","env":"prod","read_only":false}`, keyID: "db-password"},
+		{name: "ssh", itemType: ItemTypeSSH, metadata: `{"name":"Bastion","host":"ssh.internal","port":22,"username":"devkit","auth_method":"key","host_key_fingerprint":"SHA256:test","env":"prod"}`, keyID: "ssh-secret"},
+		{name: "db-query saved", itemType: ItemTypeDatabaseQuery, metadata: `{"profile_id":"aabbccddeeff001122334455","name":"monthly totals"}`, keyID: "db-query-body"},
 		{name: "kafka", itemType: ItemTypeKafka, metadata: `{"name":"Events","bootstrap_servers":["kafka.internal:9092"],"security_protocol":"PLAINTEXT","env":"prod"}`, keyID: "kafka-secret"},
 	}
 
@@ -47,6 +52,10 @@ func TestValidateRecordSchemaRejectsInvalidModuleRecords(t *testing.T) {
 		{name: "missing note title", itemType: ItemTypeNote, metadata: `{}`, payload: validSchemaEnvelope("note-body")},
 		{name: "note unknown color", itemType: ItemTypeNote, metadata: `{"title":"x","color":"neon"}`, payload: validSchemaEnvelope("note-body")},
 		{name: "missing database host", itemType: ItemTypeDatabase, metadata: `{"name":"db","port":5432,"ssl_mode":"verify-full"}`, payload: validSchemaEnvelope("db-password")},
+		{name: "database without env", itemType: ItemTypeDatabase, metadata: `{"name":"db","host":"db.internal","port":5432,"ssl_mode":"verify-full"}`, payload: validSchemaEnvelope("db-password")},
+		{name: "ssh without env", itemType: ItemTypeSSH, metadata: `{"name":"b","host":"h","port":22,"username":"u","auth_method":"key"}`, payload: validSchemaEnvelope("ssh-secret")},
+		{name: "saved query without profile", itemType: ItemTypeDatabaseQuery, metadata: `{"name":"totals"}`, payload: validSchemaEnvelope("db-query-body")},
+		{name: "saved query carrying sql in metadata", itemType: ItemTypeDatabaseQuery, metadata: `{"profile_id":"aabbccddeeff001122334455","name":"t","sql":"SELECT 1"}`, payload: validSchemaEnvelope("db-query-body")},
 		{name: "invalid ssh auth method", itemType: ItemTypeSSH, metadata: `{"name":"box","host":"host","port":22,"username":"me","auth_method":"agent"}`, payload: validSchemaEnvelope("ssh-secret")},
 		{name: "missing encrypted payload", itemType: ItemTypeNote, metadata: `{"title":"x"}`},
 		{name: "wrong payload key", itemType: ItemTypeNote, metadata: `{"title":"x"}`, payload: validSchemaEnvelope("db-password")},
