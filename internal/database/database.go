@@ -118,6 +118,7 @@ type Service struct {
 	maxRows       int
 	history       QueryHistoryRepository
 	sealer        Sealer
+	schemaCache   SchemaCacheRepository
 }
 
 func NewService(store Store, envs EnvLookup) *Service {
@@ -238,10 +239,16 @@ func (s *Service) DeleteProfile(id string) error {
 		return err
 	}
 	s.pools.Remove(id)
-	// History lives outside vault_items, so it rides no vault-item cascade.
+	// History and the schema index live outside vault_items, so they ride no
+	// vault-item cascade.
 	if repo, _ := s.queryLog(); repo != nil {
 		if err := repo.DeleteProfile(id); err != nil {
 			log.Printf("db history: delete for profile: %v", err)
+		}
+	}
+	if cache := s.schemaCacheRepo(); cache != nil {
+		if err := cache.Delete(id); err != nil {
+			log.Printf("db schema cache: delete for profile: %v", err)
 		}
 	}
 	return nil
@@ -278,6 +285,19 @@ func (s *Service) ListColumns(ctx context.Context, id, schema, table string) ([]
 	ctx, cancel := queryContext(ctx)
 	defer cancel()
 	return conn.ListColumns(ctx, schema, table)
+}
+
+// ListForeignKeys is separate from ListColumns because the sidebar opens one
+// table at a time and does not want relationships, while an ERD loads a whole
+// schema and wants nothing else.
+func (s *Service) ListForeignKeys(ctx context.Context, id, schema string) ([]ForeignKey, error) {
+	conn, err := s.connect(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := queryContext(ctx)
+	defer cancel()
+	return conn.ListForeignKeys(ctx, schema)
 }
 
 func (s *Service) connect(ctx context.Context, id string) (Conn, error) {
@@ -349,6 +369,7 @@ func (s *Service) Query(ctx context.Context, id string, sql string) (QueryResult
 		return QueryResult{}, err
 	}
 	s.recordHistory(id, sql)
+	s.refreshSchemaAfterDDL(id, sql)
 	return result, nil
 }
 

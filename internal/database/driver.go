@@ -42,6 +42,17 @@ type TableInfo struct {
 	Kind   string `json:"kind"`
 }
 
+// ForeignKey is one declared relationship. Four fields only: where it comes
+// from and where it points.
+type ForeignKey struct {
+	Schema           string `json:"schema"`
+	Table            string `json:"table"`
+	Column           string `json:"column"`
+	ReferencedSchema string `json:"referenced_schema"`
+	ReferencedTable  string `json:"referenced_table"`
+	ReferencedColumn string `json:"referenced_column"`
+}
+
 // ColumnInfo describes one column.
 type ColumnInfo struct {
 	Name     string `json:"name"`
@@ -61,15 +72,20 @@ type Rows interface {
 	Close()
 }
 
-// Conn is the whole engine surface the service is allowed to use — six methods,
-// no more. Anything not every engine can do belongs in an optional interface a
-// driver may also implement, never here.
+// Conn is the whole engine surface the service is allowed to use. Anything not
+// every engine can do belongs in an optional interface a driver may also
+// implement — SessionInspector and QueryPlanner — never here.
+//
+// ListForeignKeys is separate from ListColumns on purpose: the sidebar opens
+// one table at a time and does not want relationships, while an ERD loads a
+// whole schema at once and wants nothing else.
 type Conn interface {
 	Ping(ctx context.Context) error
 	Query(ctx context.Context, sql string, args ...any) (Rows, error)
 	ListSchemas(ctx context.Context) ([]string, error)
 	ListTables(ctx context.Context, schema string) ([]TableInfo, error)
 	ListColumns(ctx context.Context, schema, table string) ([]ColumnInfo, error)
+	ListForeignKeys(ctx context.Context, schema string) ([]ForeignKey, error)
 	Close()
 }
 

@@ -90,6 +90,9 @@ type DatabaseAPI interface {
 	Query(ctx context.Context, id, sql string) (database.QueryResult, error)
 	ListQueryHistory(id string) ([]database.HistoryEntry, error)
 	ListSavedQueries(id string) ([]database.SavedQuery, error)
+	ListForeignKeys(ctx context.Context, id, schema string) ([]database.ForeignKey, error)
+	GetSchemaCache(ctx context.Context, id string) (database.SchemaSnapshot, error)
+	Explain(ctx context.Context, id, sql string) (database.QueryPlan, error)
 }
 
 // KafkaAPI is the Kafka domain surface MCP tools invoke.

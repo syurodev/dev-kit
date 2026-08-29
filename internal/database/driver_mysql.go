@@ -213,3 +213,26 @@ func (r *mysqlRows) Values() ([]string, error) {
 	}
 	return out, nil
 }
+
+func (c *mysqlConn) ListForeignKeys(ctx context.Context, schema string) ([]ForeignKey, error) {
+	rows, err := c.db.QueryContext(ctx, `
+		SELECT table_schema, table_name, column_name,
+		       referenced_table_schema, referenced_table_name, referenced_column_name
+		FROM information_schema.key_column_usage
+		WHERE table_schema = ? AND referenced_table_name IS NOT NULL
+		ORDER BY table_name, ordinal_position`, schema)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ForeignKey
+	for rows.Next() {
+		var fk ForeignKey
+		if err := rows.Scan(&fk.Schema, &fk.Table, &fk.Column,
+			&fk.ReferencedSchema, &fk.ReferencedTable, &fk.ReferencedColumn); err != nil {
+			return nil, err
+		}
+		out = append(out, fk)
+	}
+	return out, rows.Err()
+}

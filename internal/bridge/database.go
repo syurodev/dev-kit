@@ -238,3 +238,110 @@ func (s *AppService) DBListColumns(ctx context.Context, id, schema, table string
 	}
 	return result.([]database.ColumnInfo), nil
 }
+
+func (s *AppService) DBListForeignKeys(ctx context.Context, id, schema string) ([]database.ForeignKey, error) {
+	opaqueID := recordID(id)
+	result, err := s.call(ctx, "builtin.database", "db:query", "profile:"+opaqueID, map[string]any{
+		"action": "list_foreign_keys", "profile_id": opaqueID, "schema": schema,
+	}, func(callCtx context.Context) (any, error) {
+		return s.container.Database.ListForeignKeys(callCtx, id, schema)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]database.ForeignKey), nil
+}
+
+func (s *AppService) DBIndexSchema(ctx context.Context, id string) (database.SchemaSnapshot, error) {
+	opaqueID := recordID(id)
+	result, err := s.call(ctx, "builtin.database", "db:query", "profile:"+opaqueID, map[string]any{
+		"action": "index_schema", "profile_id": opaqueID,
+	}, func(callCtx context.Context) (any, error) {
+		return s.container.Database.IndexSchema(callCtx, id)
+	})
+	if err != nil {
+		return database.SchemaSnapshot{}, err
+	}
+	return result.(database.SchemaSnapshot), nil
+}
+
+func (s *AppService) DBGetSchemaCache(ctx context.Context, id string) (database.SchemaSnapshot, error) {
+	opaqueID := recordID(id)
+	result, err := s.call(ctx, "builtin.database", "db:query", "profile:"+opaqueID, map[string]any{
+		"action": "get_schema_cache", "profile_id": opaqueID,
+	}, func(callCtx context.Context) (any, error) {
+		return s.container.Database.GetSchemaCache(callCtx, id)
+	})
+	if err != nil {
+		return database.SchemaSnapshot{}, err
+	}
+	return result.(database.SchemaSnapshot), nil
+}
+
+// DBListActivity returns other people's sessions, statements included. Human
+// only: the rows carry SQL with literals, which is why this never reaches MCP.
+func (s *AppService) DBListActivity(ctx context.Context, id string) ([]database.SessionRow, error) {
+	opaqueID := recordID(id)
+	result, err := s.call(ctx, "builtin.database", "db:query", "profile:"+opaqueID, map[string]any{
+		"action": "list_activity", "profile_id": opaqueID,
+	}, func(callCtx context.Context) (any, error) {
+		return s.container.Database.ListActivity(callCtx, id)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]database.SessionRow), nil
+}
+
+// DBCancelQuery stops one statement. Safe mode does not cover this — a
+// read-only profile can still cancel, because pg_cancel_backend is a SELECT.
+func (s *AppService) DBCancelQuery(ctx context.Context, id, pid string) error {
+	opaqueID := recordID(id)
+	_, err := s.call(ctx, "builtin.database", "db:query", "session:"+pid, map[string]any{
+		"action": "cancel_query", "profile_id": opaqueID, "pid": pid,
+	}, func(callCtx context.Context) (any, error) {
+		return nil, s.container.Database.CancelQuery(callCtx, id, pid)
+	})
+	return err
+}
+
+// DBTerminateSession closes a connection and rolls back its transaction.
+func (s *AppService) DBTerminateSession(ctx context.Context, id, pid string) error {
+	opaqueID := recordID(id)
+	_, err := s.call(ctx, "builtin.database", "db:query", "session:"+pid, map[string]any{
+		"action": "terminate_session", "profile_id": opaqueID, "pid": pid,
+	}, func(callCtx context.Context) (any, error) {
+		return nil, s.container.Database.TerminateSession(callCtx, id, pid)
+	})
+	return err
+}
+
+// DBExplain plans without running. Audit records that a plan was asked for, not
+// the statement — SQL can carry literals.
+func (s *AppService) DBExplain(ctx context.Context, id, sql string) (database.QueryPlan, error) {
+	opaqueID := recordID(id)
+	result, err := s.call(ctx, "builtin.database", "db:query", "profile:"+opaqueID, map[string]any{
+		"action": "explain", "profile_id": opaqueID, "analyzed": false,
+	}, func(callCtx context.Context) (any, error) {
+		return s.container.Database.Explain(callCtx, id, sql)
+	})
+	if err != nil {
+		return database.QueryPlan{}, err
+	}
+	return result.(database.QueryPlan), nil
+}
+
+// DBExplainAnalyze runs the statement inside a rolled-back transaction, so it
+// follows the same env-tag confirmation policy as DBQuery and stays off MCP.
+func (s *AppService) DBExplainAnalyze(ctx context.Context, id, sql string) (database.QueryPlan, error) {
+	opaqueID := recordID(id)
+	result, err := s.call(ctx, "builtin.database", "db:query", "profile:"+opaqueID, map[string]any{
+		"action": "explain_analyze", "profile_id": opaqueID, "analyzed": true,
+	}, func(callCtx context.Context) (any, error) {
+		return s.container.Database.ExplainAnalyze(callCtx, id, sql)
+	})
+	if err != nil {
+		return database.QueryPlan{}, err
+	}
+	return result.(database.QueryPlan), nil
+}

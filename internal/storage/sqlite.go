@@ -34,6 +34,9 @@ const (
 	// TableDBQueryHistory is deliberately outside vault_items: sync has no
 	// path to this table, which is what keeps query history on one device.
 	TableDBQueryHistory = "db_query_history"
+	// TableDBSchemaCache holds table/column names only — structure, not data —
+	// so it lives in plaintext outside the vault, like note_links and env_tags.
+	TableDBSchemaCache = "db_schema_cache"
 )
 
 var chmodFile = os.Chmod
@@ -602,7 +605,22 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		},
 	}
 
-	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17})
+	m18 := Migration{
+		Version: 18,
+		Name:    "create db_schema_cache",
+		Up: func(ctx context.Context) error {
+			_, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE TABLE IF NOT EXISTS %s (
+					profile_id TEXT PRIMARY KEY,
+					schema_json TEXT NOT NULL,
+					indexed_at TEXT NOT NULL
+				)`, TableDBSchemaCache,
+			))
+			return err
+		},
+	}
+
+	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18})
 	if err != nil {
 		return err
 	}

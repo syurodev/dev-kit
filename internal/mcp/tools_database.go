@@ -40,6 +40,26 @@ func (s *Server) registerDatabase() {
 	}, s.toolDBListSavedQueries)
 
 	sdk.AddTool(s.mcp, &sdk.Tool{
+		Name:        "db.listForeignKeys",
+		Description: "Declared foreign keys for a schema — real constraints only, never inferred guesses",
+		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
+	}, s.toolDBListForeignKeys)
+
+	sdk.AddTool(s.mcp, &sdk.Tool{
+		Name:        "db.schema.get",
+		Description: "Read the cached schema index so an agent writes correct table and column names",
+		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
+	}, s.toolDBGetSchemaCache)
+
+	// Plan only. db.explainAnalyze does not exist: ANALYZE executes the
+	// statement, and DevKit cannot tell whether a statement mutates.
+	sdk.AddTool(s.mcp, &sdk.Tool{
+		Name:        "db.explain",
+		Description: "Plan a statement without running it",
+		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
+	}, s.toolDBExplain)
+
+	sdk.AddTool(s.mcp, &sdk.Tool{
 		Name:        "db.activeProfile",
 		Description: "Report the agent sticky active database profile",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
@@ -138,6 +158,55 @@ func (s *Server) toolDBListSavedQueries(ctx context.Context, _ *sdk.CallToolRequ
 		"profile_id": opaqueID,
 	}), func(context.Context) (any, error) {
 		return s.deps.DB.ListSavedQueries(in.ProfileID)
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, v, nil
+}
+
+type dbSchemaScopedInput struct {
+	ProfileID string `json:"profileId"`
+	Schema    string `json:"schema"`
+}
+
+func (s *Server) toolDBListForeignKeys(ctx context.Context, _ *sdk.CallToolRequest, in dbSchemaScopedInput) (*sdk.CallToolResult, any, error) {
+	opaqueID := recordID(in.ProfileID)
+	v, err := s.deps.Caller.Call(ctx, "builtin.database", "db:query", "profile:"+opaqueID, meta("list_foreign_keys", map[string]any{
+		"profile_id": opaqueID, "schema": in.Schema,
+	}), func(callCtx context.Context) (any, error) {
+		return s.deps.DB.ListForeignKeys(callCtx, in.ProfileID, in.Schema)
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, v, nil
+}
+
+func (s *Server) toolDBGetSchemaCache(ctx context.Context, _ *sdk.CallToolRequest, in dbProfileScopedInput) (*sdk.CallToolResult, any, error) {
+	opaqueID := recordID(in.ProfileID)
+	v, err := s.deps.Caller.Call(ctx, "builtin.database", "db:query", "profile:"+opaqueID, meta("get_schema_cache", map[string]any{
+		"profile_id": opaqueID,
+	}), func(callCtx context.Context) (any, error) {
+		return s.deps.DB.GetSchemaCache(callCtx, in.ProfileID)
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, v, nil
+}
+
+type dbExplainInput struct {
+	ProfileID string `json:"profileId"`
+	SQL       string `json:"sql"`
+}
+
+func (s *Server) toolDBExplain(ctx context.Context, _ *sdk.CallToolRequest, in dbExplainInput) (*sdk.CallToolResult, any, error) {
+	opaqueID := recordID(in.ProfileID)
+	v, err := s.deps.Caller.Call(ctx, "builtin.database", "db:query", "profile:"+opaqueID, meta("explain", map[string]any{
+		"profile_id": opaqueID, "analyzed": false,
+	}), func(callCtx context.Context) (any, error) {
+		return s.deps.DB.Explain(callCtx, in.ProfileID, in.SQL)
 	})
 	if err != nil {
 		return nil, nil, err

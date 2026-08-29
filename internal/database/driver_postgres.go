@@ -157,3 +157,32 @@ func (r *postgresRows) Values() ([]string, error) {
 	}
 	return out, nil
 }
+
+func (c *postgresConn) ListForeignKeys(ctx context.Context, schema string) ([]ForeignKey, error) {
+	rows, err := c.pool.Query(ctx, `
+		SELECT kcu.table_schema, kcu.table_name, kcu.column_name,
+		       ccu.table_schema, ccu.table_name, ccu.column_name
+		FROM information_schema.table_constraints tc
+		JOIN information_schema.key_column_usage kcu
+		  ON kcu.constraint_name = tc.constraint_name
+		 AND kcu.constraint_schema = tc.constraint_schema
+		JOIN information_schema.constraint_column_usage ccu
+		  ON ccu.constraint_name = tc.constraint_name
+		 AND ccu.constraint_schema = tc.constraint_schema
+		WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = $1
+		ORDER BY kcu.table_name, kcu.ordinal_position`, schema)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ForeignKey
+	for rows.Next() {
+		var fk ForeignKey
+		if err := rows.Scan(&fk.Schema, &fk.Table, &fk.Column,
+			&fk.ReferencedSchema, &fk.ReferencedTable, &fk.ReferencedColumn); err != nil {
+			return nil, err
+		}
+		out = append(out, fk)
+	}
+	return out, rows.Err()
+}

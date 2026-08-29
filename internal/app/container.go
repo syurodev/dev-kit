@@ -172,6 +172,8 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.database", Capability: "db:query", Scope: "profile:*"},
 		// Saved queries are scoped by their own id, not the profile's.
 		{SubjectID: "builtin.database", Capability: "db:query", Scope: "query:*"},
+		// Cancel and terminate act on a server session, not on a profile.
+		{SubjectID: "builtin.database", Capability: "db:query", Scope: "session:*"},
 		{SubjectID: "builtin.ssh", Capability: "ssh:connect", Scope: "profile:list"},
 		{SubjectID: "builtin.ssh", Capability: "ssh:connect", Scope: "profile:new"},
 		{SubjectID: "builtin.ssh", Capability: "ssh:connect", Scope: "profile:active"},
@@ -230,6 +232,7 @@ func NewContainerWithStores(
 	// In-memory history by default; main.go swaps in the SQL-backed table.
 	// History never goes through itemStore — see internal/database/queryhistory.go.
 	dbService.SetQueryLog(database.NewMemoryQueryHistory(), vaultService)
+	dbService.SetSchemaCache(database.NewMemorySchemaCache())
 
 	return &Container{
 		Commands:     commands.NewRegistry(),

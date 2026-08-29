@@ -116,7 +116,10 @@ func TestDatabaseWriteMethodsAreAbsentFromMCPTools(t *testing.T) {
 
 	// Guards the guard: if the database tools stop being registered at all, the
 	// absence checks below would pass for the wrong reason.
-	for _, required := range []string{"db.listProfiles", "db.history.list", "db.savedQuery.list"} {
+	for _, required := range []string{
+		"db.listProfiles", "db.history.list", "db.savedQuery.list",
+		"db.listForeignKeys", "db.schema.get", "db.explain",
+	} {
 		if !names[required] {
 			t.Fatalf("%s missing — the database tool surface did not register as expected, so the absence checks below prove nothing. tools = %v", required, names)
 		}
@@ -133,6 +136,15 @@ func TestDatabaseWriteMethodsAreAbsentFromMCPTools(t *testing.T) {
 		"db.saveQuery",
 		"db.deleteSavedQuery",
 		"db.history.delete",
+		// ANALYZE executes the statement, and DevKit cannot tell whether a
+		// statement mutates.
+		"db.explainAnalyze",
+		// Activity rows carry other people's SQL, literals included; cancel and
+		// terminate end other people's work.
+		"db.listActivity",
+		"db.cancelQuery",
+		"db.terminateSession",
+		"db.indexSchema",
 	} {
 		if names[forbidden] {
 			t.Errorf("%s is exposed over MCP but must stay human-only", forbidden)

@@ -46,6 +46,18 @@ func (f *fakeDB) SetAgentActiveProfile(id string) error {
 	f.activeID = id
 	return nil
 }
+func (f *fakeDB) ListForeignKeys(context.Context, string, string) ([]database.ForeignKey, error) {
+	return nil, nil
+}
+
+func (f *fakeDB) GetSchemaCache(context.Context, string) (database.SchemaSnapshot, error) {
+	return database.SchemaSnapshot{}, nil
+}
+
+func (f *fakeDB) Explain(context.Context, string, string) (database.QueryPlan, error) {
+	return database.QueryPlan{}, nil
+}
+
 func (f *fakeDB) ListQueryHistory(string) ([]database.HistoryEntry, error) {
 	return nil, nil
 }
