@@ -211,6 +211,10 @@ const nodeTypes = {
  * start marker means away from the child table: the prongs sit against the
  * table and the optionality symbol reads just outside them.
  */
+// Above this many visible tables the edges stop animating. Roughly where a
+// focused view ends and browsing a whole schema begins.
+const ANIMATED_NODE_LIMIT = 30;
+
 const EDGE_VARIANTS = [
   { id: "declared", color: "var(--status-info)" },
   { id: "inferred", color: "var(--text-tertiary)" },
@@ -615,6 +619,11 @@ export function ERDView() {
   // wide table pushes only the column it lands in.
   const { nodes: computedNodes, edges: computedEdges } = useMemo(() => {
     const tableList = Object.entries(visibleTables);
+
+    // Marching dashes repaint on every frame — stroke-dashoffset is not
+    // composited — so the cost climbs with the graph. Under a focus it is a
+    // handful of edges and worth the motion; across a whole schema it is not.
+    const animated = tableList.length <= ANIMATED_NODE_LIMIT;
     const colsCount = Math.max(1, Math.ceil(Math.sqrt(tableList.length)));
     const nodeWidth = 380;
     const HEADER = 40;
@@ -691,11 +700,16 @@ export function ERDView() {
           sourceHandle: `${fk.table}-${fk.column}-source`,
           targetHandle: `${fk.referencedTable}-${fk.referencedColumn}-target`,
           type: "smoothstep",
-          animated: true,
+          animated,
           // React Flow's animated class dashes the line, so a declared edge
           // cannot stay solid and still move. A long dash keeps it readable as
-          // the firmer of the two next to the inferred 4/4.
-          style: { stroke: "var(--status-info)", strokeWidth: 1.5, strokeDasharray: "14 4" },
+          // the firmer of the two next to the inferred 4/4 — and once the
+          // motion is off it can go back to being properly solid.
+          style: {
+            stroke: "var(--status-info)",
+            strokeWidth: 1.5,
+            strokeDasharray: animated ? "14 4" : undefined,
+          },
           markerStart: childMarker("declared", fk.table, fk.column),
           markerEnd: "url(#erd-declared-one)",
         });
@@ -713,7 +727,7 @@ export function ERDView() {
         sourceHandle: `${inf.fromTable}-${inf.fromCol}-source`,
         targetHandle: `${inf.toTable}-${inf.toCol}-target`,
         type: "smoothstep",
-        animated: true,
+        animated,
         style: {
           stroke: "var(--text-tertiary)",
           strokeWidth: 1,
@@ -857,6 +871,11 @@ export function ERDView() {
             <span>
               Crow&rsquo;s foot = many, bar = one, circle = optional
             </span>
+            {Object.keys(visibleTables).length > ANIMATED_NODE_LIMIT && (
+              <span>
+                animation off above {ANIMATED_NODE_LIMIT} tables
+              </span>
+            )}
             {indexes.length === 0 && (
               <span className="text-status-warning">
                 no index data — every relation reads as one-to-many
