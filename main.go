@@ -42,6 +42,17 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
+// Floor derived from Sidebar (240px min) + its gutter (4px) + the content
+// area's own hard floor (480px) + SplitPanel's gutter (4px) + SplitPanel
+// (320px min), both open at once, plus the outer mx-1/mb-1 margins (8px) —
+// see docs/superpowers/specs/2026-08-20-app-shell-sidebar-design.md § Resize.
+// A restored window frame is rejected below this rather than being resized by
+// the platform and then saved back at the wrong size.
+const (
+	minWindowWidth  = 1080
+	minWindowHeight = 700
+)
+
 func main() {
 	if application.System.IsServer() {
 		host, err := servermode.ValidateHost(os.Getenv("WAILS_SERVER_HOST"))
@@ -291,6 +302,22 @@ func main() {
 		Server: application.ServerOptions{
 			Host: "127.0.0.1",
 		},
+		// One DevKit per user. A second launch would open a second window onto
+		// the same devkit.db, the same vault session and the same MCP socket
+		// (which internal/mcp already refuses to hand over, leaving the new
+		// window's agent tools dead). Re-launching from the dock, a terminal or
+		// a file association now raises the running window instead.
+		SingleInstance: &application.SingleInstanceOptions{
+			UniqueID: "com.devkit.app",
+			OnSecondInstanceLaunch: func(application.SecondInstanceData) {
+				if mainWindow == nil {
+					return
+				}
+				mainWindow.Restore()
+				mainWindow.Show()
+				mainWindow.Focus()
+			},
+		},
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: true,
 		},
@@ -331,17 +358,14 @@ func main() {
 		windowsTheme = application.Light
 	}
 
-	mainWindow = wailsApp.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:  "DevKit",
-		Width:  1200,
-		Height: 760,
-		// Floor derived from Sidebar (240px min) + its gutter (4px) + the
-		// content area's own hard floor (480px) + SplitPanel's gutter (4px) +
-		// SplitPanel (320px min), both open at once, plus the outer mx-1/mb-1
-		// margins (8px) — see docs/superpowers/specs/2026-08-20-app-shell-
-		// sidebar-design.md § Resize. No floor existed before this.
-		MinWidth:  1080,
-		MinHeight: 700,
+	// Reopen where the user left the window. Falls back to the launch default
+	// when nothing is stored yet or the stored frame is unusable.
+	windowOptions := application.WebviewWindowOptions{
+		Title:     "DevKit",
+		Width:     1200,
+		Height:    760,
+		MinWidth:  minWindowWidth,
+		MinHeight: minWindowHeight,
 		Mac: application.MacWindow{
 			// Do not use InvisibleTitleBarHeight here. In Wails beta.8 it is a
 			// native AppKit hit zone: every first mouse-down in the top N pixels
@@ -365,7 +389,22 @@ func main() {
 		BackgroundType:   backgroundType,
 		BackgroundColour: backgroundColour,
 		URL:              "/",
-	})
+	}
+	if frame, ok := loadWindowFrame(container.UIState); ok {
+		// X and Y are ignored unless InitialPosition opts out of the default,
+		// which is WindowCentered — without this the size restores but the
+		// window still jumps back to the middle of the primary display.
+		windowOptions.InitialPosition = application.WindowXY
+		windowOptions.X = frame.X
+		windowOptions.Y = frame.Y
+		windowOptions.Width = frame.Width
+		windowOptions.Height = frame.Height
+		if frame.Maximised {
+			windowOptions.StartState = application.WindowStateMaximised
+		}
+	}
+	mainWindow = wailsApp.Window.NewWithOptions(windowOptions)
+	trackWindowFrame(mainWindow, container.UIState)
 
 	// WKWebView currently caps requestAnimationFrame near 60Hz even on a
 	// ProMotion display. Opt into its native refresh rate through a private
@@ -377,6 +416,10 @@ func main() {
 		// Window events may arrive on AppKit's main thread; hop out before the
 		// helper synchronously dispatches its Objective-C work back to that thread.
 		go func() {
+			// Screens are only enumerable once the platform application is up,
+			// so a restored frame is checked against them here rather than
+			// before the window is created.
+			recentreIfOffScreen(mainWindow, wailsApp.Screen)
 			if enableNativeHighRefreshRate(mainWindow) {
 				log.Printf("WKWebView native refresh rate enabled (private WebKit API)")
 			} else if runtime.GOOS == "darwin" {
