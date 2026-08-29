@@ -7,6 +7,8 @@ export const agenthubModule: ModuleManifest = {
   version: "1.0.0",
   apiVersion: "1",
   icon: Bot,
+  // Keeps the shell's padding until this module owns its own chrome.
+  padded: true,
   capabilities: ["agenthub:read", "agenthub:execute"],
   commands: [
     { id: "agenthub.create", title: "New agent session" },

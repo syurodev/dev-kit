@@ -7,6 +7,8 @@ export const toolsModule: ModuleManifest = {
   version: "1.0.0",
   apiVersion: "1",
   icon: Wrench,
+  // Keeps the shell's padding until this module owns its own chrome.
+  padded: true,
   capabilities: ["tools:hash"],
   commands: [
     {

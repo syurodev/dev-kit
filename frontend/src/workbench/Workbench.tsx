@@ -201,9 +201,9 @@ const WorkbenchViews = memo(
         <section
           className={cn(
             "flex min-h-0 flex-1 flex-col",
-            activeModule?.id === "notes"
-              ? "overflow-hidden p-0"
-              : "overflow-auto p-4",
+            activeModule?.padded
+              ? "overflow-auto p-4"
+              : "overflow-hidden p-0",
           )}
         >
           {openTabs.length === 0 ? (

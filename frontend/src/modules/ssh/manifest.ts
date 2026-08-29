@@ -7,6 +7,8 @@ export const sshModule: ModuleManifest = {
   version: "1.0.0",
   apiVersion: "1",
   icon: Terminal,
+  // Keeps the shell's padding until this module owns its own chrome.
+  padded: true,
   capabilities: ["ssh:connect", "ssh:forward"],
   commands: [
     {

@@ -7,6 +7,8 @@ export const kafkaModule: ModuleManifest = {
   version: "1.0.0",
   apiVersion: "1",
   icon: Workflow,
+  // Keeps the shell's padding until this module owns its own chrome.
+  padded: true,
   capabilities: ["kafka:connect", "kafka:produce"],
   commands: [
     {

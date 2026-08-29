@@ -7,6 +7,8 @@ export const settingsModule: ModuleManifest = {
   version: "1.0.0",
   apiVersion: "1",
   icon: Settings,
+  // Keeps the shell's padding until this module owns its own chrome.
+  padded: true,
   capabilities: ["env:read", "env:write", "preferences:read", "preferences:write"],
   commands: [],
   views: [

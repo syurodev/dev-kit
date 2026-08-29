@@ -54,6 +54,19 @@ export type ModuleManifest = {
   commands: ModuleCommand[];
   views: ModuleView[];
   capabilities: string[];
+  /**
+   * Ask the shell for padding and an outer scroll container.
+   *
+   * The default is bleed: a module fills the content card and draws its own
+   * edges. That is the shape any module grows into once it has a header, a
+   * toolbar or its own scroll regions — padding then insets it from the card
+   * and a full-width divider stops short of both sides, reading as a floating
+   * box instead of a divider.
+   *
+   * Presentational and frontend-only: the backend has no opinion, so module
+   * parity ignores it.
+   */
+  padded?: boolean;
 };
 
 export type ModuleMetadata = {
