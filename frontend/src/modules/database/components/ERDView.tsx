@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ReactFlow,
   useNodesState,
@@ -19,7 +19,11 @@ import {
   Key,
   Columns,
   Link as LinkIcon,
+  ChevronRight,
+  ChevronDown,
+  Crosshair,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { useDatabaseStore } from "../databaseStore";
 import {
   listForeignKeys,
@@ -50,25 +54,47 @@ type TableNodeData = {
   columns: string[];
   foreignKeys: ForeignKey[];
   inferredRefs: Array<{ fromCol: string; toTable: string; toCol: string }>;
+  // Columns an edge actually lands on. A collapsed node keeps exactly these:
+  // hide the column and its Handle goes with it, and every edge pointing at it
+  // silently stops rendering.
+  keyColumns: string[];
+  expanded: boolean;
+  onToggle: () => void;
 };
+
+function visibleColumns(data: TableNodeData): string[] {
+  if (data.expanded) return data.columns;
+  return data.columns.filter((c) => data.keyColumns.includes(c));
+}
 
 function TableNode({ data }: { data: TableNodeData }) {
   return (
     <div className="bg-surface-raised border border-border/80 rounded-xl shadow-lg min-w-[220px] max-w-[280px] overflow-hidden text-xs font-mono">
-      {/* Node Header */}
-      <div className="px-3 py-2 bg-surface-base border-b border-border flex items-center justify-between gap-2">
+      {/* Node Header — doubles as the expand toggle */}
+      <button
+        type="button"
+        onClick={data.onToggle}
+        className="w-full px-3 py-2 bg-surface-base border-b border-border flex items-center justify-between gap-2 hover:bg-surface-raised/60 text-left"
+      >
         <div className="flex items-center gap-1.5 truncate">
+          {data.expanded ? (
+            <ChevronDown className="w-3 h-3 text-text-tertiary shrink-0" />
+          ) : (
+            <ChevronRight className="w-3 h-3 text-text-tertiary shrink-0" />
+          )}
           <TableIcon className="w-3.5 h-3.5 text-action-primary shrink-0" />
           <span className="font-semibold text-text-primary truncate">{data.tableName}</span>
         </div>
         <span className="text-[10px] text-text-tertiary font-sans bg-surface-raised px-1.5 py-0.5 rounded">
-          {data.columns.length} cols
+          {data.expanded
+            ? `${data.columns.length} cols`
+            : `${visibleColumns(data).length}/${data.columns.length}`}
         </span>
-      </div>
+      </button>
 
       {/* Columns List */}
       <div className="p-2 space-y-1 bg-surface-raised/40">
-        {data.columns.map((col) => {
+        {visibleColumns(data).map((col) => {
           const isPK = col === "id";
           const isDeclaredFK = data.foreignKeys.some((fk) => fk.column === col);
           const isInferredFK = data.inferredRefs.some((inf) => inf.fromCol === col);
@@ -137,6 +163,34 @@ function TableNode({ data }: { data: TableNodeData }) {
 const nodeTypes = {
   tableNode: TableNode,
 };
+
+/**
+ * Resolve which table a `<x>_id` column points at, by name alone.
+ *
+ * Schemas that namespace their tables (crm_leads, his_billing_statements) never
+ * match a bare stem: crm_leads.customer_id means crm_customers, not customers.
+ * The source table's own prefix is tried first — a reference inside a module is
+ * far likelier than one across modules. Returns "" when nothing matches, which
+ * is the point: a wrong edge is worse than a missing one.
+ */
+export function resolveRefTarget(
+  tableName: string,
+  column: string,
+  tableNames: string[],
+): string {
+  if (!column.endsWith("_id") || column === "id") return "";
+  const stem = column.slice(0, -3);
+  const underscore = tableName.indexOf("_");
+  const prefix = underscore > 0 ? tableName.slice(0, underscore + 1) : "";
+  const candidates = [
+    prefix && `${prefix}${stem}`,
+    prefix && `${prefix}${stem}s`,
+    stem,
+    `${stem}s`,
+  ].filter(Boolean) as string[];
+  const hit = candidates.find((name) => name !== tableName && tableNames.includes(name));
+  return hit ?? "";
+}
 
 export function ERDView() {
   const { selectedProfileId, schemaSnapshot } = useDatabaseStore();
@@ -225,15 +279,7 @@ export function ERDView() {
         if (isDeclared) continue;
 
         if (col.endsWith("_id") && col !== "id") {
-          const stem = col.slice(0, -3);
-          const pluralStem = `${stem}s`;
-
-          let targetTable = "";
-          if (tableNames.includes(stem)) {
-            targetTable = stem;
-          } else if (tableNames.includes(pluralStem)) {
-            targetTable = pluralStem;
-          }
+          const targetTable = resolveRefTarget(tableName, col, tableNames);
 
           // A matching table name is not enough. The design page requires the
           // target to actually have a single-column `id` primary key whose type
@@ -260,12 +306,88 @@ export function ERDView() {
     return inferred;
   }, [tablesInSchema, declaredFKs, typedColumns]);
 
+  // Every relation in one shape, used for three things: the key-column set a
+  // collapsed node must keep, the adjacency focus mode walks, and nothing else.
+  const relations = useMemo(
+    () => [
+      ...declaredFKs.map((fk) => ({
+        from: fk.table,
+        fromCol: fk.column,
+        to: fk.referencedTable,
+        toCol: fk.referencedColumn,
+      })),
+      ...inferredRelationships.map((inf) => ({
+        from: inf.fromTable,
+        fromCol: inf.fromCol,
+        to: inf.toTable,
+        toCol: inf.toCol,
+      })),
+    ],
+    [declaredFKs, inferredRelationships],
+  );
+
+  const keyColumnsByTable = useMemo(() => {
+    const keys: Record<string, string[]> = {};
+    const add = (table: string, col: string) => {
+      const list = keys[table] || (keys[table] = []);
+      if (!list.includes(col)) list.push(col);
+    };
+    for (const table of Object.keys(tablesInSchema)) add(table, "id");
+    for (const rel of relations) {
+      add(rel.from, rel.fromCol);
+      add(rel.to, rel.toCol);
+    }
+    return keys;
+  }, [tablesInSchema, relations]);
+
+  // Focus mode: at 161 tables the whole graph is a hairball, so the useful view
+  // is one table plus the tables it actually touches. Undirected on purpose —
+  // "what references me" matters as much as "what do I reference".
+  const [focusTable, setFocusTable] = useState("");
+  const [focusDepth, setFocusDepth] = useState(1);
+
+  const visibleTables = useMemo(() => {
+    if (!focusTable || !tablesInSchema[focusTable]) return tablesInSchema;
+    const neighbours: Record<string, Set<string>> = {};
+    const link = (a: string, b: string) => {
+      (neighbours[a] || (neighbours[a] = new Set())).add(b);
+    };
+    for (const rel of relations) {
+      link(rel.from, rel.to);
+      link(rel.to, rel.from);
+    }
+    const seen = new Set([focusTable]);
+    let frontier = [focusTable];
+    for (let hop = 0; hop < focusDepth; hop++) {
+      const next: string[] = [];
+      for (const table of frontier) {
+        for (const n of neighbours[table] || []) {
+          if (!seen.has(n)) {
+            seen.add(n);
+            next.push(n);
+          }
+        }
+      }
+      frontier = next;
+    }
+    return Object.fromEntries(
+      Object.entries(tablesInSchema).filter(([name]) => seen.has(name)),
+    );
+  }, [tablesInSchema, relations, focusTable, focusDepth]);
+
+  // Collapsed is the default: 161 tables at full column height is unreadable,
+  // and the columns that carry meaning in an ERD are the keys.
+  const [expandedTables, setExpandedTables] = useState<Record<string, boolean>>({});
+  const toggleTable = useCallback((table: string) => {
+    setExpandedTables((current) => ({ ...current, [table]: !current[table] }));
+  }, []);
+
   // A fixed row height overlapped as soon as one table had more columns than
   // the row allowed for. Each node's height is estimated from its own column
   // count, and nodes drop into whichever column is currently shortest, so a
   // wide table pushes only the column it lands in.
   const { nodes: computedNodes, edges: computedEdges } = useMemo(() => {
-    const tableList = Object.entries(tablesInSchema);
+    const tableList = Object.entries(visibleTables);
     const colsCount = Math.max(1, Math.ceil(Math.sqrt(tableList.length)));
     const nodeWidth = 320;
     const HEADER = 40;
@@ -274,9 +396,15 @@ export function ERDView() {
     const columnBottoms = new Array(colsCount).fill(50);
 
     const flowNodes: Node[] = tableList.map(([tableName, columns]) => {
+      const keyColumns = keyColumnsByTable[tableName] || [];
+      const expanded = !!expandedTables[tableName];
+      const rowCount = expanded
+        ? columns?.length ?? 0
+        : (columns || []).filter((c) => keyColumns.includes(c)).length;
+
       const colIdx = columnBottoms.indexOf(Math.min(...columnBottoms));
       const y = columnBottoms[colIdx];
-      columnBottoms[colIdx] = y + HEADER + (columns?.length ?? 0) * ROW + GAP;
+      columnBottoms[colIdx] = y + HEADER + rowCount * ROW + GAP;
 
       const tableFKs = declaredFKs.filter((fk) => fk.table === tableName);
       const tableInferred = inferredRelationships.filter(
@@ -293,6 +421,9 @@ export function ERDView() {
           columns: columns || [],
           foreignKeys: tableFKs,
           inferredRefs: tableInferred,
+          keyColumns,
+          expanded,
+          onToggle: () => toggleTable(tableName),
         },
       };
     });
@@ -301,7 +432,7 @@ export function ERDView() {
 
     // 1. Declared Foreign Keys (Solid edges)
     declaredFKs.forEach((fk, i) => {
-      if (tablesInSchema[fk.table] && tablesInSchema[fk.referencedTable]) {
+      if (visibleTables[fk.table] && visibleTables[fk.referencedTable]) {
         flowEdges.push({
           id: `fk-${fk.table}-${fk.column}-${fk.referencedTable}-${i}`,
           source: fk.table,
@@ -323,6 +454,7 @@ export function ERDView() {
 
     // 2. Inferred Relationships (Dashed edges with 'Inferred' label)
     inferredRelationships.forEach((inf, i) => {
+      if (!visibleTables[inf.fromTable] || !visibleTables[inf.toTable]) return;
       flowEdges.push({
         id: `inf-${inf.fromTable}-${inf.fromCol}-${inf.toTable}-${i}`,
         source: inf.fromTable,
@@ -341,20 +473,39 @@ export function ERDView() {
     });
 
     return { nodes: flowNodes, edges: flowEdges };
-  }, [tablesInSchema, declaredFKs, inferredRelationships, selectedSchema]);
+  }, [
+    visibleTables,
+    declaredFKs,
+    inferredRelationships,
+    selectedSchema,
+    keyColumnsByTable,
+    expandedTables,
+    toggleTable,
+  ]);
 
   // React Flow is controlled: without these handlers a drag emits changes that
   // nobody applies, so the node springs back and the canvas feels frozen.
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
+  // Changing schema, focus or an expanded node changes every node's height, so
+  // the old positions no longer pack without overlapping — the layout has to be
+  // taken as computed. Drags survive anything that leaves this signature alone.
+  const layoutKey = `${selectedSchema}|${focusTable}|${focusDepth}|${Object.keys(expandedTables)
+    .filter((t) => expandedTables[t])
+    .sort()
+    .join(",")}`;
+  const lastLayoutKey = useRef("");
+
   useEffect(() => {
-    // Keep positions the user has dragged; only new tables take a computed slot.
+    const relayout = lastLayoutKey.current !== layoutKey;
+    lastLayoutKey.current = layoutKey;
     setNodes((current) => {
+      if (relayout) return computedNodes;
       const placed = new Map(current.map((n) => [n.id, n.position]));
       return computedNodes.map((n) => ({ ...n, position: placed.get(n.id) ?? n.position }));
     });
-  }, [computedNodes, setNodes]);
+  }, [computedNodes, layoutKey, setNodes]);
 
   useEffect(() => {
     setEdges(computedEdges);
@@ -384,6 +535,57 @@ export function ERDView() {
               ))}
             </select>
           </div>
+
+          {/* Focus: 161 tables at once is a hairball. Native select so typing
+              jumps to a table without building a combobox. */}
+          <div className="flex items-center gap-1.5 text-xs text-text-secondary">
+            <Crosshair className="w-3.5 h-3.5 text-text-tertiary" />
+            <select
+              value={focusTable}
+              onChange={(e) => setFocusTable(e.target.value)}
+              className="h-7 px-2 rounded-md border border-border bg-surface-base text-xs text-text-primary outline-none focus:border-action-primary max-w-[220px]"
+            >
+              <option value="">All tables ({Object.keys(tablesInSchema).length})</option>
+              {Object.keys(tablesInSchema)
+                .sort()
+                .map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+            </select>
+            {focusTable && (
+              <>
+                <select
+                  value={focusDepth}
+                  onChange={(e) => setFocusDepth(Number(e.target.value))}
+                  className="h-7 px-2 rounded-md border border-border bg-surface-base text-xs text-text-primary outline-none focus:border-action-primary"
+                >
+                  <option value={1}>1 hop</option>
+                  <option value={2}>2 hops</option>
+                  <option value={3}>3 hops</option>
+                </select>
+                <span className="text-text-tertiary">
+                  {Object.keys(visibleTables).length} shown
+                </span>
+              </>
+            )}
+          </div>
+
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() =>
+              setExpandedTables((current) =>
+                Object.values(current).some(Boolean)
+                  ? {}
+                  : Object.fromEntries(Object.keys(visibleTables).map((t) => [t, true])),
+              )
+            }
+          >
+            {Object.values(expandedTables).some(Boolean) ? "Collapse all" : "Expand all"}
+          </Button>
         </div>
 
         {/* Legend */}
@@ -403,6 +605,7 @@ export function ERDView() {
       <div className="flex-1 relative">
         {nodes.length > 0 ? (
           <ReactFlow
+            key={layoutKey}
             nodes={nodes}
             edges={edges}
             onNodesChange={onNodesChange}
