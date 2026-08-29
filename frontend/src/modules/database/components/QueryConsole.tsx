@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import { sql as codemirrorSql, PostgreSQL, MySQL, MariaSQL } from "@codemirror/lang-sql";
 import { Button } from "@/components/ui/button";
+import { Kbd } from "@/components/ui/kbd";
+import { shortcut } from "@/lib/shortcut";
 import { Badge } from "@/components/ui/badge";
 import { CodeEditor } from "@/components/code-editor/CodeEditor";
 import { useDatabaseStore } from "../databaseStore";
@@ -140,7 +142,12 @@ export function QueryConsole() {
             >
               <Play className="w-3.5 h-3.5 fill-current" />
               <span>Run</span>
-              <kbd className="hidden sm:inline-block text-[10px] opacity-70 ml-1">⌘↵</kbd>
+              {/* Kbd's default muted surface is meant for neutral chrome; on the
+                  accent-filled primary button it needs to read against lime, so
+                  it borrows the button's own foreground. */}
+              <Kbd className="ml-0.5 hidden bg-black/12 text-current sm:inline-flex">
+                {shortcut("Enter")}
+              </Kbd>
             </Button>
 
             <Button
@@ -388,7 +395,7 @@ export function QueryConsole() {
             </h3>
             <p className="text-xs max-w-sm text-text-secondary leading-relaxed">
               {selectedProfileId
-                ? "Type a SQL query above and click Run (or press Cmd+Enter). Autocomplete will suggest schemas and tables as you type."
+                ? `Type a SQL query above and click Run (or press ${shortcut("Enter")}). Autocomplete will suggest schemas and tables as you type.`
                 : "Select a connection profile in the sidebar to start writing queries."}
             </p>
           </div>

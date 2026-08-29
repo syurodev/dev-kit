@@ -19,6 +19,7 @@ import { KEYS, type TComboboxInputElement } from "platejs";
 import { PlateElement, type PlateEditor, type PlateElementProps } from "platejs/react";
 
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
+import { modKey } from "@/lib/shortcut";
 import {
   InlineCombobox,
   InlineComboboxContent,
@@ -37,12 +38,6 @@ type SlashItem = {
   value: string;
   onSelect: (editor: PlateEditor) => void;
 };
-
-function modKey(): string {
-  return typeof navigator !== "undefined" && /Mac|iPhone|iPad/i.test(navigator.platform)
-    ? "⌘"
-    : "Ctrl";
-}
 
 function toggleBlock(editor: PlateEditor, type: string) {
   editor.tf.toggleBlock(type);
