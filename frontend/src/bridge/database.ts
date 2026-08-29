@@ -11,6 +11,9 @@ export type ConnectionProfile = {
   sslMode: string;
   env: string;
   readOnly: boolean;
+  sshProfileId?: string;
+  engine?: string;
+  driverOptions?: Record<string, string>;
 };
 
 export type CreateProfileInput = {
@@ -22,11 +25,13 @@ export type CreateProfileInput = {
   password: string;
   sslMode: string;
   env: string;
+  engine?: string;
 };
 
 export type UpdateProfileOptionsInput = {
   env: string;
   readOnly: boolean;
+  sshProfileId?: string;
 };
 
 export type QueryResult = {
@@ -34,6 +39,78 @@ export type QueryResult = {
   rows: string[][];
   rowCount: number;
   truncated: boolean;
+};
+
+export type TableInfo = {
+  schema: string;
+  name: string;
+  kind: string;
+};
+
+export type ColumnInfo = {
+  name: string;
+  dataType: string;
+  nullable: boolean;
+  position: number;
+};
+
+export type ForeignKey = {
+  schema: string;
+  table: string;
+  column: string;
+  referencedSchema: string;
+  referencedTable: string;
+  referencedColumn: string;
+};
+
+export type SchemaNamespace = Record<string, Record<string, string[]>>;
+
+export type SchemaSnapshot = {
+  namespace: SchemaNamespace;
+  indexedAt: string;
+};
+
+export type HistoryEntry = {
+  id: string;
+  profileId: string;
+  sql: string;
+  createdAt: string;
+};
+
+export type SavedQuery = {
+  id: string;
+  profileId: string;
+  name: string;
+  sql: string;
+};
+
+export type SessionRow = {
+  pid: string;
+  state: string;
+  duration: string;
+  user: string;
+  client: string;
+  waitEvent: string;
+  blockedBy: string[];
+  query: string;
+  application: string;
+  startedAt: string;
+};
+
+export type PlanNode = {
+  operation: string;
+  depth: number;
+  estimatedRows: number;
+  actualRows: number;
+  selfMillis: number;
+  detail: string;
+  children?: PlanNode[];
+};
+
+export type QueryPlan = {
+  nodes: PlanNode[];
+  raw: string;
+  analyzed: boolean;
 };
 
 function toProfile(p: {
@@ -46,6 +123,9 @@ function toProfile(p: {
   ssl_mode: string;
   env: string;
   read_only?: boolean;
+  ssh_profile_id?: string;
+  engine?: string;
+  driver_options?: { [_ in string]?: string } | null;
 }): ConnectionProfile {
   return {
     id: p.id,
@@ -57,6 +137,45 @@ function toProfile(p: {
     sslMode: p.ssl_mode,
     env: p.env,
     readOnly: Boolean(p.read_only),
+    sshProfileId: p.ssh_profile_id || undefined,
+    engine: p.engine || "postgres",
+    driverOptions: p.driver_options
+      ? (Object.fromEntries(
+          Object.entries(p.driver_options).filter(([, v]) => v !== undefined)
+        ) as Record<string, string>)
+      : undefined,
+  };
+}
+
+function toPlanNode(n: {
+  operation: string;
+  depth: number;
+  estimated_rows: number;
+  actual_rows: number;
+  self_millis: number;
+  detail: string;
+  children?: any[] | null;
+}): PlanNode {
+  return {
+    operation: n.operation,
+    depth: n.depth,
+    estimatedRows: n.estimated_rows,
+    actualRows: n.actual_rows,
+    selfMillis: n.self_millis,
+    detail: n.detail,
+    children: (n.children ?? []).map(toPlanNode),
+  };
+}
+
+function toQueryPlan(p: {
+  nodes: any[] | null;
+  raw: string;
+  analyzed: boolean;
+}): QueryPlan {
+  return {
+    nodes: (p.nodes ?? []).map(toPlanNode),
+    raw: p.raw,
+    analyzed: p.analyzed,
   };
 }
 
@@ -81,6 +200,7 @@ export function getDBActiveProfile(): Promise<string> {
 export function createProfile(input: CreateProfileInput): Promise<ConnectionProfile> {
   return callBridge(async () => {
     const created = await AppService.DBCreateProfile({
+      engine: input.engine || "postgres",
       name: input.name,
       host: input.host,
       port: input.port,
@@ -102,6 +222,7 @@ export function updateProfileOptions(
     const updated = await AppService.DBUpdateProfileOptions(id, {
       env: opts.env,
       read_only: opts.readOnly,
+      ssh_profile_id: opts.sshProfileId || "",
     });
     return toProfile(updated);
   });
@@ -120,7 +241,7 @@ export function runQuery(id: string, sql: string): Promise<QueryResult> {
     const result = await AppService.DBQuery(id, sql);
     return {
       columns: result.columns ?? [],
-      rows: (result.rows ?? []).map((r) => r ?? []),
+      rows: (result.rows ?? []).map((r) => (r ?? []).map((c) => c ?? "")),
       rowCount: result.row_count,
       truncated: result.truncated,
     };
@@ -129,4 +250,170 @@ export function runQuery(id: string, sql: string): Promise<QueryResult> {
 
 export function saveExportFile(suggestedName: string, content: string): Promise<string> {
   return callBridge(() => AppService.DBSaveExportFile(suggestedName, content) as Promise<string>);
+}
+
+export function listSchemas(id: string): Promise<string[]> {
+  return callBridge(async () => {
+    const list = await AppService.DBListSchemas(id);
+    return list ?? [];
+  });
+}
+
+export function listTables(id: string, schema: string): Promise<TableInfo[]> {
+  return callBridge(async () => {
+    const list = await AppService.DBListTables(id, schema);
+    return (list ?? []).map((t) => ({
+      schema: t.schema,
+      name: t.name,
+      kind: t.kind,
+    }));
+  });
+}
+
+export function listColumns(id: string, schema: string, table: string): Promise<ColumnInfo[]> {
+  return callBridge(async () => {
+    const list = await AppService.DBListColumns(id, schema, table);
+    return (list ?? []).map((c) => ({
+      name: c.name,
+      dataType: c.data_type,
+      nullable: c.nullable,
+      position: c.position,
+    }));
+  });
+}
+
+export function listForeignKeys(id: string, schema: string): Promise<ForeignKey[]> {
+  return callBridge(async () => {
+    const list = await AppService.DBListForeignKeys(id, schema);
+    return (list ?? []).map((fk) => ({
+      schema: fk.schema,
+      table: fk.table,
+      column: fk.column,
+      referencedSchema: fk.referenced_schema,
+      referencedTable: fk.referenced_table,
+      referencedColumn: fk.referenced_column,
+    }));
+  });
+}
+
+export function indexSchema(id: string): Promise<SchemaSnapshot> {
+  return callBridge(async () => {
+    const snap = await AppService.DBIndexSchema(id);
+    const namespace: SchemaNamespace = {};
+    if (snap.namespace) {
+      for (const [sch, tables] of Object.entries(snap.namespace)) {
+        if (tables) {
+          namespace[sch] = {};
+          for (const [tbl, cols] of Object.entries(tables)) {
+            namespace[sch][tbl] = (cols ?? []).map((c) => c ?? "");
+          }
+        }
+      }
+    }
+    return {
+      namespace,
+      indexedAt: snap.indexed_at,
+    };
+  });
+}
+
+export function getSchemaCache(id: string): Promise<SchemaSnapshot> {
+  return callBridge(async () => {
+    const snap = await AppService.DBGetSchemaCache(id);
+    const namespace: SchemaNamespace = {};
+    if (snap.namespace) {
+      for (const [sch, tables] of Object.entries(snap.namespace)) {
+        if (tables) {
+          namespace[sch] = {};
+          for (const [tbl, cols] of Object.entries(tables)) {
+            namespace[sch][tbl] = (cols ?? []).map((c) => c ?? "");
+          }
+        }
+      }
+    }
+    return {
+      namespace,
+      indexedAt: snap.indexed_at,
+    };
+  });
+}
+
+export function listQueryHistory(id: string): Promise<HistoryEntry[]> {
+  return callBridge(async () => {
+    const list = await AppService.DBListQueryHistory(id);
+    return (list ?? []).map((h) => ({
+      id: h.id,
+      profileId: h.profile_id,
+      sql: h.sql,
+      createdAt: h.created_at,
+    }));
+  });
+}
+
+export function saveQuery(id: string, name: string, sql: string): Promise<SavedQuery> {
+  return callBridge(async () => {
+    const saved = await AppService.DBSaveQuery(id, name, sql);
+    return {
+      id: saved.id,
+      profileId: saved.profile_id,
+      name: saved.name,
+      sql: saved.sql,
+    };
+  });
+}
+
+export function listSavedQueries(id: string): Promise<SavedQuery[]> {
+  return callBridge(async () => {
+    const list = await AppService.DBListSavedQueries(id);
+    return (list ?? []).map((q) => ({
+      id: q.id,
+      profileId: q.profile_id,
+      name: q.name,
+      sql: q.sql,
+    }));
+  });
+}
+
+export function deleteSavedQuery(id: string): Promise<void> {
+  return callBridge(() => AppService.DBDeleteSavedQuery(id) as Promise<void>);
+}
+
+export function listActivity(id: string): Promise<SessionRow[]> {
+  return callBridge(async () => {
+    const list = await AppService.DBListActivity(id);
+    return (list ?? []).map((s) => ({
+      pid: s.pid,
+      state: s.state,
+      duration: s.duration,
+      user: s.user,
+      client: s.client,
+      waitEvent: s.wait_event,
+      blockedBy: (s.blocked_by ?? []).map((b) => b ?? ""),
+      query: s.query,
+      application: s.application,
+      startedAt: s.started_at,
+    }));
+  });
+}
+
+export function cancelQuery(id: string, pid: string): Promise<void> {
+  return callBridge(() => AppService.DBCancelQuery(id, pid) as Promise<void>);
+}
+
+export function terminateSession(id: string, pid: string): Promise<void> {
+  return callBridge(() => AppService.DBTerminateSession(id, pid) as Promise<void>);
+}
+
+export function explain(id: string, sql: string): Promise<QueryPlan> {
+  return callBridge(async () => {
+    const plan = await AppService.DBExplain(id, sql);
+    return toQueryPlan(plan);
+  });
+}
+
+export function explainAnalyze(id: string, sql: string): Promise<QueryPlan> {
+  return callBridge(async () => {
+    const plan = await AppService.DBExplainAnalyze(id, sql);
+    return toQueryPlan(plan);
+  });
 }

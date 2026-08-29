@@ -1,0 +1,319 @@
+import { useState } from "react";
+import {
+  Sliders,
+  AlertTriangle,
+  X,
+  Clock,
+  Layers,
+  Copy,
+  Check,
+  ChevronRight,
+  ChevronDown,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import type { PlanNode, QueryPlan } from "../../../bridge/database";
+
+export function QueryPlanView({
+  plan,
+  onClose,
+}: {
+  plan: QueryPlan;
+  onClose: () => void;
+}) {
+  const [activeTab, setActiveTab] = useState<"visual" | "raw">("visual");
+  const [copied, setCopied] = useState(false);
+
+  // Flatten nodes for calculating max self time and statistics
+  const flattenedNodes: PlanNode[] = [];
+  function collect(node: PlanNode) {
+    flattenedNodes.push(node);
+    if (node.children) {
+      node.children.forEach(collect);
+    }
+  }
+  if (plan.nodes) {
+    plan.nodes.forEach(collect);
+  }
+
+  const maxSelfMillis = Math.max(1, ...flattenedNodes.map((n) => n.selfMillis || 0));
+  const totalSelfMillis = flattenedNodes.reduce((acc, n) => acc + (n.selfMillis || 0), 0);
+
+  // Identify high-deviation nodes (> 10x ratio)
+  const highDeviationNodes = flattenedNodes.filter((n) => {
+    if (n.estimatedRows <= 0 || n.actualRows <= 0) return false;
+    const ratio = Math.max(n.estimatedRows / n.actualRows, n.actualRows / n.estimatedRows);
+    return ratio >= 10;
+  });
+
+  function handleCopyRaw() {
+    navigator.clipboard.writeText(plan.raw);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+      <div className="bg-surface-base border border-border rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-surface-raised/50">
+          <div className="flex items-center gap-2.5">
+            <Sliders className="w-4 h-4 text-action-primary" />
+            <h2 className="text-sm font-semibold text-text-primary">Query Plan Inspector</h2>
+            {plan.analyzed ? (
+              <Badge variant="outline" className="text-[10px] text-status-success border-status-success/30 bg-status-success/10">
+                EXPLAIN ANALYZE · Executed & Rolled Back
+              </Badge>
+            ) : (
+              <Badge variant="secondary" className="text-[10px]">
+                EXPLAIN · Plan Only (No execution)
+              </Badge>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <div className="flex items-center bg-surface-base border border-border rounded-md p-0.5 text-xs">
+              <button
+                type="button"
+                className={`px-2.5 py-1 rounded transition-colors ${
+                  activeTab === "visual"
+                    ? "bg-surface-raised text-text-primary font-medium shadow-2xs"
+                    : "text-text-tertiary hover:text-text-primary"
+                }`}
+                onClick={() => setActiveTab("visual")}
+              >
+                Visual Flame Graph
+              </button>
+              <button
+                type="button"
+                className={`px-2.5 py-1 rounded transition-colors ${
+                  activeTab === "raw"
+                    ? "bg-surface-raised text-text-primary font-medium shadow-2xs"
+                    : "text-text-tertiary hover:text-text-primary"
+                }`}
+                onClick={() => setActiveTab("raw")}
+              >
+                Raw Output
+              </button>
+            </div>
+
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-text-tertiary hover:text-text-primary"
+              onClick={onClose}
+            >
+              <X className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
+
+        {/* Metric Highlights Bar */}
+        <div className="px-4 py-2.5 bg-surface-raised/30 border-b border-border flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-1.5 text-text-secondary">
+              <Clock className="w-3.5 h-3.5 text-text-tertiary" />
+              <span>Total Self Time:</span>
+              <span className="font-mono font-semibold text-text-primary">
+                {totalSelfMillis.toFixed(2)} ms
+              </span>
+            </div>
+
+            <div className="flex items-center gap-1.5 text-text-secondary">
+              <Layers className="w-3.5 h-3.5 text-text-tertiary" />
+              <span>Plan Steps:</span>
+              <span className="font-mono font-semibold text-text-primary">
+                {flattenedNodes.length}
+              </span>
+            </div>
+          </div>
+
+          {highDeviationNodes.length > 0 && (
+            <div className="flex items-center gap-1 text-[11px] font-medium text-status-warning bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/30">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+              <span>
+                {highDeviationNodes.length} step(s) with &gt;10× estimate-vs-actual row deviation (stale stats)
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Content Area */}
+        <div className="p-4 overflow-y-auto flex-1 bg-surface-base">
+          {activeTab === "visual" ? (
+            <div className="space-y-2">
+              {plan.nodes && plan.nodes.length > 0 ? (
+                plan.nodes.map((node, i) => (
+                  <PlanNodeItem
+                    key={i}
+                    node={node}
+                    maxSelfMillis={maxSelfMillis}
+                    totalSelfMillis={totalSelfMillis}
+                  />
+                ))
+              ) : (
+                <div className="text-center py-12 text-xs text-text-tertiary">
+                  No structured plan nodes available. View raw output instead.
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="relative">
+              <Button
+                variant="outline"
+                size="sm"
+                className="absolute top-2 right-2 h-7 text-xs gap-1 z-10"
+                onClick={handleCopyRaw}
+              >
+                {copied ? <Check className="w-3 h-3 text-status-success" /> : <Copy className="w-3 h-3" />}
+                <span>{copied ? "Copied" : "Copy Raw"}</span>
+              </Button>
+              <pre className="p-4 rounded-lg bg-surface-raised border border-border font-mono text-xs text-text-primary whitespace-pre overflow-x-auto leading-relaxed">
+                {plan.raw || "No raw plan output"}
+              </pre>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-4 py-2.5 border-t border-border bg-surface-raised/40 flex items-center justify-between text-xs text-text-tertiary">
+          <span>Bars indicate individual step self-time. Estimate gaps beyond 10× indicate out-of-date planner statistics.</span>
+          <Button variant="secondary" size="sm" onClick={onClose}>
+            Done
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PlanNodeItem({
+  node,
+  maxSelfMillis,
+  totalSelfMillis,
+}: {
+  node: PlanNode;
+  maxSelfMillis: number;
+  totalSelfMillis: number;
+}) {
+  const [expanded, setExpanded] = useState(true);
+
+  const percentOfMax = maxSelfMillis > 0 ? (node.selfMillis / maxSelfMillis) * 100 : 0;
+  const percentOfTotal = totalSelfMillis > 0 ? (node.selfMillis / totalSelfMillis) * 100 : 0;
+
+  let rowRatio = 1;
+  let hasHighDeviation = false;
+  if (node.estimatedRows > 0 && node.actualRows > 0) {
+    rowRatio = Math.max(node.estimatedRows / node.actualRows, node.actualRows / node.estimatedRows);
+    hasHighDeviation = rowRatio >= 10;
+  }
+
+  const isSeqScan = node.operation.toLowerCase().includes("seq scan");
+  const isSlow = percentOfTotal >= 25;
+
+  return (
+    <div className="space-y-1" style={{ marginLeft: `${node.depth * 18}px` }}>
+      <div
+        className={`p-2.5 rounded-lg border text-xs flex flex-col gap-1.5 transition-colors ${
+          hasHighDeviation
+            ? "border-amber-500/40 bg-amber-500/5 hover:bg-amber-500/10"
+            : isSlow
+            ? "border-status-danger/30 bg-status-danger/5 hover:bg-status-danger/10"
+            : "border-border bg-surface-raised hover:bg-surface-raised/80"
+        }`}
+      >
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          {/* Operation Title */}
+          <div className="flex items-center gap-1.5 min-w-0">
+            {node.children && node.children.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setExpanded(!expanded)}
+                className="text-text-tertiary hover:text-text-primary p-0.5"
+              >
+                {expanded ? (
+                  <ChevronDown className="w-3.5 h-3.5" />
+                ) : (
+                  <ChevronRight className="w-3.5 h-3.5" />
+                )}
+              </button>
+            )}
+            <span className="font-semibold text-text-primary font-mono text-xs">
+              {node.operation}
+            </span>
+
+            {isSeqScan && (
+              <Badge variant="outline" className="text-[10px] px-1 py-0 text-amber-500 border-amber-500/30">
+                Seq Scan
+              </Badge>
+            )}
+
+            {hasHighDeviation && (
+              <Badge variant="destructive" className="text-[10px] px-1.5 py-0 bg-amber-500/15 text-amber-500 border-amber-500/30">
+                {rowRatio.toFixed(0)}× Deviation
+              </Badge>
+            )}
+          </div>
+
+          {/* Time & Rows Meta */}
+          <div className="flex items-center gap-3 text-xs font-mono">
+            {node.actualRows > 0 ? (
+              <div className="text-text-tertiary text-[11px]">
+                <span>Est: {node.estimatedRows.toLocaleString()}</span>
+                <span className="mx-1">/</span>
+                <span className="text-text-primary font-medium">
+                  Act: {node.actualRows.toLocaleString()}
+                </span>
+              </div>
+            ) : node.estimatedRows > 0 ? (
+              <div className="text-text-tertiary text-[11px]">
+                Est rows: {node.estimatedRows.toLocaleString()}
+              </div>
+            ) : null}
+
+            <span className="font-semibold text-text-primary">
+              {node.selfMillis.toFixed(2)} ms
+            </span>
+          </div>
+        </div>
+
+        {/* Self-time visual bar (Flame graph width) */}
+        {node.selfMillis > 0 && (
+          <div className="w-full bg-surface-base h-1.5 rounded-full overflow-hidden border border-border/50">
+            <div
+              className={`h-full rounded-full transition-all ${
+                isSlow
+                  ? "bg-status-danger"
+                  : hasHighDeviation
+                  ? "bg-amber-500"
+                  : "bg-action-primary"
+              }`}
+              style={{ width: `${Math.max(2, percentOfMax)}%` }}
+            />
+          </div>
+        )}
+
+        {/* Detail string */}
+        {node.detail && (
+          <div className="font-mono text-[11px] text-text-secondary bg-surface-base/80 p-1.5 rounded border border-border/40 truncate">
+            {node.detail}
+          </div>
+        )}
+      </div>
+
+      {/* Children */}
+      {expanded && node.children && node.children.length > 0 && (
+        <div className="space-y-1 mt-1">
+          {node.children.map((child, idx) => (
+            <PlanNodeItem
+              key={idx}
+              node={child}
+              maxSelfMillis={maxSelfMillis}
+              totalSelfMillis={totalSelfMillis}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

@@ -199,6 +199,14 @@ export function DBActiveProfile(): $CancellablePromise<$models.ActiveProfileDTO>
     return $Call.ByID(2207927079);
 }
 
+/**
+ * DBCancelQuery stops one statement. Safe mode does not cover this — a
+ * read-only profile can still cancel, because pg_cancel_backend is a SELECT.
+ */
+export function DBCancelQuery(id: string, pid: string): $CancellablePromise<void> {
+    return $Call.ByID(652064838, id, pid);
+}
+
 export function DBCreateProfile(input: database$0.CreateProfileInput): $CancellablePromise<database$0.ProfileSummary> {
     return $Call.ByID(3479862833, input);
 }
@@ -207,24 +215,111 @@ export function DBDeleteProfile(id: string): $CancellablePromise<void> {
     return $Call.ByID(369902404, id);
 }
 
+/**
+ * DBDeleteSavedQuery hard-deletes. Queries have no trash, unlike notes.
+ */
+export function DBDeleteSavedQuery(id: string): $CancellablePromise<void> {
+    return $Call.ByID(3952808794, id);
+}
+
+/**
+ * DBExplain plans without running. Audit records that a plan was asked for, not
+ * the statement — SQL can carry literals.
+ */
+export function DBExplain(id: string, sql: string): $CancellablePromise<database$0.QueryPlan> {
+    return $Call.ByID(1732641127, id, sql);
+}
+
+/**
+ * DBExplainAnalyze runs the statement inside a rolled-back transaction, so it
+ * follows the same env-tag confirmation policy as DBQuery and stays off MCP.
+ */
+export function DBExplainAnalyze(id: string, sql: string): $CancellablePromise<database$0.QueryPlan> {
+    return $Call.ByID(564955345, id, sql);
+}
+
+export function DBGetSchemaCache(id: string): $CancellablePromise<database$0.SchemaSnapshot> {
+    return $Call.ByID(3249455531, id);
+}
+
+export function DBIndexSchema(id: string): $CancellablePromise<database$0.SchemaSnapshot> {
+    return $Call.ByID(3467733367, id);
+}
+
+/**
+ * DBListActivity returns other people's sessions, statements included. Human
+ * only: the rows carry SQL with literals, which is why this never reaches MCP.
+ */
+export function DBListActivity(id: string): $CancellablePromise<database$0.SessionRow[] | null> {
+    return $Call.ByID(2001158517, id);
+}
+
+export function DBListColumns(id: string, schema: string, table: string): $CancellablePromise<database$0.ColumnInfo[] | null> {
+    return $Call.ByID(2451086547, id, schema, table);
+}
+
+export function DBListForeignKeys(id: string, schema: string): $CancellablePromise<database$0.ForeignKey[] | null> {
+    return $Call.ByID(1782684436, id, schema);
+}
+
 export function DBListProfiles(): $CancellablePromise<database$0.ProfileSummary[] | null> {
     return $Call.ByID(1640509370);
+}
+
+/**
+ * DBListQueryHistory returns the newest statements run against a profile on
+ * this device. A locked vault is an error, not an empty list.
+ */
+export function DBListQueryHistory(id: string): $CancellablePromise<database$0.HistoryEntry[] | null> {
+    return $Call.ByID(869256636, id);
+}
+
+export function DBListSavedQueries(id: string): $CancellablePromise<database$0.SavedQuery[] | null> {
+    return $Call.ByID(3783725789, id);
+}
+
+/**
+ * DBListSchemas, DBListTables and DBListColumns replace the hardcoded
+ * pg_catalog SQL the UI used to send through DBQuery. Catalogue queries are not
+ * portable, so each driver owns its own.
+ */
+export function DBListSchemas(id: string): $CancellablePromise<string[] | null> {
+    return $Call.ByID(273454128, id);
+}
+
+export function DBListTables(id: string, schema: string): $CancellablePromise<database$0.TableInfo[] | null> {
+    return $Call.ByID(764026445, id, schema);
 }
 
 export function DBQuery(id: string, sql: string): $CancellablePromise<database$0.QueryResult> {
     return $Call.ByID(2555176260, id, sql);
 }
 
+export function DBSaveExportFile(suggestedName: string, content: string): $CancellablePromise<string> {
+    return $Call.ByID(2407386373, suggestedName, content);
+}
+
+/**
+ * DBSaveQuery keeps a named statement. Audit records the name but never the
+ * statement — saved SQL can carry literals.
+ */
+export function DBSaveQuery(id: string, name: string, sql: string): $CancellablePromise<database$0.SavedQuery> {
+    return $Call.ByID(2363872507, id, name, sql);
+}
+
 export function DBSetActiveProfile(id: string): $CancellablePromise<void> {
     return $Call.ByID(646248503, id);
 }
 
-export function DBTestConnection(id: string): $CancellablePromise<void> {
-    return $Call.ByID(3559263668, id);
+/**
+ * DBTerminateSession closes a connection and rolls back its transaction.
+ */
+export function DBTerminateSession(id: string, pid: string): $CancellablePromise<void> {
+    return $Call.ByID(584665321, id, pid);
 }
 
-export function DBSaveExportFile(suggestedName: string, content: string): $CancellablePromise<string> {
-    return $Call.ByID(2407386373, suggestedName, content);
+export function DBTestConnection(id: string): $CancellablePromise<void> {
+    return $Call.ByID(3559263668, id);
 }
 
 export function DBUpdateProfileOptions(id: string, opts: database$0.UpdateProfileOptionsInput): $CancellablePromise<database$0.ProfileSummary> {
