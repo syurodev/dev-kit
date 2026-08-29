@@ -18,6 +18,7 @@ import (
 	"devkit/internal/bridge"
 	"devkit/internal/cloudconfig"
 	"devkit/internal/codegraph"
+	"devkit/internal/database"
 	"devkit/internal/environments"
 	"devkit/internal/interaction"
 	"devkit/internal/mcp"
@@ -92,6 +93,9 @@ func main() {
 		environments.NewSQLRepository(db),
 	)
 	container.ConfigDir = configDir
+	// Query history is local by construction: its table sits outside
+	// vault_items, which sync has no path to.
+	container.Database.SetQueryLog(database.NewSQLQueryHistory(db), container.Vault)
 	container.Preferences = preferences.NewService(preferences.NewSQLRepository(db))
 	container.UIState = uistate.NewService(uistate.NewSQLRepository(db))
 	themePreference, err := container.Preferences.Theme()

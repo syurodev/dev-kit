@@ -170,6 +170,8 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.database", Capability: "db:query", Scope: "profile:new"},
 		{SubjectID: "builtin.database", Capability: "db:query", Scope: "profile:active"},
 		{SubjectID: "builtin.database", Capability: "db:query", Scope: "profile:*"},
+		// Saved queries are scoped by their own id, not the profile's.
+		{SubjectID: "builtin.database", Capability: "db:query", Scope: "query:*"},
 		{SubjectID: "builtin.ssh", Capability: "ssh:connect", Scope: "profile:list"},
 		{SubjectID: "builtin.ssh", Capability: "ssh:connect", Scope: "profile:new"},
 		{SubjectID: "builtin.ssh", Capability: "ssh:connect", Scope: "profile:active"},
@@ -222,6 +224,11 @@ func NewContainerWithStores(
 	itemStore := vaultitem.NewStore(itemRepo, vaultService)
 	envService := environments.NewService(envRepo, newVaultItemEnvUsage(itemStore))
 
+	dbService := database.NewService(itemStore, envService)
+	// In-memory history by default; main.go swaps in the SQL-backed table.
+	// History never goes through itemStore — see internal/database/queryhistory.go.
+	dbService.SetQueryLog(database.NewMemoryQueryHistory(), vaultService)
+
 	return &Container{
 		Commands:     commands.NewRegistry(),
 		Modules:      modules.NewRegistry(),
@@ -235,7 +242,7 @@ func NewContainerWithStores(
 		Environments: envService,
 		Preferences:  preferences.NewService(preferences.NewMemoryRepository()),
 		UIState:      uistate.NewService(uistate.NewMemoryRepository()),
-		Database:     database.NewService(itemStore, envService),
+		Database:     dbService,
 		SSH:          sshservice.NewService(itemStore, envService),
 		CodeGraph:    codegraph.NewService(codegraph.NewNilStore(), codegraph.NewSubprocessAnalyzer()),
 		Kafka:        kafka.NewService(itemStore, envService, nil),

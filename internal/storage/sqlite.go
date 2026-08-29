@@ -31,6 +31,9 @@ const (
 	TableAgentTurns         = "agent_turns"
 	TableAppPreferences     = "app_preferences"
 	TableUIState            = "ui_state"
+	// TableDBQueryHistory is deliberately outside vault_items: sync has no
+	// path to this table, which is what keeps query history on one device.
+	TableDBQueryHistory = "db_query_history"
 )
 
 var chmodFile = os.Chmod
@@ -576,7 +579,30 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		},
 	}
 
-	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16})
+	m17 := Migration{
+		Version: 17,
+		Name:    "create db_query_history",
+		Up: func(ctx context.Context) error {
+			if _, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE TABLE IF NOT EXISTS %s (
+					id TEXT PRIMARY KEY,
+					profile_id TEXT NOT NULL,
+					sql_envelope BLOB NOT NULL,
+					created_at TEXT NOT NULL
+				)`, TableDBQueryHistory,
+			)); err != nil {
+				return err
+			}
+			// Prune and listing both read newest-first within one profile.
+			_, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE INDEX IF NOT EXISTS ix_db_query_history_profile ON %s (profile_id, created_at DESC)`,
+				TableDBQueryHistory,
+			))
+			return err
+		},
+	}
+
+	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17})
 	if err != nil {
 		return err
 	}

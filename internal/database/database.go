@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/url"
 	"sort"
@@ -99,6 +100,8 @@ type Service struct {
 	agentActiveID string
 	pools         *PoolManager
 	maxRows       int
+	history       QueryHistoryRepository
+	sealer        Sealer
 }
 
 func NewService(store Store, envs EnvLookup) *Service {
@@ -209,6 +212,12 @@ func (s *Service) DeleteProfile(id string) error {
 		return err
 	}
 	s.pools.Remove(id)
+	// History lives outside vault_items, so it rides no vault-item cascade.
+	if repo, _ := s.queryLog(); repo != nil {
+		if err := repo.DeleteProfile(id); err != nil {
+			log.Printf("db history: delete for profile: %v", err)
+		}
+	}
 	return nil
 }
 
@@ -277,6 +286,7 @@ func (s *Service) Query(ctx context.Context, id string, sql string) (QueryResult
 	if err := rows.Err(); err != nil && !result.Truncated {
 		return QueryResult{}, err
 	}
+	s.recordHistory(id, sql)
 	return result, nil
 }
 
