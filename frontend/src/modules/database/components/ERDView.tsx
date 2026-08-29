@@ -10,6 +10,7 @@ import {
   Position,
   type Node,
   type Edge,
+  type ReactFlowInstance,
   MarkerType,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -488,13 +489,11 @@ export function ERDView() {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
-  // Changing schema, focus or an expanded node changes every node's height, so
-  // the old positions no longer pack without overlapping — the layout has to be
-  // taken as computed. Drags survive anything that leaves this signature alone.
-  const layoutKey = `${selectedSchema}|${focusTable}|${focusDepth}|${Object.keys(expandedTables)
-    .filter((t) => expandedTables[t])
-    .sort()
-    .join(",")}`;
+  // Changing schema or focus swaps the whole set of tables on screen, so the
+  // old positions mean nothing and the layout is taken as computed. Expanding a
+  // node deliberately does NOT relayout: the node you clicked grows and nothing
+  // else moves. Drags survive everything but a change of visible set.
+  const layoutKey = `${selectedSchema}|${focusTable}|${focusDepth}`;
   const lastLayoutKey = useRef("");
 
   useEffect(() => {
@@ -506,6 +505,26 @@ export function ERDView() {
       return computedNodes.map((n) => ({ ...n, position: placed.get(n.id) ?? n.position }));
     });
   }, [computedNodes, layoutKey, setNodes]);
+
+  // Refitting used to be done by remounting the canvas with a key, which threw
+  // away the viewport — every click that expanded a node zoomed back out. Fit
+  // through the instance instead, and only when the visible set changed. The
+  // nested frame lets React Flow measure the new nodes before it fits them.
+  const flowRef = useRef<ReactFlowInstance | null>(null);
+  const lastFitKey = useRef(layoutKey);
+
+  useEffect(() => {
+    if (lastFitKey.current === layoutKey) return;
+    lastFitKey.current = layoutKey;
+    let inner = 0;
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => flowRef.current?.fitView());
+    });
+    return () => {
+      cancelAnimationFrame(outer);
+      cancelAnimationFrame(inner);
+    };
+  }, [layoutKey, nodes]);
 
   useEffect(() => {
     setEdges(computedEdges);
@@ -605,7 +624,7 @@ export function ERDView() {
       <div className="flex-1 relative">
         {nodes.length > 0 ? (
           <ReactFlow
-            key={layoutKey}
+            onInit={(instance) => (flowRef.current = instance)}
             nodes={nodes}
             edges={edges}
             onNodesChange={onNodesChange}
