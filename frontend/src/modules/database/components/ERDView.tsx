@@ -466,7 +466,13 @@ export function ERDView() {
 
     const flowEdges: Edge[] = [];
 
-    // 1. Declared Foreign Keys (Solid edges)
+    // 1. Declared foreign keys: solid.
+    //
+    // Neither kind carries a label any more. "employee_id → his_employees.id"
+    // repeated what the row the line leaves and the node it enters already say,
+    // and at this density the labels floated in open space far from their edge.
+    // Orthogonal routing over bezier for the same reason: an ERD is read by
+    // following lines, and swooping curves cross each other constantly.
     declaredFKs.forEach((fk, i) => {
       if (visibleTables[fk.table] && visibleTables[fk.referencedTable]) {
         flowEdges.push({
@@ -475,20 +481,20 @@ export function ERDView() {
           target: fk.referencedTable,
           sourceHandle: `${fk.table}-${fk.column}-source`,
           targetHandle: `${fk.referencedTable}-${fk.referencedColumn}-target`,
-          animated: true,
-          style: { stroke: "var(--status-info)", strokeWidth: 2 },
+          type: "smoothstep",
+          style: { stroke: "var(--status-info)", strokeWidth: 1.5 },
           markerEnd: {
             type: MarkerType.ArrowClosed,
+            width: 14,
+            height: 14,
             color: "var(--status-info)",
           },
-          label: `${fk.column} → ${fk.referencedTable}.${fk.referencedColumn}`,
-          labelStyle: { fill: "var(--status-info)", fontSize: 10, fontFamily: "monospace" },
-          labelBgStyle: { fill: "var(--surface-base)", fillOpacity: 0.8 },
         });
       }
     });
 
-    // 2. Inferred Relationships (Dashed edges with 'Inferred' label)
+    // 2. Inferred relations: dashed, thinner and dimmer — a guess should not
+    //    look like a declared constraint.
     inferredRelationships.forEach((inf, i) => {
       if (!visibleTables[inf.fromTable] || !visibleTables[inf.toTable]) return;
       flowEdges.push({
@@ -497,14 +503,19 @@ export function ERDView() {
         target: inf.toTable,
         sourceHandle: `${inf.fromTable}-${inf.fromCol}-source`,
         targetHandle: `${inf.toTable}-${inf.toCol}-target`,
-        style: { stroke: "var(--text-tertiary)", strokeWidth: 1.5, strokeDasharray: "4 4" },
+        type: "smoothstep",
+        style: {
+          stroke: "var(--text-tertiary)",
+          strokeWidth: 1,
+          strokeDasharray: "4 4",
+          opacity: 0.7,
+        },
         markerEnd: {
           type: MarkerType.Arrow,
+          width: 14,
+          height: 14,
           color: "var(--text-tertiary)",
         },
-        label: `${inf.fromCol} ⇢ ${inf.toTable}.id (inferred)`,
-        labelStyle: { fill: "var(--text-tertiary)", fontSize: 9, fontFamily: "monospace" },
-        labelBgStyle: { fill: "var(--surface-raised)", fillOpacity: 0.8 },
       });
     });
 
