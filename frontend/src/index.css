@@ -166,6 +166,8 @@
     --state-soft: rgba(255, 255, 255, 0.06);
     --surface-well: rgba(255, 255, 255, 0.06);
     --feedback-danger-soft: rgba(216, 120, 134, 0.14);
+    --feedback-danger-hover: rgba(216, 120, 134, 0.24);
+    --feedback-danger-pressed: rgba(216, 120, 134, 0.32);
     --border-danger: rgba(216, 120, 134, 0.4);
 
     /* Note/folder 9-color palette (Figma "Note Palette" collection).
@@ -250,6 +252,10 @@
 
     --state-soft: rgba(29, 29, 31, 0.06);
     --surface-well: rgba(29, 29, 31, 0.04);
+    --feedback-danger-soft: rgba(216, 120, 134, 0.14);
+    --feedback-danger-hover: rgba(216, 120, 134, 0.24);
+    --feedback-danger-pressed: rgba(216, 120, 134, 0.32);
+    --border-danger: rgba(216, 120, 134, 0.4);
 
     /* Note palette light pairs — same hue, deeper for white surfaces */
     --note-folder-red: #b84a4a;

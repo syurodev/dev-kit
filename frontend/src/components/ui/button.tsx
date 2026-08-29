@@ -20,7 +20,7 @@ const buttonVariants = cva(
         ghost:
           "bg-transparent text-text-secondary hover:bg-surface-raised hover:text-text-primary active:bg-surface-base",
         destructive:
-          "bg-status-danger/15 text-status-danger border border-status-danger/30 hover:bg-status-danger/25 active:bg-status-danger/30",
+          "bg-(--feedback-danger-soft) text-status-danger border border-(--border-danger) hover:bg-(--feedback-danger-hover) active:bg-(--feedback-danger-pressed)",
         link: "text-status-info underline-offset-4 hover:underline",
       },
       size: {
