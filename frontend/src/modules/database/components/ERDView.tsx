@@ -655,6 +655,12 @@ export function ERDView() {
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             nodeTypes={nodeTypes}
+            // React Flow ships a light palette and only switches on its own
+            // `dark` class, which is why the controls and minimap rendered
+            // white on a dark canvas. The app has light tokens but nothing
+            // stamps data-theme yet — when a ThemeProvider lands this follows
+            // it, and the minimap colours below already flip on their own.
+            colorMode="dark"
             fitView
             fitViewOptions={{ maxZoom: 1 }}
             minZoom={0.2}
@@ -664,9 +670,11 @@ export function ERDView() {
             <Background color="var(--border)" gap={20} size={1} />
             <Controls className="bg-surface-raised border-border text-text-primary fill-current" />
             <MiniMap
-              className="bg-surface-raised border border-border rounded-lg overflow-hidden"
-              nodeColor="var(--status-info)"
-              maskColor="rgba(0, 0, 0, 0.6)"
+              className="border border-border rounded-lg overflow-hidden"
+              bgColor="var(--surface-base)"
+              nodeColor="var(--text-tertiary)"
+              nodeStrokeColor="transparent"
+              maskColor="color-mix(in srgb, var(--surface-base) 70%, transparent)"
             />
           </ReactFlow>
         ) : (
