@@ -64,10 +64,28 @@ type TableNodeData = {
   // The real primary key, as the engine reports it. A column named `id` is not
   // the same claim, and plenty of tables here key on something else.
   primaryColumns: string[];
+  columnTypes: Record<string, string>;
   isJunction: boolean;
   expanded: boolean;
   onToggle: () => void;
 };
+
+/**
+ * Postgres reports "character varying" and "timestamp without time zone" where
+ * MySQL already says varchar and timestamp. In a node that is 300px wide the
+ * long spellings push the column name out; the short one is what a developer
+ * writes anyway.
+ */
+function shortType(dataType: string): string {
+  const t = dataType.toLowerCase();
+  if (t.startsWith("character varying")) return "varchar";
+  if (t === "character") return "char";
+  if (t.startsWith("timestamp")) return t.includes("with time zone") ? "timestamptz" : "timestamp";
+  if (t.startsWith("time ")) return t.includes("with time zone") ? "timetz" : "time";
+  if (t === "double precision") return "double";
+  if (t === "boolean") return "bool";
+  return t.replace(/ unsigned$/, "");
+}
 
 function visibleColumns(data: TableNodeData): string[] {
   if (data.expanded) return data.columns;
@@ -76,7 +94,7 @@ function visibleColumns(data: TableNodeData): string[] {
 
 function TableNode({ data }: { data: TableNodeData }) {
   return (
-    <div className="bg-surface-raised border border-border/80 rounded-xl shadow-lg min-w-[220px] max-w-[280px] overflow-hidden text-xs font-mono">
+    <div className="bg-surface-raised border border-border/80 rounded-xl shadow-lg min-w-[260px] max-w-[340px] overflow-hidden text-xs font-mono">
       {/* Node Header — doubles as the expand toggle */}
       <button
         type="button"
@@ -150,15 +168,20 @@ function TableNode({ data }: { data: TableNodeData }) {
                 </span>
               </div>
 
-              {isPK ? (
-                <span className="text-[9px] text-amber-400 bg-amber-400/10 px-1 rounded">PK</span>
-              ) : isDeclaredFK ? (
-                <span className="text-[9px] text-sky-400 bg-sky-400/10 px-1 rounded">FK</span>
-              ) : isInferredFK ? (
-                <span className="text-[9px] text-text-tertiary bg-surface-base px-1 rounded">
-                  inf
+              <div className="flex items-center gap-1 shrink-0">
+                <span className="text-[9px] text-text-tertiary">
+                  {data.columnTypes[col] ?? ""}
                 </span>
-              ) : null}
+                {isPK ? (
+                  <span className="text-[9px] text-amber-400 bg-amber-400/10 px-1 rounded">PK</span>
+                ) : isDeclaredFK ? (
+                  <span className="text-[9px] text-sky-400 bg-sky-400/10 px-1 rounded">FK</span>
+                ) : isInferredFK ? (
+                  <span className="text-[9px] text-text-tertiary bg-surface-base px-1 rounded">
+                    inf
+                  </span>
+                ) : null}
+              </div>
 
               {/* Source handle for outgoing relations */}
               <Handle
@@ -593,7 +616,7 @@ export function ERDView() {
   const { nodes: computedNodes, edges: computedEdges } = useMemo(() => {
     const tableList = Object.entries(visibleTables);
     const colsCount = Math.max(1, Math.ceil(Math.sqrt(tableList.length)));
-    const nodeWidth = 320;
+    const nodeWidth = 380;
     const HEADER = 40;
     const ROW = 22;
     const GAP = 32;
@@ -627,6 +650,9 @@ export function ERDView() {
           inferredRefs: tableInferred,
           keyColumns,
           primaryColumns: primaryColumnsByTable[tableName] || [],
+          columnTypes: Object.fromEntries(
+            (typedColumns[tableName] || []).map((c) => [c.name, shortType(c.dataType)]),
+          ),
           isJunction: junctionTables.has(tableName),
           expanded,
           onToggle: () => toggleTable(tableName),
@@ -665,7 +691,11 @@ export function ERDView() {
           sourceHandle: `${fk.table}-${fk.column}-source`,
           targetHandle: `${fk.referencedTable}-${fk.referencedColumn}-target`,
           type: "smoothstep",
-          style: { stroke: "var(--status-info)", strokeWidth: 1.5 },
+          animated: true,
+          // React Flow's animated class dashes the line, so a declared edge
+          // cannot stay solid and still move. A long dash keeps it readable as
+          // the firmer of the two next to the inferred 4/4.
+          style: { stroke: "var(--status-info)", strokeWidth: 1.5, strokeDasharray: "14 4" },
           markerStart: childMarker("declared", fk.table, fk.column),
           markerEnd: "url(#erd-declared-one)",
         });
@@ -683,6 +713,7 @@ export function ERDView() {
         sourceHandle: `${inf.fromTable}-${inf.fromCol}-source`,
         targetHandle: `${inf.toTable}-${inf.toCol}-target`,
         type: "smoothstep",
+        animated: true,
         style: {
           stroke: "var(--text-tertiary)",
           strokeWidth: 1,

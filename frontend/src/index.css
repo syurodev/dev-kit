@@ -427,3 +427,12 @@
   padding-left: calc(6px + var(--cm-wrap-indent, 0ch));
   text-indent: calc(-1 * var(--cm-wrap-indent, 0ch));
 }
+
+/* React Flow animates edge dashes with a CSS keyframe on every edge at once.
+   At schema scale that is a lot of motion, and it is exactly the kind someone
+   with vestibular sensitivity asks the OS to stop. */
+@media (prefers-reduced-motion: reduce) {
+    .react-flow__edge.animated path {
+        animation: none;
+    }
+}
