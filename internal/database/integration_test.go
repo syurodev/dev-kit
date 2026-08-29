@@ -51,6 +51,47 @@ func TestPostgresIntegration(t *testing.T) {
 	}
 }
 
+func TestPostgresReadOnlyWarmPoolRejection(t *testing.T) {
+	if os.Getenv("DEVKIT_PG_TEST") != "1" {
+		t.Skip("set DEVKIT_PG_TEST=1 to run the PostgreSQL integration test")
+	}
+
+	svc := newService(t)
+	summary, err := svc.CreateProfile(CreateProfileInput{
+		Name:     "local-warm-ro",
+		Host:     envOr("DEVKIT_PG_HOST", "127.0.0.1"),
+		Port:     5432,
+		Database: envOr("DEVKIT_PG_DB", "devkitdb"),
+		Username: envOr("DEVKIT_PG_USER", "devkit"),
+		Password: envOr("DEVKIT_PG_PASSWORD", "devkitpass"),
+		SSLMode:  "disable",
+		Env:      "dev",
+	})
+	if err != nil {
+		t.Fatalf("CreateProfile: %v", err)
+	}
+
+	ctx := context.Background()
+	// Warm up pool with a writeable query
+	if _, err := svc.Query(ctx, summary.ID, "create temporary table if not exists test_warm (id int); insert into test_warm values (1);"); err != nil {
+		t.Fatalf("Warmup write failed: %v", err)
+	}
+
+	// Toggle read_only: true on the warm pool
+	if _, err := svc.UpdateProfileOptions(summary.ID, UpdateProfileOptionsInput{
+		Env:      "dev",
+		ReadOnly: true,
+	}); err != nil {
+		t.Fatalf("UpdateProfileOptions failed: %v", err)
+	}
+
+	// Subsequent write must be rejected by PostgreSQL in read-only safe-mode
+	_, err = svc.Query(ctx, summary.ID, "insert into test_warm values (2);")
+	if err == nil {
+		t.Fatal("expected write to be rejected on safe-mode read_only profile, but succeeded")
+	}
+}
+
 func envOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v

@@ -2,8 +2,13 @@ package bridge
 
 import (
 	"context"
+	"errors"
+	"os"
+	"strings"
 
 	"devkit/internal/database"
+
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 func (s *AppService) DBListProfiles() ([]database.ProfileSummary, error) {
@@ -64,4 +69,65 @@ func (s *AppService) DBQuery(ctx context.Context, id string, sql string) (databa
 		return database.QueryResult{}, err
 	}
 	return result.(database.QueryResult), nil
+}
+
+func (s *AppService) DBUpdateProfileOptions(id string, opts database.UpdateProfileOptionsInput) (database.ProfileSummary, error) {
+	opaqueID := recordID(id)
+	result, err := s.call(context.Background(), "builtin.database", "db:query", "profile:"+opaqueID, map[string]any{
+		"action":     "update_profile_options",
+		"profile_id": opaqueID,
+		"env":        opts.Env,
+		"read_only":  opts.ReadOnly,
+	}, func(context.Context) (any, error) {
+		return s.container.Database.UpdateProfileOptions(id, opts)
+	})
+	if err != nil {
+		return database.ProfileSummary{}, err
+	}
+	return result.(database.ProfileSummary), nil
+}
+
+func defaultSaveFileDialog(suggestedName string) (string, error) {
+	app := application.Get()
+	if app == nil || app.Dialog == nil {
+		return "", errors.New("dialog service unavailable")
+	}
+	dialog := app.Dialog.SaveFile().SetFilename(suggestedName)
+	lower := strings.ToLower(suggestedName)
+	if strings.HasSuffix(lower, ".csv") {
+		dialog.AddFilter("CSV Files (*.csv)", "*.csv")
+	} else if strings.HasSuffix(lower, ".json") {
+		dialog.AddFilter("JSON Files (*.json)", "*.json")
+	}
+	return dialog.PromptForSingleSelection()
+}
+
+func (s *AppService) DBSaveExportFile(suggestedName, content string) (string, error) {
+	result, err := s.call(context.Background(), "builtin.database", "db:query", "profile:export", map[string]any{
+		"action":         "save_export_file",
+		"suggested_name": suggestedName,
+	}, func(context.Context) (any, error) {
+		dialogFunc := s.saveFileDialog
+		if dialogFunc == nil {
+			dialogFunc = defaultSaveFileDialog
+		}
+		path, err := dialogFunc(suggestedName)
+		if err != nil {
+			return "", err
+		}
+		if path == "" {
+			return "", nil
+		}
+		// 0o600, not 0o644: an exported result carries whatever the query
+		// returned — the same data the vault exists to protect. Matches
+		// storage/sqlite.go and mcp/install/*.go.
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			return "", err
+		}
+		return path, nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return result.(string), nil
 }

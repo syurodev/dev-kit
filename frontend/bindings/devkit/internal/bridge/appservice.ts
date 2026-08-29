@@ -223,6 +223,14 @@ export function DBTestConnection(id: string): $CancellablePromise<void> {
     return $Call.ByID(3559263668, id);
 }
 
+export function DBSaveExportFile(suggestedName: string, content: string): $CancellablePromise<string> {
+    return $Call.ByID(2407386373, suggestedName, content);
+}
+
+export function DBUpdateProfileOptions(id: string, opts: database$0.UpdateProfileOptionsInput): $CancellablePromise<database$0.ProfileSummary> {
+    return $Call.ByID(867379260, id, opts);
+}
+
 export function EnvCreateTag(name: string, requiresConfirmation: boolean): $CancellablePromise<environments$0.Tag> {
     return $Call.ByID(336598155, name, requiresConfirmation);
 }

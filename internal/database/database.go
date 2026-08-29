@@ -44,6 +44,7 @@ type ProfileSummary struct {
 	Username string `json:"username"`
 	SSLMode  string `json:"ssl_mode"`
 	Env      string `json:"env"`
+	ReadOnly bool   `json:"read_only"`
 }
 
 type CreateProfileInput struct {
@@ -55,6 +56,11 @@ type CreateProfileInput struct {
 	Password string `json:"password"`
 	SSLMode  string `json:"ssl_mode"`
 	Env      string `json:"env"`
+}
+
+type UpdateProfileOptionsInput struct {
+	Env      string `json:"env"`
+	ReadOnly bool   `json:"read_only"`
 }
 
 type QueryResult struct {
@@ -70,6 +76,7 @@ type Store interface {
 	Get(id string) (vaultitem.Record, error)
 	OpenPayload(record vaultitem.Record, keyID string) ([]byte, error)
 	ListByType(itemType string) ([]vaultitem.Record, error)
+	UpdateMetadata(id string, metadata json.RawMessage) (vaultitem.Record, error)
 	Delete(id string) error
 }
 
@@ -82,6 +89,7 @@ type metadata struct {
 	Username string `json:"username"`
 	SSLMode  string `json:"ssl_mode"`
 	Env      string `json:"env"`
+	ReadOnly bool   `json:"read_only"`
 }
 
 type Service struct {
@@ -157,6 +165,45 @@ func (s *Service) ListProfiles() ([]ProfileSummary, error) {
 	return summaries, nil
 }
 
+func (s *Service) UpdateProfileOptions(id string, opts UpdateProfileOptionsInput) (ProfileSummary, error) {
+	if opts.Env == "" {
+		return ProfileSummary{}, errors.New("env is required")
+	}
+	if !s.envs.Exists(opts.Env) {
+		return ProfileSummary{}, fmt.Errorf("unknown env tag %q", opts.Env)
+	}
+
+	record, err := s.store.Get(id)
+	if err != nil {
+		return ProfileSummary{}, err
+	}
+	meta, err := decodeMetadata(record)
+	if err != nil {
+		return ProfileSummary{}, err
+	}
+
+	readOnlyChanged := meta.ReadOnly != opts.ReadOnly
+
+	meta.Env = opts.Env
+	meta.ReadOnly = opts.ReadOnly
+
+	rawMeta, err := json.Marshal(meta)
+	if err != nil {
+		return ProfileSummary{}, err
+	}
+
+	updatedRecord, err := s.store.UpdateMetadata(id, rawMeta)
+	if err != nil {
+		return ProfileSummary{}, err
+	}
+
+	if readOnlyChanged {
+		s.pools.Remove(id)
+	}
+
+	return summaryFromRecord(updatedRecord)
+}
+
 func (s *Service) DeleteProfile(id string) error {
 	if err := s.store.Delete(id); err != nil {
 		return err
@@ -170,14 +217,14 @@ func (s *Service) Close() { s.pools.Close() }
 
 // TestConnection decrypts the password, connects, and pings the database.
 func (s *Service) TestConnection(ctx context.Context, id string) error {
-	dsn, err := s.dsn(id)
+	target, err := s.target(id)
 	if err != nil {
 		return err
 	}
 	ctx, cancel := queryContext(ctx)
 	defer cancel()
 
-	pool, err := s.pool(ctx, id, dsn)
+	pool, err := s.pool(ctx, id, target.dsn, target.readOnly)
 	if err != nil {
 		return err
 	}
@@ -186,14 +233,14 @@ func (s *Service) TestConnection(ctx context.Context, id string) error {
 
 // Query runs SQL against the profile's database and returns rows (capped).
 func (s *Service) Query(ctx context.Context, id string, sql string) (QueryResult, error) {
-	dsn, err := s.dsn(id)
+	target, err := s.target(id)
 	if err != nil {
 		return QueryResult{}, err
 	}
 	ctx, cancel := queryContext(ctx)
 	defer cancel()
 
-	pool, err := s.pool(ctx, id, dsn)
+	pool, err := s.pool(ctx, id, target.dsn, target.readOnly)
 	if err != nil {
 		return QueryResult{}, err
 	}
@@ -233,25 +280,30 @@ func (s *Service) Query(ctx context.Context, id string, sql string) (QueryResult
 	return result, nil
 }
 
-func (s *Service) dsn(id string) (string, error) {
+type connectionTarget struct {
+	dsn      string
+	readOnly bool
+}
+
+func (s *Service) target(id string) (connectionTarget, error) {
 	record, err := s.store.Get(id)
 	if err != nil {
-		return "", err
+		return connectionTarget{}, err
 	}
 	meta, err := decodeMetadata(record)
 	if err != nil {
-		return "", err
+		return connectionTarget{}, err
 	}
 	password, err := s.store.OpenPayload(record, passwordKeyID)
 	if err != nil {
-		return "", err
+		return connectionTarget{}, err
 	}
 	// Match the SSH/Kafka hygiene: wipe the decrypted bytes once the DSN copy
 	// is built (the url.UserPassword string copy lives only for this call).
 	defer zeroBytes(password)
 	sslmode, err := normalizeSSLMode(meta.Host, meta.SSLMode)
 	if err != nil {
-		return "", err
+		return connectionTarget{}, err
 	}
 	u := url.URL{
 		Scheme: "postgres",
@@ -262,11 +314,19 @@ func (s *Service) dsn(id string) (string, error) {
 	query := u.Query()
 	query.Set("sslmode", sslmode)
 	u.RawQuery = query.Encode()
-	return u.String(), nil
+	return connectionTarget{dsn: u.String(), readOnly: meta.ReadOnly}, nil
 }
 
-func (s *Service) pool(ctx context.Context, id, dsn string) (*pgxpool.Pool, error) {
-	return s.pools.Get(ctx, id, dsn)
+func (s *Service) dsn(id string) (string, error) {
+	t, err := s.target(id)
+	if err != nil {
+		return "", err
+	}
+	return t.dsn, nil
+}
+
+func (s *Service) pool(ctx context.Context, id, dsn string, readOnly bool) (*pgxpool.Pool, error) {
+	return s.pools.Get(ctx, id, dsn, readOnly)
 }
 
 func normalizeSSLMode(host, sslMode string) (string, error) {
@@ -326,6 +386,7 @@ func summaryFromRecord(record vaultitem.Record) (ProfileSummary, error) {
 		Username: meta.Username,
 		SSLMode:  meta.SSLMode,
 		Env:      meta.Env,
+		ReadOnly: meta.ReadOnly,
 	}, nil
 }
 

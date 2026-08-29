@@ -223,3 +223,141 @@ func TestCreateProfileRejectsUnknownEnv(t *testing.T) {
 		t.Fatal("unknown env must error")
 	}
 }
+
+func TestUpdateProfileOptionsUpdatesEnvAndReadOnly(t *testing.T) {
+	svc, store := newServiceWithStore(t)
+	summary, err := svc.CreateProfile(CreateProfileInput{
+		Name:     "local",
+		Host:     "127.0.0.1",
+		Port:     5432,
+		Database: "devkitdb",
+		Username: "devkit",
+		Password: "devkitpass",
+		Env:      "dev",
+	})
+	if err != nil {
+		t.Fatalf("CreateProfile: %v", err)
+	}
+	if summary.ReadOnly {
+		t.Fatal("expected ReadOnly default to be false")
+	}
+
+	updated, err := svc.UpdateProfileOptions(summary.ID, UpdateProfileOptionsInput{
+		Env:      "prod",
+		ReadOnly: true,
+	})
+	if err != nil {
+		t.Fatalf("UpdateProfileOptions: %v", err)
+	}
+	if updated.Env != "prod" {
+		t.Fatalf("updated.Env = %q, want prod", updated.Env)
+	}
+	if !updated.ReadOnly {
+		t.Fatal("expected updated.ReadOnly to be true")
+	}
+
+	record, err := store.Get(summary.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	meta, err := decodeMetadata(record)
+	if err != nil {
+		t.Fatalf("decodeMetadata: %v", err)
+	}
+	if meta.Env != "prod" || !meta.ReadOnly {
+		t.Fatalf("persisted meta = %+v, want Env=prod and ReadOnly=true", meta)
+	}
+}
+
+func TestUpdateProfileOptionsValidatesIncomingEnvEvenWhenStoredEnvIsUnresolvable(t *testing.T) {
+	svc, store := newServiceWithStore(t)
+	summary, err := svc.CreateProfile(CreateProfileInput{
+		Name: "local",
+		Host: "127.0.0.1",
+		Env:  "dev",
+	})
+	if err != nil {
+		t.Fatalf("CreateProfile: %v", err)
+	}
+
+	// Corrupt / delete the stored env tag so stored state is unresolvable
+	record, err := store.Get(summary.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	meta, err := decodeMetadata(record)
+	if err != nil {
+		t.Fatalf("decodeMetadata: %v", err)
+	}
+	meta.Env = "deleted-tag"
+	raw, err := json.Marshal(meta)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if _, err := store.UpdateMetadata(summary.ID, raw); err != nil {
+		t.Fatalf("UpdateMetadata: %v", err)
+	}
+
+	// 1. Updating with a valid incoming tag MUST succeed despite the stored tag being unresolvable
+	updated, err := svc.UpdateProfileOptions(summary.ID, UpdateProfileOptionsInput{
+		Env:      "stg",
+		ReadOnly: true,
+	})
+	if err != nil {
+		t.Fatalf("UpdateProfileOptions with valid incoming env failed: %v", err)
+	}
+	if updated.Env != "stg" || !updated.ReadOnly {
+		t.Fatalf("updated = %+v, want Env=stg and ReadOnly=true", updated)
+	}
+
+	// 2. Updating with an invalid incoming tag MUST fail by validating the incoming value
+	if _, err := svc.UpdateProfileOptions(summary.ID, UpdateProfileOptionsInput{
+		Env: "non-existent-tag",
+	}); err == nil {
+		t.Fatal("expected error when incoming env tag is unknown")
+	}
+
+	// 3. Updating with an empty incoming tag MUST fail
+	if _, err := svc.UpdateProfileOptions(summary.ID, UpdateProfileOptionsInput{
+		Env: "",
+	}); err == nil {
+		t.Fatal("expected error when incoming env tag is empty")
+	}
+}
+
+func TestUpdateProfileOptionsInvalidatesPoolOnReadOnlyChange(t *testing.T) {
+	svc := newService(t)
+	summary, err := svc.CreateProfile(CreateProfileInput{
+		Name: "local",
+		Host: "127.0.0.1",
+		Env:  "dev",
+	})
+	if err != nil {
+		t.Fatalf("CreateProfile: %v", err)
+	}
+
+	// Populate a pool entry
+	pool, err := svc.pools.Get(context.Background(), summary.ID, "postgres://devkit:pass@127.0.0.1:5432/devkitdb?sslmode=disable", false)
+	if err != nil {
+		t.Fatalf("pools.Get: %v", err)
+	}
+	if pool == nil {
+		t.Fatal("expected pool to be created")
+	}
+
+	// Toggle read_only: true -> pool must be removed/invalidated
+	_, err = svc.UpdateProfileOptions(summary.ID, UpdateProfileOptionsInput{
+		Env:      "dev",
+		ReadOnly: true,
+	})
+	if err != nil {
+		t.Fatalf("UpdateProfileOptions: %v", err)
+	}
+
+	svc.pools.mu.Lock()
+	cachedPool := svc.pools.pools[summary.ID]
+	svc.pools.mu.Unlock()
+	if cachedPool != nil {
+		t.Fatal("expected pool to be removed from PoolManager after read_only toggle")
+	}
+}

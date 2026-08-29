@@ -10,11 +10,11 @@ func TestPoolManagerCreatesBoundedPoolAndReusesItPerProfile(t *testing.T) {
 	manager := NewPoolManager()
 	t.Cleanup(manager.Close)
 
-	first, err := manager.Get(context.Background(), "profile-1", "postgres://user:pass@127.0.0.1:1/devkit?sslmode=disable")
+	first, err := manager.Get(context.Background(), "profile-1", "postgres://user:pass@127.0.0.1:1/devkit?sslmode=disable", false)
 	if err != nil {
 		t.Fatalf("Get first pool: %v", err)
 	}
-	second, err := manager.Get(context.Background(), "profile-1", "postgres://user:pass@127.0.0.1:1/devkit?sslmode=disable")
+	second, err := manager.Get(context.Background(), "profile-1", "postgres://user:pass@127.0.0.1:1/devkit?sslmode=disable", false)
 	if err != nil {
 		t.Fatalf("Get second pool: %v", err)
 	}
@@ -30,6 +30,23 @@ func TestPoolManagerCreatesBoundedPoolAndReusesItPerProfile(t *testing.T) {
 	}
 	if config.MaxConnLifetime != 30*time.Minute {
 		t.Fatalf("MaxConnLifetime = %s, want 30m", config.MaxConnLifetime)
+	}
+	if config.AfterConnect != nil {
+		t.Fatal("expected AfterConnect to be nil when readOnly is false")
+	}
+}
+
+func TestPoolManagerConfiguresAfterConnectWhenReadOnly(t *testing.T) {
+	manager := NewPoolManager()
+	t.Cleanup(manager.Close)
+
+	pool, err := manager.Get(context.Background(), "profile-ro", "postgres://user:pass@127.0.0.1:1/devkit?sslmode=disable", true)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	config := pool.Config()
+	if config.AfterConnect == nil {
+		t.Fatal("expected AfterConnect to be configured when readOnly is true")
 	}
 }
 

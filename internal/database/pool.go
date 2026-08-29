@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -21,7 +22,7 @@ func NewPoolManager() *PoolManager {
 	return &PoolManager{pools: make(map[string]*pgxpool.Pool)}
 }
 
-func (m *PoolManager) Get(ctx context.Context, profileID, dsn string) (*pgxpool.Pool, error) {
+func (m *PoolManager) Get(ctx context.Context, profileID, dsn string, readOnly bool) (*pgxpool.Pool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if pool := m.pools[profileID]; pool != nil {
@@ -35,6 +36,13 @@ func (m *PoolManager) Get(ctx context.Context, profileID, dsn string) (*pgxpool.
 	config.MaxConns = 4
 	config.MinConns = 0
 	config.MaxConnLifetime = 30 * time.Minute
+
+	if readOnly {
+		config.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+			_, err := conn.Exec(ctx, "SET default_transaction_read_only = on")
+			return err
+		}
+	}
 
 	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {

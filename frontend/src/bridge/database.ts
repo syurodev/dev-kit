@@ -9,6 +9,8 @@ export type ConnectionProfile = {
   database: string;
   username: string;
   sslMode: string;
+  env: string;
+  readOnly: boolean;
 };
 
 export type CreateProfileInput = {
@@ -20,6 +22,11 @@ export type CreateProfileInput = {
   password: string;
   sslMode: string;
   env: string;
+};
+
+export type UpdateProfileOptionsInput = {
+  env: string;
+  readOnly: boolean;
 };
 
 export type QueryResult = {
@@ -37,6 +44,8 @@ function toProfile(p: {
   database: string;
   username: string;
   ssl_mode: string;
+  env: string;
+  read_only?: boolean;
 }): ConnectionProfile {
   return {
     id: p.id,
@@ -46,6 +55,8 @@ function toProfile(p: {
     database: p.database,
     username: p.username,
     sslMode: p.ssl_mode,
+    env: p.env,
+    readOnly: Boolean(p.read_only),
   };
 }
 
@@ -83,6 +94,19 @@ export function createProfile(input: CreateProfileInput): Promise<ConnectionProf
   });
 }
 
+export function updateProfileOptions(
+  id: string,
+  opts: UpdateProfileOptionsInput
+): Promise<ConnectionProfile> {
+  return callBridge(async () => {
+    const updated = await AppService.DBUpdateProfileOptions(id, {
+      env: opts.env,
+      read_only: opts.readOnly,
+    });
+    return toProfile(updated);
+  });
+}
+
 export function deleteProfile(id: string): Promise<void> {
   return callBridge(() => AppService.DBDeleteProfile(id) as Promise<void>);
 }
@@ -101,4 +125,8 @@ export function runQuery(id: string, sql: string): Promise<QueryResult> {
       truncated: result.truncated,
     };
   });
+}
+
+export function saveExportFile(suggestedName: string, content: string): Promise<string> {
+  return callBridge(() => AppService.DBSaveExportFile(suggestedName, content) as Promise<string>);
 }

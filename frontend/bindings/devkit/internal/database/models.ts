@@ -12,6 +12,11 @@ export interface CreateProfileInput {
     "env": string;
 }
 
+export interface UpdateProfileOptionsInput {
+    "env": string;
+    "read_only": boolean;
+}
+
 /**
  * ProfileSummary is a connection profile without the (encrypted) password.
  */
@@ -24,6 +29,7 @@ export interface ProfileSummary {
     "username": string;
     "ssl_mode": string;
     "env": string;
+    "read_only": boolean;
 }
 
 export interface QueryResult {
