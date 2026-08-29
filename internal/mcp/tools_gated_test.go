@@ -46,6 +46,14 @@ func (f *fakeDB) SetAgentActiveProfile(id string) error {
 	f.activeID = id
 	return nil
 }
+func (f *fakeDB) ListQueryHistory(string) ([]database.HistoryEntry, error) {
+	return nil, nil
+}
+
+func (f *fakeDB) ListSavedQueries(string) ([]database.SavedQuery, error) {
+	return nil, nil
+}
+
 func (f *fakeDB) Query(context.Context, string, string) (database.QueryResult, error) {
 	return f.queryOut, f.queryErr
 }

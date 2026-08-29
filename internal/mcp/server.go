@@ -88,6 +88,8 @@ type DatabaseAPI interface {
 	AgentActiveProfileID() string
 	SetAgentActiveProfile(id string) error
 	Query(ctx context.Context, id, sql string) (database.QueryResult, error)
+	ListQueryHistory(id string) ([]database.HistoryEntry, error)
+	ListSavedQueries(id string) ([]database.SavedQuery, error)
 }
 
 // KafkaAPI is the Kafka domain surface MCP tools invoke.

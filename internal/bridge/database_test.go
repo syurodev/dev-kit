@@ -116,8 +116,10 @@ func TestDatabaseWriteMethodsAreAbsentFromMCPTools(t *testing.T) {
 
 	// Guards the guard: if the database tools stop being registered at all, the
 	// absence checks below would pass for the wrong reason.
-	if !names["db.listProfiles"] {
-		t.Fatalf("db.listProfiles missing — the database tool surface did not register, so this test proves nothing. tools = %v", names)
+	for _, required := range []string{"db.listProfiles", "db.history.list", "db.savedQuery.list"} {
+		if !names[required] {
+			t.Fatalf("%s missing — the database tool surface did not register as expected, so the absence checks below prove nothing. tools = %v", required, names)
+		}
 	}
 
 	for _, forbidden := range []string{
@@ -127,6 +129,10 @@ func TestDatabaseWriteMethodsAreAbsentFromMCPTools(t *testing.T) {
 		"db.deleteProfile",
 		"db.createProfile",
 		"db.setActiveProfile",
+		// Deciding what is worth keeping is a human act.
+		"db.saveQuery",
+		"db.deleteSavedQuery",
+		"db.history.delete",
 	} {
 		if names[forbidden] {
 			t.Errorf("%s is exposed over MCP but must stay human-only", forbidden)

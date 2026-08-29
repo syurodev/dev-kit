@@ -131,3 +131,62 @@ func (s *AppService) DBSaveExportFile(suggestedName, content string) (string, er
 	}
 	return result.(string), nil
 }
+
+// DBListQueryHistory returns the newest statements run against a profile on
+// this device. A locked vault is an error, not an empty list.
+func (s *AppService) DBListQueryHistory(id string) ([]database.HistoryEntry, error) {
+	opaqueID := recordID(id)
+	result, err := s.call(context.Background(), "builtin.database", "db:query", "profile:"+opaqueID, map[string]any{
+		"action":     "list_query_history",
+		"profile_id": opaqueID,
+	}, func(context.Context) (any, error) {
+		return s.container.Database.ListQueryHistory(id)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]database.HistoryEntry), nil
+}
+
+// DBSaveQuery keeps a named statement. Audit records the name but never the
+// statement — saved SQL can carry literals.
+func (s *AppService) DBSaveQuery(id, name, sql string) (database.SavedQuery, error) {
+	opaqueID := recordID(id)
+	result, err := s.call(context.Background(), "builtin.database", "db:query", "profile:"+opaqueID, map[string]any{
+		"action":     "save_query",
+		"profile_id": opaqueID,
+		"name":       name,
+	}, func(context.Context) (any, error) {
+		return s.container.Database.SaveQuery(id, name, sql)
+	})
+	if err != nil {
+		return database.SavedQuery{}, err
+	}
+	return result.(database.SavedQuery), nil
+}
+
+func (s *AppService) DBListSavedQueries(id string) ([]database.SavedQuery, error) {
+	opaqueID := recordID(id)
+	result, err := s.call(context.Background(), "builtin.database", "db:query", "profile:"+opaqueID, map[string]any{
+		"action":     "list_saved_queries",
+		"profile_id": opaqueID,
+	}, func(context.Context) (any, error) {
+		return s.container.Database.ListSavedQueries(id)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]database.SavedQuery), nil
+}
+
+// DBDeleteSavedQuery hard-deletes. Queries have no trash, unlike notes.
+func (s *AppService) DBDeleteSavedQuery(id string) error {
+	opaqueID := recordID(id)
+	_, err := s.call(context.Background(), "builtin.database", "db:query", "query:"+opaqueID, map[string]any{
+		"action":   "delete_saved_query",
+		"query_id": opaqueID,
+	}, func(context.Context) (any, error) {
+		return nil, s.container.Database.DeleteSavedQuery(id)
+	})
+	return err
+}

@@ -24,6 +24,21 @@ func (s *Server) registerDatabase() {
 		},
 	}, s.toolDBTestConnection)
 
+	// Read-only. db.saveQuery and db.deleteSavedQuery stay off the surface:
+	// deciding what is worth keeping is a human act, same rule that keeps
+	// DBSetActiveProfile and DBUpdateProfileOptions off it.
+	sdk.AddTool(s.mcp, &sdk.Tool{
+		Name:        "db.history.list",
+		Description: "List recent statements run against a database profile on this device",
+		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
+	}, s.toolDBListQueryHistory)
+
+	sdk.AddTool(s.mcp, &sdk.Tool{
+		Name:        "db.savedQuery.list",
+		Description: "List saved queries for a database profile",
+		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
+	}, s.toolDBListSavedQueries)
+
 	sdk.AddTool(s.mcp, &sdk.Tool{
 		Name:        "db.activeProfile",
 		Description: "Report the agent sticky active database profile",
@@ -93,6 +108,36 @@ func (s *Server) toolDBQuery(ctx context.Context, _ *sdk.CallToolRequest, in dbQ
 		"profile_id": recordID(id),
 	}), func(callCtx context.Context) (any, error) {
 		return s.deps.DB.Query(callCtx, id, in.SQL)
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, v, nil
+}
+
+type dbProfileScopedInput struct {
+	ProfileID string `json:"profileId"`
+}
+
+func (s *Server) toolDBListQueryHistory(ctx context.Context, _ *sdk.CallToolRequest, in dbProfileScopedInput) (*sdk.CallToolResult, any, error) {
+	opaqueID := recordID(in.ProfileID)
+	v, err := s.deps.Caller.Call(ctx, "builtin.database", "db:query", "profile:"+opaqueID, meta("list_query_history", map[string]any{
+		"profile_id": opaqueID,
+	}), func(context.Context) (any, error) {
+		return s.deps.DB.ListQueryHistory(in.ProfileID)
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, v, nil
+}
+
+func (s *Server) toolDBListSavedQueries(ctx context.Context, _ *sdk.CallToolRequest, in dbProfileScopedInput) (*sdk.CallToolResult, any, error) {
+	opaqueID := recordID(in.ProfileID)
+	v, err := s.deps.Caller.Call(ctx, "builtin.database", "db:query", "profile:"+opaqueID, meta("list_saved_queries", map[string]any{
+		"profile_id": opaqueID,
+	}), func(context.Context) (any, error) {
+		return s.deps.DB.ListSavedQueries(in.ProfileID)
 	})
 	if err != nil {
 		return nil, nil, err
