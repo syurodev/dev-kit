@@ -12,7 +12,6 @@ import {
   Position,
   type Node,
   type Edge,
-  MarkerType,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import {
@@ -165,6 +164,79 @@ function TableNode({ data }: { data: TableNodeData }) {
 const nodeTypes = {
   tableNode: TableNode,
 };
+
+/**
+ * Crow's-foot markers, one set per edge colour.
+ *
+ * SVG markers do not inherit the path's stroke, and `context-stroke` is not
+ * safe across every webview this app ships in, so each variant is emitted with
+ * its colour baked in. The marker's +x axis runs along the path, which for a
+ * start marker means away from the child table: the prongs sit against the
+ * table and the optionality symbol reads just outside them.
+ */
+const EDGE_VARIANTS = [
+  { id: "declared", color: "var(--status-info)" },
+  { id: "inferred", color: "var(--text-tertiary)" },
+] as const;
+
+function ERDMarkers() {
+  return (
+    <svg className="absolute w-0 h-0" aria-hidden>
+      <defs>
+        {EDGE_VARIANTS.map(({ id, color }) => {
+          const line = { stroke: color, strokeWidth: 1.5, fill: "none" };
+          return (
+            <g key={id}>
+              {/* many, optional — 0..N */}
+              <marker
+                id={`erd-${id}-crow-opt`}
+                viewBox="0 0 22 14"
+                refX="0"
+                refY="7"
+                markerWidth="22"
+                markerHeight="14"
+                markerUnits="userSpaceOnUse"
+                orient="auto"
+              >
+                <path d="M0,1 L10,7 M0,7 L10,7 M0,13 L10,7" style={line} />
+                <circle cx="16" cy="7" r="3.5" style={line} />
+              </marker>
+
+              {/* many, required — 1..N */}
+              <marker
+                id={`erd-${id}-crow-req`}
+                viewBox="0 0 20 14"
+                refX="0"
+                refY="7"
+                markerWidth="20"
+                markerHeight="14"
+                markerUnits="userSpaceOnUse"
+                orient="auto"
+              >
+                <path d="M0,1 L10,7 M0,7 L10,7 M0,13 L10,7 M15,2 L15,12" style={line} />
+              </marker>
+
+              {/* the parent end is always exactly one */}
+              <marker
+                id={`erd-${id}-one`}
+                viewBox="0 0 14 14"
+                refX="14"
+                refY="7"
+                markerWidth="14"
+                markerHeight="14"
+                markerUnits="userSpaceOnUse"
+                orient="auto"
+              >
+                <path d="M9,2 L9,12" style={line} />
+              </marker>
+            </g>
+          );
+        })}
+      </defs>
+    </svg>
+  );
+}
+
 
 /**
  * Refit the viewport when the visible set of tables changes — and only then, so
@@ -466,6 +538,15 @@ export function ERDView() {
 
     const flowEdges: Edge[] = [];
 
+    // A nullable foreign key means the child row may exist without a parent:
+    // 0..N rather than 1..N. This is the one piece of cardinality the schema
+    // already tells us for free — NOT NULL is not a guess.
+    const crowFoot = (variant: string, table: string, column: string) => {
+      const col = (typedColumns[table] || []).find((c) => c.name === column);
+      const optional = col ? col.nullable : true;
+      return `url(#erd-${variant}-crow-${optional ? "opt" : "req"})`;
+    };
+
     // 1. Declared foreign keys: solid.
     //
     // Neither kind carries a label any more. "employee_id → his_employees.id"
@@ -483,12 +564,8 @@ export function ERDView() {
           targetHandle: `${fk.referencedTable}-${fk.referencedColumn}-target`,
           type: "smoothstep",
           style: { stroke: "var(--status-info)", strokeWidth: 1.5 },
-          markerEnd: {
-            type: MarkerType.ArrowClosed,
-            width: 14,
-            height: 14,
-            color: "var(--status-info)",
-          },
+          markerStart: crowFoot("declared", fk.table, fk.column),
+          markerEnd: "url(#erd-declared-one)",
         });
       }
     });
@@ -510,12 +587,8 @@ export function ERDView() {
           strokeDasharray: "4 4",
           opacity: 0.7,
         },
-        markerEnd: {
-          type: MarkerType.Arrow,
-          width: 14,
-          height: 14,
-          color: "var(--text-tertiary)",
-        },
+        markerStart: crowFoot("inferred", inf.fromTable, inf.fromCol),
+        markerEnd: "url(#erd-inferred-one)",
       });
     });
 
@@ -528,6 +601,7 @@ export function ERDView() {
     keyColumnsByTable,
     expandedTables,
     toggleTable,
+    typedColumns,
   ]);
 
   // React Flow is controlled: without these handlers a drag emits changes that
@@ -643,11 +717,18 @@ export function ERDView() {
             <span className="w-4 h-0.5 border-b border-dashed border-text-tertiary" />
             <span>Inferred Relations ({inferredRelationships.length})</span>
           </div>
+          <div className="flex items-center gap-1.5 text-text-tertiary">
+            <span className="font-mono">0..N</span>
+            <span>nullable key</span>
+            <span className="font-mono">1..N</span>
+            <span>NOT NULL</span>
+          </div>
         </div>
       </div>
 
       {/* React Flow Canvas */}
       <div className="flex-1 relative">
+        <ERDMarkers />
         {nodes.length > 0 ? (
           <ReactFlow
             nodes={nodes}
