@@ -160,6 +160,27 @@
     --glass-blur: 40px;
     --glass-saturate: 170%;
 
+    /* Contrast-aware state layers (Figma: state/soft, surface/well).
+       Dark lifts with white alpha, light recesses with ink alpha — a single
+       white alpha would vanish on light surfaces. */
+    --state-soft: rgba(255, 255, 255, 0.06);
+    --surface-well: rgba(255, 255, 255, 0.06);
+    --feedback-danger-soft: rgba(216, 120, 134, 0.14);
+    --border-danger: rgba(216, 120, 134, 0.4);
+
+    /* Note/folder 9-color palette (Figma "Note Palette" collection).
+       Consumed by modules/notes via var(--note-folder-<name>) — these were
+       referenced but never defined before this block. */
+    --note-folder-red: #e57373;
+    --note-folder-orange: #f0a468;
+    --note-folder-yellow: #e8d477;
+    --note-folder-green: #8fd68a;
+    --note-folder-teal: #6fcfbf;
+    --note-folder-blue: #7fb5e8;
+    --note-folder-violet: #a98fe8;
+    --note-folder-pink: #e394c9;
+    --note-folder-gray: #9a9da3;
+
     /* Mapped UI Tokens */
     --background: var(--background-app);
     --foreground: var(--text-primary);
@@ -226,6 +247,20 @@
     --glass-float-bg: rgba(255, 255, 255, 0.72);
     --glass-border: rgba(29, 29, 31, 0.08);
     --glass-highlight: rgba(255, 255, 255, 0.6);
+
+    --state-soft: rgba(29, 29, 31, 0.06);
+    --surface-well: rgba(29, 29, 31, 0.04);
+
+    /* Note palette light pairs — same hue, deeper for white surfaces */
+    --note-folder-red: #b84a4a;
+    --note-folder-orange: #b06a2a;
+    --note-folder-yellow: #9a7d1a;
+    --note-folder-green: #3f8f3a;
+    --note-folder-teal: #1e8578;
+    --note-folder-blue: #2a6fb0;
+    --note-folder-violet: #6a4fc0;
+    --note-folder-pink: #b04a8f;
+    --note-folder-gray: #6e7075;
 }
 
 .dark {
