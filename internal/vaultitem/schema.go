@@ -75,15 +75,17 @@ func ValidateRecordSchema(itemType string, metadata json.RawMessage, payload *cr
 
 	case ItemTypeDatabase:
 		var value struct {
-			Name         string `json:"name"`
-			Host         string `json:"host"`
-			Port         int    `json:"port"`
-			Database     string `json:"database"`
-			Username     string `json:"username"`
-			SSLMode      string `json:"ssl_mode"`
-			Env          string `json:"env"`
-			ReadOnly     bool   `json:"read_only"`
-			SSHProfileID string `json:"ssh_profile_id"`
+			Name          string            `json:"name"`
+			Host          string            `json:"host"`
+			Port          int               `json:"port"`
+			Database      string            `json:"database"`
+			Username      string            `json:"username"`
+			SSLMode       string            `json:"ssl_mode"`
+			Env           string            `json:"env"`
+			ReadOnly      bool              `json:"read_only"`
+			SSHProfileID  string            `json:"ssh_profile_id"`
+			Engine        string            `json:"engine"`
+			DriverOptions map[string]string `json:"driver_options"`
 		}
 		if decodeMetadataObject(metadata, &value) != nil || value.Name == "" || value.Host == "" || value.Port == 0 || value.SSLMode == "" || value.Env == "" {
 			return ErrInvalidRecordSchema

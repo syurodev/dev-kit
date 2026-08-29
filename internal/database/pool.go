@@ -2,31 +2,26 @@ package database
 
 import (
 	"context"
-	"fmt"
-	"net"
-	"net/url"
 	"sync"
 	"time"
-
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const queryTimeout = 30 * time.Second
 
-// PoolManager owns PostgreSQL pools for the lifetime of the application. A
-// profile gets one bounded pool, reused by connection tests and queries.
+// PoolManager owns one live connection per profile for the lifetime of the
+// application, plus the SSH forward that connection may depend on. It is
+// engine-agnostic: everything driver-specific lives behind Conn.
 type PoolManager struct {
 	mu      sync.Mutex
-	pools   map[string]*pgxpool.Pool
+	conns   map[string]Conn
 	tunnels Tunnel
 	// forwards maps a profile to the forward opened for it, so the tunnel dies
-	// with the pool rather than outliving it.
+	// with the connection rather than outliving it.
 	forwards map[string]string
 }
 
 func NewPoolManager() *PoolManager {
-	return &PoolManager{pools: make(map[string]*pgxpool.Pool), forwards: make(map[string]string)}
+	return &PoolManager{conns: make(map[string]Conn), forwards: make(map[string]string)}
 }
 
 // SetTunnel wires port forwarding. Without it a profile that asks for a tunnel
@@ -37,24 +32,27 @@ func (m *PoolManager) SetTunnel(t Tunnel) {
 	m.tunnels = t
 }
 
-// connectionSpec is everything needed to build one pool.
+// connectionSpec is everything needed to open one profile's connection.
 type connectionSpec struct {
 	profileID string
-	dsn       string
-	readOnly  bool
-	host      string
+	cfg       ConnConfig
 	// tunnel is nil when the profile connects directly.
 	tunnel *TunnelSpec
 }
 
-func (m *PoolManager) Get(ctx context.Context, spec connectionSpec) (*pgxpool.Pool, error) {
+func (m *PoolManager) Get(ctx context.Context, spec connectionSpec) (Conn, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if pool := m.pools[spec.profileID]; pool != nil {
-		return pool, nil
+	if conn := m.conns[spec.profileID]; conn != nil {
+		return conn, nil
 	}
 
-	dsn := spec.dsn
+	driver, err := driverFor(spec.cfg.Engine)
+	if err != nil {
+		return nil, err
+	}
+
+	cfg := spec.cfg
 	var forwardID string
 	if spec.tunnel != nil {
 		if m.tunnels == nil {
@@ -65,73 +63,37 @@ func (m *PoolManager) Get(ctx context.Context, spec connectionSpec) (*pgxpool.Po
 			return nil, err
 		}
 		forwardID = handle.ID
-		dsn, err = rewriteDSNHost(dsn, handle.LocalHost, handle.LocalPort)
-		if err != nil {
-			_ = m.tunnels.Close(forwardID)
-			return nil, err
-		}
+		// Connect to the local end, but keep verifying the certificate against
+		// the host the profile actually names.
+		cfg.TLSServerName = cfg.Host
+		cfg.Host = handle.LocalHost
+		cfg.Port = handle.LocalPort
 	}
 
-	config, err := pgxpool.ParseConfig(dsn)
+	conn, err := driver.Dial(ctx, cfg)
 	if err != nil {
 		if forwardID != "" {
 			_ = m.tunnels.Close(forwardID)
 		}
 		return nil, err
 	}
-	// The DSN now points at loopback, but the server certificate was issued for
-	// the real host. Without pinning ServerName, verify-full would fail against
-	// 127.0.0.1 and the only way out would be weakening TLS — exactly what
-	// ADR-007 forbids.
-	if spec.tunnel != nil && config.ConnConfig.TLSConfig != nil && spec.host != "" {
-		config.ConnConfig.TLSConfig.ServerName = spec.host
-	}
-	config.MaxConns = 4
-	config.MinConns = 0
-	config.MaxConnLifetime = 30 * time.Minute
-
-	if spec.readOnly {
-		config.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
-			_, err := conn.Exec(ctx, "SET default_transaction_read_only = on")
-			return err
-		}
-	}
-
-	pool, err := pgxpool.NewWithConfig(ctx, config)
-	if err != nil {
-		if forwardID != "" {
-			_ = m.tunnels.Close(forwardID)
-		}
-		return nil, err
-	}
-	m.pools[spec.profileID] = pool
+	m.conns[spec.profileID] = conn
 	if forwardID != "" {
 		m.forwards[spec.profileID] = forwardID
 	}
-	return pool, nil
-}
-
-// rewriteDSNHost repoints a DSN at the local end of a forward. Only the host
-// and port change; credentials, database and sslmode are left untouched.
-func rewriteDSNHost(dsn, host string, port int) (string, error) {
-	parsed, err := url.Parse(dsn)
-	if err != nil {
-		return "", err
-	}
-	parsed.Host = net.JoinHostPort(host, fmt.Sprintf("%d", port))
-	return parsed.String(), nil
+	return conn, nil
 }
 
 func (m *PoolManager) Remove(profileID string) {
 	m.mu.Lock()
-	pool := m.pools[profileID]
-	delete(m.pools, profileID)
+	conn := m.conns[profileID]
+	delete(m.conns, profileID)
 	forwardID := m.forwards[profileID]
 	delete(m.forwards, profileID)
 	tunnels := m.tunnels
 	m.mu.Unlock()
-	if pool != nil {
-		pool.Close()
+	if conn != nil {
+		conn.Close()
 	}
 	if forwardID != "" && tunnels != nil {
 		_ = tunnels.Close(forwardID)
@@ -140,14 +102,14 @@ func (m *PoolManager) Remove(profileID string) {
 
 func (m *PoolManager) Close() {
 	m.mu.Lock()
-	pools := m.pools
+	conns := m.conns
 	forwards := m.forwards
 	tunnels := m.tunnels
-	m.pools = make(map[string]*pgxpool.Pool)
+	m.conns = make(map[string]Conn)
 	m.forwards = make(map[string]string)
 	m.mu.Unlock()
-	for _, pool := range pools {
-		pool.Close()
+	for _, conn := range conns {
+		conn.Close()
 	}
 	if tunnels != nil {
 		for _, forwardID := range forwards {

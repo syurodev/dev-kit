@@ -175,9 +175,9 @@ func TestDSNRejectsPersistedRemoteProfileWithInsecureTLS(t *testing.T) {
 		t.Fatalf("UpdateMetadata: %v", err)
 	}
 
-	_, err = svc.dsn(summary.ID)
+	_, err = svc.target(summary.ID)
 	if !errors.Is(err, ErrInsecureTLSForRemoteHost) {
-		t.Fatalf("dsn error = %v, want ErrInsecureTLSForRemoteHost", err)
+		t.Fatalf("target error = %v, want ErrInsecureTLSForRemoteHost", err)
 	}
 }
 
@@ -337,7 +337,7 @@ func TestUpdateProfileOptionsInvalidatesPoolOnReadOnlyChange(t *testing.T) {
 	}
 
 	// Populate a pool entry
-	pool, err := svc.pools.Get(context.Background(), connectionSpec{profileID: summary.ID, dsn: "postgres://devkit:pass@127.0.0.1:5432/devkitdb?sslmode=disable", readOnly: false})
+	pool, err := svc.pools.Get(context.Background(), pgSpec(summary.ID, false))
 	if err != nil {
 		t.Fatalf("pools.Get: %v", err)
 	}
@@ -355,7 +355,7 @@ func TestUpdateProfileOptionsInvalidatesPoolOnReadOnlyChange(t *testing.T) {
 	}
 
 	svc.pools.mu.Lock()
-	cachedPool := svc.pools.pools[summary.ID]
+	cachedPool := svc.pools.conns[summary.ID]
 	svc.pools.mu.Unlock()
 	if cachedPool != nil {
 		t.Fatal("expected pool to be removed from PoolManager after read_only toggle")

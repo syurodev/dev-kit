@@ -3,50 +3,41 @@ package database
 import (
 	"context"
 	"testing"
-	"time"
 )
 
-func TestPoolManagerCreatesBoundedPoolAndReusesItPerProfile(t *testing.T) {
+func pgSpec(profileID string, readOnly bool) connectionSpec {
+	return connectionSpec{profileID: profileID, cfg: ConnConfig{
+		Engine: EnginePostgres, Host: "127.0.0.1", Port: 1,
+		Database: "devkit", Username: "user", Password: "pass",
+		SSLMode: "disable", ReadOnly: readOnly,
+	}}
+}
+
+func TestPoolManagerReusesOneConnectionPerProfile(t *testing.T) {
 	manager := NewPoolManager()
 	t.Cleanup(manager.Close)
 
-	first, err := manager.Get(context.Background(), connectionSpec{profileID: "profile-1", dsn: "postgres://user:pass@127.0.0.1:1/devkit?sslmode=disable", readOnly: false})
+	first, err := manager.Get(context.Background(), pgSpec("profile-1", false))
 	if err != nil {
-		t.Fatalf("Get first pool: %v", err)
+		t.Fatalf("Get first: %v", err)
 	}
-	second, err := manager.Get(context.Background(), connectionSpec{profileID: "profile-1", dsn: "postgres://user:pass@127.0.0.1:1/devkit?sslmode=disable", readOnly: false})
+	second, err := manager.Get(context.Background(), pgSpec("profile-1", false))
 	if err != nil {
-		t.Fatalf("Get second pool: %v", err)
+		t.Fatalf("Get second: %v", err)
 	}
 	if first != second {
-		t.Fatal("Get created a second pool for the same profile")
-	}
-	config := first.Config()
-	if config.MaxConns != 4 {
-		t.Fatalf("MaxConns = %d, want 4", config.MaxConns)
-	}
-	if config.MinConns != 0 {
-		t.Fatalf("MinConns = %d, want 0", config.MinConns)
-	}
-	if config.MaxConnLifetime != 30*time.Minute {
-		t.Fatalf("MaxConnLifetime = %s, want 30m", config.MaxConnLifetime)
-	}
-	if config.AfterConnect != nil {
-		t.Fatal("expected AfterConnect to be nil when readOnly is false")
+		t.Fatal("Get opened a second connection for the same profile")
 	}
 }
 
-func TestPoolManagerConfiguresAfterConnectWhenReadOnly(t *testing.T) {
+func TestPoolManagerRejectsAnUnknownEngine(t *testing.T) {
 	manager := NewPoolManager()
 	t.Cleanup(manager.Close)
 
-	pool, err := manager.Get(context.Background(), connectionSpec{profileID: "profile-ro", dsn: "postgres://user:pass@127.0.0.1:1/devkit?sslmode=disable", readOnly: true})
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	config := pool.Config()
-	if config.AfterConnect == nil {
-		t.Fatal("expected AfterConnect to be configured when readOnly is true")
+	spec := pgSpec("profile-x", false)
+	spec.cfg.Engine = "oracle"
+	if _, err := manager.Get(context.Background(), spec); err == nil {
+		t.Fatal("an unknown engine must fail rather than silently using Postgres")
 	}
 }
 

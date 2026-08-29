@@ -3,7 +3,6 @@ package database
 import (
 	"context"
 	"errors"
-	"net/url"
 	"strings"
 	"testing"
 )
@@ -43,38 +42,35 @@ func tunnelledProfile(t *testing.T, svc *Service, sshProfileID string) string {
 	return summary.ID
 }
 
-func TestTunnelRewritesTheDSNToTheLocalEnd(t *testing.T) {
+func TestTunnelRepointsTheConnectionWithoutWeakeningTLS(t *testing.T) {
 	svc := newService(t)
 	tunnel := &fakeTunnel{handle: TunnelHandle{ID: "fwd-1", LocalHost: "127.0.0.1", LocalPort: 54413}}
 	svc.SetTunnel(tunnel)
 	id := tunnelledProfile(t, svc, "bastion-1")
 
-	target, err := svc.target(id)
+	conn, err := svc.connect(context.Background(), id)
 	if err != nil {
-		t.Fatalf("target: %v", err)
+		t.Fatalf("connect: %v", err)
 	}
-	if target.sshProfileID != "bastion-1" {
-		t.Fatalf("sshProfileID = %q", target.sshProfileID)
-	}
+	t.Cleanup(conn.Close)
 
-	rewritten, err := rewriteDSNHost(target.dsn, "127.0.0.1", 54413)
-	if err != nil {
-		t.Fatalf("rewriteDSNHost: %v", err)
+	config := conn.(*postgresConn).pool.Config().ConnConfig
+	if config.Host != "127.0.0.1" || config.Port != 54413 {
+		t.Fatalf("connection went to %s:%d, want the local end of the forward", config.Host, config.Port)
 	}
-	parsed, err := url.Parse(rewritten)
-	if err != nil {
-		t.Fatalf("parse: %v", err)
+	if config.TLSConfig == nil {
+		t.Fatal("verify-full produced no TLS config")
 	}
-	if parsed.Host != "127.0.0.1:54413" {
-		t.Fatalf("host = %q, want the local end of the forward", parsed.Host)
+	// The certificate is issued for db.internal; checking it against loopback
+	// would fail, and the only escape would be weakening sslmode.
+	if config.TLSConfig.ServerName != "db.internal" {
+		t.Fatalf("ServerName = %q, want the profile's real host", config.TLSConfig.ServerName)
 	}
-	// Credentials, database and sslmode must survive the rewrite untouched:
-	// downgrading TLS to reach a tunnel is exactly what ADR-007 forbids.
-	if parsed.Query().Get("sslmode") != "verify-full" {
-		t.Fatalf("sslmode = %q, want verify-full", parsed.Query().Get("sslmode"))
+	if config.TLSConfig.InsecureSkipVerify {
+		t.Fatal("tunnelling must not disable certificate verification")
 	}
-	if parsed.Path != "/app" || parsed.User.Username() != "devkit" {
-		t.Fatalf("rewrite lost identity: path=%q user=%q", parsed.Path, parsed.User.Username())
+	if config.User != "devkit" || config.Database != "app" {
+		t.Fatalf("repointing lost identity: user=%q db=%q", config.User, config.Database)
 	}
 }
 
@@ -133,7 +129,7 @@ func TestChangingTheTunnelDropsPoolAndForward(t *testing.T) {
 
 	// Register a pool and its forward the way a successful connect would.
 	svc.pools.mu.Lock()
-	svc.pools.pools[id] = nil
+	svc.pools.conns[id] = nil
 	svc.pools.forwards[id] = "fwd-1"
 	svc.pools.mu.Unlock()
 
@@ -141,7 +137,7 @@ func TestChangingTheTunnelDropsPoolAndForward(t *testing.T) {
 		t.Fatalf("UpdateProfileOptions: %v", err)
 	}
 	svc.pools.mu.Lock()
-	_, poolLeft := svc.pools.pools[id]
+	_, poolLeft := svc.pools.conns[id]
 	_, forwardLeft := svc.pools.forwards[id]
 	svc.pools.mu.Unlock()
 	if poolLeft || forwardLeft {

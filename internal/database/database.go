@@ -7,13 +7,10 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"net/url"
 	"sort"
 	"sync"
 
 	"devkit/internal/vaultitem"
-
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const (
@@ -49,9 +46,15 @@ type ProfileSummary struct {
 	// SSHProfileID is optional. When set, Host/Port are addresses as seen from
 	// the SSH server, not from this machine.
 	SSHProfileID string `json:"ssh_profile_id,omitempty"`
+	// Engine is empty on profiles created before multi-engine support; those
+	// are all Postgres, which is why it defaults rather than being required.
+	Engine string `json:"engine,omitempty"`
+	// DriverOptions carries engine-specific parameters that do not generalise.
+	DriverOptions map[string]string `json:"driver_options,omitempty"`
 }
 
 type CreateProfileInput struct {
+	Engine   string `json:"engine"`
 	Name     string `json:"name"`
 	Host     string `json:"host"`
 	Port     int    `json:"port"`
@@ -99,6 +102,11 @@ type metadata struct {
 	// SSHProfileID is optional. When set, Host/Port are addresses as seen from
 	// the SSH server, not from this machine.
 	SSHProfileID string `json:"ssh_profile_id,omitempty"`
+	// Engine is empty on profiles created before multi-engine support; those
+	// are all Postgres, which is why it defaults rather than being required.
+	Engine string `json:"engine,omitempty"`
+	// DriverOptions carries engine-specific parameters that do not generalise.
+	DriverOptions map[string]string `json:"driver_options,omitempty"`
 }
 
 type Service struct {
@@ -129,8 +137,14 @@ func (s *Service) CreateProfile(input CreateProfileInput) (ProfileSummary, error
 	if !s.envs.Exists(input.Env) {
 		return ProfileSummary{}, fmt.Errorf("unknown env tag %q", input.Env)
 	}
+	if input.Engine == "" {
+		input.Engine = EnginePostgres
+	}
+	if _, err := driverFor(input.Engine); err != nil {
+		return ProfileSummary{}, err
+	}
 	if input.Port == 0 {
-		input.Port = 5432
+		input.Port = DefaultPort(input.Engine)
 	}
 	sslMode, err := normalizeSSLMode(input.Host, input.SSLMode)
 	if err != nil {
@@ -139,6 +153,7 @@ func (s *Service) CreateProfile(input CreateProfileInput) (ProfileSummary, error
 	input.SSLMode = sslMode
 
 	meta, err := json.Marshal(metadata{
+		Engine:   input.Engine,
 		Name:     input.Name,
 		Host:     input.Host,
 		Port:     input.Port,
@@ -232,6 +247,47 @@ func (s *Service) DeleteProfile(id string) error {
 	return nil
 }
 
+// ListSchemas, ListTables and ListColumns are driver methods rather than SQL
+// the service writes: catalogue queries are not portable, and routing them
+// through Query would hardcode one engine's system tables into shared code.
+func (s *Service) ListSchemas(ctx context.Context, id string) ([]string, error) {
+	conn, err := s.connect(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := queryContext(ctx)
+	defer cancel()
+	return conn.ListSchemas(ctx)
+}
+
+func (s *Service) ListTables(ctx context.Context, id, schema string) ([]TableInfo, error) {
+	conn, err := s.connect(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := queryContext(ctx)
+	defer cancel()
+	return conn.ListTables(ctx, schema)
+}
+
+func (s *Service) ListColumns(ctx context.Context, id, schema, table string) ([]ColumnInfo, error) {
+	conn, err := s.connect(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := queryContext(ctx)
+	defer cancel()
+	return conn.ListColumns(ctx, schema, table)
+}
+
+func (s *Service) connect(ctx context.Context, id string) (Conn, error) {
+	target, err := s.target(id)
+	if err != nil {
+		return nil, err
+	}
+	return s.pool(ctx, id, target)
+}
+
 // SetTunnel wires SSH port forwarding for profiles that use one.
 func (s *Service) SetTunnel(t Tunnel) { s.pools.SetTunnel(t) }
 
@@ -274,25 +330,17 @@ func (s *Service) Query(ctx context.Context, id string, sql string) (QueryResult
 	}
 	defer rows.Close()
 
-	fields := rows.FieldDescriptions()
-	columns := make([]string, len(fields))
-	for i, f := range fields {
-		columns[i] = f.Name
-	}
-
-	result := QueryResult{Columns: columns, Rows: [][]string{}}
+	result := QueryResult{Columns: rows.Columns(), Rows: [][]string{}}
 	for rows.Next() {
 		if result.RowCount >= s.maxRows {
 			result.Truncated = true
 			break
 		}
-		values, err := rows.Values()
+		// Values are already strings: each driver stringifies, so one result
+		// shape serves every engine.
+		row, err := rows.Values()
 		if err != nil {
 			return QueryResult{}, err
-		}
-		row := make([]string, len(values))
-		for i, v := range values {
-			row[i] = stringify(v)
 		}
 		result.Rows = append(result.Rows, row)
 		result.RowCount++
@@ -305,10 +353,7 @@ func (s *Service) Query(ctx context.Context, id string, sql string) (QueryResult
 }
 
 type connectionTarget struct {
-	dsn          string
-	readOnly     bool
-	host         string
-	port         int
+	cfg          ConnConfig
 	sshProfileID string
 }
 
@@ -325,46 +370,36 @@ func (s *Service) target(id string) (connectionTarget, error) {
 	if err != nil {
 		return connectionTarget{}, err
 	}
-	// Match the SSH/Kafka hygiene: wipe the decrypted bytes once the DSN copy
-	// is built (the url.UserPassword string copy lives only for this call).
+	// Match the SSH/Kafka hygiene: wipe the decrypted bytes once the config
+	// copy is built.
 	defer zeroBytes(password)
 	sslmode, err := normalizeSSLMode(meta.Host, meta.SSLMode)
 	if err != nil {
 		return connectionTarget{}, err
 	}
-	u := url.URL{
-		Scheme: "postgres",
-		User:   url.UserPassword(meta.Username, string(password)),
-		Host:   net.JoinHostPort(meta.Host, fmt.Sprintf("%d", meta.Port)),
-		Path:   meta.Database,
-	}
-	query := u.Query()
-	query.Set("sslmode", sslmode)
-	u.RawQuery = query.Encode()
 	return connectionTarget{
-		dsn:          u.String(),
-		readOnly:     meta.ReadOnly,
-		host:         meta.Host,
-		port:         meta.Port,
+		cfg: ConnConfig{
+			Engine:   meta.Engine,
+			Host:     meta.Host,
+			Port:     meta.Port,
+			Database: meta.Database,
+			Username: meta.Username,
+			Password: string(password),
+			SSLMode:  sslmode,
+			ReadOnly: meta.ReadOnly,
+			Options:  meta.DriverOptions,
+		},
 		sshProfileID: meta.SSHProfileID,
 	}, nil
 }
 
-func (s *Service) dsn(id string) (string, error) {
-	t, err := s.target(id)
-	if err != nil {
-		return "", err
-	}
-	return t.dsn, nil
-}
-
-func (s *Service) pool(ctx context.Context, id string, target connectionTarget) (*pgxpool.Pool, error) {
-	spec := connectionSpec{profileID: id, dsn: target.dsn, readOnly: target.readOnly, host: target.host}
+func (s *Service) pool(ctx context.Context, id string, target connectionTarget) (Conn, error) {
+	spec := connectionSpec{profileID: id, cfg: target.cfg}
 	if target.sshProfileID != "" {
 		spec.tunnel = &TunnelSpec{
 			SSHProfileID: target.sshProfileID,
-			TargetHost:   target.host,
-			TargetPort:   target.port,
+			TargetHost:   target.cfg.Host,
+			TargetPort:   target.cfg.Port,
 		}
 	}
 	return s.pools.Get(ctx, spec)

@@ -190,3 +190,51 @@ func (s *AppService) DBDeleteSavedQuery(id string) error {
 	})
 	return err
 }
+
+// DBListSchemas, DBListTables and DBListColumns replace the hardcoded
+// pg_catalog SQL the UI used to send through DBQuery. Catalogue queries are not
+// portable, so each driver owns its own.
+func (s *AppService) DBListSchemas(ctx context.Context, id string) ([]string, error) {
+	opaqueID := recordID(id)
+	result, err := s.call(ctx, "builtin.database", "db:query", "profile:"+opaqueID, map[string]any{
+		"action":     "list_schemas",
+		"profile_id": opaqueID,
+	}, func(callCtx context.Context) (any, error) {
+		return s.container.Database.ListSchemas(callCtx, id)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]string), nil
+}
+
+func (s *AppService) DBListTables(ctx context.Context, id, schema string) ([]database.TableInfo, error) {
+	opaqueID := recordID(id)
+	result, err := s.call(ctx, "builtin.database", "db:query", "profile:"+opaqueID, map[string]any{
+		"action":     "list_tables",
+		"profile_id": opaqueID,
+		"schema":     schema,
+	}, func(callCtx context.Context) (any, error) {
+		return s.container.Database.ListTables(callCtx, id, schema)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]database.TableInfo), nil
+}
+
+func (s *AppService) DBListColumns(ctx context.Context, id, schema, table string) ([]database.ColumnInfo, error) {
+	opaqueID := recordID(id)
+	result, err := s.call(ctx, "builtin.database", "db:query", "profile:"+opaqueID, map[string]any{
+		"action":     "list_columns",
+		"profile_id": opaqueID,
+		"schema":     schema,
+		"table":      table,
+	}, func(callCtx context.Context) (any, error) {
+		return s.container.Database.ListColumns(callCtx, id, schema, table)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]database.ColumnInfo), nil
+}
