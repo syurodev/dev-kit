@@ -13,6 +13,8 @@ import {
   Radio,
   Search,
   Settings2,
+  X,
+  Crosshair,
   Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -38,6 +40,21 @@ function relativeTime(iso: string): string {
   if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
   const days = Math.round(hours / 24);
   return `${days} day${days === 1 ? "" : "s"} ago`;
+}
+
+/** Both section headings were hand-rolled and drifted apart — different sizes,
+ *  different ways of showing a count. One shape, used twice. */
+function SectionLabel({ label, count }: { label: string; count?: number }) {
+  return (
+    <div className="flex items-baseline gap-1.5 min-w-0">
+      <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">
+        {label}
+      </span>
+      {count !== undefined && (
+        <span className="text-[10px] font-mono text-text-tertiary/70">{count}</span>
+      )}
+    </div>
+  );
 }
 
 export function DatabaseSidebar() {
@@ -70,7 +87,10 @@ export function DatabaseSidebar() {
 
   const [filterQuery, setFilterQuery] = useState("");
 
-  const selectedProfile = profiles.find((p) => p.id === selectedProfileId);
+  const allTableNames = Object.values(schemaSnapshot?.namespace || {}).flatMap((tables) =>
+    Object.keys(tables || {}),
+  );
+  const totalTables = allTableNames.length;
 
   // Group profiles into folders
   const assignedProfileIds = new Set<string>();
@@ -85,6 +105,10 @@ export function DatabaseSidebar() {
   const filterMatch = (text: string) =>
     !filterQuery || text.toLowerCase().includes(filterQuery.toLowerCase());
 
+  // Searching 161 rows and being shown a list with no idea how much it cut is
+  // the part that made the box feel like it was not working.
+  const matchingTables = filterQuery ? allTableNames.filter(filterMatch).length : totalTables;
+
   function handleInsertTable(tableName: string) {
     if (!sql || sql.trim() === "SELECT 1 AS n, 'hello' AS greeting;") {
       setSql(`SELECT * FROM ${tableName} LIMIT 50;`);
@@ -95,16 +119,35 @@ export function DatabaseSidebar() {
 
   return (
     <div className="flex h-full flex-col select-none">
-      {/* Search and Action Bar */}
-      <div className="p-3 border-b border-border flex flex-col gap-2">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
-            <span className="text-[10px] font-medium tracking-[0.06em] text-text-tertiary">
-              CONNECTIONS
-            </span>
-            <span className="text-[10px] text-text-tertiary">({profiles.length})</span>
-          </div>
-          <div className="flex items-center gap-1">
+      {/* One search, at the top, for the whole sidebar. It used to sit under the
+          CONNECTIONS heading while also filtering the 161 tables two sections
+          below — the box and the list it acted on were nowhere near each
+          other. */}
+      <div className="p-3 pb-2.5">
+        <div className="relative">
+          <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-tertiary" />
+          <Input
+            value={filterQuery}
+            onChange={(e) => setFilterQuery(e.target.value)}
+            placeholder="Search connections & tables…"
+            className="h-8 pl-8 pr-7 text-xs bg-surface-raised border-border"
+          />
+          {filterQuery && (
+            <button
+              type="button"
+              onClick={() => setFilterQuery("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded text-text-tertiary hover:text-text-primary"
+              title="Clear search"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="px-3 pb-1.5 flex items-center justify-between">
+        <SectionLabel label="Connections" count={profiles.length} />
+        <div className="flex items-center gap-1">
             <Button
               variant="ghost"
               size="icon"
@@ -125,22 +168,14 @@ export function DatabaseSidebar() {
               <Plus className="w-3.5 h-3.5" />
               <span>New</span>
             </Button>
-          </div>
-        </div>
-
-        <div className="relative">
-          <Search className="w-3 h-3 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-tertiary" />
-          <Input
-            value={filterQuery}
-            onChange={(e) => setFilterQuery(e.target.value)}
-            placeholder="Filter profiles & tables…"
-            className="h-7 pl-7 text-[11px] bg-surface-raised border-border"
-          />
         </div>
       </div>
 
-      {/* Connections List */}
-      <div className="flex-1 overflow-y-auto min-h-[160px] p-2 space-y-2 border-b border-border">
+      {/* Connections size to their content and stop. They used to take flex-1
+          against the schema tree's fixed half, so a single connection left an
+          empty column the height of the window while 161 tables scrolled in
+          the bottom half. */}
+      <div className="shrink-0 max-h-[40%] overflow-y-auto px-2 pb-2 space-y-2 border-b border-border">
         {/* Folders */}
         {folderEntries.map(({ name, profiles: folderProfiles }) => {
           const visibleProfiles = folderProfiles.filter(
@@ -238,34 +273,39 @@ export function DatabaseSidebar() {
         )}
       </div>
 
-      {/* Schema Tree Section (F3) */}
-      <div className="h-1/2 flex flex-col">
-        <div className="p-2.5 border-b border-border/60 flex items-center justify-between bg-surface-raised/40">
-          <div className="flex items-center gap-1.5">
-            <span className="text-[10px] font-medium tracking-[0.06em] text-text-tertiary">
-              SCHEMA
-            </span>
-            {selectedProfile ? (
-              <span className="text-[10px] text-text-tertiary truncate max-w-[110px]">
-                ({selectedProfile.database})
-              </span>
-            ) : null}
-          </div>
+      {/* The schema tree takes whatever is left — it is the list with 161 rows
+          in it, so it is the one that needs the room. */}
+      <div className="flex-1 flex flex-col min-h-0">
+        <div className="px-3 py-2 border-b border-border/60 flex items-center justify-between gap-2">
+          <SectionLabel label="Tables" count={totalTables} />
 
+          {/* Staleness is the only thing the timestamp is asked, so it reads as
+              a relative age and hides behind the button it belongs to once the
+              rail gets narrow. */}
           {selectedProfileId ? (
-            <div className="flex items-center gap-1">
-              <span className="text-[10px] text-text-tertiary">
-                {schemaSnapshot?.indexedAt
-                  ? `indexed ${relativeTime(schemaSnapshot.indexedAt)}`
-                  : "not indexed"}
-              </span>
+            <div className="flex items-center gap-1 min-w-0">
+              {filterQuery ? (
+                <span className="text-[10px] font-mono text-text-tertiary truncate">
+                  {matchingTables} match
+                </span>
+              ) : (
+                <span className="text-[10px] text-text-tertiary truncate">
+                  {schemaSnapshot?.indexedAt
+                    ? relativeTime(schemaSnapshot.indexedAt)
+                    : "not indexed"}
+                </span>
+              )}
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-5 w-5 text-text-tertiary hover:text-text-primary"
+                className="h-6 w-6 text-text-tertiary hover:text-text-primary shrink-0"
                 onClick={() => void refreshSchema(selectedProfileId)}
                 disabled={indexingSchema}
-                title="Re-index schema (manual refresh)"
+                title={
+                  schemaSnapshot?.indexedAt
+                    ? `Re-index schema — last indexed ${relativeTime(schemaSnapshot.indexedAt)}`
+                    : "Index schema"
+                }
               >
                 <RefreshCw className={`w-3 h-3 ${indexingSchema ? "animate-spin" : ""}`} />
               </Button>
@@ -332,13 +372,27 @@ export function DatabaseSidebar() {
                                 ) : (
                                   <ChevronRight className="w-2.5 h-2.5 text-text-tertiary" />
                                 )}
-                                <TableIcon className="w-3 h-3 text-sky-400" />
+                                <TableIcon
+                                  className={`w-3 h-3 ${
+                                    isFocused ? "text-action-primary" : "text-sky-400"
+                                  }`}
+                                />
                                 <span className="font-mono text-[11px] flex-1 truncate text-left">
                                   {tableName}
                                 </span>
-                                <span className="text-[9px] text-text-tertiary opacity-0 group-hover:opacity-100">
-                                  {columnNames ? `${columnNames.length} cols` : ""}
-                                </span>
+                                {/* Clicking a row focuses the ERD. Without a
+                                    mark the diagram just changes and nothing
+                                    says which row did it. */}
+                                {isFocused ? (
+                                  <Crosshair
+                                    className="w-3 h-3 text-action-primary shrink-0"
+                                    aria-label="Focused in the ERD"
+                                  />
+                                ) : (
+                                  <span className="text-[9px] text-text-tertiary opacity-0 group-hover:opacity-100">
+                                    {columnNames ? `${columnNames.length} cols` : ""}
+                                  </span>
+                                )}
                               </div>
 
                               {isTableExpanded && (

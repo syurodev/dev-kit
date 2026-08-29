@@ -22,7 +22,12 @@ import {
   Link as LinkIcon,
   ChevronRight,
   ChevronDown,
+  ChevronsUpDown,
+  ChevronsDownUp,
   Crosshair,
+  Database,
+  Info,
+  AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useDatabaseStore } from "../databaseStore";
@@ -219,6 +224,59 @@ const EDGE_VARIANTS = [
   { id: "declared", color: "var(--status-info)" },
   { id: "inferred", color: "var(--text-tertiary)" },
 ] as const;
+
+/** Shared shape for the control bar's selects — native behaviour, designed
+ *  chrome. `appearance-none` drops the platform arrow, so one is drawn back. */
+function ControlSelect({
+  value,
+  onChange,
+  children,
+  icon,
+  title,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  children: React.ReactNode;
+  icon?: React.ReactNode;
+  title?: string;
+}) {
+  return (
+    <div className="relative flex items-center h-8 rounded-lg border border-border bg-surface-base focus-within:border-action-primary">
+      {icon && <span className="pl-2.5 shrink-0">{icon}</span>}
+      <BareSelect value={value} onChange={onChange} title={title}>
+        {children}
+      </BareSelect>
+    </div>
+  );
+}
+
+function BareSelect({
+  value,
+  onChange,
+  children,
+  className = "",
+  title,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  children: React.ReactNode;
+  className?: string;
+  title?: string;
+}) {
+  return (
+    <div className={`relative ${className}`}>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        title={title}
+        className="appearance-none bg-transparent border-0 outline-none h-8 pl-2 pr-6 text-xs text-text-primary w-full cursor-pointer"
+      >
+        {children}
+      </select>
+      <ChevronDown className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-text-tertiary" />
+    </div>
+  );
+}
 
 function ERDMarkers() {
   return (
@@ -782,107 +840,119 @@ export function ERDView() {
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden select-none">
-      {/* ERD Control Bar */}
-      <div className="px-4 py-3 border-b border-border bg-surface-raised/40 flex flex-wrap items-center justify-between gap-3 shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <Network className="w-4 h-4 text-action-primary" />
-            <h2 className="text-sm font-semibold text-text-primary">Entity Relationship Diagram</h2>
-          </div>
+      {/* ERD Control Bar — one row.
+          The heading said "Entity Relationship Diagram" directly under a tab
+          reading "ERD Diagram", and the legend took a second row of prose to
+          repeat what the diagram shows. Both were paying canvas height for
+          nothing. What is left is the two things that change what you see —
+          schema and focus — and the two counts that are actually data. */}
+      <div className="px-3 h-12 border-b border-border bg-surface-raised/30 flex items-center gap-2 shrink-0">
+        <ControlSelect
+          icon={<Database className="w-3.5 h-3.5 text-text-tertiary" />}
+          value={selectedSchema}
+          onChange={setSelectedSchema}
+          title="Schema"
+        >
+          {schemas.map((s) => (
+            <option key={s} value={s}>
+              {s} · {Object.keys(schemaSnapshot?.namespace?.[s] || {}).length} tables
+            </option>
+          ))}
+        </ControlSelect>
 
-          <div className="flex items-center gap-1.5 text-xs text-text-secondary">
-            <label className="font-medium text-text-tertiary">Schema:</label>
-            <select
-              value={selectedSchema}
-              onChange={(e) => setSelectedSchema(e.target.value)}
-              className="h-7 px-2 rounded-md border border-border bg-surface-base text-xs text-text-primary outline-none focus:border-action-primary"
-            >
-              {schemas.map((s) => (
-                <option key={s} value={s}>
-                  {s} ({Object.keys(schemaSnapshot?.namespace?.[s] || {}).length} tables)
+        {/* Focus reads as one control because the three parts are one decision:
+            which table, how far out, and how much that left you with. Native
+            selects so typing jumps to a table without building a combobox. */}
+        <div className="flex items-center h-8 rounded-lg border border-border bg-surface-base overflow-hidden">
+          <Crosshair className="ml-2.5 w-3.5 h-3.5 text-text-tertiary shrink-0" />
+          <BareSelect
+            value={tablesInSchema[focusTable] ? focusTable : ""}
+            onChange={setFocusTable}
+            className="max-w-[240px]"
+            title="Focus on one table and its neighbours"
+          >
+            <option value="">All tables</option>
+            {Object.keys(tablesInSchema)
+              .sort()
+              .map((t) => (
+                <option key={t} value={t}>
+                  {t}
                 </option>
               ))}
-            </select>
-          </div>
+          </BareSelect>
 
-          {/* Focus: 161 tables at once is a hairball. Native select so typing
-              jumps to a table without building a combobox. */}
-          <div className="flex items-center gap-1.5 text-xs text-text-secondary">
-            <Crosshair className="w-3.5 h-3.5 text-text-tertiary" />
-            <select
-              value={tablesInSchema[focusTable] ? focusTable : ""}
-              onChange={(e) => setFocusTable(e.target.value)}
-              className="h-7 px-2 rounded-md border border-border bg-surface-base text-xs text-text-primary outline-none focus:border-action-primary max-w-[220px]"
-            >
-              <option value="">All tables ({Object.keys(tablesInSchema).length})</option>
-              {Object.keys(tablesInSchema)
-                .sort()
-                .map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-            </select>
-            {tablesInSchema[focusTable] && (
-              <>
-                <select
-                  value={focusDepth}
-                  onChange={(e) => setFocusDepth(Number(e.target.value))}
-                  className="h-7 px-2 rounded-md border border-border bg-surface-base text-xs text-text-primary outline-none focus:border-action-primary"
-                >
-                  <option value={1}>1 hop</option>
-                  <option value={2}>2 hops</option>
-                  <option value={3}>3 hops</option>
-                </select>
-                <span className="text-text-tertiary">
-                  {Object.keys(visibleTables).length} shown
-                </span>
-              </>
-            )}
-          </div>
+          {tablesInSchema[focusTable] && (
+            <>
+              <span className="w-px h-4 bg-border shrink-0" />
+              <BareSelect
+                value={String(focusDepth)}
+                onChange={(v) => setFocusDepth(Number(v))}
+                title="How many relations out from the focused table"
+              >
+                <option value="1">1 hop</option>
+                <option value="2">2 hops</option>
+                <option value="3">3 hops</option>
+              </BareSelect>
+              <span className="px-2.5 h-full flex items-center border-l border-border text-[11px] font-mono text-text-tertiary shrink-0">
+                {Object.keys(visibleTables).length}
+              </span>
+            </>
+          )}
+        </div>
 
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 text-xs"
-            onClick={() =>
-              setExpandedTables((current) =>
-                Object.values(current).some(Boolean)
-                  ? {}
-                  : Object.fromEntries(Object.keys(visibleTables).map((t) => [t, true])),
-              )
-            }
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-8 text-xs gap-1.5"
+          onClick={() =>
+            setExpandedTables((current) =>
+              Object.values(current).some(Boolean)
+                ? {}
+                : Object.fromEntries(Object.keys(visibleTables).map((t) => [t, true])),
+            )
+          }
+        >
+          {Object.values(expandedTables).some(Boolean) ? (
+            <>
+              <ChevronsDownUp className="w-3.5 h-3.5" /> Collapse all
+            </>
+          ) : (
+            <>
+              <ChevronsUpDown className="w-3.5 h-3.5" /> Expand all
+            </>
+          )}
+        </Button>
+
+        <div className="flex-1" />
+
+        {indexes.length === 0 && (
+          <span
+            className="flex items-center gap-1.5 h-7 px-2.5 rounded-lg bg-status-warning/10 text-status-warning text-[11px]"
+            title="No index metadata for this schema, so every relation is drawn as one-to-many. One-to-one needs a unique index to prove it."
           >
-            {Object.values(expandedTables).some(Boolean) ? "Collapse all" : "Expand all"}
-          </Button>
+            <AlertTriangle className="w-3 h-3" />
+            no index data
+          </span>
+        )}
+
+        <div className="flex items-center gap-3 text-[11px] text-text-secondary">
+          <span className="flex items-center gap-1.5" title="Foreign keys the database actually enforces">
+            <span className="w-4 h-px bg-status-info" />
+            {declaredFKs.length} declared
+          </span>
+          <span className="flex items-center gap-1.5" title="Guessed from column names and types — not enforced by the database">
+            <span className="w-4 border-t border-dashed border-text-tertiary" />
+            {inferredRelationships.length} inferred
+          </span>
         </div>
 
-        {/* Legend */}
-        <div className="flex items-center gap-4 text-[11px]">
-          <div className="flex items-center gap-1.5 text-text-secondary">
-            <span className="w-4 h-0.5 bg-sky-400" />
-            <span>Declared Foreign Keys ({declaredFKs.length})</span>
-          </div>
-          <div className="flex items-center gap-1.5 text-text-secondary">
-            <span className="w-4 h-0.5 border-b border-dashed border-text-tertiary" />
-            <span>Inferred Relations ({inferredRelationships.length})</span>
-          </div>
-          <div className="flex items-center gap-2 text-text-tertiary">
-            <span>
-              Crow&rsquo;s foot = many, bar = one, circle = optional
-            </span>
-            {Object.keys(visibleTables).length > ANIMATED_NODE_LIMIT && (
-              <span>
-                animation off above {ANIMATED_NODE_LIMIT} tables
-              </span>
-            )}
-            {indexes.length === 0 && (
-              <span className="text-status-warning">
-                no index data — every relation reads as one-to-many
-              </span>
-            )}
-          </div>
-        </div>
+        <button
+          type="button"
+          className="p-1 text-text-tertiary hover:text-text-primary rounded"
+          title={`Crow's foot = many · bar = one · circle = optional. Edges stop animating above ${ANIMATED_NODE_LIMIT} visible tables.`}
+        >
+          <Info className="w-3.5 h-3.5" />
+        </button>
       </div>
 
       {/* React Flow Canvas */}
