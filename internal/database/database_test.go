@@ -430,3 +430,31 @@ func TestCreateProfileCarriesTheTunnel(t *testing.T) {
 		t.Fatalf("sshProfileID = %q, want it set at creation", target.sshProfileID)
 	}
 }
+
+func TestProfileSummaryReturnsEngineAndTunnel(t *testing.T) {
+	svc := newService(t)
+	created, err := svc.CreateProfile(CreateProfileInput{
+		Engine: EngineMySQL, Name: "billing", Host: "127.0.0.1", Port: 3306,
+		Database: "billing", Username: "devkit", Password: "pw",
+		SSLMode: "disable", Env: "dev", SSHProfileID: "bastion-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateProfile: %v", err)
+	}
+	// The summary is what every caller sees. Storing a field in metadata and
+	// forgetting it here shows up as a MySQL profile that claims to be Postgres.
+	if created.Engine != EngineMySQL {
+		t.Fatalf("created.Engine = %q, want %q", created.Engine, EngineMySQL)
+	}
+	if created.SSHProfileID != "bastion-1" {
+		t.Fatalf("created.SSHProfileID = %q, want bastion-1", created.SSHProfileID)
+	}
+
+	listed, err := svc.ListProfiles()
+	if err != nil || len(listed) != 1 {
+		t.Fatalf("ListProfiles: err=%v n=%d", err, len(listed))
+	}
+	if listed[0].Engine != EngineMySQL || listed[0].SSHProfileID != "bastion-1" {
+		t.Fatalf("listed summary lost engine/tunnel: %+v", listed[0])
+	}
+}

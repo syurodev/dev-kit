@@ -125,9 +125,9 @@ export function QueryConsole() {
   }
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden bg-surface-base" onKeyDown={handleKeyDown}>
+    <div className="flex-1 flex flex-col h-full overflow-hidden" onKeyDown={handleKeyDown}>
       {/* Editor Section */}
-      <div className="h-[220px] shrink-0 flex flex-col border-b border-border bg-surface-base">
+      <div className="h-[220px] shrink-0 flex flex-col border-b border-border">
         {/* Editor Toolbar */}
         <div className="flex flex-wrap items-center justify-between px-3 py-1.5 border-b border-border/60 bg-surface-raised/40 gap-2">
           <div className="flex items-center gap-2">
@@ -236,7 +236,7 @@ export function QueryConsole() {
               <span>Executing statement…</span>
               <span className="font-mono text-action-primary">{elapsed.toFixed(1)}s</span>
             </div>
-            <div className="flex-1 h-1.5 bg-surface-base rounded-full overflow-hidden border border-border">
+            <div className="flex-1 h-1.5 rounded-full overflow-hidden border border-border">
               <div
                 className="h-full bg-action-primary transition-all duration-100 ease-out"
                 style={{ width: `${Math.min(100, (elapsed / 30) * 100)}%` }}
@@ -309,7 +309,7 @@ export function QueryConsole() {
       )}
 
       {/* Main Content Area: Result Table or Empty state */}
-      <div className="flex-1 overflow-auto bg-surface-base flex flex-col">
+      <div className="flex-1 overflow-auto flex flex-col">
         {queryResult ? (
           <div className="flex flex-col h-full">
             {/* Table Meta Bar */}

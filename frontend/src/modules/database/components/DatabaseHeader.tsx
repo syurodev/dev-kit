@@ -51,7 +51,7 @@ export function DatabaseHeader() {
   const isProd = profile?.env?.toLowerCase() === "prod" || profile?.env?.toLowerCase() === "production";
 
   return (
-    <header className="border-b border-border bg-surface-base px-4 py-2.5 flex flex-col gap-2 shrink-0">
+    <header className="border-b border-border px-4 py-2.5 flex flex-col gap-2 shrink-0">
       <div className="flex flex-wrap items-center justify-between gap-3">
         {/* Profile Info */}
         <div className="flex items-center gap-3 min-w-0">

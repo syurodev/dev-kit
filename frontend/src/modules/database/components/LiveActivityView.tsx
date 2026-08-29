@@ -104,7 +104,7 @@ export function LiveActivityView() {
   );
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden bg-surface-base select-none">
+    <div className="flex-1 flex flex-col h-full overflow-hidden select-none">
       {/* Header Toolbar */}
       <div className="px-4 py-3 border-b border-border bg-surface-raised/40 flex flex-wrap items-center justify-between gap-3 shrink-0">
         <div className="flex items-center gap-2">

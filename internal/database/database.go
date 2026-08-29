@@ -540,6 +540,11 @@ func summaryFromRecord(record vaultitem.Record) (ProfileSummary, error) {
 		SSLMode:  meta.SSLMode,
 		Env:      meta.Env,
 		ReadOnly: meta.ReadOnly,
+		// Engine and the tunnel were stored but never returned, so every caller
+		// saw a Postgres profile with no tunnel no matter what was saved.
+		Engine:        meta.Engine,
+		SSHProfileID:  meta.SSHProfileID,
+		DriverOptions: meta.DriverOptions,
 	}, nil
 }
 
