@@ -29,8 +29,10 @@ import { useDatabaseStore } from "../databaseStore";
 import {
   listForeignKeys,
   listColumns,
+  listIndexes,
   type ForeignKey,
   type ColumnInfo,
+  type IndexInfo,
 } from "../../../bridge/database";
 
 /**
@@ -59,6 +61,10 @@ type TableNodeData = {
   // hide the column and its Handle goes with it, and every edge pointing at it
   // silently stops rendering.
   keyColumns: string[];
+  // The real primary key, as the engine reports it. A column named `id` is not
+  // the same claim, and plenty of tables here key on something else.
+  primaryColumns: string[];
+  isJunction: boolean;
   expanded: boolean;
   onToggle: () => void;
 };
@@ -86,6 +92,14 @@ function TableNode({ data }: { data: TableNodeData }) {
           <TableIcon className="w-3.5 h-3.5 text-action-primary shrink-0" />
           <span className="font-semibold text-text-primary truncate">{data.tableName}</span>
         </div>
+        {data.isJunction && (
+          <span
+            className="text-[9px] font-sans text-status-info bg-status-info/10 px-1.5 py-0.5 rounded shrink-0"
+            title="Primary key is exactly this table's reference columns — it joins two tables many-to-many"
+          >
+            N–N
+          </span>
+        )}
         <span className="text-[10px] text-text-tertiary font-sans bg-surface-raised px-1.5 py-0.5 rounded">
           {data.expanded
             ? `${data.columns.length} cols`
@@ -96,7 +110,7 @@ function TableNode({ data }: { data: TableNodeData }) {
       {/* Columns List */}
       <div className="p-2 space-y-1 bg-surface-raised/40">
         {visibleColumns(data).map((col) => {
-          const isPK = col === "id";
+          const isPK = data.primaryColumns.includes(col);
           const isDeclaredFK = data.foreignKeys.some((fk) => fk.column === col);
           const isInferredFK = data.inferredRefs.some((inf) => inf.fromCol === col);
 
@@ -216,6 +230,35 @@ function ERDMarkers() {
                 <path d="M0,1 L10,7 M0,7 L10,7 M0,13 L10,7 M15,2 L15,12" style={line} />
               </marker>
 
+              {/* one, optional — 0..1 */}
+              <marker
+                id={`erd-${id}-one-opt`}
+                viewBox="0 0 20 14"
+                refX="0"
+                refY="7"
+                markerWidth="20"
+                markerHeight="14"
+                markerUnits="userSpaceOnUse"
+                orient="auto"
+              >
+                <path d="M5,2 L5,12" style={line} />
+                <circle cx="13" cy="7" r="3.5" style={line} />
+              </marker>
+
+              {/* one, required — exactly 1 */}
+              <marker
+                id={`erd-${id}-one-req`}
+                viewBox="0 0 16 14"
+                refX="0"
+                refY="7"
+                markerWidth="16"
+                markerHeight="14"
+                markerUnits="userSpaceOnUse"
+                orient="auto"
+              >
+                <path d="M5,2 L5,12 M11,2 L11,12" style={line} />
+              </marker>
+
               {/* the parent end is always exactly one */}
               <marker
                 id={`erd-${id}-one`}
@@ -330,6 +373,24 @@ export function ERDView() {
     void loadFKs();
   }, [selectedProfileId, selectedSchema]);
 
+  // Indexes answer the one question column names never can: whether a relation
+  // is one-to-one or one-to-many. One call for the whole schema, like the
+  // foreign keys above. A driver that cannot report them fails softly — every
+  // relation then reads as one-to-many, which is what the ERD showed before.
+  const [indexes, setIndexes] = useState<IndexInfo[]>([]);
+
+  useEffect(() => {
+    async function loadIndexes() {
+      if (!selectedProfileId || !selectedSchema) return;
+      try {
+        setIndexes(await listIndexes(selectedProfileId, selectedSchema));
+      } catch {
+        setIndexes([]);
+      }
+    }
+    void loadIndexes();
+  }, [selectedProfileId, selectedSchema]);
+
   // Table names come from the cache; the ERD then fetches typed columns because
   // the naming heuristic cannot run on names alone. One pass on open — the
   // design page notes the ERD is opened far less often than the console is
@@ -435,19 +496,54 @@ export function ERDView() {
     [declaredFKs, inferredRelationships],
   );
 
+  // Two facts, both straight from the engine rather than from a name.
+  const { uniqueSingleColumns, primaryColumnsByTable } = useMemo(() => {
+    const unique = new Set<string>();
+    const primary: Record<string, string[]> = {};
+    for (const idx of indexes) {
+      if (idx.primary) primary[idx.table] = idx.columns;
+      // Only a single-column unique index proves the column itself is unique.
+      // A unique index on (tenant_id, email) says nothing about either alone.
+      if (idx.unique && idx.columns.length === 1) {
+        unique.add(`${idx.table}\u0000${idx.columns[0]}`);
+      }
+    }
+    return { uniqueSingleColumns: unique, primaryColumnsByTable: primary };
+  }, [indexes]);
+
+  // A junction table is one whose primary key is exactly the columns it uses to
+  // reference other tables — that is what makes the two tables it sits between
+  // a many-to-many. It stays on the diagram as its own node: collapsing it into
+  // a single edge would hide a table that usually carries its own data.
+  const junctionTables = useMemo(() => {
+    const refCols: Record<string, Set<string>> = {};
+    for (const rel of relations) {
+      (refCols[rel.from] || (refCols[rel.from] = new Set())).add(rel.fromCol);
+    }
+    const junctions = new Set<string>();
+    for (const [table, cols] of Object.entries(refCols)) {
+      const pk = primaryColumnsByTable[table];
+      if (!pk || pk.length < 2) continue;
+      if (pk.length === cols.size && pk.every((c) => cols.has(c))) junctions.add(table);
+    }
+    return junctions;
+  }, [relations, primaryColumnsByTable]);
+
   const keyColumnsByTable = useMemo(() => {
     const keys: Record<string, string[]> = {};
     const add = (table: string, col: string) => {
       const list = keys[table] || (keys[table] = []);
       if (!list.includes(col)) list.push(col);
     };
-    for (const table of Object.keys(tablesInSchema)) add(table, "id");
+    for (const table of Object.keys(tablesInSchema)) {
+      for (const col of primaryColumnsByTable[table] || ["id"]) add(table, col);
+    }
     for (const rel of relations) {
       add(rel.from, rel.fromCol);
       add(rel.to, rel.toCol);
     }
     return keys;
-  }, [tablesInSchema, relations]);
+  }, [tablesInSchema, relations, primaryColumnsByTable]);
 
   // Focus mode: at 161 tables the whole graph is a hairball, so the useful view
   // is one table plus the tables it actually touches. Undirected on purpose —
@@ -530,6 +626,8 @@ export function ERDView() {
           foreignKeys: tableFKs,
           inferredRefs: tableInferred,
           keyColumns,
+          primaryColumns: primaryColumnsByTable[tableName] || [],
+          isJunction: junctionTables.has(tableName),
           expanded,
           onToggle: () => toggleTable(tableName),
         },
@@ -541,10 +639,14 @@ export function ERDView() {
     // A nullable foreign key means the child row may exist without a parent:
     // 0..N rather than 1..N. This is the one piece of cardinality the schema
     // already tells us for free — NOT NULL is not a guess.
-    const crowFoot = (variant: string, table: string, column: string) => {
+    const childMarker = (variant: string, table: string, column: string) => {
       const col = (typedColumns[table] || []).find((c) => c.name === column);
       const optional = col ? col.nullable : true;
-      return `url(#erd-${variant}-crow-${optional ? "opt" : "req"})`;
+      // A unique index on the key column means at most one child row per
+      // parent — one-to-one. Without index metadata every relation stays
+      // one-to-many, which is the safe reading.
+      const one = uniqueSingleColumns.has(`${table}\u0000${column}`);
+      return `url(#erd-${variant}-${one ? "one" : "crow"}-${optional ? "opt" : "req"})`;
     };
 
     // 1. Declared foreign keys: solid.
@@ -564,7 +666,7 @@ export function ERDView() {
           targetHandle: `${fk.referencedTable}-${fk.referencedColumn}-target`,
           type: "smoothstep",
           style: { stroke: "var(--status-info)", strokeWidth: 1.5 },
-          markerStart: crowFoot("declared", fk.table, fk.column),
+          markerStart: childMarker("declared", fk.table, fk.column),
           markerEnd: "url(#erd-declared-one)",
         });
       }
@@ -587,7 +689,7 @@ export function ERDView() {
           strokeDasharray: "4 4",
           opacity: 0.7,
         },
-        markerStart: crowFoot("inferred", inf.fromTable, inf.fromCol),
+        markerStart: childMarker("inferred", inf.fromTable, inf.fromCol),
         markerEnd: "url(#erd-inferred-one)",
       });
     });
@@ -602,6 +704,9 @@ export function ERDView() {
     expandedTables,
     toggleTable,
     typedColumns,
+    uniqueSingleColumns,
+    primaryColumnsByTable,
+    junctionTables,
   ]);
 
   // React Flow is controlled: without these handlers a drag emits changes that
@@ -717,11 +822,15 @@ export function ERDView() {
             <span className="w-4 h-0.5 border-b border-dashed border-text-tertiary" />
             <span>Inferred Relations ({inferredRelationships.length})</span>
           </div>
-          <div className="flex items-center gap-1.5 text-text-tertiary">
-            <span className="font-mono">0..N</span>
-            <span>nullable key</span>
-            <span className="font-mono">1..N</span>
-            <span>NOT NULL</span>
+          <div className="flex items-center gap-2 text-text-tertiary">
+            <span>
+              Crow&rsquo;s foot = many, bar = one, circle = optional
+            </span>
+            {indexes.length === 0 && (
+              <span className="text-status-warning">
+                no index data — every relation reads as one-to-many
+              </span>
+            )}
           </div>
         </div>
       </div>

@@ -236,3 +236,49 @@ func (c *mysqlConn) ListForeignKeys(ctx context.Context, schema string) ([]Forei
 	}
 	return out, rows.Err()
 }
+
+// ListIndexes reports the schema's indexes.
+//
+// A functional index leaves COLUMN_NAME null in STATISTICS, and an index read
+// as covering fewer columns than it does would claim a uniqueness the database
+// never promised — so a null anywhere drops the whole index rather than part of
+// it. Prefix indexes (SUB_PART) are kept: uniqueness over a prefix implies
+// uniqueness over the full value, so the conclusion still holds.
+func (c *mysqlConn) ListIndexes(ctx context.Context, schema string) ([]IndexInfo, error) {
+	rows, err := c.db.QueryContext(ctx, `
+		SELECT table_schema, table_name, index_name, non_unique, column_name
+		FROM information_schema.statistics
+		WHERE table_schema = ?
+		ORDER BY table_name, index_name, seq_in_index`, schema)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []IndexInfo
+	dropped := map[string]bool{}
+	for rows.Next() {
+		var row IndexInfo
+		var nonUnique int
+		var column sql.NullString
+		if err := rows.Scan(&row.Schema, &row.Table, &row.Name, &nonUnique, &column); err != nil {
+			return nil, err
+		}
+		row.Unique = nonUnique == 0
+		row.Primary = row.Name == "PRIMARY"
+
+		key := row.Table + "\x00" + row.Name
+		if !column.Valid {
+			dropped[key] = true
+			continue
+		}
+		if dropped[key] {
+			continue
+		}
+		out = appendIndexColumn(out, row, column.String)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return dropIndexes(out, dropped), nil
+}

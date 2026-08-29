@@ -6,6 +6,7 @@ export type {
     CreateProfileInput,
     ForeignKey,
     HistoryEntry,
+    IndexInfo,
     PlanNode,
     ProfileSummary,
     QueryPlan,

@@ -56,6 +56,15 @@ export type ColumnInfo = {
   position: number;
 };
 
+export type IndexInfo = {
+  schema: string;
+  table: string;
+  name: string;
+  columns: string[];
+  unique: boolean;
+  primary: boolean;
+};
+
 export type ForeignKey = {
   schema: string;
   table: string;
@@ -302,6 +311,20 @@ export function listColumns(id: string, schema: string, table: string): Promise<
       dataType: c.data_type,
       nullable: c.nullable,
       position: c.position,
+    }));
+  });
+}
+
+export function listIndexes(id: string, schema: string): Promise<IndexInfo[]> {
+  return callBridge(async () => {
+    const list = await AppService.DBListIndexes(id, schema);
+    return (list ?? []).map((i) => ({
+      schema: i.schema,
+      table: i.table,
+      name: i.name,
+      columns: i.columns ?? [],
+      unique: i.unique,
+      primary: i.primary,
     }));
   });
 }

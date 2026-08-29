@@ -53,6 +53,22 @@ export interface HistoryEntry {
 }
 
 /**
+ * IndexInfo is one index as the engine reports it.
+ * 
+ * Columns is ordered and complete or the index is not reported at all: a
+ * unique index on (a, b) says nothing about a on its own, and half of an index
+ * read as the whole thing would claim a one-to-one that does not exist.
+ */
+export interface IndexInfo {
+    "schema": string;
+    "table": string;
+    "name": string;
+    "columns": string[] | null;
+    "unique": boolean;
+    "primary": boolean;
+}
+
+/**
  * PlanNode is one step. SelfMillis, not inclusive time: with inclusive time the
  * root is always 100% and the chart says nothing.
  */

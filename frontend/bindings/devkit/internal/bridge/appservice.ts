@@ -262,6 +262,14 @@ export function DBListForeignKeys(id: string, schema: string): $CancellablePromi
     return $Call.ByID(1782684436, id, schema);
 }
 
+/**
+ * DBListIndexes carries no row data, only index names and the columns they
+ * cover, so it is scoped like any other schema read.
+ */
+export function DBListIndexes(id: string, schema: string): $CancellablePromise<database$0.IndexInfo[] | null> {
+    return $Call.ByID(2857839648, id, schema);
+}
+
 export function DBListProfiles(): $CancellablePromise<database$0.ProfileSummary[] | null> {
     return $Call.ByID(1640509370);
 }

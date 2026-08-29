@@ -266,6 +266,21 @@ func (s *AppService) DBListForeignKeys(ctx context.Context, id, schema string) (
 	return result.([]database.ForeignKey), nil
 }
 
+// DBListIndexes carries no row data, only index names and the columns they
+// cover, so it is scoped like any other schema read.
+func (s *AppService) DBListIndexes(ctx context.Context, id, schema string) ([]database.IndexInfo, error) {
+	opaqueID := recordID(id)
+	result, err := s.call(ctx, "builtin.database", "db:query", "profile:"+opaqueID, map[string]any{
+		"action": "list_indexes", "profile_id": opaqueID, "schema": schema,
+	}, func(callCtx context.Context) (any, error) {
+		return s.container.Database.ListIndexes(callCtx, id, schema)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]database.IndexInfo), nil
+}
+
 func (s *AppService) DBIndexSchema(ctx context.Context, id string) (database.SchemaSnapshot, error) {
 	opaqueID := recordID(id)
 	result, err := s.call(ctx, "builtin.database", "db:query", "profile:"+opaqueID, map[string]any{

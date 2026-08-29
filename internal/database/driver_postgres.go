@@ -186,3 +186,44 @@ func (c *postgresConn) ListForeignKeys(ctx context.Context, schema string) ([]Fo
 	}
 	return out, rows.Err()
 }
+
+// ListIndexes reports only indexes that can be reasoned about safely.
+//
+// Two kinds are excluded deliberately. An expression index (indkey holds a 0)
+// would come back with fewer columns than it has, and a unique index read as
+// covering fewer columns than it does claims a uniqueness the database never
+// promised. A partial index is unique only over its predicate, so it says
+// nothing about the table as a whole. Both would turn into a one-to-one edge
+// that is simply wrong.
+func (c *postgresConn) ListIndexes(ctx context.Context, schema string) ([]IndexInfo, error) {
+	rows, err := c.pool.Query(ctx, `
+		SELECT n.nspname, t.relname, i.relname, ix.indisunique, ix.indisprimary,
+		       a.attname
+		FROM pg_index ix
+		JOIN pg_class t ON t.oid = ix.indrelid
+		JOIN pg_class i ON i.oid = ix.indexrelid
+		JOIN pg_namespace n ON n.oid = t.relnamespace
+		JOIN LATERAL unnest(ix.indkey) WITH ORDINALITY AS k(attnum, ord) ON true
+		JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum
+		WHERE n.nspname = $1
+		  AND t.relkind IN ('r', 'p')
+		  AND ix.indpred IS NULL
+		  AND 0 <> ALL (ix.indkey)
+		ORDER BY t.relname, i.relname, k.ord`, schema)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []IndexInfo
+	for rows.Next() {
+		var row IndexInfo
+		var column string
+		if err := rows.Scan(&row.Schema, &row.Table, &row.Name,
+			&row.Unique, &row.Primary, &column); err != nil {
+			return nil, err
+		}
+		out = appendIndexColumn(out, row, column)
+	}
+	return out, rows.Err()
+}
