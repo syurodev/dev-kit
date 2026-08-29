@@ -44,16 +44,34 @@ function relativeTime(iso: string): string {
 
 /** Both section headings were hand-rolled and drifted apart — different sizes,
  *  different ways of showing a count. One shape, used twice. */
-function SectionLabel({ label, count }: { label: string; count?: number }) {
+function SectionLabel({
+  label,
+  count,
+  open,
+  onToggle,
+}: {
+  label: string;
+  count?: number;
+  open: boolean;
+  onToggle: () => void;
+}) {
   return (
-    <div className="flex items-baseline gap-1.5 min-w-0">
-      <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">
+    <button
+      type="button"
+      onClick={onToggle}
+      className="flex items-center gap-1 min-w-0 group text-left"
+      title={open ? `Collapse ${label}` : `Expand ${label}`}
+    >
+      <ChevronDown
+        className={`w-3 h-3 text-text-tertiary transition-transform ${open ? "" : "-rotate-90"}`}
+      />
+      <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-tertiary group-hover:text-text-secondary">
         {label}
       </span>
       {count !== undefined && (
         <span className="text-[10px] font-mono text-text-tertiary/70">{count}</span>
       )}
-    </div>
+    </button>
   );
 }
 
@@ -86,6 +104,11 @@ export function DatabaseSidebar() {
   } = useDatabaseStore();
 
   const [filterQuery, setFilterQuery] = useState("");
+  // Which of the two panes are open. Local: a collapsed pane is a glance-level
+  // decision, not something worth writing through ui_state.
+  const [openSections, setOpenSections] = useState({ connections: true, tables: true });
+  const toggleSection = (key: "connections" | "tables") =>
+    setOpenSections((current) => ({ ...current, [key]: !current[key] }));
 
   const allTableNames = Object.values(schemaSnapshot?.namespace || {}).flatMap((tables) =>
     Object.keys(tables || {}),
@@ -146,7 +169,12 @@ export function DatabaseSidebar() {
       </div>
 
       <div className="px-3 pb-1.5 flex items-center justify-between">
-        <SectionLabel label="Connections" count={profiles.length} />
+        <SectionLabel
+          label="Connections"
+          count={profiles.length}
+          open={openSections.connections}
+          onToggle={() => toggleSection("connections")}
+        />
         <div className="flex items-center gap-1">
             <Button
               variant="ghost"
@@ -175,7 +203,12 @@ export function DatabaseSidebar() {
           against the schema tree's fixed half, so a single connection left an
           empty column the height of the window while 161 tables scrolled in
           the bottom half. */}
-      <div className="shrink-0 max-h-[40%] overflow-y-auto px-2 pb-2 space-y-2 border-b border-border">
+      {openSections.connections && (
+      <div
+        className={`overflow-y-auto px-2 pb-2 space-y-2 ${
+          openSections.tables ? "shrink-0 max-h-[40%]" : "flex-1 min-h-0"
+        }`}
+      >
         {/* Folders */}
         {folderEntries.map(({ name, profiles: folderProfiles }) => {
           const visibleProfiles = folderProfiles.filter(
@@ -272,29 +305,33 @@ export function DatabaseSidebar() {
           </div>
         )}
       </div>
+      )}
 
       {/* The schema tree takes whatever is left — it is the list with 161 rows
           in it, so it is the one that needs the room. */}
-      <div className="flex-1 flex flex-col min-h-0">
-        <div className="px-3 py-2 border-b border-border/60 flex items-center justify-between gap-2">
-          <SectionLabel label="Tables" count={totalTables} />
+      <div
+        className={`flex flex-col border-t border-border ${
+          openSections.tables ? "flex-1 min-h-0" : "shrink-0"
+        }`}
+      >
+        <div className="px-3 py-2 flex items-center justify-between gap-2">
+          <SectionLabel
+            label="Tables"
+            count={filterQuery ? matchingTables : totalTables}
+            open={openSections.tables}
+            onToggle={() => toggleSection("tables")}
+          />
 
           {/* Staleness is the only thing the timestamp is asked, so it reads as
               a relative age and hides behind the button it belongs to once the
               rail gets narrow. */}
           {selectedProfileId ? (
             <div className="flex items-center gap-1 min-w-0">
-              {filterQuery ? (
-                <span className="text-[10px] font-mono text-text-tertiary truncate">
-                  {matchingTables} match
-                </span>
-              ) : (
-                <span className="text-[10px] text-text-tertiary truncate">
-                  {schemaSnapshot?.indexedAt
-                    ? relativeTime(schemaSnapshot.indexedAt)
-                    : "not indexed"}
-                </span>
-              )}
+              <span className="text-[10px] text-text-tertiary truncate">
+                {schemaSnapshot?.indexedAt
+                  ? relativeTime(schemaSnapshot.indexedAt)
+                  : "not indexed"}
+              </span>
               <Button
                 variant="ghost"
                 size="icon"
@@ -313,7 +350,8 @@ export function DatabaseSidebar() {
           ) : null}
         </div>
 
-        <div className="flex-1 overflow-y-auto p-2 space-y-1">
+        {openSections.tables && (
+        <div className="flex-1 overflow-y-auto p-2 space-y-1 border-t border-border/60">
           {selectedProfileId && schemaSnapshot?.namespace ? (
             Object.entries(schemaSnapshot.namespace).map(([schemaName, tables]) => {
               const isSchemaExpanded = expandedSchemas[schemaName] ?? true;
@@ -451,6 +489,7 @@ export function DatabaseSidebar() {
             </div>
           )}
         </div>
+        )}
       </div>
     </div>
   );
