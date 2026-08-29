@@ -183,7 +183,10 @@ function FitOnFocusChange({ trigger }: { trigger: string }) {
   useEffect(() => {
     if (!initialized || fitted.current === trigger) return;
     fitted.current = trigger;
-    void fitView({ duration: 200 });
+    // Never fit past 1:1. A two-table focus would otherwise be blown up to
+    // maxZoom, and the browser rasterises the viewport layer before scaling it
+    // — the nodes come out blurry until something forces a repaint.
+    void fitView({ duration: 200, maxZoom: 1 });
   }, [initialized, trigger, fitView]);
 
   return null;
@@ -642,6 +645,7 @@ export function ERDView() {
             onEdgesChange={onEdgesChange}
             nodeTypes={nodeTypes}
             fitView
+            fitViewOptions={{ maxZoom: 1 }}
             minZoom={0.2}
             maxZoom={2}
           >
