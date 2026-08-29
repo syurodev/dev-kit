@@ -149,6 +149,8 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       queryError: "",
       queryStatus: "",
       tableColumnsMap: {},
+      // A focused table belongs to the database it was picked from.
+      selectedTable: "",
     });
     if (id) {
       void get().loadSchemaSnapshot(id);

@@ -194,8 +194,17 @@ export function resolveRefTarget(
 }
 
 export function ERDView() {
-  const { selectedProfileId, schemaSnapshot } = useDatabaseStore();
-  const [selectedSchema, setSelectedSchema] = useState("public");
+  // Schema and focused table live in the store, not here: the sidebar picks a
+  // table by clicking it, which is the natural gesture at 161 tables, and the
+  // dropdown is just a second way into the same state.
+  const {
+    selectedProfileId,
+    schemaSnapshot,
+    selectedSchema,
+    setSelectedSchema,
+    selectedTable: focusTable,
+    setSelectedTable: setFocusTable,
+  } = useDatabaseStore();
   const [declaredFKs, setDeclaredFKs] = useState<ForeignKey[]>([]);
 
   const schemas = useMemo(() => {
@@ -344,7 +353,6 @@ export function ERDView() {
   // Focus mode: at 161 tables the whole graph is a hairball, so the useful view
   // is one table plus the tables it actually touches. Undirected on purpose —
   // "what references me" matters as much as "what do I reference".
-  const [focusTable, setFocusTable] = useState("");
   const [focusDepth, setFocusDepth] = useState(1);
 
   const visibleTables = useMemo(() => {
@@ -560,7 +568,7 @@ export function ERDView() {
           <div className="flex items-center gap-1.5 text-xs text-text-secondary">
             <Crosshair className="w-3.5 h-3.5 text-text-tertiary" />
             <select
-              value={focusTable}
+              value={tablesInSchema[focusTable] ? focusTable : ""}
               onChange={(e) => setFocusTable(e.target.value)}
               className="h-7 px-2 rounded-md border border-border bg-surface-base text-xs text-text-primary outline-none focus:border-action-primary max-w-[220px]"
             >
@@ -573,7 +581,7 @@ export function ERDView() {
                   </option>
                 ))}
             </select>
-            {focusTable && (
+            {tablesInSchema[focusTable] && (
               <>
                 <select
                   value={focusDepth}

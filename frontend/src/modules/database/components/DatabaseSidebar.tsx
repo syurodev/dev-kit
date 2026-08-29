@@ -57,6 +57,10 @@ export function DatabaseSidebar() {
     toggleSchemaExpand,
     expandedTables,
     toggleTableExpand,
+    selectedSchema,
+    setSelectedSchema,
+    selectedTable,
+    setSelectedTable,
     tableColumnsMap,
     setSql,
     sql,
@@ -301,13 +305,26 @@ export function DatabaseSidebar() {
                         .map(([tableName, columnNames]) => {
                           const tableKey = `${schemaName}.${tableName}`;
                           const isTableExpanded = expandedTables[tableKey];
+                          const isFocused =
+                            selectedSchema === schemaName && selectedTable === tableName;
                           const loadedCols = tableColumnsMap[tableKey];
 
                           return (
                             <div key={tableName} className="space-y-0.5">
                               <div
-                                className="w-full flex items-center gap-1.5 px-1.5 py-1 rounded text-xs text-text-primary hover:bg-surface-raised cursor-pointer group"
-                                onClick={() => void toggleTableExpand(schemaName, tableName)}
+                                className={`w-full flex items-center gap-1.5 px-1.5 py-1 rounded text-xs cursor-pointer group ${
+                                  isFocused
+                                    ? "bg-surface-raised text-action-primary"
+                                    : "text-text-primary hover:bg-surface-raised"
+                                }`}
+                                onClick={() => {
+                                  // Clicking a table is also how the ERD is
+                                  // focused — picking one out of 161 in a
+                                  // dropdown is not a real gesture.
+                                  setSelectedSchema(schemaName);
+                                  setSelectedTable(tableName);
+                                  void toggleTableExpand(schemaName, tableName);
+                                }}
                                 onDoubleClick={() => handleInsertTable(tableName)}
                               >
                                 {isTableExpanded ? (
