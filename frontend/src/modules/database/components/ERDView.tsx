@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   ReactFlow,
+  useNodesState,
+  useEdgesState,
   Background,
   Controls,
   MiniMap,
@@ -258,16 +260,23 @@ export function ERDView() {
     return inferred;
   }, [tablesInSchema, declaredFKs, typedColumns]);
 
-  // Build React Flow nodes & edges with auto-grid positioning
-  const { nodes, edges } = useMemo(() => {
+  // A fixed row height overlapped as soon as one table had more columns than
+  // the row allowed for. Each node's height is estimated from its own column
+  // count, and nodes drop into whichever column is currently shortest, so a
+  // wide table pushes only the column it lands in.
+  const { nodes: computedNodes, edges: computedEdges } = useMemo(() => {
     const tableList = Object.entries(tablesInSchema);
     const colsCount = Math.max(1, Math.ceil(Math.sqrt(tableList.length)));
     const nodeWidth = 320;
-    const nodeHeight = 300;
+    const HEADER = 40;
+    const ROW = 22;
+    const GAP = 32;
+    const columnBottoms = new Array(colsCount).fill(50);
 
-    const flowNodes: Node[] = tableList.map(([tableName, columns], index) => {
-      const colIdx = index % colsCount;
-      const rowIdx = Math.floor(index / colsCount);
+    const flowNodes: Node[] = tableList.map(([tableName, columns]) => {
+      const colIdx = columnBottoms.indexOf(Math.min(...columnBottoms));
+      const y = columnBottoms[colIdx];
+      columnBottoms[colIdx] = y + HEADER + (columns?.length ?? 0) * ROW + GAP;
 
       const tableFKs = declaredFKs.filter((fk) => fk.table === tableName);
       const tableInferred = inferredRelationships.filter(
@@ -277,7 +286,7 @@ export function ERDView() {
       return {
         id: tableName,
         type: "tableNode",
-        position: { x: colIdx * nodeWidth + 50, y: rowIdx * nodeHeight + 50 },
+        position: { x: colIdx * nodeWidth + 50, y },
         data: {
           tableName,
           schema: selectedSchema,
@@ -334,6 +343,23 @@ export function ERDView() {
     return { nodes: flowNodes, edges: flowEdges };
   }, [tablesInSchema, declaredFKs, inferredRelationships, selectedSchema]);
 
+  // React Flow is controlled: without these handlers a drag emits changes that
+  // nobody applies, so the node springs back and the canvas feels frozen.
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+
+  useEffect(() => {
+    // Keep positions the user has dragged; only new tables take a computed slot.
+    setNodes((current) => {
+      const placed = new Map(current.map((n) => [n.id, n.position]));
+      return computedNodes.map((n) => ({ ...n, position: placed.get(n.id) ?? n.position }));
+    });
+  }, [computedNodes, setNodes]);
+
+  useEffect(() => {
+    setEdges(computedEdges);
+  }, [computedEdges, setEdges]);
+
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden select-none">
       {/* ERD Control Bar */}
@@ -379,6 +405,8 @@ export function ERDView() {
           <ReactFlow
             nodes={nodes}
             edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
             nodeTypes={nodeTypes}
             fitView
             minZoom={0.2}
