@@ -32,18 +32,6 @@ import {
  * and matching names across families is exactly the false positive the design
  * page warns about.
  */
-/**
- * xyflow styles edges through inline SVG attributes, which cannot read Tailwind
- * classes — so the tokens are resolved from CSS custom properties at render
- * time instead of hardcoding hex. That keeps the diagram correct in both
- * themes, which literal colours never would.
- */
-function token(name: string, fallback: string): string {
-  if (typeof window === "undefined") return fallback;
-  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  return value || fallback;
-}
-
 function typeFamily(dataType: string): string {
   const t = dataType.toLowerCase();
   if (t.includes("uuid")) return "uuid";
@@ -312,14 +300,14 @@ export function ERDView() {
           sourceHandle: `${fk.table}-${fk.column}-source`,
           targetHandle: `${fk.referencedTable}-${fk.referencedColumn}-target`,
           animated: true,
-          style: { stroke: token("--status-info", "#7fb5e8"), strokeWidth: 2 },
+          style: { stroke: "var(--status-info)", strokeWidth: 2 },
           markerEnd: {
             type: MarkerType.ArrowClosed,
-            color: token("--status-info", "#7fb5e8"),
+            color: "var(--status-info)",
           },
           label: `${fk.column} → ${fk.referencedTable}.${fk.referencedColumn}`,
-          labelStyle: { fill: token("--status-info", "#7fb5e8"), fontSize: 10, fontFamily: "monospace" },
-          labelBgStyle: { fill: token("--surface-base", "#111111"), fillOpacity: 0.8 },
+          labelStyle: { fill: "var(--status-info)", fontSize: 10, fontFamily: "monospace" },
+          labelBgStyle: { fill: "var(--surface-base)", fillOpacity: 0.8 },
         });
       }
     });
@@ -332,14 +320,14 @@ export function ERDView() {
         target: inf.toTable,
         sourceHandle: `${inf.fromTable}-${inf.fromCol}-source`,
         targetHandle: `${inf.toTable}-${inf.toCol}-target`,
-        style: { stroke: token("--text-tertiary", "#9a9da3"), strokeWidth: 1.5, strokeDasharray: "4 4" },
+        style: { stroke: "var(--text-tertiary)", strokeWidth: 1.5, strokeDasharray: "4 4" },
         markerEnd: {
           type: MarkerType.Arrow,
-          color: token("--text-tertiary", "#9a9da3"),
+          color: "var(--text-tertiary)",
         },
         label: `${inf.fromCol} ⇢ ${inf.toTable}.id (inferred)`,
-        labelStyle: { fill: token("--text-tertiary", "#9a9da3"), fontSize: 9, fontFamily: "monospace" },
-        labelBgStyle: { fill: token("--surface-raised", "#1d1d1d"), fillOpacity: 0.8 },
+        labelStyle: { fill: "var(--text-tertiary)", fontSize: 9, fontFamily: "monospace" },
+        labelBgStyle: { fill: "var(--surface-raised)", fillOpacity: 0.8 },
       });
     });
 
@@ -400,7 +388,7 @@ export function ERDView() {
             <Controls className="bg-surface-raised border-border text-text-primary fill-current" />
             <MiniMap
               className="bg-surface-raised border border-border rounded-lg overflow-hidden"
-              nodeColor={token("--status-info", "#7fb5e8")}
+              nodeColor="var(--status-info)"
               maskColor="rgba(0, 0, 0, 0.6)"
             />
           </ReactFlow>
