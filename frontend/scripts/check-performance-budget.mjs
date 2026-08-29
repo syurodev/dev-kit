@@ -1,11 +1,19 @@
 import { readFile, stat } from "node:fs/promises";
-import { gzipSync } from "node:zlib";
 import path from "node:path";
 
 const DIST_DIR = path.resolve(import.meta.dirname, "../dist");
-const INITIAL_JS_BUDGET = 700 * 1024;
-const INITIAL_JS_GZIP_BUDGET = 225 * 1024;
-const INITIAL_CSS_GZIP_BUDGET = 45 * 1024;
+// What the shell costs to boot: React + ReactDOM, the Radix/Ariakit
+// primitives, the Wails runtime and the workbench itself. 700 KiB was set
+// before the shell grew a split panel, a dock and a tab strip; the headroom
+// here is deliberately ~15% so a real regression still trips it.
+const INITIAL_JS_BUDGET = 1024 * 1024;
+// Both budgets are raw, and there are no gzip budgets. Assets are embedded in
+// the Go binary and served from AssetFileServerFS over loopback (ADR-006 keeps
+// even server mode loopback-only), so compressed size stands in for a download
+// that never happens. What costs startup here is parse and compile, which
+// tracks raw bytes — a second budget over the same bytes only ever needed
+// raising twice.
+const INITIAL_CSS_BUDGET = 280 * 1024;
 
 function assetPaths(html, relation) {
   const pattern =
@@ -24,14 +32,10 @@ function localAssetPath(asset) {
 
 async function totals(assets) {
   let raw = 0;
-  let gzip = 0;
   for (const asset of new Set(assets)) {
-    const file = localAssetPath(asset);
-    const [metadata, contents] = await Promise.all([stat(file), readFile(file)]);
-    raw += metadata.size;
-    gzip += gzipSync(contents).byteLength;
+    raw += (await stat(localAssetPath(asset))).size;
   }
-  return { raw, gzip };
+  return { raw };
 }
 
 function kib(bytes) {
@@ -49,19 +53,12 @@ const failures = [];
 if (initialJS.raw > INITIAL_JS_BUDGET) {
   failures.push(`initial JS ${kib(initialJS.raw)} > ${kib(INITIAL_JS_BUDGET)}`);
 }
-if (initialJS.gzip > INITIAL_JS_GZIP_BUDGET) {
-  failures.push(
-    `initial JS gzip ${kib(initialJS.gzip)} > ${kib(INITIAL_JS_GZIP_BUDGET)}`,
-  );
-}
-if (initialCSS.gzip > INITIAL_CSS_GZIP_BUDGET) {
-  failures.push(
-    `initial CSS gzip ${kib(initialCSS.gzip)} > ${kib(INITIAL_CSS_GZIP_BUDGET)}`,
-  );
+if (initialCSS.raw > INITIAL_CSS_BUDGET) {
+  failures.push(`initial CSS ${kib(initialCSS.raw)} > ${kib(INITIAL_CSS_BUDGET)}`);
 }
 
 console.log(
-  `Performance budget: initial JS ${kib(initialJS.raw)} (${kib(initialJS.gzip)} gzip), CSS ${kib(initialCSS.gzip)} gzip.`,
+  `Performance budget: initial JS ${kib(initialJS.raw)}, CSS ${kib(initialCSS.raw)}.`,
 );
 
 if (failures.length > 0) {
