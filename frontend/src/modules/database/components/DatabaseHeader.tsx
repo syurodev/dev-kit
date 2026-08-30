@@ -12,12 +12,21 @@ import {
   ShieldAlert,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { EngineBadge } from "./EngineBadge";
 import { useDatabaseStore, type DatabaseTab } from "../databaseStore";
 import { testConnection } from "../../../bridge/database";
 import { useState } from "react";
 import { errorMessage } from "../../../bridge/errors";
+
+const TABS: Array<{ id: DatabaseTab; label: string; icon: typeof Terminal }> = [
+  { id: "console", label: "Query Console", icon: Terminal },
+  { id: "erd", label: "ERD Diagram", icon: Network },
+  { id: "activity", label: "Live Activity", icon: Activity },
+  { id: "history", label: "Query History", icon: History },
+  { id: "saved", label: "Saved Queries", icon: Bookmark },
+];
 
 export function DatabaseHeader() {
   const {
@@ -149,73 +158,25 @@ export function DatabaseHeader() {
         ) : null}
       </div>
 
-      {/* Subview Tabs */}
-      <div className="flex items-center gap-1 border-t border-border/40 pt-1.5">
-        <NavTab
-          id="console"
-          label="Query Console"
-          icon={<Terminal className="w-3.5 h-3.5" />}
-          active={activeTab === "console"}
-          onClick={() => setActiveTab("console")}
-        />
-        <NavTab
-          id="erd"
-          label="ERD Diagram"
-          icon={<Network className="w-3.5 h-3.5" />}
-          active={activeTab === "erd"}
-          onClick={() => setActiveTab("erd")}
-        />
-        <NavTab
-          id="activity"
-          label="Live Activity"
-          icon={<Activity className="w-3.5 h-3.5" />}
-          active={activeTab === "activity"}
-          onClick={() => setActiveTab("activity")}
-        />
-        <NavTab
-          id="history"
-          label="Query History"
-          icon={<History className="w-3.5 h-3.5" />}
-          active={activeTab === "history"}
-          onClick={() => setActiveTab("history")}
-        />
-        <NavTab
-          id="saved"
-          label="Saved Queries"
-          icon={<Bookmark className="w-3.5 h-3.5" />}
-          active={activeTab === "saved"}
-          onClick={() => setActiveTab("saved")}
-        />
-      </div>
+      {/* The shared Tabs primitive, not a row of buttons. Five plain buttons
+          gave a screen reader no tablist, no selected state and no arrow-key
+          movement between them — and this is the only tab row in the app that
+          was hand-rolled. Root wraps the strip only, the same shape
+          TerminalWorkspace uses. */}
+      <Tabs
+        value={activeTab}
+        onValueChange={(value) => setActiveTab(value as DatabaseTab)}
+        className="min-w-0 gap-0 border-t border-border/40 pt-1.5"
+      >
+        <TabsList className="max-w-full justify-start overflow-x-auto [&::-webkit-scrollbar]:hidden">
+          {TABS.map(({ id, label, icon: Icon }) => (
+            <TabsTrigger key={id} value={id} className="flex-none gap-1.5 px-2.5 text-xs">
+              <Icon className="w-3.5 h-3.5" />
+              {label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
     </header>
-  );
-}
-
-function NavTab({
-  id,
-  label,
-  icon,
-  active,
-  onClick,
-}: {
-  id: DatabaseTab;
-  label: string;
-  icon: React.ReactNode;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
-        active
-          ? "bg-surface-raised text-text-primary shadow-2xs border border-border"
-          : "text-text-secondary hover:text-text-primary hover:bg-surface-raised/50"
-      }`}
-    >
-      {icon}
-      <span>{label}</span>
-    </button>
   );
 }
