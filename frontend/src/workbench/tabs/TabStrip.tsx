@@ -634,9 +634,9 @@ export function TabStrip({
   // children. Framer Motion's Reorder drag appears to change how the
   // dragged item participates in that flex flow while a drag is active
   // (its sibling(s)' widths never changed per the logging above, but the
-  // *pill's own* measured width still visibly shifted, recentering it via
-  // justify-center on the outer wrapper — the border looked like it was
-  // moving even though no tab's width was). Pinning the pill to a width we
+  // *pill's own* measured width still visibly shifted, which moved the pill
+  // under the old justify-center — the border looked like it was moving even
+  // though no tab's width was). Pinning the pill to a width we
   // computed ourselves sidesteps whatever Framer is doing internally,
   // rather than chasing it. gap-1.5 (6px) between every tab regardless of
   // group boundaries (verified: outer gaps between groups + each group's
@@ -661,14 +661,15 @@ export function TabStrip({
     // MAX_TAB_WIDTH_PX, a couple of short tabs render *narrower* than the
     // container again, so measuring the pill itself would create a feedback
     // loop: its width shrinks, `containerWidth` reads too small, tabs get
-    // sized as if there's less room than there really is). justify-center
-    // balances that narrower pill inside the available width instead of
-    // pinning it to the left edge. Inner: the actual visible, content-sized
+    // sized as if there's less room than there really is). The pill starts at
+    // the left edge: tabs are read left to right and a new one should appear
+    // where the eye already is, rather than shifting every existing tab
+    // sideways to keep the group centred. Inner: the actual visible, content-sized
     // (max-w-full, not w-full) scrollable pill — grows only as wide as its
     // tabs need, scrolling past that once they don't fit.
     <div
       ref={scrollRef}
-      className="flex min-w-0 w-full justify-center [--wails-draggable:no-drag]"
+      className="flex min-w-0 w-full justify-start [--wails-draggable:no-drag]"
     >
       <div
         // Only drawn when there's at least one visible tab to hold —
