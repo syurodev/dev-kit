@@ -13,6 +13,7 @@ import {
   Search,
   Settings2,
   Pencil,
+  Copy,
   FolderPlus,
   FolderInput,
   X,
@@ -22,6 +23,17 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuShortcut,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -33,6 +45,7 @@ import { FolderIcon } from "../folderIcons";
 import { EditFolderDialog } from "./EditFolderDialog";
 import { getEngineMeta } from "./EngineBadge";
 import { deleteProfile } from "../../../bridge/database";
+import { copyText } from "../../../bridge/clipboard";
 
 /**
  * "indexed 2 hours ago" rather than a wall-clock time: the question the label
@@ -94,6 +107,7 @@ export function DatabaseSidebar() {
     fetchProfiles,
     folders,
     expandedFolders,
+    setActiveTab,
     toggleFolder,
     createFolder,
     updateFolder,
@@ -246,6 +260,8 @@ export function DatabaseSidebar() {
           const isExpanded = expandedFolders[folder.id] !== false;
           return (
             <div key={folder.id} className="space-y-0.5">
+              <ContextMenu>
+              <ContextMenuTrigger asChild>
               <div className="w-full flex items-center gap-1.5 px-2 py-1 rounded text-xs text-text-secondary hover:bg-surface-raised transition-colors group">
                 <button
                   type="button"
@@ -273,6 +289,23 @@ export function DatabaseSidebar() {
                   <Pencil className="w-3 h-3" />
                 </button>
               </div>
+              </ContextMenuTrigger>
+              <ContextMenuContent>
+                <ContextMenuItem onSelect={() => setEditingFolderId(folder.id)}>
+                  <Pencil />
+                  Edit folder
+                </ContextMenuItem>
+                <ContextMenuItem onSelect={() => createFolder(`Folder ${folders.length + 1}`)}>
+                  <FolderPlus />
+                  New folder
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem variant="destructive" onSelect={() => deleteFolder(folder.id)}>
+                  <Trash2 />
+                  Delete folder
+                </ContextMenuItem>
+              </ContextMenuContent>
+              </ContextMenu>
 
               {isExpanded && (
                 <div className="pl-4 space-y-0.5">
@@ -431,6 +464,8 @@ export function DatabaseSidebar() {
 
                           return (
                             <div key={tableName} className="space-y-0.5">
+                              <ContextMenu>
+                              <ContextMenuTrigger asChild>
                               <div
                                 className={`w-full flex items-center gap-1.5 px-1.5 py-1 rounded text-xs cursor-pointer group ${
                                   isFocused
@@ -474,6 +509,39 @@ export function DatabaseSidebar() {
                                   </span>
                                 )}
                               </div>
+                              </ContextMenuTrigger>
+                              {/* Inserting a SELECT was double-click only —
+                                  an action with no visible affordance at all.
+                                  The menu names it and keeps the shortcut. */}
+                              <ContextMenuContent>
+                                <ContextMenuItem onSelect={() => handleInsertTable(tableName)}>
+                                  Select 50 rows
+                                  <ContextMenuShortcut>Double-click</ContextMenuShortcut>
+                                </ContextMenuItem>
+                                <ContextMenuItem
+                                  onSelect={() => {
+                                    setSelectedSchema(schemaName);
+                                    setSelectedTable(tableName);
+                                    setActiveTab("erd");
+                                  }}
+                                >
+                                  <Crosshair />
+                                  Focus in ERD
+                                </ContextMenuItem>
+                                <ContextMenuItem onSelect={() => void copyText(tableName)}>
+                                  <Copy />
+                                  Copy table name
+                                </ContextMenuItem>
+                                <ContextMenuSeparator />
+                                <ContextMenuItem
+                                  onSelect={() => void refreshSchema(selectedProfileId)}
+                                  disabled={indexingSchema}
+                                >
+                                  <RefreshCw />
+                                  Re-index schema
+                                </ContextMenuItem>
+                              </ContextMenuContent>
+                              </ContextMenu>
 
                               {isTableExpanded && (
                                 <div className="pl-4 space-y-0.5 border-l border-border/40 ml-2.5 my-0.5">
@@ -573,6 +641,8 @@ function ProfileItem({
   const isProd = profile.env?.toLowerCase() === "prod" || profile.env?.toLowerCase() === "production";
 
   return (
+    <ContextMenu>
+    <ContextMenuTrigger asChild>
     <div
       className={`group relative flex items-center justify-between p-2 rounded-lg text-xs cursor-pointer transition-colors border ${
         isSelected
@@ -671,5 +741,51 @@ function ProfileItem({
         </div>
       </div>
     </div>
+    </ContextMenuTrigger>
+
+    <ContextMenuContent>
+      <ContextMenuSub>
+        <ContextMenuSubTrigger>
+          <FolderInput />
+          Move to folder
+        </ContextMenuSubTrigger>
+        <ContextMenuSubContent>
+          <ContextMenuItem onSelect={() => onMove("")} disabled={!currentFolderId}>
+            <Folder />
+            Ungrouped
+          </ContextMenuItem>
+          {folders.map((f) => (
+            <ContextMenuItem
+              key={f.id}
+              onSelect={() => onMove(f.id)}
+              disabled={f.id === currentFolderId}
+            >
+              <FolderIcon name={f.icon} className="size-4" />
+              {f.name}
+            </ContextMenuItem>
+          ))}
+        </ContextMenuSubContent>
+      </ContextMenuSub>
+      <ContextMenuItem onSelect={onOptions}>
+        <Settings2 />
+        Connection options
+      </ContextMenuItem>
+      <ContextMenuItem
+        onSelect={() =>
+          void copyText(
+            `${profile.username}@${profile.host}:${profile.port}/${profile.database}`,
+          )
+        }
+      >
+        <Copy />
+        Copy connection target
+      </ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem variant="destructive" onSelect={onDelete}>
+        <Trash2 />
+        Delete connection
+      </ContextMenuItem>
+    </ContextMenuContent>
+    </ContextMenu>
   );
 }
