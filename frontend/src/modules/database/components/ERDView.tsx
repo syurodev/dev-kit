@@ -28,6 +28,7 @@ import {
   Database,
   Info,
   AlertTriangle,
+  Spline,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useDatabaseStore } from "../databaseStore";
@@ -71,6 +72,7 @@ type TableNodeData = {
   primaryColumns: string[];
   columnTypes: Record<string, string>;
   isJunction: boolean;
+  isFocused: boolean;
   expanded: boolean;
   onToggle: () => void;
 };
@@ -99,7 +101,13 @@ function visibleColumns(data: TableNodeData): string[] {
 
 function TableNode({ data }: { data: TableNodeData }) {
   return (
-    <div className="bg-surface-raised border border-border/80 rounded-xl shadow-lg min-w-[260px] max-w-[340px] overflow-hidden text-xs font-mono">
+    <div
+      className={`bg-surface-raised rounded-xl shadow-lg min-w-[260px] max-w-[340px] overflow-hidden text-xs font-mono border ${
+        data.isFocused
+          ? "border-action-primary ring-1 ring-action-primary/40"
+          : "border-border/80"
+      }`}
+    >
       {/* Node Header — doubles as the expand toggle */}
       <button
         type="button"
@@ -131,7 +139,10 @@ function TableNode({ data }: { data: TableNodeData }) {
       </button>
 
       {/* Columns List */}
-      <div className="p-2 space-y-1 bg-surface-raised/40">
+      {/* nowheel lets the list scroll instead of the canvas zooming. A 32
+          column table would otherwise be a wall five times taller than
+          everything beside it. */}
+      <div className="nowheel p-2 space-y-1 bg-surface-raised/40 max-h-[320px] overflow-y-auto">
         {visibleColumns(data).map((col) => {
           const isPK = data.primaryColumns.includes(col);
           const isDeclaredFK = data.foreignKeys.some((fk) => fk.column === col);
@@ -219,6 +230,9 @@ const nodeTypes = {
 // Above this many visible tables the edges stop animating. Roughly where a
 // focused view ends and browsing a whole schema begins.
 const ANIMATED_NODE_LIMIT = 30;
+
+// How tall an expanded node's column list may grow before it scrolls itself.
+const MAX_NODE_BODY = 320;
 
 const EDGE_VARIANTS = [
   { id: "declared", color: "var(--status-info)" },
@@ -418,6 +432,70 @@ export function resolveRefTarget(
   ].filter(Boolean) as string[];
   const hit = candidates.find((name) => name !== tableName && tableNames.includes(name));
   return hit ?? "";
+}
+
+export type NodeSpec = { tableName: string; height: number };
+
+/**
+ * Lay a focused graph out as one column per hop.
+ *
+ * A focus is a star: one table in the middle and its neighbours around it.
+ * Packed into a grid the centre lands wherever it fits and every edge crosses
+ * the canvas, which is what makes a hub table unreadable. One column per hop
+ * puts the relations left to right instead.
+ *
+ * Within a column the order follows where each table's neighbours sit in the
+ * column before it, so edges between two columns mostly stay parallel rather
+ * than braiding. Columns are centred against the tallest one.
+ */
+export function placeByHop(
+  specs: NodeSpec[],
+  hops: Record<string, number>,
+  neighbours: Record<string, Set<string>>,
+  { nodeWidth, gap }: { nodeWidth: number; gap: number },
+): Map<string, { x: number; y: number }> {
+  const byHop = new Map<number, NodeSpec[]>();
+  for (const spec of specs) {
+    const hop = hops[spec.tableName] ?? 0;
+    const list = byHop.get(hop);
+    if (list) list.push(spec);
+    else byHop.set(hop, [spec]);
+  }
+
+  const order = new Map<string, number>();
+  const hopKeys = [...byHop.keys()].sort((a, b) => a - b);
+  for (const hop of hopKeys) {
+    const members = byHop.get(hop)!;
+    if (hop > 0) {
+      const anchor = (name: string) => {
+        const parents = [...(neighbours[name] || [])]
+          .map((n) => order.get(n))
+          .filter((v): v is number => v !== undefined);
+        return parents.length ? Math.min(...parents) : Number.MAX_SAFE_INTEGER;
+      };
+      members.sort(
+        (a, b) =>
+          anchor(a.tableName) - anchor(b.tableName) ||
+          a.tableName.localeCompare(b.tableName),
+      );
+    }
+    members.forEach((spec, i) => order.set(spec.tableName, i));
+  }
+
+  const columnHeights = hopKeys.map((hop) =>
+    byHop.get(hop)!.reduce((sum, spec) => sum + spec.height + gap, -gap),
+  );
+  const tallest = Math.max(...columnHeights, 0);
+
+  const positions = new Map<string, { x: number; y: number }>();
+  hopKeys.forEach((hop, colIdx) => {
+    let y = 50 + (tallest - columnHeights[colIdx]) / 2;
+    for (const spec of byHop.get(hop)!) {
+      positions.set(spec.tableName, { x: colIdx * nodeWidth + 50, y });
+      y += spec.height + gap;
+    }
+  });
+  return positions;
 }
 
 export function ERDView() {
@@ -630,39 +708,54 @@ export function ERDView() {
     return keys;
   }, [tablesInSchema, relations, primaryColumnsByTable]);
 
-  // Focus mode: at 161 tables the whole graph is a hairball, so the useful view
-  // is one table plus the tables it actually touches. Undirected on purpose —
-  // "what references me" matters as much as "what do I reference".
-  const [focusDepth, setFocusDepth] = useState(1);
-
-  const visibleTables = useMemo(() => {
-    if (!focusTable || !tablesInSchema[focusTable]) return tablesInSchema;
-    const neighbours: Record<string, Set<string>> = {};
+  const neighbourMap = useMemo(() => {
+    const map: Record<string, Set<string>> = {};
     const link = (a: string, b: string) => {
-      (neighbours[a] || (neighbours[a] = new Set())).add(b);
+      (map[a] || (map[a] = new Set())).add(b);
     };
     for (const rel of relations) {
       link(rel.from, rel.to);
       link(rel.to, rel.from);
     }
-    const seen = new Set([focusTable]);
+    return map;
+  }, [relations]);
+
+  // Focus mode: at 161 tables the whole graph is a hairball, so the useful view
+  // is one table plus the tables it actually touches. Undirected on purpose —
+  // "what references me" matters as much as "what do I reference".
+  const [focusDepth, setFocusDepth] = useState(1);
+  // Most of the lines around a hub are not attached to it — they run between
+  // its neighbours. When the question is "what connects to this table" they are
+  // noise, so edges between two tables at the same distance are off by default.
+  const [showSiblingEdges, setShowSiblingEdges] = useState(false);
+
+  // The hop distance is kept, not just the membership: it is what lets the
+  // layout draw a star as a star instead of packing it into a grid.
+  const { visibleTables, hopByTable } = useMemo(() => {
+    if (!focusTable || !tablesInSchema[focusTable]) {
+      return { visibleTables: tablesInSchema, hopByTable: {} as Record<string, number> };
+    }
+    const hops: Record<string, number> = { [focusTable]: 0 };
     let frontier = [focusTable];
-    for (let hop = 0; hop < focusDepth; hop++) {
+    for (let hop = 1; hop <= focusDepth; hop++) {
       const next: string[] = [];
       for (const table of frontier) {
-        for (const n of neighbours[table] || []) {
-          if (!seen.has(n)) {
-            seen.add(n);
+        for (const n of neighbourMap[table] || []) {
+          if (hops[n] === undefined) {
+            hops[n] = hop;
             next.push(n);
           }
         }
       }
       frontier = next;
     }
-    return Object.fromEntries(
-      Object.entries(tablesInSchema).filter(([name]) => seen.has(name)),
-    );
-  }, [tablesInSchema, relations, focusTable, focusDepth]);
+    return {
+      visibleTables: Object.fromEntries(
+        Object.entries(tablesInSchema).filter(([name]) => hops[name] !== undefined),
+      ),
+      hopByTable: hops,
+    };
+  }, [tablesInSchema, neighbourMap, focusTable, focusDepth]);
 
   // Collapsed is the default: 161 tables at full column height is unreadable,
   // and the columns that carry meaning in an ERD are the keys.
@@ -682,24 +775,54 @@ export function ERDView() {
     // composited — so the cost climbs with the graph. Under a focus it is a
     // handful of edges and worth the motion; across a whole schema it is not.
     const animated = tableList.length <= ANIMATED_NODE_LIMIT;
-    const colsCount = Math.max(1, Math.ceil(Math.sqrt(tableList.length)));
     const nodeWidth = 380;
     const HEADER = 40;
     const ROW = 22;
     const GAP = 32;
-    const columnBottoms = new Array(colsCount).fill(50);
 
-    const flowNodes: Node[] = tableList.map(([tableName, columns]) => {
+    // Heights first, positions second: a hop layout has to know how tall a
+    // whole column is before it can centre it.
+    const specs = tableList.map(([tableName, columns]) => {
       const keyColumns = keyColumnsByTable[tableName] || [];
       const expanded = !!expandedTables[tableName];
       const rowCount = expanded
         ? columns?.length ?? 0
         : (columns || []).filter((c) => keyColumns.includes(c)).length;
+      return {
+        tableName,
+        columns: columns || [],
+        keyColumns,
+        expanded,
+        // Matches the node's own max-height: a 32-column table scrolls inside
+        // itself rather than becoming a wall five times taller than everything
+        // beside it and dragging the whole column out of alignment.
+        height: HEADER + Math.min(rowCount * ROW, MAX_NODE_BODY),
+      };
+    });
 
-      const colIdx = columnBottoms.indexOf(Math.min(...columnBottoms));
-      const y = columnBottoms[colIdx];
-      columnBottoms[colIdx] = y + HEADER + rowCount * ROW + GAP;
+    const positions = new Map<string, { x: number; y: number }>();
+    const focused = focusTable && visibleTables[focusTable];
 
+    if (focused) {
+      for (const [name, position] of placeByHop(specs, hopByTable, neighbourMap, {
+        nodeWidth,
+        gap: GAP,
+      })) {
+        positions.set(name, position);
+      }
+    } else {
+      // No focus, no centre to arrange around — pack into the shortest column.
+      const colsCount = Math.max(1, Math.ceil(Math.sqrt(specs.length)));
+      const columnBottoms = new Array(colsCount).fill(50);
+      for (const spec of specs) {
+        const colIdx = columnBottoms.indexOf(Math.min(...columnBottoms));
+        positions.set(spec.tableName, { x: colIdx * nodeWidth + 50, y: columnBottoms[colIdx] });
+        columnBottoms[colIdx] += spec.height + GAP;
+      }
+    }
+
+    const flowNodes: Node[] = specs.map((spec) => {
+      const { tableName, columns, keyColumns, expanded } = spec;
       const tableFKs = declaredFKs.filter((fk) => fk.table === tableName);
       const tableInferred = inferredRelationships.filter(
         (inf) => inf.fromTable === tableName
@@ -708,11 +831,11 @@ export function ERDView() {
       return {
         id: tableName,
         type: "tableNode",
-        position: { x: colIdx * nodeWidth + 50, y },
+        position: positions.get(tableName) ?? { x: 50, y: 50 },
         data: {
           tableName,
           schema: selectedSchema,
-          columns: columns || [],
+          columns,
           foreignKeys: tableFKs,
           inferredRefs: tableInferred,
           keyColumns,
@@ -721,6 +844,7 @@ export function ERDView() {
             (typedColumns[tableName] || []).map((c) => [c.name, shortType(c.dataType)]),
           ),
           isJunction: junctionTables.has(tableName),
+          isFocused: tableName === focusTable,
           expanded,
           onToggle: () => toggleTable(tableName),
         },
@@ -728,6 +852,9 @@ export function ERDView() {
     });
 
     const flowEdges: Edge[] = [];
+
+    const isSiblingEdge = (a: string, b: string) =>
+      !!focused && !showSiblingEdges && hopByTable[a] === hopByTable[b];
 
     // A nullable foreign key means the child row may exist without a parent:
     // 0..N rather than 1..N. This is the one piece of cardinality the schema
@@ -750,7 +877,11 @@ export function ERDView() {
     // Orthogonal routing over bezier for the same reason: an ERD is read by
     // following lines, and swooping curves cross each other constantly.
     declaredFKs.forEach((fk, i) => {
-      if (visibleTables[fk.table] && visibleTables[fk.referencedTable]) {
+      if (
+        visibleTables[fk.table] &&
+        visibleTables[fk.referencedTable] &&
+        !isSiblingEdge(fk.table, fk.referencedTable)
+      ) {
         flowEdges.push({
           id: `fk-${fk.table}-${fk.column}-${fk.referencedTable}-${i}`,
           source: fk.table,
@@ -778,6 +909,7 @@ export function ERDView() {
     //    look like a declared constraint.
     inferredRelationships.forEach((inf, i) => {
       if (!visibleTables[inf.fromTable] || !visibleTables[inf.toTable]) return;
+      if (isSiblingEdge(inf.fromTable, inf.toTable)) return;
       flowEdges.push({
         id: `inf-${inf.fromTable}-${inf.fromCol}-${inf.toTable}-${i}`,
         source: inf.fromTable,
@@ -805,6 +937,10 @@ export function ERDView() {
     selectedSchema,
     keyColumnsByTable,
     expandedTables,
+    focusTable,
+    hopByTable,
+    neighbourMap,
+    showSiblingEdges,
     toggleTable,
     typedColumns,
     uniqueSingleColumns,
@@ -837,6 +973,30 @@ export function ERDView() {
   useEffect(() => {
     setEdges(computedEdges);
   }, [computedEdges, setEdges]);
+
+  // Hovering a table lifts its relations out of the crowd. Applied on the way
+  // to React Flow rather than in the layout memo, so a hover never triggers a
+  // relayout.
+  const [hoveredTable, setHoveredTable] = useState("");
+
+  const { displayNodes, displayEdges } = useMemo(() => {
+    if (!hoveredTable) return { displayNodes: nodes, displayEdges: edges };
+    const connected = new Set([hoveredTable]);
+    for (const edge of edges) {
+      if (edge.source === hoveredTable) connected.add(edge.target);
+      if (edge.target === hoveredTable) connected.add(edge.source);
+    }
+    return {
+      displayNodes: nodes.map((n) =>
+        connected.has(n.id) ? n : { ...n, style: { ...n.style, opacity: 0.25 } },
+      ),
+      displayEdges: edges.map((e) =>
+        e.source === hoveredTable || e.target === hoveredTable
+          ? { ...e, zIndex: 1 }
+          : { ...e, style: { ...e.style, opacity: 0.08 } },
+      ),
+    };
+  }, [nodes, edges, hoveredTable]);
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden select-none">
@@ -900,6 +1060,19 @@ export function ERDView() {
           )}
         </div>
 
+        {tablesInSchema[focusTable] && (
+          <Button
+            variant={showSiblingEdges ? "secondary" : "ghost"}
+            size="sm"
+            className="h-8 text-xs gap-1.5"
+            onClick={() => setShowSiblingEdges((v) => !v)}
+            title="Show relations between the neighbours themselves, not just the ones touching the focused table"
+          >
+            <Spline className="w-3.5 h-3.5" />
+            Sibling links
+          </Button>
+        )}
+
         <Button
           variant="ghost"
           size="sm"
@@ -960,10 +1133,12 @@ export function ERDView() {
         <ERDMarkers />
         {nodes.length > 0 ? (
           <ReactFlow
-            nodes={nodes}
-            edges={edges}
+            nodes={displayNodes}
+            edges={displayEdges}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
+            onNodeMouseEnter={(_, node) => setHoveredTable(node.id)}
+            onNodeMouseLeave={() => setHoveredTable("")}
             nodeTypes={nodeTypes}
             // React Flow ships a light palette and only switches on its own
             // `dark` class, which is why the controls and minimap rendered
