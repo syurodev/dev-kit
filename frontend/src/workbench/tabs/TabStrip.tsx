@@ -329,8 +329,10 @@ function TabGroupRow({
                 // inactive tabs: the strip's own pill container border
                 // alone read as too faint to tell individual tabs apart at
                 // a glance.
-                "group relative flex h-8 shrink-0 items-center overflow-hidden rounded-full py-0 pl-3 pr-8 text-sm font-medium transition-[filter] [--wails-draggable:no-drag]",
-                !isActive && "bg-foreground/5",
+                "group relative flex h-[30px] shrink-0 items-center overflow-hidden rounded-full border border-transparent py-0 pl-2.5 pr-7 text-[12.5px] font-medium transition-[filter] [--wails-draggable:no-drag]",
+                // Inactive tabs carry no fill and no border in the design —
+                // the active one is the only thing wearing the pill.
+                isActive && "border-[var(--glass-border)] bg-[var(--glass-float-bg)]",
                 // Plain CSS :hover (not JS-tracked hoveredTabId state) —
                 // hovering one tab used to re-render every sibling in this
                 // group (they all read the same hoveredTabId), which
@@ -340,7 +342,7 @@ function TabGroupRow({
                 // siblings during a drag, so :hover can't fire on them
                 // then either — no JS gating needed for that case.
                 !isActive && "hover:brightness-125",
-                isActive ? "text-foreground" : "text-muted-foreground",
+                isActive ? "text-text-primary" : "text-text-secondary",
                 // The ⌘⇧E keyboard-browsing cursor — separate from isActive,
                 // since Enter hasn't committed it as the active tab yet.
                 tab.id === keyboardFocusedTabId
@@ -362,7 +364,7 @@ function TabGroupRow({
                   for the reorder/drop path to fight with. */}
               <div
                 className={cn(
-                  "absolute inset-0 rounded-full bg-primary/20 transition-opacity duration-150 ease-out",
+                  "absolute inset-0 rounded-full transition-opacity duration-150 ease-out",
                   isActive ? "opacity-100" : "opacity-0",
                 )}
               />
@@ -374,24 +376,23 @@ function TabGroupRow({
                   // tab-strip-only icon map to drift either way.
                   const ModuleIcon =
                     tab.icon ?? getModule(tab.moduleId)?.icon ?? Wrench;
-                  return <ModuleIcon className="size-4 shrink-0 opacity-85" />;
+                  return <ModuleIcon className="size-3.5 shrink-0 opacity-85" />;
                 })()}
                 {tab.status && tab.status !== "idle" ? (
                   <span
                     className={cn(
-                      "ml-2 size-1.5 shrink-0 rounded-full",
+                      "ml-[7px] size-1.5 shrink-0 rounded-full",
                       statusDotClass(tab.status),
                     )}
                   />
                 ) : null}
                 <span
                   className={cn(
-                    "ml-2 truncate",
-                    // pr-0.5: italic glyphs lean past their own box, and
-                    // truncate's overflow-hidden clips right at this
-                    // element's edge — without the extra room, the last
-                    // character's slanted stroke reads as slightly cut off.
-                    tab.preview && "pr-0.5 italic",
+                    "ml-[7px] truncate",
+                    // A preview tab is Regular where a committed one is
+                    // Medium — the design carries that difference in weight,
+                    // not in italics.
+                    tab.preview && "font-normal",
                   )}
                 >
                   {tab.title}
@@ -412,9 +413,9 @@ function TabGroupRow({
                     onClose(tab.id);
                   }
                 }}
-                className="absolute right-1.5 top-1/2 z-10 flex size-5 -translate-y-1/2 scale-75 items-center justify-center rounded opacity-0 transition-[opacity,transform] duration-150 ease-out hover:bg-foreground/10 focus:scale-100 focus:opacity-100 group-hover:scale-100 group-hover:opacity-100 [--wails-draggable:no-drag]"
+                className="absolute right-1 top-1/2 z-10 flex size-[18px] -translate-y-1/2 scale-75 items-center justify-center rounded opacity-0 transition-[opacity,transform] duration-150 ease-out hover:bg-foreground/10 focus:scale-100 focus:opacity-100 group-hover:scale-100 group-hover:opacity-100 [--wails-draggable:no-drag]"
               >
-                <X className="size-3.5" />
+                <X className="size-3" />
               </span>
             </Reorder.Item>
           );
@@ -639,18 +640,15 @@ export function TabStrip({
   // though no tab's width was). Pinning the pill to a width we
   // computed ourselves sidesteps whatever Framer is doing internally,
   // rather than chasing it. gap-1.5 (6px) between every tab regardless of
-  // group boundaries (verified: outer gaps between groups + each group's
-  // own internal gaps always sum to visualOrder.length - 1 total gaps), +
-  // p-1 (4px each side) + the pill's own 1px border each side.
+  // group boundaries at 4px (verified: outer gaps between groups + each group's
+  // own internal gaps always sum to visualOrder.length - 1 total gaps).
   const tabWidthValues = visualOrder.map((tab) => widths.get(tab.id));
   const pillWidthPx = tabWidthValues.every((value) => typeof value === "number")
     ? tabWidthValues.reduce(
         (sum: number, value) => sum + (value as number),
         0,
       ) +
-      Math.max(0, visualOrder.length - 1) * 6 +
-      8 +
-      2
+      Math.max(0, visualOrder.length - 1) * 4
     : undefined;
 
   return (
@@ -669,21 +667,17 @@ export function TabStrip({
     // tabs need, scrolling past that once they don't fit.
     <div
       ref={scrollRef}
-      className="flex min-w-0 w-full justify-start [--wails-draggable:no-drag]"
+      className="flex h-10 min-w-0 w-full items-center justify-start border-b border-[color-mix(in_srgb,var(--palette-candy-blue)_8%,transparent)] px-2 [--wails-draggable:no-drag]"
     >
       <div
         // Only drawn when there's at least one visible tab to hold —
         // otherwise (e.g. Dock-browsing a module whose home view has no
         // strip entry, see isHiddenHomePreview) it rendered as an empty
         // capsule with nothing inside it.
-        className={cn(
-          "scrollbar-hide flex max-w-full items-center gap-1.5 overflow-x-auto",
-          // p-1 (not px-1.5/py-1): the horizontal and vertical gap between
-          // this outer border and the inner tab has to match, or the ring
-          // reads as uneven — most visible around the rounded end caps,
-          // where an unequal x/y offset breaks the two pills' concentricity.
-          visualOrder.length > 0 && "rounded-full p-1",
-        )}
+        // Figma's strip has no capsule around the tabs: it is flat with a
+        // rule under it, and the pill shape belongs to the active tab alone.
+        // 4px between tabs, per `Tab Strip`.
+        className="scrollbar-hide flex max-w-full items-center gap-1 overflow-x-auto"
         style={pillWidthPx !== undefined ? { width: pillWidthPx } : undefined}
       >
         <AnimatePresence initial={false}>
