@@ -221,6 +221,10 @@ func (r failingNotesRepository) ListByType(string) ([]vaultitem.Record, error) {
 	return nil, r.err
 }
 
+func (r failingNotesRepository) ListByTypeAndMetaField(string, string, string) ([]vaultitem.Record, error) {
+	return nil, r.err
+}
+
 func (r failingNotesRepository) Get(string) (vaultitem.Record, error) {
 	return vaultitem.Record{}, r.err
 }

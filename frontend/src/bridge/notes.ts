@@ -142,6 +142,58 @@ export function getNote(id: string): Promise<Note> {
   });
 }
 
+export type NoteVersion = {
+  id: string;
+  noteId: string;
+  trigger: "checkpoint" | "pre-restore";
+  title: string;
+  createdAt: string;
+};
+
+/** Version history is UI-only — no MCP tool reaches any of these. */
+export function checkpointNote(id: string): Promise<NoteVersion | null> {
+  return callBridge(async () => {
+    const v = await AppService.NotesCheckpoint(id);
+    // Checkpoint is a no-op when nothing changed, and says so with an empty id
+    // rather than an error — an idle timer must not surface a failure.
+    return v && v.id ? mapVersion(v) : null;
+  });
+}
+
+export function listNoteVersions(id: string): Promise<NoteVersion[]> {
+  return callBridge(async () => {
+    const list = await AppService.NotesListVersions(id);
+    return (list ?? []).map(mapVersion);
+  });
+}
+
+export function getNoteVersion(versionId: string): Promise<{ title: string; body: string }> {
+  return callBridge(async () => {
+    const v = await AppService.NotesGetVersion(versionId);
+    return { title: v?.title ?? "", body: v?.body ?? "" };
+  });
+}
+
+export function restoreNoteVersion(id: string, versionId: string): Promise<Note> {
+  return callBridge(async () => mapNote(await AppService.NotesRestoreVersion(id, versionId)));
+}
+
+function mapVersion(v: {
+  id: string;
+  note_id: string;
+  trigger: string;
+  title: string;
+  created_at: string;
+}): NoteVersion {
+  return {
+    id: v.id,
+    noteId: v.note_id,
+    trigger: v.trigger === "pre-restore" ? "pre-restore" : "checkpoint",
+    title: v.title,
+    createdAt: v.created_at,
+  };
+}
+
 export type TrashedNote = NoteSummary & {
   deletedAt: string;
   purgesAt: string;

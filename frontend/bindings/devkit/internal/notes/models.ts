@@ -71,3 +71,14 @@ export interface TrashedNote {
     "deleted_at": string;
     "purges_at": string;
 }
+
+/**
+ * Version is one snapshot, without its body.
+ */
+export interface Version {
+    "id": string;
+    "note_id": string;
+    "trigger": string;
+    "title": string;
+    "created_at": string;
+}

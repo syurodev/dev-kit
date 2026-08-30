@@ -137,6 +137,71 @@ func (s *AppService) NotesGet(id string) (notes.Note, error) {
 // surface. Emptying a trash or deleting forever is the one place in this module
 // where a mistake cannot be walked back, so it is reachable from the Trash
 // screen and nowhere else.
+// Version history is UI-only for the same reason the trash is: RestoreVersion
+// overwrites the note, and an agent should not be able to roll one back.
+func (s *AppService) NotesCheckpoint(id string) (notes.Version, error) {
+	opaqueID := recordID(id)
+	result, err := s.call(context.Background(), "builtin.notes", "notes:write", "note:"+opaqueID, map[string]any{
+		"action":  "checkpoint",
+		"note_id": opaqueID,
+	}, func(context.Context) (any, error) {
+		return s.container.Notes.Checkpoint(id, notes.TriggerCheckpoint)
+	})
+	if err != nil {
+		return notes.Version{}, err
+	}
+	return result.(notes.Version), nil
+}
+
+func (s *AppService) NotesListVersions(id string) ([]notes.Version, error) {
+	opaqueID := recordID(id)
+	result, err := s.call(context.Background(), "builtin.notes", "notes:read", "note:"+opaqueID, map[string]any{
+		"action":  "list_versions",
+		"note_id": opaqueID,
+	}, func(context.Context) (any, error) {
+		return s.container.Notes.ListVersions(id)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]notes.Version), nil
+}
+
+// NotesGetVersion returns the snapshot body so the diff view can compare it
+// with what is on screen.
+func (s *AppService) NotesGetVersion(versionID string) (map[string]string, error) {
+	opaqueID := recordID(versionID)
+	result, err := s.call(context.Background(), "builtin.notes", "notes:read", "note-version:"+opaqueID, map[string]any{
+		"action":     "get_version",
+		"version_id": opaqueID,
+	}, func(context.Context) (any, error) {
+		title, body, err := s.container.Notes.GetVersion(versionID)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]string{"title": title, "body": body}, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(map[string]string), nil
+}
+
+func (s *AppService) NotesRestoreVersion(id, versionID string) (notes.Note, error) {
+	opaqueID := recordID(id)
+	result, err := s.call(context.Background(), "builtin.notes", "notes:write", "note:"+opaqueID, map[string]any{
+		"action":     "restore_version",
+		"note_id":    opaqueID,
+		"version_id": recordID(versionID),
+	}, func(context.Context) (any, error) {
+		return s.container.Notes.RestoreVersion(id, versionID)
+	})
+	if err != nil {
+		return notes.Note{}, err
+	}
+	return result.(notes.Note), nil
+}
+
 func (s *AppService) NotesListTrash() ([]notes.TrashedNote, error) {
 	result, err := s.call(context.Background(), "builtin.notes", "notes:read", "note:trash", map[string]any{
 		"action": "list_trash",

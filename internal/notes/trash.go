@@ -64,6 +64,11 @@ func (s *Service) Purge(id string) error {
 	if record.Type != itemType {
 		return errors.New("note not found")
 	}
+	// A purged note must not leave its history behind — orphan versions are
+	// unreachable and would sync forever.
+	if err := s.deleteVersionsOf(id); err != nil {
+		return err
+	}
 	return s.store.Delete(id)
 }
 
@@ -74,7 +79,7 @@ func (s *Service) EmptyTrash() (int, error) {
 		return 0, err
 	}
 	for _, entry := range trashed {
-		if err := s.store.Delete(entry.id); err != nil {
+		if err := s.Purge(entry.id); err != nil {
 			return 0, err
 		}
 	}
@@ -127,7 +132,7 @@ func (s *Service) sweepExpired() error {
 		if entry.deletedAt.After(cutoff) {
 			continue
 		}
-		if err := s.store.Delete(entry.id); err != nil {
+		if err := s.Purge(entry.id); err != nil {
 			return err
 		}
 	}

@@ -50,6 +50,18 @@ func (r *SQLRepository) ListByType(itemType string) ([]Record, error) {
 	return r.scanRows(rows)
 }
 
+// ListByTypeAndMetaField filters on a metadata field with SQLite's own JSON
+// support, so no side index has to be kept in step with the records.
+func (r *SQLRepository) ListByTypeAndMetaField(itemType, field, value string) ([]Record, error) {
+	rows, err := r.db.QueryContext(context.Background(),
+		"SELECT data FROM vault_items WHERE type = ? AND json_extract(data, '$.metadata.' || ?) = ?",
+		itemType, field, value)
+	if err != nil {
+		return nil, err
+	}
+	return r.scanRows(rows)
+}
+
 func (r *SQLRepository) Get(id string) (Record, error) {
 	var data []byte
 	err := r.db.QueryRowContext(context.Background(), "SELECT data FROM vault_items WHERE id = ?", id).Scan(&data)

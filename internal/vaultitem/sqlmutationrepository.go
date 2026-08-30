@@ -47,6 +47,17 @@ func (r *SQLMutationRepository) ListByType(itemType string) ([]Record, error) {
 	return scanMutationRows(rows)
 }
 
+func (r *SQLMutationRepository) ListByTypeAndMetaField(itemType, field, value string) ([]Record, error) {
+	rows, err := r.db.QueryContext(context.Background(),
+		"SELECT data FROM "+localVaultItemsTable+
+			" WHERE type = ? AND json_extract(data, '$.metadata.' || ?) = ?",
+		itemType, field, value)
+	if err != nil {
+		return nil, err
+	}
+	return scanMutationRows(rows)
+}
+
 func (r *SQLMutationRepository) Get(id string) (Record, error) {
 	var data []byte
 	err := r.db.QueryRowContext(context.Background(), "SELECT data FROM "+localVaultItemsTable+" WHERE id = ?", id).Scan(&data)

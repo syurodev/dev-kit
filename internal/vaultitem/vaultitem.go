@@ -37,6 +37,11 @@ type Record struct {
 type Repository interface {
 	List() ([]Record, error)
 	ListByType(itemType string) ([]Record, error)
+	// ListByTypeAndMetaField narrows by one plaintext metadata field. Note
+	// version history needs the versions of one note, and scanning every
+	// version in the vault to filter in Go does not scale with the number of
+	// notes. Generic on purpose — any single-field metadata lookup can use it.
+	ListByTypeAndMetaField(itemType, field, value string) ([]Record, error)
 	Get(id string) (Record, error)
 	Put(record Record) error
 	Delete(id string) error

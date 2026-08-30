@@ -92,6 +92,11 @@ func (s *Store) ListByType(itemType string) ([]Record, error) {
 	return s.repo.ListByType(itemType)
 }
 
+// ListByTypeAndMetaField narrows by one plaintext metadata field.
+func (s *Store) ListByTypeAndMetaField(itemType, field, value string) ([]Record, error) {
+	return s.repo.ListByTypeAndMetaField(itemType, field, value)
+}
+
 // OpenPayload decrypts a record's payload. Returns an error when the item has
 // no payload or when the vault is locked / AAD does not match.
 func (s *Store) OpenPayload(record Record, keyID string) ([]byte, error) {

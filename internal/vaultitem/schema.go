@@ -12,9 +12,13 @@ import (
 const (
 	ItemTypeNote       = "note"
 	ItemTypeNoteFolder = "note-folder"
-	ItemTypeDatabase   = "db-profile"
-	ItemTypeSSH        = "ssh-profile"
-	ItemTypeKafka      = "kafka-profile"
+	// ItemTypeNoteVersion is a full title+body snapshot of one note. It is a
+	// vault item, so it syncs with the note it belongs to — that is a decided
+	// trade, not an accident: nothing filters the sync pipeline by type.
+	ItemTypeNoteVersion = "note-version"
+	ItemTypeDatabase    = "db-profile"
+	ItemTypeSSH         = "ssh-profile"
+	ItemTypeKafka       = "kafka-profile"
 	// ItemTypeDatabaseQuery covers *saved* queries only. Query history is
 	// deliberately not a vault item: everything in vault_items is sync-bound
 	// by construction, and history must never leave the device.
@@ -31,7 +35,8 @@ var ErrInvalidRecordSchema = errors.New("vault item schema is invalid")
 // snapshots and tombstones so arbitrary records cannot enter its ledgers.
 func IsSupportedItemType(itemType string) bool {
 	switch itemType {
-	case ItemTypeNote, ItemTypeNoteFolder, ItemTypeDatabase, ItemTypeSSH, ItemTypeKafka, ItemTypeDatabaseQuery:
+	case ItemTypeNote, ItemTypeNoteFolder, ItemTypeNoteVersion, ItemTypeDatabase,
+		ItemTypeSSH, ItemTypeKafka, ItemTypeDatabaseQuery:
 		return true
 	default:
 		return false
@@ -65,6 +70,17 @@ func ValidateRecordSchema(itemType string, metadata json.RawMessage, payload *cr
 			return ErrInvalidRecordSchema
 		}
 		expectedKeyID = "note-body"
+
+	case ItemTypeNoteVersion:
+		var value struct {
+			NoteID string `json:"note_id"`
+			// Display and debugging only — no logic reads it.
+			Trigger string `json:"trigger"`
+		}
+		if decodeMetadataObject(metadata, &value) != nil || value.NoteID == "" {
+			return ErrInvalidRecordSchema
+		}
+		expectedKeyID = "note-version-body"
 
 	case ItemTypeNoteFolder:
 		var value struct {

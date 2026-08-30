@@ -1,6 +1,9 @@
 package vaultitem
 
-import "sync"
+import (
+	"encoding/json"
+	"sync"
+)
 
 // MemoryRepository keeps items in memory (tests / ephemeral runs).
 type MemoryRepository struct {
@@ -18,6 +21,27 @@ func (r *MemoryRepository) List() ([]Record, error) {
 	out := make([]Record, 0, len(r.records))
 	for _, record := range r.records {
 		out = append(out, record)
+	}
+	return out, nil
+}
+
+// ListByTypeAndMetaField decodes each record's metadata rather than indexing
+// it. The SQL repositories push this into json_extract; in memory the record
+// count is a test's worth, so the simple pass is the honest one.
+func (r *MemoryRepository) ListByTypeAndMetaField(itemType, field, value string) ([]Record, error) {
+	records, err := r.ListByType(itemType)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Record, 0, len(records))
+	for _, record := range records {
+		var fields map[string]any
+		if json.Unmarshal(record.Metadata, &fields) != nil {
+			continue
+		}
+		if text, ok := fields[field].(string); ok && text == value {
+			out = append(out, record)
+		}
 	}
 	return out, nil
 }

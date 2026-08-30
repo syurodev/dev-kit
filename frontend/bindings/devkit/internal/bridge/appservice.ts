@@ -456,6 +456,18 @@ export function McpUninstall(agent: string, scope: string, projectPath: string):
     return $Call.ByID(3773505192, agent, scope, projectPath);
 }
 
+/**
+ * NotesListTrash, NotesRestore, NotesPurge and NotesEmptyTrash stay off the MCP
+ * surface. Emptying a trash or deleting forever is the one place in this module
+ * where a mistake cannot be walked back, so it is reachable from the Trash
+ * screen and nowhere else.
+ * Version history is UI-only for the same reason the trash is: RestoreVersion
+ * overwrites the note, and an agent should not be able to roll one back.
+ */
+export function NotesCheckpoint(id: string): $CancellablePromise<notes$0.Version> {
+    return $Call.ByID(296805781, id);
+}
+
 export function NotesCreate(title: string, body: string, folderID: string, tags: string[] | null): $CancellablePromise<notes$0.Summary> {
     return $Call.ByID(1729685215, title, body, folderID, tags);
 }
@@ -488,18 +500,24 @@ export function NotesGet(id: string): $CancellablePromise<notes$0.Note> {
     return $Call.ByID(1051925601, id);
 }
 
+/**
+ * NotesGetVersion returns the snapshot body so the diff view can compare it
+ * with what is on screen.
+ */
+export function NotesGetVersion(versionID: string): $CancellablePromise<{ [_ in string]?: string } | null> {
+    return $Call.ByID(3503758891, versionID);
+}
+
 export function NotesList(): $CancellablePromise<notes$0.Summary[] | null> {
     return $Call.ByID(3703031295);
 }
 
-/**
- * NotesListTrash, NotesRestore, NotesPurge and NotesEmptyTrash stay off the MCP
- * surface. Emptying a trash or deleting forever is the one place in this module
- * where a mistake cannot be walked back, so it is reachable from the Trash
- * screen and nowhere else.
- */
 export function NotesListTrash(): $CancellablePromise<notes$0.TrashedNote[] | null> {
     return $Call.ByID(1408023595);
+}
+
+export function NotesListVersions(id: string): $CancellablePromise<notes$0.Version[] | null> {
+    return $Call.ByID(2997584918, id);
 }
 
 export function NotesPurge(id: string): $CancellablePromise<void> {
@@ -508,6 +526,10 @@ export function NotesPurge(id: string): $CancellablePromise<void> {
 
 export function NotesRestore(id: string): $CancellablePromise<void> {
     return $Call.ByID(2017013663, id);
+}
+
+export function NotesRestoreVersion(id: string, versionID: string): $CancellablePromise<notes$0.Note> {
+    return $Call.ByID(1097877121, id, versionID);
 }
 
 export function NotesSearch(query: string): $CancellablePromise<notes$0.Summary[] | null> {

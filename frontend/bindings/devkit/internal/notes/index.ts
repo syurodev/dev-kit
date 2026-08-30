@@ -5,5 +5,6 @@ export type {
     Folder,
     Note,
     Summary,
-    TrashedNote
+    TrashedNote,
+    Version
 } from "./models.js";
