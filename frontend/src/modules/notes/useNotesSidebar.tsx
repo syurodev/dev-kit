@@ -15,12 +15,10 @@ import { useNotesSidebarStore } from "./notesSidebarStore";
  */
 export function useNotesSidebar(onNavigate?: () => void) {
   const scope = useNotesSidebarStore((s) => s.scope);
-  const foldersOpen = useNotesSidebarStore((s) => s.foldersOpen);
   const folders = useNotesSidebarStore((s) => s.folders);
   const counts = useNotesSidebarStore((s) => s.counts);
   const trashCount = useNotesSidebarStore((s) => s.trashCount);
   const setScope = useNotesSidebarStore((s) => s.setScope);
-  const setFoldersOpen = useNotesSidebarStore((s) => s.setFoldersOpen);
   const requestAction = useNotesSidebarStore((s) => s.requestAction);
 
   // Callers pass a plain function redefined every render. Holding it in a ref
@@ -42,8 +40,6 @@ export function useNotesSidebar(onNavigate?: () => void) {
           navigate();
         }}
         folders={folders}
-        foldersOpen={foldersOpen}
-        onFoldersOpenChange={setFoldersOpen}
         counts={counts}
         trashCount={trashCount}
         onCreateFolder={() => {
@@ -64,7 +60,7 @@ export function useNotesSidebar(onNavigate?: () => void) {
         }}
       />
     ),
-    [scope, foldersOpen, folders, counts, trashCount, setScope, setFoldersOpen, requestAction, navigate],
+    [scope, folders, counts, trashCount, setScope, requestAction, navigate],
   );
 
   useSidebarContent(content);

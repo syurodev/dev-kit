@@ -148,7 +148,7 @@ export function DatabaseSidebar() {
           CONNECTIONS heading while also filtering the 161 tables two sections
           below — the box and the list it acted on were nowhere near each
           other. */}
-      <div className="p-3 pb-2.5">
+      <div className="p-3 pb-3">
         <div className="relative">
           <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-tertiary" />
           <Input
@@ -161,7 +161,7 @@ export function DatabaseSidebar() {
             <button
               type="button"
               onClick={() => setFilterQuery("")}
-              className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded text-text-tertiary hover:text-text-primary"
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md text-text-tertiary hover:text-text-primary"
               title="Clear search"
             >
               <X className="w-3 h-3" />
@@ -170,7 +170,7 @@ export function DatabaseSidebar() {
         </div>
       </div>
 
-      <div className="px-3 pb-1.5 flex items-center justify-between">
+      <div className="px-3 pb-2 flex items-center justify-between">
         <SidebarSection
           label="Connections"
           count={profiles.length}
@@ -229,14 +229,14 @@ export function DatabaseSidebar() {
 
           const isExpanded = expandedFolders[folder.id] !== false;
           return (
-            <div key={folder.id} className="space-y-0.5">
+            <div key={folder.id} className="space-y-1">
               <ContextMenu>
               <ContextMenuTrigger asChild>
-              <div className="w-full flex items-center gap-1.5 px-2 py-1 rounded text-xs text-text-secondary hover:bg-surface-raised transition-colors group">
+              <div className="w-full flex items-center gap-2 px-2 py-1 rounded-md text-xs text-text-secondary hover:bg-surface-raised transition-colors group">
                 <button
                   type="button"
                   onClick={() => toggleFolder(folder.id)}
-                  className="flex items-center gap-1.5 flex-1 min-w-0 text-left hover:text-text-primary"
+                  className="flex items-center gap-2 flex-1 min-w-0 text-left hover:text-text-primary"
                 >
                   {isExpanded ? (
                     <ChevronDown className="w-3 h-3 text-text-tertiary shrink-0" />
@@ -253,7 +253,7 @@ export function DatabaseSidebar() {
                 <button
                   type="button"
                   onClick={() => setEditingFolderId(folder.id)}
-                  className="p-0.5 rounded text-text-tertiary hover:text-text-primary opacity-0 group-hover:opacity-100"
+                  className="p-1 rounded-md text-text-tertiary hover:text-text-primary opacity-0 group-hover:opacity-100"
                   title={`Edit ${folder.name}`}
                 >
                   <Pencil className="w-3 h-3" />
@@ -278,7 +278,7 @@ export function DatabaseSidebar() {
               </ContextMenu>
 
               {isExpanded && (
-                <div className="pl-4 space-y-0.5">
+                <div className="pl-4 space-y-1">
                   {visibleProfiles.map((p) => (
                     <ProfileItem
                       key={p.id}
@@ -303,7 +303,7 @@ export function DatabaseSidebar() {
 
         {/* Ungrouped Profiles */}
         {ungroupedProfiles.length > 0 && (
-          <div className="space-y-0.5 pt-1">
+          <div className="space-y-1 pt-1">
             {folderEntries.length > 0 && (
               <span className="px-2 text-[10px] font-semibold text-text-tertiary uppercase tracking-wider">
                 Ungrouped
@@ -397,11 +397,11 @@ export function DatabaseSidebar() {
               const tableEntries = Object.entries(tables || {});
 
               return (
-                <div key={schemaName} className="space-y-0.5">
+                <div key={schemaName} className="space-y-1">
                   <button
                     type="button"
                     onClick={() => toggleSchemaExpand(schemaName)}
-                    className="w-full flex items-center gap-1.5 px-1.5 py-1 rounded text-xs text-text-secondary hover:text-text-primary hover:bg-surface-raised transition-colors"
+                    className="w-full flex items-center gap-2 px-2 py-1 rounded-md text-xs text-text-secondary hover:text-text-primary hover:bg-surface-raised transition-colors"
                   >
                     {isSchemaExpanded ? (
                       <ChevronDown className="w-3 h-3 text-text-tertiary" />
@@ -416,7 +416,7 @@ export function DatabaseSidebar() {
                   </button>
 
                   {isSchemaExpanded && (
-                    <div className="pl-3.5 space-y-0.5">
+                    <div className="pl-4 space-y-1">
                       {tableEntries
                         .filter(([tableName]) => filterMatch(tableName))
                         .map(([tableName, columnNames]) => {
@@ -427,11 +427,11 @@ export function DatabaseSidebar() {
                           const loadedCols = tableColumnsMap[tableKey];
 
                           return (
-                            <div key={tableName} className="space-y-0.5">
+                            <div key={tableName} className="space-y-1">
                               <ContextMenu>
                               <ContextMenuTrigger asChild>
                               <div
-                                className={`w-full flex items-center gap-1.5 px-1.5 py-1 rounded text-xs cursor-pointer group ${
+                                className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-xs cursor-pointer group ${
                                   isFocused
                                     ? "bg-surface-raised text-action-primary"
                                     : "text-text-primary hover:bg-surface-raised"
@@ -508,12 +508,12 @@ export function DatabaseSidebar() {
                               </ContextMenu>
 
                               {isTableExpanded && (
-                                <div className="pl-4 space-y-0.5 border-l border-border/40 ml-2.5 my-0.5">
+                                <div className="pl-4 space-y-1 border-l border-border/40 ml-3 my-1">
                                   {loadedCols ? (
                                     loadedCols.map((col) => (
                                       <div
                                         key={col.name}
-                                        className="flex items-center justify-between gap-1 px-1 py-0.5 text-[10px] font-mono text-text-secondary hover:text-text-primary"
+                                        className="flex items-center justify-between gap-1 px-1 py-1 text-[10px] font-mono text-text-secondary hover:text-text-primary"
                                       >
                                         <div className="flex items-center gap-1 truncate">
                                           {col.name.endsWith("_id") || col.name === "id" ? (
@@ -523,7 +523,7 @@ export function DatabaseSidebar() {
                                           )}
                                           <span className="truncate">{col.name}</span>
                                         </div>
-                                        <span className="text-[9px] text-text-tertiary bg-surface-raised px-1 rounded">
+                                        <span className="text-[9px] text-text-tertiary bg-surface-raised px-1 rounded-md">
                                           {col.dataType}
                                         </span>
                                       </div>
@@ -531,7 +531,7 @@ export function DatabaseSidebar() {
                                   ) : (
                                     <div className="text-[10px] text-text-tertiary py-1">
                                       {(columnNames || []).map((colName) => (
-                                        <div key={colName} className="px-1 py-0.5 font-mono truncate">
+                                        <div key={colName} className="px-1 py-1 font-mono truncate">
                                           {colName}
                                         </div>
                                       ))}
@@ -551,7 +551,7 @@ export function DatabaseSidebar() {
             <div className="text-center py-8 text-xs text-text-tertiary">
               {selectedProfileId ? (
                 indexingSchema ? (
-                  <p className="flex items-center justify-center gap-1.5">
+                  <p className="flex items-center justify-center gap-2">
                     <RefreshCw className="w-3 h-3 animate-spin" /> Indexing schema…
                   </p>
                 ) : (
@@ -629,7 +629,7 @@ function ProfileItem({
       <div className="flex items-start gap-2 truncate flex-1 min-w-0">
         <span className={`w-2 h-2 rounded-full mt-1 shrink-0 ${engineMeta.accentDot}`} />
         <div className="truncate flex-1">
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
             <span className="font-semibold text-xs text-text-primary truncate">{profile.name}</span>
             {isProd ? (
               <Badge variant="destructive" className="text-[9px] px-1 py-0 h-3.5">
@@ -641,7 +641,7 @@ function ProfileItem({
               </Badge>
             ) : null}
           </div>
-          <div className="text-[10px] text-text-tertiary truncate font-mono mt-0.5">
+          <div className="text-[10px] text-text-tertiary truncate font-mono mt-1">
             {profile.username}@{profile.host}:{profile.port}/{profile.database}
           </div>
         </div>
@@ -659,7 +659,7 @@ function ProfileItem({
           </span>
         )}
 
-        <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 ml-1">
+        <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 ml-1">
           {/* Figma drew the folder dialog but not the way a profile gets into
               one. A menu is the smallest thing that works and reads: the list
               is short, and it says where the profile is now. */}
@@ -667,7 +667,7 @@ function ProfileItem({
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
-                className="p-1 text-text-tertiary hover:text-text-primary rounded"
+                className="p-1 text-text-tertiary hover:text-text-primary rounded-md"
                 onClick={(e) => e.stopPropagation()}
                 title="Move to folder"
               >
@@ -693,7 +693,7 @@ function ProfileItem({
           </DropdownMenu>
           <button
             type="button"
-            className="p-1 text-text-tertiary hover:text-text-primary rounded"
+            className="p-1 text-text-tertiary hover:text-text-primary rounded-md"
             onClick={(e) => {
               e.stopPropagation();
               onOptions();
@@ -704,7 +704,7 @@ function ProfileItem({
           </button>
           <button
             type="button"
-            className="p-1 text-text-tertiary hover:text-status-danger rounded"
+            className="p-1 text-text-tertiary hover:text-status-danger rounded-md"
             onClick={(e) => {
               e.stopPropagation();
               onDelete();

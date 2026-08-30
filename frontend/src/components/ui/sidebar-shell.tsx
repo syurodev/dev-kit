@@ -112,7 +112,12 @@ export function SidebarRow({
 }) {
   return (
     <div
-      className={`group flex items-center gap-1.5 rounded px-2 py-1 text-xs ${
+      // Metrics from Foundations, structure from the component. The Figma
+      // sidebar draws 31px rows with 7/12 padding and a 9px gap, which the
+      // Foundations page itself rules out — "spacing tokens drive auto-layout
+      // gaps and padding, avoid arbitrary values". Rounded onto the grid: 32
+      // tall, 12/8 padding, 8 gap, radius 8 (controls are 6–10).
+      className={`group flex items-center gap-2 rounded-lg px-3 py-2 text-[13px] ${
         active
           ? "bg-surface-raised text-text-primary"
           : "text-text-secondary hover:bg-surface-raised"
@@ -121,13 +126,13 @@ export function SidebarRow({
       <button
         type="button"
         onClick={onClick}
-        className="flex min-w-0 flex-1 items-center gap-1.5 text-left hover:text-text-primary"
+        className="flex min-w-0 flex-1 items-center gap-2 text-left hover:text-text-primary"
       >
         {icon}
         <span className="truncate">{label}</span>
       </button>
       {count !== undefined && (
-        <span className="font-mono text-[10px] text-text-tertiary">{count}</span>
+        <span className="text-[11px] text-text-tertiary">{count}</span>
       )}
       {trailing}
     </div>
