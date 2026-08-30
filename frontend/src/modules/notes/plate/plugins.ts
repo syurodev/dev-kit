@@ -1,6 +1,7 @@
 import remarkGfm from "remark-gfm";
 import { MarkdownPlugin } from "@platejs/markdown";
 import { SlashInputPlugin, SlashPlugin } from "@platejs/slash-command/react";
+import { NoteLinkElement, NoteLinkPlugin } from "./NoteLink";
 import { TogglePlugin } from "@platejs/toggle/react";
 import { KEYS, type SlateEditor } from "platejs";
 
@@ -44,6 +45,7 @@ export const NotesEditorKit = [
     },
   }),
   SlashInputPlugin.withComponent(SlashInputElement),
+  NoteLinkPlugin.withComponent(NoteLinkElement),
   MarkdownPlugin.configure({
     options: {
       remarkPlugins: [remarkGfm],
