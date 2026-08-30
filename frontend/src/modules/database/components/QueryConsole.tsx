@@ -12,6 +12,9 @@ import {
   CheckCircle2,
   Sliders,
   Table as TableIcon,
+  Copy,
+  Braces,
+  Columns3
 } from "lucide-react";
 import { sql as codemirrorSql, PostgreSQL, MySQL, MariaSQL } from "@codemirror/lang-sql";
 import { Button } from "@/components/ui/button";
@@ -24,10 +27,32 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuShortcut,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import { copyText } from "../../../bridge/clipboard";
 import { useDatabaseStore } from "../databaseStore";
 import { EngineBadge, getEngineMeta } from "./EngineBadge";
 import { explain, explainAnalyze, type QueryPlan } from "../../../bridge/database";
 import { QueryPlanView } from "./QueryPlanView";
+
+/**
+ * A row is a string array beside a separate column list — JSON has to pair them
+ * back up. Values arrive already stringified by the bridge, so this is a shape
+ * change, not a re-encode.
+ */
+export function rowAsJSON(columns: string[], row: string[]): string {
+  return JSON.stringify(
+    Object.fromEntries(row.map((value, i) => [columns[i] || `col_${i}`, value])),
+    null,
+    2,
+  );
+}
 
 export function QueryConsole() {
   const {
@@ -396,18 +421,53 @@ export function QueryConsole() {
                       {row.map((cell, j) => {
                         const colName = queryResult.columns[j] || `col_${j}`;
                         return (
-                          <td
-                            key={j}
-                            className="px-3 py-2 text-text-secondary border-r border-border/40 truncate max-w-[280px] cursor-pointer hover:text-text-primary hover:bg-action-primary/10 select-text"
-                            onClick={() => setInspectedCell({ columnName: colName, value: cell })}
-                            title="Click to inspect cell"
-                          >
-                            {cell === "" ? (
-                              <span className="text-text-tertiary italic text-[10px]">NULL</span>
-                            ) : (
-                              cell
-                            )}
-                          </td>
+                          <ContextMenu key={j}>
+                            <ContextMenuTrigger asChild>
+                              <td
+                                className="px-3 py-2 text-text-secondary border-r border-border/40 truncate max-w-[280px] cursor-pointer hover:text-text-primary hover:bg-action-primary/10 select-text"
+                                onClick={() =>
+                                  setInspectedCell({ columnName: colName, value: cell })
+                                }
+                                title="Click to inspect cell"
+                              >
+                                {cell === "" ? (
+                                  <span className="text-text-tertiary italic text-[10px]">
+                                    NULL
+                                  </span>
+                                ) : (
+                                  cell
+                                )}
+                              </td>
+                            </ContextMenuTrigger>
+                            {/* A cell is truncated at 280px, so the value on
+                                screen is often not the whole value. Copy takes
+                                the real one. */}
+                            <ContextMenuContent>
+                              <ContextMenuItem onSelect={() => void copyText(cell)}>
+                                <Copy />
+                                Copy cell
+                              </ContextMenuItem>
+                              <ContextMenuItem
+                                onSelect={() => void copyText(rowAsJSON(queryResult.columns, row))}
+                              >
+                                <Braces />
+                                Copy row as JSON
+                              </ContextMenuItem>
+                              <ContextMenuItem onSelect={() => void copyText(colName)}>
+                                <Columns3 />
+                                Copy column name
+                              </ContextMenuItem>
+                              <ContextMenuSeparator />
+                              <ContextMenuItem
+                                onSelect={() =>
+                                  setInspectedCell({ columnName: colName, value: cell })
+                                }
+                              >
+                                Inspect cell
+                                <ContextMenuShortcut>Click</ContextMenuShortcut>
+                              </ContextMenuItem>
+                            </ContextMenuContent>
+                          </ContextMenu>
                         );
                       })}
                     </tr>
