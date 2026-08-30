@@ -19,6 +19,11 @@ import { Kbd } from "@/components/ui/kbd";
 import { shortcut } from "@/lib/shortcut";
 import { Badge } from "@/components/ui/badge";
 import { CodeEditor } from "@/components/code-editor/CodeEditor";
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "@/components/ui/resizable";
 import { useDatabaseStore } from "../databaseStore";
 import { EngineBadge, getEngineMeta } from "./EngineBadge";
 import { explain, explainAnalyze, type QueryPlan } from "../../../bridge/database";
@@ -41,6 +46,8 @@ export function QueryConsole() {
     setInspectedCell,
     setShowExportModal,
     setShowSaveQueryModal,
+    consoleEditorSize,
+    setConsoleEditorSize,
   } = useDatabaseStore();
 
   const [elapsed, setElapsed] = useState(0);
@@ -129,7 +136,27 @@ export function QueryConsole() {
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden" onKeyDown={handleKeyDown}>
       {/* Editor Section */}
-      <div className="h-[220px] shrink-0 flex flex-col border-b border-border">
+      {/* The editor used to be a hard 220px. A long query and a wide result
+          set want different splits, so the split is dragged, remembered, and
+          keyboard-resizable — the handle is a real separator, not a bare div. */}
+      <ResizablePanelGroup
+        orientation="vertical"
+        className="flex-1 min-h-0"
+        defaultLayout={{ editor: consoleEditorSize }}
+        onLayoutChanged={(layout, meta) => {
+          // Only a real drag is worth writing through ui_state — the callback
+          // also fires on mount and on every constraint recompute.
+          if (meta.isUserInteraction) setConsoleEditorSize(layout.editor);
+        }}
+      >
+      {/* Sizes are strings on purpose: this library reads a bare number as
+          pixels, so minSize={15} would be fifteen pixels, not fifteen
+          percent. */}
+      <ResizablePanel
+        id="editor"
+        minSize="15"
+        className="flex flex-col border-b border-border"
+      >
         {/* Editor Toolbar */}
         <div className="flex flex-wrap items-center justify-between px-3 py-1.5 border-b border-border/60 bg-surface-raised/40 gap-2">
           <div className="flex items-center gap-2">
@@ -211,7 +238,11 @@ export function QueryConsole() {
             wrap
           />
         </div>
-      </div>
+      </ResizablePanel>
+
+      <ResizableHandle withHandle />
+
+      <ResizablePanel id="results" minSize="20" className="flex flex-col min-h-0 overflow-hidden">
 
       {/* DevKit Advice for MySQL placeholder mismatch (Screen 21) */}
       {hasPlaceholderMismatch && (
@@ -401,6 +432,8 @@ export function QueryConsole() {
           </div>
         )}
       </div>
+      </ResizablePanel>
+      </ResizablePanelGroup>
 
       {/* Plan Viewer Modal (Screen 22) */}
       {activePlan && (

@@ -33,6 +33,8 @@ export type DatabaseStoreState = {
   // Which sidebar panes are open. Cosmetic like the folders above, and
   // persisted for the same reason: it survives switching module and back.
   openSidebarSections: Record<string, boolean>;
+  // Percent of the console's height given to the editor.
+  consoleEditorSize: number;
 
   // Schema state
   schemaSnapshot: SchemaSnapshot | null;
@@ -74,6 +76,7 @@ export type DatabaseStoreState = {
   // Folder actions
   toggleFolder: (folderName: string) => void;
   toggleSidebarSection: (section: string) => void;
+  setConsoleEditorSize: (size: number) => void;
   assignProfileToFolder: (profileId: string, folderName: string) => void;
 
   // Schema actions
@@ -106,6 +109,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   folders: DEFAULT_FOLDERS,
   expandedFolders: { "Production": true, "Development": true },
   openSidebarSections: { connections: true, tables: true },
+  consoleEditorSize: 30,
 
   schemaSnapshot: null,
   indexingSchema: false,
@@ -174,6 +178,8 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     const current = get().expandedFolders;
     set({ expandedFolders: { ...current, [folderName]: !current[folderName] } });
   },
+
+  setConsoleEditorSize: (size: number) => set({ consoleEditorSize: size }),
 
   toggleSidebarSection: (section: string) => {
     const current = get().openSidebarSections;
@@ -292,6 +298,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
         folders: state.folders,
         expandedFolders: state.expandedFolders,
         openSidebarSections: state.openSidebarSections,
+        consoleEditorSize: state.consoleEditorSize,
       }),
     },
   ),
