@@ -5,6 +5,7 @@ import {
   Code,
   Italic,
   PanelRight,
+  History,
   Strikethrough,
   Trash2,
   Underline,
@@ -37,8 +38,13 @@ import {
   updateNote,
   type Note,
   type NoteFolder,
+  listBacklinks,
+  checkpointNote,
+  restoreNote,
+  type NoteSummary,
 } from "../../bridge/notes";
 import { useModuleAction } from "../../stores/moduleActions";
+import { NoteHistoryPanel } from "./NoteHistoryPanel";
 import { useNotesRefreshStore } from "../../stores/notesRefresh";
 import { tabKey, useWorkbenchTabsStore } from "../../stores/workbenchTabs";
 import { ColorPicker } from "./ColorPicker";
@@ -92,7 +98,38 @@ function TagChip({
   );
 }
 
+function NoteBacklinks({ noteId }: { noteId: string }) {
+  const [backlinks, setBacklinks] = useState<NoteSummary[]>([]);
+
+  useEffect(() => {
+    void listBacklinks(noteId)
+      .then(setBacklinks)
+      .catch(() => setBacklinks([]));
+  }, [noteId]);
+
+  if (backlinks.length === 0) return null;
+
+  return (
+    <div className="space-y-1.5">
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">
+        Backlinks · {backlinks.length}
+      </span>
+      <ul className="space-y-1.5">
+        {backlinks.map((note) => (
+          <li key={note.id} className="rounded border border-border bg-surface-raised p-2">
+            <p className="truncate text-xs font-medium text-text-primary">
+              {note.title || "Untitled"}
+            </p>
+            <p className="mt-0.5 line-clamp-1 text-[11px] text-text-tertiary">{note.preview}</p>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function NoteMetaPanel({
+  noteId,
   folders,
   folderId,
   ownTags,
@@ -105,6 +142,7 @@ function NoteMetaPanel({
   onAddTag,
   onRemoveTag,
 }: {
+  noteId: string;
   folders: NoteFolder[];
   folderId: string;
   ownTags: string[];
@@ -194,6 +232,8 @@ function NoteMetaPanel({
           </div>
         ) : null}
       </div>
+
+      <NoteBacklinks noteId={noteId} />
     </div>
   );
 }
@@ -228,6 +268,7 @@ export function NoteEditor({ params }: NoteEditorProps) {
   const [color, setColor] = useState("");
   const [tagDraft, setTagDraft] = useState("");
   const [metaOpen, setMetaOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [status, setStatus] = useState<SaveStatus>("idle");
   const [loadError, setLoadError] = useState("");
   const [saveError, setSaveError] = useState("");
@@ -451,13 +492,62 @@ export function NoteEditor({ params }: NoteEditorProps) {
       : null,
   );
 
+  useModuleAction(
+    note
+      ? {
+          id: "notes.toggle-history-panel",
+          icon: History,
+          label: "History",
+          isActive: historyOpen,
+          onClick: () =>
+            setHistoryOpen((open) => {
+              // One split panel, two things that want it. Opening history puts
+              // the details panel away rather than fighting over the slot.
+              if (!open) setMetaOpen(false);
+              return !open;
+            }),
+        }
+      : null,
+  );
+
+  // Checkpoint on idle, not on every keystroke: a snapshot per character would
+  // blow through the fifty-version cap in a paragraph. Checkpoint is a no-op
+  // when nothing changed, so a timer that fires on an untouched note costs a
+  // round trip and writes nothing.
   useEffect(() => {
+    if (!note) return;
+    const timer = window.setInterval(
+      () => void checkpointNote(note.id).catch(() => undefined),
+      5 * 60 * 1000,
+    );
+    return () => window.clearInterval(timer);
+  }, [note?.id]);
+
+  useEffect(() => {
+    if (!historyOpen || !note) return;
+    openPanel(
+      <NoteHistoryPanel
+        noteId={note.id}
+        currentBody={editor.api.markdown.serialize()}
+        onRestored={(body) => {
+          const value = editor.api.markdown.deserialize(body);
+          editor.tf.setValue(value);
+        }}
+      />,
+      { width: 460, onClose: () => setHistoryOpen(false) },
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [historyOpen, note?.id]);
+
+  useEffect(() => {
+    if (historyOpen) return;
     if (!metaOpen || !note) {
       closePanel();
       return;
     }
     openPanel(
       <NoteMetaPanel
+        noteId={note.id}
         folders={folders}
         folderId={folderId}
         ownTags={ownTags}
@@ -501,6 +591,26 @@ export function NoteEditor({ params }: NoteEditorProps) {
 
   return (
     <div className="notes-font-scope flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+      {/* Figma `Notes / 03b Editor — Note trashed elsewhere`. The tab stays
+          open rather than closing under the reader: the body is on screen and
+          still theirs to copy out. Saying so beats a tab that vanishes. */}
+      {note.deletedAt && (
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-status-warning/30 bg-status-warning/10 px-4 py-2 text-xs text-status-warning">
+          <span>
+            <strong className="font-semibold">This note is in the trash.</strong> It was deleted
+            somewhere else while you had it open. Edits still save, and it stays in the trash
+            until it is restored or purged.
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 shrink-0 text-xs"
+            onClick={() => void restoreNote(note.id).then(() => setNote({ ...note, deletedAt: "" }))}
+          >
+            Restore
+          </Button>
+        </div>
+      )}
       <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2">
         <Button
           type="button"

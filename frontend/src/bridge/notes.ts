@@ -24,6 +24,8 @@ export type Note = {
   effectiveTags: string[];
   color: string;
   effectiveColor: string;
+  /** Empty for a live note. Set when the note is in the trash. */
+  deletedAt: string;
 };
 
 export type NoteFolder = {
@@ -73,6 +75,7 @@ function mapNote(n: {
   effective_tags?: string[] | null;
   color?: string;
   effective_color?: string;
+  deleted_at?: string;
 }): Note {
   return {
     id: n.id,
@@ -83,6 +86,7 @@ function mapNote(n: {
     effectiveTags: asStrings(n.effective_tags),
     color: n.color ?? "",
     effectiveColor: n.effective_color ?? "",
+    deletedAt: n.deleted_at ?? "",
   };
 }
 
