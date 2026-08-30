@@ -117,7 +117,11 @@ export function SidebarRow({
       // Foundations page itself rules out — "spacing tokens drive auto-layout
       // gaps and padding, avoid arbitrary values". Rounded onto the grid: 32
       // tall, 12/8 padding, 8 gap, radius 8 (controls are 6–10).
-      className={`group flex items-center gap-2 rounded-lg px-3 py-2 text-[13px] ${
+      // A fixed height, not vertical padding: the trailing control is 24px and
+      // the label's line box is 17, so whichever is taller was deciding the
+      // row's height — and a control that only appears on hover decided it
+      // twice. h-8 is control/height-md; nothing inside can move it.
+      className={`group flex h-8 items-center gap-2 rounded-lg px-3 text-[13px] ${
         active
           ? "bg-surface-raised text-text-primary"
           : "text-text-secondary hover:bg-surface-raised"

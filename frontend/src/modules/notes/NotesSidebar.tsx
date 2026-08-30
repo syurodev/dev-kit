@@ -82,7 +82,11 @@ export function NotesSidebar({
                   <button
                     type="button"
                     aria-label={`${folder.name} options`}
-                    className="hidden rounded-md p-1 text-text-tertiary hover:text-text-primary group-hover:block"
+                    // Opacity, not display: `hidden` gave the button no box
+                    // until hover, so revealing it grew the row and shoved the
+                    // count sideways. Reserving the space keeps the row still.
+                    // Focus-visible too, or it is unreachable by keyboard.
+                    className="rounded-md p-1 text-text-tertiary opacity-0 hover:text-text-primary focus-visible:opacity-100 group-hover:opacity-100"
                   >
                     <MoreHorizontal className="size-4" />
                   </button>
