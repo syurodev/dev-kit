@@ -6,6 +6,7 @@ import { Dock } from "./dock/Dock";
 import { moduleIndexFromEvent } from "./dock/dockActivation";
 import { AgentSessionsSubscriber } from "./AgentSessionsSubscriber";
 import { CommandPalette } from "./CommandPalette";
+import { TabStrip } from "./tabs/TabStrip";
 import { TabSwitcher } from "./TabSwitcher";
 import { InteractionHost } from "./InteractionHost";
 import {
@@ -289,6 +290,9 @@ export function Workbench() {
   const openTabs = useWorkbenchTabsStore((state) => state.openTabs);
   const activeTabId = useWorkbenchTabsStore((state) => state.activeTabId);
   const openTab = useWorkbenchTabsStore((state) => state.openTab);
+  const setActiveTab = useWorkbenchTabsStore((state) => state.setActiveTab);
+  const closeTab = useWorkbenchTabsStore((state) => state.closeTab);
+  const reorderTab = useWorkbenchTabsStore((state) => state.reorderTab);
 
   useEffect(() => {
     // Accept either ⌘ or Ctrl rather than branching on navigator.platform:
@@ -697,6 +701,20 @@ export function Workbench() {
               minimum width, and without it the two side panels could not
               squeeze it. */}
           <div className="flex min-w-0 min-h-0 flex-1 flex-col">
+            {/* The strip was built, exported, and never mounted — the tab
+                state drove the views and the ⌃Tab switcher, but nothing ever
+                drew the tabs. Several comments in this file already refer to
+                "the real tab strip", so this is the missing wiring rather than
+                a new feature. */}
+            <TabStrip
+              tabs={openTabs}
+              activeTabId={activeTabId}
+              onSelect={setActiveTab}
+              onClose={closeTab}
+              onReorder={reorderTab}
+              keyboardBrowsing={switcher === "browsing"}
+              onExitBrowsing={() => setSwitcher("closed")}
+            />
             <WorkbenchViews
               availableModules={availableModules}
               hasMetadataWarning={hasMetadataWarning}
