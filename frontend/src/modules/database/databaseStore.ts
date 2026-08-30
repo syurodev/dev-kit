@@ -18,6 +18,69 @@ import { errorMessage } from "../../bridge/errors";
 
 export type DatabaseTab = "console" | "erd" | "activity" | "history" | "saved";
 
+/**
+ * A folder is keyed by id, not by its name.
+ *
+ * Name was the key until the Edit folder dialog arrived. Renaming then meant
+ * writing a new key, so the profiles inside, the expanded state and the icon
+ * would all reset at once. With no UI able to rename, that stayed theoretical;
+ * with one, it is an everyday path.
+ */
+export type DatabaseFolder = {
+  id: string;
+  name: string;
+  icon: string;
+  profileIds: string[];
+};
+
+function newFolderId(): string {
+  return crypto.randomUUID();
+}
+
+type LegacyFolderState = {
+  folders?: Record<string, string[]> | DatabaseFolder[];
+  expandedFolders?: Record<string, boolean>;
+};
+
+/**
+ * v0 kept `folders` as name → profileIds, with `expandedFolders` on the same
+ * names. Rekey both onto generated ids and keep the name as a label. Exported
+ * so the rekeying can be tested without standing up a store.
+ */
+// Omit rather than intersect: the two fields are replaced, and intersecting
+// would keep the caller's old key types alongside the new ones.
+type MigratedFolderState<T> = Omit<T, "folders" | "expandedFolders"> & {
+  folders: DatabaseFolder[];
+  expandedFolders: Record<string, boolean>;
+};
+
+export function migrateFoldersToIds<T extends LegacyFolderState>(
+  state: T,
+  generateId: () => string = newFolderId,
+): MigratedFolderState<T> {
+  const legacy = state.folders;
+  if (Array.isArray(legacy)) {
+    return state as MigratedFolderState<T>;
+  }
+
+  const folders: DatabaseFolder[] = Object.entries(legacy ?? {}).map(
+    ([name, profileIds]) => ({
+      id: generateId(),
+      name,
+      icon: "folder",
+      profileIds: profileIds ?? [],
+    }),
+  );
+
+  const expandedFolders: Record<string, boolean> = {};
+  for (const folder of folders) {
+    const wasExpanded = state.expandedFolders?.[folder.name];
+    if (wasExpanded !== undefined) expandedFolders[folder.id] = wasExpanded;
+  }
+
+  return { ...state, folders, expandedFolders };
+}
+
 export type DatabaseStoreState = {
   profiles: ConnectionProfile[];
   selectedProfileId: string;
@@ -28,8 +91,8 @@ export type DatabaseStoreState = {
   profileError: string;
 
   // Cosmetic folder groups (uistate)
-  folders: Record<string, string[]>; // folderName -> profileIds
-  expandedFolders: Record<string, boolean>;
+  folders: DatabaseFolder[];
+  expandedFolders: Record<string, boolean>; // folder id -> open
   // Which sidebar panes are open. Cosmetic like the folders above, and
   // persisted for the same reason: it survives switching module and back.
   openSidebarSections: Record<string, boolean>;
@@ -74,10 +137,13 @@ export type DatabaseStoreState = {
   setShowSaveQueryModal: (show: boolean) => void;
 
   // Folder actions
-  toggleFolder: (folderName: string) => void;
+  toggleFolder: (folderId: string) => void;
+  createFolder: (name: string) => void;
+  updateFolder: (id: string, patch: { name?: string; icon?: string }) => void;
+  deleteFolder: (id: string) => void;
   toggleSidebarSection: (section: string) => void;
   setConsoleEditorSize: (size: number) => void;
-  assignProfileToFolder: (profileId: string, folderName: string) => void;
+  assignProfileToFolder: (profileId: string, folderId: string) => void;
 
   // Schema actions
   loadSchemaSnapshot: (profileId: string) => Promise<void>;
@@ -93,7 +159,10 @@ export type DatabaseStoreState = {
   clearQueryError: () => void;
 };
 
-const DEFAULT_FOLDERS: Record<string, string[]> = { Production: [], Development: [] };
+const DEFAULT_FOLDERS: DatabaseFolder[] = [
+  { id: "production", name: "Production", icon: "server", profileIds: [] },
+  { id: "development", name: "Development", icon: "laptop", profileIds: [] },
+];
 
 export const useDatabaseStore = create<DatabaseStoreState>()(
   persist(
@@ -107,7 +176,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   profileError: "",
 
   folders: DEFAULT_FOLDERS,
-  expandedFolders: { "Production": true, "Development": true },
+  expandedFolders: { production: true, development: true },
   openSidebarSections: { connections: true, tables: true },
   consoleEditorSize: 30,
 
@@ -174,9 +243,9 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   setShowExportModal: (show) => set({ showExportModal: show }),
   setShowSaveQueryModal: (show) => set({ showSaveQueryModal: show }),
 
-  toggleFolder: (folderName: string) => {
+  toggleFolder: (folderId: string) => {
     const current = get().expandedFolders;
-    set({ expandedFolders: { ...current, [folderName]: !current[folderName] } });
+    set({ expandedFolders: { ...current, [folderId]: current[folderId] === false } });
   },
 
   setConsoleEditorSize: (size: number) => set({ consoleEditorSize: size }),
@@ -186,17 +255,47 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     set({ openSidebarSections: { ...current, [section]: current[section] === false } });
   },
 
-  assignProfileToFolder: (profileId: string, folderName: string) => {
-    const folders = { ...get().folders };
-    // Remove from other folders
-    for (const key of Object.keys(folders)) {
-      folders[key] = (folders[key] || []).filter((id) => id !== profileId);
-    }
-    if (folderName) {
-      folders[folderName] = [...(folders[folderName] || []), profileId];
-    }
-    // persist middleware writes this through ui_state.
-    set({ folders });
+  createFolder: (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    set({
+      folders: [
+        ...get().folders,
+        { id: newFolderId(), name: trimmed, icon: "folder", profileIds: [] },
+      ],
+    });
+  },
+
+  updateFolder: (id: string, patch: { name?: string; icon?: string }) => {
+    set({
+      folders: get().folders.map((f) =>
+        f.id === id
+          ? { ...f, name: patch.name?.trim() || f.name, icon: patch.icon ?? f.icon }
+          : f,
+      ),
+    });
+  },
+
+  // Deleting a folder deletes the grouping only. The profiles inside fall back
+  // to Ungrouped — removing a connection is DBDeleteProfile, somewhere else.
+  deleteFolder: (id: string) => {
+    const expanded = { ...get().expandedFolders };
+    delete expanded[id];
+    set({ folders: get().folders.filter((f) => f.id !== id), expandedFolders: expanded });
+  },
+
+  // A profile belongs to at most one folder, so assigning removes it from
+  // every other. An empty folderId means Ungrouped.
+  assignProfileToFolder: (profileId: string, folderId: string) => {
+    set({
+      folders: get().folders.map((f) => ({
+        ...f,
+        profileIds:
+          f.id === folderId
+            ? [...f.profileIds.filter((id) => id !== profileId), profileId]
+            : f.profileIds.filter((id) => id !== profileId),
+      })),
+    });
   },
 
   loadSchemaSnapshot: async (profileId: string) => {
@@ -291,6 +390,8 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     {
       name: "database.folders",
       storage: uiStateStorage,
+      version: 1,
+      migrate: (persisted) => migrateFoldersToIds(persisted as never),
       // Only the cosmetic grouping persists. Profiles, schema and results all
       // come from the bridge; caching them here would let a stale copy outlive
       // the thing it describes.

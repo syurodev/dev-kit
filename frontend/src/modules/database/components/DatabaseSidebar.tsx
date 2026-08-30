@@ -3,7 +3,6 @@ import {
   Plus,
   RefreshCw,
   Folder,
-  FolderOpen,
   ChevronRight,
   ChevronDown,
   Table as TableIcon,
@@ -13,6 +12,9 @@ import {
   Radio,
   Search,
   Settings2,
+  Pencil,
+  FolderPlus,
+  FolderInput,
   X,
   Crosshair,
   Trash2,
@@ -20,7 +22,15 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { useDatabaseStore } from "../databaseStore";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { useDatabaseStore, type DatabaseFolder } from "../databaseStore";
+import { FolderIcon } from "../folderIcons";
+import { EditFolderDialog } from "./EditFolderDialog";
 import { getEngineMeta } from "./EngineBadge";
 import { deleteProfile } from "../../../bridge/database";
 
@@ -85,6 +95,10 @@ export function DatabaseSidebar() {
     folders,
     expandedFolders,
     toggleFolder,
+    createFolder,
+    updateFolder,
+    deleteFolder,
+    assignProfileToFolder,
     openSidebarSections,
     toggleSidebarSection,
     schemaSnapshot,
@@ -106,6 +120,7 @@ export function DatabaseSidebar() {
   } = useDatabaseStore();
 
   const [filterQuery, setFilterQuery] = useState("");
+  const [editingFolderId, setEditingFolderId] = useState("");
   // Open unless explicitly closed, so a store written before this existed does
   // not come back with both panes shut.
   const openSections = {
@@ -120,10 +135,10 @@ export function DatabaseSidebar() {
 
   // Group profiles into folders
   const assignedProfileIds = new Set<string>();
-  const folderEntries = Object.entries(folders).map(([name, ids]) => {
-    const list = profiles.filter((p) => ids.includes(p.id));
+  const folderEntries = folders.map((folder) => {
+    const list = profiles.filter((p) => folder.profileIds.includes(p.id));
     list.forEach((p) => assignedProfileIds.add(p.id));
-    return { name, profiles: list };
+    return { folder, profiles: list };
   });
   const ungroupedProfiles = profiles.filter((p) => !assignedProfileIds.has(p.id));
 
@@ -190,6 +205,15 @@ export function DatabaseSidebar() {
               <RefreshCw className={`w-3.5 h-3.5 ${loadingProfiles ? "animate-spin" : ""}`} />
             </Button>
             <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 text-text-secondary hover:text-text-primary"
+              onClick={() => createFolder(`Folder ${folders.length + 1}`)}
+              title="New folder"
+            >
+              <FolderPlus className="w-3.5 h-3.5" />
+            </Button>
+            <Button
               variant="secondary"
               size="sm"
               className="h-6 px-2 text-xs gap-1"
@@ -213,33 +237,42 @@ export function DatabaseSidebar() {
         }`}
       >
         {/* Folders */}
-        {folderEntries.map(({ name, profiles: folderProfiles }) => {
+        {folderEntries.map(({ folder, profiles: folderProfiles }) => {
           const visibleProfiles = folderProfiles.filter(
             (p) => filterMatch(p.name) || filterMatch(p.database) || filterMatch(p.host)
           );
           if (filterQuery && visibleProfiles.length === 0) return null;
 
-          const isExpanded = expandedFolders[name] ?? true;
+          const isExpanded = expandedFolders[folder.id] !== false;
           return (
-            <div key={name} className="space-y-0.5">
-              <button
-                type="button"
-                onClick={() => toggleFolder(name)}
-                className="w-full flex items-center gap-1.5 px-2 py-1 rounded text-xs text-text-secondary hover:text-text-primary hover:bg-surface-raised transition-colors group"
-              >
-                {isExpanded ? (
-                  <ChevronDown className="w-3 h-3 text-text-tertiary" />
-                ) : (
-                  <ChevronRight className="w-3 h-3 text-text-tertiary" />
-                )}
-                {isExpanded ? (
-                  <FolderOpen className="w-3.5 h-3.5 text-action-primary" />
-                ) : (
-                  <Folder className="w-3.5 h-3.5 text-text-tertiary group-hover:text-action-primary" />
-                )}
-                <span className="font-medium text-[11px] truncate flex-1 text-left">{name}</span>
+            <div key={folder.id} className="space-y-0.5">
+              <div className="w-full flex items-center gap-1.5 px-2 py-1 rounded text-xs text-text-secondary hover:bg-surface-raised transition-colors group">
+                <button
+                  type="button"
+                  onClick={() => toggleFolder(folder.id)}
+                  className="flex items-center gap-1.5 flex-1 min-w-0 text-left hover:text-text-primary"
+                >
+                  {isExpanded ? (
+                    <ChevronDown className="w-3 h-3 text-text-tertiary shrink-0" />
+                  ) : (
+                    <ChevronRight className="w-3 h-3 text-text-tertiary shrink-0" />
+                  )}
+                  <FolderIcon
+                    name={folder.icon}
+                    className="w-3.5 h-3.5 shrink-0 text-action-primary"
+                  />
+                  <span className="font-medium text-[11px] truncate">{folder.name}</span>
+                </button>
                 <span className="text-[10px] text-text-tertiary">{folderProfiles.length}</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => setEditingFolderId(folder.id)}
+                  className="p-0.5 rounded text-text-tertiary hover:text-text-primary opacity-0 group-hover:opacity-100"
+                  title={`Edit ${folder.name}`}
+                >
+                  <Pencil className="w-3 h-3" />
+                </button>
+              </div>
 
               {isExpanded && (
                 <div className="pl-4 space-y-0.5">
@@ -257,6 +290,9 @@ export function DatabaseSidebar() {
                         await deleteProfile(p.id);
                         void fetchProfiles();
                       }}
+                      folders={folders}
+                      currentFolderId={folder.id}
+                      onMove={(folderId) => assignProfileToFolder(p.id, folderId)}
                     />
                   ))}
                 </div>
@@ -289,6 +325,9 @@ export function DatabaseSidebar() {
                     await deleteProfile(p.id);
                     void fetchProfiles();
                   }}
+                  folders={folders}
+                  currentFolderId=""
+                  onMove={(folderId) => assignProfileToFolder(p.id, folderId)}
                 />
               ))}
           </div>
@@ -494,6 +533,19 @@ export function DatabaseSidebar() {
         </div>
         )}
       </div>
+
+      <EditFolderDialog
+        folder={folders.find((f) => f.id === editingFolderId) ?? null}
+        onClose={() => setEditingFolderId("")}
+        onSave={(patch) => {
+          updateFolder(editingFolderId, patch);
+          setEditingFolderId("");
+        }}
+        onDelete={() => {
+          deleteFolder(editingFolderId);
+          setEditingFolderId("");
+        }}
+      />
     </div>
   );
 }
@@ -504,12 +556,18 @@ function ProfileItem({
   onSelect,
   onOptions,
   onDelete,
+  folders,
+  currentFolderId,
+  onMove,
 }: {
   profile: any;
   isSelected: boolean;
   onSelect: () => void;
   onOptions: () => void;
   onDelete: () => void;
+  folders: DatabaseFolder[];
+  currentFolderId: string;
+  onMove: (folderId: string) => void;
 }) {
   const engineMeta = getEngineMeta(profile.engine);
   const isProd = profile.env?.toLowerCase() === "prod" || profile.env?.toLowerCase() === "production";
@@ -557,6 +615,37 @@ function ProfileItem({
         )}
 
         <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 ml-1">
+          {/* Figma drew the folder dialog but not the way a profile gets into
+              one. A menu is the smallest thing that works and reads: the list
+              is short, and it says where the profile is now. */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="p-1 text-text-tertiary hover:text-text-primary rounded"
+                onClick={(e) => e.stopPropagation()}
+                title="Move to folder"
+              >
+                <FolderInput className="w-3 h-3" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+              <DropdownMenuItem onSelect={() => onMove("")} disabled={!currentFolderId}>
+                <Folder />
+                Ungrouped
+              </DropdownMenuItem>
+              {folders.map((f) => (
+                <DropdownMenuItem
+                  key={f.id}
+                  onSelect={() => onMove(f.id)}
+                  disabled={f.id === currentFolderId}
+                >
+                  <FolderIcon name={f.icon} className="size-4" />
+                  {f.name}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
           <button
             type="button"
             className="p-1 text-text-tertiary hover:text-text-primary rounded"
