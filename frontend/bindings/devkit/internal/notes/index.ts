@@ -4,5 +4,6 @@
 export type {
     Folder,
     Note,
-    Summary
+    Summary,
+    TrashedNote
 } from "./models.js";

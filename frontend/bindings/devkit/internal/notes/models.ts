@@ -27,6 +27,7 @@ export interface Note {
     "effective_color": string;
     "created_at": string;
     "updated_at": string;
+    "deleted_at": string;
 }
 
 /**
@@ -43,4 +44,30 @@ export interface Summary {
     "effective_color": string;
     "created_at": string;
     "updated_at": string;
+
+    /**
+     * DeletedAt is empty for a live note. It is carried so an editor already
+     * open on a note trashed somewhere else can say so instead of silently
+     * saving into the trash.
+     */
+    "deleted_at": string;
+}
+
+/**
+ * TrashedNote is a summary plus when it goes away, which is the only thing the
+ * trash screen asks that a live note never does.
+ */
+export interface TrashedNote {
+    "id": string;
+    "title": string;
+    "preview": string;
+    "folder_id": string;
+    "tags": string[] | null;
+    "effective_tags": string[] | null;
+    "color": string;
+    "effective_color": string;
+    "created_at": string;
+    "updated_at": string;
+    "deleted_at": string;
+    "purges_at": string;
 }

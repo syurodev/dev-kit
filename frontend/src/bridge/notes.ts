@@ -11,6 +11,8 @@ export type NoteSummary = {
   effectiveColor: string;
   preview: string;
   updatedAt: string;
+  /** Empty for a live note. Set when the note is in the trash. */
+  deletedAt: string;
 };
 
 export type Note = {
@@ -46,6 +48,7 @@ function mapSummary(n: {
   effective_color?: string;
   preview?: string;
   updated_at: string;
+  deleted_at?: string;
 }): NoteSummary {
   return {
     id: n.id,
@@ -57,6 +60,7 @@ function mapSummary(n: {
     effectiveColor: n.effective_color ?? "",
     preview: n.preview ?? "",
     updatedAt: n.updated_at,
+    deletedAt: n.deleted_at ?? "",
   };
 }
 
@@ -136,6 +140,35 @@ export function getNote(id: string): Promise<Note> {
     const n = await AppService.NotesGet(id);
     return mapNote(n);
   });
+}
+
+export type TrashedNote = NoteSummary & {
+  deletedAt: string;
+  purgesAt: string;
+};
+
+/** Trash is UI-only: none of these four have an MCP tool behind them. */
+export function listTrashedNotes(): Promise<TrashedNote[]> {
+  return callBridge(async () => {
+    const list = await AppService.NotesListTrash();
+    return (list ?? []).map((n) => ({
+      ...mapSummary(n),
+      deletedAt: n.deleted_at,
+      purgesAt: n.purges_at,
+    }));
+  });
+}
+
+export function restoreNote(id: string): Promise<void> {
+  return callBridge(() => AppService.NotesRestore(id) as Promise<void>);
+}
+
+export function purgeNote(id: string): Promise<void> {
+  return callBridge(() => AppService.NotesPurge(id) as Promise<void>);
+}
+
+export function emptyTrash(): Promise<number> {
+  return callBridge(() => AppService.NotesEmptyTrash() as Promise<number>);
 }
 
 export function deleteNote(id: string): Promise<void> {

@@ -55,6 +55,10 @@ func ValidateRecordSchema(itemType string, metadata json.RawMessage, payload *cr
 			FolderID string   `json:"folder_id"`
 			Tags     []string `json:"tags"`
 			Color    string   `json:"color"`
+			// RFC3339, empty for a live note. decodeMetadataObject rejects
+			// unknown fields, so a note in the trash is unwritable until this
+			// is declared here — the failure that already caught db-profile.
+			DeletedAt string `json:"deleted_at"`
 		}
 		if decodeMetadataObject(metadata, &value) != nil || value.Title == "" ||
 			(value.Color != "" && !ValidNoteFolderColor(value.Color)) {

@@ -464,6 +464,10 @@ export function NotesDelete(id: string): $CancellablePromise<void> {
     return $Call.ByID(3689405508, id);
 }
 
+export function NotesEmptyTrash(): $CancellablePromise<number> {
+    return $Call.ByID(2441565790);
+}
+
 export function NotesFolderCreate(name: string, color: string, tags: string[] | null): $CancellablePromise<notes$0.Folder> {
     return $Call.ByID(4053102515, name, color, tags);
 }
@@ -486,6 +490,24 @@ export function NotesGet(id: string): $CancellablePromise<notes$0.Note> {
 
 export function NotesList(): $CancellablePromise<notes$0.Summary[] | null> {
     return $Call.ByID(3703031295);
+}
+
+/**
+ * NotesListTrash, NotesRestore, NotesPurge and NotesEmptyTrash stay off the MCP
+ * surface. Emptying a trash or deleting forever is the one place in this module
+ * where a mistake cannot be walked back, so it is reachable from the Trash
+ * screen and nowhere else.
+ */
+export function NotesListTrash(): $CancellablePromise<notes$0.TrashedNote[] | null> {
+    return $Call.ByID(1408023595);
+}
+
+export function NotesPurge(id: string): $CancellablePromise<void> {
+    return $Call.ByID(1684675426, id);
+}
+
+export function NotesRestore(id: string): $CancellablePromise<void> {
+    return $Call.ByID(2017013663, id);
 }
 
 export function NotesSearch(query: string): $CancellablePromise<notes$0.Summary[] | null> {

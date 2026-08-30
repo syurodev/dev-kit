@@ -123,14 +123,36 @@ func TestSearchByBodyWhenUnlocked(t *testing.T) {
 	}
 }
 
-func TestDelete(t *testing.T) {
+// Delete is soft now: the note leaves every normal path but is still there to
+// be restored, and Get still resolves it so an editor open on it can tell.
+func TestDeleteMovesToTrashInsteadOfRemoving(t *testing.T) {
 	s := newService(t)
 	summary, _ := s.Create("x", "y", "", nil)
 	if err := s.Delete(summary.ID); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
-	if _, err := s.Get(summary.ID); err == nil {
-		t.Fatal("expected get to fail after delete")
+
+	list, err := s.List()
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(list) != 0 {
+		t.Fatalf("a trashed note is still listed: %+v", list)
+	}
+	hits, err := s.Search("x")
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(hits) != 0 {
+		t.Fatalf("a trashed note is still searchable: %+v", hits)
+	}
+
+	note, err := s.Get(summary.ID)
+	if err != nil {
+		t.Fatalf("get after trash: %v", err)
+	}
+	if note.DeletedAt == "" {
+		t.Fatal("Get must report that the note is in the trash")
 	}
 }
 

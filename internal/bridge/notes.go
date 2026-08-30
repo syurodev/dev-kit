@@ -133,6 +133,56 @@ func (s *AppService) NotesGet(id string) (notes.Note, error) {
 	return result.(notes.Note), nil
 }
 
+// NotesListTrash, NotesRestore, NotesPurge and NotesEmptyTrash stay off the MCP
+// surface. Emptying a trash or deleting forever is the one place in this module
+// where a mistake cannot be walked back, so it is reachable from the Trash
+// screen and nowhere else.
+func (s *AppService) NotesListTrash() ([]notes.TrashedNote, error) {
+	result, err := s.call(context.Background(), "builtin.notes", "notes:read", "note:trash", map[string]any{
+		"action": "list_trash",
+	}, func(context.Context) (any, error) {
+		return s.container.Notes.ListTrash()
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]notes.TrashedNote), nil
+}
+
+func (s *AppService) NotesRestore(id string) error {
+	opaqueID := recordID(id)
+	_, err := s.call(context.Background(), "builtin.notes", "notes:write", "note:"+opaqueID, map[string]any{
+		"action":  "restore",
+		"note_id": opaqueID,
+	}, func(context.Context) (any, error) {
+		return nil, s.container.Notes.Restore(id)
+	})
+	return err
+}
+
+func (s *AppService) NotesPurge(id string) error {
+	opaqueID := recordID(id)
+	_, err := s.call(context.Background(), "builtin.notes", "notes:write", "note:"+opaqueID, map[string]any{
+		"action":  "purge",
+		"note_id": opaqueID,
+	}, func(context.Context) (any, error) {
+		return nil, s.container.Notes.Purge(id)
+	})
+	return err
+}
+
+func (s *AppService) NotesEmptyTrash() (int, error) {
+	result, err := s.call(context.Background(), "builtin.notes", "notes:write", "note:trash", map[string]any{
+		"action": "empty_trash",
+	}, func(context.Context) (any, error) {
+		return s.container.Notes.EmptyTrash()
+	})
+	if err != nil {
+		return 0, err
+	}
+	return result.(int), nil
+}
+
 func (s *AppService) NotesDelete(id string) error {
 	opaqueID := recordID(id)
 	_, err := s.call(context.Background(), "builtin.notes", "notes:write", "note:"+opaqueID, map[string]any{

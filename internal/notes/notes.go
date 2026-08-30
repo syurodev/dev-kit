@@ -33,6 +33,10 @@ type metadata struct {
 	FolderID string   `json:"folder_id,omitempty"`
 	Tags     []string `json:"tags,omitempty"`
 	Color    string   `json:"color,omitempty"`
+	// DeletedAt is RFC3339 and empty for a live note. Trash is a field on the
+	// note, not a record type or a table: restore has to put the note back
+	// exactly where it was, and moving it anywhere else would lose that.
+	DeletedAt string `json:"deleted_at,omitempty"`
 }
 
 // Summary is a note without its (encrypted) body, safe to list while unlocked.
@@ -47,6 +51,10 @@ type Summary struct {
 	EffectiveColor string    `json:"effective_color"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
+	// DeletedAt is empty for a live note. It is carried so an editor already
+	// open on a note trashed somewhere else can say so instead of silently
+	// saving into the trash.
+	DeletedAt string `json:"deleted_at"`
 }
 
 // Note is the decrypted form returned to the caller.
@@ -61,6 +69,7 @@ type Note struct {
 	EffectiveColor string    `json:"effective_color"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
+	DeletedAt      string    `json:"deleted_at"`
 }
 
 type Service struct {
@@ -101,6 +110,10 @@ func (s *Service) Create(title string, body string, folderID string, tags []stri
 }
 
 func (s *Service) List() ([]Summary, error) {
+	// Opening the dashboard is what ages the trash out; see sweepExpired.
+	if err := s.sweepExpired(); err != nil {
+		return nil, err
+	}
 	records, err := s.store.ListByType(itemType)
 	if err != nil {
 		return nil, err
@@ -111,6 +124,13 @@ func (s *Service) List() ([]Summary, error) {
 	}
 	summaries := make([]Summary, 0, len(records))
 	for _, record := range records {
+		meta, err := decodeMetadata(record)
+		if err != nil {
+			return nil, err
+		}
+		if meta.DeletedAt != "" {
+			continue
+		}
 		summary, err := s.toSummary(record, folderMap)
 		if err != nil {
 			return nil, err
@@ -220,17 +240,6 @@ func (s *Service) SetOrganization(id, folderID string, tags []string, color stri
 	return s.toSummary(record, folderMap)
 }
 
-func (s *Service) Delete(id string) error {
-	record, err := s.store.Get(id)
-	if err != nil {
-		return err
-	}
-	if record.Type != itemType {
-		return errors.New("note not found")
-	}
-	return s.store.Delete(id)
-}
-
 // Search matches notes by query (case-insensitive). Titles, effective tags, and
 // folder names are always searched from plaintext metadata. Bodies are encrypted,
 // so they are only searched when the vault is unlocked (decrypt succeeds). An
@@ -251,6 +260,11 @@ func (s *Service) Search(query string) ([]Summary, error) {
 		meta, err := decodeMetadata(record)
 		if err != nil {
 			return nil, err
+		}
+		// A trashed note is off every normal path, search included. It is
+		// reachable only through ListTrash.
+		if meta.DeletedAt != "" {
+			continue
 		}
 		if needle == "" || strings.Contains(strings.ToLower(meta.Title), needle) {
 			matched = append(matched, s.summaryFrom(record, meta, folderMap))
@@ -362,6 +376,7 @@ func (s *Service) summaryFrom(record vaultitem.Record, meta metadata, folderMap 
 		EffectiveColor: effectiveColor(meta, folderMap),
 		CreatedAt:      record.CreatedAt,
 		UpdatedAt:      record.UpdatedAt,
+		DeletedAt:      meta.DeletedAt,
 	}
 	if plain, err := s.store.OpenPayload(record, bodyKeyID); err == nil {
 		summary.Preview = previewFromBody(string(plain))
@@ -381,6 +396,7 @@ func noteFrom(record vaultitem.Record, meta metadata, body string, folderMap map
 		EffectiveColor: effectiveColor(meta, folderMap),
 		CreatedAt:      record.CreatedAt,
 		UpdatedAt:      record.UpdatedAt,
+		DeletedAt:      meta.DeletedAt,
 	}
 }
 

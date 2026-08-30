@@ -43,6 +43,9 @@ func (s *Server) registerNotes() {
 		},
 	}, s.toolNotesUpdate)
 
+	// Deliberately absent: notes.restore, notes.purge, notes.emptyTrash and
+	// notes.listTrash. notes.delete is reversible for 30 days, which is what
+	// makes it safe to hand an agent; the trash operations are not.
 	sdk.AddTool(s.mcp, &sdk.Tool{
 		Name:        "notes.delete",
 		Description: "Delete a note by id",
