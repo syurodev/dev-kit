@@ -4,6 +4,7 @@ import {
   Folder,
   Inbox,
   LayoutGrid,
+  Trash2,
   MoreHorizontal,
   Plus,
   X,
@@ -68,13 +69,15 @@ import {
   updateFolder,
   type NoteFolder,
   type NoteSummary,
+  listTrashedNotes,
 } from "../../bridge/notes";
 import { FOLDER_COLORS, folderDotVar, type FolderColor } from "./folderColors";
 import { ColorPicker } from "./ColorPicker";
+import { NotesTrash } from "./NotesTrash";
 import { NoteCard } from "./NoteCard";
 import { tagChipVar } from "./tagColor";
 
-type Scope = "all" | "ungrouped" | `folder:${string}`;
+type Scope = "all" | "ungrouped" | "trash" | `folder:${string}`;
 
 type NotesDashboardProps = {
   refreshToken: number;
@@ -220,6 +223,10 @@ export function NotesDashboard({
   const [folders, setFolders] = useState<NoteFolder[]>([]);
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState<Scope>("all");
+  // The badge is read from the trash itself rather than derived from the note
+  // list, because List has already filtered trashed notes out by the time it
+  // gets here — counting them from it would always report zero.
+  const [trashCount, setTrashCount] = useState(0);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [creating, setCreating] = useState(false);
 
@@ -258,6 +265,12 @@ export function NotesDashboard({
       }
     }
   }, []);
+
+  useEffect(() => {
+    void listTrashedNotes()
+      .then((items) => setTrashCount(items.length))
+      .catch(() => setTrashCount(0));
+  }, [refreshToken, scope]);
 
   useEffect(() => {
     // Searching through the native bridge on every keystroke creates avoidable
@@ -422,6 +435,17 @@ export function NotesDashboard({
                     </SidebarMenuButton>
                     <SidebarMenuBadge>{counts.ungrouped}</SidebarMenuBadge>
                   </SidebarMenuItem>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      isActive={scope === "trash"}
+                      tooltip="Trash"
+                      onClick={() => setScope("trash")}
+                    >
+                      <Trash2 />
+                      <span>Trash</span>
+                    </SidebarMenuButton>
+                    <SidebarMenuBadge>{trashCount}</SidebarMenuBadge>
+                  </SidebarMenuItem>
                 </SidebarMenu>
               </SidebarGroupContent>
             </SidebarGroup>
@@ -562,6 +586,16 @@ export function NotesDashboard({
             ) : null}
           </div>
 
+          {scope === "trash" ? (
+            <NotesTrash
+              onChanged={() => {
+                onChanged();
+                void listTrashedNotes()
+                  .then((items) => setTrashCount(items.length))
+                  .catch(() => undefined);
+              }}
+            />
+          ) : (
           <ScrollArea className="min-h-0 flex-1">
             <div className="grid grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] gap-4 p-3">
               {filtered.map((note) => (
@@ -581,6 +615,7 @@ export function NotesDashboard({
               ) : null}
             </div>
           </ScrollArea>
+          )}
         </section>
       </SidebarProvider>
 
