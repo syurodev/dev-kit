@@ -6,6 +6,7 @@ import { Dock } from "./dock/Dock";
 import { moduleIndexFromEvent } from "./dock/dockActivation";
 import { AgentSessionsSubscriber } from "./AgentSessionsSubscriber";
 import { CommandPalette } from "./CommandPalette";
+import { SystemStatusMenu } from "./SystemStatusMenu";
 import { TabStrip } from "./tabs/TabStrip";
 import { TabSwitcher } from "./TabSwitcher";
 import { InteractionHost } from "./InteractionHost";
@@ -540,7 +541,7 @@ export function Workbench() {
             make the same child-level distinction. */}
         <header
           className={cn(
-            "relative flex h-[30px] shrink-0 items-center pt-0.5 pr-4 transition-[padding-left] duration-300 ease-out motion-reduce:transition-none [--wails-draggable:drag]",
+            "relative flex h-10 shrink-0 items-center gap-2 pr-3 transition-[padding-left] duration-300 ease-out motion-reduce:transition-none [--wails-draggable:drag]",
             isFullscreen ? "pl-1" : "pl-20",
           )}
         >
@@ -559,7 +560,7 @@ export function Workbench() {
                 aria-pressed={sidebarOpen}
                 className={cn(
                   sidebarOpen && "bg-accent text-foreground",
-                  "mx-2 shrink-0 [--wails-draggable:no-drag]",
+                  "mx-1 size-[26px] shrink-0 rounded-[7px] [--wails-draggable:no-drag]",
                 )}
                 onClick={() => setSidebarOpen(!sidebarOpen)}
               >
@@ -568,19 +569,15 @@ export function Workbench() {
             </TooltipTrigger>
             <TooltipContent side="bottom">Toggle sidebar</TooltipContent>
           </Tooltip>
-          {/* 1fr/5fr/1fr, not flex-grow ratios: Grid's fr unit divides the
-              full track width by ratio regardless of each column's own
-              content size, which is what an even 1:5:1 split actually
-              requires — flex-grow only distributes space left over after
-              content sizing, so an empty left column wouldn't reliably end
-              up the same width as a busy right column under flex.
-              minmax(0,_) on every track keeps long status/action content from
-              expanding one region into its siblings. */}
-          <div className="grid h-full min-w-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(0,5fr)_minmax(0,1fr)] items-center gap-2">
-            <div className="min-w-0 select-none truncate text-xs text-muted-foreground">
-              {metadataLoading ? "Loading module metadata..." : null}
-            </div>
-            <div className="flex min-w-0 items-center justify-center gap-2">
+          {/* Two zones, not three. The workspace pill that used to hold the
+              centre is gone: it named a workspace this app has no concept of,
+              and carried an env chip for a value that belongs to a connection
+              rather than to the window — the Database header already shows it
+              beside the profile it describes. Module actions move left, where
+              they sit next to the content they act on; everything the shell
+              owns collects on the right. */}
+          <div className="flex h-full min-w-0 flex-1 items-center gap-2">
+            <div className="flex min-w-0 items-center gap-1">
               {moduleActions.map((action) => (
                 <Tooltip key={action.id}>
                   <TooltipTrigger asChild>
@@ -591,7 +588,7 @@ export function Workbench() {
                       aria-pressed={action.isActive}
                       className={cn(
                         action.isActive && "bg-accent text-foreground",
-                        "shrink-0 [--wails-draggable:no-drag]",
+                        "size-[26px] shrink-0 rounded-[7px] [--wails-draggable:no-drag]",
                       )}
                       onClick={action.onClick}
                     >
@@ -602,14 +599,22 @@ export function Workbench() {
                 </Tooltip>
               ))}
             </div>
-            <div className="flex min-w-0 items-center justify-end gap-2">
+            <div className="min-w-0 flex-1 select-none truncate text-xs text-muted-foreground">
+              {metadataLoading ? "Loading module metadata..." : null}
+            </div>
+            <div className="flex shrink-0 items-center gap-1">
+              <SystemStatusMenu
+                onResolveConflicts={() => openTab({ moduleId: "sync", viewId: "sync.status", title: "Sync" })}
+                onOpenAgents={() => setChatOpen(true)}
+              />
+              <span className="mx-1 h-4 w-px shrink-0 bg-border" aria-hidden />
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
                     variant="ghost"
                     size="icon-xs"
                     aria-label="Commands"
-                    className="shrink-0 [--wails-draggable:no-drag]"
+                    className="size-[26px] shrink-0 rounded-[7px] [--wails-draggable:no-drag]"
                     onClick={() => setPaletteOpen(true)}
                   >
                     <Search className="size-3.5" />
@@ -625,7 +630,7 @@ export function Workbench() {
                     variant="ghost"
                     size="icon-xs"
                     aria-label="Settings"
-                    className="shrink-0 [--wails-draggable:no-drag]"
+                    className="size-[26px] shrink-0 rounded-[7px] [--wails-draggable:no-drag]"
                     onClick={() => setSettingsOpen(true)}
                   >
                     <SettingsIcon className="size-3.5" />
@@ -654,7 +659,7 @@ export function Workbench() {
                     aria-pressed={bottomOpen}
                     className={cn(
                       bottomOpen && "bg-accent text-foreground",
-                      "shrink-0 [--wails-draggable:no-drag]",
+                      "size-[26px] shrink-0 rounded-[7px] [--wails-draggable:no-drag]",
                     )}
                     onClick={() => setBottomOpen(!bottomOpen)}
                   >
@@ -676,7 +681,7 @@ export function Workbench() {
                     aria-pressed={chatOpen}
                     className={cn(
                       chatOpen && "bg-accent text-foreground",
-                      "shrink-0 [--wails-draggable:no-drag]",
+                      "size-[26px] shrink-0 rounded-[7px] [--wails-draggable:no-drag]",
                     )}
                     onClick={() => setChatOpen(!chatOpen)}
                   >
