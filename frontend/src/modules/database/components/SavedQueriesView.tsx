@@ -20,6 +20,7 @@ import {
   type SavedQuery,
 } from "../../../bridge/database";
 import { errorMessage } from "../../../bridge/errors";
+import { isVaultLockedError } from "../errorStates";
 
 export function SavedQueriesView() {
   const { selectedProfileId, setSql, setActiveTab, setShowSaveQueryModal } = useDatabaseStore();
@@ -68,10 +69,7 @@ export function SavedQueriesView() {
     setActiveTab("console");
   }
 
-  const isVaultLocked =
-    error.toLowerCase().includes("vault locked") ||
-    error.toLowerCase().includes("locked vault") ||
-    error.toLowerCase().includes("vault is locked");
+  const isVaultLocked = isVaultLockedError(error);
 
   const filtered = queries.filter(
     (q) =>

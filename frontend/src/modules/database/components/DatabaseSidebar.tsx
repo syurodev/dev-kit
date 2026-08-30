@@ -43,6 +43,7 @@ import {
 import { useDatabaseStore, type DatabaseFolder } from "../databaseStore";
 import { FolderIcon } from "../folderIcons";
 import { EditFolderDialog } from "./EditFolderDialog";
+import { DeleteProfileDialog } from "./DeleteProfileDialog";
 import { getEngineMeta } from "./EngineBadge";
 import { deleteProfile } from "../../../bridge/database";
 import { copyText } from "../../../bridge/clipboard";
@@ -135,6 +136,7 @@ export function DatabaseSidebar() {
 
   const [filterQuery, setFilterQuery] = useState("");
   const [editingFolderId, setEditingFolderId] = useState("");
+  const [deletingProfileId, setDeletingProfileId] = useState("");
   // Open unless explicitly closed, so a store written before this existed does
   // not come back with both panes shut.
   const openSections = {
@@ -319,10 +321,7 @@ export function DatabaseSidebar() {
                         setSelectedProfileId(p.id);
                         setShowConnectionOptionsDialog(true);
                       }}
-                      onDelete={async () => {
-                        await deleteProfile(p.id);
-                        void fetchProfiles();
-                      }}
+                      onDelete={() => setDeletingProfileId(p.id)}
                       folders={folders}
                       currentFolderId={folder.id}
                       onMove={(folderId) => assignProfileToFolder(p.id, folderId)}
@@ -354,10 +353,7 @@ export function DatabaseSidebar() {
                     setSelectedProfileId(p.id);
                     setShowConnectionOptionsDialog(true);
                   }}
-                  onDelete={async () => {
-                    await deleteProfile(p.id);
-                    void fetchProfiles();
-                  }}
+                  onDelete={() => setDeletingProfileId(p.id)}
                   folders={folders}
                   currentFolderId=""
                   onMove={(folderId) => assignProfileToFolder(p.id, folderId)}
@@ -601,6 +597,17 @@ export function DatabaseSidebar() {
         </div>
         )}
       </div>
+
+      <DeleteProfileDialog
+        profile={profiles.find((p) => p.id === deletingProfileId) ?? null}
+        onClose={() => setDeletingProfileId("")}
+        onConfirm={async () => {
+          const id = deletingProfileId;
+          setDeletingProfileId("");
+          await deleteProfile(id);
+          void fetchProfiles();
+        }}
+      />
 
       <EditFolderDialog
         folder={folders.find((f) => f.id === editingFolderId) ?? null}

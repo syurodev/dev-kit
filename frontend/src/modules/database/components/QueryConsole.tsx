@@ -15,7 +15,8 @@ import {
   Copy,
   Braces,
   Columns3,
-  List
+  List,
+  KeyRound
 } from "lucide-react";
 import { sql as codemirrorSql, PostgreSQL, MySQL, MariaSQL } from "@codemirror/lang-sql";
 import { Button } from "@/components/ui/button";
@@ -38,6 +39,8 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { copyText } from "../../../bridge/clipboard";
+import { requestVaultUnlock } from "@/workbench/vaultUnlockRequest";
+import { isVaultLockedError } from "../errorStates";
 import { useDatabaseStore } from "../databaseStore";
 import { EngineBadge, getEngineMeta } from "./EngineBadge";
 import { explain, explainAnalyze, type QueryPlan } from "../../../bridge/database";
@@ -347,8 +350,28 @@ export function QueryConsole() {
         </div>
       )}
 
+      {/* Vault locked mid-session (Screen 26). Deliberately a banner, not a
+          replacement: the rows on screen came out of the database before the
+          vault shut and are already in memory. Clearing them would destroy
+          work the lock has no claim on. */}
+      {isVaultLockedError(queryError) && (
+        <div className="bg-status-warning/10 border-b border-status-warning/30 px-4 py-2.5 flex items-center justify-between gap-3 text-xs shrink-0">
+          <div className="flex items-center gap-2 text-status-warning">
+            <KeyRound className="w-4 h-4 shrink-0" />
+            <span>
+              <strong className="font-semibold">The vault locked while you were working.</strong>{" "}
+              This result stays on screen — it is already in memory. Running another query, or
+              opening history, needs the vault key again.
+            </span>
+          </div>
+          <Button size="sm" className="h-7 text-xs shrink-0" onClick={requestVaultUnlock}>
+            Unlock vault
+          </Button>
+        </div>
+      )}
+
       {/* Generic Error Banner (Screen 13) */}
-      {queryError && !isReadOnlyRejection && (
+      {queryError && !isReadOnlyRejection && !isVaultLockedError(queryError) && (
         <div className="bg-status-danger/10 border-b border-status-danger/30 p-3 flex items-start gap-2.5 text-xs text-status-danger shrink-0">
           <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
           <div className="flex-1 space-y-1">

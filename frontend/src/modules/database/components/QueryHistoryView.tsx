@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { useDatabaseStore } from "../databaseStore";
 import { listQueryHistory, type HistoryEntry } from "../../../bridge/database";
 import { errorMessage } from "../../../bridge/errors";
+import { isVaultLockedError } from "../errorStates";
 
 export function QueryHistoryView() {
   const { selectedProfileId, setSql, setActiveTab } = useDatabaseStore();
@@ -54,10 +55,7 @@ export function QueryHistoryView() {
     setActiveTab("console");
   }
 
-  const isVaultLocked =
-    error.toLowerCase().includes("vault locked") ||
-    error.toLowerCase().includes("locked vault") ||
-    error.toLowerCase().includes("vault is locked");
+  const isVaultLocked = isVaultLockedError(error);
 
   const filtered = history.filter((h) =>
     !search || h.sql.toLowerCase().includes(search.toLowerCase())

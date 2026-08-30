@@ -8,6 +8,7 @@ import {
   type VaultState,
 } from "../bridge/vault";
 import { errorMessage } from "../bridge/errors";
+import { onVaultUnlockRequested } from "./vaultUnlockRequest";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -53,6 +54,10 @@ export function VaultGate({ children }: { children: ReactNode }) {
   // Loading & error states
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
+
+  // A module that hits a locked vault mid-session asks for this rather than
+  // rendering its own unlock form.
+  useEffect(() => onVaultUnlockRequested(() => void checkStatus()), []);
 
   async function checkStatus() {
     setError("");

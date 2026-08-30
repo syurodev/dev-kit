@@ -14,9 +14,19 @@ import { ConnectionOptionsDialog } from "./components/ConnectionOptionsDialog";
 import { ExportModal } from "./components/ExportModal";
 import { SaveQueryModal } from "./components/SaveQueryModal";
 import { CellInspector } from "./components/CellInspector";
+import { TLSRefusedState, VaultLockedState } from "./components/DatabaseStates";
+import { isInsecureTLSError, isVaultLockedError } from "./errorStates";
 
 export function DatabaseView() {
-  const { activeTab, fetchProfiles } = useDatabaseStore();
+  const {
+    activeTab,
+    fetchProfiles,
+    profileError,
+    queryError,
+    profiles,
+    selectedProfileId,
+    setShowConnectionOptionsDialog,
+  } = useDatabaseStore();
 
   useEffect(() => {
     void fetchProfiles();
@@ -29,6 +39,15 @@ export function DatabaseView() {
   const sidebar = useMemo(() => <DatabaseSidebar />, []);
   useSidebarContent(sidebar);
 
+  // Two failures deserve a state rather than a line of red text, because both
+  // have an obvious next step the error message does not name. They replace
+  // the tab content: with the vault shut or the connection refused outright,
+  // no tab has anything to show.
+  const blocking = profileError || queryError;
+  const profile = profiles.find((p) => p.id === selectedProfileId);
+  const showVaultLocked = isVaultLockedError(profileError);
+  const showTLSRefused = isInsecureTLSError(blocking);
+
   return (
     <div className="h-full w-full flex overflow-hidden text-text-primary">
       <main className="flex-1 flex flex-col h-full overflow-hidden min-w-0">
@@ -36,11 +55,22 @@ export function DatabaseView() {
         <DatabaseBanners />
 
         <div className="flex-1 flex flex-col h-full overflow-hidden min-h-0 relative">
+          {showVaultLocked ? (
+            <VaultLockedState />
+          ) : showTLSRefused ? (
+            <TLSRefusedState
+              target={profile ? `${profile.host}:${profile.port}` : "this host"}
+              onEditConnection={() => setShowConnectionOptionsDialog(true)}
+            />
+          ) : (
+            <>
           {activeTab === "console" && <QueryConsole />}
           {activeTab === "erd" && <ERDView />}
           {activeTab === "activity" && <LiveActivityView />}
           {activeTab === "history" && <QueryHistoryView />}
           {activeTab === "saved" && <SavedQueriesView />}
+            </>
+          )}
         </div>
       </main>
 
