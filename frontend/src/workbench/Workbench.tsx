@@ -192,7 +192,7 @@ const WorkbenchViews = memo(
     ]);
 
     return (
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl glass-panel">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {hasMetadataWarning ? (
           <Alert variant="destructive" className="m-4 mb-0 w-auto">
             <AlertDescription>
@@ -706,6 +706,11 @@ export function Workbench() {
               minimum width, and without it the two side panels could not
               squeeze it. */}
           <div className="flex min-w-0 min-h-0 flex-1 flex-col">
+            {/* One card holds the strip and the views, which is how Figma's
+                content-surface is built: tab-strip at y=1, content-slot at
+                y=41, both inside the same rounded glass panel. The strip used
+                to float above the card with a gap between them. */}
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl glass-panel">
             {/* The strip was built, exported, and never mounted — the tab
                 state drove the views and the ⌃Tab switcher, but nothing ever
                 drew the tabs. Several comments in this file already refer to
@@ -726,6 +731,7 @@ export function Workbench() {
               openTabs={openTabs}
               activeTabId={activeTabId}
             />
+            </div>
             <BottomSlotSurface activeModuleId={activeModule?.id ?? null} />
           </div>
           <AgentCompanionSlot />
