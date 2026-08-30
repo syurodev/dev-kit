@@ -123,14 +123,3 @@ func DefaultPort(engine string) int {
 		return 5432
 	}
 }
-
-// PlaceholderHint describes how an engine spells query parameters. DevKit never
-// rewrites SQL between engines, so the UI shows this instead.
-func PlaceholderHint(engine string) string {
-	switch engine {
-	case EngineMySQL, EngineMariaDB:
-		return "?"
-	default:
-		return "$1"
-	}
-}

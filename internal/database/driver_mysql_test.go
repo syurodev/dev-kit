@@ -100,10 +100,7 @@ func TestMariaDBSharesTheMySQLDriver(t *testing.T) {
 	}
 }
 
-func TestEnginesDifferInPlaceholdersAndPortsButSQLIsNeverRewritten(t *testing.T) {
-	if PlaceholderHint(EnginePostgres) != "$1" || PlaceholderHint(EngineMySQL) != "?" {
-		t.Fatal("placeholder hints do not reflect the engines")
-	}
+func TestEnginesDifferInPortsButSQLIsNeverRewritten(t *testing.T) {
 	if DefaultPort(EnginePostgres) != 5432 || DefaultPort(EngineMariaDB) != 3306 {
 		t.Fatal("default ports do not reflect the engines")
 	}
