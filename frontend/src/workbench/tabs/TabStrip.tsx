@@ -667,7 +667,10 @@ export function TabStrip({
     // tabs need, scrolling past that once they don't fit.
     <div
       ref={scrollRef}
-      className="flex h-10 min-w-0 w-full items-center justify-start border-b border-[color-mix(in_srgb,var(--palette-candy-blue)_8%,transparent)] px-2 [--wails-draggable:no-drag]"
+      // No rule under the strip. Figma's `Tab Strip` draws one, but the tabs
+      // sit directly on the content card here and the line read as a seam
+      // across it.
+      className="flex h-10 min-w-0 w-full items-center justify-start px-2 [--wails-draggable:no-drag]"
     >
       <div
         // Only drawn when there's at least one visible tab to hold —
