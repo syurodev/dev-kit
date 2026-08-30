@@ -3,6 +3,7 @@
 
 export type {
     Folder,
+    LinkTarget,
     Note,
     Summary,
     TrashedNote,

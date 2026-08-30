@@ -457,10 +457,6 @@ export function McpUninstall(agent: string, scope: string, projectPath: string):
 }
 
 /**
- * NotesListTrash, NotesRestore, NotesPurge and NotesEmptyTrash stay off the MCP
- * surface. Emptying a trash or deleting forever is the one place in this module
- * where a mistake cannot be walked back, so it is reachable from the Trash
- * screen and nowhere else.
  * Version history is UI-only for the same reason the trash is: RestoreVersion
  * overwrites the note, and an agent should not be able to roll one back.
  */
@@ -512,6 +508,16 @@ export function NotesList(): $CancellablePromise<notes$0.Summary[] | null> {
     return $Call.ByID(3703031295);
 }
 
+/**
+ * NotesListTrash, NotesRestore, NotesPurge and NotesEmptyTrash stay off the MCP
+ * surface. Emptying a trash or deleting forever is the one place in this module
+ * where a mistake cannot be walked back, so it is reachable from the Trash
+ * screen and nowhere else.
+ */
+export function NotesListBacklinks(id: string): $CancellablePromise<notes$0.Summary[] | null> {
+    return $Call.ByID(2442974401, id);
+}
+
 export function NotesListTrash(): $CancellablePromise<notes$0.TrashedNote[] | null> {
     return $Call.ByID(1408023595);
 }
@@ -522,6 +528,15 @@ export function NotesListVersions(id: string): $CancellablePromise<notes$0.Versi
 
 export function NotesPurge(id: string): $CancellablePromise<void> {
     return $Call.ByID(1684675426, id);
+}
+
+/**
+ * NotesResolveLinks turns the ids in a body into the labels to draw. Titles are
+ * resolved at render time, so renaming a note updates every link to it without
+ * rewriting a single body.
+ */
+export function NotesResolveLinks(ids: string[] | null): $CancellablePromise<notes$0.LinkTarget[] | null> {
+    return $Call.ByID(3861003058, ids);
 }
 
 export function NotesRestore(id: string): $CancellablePromise<void> {

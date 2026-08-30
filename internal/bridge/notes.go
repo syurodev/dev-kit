@@ -137,6 +137,36 @@ func (s *AppService) NotesGet(id string) (notes.Note, error) {
 // surface. Emptying a trash or deleting forever is the one place in this module
 // where a mistake cannot be walked back, so it is reachable from the Trash
 // screen and nowhere else.
+func (s *AppService) NotesListBacklinks(id string) ([]notes.Summary, error) {
+	opaqueID := recordID(id)
+	result, err := s.call(context.Background(), "builtin.notes", "notes:read", "note:"+opaqueID, map[string]any{
+		"action":  "list_backlinks",
+		"note_id": opaqueID,
+	}, func(context.Context) (any, error) {
+		return s.container.Notes.ListBacklinks(id)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]notes.Summary), nil
+}
+
+// NotesResolveLinks turns the ids in a body into the labels to draw. Titles are
+// resolved at render time, so renaming a note updates every link to it without
+// rewriting a single body.
+func (s *AppService) NotesResolveLinks(ids []string) ([]notes.LinkTarget, error) {
+	result, err := s.call(context.Background(), "builtin.notes", "notes:read", "note:links", map[string]any{
+		"action": "resolve_links",
+		"count":  len(ids),
+	}, func(context.Context) (any, error) {
+		return s.container.Notes.ResolveLinks(ids)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]notes.LinkTarget), nil
+}
+
 // Version history is UI-only for the same reason the trash is: RestoreVersion
 // overwrites the note, and an agent should not be able to roll one back.
 func (s *AppService) NotesCheckpoint(id string) (notes.Version, error) {

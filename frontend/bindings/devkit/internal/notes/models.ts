@@ -14,6 +14,17 @@ export interface Folder {
 }
 
 /**
+ * LinkTarget is what a link renders as: the target's title now, and whether it
+ * is in the trash.
+ */
+export interface LinkTarget {
+    "id": string;
+    "title": string;
+    "deleted": boolean;
+    "missing": boolean;
+}
+
+/**
  * Note is the decrypted form returned to the caller.
  */
 export interface Note {

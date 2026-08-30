@@ -75,6 +75,7 @@ type Note struct {
 
 type Service struct {
 	store Store
+	links LinkIndex
 }
 
 func NewService(store Store) *Service {
@@ -101,6 +102,11 @@ func (s *Service) Create(title string, body string, folderID string, tags []stri
 	}
 	record, err := s.store.Create(itemType, bodyKeyID, meta, []byte(body))
 	if err != nil {
+		return Summary{}, err
+	}
+	// The body is still plaintext here — indexing after sealing would mean
+	// decrypting it again to read what it references.
+	if err := s.indexLinks(record.ID, body); err != nil {
 		return Summary{}, err
 	}
 	folderMap, err := s.loadFolderMap()
@@ -188,6 +194,9 @@ func (s *Service) Update(id, title, body string) (Note, error) {
 		return Note{}, err
 	}
 	record, err := s.store.Update(id, bodyKeyID, metaBytes, []byte(body))
+	if err == nil {
+		err = s.indexLinks(id, body)
+	}
 	if err != nil {
 		return Note{}, err
 	}

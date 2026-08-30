@@ -142,6 +142,39 @@ export function getNote(id: string): Promise<Note> {
   });
 }
 
+export type LinkTarget = {
+  id: string;
+  title: string;
+  deleted: boolean;
+  missing: boolean;
+};
+
+/** The serialized form of a note-link node. Bodies are markdown, so the inline
+ *  void has to survive a round trip through text; it carries the id and no
+ *  label, because the label is the target's current title. */
+export function noteLinkMarkup(noteId: string): string {
+  return `[[note:${noteId}]]`;
+}
+
+export function listBacklinks(id: string): Promise<NoteSummary[]> {
+  return callBridge(async () => {
+    const list = await AppService.NotesListBacklinks(id);
+    return (list ?? []).map(mapSummary);
+  });
+}
+
+export function resolveNoteLinks(ids: string[]): Promise<LinkTarget[]> {
+  return callBridge(async () => {
+    const list = await AppService.NotesResolveLinks(ids);
+    return (list ?? []).map((t) => ({
+      id: t.id,
+      title: t.title,
+      deleted: !!t.deleted,
+      missing: !!t.missing,
+    }));
+  });
+}
+
 export type NoteVersion = {
   id: string;
   noteId: string;

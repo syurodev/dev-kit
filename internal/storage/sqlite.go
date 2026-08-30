@@ -37,6 +37,10 @@ const (
 	// TableDBSchemaCache holds table/column names only — structure, not data —
 	// so it lives in plaintext outside the vault, like note_links and env_tags.
 	TableDBSchemaCache = "db_schema_cache"
+
+	// TableNoteLinks indexes note-to-note references. IDs are not content, so
+	// like ui_state and env_tags this sits in plaintext outside the vault.
+	TableNoteLinks = "note_links"
 )
 
 var chmodFile = os.Chmod
@@ -620,7 +624,33 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		},
 	}
 
-	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18})
+	// Link targets are references, not content, so the index lives in
+	// plaintext outside the vault — the same call already made for ui_state
+	// and env_tags. Keeping it there is what lets ListBacklinks be one query
+	// instead of decrypting every note's body to look for mentions.
+	m19 := Migration{
+		Version: 19,
+		Name:    "create note_links",
+		Up: func(ctx context.Context) error {
+			if _, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE TABLE IF NOT EXISTS %s (
+					from_note_id TEXT NOT NULL,
+					to_note_id TEXT NOT NULL,
+					updated_at TEXT NOT NULL,
+					PRIMARY KEY (from_note_id, to_note_id)
+				)`, TableNoteLinks,
+			)); err != nil {
+				return err
+			}
+			_, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE INDEX IF NOT EXISTS idx_note_links_to ON %s (to_note_id)`,
+				TableNoteLinks,
+			))
+			return err
+		},
+	}
+
+	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19})
 	if err != nil {
 		return err
 	}

@@ -69,6 +69,13 @@ func (s *Service) Purge(id string) error {
 	if err := s.deleteVersionsOf(id); err != nil {
 		return err
 	}
+	// Both directions: a row pointing at an id that no longer exists is as
+	// orphaned as one leaving it.
+	if s.links != nil {
+		if err := s.links.DeleteLinksFor(id); err != nil {
+			return err
+		}
+	}
 	return s.store.Delete(id)
 }
 
