@@ -51,6 +51,11 @@ export function useModuleAction(action: ModuleAction | null) {
   const label = action?.label;
   const isActive = action?.isActive;
 
+  // Two effects, not one. A single effect with isActive in its dependencies
+  // unregistered the action on every toggle and registered it again, and
+  // registerAction appends anything it has not seen — so toggling a module
+  // action sent it to the end of the row, past its own siblings. Updating in
+  // place keeps the position; removal belongs to unmount alone.
   useEffect(() => {
     if (!id || !icon || !label) {
       return;
@@ -62,6 +67,12 @@ export function useModuleAction(action: ModuleAction | null) {
       isActive,
       onClick: () => onClickRef.current?.(),
     });
+  }, [id, icon, label, isActive, registerAction]);
+
+  useEffect(() => {
+    if (!id) {
+      return;
+    }
     return () => unregisterAction(id);
-  }, [id, icon, label, isActive, registerAction, unregisterAction]);
+  }, [id, unregisterAction]);
 }
