@@ -45,6 +45,7 @@ import {
 } from "../../bridge/notes";
 import { useModuleAction } from "../../stores/moduleActions";
 import { NoteHistoryPanel } from "./NoteHistoryPanel";
+import { useNotesSidebar } from "./useNotesSidebar";
 import { useNotesRefreshStore } from "../../stores/notesRefresh";
 import { tabKey, useWorkbenchTabsStore } from "../../stores/workbenchTabs";
 import { ColorPicker } from "./ColorPicker";
@@ -491,6 +492,12 @@ export function NoteEditor({ params }: NoteEditorProps) {
         }
       : null,
   );
+
+  // The rail belongs to the module, not to the dashboard. Registering it here
+  // too is what stops it emptying the moment a note is opened; picking a scope
+  // from inside the editor goes back to the list, where that scope means
+  // something.
+  useNotesSidebar(onBack);
 
   useModuleAction(
     note

@@ -41,8 +41,8 @@ import {
 } from "../../bridge/notes";
 import { FOLDER_COLORS, type FolderColor } from "./folderColors";
 import { ColorPicker } from "./ColorPicker";
-import { useSidebarContent } from "@/components/ui/sidebar-shell";
-import { NotesSidebar } from "./NotesSidebar";
+import { useNotesSidebar } from "./useNotesSidebar";
+import { useNotesSidebarStore } from "./notesSidebarStore";
 import { NotesTrash } from "./NotesTrash";
 import { NoteCard } from "./NoteCard";
 import { tagChipVar } from "./tagColor";
@@ -192,12 +192,12 @@ export function NotesDashboard({
   const [notes, setNotes] = useState<NoteSummary[]>([]);
   const [folders, setFolders] = useState<NoteFolder[]>([]);
   const [query, setQuery] = useState("");
-  const [scope, setScope] = useState<Scope>("all");
+  const scope = useNotesSidebarStore((s) => s.scope) as Scope;
+  const setScope = useNotesSidebarStore((s) => s.setScope);
   // The badge is read from the trash itself rather than derived from the note
   // list, because List has already filtered trashed notes out by the time it
   // gets here — counting them from it would always report zero.
-  const [trashCount, setTrashCount] = useState(0);
-  const [foldersOpen, setFoldersOpen] = useState(true);
+  const setTrashCount = useNotesSidebarStore((s) => s.setTrashCount);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [creating, setCreating] = useState(false);
 
@@ -376,34 +376,38 @@ export function NotesDashboard({
     }
   }
 
-  // The shell owns the rail — its width, its resize handle, its visibility.
-  // A module registers content and never lays the rail out itself.
-  useSidebarContent(
-    <NotesSidebar
-      scope={scope}
-      onScopeChange={setScope}
-      folders={folders}
-      foldersOpen={foldersOpen}
-      onFoldersOpenChange={setFoldersOpen}
-      counts={counts}
-      trashCount={trashCount}
-      onCreateFolder={() => setCreateOpen(true)}
-      onRenameFolder={(folder) => {
-        setRenameFolder(folder);
-        setRenameName(folder.name);
-        setRenameColor(
-          (FOLDER_COLORS.includes(folder.color as FolderColor)
-            ? folder.color
-            : "gray") as FolderColor,
-        );
-      }}
-      onEditFolderTags={(folder) => {
-        setEditTagsFolder(folder);
-        setEditTags([...folder.tags]);
-      }}
-      onDeleteFolder={setDeleteTarget}
-    />,
-  );
+  const setSidebarData = useNotesSidebarStore((s) => s.setData);
+  const pendingAction = useNotesSidebarStore((s) => s.pendingAction);
+  const clearAction = useNotesSidebarStore((s) => s.clearAction);
+
+  useEffect(() => {
+    setSidebarData({ folders, counts });
+  }, [folders, counts, setSidebarData]);
+
+  // The dialogs live here, so a folder action raised from the editor's copy of
+  // the rail is handed over rather than duplicated.
+  useEffect(() => {
+    if (!pendingAction) return;
+    if (pendingAction.kind === "create") {
+      setCreateOpen(true);
+    } else if (pendingAction.kind === "rename") {
+      setRenameFolder(pendingAction.folder);
+      setRenameName(pendingAction.folder.name);
+      setRenameColor(
+        (FOLDER_COLORS.includes(pendingAction.folder.color as FolderColor)
+          ? pendingAction.folder.color
+          : "gray") as FolderColor,
+      );
+    } else if (pendingAction.kind === "tags") {
+      setEditTagsFolder(pendingAction.folder);
+      setEditTags([...pendingAction.folder.tags]);
+    } else {
+      setDeleteTarget(pendingAction.folder);
+    }
+    clearAction();
+  }, [pendingAction, clearAction]);
+
+  useNotesSidebar();
 
   return (
     <div className="notes-font-scope contain-layout flex h-full min-h-0 flex-1">
