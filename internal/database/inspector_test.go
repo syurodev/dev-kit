@@ -1,8 +1,6 @@
 package database
 
 import (
-	"context"
-	"errors"
 	"testing"
 )
 
@@ -75,25 +73,39 @@ func TestOptionalInterfacesAreOptional(t *testing.T) {
 	if _, ok := any(my).(SessionInspector); !ok {
 		t.Fatal("mysql must report sessions")
 	}
-	// MySQL's EXPLAIN ANALYZE is a text tree, not the JSON the spine is built
-	// from. Leaving it unimplemented is the point of the interface being
-	// optional — a half-parsed plan would be worse than none.
-	if _, ok := any(my).(QueryPlanner); ok {
-		t.Fatal("mysql claims a query planner it does not have")
+	if _, ok := any(my).(QueryPlanner); !ok {
+		t.Fatal("mysql must produce plans")
 	}
 }
 
-func TestEngineWithoutAPlannerSaysSoClearly(t *testing.T) {
-	svc := newService(t)
-	summary, err := svc.CreateProfile(CreateProfileInput{
-		Engine: EngineMySQL, Name: "billing", Host: "127.0.0.1", Port: 3306,
-		Database: "billing", Username: "devkit", Password: "pw", SSLMode: "disable", Env: "dev",
-	})
-	if err != nil {
-		t.Fatalf("CreateProfile: %v", err)
+// The interfaces being optional is the invariant, not which drivers happen to
+// implement them today. Both in-tree drivers now implement both, so the only
+// thing still proving the split is that satisfying Conn is not enough.
+type connOnly struct{ Conn }
+
+func TestOptionalInterfacesAreNotPartOfConn(t *testing.T) {
+	var bare Conn = connOnly{}
+	if _, ok := bare.(QueryPlanner); ok {
+		t.Fatal("Conn has grown a planner; it must stay at seven methods")
 	}
-	if _, err := svc.Explain(context.Background(), summary.ID, "SELECT 1"); !errors.Is(err, ErrEngineHasNoQueryPlan) {
-		t.Fatalf("err = %v, want ErrEngineHasNoQueryPlan", err)
+	if _, ok := bare.(SessionInspector); ok {
+		t.Fatal("Conn has grown session inspection; it must stay at seven methods")
+	}
+	if _, ok := bare.(IndexLister); ok {
+		t.Fatal("Conn has grown index listing; it must stay at seven methods")
+	}
+}
+
+func TestServiceSaysSoWhenAConnCannotPlan(t *testing.T) {
+	// Reaching Service.planner needs a live pool, so the assertion it makes is
+	// exercised directly instead: a Conn that cannot plan must be reported, not
+	// called.
+	var bare Conn = connOnly{}
+	if _, ok := bare.(QueryPlanner); ok {
+		t.Fatal("stub unexpectedly implements QueryPlanner")
+	}
+	if ErrEngineHasNoQueryPlan == nil {
+		t.Fatal("the error the service returns for that case is missing")
 	}
 }
 

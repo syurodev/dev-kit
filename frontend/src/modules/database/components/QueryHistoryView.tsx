@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { copyText } from "../../../bridge/clipboard";
 import {
   History,
   Copy,
@@ -43,7 +44,7 @@ export function QueryHistoryView() {
   }, [selectedProfileId]);
 
   function handleCopy(entry: HistoryEntry) {
-    navigator.clipboard.writeText(entry.sql);
+    void copyText(entry.sql);
     setCopiedId(entry.id);
     setTimeout(() => setCopiedId(null), 2000);
   }

@@ -33,7 +33,7 @@ func (d mysqlDriver) Dial(ctx context.Context, cfg ConnConfig) (Conn, error) {
 	db.SetMaxOpenConns(4)
 	db.SetMaxIdleConns(0)
 	db.SetConnMaxLifetime(30 * time.Minute)
-	return &mysqlConn{db: db, tlsName: tlsName}, nil
+	return &mysqlConn{db: db, tlsName: tlsName, engine: d.engine}, nil
 }
 
 // mysqlDSN builds the connection string and registers a TLS config when one is
@@ -104,6 +104,9 @@ func releaseMySQLTLS(name string) {
 type mysqlConn struct {
 	db      *sql.DB
 	tlsName string
+	// Which of the two engines this is. They share every Conn method, and
+	// diverge only at ANALYZE — see inspector_mysql_plan.go.
+	engine string
 }
 
 func (c *mysqlConn) Ping(ctx context.Context) error { return c.db.PingContext(ctx) }

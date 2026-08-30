@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { copyText } from "../../../bridge/clipboard";
 import { Copy, Check, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useDatabaseStore } from "../databaseStore";
@@ -32,7 +33,7 @@ export function CellInspector() {
       : rawValue;
 
   function handleCopy() {
-    navigator.clipboard.writeText(displayText);
+    void copyText(displayText);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }

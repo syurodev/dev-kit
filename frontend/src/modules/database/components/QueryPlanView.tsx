@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { copyText } from "../../../bridge/clipboard";
 import {
   Sliders,
   AlertTriangle,
@@ -47,7 +48,7 @@ export function QueryPlanView({
   });
 
   function handleCopyRaw() {
-    navigator.clipboard.writeText(plan.raw);
+    void copyText(plan.raw);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }

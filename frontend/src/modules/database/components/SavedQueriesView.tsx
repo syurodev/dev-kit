@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { copyText } from "../../../bridge/clipboard";
 import {
   Bookmark,
   Plus,
@@ -57,7 +58,7 @@ export function SavedQueriesView() {
   }
 
   function handleCopy(entry: SavedQuery) {
-    navigator.clipboard.writeText(entry.sql);
+    void copyText(entry.sql);
     setCopiedId(entry.id);
     setTimeout(() => setCopiedId(null), 2000);
   }

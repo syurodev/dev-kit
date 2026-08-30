@@ -7,9 +7,6 @@ import (
 	"strings"
 )
 
-// mysqlConn reports sessions but not query plans: MySQL's EXPLAIN ANALYZE emits
-// a text tree rather than the JSON shape the normalised spine is built from, so
-// v1 leaves QueryPlanner unimplemented rather than half-parsing it.
 var _ SessionInspector = (*mysqlConn)(nil)
 
 func (c *mysqlConn) ListActivity(ctx context.Context) ([]SessionRow, error) {
