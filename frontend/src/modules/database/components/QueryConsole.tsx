@@ -14,7 +14,8 @@ import {
   Table as TableIcon,
   Copy,
   Braces,
-  Columns3
+  Columns3,
+  List
 } from "lucide-react";
 import { sql as codemirrorSql, PostgreSQL, MySQL, MariaSQL } from "@codemirror/lang-sql";
 import { Button } from "@/components/ui/button";
@@ -31,6 +32,7 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuLabel,
   ContextMenuSeparator,
   ContextMenuShortcut,
   ContextMenuTrigger,
@@ -46,6 +48,13 @@ import { QueryPlanView } from "./QueryPlanView";
  * back up. Values arrive already stringified by the bridge, so this is a shape
  * change, not a re-encode.
  */
+/** One column's values, newline separated — the shape that pastes into an IN
+ *  list or a spreadsheet. A row shorter than the header becomes an empty line,
+ *  which `join` already does for a hole; no guard needed. */
+export function columnValues(rows: string[][], index: number): string {
+  return rows.map((row) => row[index]).join("\n");
+}
+
 export function rowAsJSON(columns: string[], row: string[]): string {
   return JSON.stringify(
     Object.fromEntries(row.map((value, i) => [columns[i] || `col_${i}`, value])),
@@ -399,13 +408,38 @@ export function QueryConsole() {
                     <th className="w-12 px-3 py-2 text-center text-text-tertiary font-semibold border-r border-border/40 select-none bg-surface-raised">
                       #
                     </th>
-                    {queryResult.columns.map((col) => (
-                      <th
-                        key={col}
-                        className="px-3 py-2 text-text-primary font-semibold border-r border-border/40 bg-surface-raised truncate max-w-[240px]"
-                      >
-                        {col}
-                      </th>
+                    {/* Keyed by index too: two columns can share a name —
+                        SELECT a.id, b.id — and React would collapse them. */}
+                    {queryResult.columns.map((col, j) => (
+                      <ContextMenu key={`${col}-${j}`}>
+                        <ContextMenuTrigger asChild>
+                          <th className="px-3 py-2 text-text-primary font-semibold border-r border-border/40 bg-surface-raised truncate max-w-[240px]">
+                            {col}
+                          </th>
+                        </ContextMenuTrigger>
+                        <ContextMenuContent>
+                          <ContextMenuItem onSelect={() => void copyText(col || `col_${j}`)}>
+                            <Columns3 />
+                            Copy column name
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            onSelect={() => void copyText(columnValues(queryResult.rows, j))}
+                          >
+                            <List />
+                            Copy {queryResult.rows.length} value
+                            {queryResult.rows.length === 1 ? "" : "s"}
+                          </ContextMenuItem>
+                          {/* The count is the honest one — what is loaded, not
+                              what the query would have returned. Saying "copy
+                              the column" over a capped result would hand
+                              someone 200 rows of an unknown total. */}
+                          {queryResult.truncated && (
+                            <ContextMenuLabel className="text-[10px] font-normal text-status-warning">
+                              result was capped — this is not the whole column
+                            </ContextMenuLabel>
+                          )}
+                        </ContextMenuContent>
+                      </ContextMenu>
                     ))}
                   </tr>
                 </thead>
