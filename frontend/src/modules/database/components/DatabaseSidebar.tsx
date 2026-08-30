@@ -40,6 +40,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { SidebarSection } from "@/components/ui/sidebar-shell";
 import { useDatabaseStore, type DatabaseFolder } from "../databaseStore";
 import { FolderIcon } from "../folderIcons";
 import { EditFolderDialog } from "./EditFolderDialog";
@@ -64,39 +65,6 @@ function relativeTime(iso: string): string {
   if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
   const days = Math.round(hours / 24);
   return `${days} day${days === 1 ? "" : "s"} ago`;
-}
-
-/** Both section headings were hand-rolled and drifted apart — different sizes,
- *  different ways of showing a count. One shape, used twice. */
-function SectionLabel({
-  label,
-  count,
-  open,
-  onToggle,
-}: {
-  label: string;
-  count?: number;
-  open: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      className="flex items-center gap-1 min-w-0 group text-left"
-      title={open ? `Collapse ${label}` : `Expand ${label}`}
-    >
-      <ChevronDown
-        className={`w-3 h-3 text-text-tertiary transition-transform ${open ? "" : "-rotate-90"}`}
-      />
-      <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-tertiary group-hover:text-text-secondary">
-        {label}
-      </span>
-      {count !== undefined && (
-        <span className="text-[10px] font-mono text-text-tertiary/70">{count}</span>
-      )}
-    </button>
-  );
 }
 
 export function DatabaseSidebar() {
@@ -203,7 +171,7 @@ export function DatabaseSidebar() {
       </div>
 
       <div className="px-3 pb-1.5 flex items-center justify-between">
-        <SectionLabel
+        <SidebarSection
           label="Connections"
           count={profiles.length}
           open={openSections.connections}
@@ -386,7 +354,7 @@ export function DatabaseSidebar() {
         }`}
       >
         <div className="px-3 py-2 flex items-center justify-between gap-2">
-          <SectionLabel
+          <SidebarSection
             label="Tables"
             count={filterQuery ? matchingTables : totalTables}
             open={openSections.tables}
