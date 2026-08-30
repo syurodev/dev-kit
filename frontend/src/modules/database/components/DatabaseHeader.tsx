@@ -21,11 +21,11 @@ import { useState } from "react";
 import { errorMessage } from "../../../bridge/errors";
 
 const TABS: Array<{ id: DatabaseTab; label: string; icon: typeof Terminal }> = [
-  { id: "console", label: "Query Console", icon: Terminal },
-  { id: "erd", label: "ERD Diagram", icon: Network },
-  { id: "activity", label: "Live Activity", icon: Activity },
-  { id: "history", label: "Query History", icon: History },
-  { id: "saved", label: "Saved Queries", icon: Bookmark },
+  { id: "console", label: "Query console", icon: Terminal },
+  { id: "erd", label: "ERD diagram", icon: Network },
+  { id: "activity", label: "Live activity", icon: Activity },
+  { id: "history", label: "Query history", icon: History },
+  { id: "saved", label: "Saved queries", icon: Bookmark },
 ];
 
 export function DatabaseHeader() {
@@ -170,8 +170,8 @@ export function DatabaseHeader() {
       >
         <TabsList className="max-w-full justify-start overflow-x-auto [&::-webkit-scrollbar]:hidden">
           {TABS.map(({ id, label, icon: Icon }) => (
-            <TabsTrigger key={id} value={id} className="flex-none gap-1.5 px-2.5 text-xs">
-              <Icon className="w-3.5 h-3.5" />
+            <TabsTrigger key={id} value={id} className="flex-none">
+              <Icon />
               {label}
             </TabsTrigger>
           ))}
