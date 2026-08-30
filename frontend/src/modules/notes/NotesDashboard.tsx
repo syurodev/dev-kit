@@ -1,11 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ChevronRight,
-  Folder,
-  Inbox,
-  LayoutGrid,
-  Trash2,
-  MoreHorizontal,
   Plus,
   X,
 } from "lucide-react";
@@ -23,40 +17,14 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import {
   Dialog,
   DialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarGroup,
-  SidebarGroupAction,
-  SidebarGroupContent,
-  SidebarGroupLabel,
-  SidebarMenu,
-  SidebarMenuAction,
-  SidebarMenuBadge,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarProvider,
-  SidebarTrigger,
-} from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
 import { errorMessage } from "../../bridge/errors";
 import {
@@ -71,8 +39,10 @@ import {
   type NoteSummary,
   listTrashedNotes,
 } from "../../bridge/notes";
-import { FOLDER_COLORS, folderDotVar, type FolderColor } from "./folderColors";
+import { FOLDER_COLORS, type FolderColor } from "./folderColors";
 import { ColorPicker } from "./ColorPicker";
+import { useSidebarContent } from "@/components/ui/sidebar-shell";
+import { NotesSidebar } from "./NotesSidebar";
 import { NotesTrash } from "./NotesTrash";
 import { NoteCard } from "./NoteCard";
 import { tagChipVar } from "./tagColor";
@@ -227,6 +197,7 @@ export function NotesDashboard({
   // list, because List has already filtered trashed notes out by the time it
   // gets here — counting them from it would always report zero.
   const [trashCount, setTrashCount] = useState(0);
+  const [foldersOpen, setFoldersOpen] = useState(true);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [creating, setCreating] = useState(false);
 
@@ -405,141 +376,43 @@ export function NotesDashboard({
     }
   }
 
+  // The shell owns the rail — its width, its resize handle, its visibility.
+  // A module registers content and never lays the rail out itself.
+  useSidebarContent(
+    <NotesSidebar
+      scope={scope}
+      onScopeChange={setScope}
+      folders={folders}
+      foldersOpen={foldersOpen}
+      onFoldersOpenChange={setFoldersOpen}
+      counts={counts}
+      trashCount={trashCount}
+      onCreateFolder={() => setCreateOpen(true)}
+      onRenameFolder={(folder) => {
+        setRenameFolder(folder);
+        setRenameName(folder.name);
+        setRenameColor(
+          (FOLDER_COLORS.includes(folder.color as FolderColor)
+            ? folder.color
+            : "gray") as FolderColor,
+        );
+      }}
+      onEditFolderTags={(folder) => {
+        setEditTagsFolder(folder);
+        setEditTags([...folder.tags]);
+      }}
+      onDeleteFolder={setDeleteTarget}
+    />,
+  );
+
   return (
     <div className="notes-font-scope contain-layout flex h-full min-h-0 flex-1">
-      <SidebarProvider className="flex h-full min-h-0 w-full">
-        <Sidebar collapsible="icon" className="border-r border-border">
-          <SidebarContent>
-            <SidebarGroup>
-              <SidebarGroupContent>
-                <SidebarMenu>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      isActive={scope === "all"}
-                      tooltip="All"
-                      onClick={() => setScope("all")}
-                    >
-                      <LayoutGrid />
-                      <span>All</span>
-                    </SidebarMenuButton>
-                    <SidebarMenuBadge>{counts.all}</SidebarMenuBadge>
-                  </SidebarMenuItem>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      isActive={scope === "ungrouped"}
-                      tooltip="Ungrouped"
-                      onClick={() => setScope("ungrouped")}
-                    >
-                      <Inbox />
-                      <span>Ungrouped</span>
-                    </SidebarMenuButton>
-                    <SidebarMenuBadge>{counts.ungrouped}</SidebarMenuBadge>
-                  </SidebarMenuItem>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      isActive={scope === "trash"}
-                      tooltip="Trash"
-                      onClick={() => setScope("trash")}
-                    >
-                      <Trash2 />
-                      <span>Trash</span>
-                    </SidebarMenuButton>
-                    <SidebarMenuBadge>{trashCount}</SidebarMenuBadge>
-                  </SidebarMenuItem>
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </SidebarGroup>
-
-            <Collapsible defaultOpen className="group/folders">
-              <SidebarGroup>
-                <CollapsibleTrigger asChild>
-                  <SidebarGroupLabel className="cursor-pointer">
-                    <ChevronRight className="size-3 shrink-0 transition-transform group-data-[state=open]/folders:rotate-90" />
-                    <span className="flex-1">Folders</span>
-                  </SidebarGroupLabel>
-                </CollapsibleTrigger>
-                <SidebarGroupAction
-                  onClick={() => setCreateOpen(true)}
-                  aria-label="New folder"
-                  className="opacity-0 group-hover/folders:opacity-100"
-                >
-                  <Plus />
-                </SidebarGroupAction>
-                <CollapsibleContent>
-                  <SidebarGroupContent>
-                    <SidebarMenu>
-                      {folders.map((folder) => (
-                        <SidebarMenuItem key={folder.id}>
-                          <SidebarMenuButton
-                            isActive={scope === `folder:${folder.id}`}
-                            tooltip={folder.name}
-                            onClick={() => setScope(`folder:${folder.id}`)}
-                          >
-                            <Folder
-                              fill={folderDotVar(folder.color)}
-                              stroke="none"
-                            />
-                            <span className="truncate">{folder.name}</span>
-                          </SidebarMenuButton>
-                          <SidebarMenuBadge className="group-hover/menu-item:opacity-0">
-                            {counts.byFolder.get(folder.id) ?? 0}
-                          </SidebarMenuBadge>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <SidebarMenuAction
-                                showOnHover
-                                aria-label={`${folder.name} options`}
-                              >
-                                <MoreHorizontal />
-                              </SidebarMenuAction>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" side="right">
-                              <DropdownMenuItem
-                                onClick={() => {
-                                  setRenameFolder(folder);
-                                  setRenameName(folder.name);
-                                  setRenameColor(
-                                    (FOLDER_COLORS.includes(
-                                      folder.color as FolderColor,
-                                    )
-                                      ? folder.color
-                                      : "gray") as FolderColor,
-                                  );
-                                }}
-                              >
-                                Rename
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onClick={() => {
-                                  setEditTagsFolder(folder);
-                                  setEditTags([...folder.tags]);
-                                }}
-                              >
-                                Edit tags
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                variant="destructive"
-                                onClick={() => setDeleteTarget(folder)}
-                              >
-                                Delete
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </SidebarMenuItem>
-                      ))}
-                    </SidebarMenu>
-                  </SidebarGroupContent>
-                </CollapsibleContent>
-              </SidebarGroup>
-            </Collapsible>
-          </SidebarContent>
-        </Sidebar>
+      <div className="flex h-full min-h-0 w-full">
 
         <section className="flex min-h-0 flex-1 flex-col">
           <div className="flex flex-col gap-2 border-b border-border px-3 py-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2">
-                <SidebarTrigger />
                 <div>
                   <h1 className="text-2xl font-bold tracking-tight text-foreground">
                     Notes
@@ -617,7 +490,7 @@ export function NotesDashboard({
           </ScrollArea>
           )}
         </section>
-      </SidebarProvider>
+      </div>
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="sm:max-w-md">
