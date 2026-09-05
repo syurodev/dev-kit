@@ -12,7 +12,10 @@ import (
 var mockSessionSeq atomic.Uint64
 
 // MockAdapter is an in-process VendorAdapter (no sandbox, no real CLI).
-type MockAdapter struct{}
+type MockAdapter struct {
+	mu       sync.Mutex
+	lastSpec OpenSpec
+}
 
 // NewMockAdapter returns the built-in mock vendor adapter.
 func NewMockAdapter() *MockAdapter {
@@ -21,13 +24,22 @@ func NewMockAdapter() *MockAdapter {
 
 func (a *MockAdapter) Type() AgentType { return AgentTypeMock }
 
-func (a *MockAdapter) Open(ctx context.Context, cwd string) (SessionRuntime, error) {
+func (a *MockAdapter) Open(ctx context.Context, spec OpenSpec) (SessionRuntime, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	_ = cwd
+	a.mu.Lock()
+	a.lastSpec = spec
+	a.mu.Unlock()
 	id := fmt.Sprintf("mock-acp-%d", mockSessionSeq.Add(1))
 	return &mockRuntime{acpSessionID: id}, nil
+}
+
+// LastSpec returns the spec of the most recent Open (tests).
+func (a *MockAdapter) LastSpec() OpenSpec {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.lastSpec
 }
 
 type mockMeta struct {

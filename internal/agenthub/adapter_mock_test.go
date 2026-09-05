@@ -19,7 +19,7 @@ func TestMockAdapterRegistered(t *testing.T) {
 	if a.Type() != agenthub.AgentTypeMock {
 		t.Fatalf("type=%q", a.Type())
 	}
-	rt, err := a.Open(context.Background(), t.TempDir())
+	rt, err := a.Open(context.Background(), agenthub.OpenSpec{Cwd: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func TestMockNormalizeUsageFromMeta(t *testing.T) {
 
 func TestMockPromptEmitsUpdateAndPermission(t *testing.T) {
 	a := agenthub.NewMockAdapter()
-	rt, err := a.Open(context.Background(), t.TempDir())
+	rt, err := a.Open(context.Background(), agenthub.OpenSpec{Cwd: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +87,7 @@ func TestMockPromptEmitsUpdateAndPermission(t *testing.T) {
 
 func TestMockPromptWithoutPermission(t *testing.T) {
 	a := agenthub.NewMockAdapter()
-	rt, err := a.Open(context.Background(), t.TempDir())
+	rt, err := a.Open(context.Background(), agenthub.OpenSpec{Cwd: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}

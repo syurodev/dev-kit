@@ -87,7 +87,7 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 		parentID = &pid
 	}
 
-	rt, err := adapter.Open(ctx, in.Cwd)
+	rt, err := adapter.Open(ctx, OpenSpec{Cwd: in.Cwd})
 	if err != nil {
 		return AgentSession{}, err
 	}

@@ -65,8 +65,8 @@ func (a *ClaudeAdapter) runner() SandboxRunner {
 
 // buildSandbox resolves the agent binary and returns the jail Policy + Cmd.
 // Exported for unit tests via same-package access.
-func (a *ClaudeAdapter) buildSandbox(project string) (sandbox.Policy, sandbox.Cmd, error) {
-	workDir, err := filepath.Abs(project)
+func (a *ClaudeAdapter) buildSandbox(spec OpenSpec) (sandbox.Policy, sandbox.Cmd, error) {
+	workDir, err := filepath.Abs(spec.Cwd)
 	if err != nil {
 		return sandbox.Policy{}, sandbox.Cmd{}, fmt.Errorf("%w: resolve project: %v", ErrProcessFailed, err)
 	}
@@ -78,13 +78,15 @@ func (a *ClaudeAdapter) buildSandbox(project string) (sandbox.Policy, sandbox.Cm
 	if err != nil {
 		return sandbox.Policy{}, sandbox.Cmd{}, err
 	}
+	roPaths = uniqueAbsPaths(append(roPaths, spec.ReadOnlyPaths...)...)
 
 	env := claudeEnvAllowlist()
 	pol := sandbox.Policy{
-		WorkDir:       workDir,
-		Network:       sandbox.NetworkHost,
-		Env:           env,
-		ReadOnlyPaths: roPaths,
+		WorkDir:          workDir,
+		Network:          sandbox.NetworkHost,
+		Env:              env,
+		ReadOnlyPaths:    roPaths,
+		AllowUnixSockets: append([]string(nil), spec.AllowUnixSockets...),
 	}
 	cmd := sandbox.Cmd{
 		Path: path,
@@ -176,12 +178,12 @@ func mapSandboxErr(err error) error {
 }
 
 // Open starts a sandboxed Claude ACP process, connects over stdio, and creates a session.
-func (a *ClaudeAdapter) Open(ctx context.Context, cwd string) (SessionRuntime, error) {
+func (a *ClaudeAdapter) Open(ctx context.Context, spec OpenSpec) (SessionRuntime, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 
-	pol, cmd, err := a.buildSandbox(cwd)
+	pol, cmd, err := a.buildSandbox(spec)
 	if err != nil {
 		return nil, err
 	}
@@ -248,9 +250,17 @@ func (a *ClaudeAdapter) Open(ctx context.Context, cwd string) (SessionRuntime, e
 		return nil, fmt.Errorf("%w: initialize: %v", ErrProcessFailed, err)
 	}
 
+	mcpServers := make([]any, 0, len(spec.McpServers))
+	for _, srv := range spec.McpServers {
+		if srv.Env == nil {
+			srv.Env = []acp.EnvVariable{} // schema requires env; nil would serialise as null
+		}
+		mcpServers = append(mcpServers, srv)
+	}
 	var newRes acp.SessionNewResult
 	if err := conn.Call(ctx, "session/new", acp.SessionNewRequest{
-		Cwd: pol.WorkDir,
+		Cwd:        pol.WorkDir,
+		McpServers: mcpServers,
 	}, &newRes); err != nil {
 		cleanup()
 		return nil, fmt.Errorf("%w: session/new: %v", ErrProcessFailed, err)

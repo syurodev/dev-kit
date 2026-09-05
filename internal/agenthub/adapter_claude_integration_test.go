@@ -34,7 +34,7 @@ func TestClaudeACPIntegration(t *testing.T) {
 
 	a := agenthub.NewClaudeAdapter(opts)
 	proj := t.TempDir()
-	rt, err := a.Open(context.Background(), proj)
+	rt, err := a.Open(context.Background(), agenthub.OpenSpec{Cwd: proj})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}

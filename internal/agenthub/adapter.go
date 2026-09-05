@@ -5,13 +5,26 @@ import (
 	"encoding/json"
 	"sort"
 	"sync"
+
+	"devkit/internal/acp"
 )
+
+// OpenSpec is everything an adapter needs to spawn one session.
+type OpenSpec struct {
+	Cwd string
+	// AllowUnixSockets is the session's identity-bound MCP socket (see sandbox.Policy).
+	AllowUnixSockets []string
+	// McpServers is advertised to the agent via ACP session/new.mcpServers.
+	McpServers []acp.McpServerStdio
+	// ReadOnlyPaths are extra RO binds — the devkit-mcp proxy binary.
+	ReadOnlyPaths []string
+}
 
 // VendorAdapter wraps a concrete agent vendor (mock, claude, …).
 // Only adapters parse vendor-specific _meta shapes.
 type VendorAdapter interface {
 	Type() AgentType
-	Open(ctx context.Context, cwd string) (SessionRuntime, error)
+	Open(ctx context.Context, spec OpenSpec) (SessionRuntime, error)
 	NormalizeUsage(meta json.RawMessage) (NormalizedUsage, error)
 	NormalizeToolSummary(meta json.RawMessage, update json.RawMessage) (filesChanged []string, summary string, err error)
 	Extensions() []string

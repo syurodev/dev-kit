@@ -28,7 +28,7 @@ func TestClaudeSandboxPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	pol, cmd, err := a.buildSandbox(proj)
+	pol, cmd, err := a.buildSandbox(OpenSpec{Cwd: proj})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestClaudeRefusesUnsandboxedFallback(t *testing.T) {
 		Command: bin,
 		Runner:  unavailableRunner{},
 	})
-	_, err := a.Open(context.Background(), t.TempDir())
+	_, err := a.Open(context.Background(), OpenSpec{Cwd: t.TempDir()})
 	if !errors.Is(err, ErrSandboxUnavailable) && !errors.Is(err, ErrProcessFailed) {
 		t.Fatalf("want fail-closed, got %v", err)
 	}
@@ -99,7 +99,7 @@ func TestClaudeRequiresAbsoluteOrAllowNpx(t *testing.T) {
 	a := NewClaudeAdapter(ClaudeOptions{
 		Command: "npx", // relative; AllowNpx false
 	})
-	_, _, err := a.buildSandbox(t.TempDir())
+	_, _, err := a.buildSandbox(OpenSpec{Cwd: t.TempDir()})
 	if err == nil {
 		t.Fatal("expected error for non-absolute command without AllowNpx")
 	}
@@ -109,4 +109,34 @@ type unavailableRunner struct{}
 
 func (unavailableRunner) StartPiped(context.Context, sandbox.Policy, sandbox.Cmd) (*sandbox.Proc, error) {
 	return nil, sandbox.ErrUnavailable
+}
+
+func TestClaudeSandboxPolicyCarriesSpec(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "claude-agent-acp")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	proxy := filepath.Join(t.TempDir(), "devkit-mcp")
+	if err := os.WriteFile(proxy, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	proj := t.TempDir()
+	sock := filepath.Join(t.TempDir(), "s.sock")
+	a := NewClaudeAdapter(ClaudeOptions{Command: bin})
+	pol, _, err := a.buildSandbox(OpenSpec{Cwd: proj, AllowUnixSockets: []string{sock}, ReadOnlyPaths: []string{proxy}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pol.AllowUnixSockets) != 1 || pol.AllowUnixSockets[0] != sock {
+		t.Fatalf("AllowUnixSockets = %v", pol.AllowUnixSockets)
+	}
+	found := false
+	for _, p := range pol.ReadOnlyPaths {
+		if p == proxy {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("proxy must be readable inside the jail, ReadOnlyPaths = %v", pol.ReadOnlyPaths)
+	}
 }
