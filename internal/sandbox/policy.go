@@ -21,10 +21,14 @@ var defaultSensitiveDenyPaths = []string{
 }
 
 type Policy struct {
-	WorkDir                 string
-	ReadOnlyPaths           []string
-	ReadWritePaths          []string // extra RW beyond WorkDir
-	DenyReadPaths           []string // added on top of defaults
+	WorkDir        string
+	ReadOnlyPaths  []string
+	ReadWritePaths []string // extra RW beyond WorkDir
+	DenyReadPaths  []string // added on top of defaults
+	// AllowUnixSockets are unix socket paths the process may connect to —
+	// the session's identity-bound DevKit MCP endpoint. Everything else stays
+	// closed (NetworkHost is IP-only).
+	AllowUnixSockets        []string
 	Env                     map[string]string
 	Network                 NetworkMode // default none
 	PrivateHome             *bool       // nil defaults to true
@@ -46,6 +50,11 @@ func (p Policy) Validate() error {
 	}
 	if !validNetworkMode(p.Network) {
 		return ErrInvalidPolicy
+	}
+	for _, sock := range p.AllowUnixSockets {
+		if !filepath.IsAbs(sock) {
+			return ErrInvalidPolicy
+		}
 	}
 	if err := p.validateBindPaths(); err != nil {
 		return err
@@ -139,7 +148,7 @@ func (p Policy) validateBindPaths() error {
 	if err := validateBindPath(p.WorkDir, denyPaths); err != nil {
 		return err
 	}
-	for _, path := range append(append([]string{}, p.ReadWritePaths...), p.ReadOnlyPaths...) {
+	for _, path := range append(append(append([]string{}, p.ReadWritePaths...), p.ReadOnlyPaths...), p.AllowUnixSockets...) {
 		if strings.TrimSpace(path) == "" {
 			continue
 		}

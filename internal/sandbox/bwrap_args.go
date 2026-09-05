@@ -58,6 +58,12 @@ func buildBwrapArgs(p Policy, c Cmd) []string {
 		appendHomeAllowlist(&args, home, denyPaths, p.ReadOnlyPaths, "--ro-bind")
 	}
 
+	for _, sock := range p.AllowUnixSockets {
+		if pathExists(sock) {
+			args = append(args, "--bind", sock, sock)
+		}
+	}
+
 	env := p.Env
 	if p.EffectivePrivateHome() {
 		env = withPrivateHomeEnv(p, env)

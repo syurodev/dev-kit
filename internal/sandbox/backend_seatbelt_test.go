@@ -4,6 +4,8 @@ package sandbox
 
 import (
 	"context"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -76,4 +78,189 @@ func envValue(env []string, key string) string {
 		}
 	}
 	return ""
+}
+
+// TestSeatbeltDeniesWriteToDenyPathUnderRWAncestor covers the case where the
+// WorkDir grant is an ancestor of a denied subtree (WorkDir=$HOME): the deny
+// must block writes, not just reads.
+func TestSeatbeltDeniesWriteToDenyPathUnderRWAncestor(t *testing.T) {
+	backend := NewSeatbeltBackend()
+	if err := backend.Available(context.Background()); err != nil {
+		t.Skipf("sandbox-exec unavailable: %v", err)
+	}
+
+	// Seatbelt matches resolved paths; t.TempDir() lives under the /var ->
+	// /private/var symlink, so canonicalise or the WorkDir grant never matches.
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sshDir := filepath.Join(home, ".ssh")
+	if err := os.MkdirAll(sshDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	authKeys := filepath.Join(sshDir, "authorized_keys")
+	if err := os.WriteFile(authKeys, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	proc, err := backend.Start(ctx, Policy{
+		WorkDir:       home, // RW ancestor of the denied subtree
+		DenyReadPaths: []string{sshDir},
+		Env:           map[string]string{"HOME": home},
+		PrivateHome:   boolPtr(false),
+	}, Cmd{Path: "/bin/sh", Args: []string{"-c", `echo pwned >> "$HOME/.ssh/authorized_keys"; echo ok > "$HOME/notes.txt"`}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = proc.Wait()
+
+	if got, _ := os.ReadFile(authKeys); len(got) != 0 {
+		t.Fatalf("write into denied subtree succeeded: %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(home, "notes.txt")); err != nil {
+		t.Fatalf("write elsewhere in WorkDir must still work: %v", err)
+	}
+}
+
+// TestSeatbeltNetworkHostDeniesUnixSockets is the docker.sock case: a unix
+// socket on the host must not be reachable even with NetworkHost.
+func TestSeatbeltNetworkHostDeniesUnixSockets(t *testing.T) {
+	backend := NewSeatbeltBackend()
+	if err := backend.Available(context.Background()); err != nil {
+		t.Skipf("sandbox-exec unavailable: %v", err)
+	}
+
+	// Short socket path: sun_path is capped at 104 bytes on darwin.
+	sockDir, err := os.MkdirTemp("/tmp", "sb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(sockDir)
+	sock := filepath.Join(sockDir, "s")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	const marker = "UNIX_SOCKET_REACHED"
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(marker)) })}
+	go func() { _ = srv.Serve(ln) }()
+	defer srv.Close()
+
+	// Control: reachable from outside the sandbox, so a failure below is the
+	// profile's doing and not a broken listener.
+	if c, err := net.Dial("unix", sock); err != nil {
+		t.Fatalf("control dial: %v", err)
+	} else {
+		c.Close()
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	proc, err := backend.Start(ctx, Policy{WorkDir: t.TempDir(), Network: NetworkHost},
+		Cmd{Path: "/usr/bin/curl", Args: []string{"-s", "-m", "5", "--unix-socket", sock, "http://localhost/"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitErr := proc.Wait()
+	stdout, stderr := proc.Output()
+	if strings.Contains(string(stdout), marker) {
+		t.Fatalf("unix socket reachable from inside NetworkHost sandbox; stderr=%q", stderr)
+	}
+	if waitErr == nil {
+		t.Fatalf("expected curl to fail connecting; stdout=%q stderr=%q", stdout, stderr)
+	}
+}
+
+// TestSeatbeltDeniesAncestorRenameBypass: renaming the parent of a denied
+// subtree must fail, otherwise (subpath) protection is lost after the move.
+func TestSeatbeltDeniesAncestorRenameBypass(t *testing.T) {
+	backend := NewSeatbeltBackend()
+	if err := backend.Available(context.Background()); err != nil {
+		t.Skipf("sandbox-exec unavailable: %v", err)
+	}
+
+	parent, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := filepath.Join(parent, "home")
+	sshDir := filepath.Join(home, ".ssh")
+	if err := os.MkdirAll(sshDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	authKeys := filepath.Join(sshDir, "authorized_keys")
+	if err := os.WriteFile(authKeys, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	moved := filepath.Join(parent, "h2")
+	proc, err := backend.Start(ctx, Policy{
+		WorkDir:       parent, // ancestor of the denied path's parent
+		DenyReadPaths: []string{sshDir},
+		Env:           map[string]string{"HOME": home},
+		PrivateHome:   boolPtr(false),
+	}, Cmd{Path: "/bin/sh", Args: []string{"-c", `mv "` + home + `" "` + moved + `" && echo pwned >> "` + moved + `/.ssh/authorized_keys"`}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = proc.Wait()
+
+	if _, err := os.Stat(moved); err == nil {
+		t.Fatalf("ancestor of denied path was renamed inside the sandbox")
+	}
+	if got, _ := os.ReadFile(authKeys); len(got) != 0 {
+		t.Fatalf("write into denied subtree succeeded after rename: %q", got)
+	}
+}
+
+// TestSeatbeltAllowUnixSocketsConnects: the identity-bound MCP socket must be
+// reachable even under NetworkNone, and a sibling socket must not be.
+func TestSeatbeltAllowUnixSocketsConnects(t *testing.T) {
+	backend := NewSeatbeltBackend()
+	if err := backend.Available(context.Background()); err != nil {
+		t.Skipf("sandbox-exec unavailable: %v", err)
+	}
+	sockDir, err := os.MkdirTemp("/tmp", "sb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(sockDir)
+	serve := func(name, marker string) string {
+		path := filepath.Join(sockDir, name)
+		ln, err := net.Listen("unix", path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(marker)) })}
+		go func() { _ = srv.Serve(ln) }()
+		t.Cleanup(func() { _ = srv.Close(); _ = ln.Close() })
+		return path
+	}
+	allowed := serve("a.sock", "ALLOWED_SOCKET")
+	sibling := serve("b.sock", "SIBLING_SOCKET")
+
+	curl := func(sock string) string {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		proc, err := backend.Start(ctx, Policy{WorkDir: t.TempDir(), Network: NetworkNone, AllowUnixSockets: []string{allowed}},
+			Cmd{Path: "/usr/bin/curl", Args: []string{"-s", "-m", "5", "--unix-socket", sock, "http://localhost/"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = proc.Wait()
+		out, _ := proc.Output()
+		return string(out)
+	}
+	if got := curl(allowed); !strings.Contains(got, "ALLOWED_SOCKET") {
+		t.Fatalf("allowed socket unreachable from inside the jail: %q", got)
+	}
+	if got := curl(sibling); strings.Contains(got, "SIBLING_SOCKET") {
+		t.Fatalf("sibling socket must stay unreachable: %q", got)
+	}
 }

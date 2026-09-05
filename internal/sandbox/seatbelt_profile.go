@@ -1,6 +1,8 @@
 package sandbox
 
 import (
+	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -46,6 +48,11 @@ func buildSeatbeltProfile(p Policy) string {
 	b.WriteString("  (literal \"/\")\n")
 	b.WriteString(")\n")
 
+	// `2>/dev/null` and O_RDWR opens of /dev/null (ssh-add does this) fail
+	// under (deny default) without this. vnode-type guard as in Codex's
+	// seatbelt_base_policy.sbpl, so only the real character device matches.
+	b.WriteString("(allow file-read* file-write* (require-all (literal \"/dev/null\") (vnode-type CHARACTER-DEVICE)))\n")
+
 	b.WriteString("(allow file-read* file-write*\n")
 	writeSBPLSubpath(&b, p.WorkDir)
 	for _, path := range p.ReadWritePaths {
@@ -75,11 +82,18 @@ func buildSeatbeltProfile(p Policy) string {
 		b.WriteString("(deny network-inbound)\n")
 	case NetworkHost:
 		// Host networking is the policy's contract (ADR-009: agents need the
-		// model API). Outbound sockets plus the DNS/config system services are
-		// allowed; verified live against sandbox-exec on macOS — getaddrinfo
-		// resolves through the /var/run/mDNSResponder unix socket, which needs
-		// the /var read grant (deny rules below still mask sensitive subtrees).
-		b.WriteString("(allow network-outbound)\n")
+		// model API). Outbound is limited to IP sockets: a bare
+		// (allow network-outbound) also covers AF_UNIX, which hands the agent
+		// every unix socket on the host — docker.sock (= host root),
+		// ssh-agent's launchd listener, and so on. The one unix socket the
+		// process legitimately needs is mDNSResponder (getaddrinfo goes through
+		// it, verified live), so that is allowed by literal path, the same way
+		// Apple's own /System/Library/Sandbox/Profiles/*.sb do it. The /var
+		// read grant below is what lets the path resolve.
+		// ponytail: loopback TCP (local DBs, dev servers) is still reachable;
+		// closing that needs a proxy architecture, not a profile rule.
+		b.WriteString("(allow network-outbound (remote ip \"*:*\"))\n")
+		b.WriteString("(allow network-outbound (literal \"/private/var/run/mDNSResponder\"))\n")
 		b.WriteString("(allow file-read* (subpath \"/var\"))\n")
 		b.WriteString("(allow file-read* (subpath \"/private/var\"))\n")
 		for _, service := range seatbeltNetworkMachServices {
@@ -91,16 +105,53 @@ func buildSeatbeltProfile(p Policy) string {
 		b.WriteString("(deny file-read* (subpath \"/private/var/db/Keychains\"))\n")
 	}
 
+	// The session's own MCP socket. Independent of NetworkMode (local IPC,
+	// not network) and emitted after the NetworkNone deny because the later
+	// rule wins. Seatbelt matches resolved paths — /tmp/x.sock is
+	// /private/tmp/x.sock to the kernel — so resolve before emitting; with
+	// the resolved literal the connect right alone suffices (verified live).
+	for _, sock := range p.AllowUnixSockets {
+		b.WriteString("(allow network-outbound (literal \"" + escapeSBPL(resolveDenyPath(sock)) + "\"))\n")
+	}
+
+	// Deny both operation classes: SBPL evaluates them independently, so a
+	// read-only deny leaves the subtree writable whenever WorkDir or a RW path
+	// is an ancestor of it (WorkDir=$HOME made ~/.ssh/authorized_keys
+	// appendable). Emitted last because the later matching rule wins.
 	denyPaths := p.EffectiveDenyRead()
 	if len(denyPaths) > 0 {
-		b.WriteString("(deny file-read*\n")
+		b.WriteString("(deny file-read* file-write*\n")
 		for _, path := range denyPaths {
 			writeSBPLSubpath(&b, path)
 		}
 		b.WriteString(")\n")
+		// (subpath X) stops protecting X once an ancestor is renamed: with
+		// WorkDir=/Users, `mv /Users/me /Users/x` makes /Users/x/.ssh writable
+		// (verified live). Deny rename/unlink of every ancestor directory,
+		// the same rule Codex uses for its protected paths.
+		for _, dir := range denyPathAncestors(denyPaths) {
+			b.WriteString("(deny file-write-unlink (require-all (vnode-type DIRECTORY) (literal \"" + escapeSBPL(dir) + "\")))\n")
+		}
 	}
 
 	return b.String()
+}
+
+// denyPathAncestors returns every ancestor directory of the given paths,
+// excluding "/", deduplicated and sorted.
+func denyPathAncestors(paths []string) []string {
+	seen := map[string]struct{}{}
+	for _, path := range paths {
+		for dir := filepath.Dir(path); dir != "/" && dir != "."; dir = filepath.Dir(dir) {
+			seen[dir] = struct{}{}
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for dir := range seen {
+		out = append(out, dir)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func writeSBPLSubpath(b *strings.Builder, path string) {
