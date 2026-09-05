@@ -109,7 +109,7 @@ func (a *ClaudeAdapter) resolveCommand() (path string, args []string, ro []strin
 			if len(args) == 0 {
 				args = []string{"-y", "@agentclientprotocol/claude-agent-acp"}
 			}
-			ro = uniqueAbsPaths(path)
+			ro = uniqueAbsPaths(append([]string{path}, nodeModulesRoot(path)...)...)
 			return path, args, ro, nil
 		}
 	}
@@ -121,8 +121,30 @@ func (a *ClaudeAdapter) resolveCommand() (path string, args []string, ro []strin
 		return "", nil, nil, fmt.Errorf("%w: command must be absolute (or enable AllowNpx)", ErrProcessFailed)
 	}
 	path = filepath.Clean(cmd)
-	ro = uniqueAbsPaths(path)
+	ro = uniqueAbsPaths(append([]string{path}, nodeModulesRoot(path)...)...)
 	return path, args, ro, nil
+}
+
+// nodeModulesRoot returns the node_modules tree the command lives in, if any.
+// A Node CLI is a thin entry that imports its siblings: granting only the
+// entry file gets ERR_MODULE_NOT_FOUND on the first import. The outermost
+// node_modules is used so a nested dependency resolves too. Measured against
+// @agentclientprotocol/claude-agent-acp, which needs @anthropic-ai/claude-agent-sdk.
+func nodeModulesRoot(command string) []string {
+	resolved, err := filepath.EvalSymlinks(command)
+	if err != nil {
+		return nil
+	}
+	var outermost string
+	for dir := filepath.Dir(resolved); dir != "/" && dir != "."; dir = filepath.Dir(dir) {
+		if filepath.Base(dir) == "node_modules" {
+			outermost = dir
+		}
+	}
+	if outermost == "" {
+		return nil
+	}
+	return []string{outermost}
 }
 
 func uniqueAbsPaths(paths ...string) []string {

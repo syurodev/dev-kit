@@ -97,3 +97,65 @@ func TestSeatbeltProfileAllowUnixSocketsIsResolvedAndAfterNetworkDeny(t *testing
 		t.Fatalf("socket allow must come after the NetworkNone deny (later rule wins):\n%s", prof)
 	}
 }
+
+func TestSeatbeltProfileEmitsResolvedFormOfSymlinkedPaths(t *testing.T) {
+	// Seatbelt matches resolved paths. nvm installs npx as a symlink into the
+	// npm lib tree, so a grant on the symlink alone never fires.
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	real := filepath.Join(root, "real")
+	if err := os.MkdirAll(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+
+	prof := buildSeatbeltProfile(Policy{WorkDir: link, ReadOnlyPaths: []string{link}, Network: NetworkNone}.withDefaults())
+	for _, want := range []string{`(subpath "` + link + `")`, `(subpath "` + real + `")`} {
+		if !strings.Contains(prof, want) {
+			t.Fatalf("expected %s in profile:\n%s", want, prof)
+		}
+	}
+}
+
+func TestSeatbeltProfileDoesNotDuplicatePlainPaths(t *testing.T) {
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	prof := buildSeatbeltProfile(Policy{WorkDir: dir, Network: NetworkNone}.withDefaults())
+	if got := strings.Count(prof, `(subpath "`+dir+`")`); got != 1 {
+		t.Fatalf("non-symlinked WorkDir emitted %d times, want 1:\n%s", got, prof)
+	}
+}
+
+func TestSeatbeltProfileDenyIsResolvedToo(t *testing.T) {
+	// The deny block must be symlink-resolved for the same reason the allow
+	// block is: an unresolved deny never matches, so a resolved allow on an
+	// ancestor would win and expose the subtree.
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	real := filepath.Join(root, "real")
+	if err := os.MkdirAll(real, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "secrets")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	prof := buildSeatbeltProfile(Policy{
+		WorkDir: root, DenyReadPaths: []string{link}, Env: map[string]string{"HOME": root},
+	}.withDefaults())
+	denyBlock := prof[strings.Index(prof, "(deny file-read* file-write*"):]
+	for _, want := range []string{`(subpath "` + link + `")`, `(subpath "` + real + `")`} {
+		if !strings.Contains(denyBlock, want) {
+			t.Fatalf("expected %s inside the deny block:\n%s", want, denyBlock)
+		}
+	}
+}

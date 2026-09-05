@@ -54,9 +54,9 @@ func buildSeatbeltProfile(p Policy) string {
 	b.WriteString("(allow file-read* file-write* (require-all (literal \"/dev/null\") (vnode-type CHARACTER-DEVICE)))\n")
 
 	b.WriteString("(allow file-read* file-write*\n")
-	writeSBPLSubpath(&b, p.WorkDir)
+	writeSBPLPath(&b, p.WorkDir)
 	for _, path := range p.ReadWritePaths {
-		writeSBPLSubpath(&b, path)
+		writeSBPLPath(&b, path)
 	}
 	if p.EffectivePrivateHome() {
 		writeSBPLSubpath(&b, "/tmp")
@@ -67,9 +67,17 @@ func buildSeatbeltProfile(p Policy) string {
 	if len(p.ReadOnlyPaths) > 0 {
 		b.WriteString("(allow file-read*\n")
 		for _, path := range p.ReadOnlyPaths {
-			writeSBPLSubpath(&b, path)
+			writeSBPLPath(&b, path)
 		}
 		b.WriteString(")\n")
+	}
+
+	// Ancestor lookup. (subpath X) does not let a process stat X's parents, and
+	// resolving a path walks every one of them: node exits with
+	// `EPERM: lstat '/Users'` before it reads a single file it was granted.
+	// Metadata only — this permits stat, never open/read of the directories.
+	for _, dir := range pathAncestors(p.grantedPaths()) {
+		b.WriteString("(allow file-read-metadata (literal \"" + escapeSBPL(dir) + "\"))\n")
 	}
 
 	b.WriteString("(allow process-exec)\n")
@@ -122,14 +130,14 @@ func buildSeatbeltProfile(p Policy) string {
 	if len(denyPaths) > 0 {
 		b.WriteString("(deny file-read* file-write*\n")
 		for _, path := range denyPaths {
-			writeSBPLSubpath(&b, path)
+			writeSBPLPath(&b, path)
 		}
 		b.WriteString(")\n")
 		// (subpath X) stops protecting X once an ancestor is renamed: with
 		// WorkDir=/Users, `mv /Users/me /Users/x` makes /Users/x/.ssh writable
 		// (verified live). Deny rename/unlink of every ancestor directory,
 		// the same rule Codex uses for its protected paths.
-		for _, dir := range denyPathAncestors(denyPaths) {
+		for _, dir := range pathAncestors(denyPaths) {
 			b.WriteString("(deny file-write-unlink (require-all (vnode-type DIRECTORY) (literal \"" + escapeSBPL(dir) + "\")))\n")
 		}
 	}
@@ -137,9 +145,35 @@ func buildSeatbeltProfile(p Policy) string {
 	return b.String()
 }
 
-// denyPathAncestors returns every ancestor directory of the given paths,
+// grantedPaths is every path the profile grants access to, in both spellings
+// (as given and symlink-resolved), so ancestor lookup covers each.
+func (p Policy) grantedPaths() []string {
+	out := make([]string, 0, len(p.ReadWritePaths)+len(p.ReadOnlyPaths)+len(p.AllowUnixSockets)+1)
+	add := func(path string) {
+		if strings.TrimSpace(path) == "" {
+			return
+		}
+		out = append(out, normalizePath(path))
+		if resolved := resolveDenyPath(path); resolved != "" {
+			out = append(out, resolved)
+		}
+	}
+	add(p.WorkDir)
+	for _, path := range p.ReadWritePaths {
+		add(path)
+	}
+	for _, path := range p.ReadOnlyPaths {
+		add(path)
+	}
+	for _, path := range p.AllowUnixSockets {
+		add(path)
+	}
+	return out
+}
+
+// pathAncestors returns every ancestor directory of the given paths,
 // excluding "/", deduplicated and sorted.
-func denyPathAncestors(paths []string) []string {
+func pathAncestors(paths []string) []string {
 	seen := map[string]struct{}{}
 	for _, path := range paths {
 		for dir := filepath.Dir(path); dir != "/" && dir != "."; dir = filepath.Dir(dir) {
@@ -152,6 +186,21 @@ func denyPathAncestors(paths []string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// writeSBPLPath emits the grant for a bind path, plus its symlink-resolved
+// form when they differ. Seatbelt matches the *resolved* path, so a grant on
+// a symlink alone never fires: nvm's `bin/npx -> ../lib/node_modules/npm/bin/
+// npx-cli.js` produced "Cannot find module .../bin/npx" inside the jail, and a
+// project under a symlinked parent was silently read-only. Both spellings are
+// emitted because callers (and Cmd.Dir) still use the unresolved one. Widening
+// is bounded: Policy.validateBindPaths already resolves every bind path and
+// rejects one that lands inside a deny path.
+func writeSBPLPath(b *strings.Builder, path string) {
+	writeSBPLSubpath(b, path)
+	if resolved := resolveDenyPath(path); resolved != "" && resolved != normalizePath(path) {
+		writeSBPLSubpath(b, resolved)
+	}
 }
 
 func writeSBPLSubpath(b *strings.Builder, path string) {

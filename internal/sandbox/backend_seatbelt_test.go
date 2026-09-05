@@ -264,3 +264,45 @@ func TestSeatbeltAllowUnixSocketsConnects(t *testing.T) {
 		t.Fatalf("sibling socket must stay unreachable: %q", got)
 	}
 }
+
+// TestSeatbeltExecutesThroughSymlinkedReadOnlyPath is the nvm/npx case: the
+// binary is reached through a symlink, and reading it must work inside the jail.
+func TestSeatbeltExecutesThroughSymlinkedReadOnlyPath(t *testing.T) {
+	backend := NewSeatbeltBackend()
+	if err := backend.Available(context.Background()); err != nil {
+		t.Skipf("sandbox-exec unavailable: %v", err)
+	}
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	libDir := filepath.Join(root, "lib")
+	if err := os.MkdirAll(libDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script := filepath.Join(libDir, "tool.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\necho SYMLINKED_TOOL_RAN\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	binDir := filepath.Join(root, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(binDir, "tool")
+	if err := os.Symlink(script, link); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	proc, err := backend.Start(ctx, Policy{WorkDir: t.TempDir(), ReadOnlyPaths: []string{link}},
+		Cmd{Path: "/bin/sh", Args: []string{"-c", "cat " + link}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = proc.Wait()
+	stdout, stderr := proc.Output()
+	if !strings.Contains(string(stdout), "SYMLINKED_TOOL_RAN") {
+		t.Fatalf("symlinked ReadOnlyPath unreadable in jail; stdout=%q stderr=%q", stdout, stderr)
+	}
+}

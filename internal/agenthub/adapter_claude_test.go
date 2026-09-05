@@ -140,3 +140,59 @@ func TestClaudeSandboxPolicyCarriesSpec(t *testing.T) {
 		t.Fatalf("proxy must be readable inside the jail, ReadOnlyPaths = %v", pol.ReadOnlyPaths)
 	}
 }
+
+func TestClaudeGrantsNodeModulesTreeOfTheCommand(t *testing.T) {
+	// A Node CLI entry imports its siblings; granting the entry file alone
+	// fails with ERR_MODULE_NOT_FOUND inside the jail.
+	root := t.TempDir()
+	pkgBin := filepath.Join(root, "lib", "node_modules", "@scope", "tool", "dist")
+	if err := os.MkdirAll(pkgBin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	entry := filepath.Join(pkgBin, "index.js")
+	if err := os.WriteFile(entry, []byte("#!/usr/bin/env node\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	binDir := filepath.Join(root, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(binDir, "tool")
+	if err := os.Symlink(entry, link); err != nil {
+		t.Fatal(err)
+	}
+
+	proj := t.TempDir()
+	pol, _, err := NewClaudeAdapter(ClaudeOptions{Command: link}).buildSandbox(OpenSpec{Cwd: proj})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// nodeModulesRoot walks the resolved path, so compare resolved forms.
+	wantTree, err := filepath.EvalSymlinks(filepath.Join(root, "lib", "node_modules"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var foundTree bool
+	for _, p := range pol.ReadOnlyPaths {
+		if p == wantTree {
+			foundTree = true
+		}
+	}
+	if !foundTree {
+		t.Fatalf("expected %s in ReadOnlyPaths, got %v", wantTree, pol.ReadOnlyPaths)
+	}
+}
+
+func TestClaudeCommandOutsideNodeModulesGrantsOnlyItself(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "agent")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pol, _, err := NewClaudeAdapter(ClaudeOptions{Command: bin}).buildSandbox(OpenSpec{Cwd: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pol.ReadOnlyPaths) != 1 || pol.ReadOnlyPaths[0] != bin {
+		t.Fatalf("a plain binary must not widen the grant: %v", pol.ReadOnlyPaths)
+	}
+}

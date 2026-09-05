@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sync"
@@ -215,7 +216,18 @@ func main() {
 	// so agenthub never imports internal/storage (migrations stay in storage).
 	agentReg := agenthub.NewRegistry()
 	agentReg.Register(agenthub.NewMockAdapter())
-	agentReg.Register(agenthub.NewClaudeAdapter(agenthub.ClaudeOptions{AllowNpx: true}))
+	// Prefer an installed claude-agent-acp over `npx -y`: npx needs a writable
+	// ~/.npm and the whole npm lib tree, neither of which exists inside the
+	// jail (measured — npx dies on EPERM before it downloads anything).
+	claudeOpts := agenthub.ClaudeOptions{AllowNpx: true}
+	if acp, lookErr := exec.LookPath("claude-agent-acp"); lookErr == nil {
+		if abs, absErr := filepath.Abs(acp); absErr == nil {
+			claudeOpts = agenthub.ClaudeOptions{Command: abs}
+		}
+	} else {
+		log.Printf("agenthub: claude-agent-acp not on PATH, falling back to npx (likely to fail inside the sandbox); install it with: npm i -g @agentclientprotocol/claude-agent-acp")
+	}
+	agentReg.Register(agenthub.NewClaudeAdapter(claudeOpts))
 	agentWaiter := agenthub.NewPermissionWaiter(func(p agenthub.PendingPermission) {
 		payload := map[string]any{
 			"id":        p.ID,
