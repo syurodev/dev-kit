@@ -25,7 +25,7 @@ export function AgentCompanion() {
   const setPrompt = useAgentSessionsStore((s) => s.setPrompt);
   const updateLines = useAgentSessionsStore((s) => s.updateLines);
   const pending = useAgentSessionsStore((s) => s.pending);
-  const setPending = useAgentSessionsStore((s) => s.setPending);
+  const dequeuePending = useAgentSessionsStore((s) => s.dequeuePending);
 
   const [error, setError] = useState("");
   const [permBusy, setPermBusy] = useState(false);
@@ -42,7 +42,7 @@ export function AgentCompanion() {
         pending.id,
         optionId === null ? cancelledPermissionOutcome() : selectedPermissionOutcome(optionId),
       );
-      setPending(null);
+      dequeuePending(pending.id);
       upsertSession(await agentHubGetStatus(pending.sessionId));
     } catch (e) {
       setError(errorMessage(e));

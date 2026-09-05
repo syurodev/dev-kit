@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import {
   completeInteraction,
   denyInteraction,
-  getInteractionPending,
+  getInteractionPendingList,
   type PendingInteraction,
 } from "../bridge/interaction";
 import { listProfiles, setDBActiveProfile } from "../bridge/database";
@@ -69,7 +69,8 @@ async function activateProfile(
 }
 
 export function InteractionHost() {
-  const [pending, setPending] = useState<PendingInteraction | null>(null);
+  const [queue, setQueue] = useState<PendingInteraction[]>([]);
+  const pending = queue[0] ?? null;
   const [profiles, setProfiles] = useState<ProfileOption[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [busy, setBusy] = useState(false);
@@ -79,18 +80,14 @@ export function InteractionHost() {
     let mounted = true;
     const tick = async () => {
       try {
-        const next = await getInteractionPending();
+        const next = await getInteractionPendingList();
         if (!mounted) {
           return;
         }
-        setPending((prev) => {
-          if (!next) {
-            return null;
-          }
-          if (prev?.id === next.id) {
-            return prev;
-          }
-          return next;
+        setQueue((prev) => {
+          const same =
+            prev.length === next.length && prev.every((p, i) => p.id === next[i]?.id);
+          return same ? prev : next;
         });
       } catch {
         // Ignore transient poll errors; next tick retries.
@@ -138,7 +135,7 @@ export function InteractionHost() {
     setError("");
     try {
       await action();
-      setPending(null);
+      setQueue((prev) => prev.filter((p) => p.id !== pending?.id));
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -165,6 +162,10 @@ export function InteractionHost() {
             <DialogDescription id="interaction-select-desc">
               An MCP tool needs an active {pending.kind || "connection"} profile.
             </DialogDescription>
+            <p className="text-xs text-muted-foreground">
+              Requested by <code>{pending.caller || "unknown"}</code>
+              {queue.length > 1 ? ` · ${queue.length - 1} more waiting` : ""}
+            </p>
           </DialogHeader>
           {profiles.length === 0 ? (
             <p role="status">No profiles available. Create one in the module view first.</p>
@@ -226,6 +227,10 @@ export function InteractionHost() {
           <DialogDescription id="interaction-confirm-desc">
             Review the environment and tool before allowing this request.
           </DialogDescription>
+          <p className="text-xs text-muted-foreground">
+            Requested by <code>{pending.caller || "unknown"}</code>
+            {queue.length > 1 ? ` · ${queue.length - 1} more waiting` : ""}
+          </p>
         </DialogHeader>
         <div className="grid gap-3 text-sm">
           <div className="flex items-center gap-2">

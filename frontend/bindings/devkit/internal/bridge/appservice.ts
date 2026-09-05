@@ -3,7 +3,7 @@
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
-import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wailsio/runtime";
+import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Create } from "@wailsio/runtime";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -48,23 +48,44 @@ export function AgentHubCancel(id: string): $CancellablePromise<void> {
 }
 
 export function AgentHubCreateSession(input: agenthub$0.CreateInput): $CancellablePromise<agenthub$0.AgentSession> {
-    return $Call.ByID(146979054, input);
+    return $Call.ByID(146979054, input).then(($result: any) => {
+        return $$createType0($result);
+    });
 }
 
 export function AgentHubGetStatus(id: string): $CancellablePromise<agenthub$0.AgentSession> {
-    return $Call.ByID(2289470436, id);
+    return $Call.ByID(2289470436, id).then(($result: any) => {
+        return $$createType0($result);
+    });
 }
 
 export function AgentHubInvoke(input: agenthub$0.InvokeInput): $CancellablePromise<agenthub$0.InvokeResult> {
-    return $Call.ByID(1873349950, input);
+    return $Call.ByID(1873349950, input).then(($result: any) => {
+        return $$createType1($result);
+    });
 }
 
-export function AgentHubListAgents(): $CancellablePromise<agenthub$0.AgentSession[] | null> {
-    return $Call.ByID(3384951636);
+export function AgentHubListAgents(): $CancellablePromise<agenthub$0.AgentSession[]> {
+    return $Call.ByID(3384951636).then(($result: any) => {
+        return $$createType2($result);
+    });
 }
 
-export function AgentHubListVendorTypes(): $CancellablePromise<agenthub$0.AgentType[] | null> {
-    return $Call.ByID(1235244657);
+export function AgentHubListVendorTypes(): $CancellablePromise<agenthub$0.AgentType[]> {
+    return $Call.ByID(1235244657).then(($result: any) => {
+        return $$createType3($result);
+    });
+}
+
+/**
+ * AgentHubPendingPermissions lists every ACP permission prompt awaiting the
+ * user, oldest first. The frontend uses it to rebuild its queue on mount;
+ * live arrivals still come through the agenthub:permission event.
+ */
+export function AgentHubPendingPermissions(): $CancellablePromise<agenthub$0.PendingPermission[]> {
+    return $Call.ByID(85207799).then(($result: any) => {
+        return $$createType5($result);
+    });
 }
 
 /**
@@ -79,7 +100,9 @@ export function AgentHubResolvePermission(id: string, outcome: json$0.RawMessage
  * No token crosses this bridge or is included in audit metadata.
  */
 export function AuthLogin(): $CancellablePromise<$models.AuthStatusDTO> {
-    return $Call.ByID(729656021);
+    return $Call.ByID(729656021).then(($result: any) => {
+        return $$createType6($result);
+    });
 }
 
 export function AuthLogout(): $CancellablePromise<void> {
@@ -87,14 +110,16 @@ export function AuthLogout(): $CancellablePromise<void> {
 }
 
 export function AuthStatus(): $CancellablePromise<$models.AuthStatusDTO> {
-    return $Call.ByID(1688778362);
+    return $Call.ByID(1688778362).then(($result: any) => {
+        return $$createType6($result);
+    });
 }
 
 /**
  * Call runs a capability-gated handler and maps errors through publicError.
  * Bridge UI methods and MCP tool handlers must both use this entrypoint.
  */
-export function Call(subject: string, capability: string, scope: string, metadata: { [_ in string]?: any } | null, handler: capabilities$0.Handler): $CancellablePromise<any> {
+export function Call(subject: string, capability: string, scope: string, metadata: { [_ in string]?: any }, handler: capabilities$0.Handler): $CancellablePromise<any> {
     return $Call.ByID(1812104438, subject, capability, scope, metadata, handler);
 }
 
@@ -115,48 +140,70 @@ export function CodeGraphCommentPlanNode(planNodeID: string, body: string): $Can
     return $Call.ByID(379853061, planNodeID, body);
 }
 
-export function CodeGraphCountPlanNodeComments(): $CancellablePromise<{ [_ in string]?: number } | null> {
-    return $Call.ByID(1373712737);
+export function CodeGraphCountPlanNodeComments(): $CancellablePromise<{ [_ in string]?: number }> {
+    return $Call.ByID(1373712737).then(($result: any) => {
+        return $$createType7($result);
+    });
 }
 
 export function CodeGraphGetApiFlow(endpointID: string): $CancellablePromise<codegraph$0.ApiFlow> {
-    return $Call.ByID(3432526133, endpointID);
+    return $Call.ByID(3432526133, endpointID).then(($result: any) => {
+        return $$createType8($result);
+    });
 }
 
-export function CodeGraphGetBlastRadius(filePath: string): $CancellablePromise<string[] | null> {
-    return $Call.ByID(2797018901, filePath);
+export function CodeGraphGetBlastRadius(filePath: string): $CancellablePromise<string[]> {
+    return $Call.ByID(2797018901, filePath).then(($result: any) => {
+        return $$createType9($result);
+    });
 }
 
 export function CodeGraphGetCodeSnippet(filePath: string, line: number, endLine: number): $CancellablePromise<codegraph$0.CodeSnippet> {
-    return $Call.ByID(3767815479, filePath, line, endLine);
+    return $Call.ByID(3767815479, filePath, line, endLine).then(($result: any) => {
+        return $$createType10($result);
+    });
 }
 
 export function CodeGraphGetNeighbors(rootID: string, depth: number, filter: codegraph$0.NeighborFilter): $CancellablePromise<codegraph$0.Subgraph> {
-    return $Call.ByID(1258187406, rootID, depth, filter);
+    return $Call.ByID(1258187406, rootID, depth, filter).then(($result: any) => {
+        return $$createType11($result);
+    });
 }
 
 export function CodeGraphGetPlanProgress(): $CancellablePromise<codegraph$0.PlanProgress> {
-    return $Call.ByID(3915858491);
+    return $Call.ByID(3915858491).then(($result: any) => {
+        return $$createType12($result);
+    });
 }
 
 export function CodeGraphGetPlannedFlow(): $CancellablePromise<codegraph$0.Plan> {
-    return $Call.ByID(3322703391);
+    return $Call.ByID(3322703391).then(($result: any) => {
+        return $$createType13($result);
+    });
 }
 
-export function CodeGraphListEndpoints(): $CancellablePromise<codegraph$0.Endpoint[] | null> {
-    return $Call.ByID(1712846729);
+export function CodeGraphListEndpoints(): $CancellablePromise<codegraph$0.Endpoint[]> {
+    return $Call.ByID(1712846729).then(($result: any) => {
+        return $$createType15($result);
+    });
 }
 
-export function CodeGraphListFields(nodeID: string): $CancellablePromise<codegraph$0.FieldRef[] | null> {
-    return $Call.ByID(2204147728, nodeID);
+export function CodeGraphListFields(nodeID: string): $CancellablePromise<codegraph$0.FieldRef[]> {
+    return $Call.ByID(2204147728, nodeID).then(($result: any) => {
+        return $$createType17($result);
+    });
 }
 
-export function CodeGraphListFiles(): $CancellablePromise<codegraph$0.FileEntry[] | null> {
-    return $Call.ByID(1096722516);
+export function CodeGraphListFiles(): $CancellablePromise<codegraph$0.FileEntry[]> {
+    return $Call.ByID(1096722516).then(($result: any) => {
+        return $$createType19($result);
+    });
 }
 
-export function CodeGraphListPlanNodeComments(planNodeID: string): $CancellablePromise<codegraph$0.PlanComment[] | null> {
-    return $Call.ByID(44393988, planNodeID);
+export function CodeGraphListPlanNodeComments(planNodeID: string): $CancellablePromise<codegraph$0.PlanComment[]> {
+    return $Call.ByID(44393988, planNodeID).then(($result: any) => {
+        return $$createType21($result);
+    });
 }
 
 export function CodeGraphOpenProject(path: string): $CancellablePromise<void> {
@@ -164,7 +211,9 @@ export function CodeGraphOpenProject(path: string): $CancellablePromise<void> {
 }
 
 export function CodeGraphProposeFlow(plan: codegraph$0.Plan): $CancellablePromise<codegraph$0.PlanProgress> {
-    return $Call.ByID(2353915709, plan);
+    return $Call.ByID(2353915709, plan).then(($result: any) => {
+        return $$createType12($result);
+    });
 }
 
 export function CodeGraphReadFile(relativePath: string): $CancellablePromise<string> {
@@ -175,8 +224,10 @@ export function CodeGraphRelinkPlanNode(planNodeID: string, fqn: string): $Cance
     return $Call.ByID(3570264843, planNodeID, fqn);
 }
 
-export function CodeGraphSearchSymbol(query: string): $CancellablePromise<codegraph$0.SymbolMatch[] | null> {
-    return $Call.ByID(2248851381, query);
+export function CodeGraphSearchSymbol(query: string): $CancellablePromise<codegraph$0.SymbolMatch[]> {
+    return $Call.ByID(2248851381, query).then(($result: any) => {
+        return $$createType23($result);
+    });
 }
 
 export function CodeGraphStartTerminal(rows: number, cols: number): $CancellablePromise<string> {
@@ -184,7 +235,9 @@ export function CodeGraphStartTerminal(rows: number, cols: number): $Cancellable
 }
 
 export function CodeGraphTraceDataFlow(symbolID: string, fieldName: string): $CancellablePromise<codegraph$0.DataFlowTrace> {
-    return $Call.ByID(2118159762, symbolID, fieldName);
+    return $Call.ByID(2118159762, symbolID, fieldName).then(($result: any) => {
+        return $$createType24($result);
+    });
 }
 
 export function CodeGraphWaitForIndexReady(): $CancellablePromise<number> {
@@ -196,7 +249,9 @@ export function CodeGraphWriteFile(relativePath: string, content: string): $Canc
 }
 
 export function DBActiveProfile(): $CancellablePromise<$models.ActiveProfileDTO> {
-    return $Call.ByID(2207927079);
+    return $Call.ByID(2207927079).then(($result: any) => {
+        return $$createType25($result);
+    });
 }
 
 /**
@@ -208,7 +263,9 @@ export function DBCancelQuery(id: string, pid: string): $CancellablePromise<void
 }
 
 export function DBCreateProfile(input: database$0.CreateProfileInput): $CancellablePromise<database$0.ProfileSummary> {
-    return $Call.ByID(3479862833, input);
+    return $Call.ByID(3479862833, input).then(($result: any) => {
+        return $$createType26($result);
+    });
 }
 
 export function DBDeleteProfile(id: string): $CancellablePromise<void> {
@@ -227,7 +284,9 @@ export function DBDeleteSavedQuery(id: string): $CancellablePromise<void> {
  * the statement — SQL can carry literals.
  */
 export function DBExplain(id: string, sql: string): $CancellablePromise<database$0.QueryPlan> {
-    return $Call.ByID(1732641127, id, sql);
+    return $Call.ByID(1732641127, id, sql).then(($result: any) => {
+        return $$createType27($result);
+    });
 }
 
 /**
@@ -235,55 +294,75 @@ export function DBExplain(id: string, sql: string): $CancellablePromise<database
  * follows the same env-tag confirmation policy as DBQuery and stays off MCP.
  */
 export function DBExplainAnalyze(id: string, sql: string): $CancellablePromise<database$0.QueryPlan> {
-    return $Call.ByID(564955345, id, sql);
+    return $Call.ByID(564955345, id, sql).then(($result: any) => {
+        return $$createType27($result);
+    });
 }
 
 export function DBGetSchemaCache(id: string): $CancellablePromise<database$0.SchemaSnapshot> {
-    return $Call.ByID(3249455531, id);
+    return $Call.ByID(3249455531, id).then(($result: any) => {
+        return $$createType28($result);
+    });
 }
 
 export function DBIndexSchema(id: string): $CancellablePromise<database$0.SchemaSnapshot> {
-    return $Call.ByID(3467733367, id);
+    return $Call.ByID(3467733367, id).then(($result: any) => {
+        return $$createType28($result);
+    });
 }
 
 /**
  * DBListActivity returns other people's sessions, statements included. Human
  * only: the rows carry SQL with literals, which is why this never reaches MCP.
  */
-export function DBListActivity(id: string): $CancellablePromise<database$0.SessionRow[] | null> {
-    return $Call.ByID(2001158517, id);
+export function DBListActivity(id: string): $CancellablePromise<database$0.SessionRow[]> {
+    return $Call.ByID(2001158517, id).then(($result: any) => {
+        return $$createType30($result);
+    });
 }
 
-export function DBListColumns(id: string, schema: string, table: string): $CancellablePromise<database$0.ColumnInfo[] | null> {
-    return $Call.ByID(2451086547, id, schema, table);
+export function DBListColumns(id: string, schema: string, table: string): $CancellablePromise<database$0.ColumnInfo[]> {
+    return $Call.ByID(2451086547, id, schema, table).then(($result: any) => {
+        return $$createType32($result);
+    });
 }
 
-export function DBListForeignKeys(id: string, schema: string): $CancellablePromise<database$0.ForeignKey[] | null> {
-    return $Call.ByID(1782684436, id, schema);
+export function DBListForeignKeys(id: string, schema: string): $CancellablePromise<database$0.ForeignKey[]> {
+    return $Call.ByID(1782684436, id, schema).then(($result: any) => {
+        return $$createType34($result);
+    });
 }
 
 /**
  * DBListIndexes carries no row data, only index names and the columns they
  * cover, so it is scoped like any other schema read.
  */
-export function DBListIndexes(id: string, schema: string): $CancellablePromise<database$0.IndexInfo[] | null> {
-    return $Call.ByID(2857839648, id, schema);
+export function DBListIndexes(id: string, schema: string): $CancellablePromise<database$0.IndexInfo[]> {
+    return $Call.ByID(2857839648, id, schema).then(($result: any) => {
+        return $$createType36($result);
+    });
 }
 
-export function DBListProfiles(): $CancellablePromise<database$0.ProfileSummary[] | null> {
-    return $Call.ByID(1640509370);
+export function DBListProfiles(): $CancellablePromise<database$0.ProfileSummary[]> {
+    return $Call.ByID(1640509370).then(($result: any) => {
+        return $$createType37($result);
+    });
 }
 
 /**
  * DBListQueryHistory returns the newest statements run against a profile on
  * this device. A locked vault is an error, not an empty list.
  */
-export function DBListQueryHistory(id: string): $CancellablePromise<database$0.HistoryEntry[] | null> {
-    return $Call.ByID(869256636, id);
+export function DBListQueryHistory(id: string): $CancellablePromise<database$0.HistoryEntry[]> {
+    return $Call.ByID(869256636, id).then(($result: any) => {
+        return $$createType39($result);
+    });
 }
 
-export function DBListSavedQueries(id: string): $CancellablePromise<database$0.SavedQuery[] | null> {
-    return $Call.ByID(3783725789, id);
+export function DBListSavedQueries(id: string): $CancellablePromise<database$0.SavedQuery[]> {
+    return $Call.ByID(3783725789, id).then(($result: any) => {
+        return $$createType41($result);
+    });
 }
 
 /**
@@ -291,16 +370,22 @@ export function DBListSavedQueries(id: string): $CancellablePromise<database$0.S
  * pg_catalog SQL the UI used to send through DBQuery. Catalogue queries are not
  * portable, so each driver owns its own.
  */
-export function DBListSchemas(id: string): $CancellablePromise<string[] | null> {
-    return $Call.ByID(273454128, id);
+export function DBListSchemas(id: string): $CancellablePromise<string[]> {
+    return $Call.ByID(273454128, id).then(($result: any) => {
+        return $$createType9($result);
+    });
 }
 
-export function DBListTables(id: string, schema: string): $CancellablePromise<database$0.TableInfo[] | null> {
-    return $Call.ByID(764026445, id, schema);
+export function DBListTables(id: string, schema: string): $CancellablePromise<database$0.TableInfo[]> {
+    return $Call.ByID(764026445, id, schema).then(($result: any) => {
+        return $$createType43($result);
+    });
 }
 
 export function DBQuery(id: string, sql: string): $CancellablePromise<database$0.QueryResult> {
-    return $Call.ByID(2555176260, id, sql);
+    return $Call.ByID(2555176260, id, sql).then(($result: any) => {
+        return $$createType44($result);
+    });
 }
 
 export function DBSaveExportFile(suggestedName: string, content: string): $CancellablePromise<string> {
@@ -312,7 +397,9 @@ export function DBSaveExportFile(suggestedName: string, content: string): $Cance
  * statement — saved SQL can carry literals.
  */
 export function DBSaveQuery(id: string, name: string, sql: string): $CancellablePromise<database$0.SavedQuery> {
-    return $Call.ByID(2363872507, id, name, sql);
+    return $Call.ByID(2363872507, id, name, sql).then(($result: any) => {
+        return $$createType40($result);
+    });
 }
 
 export function DBSetActiveProfile(id: string): $CancellablePromise<void> {
@@ -340,23 +427,31 @@ export function DBTestNewConnection(input: database$0.CreateProfileInput): $Canc
 }
 
 export function DBUpdateProfileOptions(id: string, opts: database$0.UpdateProfileOptionsInput): $CancellablePromise<database$0.ProfileSummary> {
-    return $Call.ByID(867379260, id, opts);
+    return $Call.ByID(867379260, id, opts).then(($result: any) => {
+        return $$createType26($result);
+    });
 }
 
 export function EnvCreateTag(name: string, requiresConfirmation: boolean): $CancellablePromise<environments$0.Tag> {
-    return $Call.ByID(336598155, name, requiresConfirmation);
+    return $Call.ByID(336598155, name, requiresConfirmation).then(($result: any) => {
+        return $$createType45($result);
+    });
 }
 
 export function EnvDeleteTag(id: string): $CancellablePromise<void> {
     return $Call.ByID(2238017762, id);
 }
 
-export function EnvListTags(): $CancellablePromise<environments$0.Tag[] | null> {
-    return $Call.ByID(1587675964);
+export function EnvListTags(): $CancellablePromise<environments$0.Tag[]> {
+    return $Call.ByID(1587675964).then(($result: any) => {
+        return $$createType46($result);
+    });
 }
 
 export function EnvUpdateTag(id: string, requiresConfirmation: boolean): $CancellablePromise<environments$0.Tag> {
-    return $Call.ByID(868902444, id, requiresConfirmation);
+    return $Call.ByID(868902444, id, requiresConfirmation).then(($result: any) => {
+        return $$createType45($result);
+    });
 }
 
 export function ExecuteCommand(request: $models.ExecuteCommandRequest): $CancellablePromise<any> {
@@ -385,7 +480,19 @@ export function InteractionDeny(id: string): $CancellablePromise<void> {
  * mounted.
  */
 export function InteractionPending(): $CancellablePromise<interaction$0.Pending | null> {
-    return $Call.ByID(4067819829);
+    return $Call.ByID(4067819829).then(($result: any) => {
+        return $$createType48($result);
+    });
+}
+
+/**
+ * InteractionPendingList returns every pending interaction, oldest first,
+ * each tagged with its caller. InteractionHost renders this as a queue.
+ */
+export function InteractionPendingList(): $CancellablePromise<interaction$0.Pending[]> {
+    return $Call.ByID(770046737).then(($result: any) => {
+        return $$createType49($result);
+    });
 }
 
 export function KafkaConnect(id: string): $CancellablePromise<void> {
@@ -393,11 +500,15 @@ export function KafkaConnect(id: string): $CancellablePromise<void> {
 }
 
 export function KafkaConnectionStatus(): $CancellablePromise<kafka$0.ConnectionStatus> {
-    return $Call.ByID(1654559250);
+    return $Call.ByID(1654559250).then(($result: any) => {
+        return $$createType50($result);
+    });
 }
 
 export function KafkaCreateProfile(input: kafka$0.CreateProfileInput): $CancellablePromise<kafka$0.ProfileSummary> {
-    return $Call.ByID(709139881, input);
+    return $Call.ByID(709139881, input).then(($result: any) => {
+        return $$createType51($result);
+    });
 }
 
 export function KafkaDeleteProfile(id: string): $CancellablePromise<void> {
@@ -405,39 +516,53 @@ export function KafkaDeleteProfile(id: string): $CancellablePromise<void> {
 }
 
 export function KafkaDescribeTopic(topic: string): $CancellablePromise<kafka$0.TopicDetail> {
-    return $Call.ByID(3537479448, topic);
+    return $Call.ByID(3537479448, topic).then(($result: any) => {
+        return $$createType52($result);
+    });
 }
 
 export function KafkaDisconnect(): $CancellablePromise<void> {
     return $Call.ByID(4081857010);
 }
 
-export function KafkaListConsumerGroups(): $CancellablePromise<kafka$0.ConsumerGroupInfo[] | null> {
-    return $Call.ByID(3356133412);
+export function KafkaListConsumerGroups(): $CancellablePromise<kafka$0.ConsumerGroupInfo[]> {
+    return $Call.ByID(3356133412).then(($result: any) => {
+        return $$createType54($result);
+    });
 }
 
-export function KafkaListProfiles(): $CancellablePromise<kafka$0.ProfileSummary[] | null> {
-    return $Call.ByID(2436126338);
+export function KafkaListProfiles(): $CancellablePromise<kafka$0.ProfileSummary[]> {
+    return $Call.ByID(2436126338).then(($result: any) => {
+        return $$createType55($result);
+    });
 }
 
-export function KafkaListTopics(): $CancellablePromise<kafka$0.TopicInfo[] | null> {
-    return $Call.ByID(986775924);
+export function KafkaListTopics(): $CancellablePromise<kafka$0.TopicInfo[]> {
+    return $Call.ByID(986775924).then(($result: any) => {
+        return $$createType57($result);
+    });
 }
 
-export function KafkaPeekMessages(topic: string, partition: number, limit: number, offset: number): $CancellablePromise<kafka$0.Message[] | null> {
-    return $Call.ByID(1693361375, topic, partition, limit, offset);
+export function KafkaPeekMessages(topic: string, partition: number, limit: number, offset: number): $CancellablePromise<kafka$0.Message[]> {
+    return $Call.ByID(1693361375, topic, partition, limit, offset).then(($result: any) => {
+        return $$createType59($result);
+    });
 }
 
 export function KafkaPublishMessage(req: kafka$0.PublishRequest): $CancellablePromise<kafka$0.PublishResult> {
-    return $Call.ByID(2789352970, req);
+    return $Call.ByID(2789352970, req).then(($result: any) => {
+        return $$createType60($result);
+    });
 }
 
 export function KafkaTestConnection(id: string): $CancellablePromise<void> {
     return $Call.ByID(632043468, id);
 }
 
-export function ListModules(): $CancellablePromise<$models.ModuleDTO[] | null> {
-    return $Call.ByID(3950340155);
+export function ListModules(): $CancellablePromise<$models.ModuleDTO[]> {
+    return $Call.ByID(3950340155).then(($result: any) => {
+        return $$createType62($result);
+    });
 }
 
 export function LockVault(): $CancellablePromise<void> {
@@ -448,8 +573,10 @@ export function McpInstall(agent: string, scope: string, projectPath: string): $
     return $Call.ByID(4083451541, agent, scope, projectPath);
 }
 
-export function McpListAgents(): $CancellablePromise<string[] | null> {
-    return $Call.ByID(2421300);
+export function McpListAgents(): $CancellablePromise<string[]> {
+    return $Call.ByID(2421300).then(($result: any) => {
+        return $$createType9($result);
+    });
 }
 
 export function McpUninstall(agent: string, scope: string, projectPath: string): $CancellablePromise<string> {
@@ -461,11 +588,15 @@ export function McpUninstall(agent: string, scope: string, projectPath: string):
  * overwrites the note, and an agent should not be able to roll one back.
  */
 export function NotesCheckpoint(id: string): $CancellablePromise<notes$0.Version> {
-    return $Call.ByID(296805781, id);
+    return $Call.ByID(296805781, id).then(($result: any) => {
+        return $$createType63($result);
+    });
 }
 
-export function NotesCreate(title: string, body: string, folderID: string, tags: string[] | null): $CancellablePromise<notes$0.Summary> {
-    return $Call.ByID(1729685215, title, body, folderID, tags);
+export function NotesCreate(title: string, body: string, folderID: string, tags: string[]): $CancellablePromise<notes$0.Summary> {
+    return $Call.ByID(1729685215, title, body, folderID, tags).then(($result: any) => {
+        return $$createType64($result);
+    });
 }
 
 export function NotesDelete(id: string): $CancellablePromise<void> {
@@ -476,36 +607,48 @@ export function NotesEmptyTrash(): $CancellablePromise<number> {
     return $Call.ByID(2441565790);
 }
 
-export function NotesFolderCreate(name: string, color: string, tags: string[] | null): $CancellablePromise<notes$0.Folder> {
-    return $Call.ByID(4053102515, name, color, tags);
+export function NotesFolderCreate(name: string, color: string, tags: string[]): $CancellablePromise<notes$0.Folder> {
+    return $Call.ByID(4053102515, name, color, tags).then(($result: any) => {
+        return $$createType65($result);
+    });
 }
 
 export function NotesFolderDelete(id: string): $CancellablePromise<void> {
     return $Call.ByID(2045565056, id);
 }
 
-export function NotesFolderList(): $CancellablePromise<notes$0.Folder[] | null> {
-    return $Call.ByID(1235537003);
+export function NotesFolderList(): $CancellablePromise<notes$0.Folder[]> {
+    return $Call.ByID(1235537003).then(($result: any) => {
+        return $$createType66($result);
+    });
 }
 
-export function NotesFolderUpdate(id: string, name: string, color: string, tags: string[] | null): $CancellablePromise<notes$0.Folder> {
-    return $Call.ByID(2381677954, id, name, color, tags);
+export function NotesFolderUpdate(id: string, name: string, color: string, tags: string[]): $CancellablePromise<notes$0.Folder> {
+    return $Call.ByID(2381677954, id, name, color, tags).then(($result: any) => {
+        return $$createType65($result);
+    });
 }
 
 export function NotesGet(id: string): $CancellablePromise<notes$0.Note> {
-    return $Call.ByID(1051925601, id);
+    return $Call.ByID(1051925601, id).then(($result: any) => {
+        return $$createType67($result);
+    });
 }
 
 /**
  * NotesGetVersion returns the snapshot body so the diff view can compare it
  * with what is on screen.
  */
-export function NotesGetVersion(versionID: string): $CancellablePromise<{ [_ in string]?: string } | null> {
-    return $Call.ByID(3503758891, versionID);
+export function NotesGetVersion(versionID: string): $CancellablePromise<{ [_ in string]?: string }> {
+    return $Call.ByID(3503758891, versionID).then(($result: any) => {
+        return $$createType68($result);
+    });
 }
 
-export function NotesList(): $CancellablePromise<notes$0.Summary[] | null> {
-    return $Call.ByID(3703031295);
+export function NotesList(): $CancellablePromise<notes$0.Summary[]> {
+    return $Call.ByID(3703031295).then(($result: any) => {
+        return $$createType69($result);
+    });
 }
 
 /**
@@ -514,16 +657,22 @@ export function NotesList(): $CancellablePromise<notes$0.Summary[] | null> {
  * where a mistake cannot be walked back, so it is reachable from the Trash
  * screen and nowhere else.
  */
-export function NotesListBacklinks(id: string): $CancellablePromise<notes$0.Summary[] | null> {
-    return $Call.ByID(2442974401, id);
+export function NotesListBacklinks(id: string): $CancellablePromise<notes$0.Summary[]> {
+    return $Call.ByID(2442974401, id).then(($result: any) => {
+        return $$createType69($result);
+    });
 }
 
-export function NotesListTrash(): $CancellablePromise<notes$0.TrashedNote[] | null> {
-    return $Call.ByID(1408023595);
+export function NotesListTrash(): $CancellablePromise<notes$0.TrashedNote[]> {
+    return $Call.ByID(1408023595).then(($result: any) => {
+        return $$createType71($result);
+    });
 }
 
-export function NotesListVersions(id: string): $CancellablePromise<notes$0.Version[] | null> {
-    return $Call.ByID(2997584918, id);
+export function NotesListVersions(id: string): $CancellablePromise<notes$0.Version[]> {
+    return $Call.ByID(2997584918, id).then(($result: any) => {
+        return $$createType72($result);
+    });
 }
 
 export function NotesPurge(id: string): $CancellablePromise<void> {
@@ -535,8 +684,10 @@ export function NotesPurge(id: string): $CancellablePromise<void> {
  * resolved at render time, so renaming a note updates every link to it without
  * rewriting a single body.
  */
-export function NotesResolveLinks(ids: string[] | null): $CancellablePromise<notes$0.LinkTarget[] | null> {
-    return $Call.ByID(3861003058, ids);
+export function NotesResolveLinks(ids: string[]): $CancellablePromise<notes$0.LinkTarget[]> {
+    return $Call.ByID(3861003058, ids).then(($result: any) => {
+        return $$createType74($result);
+    });
 }
 
 export function NotesRestore(id: string): $CancellablePromise<void> {
@@ -544,19 +695,27 @@ export function NotesRestore(id: string): $CancellablePromise<void> {
 }
 
 export function NotesRestoreVersion(id: string, versionID: string): $CancellablePromise<notes$0.Note> {
-    return $Call.ByID(1097877121, id, versionID);
+    return $Call.ByID(1097877121, id, versionID).then(($result: any) => {
+        return $$createType67($result);
+    });
 }
 
-export function NotesSearch(query: string): $CancellablePromise<notes$0.Summary[] | null> {
-    return $Call.ByID(4193008759, query);
+export function NotesSearch(query: string): $CancellablePromise<notes$0.Summary[]> {
+    return $Call.ByID(4193008759, query).then(($result: any) => {
+        return $$createType69($result);
+    });
 }
 
-export function NotesSetOrganization(id: string, folderID: string, tags: string[] | null, color: string): $CancellablePromise<notes$0.Summary> {
-    return $Call.ByID(1217687938, id, folderID, tags, color);
+export function NotesSetOrganization(id: string, folderID: string, tags: string[], color: string): $CancellablePromise<notes$0.Summary> {
+    return $Call.ByID(1217687938, id, folderID, tags, color).then(($result: any) => {
+        return $$createType64($result);
+    });
 }
 
 export function NotesUpdate(id: string, title: string, body: string): $CancellablePromise<notes$0.Note> {
-    return $Call.ByID(3274258150, id, title, body);
+    return $Call.ByID(3274258150, id, title, body).then(($result: any) => {
+        return $$createType67($result);
+    });
 }
 
 export function PreferencesGetTheme(): $CancellablePromise<preferences$0.Theme> {
@@ -568,23 +727,31 @@ export function PreferencesSetTheme(theme: preferences$0.Theme): $CancellablePro
 }
 
 export function SSHActiveProfile(): $CancellablePromise<$models.ActiveProfileDTO> {
-    return $Call.ByID(3462748943);
+    return $Call.ByID(3462748943).then(($result: any) => {
+        return $$createType25($result);
+    });
 }
 
 export function SSHCreateProfile(input: ssh$0.CreateProfileInput): $CancellablePromise<ssh$0.ProfileSummary> {
-    return $Call.ByID(287245993, input);
+    return $Call.ByID(287245993, input).then(($result: any) => {
+        return $$createType75($result);
+    });
 }
 
 export function SSHDeleteProfile(id: string): $CancellablePromise<void> {
     return $Call.ByID(4047570572, id);
 }
 
-export function SSHListForwards(): $CancellablePromise<ssh$0.ForwardInfo[] | null> {
-    return $Call.ByID(254600186);
+export function SSHListForwards(): $CancellablePromise<ssh$0.ForwardInfo[]> {
+    return $Call.ByID(254600186).then(($result: any) => {
+        return $$createType77($result);
+    });
 }
 
-export function SSHListProfiles(): $CancellablePromise<ssh$0.ProfileSummary[] | null> {
-    return $Call.ByID(1465248130);
+export function SSHListProfiles(): $CancellablePromise<ssh$0.ProfileSummary[]> {
+    return $Call.ByID(1465248130).then(($result: any) => {
+        return $$createType78($result);
+    });
 }
 
 export function SSHObserveHostKey(id: string): $CancellablePromise<string> {
@@ -592,7 +759,9 @@ export function SSHObserveHostKey(id: string): $CancellablePromise<string> {
 }
 
 export function SSHRunCommand(id: string, command: string, passphrase: string): $CancellablePromise<ssh$0.CommandResult> {
-    return $Call.ByID(3148248618, id, command, passphrase);
+    return $Call.ByID(3148248618, id, command, passphrase).then(($result: any) => {
+        return $$createType79($result);
+    });
 }
 
 export function SSHSetActiveProfile(id: string): $CancellablePromise<void> {
@@ -605,7 +774,9 @@ export function SSHSetActiveProfile(id: string): $CancellablePromise<void> {
  * execution because it creates a long-lived network path.
  */
 export function SSHStartForward(id: string, spec: ssh$0.ForwardSpec, passphrase: string): $CancellablePromise<ssh$0.ForwardInfo> {
-    return $Call.ByID(4195262953, id, spec, passphrase);
+    return $Call.ByID(4195262953, id, spec, passphrase).then(($result: any) => {
+        return $$createType76($result);
+    });
 }
 
 export function SSHStopForward(id: string): $CancellablePromise<void> {
@@ -631,11 +802,15 @@ export function SetupVault(masterPassword: string): $CancellablePromise<string> 
 }
 
 export function SyncConflictDetail(id: string): $CancellablePromise<$models.SyncConflictDetailDTO> {
-    return $Call.ByID(529548970, id);
+    return $Call.ByID(529548970, id).then(($result: any) => {
+        return $$createType80($result);
+    });
 }
 
-export function SyncConflicts(): $CancellablePromise<$models.SyncConflictDTO[] | null> {
-    return $Call.ByID(2482308472);
+export function SyncConflicts(): $CancellablePromise<$models.SyncConflictDTO[]> {
+    return $Call.ByID(2482308472).then(($result: any) => {
+        return $$createType82($result);
+    });
 }
 
 /**
@@ -650,12 +825,16 @@ export function SyncDisconnect(): $CancellablePromise<void> {
     return $Call.ByID(3041152959);
 }
 
-export function SyncListDevices(): $CancellablePromise<$models.SyncDeviceDTO[] | null> {
-    return $Call.ByID(915810032);
+export function SyncListDevices(): $CancellablePromise<$models.SyncDeviceDTO[]> {
+    return $Call.ByID(915810032).then(($result: any) => {
+        return $$createType84($result);
+    });
 }
 
 export function SyncNow(): $CancellablePromise<$models.SyncReportDTO> {
-    return $Call.ByID(2828019723);
+    return $Call.ByID(2828019723).then(($result: any) => {
+        return $$createType85($result);
+    });
 }
 
 export function SyncResolveConflict(id: string, strategy: string, mergedText: string): $CancellablePromise<void> {
@@ -667,7 +846,9 @@ export function SyncRevokeDevice(targetDeviceID: string): $CancellablePromise<vo
 }
 
 export function SyncStatus(): $CancellablePromise<$models.SyncStatusDTO> {
-    return $Call.ByID(1672945227);
+    return $Call.ByID(1672945227).then(($result: any) => {
+        return $$createType86($result);
+    });
 }
 
 export function TerminalClose(sessionID: string): $CancellablePromise<void> {
@@ -678,7 +859,7 @@ export function TerminalResize(sessionID: string, rows: number, cols: number): $
     return $Call.ByID(3976446670, sessionID, rows, cols);
 }
 
-export function TerminalWrite(sessionID: string, data: string | null): $CancellablePromise<void> {
+export function TerminalWrite(sessionID: string, data: string): $CancellablePromise<void> {
     return $Call.ByID(4022930037, sessionID, data);
 }
 
@@ -703,10 +884,106 @@ export function UnlockVaultWithRecovery(recoveryKey: string): $CancellablePromis
  * It runs on metadata only, so it works while the vault is locked, and never
  * returns secret payloads.
  */
-export function VaultSearch(query: string): $CancellablePromise<$models.VaultSearchResult[] | null> {
-    return $Call.ByID(3232671278, query);
+export function VaultSearch(query: string): $CancellablePromise<$models.VaultSearchResult[]> {
+    return $Call.ByID(3232671278, query).then(($result: any) => {
+        return $$createType88($result);
+    });
 }
 
 export function VaultStatus(): $CancellablePromise<$models.VaultStatusDTO> {
-    return $Call.ByID(252340320);
+    return $Call.ByID(252340320).then(($result: any) => {
+        return $$createType89($result);
+    });
 }
+
+// Private type creation functions
+const $$createType0 = agenthub$0.AgentSession.createFrom;
+const $$createType1 = agenthub$0.InvokeResult.createFrom;
+const $$createType2 = $Create.Array($$createType0);
+const $$createType3 = $Create.Array($Create.Any);
+const $$createType4 = agenthub$0.PendingPermission.createFrom;
+const $$createType5 = $Create.Array($$createType4);
+const $$createType6 = $models.AuthStatusDTO.createFrom;
+const $$createType7 = $Create.Map($Create.Any, $Create.Any);
+const $$createType8 = codegraph$0.ApiFlow.createFrom;
+const $$createType9 = $Create.Array($Create.Any);
+const $$createType10 = codegraph$0.CodeSnippet.createFrom;
+const $$createType11 = codegraph$0.Subgraph.createFrom;
+const $$createType12 = codegraph$0.PlanProgress.createFrom;
+const $$createType13 = codegraph$0.Plan.createFrom;
+const $$createType14 = codegraph$0.Endpoint.createFrom;
+const $$createType15 = $Create.Array($$createType14);
+const $$createType16 = codegraph$0.FieldRef.createFrom;
+const $$createType17 = $Create.Array($$createType16);
+const $$createType18 = codegraph$0.FileEntry.createFrom;
+const $$createType19 = $Create.Array($$createType18);
+const $$createType20 = codegraph$0.PlanComment.createFrom;
+const $$createType21 = $Create.Array($$createType20);
+const $$createType22 = codegraph$0.SymbolMatch.createFrom;
+const $$createType23 = $Create.Array($$createType22);
+const $$createType24 = codegraph$0.DataFlowTrace.createFrom;
+const $$createType25 = $models.ActiveProfileDTO.createFrom;
+const $$createType26 = database$0.ProfileSummary.createFrom;
+const $$createType27 = database$0.QueryPlan.createFrom;
+const $$createType28 = database$0.SchemaSnapshot.createFrom;
+const $$createType29 = database$0.SessionRow.createFrom;
+const $$createType30 = $Create.Array($$createType29);
+const $$createType31 = database$0.ColumnInfo.createFrom;
+const $$createType32 = $Create.Array($$createType31);
+const $$createType33 = database$0.ForeignKey.createFrom;
+const $$createType34 = $Create.Array($$createType33);
+const $$createType35 = database$0.IndexInfo.createFrom;
+const $$createType36 = $Create.Array($$createType35);
+const $$createType37 = $Create.Array($$createType26);
+const $$createType38 = database$0.HistoryEntry.createFrom;
+const $$createType39 = $Create.Array($$createType38);
+const $$createType40 = database$0.SavedQuery.createFrom;
+const $$createType41 = $Create.Array($$createType40);
+const $$createType42 = database$0.TableInfo.createFrom;
+const $$createType43 = $Create.Array($$createType42);
+const $$createType44 = database$0.QueryResult.createFrom;
+const $$createType45 = environments$0.Tag.createFrom;
+const $$createType46 = $Create.Array($$createType45);
+const $$createType47 = interaction$0.Pending.createFrom;
+const $$createType48 = $Create.Nullable($$createType47);
+const $$createType49 = $Create.Array($$createType47);
+const $$createType50 = kafka$0.ConnectionStatus.createFrom;
+const $$createType51 = kafka$0.ProfileSummary.createFrom;
+const $$createType52 = kafka$0.TopicDetail.createFrom;
+const $$createType53 = kafka$0.ConsumerGroupInfo.createFrom;
+const $$createType54 = $Create.Array($$createType53);
+const $$createType55 = $Create.Array($$createType51);
+const $$createType56 = kafka$0.TopicInfo.createFrom;
+const $$createType57 = $Create.Array($$createType56);
+const $$createType58 = kafka$0.Message.createFrom;
+const $$createType59 = $Create.Array($$createType58);
+const $$createType60 = kafka$0.PublishResult.createFrom;
+const $$createType61 = $models.ModuleDTO.createFrom;
+const $$createType62 = $Create.Array($$createType61);
+const $$createType63 = notes$0.Version.createFrom;
+const $$createType64 = notes$0.Summary.createFrom;
+const $$createType65 = notes$0.Folder.createFrom;
+const $$createType66 = $Create.Array($$createType65);
+const $$createType67 = notes$0.Note.createFrom;
+const $$createType68 = $Create.Map($Create.Any, $Create.Any);
+const $$createType69 = $Create.Array($$createType64);
+const $$createType70 = notes$0.TrashedNote.createFrom;
+const $$createType71 = $Create.Array($$createType70);
+const $$createType72 = $Create.Array($$createType63);
+const $$createType73 = notes$0.LinkTarget.createFrom;
+const $$createType74 = $Create.Array($$createType73);
+const $$createType75 = ssh$0.ProfileSummary.createFrom;
+const $$createType76 = ssh$0.ForwardInfo.createFrom;
+const $$createType77 = $Create.Array($$createType76);
+const $$createType78 = $Create.Array($$createType75);
+const $$createType79 = ssh$0.CommandResult.createFrom;
+const $$createType80 = $models.SyncConflictDetailDTO.createFrom;
+const $$createType81 = $models.SyncConflictDTO.createFrom;
+const $$createType82 = $Create.Array($$createType81);
+const $$createType83 = $models.SyncDeviceDTO.createFrom;
+const $$createType84 = $Create.Array($$createType83);
+const $$createType85 = $models.SyncReportDTO.createFrom;
+const $$createType86 = $models.SyncStatusDTO.createFrom;
+const $$createType87 = $models.VaultSearchResult.createFrom;
+const $$createType88 = $Create.Array($$createType87);
+const $$createType89 = $models.VaultStatusDTO.createFrom;

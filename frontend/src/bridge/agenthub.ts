@@ -59,6 +59,9 @@ export type PendingPermission = {
   id: string;
   sessionId: string;
   params: unknown;
+  caller: string;
+  title: string;
+  depth: number;
 };
 
 export type PermissionOption = {
@@ -233,7 +236,25 @@ function parsePermission(data: unknown): PendingPermission | null {
     id,
     sessionId,
     params: record.params ?? record.Params ?? null,
+    caller: typeof record.caller === "string" ? record.caller : `agent:${sessionId}`,
+    title: typeof record.title === "string" ? record.title : "",
+    depth: typeof record.depth === "number" ? record.depth : 0,
   };
+}
+
+export function agentHubPendingPermissions(): Promise<PendingPermission[]> {
+  return callBridge(async () => {
+    const list = (await AppService.AgentHubPendingPermissions()) ?? [];
+    return list
+      .map((raw) =>
+        parsePermission({
+          id: (raw as any).ID ?? raw.id,
+          sessionId: (raw as any).SessionID ?? raw.sessionId,
+          params: (raw as any).Params ?? raw.params,
+        }),
+      )
+      .filter((p): p is PendingPermission => p !== null);
+  });
 }
 
 export function onAgentHubSessionUpdate(

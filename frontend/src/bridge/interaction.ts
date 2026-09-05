@@ -12,6 +12,7 @@ export type PendingInteraction = {
   tool: string;
   summary: string;
   allowAlwaysOffered: boolean;
+  caller: string;
 };
 
 function toPending(raw: {
@@ -22,6 +23,7 @@ function toPending(raw: {
   tool?: string;
   summary?: string;
   allowAlwaysOffered?: boolean;
+  caller?: string;
 } | null): PendingInteraction | null {
   if (!raw) {
     return null;
@@ -39,6 +41,7 @@ function toPending(raw: {
     tool: raw.tool ?? "",
     summary: raw.summary ?? "",
     allowAlwaysOffered: Boolean(raw.allowAlwaysOffered),
+    caller: raw.caller ?? "",
   };
 }
 
@@ -46,6 +49,15 @@ export function getInteractionPending(): Promise<PendingInteraction | null> {
   return callBridge(async () => {
     const pending = await AppService.InteractionPending();
     return toPending(pending);
+  });
+}
+
+export function getInteractionPendingList(): Promise<PendingInteraction[]> {
+  return callBridge(async () => {
+    const list = (await AppService.InteractionPendingList()) ?? [];
+    return list
+      .map((raw) => toPending(raw))
+      .filter((p): p is PendingInteraction => p !== null);
   });
 }
 

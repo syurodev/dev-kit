@@ -51,6 +51,7 @@ type AgentSessionsState = {
    */
   transcripts: Record<string, TranscriptState>;
   pending: PendingPermission | null;
+  pendingQueue: PendingPermission[];
   /** Whether the shell is showing the conversation in the companion slot. */
   chatOpen: boolean;
   setSessions: (sessions: AgentSession[]) => void;
@@ -62,7 +63,8 @@ type AgentSessionsState = {
     sessionId: string,
     updater: (prev: TranscriptLine[]) => TranscriptLine[],
   ) => void;
-  setPending: (pending: PendingPermission | null) => void;
+  enqueuePending: (pending: PendingPermission) => void;
+  dequeuePending: (id: string) => void;
   setChatOpen: (open: boolean) => void;
 };
 
@@ -71,6 +73,7 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set) => ({
   activeSessionId: "",
   transcripts: {},
   pending: null,
+  pendingQueue: [],
   chatOpen: false,
   setSessions: (sessions) => set({ sessions }),
   upsertSession: (session) =>
@@ -105,6 +108,18 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set) => ({
         },
       };
     }),
-  setPending: (pending) => set({ pending }),
+  enqueuePending: (pending) =>
+    set((state) => {
+      if (state.pendingQueue.some((p) => p.id === pending.id)) {
+        return {};
+      }
+      const pendingQueue = [...state.pendingQueue, pending];
+      return { pendingQueue, pending: state.pending ?? pending };
+    }),
+  dequeuePending: (id) =>
+    set((state) => {
+      const pendingQueue = state.pendingQueue.filter((p) => p.id !== id);
+      return { pendingQueue, pending: pendingQueue[0] ?? null };
+    }),
   setChatOpen: (open) => set({ chatOpen: open }),
 }));

@@ -30,7 +30,7 @@ export function AgentHubView() {
   const setPrompt = useAgentSessionsStore((state) => state.setPrompt);
   const updateLines = useAgentSessionsStore((state) => state.updateLines);
   const pending = useAgentSessionsStore((state) => state.pending);
-  const setPending = useAgentSessionsStore((state) => state.setPending);
+  const dequeuePending = useAgentSessionsStore((state) => state.dequeuePending);
 
   const [vendors, setVendors] = useState<string[]>(DEFAULT_VENDORS);
   const [vendor, setVendor] = useState<string>("mock");
@@ -107,7 +107,7 @@ export function AgentHubView() {
           ? cancelledPermissionOutcome()
           : selectedPermissionOutcome(optionId);
       await agentHubResolvePermission(pending.id, outcome);
-      setPending(null);
+      dequeuePending(pending.id);
       try {
         upsertSession(await agentHubGetStatus(pending.sessionId));
       } catch (e) {
@@ -202,8 +202,11 @@ export function AgentHubView() {
           >
             <h3>{permissionToolTitle(pending.params)}</h3>
             <p>
-              Session <code>{pending.sessionId.slice(0, 8)}</code> needs a
-              permission decision.
+              Agent <strong>{pending.title || pending.sessionId.slice(0, 8)}</strong>
+              {" "}(depth {pending.depth}) needs a permission decision.
+              {useAgentSessionsStore.getState().pendingQueue.length > 1
+                ? ` ${useAgentSessionsStore.getState().pendingQueue.length - 1} more waiting.`
+                : ""}
             </p>
             <pre className="agenthub-permission-params">
               {safeJson(pending.params)}

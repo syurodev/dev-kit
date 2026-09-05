@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import {
   agentHubGetStatus,
   agentHubListAgents,
+  agentHubPendingPermissions,
   onAgentHubPermission,
   onAgentHubSessionUpdate,
 } from "../bridge/agenthub";
@@ -17,7 +18,7 @@ export function AgentSessionsSubscriber() {
   const setSessions = useAgentSessionsStore((state) => state.setSessions);
   const upsertSession = useAgentSessionsStore((state) => state.upsertSession);
   const updateLines = useAgentSessionsStore((state) => state.updateLines);
-  const setPending = useAgentSessionsStore((state) => state.setPending);
+  const enqueuePending = useAgentSessionsStore((state) => state.enqueuePending);
 
   useEffect(() => {
     let mounted = true;
@@ -31,10 +32,19 @@ export function AgentSessionsSubscriber() {
         // No sessions yet, or the hub is unavailable — sidebar just shows
         // no Agent Hub badge, same as an empty session list.
       });
+    agentHubPendingPermissions()
+      .then((list) => {
+        if (mounted) {
+          list.forEach((p) => enqueuePending(p));
+        }
+      })
+      .catch(() => {
+        // Hub unavailable — no prompts to restore.
+      });
     return () => {
       mounted = false;
     };
-  }, [setSessions]);
+  }, [setSessions, enqueuePending]);
 
   /**
    * The transcript stream. This used to be subscribed inside AgentHubView,
@@ -51,7 +61,7 @@ export function AgentSessionsSubscriber() {
 
   useEffect(() => {
     return onAgentHubPermission(async (pending) => {
-      setPending(pending);
+      enqueuePending(pending);
       const session = useAgentSessionsStore
         .getState()
         .sessions.find((s) => s.id === pending.sessionId);
@@ -69,7 +79,7 @@ export function AgentSessionsSubscriber() {
         // Hub unavailable or session gone — nothing to show.
       }
     });
-  }, [upsertSession, setPending]);
+  }, [upsertSession, enqueuePending]);
 
   return null;
 }
