@@ -14,15 +14,19 @@ import (
 
 	"devkit/internal/agenthub"
 	"devkit/internal/app"
+	"devkit/internal/audit"
 	"devkit/internal/auth"
 	"devkit/internal/bridge"
+	"devkit/internal/capabilities"
 	"devkit/internal/cloudconfig"
 	"devkit/internal/codegraph"
 	"devkit/internal/database"
-	"devkit/internal/notes"
 	"devkit/internal/environments"
+	"devkit/internal/identity"
 	"devkit/internal/interaction"
 	"devkit/internal/mcp"
+	"devkit/internal/mcp/install"
+	"devkit/internal/notes"
 	"devkit/internal/preferences"
 	"devkit/internal/servermode"
 
@@ -104,6 +108,15 @@ func main() {
 	container.Notes.SetLinkIndex(notes.NewSQLLinkIndex(db))
 	container.Preferences = preferences.NewService(preferences.NewSQLRepository(db))
 	container.UIState = uistate.NewService(uistate.NewSQLRepository(db))
+	// Audit persists to SQLite (audit_events); the in-memory sink stays as the
+	// diagnostic view and the fallback when a write fails. Rebuild the gateway
+	// here, before RegisterBuiltins / NewAppService capture it.
+	auditSQL := audit.NewSQLSink(db, storage.TableAuditEvents, container.Audit)
+	defer auditSQL.Close()
+	container.Capabilities = capabilities.NewGateway(container.Permissions, audit.NewTee(container.Audit, auditSQL))
+	if err := auditSQL.Prune(context.Background()); err != nil {
+		log.Printf("audit: prune: %v", err)
+	}
 	themePreference, err := container.Preferences.Theme()
 	if err != nil {
 		log.Fatal(err)
@@ -204,11 +217,23 @@ func main() {
 	agentReg.Register(agenthub.NewMockAdapter())
 	agentReg.Register(agenthub.NewClaudeAdapter(agenthub.ClaudeOptions{AllowNpx: true}))
 	agentWaiter := agenthub.NewPermissionWaiter(func(p agenthub.PendingPermission) {
-		emitAppEvent("agenthub:permission", map[string]any{
+		payload := map[string]any{
 			"id":        p.ID,
 			"sessionId": p.SessionID,
 			"params":    rawJSON(p.Params),
-		})
+			"caller":    identity.Agent(p.SessionID).String(),
+		}
+		// Title/depth let the prompt say which agent is asking; the hub
+		// service is assigned a few lines below and exists by prompt time.
+		if container.AgentHub != nil {
+			if sess, err := container.AgentHub.GetStatus(context.Background(), p.SessionID); err == nil {
+				if sess.Title != nil {
+					payload["title"] = *sess.Title
+				}
+				payload["depth"] = sess.Depth
+			}
+		}
+		emitAppEvent("agenthub:permission", payload)
 	})
 	agentSvc := agenthub.NewService(agentReg, agenthub.NewSQLStore(db), func(sessionID string, update json.RawMessage) {
 		emitAppEvent("agenthub:sessionUpdate", map[string]any{
@@ -270,6 +295,7 @@ func main() {
 	// and Completes via the bridge. Share one Hub between MCP and bridge.
 	hub := interaction.NewHub(interaction.NoopPrompter{})
 	container.Interaction = hub
+	agentSvc.OnSessionClosed = func(id string) { hub.ForgetCaller(identity.Agent(id).String()) }
 	var mainWindow application.Window
 	appService := bridge.NewAppService(container, func(theme preferences.Theme) error {
 		return applyNativeTheme(mainWindow, theme)
@@ -299,6 +325,20 @@ func main() {
 			log.Printf("mcp host: %v", err)
 		}
 	}()
+
+	// Per-session identity-bound sockets for Agent Hub. A missing proxy is
+	// logged here and surfaces as ErrProxyNotFound on CreateSession.
+	agentsDir := mcp.AgentsDir(sockPath)
+	mcp.SweepStaleSockets(agentsDir)
+	proxyPath, err := install.ResolveCommand()
+	if err != nil {
+		log.Printf("agenthub: devkit-mcp proxy not found; agent sessions will fail to open until it is built (task mcp): %v", err)
+		proxyPath = ""
+	}
+	sessionHost := mcp.NewSessionHost(mcpCtx, mcpServer, agentsDir, proxyPath)
+	defer sessionHost.Close()
+	agentSvc.MCPEndpoints = sessionHost
+	auditSQL.PruneLoop(mcpCtx, time.Hour)
 
 	wailsApp := application.New(application.Options{
 		Name:        "DevKit",
@@ -349,9 +389,19 @@ func main() {
 	if resolvedDark {
 		backgroundColour = application.NewRGB(2, 2, 2)
 	}
+	// DEVKIT_OPAQUE_WINDOW=1 keeps the window solid on every platform, so the
+	// UI can be judged on its own colours instead of whatever desktop happens
+	// to be behind it. The frontend needs no counterpart: html/body stay
+	// transparent under .native either way, and the solid colour below is the
+	// same value as --background-app.
+	opaqueWindow := os.Getenv("DEVKIT_OPAQUE_WINDOW") == "1"
+	macBackdrop := application.MacBackdropNormal
 	backgroundType := application.BackgroundTypeSolid
-	if runtime.GOOS == "darwin" {
+	if opaqueWindow {
+		// Nothing to do: solid type, themed colour, normal backdrop.
+	} else if runtime.GOOS == "darwin" {
 		backgroundColour = application.NewRGBA(0, 0, 0, 0)
+		macBackdrop = application.MacBackdropTranslucent
 	} else if nativeBackdropTranslucent() {
 		backgroundColour = application.NewRGBA(0, 0, 0, 0)
 		backgroundType = application.BackgroundTypeTranslucent
@@ -383,7 +433,7 @@ func main() {
 			// no-drag action. The frontend marks the full header as draggable and
 			// opts its interactive children out individually instead.
 			InvisibleTitleBarHeight: 0,
-			Backdrop:                application.MacBackdropTranslucent,
+			Backdrop:                macBackdrop,
 			// Match AppKit's vibrancy, rim and titlebar to the persisted web theme.
 			Appearance: macAppearance,
 			// Hidden avoids the additional NSToolbar used by HiddenInset and
