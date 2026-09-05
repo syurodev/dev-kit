@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"devkit/internal/capabilities"
+	"devkit/internal/identity"
 )
 
 const invalidOpaqueID = "invalid"
@@ -30,6 +31,7 @@ func (s *AppService) call(
 	metadata map[string]any,
 	handler capabilities.Handler,
 ) (any, error) {
+	ctx = callerContext(ctx)
 	result, err := s.container.Capabilities.Call(ctx, capabilities.CallRequest{
 		SubjectID:  subject,
 		Capability: capability,
@@ -41,6 +43,16 @@ func (s *AppService) call(
 		return nil, publicError(subject, err)
 	}
 	return result, nil
+}
+
+// callerContext defaults an unattributed call to the UI: bridge methods are
+// invoked by the desktop frontend, while MCP tool handlers arrive with an
+// agent / user-terminal caller already stamped by internal/mcp and keep it.
+func callerContext(ctx context.Context) context.Context {
+	if _, ok := identity.FromContext(ctx); ok {
+		return ctx
+	}
+	return identity.WithCaller(ctx, identity.UI())
 }
 
 func recordID(value string) string {
