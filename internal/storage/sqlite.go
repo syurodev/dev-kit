@@ -41,6 +41,8 @@ const (
 	// TableNoteLinks indexes note-to-note references. IDs are not content, so
 	// like ui_state and env_tags this sits in plaintext outside the vault.
 	TableNoteLinks = "note_links"
+
+	TableAuditEvents = "audit_events"
 )
 
 var chmodFile = os.Chmod
@@ -650,7 +652,33 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		},
 	}
 
-	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19})
+	m20 := Migration{
+		Version: 20,
+		Name:    "create audit_events",
+		Up: func(ctx context.Context) error {
+			if _, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE TABLE IF NOT EXISTS %s (
+					id INTEGER PRIMARY KEY AUTOINCREMENT,
+					at TEXT NOT NULL,
+					caller TEXT NOT NULL,
+					subject TEXT NOT NULL,
+					capability TEXT NOT NULL,
+					scope TEXT NOT NULL,
+					outcome TEXT NOT NULL,
+					metadata TEXT NOT NULL
+				)`, TableAuditEvents,
+			)); err != nil {
+				return err
+			}
+			_, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE INDEX IF NOT EXISTS idx_audit_events_at ON %s (at)`,
+				TableAuditEvents,
+			))
+			return err
+		},
+	}
+
+	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20})
 	if err != nil {
 		return err
 	}
