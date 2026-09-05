@@ -60,6 +60,7 @@ func GateActiveMCP(
 	if err := effectiveHub(hub).Confirm(ctx, interaction.ConfirmRequest{
 		Env:       envName,
 		Tool:      tool,
+		ProfileID: id,
 		Summary:   summary,
 		Kind:      kind,
 		EnvBlocks: blocks,

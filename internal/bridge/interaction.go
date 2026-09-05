@@ -38,6 +38,24 @@ func (s *AppService) InteractionPending() (*interaction.Pending, error) {
 	return result.(*interaction.Pending), nil
 }
 
+// InteractionPendingList returns every pending interaction, oldest first,
+// each tagged with its caller. InteractionHost renders this as a queue.
+func (s *AppService) InteractionPendingList() ([]interaction.Pending, error) {
+	result, err := s.call(context.Background(), "builtin.interaction", "interaction:respond", "pending", map[string]any{
+		"action": "pending_list",
+	}, func(context.Context) (any, error) {
+		hub, err := s.interactionHub()
+		if err != nil {
+			return nil, err
+		}
+		return hub.PendingList(), nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]interaction.Pending), nil
+}
+
 // InteractionComplete resolves a pending interaction with the given value
 // (profile id, "allow", "allow_always", "deny", or "" for select cancel).
 func (s *AppService) InteractionComplete(id, value string) error {
@@ -65,11 +83,8 @@ func (s *AppService) InteractionDeny(id string) error {
 		if err != nil {
 			return nil, err
 		}
-		p := hub.Pending()
+		p := hub.PendingByID(id)
 		if p == nil {
-			return nil, interaction.ErrNoPendingInteraction
-		}
-		if p.ID != id {
 			return nil, interaction.ErrInvalidInteractionID
 		}
 		value := "deny"

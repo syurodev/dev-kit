@@ -2,10 +2,11 @@ package interaction
 
 import (
 	"context"
-	"errors"
+	"sort"
 	"sync"
 	"time"
 
+	"devkit/internal/identity"
 	"devkit/internal/vaultitem"
 )
 
@@ -47,20 +48,27 @@ type ConfirmRequest struct {
 	Tool    string
 	Summary string
 	Kind    Kind
+	// ProfileID scopes allow_always: a grant on one profile never covers another.
+	ProfileID string
 	// EnvBlocks is true when RequiresConfirmation(env) (incl. fail-closed).
 	// When true, hub ignores allow_always cache and does not offer allow_always.
 	EnvBlocks bool
 }
 
 type Pending struct {
-	ID                 string `json:"id"`
-	Type               Type   `json:"type"`
-	Kind               Kind   `json:"kind,omitempty"`
-	Env                string `json:"env,omitempty"`
-	Tool               string `json:"tool,omitempty"`
-	Summary            string `json:"summary,omitempty"`
-	AllowAlwaysOffered bool   `json:"allowAlwaysOffered"`
+	ID                 string    `json:"id"`
+	Type               Type      `json:"type"`
+	Kind               Kind      `json:"kind,omitempty"`
+	Env                string    `json:"env,omitempty"`
+	Tool               string    `json:"tool,omitempty"`
+	Summary            string    `json:"summary,omitempty"`
+	AllowAlwaysOffered bool      `json:"allowAlwaysOffered"`
+	Caller             string    `json:"caller,omitempty"`
+	CreatedAt          time.Time `json:"createdAt"`
 }
+
+// allowKey scopes an allow_always grant: it never crosses callers, tools or profiles.
+type allowKey struct{ caller, tool, profile string }
 
 type Hub struct {
 	Timeout  time.Duration
@@ -68,8 +76,8 @@ type Hub struct {
 	prompter Prompter
 
 	mu          sync.Mutex
-	pending     *pendingWait
-	allowAlways map[string]struct{} // key = Tool (v1); cleared on process restart only
+	pending     map[string]*pendingWait // by Pending.ID; at most one per caller
+	allowAlways map[allowKey]struct{}   // cleared per caller by ForgetCaller, fully on restart
 }
 
 type pendingWait struct {
@@ -82,43 +90,81 @@ func NewHub(p Prompter) *Hub {
 	return &Hub{
 		Timeout:     DefaultTimeout,
 		prompter:    p,
-		allowAlways: map[string]struct{}{},
+		pending:     map[string]*pendingWait{},
+		allowAlways: map[allowKey]struct{}{},
 	}
 }
 
-func (h *Hub) Pending() *Pending {
+// PendingList returns every pending interaction, oldest first.
+func (h *Hub) PendingList() []Pending {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.pending == nil {
+	out := make([]Pending, 0, len(h.pending))
+	for _, w := range h.pending {
+		out = append(out, w.Pending)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
+	return out
+}
+
+// Pending returns the oldest pending interaction, or nil. Kept for callers
+// that only ever showed one; new code should use PendingList.
+func (h *Hub) Pending() *Pending {
+	list := h.PendingList()
+	if len(list) == 0 {
 		return nil
 	}
-	cp := h.pending.Pending
+	return &list[0]
+}
+
+// PendingByID returns one pending interaction, or nil.
+func (h *Hub) PendingByID(id string) *Pending {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	w, ok := h.pending[id]
+	if !ok {
+		return nil
+	}
+	cp := w.Pending
 	return &cp
 }
 
 func (h *Hub) Complete(id, value string) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.pending == nil || h.pending.finished {
+	if len(h.pending) == 0 {
 		return ErrNoPendingInteraction
 	}
-	if h.pending.ID != id {
+	w, ok := h.pending[id]
+	if !ok || w.finished {
 		return ErrInvalidInteractionID
 	}
 	select {
-	case h.pending.result <- value:
+	case w.result <- value:
+		w.finished = true
 		return nil
 	default:
 		return ErrNoPendingInteraction
 	}
 }
 
+// ForgetCaller drops every allow_always grant held by caller (a closed agent session).
+func (h *Hub) ForgetCaller(caller string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for key := range h.allowAlways {
+		if key.caller == caller {
+			delete(h.allowAlways, key)
+		}
+	}
+}
+
 func (h *Hub) invalidatePending(id string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.pending != nil && h.pending.ID == id {
-		h.pending.finished = true
-		h.pending = nil
+	if w, ok := h.pending[id]; ok {
+		w.finished = true
+		delete(h.pending, id)
 	}
 }
 
@@ -138,10 +184,11 @@ func (h *Hub) Confirm(ctx context.Context, req ConfirmRequest) error {
 	if h.Headless || h.prompter == nil {
 		return ErrConfirmationRequired
 	}
+	key := allowKey{caller: identity.Label(ctx), tool: req.Tool, profile: req.ProfileID}
 	// Env block always wins: never short-circuit on allow_always.
 	if !req.EnvBlocks {
 		h.mu.Lock()
-		_, ok := h.allowAlways[req.Tool]
+		_, ok := h.allowAlways[key]
 		h.mu.Unlock()
 		if ok {
 			return nil
@@ -160,7 +207,7 @@ func (h *Hub) Confirm(ctx context.Context, req ConfirmRequest) error {
 				return "allow", nil
 			}
 			h.mu.Lock()
-			h.allowAlways[req.Tool] = struct{}{}
+			h.allowAlways[key] = struct{}{}
 			h.mu.Unlock()
 			return v, nil
 		default:
@@ -176,21 +223,21 @@ func (h *Hub) wait(ctx context.Context, p Pending, mapResult func(string) (strin
 		return "", err
 	}
 	p.ID = id
+	p.Caller = identity.Label(ctx)
+	p.CreatedAt = time.Now().UTC()
 	resCh := make(chan string, 1)
 
 	h.mu.Lock()
-	if h.pending != nil {
-		h.mu.Unlock()
-		return "", errors.New("another interaction is already pending")
+	for _, w := range h.pending {
+		if w.Caller == p.Caller {
+			h.mu.Unlock()
+			return "", ErrCallerBusy
+		}
 	}
-	h.pending = &pendingWait{Pending: p, result: resCh}
+	h.pending[id] = &pendingWait{Pending: p, result: resCh}
 	h.mu.Unlock()
 
-	defer func() {
-		h.mu.Lock()
-		h.pending = nil
-		h.mu.Unlock()
-	}()
+	defer h.invalidatePending(id)
 
 	if err := h.prompter.Prompt(p); err != nil {
 		return "", err
@@ -205,10 +252,8 @@ func (h *Hub) wait(ctx context.Context, p Pending, mapResult func(string) (strin
 
 	select {
 	case <-ctx.Done():
-		h.invalidatePending(id)
 		return "", ctx.Err()
 	case <-timer.C:
-		h.invalidatePending(id)
 		return "", ErrInteractionTimeout
 	case v := <-resCh:
 		return mapResult(v)
