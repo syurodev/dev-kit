@@ -17,30 +17,30 @@ const planFQNInstruction = "Implement each node using EXACTLY the package, class
 	"Progress is tracked by matching these names against the real index — a different name is reported as not implemented. " +
 	"If you must use a different name, call codegraph.relinkPlanNode to repoint the plan node first."
 
-func (s *Server) registerCodeGraphPlan() {
-	sdk.AddTool(s.mcp, &sdk.Tool{
+func (s *Server) registerCodeGraphPlan(ms *sdk.Server) {
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "codegraph.proposeFlow",
 		Description: "Propose a draft flow of intended classes/methods for a new feature, for a human to review and approve",
 	}, s.toolCodeGraphProposeFlow)
 
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "codegraph.getPlannedFlow",
 		Description: "Get the active plan's nodes (with the exact FQNs to create), edges, and conditions",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolCodeGraphGetPlannedFlow)
 
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "codegraph.getPlanProgress",
 		Description: "Get per-node implementation status and the overall plan status, diffed against the current index",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolCodeGraphGetPlanProgress)
 
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "codegraph.relinkPlanNode",
 		Description: "Repoint one plan node at a different fully-qualified name, after a deliberate rename",
 	}, s.toolCodeGraphRelinkPlanNode)
 
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name: "codegraph.replyPlanNode",
 		Description: "Reply to a comment thread on a plan node. Text only — it changes no code and " +
 			"has no effect until a person reads it.",

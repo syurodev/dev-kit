@@ -26,14 +26,14 @@ func (s *Server) requireAgentHub() error {
 	return nil
 }
 
-func (s *Server) registerAgentHub() {
-	sdk.AddTool(s.mcp, &sdk.Tool{
+func (s *Server) registerAgentHub(ms *sdk.Server) {
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "agenthub.listAgents",
 		Description: "List Agent Hub sessions",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolAgentHubListAgents)
 
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "agenthub.createAgentSession",
 		Description: "Create a new Agent Hub session",
 		Annotations: &sdk.ToolAnnotations{
@@ -42,7 +42,7 @@ func (s *Server) registerAgentHub() {
 		},
 	}, s.toolAgentHubCreateAgentSession)
 
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "agenthub.invokeAgent",
 		Description: "Invoke a blocking prompt on an Agent Hub session",
 		Annotations: &sdk.ToolAnnotations{
@@ -51,13 +51,13 @@ func (s *Server) registerAgentHub() {
 		},
 	}, s.toolAgentHubInvokeAgent)
 
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "agenthub.getSessionStatus",
 		Description: "Get Agent Hub session status by id",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolAgentHubGetSessionStatus)
 
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "agenthub.cancelAgent",
 		Description: "Cancel an in-flight Agent Hub prompt",
 		Annotations: &sdk.ToolAnnotations{

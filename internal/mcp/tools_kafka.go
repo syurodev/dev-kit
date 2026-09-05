@@ -9,44 +9,44 @@ import (
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func (s *Server) registerKafka() {
-	sdk.AddTool(s.mcp, &sdk.Tool{
+func (s *Server) registerKafka(ms *sdk.Server) {
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "kafka.listProfiles",
 		Description: "List Kafka connection profiles (metadata only)",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolKafkaListProfiles)
 
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "kafka.connectionStatus",
 		Description: "Report whether Kafka is connected and which profile is live",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolKafkaConnectionStatus)
 
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "kafka.listTopics",
 		Description: "List topics on the live Kafka connection (gated)",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolKafkaListTopics)
 
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "kafka.describeTopic",
 		Description: "Describe a Kafka topic on the live connection (gated)",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolKafkaDescribeTopic)
 
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "kafka.peekMessages",
 		Description: "Peek messages from a Kafka topic partition (gated)",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolKafkaPeekMessages)
 
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "kafka.listConsumerGroups",
 		Description: "List Kafka consumer groups on the live connection (gated)",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolKafkaListConsumerGroups)
 
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "kafka.publishMessage",
 		Description: "Publish a message on the live Kafka connection (gated)",
 		Annotations: &sdk.ToolAnnotations{

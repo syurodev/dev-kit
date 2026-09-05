@@ -6,14 +6,14 @@ import (
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func (s *Server) registerVault() {
-	sdk.AddTool(s.mcp, &sdk.Tool{
+func (s *Server) registerVault(ms *sdk.Server) {
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "vault.status",
 		Description: "Report whether the vault is not configured, locked, or unlocked",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolVaultStatus)
 
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "vault.search",
 		Description: "Search vault items by plaintext metadata (works while locked; no secret payloads)",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},

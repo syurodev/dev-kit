@@ -9,6 +9,7 @@ import (
 	"devkit/internal/apperrors"
 	"devkit/internal/capabilities"
 	"devkit/internal/environments"
+	"devkit/internal/identity"
 	"devkit/internal/notes"
 	"devkit/internal/tools"
 	"devkit/internal/vault"
@@ -19,6 +20,7 @@ import (
 type callRecord struct {
 	subject, capability, scope string
 	metadata                   map[string]any
+	caller                     string
 }
 
 type fakeCaller struct {
@@ -37,6 +39,7 @@ func (f *fakeCaller) Call(
 		capability: capability,
 		scope:      scope,
 		metadata:   metadata,
+		caller:     identity.Label(ctx),
 	}
 	if f.err != nil {
 		return nil, f.err

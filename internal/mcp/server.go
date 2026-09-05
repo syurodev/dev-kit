@@ -7,6 +7,7 @@ import (
 	"devkit/internal/codegraph"
 	"devkit/internal/database"
 	"devkit/internal/environments"
+	"devkit/internal/identity"
 	"devkit/internal/interaction"
 	"devkit/internal/kafka"
 	"devkit/internal/notes"
@@ -160,22 +161,41 @@ type Server struct {
 	mcp  *sdk.Server
 }
 
-// NewServer builds an MCP server and registers vault/notes/tools/env/ssh/db/kafka/agenthub tools.
+// NewServer builds the tool registry. The returned Server's MCP() is the
+// user-terminal instance served on the shared socket; SessionHost builds one
+// more instance per agent socket via sdkServerFor.
 func NewServer(d Deps) *Server {
 	s := &Server{deps: d}
-	ms := sdk.NewServer(&sdk.Implementation{Name: "devkit", Version: "0.1.0"}, nil)
-	s.mcp = ms
-	s.registerVault()
-	s.registerNotes()
-	s.registerTools()
-	s.registerEnv()
-	s.registerSSH()
-	s.registerDatabase()
-	s.registerKafka()
-	s.registerAgentHub()
-	s.registerCodeGraph()
-	s.registerCodeGraphPlan()
+	s.mcp = s.sdkServerFor(identity.UserTerminal())
 	return s
+}
+
+// sdkServerFor builds an SDK server whose every request carries caller. One
+// instance per identity — the shared socket gets user-terminal, each agent
+// socket its own — so there is no per-connection lookup to race against.
+func (s *Server) sdkServerFor(caller identity.Caller) *sdk.Server {
+	ms := sdk.NewServer(&sdk.Implementation{Name: "devkit", Version: "0.1.0"}, nil)
+	ms.AddReceivingMiddleware(withCaller(caller))
+	s.registerVault(ms)
+	s.registerNotes(ms)
+	s.registerTools(ms)
+	s.registerEnv(ms)
+	s.registerSSH(ms)
+	s.registerDatabase(ms)
+	s.registerKafka(ms)
+	s.registerAgentHub(ms)
+	s.registerCodeGraph(ms)
+	s.registerCodeGraphPlan(ms)
+	return ms
+}
+
+// withCaller stamps caller on the context of every incoming request.
+func withCaller(c identity.Caller) sdk.Middleware {
+	return func(next sdk.MethodHandler) sdk.MethodHandler {
+		return func(ctx context.Context, method string, req sdk.Request) (sdk.Result, error) {
+			return next(identity.WithCaller(ctx, c), method, req)
+		}
+	}
 }
 
 // MCP returns the underlying SDK server (for ServeConn / proxy wiring).

@@ -6,8 +6,8 @@ import (
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func (s *Server) registerEnv() {
-	sdk.AddTool(s.mcp, &sdk.Tool{
+func (s *Server) registerEnv(ms *sdk.Server) {
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "env.listTags",
 		Description: "List environment tags (dev/stg/prod and custom)",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},

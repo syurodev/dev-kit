@@ -6,26 +6,26 @@ import (
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func (s *Server) registerNotes() {
-	sdk.AddTool(s.mcp, &sdk.Tool{
+func (s *Server) registerNotes(ms *sdk.Server) {
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "notes.list",
 		Description: "List encrypted notes (metadata only)",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolNotesList)
 
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "notes.search",
 		Description: "Search notes by title (and body when unlocked)",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolNotesSearch)
 
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "notes.get",
 		Description: "Get a note by id (decrypts body; requires unlocked vault)",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolNotesGet)
 
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "notes.create",
 		Description: "Create a new encrypted note",
 		Annotations: &sdk.ToolAnnotations{
@@ -34,7 +34,7 @@ func (s *Server) registerNotes() {
 		},
 	}, s.toolNotesCreate)
 
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "notes.update",
 		Description: "Update an existing note's title and body",
 		Annotations: &sdk.ToolAnnotations{
@@ -46,7 +46,7 @@ func (s *Server) registerNotes() {
 	// Deliberately absent: notes.restore, notes.purge, notes.emptyTrash and
 	// notes.listTrash. notes.delete is reversible for 30 days, which is what
 	// makes it safe to hand an agent; the trash operations are not.
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "notes.delete",
 		Description: "Delete a note by id",
 		Annotations: &sdk.ToolAnnotations{
@@ -55,7 +55,7 @@ func (s *Server) registerNotes() {
 		},
 	}, s.toolNotesDelete)
 
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "notes.set_organization",
 		Description: "Set a note's folder and tags",
 		Annotations: &sdk.ToolAnnotations{
@@ -64,13 +64,13 @@ func (s *Server) registerNotes() {
 		},
 	}, s.toolNotesSetOrganization)
 
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "notes.folder.list",
 		Description: "List note folders",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolNotesFolderList)
 
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "notes.folder.create",
 		Description: "Create a note folder",
 		Annotations: &sdk.ToolAnnotations{
@@ -79,7 +79,7 @@ func (s *Server) registerNotes() {
 		},
 	}, s.toolNotesFolderCreate)
 
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "notes.folder.update",
 		Description: "Update a note folder",
 		Annotations: &sdk.ToolAnnotations{
@@ -88,7 +88,7 @@ func (s *Server) registerNotes() {
 		},
 	}, s.toolNotesFolderUpdate)
 
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "notes.folder.delete",
 		Description: "Delete a note folder",
 		Annotations: &sdk.ToolAnnotations{

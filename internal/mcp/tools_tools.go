@@ -8,8 +8,8 @@ import (
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func (s *Server) registerTools() {
-	sdk.AddTool(s.mcp, &sdk.Tool{
+func (s *Server) registerTools(ms *sdk.Server) {
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "tools.hash",
 		Description: "Hash input with sha256, sha512, or md5",
 		Annotations: &sdk.ToolAnnotations{

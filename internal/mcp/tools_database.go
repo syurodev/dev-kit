@@ -8,14 +8,14 @@ import (
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func (s *Server) registerDatabase() {
-	sdk.AddTool(s.mcp, &sdk.Tool{
+func (s *Server) registerDatabase(ms *sdk.Server) {
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "db.listProfiles",
 		Description: "List database connection profiles (metadata only)",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolDBListProfiles)
 
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "db.testConnection",
 		Description: "Test connectivity for a database profile by id",
 		Annotations: &sdk.ToolAnnotations{
@@ -27,25 +27,25 @@ func (s *Server) registerDatabase() {
 	// Read-only. db.saveQuery and db.deleteSavedQuery stay off the surface:
 	// deciding what is worth keeping is a human act, same rule that keeps
 	// DBSetActiveProfile and DBUpdateProfileOptions off it.
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "db.history.list",
 		Description: "List recent statements run against a database profile on this device",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolDBListQueryHistory)
 
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "db.savedQuery.list",
 		Description: "List saved queries for a database profile",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolDBListSavedQueries)
 
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "db.listForeignKeys",
 		Description: "Declared foreign keys for a schema — real constraints only, never inferred guesses",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolDBListForeignKeys)
 
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "db.schema.get",
 		Description: "Read the cached schema index so an agent writes correct table and column names",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
@@ -53,19 +53,19 @@ func (s *Server) registerDatabase() {
 
 	// Plan only. db.explainAnalyze does not exist: ANALYZE executes the
 	// statement, and DevKit cannot tell whether a statement mutates.
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "db.explain",
 		Description: "Plan a statement without running it",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolDBExplain)
 
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "db.activeProfile",
 		Description: "Report the agent sticky active database profile",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolDBActiveProfile)
 
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "db.query",
 		Description: "Run SQL on the active database profile (gated)",
 		Annotations: &sdk.ToolAnnotations{

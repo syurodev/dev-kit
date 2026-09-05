@@ -8,14 +8,14 @@ import (
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func (s *Server) registerSSH() {
-	sdk.AddTool(s.mcp, &sdk.Tool{
+func (s *Server) registerSSH(ms *sdk.Server) {
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "ssh.listProfiles",
 		Description: "List SSH connection profiles (metadata only)",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolSSHListProfiles)
 
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "ssh.testConnection",
 		Description: "Test connectivity for an SSH profile by id",
 		Annotations: &sdk.ToolAnnotations{
@@ -24,13 +24,13 @@ func (s *Server) registerSSH() {
 		},
 	}, s.toolSSHTestConnection)
 
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "ssh.activeProfile",
 		Description: "Report the agent sticky active SSH profile",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolSSHActiveProfile)
 
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "ssh.runCommand",
 		Description: "Run a command on the active SSH profile (gated)",
 		Annotations: &sdk.ToolAnnotations{

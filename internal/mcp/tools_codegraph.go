@@ -9,68 +9,68 @@ import (
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func (s *Server) registerCodeGraph() {
-	sdk.AddTool(s.mcp, &sdk.Tool{
+func (s *Server) registerCodeGraph(ms *sdk.Server) {
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "codegraph.listEndpoints",
 		Description: "List HTTP endpoints detected in the active CodeGraph project",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolCodeGraphListEndpoints)
 
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "codegraph.getApiFlow",
 		Description: "Get the Controller -> Service -> Repository call chain for one endpoint",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolCodeGraphGetApiFlow)
 
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "codegraph.searchSymbol",
 		Description: "Search classes/methods by name in the active CodeGraph project",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolCodeGraphSearchSymbol)
 
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "codegraph.listFiles",
 		Description: "List every file and directory in the active CodeGraph project (not just .java)",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolCodeGraphListFiles)
 
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "codegraph.readFile",
 		Description: "Read the full contents of one file in the active CodeGraph project",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolCodeGraphReadFile)
 
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "codegraph.getCodeSnippet",
 		Description: "Get the real source for a method/class, snapped to its actual boundaries from the index",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolCodeGraphGetCodeSnippet)
 
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "codegraph.getBlastRadius",
 		Description: "List files that depend (import/reference) on a given file, transitively",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolCodeGraphGetBlastRadius)
 
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "codegraph.waitForIndexReady",
 		Description: "Block until any pending or in-progress re-index finishes, then return the current index version",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolCodeGraphWaitForIndexReady)
 
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "codegraph.getNeighbors",
 		Description: "Get a bounded subgraph (nodes + edges) around one symbol, both call directions, paginated",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolCodeGraphGetNeighbors)
 
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "codegraph.traceDataFlow",
 		Description: "List methods that read or write a field on a class, using the already-resolved index",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolCodeGraphTraceDataFlow)
 
-	sdk.AddTool(s.mcp, &sdk.Tool{
+	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "codegraph.listFields",
 		Description: "List the fields a class or method touches, with read/write counts — use it to find a field name for codegraph.traceDataFlow",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
