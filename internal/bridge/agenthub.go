@@ -161,3 +161,22 @@ func (s *AppService) AgentHubResolvePermission(id string, outcome json.RawMessag
 	})
 	return err
 }
+
+// AgentHubPendingPermissions lists every ACP permission prompt awaiting the
+// user, oldest first. The frontend uses it to rebuild its queue on mount;
+// live arrivals still come through the agenthub:permission event.
+func (s *AppService) AgentHubPendingPermissions() ([]agenthub.PendingPermission, error) {
+	result, err := s.Call(context.Background(), "builtin.agenthub", "agenthub:read", "permission:list", map[string]any{
+		"action": "pending_permissions",
+	}, func(context.Context) (any, error) {
+		waiter, err := s.agentHubPermissions()
+		if err != nil {
+			return nil, err
+		}
+		return waiter.PendingList(), nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]agenthub.PendingPermission), nil
+}

@@ -1,9 +1,11 @@
 package bridge
 
 import (
+	"errors"
 	"testing"
 
 	"devkit/internal/agenthub"
+	"devkit/internal/apperrors"
 )
 
 func TestPublicErrorMapsAgentHubUnavailable(t *testing.T) {
@@ -33,6 +35,23 @@ func TestPublicErrorMapsAgentHubSentinels(t *testing.T) {
 		got := publicError("builtin.agenthub", tc.in)
 		if got == nil || got.Error() != tc.want {
 			t.Fatalf("%v → %v, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestAgentHubIdentityErrorsMap(t *testing.T) {
+	cases := map[error]string{
+		agenthub.ErrNotDescendant:    codePermissionDenied,
+		agenthub.ErrCwdOutsideParent: codeValidationFailed,
+		agenthub.ErrInvalidCwd:       codeValidationFailed,
+		agenthub.ErrCallerMismatch:   codeValidationFailed,
+		agenthub.ErrProxyNotFound:    codeConnectionFailed,
+	}
+	for in, want := range cases {
+		got := publicError("builtin.agenthub", in)
+		var appErr *apperrors.AppError
+		if !errors.As(got, &appErr) || appErr.Code != want {
+			t.Fatalf("%v → %v, want code %s", in, got, want)
 		}
 	}
 }

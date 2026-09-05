@@ -196,6 +196,7 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "session:list"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "session:*"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "vendor:list"},
+		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "permission:list"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "session:new"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "session:*"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "permission:complete"},

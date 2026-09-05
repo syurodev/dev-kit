@@ -165,6 +165,16 @@ func publicError(subject string, err error) *apperrors.AppError {
 			return apperrors.New(codeConnectionFailed, "Agent sandbox is unavailable.", true)
 		case errors.Is(err, agenthub.ErrProcessFailed):
 			return apperrors.New(codeConnectionFailed, "Agent process failed.", true)
+		case errors.Is(err, agenthub.ErrNotDescendant):
+			return apperrors.New(codePermissionDenied, "Agent session is outside the caller's tree.", false)
+		case errors.Is(err, agenthub.ErrCwdOutsideParent):
+			return apperrors.New(codeValidationFailed, "Agent cwd must be inside the parent session's project.", true)
+		case errors.Is(err, agenthub.ErrInvalidCwd):
+			return apperrors.New(codeValidationFailed, "Agent cwd is not a valid project directory.", true)
+		case errors.Is(err, agenthub.ErrCallerMismatch):
+			return apperrors.New(codeValidationFailed, "callerSessionId does not match the calling agent.", true)
+		case errors.Is(err, agenthub.ErrProxyNotFound):
+			return apperrors.New(codeConnectionFailed, "DevKit MCP proxy (devkit-mcp) was not found; build it first.", true)
 		}
 	}
 	if _, safe := safeValidationMessages[err.Error()]; safe {
