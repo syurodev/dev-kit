@@ -74,3 +74,15 @@ func TestMcpServerStdioWire(t *testing.T) {
 		t.Fatalf("wire = %s\nwant %s", raw, want)
 	}
 }
+
+func TestSessionNewAlwaysSendsMcpServers(t *testing.T) {
+	// Schema v1 requires cwd and mcpServers; omitting the empty list made the
+	// agent reject session/new with -32602.
+	raw, err := json.Marshal(SessionNewRequest{Cwd: "/tmp/proj", McpServers: []any{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(raw), `{"cwd":"/tmp/proj","mcpServers":[]}`; got != want {
+		t.Fatalf("wire = %s\nwant %s", got, want)
+	}
+}

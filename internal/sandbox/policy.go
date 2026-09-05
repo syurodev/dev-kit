@@ -28,7 +28,11 @@ type Policy struct {
 	// AllowUnixSockets are unix socket paths the process may connect to —
 	// the session's identity-bound DevKit MCP endpoint. Everything else stays
 	// closed (NetworkHost is IP-only).
-	AllowUnixSockets        []string
+	AllowUnixSockets []string
+	// AllowKeychain lets the process read the macOS login keychain. Vendor
+	// agents that authenticate with a subscription keep their OAuth token
+	// there, not in a file or an env var. No-op off darwin.
+	AllowKeychain           bool
 	Env                     map[string]string
 	Network                 NetworkMode // default none
 	PrivateHome             *bool       // nil defaults to true

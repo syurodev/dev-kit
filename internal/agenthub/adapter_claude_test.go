@@ -196,3 +196,67 @@ func TestClaudeCommandOutsideNodeModulesGrantsOnlyItself(t *testing.T) {
 		t.Fatalf("a plain binary must not widen the grant: %v", pol.ReadOnlyPaths)
 	}
 }
+
+func TestClaudeGrantsItsOwnCredentialPaths(t *testing.T) {
+	// Subscription login keeps credentials in ~/.claude*; without them the
+	// agent handshakes and then dies on the first model call.
+	home := t.TempDir()
+	for _, name := range []string{".claude", ".claude.json"} {
+		path := filepath.Join(home, name)
+		if name == ".claude" {
+			if err := os.MkdirAll(path, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			continue
+		}
+		if err := os.WriteFile(path, []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("HOME", home)
+
+	bin := filepath.Join(t.TempDir(), "agent")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pol, _, err := NewClaudeAdapter(ClaudeOptions{Command: bin}).buildSandbox(OpenSpec{Cwd: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{filepath.Join(home, ".claude"), filepath.Join(home, ".claude.json")} {
+		var found bool
+		for _, p := range pol.ReadWritePaths {
+			if p == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("expected %s in ReadWritePaths, got %v", want, pol.ReadWritePaths)
+		}
+	}
+	// The grant must stay two exact paths — never the whole home.
+	for _, p := range pol.ReadWritePaths {
+		if p == home {
+			t.Fatalf("must not grant all of $HOME: %v", pol.ReadWritePaths)
+		}
+	}
+}
+
+func TestClaudeEnvCarriesUser(t *testing.T) {
+	// Subscription auth resolves the account from USER; without it the agent
+	// fails session/prompt with "Authentication required".
+	t.Setenv("USER", "alice")
+	t.Setenv("LOGNAME", "alice")
+	env := claudeEnvAllowlist()
+	if env["USER"] != "alice" || env["LOGNAME"] != "alice" {
+		t.Fatalf("USER/LOGNAME must reach the jail: %v", env)
+	}
+}
+
+func TestClaudeEnvFallsBackToCurrentUser(t *testing.T) {
+	t.Setenv("USER", "")
+	t.Setenv("LOGNAME", "")
+	if got := claudeEnvAllowlist()["USER"]; got == "" {
+		t.Fatal("USER must fall back to the current OS user")
+	}
+}

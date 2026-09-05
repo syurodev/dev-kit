@@ -72,6 +72,18 @@ func buildSeatbeltProfile(p Policy) string {
 		b.WriteString(")\n")
 	}
 
+	// macOS keychain. Measured minimum: the securityd mach service plus a read
+	// on the login keychain store — either alone fails. Read-only: the agent
+	// looks its own token up, it never has to write one back.
+	if p.AllowKeychain {
+		b.WriteString("(allow mach-lookup (global-name \"com.apple.SecurityServer\"))\n")
+		if home := p.policyHomeDir(); home != "" {
+			b.WriteString("(allow file-read*\n")
+			writeSBPLPath(&b, filepath.Join(home, "Library", "Keychains"))
+			b.WriteString(")\n")
+		}
+	}
+
 	// Ancestor lookup. (subpath X) does not let a process stat X's parents, and
 	// resolving a path walks every one of them: node exits with
 	// `EPERM: lstat '/Users'` before it reads a single file it was granted.

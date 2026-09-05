@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"sync"
 	"time"
@@ -82,10 +83,14 @@ func (a *ClaudeAdapter) buildSandbox(spec OpenSpec) (sandbox.Policy, sandbox.Cmd
 
 	env := claudeEnvAllowlist()
 	pol := sandbox.Policy{
-		WorkDir:          workDir,
-		Network:          sandbox.NetworkHost,
-		Env:              env,
-		ReadOnlyPaths:    roPaths,
+		WorkDir:        workDir,
+		Network:        sandbox.NetworkHost,
+		Env:            env,
+		ReadOnlyPaths:  roPaths,
+		ReadWritePaths: claudeCredentialPaths(env["HOME"]),
+		// Subscription login keeps the OAuth token in the macOS keychain
+		// (service "Claude Code-credentials-*"), not in ~/.claude.json.
+		AllowKeychain:    true,
 		AllowUnixSockets: append([]string(nil), spec.AllowUnixSockets...),
 	}
 	cmd := sandbox.Cmd{
@@ -178,12 +183,56 @@ func claudeEnvAllowlist() map[string]string {
 			env[key] = v
 		}
 	}
+	// USER/LOGNAME are how subscription auth resolves the account: without
+	// USER the agent completes session/new and then fails session/prompt with
+	// "-32000 Authentication required", even with the keychain readable
+	// (measured — adding USER alone flips it to a successful turn).
+	// Not secrets; the jail already runs as this user.
+	for _, key := range []string{"USER", "LOGNAME"} {
+		if v, ok := os.LookupEnv(key); ok && v != "" {
+			env[key] = v
+		}
+	}
+	if env["USER"] == "" {
+		if u, err := user.Current(); err == nil && u.Username != "" {
+			env["USER"] = u.Username
+		}
+	}
 	path := os.Getenv("PATH")
 	if path == "" {
 		path = "/usr/local/bin:/usr/bin:/bin"
 	}
 	env["PATH"] = path
 	return env
+}
+
+// claudeCredentialPaths returns Claude Code's own config/credential paths.
+//
+// The jail hides $HOME, which assumed the agent authenticates with
+// ANTHROPIC_API_KEY. Subscription login does not: the credentials live in
+// ~/.claude.json and ~/.claude, so without these the agent completes the ACP
+// handshake and then dies on the first model call (measured: ~70ms, session
+// status error, zero turns).
+//
+// Read-write, not read-only: Claude Code writes session state and rewrites
+// its config. The grant is deliberately two exact paths, never $HOME, and it
+// is a real widening — anything running in that jail can read the agent's
+// credentials. See sandbox.mdx.
+func claudeCredentialPaths(home string) []string {
+	if home == "" {
+		var err error
+		if home, err = os.UserHomeDir(); err != nil {
+			return nil
+		}
+	}
+	out := make([]string, 0, 2)
+	for _, name := range []string{".claude", ".claude.json"} {
+		path := filepath.Join(home, name)
+		if _, err := os.Stat(path); err == nil {
+			out = append(out, path)
+		}
+	}
+	return out
 }
 
 func mapSandboxErr(err error) error {
@@ -272,6 +321,7 @@ func (a *ClaudeAdapter) Open(ctx context.Context, spec OpenSpec) (SessionRuntime
 		return nil, fmt.Errorf("%w: initialize: %v", ErrProcessFailed, err)
 	}
 
+	// Non-nil even with no endpoints: mcpServers is a required field.
 	mcpServers := make([]any, 0, len(spec.McpServers))
 	for _, srv := range spec.McpServers {
 		if srv.Env == nil {

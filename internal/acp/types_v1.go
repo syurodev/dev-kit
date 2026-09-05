@@ -22,8 +22,11 @@ type InitializeResult struct {
 // SessionNewRequest is the params object for session/new
 // (schema: NewSessionRequest).
 type SessionNewRequest struct {
-	Cwd        string          `json:"cwd"`
-	McpServers []any           `json:"mcpServers,omitempty"`
+	Cwd string `json:"cwd"`
+	// McpServers is required by schema v1 even when empty: omitempty made an
+	// endpoint-less session/new fail with -32602 Invalid params. Always send a
+	// non-nil slice.
+	McpServers []any           `json:"mcpServers"`
 	Meta       json.RawMessage `json:"_meta,omitempty"`
 }
 
