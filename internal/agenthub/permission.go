@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -25,6 +26,7 @@ type PendingPermission struct {
 	ID        string          `json:"id"`
 	SessionID string          `json:"sessionId"`
 	Params    json.RawMessage `json:"params"`
+	CreatedAt time.Time       `json:"createdAt"`
 }
 
 // PermissionWaiter blocks ACP session/request_permission until Complete or timeout.
@@ -37,7 +39,7 @@ type PermissionWaiter struct {
 	notify func(PendingPermission)
 
 	mu      sync.Mutex
-	pending *permissionWait
+	pending map[string]*permissionWait // by ID; at most one per SessionID
 }
 
 type permissionWait struct {
@@ -48,7 +50,7 @@ type permissionWait struct {
 
 // NewPermissionWaiter creates a waiter. notify may be nil (still waits for Complete).
 func NewPermissionWaiter(notify func(PendingPermission)) *PermissionWaiter {
-	return &PermissionWaiter{notify: notify}
+	return &PermissionWaiter{notify: notify, pending: map[string]*permissionWait{}}
 }
 
 // Resolve implements PermissionResolver for Service.ResolvePermission.
@@ -67,21 +69,22 @@ func (w *PermissionWaiter) Wait(ctx context.Context, sessionID string, params js
 		ID:        id,
 		SessionID: sessionID,
 		Params:    append(json.RawMessage(nil), params...),
+		CreatedAt: time.Now().UTC(),
 	}
 
 	w.mu.Lock()
-	if w.pending != nil {
-		w.mu.Unlock()
-		return append(json.RawMessage(nil), deniedPermissionOutcome...), ErrPermissionDenied
+	for _, other := range w.pending {
+		if other.SessionID == sessionID {
+			// A session prompts synchronously; a second prompt from the same
+			// session is a protocol violation, not a queue case.
+			w.mu.Unlock()
+			return append(json.RawMessage(nil), deniedPermissionOutcome...), ErrPermissionDenied
+		}
 	}
-	w.pending = &permissionWait{PendingPermission: p, result: resCh}
+	w.pending[id] = &permissionWait{PendingPermission: p, result: resCh}
 	w.mu.Unlock()
 
-	defer func() {
-		w.mu.Lock()
-		w.pending = nil
-		w.mu.Unlock()
-	}()
+	defer w.invalidate(id)
 
 	if w.notify != nil {
 		w.notify(p)
@@ -103,39 +106,51 @@ func (w *PermissionWaiter) Wait(ctx context.Context, sessionID string, params js
 func (w *PermissionWaiter) Complete(id string, outcome json.RawMessage) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if w.pending == nil || w.pending.finished {
+	if len(w.pending) == 0 {
 		return errors.New("agenthub: no pending permission")
 	}
-	if w.pending.ID != id {
+	p, ok := w.pending[id]
+	if !ok || p.finished {
 		return errors.New("agenthub: invalid permission id")
 	}
 	select {
-	case w.pending.result <- append(json.RawMessage(nil), outcome...):
-		w.pending.finished = true
+	case p.result <- append(json.RawMessage(nil), outcome...):
+		p.finished = true
 		return nil
 	default:
 		return errors.New("agenthub: no pending permission")
 	}
 }
 
-// Pending returns a copy of the current pending permission, or nil.
-func (w *PermissionWaiter) Pending() *PendingPermission {
+// PendingList returns every pending prompt, oldest first.
+func (w *PermissionWaiter) PendingList() []PendingPermission {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if w.pending == nil {
+	out := make([]PendingPermission, 0, len(w.pending))
+	for _, p := range w.pending {
+		cp := p.PendingPermission
+		cp.Params = append(json.RawMessage(nil), cp.Params...)
+		out = append(out, cp)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
+	return out
+}
+
+// Pending returns the oldest pending prompt, or nil.
+func (w *PermissionWaiter) Pending() *PendingPermission {
+	list := w.PendingList()
+	if len(list) == 0 {
 		return nil
 	}
-	cp := w.pending.PendingPermission
-	cp.Params = append(json.RawMessage(nil), cp.Params...)
-	return &cp
+	return &list[0]
 }
 
 func (w *PermissionWaiter) invalidate(id string) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if w.pending != nil && w.pending.ID == id {
-		w.pending.finished = true
-		w.pending = nil
+	if p, ok := w.pending[id]; ok {
+		p.finished = true
+		delete(w.pending, id)
 	}
 }
 
