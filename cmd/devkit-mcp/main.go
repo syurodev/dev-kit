@@ -30,7 +30,13 @@ func main() {
 			return
 		}
 	}
-	if err := runProxy(); err != nil {
+	fs := flag.NewFlagSet("devkit-mcp", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	socket := fs.String("socket", "", "unix socket of the DevKit MCP host (default: the shared mcp.sock)")
+	if err := fs.Parse(args); err != nil {
+		os.Exit(2)
+	}
+	if err := runProxy(*socket); err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
 	}
@@ -93,10 +99,15 @@ func runInstallCmd(action string, args []string) error {
 	return nil
 }
 
-func runProxy() error {
-	path, err := mcp.SocketPath()
-	if err != nil {
-		return err
+// runProxy pipes stdio to the DevKit MCP host. With --socket it targets the
+// per-session socket Agent Hub handed the agent; without, the shared socket.
+func runProxy(path string) error {
+	if path == "" {
+		shared, err := mcp.SocketPath()
+		if err != nil {
+			return err
+		}
+		path = shared
 	}
 	conn, err := net.Dial("unix", path)
 	if err != nil {

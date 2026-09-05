@@ -17,7 +17,7 @@ func TestRunProxyMissingSocket(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := runProxy()
+	err := runProxy("")
 	if err == nil {
 		t.Fatal("expected error when socket is missing")
 	}
