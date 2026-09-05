@@ -1,6 +1,9 @@
 package audit
 
-import "sync"
+import (
+	"sync"
+	"time"
+)
 
 type Outcome string
 
@@ -10,6 +13,10 @@ const (
 )
 
 type Event struct {
+	// Caller is identity.Caller.String() of the requester ("agent:<id>",
+	// "user-terminal", "ui") or identity.Unknown. Stamped by the gateway.
+	Caller     string
+	At         time.Time
 	SubjectID  string
 	Capability string
 	Scope      string

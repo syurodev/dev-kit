@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"time"
 
 	"devkit/internal/audit"
+	"devkit/internal/identity"
 	"devkit/internal/permissions"
 )
 
@@ -70,6 +72,8 @@ func (g *Gateway) Call(ctx context.Context, request CallRequest) (any, error) {
 		outcome = audit.OutcomeAllowed
 	}
 	g.sink.Record(audit.Event{
+		Caller:     identity.Label(ctx),
+		At:         time.Now().UTC(),
 		SubjectID:  request.SubjectID,
 		Capability: request.Capability,
 		Scope:      request.Scope,
