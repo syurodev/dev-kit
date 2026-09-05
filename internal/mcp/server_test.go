@@ -133,7 +133,7 @@ func TestNotesListTool(t *testing.T) {
 	if res != nil {
 		t.Fatalf("expected nil CallToolResult, got %#v", res)
 	}
-	summaries, ok := v.([]notes.Summary)
+	summaries, ok := unwrap(v).([]notes.Summary)
 	if !ok || len(summaries) != 1 || summaries[0].Title != "hello" {
 		t.Fatalf("output = %#v, want fake summaries", v)
 	}
@@ -240,7 +240,7 @@ func TestNotesFolderCreateTool(t *testing.T) {
 	if err != nil {
 		t.Fatalf("toolNotesFolderCreate: %v", err)
 	}
-	folder, ok := v.(notes.Folder)
+	folder, ok := unwrap(v).(notes.Folder)
 	if !ok || folder.Name != "Work" {
 		t.Fatalf("output = %#v", v)
 	}

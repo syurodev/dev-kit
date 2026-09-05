@@ -84,7 +84,7 @@ func (s *Server) toolCodeGraphListEndpoints(ctx context.Context, _ *sdk.CallTool
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 type codeGraphGetApiFlowInput struct {
@@ -98,7 +98,7 @@ func (s *Server) toolCodeGraphGetApiFlow(ctx context.Context, _ *sdk.CallToolReq
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 type codeGraphSearchSymbolInput struct {
@@ -112,7 +112,7 @@ func (s *Server) toolCodeGraphSearchSymbol(ctx context.Context, _ *sdk.CallToolR
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 func (s *Server) toolCodeGraphListFiles(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {
@@ -122,7 +122,7 @@ func (s *Server) toolCodeGraphListFiles(ctx context.Context, _ *sdk.CallToolRequ
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 type codeGraphReadFileInput struct {
@@ -136,7 +136,7 @@ func (s *Server) toolCodeGraphReadFile(ctx context.Context, _ *sdk.CallToolReque
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 type codeGraphGetCodeSnippetInput struct {
@@ -152,7 +152,7 @@ func (s *Server) toolCodeGraphGetCodeSnippet(ctx context.Context, _ *sdk.CallToo
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 type codeGraphGetBlastRadiusInput struct {
@@ -166,7 +166,7 @@ func (s *Server) toolCodeGraphGetBlastRadius(ctx context.Context, _ *sdk.CallToo
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 func (s *Server) toolCodeGraphWaitForIndexReady(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {
@@ -176,7 +176,7 @@ func (s *Server) toolCodeGraphWaitForIndexReady(ctx context.Context, _ *sdk.Call
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 type codeGraphGetNeighborsInput struct {
@@ -194,7 +194,7 @@ func (s *Server) toolCodeGraphGetNeighbors(ctx context.Context, _ *sdk.CallToolR
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 type codeGraphTraceDataFlowInput struct {
@@ -209,7 +209,7 @@ func (s *Server) toolCodeGraphTraceDataFlow(ctx context.Context, _ *sdk.CallTool
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 type codeGraphListFieldsInput struct {
@@ -223,5 +223,5 @@ func (s *Server) toolCodeGraphListFields(ctx context.Context, _ *sdk.CallToolReq
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }

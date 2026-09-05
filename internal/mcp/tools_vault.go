@@ -31,7 +31,7 @@ func (s *Server) toolVaultStatus(ctx context.Context, _ *sdk.CallToolRequest, _ 
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 type vaultSearchInput struct {
@@ -45,5 +45,5 @@ func (s *Server) toolVaultSearch(ctx context.Context, _ *sdk.CallToolRequest, in
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }

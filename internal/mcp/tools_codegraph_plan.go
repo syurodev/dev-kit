@@ -61,7 +61,7 @@ func (s *Server) toolCodeGraphProposeFlow(ctx context.Context, _ *sdk.CallToolRe
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 // plannedFlowResult pairs the plan with the naming instruction, so the
@@ -101,7 +101,7 @@ func (s *Server) toolCodeGraphGetPlannedFlow(ctx context.Context, _ *sdk.CallToo
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 func (s *Server) toolCodeGraphGetPlanProgress(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {
@@ -111,7 +111,7 @@ func (s *Server) toolCodeGraphGetPlanProgress(ctx context.Context, _ *sdk.CallTo
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 type codeGraphRelinkPlanNodeInput struct {
@@ -126,7 +126,7 @@ func (s *Server) toolCodeGraphRelinkPlanNode(ctx context.Context, _ *sdk.CallToo
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 type codeGraphReplyPlanNodeInput struct {
@@ -144,5 +144,5 @@ func (s *Server) toolCodeGraphReplyPlanNode(ctx context.Context, _ *sdk.CallTool
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }

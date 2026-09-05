@@ -21,5 +21,5 @@ func (s *Server) toolEnvListTags(ctx context.Context, _ *sdk.CallToolRequest, _ 
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }

@@ -77,7 +77,7 @@ func (s *Server) toolAgentHubListAgents(ctx context.Context, _ *sdk.CallToolRequ
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 type agentHubCreateInput struct {
@@ -104,7 +104,7 @@ func (s *Server) toolAgentHubCreateAgentSession(ctx context.Context, _ *sdk.Call
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 type agentHubInvokeInput struct {
@@ -130,7 +130,7 @@ func (s *Server) toolAgentHubInvokeAgent(ctx context.Context, _ *sdk.CallToolReq
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 type agentHubSessionIDInput struct {
@@ -150,7 +150,7 @@ func (s *Server) toolAgentHubGetSessionStatus(ctx context.Context, _ *sdk.CallTo
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 func (s *Server) toolAgentHubCancelAgent(ctx context.Context, _ *sdk.CallToolRequest, in agentHubSessionIDInput) (*sdk.CallToolResult, any, error) {
@@ -166,7 +166,7 @@ func (s *Server) toolAgentHubCancelAgent(ctx context.Context, _ *sdk.CallToolReq
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 // hubSessionID validates a hub session UUID for capability scopes / audit metadata.

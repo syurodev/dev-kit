@@ -81,7 +81,7 @@ func TestAgentHubListAgentsTool(t *testing.T) {
 	if err != nil {
 		t.Fatalf("agenthub.listAgents: %v", err)
 	}
-	got, ok := v.([]agenthub.AgentSession)
+	got, ok := unwrap(v).([]agenthub.AgentSession)
 	if !ok || len(got) != 1 || got[0].ID != want[0].ID {
 		t.Fatalf("output = %#v", v)
 	}
@@ -117,7 +117,7 @@ func TestAgentHubCreateAgentSessionTool(t *testing.T) {
 	if err != nil {
 		t.Fatalf("agenthub.createAgentSession: %v", err)
 	}
-	sess, ok := v.(agenthub.AgentSession)
+	sess, ok := unwrap(v).(agenthub.AgentSession)
 	if !ok || sess.ID != created.ID {
 		t.Fatalf("output = %#v", v)
 	}
@@ -156,7 +156,7 @@ func TestAgentHubInvokeAgentTool(t *testing.T) {
 	if err != nil {
 		t.Fatalf("agenthub.invokeAgent: %v", err)
 	}
-	out, ok := v.(agenthub.InvokeResult)
+	out, ok := unwrap(v).(agenthub.InvokeResult)
 	if !ok || out.Status != "completed" || out.Summary != "ok" {
 		t.Fatalf("output = %#v", v)
 	}
@@ -184,7 +184,7 @@ func TestAgentHubGetSessionStatusTool(t *testing.T) {
 	if err != nil {
 		t.Fatalf("agenthub.getSessionStatus: %v", err)
 	}
-	sess, ok := v.(agenthub.AgentSession)
+	sess, ok := unwrap(v).(agenthub.AgentSession)
 	if !ok || sess.Status != agenthub.SessionStatusRunning {
 		t.Fatalf("output = %#v", v)
 	}

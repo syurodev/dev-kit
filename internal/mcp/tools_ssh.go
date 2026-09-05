@@ -47,7 +47,7 @@ func (s *Server) toolSSHListProfiles(ctx context.Context, _ *sdk.CallToolRequest
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 type sshTestConnectionInput struct {
@@ -65,7 +65,7 @@ func (s *Server) toolSSHTestConnection(ctx context.Context, _ *sdk.CallToolReque
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 func (s *Server) toolSSHActiveProfile(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {
@@ -75,7 +75,7 @@ func (s *Server) toolSSHActiveProfile(ctx context.Context, _ *sdk.CallToolReques
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 type sshRunCommandInput struct {
@@ -101,5 +101,5 @@ func (s *Server) toolSSHRunCommand(ctx context.Context, _ *sdk.CallToolRequest, 
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }

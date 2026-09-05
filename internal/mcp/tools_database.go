@@ -82,7 +82,7 @@ func (s *Server) toolDBListProfiles(ctx context.Context, _ *sdk.CallToolRequest,
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 type dbTestConnectionInput struct {
@@ -99,7 +99,7 @@ func (s *Server) toolDBTestConnection(ctx context.Context, _ *sdk.CallToolReques
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 func (s *Server) toolDBActiveProfile(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {
@@ -109,7 +109,7 @@ func (s *Server) toolDBActiveProfile(ctx context.Context, _ *sdk.CallToolRequest
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 type dbQueryInput struct {
@@ -132,7 +132,7 @@ func (s *Server) toolDBQuery(ctx context.Context, _ *sdk.CallToolRequest, in dbQ
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 type dbProfileScopedInput struct {
@@ -149,7 +149,7 @@ func (s *Server) toolDBListQueryHistory(ctx context.Context, _ *sdk.CallToolRequ
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 func (s *Server) toolDBListSavedQueries(ctx context.Context, _ *sdk.CallToolRequest, in dbProfileScopedInput) (*sdk.CallToolResult, any, error) {
@@ -162,7 +162,7 @@ func (s *Server) toolDBListSavedQueries(ctx context.Context, _ *sdk.CallToolRequ
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 type dbSchemaScopedInput struct {
@@ -180,7 +180,7 @@ func (s *Server) toolDBListForeignKeys(ctx context.Context, _ *sdk.CallToolReque
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 func (s *Server) toolDBGetSchemaCache(ctx context.Context, _ *sdk.CallToolRequest, in dbProfileScopedInput) (*sdk.CallToolResult, any, error) {
@@ -193,7 +193,7 @@ func (s *Server) toolDBGetSchemaCache(ctx context.Context, _ *sdk.CallToolReques
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 type dbExplainInput struct {
@@ -211,5 +211,5 @@ func (s *Server) toolDBExplain(ctx context.Context, _ *sdk.CallToolRequest, in d
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }

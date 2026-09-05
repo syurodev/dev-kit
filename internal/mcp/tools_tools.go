@@ -37,5 +37,5 @@ func (s *Server) toolToolsHash(ctx context.Context, _ *sdk.CallToolRequest, in t
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }

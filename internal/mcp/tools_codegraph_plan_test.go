@@ -26,7 +26,7 @@ func TestToolCodeGraphProposeFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("toolCodeGraphProposeFlow: %v", err)
 	}
-	progress, ok := v.(codegraph.PlanProgress)
+	progress, ok := unwrap(v).(codegraph.PlanProgress)
 	if !ok || progress.Aggregate != codegraph.PlanAggregateNotStarted {
 		t.Fatalf("unexpected result: %#v", v)
 	}
@@ -45,7 +45,7 @@ func TestToolCodeGraphGetPlannedFlowRemindsAgentOfFQNs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("toolCodeGraphGetPlannedFlow: %v", err)
 	}
-	out, ok := v.(plannedFlowResult)
+	out, ok := unwrap(v).(plannedFlowResult)
 	if !ok {
 		t.Fatalf("unexpected result type: %#v", v)
 	}
@@ -67,7 +67,7 @@ func TestToolCodeGraphGetPlanProgress(t *testing.T) {
 	if err != nil {
 		t.Fatalf("toolCodeGraphGetPlanProgress: %v", err)
 	}
-	progress, ok := v.(codegraph.PlanProgress)
+	progress, ok := unwrap(v).(codegraph.PlanProgress)
 	if !ok || progress.Aggregate != codegraph.PlanAggregateComplete {
 		t.Fatalf("unexpected result: %#v", v)
 	}

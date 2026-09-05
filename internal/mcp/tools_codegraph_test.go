@@ -88,7 +88,7 @@ func TestToolCodeGraphListEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("toolCodeGraphListEndpoints: %v", err)
 	}
-	endpoints, ok := v.([]codegraph.Endpoint)
+	endpoints, ok := unwrap(v).([]codegraph.Endpoint)
 	if !ok || len(endpoints) != 1 || endpoints[0].Path != "/orders" {
 		t.Fatalf("unexpected result: %#v", v)
 	}
@@ -104,7 +104,7 @@ func TestToolCodeGraphReadFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("toolCodeGraphReadFile: %v", err)
 	}
-	content, ok := v.(string)
+	content, ok := unwrap(v).(string)
 	if !ok || content != "package com.acme;" {
 		t.Fatalf("unexpected result: %#v", v)
 	}
@@ -120,7 +120,7 @@ func TestToolCodeGraphGetBlastRadius(t *testing.T) {
 	if err != nil {
 		t.Fatalf("toolCodeGraphGetBlastRadius: %v", err)
 	}
-	radius, ok := v.([]string)
+	radius, ok := unwrap(v).([]string)
 	if !ok || len(radius) != 1 || radius[0] != "Controller.java" {
 		t.Fatalf("unexpected result: %#v", v)
 	}
@@ -136,7 +136,7 @@ func TestToolCodeGraphWaitForIndexReady(t *testing.T) {
 	if err != nil {
 		t.Fatalf("toolCodeGraphWaitForIndexReady: %v", err)
 	}
-	version, ok := v.(int)
+	version, ok := unwrap(v).(int)
 	if !ok || version != 3 {
 		t.Fatalf("unexpected result: %#v", v)
 	}
@@ -154,7 +154,7 @@ func TestToolCodeGraphGetNeighbors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("toolCodeGraphGetNeighbors: %v", err)
 	}
-	sub, ok := v.(codegraph.Subgraph)
+	sub, ok := unwrap(v).(codegraph.Subgraph)
 	if !ok || len(sub.Nodes) != 1 || sub.Nodes[0].ID != "n1" {
 		t.Fatalf("unexpected result: %#v", v)
 	}
@@ -173,7 +173,7 @@ func TestToolCodeGraphTraceDataFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("toolCodeGraphTraceDataFlow: %v", err)
 	}
-	trace, ok := v.(codegraph.DataFlowTrace)
+	trace, ok := unwrap(v).(codegraph.DataFlowTrace)
 	if !ok || len(trace.Steps) != 1 || trace.Steps[0].Kind != "write" {
 		t.Fatalf("unexpected result: %#v", v)
 	}

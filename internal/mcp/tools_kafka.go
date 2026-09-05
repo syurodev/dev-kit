@@ -63,7 +63,7 @@ func (s *Server) toolKafkaListProfiles(ctx context.Context, _ *sdk.CallToolReque
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 func (s *Server) toolKafkaConnectionStatus(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {
@@ -73,7 +73,7 @@ func (s *Server) toolKafkaConnectionStatus(ctx context.Context, _ *sdk.CallToolR
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 func (s *Server) gateKafka(ctx context.Context, tool, summary string) error {
@@ -102,7 +102,7 @@ func (s *Server) toolKafkaListTopics(ctx context.Context, _ *sdk.CallToolRequest
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 type kafkaDescribeTopicInput struct {
@@ -121,7 +121,7 @@ func (s *Server) toolKafkaDescribeTopic(ctx context.Context, _ *sdk.CallToolRequ
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 type kafkaPeekMessagesInput struct {
@@ -151,7 +151,7 @@ func (s *Server) toolKafkaPeekMessages(ctx context.Context, _ *sdk.CallToolReque
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 func (s *Server) toolKafkaListConsumerGroups(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {
@@ -164,7 +164,7 @@ func (s *Server) toolKafkaListConsumerGroups(ctx context.Context, _ *sdk.CallToo
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 type kafkaPublishMessageInput struct {
@@ -201,5 +201,5 @@ func (s *Server) toolKafkaPublishMessage(ctx context.Context, _ *sdk.CallToolReq
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }

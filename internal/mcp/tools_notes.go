@@ -105,7 +105,7 @@ func (s *Server) toolNotesList(ctx context.Context, _ *sdk.CallToolRequest, _ st
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 type notesQueryInput struct {
@@ -119,7 +119,7 @@ func (s *Server) toolNotesSearch(ctx context.Context, _ *sdk.CallToolRequest, in
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 type notesIDInput struct {
@@ -136,7 +136,7 @@ func (s *Server) toolNotesGet(ctx context.Context, _ *sdk.CallToolRequest, in no
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 type notesCreateInput struct {
@@ -153,7 +153,7 @@ func (s *Server) toolNotesCreate(ctx context.Context, _ *sdk.CallToolRequest, in
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 type notesUpdateInput struct {
@@ -172,7 +172,7 @@ func (s *Server) toolNotesUpdate(ctx context.Context, _ *sdk.CallToolRequest, in
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 func (s *Server) toolNotesDelete(ctx context.Context, _ *sdk.CallToolRequest, in notesIDInput) (*sdk.CallToolResult, any, error) {
@@ -185,7 +185,7 @@ func (s *Server) toolNotesDelete(ctx context.Context, _ *sdk.CallToolRequest, in
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 type notesSetOrganizationInput struct {
@@ -205,7 +205,7 @@ func (s *Server) toolNotesSetOrganization(ctx context.Context, _ *sdk.CallToolRe
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 func (s *Server) toolNotesFolderList(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {
@@ -215,7 +215,7 @@ func (s *Server) toolNotesFolderList(ctx context.Context, _ *sdk.CallToolRequest
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 type notesFolderCreateInput struct {
@@ -231,7 +231,7 @@ func (s *Server) toolNotesFolderCreate(ctx context.Context, _ *sdk.CallToolReque
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 type notesFolderUpdateInput struct {
@@ -251,7 +251,7 @@ func (s *Server) toolNotesFolderUpdate(ctx context.Context, _ *sdk.CallToolReque
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 func (s *Server) toolNotesFolderDelete(ctx context.Context, _ *sdk.CallToolRequest, in notesIDInput) (*sdk.CallToolResult, any, error) {
@@ -264,7 +264,7 @@ func (s *Server) toolNotesFolderDelete(ctx context.Context, _ *sdk.CallToolReque
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, v, nil
+	return nil, structured(v), nil
 }
 
 // recordID mirrors bridge.recordID: opaque vault-item ids are 24 hex chars.

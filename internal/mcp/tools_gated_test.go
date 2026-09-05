@@ -139,7 +139,7 @@ func TestSSHListProfilesSubjectCapScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ssh.listProfiles: %v", err)
 	}
-	summaries, ok := v.([]sshservice.ProfileSummary)
+	summaries, ok := unwrap(v).([]sshservice.ProfileSummary)
 	if !ok || len(summaries) != 1 || summaries[0].Name != "bastion" {
 		t.Fatalf("output = %#v", v)
 	}
