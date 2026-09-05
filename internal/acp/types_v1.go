@@ -70,3 +70,20 @@ type RequestPermissionParams struct {
 	ToolCall  json.RawMessage `json:"toolCall"`
 	Meta      json.RawMessage `json:"_meta,omitempty"`
 }
+
+// EnvVariable is one environment variable passed to an MCP server (schema: EnvVariable).
+type EnvVariable struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+// McpServerStdio is the stdio variant of McpServer for session/new.mcpServers
+// (schema: McpServerStdio). The stdio variant carries no "type" discriminator,
+// and every field is required — build Env as an empty slice, never nil, or
+// it serialises as null and the agent rejects the entry.
+type McpServerStdio struct {
+	Name    string        `json:"name"`
+	Command string        `json:"command"`
+	Args    []string      `json:"args"`
+	Env     []EnvVariable `json:"env"`
+}

@@ -62,3 +62,15 @@ func TestUnmarshalSessionUpdateMessageChunkFixture(t *testing.T) {
 		t.Fatalf("content.text=%q", update.Content.Text)
 	}
 }
+
+func TestMcpServerStdioWire(t *testing.T) {
+	raw, err := json.Marshal(McpServerStdio{Name: "devkit", Command: "/opt/devkit-mcp", Args: []string{"--socket", "/tmp/a.sock"}, Env: []EnvVariable{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Schema v1 McpServerStdio: required name, command, args, env; no "type" field.
+	want := `{"name":"devkit","command":"/opt/devkit-mcp","args":["--socket","/tmp/a.sock"],"env":[]}`
+	if string(raw) != want {
+		t.Fatalf("wire = %s\nwant %s", raw, want)
+	}
+}
