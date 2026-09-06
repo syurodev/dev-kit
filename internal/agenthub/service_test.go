@@ -498,3 +498,93 @@ func TestSessionTakesTheAgentsNameOnlyWhenUnnamed(t *testing.T) {
 		})
 	}
 }
+
+// loadableAdapter is titlingAdapter plus SessionLoader, so a test can drive the
+// orphan path without a real vendor.
+type loadableAdapter struct {
+	titlingAdapter
+	loaded  chan string
+	failNow bool
+}
+
+func (a *loadableAdapter) Load(_ context.Context, _ agenthub.OpenSpec, acpSessionID string) (agenthub.SessionRuntime, error) {
+	if a.failNow {
+		return nil, agenthub.ErrProcessFailed
+	}
+	a.loaded <- acpSessionID
+	return a.rt, nil
+}
+
+func TestOrphanSessionResumesInsteadOfDyingThere(t *testing.T) {
+	ctx := context.Background()
+	db, err := storage.Open(filepath.Join(t.TempDir(), "devkit.db"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if err := storage.Migrate(ctx, db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	adapter := &loadableAdapter{
+		titlingAdapter: titlingAdapter{rt: &titlingRuntime{}},
+		loaded:         make(chan string, 1),
+	}
+	reg := agenthub.NewRegistry()
+	reg.Register(adapter)
+	store := agenthub.NewSQLStore(db)
+	svc := agenthub.NewService(reg, store, func(string, json.RawMessage) {})
+
+	sess, err := svc.CreateSession(ctx, agenthub.CreateInput{
+		AgentType: agenthub.AgentType("titling"), Cwd: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	// A restart, as the store sees it: the row survives, every runtime is gone.
+	// Before this change that was the end of the conversation — the only way
+	// forward was a new session, which loses the context the agent still has.
+	restarted := agenthub.NewService(reg, store, func(string, json.RawMessage) {})
+	if _, err := restarted.Invoke(ctx, agenthub.InvokeInput{SessionID: sess.ID, Prompt: "still there?"}); err != nil {
+		t.Fatalf("invoke after restart: %v", err)
+	}
+	select {
+	case got := <-adapter.loaded:
+		if got != sess.ACPSessionID {
+			t.Fatalf("resumed %q, want the vendor id from the store %q", got, sess.ACPSessionID)
+		}
+	default:
+		t.Fatal("session was not resumed")
+	}
+}
+
+func TestOrphanSessionStaysUnavailableWithoutALoader(t *testing.T) {
+	// The mock adapter has no SessionLoader. A vendor that cannot resume must
+	// be exactly as available as before — the old behaviour is the floor.
+	ctx := context.Background()
+	db, err := storage.Open(filepath.Join(t.TempDir(), "devkit.db"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if err := storage.Migrate(ctx, db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	reg := agenthub.NewRegistry()
+	reg.Register(agenthub.NewMockAdapter())
+	store := agenthub.NewSQLStore(db)
+
+	sess, err := agenthub.NewService(reg, store, nil).CreateSession(ctx, agenthub.CreateInput{
+		AgentType: agenthub.AgentTypeMock, Cwd: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	restarted := agenthub.NewService(reg, store, nil)
+	_, err = restarted.Invoke(ctx, agenthub.InvokeInput{SessionID: sess.ID, Prompt: "hi"})
+	if !errors.Is(err, agenthub.ErrUnavailable) {
+		t.Fatalf("err = %v, want ErrUnavailable", err)
+	}
+}

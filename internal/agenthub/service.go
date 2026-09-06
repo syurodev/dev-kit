@@ -450,9 +450,23 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 		return InvokeResult{}, ErrSessionBusy
 	}
 	rt := s.runtimes[in.SessionID]
+	s.mu.Unlock()
+
 	if rt == nil {
+		// An orphan: the row outlived the process that served it, which is
+		// what every restart does to every open session. This used to be the
+		// end of the conversation — ErrUnavailable, and the only way forward
+		// was to start again somewhere else and lose the context.
+		var err error
+		if rt, err = s.resumeRuntime(ctx, sess); err != nil {
+			return InvokeResult{}, err
+		}
+	}
+
+	s.mu.Lock()
+	if _, busy := s.invoking[in.SessionID]; busy {
 		s.mu.Unlock()
-		return InvokeResult{}, ErrUnavailable
+		return InvokeResult{}, ErrSessionBusy
 	}
 	s.invoking[in.SessionID] = struct{}{}
 	s.mu.Unlock()
@@ -676,7 +690,66 @@ func (s *Service) markUnknownSeen(sessionID, wireKind string) bool {
 	return true
 }
 
-// Cancel requests cancellation of the in-flight prompt on a session.// Cancel requests cancellation of the in-flight prompt on a session.
+// resumeRuntime reopens a session whose process is gone, using the vendor's own
+// session id from the store.
+//
+// Fails with ErrUnavailable, not something new: to a caller this is still "no
+// runtime", and only the reason differs — vendor cannot resume, no id was
+// recorded, or the attempt failed. The old behaviour is the floor, so a vendor
+// without SessionLoader is exactly as available as before.
+//
+// A fresh MCP endpoint is opened for the resumed session because the old one
+// died with its process, and the identity-bound socket is what ties the agent's
+// tool calls back to this session in the audit log.
+func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (SessionRuntime, error) {
+	if sess.ACPSessionID == "" {
+		return nil, ErrUnavailable
+	}
+	adapter, ok := s.reg.Get(sess.AgentType)
+	if !ok {
+		return nil, ErrVendorUnknown
+	}
+	loader, ok := adapter.(SessionLoader)
+	if !ok {
+		return nil, ErrUnavailable
+	}
+
+	spec := OpenSpec{Cwd: sess.ProjectPath}
+	closeEndpoint := func() {}
+	if s.MCPEndpoints != nil {
+		ep, err := s.MCPEndpoints.Open(sess.ID)
+		if err != nil {
+			return nil, err
+		}
+		closeEndpoint = ep.Close
+		spec.AllowUnixSockets = []string{ep.SocketPath}
+		spec.McpServers = []acp.McpServerStdio{ep.Server}
+		spec.ReadOnlyPaths = []string{ep.Server.Command}
+	}
+
+	rt, err := loader.Load(ctx, spec, sess.ACPSessionID)
+	if err != nil {
+		closeEndpoint()
+		return nil, err
+	}
+
+	s.mu.Lock()
+	// Another Invoke may have resumed the same session while this one was
+	// spawning a process. The first one wins; a second live runtime for one
+	// session would answer with two agents.
+	if existing := s.runtimes[sess.ID]; existing != nil {
+		s.mu.Unlock()
+		_ = rt.Close(ctx)
+		closeEndpoint()
+		return existing, nil
+	}
+	s.runtimes[sess.ID] = rt
+	s.endpoints[sess.ID] = closeEndpoint
+	s.mu.Unlock()
+	return rt, nil
+}
+
+// Cancel requests cancellation of the in-flight prompt on a session.// Cancel requests cancellation of the in-flight prompt on a session.// Cancel requests cancellation of the in-flight prompt on a session.
 func (s *Service) Cancel(ctx context.Context, id string) error {
 	if err := s.authorizeTarget(ctx, id); err != nil {
 		return err

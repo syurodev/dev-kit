@@ -37,7 +37,29 @@ type SessionNewResult struct {
 	Meta      json.RawMessage `json:"_meta,omitempty"`
 }
 
-// PromptRequest is the params object for session/prompt.
+// SessionLoadRequest is the params object for session/load (schema:
+// LoadSessionRequest). Same shape as session/new plus the id being resumed;
+// the agent replays the session's history as session/update notifications
+// before the call returns.
+type SessionLoadRequest struct {
+	SessionID  string          `json:"sessionId"`
+	Cwd        string          `json:"cwd"`
+	McpServers []any           `json:"mcpServers"`
+	Meta       json.RawMessage `json:"_meta,omitempty"`
+}
+
+// SessionLoadResult is the result object for session/load. Measured against
+// claude-agent-acp 0.74.0: it echoes the session id and the mode set. Modes
+// stay a raw blob for the same reason _meta does — the hub has no session-mode
+// surface yet, and inventing structs for a field nothing reads is how a core
+// type drifts from the wire.
+type SessionLoadResult struct {
+	SessionID string          `json:"sessionId"`
+	Modes     json.RawMessage `json:"modes,omitempty"`
+	Meta      json.RawMessage `json:"_meta,omitempty"`
+}
+
+// PromptRequest is the params object for session/prompt// PromptRequest is the params object for session/prompt.
 type PromptRequest struct {
 	SessionID string          `json:"sessionId"`
 	Prompt    []ContentBlock  `json:"prompt"`

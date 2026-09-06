@@ -214,3 +214,79 @@ func skipOrFail(t *testing.T, format string, args ...any) {
 	}
 	t.Skipf(format, args...)
 }
+
+// TestClaudeACPResumeAcrossProcesses is the only thing that proves session/load
+// resumes rather than merely returning without an error.
+//
+// service.go carried the symptom in a comment since Phase 4: "after a process
+// restart, store rows may outlive in-memory runtimes (orphan sessions).
+// Invoke/Cancel return ErrUnavailable for those". Every restart ended every
+// open conversation, and the only way forward was a new session that had never
+// heard any of it.
+//
+//	DEVKIT_CLAUDE_ACP=1 go test ./internal/agenthub/ -run TestClaudeACPResume -v -timeout 10m
+func TestClaudeACPResumeAcrossProcesses(t *testing.T) {
+	if os.Getenv("DEVKIT_CLAUDE_ACP") != "1" {
+		skipOrFail(t, "set DEVKIT_CLAUDE_ACP=1 to run Claude ACP integration")
+	}
+
+	a := agenthub.NewClaudeAdapter(claudeIntegrationOptions(t))
+	loader, ok := any(a).(agenthub.SessionLoader)
+	if !ok {
+		t.Fatal("ClaudeAdapter no longer satisfies SessionLoader")
+	}
+
+	proj := t.TempDir()
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
+	defer cancel()
+
+	rt, err := a.Open(ctx, agenthub.OpenSpec{Cwd: proj})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	acpID := rt.ACPSessionID()
+	// A codeword rather than a fact the model could answer from training: the
+	// question is whether the earlier turn came back, not whether it can guess.
+	if _, err := rt.Prompt(ctx, "Remember this codeword: PANGOLIN-47. Just say OK."); err != nil {
+		t.Fatalf("first prompt: %v", err)
+	}
+	_ = rt.Close(ctx) // what a restart does to the process
+
+	resumed, err := loader.Load(ctx, agenthub.OpenSpec{Cwd: proj}, acpID)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	defer func() { _ = resumed.Close(context.Background()) }()
+
+	var mu sync.Mutex
+	var said []string
+	resumed.SetHandlers(agenthub.RuntimeHandlers{
+		OnUpdate: func(update json.RawMessage, _ json.RawMessage) {
+			var wire struct {
+				Kind    string `json:"sessionUpdate"`
+				Content struct {
+					Text string `json:"text"`
+				} `json:"content"`
+			}
+			if json.Unmarshal(update, &wire) == nil && wire.Kind == "agent_message_chunk" {
+				mu.Lock()
+				said = append(said, wire.Content.Text)
+				mu.Unlock()
+			}
+		},
+		OnPermission: func(_ context.Context, params json.RawMessage) (json.RawMessage, error) {
+			return allowOutcome(params), nil
+		},
+	})
+
+	if _, err := resumed.Prompt(ctx, "What codeword did I ask you to remember? Answer with just the word."); err != nil {
+		t.Fatalf("prompt after resume: %v", err)
+	}
+
+	mu.Lock()
+	answer := strings.Join(said, "")
+	mu.Unlock()
+	if !strings.Contains(answer, "PANGOLIN-47") {
+		t.Fatalf("context did not survive the resume; agent said %q", answer)
+	}
+}

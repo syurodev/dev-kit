@@ -39,7 +39,22 @@ type SessionRuntime interface {
 	SetHandlers(h RuntimeHandlers)
 }
 
-// RuntimeHandlers wires permission + update callbacks before Prompt.
+// SessionLoader is implemented by adapters whose vendor can resume a session
+// that outlived the process that created it.
+//
+// Optional on purpose: the agent advertises loadSession in its initialize
+// capabilities, so whether it can be done is a fact about the vendor, and an
+// interface every adapter must satisfy would force the ones that cannot into
+// faking it. Service checks the assertion and falls back to ErrUnavailable.
+type SessionLoader interface {
+	// Load reopens acpSessionID in a new process. The vendor replays the
+	// session's history as updates during the call; the caller must not have
+	// installed handlers yet, or a resume would re-record a transcript the
+	// store already has.
+	Load(ctx context.Context, spec OpenSpec, acpSessionID string) (SessionRuntime, error)
+}
+
+// RuntimeHandlers wires permission + update callbacks before Prompt.// RuntimeHandlers wires permission + update callbacks before Prompt.
 type RuntimeHandlers struct {
 	OnUpdate     func(update json.RawMessage, meta json.RawMessage)
 	OnPermission func(ctx context.Context, params json.RawMessage) (json.RawMessage, error)

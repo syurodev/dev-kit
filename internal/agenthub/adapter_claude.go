@@ -54,6 +54,8 @@ type ClaudeOptions struct {
 	OnUnknownMethod func(method string, params json.RawMessage)
 }
 
+var _ SessionLoader = (*ClaudeAdapter)(nil)
+
 // ClaudeAdapter is a VendorAdapter that speaks ACP to Claude inside a sandbox.
 type ClaudeAdapter struct {
 	opts ClaudeOptions
@@ -366,6 +368,29 @@ func mapSandboxErr(err error) error {
 
 // Open starts a sandboxed Claude ACP process, connects over stdio, and creates a session.
 func (a *ClaudeAdapter) Open(ctx context.Context, spec OpenSpec) (SessionRuntime, error) {
+	return a.open(ctx, spec, "")
+}
+
+// Load reopens a session that outlived the process that created it, satisfying
+// SessionLoader. Everything up to the last call is identical to Open — same
+// jail, same credentials, same _meta — because a resumed session must run under
+// the policy the original did, not a looser one that happens to be easier here.
+//
+// The vendor replays the session's history as session/update notifications
+// while this runs. They are discarded, because the runtime's handlers are still
+// nil until Service installs them: the transcript is already in SQLite, and a
+// resume that re-recorded it would grow the conversation every restart.
+// Measured against claude-agent-acp 0.74.0: the replay arrives as
+// user_message_chunk and agent_message_chunk, and a prompt afterwards recalls
+// what was said before the process died.
+func (a *ClaudeAdapter) Load(ctx context.Context, spec OpenSpec, acpSessionID string) (SessionRuntime, error) {
+	if acpSessionID == "" {
+		return nil, fmt.Errorf("%w: load needs the vendor session id", ErrSessionNotFound)
+	}
+	return a.open(ctx, spec, acpSessionID)
+}
+
+func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, resume string) (SessionRuntime, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -478,11 +503,36 @@ func (a *ClaudeAdapter) Open(ctx context.Context, spec OpenSpec) (SessionRuntime
 		}
 		mcpServers = append(mcpServers, srv)
 	}
+	meta := sessionNewMeta(devkitHookCommand(spec))
+
+	if resume != "" {
+		var loadRes acp.SessionLoadResult
+		if err := conn.Call(hsCtx, "session/load", acp.SessionLoadRequest{
+			SessionID:  resume,
+			Cwd:        pol.WorkDir,
+			McpServers: mcpServers,
+			Meta:       meta,
+		}, &loadRes); err != nil {
+			cleanup()
+			return nil, handshakeErr("session/load", err)
+		}
+		// The id is ours to begin with, so a vendor that echoes a different one
+		// has resumed something else; better to fail than to attach a session
+		// to the wrong conversation.
+		if loadRes.SessionID != "" && loadRes.SessionID != resume {
+			cleanup()
+			return nil, fmt.Errorf("%w: session/load returned %q, asked for %q",
+				ErrProcessFailed, loadRes.SessionID, resume)
+		}
+		rt.acpSessionID = resume
+		return rt, nil
+	}
+
 	var newRes acp.SessionNewResult
 	if err := conn.Call(hsCtx, "session/new", acp.SessionNewRequest{
 		Cwd:        pol.WorkDir,
 		McpServers: mcpServers,
-		Meta:       sessionNewMeta(devkitHookCommand(spec)),
+		Meta:       meta,
 	}, &newRes); err != nil {
 		cleanup()
 		return nil, handshakeErr("session/new", err)
