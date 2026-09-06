@@ -1,0 +1,83 @@
+name: Agent ACP guard
+
+# What this protects, and why it is on a schedule rather than on every push.
+#
+# DevKit's agent isolation rides on session/new._meta.claudeCode.options — a
+# field owned by @agentclientprotocol/claude-agent-acp, not by the ACP spec.
+# settingSources: [] keeps a user's ~/.claude/settings.json from handing the
+# agent allow rules that skip the permission gate, and the PreToolUse hook keeps
+# a tool from reading the credentials the jail binds read-write. If that package
+# renames or drops the field, both revert and nothing complains: the agent still
+# answers, the isolation is just gone.
+#
+# So the thing being watched is an npm release, not a commit. A weekly run is
+# what matches that; the push filter only covers the files that talk to the
+# channel, so a change on our side is checked too.
+#
+# The tests install the agent at its floating latest on purpose. Pinning would
+# make this suite green forever and tell us nothing about the release that
+# actually breaks us.
+
+on:
+  schedule:
+    # Mondays, 03:00 UTC. Failure is a heads-up, not an outage — a working week
+    # is the right resolution for "upstream changed something".
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+  push:
+    paths:
+      - "internal/acp/**"
+      - "internal/agenthub/**"
+      - "cmd/devkit-mcp/**"
+      - ".github/workflows/agent-acp-guard.yml"
+
+concurrency:
+  group: agent-acp-guard-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guard:
+    # Linux, not macOS: the drift being watched is in an npm package and is
+    # platform-independent, and ubuntu minutes are a tenth of macOS ones. The
+    # cost is that this exercises the bubblewrap sandbox while development
+    # happens on Seatbelt — a real gap, and the reason the Seatbelt path still
+    # needs the desktop smoke recorded in implementation-status.mdx.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install bubblewrap
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap
+
+      - name: Install claude-agent-acp
+        run: npm i -g @agentclientprotocol/claude-agent-acp
+
+      - name: Record the version under test
+        # Printed unconditionally: when this job goes red, the first question is
+        # always "which release did it?", and the answer has to be in the log of
+        # the run that failed rather than reconstructed afterwards.
+        run: |
+          npm ls -g @agentclientprotocol/claude-agent-acp --depth=0 || true
+          claude-agent-acp --version || true
+
+      - name: Guard the _meta channel
+        env:
+          DEVKIT_CLAUDE_ACP: "1"
+          # Turns a self-skip into a failure. Without it a missing binary or
+          # missing credentials would report success, which is the exact shape
+          # of the silent regression this job exists to catch.
+          DEVKIT_CLAUDE_ACP_REQUIRED: "1"
+          # The adapter's env allowlist forwards these two and nothing else.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: go test ./internal/agenthub/ -run TestClaudeACP -v -timeout 15m

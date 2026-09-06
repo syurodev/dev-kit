@@ -19,7 +19,7 @@ import (
 // Skip unless DEVKIT_CLAUDE_ACP=1 and an absolute binary (or AllowNpx) is available.
 func TestClaudeACPIntegration(t *testing.T) {
 	if os.Getenv("DEVKIT_CLAUDE_ACP") != "1" {
-		t.Skip("set DEVKIT_CLAUDE_ACP=1 to run Claude ACP integration")
+		skipOrFail(t, "set DEVKIT_CLAUDE_ACP=1 to run Claude ACP integration")
 	}
 
 	a := agenthub.NewClaudeAdapter(claudeIntegrationOptions(t))
@@ -64,7 +64,7 @@ func TestClaudeACPIntegration(t *testing.T) {
 //	DEVKIT_CLAUDE_ACP=1 go test ./internal/agenthub/ -run TestClaudeACPMetaChannel -v -timeout 10m
 func TestClaudeACPMetaChannelStillWorks(t *testing.T) {
 	if os.Getenv("DEVKIT_CLAUDE_ACP") != "1" {
-		t.Skip("set DEVKIT_CLAUDE_ACP=1 to run Claude ACP integration")
+		skipOrFail(t, "set DEVKIT_CLAUDE_ACP=1 to run Claude ACP integration")
 	}
 
 	// The adapter reads the hook's path off the devkit MCP server entry, which
@@ -80,7 +80,7 @@ func TestClaudeACPMetaChannelStillWorks(t *testing.T) {
 
 	home, err := os.UserHomeDir()
 	if err != nil {
-		t.Skipf("no home directory: %v", err)
+		skipOrFail(t, "no home directory: %v", err)
 	}
 
 	a := agenthub.NewClaudeAdapter(claudeIntegrationOptions(t))
@@ -130,14 +130,29 @@ func TestClaudeACPMetaChannelStillWorks(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
+
+	toolCalls := 0
 	for _, update := range seen {
 		if strings.Contains(update, agenthub.HookDenyReason) {
 			return
 		}
+		if strings.Contains(update, `"sessionUpdate":"tool_call"`) {
+			toolCalls++
+		}
 	}
-	t.Fatalf("the PreToolUse hook never denied %s — session/new._meta.claudeCode.options "+
-		"no longer installs it, so settingSources is probably ignored too and the agent "+
-		"is running with the user's own permission rules. Updates seen: %d", probe, len(seen))
+
+	// Two very different failures share this line, and CI has to tell them
+	// apart: an agent that never called a tool proves nothing about the hook —
+	// it usually means auth or the sandbox, not a regression upstream.
+	if toolCalls == 0 {
+		t.Fatalf("the agent made no tool call at all, so the hook was never reached: "+
+			"check credentials and the sandbox before suspecting the _meta channel. "+
+			"Updates seen: %d", len(seen))
+	}
+	t.Fatalf("the agent called %d tool(s) and the PreToolUse hook denied none of them — "+
+		"session/new._meta.claudeCode.options no longer installs it, so settingSources "+
+		"is probably ignored too and the agent is running with the user's own permission "+
+		"rules. Probe path: %s", toolCalls, probe)
 }
 
 // repoRoot walks up from the test's working directory to the module root, so
@@ -180,7 +195,22 @@ func claudeIntegrationOptions(t *testing.T) agenthub.ClaudeOptions {
 	if abs, err := exec.LookPath("claude-agent-acp"); err == nil {
 		return agenthub.ClaudeOptions{Command: abs}
 	}
-	t.Skip("claude-agent-acp not on PATH and DEVKIT_CLAUDE_ACP_BIN unset; " +
+	skipOrFail(t, "claude-agent-acp not on PATH and DEVKIT_CLAUDE_ACP_BIN unset; "+
 		"install it with: npm i -g @agentclientprotocol/claude-agent-acp")
 	return agenthub.ClaudeOptions{}
+}
+
+// skipOrFail skips locally and fails under DEVKIT_CLAUDE_ACP_REQUIRED=1.
+//
+// These tests skip themselves when the agent, the credentials or the platform
+// are missing, which is right on a laptop and wrong in CI: a guard that skips
+// is a green tick protecting nothing, and the whole reason this suite exists is
+// that the thing it guards fails silently. CI sets the variable so a missing
+// prerequisite is reported as the failure it is.
+func skipOrFail(t *testing.T, format string, args ...any) {
+	t.Helper()
+	if os.Getenv("DEVKIT_CLAUDE_ACP_REQUIRED") == "1" {
+		t.Fatalf("required by DEVKIT_CLAUDE_ACP_REQUIRED=1: "+format, args...)
+	}
+	t.Skipf(format, args...)
 }
