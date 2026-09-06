@@ -172,6 +172,24 @@ func (s *AppService) AgentHubCloseSession(ctx context.Context, id string) error 
 	return err
 }
 
+// AgentHubDeleteSession permanently removes a session, its transcript and
+// every descendant. Closing comes first inside the service, so this also ends
+// whatever was still running.
+func (s *AppService) AgentHubDeleteSession(ctx context.Context, id string) error {
+	opaqueID := hubSessionID(id)
+	_, err := s.Call(ctx, "builtin.agenthub", "agenthub:execute", "session:"+opaqueID, map[string]any{
+		"action":     "delete_session",
+		"session_id": opaqueID,
+	}, func(callCtx context.Context) (any, error) {
+		svc, err := s.agentHubService()
+		if err != nil {
+			return nil, err
+		}
+		return nil, svc.DeleteSession(callCtx, id)
+	})
+	return err
+}
+
 func (s *AppService) AgentHubListVendorTypes() ([]agenthub.AgentType, error) {
 	result, err := s.Call(context.Background(), "builtin.agenthub", "agenthub:read", "vendor:list", map[string]any{
 		"action": "list_vendor_types",

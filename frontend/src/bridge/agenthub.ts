@@ -204,6 +204,16 @@ export function agentHubCloseSession(sessionId: string): Promise<void> {
   );
 }
 
+/**
+ * Permanently removes a session, its transcript and every descendant. Unlike
+ * agentHubCloseSession, which keeps the row as history, this leaves nothing.
+ */
+export function agentHubDeleteSession(sessionId: string): Promise<void> {
+  return callBridge(
+    () => AppService.AgentHubDeleteSession(sessionId) as Promise<void>,
+  );
+}
+
 export function agentHubTranscript(
   sessionId: string,
 ): Promise<TranscriptEntry[]> {

@@ -4,14 +4,17 @@ import {
   agentHubChooseDirectory,
   agentHubCloseSession,
   agentHubCreateSession,
+  agentHubDeleteSession,
   agentHubGetStatus,
   agentHubInvoke,
   agentHubListVendorTypes,
   isSandboxUnavailableError,
   sandboxUnavailableMessage,
+  type AgentSession,
   type AgentVendor,
 } from "../../bridge/agenthub";
 import { codeGraphProjectRoot } from "../../bridge/codegraph";
+import { copyText } from "../../bridge/clipboard";
 import { errorMessage } from "../../bridge/errors";
 import { useAgentHubSidebar } from "./useAgentHubSidebar";
 import { useAgentTranscript } from "./transcript";
@@ -21,6 +24,17 @@ import {
 } from "./surfaces";
 import { TranscriptGallery } from "./transcript/TranscriptGallery";
 import { useAgentSessionsStore } from "../../stores/agentSessions";
+import { useAgentPinsStore } from "../../stores/agentPins";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const DEFAULT_VENDORS: AgentVendor[] = ["mock", "claude"];
 
@@ -36,6 +50,7 @@ export function AgentHubView() {
   const activeSessionId = useAgentSessionsStore((state) => state.activeSessionId);
   const setActiveSessionId = useAgentSessionsStore((state) => state.setActiveSessionId);
   const upsertSession = useAgentSessionsStore((state) => state.upsertSession);
+  const removeSession = useAgentSessionsStore((state) => state.removeSession);
   const transcripts = useAgentSessionsStore((state) => state.transcripts);
   const setPrompt = useAgentSessionsStore((state) => state.setPrompt);
   const pendingQueue = useAgentSessionsStore((state) => state.pendingQueue);
@@ -46,6 +61,15 @@ export function AgentHubView() {
   // dialog. Read when the dialog opens rather than on mount: Code Graph may
   // have opened a project since, and a stale path is worse than no suggestion.
   const [codeGraphCwd, setCodeGraphCwd] = useState("");
+  // The parent a new session will inherit from, set by the tree's "New child
+  // session". Null means the dialog is starting a root session.
+  const [newSessionParent, setNewSessionParent] = useState<AgentSession | null>(null);
+  // The session awaiting a delete confirmation, with how many go with it.
+  const [pendingDelete, setPendingDelete] = useState<{
+    session: AgentSession;
+    descendants: number;
+  } | null>(null);
+  const unpin = useAgentPinsStore((state) => state.unpin);
 
   useEffect(() => {
     if (!newSessionOpen) return;
@@ -120,10 +144,12 @@ export function AgentHubView() {
         agentType: params.vendor,
         cwd: params.cwd,
         title: params.title,
+        parentSessionId: newSessionParent?.id,
       });
       upsertSession(session);
       setActiveSessionId(session.id);
       setNewSessionOpen(false);
+      setNewSessionParent(null);
     } catch (e) {
       setError(errorMessage(e));
       if (params.vendor === "claude" && isSandboxUnavailableError(e)) {
@@ -167,6 +193,63 @@ export function AgentHubView() {
     }
   }
 
+  // The header acts on the active session; the tree's context menu acts on
+  // whichever row was right-clicked, which is often not the active one.
+  async function handleCancelFor(session: AgentSession) {
+    try {
+      await agentHubCancel(session.id);
+      upsertSession(await agentHubGetStatus(session.id));
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  }
+
+  async function handleCloseFor(session: AgentSession) {
+    try {
+      await agentHubCloseSession(session.id);
+      upsertSession(await agentHubGetStatus(session.id));
+      if (session.id === activeSession?.id) {
+        const next = sessions.find((s) => s.id !== session.id && s.status !== "closed");
+        setActiveSessionId(next ? next.id : "");
+      }
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  }
+
+  async function handleDeleteConfirmed() {
+    const target = pendingDelete?.session;
+    setPendingDelete(null);
+    if (!target) return;
+    try {
+      await agentHubDeleteSession(target.id);
+      // The backend takes the subtree, so the store has to as well — a child
+      // left in the list would render as a root pointing at a session that no
+      // longer exists.
+      const gone = new Set<string>([target.id]);
+      let grew = true;
+      while (grew) {
+        grew = false;
+        for (const s of sessions) {
+          if (!gone.has(s.id) && s.parentSessionId && gone.has(s.parentSessionId)) {
+            gone.add(s.id);
+            grew = true;
+          }
+        }
+      }
+      for (const id of gone) {
+        removeSession(id);
+        unpin(id);
+      }
+      if (activeSession && gone.has(activeSession.id)) {
+        const next = sessions.find((s) => !gone.has(s.id));
+        setActiveSessionId(next ? next.id : "");
+      }
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  }
+
   async function handleCloseSession() {
     if (!activeSession) return;
     const closedId = activeSession.id;
@@ -202,7 +285,18 @@ export function AgentHubView() {
     activeSessionId: activeSession?.id,
     pendingCounts,
     onSelectSession: setActiveSessionId,
-    onNewSession: () => setNewSessionOpen(true),
+    onNewSession: () => {
+      setNewSessionParent(null);
+      setNewSessionOpen(true);
+    },
+    onNewChildSession: (parent) => {
+      setNewSessionParent(parent);
+      setNewSessionOpen(true);
+    },
+    onCancelTurn: (session) => void handleCancelFor(session),
+    onCloseSession: (session) => void handleCloseFor(session),
+    onDeleteSession: (session, descendants) => setPendingDelete({ session, descendants }),
+    onCopy: (text) => void copyText(text),
   });
 
   return (
@@ -261,15 +355,49 @@ export function AgentHubView() {
           if (!next) {
             setError("");
             setSandboxHint("");
+            setNewSessionParent(null);
           }
         }}
         vendors={vendors}
         busy={busy}
         error={error || sandboxHint}
+        parentName={newSessionParent?.title ?? undefined}
+        depth={newSessionParent ? newSessionParent.depth + 1 : undefined}
+        defaultCwd={newSessionParent?.projectPath ?? ""}
         suggestedCwd={codeGraphCwd}
         onBrowse={() => agentHubChooseDirectory(codeGraphCwd)}
         onCreate={handleCreateSession}
       />
+
+      {/* Delete is the one action here with nothing behind it: close keeps the
+          row as history, this removes the transcript for good. */}
+      <AlertDialog
+        open={Boolean(pendingDelete)}
+        onOpenChange={(next) => {
+          if (!next) setPendingDelete(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {`Delete ${pendingDelete?.session.title || "this session"}?`}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingDelete?.descendants
+                ? `Its transcript and ${pendingDelete.descendants} child session${
+                    pendingDelete.descendants === 1 ? "" : "s"
+                  } will be deleted for good. Any of them still running will be stopped. This cannot be undone.`
+                : "Its transcript will be deleted for good, and the agent stopped if it is still running. This cannot be undone."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void handleDeleteConfirmed()}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

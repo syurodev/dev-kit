@@ -1,7 +1,16 @@
 import * as React from "react";
+import { Ban, Copy, FolderOpen, Pin, PinOff, Plus, Square, Trash2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuLabel,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { AgentRow } from "./AgentRow";
 import type { AgentSession } from "@/bridge/agenthub";
 
@@ -13,6 +22,15 @@ export type AgentSidebarTreeProps = {
   turnCounts?: Record<string, number>;
   onSelectSession: (sessionId: string) => void;
   onNewSession: () => void;
+  /** Session ids the user pinned; these sort to the top, lineage intact. */
+  pinnedIds?: string[];
+  onTogglePin?: (sessionId: string) => void;
+  /** Spawns a child of this session — the context menu's only creating action. */
+  onNewChildSession?: (parent: AgentSession) => void;
+  onCancelTurn?: (session: AgentSession) => void;
+  onCloseSession?: (session: AgentSession) => void;
+  onDeleteSession?: (session: AgentSession, descendants: number) => void;
+  onCopy?: (text: string) => void;
   className?: string;
 };
 
@@ -31,8 +49,14 @@ export type AgentSidebarTreeProps = {
  * you are deciding whether anything needs you at all.
  */
 
-/** Depth-first, parents before their children, so indentation reads as lineage. */
-function orderByLineage(sessions: AgentSession[]): AgentSession[] {
+/**
+ * Depth-first, parents before their children, so indentation reads as lineage.
+ *
+ * Pinning reorders roots only. A pinned child hoisted out of its subtree would
+ * be a child drawn above its own parent, and the indentation — which Figma's
+ * note calls "the boundary an agent may act within" — would then be a lie.
+ */
+function orderByLineage(sessions: AgentSession[], pinnedIds: string[] = []): AgentSession[] {
   const children = new Map<string, AgentSession[]>();
   const roots: AgentSession[] = [];
 
@@ -45,6 +69,12 @@ function orderByLineage(sessions: AgentSession[]): AgentSession[] {
       roots.push(session);
     }
   }
+
+  const pinRank = (session: AgentSession) => {
+    const at = pinnedIds.indexOf(session.id);
+    return at === -1 ? Number.MAX_SAFE_INTEGER : at;
+  };
+  roots.sort((a, b) => pinRank(a) - pinRank(b));
 
   const out: AgentSession[] = [];
   const walk = (node: AgentSession) => {
@@ -64,6 +94,33 @@ function orderByLineage(sessions: AgentSession[]): AgentSession[] {
   return out;
 }
 
+/**
+ * How many sessions go with each one if it is deleted, itself excluded.
+ *
+ * Exported for its test: this number is the label on a destructive action, and
+ * a wrong one means the user agreed to lose something they were not told about.
+ */
+export function countDescendants(sessions: AgentSession[]): Record<string, number> {
+  const children = new Map<string, string[]>();
+  for (const session of sessions) {
+    if (!session.parentSessionId) continue;
+    const list = children.get(session.parentSessionId) ?? [];
+    list.push(session.id);
+    children.set(session.parentSessionId, list);
+  }
+  const counts: Record<string, number> = {};
+  const count = (id: string): number => {
+    if (counts[id] !== undefined) return counts[id];
+    counts[id] = 0; // guards a cycle, which the depth limit should prevent anyway
+    let total = 0;
+    for (const child of children.get(id) ?? []) total += 1 + count(child);
+    counts[id] = total;
+    return total;
+  };
+  for (const session of sessions) count(session.id);
+  return counts;
+}
+
 export function AgentSidebarTree({
   sessions,
   activeSessionId,
@@ -71,9 +128,20 @@ export function AgentSidebarTree({
   turnCounts = {},
   onSelectSession,
   onNewSession,
+  pinnedIds = [],
+  onTogglePin,
+  onNewChildSession,
+  onCancelTurn,
+  onCloseSession,
+  onDeleteSession,
+  onCopy,
   className,
 }: AgentSidebarTreeProps) {
-  const ordered = React.useMemo(() => orderByLineage(sessions), [sessions]);
+  const ordered = React.useMemo(
+    () => orderByLineage(sessions, pinnedIds),
+    [sessions, pinnedIds],
+  );
+  const descendantCounts = React.useMemo(() => countDescendants(sessions), [sessions]);
 
   const waiting = React.useMemo(
     () =>
@@ -123,13 +191,100 @@ export function AgentSidebarTree({
                   className="w-px shrink-0 self-stretch bg-border-subtle"
                 />
               ) : null}
-              <AgentRow
-                session={session}
-                selected={session.id === activeSessionId}
-                turnCount={turnCounts[session.id]}
-                onClick={() => onSelectSession(session.id)}
-                className="max-w-none flex-1"
-              />
+              <ContextMenu>
+                <ContextMenuTrigger asChild>
+                  <AgentRow
+                    session={session}
+                    selected={session.id === activeSessionId}
+                    turnCount={turnCounts[session.id]}
+                    pinned={pinnedIds.includes(session.id)}
+                    onClick={() => onSelectSession(session.id)}
+                    className="max-w-none flex-1"
+                  />
+                </ContextMenuTrigger>
+                <ContextMenuContent className="w-56">
+                  <ContextMenuLabel className="truncate">
+                    {session.title || session.id.slice(0, 8)}
+                  </ContextMenuLabel>
+                  <ContextMenuSeparator />
+
+                  {onTogglePin ? (
+                    <ContextMenuItem onSelect={() => onTogglePin(session.id)}>
+                      {pinnedIds.includes(session.id) ? <PinOff /> : <Pin />}
+                      {pinnedIds.includes(session.id) ? "Unpin" : "Pin to top"}
+                    </ContextMenuItem>
+                  ) : null}
+
+                  {onNewChildSession ? (
+                    <ContextMenuItem onSelect={() => onNewChildSession(session)}>
+                      <Plus />
+                      New child session
+                    </ContextMenuItem>
+                  ) : null}
+
+                  {onCopy ? (
+                    <>
+                      <ContextMenuSeparator />
+                      <ContextMenuItem onSelect={() => onCopy(session.projectPath)}>
+                        <FolderOpen />
+                        Copy working directory
+                      </ContextMenuItem>
+                      <ContextMenuItem onSelect={() => onCopy(session.id)}>
+                        <Copy />
+                        Copy session ID
+                      </ContextMenuItem>
+                    </>
+                  ) : null}
+
+                  {onCancelTurn || onCloseSession || onDeleteSession ? (
+                    <ContextMenuSeparator />
+                  ) : null}
+
+                  {/* Cancel stops the turn and leaves the agent running;
+                      close ends the process. Both are meaningless once the
+                      session is closed, so they say so by being disabled
+                      rather than by disappearing — a menu whose items move
+                      between visits is a menu you have to read every time. */}
+                  {onCancelTurn ? (
+                    <ContextMenuItem
+                      disabled={session.status !== "running"}
+                      onSelect={() => onCancelTurn(session)}
+                    >
+                      <Ban />
+                      Cancel turn
+                    </ContextMenuItem>
+                  ) : null}
+
+                  {onCloseSession ? (
+                    <ContextMenuItem
+                      disabled={session.status === "closed"}
+                      onSelect={() => onCloseSession(session)}
+                    >
+                      <Square />
+                      Close session
+                    </ContextMenuItem>
+                  ) : null}
+
+                  {onDeleteSession ? (
+                    <ContextMenuItem
+                      variant="destructive"
+                      onSelect={() =>
+                        onDeleteSession(session, descendantCounts[session.id] ?? 0)
+                      }
+                    >
+                      <Trash2 />
+                      {/* Says what will actually go. Deleting a parent takes
+                          its subtree, and finding that out afterwards is the
+                          one thing this action cannot undo. */}
+                      {descendantCounts[session.id]
+                        ? `Delete session and ${descendantCounts[session.id]} ${
+                            descendantCounts[session.id] === 1 ? "child" : "children"
+                          }`
+                        : "Delete session"}
+                    </ContextMenuItem>
+                  ) : null}
+                </ContextMenuContent>
+              </ContextMenu>
             </div>
           );
         })}

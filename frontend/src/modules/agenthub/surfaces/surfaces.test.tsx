@@ -9,6 +9,7 @@ import {
   AgentSessionError,
   AgentRow,
   AgentSidebarTree,
+  countDescendants,
   AgentHubContent,
   AgentMetaInspector,
   AgentRail,
@@ -415,6 +416,58 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       // mockChildSession is awaiting_permission.
       expect(html).toContain('data-testid="agent-tree-attention"');
       expect(html).toContain("1 agent waiting on you");
+    });
+
+    it("counts the whole subtree, because that is what delete takes", () => {
+      const at = (id: string, parent: string | null): AgentSession => ({
+        id,
+        agentType: "mock",
+        projectPath: "/p",
+        status: "idle",
+        parentSessionId: parent,
+        depth: 0,
+        title: id,
+        acpSessionId: "acp-" + id,
+      });
+      // root → a → a1, and root → b. Deleting root takes four others.
+      const counts = countDescendants([
+        at("root", null),
+        at("a", "root"),
+        at("a1", "a"),
+        at("b", "root"),
+        at("lone", null),
+      ]);
+      expect(counts.root).toBe(3);
+      expect(counts.a).toBe(1);
+      expect(counts.a1).toBe(0);
+      expect(counts.lone).toBe(0);
+    });
+
+    it("pins roots to the top without lifting a child out of its lineage", () => {
+      const at = (id: string, parent: string | null): AgentSession => ({
+        id,
+        agentType: "mock",
+        projectPath: "/p",
+        status: "idle",
+        parentSessionId: parent,
+        depth: parent ? 1 : 0,
+        title: id,
+        acpSessionId: "acp-" + id,
+      });
+      const html = renderToString(
+        <AgentSidebarTree
+          sessions={[at("first", null), at("kid", "first"), at("second", null)]}
+          // "kid" is pinned too, and must NOT be hoisted: a child drawn above
+          // its own parent makes the indentation say something untrue.
+          pinnedIds={["second", "kid"]}
+          onSelectSession={() => {}}
+          onNewSession={() => {}}
+        />,
+      );
+      const order = ["second", "first", "kid"].map((id) => html.indexOf(">" + id + "<"));
+      expect(order[0]).toBeGreaterThan(-1);
+      expect(order[0]).toBeLessThan(order[1]);
+      expect(order[1]).toBeLessThan(order[2]);
     });
   });
 

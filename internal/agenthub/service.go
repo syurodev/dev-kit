@@ -341,7 +341,56 @@ func (s *Service) CloseSession(ctx context.Context, id string) error {
 	return nil
 }
 
-// Invoke runs a blocking prompt turn on an existing session.
+// DeleteSession permanently removes a session, its turns and its transcript,
+// along with every descendant session.
+//
+// The subtree goes with it on purpose. A child session exists only because its
+// parent spawned it, and deleting the parent alone would leave children whose
+// lineage points at a row that is gone — the sidebar renders those as roots,
+// so the swarm would silently reshape itself. Deleting one at a time in the
+// right order is work the user should not have to do.
+//
+// Each session is closed first: the row is what the UI reads, but the process
+// is what holds the port, the MCP endpoint and the sandbox. Deleting the row
+// while the runtime lives would leave an agent running that nothing can reach
+// or stop. A close that fails because the session was already closed is not an
+// error here — that is the state we want.
+func (s *Service) DeleteSession(ctx context.Context, id string) error {
+	if err := s.authorizeTarget(ctx, id); err != nil {
+		return err
+	}
+	byID, err := s.sessionsByID(ctx)
+	if err != nil {
+		return err
+	}
+	if _, ok := byID[id]; !ok {
+		return ErrSessionNotFound
+	}
+
+	ids := descendantsOf(byID, id)
+	for _, target := range ids {
+		if err := s.CloseSession(ctx, target); err != nil && !errors.Is(err, ErrSessionNotFound) {
+			return err
+		}
+	}
+	return s.store.DeleteSessions(ctx, ids)
+}
+
+// descendantsOf returns id and everything beneath it, deepest last, so callers
+// that must respect parent links can walk the slice backwards.
+func descendantsOf(byID map[string]AgentSession, root string) []string {
+	out := []string{root}
+	for i := 0; i < len(out); i++ {
+		for childID, child := range byID {
+			if child.ParentSessionID != nil && *child.ParentSessionID == out[i] {
+				out = append(out, childID)
+			}
+		}
+	}
+	return out
+}
+
+// Invoke runs a blocking prompt turn on an existing session.// Invoke runs a blocking prompt turn on an existing session.
 func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, error) {
 	if _, hasDeadline := ctx.Deadline(); !hasDeadline && DefaultInvokeTimeout > 0 {
 		var cancel context.CancelFunc

@@ -187,3 +187,28 @@ func TestAgentHubCloseSessionMarksClosedAndKeepsHistory(t *testing.T) {
 		t.Fatalf("sessions after close = %d, want 1", len(list))
 	}
 }
+
+func TestAgentHubDeleteSessionRemovesItFromTheList(t *testing.T) {
+	svc := newBridgeWithAgentHub(t)
+	sess, err := svc.AgentHubCreateSession(agenthub.CreateInput{
+		AgentType: agenthub.AgentTypeMock,
+		Cwd:       t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	if err := svc.AgentHubDeleteSession(context.Background(), sess.ID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+
+	// Unlike close, which keeps the row as history, delete is meant to leave
+	// nothing behind.
+	list, err := svc.AgentHubListAgents()
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(list) != 0 {
+		t.Fatalf("sessions after delete = %d, want 0", len(list))
+	}
+}

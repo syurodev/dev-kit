@@ -274,3 +274,49 @@ func TestInvokeAppliesDefaultDeadline(t *testing.T) {
 		t.Fatalf("got %v want ErrCancelled from default Invoke deadline", err)
 	}
 }
+
+func TestDeleteSessionTakesTheSubtreeWithIt(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+
+	parent, err := svc.CreateSession(ctx, agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: t.TempDir()})
+	if err != nil {
+		t.Fatalf("create parent: %v", err)
+	}
+	child, err := svc.CreateSession(ctx, agenthub.CreateInput{
+		AgentType:       agenthub.AgentTypeMock,
+		Cwd:             parent.ProjectPath,
+		ParentSessionID: parent.ID,
+	})
+	if err != nil {
+		t.Fatalf("create child: %v", err)
+	}
+	other, err := svc.CreateSession(ctx, agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: t.TempDir()})
+	if err != nil {
+		t.Fatalf("create other: %v", err)
+	}
+
+	if err := svc.DeleteSession(ctx, parent.ID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+
+	list, err := svc.ListSessions(ctx)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(list) != 1 || list[0].ID != other.ID {
+		// A child left behind would render as a root and silently reshape
+		// the swarm; an unrelated session must survive untouched.
+		t.Fatalf("remaining = %+v, want only %s", list, other.ID)
+	}
+	if _, err := svc.GetStatus(ctx, child.ID); err == nil {
+		t.Fatal("child session still readable after parent delete")
+	}
+}
+
+func TestDeleteSessionUnknownID(t *testing.T) {
+	svc := newTestService(t)
+	if err := svc.DeleteSession(context.Background(), "no-such-session"); !errors.Is(err, agenthub.ErrSessionNotFound) {
+		t.Fatalf("err = %v, want agenthub.ErrSessionNotFound", err)
+	}
+}

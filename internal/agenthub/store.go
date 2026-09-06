@@ -23,6 +23,7 @@ type Store interface {
 	ListSessions(ctx context.Context) ([]AgentSession, error)
 	InsertTurn(ctx context.Context, t TurnRecord) error
 	ListTurns(ctx context.Context, sessionID string) ([]TurnRecord, error)
+	DeleteSessions(ctx context.Context, ids []string) error
 	TranscriptStore
 }
 
@@ -305,6 +306,47 @@ func (st *SQLStore) PruneTranscriptsBefore(ctx context.Context, cutoff time.Time
 		return 0, err
 	}
 	return res.RowsAffected()
+}
+
+// DeleteSessions removes the given sessions along with their turns and
+// transcripts, permanently.
+//
+// Children first, then the sessions themselves: agent_turns and
+// agent_transcript both declare a foreign key onto agent_sessions and the
+// connection runs with foreign_keys=ON, so deleting a session that still has
+// either would fail rather than orphan them. There is no ON DELETE CASCADE on
+// those tables — migrations 13 and 20 predate anything that deleted a session
+// — so the order is the cascade.
+//
+// One transaction, because a half-deleted session is worse than either
+// outcome: rows whose parent is gone are unreachable through every read path
+// this package has, so they would simply consume space forever.
+func (st *SQLStore) DeleteSessions(ctx context.Context, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+
+	tx, err := st.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	for _, table := range []string{tableAgentTranscript, tableAgentTurns} {
+		for _, id := range ids {
+			if _, err := tx.ExecContext(ctx,
+				`DELETE FROM `+table+` WHERE session_id = ?`, id); err != nil {
+				return err
+			}
+		}
+	}
+	for _, id := range ids {
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM `+tableAgentSessions+` WHERE id = ?`, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (st *SQLStore) ListTranscript(ctx context.Context, sessionID string) ([]TranscriptEntry, error) {

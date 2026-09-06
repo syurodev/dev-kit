@@ -2,6 +2,7 @@ import { useMemo, useRef, useCallback } from "react";
 
 import { useSidebarContent } from "@/components/ui/sidebar-shell";
 import { AgentSidebarTree } from "./surfaces";
+import { useAgentPinsStore } from "../../stores/agentPins";
 import type { AgentSession } from "../../bridge/agenthub";
 
 /**
@@ -17,6 +18,10 @@ import type { AgentSession } from "../../bridge/agenthub";
  * views (dashboard and editor) so the rail's data has to outlive either one.
  * Agent Hub has a single view that already owns this state, so passing it in is
  * both smaller and harder to desynchronise.
+ *
+ * Pins are the exception, and they come from stores/agentPins rather than from
+ * the view: a pin outlives the session list, survives a restart, and no view
+ * state is involved in reading it.
  */
 export function useAgentHubSidebar(args: {
   sessions: AgentSession[];
@@ -24,19 +29,45 @@ export function useAgentHubSidebar(args: {
   pendingCounts: Record<string, number>;
   onSelectSession: (id: string) => void;
   onNewSession: () => void;
+  onNewChildSession: (parent: AgentSession) => void;
+  onCancelTurn: (session: AgentSession) => void;
+  onCloseSession: (session: AgentSession) => void;
+  onDeleteSession: (session: AgentSession, descendants: number) => void;
+  onCopy: (text: string) => void;
 }) {
   const { sessions, activeSessionId, pendingCounts } = args;
+  const pinned = useAgentPinsStore((state) => state.pinned);
+  const togglePin = useAgentPinsStore((state) => state.togglePin);
 
-  // The two callbacks are redefined every render by the view. Holding them in a
-  // ref keeps them out of the memo below, so the rail re-registers when what it
+  // The callbacks are redefined every render by the view. Holding them in a ref
+  // keeps them out of the memo below, so the rail re-registers when what it
   // *shows* changes rather than on every keystroke in the composer.
-  const selectRef = useRef(args.onSelectSession);
-  selectRef.current = args.onSelectSession;
-  const newSessionRef = useRef(args.onNewSession);
-  newSessionRef.current = args.onNewSession;
+  const handlers = useRef(args);
+  handlers.current = args;
 
-  const onSelectSession = useCallback((id: string) => selectRef.current(id), []);
-  const onNewSession = useCallback(() => newSessionRef.current(), []);
+  const onSelectSession = useCallback(
+    (id: string) => handlers.current.onSelectSession(id),
+    [],
+  );
+  const onNewSession = useCallback(() => handlers.current.onNewSession(), []);
+  const onNewChildSession = useCallback(
+    (parent: AgentSession) => handlers.current.onNewChildSession(parent),
+    [],
+  );
+  const onCancelTurn = useCallback(
+    (session: AgentSession) => handlers.current.onCancelTurn(session),
+    [],
+  );
+  const onCloseSession = useCallback(
+    (session: AgentSession) => handlers.current.onCloseSession(session),
+    [],
+  );
+  const onDeleteSession = useCallback(
+    (session: AgentSession, descendants: number) =>
+      handlers.current.onDeleteSession(session, descendants),
+    [],
+  );
+  const onCopy = useCallback((text: string) => handlers.current.onCopy(text), []);
 
   const content = useMemo(
     () => (
@@ -44,11 +75,31 @@ export function useAgentHubSidebar(args: {
         sessions={sessions}
         activeSessionId={activeSessionId}
         pendingCounts={pendingCounts}
+        pinnedIds={pinned}
+        onTogglePin={togglePin}
         onSelectSession={onSelectSession}
         onNewSession={onNewSession}
+        onNewChildSession={onNewChildSession}
+        onCancelTurn={onCancelTurn}
+        onCloseSession={onCloseSession}
+        onDeleteSession={onDeleteSession}
+        onCopy={onCopy}
       />
     ),
-    [sessions, activeSessionId, pendingCounts, onSelectSession, onNewSession],
+    [
+      sessions,
+      activeSessionId,
+      pendingCounts,
+      pinned,
+      togglePin,
+      onSelectSession,
+      onNewSession,
+      onNewChildSession,
+      onCancelTurn,
+      onCloseSession,
+      onDeleteSession,
+      onCopy,
+    ],
   );
 
   useSidebarContent(content);

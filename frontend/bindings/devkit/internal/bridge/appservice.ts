@@ -74,6 +74,15 @@ export function AgentHubCreateSession(input: agenthub$0.CreateInput): $Cancellab
     return $Call.ByID(146979054, input);
 }
 
+/**
+ * AgentHubDeleteSession permanently removes a session, its transcript and
+ * every descendant. Closing comes first inside the service, so this also ends
+ * whatever was still running.
+ */
+export function AgentHubDeleteSession(id: string): $CancellablePromise<void> {
+    return $Call.ByID(4173780955, id);
+}
+
 export function AgentHubGetStatus(id: string): $CancellablePromise<agenthub$0.AgentSession> {
     return $Call.ByID(2289470436, id);
 }

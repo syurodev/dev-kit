@@ -1,4 +1,4 @@
-import { Bot } from "lucide-react";
+import { Bot, Pin } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { AgentState, type AgentStatus } from "./AgentState";
@@ -8,6 +8,8 @@ export type AgentRowProps = {
   session: AgentSession;
   selected?: boolean;
   turnCount?: number;
+  /** Sorted to the top of the tree; marked so the order is explicable. */
+  pinned?: boolean;
   onClick?: () => void;
   className?: string;
   id?: string;
@@ -58,6 +60,7 @@ export function AgentRow({
   session,
   selected = false,
   turnCount,
+  pinned = false,
   onClick,
   className,
   id,
@@ -73,6 +76,7 @@ export function AgentRow({
       aria-current={selected ? "true" : undefined}
       data-testid="agent-row"
       data-selected={selected}
+      data-pinned={pinned}
       className={cn(
         "flex w-full max-w-[264px] items-center gap-3 rounded-md px-3 py-2 text-left transition-colors cursor-pointer",
         selected
@@ -90,6 +94,13 @@ export function AgentRow({
           <AgentState status={toAgentStatus(session.status)} />
         </div>
         <div className="flex w-full items-center gap-2 text-caption-11 text-text-tertiary">
+          {pinned ? (
+            <Pin
+              aria-label="Pinned"
+              data-testid="agent-row-pin"
+              className="size-2.5 shrink-0"
+            />
+          ) : null}
           {project ? <span className="truncate">{project}</span> : null}
           {typeof turnCount === "number" ? (
             <span className="shrink-0">{`· ${turnCount} turns`}</span>
