@@ -21,6 +21,11 @@ const (
 	// turned up in a real claude-agent-acp 0.74 capture and is the source of
 	// the context counter and running cost the composer shows.
 	UpdateUsage UpdateKind = "usage_update"
+	// UpdateSessionInfo carries what the vendor knows about the session as a
+	// whole. Two shapes share the kind: a generated title, and (behind the
+	// goal extension) an objective in _meta. Only the title is modelled — an
+	// objective is something a human typed with /goal, not a name to show.
+	UpdateSessionInfo UpdateKind = "session_info_update"
 	// UpdateUnknown is a kind this build does not model. The raw blob is kept
 	// so a vendor that ships a new kind degrades to "not rendered" rather than
 	// "silently dropped" — the Meta Inspector surface reads Raw.
@@ -108,7 +113,10 @@ type SessionUpdate struct {
 	Plan     []PlanEntry        `json:"plan,omitempty"`
 	Commands []AvailableCommand `json:"commands,omitempty"`
 	Mode     string             `json:"mode,omitempty"`
-	Usage    *Usage             `json:"usage,omitempty"`
+	// Title is the vendor's own name for the session, generated after the
+	// first exchange. Empty on the goal-carrying shape of the same kind.
+	Title string `json:"title,omitempty"`
+	Usage *Usage `json:"usage,omitempty"`
 	// MessageID identifies the assistant message a chunk belongs to. Claude
 	// sends it on every chunk; it is a stricter coalescing key than "same kind"
 	// because two consecutive messages would otherwise fold into one bubble.
@@ -208,6 +216,12 @@ func ParseSessionUpdate(raw json.RawMessage) SessionUpdate {
 	case UpdateCurrentMode:
 		out.Kind = UpdateCurrentMode
 		out.Mode = wire.CurrentMode
+	case UpdateSessionInfo:
+		// The goal-carrying shape of this kind has no title. Leaving it as
+		// UpdateUnknown would put it back in the log every session; naming it
+		// with an empty Title says "understood, nothing to apply".
+		out.Kind = UpdateSessionInfo
+		out.Title = wire.Title
 	case UpdateUsage:
 		out.Kind = UpdateUsage
 		usage := Usage{Used: wire.Used, Size: wire.Size}

@@ -60,6 +60,19 @@ export function AgentSessionsSubscriber() {
     return onAgentHubSessionUpdate((event) => {
       updateLines(event.sessionId, (prev) => appendUpdateLine(prev, event.update));
 
+      // The agent names the session itself, after the first exchange, from
+      // what was actually said. Until this landed every row in the swarm tree
+      // read "Session 1d5b9d50" — an id is not a name. The backend has already
+      // persisted it by the time this update arrives; this is what renames the
+      // row without waiting for a reload.
+      if (event.parsed?.kind === UpdateKind.UpdateSessionInfo && event.parsed.title) {
+        const { sessions, upsertSession } = useAgentSessionsStore.getState();
+        const session = sessions.find((s) => s.id === event.sessionId);
+        if (session && !session.title) {
+          upsertSession({ ...session, title: event.parsed.title });
+        }
+      }
+
       // Synchronize tab status: find open tabs belonging to Agent Hub
       const { openTabs, setTabStatus } = useWorkbenchTabsStore.getState();
       const targetTabs = openTabs.filter(

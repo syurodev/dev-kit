@@ -500,6 +500,11 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 			// "transcript write failed: context canceled" and the UI drew an
 			// empty bubble where the agent's error should have been.
 			parsed := ParseSessionUpdate(update)
+			if parsed.Kind == UpdateSessionInfo && parsed.Title != "" {
+				if err := s.adoptSessionTitle(recordCtx, in.SessionID, parsed.Title); err != nil && s.OnRecordError != nil {
+					s.OnRecordError(in.SessionID, err)
+				}
+			}
 			if parsed.Kind == UpdateUnknown && s.OnUnknownUpdate != nil {
 				// Once per kind per session: a stream of chunks of one unknown
 				// kind is one fact, not a thousand log lines.
@@ -627,6 +632,31 @@ func userEchoUpdate(text, messageID string) json.RawMessage {
 		return nil
 	}
 	return body
+}
+
+// adoptSessionTitle takes the vendor's generated name for a session that has
+// none. The agent produces it after the first exchange, from what was actually
+// said — which is why sessions read "Session 1d5b9d50" until now: nothing else
+// ever names them.
+//
+// Only fills an empty title, never replaces one. A name passed to CreateSession
+// was chosen by a person, and the agent regenerates its own as a conversation
+// drifts; letting the later guess overwrite the deliberate choice would make a
+// named session quietly rename itself.
+func (s *Service) adoptSessionTitle(ctx context.Context, sessionID, title string) error {
+	sess, err := s.store.GetSession(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	if sess.Title != nil && strings.TrimSpace(*sess.Title) != "" {
+		return nil
+	}
+	sess.Title = &title
+	sess.UpdatedAt = time.Now().UTC()
+	// No event of its own: the same update is already emitted to the UI on the
+	// line below this call, carrying the title in its parsed form. A second
+	// channel for one string would be a second thing to keep in sync.
+	return s.store.UpdateSession(ctx, sess)
 }
 
 // markUnknownSeen reports whether this is the first time the session has seen

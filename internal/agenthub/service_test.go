@@ -421,3 +421,80 @@ func TestTranscriptSurvivesTheContextThatKilledTheTurn(t *testing.T) {
 		t.Fatal("session stuck in running after the turn died")
 	}
 }
+
+// titlingRuntime emits the session_info_update a real agent sends after the
+// first exchange, so the test drives the same path production does rather than
+// poking the store.
+type titlingRuntime struct{ handlers agenthub.RuntimeHandlers }
+
+func (r *titlingRuntime) ACPSessionID() string                   { return "acp-titling" }
+func (r *titlingRuntime) SetHandlers(h agenthub.RuntimeHandlers) { r.handlers = h }
+func (r *titlingRuntime) Cancel(context.Context) error           { return nil }
+func (r *titlingRuntime) Close(context.Context) error            { return nil }
+
+func (r *titlingRuntime) Prompt(context.Context, string) (agenthub.PromptOutcome, error) {
+	if r.handlers.OnUpdate != nil {
+		r.handlers.OnUpdate([]byte(`{"sessionUpdate":"session_info_update","title":"Dev-kit-backend"}`), nil)
+	}
+	return agenthub.PromptOutcome{StopReason: "end_turn"}, nil
+}
+
+type titlingAdapter struct{ rt *titlingRuntime }
+
+func (a titlingAdapter) Type() agenthub.AgentType { return agenthub.AgentType("titling") }
+func (a titlingAdapter) Open(context.Context, agenthub.OpenSpec) (agenthub.SessionRuntime, error) {
+	return a.rt, nil
+}
+func (a titlingAdapter) NormalizeUsage(json.RawMessage) (agenthub.NormalizedUsage, error) {
+	return agenthub.NormalizedUsage{}, nil
+}
+func (a titlingAdapter) NormalizeToolSummary(json.RawMessage, json.RawMessage) ([]string, string, error) {
+	return nil, "", nil
+}
+func (a titlingAdapter) Extensions() []string { return nil }
+
+func TestSessionTakesTheAgentsNameOnlyWhenUnnamed(t *testing.T) {
+	ctx := context.Background()
+	db, err := storage.Open(filepath.Join(t.TempDir(), "devkit.db"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if err := storage.Migrate(ctx, db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	reg := agenthub.NewRegistry()
+	reg.Register(titlingAdapter{rt: &titlingRuntime{}})
+	svc := agenthub.NewService(reg, agenthub.NewSQLStore(db), func(string, json.RawMessage) {})
+
+	chosen := "my own name"
+	for _, tc := range []struct {
+		name  string
+		title *string
+		want  string
+	}{
+		{"unnamed takes the agent's", nil, "Dev-kit-backend"},
+		// A name a person chose is not a guess to be overwritten as the
+		// conversation drifts.
+		{"named keeps the human's", &chosen, "my own name"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sess, err := svc.CreateSession(ctx, agenthub.CreateInput{
+				AgentType: agenthub.AgentType("titling"), Cwd: t.TempDir(), Title: tc.title,
+			})
+			if err != nil {
+				t.Fatalf("create: %v", err)
+			}
+			if _, err := svc.Invoke(ctx, agenthub.InvokeInput{SessionID: sess.ID, Prompt: "hi"}); err != nil {
+				t.Fatalf("invoke: %v", err)
+			}
+			got, err := svc.GetStatus(ctx, sess.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Title == nil || *got.Title != tc.want {
+				t.Fatalf("title = %v, want %q", got.Title, tc.want)
+			}
+		})
+	}
+}

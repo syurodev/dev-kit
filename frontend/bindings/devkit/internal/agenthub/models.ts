@@ -175,6 +175,14 @@ export enum UpdateKind {
     UpdateUsage = "usage_update",
 
     /**
+     * UpdateSessionInfo carries what the vendor knows about the session as a
+     * whole. Two shapes share the kind: a generated title, and (behind the
+     * goal extension) an objective in _meta. Only the title is modelled — an
+     * objective is something a human typed with /goal, not a name to show.
+     */
+    UpdateSessionInfo = "session_info_update",
+
+    /**
      * UpdateUnknown is a kind this build does not model. The raw blob is kept
      * so a vendor that ships a new kind degrades to "not rendered" rather than
      * "silently dropped" — the Meta Inspector surface reads Raw.

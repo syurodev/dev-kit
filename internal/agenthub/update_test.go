@@ -218,3 +218,30 @@ func TestParseKeepsTheVendorsOwnKindForUnknowns(t *testing.T) {
 		t.Fatalf("wireKind persisted into the transcript payload: %s", body)
 	}
 }
+
+func TestParseSessionInfoCarriesTheTitleButNotTheGoal(t *testing.T) {
+	// One kind, two payloads. Measured off a real session:
+	//   {"sessionUpdate":"session_info_update","title":"Dev-kit-backend",
+	//    "updatedAt":"2026-09-06T15:06:15.260Z"}
+	// and, behind the goal extension, the same kind with _meta.goal and no
+	// title. Reading only the goal shape is how this kind went unmodelled.
+	titled := agenthub.ParseSessionUpdate(
+		[]byte(`{"sessionUpdate":"session_info_update","title":"Dev-kit-backend","updatedAt":"2026-09-06T15:06:15.260Z"}`))
+	if titled.Kind != agenthub.UpdateSessionInfo {
+		t.Fatalf("kind = %q, want session_info_update", titled.Kind)
+	}
+	if titled.Title != "Dev-kit-backend" {
+		t.Fatalf("title = %q, want the vendor's generated name", titled.Title)
+	}
+
+	// The goal shape is understood and carries nothing to apply. It must not
+	// fall back to unknown, or it would be logged as new every session.
+	goal := agenthub.ParseSessionUpdate(
+		[]byte(`{"sessionUpdate":"session_info_update","_meta":{"goal":{"objective":"ship it"}}}`))
+	if goal.Kind != agenthub.UpdateSessionInfo {
+		t.Fatalf("kind = %q, want session_info_update", goal.Kind)
+	}
+	if goal.Title != "" {
+		t.Fatalf("title = %q, want empty on the goal shape", goal.Title)
+	}
+}

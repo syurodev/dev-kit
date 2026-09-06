@@ -93,6 +93,11 @@ export type SessionUpdate = {
   plan?: PlanEntry[];
   commands?: AvailableCommand[];
   mode?: string;
+  /**
+   * The vendor's own name for the session, on session_info_update. Empty on
+   * the goal-carrying shape of the same kind — one kind, two payloads.
+   */
+  title?: string;
   usage?: Usage | null;
   messageId?: string;
   raw?: unknown;
