@@ -211,6 +211,18 @@ export async function waitForCodeGraphIndexReady(): Promise<number> {
   return callBridge(() => AppService.CodeGraphWaitForIndexReady());
 }
 
+/**
+ * The directory the Code Graph project was opened from, or "" when none is
+ * open. Other modules use it as a default — the Agent Hub's new-session dialog
+ * offers it, on the grounds that the folder you are reading is usually the
+ * folder you want an agent to work in.
+ */
+export function codeGraphProjectRoot(): Promise<string> {
+  return callBridge(
+    () => AppService.CodeGraphProjectRoot() as Promise<string>,
+  );
+}
+
 const INDEX_UPDATED_EVENT = "codegraph:indexUpdated";
 
 /**

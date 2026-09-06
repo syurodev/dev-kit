@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"devkit/internal/agenthub"
+
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 var errAgentHubUnavailable = errors.New("agenthub is not available")
@@ -200,4 +202,46 @@ func (s *AppService) AgentHubPendingPermissions() ([]agenthub.PendingPermission,
 		return nil, err
 	}
 	return result.([]agenthub.PendingPermission), nil
+}
+
+// defaultOpenDirectoryDialog is the native folder picker. Same shape as
+// defaultSaveFileDialog in database.go: the real dialog lives here, and the
+// AppService field beside it lets tests substitute one without a window.
+func defaultOpenDirectoryDialog(title, startIn string) (string, error) {
+	app := application.Get()
+	if app == nil || app.Dialog == nil {
+		return "", errors.New("dialog service unavailable")
+	}
+	dialog := app.Dialog.OpenFile().
+		CanChooseDirectories(true).
+		CanChooseFiles(false).
+		CanCreateDirectories(true).
+		SetTitle(title)
+	if startIn != "" {
+		dialog.SetDirectory(startIn)
+	}
+	return dialog.PromptForSingleSelection()
+}
+
+// AgentHubChooseDirectory opens the native folder picker and returns the chosen
+// path, or "" when the user cancelled. Cancelling is not an error: the dialog
+// that called this stays open with the field untouched, and an error there
+// would render as a failure the user did not cause.
+//
+// startIn is a hint, not a constraint — the picker opens there when the path
+// exists and falls back to the system default otherwise.
+func (s *AppService) AgentHubChooseDirectory(startIn string) (string, error) {
+	result, err := s.Call(context.Background(), "builtin.agenthub", "agenthub:execute", "session:new", map[string]any{
+		"action": "choose_directory",
+	}, func(context.Context) (any, error) {
+		dialogFunc := s.openDirDialog
+		if dialogFunc == nil {
+			dialogFunc = defaultOpenDirectoryDialog
+		}
+		return dialogFunc("Choose a working directory", startIn)
+	})
+	if err != nil {
+		return "", err
+	}
+	return result.(string), nil
 }

@@ -13,6 +13,7 @@ type AppService struct {
 	container      *app.Container
 	applyTheme     func(preferences.Theme) error
 	saveFileDialog func(suggestedName string) (string, error)
+	openDirDialog  func(title, startIn string) (string, error)
 }
 
 func NewAppService(container *app.Container, themeApplier ...func(preferences.Theme) error) *AppService {

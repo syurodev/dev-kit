@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   agentHubCancel,
+  agentHubChooseDirectory,
   agentHubCreateSession,
   agentHubGetStatus,
   agentHubInvoke,
@@ -9,6 +10,7 @@ import {
   sandboxUnavailableMessage,
   type AgentVendor,
 } from "../../bridge/agenthub";
+import { codeGraphProjectRoot } from "../../bridge/codegraph";
 import { errorMessage } from "../../bridge/errors";
 import { useAgentHubSidebar } from "./useAgentHubSidebar";
 import { useAgentTranscript } from "./transcript";
@@ -39,6 +41,27 @@ export function AgentHubView() {
 
   const [vendors, setVendors] = useState<string[]>(DEFAULT_VENDORS);
   const [newSessionOpen, setNewSessionOpen] = useState(false);
+  // The folder Code Graph has open, offered as one click in the new-session
+  // dialog. Read when the dialog opens rather than on mount: Code Graph may
+  // have opened a project since, and a stale path is worse than no suggestion.
+  const [codeGraphCwd, setCodeGraphCwd] = useState("");
+
+  useEffect(() => {
+    if (!newSessionOpen) return;
+    let cancelled = false;
+    // A failure here means no suggestion, not a broken dialog — Code Graph
+    // simply has nothing open, which is the ordinary case.
+    codeGraphProjectRoot()
+      .then((root) => {
+        if (!cancelled) setCodeGraphCwd(root);
+      })
+      .catch(() => {
+        if (!cancelled) setCodeGraphCwd("");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [newSessionOpen]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [sandboxHint, setSandboxHint] = useState("");
@@ -222,6 +245,8 @@ export function AgentHubView() {
         vendors={vendors}
         busy={busy}
         error={error || sandboxHint}
+        suggestedCwd={codeGraphCwd}
+        onBrowse={() => agentHubChooseDirectory(codeGraphCwd)}
         onCreate={handleCreateSession}
       />
     </div>

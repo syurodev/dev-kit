@@ -169,6 +169,19 @@ func (s *Service) OpenProject(ctx context.Context, projectPath string) error {
 // lock, so neither field is ever read concurrently with the writes
 // SetProjectPath/OpenProject make to them under s.mu.Lock(). Both are used
 // after the lock is released — *sql.DB (what sqliteStore wraps) and a plain
+// ProjectRoot returns the directory the active project was opened from, or ""
+// when no project is open. Callers use it to offer that directory as a default
+// elsewhere in the app, so "no project" is an empty string rather than an
+// error — there is nothing wrong, there is simply nothing to offer.
+func (s *Service) ProjectRoot() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if !s.active {
+		return ""
+	}
+	return s.projectRoot
+}
+
 // string are both safe to use unsynchronized once captured.
 func (s *Service) activeProject() (Store, string, error) {
 	s.mu.RLock()

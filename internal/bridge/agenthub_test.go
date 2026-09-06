@@ -114,3 +114,42 @@ func TestAgentHubResolvePermissionNoPending(t *testing.T) {
 		t.Fatal("expected error when no pending permission")
 	}
 }
+
+func TestAgentHubChooseDirectoryPassesStartInAndReturnsChoice(t *testing.T) {
+	svc := newBridgeWithAgentHub(t)
+	var gotTitle, gotStartIn string
+	svc.openDirDialog = func(title, startIn string) (string, error) {
+		gotTitle, gotStartIn = title, startIn
+		return "/acme/billing-service", nil
+	}
+
+	got, err := svc.AgentHubChooseDirectory("/acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "/acme/billing-service" {
+		t.Fatalf("path = %q, want /acme/billing-service", got)
+	}
+	if gotStartIn != "/acme" {
+		t.Fatalf("startIn = %q, want /acme", gotStartIn)
+	}
+	if gotTitle == "" {
+		t.Fatal("dialog opened with no title")
+	}
+}
+
+func TestAgentHubChooseDirectoryCancelIsNotAnError(t *testing.T) {
+	// The picker returns "" when the user backs out. Reporting that as an
+	// error would render a failure the user did not cause, in a dialog that
+	// is meant to stay open with the field untouched.
+	svc := newBridgeWithAgentHub(t)
+	svc.openDirDialog = func(string, string) (string, error) { return "", nil }
+
+	got, err := svc.AgentHubChooseDirectory("")
+	if err != nil {
+		t.Fatalf("cancel reported as error: %v", err)
+	}
+	if got != "" {
+		t.Fatalf("path = %q, want empty", got)
+	}
+}

@@ -182,6 +182,17 @@ export function agentHubCancel(sessionId: string): Promise<void> {
   );
 }
 
+/**
+ * Opens the native folder picker. Resolves to "" when the user cancelled —
+ * cancelling is not a failure, and the dialog that called this should stay
+ * open with the field untouched.
+ */
+export function agentHubChooseDirectory(startIn = ""): Promise<string> {
+  return callBridge(
+    () => AppService.AgentHubChooseDirectory(startIn) as Promise<string>,
+  );
+}
+
 export function agentHubTranscript(
   sessionId: string,
 ): Promise<TranscriptEntry[]> {

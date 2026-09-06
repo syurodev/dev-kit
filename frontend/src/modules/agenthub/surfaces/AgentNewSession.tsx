@@ -23,7 +23,11 @@ export type AgentNewSessionProps = {
   depth?: number;
   maxDepth?: number;
   onCreate: (params: { vendor: string; cwd: string }) => void | Promise<void>;
-  onBrowse?: () => void;
+  /** Opens the native folder picker; resolves to "" when cancelled. */
+  onBrowse?: () => string | Promise<string>;
+  /** A directory already open elsewhere in DevKit, offered as one click. */
+  suggestedCwd?: string;
+  suggestedLabel?: string;
   className?: string;
 };
 
@@ -58,10 +62,20 @@ export function AgentNewSession({
   maxDepth = 3,
   onCreate,
   onBrowse,
+  suggestedCwd,
+  suggestedLabel = "Code Graph",
   className,
 }: AgentNewSessionProps) {
   const [vendor, setVendor] = useState(defaultVendor);
   const [cwd, setCwd] = useState(defaultCwd);
+
+  const handleBrowse = async () => {
+    if (!onBrowse) return;
+    const picked = await onBrowse();
+    // "" means the user cancelled the picker. Leaving the field alone is the
+    // whole contract — clearing it would punish backing out.
+    if (picked) setCwd(picked);
+  };
 
   const fieldClass =
     "flex w-full items-center gap-2 rounded-md border bg-surface-raised px-3 py-2 text-body-12 text-text-primary";
@@ -145,7 +159,9 @@ export function AgentNewSession({
             {onBrowse ? (
               <button
                 type="button"
-                onClick={onBrowse}
+                onClick={() => void handleBrowse()}
+                data-testid="new-session-browse"
+                title="Choose a folder"
                 className="shrink-0 text-caption-11 text-text-tertiary hover:text-text-primary cursor-pointer"
               >
                 Browse…
@@ -153,6 +169,28 @@ export function AgentNewSession({
             ) : null}
           </div>
         </div>
+
+        {suggestedCwd && suggestedCwd !== cwd ? (
+          // Same material as the inherited row below: this is also a value you
+          // are being handed rather than typing, so it should not look like a
+          // third kind of control.
+          <button
+            type="button"
+            data-testid="new-session-suggested"
+            onClick={() => setCwd(suggestedCwd)}
+            className="flex w-full items-center gap-2 rounded-[6px] bg-(--state-soft) p-2 text-left hover:bg-surface-raised cursor-pointer"
+          >
+            <span className="shrink-0 text-caption-11-medium text-text-tertiary">
+              {suggestedLabel}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-caption-11 text-text-secondary">
+              {suggestedCwd}
+            </span>
+            <span className="shrink-0 text-caption-11-medium text-text-tertiary">
+              Use
+            </span>
+          </button>
+        ) : null}
 
         {parentName ? (
           <div

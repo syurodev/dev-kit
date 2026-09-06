@@ -47,6 +47,19 @@ export function AgentHubCancel(id: string): $CancellablePromise<void> {
     return $Call.ByID(952653156, id);
 }
 
+/**
+ * AgentHubChooseDirectory opens the native folder picker and returns the chosen
+ * path, or "" when the user cancelled. Cancelling is not an error: the dialog
+ * that called this stays open with the field untouched, and an error there
+ * would render as a failure the user did not cause.
+ * 
+ * startIn is a hint, not a constraint — the picker opens there when the path
+ * exists and falls back to the system default otherwise.
+ */
+export function AgentHubChooseDirectory(startIn: string): $CancellablePromise<string> {
+    return $Call.ByID(1823626190, startIn);
+}
+
 export function AgentHubCreateSession(input: agenthub$0.CreateInput): $CancellablePromise<agenthub$0.AgentSession> {
     return $Call.ByID(146979054, input);
 }
@@ -179,6 +192,17 @@ export function CodeGraphListPlanNodeComments(planNodeID: string): $CancellableP
 
 export function CodeGraphOpenProject(path: string): $CancellablePromise<void> {
     return $Call.ByID(1356804218, path);
+}
+
+/**
+ * CodeGraphProjectRoot returns the directory the active project was opened
+ * from, or "" when none is open. It exists so other modules can offer that
+ * directory as a default — the Agent Hub's new-session dialog uses it, on the
+ * grounds that the folder you are reading is usually the folder you want an
+ * agent to work in.
+ */
+export function CodeGraphProjectRoot(): $CancellablePromise<string> {
+    return $Call.ByID(3956816802);
 }
 
 export function CodeGraphProposeFlow(plan: codegraph$0.Plan): $CancellablePromise<codegraph$0.PlanProgress> {

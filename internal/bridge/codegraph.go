@@ -185,3 +185,23 @@ func (s *AppService) CodeGraphStartTerminal(rows, cols int) (string, error) {
 	}
 	return result.(string), nil
 }
+
+// CodeGraphProjectRoot returns the directory the active project was opened
+// from, or "" when none is open. It exists so other modules can offer that
+// directory as a default — the Agent Hub's new-session dialog uses it, on the
+// grounds that the folder you are reading is usually the folder you want an
+// agent to work in.
+func (s *AppService) CodeGraphProjectRoot() (string, error) {
+	result, err := s.call(context.Background(), "builtin.codegraph", "codegraph:read", "project:active", map[string]any{
+		"action": "project_root",
+	}, func(context.Context) (any, error) {
+		if s.container.CodeGraph == nil {
+			return "", nil
+		}
+		return s.container.CodeGraph.ProjectRoot(), nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return result.(string), nil
+}

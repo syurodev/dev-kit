@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"devkit/internal/app"
 	"devkit/internal/codegraph"
 	"devkit/internal/terminal"
 )
@@ -258,5 +259,18 @@ func TestCodeGraphStartTerminal(t *testing.T) {
 	owner, ok := reg.Owner(sessionID)
 	if !ok || owner != "builtin.codegraph" {
 		t.Fatalf("Owner = %q, %v", owner, ok)
+	}
+}
+
+func TestCodeGraphProjectRootEmptyWithoutProject(t *testing.T) {
+	// No project open is the ordinary case, not a failure: callers offer the
+	// root as a default, and "nothing to offer" must not surface as an error.
+	svc := NewAppService(app.NewContainer())
+	root, err := svc.CodeGraphProjectRoot()
+	if err != nil {
+		t.Fatalf("no open project reported as error: %v", err)
+	}
+	if root != "" {
+		t.Fatalf("root = %q, want empty", root)
 	}
 }
