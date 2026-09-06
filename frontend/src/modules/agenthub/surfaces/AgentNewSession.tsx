@@ -1,186 +1,211 @@
-import { useState, type FormEvent } from "react";
-import { AlertTriangle, Bot, Folder, Plus } from "lucide-react";
+import { useState } from "react";
+import { Bot, ChevronDown } from "lucide-react";
+
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 export type AgentNewSessionProps = {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   vendors?: string[];
   defaultVendor?: string;
   defaultCwd?: string;
   busy?: boolean;
   error?: string;
-  onCreate: (params: { vendor: string; cwd: string; title?: string }) => void | Promise<void>;
-  onCancel?: () => void;
-  onSwitchToMock?: () => void;
+  /** Shown, never chosen — an agent spawning a child inherits both. */
+  parentName?: string;
+  depth?: number;
+  maxDepth?: number;
+  onCreate: (params: { vendor: string; cwd: string }) => void | Promise<void>;
+  onBrowse?: () => void;
   className?: string;
 };
 
 /**
- * Agent / New Session (Figma 440×304–352)
- * Setup card/dialog for configuring and launching a new agent session.
+ * Agent / New Session — Figma `946:2224`, states `946:2199` Default and
+ * `946:2223` Error.
+ *
+ * Figma's note is the contract: "FR-1: choosing a vendor and a working
+ * directory is the only way a session starts. Parent and depth are shown, never
+ * chosen — an agent spawning a child inherits both, and cwd must stay inside
+ * the parent's project."
+ *
+ * So there are exactly two inputs and one read-only inheritance row. The
+ * previous implementation also offered a title field and a "switch to mock"
+ * escape hatch, neither of which is in the design, and drew its own backdrop
+ * with role="dialog" by hand — no focus trap, no escape key, no scroll lock.
+ *
+ * Error is not a separate layout: the working-directory input takes a danger
+ * border and one danger-toned row appears above the actions. Everything else
+ * holds still.
  */
 export function AgentNewSession({
-  vendors = ["mock", "claude"],
-  defaultVendor = "mock",
-  defaultCwd = ".",
+  open,
+  onOpenChange,
+  vendors = ["claude", "mock"],
+  defaultVendor = "claude",
+  defaultCwd = "",
   busy = false,
-  error = "",
+  error,
+  parentName,
+  depth,
+  maxDepth = 3,
   onCreate,
-  onCancel,
-  onSwitchToMock,
+  onBrowse,
   className,
 }: AgentNewSessionProps) {
   const [vendor, setVendor] = useState(defaultVendor);
   const [cwd, setCwd] = useState(defaultCwd);
-  const [title, setTitle] = useState("");
 
-  const isClaudeSandboxIssue =
-    vendor === "claude" &&
-    (error.toLowerCase().includes("sandbox") || error.toLowerCase().includes("operation not permitted"));
-
-  function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    if (busy) return;
-    onCreate({
-      vendor,
-      cwd: cwd.trim() || ".",
-      title: title.trim() || undefined,
-    });
-  }
+  const fieldClass =
+    "flex w-full items-center gap-2 rounded-md border bg-surface-raised px-3 py-2 text-body-12 text-text-primary";
 
   return (
-    <div
-      role="region"
-      aria-label="New Agent Session"
-      data-testid="agent-new-session"
-      className={cn(
-        "flex w-[440px] flex-col rounded-xl border border-border-subtle bg-surface-base p-5 shadow-lg",
-        className,
-      )}
-    >
-      {/* Header */}
-      <div className="flex items-center gap-2 pb-3 border-b border-border-subtle">
-        <div className="flex size-7 items-center justify-center rounded-control bg-surface-tinted text-text-primary">
-          <Bot className="size-4 shrink-0" aria-hidden="true" />
-        </div>
-        <div>
-          <h3 className="text-title-16 text-text-primary">New Agent Session</h3>
-          <p className="text-caption-11 text-text-tertiary">
-            Spawn an autonomous agent inside your workspace jail
-          </p>
-        </div>
-      </div>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        data-testid="agent-new-session"
+        data-state-variant={error ? "error" : "default"}
+        showCloseButton={false}
+        className={cn(
+          // Figma 946:2199 sits on surface/glass-modal with its own blur and a
+          // deep shadow, at radius/14 and 440 wide — DialogContent defaults to
+          // popover at radius/12 and sm:max-w-sm.
+          "w-[440px] max-w-[calc(100%-2rem)] gap-4 rounded-[14px] p-5 sm:max-w-[440px]",
+          "border border-(--glass-border) bg-(--surface-glass-modal) backdrop-blur-[16px]",
+          "shadow-[0px_20px_48px_-8px_rgba(0,0,0,0.5)] ring-0",
+          className,
+        )}
+      >
+        <DialogHeader className="p-0">
+          <DialogTitle className="text-title-16 text-text-primary">
+            New agent session
+          </DialogTitle>
+        </DialogHeader>
 
-      <form onSubmit={handleSubmit} className="flex flex-col gap-3.5 pt-4">
-        {/* Vendor Selection */}
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor="agent-vendor-select" className="text-label-12 text-text-secondary">
-            Vendor Adapter
+        <div className="flex w-full flex-col gap-2">
+          <label
+            htmlFor="new-session-vendor"
+            className="text-caption-11-medium text-text-tertiary"
+          >
+            Vendor
           </label>
-          <div className="relative">
+          <div className={cn(fieldClass, "border-border-subtle")}>
+            <Bot className="size-3.5 shrink-0 text-icon-secondary" aria-hidden="true" />
+            {/* A native select, styled to the field. The shared Select is a
+                Radix popover with its own trigger chrome; Figma draws a plain
+                field with a chevron, and the option list is three vendors. */}
             <select
-              id="agent-vendor-select"
-              data-testid="new-session-vendor"
+              id="new-session-vendor"
               value={vendor}
               disabled={busy}
               onChange={(e) => setVendor(e.target.value)}
-              className="h-8 w-full rounded-control border border-border-subtle bg-surface-raised px-2.5 text-body-13 text-text-primary outline-none focus:border-action-primary cursor-pointer disabled:opacity-50"
+              data-testid="new-session-vendor"
+              className="min-w-0 flex-1 appearance-none bg-transparent outline-none"
             >
               {vendors.map((v) => (
                 <option key={v} value={v}>
-                  {v.charAt(0).toUpperCase() + v.slice(1)} {v === "mock" ? "(Deterministic test)" : "(ACP v1)"}
+                  {v}
                 </option>
               ))}
             </select>
+            <ChevronDown
+              className="size-3 shrink-0 text-text-tertiary"
+              aria-hidden="true"
+            />
           </div>
         </div>
 
-        {/* Working Directory */}
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor="agent-cwd-input" className="text-label-12 text-text-secondary flex items-center gap-1">
-            <Folder className="size-3 text-text-tertiary shrink-0" aria-hidden="true" />
-            <span>Working Directory</span>
-          </label>
-          <input
-            id="agent-cwd-input"
-            type="text"
-            data-testid="new-session-cwd"
-            value={cwd}
-            disabled={busy}
-            onChange={(e) => setCwd(e.target.value)}
-            placeholder="."
-            className="h-8 w-full rounded-control border border-border-subtle bg-surface-raised px-2.5 text-code-12 text-text-primary outline-none focus:border-action-primary disabled:opacity-50"
-          />
-        </div>
-
-        {/* Optional Title */}
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor="agent-title-input" className="text-label-12 text-text-secondary">
-            Session Title (Optional)
-          </label>
-          <input
-            id="agent-title-input"
-            type="text"
-            data-testid="new-session-title"
-            value={title}
-            disabled={busy}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="e.g. Implement database migrations"
-            className="h-8 w-full rounded-control border border-border-subtle bg-surface-raised px-2.5 text-body-13 text-text-primary outline-none focus:border-action-primary disabled:opacity-50"
-          />
-        </div>
-
-        {/* Error Banner */}
-        {error ? (
-          <div
-            role="alert"
-            data-testid="new-session-error"
-            className="flex flex-col gap-2 rounded-control border border-status-danger/30 bg-surface-tinted p-2.5"
+        <div className="flex w-full flex-col gap-2">
+          <label
+            htmlFor="new-session-cwd"
+            className="text-caption-11-medium text-text-tertiary"
           >
-            <div className="flex items-start gap-1.5">
-              <AlertTriangle className="size-3.5 text-status-danger shrink-0 mt-0.5" aria-hidden="true" />
-              <p className="text-caption-11 text-status-danger">{error}</p>
-            </div>
-            {isClaudeSandboxIssue || onSwitchToMock ? (
+            Working directory
+          </label>
+          <div
+            className={cn(
+              fieldClass,
+              error ? "border-(--border-danger)" : "border-border-subtle",
+            )}
+          >
+            <input
+              id="new-session-cwd"
+              value={cwd}
+              disabled={busy}
+              onChange={(e) => setCwd(e.target.value)}
+              data-testid="new-session-cwd"
+              className="min-w-0 flex-1 bg-transparent outline-none"
+            />
+            {onBrowse ? (
               <button
                 type="button"
-                data-testid="new-session-fallback-mock"
-                onClick={() => {
-                  setVendor("mock");
-                  onSwitchToMock?.();
-                }}
-                className="self-start rounded-sm border border-border-subtle bg-surface-base px-2 py-0.5 text-caption-11 text-text-primary hover:bg-surface-tinted cursor-pointer"
+                onClick={onBrowse}
+                className="shrink-0 text-caption-11 text-text-tertiary hover:text-text-primary cursor-pointer"
               >
-                Switch to mock vendor
+                Browse…
               </button>
             ) : null}
           </div>
+        </div>
+
+        {parentName ? (
+          <div
+            data-testid="new-session-inherited"
+            className="flex w-full items-center gap-2 rounded-[6px] bg-(--state-soft) p-2"
+          >
+            <span className="shrink-0 text-caption-11-medium text-text-tertiary">
+              Parent
+            </span>
+            <span className="shrink-0 text-caption-11 text-text-secondary">
+              {`${parentName} · depth ${depth ?? 0} of ${maxDepth}`}
+            </span>
+          </div>
         ) : null}
 
-        {/* Action Buttons */}
-        <div className="flex items-center justify-end gap-2 pt-2 border-t border-border-subtle">
-          {onCancel ? (
-            <button
-              type="button"
-              data-testid="new-session-cancel"
-              disabled={busy}
-              onClick={onCancel}
-              className="h-8 rounded-control border border-border-subtle bg-surface-raised px-3 text-label-12 text-text-secondary transition-colors hover:text-text-primary hover:bg-surface-tinted cursor-pointer disabled:opacity-50"
-            >
-              Cancel
-            </button>
-          ) : null}
-
-          <button
-            type="submit"
-            data-testid="new-session-submit"
-            disabled={busy}
-            className="inline-flex h-8 items-center gap-1.5 rounded-control bg-action-primary px-3 text-label-12 text-action-primary-foreground transition-colors hover:opacity-90 cursor-pointer disabled:opacity-50"
+        {error ? (
+          <div
+            data-testid="new-session-error"
+            className="flex w-full items-start gap-2 rounded-[6px] bg-(--feedback-danger-soft) p-2"
           >
-            <Plus className="size-3.5 shrink-0" aria-hidden="true" />
-            <span>{busy ? "Launching..." : "Create Session"}</span>
-          </button>
+            <p className="min-w-0 flex-1 text-caption-11 text-status-danger">
+              {error}
+            </p>
+          </div>
+        ) : null}
+
+        <div className="flex w-full items-center gap-2">
+          <p className="min-w-0 flex-1 text-caption-11 text-text-tertiary">
+            The agent can only reach paths inside this directory.
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            data-testid="new-session-cancel"
+            onClick={() => onOpenChange(false)}
+            className="h-8 border-border-subtle px-3 text-text-secondary"
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            disabled={busy || !cwd.trim()}
+            data-testid="new-session-create"
+            onClick={() => void onCreate({ vendor, cwd: cwd.trim() })}
+            className="h-8 px-3"
+          >
+            Create
+          </Button>
         </div>
-      </form>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -1,109 +1,79 @@
 import * as React from "react";
-import { Check, ChevronDown, ChevronRight, Copy, FileCode } from "lucide-react";
+import { Check, Copy } from "lucide-react";
+
 import { cn } from "@/lib/utils";
 
 export type AgentCodeBlockProps = {
-  /**
-   * Code block within transcript or tool result.
-   * Figma node: 1023:2688 (Agent / Code Block)
-   * Variants: Default / Collapsed
-   */
   code: string;
   path?: string;
   language?: string;
-  collapsed?: boolean;
-  defaultCollapsed?: boolean;
-  onToggleCollapse?: () => void;
   className?: string;
 };
 
+/**
+ * Agent / Code Block — Figma `1023:2660`.
+ *
+ * Two grounds stacked: the card is surface/raised with a border/subtle
+ * hairline, and the code itself sits on surface/base inside it. That inner
+ * darker well is the whole idea — it is the same relationship the terminal and
+ * the diff use, so all three read as "machine text" without a border each.
+ *
+ * The head is language, then path, then Copy. There is no collapse chevron:
+ * Figma draws none, and nothing in the transcript wired one — a toggle with no
+ * caller is a toggle nobody can reach.
+ */
 export function AgentCodeBlock({
   code,
   path,
   language,
-  collapsed: controlledCollapsed,
-  defaultCollapsed = false,
-  onToggleCollapse,
   className,
 }: AgentCodeBlockProps) {
-  const [internalCollapsed, setInternalCollapsed] = React.useState(defaultCollapsed);
   const [copied, setCopied] = React.useState(false);
 
-  const isCollapsed = controlledCollapsed ?? internalCollapsed;
-
-  const toggle = () => {
-    if (onToggleCollapse) {
-      onToggleCollapse();
-    } else {
-      setInternalCollapsed((prev) => !prev);
-    }
-  };
-
-  const handleCopy = async (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(code);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
-      // Ignore clipboard write failure
+      // Clipboard is unavailable in some webviews; the code is still selectable.
     }
   };
 
   return (
     <div
+      data-testid="agent-code-block"
       className={cn(
-        "flex flex-col w-full max-w-full rounded-md border border-border-subtle bg-surface-base overflow-hidden",
+        "flex w-full max-w-full flex-col overflow-hidden rounded-control",
+        "border border-border-subtle bg-surface-raised",
         className,
       )}
-      data-testid="agent-code-block"
-      data-state={isCollapsed ? "collapsed" : "default"}
     >
-      <div className="flex h-(--control-height-sm) shrink-0 items-center justify-between gap-2 border-b border-border-subtle bg-surface-raised/50 px-2.5">
+      <div className="flex w-full shrink-0 items-center gap-2 px-3 py-2">
+        <span className="shrink-0 text-code-11 whitespace-nowrap text-text-tertiary">
+          {language ?? "text"}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-code-11 text-text-secondary">
+          {path ?? ""}
+        </span>
         <button
           type="button"
-          onClick={toggle}
-          className="flex min-w-0 flex-1 items-center gap-1.5 text-left hover:opacity-80 transition-opacity"
+          onClick={handleCopy}
+          data-testid="code-block-copy"
+          className="flex shrink-0 items-center gap-1 text-caption-11-medium text-text-tertiary hover:text-text-primary cursor-pointer"
         >
-          {isCollapsed ? (
-            <ChevronRight className="size-(--icon-12) text-text-tertiary shrink-0" />
+          {copied ? (
+            <Check className="size-3 text-status-success" aria-hidden="true" />
           ) : (
-            <ChevronDown className="size-(--icon-12) text-text-tertiary shrink-0" />
+            <Copy className="size-3" aria-hidden="true" />
           )}
-          <FileCode className="size-(--icon-12) text-text-tertiary shrink-0" />
-          {path ? (
-            <span className="truncate text-code-12-medium text-text-secondary">{path}</span>
-          ) : (
-            <span className="truncate text-code-12-medium text-text-tertiary">
-              {language ?? "code"}
-            </span>
-          )}
-          {path && language && (
-            <span className="text-caption-11 text-text-tertiary shrink-0">{`(${language})`}</span>
-          )}
+          <span>{copied ? "Copied" : "Copy"}</span>
         </button>
-
-        <div className="flex items-center gap-1 shrink-0">
-          <button
-            type="button"
-            onClick={handleCopy}
-            title={copied ? "Copied" : "Copy code"}
-            className="flex size-(--control-height-xs) items-center justify-center rounded-sm text-text-tertiary hover:bg-surface-raised hover:text-text-primary transition-colors"
-          >
-            {copied ? (
-              <Check className="size-(--icon-12) text-status-success" />
-            ) : (
-              <Copy className="size-(--icon-12)" />
-            )}
-          </button>
-        </div>
       </div>
 
-      {!isCollapsed && (
-        <pre className="overflow-x-auto p-3 text-code-12 text-text-primary select-text">
-          <code>{code}</code>
-        </pre>
-      )}
+      <pre className="w-full overflow-x-auto bg-surface-base p-3 text-code-12 text-text-primary select-text">
+        <code>{code}</code>
+      </pre>
     </div>
   );
 }

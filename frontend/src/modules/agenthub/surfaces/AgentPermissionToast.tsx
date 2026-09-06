@@ -1,6 +1,8 @@
-import { Clock, Lock, PanelRight, ShieldAlert, Unlock } from "lucide-react";
 import { usePermissionDeadline } from "./usePermissionDeadline";
+import { AgentState } from "./AgentState";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
 import type { AgentSession, PendingPermission } from "@/bridge/agenthub";
 import { parsePermissionOptions, permissionToolTitle } from "@/bridge/agenthub";
 
@@ -14,21 +16,30 @@ export type AgentPermissionToastProps = {
   busy?: boolean;
   timeoutSeconds?: number;
   env?: ToastEnv;
+  /** How many other requests are waiting behind this one. */
+  queued?: number;
   className?: string;
 };
 
 /**
- * Agent / Permission Toast (Figma 924:152)
- * Floating toast card (420×220–248) positioned bottom-right over any module.
+ * Agent / Permission Toast — Figma `924:152`, variants `924:124` Open and
+ * `924:151` Locked.
  *
- * Safety semantics:
- * - Shows the 60s fail-closed deadline clearly (never silently dismisses).
- * - Deliberately has NO "Allow always" option: long-lived grants require
- *   the context of the full transcript in the rail.
- * - "Allow once" is the primary button.
- * - "Open rail" allows viewing the full transcript and granting broader permissions.
- * - Names the asking agent, depth, and working directory.
- * - Non-modal: blocks the agent, not the person.
+ * Figma's note: "Asks for permission when the rail is closed or you are in
+ * another module — bottom-right, floating over the module. Carries the same
+ * identity as the rail card (who, depth, cwd) plus the 60s deadline, because
+ * the gate fails closed and a toast that quietly expired would deny the turn
+ * with no trace. Deliberately has no allow-always: a grant that outlives the
+ * turn should not be given from the surface with the least context."
+ *
+ * Two things the rail card does not have, and both are about being the surface
+ * you are NOT looking at: a queue pill saying how many more are waiting, and a
+ * deadline bar. This is where the design puts the clock — the rail card omits
+ * it because you are already there.
+ *
+ * The action row reads left to right as escalating context: "Open rail" takes
+ * you to the surface with the full transcript, then Deny, then Allow once. No
+ * allow-always, by the note above.
  */
 export function AgentPermissionToast({
   pending,
@@ -38,11 +49,11 @@ export function AgentPermissionToast({
   busy = false,
   timeoutSeconds = 60,
   env: explicitEnv,
+  queued = 0,
   className,
 }: AgentPermissionToastProps) {
   const { secondsLeft, expired } = usePermissionDeadline(pending, timeoutSeconds);
 
-  // Derive environment: explicit prop or inspect params for locked/prod tags
   const isLocked =
     explicitEnv === "locked" ||
     (typeof pending.params === "object" &&
@@ -54,159 +65,137 @@ export function AgentPermissionToast({
       ));
   const env: ToastEnv = isLocked ? "locked" : "open";
 
-
   const toolTitle = permissionToolTitle(pending.params);
   const options = parsePermissionOptions(pending.params);
-  const agentTitle = session?.title || pending.title || pending.sessionId.slice(0, 8);
+  const agentTitle =
+    session?.title || pending.title || pending.sessionId.slice(0, 8);
   const cwd = session?.projectPath || ".";
+  const depth = pending.depth ?? session?.depth ?? 0;
 
-  // Find allow once from options (or first available option)
-  const allowOnceOption = options.find(
-    (o) =>
-      o.optionId.includes("once") ||
-      o.name.toLowerCase().includes("once") ||
-      o.kind.includes("once"),
-  ) ?? options[0];
+  const command =
+    typeof pending.params === "object" && pending.params !== null
+      ? ((pending.params as Record<string, unknown>).command as string | undefined)
+      : undefined;
 
-  // Tool parameter or command summary
-  let paramSummary = "";
-  if (pending.params && typeof pending.params === "object") {
-    const p = pending.params as Record<string, unknown>;
-    if (typeof p.command === "string") {
-      paramSummary = p.command;
-    } else if (typeof p.path === "string") {
-      paramSummary = p.path;
-    } else if (p.toolCall && typeof p.toolCall === "object") {
-      const tc = p.toolCall as Record<string, unknown>;
-      if (typeof tc.rawInput === "string") {
-        paramSummary = tc.rawInput;
-      }
-    }
-  }
+  const allowOnceOption =
+    options.find(
+      (o) =>
+        o.optionId.includes("once") ||
+        o.name.toLowerCase().includes("once") ||
+        o.kind.includes("once"),
+    ) ?? options[0];
+
+  // Elapsed, not remaining: Figma fills the track as the deadline is consumed.
+  const elapsedPercent =
+    timeoutSeconds > 0
+      ? Math.min(100, Math.max(0, ((timeoutSeconds - secondsLeft) / timeoutSeconds) * 100))
+      : 0;
 
   return (
-    <aside
+    <div
       role="alert"
-      aria-label="Agent permission request"
       data-testid="agent-permission-toast"
       data-env={env}
       className={cn(
-        "fixed bottom-4 right-4 z-50 flex w-[420px] flex-col rounded-xl border bg-surface-raised p-4 shadow-2xl backdrop-blur-sm select-none animate-in fade-in slide-in-from-bottom-3 duration-200",
-        env === "locked"
-          ? "border-status-warning/60 shadow-status-warning/5"
-          : "border-border-subtle",
+        "flex w-full max-w-[420px] flex-col gap-3 rounded-control p-4",
+        "border border-(--glass-border) bg-(--glass-float-bg) backdrop-blur-[12px]",
+        "shadow-[0px_12px_32px_-4px_rgba(0,0,0,0.45),inset_0px_1px_0px_0px_rgba(255,255,255,0.06)]",
         className,
       )}
     >
-      {/* 1. Header: Shield, Tool title, Env badge, and Deadline countdown */}
-      <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-border-subtle">
-        <div className="flex items-center gap-2 min-w-0">
-          <ShieldAlert
-            className={cn(
-              "size-4 shrink-0",
-              env === "locked" ? "text-status-warning" : "text-text-primary",
-            )}
-            aria-hidden="true"
-          />
-          <h4 className="truncate text-title-16 text-text-primary">
-            {toolTitle}
-          </h4>
-        </div>
-
-        <div className="flex items-center gap-1.5 shrink-0">
-          {env === "locked" ? (
-            <span
-              data-testid="toast-env-locked"
-              className="inline-flex items-center gap-1 rounded-sm bg-status-warning/15 px-1.5 py-0.5 text-code-11 text-status-warning"
-              title="Locked environment (requires confirmation)"
-            >
-              <Lock className="size-3 shrink-0" aria-hidden="true" />
-              <span>LOCKED</span>
-            </span>
-          ) : (
-            <span
-              data-testid="toast-env-open"
-              className="inline-flex items-center gap-1 rounded-sm bg-surface-base px-1.5 py-0.5 text-code-11 text-text-tertiary"
-            >
-              <Unlock className="size-3 shrink-0" aria-hidden="true" />
-              <span>OPEN</span>
-            </span>
-          )}
-
-          <div
-            data-testid="toast-deadline"
-            className={cn(
-              "inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-code-11",
-              secondsLeft <= 10
-                ? "bg-status-danger/15 text-status-danger"
-                : "bg-surface-base text-text-secondary",
-            )}
-            title="Auto fail-closed deadline (gate closes after 60s)"
+      <div className="flex w-full items-center gap-2">
+        <AgentState status="awaiting" />
+        <p className="min-w-0 flex-1 truncate text-body-13-medium text-text-primary">
+          {agentTitle}
+        </p>
+        <p className="shrink-0 text-caption-11 text-text-tertiary whitespace-nowrap">
+          {`depth ${depth}`}
+        </p>
+        {queued > 0 ? (
+          <span
+            data-testid="toast-queue"
+            className="shrink-0 rounded-full bg-(--state-soft) px-2 py-1 text-caption-11-medium text-text-secondary whitespace-nowrap"
           >
-            <Clock className="size-3 shrink-0" aria-hidden="true" />
-            <span>{`${secondsLeft}s`}</span>
-          </div>
-        </div>
-      </div>
-
-      {/* 2. Identity Section: Agent Name, Depth, and Working Directory */}
-      <div className="flex flex-col gap-1 py-2.5">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <span className="text-body-13-medium text-text-primary truncate">
-              {agentTitle}
-            </span>
-            <span className="rounded-sm bg-surface-base px-1 py-0.2 text-code-11 text-text-tertiary shrink-0">
-              {`depth ${pending.depth}`}
-            </span>
-          </div>
-        </div>
-
-        <div className="flex items-center text-code-11 text-text-tertiary truncate">
-          <span className="truncate">{cwd}</span>
-        </div>
-
-        {paramSummary ? (
-          <div className="mt-1 rounded-sm border border-border-subtle bg-surface-base p-2 text-code-11 text-text-secondary overflow-x-auto max-h-16">
-            <pre className="whitespace-pre">{paramSummary}</pre>
-          </div>
+            {`+${queued} waiting`}
+          </span>
         ) : null}
       </div>
 
-      {/* 3. Actions: Allow once (primary), Open rail, Deny */}
-      <div className="flex items-center justify-between gap-2 pt-2.5 border-t border-border-subtle">
-        <button
+      <p className="w-full text-caption-11 text-text-tertiary">{cwd}</p>
+
+      <div className="flex w-full items-center gap-2">
+        <p className="min-w-0 flex-1 truncate text-label-12 text-text-secondary">
+          {toolTitle}
+        </p>
+        <span
+          data-testid={env === "locked" ? "toast-env-locked" : "toast-env-open"}
+          className={cn(
+            "shrink-0 rounded-full px-2 py-1 text-caption-11-medium",
+            env === "locked"
+              ? "bg-(--feedback-danger-soft) text-status-danger"
+              : "bg-(--state-soft) text-text-secondary",
+          )}
+        >
+          {env === "locked" ? "prod" : "dev"}
+        </span>
+      </div>
+
+      {command ? (
+        <p className="w-full text-body-12 text-text-primary break-all">{command}</p>
+      ) : null}
+
+      {env === "locked" ? (
+        <p className="w-full text-caption-11 text-text-tertiary">
+          prod requires confirmation every time
+        </p>
+      ) : null}
+
+      <div className="flex w-full items-center gap-2">
+        <Progress
+          value={elapsedPercent}
+          aria-label="Time left to answer"
+          data-testid="toast-deadline"
+          className="h-[3px] min-w-0 flex-1 bg-(--state-soft) [&_[data-slot=progress-indicator]]:bg-text-tertiary"
+        />
+        <span className="shrink-0 text-caption-11 text-text-tertiary whitespace-nowrap">
+          {expired ? "expired" : `${secondsLeft}s left`}
+        </span>
+      </div>
+
+      <div className="flex w-full items-center gap-2">
+        <Button
           type="button"
+          variant="link"
           data-testid="toast-open-rail"
           onClick={onOpenRail}
-          className="inline-flex h-8 items-center gap-1.5 rounded-control border border-border-subtle bg-surface-base px-3 text-label-12 text-text-primary transition-colors hover:bg-surface-tinted cursor-pointer"
+          className="h-auto min-w-0 flex-1 justify-start p-0 text-caption-11-medium text-text-tertiary no-underline hover:text-text-primary"
         >
-          <PanelRight className="size-3.5 shrink-0 text-text-tertiary" aria-hidden="true" />
-          <span>Open rail</span>
-        </button>
-
-        <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            data-testid="toast-deny"
-            disabled={busy || expired}
-            onClick={() => void onResolve(null)}
-            className="h-8 rounded-control border border-border-subtle bg-surface-raised px-3 text-label-12 text-text-secondary transition-colors hover:text-text-primary hover:bg-surface-tinted disabled:opacity-50 cursor-pointer"
-          >
-            Deny
-          </button>
-
-          <button
-            type="button"
-            data-testid="toast-allow-once"
-            disabled={busy || expired}
-            onClick={() => void onResolve(allowOnceOption ? allowOnceOption.optionId : "allow_once")}
-            className="inline-flex h-8 items-center justify-center rounded-control bg-action-primary px-3.5 text-label-12 text-action-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50 cursor-pointer"
-          >
-            {allowOnceOption?.name || "Allow once"}
-          </button>
-        </div>
+          Open rail
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={busy || expired}
+          data-testid="toast-deny"
+          onClick={() => void onResolve(null)}
+          className="h-8 border-(--glass-border) px-3 text-text-secondary"
+        >
+          Deny
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          disabled={busy || expired}
+          data-testid="toast-allow-once"
+          onClick={() =>
+            void onResolve(allowOnceOption ? allowOnceOption.optionId : "allow_once")
+          }
+          className="h-8 px-3"
+        >
+          Allow once
+        </Button>
       </div>
-    </aside>
+    </div>
   );
 }

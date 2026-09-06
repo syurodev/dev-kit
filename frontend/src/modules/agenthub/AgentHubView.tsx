@@ -207,32 +207,23 @@ export function AgentHubView() {
         </div>
       )}
 
-      {/* Surface: Agent / New Session Modal Dialog */}
-      {newSessionOpen ? (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="New Session Modal"
-          data-testid="new-session-modal-backdrop"
-          className="absolute inset-0 z-50 flex items-center justify-center bg-palette-onyx/60 backdrop-blur-xs animate-in fade-in duration-150"
-        >
-          <AgentNewSession
-            vendors={vendors}
-            busy={busy}
-            error={error || sandboxHint}
-            onCreate={handleCreateSession}
-            onCancel={() => {
-              setNewSessionOpen(false);
-              setError("");
-              setSandboxHint("");
-            }}
-            onSwitchToMock={() => {
-              setError("");
-              setSandboxHint("");
-            }}
-          />
-        </div>
-      ) : null}
+      {/* Surface: Agent / New Session. The hand-rolled backdrop this replaced
+          had role="dialog" and aria-modal but none of what those promise — no
+          focus trap, no escape key, no scroll lock. Dialog brings all three. */}
+      <AgentNewSession
+        open={newSessionOpen}
+        onOpenChange={(next) => {
+          setNewSessionOpen(next);
+          if (!next) {
+            setError("");
+            setSandboxHint("");
+          }
+        }}
+        vendors={vendors}
+        busy={busy}
+        error={error || sandboxHint}
+        onCreate={handleCreateSession}
+      />
     </div>
   );
 }

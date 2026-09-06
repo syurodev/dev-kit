@@ -23,7 +23,11 @@ export function AgentFileChip({
       type="button"
       onClick={onClick}
       className={cn(
-        "inline-flex h-(--control-height-xs) max-w-full shrink-0 items-center gap-1.5 rounded-sm border border-border-subtle bg-surface-raised px-2 transition-colors hover:bg-surface-tinted cursor-pointer select-none",
+        // Figma 1029:2722, read off the instance inside the composer
+        // (I1048:3173): state/soft fill, no border, radius/6, px-2 py-1 which
+        // is the 24 tall the standalone node draws, gap/1, and a Code/11 label.
+        // It was border-subtle on surface/raised at radius/2 with gap-1.5.
+        "inline-flex h-6 max-w-full shrink-0 items-center gap-1 rounded-[6px] bg-(--state-soft) px-2 py-1 transition-colors hover:bg-surface-tinted cursor-pointer select-none",
         className,
       )}
       data-testid="agent-file-chip"

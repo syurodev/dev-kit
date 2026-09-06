@@ -55,21 +55,18 @@ describe("Agent Hub Transcript Leaves", () => {
         />,
       );
       expect(html).toContain("src/index.ts");
-      expect(html).toContain("(typescript)");
+      expect(html).toContain("typescript");
       expect(html).toContain("const hello = &quot;world&quot;;");
       expect(html).toContain("overflow-x-auto");
     });
 
-    it("renders collapsed code block without code body", () => {
-      const html = renderToString(
-        <AgentCodeBlock
-          code="secret code"
-          path="config.env"
-          collapsed={true}
-        />,
-      );
-      expect(html).toContain("config.env");
-      expect(html).not.toContain("secret code");
+    it("stacks a surface/base well inside the raised card", () => {
+      // Figma 1023:2660: the code sits one step darker than its own card, the
+      // same relationship the diff and the terminal use.
+      const html = renderToString(<AgentCodeBlock code="x" path="a.ts" language="ts" />);
+      expect(html).toContain("bg-surface-raised");
+      expect(html).toContain("bg-surface-base");
+      expect(html).toContain("Copy");
     });
   });
 
@@ -82,7 +79,8 @@ describe("Agent Hub Transcript Leaves", () => {
           expanded={false}
         />,
       );
-      expect(html).toContain("Thinking (2.1s)");
+      // Past tense: by the time the chunk lands the thinking is over.
+      expect(html).toContain("Thought for 2.1s");
       expect(html).not.toContain("Looking into sqlite schema...");
     });
 
@@ -93,7 +91,7 @@ describe("Agent Hub Transcript Leaves", () => {
           expanded={true}
         />,
       );
-      expect(html).toContain("Thinking...");
+      expect(html).toContain("Thought");
       expect(html).toContain("Looking into sqlite schema...");
     });
   });
@@ -120,11 +118,15 @@ describe("Agent Hub Transcript Leaves", () => {
         />,
       );
       expect(html).toContain("Update config.json");
-      expect(html).toContain("DONE");
+      // No uppercase status badge: Figma spends that slot on the result.
+      expect(html).not.toContain("DONE");
+      expect(html).toContain('data-state="done"');
       expect(html).toContain("config.json");
       expect(html).toContain(":12");
       expect(html).toContain("+1");
-      expect(html).toContain("-1");
+      // A real minus sign, as Figma has it — a hyphen beside a lime plus reads
+      // as a dash.
+      expect(html).toContain("\u22121");
     });
 
     it("design for absence: renders intact row when content and locations are absent", () => {
@@ -139,7 +141,7 @@ describe("Agent Hub Transcript Leaves", () => {
         />,
       );
       expect(html).toContain("Read package.json");
-      expect(html).toContain("DONE");
+      expect(html).toContain('data-state="done"');
       expect(html).toContain('data-testid="agent-tool-call"');
       // No broken state or empty diff container
       expect(html).not.toContain("empty diff");
@@ -156,7 +158,7 @@ describe("Agent Hub Transcript Leaves", () => {
           }}
         />,
       );
-      expect(runningHtml).toContain("RUNNING");
+      expect(runningHtml).toContain("running…");
 
       const awaitingHtml = renderToString(
         <AgentToolCall
@@ -168,7 +170,7 @@ describe("Agent Hub Transcript Leaves", () => {
           }}
         />,
       );
-      expect(awaitingHtml).toContain("AWAITING");
+      expect(awaitingHtml).toContain("awaiting permission");
     });
   });
 
@@ -183,7 +185,9 @@ describe("Agent Hub Transcript Leaves", () => {
       );
       expect(html).toContain("main.go");
       expect(html).toContain("+1");
-      expect(html).toContain("-1");
+      // A real minus sign, as Figma has it — a hyphen beside a lime plus reads
+      // as a dash.
+      expect(html).toContain("\u22121");
       expect(html).toContain("func old() {}");
       expect(html).toContain("func new() {}");
     });
@@ -191,24 +195,35 @@ describe("Agent Hub Transcript Leaves", () => {
     it("handles absent/empty texts cleanly", () => {
       const html = renderToString(<AgentToolDiff path="empty.txt" />);
       expect(html).toContain("empty.txt");
-      expect(html).toContain("(empty diff)");
+      expect(html).toContain("No textual change");
     });
   });
 
   describe("AgentToolTerminal", () => {
-    it("renders terminal with status and non-wrapping output", () => {
+    it("heads with the command, and says nothing when the exit was clean", () => {
       const html = renderToString(
         <AgentToolTerminal
+          command="mvn -q -pl billing-service test"
           terminalId="term-1"
           output="build succeeded in 1.4s"
           status="exited"
           exitCode={0}
         />,
       );
-      expect(html).toContain("term-1");
-      expect(html).toContain("EXITED (0)");
+      expect(html).toContain("mvn -q -pl billing-service test");
+      // A zero exit is the expected case; Figma gives it no label.
+      expect(html).not.toContain("EXITED");
+      expect(html).not.toContain("exit 0");
       expect(html).toContain("build succeeded in 1.4s");
       expect(html).toContain("overflow-x-auto");
+    });
+
+    it("falls back to the terminal id when no command reached us", () => {
+      const html = renderToString(
+        <AgentToolTerminal terminalId="term-1" output="" status="failed" exitCode={1} />,
+      );
+      expect(html).toContain("term-1");
+      expect(html).toContain("exit 1");
     });
   });
 
@@ -241,7 +256,10 @@ describe("Agent Hub Transcript Leaves", () => {
         />,
       );
       expect(html).toContain("Plan");
-      expect(html).toContain("1 of 3 completed");
+      expect(html).toContain("1 of 3");
+      // ACP's own status words, per step — that is where the agent is.
+      expect(html).toContain("in progress");
+      expect(html).toContain("pending");
       expect(html).toContain("Explore repository");
       expect(html).toContain("Implement components");
       expect(html).toContain("Run verification tests");
@@ -252,48 +270,59 @@ describe("Agent Hub Transcript Leaves", () => {
     it("renders task completion with files modified and cost", () => {
       const html = renderToString(
         <AgentInvokeResult
+          agentName="refund-worker"
+          stopReason="end_turn"
           summary="Successfully refactored module."
           filesChanged={["src/a.ts", "src/b.ts"]}
           duration="4.2s"
-          cost={{ amount: 0.0125 }}
+          cost={{ amount: 0.08 }}
         />,
       );
-      expect(html).toContain("Task Complete");
+      // Named, not "Task Complete": with a swarm running, an unattributed
+      // completion tells you nothing.
+      expect(html).toContain("refund-worker returned");
       expect(html).toContain("Successfully refactored module.");
-      expect(html).toContain("Files Modified (2)");
+      expect(html).toContain("Files changed");
       expect(html).toContain("src/a.ts");
       expect(html).toContain("src/b.ts");
-      expect(html).toContain("4.2s");
-      expect(html).toContain("$0.0125");
+      expect(html).toContain("end_turn · 4.2s · $0.08");
     });
 
     it("absence test: renders when filesChanged and cost are absent", () => {
       const html = renderToString(
         <AgentInvokeResult summary="All tasks finished." />,
       );
-      expect(html).toContain("Task Complete");
+      expect(html).toContain("Agent returned");
+      // Sub-cent turns keep their precision: $0.00 would make a running total
+      // look free.
+      expect(
+        renderToString(<AgentInvokeResult summary="x" cost={{ amount: 0.0025 }} />),
+      ).toContain("$0.0025");
       expect(html).toContain("All tasks finished.");
-      expect(html).not.toContain("Files Modified");
+      expect(html).not.toContain("Files changed");
     });
   });
 
   describe("AgentRateLimit", () => {
     it("renders warning level", () => {
       const html = renderToString(
-        <AgentRateLimit level="warning" remaining={3} resetTime="5m" />,
+        <AgentRateLimit level="warning" remaining={12} resetTime="14:20" />,
       );
-      expect(html).toContain("3 requests remaining");
-      expect(html).toContain("Resets in 5m");
+      // Both variants say when you get it back — a limit with no reset time is
+      // indistinguishable from a broken agent.
+      expect(html).toContain("12% of the window left — resets 14:20");
       expect(html).toContain('data-level="warning"');
+      // The sentence stays in the ordinary tier; only the ground carries level.
+      expect(html).toContain("text-text-secondary");
     });
 
     it("renders exhausted level", () => {
       const html = renderToString(
-        <AgentRateLimit level="exhausted" resetTime="12m" />,
+        <AgentRateLimit level="exhausted" resetTime="14:20" />,
       );
-      expect(html).toContain("Rate limit exhausted");
-      expect(html).toContain("Resets in 12m");
+      expect(html).toContain("the next turn is blocked until 14:20");
       expect(html).toContain('data-level="exhausted"');
+      expect(html).toContain("bg-(--feedback-danger-soft)");
     });
   });
 
@@ -303,23 +332,21 @@ describe("Agent Hub Transcript Leaves", () => {
         <AgentImage
           src="data:image/png;base64,iVBORw0KGgo="
           name="diagram.png"
-          dimensions="1920x1080"
-          mimeType="image/png"
-          size="142 KB"
+          dimensions="1920 × 1080"
         />,
       );
       expect(html).toContain("diagram.png");
-      expect(html).toContain("1920x1080 · PNG · 142 KB");
+      expect(html).toContain("1920 × 1080");
       expect(html).toContain('src="data:image/png;base64,iVBORw0KGgo="');
     });
 
     it("absence test: renders fallback safely when src is absent", () => {
-      const html = renderToString(
-        <AgentImage name="missing.png" size="0 KB" />,
-      );
+      const html = renderToString(<AgentImage name="missing.png" />);
       expect(html).toContain("missing.png");
       expect(html).not.toContain("<img");
-      expect(html).toContain("Image");
+      // The canvas keeps its height so the transcript does not jump as
+      // attachments resolve.
+      expect(html).toContain("h-[225px]");
     });
   });
 });

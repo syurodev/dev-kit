@@ -1,10 +1,12 @@
-import { Bot, Sparkles } from "lucide-react";
+import { Bot } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { AgentSession, PendingPermission } from "@/bridge/agenthub";
 import type { AvailableCommand, TranscriptItem, Usage } from "../types";
 import { TranscriptStream } from "./TranscriptStream";
 import { AgentComposer } from "./AgentComposer";
 import { AgentPermissionRequest } from "./AgentPermissionRequest";
+import { AgentState, type AgentStatus } from "./AgentState";
+import { AgentSwarmStrip } from "./AgentSwarmStrip";
 
 export type AgentRailState = "Conversation" | "Empty";
 
@@ -29,10 +31,35 @@ export type AgentRailProps = {
   className?: string;
 };
 
+function toAgentStatus(status: string): AgentStatus {
+  switch (status) {
+    case "running":
+      return "running";
+    case "awaiting_permission":
+      return "awaiting";
+    case "error":
+      return "error";
+    case "closed":
+      return "closed";
+    default:
+      return "idle";
+  }
+}
+
 /**
- * Agent / Rail (Figma 320×856)
- * Panel surface hosting conversation with active agent across any module.
- * Features swarm switcher strip, inline permission handling, and rail composer.
+ * Agent / Rail — Figma `915:97`, states `915:35` Conversation and
+ * `915:36` Empty.
+ *
+ * Figma's note: "The cross-module surface, 320 wide to match the shell's panel
+ * slot. Present in every module so a swarm keeps running while the person works
+ * elsewhere. Permission requests land here inline rather than in a modal: the
+ * request blocks the agent, not the person."
+ *
+ * Four bands: the swarm strip, a header naming the agent, the transcript, then
+ * the rail composer. The rail itself paints nothing — panel-surface behind it
+ * is the ground, so a fill here would be a second opaque layer on an opaque
+ * layer. Padding is asymmetric on purpose: pl-3 pr-5, leaving the right margin
+ * the shell's scroll ruler lives in.
  */
 export function AgentRail({
   state: explicitState,
@@ -75,74 +102,39 @@ export function AgentRail({
       data-testid="agent-rail"
       data-state={effectiveState}
       className={cn(
-        "flex h-full w-[320px] flex-col overflow-hidden bg-surface-base select-none",
+        // No fill: panel-surface behind the rail is the ground. pl-3 pr-5
+        // leaves the right margin the shell's scroll ruler occupies.
+        "flex h-full w-[320px] flex-col overflow-hidden pt-0 pr-5 pb-3 pl-3 select-none",
         className,
       )}
     >
-      {/* 1. Swarm Strip / Session Mini-Switcher */}
       {sessions.length > 1 ? (
-        <div
-          data-testid="rail-swarm-strip"
-          className="flex h-8 shrink-0 items-center gap-1 overflow-x-auto border-b border-border-subtle bg-surface-raised px-2 scrollbar-none"
-        >
-          {sessions.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              data-testid={`rail-swarm-item-${s.id}`}
-              onClick={() => onSelectSession?.(s.id)}
-              className={cn(
-                "flex h-6 items-center gap-1 rounded-sm px-2 transition-colors cursor-pointer shrink-0",
-                s.id === activeSession?.id
-                  ? "bg-surface-tinted text-text-primary text-caption-11-medium"
-                  : "text-text-tertiary hover:text-text-secondary text-caption-11",
-              )}
-            >
-              <span
-                className={cn(
-                  "size-1.5 rounded-full",
-                  s.status === "running"
-                    ? "bg-status-info"
-                    : s.status === "awaiting_permission"
-                      ? "bg-status-warning"
-                      : "bg-text-tertiary",
-                )}
-              />
-              <span className="truncate max-w-[80px]">
-                {s.title || s.id.slice(0, 6)}
-              </span>
-            </button>
-          ))}
-        </div>
+        <AgentSwarmStrip
+          sessions={sessions}
+          activeSessionId={activeSession?.id}
+          onSelectSession={onSelectSession}
+        />
       ) : null}
 
-      {/* 2. Rail Header */}
+      {/* Figma 913:31: vendor mark, name, live state, then one quiet line
+          carrying depth and cwd — the two facts that say what this agent may
+          touch. The header used to show a vendor text chip and a colour-coded
+          status pill, a third status vocabulary next to AgentState. */}
       {activeSession ? (
         <header
           data-testid="agent-rail-header"
-          className="flex h-10 shrink-0 items-center justify-between border-b border-border-subtle px-3"
+          className="flex w-full shrink-0 flex-col gap-1 px-2 py-3"
         >
-          <div className="flex items-center gap-1.5 min-w-0">
-            <span className="truncate text-body-13-medium text-text-primary">
+          <div className="flex w-full items-center gap-2">
+            <Bot className="size-3.5 shrink-0 text-icon-secondary" aria-hidden="true" />
+            <span className="min-w-0 flex-1 truncate text-body-13-medium text-text-primary">
               {displayTitle}
             </span>
-            <span className="rounded-sm bg-surface-tinted px-1 text-code-11 uppercase text-text-tertiary">
-              {vendor}
-            </span>
+            <AgentState status={toAgentStatus(activeSession.status)} />
           </div>
-
-          <span
-            className={cn(
-              "rounded-control px-1.5 py-0.5 text-code-11",
-              activeSession.status === "running"
-                ? "text-status-info bg-status-info/10"
-                : activeSession.status === "awaiting_permission"
-                  ? "text-status-warning bg-status-warning/10"
-                  : "text-text-tertiary bg-surface-tinted",
-            )}
-          >
-            {activeSession.status || "idle"}
-          </span>
+          <p className="w-full truncate text-caption-11 text-text-tertiary">
+            {`depth ${activeSession.depth ?? 0} · ${activeSession.projectPath || "."}`}
+          </p>
         </header>
       ) : null}
 
@@ -150,26 +142,15 @@ export function AgentRail({
       {effectiveState === "Empty" ? (
         <div
           data-testid="agent-rail-empty"
-          className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center"
+          className="flex flex-1 flex-col items-center justify-center gap-2 px-3 py-3 pr-5 text-center"
         >
-          <div className="flex size-10 items-center justify-center rounded-lg bg-surface-raised border border-border-subtle text-text-tertiary">
-            <Bot className="size-5" aria-hidden="true" />
-          </div>
-          <p className="text-body-13 text-text-secondary">No active agent session</p>
-          <p className="text-caption-11 text-text-tertiary">
-            Open Agent Hub to configure and launch an agent swarm.
+          <p className="text-body-13-medium text-text-secondary">
+            No agents running
           </p>
-          {onOpenAgentHub ? (
-            <button
-              type="button"
-              data-testid="rail-open-agenthub-button"
-              onClick={onOpenAgentHub}
-              className="mt-2 inline-flex h-7 items-center gap-1 rounded-control bg-action-primary px-3 text-label-12 text-action-primary-foreground transition-transform active:scale-95 hover:opacity-90 cursor-pointer"
-            >
-              <Sparkles className="size-3 shrink-0" aria-hidden="true" />
-              <span>Open Agent Hub</span>
-            </button>
-          ) : null}
+          <p className="w-[232px] text-caption-11 text-text-tertiary">
+            Open Agent Hub to start one — it needs a vendor and a working
+            directory.
+          </p>
         </div>
       ) : (
         <div

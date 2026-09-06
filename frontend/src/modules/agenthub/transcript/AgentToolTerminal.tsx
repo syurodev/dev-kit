@@ -1,12 +1,10 @@
 import { Terminal as TerminalIcon } from "lucide-react";
+
 import { cn } from "@/lib/utils";
 
 export type AgentToolTerminalProps = {
-  /**
-   * Terminal output viewer for ToolCallContent of type "terminal".
-   * Figma node: 1029:2721 (Agent / Tool Terminal)
-   * Variants: Running / Exited / Failed
-   */
+  /** The command that ran. Figma puts it in the head — it is the identity. */
+  command?: string | null;
   terminalId?: string | null;
   output?: string | null;
   status?: "running" | "exited" | "failed";
@@ -14,7 +12,20 @@ export type AgentToolTerminalProps = {
   className?: string;
 };
 
+/**
+ * Agent / Tool Terminal — Figma `1029:2721`, state `1029:2712` Failed.
+ *
+ * The head names the command, not the terminal id. A ToolCallContent of type
+ * terminal carries an opaque id like `term_01H…`, and printing that told you
+ * which handle failed rather than what failed — the previous head showed
+ * exactly that. The id stays as the fallback for when no command reached us.
+ *
+ * The right-hand slot is the exit status in Figma's own shorthand, "exit 1" in
+ * status/danger. There is no uppercase EXITED badge: a zero exit is the
+ * expected case and does not need a label at all.
+ */
 export function AgentToolTerminal({
+  command,
   terminalId,
   output,
   status = "exited",
@@ -22,44 +33,41 @@ export function AgentToolTerminal({
   className,
 }: AgentToolTerminalProps) {
   const isRunning = status === "running";
-  const isFailed = status === "failed" || (typeof exitCode === "number" && exitCode !== 0);
+  const failed = status === "failed" || (typeof exitCode === "number" && exitCode !== 0);
 
-  const statusLabel = isRunning
-    ? "RUNNING"
-    : isFailed
-      ? `FAILED${typeof exitCode === "number" ? ` (${exitCode})` : ""}`
-      : `EXITED${typeof exitCode === "number" ? ` (${exitCode})` : ""}`;
+  const label = isRunning
+    ? "running…"
+    : failed
+      ? `exit ${typeof exitCode === "number" ? exitCode : 1}`
+      : "";
 
   return (
     <div
-      className={cn(
-        "flex flex-col w-full max-w-full rounded-md border border-border-subtle bg-surface-base overflow-hidden",
-        className,
-      )}
       data-testid="agent-tool-terminal"
       data-state={status}
+      className={cn(
+        "flex w-full max-w-full flex-col gap-2 rounded-control bg-surface-raised p-3",
+        className,
+      )}
     >
-      <div className="flex h-(--control-height-sm) shrink-0 items-center justify-between gap-2 border-b border-border-subtle bg-surface-raised/50 px-2.5">
-        <div className="flex min-w-0 items-center gap-1.5">
-          <TerminalIcon className="size-(--icon-12) text-text-tertiary shrink-0" />
-          <span className="truncate text-code-12-medium text-text-secondary">
-            {terminalId ?? "terminal"}
-          </span>
-        </div>
-
-        <span
-          className={cn(
-            "text-label-11-caps shrink-0",
-            isRunning && "text-status-info",
-            isFailed && "text-status-danger",
-            !isRunning && !isFailed && "text-text-tertiary",
-          )}
-        >
-          {statusLabel}
+      <div className="flex w-full items-center gap-2">
+        <TerminalIcon className="size-3 shrink-0 text-icon-secondary" aria-hidden="true" />
+        <span className="min-w-0 flex-1 truncate text-code-12 text-text-primary">
+          {command || terminalId || "terminal"}
         </span>
+        {label ? (
+          <span
+            className={cn(
+              "shrink-0 text-caption-11 whitespace-nowrap",
+              failed ? "text-status-danger" : "text-text-secondary",
+            )}
+          >
+            {label}
+          </span>
+        ) : null}
       </div>
 
-      <pre className="overflow-x-auto p-2.5 text-code-12 text-text-primary select-text whitespace-pre">
+      <pre className="w-full overflow-x-auto rounded-[6px] bg-surface-base p-2 text-code-11 whitespace-pre text-text-secondary select-text">
         <code>{output || "(no output)"}</code>
       </pre>
     </div>

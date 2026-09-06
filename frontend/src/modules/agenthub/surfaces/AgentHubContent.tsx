@@ -1,10 +1,12 @@
-import { Bot, ChevronRight, Folder, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import type { AgentSession } from "@/bridge/agenthub";
 import type { AvailableCommand, TranscriptItem, Usage } from "../types";
 import { TranscriptStream } from "./TranscriptStream";
 import { AgentComposer } from "./AgentComposer";
 import { AgentSessionError, type SessionErrorCause } from "./AgentSessionError";
+import { AgentState, type AgentStatus } from "./AgentState";
+import { VendorIcon } from "./VendorIcon";
 
 export type AgentHubContentState = "Conversation" | "Empty" | "Error";
 
@@ -23,16 +25,49 @@ export type AgentHubContentProps = {
   errorCause?: SessionErrorCause;
   errorMessage?: string;
   onRetrySession?: () => void;
-  onSwitchVendor?: () => void;
+  onCloseSession?: () => void;
   onNewSession?: () => void;
   className?: string;
 };
 
 /**
- * Agent Hub / Content (Figma 1136×804)
- * The wide reading surface of the Agent Hub module.
- * Manages 3 states: Conversation, Empty, Error.
+ * Agent Hub / Content — Figma `952:2346`, states `918:127` Conversation,
+ * `952:2245` Empty, `953:2424` Error.
+ *
+ * Figma's note: "Module body, 1136x804 for the sidebar-open slot. Empty is the
+ * first thing a new user meets, so it says what a session is rather than only
+ * that there is none."
+ *
+ * Three states, one header, and the header is the whole identity of the agent
+ * on one line: vendor mark, name, live state, then the lineage in the quiet
+ * tier — "depth 2 · parent auth-refactor · ~/acme/billing-service" is the
+ * boundary this agent may act within, which is the thing you check before you
+ * let it carry on. The previous implementation had a chevron breadcrumb, a
+ * vendor pill, a depth pill, a folder icon and a fourth colour-coded status
+ * pill; the pill was a third status vocabulary next to AgentState, and the
+ * lineage was scattered across four chips instead of read as one sentence.
+ *
+ * Empty has no header and no composer — there is no agent to name and nothing
+ * to send to. Error keeps the header but drops "Cancel turn": the turn is
+ * already over.
  */
+
+/** Same mapping as AgentRow: the bridge says awaiting_permission, Figma says awaiting. */
+function toAgentStatus(status: string | undefined): AgentStatus {
+  switch (status) {
+    case "running":
+      return "running";
+    case "awaiting_permission":
+      return "awaiting";
+    case "error":
+      return "error";
+    case "closed":
+      return "closed";
+    default:
+      return "idle";
+  }
+}
+
 export function AgentHubContent({
   state: explicitState,
   session,
@@ -48,11 +83,10 @@ export function AgentHubContent({
   errorCause = "crashed",
   errorMessage,
   onRetrySession,
-  onSwitchVendor,
+  onCloseSession,
   onNewSession,
   className,
 }: AgentHubContentProps) {
-  // Determine effective state
   const effectiveState: AgentHubContentState = explicitState
     ? explicitState
     : !session
@@ -61,8 +95,23 @@ export function AgentHubContent({
         ? "Error"
         : "Conversation";
 
-  const displayTitle = session?.title || (session ? `Session ${session.id.slice(0, 8)}` : "");
+  const displayTitle =
+    session?.title || (session ? `Session ${session.id.slice(0, 8)}` : "");
   const vendor = session?.agentType || "claude";
+
+  // One sentence, not four chips. Parent is omitted rather than shown empty —
+  // a root agent has no parent, and "parent —" reads as a missing value.
+  const lineage = session
+    ? [
+        `depth ${session.depth}`,
+        parentSession
+          ? `parent ${parentSession.title || parentSession.id.slice(0, 8)}`
+          : null,
+        session.projectPath || ".",
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : "";
 
   return (
     <main
@@ -71,126 +120,104 @@ export function AgentHubContent({
       data-testid="agent-hub-content"
       data-state={effectiveState}
       className={cn(
-        "flex flex-1 flex-col min-w-0 min-h-0 bg-transparent overflow-hidden",
+        "flex size-full min-h-0 min-w-0 flex-col gap-2 overflow-hidden px-4 pt-3 pb-4",
         className,
       )}
     >
-      {/* Surface Header (Breadcrumb & Meta) */}
-      {session ? (
+      {effectiveState !== "Empty" && session ? (
         <header
           data-testid="agent-hub-content-header"
-          className="flex h-11 shrink-0 items-center justify-between border-b border-border-subtle bg-surface-base/80 px-4 backdrop-blur-sm select-none"
+          className="flex w-full shrink-0 items-center gap-3 px-5 py-4 select-none"
         >
-          {/* Breadcrumb / Swarm Hierarchy */}
-          <div className="flex items-center gap-1.5 min-w-0">
-            {parentSession ? (
-              <>
-                <span className="truncate text-caption-11 text-text-tertiary">
-                  {parentSession.title || parentSession.id.slice(0, 8)}
-                </span>
-                <ChevronRight className="size-3 text-text-tertiary shrink-0" aria-hidden="true" />
-              </>
-            ) : null}
-
-            <h2 className="truncate text-title-16 text-text-primary">
-              {displayTitle}
-            </h2>
-
-            <span className="ml-1 rounded-sm bg-surface-tinted px-1.5 py-0.5 text-code-11 uppercase text-text-tertiary">
-              {vendor}
-            </span>
-
-            {session.depth > 0 ? (
-              <span className="rounded-sm border border-border-subtle bg-surface-base px-1.5 py-0.5 text-caption-11 text-text-tertiary">
-                depth {session.depth}
-              </span>
-            ) : null}
-          </div>
-
-          {/* Right meta: path + status */}
-          <div className="flex items-center gap-2 shrink-0">
-            <div className="flex items-center gap-1 text-caption-11 text-text-tertiary">
-              <Folder className="size-3 shrink-0" aria-hidden="true" />
-              <span className="truncate max-w-[180px] text-code-11">
-                {session.projectPath || "."}
-              </span>
-            </div>
-
-            <span
-              data-testid="content-header-status"
-              className={cn(
-                "rounded-control px-2 py-0.5 text-body-12",
-                session.status === "running"
-                  ? "bg-status-info/10 text-status-info"
-                  : session.status === "awaiting_permission"
-                    ? "bg-status-warning/10 text-status-warning"
-                    : session.status === "error"
-                      ? "bg-status-danger/10 text-status-danger"
-                      : "bg-surface-tinted text-text-tertiary",
-              )}
+          <VendorIcon vendor={vendor} className="size-4 text-icon-secondary" />
+          <h2 className="shrink-0 text-title-16 text-text-primary">{displayTitle}</h2>
+          <AgentState status={toAgentStatus(session.status)} />
+          <p className="min-w-0 flex-1 truncate text-body-12 text-text-tertiary">
+            {lineage}
+          </p>
+          {effectiveState === "Conversation" && streaming ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              data-testid="content-cancel-turn"
+              onClick={onCancel}
+              className="h-8 border-border-subtle px-3 text-text-secondary"
             >
-              {session.status || "idle"}
-            </span>
-          </div>
+              Cancel turn
+            </Button>
+          ) : null}
+          {onCloseSession ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              data-testid="content-close-session"
+              onClick={onCloseSession}
+              className="h-8 border-border-subtle px-3 text-text-secondary"
+            >
+              Close
+            </Button>
+          ) : null}
         </header>
       ) : null}
 
-      {/* Surface Body based on State */}
       {effectiveState === "Empty" ? (
         <div
           data-testid="agent-hub-content-empty"
-          className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center"
+          className="flex min-h-0 w-full flex-1 flex-col items-center justify-center gap-3 p-5 text-center"
         >
-          <div className="flex size-12 items-center justify-center rounded-xl bg-surface-raised border border-border-subtle text-text-tertiary shadow-sm">
-            <Bot className="size-6" aria-hidden="true" />
-          </div>
-          <div className="max-w-sm">
-            <h3 className="text-title-16 text-text-primary">No active agent session</h3>
-            <p className="mt-1 text-body-13 text-text-secondary">
-              Select a session from the swarm tree on the left, or launch a new agent session.
-            </p>
-          </div>
+          <p className="text-title-16 text-text-secondary">No agent running</p>
+          {/* Figma's note: Empty is the first thing a new user meets, so it
+              explains what a session IS. The old copy said only where to click. */}
+          <p className="w-[420px] max-w-full text-body-12 text-text-tertiary">
+            Each session gets its own sandbox, its own working directory, and its own
+            connection to DevKit&apos;s tools. Sessions started by an agent appear as
+            children of it.
+          </p>
           {onNewSession ? (
-            <button
+            <Button
               type="button"
+              size="sm"
               data-testid="empty-new-session-button"
               onClick={onNewSession}
-              className="mt-2 inline-flex h-8 items-center gap-1.5 rounded-control bg-action-primary px-3.5 text-label-12 text-action-primary-foreground transition-transform active:scale-95 hover:opacity-90 cursor-pointer"
+              className="h-8 px-4"
             >
-              <Sparkles className="size-3.5" aria-hidden="true" />
-              <span>Launch New Agent</span>
-            </button>
+              New session
+            </Button>
           ) : null}
         </div>
       ) : effectiveState === "Error" ? (
+        // Not centred: Figma keeps the transcript that led here above the card,
+        // because the failed tool call is the evidence for the error.
         <div
           data-testid="agent-hub-content-error"
-          className="flex flex-1 items-center justify-center p-6"
+          className="flex min-h-0 w-full flex-1 flex-col gap-5"
         >
-          <AgentSessionError
-            cause={errorCause}
-            message={errorMessage}
-            onRetry={onRetrySession}
-            onSwitchVendor={onSwitchVendor}
-          />
-        </div>
-      ) : (
-        /* Conversation State */
-        <div
-          data-testid="agent-hub-content-conversation"
-          className="flex flex-1 flex-col min-h-0 min-w-0"
-        >
-          {/* Transcript scroller area */}
-          <div className="flex-1 min-h-0 overflow-hidden">
-            <TranscriptStream
-              items={items}
-              vendor={vendor}
-              loading={false}
+          <div className="min-h-0 flex-1">
+            <TranscriptStream items={items} vendor={vendor} />
+          </div>
+          <div className="w-full shrink-0 px-5 pb-5">
+            <AgentSessionError
+              cause={errorCause}
+              agentName={displayTitle || "Agent"}
+              reason={errorMessage}
+              onRetry={onRetrySession}
+              onClose={onCloseSession}
+              className="w-full max-w-none"
             />
           </div>
+        </div>
+      ) : (
+        <div
+          data-testid="agent-hub-content-conversation"
+          className="flex min-h-0 w-full min-w-0 flex-1 flex-col"
+        >
+          <div className="min-h-0 flex-1 overflow-hidden">
+            <TranscriptStream items={items} vendor={vendor} loading={false} />
+          </div>
 
-          {/* Composer at the bottom — wide size */}
-          <div className="shrink-0 px-6 pb-5 pt-1">
+          <div className="flex w-full shrink-0 items-center gap-3 px-5">
             <AgentComposer
               size="wide"
               value={promptValue}
@@ -200,7 +227,9 @@ export function AgentHubContent({
               streaming={streaming}
               usage={usage}
               vendor={vendor}
+              agentName={displayTitle}
               commands={commands}
+              className="min-w-0 flex-1"
             />
           </div>
         </div>

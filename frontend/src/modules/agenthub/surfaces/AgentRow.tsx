@@ -1,146 +1,101 @@
-import { CornerDownRight } from "lucide-react";
-import { cn } from "@/lib/utils";
-import type { AgentSession, SessionStatus } from "@/bridge/agenthub";
+import { Bot } from "lucide-react";
 
-export type AgentRowState = "rest" | "hover" | "selected";
+import { cn } from "@/lib/utils";
+import { AgentState, type AgentStatus } from "./AgentState";
+import type { AgentSession } from "@/bridge/agenthub";
 
 export type AgentRowProps = {
   session: AgentSession;
   selected?: boolean;
-  pendingCount?: number;
+  turnCount?: number;
   onClick?: () => void;
   className?: string;
+  id?: string;
 };
 
-function StatusIndicator({ status }: { status: SessionStatus }) {
+/**
+ * Agent / Row — Figma `906:35`, states `906:12` Rest, `906:23` Hover,
+ * `906:34` Selected.
+ *
+ * Figma's note removes a whole axis: "Status lives on the nested Agent / State
+ * instance, so a row does not need a variant per status." The three variants
+ * are only backgrounds; everything a status changes is inside AgentState. The
+ * previous implementation had its own StatusIndicator switch, which is the
+ * second dot-and-colour table in this module — AgentState is the first.
+ *
+ * The three fills, read off the rendered node because they are alphas rather
+ * than named tokens on the frame:
+ *
+ *   rest      rgb(29,29,29) — the page's own ground, i.e. no fill at all
+ *   hover     rgb(42,42,42) — white at 6% over it, state/soft
+ *   selected  rgb(35,33,44) — surface/raised, plus a border/subtle hairline
+ *
+ * Two lines: the name with its vendor mark and live state, then the project and
+ * the turn count in the quiet tier.
+ */
+
+/**
+ * The bridge's SessionStatus and Figma's Agent / State are two vocabularies:
+ * the backend says `awaiting_permission`, the design says `awaiting`. Mapping
+ * them in one place beats five call sites each doing their own string compare.
+ */
+function toAgentStatus(status: string): AgentStatus {
   switch (status) {
     case "running":
-      return (
-        <span
-          data-testid="status-dot-running"
-          className="relative flex size-2 shrink-0"
-          title="Running"
-        >
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-status-info opacity-75" />
-          <span className="relative inline-flex size-2 rounded-full bg-status-info" />
-        </span>
-      );
+      return "running";
     case "awaiting_permission":
-      return (
-        <span
-          data-testid="status-dot-awaiting"
-          className="relative flex size-2 shrink-0"
-          title="Awaiting permission"
-        >
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-status-warning opacity-75" />
-          <span className="relative inline-flex size-2 rounded-full bg-status-warning" />
-        </span>
-      );
+      return "awaiting";
     case "error":
-      return (
-        <span
-          data-testid="status-dot-error"
-          className="size-2 shrink-0 rounded-full bg-status-danger"
-          title="Error"
-        />
-      );
+      return "error";
     case "closed":
-      return (
-        <span
-          data-testid="status-dot-closed"
-          className="size-2 shrink-0 rounded-full border border-text-tertiary"
-          title="Closed"
-        />
-      );
-    case "idle":
+      return "closed";
     default:
-      return (
-        <span
-          data-testid="status-dot-idle"
-          className="size-2 shrink-0 rounded-full bg-text-tertiary"
-          title="Idle"
-        />
-      );
+      return "idle";
   }
 }
 
-/**
- * Agent / Row (Figma 264×56)
- * Single agent entry in the swarm hierarchy with depth indentation and status.
- */
 export function AgentRow({
   session,
   selected = false,
-  pendingCount = 0,
+  turnCount,
   onClick,
   className,
+  id,
 }: AgentRowProps) {
-  const depth = session.depth ?? 0;
-  const hasParent = Boolean(session.parentSessionId);
-  const displayTitle = session.title || `Session ${session.id.slice(0, 8)}`;
+  const title = session.title || `Session ${session.id.slice(0, 8)}`;
+  const project = session.projectPath?.split("/").filter(Boolean).pop() ?? "";
 
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      data-testid={`agent-row-${session.id}`}
-      data-selected={selected ? "true" : "false"}
+    <button
+      id={id}
+      type="button"
       onClick={onClick}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onClick?.();
-        }
-      }}
-      style={{ paddingLeft: `${Math.min(depth * 16, 64) + 8}px` }}
+      aria-current={selected ? "true" : undefined}
+      data-testid="agent-row"
+      data-selected={selected}
       className={cn(
-        "group relative flex h-14 w-full select-none items-center justify-between pr-3 transition-colors cursor-pointer border-b border-border-subtle/50",
+        "flex w-full max-w-[264px] items-center gap-3 rounded-md px-3 py-2 text-left transition-colors cursor-pointer",
         selected
-          ? "bg-surface-tinted border-l-2 border-l-action-primary"
-          : "hover:bg-surface-raised",
+          ? "border border-border-subtle bg-surface-raised"
+          : "border border-transparent bg-transparent hover:bg-(--state-soft)",
         className,
       )}
     >
-      <div className="flex items-center gap-2 min-w-0 flex-1">
-        {hasParent ? (
-          <CornerDownRight
-            className="size-3 text-text-tertiary shrink-0 -ml-1"
-            aria-hidden="true"
-          />
-        ) : null}
-
-        <StatusIndicator status={session.status} />
-
-        <div className="flex flex-col min-w-0 flex-1">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <span
-              className={cn(
-                "truncate text-body-13-medium",
-                selected ? "text-text-primary" : "text-text-secondary group-hover:text-text-primary",
-              )}
-            >
-              {displayTitle}
-            </span>
-            <span className="rounded-sm bg-surface-base px-1 py-0.2 text-code-11 uppercase text-text-tertiary shrink-0">
-              {session.agentType}
-            </span>
-          </div>
-
-          <span className="truncate text-caption-11 text-text-tertiary">
-            {session.projectPath || "."}
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <div className="flex w-full items-center gap-2">
+          <Bot className="size-3 shrink-0 text-icon-secondary" aria-hidden="true" />
+          <span className="min-w-0 flex-1 truncate text-body-13-medium text-text-primary">
+            {title}
           </span>
+          <AgentState status={toAgentStatus(session.status)} />
+        </div>
+        <div className="flex w-full items-center gap-2 text-caption-11 text-text-tertiary">
+          {project ? <span className="truncate">{project}</span> : null}
+          {typeof turnCount === "number" ? (
+            <span className="shrink-0">{`· ${turnCount} turns`}</span>
+          ) : null}
         </div>
       </div>
-
-      {pendingCount > 0 ? (
-        <span
-          data-testid="agent-row-pending-badge"
-          className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-status-warning px-1 text-caption-11-medium text-palette-onyx"
-          title={`${pendingCount} pending permissions`}
-        >
-          {pendingCount}
-        </span>
-      ) : null}
-    </div>
+    </button>
   );
 }

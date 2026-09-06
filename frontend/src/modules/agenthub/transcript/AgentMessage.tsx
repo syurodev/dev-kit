@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Bot, User } from "lucide-react";
+
 import { cn } from "@/lib/utils";
 import {
   Message,
@@ -11,10 +11,7 @@ import {
 import { BubbleContent } from "@/components/ui/bubble";
 
 export type AgentMessageProps = {
-  /**
-   * Align Start for Agent, Align End for User.
-   * Figma node: 926:126 (Agent / Message)
-   */
+  /** Start = the agent, End = you. Figma `926:126`. */
   align?: "start" | "end";
   author?: string;
   text?: string;
@@ -25,6 +22,25 @@ export type AgentMessageProps = {
   className?: string;
 };
 
+/**
+ * Agent / Message — Figma `926:126`, variants `929:145` Start/Wide and
+ * `929:157` End/Wide.
+ *
+ * Figma's note: "Follows the shadcn Message anatomy so the Figma layers map 1:1
+ * onto the code: MessageAvatar + MessageContent(MessageHeader, Bubble >
+ * BubbleContent, MessageFooter), with align start for the agent and end for
+ * you." The primitives already carry the reversal, the avatar's self-end and
+ * the footer's justify-end, so this file only supplies the tones.
+ *
+ * The avatar is the author's initial on a 24px round, not a generic Bot/User
+ * pair: with several agents in a swarm, two Bot glyphs are the same glyph, and
+ * the name is the only thing that tells refund-worker from docs-sweep. Yours
+ * takes action/primary, the way it does everywhere the accent means "you".
+ *
+ * The bubble has no border in Figma — the fill is what separates the two
+ * speakers (surface/raised for the agent, surface/tinted for you), and a
+ * hairline on top of that reads as a card rather than as speech.
+ */
 export function AgentMessage({
   align = "start",
   author,
@@ -37,41 +53,46 @@ export function AgentMessage({
 }: AgentMessageProps) {
   const isAgent = align === "start";
   const defaultAuthor = author ?? (isAgent ? "Agent" : "You");
+  const initial = defaultAuthor.trim().charAt(0) || (isAgent ? "a" : "y");
 
   return (
     <Message
       align={align}
-      className={cn("w-full max-w-full", className)}
+      className={cn("w-full max-w-full items-end", className)}
       data-testid="agent-message"
     >
-      <MessageAvatar className="size-7 shrink-0 rounded-full border border-border-subtle bg-surface-raised text-text-primary self-start mt-0.5">
-        {avatar ?? (isAgent ? <Bot className="size-(--icon-14)" /> : <User className="size-(--icon-14)" />)}
+      <MessageAvatar
+        className={cn(
+          "size-6 min-w-6 rounded-full text-caption-11-medium",
+          isAgent
+            ? "bg-(--state-soft) text-text-secondary"
+            : "bg-action-primary text-action-primary-foreground",
+        )}
+      >
+        {avatar ?? <span aria-hidden="true">{initial}</span>}
       </MessageAvatar>
 
-      <MessageContent className="min-w-0 max-w-full">
-        {(defaultAuthor || timestamp) && (
-          <MessageHeader className="gap-2 px-1 text-caption-11-medium text-text-tertiary">
-            <span>{defaultAuthor}</span>
-            {timestamp && <span className="text-caption-11 text-text-tertiary">{timestamp}</span>}
-          </MessageHeader>
-        )}
+      <MessageContent className="min-w-0 max-w-full gap-1">
+        <MessageHeader className="gap-2 px-0 text-caption-11-medium text-text-tertiary">
+          <span>{defaultAuthor}</span>
+          {timestamp ? <span className="text-caption-11">{timestamp}</span> : null}
+        </MessageHeader>
 
         <BubbleContent
           className={cn(
-            "rounded-lg border px-3 py-2 text-body-13 max-w-[85%] select-text whitespace-pre-wrap break-words",
-            isAgent
-              ? "bg-surface-raised border-border-subtle text-text-primary"
-              : "bg-surface-tinted border-border-subtle text-text-primary",
+            "max-w-[85%] rounded-[10px] px-3 py-2 text-body-12 text-text-primary",
+            "whitespace-pre-wrap break-words select-text",
+            isAgent ? "bg-surface-raised" : "bg-surface-tinted",
           )}
         >
           {text ?? children}
         </BubbleContent>
 
-        {footer && (
-          <MessageFooter className="px-1 text-caption-11 text-text-tertiary">
+        {footer ? (
+          <MessageFooter className="gap-3 px-0 text-caption-11 text-text-tertiary">
             {footer}
           </MessageFooter>
-        )}
+        ) : null}
       </MessageContent>
     </Message>
   );

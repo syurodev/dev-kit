@@ -1,15 +1,11 @@
 import {
-  CheckCircle2,
-  Circle,
   FileEdit,
   FileText,
-  Loader2,
   Search,
-  ShieldAlert,
   Terminal,
   Wrench,
-  XCircle,
 } from "lucide-react";
+
 import { cn } from "@/lib/utils";
 import type { ToolCall } from "../types";
 import { AgentFileChip } from "./AgentFileChip";
@@ -17,115 +13,133 @@ import { AgentToolDiff } from "./AgentToolDiff";
 import { AgentToolTerminal } from "./AgentToolTerminal";
 
 export type AgentToolCallProps = {
-  /**
-   * Tool execution row.
-   * Figma node: 947:2214 (Agent / Tool Call)
-   * Variants: Pending / Running / Awaiting / Done / Failed, + kind icon + optional locations row
-   */
   call: ToolCall;
   className?: string;
 };
 
-function getKindIcon(kind?: string) {
+/**
+ * Agent / Tool Call — Figma `947:2214`, states `947:2191` Running,
+ * `947:2205` Done, `947:2213` Failed.
+ *
+ * Figma's note: "every session/update tool_call carries a status, so the
+ * transcript shows the whole arc — queued, running, blocked on permission,
+ * finished, failed. Failed keeps its reason inline; a red dot alone tells you
+ * nothing to act on."
+ *
+ * One row: dot, kind icon, tool name, then the right-hand slot that carries
+ * whatever the status has to say — "running…", the result, "exit 1". That slot
+ * is the status, which is why there is no uppercase DONE/FAILED badge: the
+ * badge said the same thing twice and left no room for the result.
+ *
+ * Failed is the only state that changes the ground (feedback/danger-soft) and
+ * the only one that adds a second line — the reason.
+ *
+ * Dots, from the exported SVGs: running #B2D5E5 status/info, done #8B8E8A
+ * text/tertiary, failed #D87886 status/danger. Done is deliberately grey: a
+ * finished tool call is not good news, it is just finished.
+ */
+function kindIcon(kind?: string) {
   const k = kind?.toLowerCase() ?? "";
-  if (k.includes("read") || k.includes("view") || k.includes("cat")) {
-    return FileText;
-  }
-  if (k.includes("edit") || k.includes("write") || k.includes("patch")) {
-    return FileEdit;
-  }
-  if (k.includes("exec") || k.includes("bash") || k.includes("run") || k.includes("command")) {
+  if (k.includes("read") || k.includes("view") || k.includes("cat")) return FileText;
+  if (k.includes("edit") || k.includes("write") || k.includes("patch")) return FileEdit;
+  if (k.includes("exec") || k.includes("bash") || k.includes("run") || k.includes("command"))
     return Terminal;
-  }
-  if (k.includes("search") || k.includes("grep") || k.includes("glob") || k.includes("find")) {
+  if (k.includes("search") || k.includes("grep") || k.includes("glob") || k.includes("find"))
     return Search;
-  }
   return Wrench;
 }
 
-function getStatusDetails(status?: string) {
-  const s = status?.toLowerCase() ?? "completed";
-  switch (s) {
+type ToolState = "pending" | "running" | "awaiting" | "done" | "failed";
+
+function toToolState(status?: string): ToolState {
+  switch (status?.toLowerCase()) {
     case "pending":
-      return {
-        label: "PENDING",
-        icon: Circle,
-        iconClass: "text-text-tertiary",
-        badgeClass: "text-text-tertiary",
-      };
+      return "pending";
     case "in_progress":
     case "running":
-      return {
-        label: "RUNNING",
-        icon: Loader2,
-        iconClass: "text-status-info animate-spin",
-        badgeClass: "text-status-info",
-      };
+      return "running";
     case "awaiting_permission":
     case "awaiting":
-      return {
-        label: "AWAITING",
-        icon: ShieldAlert,
-        iconClass: "text-status-warning",
-        badgeClass: "text-status-warning",
-      };
+      return "awaiting";
     case "failed":
     case "error":
-      return {
-        label: "FAILED",
-        icon: XCircle,
-        iconClass: "text-status-danger",
-        badgeClass: "text-status-danger",
-      };
-    case "completed":
-    case "done":
+      return "failed";
     default:
-      return {
-        label: "DONE",
-        icon: CheckCircle2,
-        iconClass: "text-status-success",
-        badgeClass: "text-status-success",
-      };
+      return "done";
   }
 }
 
-export function AgentToolCall({ call, className }: AgentToolCallProps) {
-  const KindIcon = getKindIcon(call.kind);
-  const statusInfo = getStatusDetails(call.status);
-  const StatusIcon = statusInfo.icon;
+const DOT: Record<ToolState, string> = {
+  pending: "border border-text-tertiary",
+  running: "bg-status-info",
+  awaiting: "bg-status-warning",
+  done: "bg-text-tertiary",
+  failed: "bg-status-danger",
+};
 
+/** What the right-hand slot says when the call has no result of its own. */
+const FALLBACK: Record<ToolState, string> = {
+  pending: "queued",
+  running: "running…",
+  awaiting: "awaiting permission",
+  done: "",
+  failed: "failed",
+};
+
+export function AgentToolCall({ call, className }: AgentToolCallProps) {
+  const KindIcon = kindIcon(call.kind);
+  const state = toToolState(call.status);
   const title = call.title || call.kind || call.id || "Tool execution";
-  const hasLocations = Boolean(call.locations && call.locations.length > 0);
-  const hasContent = Boolean(call.content && call.content.length > 0);
+
+  const locations = call.locations ?? [];
+  const content = call.content ?? [];
+  // rawOutput is `unknown` off the wire — an object stringifies to
+  // "[object Object]", which is worse than saying nothing.
+  const raw = typeof call.rawOutput === "string" ? call.rawOutput : "";
+  const result = state === "failed" ? FALLBACK.failed : raw || FALLBACK[state];
+  const reason = state === "failed" ? raw : "";
 
   return (
     <div
-      className={cn(
-        "flex flex-col w-full max-w-full rounded-md border border-border-subtle bg-surface-base p-2.5 gap-2",
-        className,
-      )}
       data-testid="agent-tool-call"
       data-status={call.status ?? "completed"}
+      data-state={state}
+      className={cn(
+        "flex w-full max-w-full flex-col gap-2 rounded-control p-3",
+        state === "failed" ? "bg-(--feedback-danger-soft)" : "bg-(--state-soft)",
+        className,
+      )}
     >
-      <div className="flex items-center justify-between gap-2 min-w-0">
-        <div className="flex items-center gap-2 min-w-0 flex-1">
-          <KindIcon className="size-(--icon-14) text-text-tertiary shrink-0" />
-          <span className="truncate text-body-13-medium text-text-primary">
-            {title}
+      <div className="flex w-full items-center gap-2">
+        <span
+          aria-hidden="true"
+          className={cn("size-1.5 shrink-0 rounded-full", DOT[state])}
+        />
+        <KindIcon className="size-3 shrink-0 text-icon-secondary" aria-hidden="true" />
+        <span className="shrink-0 text-body-12 whitespace-nowrap text-text-secondary">
+          {title}
+        </span>
+        <span className="min-w-0 flex-1" />
+        {result ? (
+          <span
+            data-testid="tool-call-result"
+            className={cn(
+              "shrink-0 truncate text-caption-11 whitespace-nowrap",
+              state === "failed"
+                ? "text-status-danger"
+                : state === "done"
+                  ? "text-text-tertiary"
+                  : "text-text-secondary",
+            )}
+          >
+            {result}
           </span>
-        </div>
-
-        <div className="flex items-center gap-1.5 shrink-0">
-          <StatusIcon className={cn("size-(--icon-14) shrink-0", statusInfo.iconClass)} />
-          <span className={cn("text-label-11-caps", statusInfo.badgeClass)}>
-            {statusInfo.label}
-          </span>
-        </div>
+        ) : null}
       </div>
 
-      {hasLocations && (
-        <div className="flex flex-wrap gap-1.5 pt-1 border-t border-border-subtle/50">
-          {call.locations!.map((loc, idx) => (
+      {locations.length > 0 ? (
+        <div className="flex w-full flex-wrap items-center gap-1">
+          {locations.map((loc, idx) => (
             <AgentFileChip
               key={`${loc.path}-${loc.line ?? idx}`}
               path={loc.path}
@@ -133,43 +147,44 @@ export function AgentToolCall({ call, className }: AgentToolCallProps) {
             />
           ))}
         </div>
-      )}
+      ) : null}
 
-      {hasContent && (
-        <div className="flex flex-col gap-2 pt-1 border-t border-border-subtle/50">
-          {call.content!.map((item, idx) => {
-            if (item.type === "diff") {
-              return (
-                <AgentToolDiff
-                  key={idx}
-                  path={item.path}
-                  oldText={item.oldText}
-                  newText={item.newText}
-                />
-              );
-            }
-            if (item.type === "terminal") {
-              return (
-                <AgentToolTerminal
-                  key={idx}
-                  terminalId={item.terminalId}
-                />
-              );
-            }
-            if (item.content?.text) {
-              return (
-                <pre
-                  key={idx}
-                  className="overflow-x-auto rounded-sm bg-surface-raised/60 p-2 text-code-12 text-text-secondary select-text whitespace-pre"
-                >
-                  <code>{item.content.text}</code>
-                </pre>
-              );
-            }
-            return null;
-          })}
-        </div>
-      )}
+      {/* Figma: failed keeps its reason inline. A red dot alone is not actionable. */}
+      {reason ? (
+        <p
+          data-testid="tool-call-reason"
+          className="w-full text-caption-11 break-words text-text-secondary"
+        >
+          {reason}
+        </p>
+      ) : null}
+
+      {content.map((item, idx) => {
+        if (item.type === "diff") {
+          return (
+            <AgentToolDiff
+              key={idx}
+              path={item.path}
+              oldText={item.oldText}
+              newText={item.newText}
+            />
+          );
+        }
+        if (item.type === "terminal") {
+          return <AgentToolTerminal key={idx} terminalId={item.terminalId} />;
+        }
+        if (item.content?.text) {
+          return (
+            <pre
+              key={idx}
+              className="w-full overflow-x-auto rounded-[6px] bg-surface-base p-2 text-code-11 whitespace-pre text-text-secondary select-text"
+            >
+              <code>{item.content.text}</code>
+            </pre>
+          );
+        }
+        return null;
+      })}
     </div>
   );
 }

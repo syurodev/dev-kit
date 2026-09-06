@@ -93,7 +93,6 @@ func run() {
           <AgentCodeBlock
             path="internal/agenthub/schema.sql"
             language="sql"
-            defaultCollapsed={true}
             code={`CREATE TABLE IF NOT EXISTS agent_transcript (
   session_id TEXT NOT NULL,
   line_index INTEGER NOT NULL,
@@ -298,15 +297,9 @@ src/modules/agenthub/transcriptGolden.test.ts:
           <AgentImage
             src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='800' height='450' viewBox='0 0 800 450'><rect width='100%' height='100%' fill='%231d1d1d'/><circle cx='400' cy='225' r='80' fill='%23c6ff34'/><text x='400' y='235' font-family='sans-serif' font-size='20' font-weight='600' fill='%23020202' text-anchor='middle'>Agent Hub</text></svg>"
             name="architecture-preview.svg"
-            mimeType="image/svg+xml"
-            dimensions="800x450"
-            size="4.2 KB"
+            dimensions="800 × 450"
           />
-          <AgentImage
-            name="pending-diagram.png"
-            mimeType="image/png"
-            size="0 KB"
-          />
+          <AgentImage name="pending-diagram.png" />
         </div>
       </section>
     </div>

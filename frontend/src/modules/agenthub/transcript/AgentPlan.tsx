@@ -1,88 +1,93 @@
-import { CheckCircle2, Circle, ListChecks, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { PlanEntry } from "../types";
 
 export type AgentPlanProps = {
-  /**
-   * Execution plan checklist.
-   * Figma node: 947:2239 (Agent / Plan)
-   */
   entries: PlanEntry[];
   className?: string;
 };
 
+/**
+ * Agent / Plan — Figma `947:2239`.
+ *
+ * Figma's note: "FR-3 lists plan alongside text chunk and tool call as a
+ * session/update kind, and it had no surface at all. Steps carry ACP's own
+ * statuses (pending / in_progress / completed) so the transcript shows where
+ * the agent is, not merely that it made a plan."
+ *
+ * So the status word is printed, per step, in ACP's own vocabulary. The
+ * previous implementation replaced it with a progress bar plus line-through —
+ * a bar says how far, not where, and strike-through on a completed step reads
+ * as cancelled.
+ *
+ * Marks, read off the exported SVGs rather than guessed:
+ *   completed    filled #99E1D9 — status/success
+ *   in_progress  filled #B2D5E5 — status/info, matching Tool Call running
+ *   pending      1px ring #8B8E8A — text/tertiary, hollow because nothing
+ *                has happened yet
+ *
+ * Only the in-progress step steps up to Medium/primary. That is the line you
+ * are looking for when you glance at a plan.
+ */
+const STEP: Record<string, { mark: string; label: string; word: string }> = {
+  completed: {
+    mark: "bg-status-success",
+    label: "text-caption-11 text-text-secondary",
+    word: "completed",
+  },
+  in_progress: {
+    mark: "bg-status-info",
+    label: "text-caption-11-medium text-text-primary",
+    word: "in progress",
+  },
+  pending: {
+    mark: "border border-text-tertiary",
+    label: "text-caption-11 text-text-tertiary",
+    word: "pending",
+  },
+};
+
 export function AgentPlan({ entries, className }: AgentPlanProps) {
-  const total = entries.length;
   const completed = entries.filter((e) => e.status === "completed").length;
-  const progressPercent = total > 0 ? Math.round((completed / total) * 100) : 0;
 
   return (
     <div
+      data-testid="agent-plan"
       className={cn(
-        "flex flex-col w-full max-w-full rounded-md border border-border-subtle bg-surface-base p-3 gap-2.5",
+        "flex w-full max-w-full flex-col gap-3 rounded-control bg-(--state-soft) p-3",
         className,
       )}
-      data-testid="agent-plan"
     >
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <ListChecks className="size-(--icon-14) text-text-secondary shrink-0" />
-          <span className="text-body-13-medium text-text-primary">Plan</span>
-        </div>
-
-        {total > 0 && (
-          <span className="text-caption-11 text-text-tertiary">
-            {`${completed} of ${total} completed`}
+      <div className="flex w-full items-center gap-2 text-caption-11 text-text-tertiary">
+        <span className="min-w-0 flex-1 text-caption-11-medium">Plan</span>
+        {entries.length > 0 ? (
+          <span className="shrink-0 whitespace-nowrap">
+            {`${completed} of ${entries.length}`}
           </span>
-        )}
+        ) : null}
       </div>
 
-      {total > 0 && (
-        <div className="h-1 w-full rounded-full bg-surface-raised overflow-hidden">
+      {entries.map((entry, idx) => {
+        const step = STEP[entry.status ?? "pending"] ?? STEP.pending;
+        return (
           <div
-            className="h-full bg-status-success transition-all duration-300"
-            style={{ width: `${progressPercent}%` }}
-          />
-        </div>
-      )}
-
-      <div className="flex flex-col gap-2 pt-0.5">
-        {entries.map((entry, idx) => {
-          const isDone = entry.status === "completed";
-          const isRunning = entry.status === "in_progress";
-
-          return (
-            <div key={idx} className="flex items-start gap-2 min-w-0">
-              {isDone ? (
-                <CheckCircle2 className="size-(--icon-14) text-status-success shrink-0 mt-0.5" />
-              ) : isRunning ? (
-                <Loader2 className="size-(--icon-14) text-status-info shrink-0 animate-spin mt-0.5" />
-              ) : (
-                <Circle className="size-(--icon-14) text-text-tertiary shrink-0 mt-0.5" />
-              )}
-
-              <div className="flex flex-1 items-baseline justify-between gap-2 min-w-0">
-                <span
-                  className={cn(
-                    "text-body-13 break-words",
-                    isDone && "text-text-tertiary line-through",
-                    isRunning && "text-text-primary",
-                    !isDone && !isRunning && "text-text-secondary",
-                  )}
-                >
-                  {entry.content}
-                </span>
-
-                {entry.priority && (
-                  <span className="text-caption-11 text-text-tertiary shrink-0 uppercase">
-                    {entry.priority}
-                  </span>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
+            key={idx}
+            data-testid="agent-plan-step"
+            data-status={entry.status ?? "pending"}
+            className="flex w-full items-center gap-2"
+          >
+            <span
+              aria-hidden="true"
+              className={cn("size-1.5 shrink-0 rounded-full", step.mark)}
+            />
+            <span className={cn("min-w-0 flex-1 break-words", step.label)}>
+              {entry.content}
+            </span>
+            <span className="shrink-0 text-caption-11 whitespace-nowrap text-text-tertiary">
+              {step.word}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }

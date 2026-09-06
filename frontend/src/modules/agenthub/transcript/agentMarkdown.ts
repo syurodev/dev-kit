@@ -1,0 +1,171 @@
+/**
+ * The markdown Agent / Message Rich (Figma `1060:3171`) actually draws:
+ * heading, paragraph, bulleted list, numbered list, blockquote, table, plus
+ * inline code, links and emphasis. Fenced code is routed to Agent / Code Block.
+ *
+ * This exists because agent messages arrive as markdown and the transcript was
+ * printing the source — readers saw literal `- ` bullets and `**` pairs. No
+ * markdown library is a declared dependency of this app, and the module is not
+ * allowed to add one, so this reads exactly the blocks the design has.
+ *
+ * ponytail: line-based, not a real parser — no nested lists, no inline HTML,
+ * no reference links, no setext headings. Swap in a proper markdown pipeline if
+ * agents start sending any of that.
+ */
+
+export type InlineToken =
+  | { type: "text"; value: string }
+  | { type: "code"; value: string }
+  | { type: "strong"; value: string }
+  | { type: "em"; value: string }
+  | { type: "link"; value: string; href: string };
+
+export type MarkdownBlock =
+  | { type: "heading"; level: number; text: string }
+  | { type: "paragraph"; text: string }
+  | { type: "list"; ordered: boolean; items: string[] }
+  | { type: "quote"; text: string }
+  | { type: "code"; language?: string; code: string }
+  | { type: "table"; head: string[]; rows: string[][] };
+
+const HEADING = /^(#{1,6})\s+(.*)$/;
+const BULLET = /^\s*[-*+]\s+(.*)$/;
+const ORDERED = /^\s*\d+[.)]\s+(.*)$/;
+const FENCE = /^```(\w*)\s*$/;
+const TABLE_DIVIDER = /^\s*\|?[\s:-]*-[\s|:-]*\|?\s*$/;
+
+function splitRow(line: string): string[] {
+  return line
+    .replace(/^\s*\|/, "")
+    .replace(/\|\s*$/, "")
+    .split("|")
+    .map((cell) => cell.trim());
+}
+
+export function parseMarkdown(source: string): MarkdownBlock[] {
+  const lines = source.replace(/\r\n?/g, "\n").split("\n");
+  const blocks: MarkdownBlock[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    if (!line.trim()) {
+      i += 1;
+      continue;
+    }
+
+    const fence = FENCE.exec(line);
+    if (fence) {
+      const code: string[] = [];
+      i += 1;
+      while (i < lines.length && !FENCE.test(lines[i])) {
+        code.push(lines[i]);
+        i += 1;
+      }
+      i += 1; // closing fence, or end of input
+      blocks.push({
+        type: "code",
+        language: fence[1] || undefined,
+        code: code.join("\n"),
+      });
+      continue;
+    }
+
+    const heading = HEADING.exec(line);
+    if (heading) {
+      blocks.push({ type: "heading", level: heading[1].length, text: heading[2] });
+      i += 1;
+      continue;
+    }
+
+    // A table needs its divider row; without one these are just paragraphs
+    // containing pipes, which is what a shell command looks like.
+    if (line.includes("|") && i + 1 < lines.length && TABLE_DIVIDER.test(lines[i + 1])) {
+      const head = splitRow(line);
+      const rows: string[][] = [];
+      i += 2;
+      while (i < lines.length && lines[i].includes("|") && lines[i].trim()) {
+        rows.push(splitRow(lines[i]));
+        i += 1;
+      }
+      blocks.push({ type: "table", head, rows });
+      continue;
+    }
+
+    if (BULLET.test(line) || ORDERED.test(line)) {
+      const ordered = !BULLET.test(line);
+      const items: string[] = [];
+      while (i < lines.length) {
+        const match = ordered ? ORDERED.exec(lines[i]) : BULLET.exec(lines[i]);
+        if (!match) break;
+        items.push(match[1]);
+        i += 1;
+      }
+      blocks.push({ type: "list", ordered, items });
+      continue;
+    }
+
+    if (line.trimStart().startsWith(">")) {
+      const quoted: string[] = [];
+      while (i < lines.length && lines[i].trimStart().startsWith(">")) {
+        quoted.push(lines[i].trimStart().replace(/^>\s?/, ""));
+        i += 1;
+      }
+      blocks.push({ type: "quote", text: quoted.join("\n") });
+      continue;
+    }
+
+    // Everything else is a paragraph, joined until a blank line so a wrapped
+    // sentence does not become three paragraphs.
+    const paragraph: string[] = [];
+    while (
+      i < lines.length &&
+      lines[i].trim() &&
+      !HEADING.test(lines[i]) &&
+      !BULLET.test(lines[i]) &&
+      !ORDERED.test(lines[i]) &&
+      !FENCE.test(lines[i]) &&
+      !lines[i].trimStart().startsWith(">")
+    ) {
+      paragraph.push(lines[i].trim());
+      i += 1;
+    }
+    blocks.push({ type: "paragraph", text: paragraph.join(" ") });
+  }
+
+  return blocks;
+}
+
+const INLINE =
+  /(`[^`]+`)|(\[[^\]]+\]\([^)\s]+\))|(\*\*[^*]+\*\*)|(\*[^*]+\*|_[^_]+_)/g;
+
+export function parseInline(text: string): InlineToken[] {
+  const tokens: InlineToken[] = [];
+  let last = 0;
+
+  for (const match of text.matchAll(INLINE)) {
+    const start = match.index ?? 0;
+    if (start > last) tokens.push({ type: "text", value: text.slice(last, start) });
+    const raw = match[0];
+
+    if (raw.startsWith("`")) {
+      tokens.push({ type: "code", value: raw.slice(1, -1) });
+    } else if (raw.startsWith("[")) {
+      const split = raw.indexOf("](");
+      tokens.push({
+        type: "link",
+        value: raw.slice(1, split),
+        href: raw.slice(split + 2, -1),
+      });
+    } else if (raw.startsWith("**")) {
+      tokens.push({ type: "strong", value: raw.slice(2, -2) });
+    } else {
+      tokens.push({ type: "em", value: raw.slice(1, -1) });
+    }
+    last = start + raw.length;
+  }
+
+  if (last < text.length) tokens.push({ type: "text", value: text.slice(last) });
+  return tokens;
+}

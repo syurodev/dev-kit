@@ -1,6 +1,7 @@
-import { Lock, ShieldAlert, Unlock } from "lucide-react";
 import { usePermissionDeadline } from "./usePermissionDeadline";
+import { AgentState } from "./AgentState";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import type { AgentSession, PendingPermission } from "@/bridge/agenthub";
 import { parsePermissionOptions, permissionToolTitle } from "@/bridge/agenthub";
 
@@ -17,10 +18,27 @@ export type AgentPermissionRequestProps = {
 };
 
 /**
- * Agent / Permission Request (Figma 909:49)
- * Inline permission card inside AgentRail transcript (272×180–208).
- * Variants: Env Open / Locked.
- * Includes countdown deadline, caller identity, and full choice set (Allow once, Allow always, Deny).
+ * Agent / Permission Request — Figma `909:49`, variants `909:28` Open and
+ * `909:48` Locked.
+ *
+ * Figma's note carries the design: "Asked inside the rail, never as a modal:
+ * the request blocks the agent, not the person. Names which agent is asking —
+ * with N running, an unattributed prompt is undecidable. Env=Locked drops
+ * allow-always because env always wins."
+ *
+ * So the card reads top-down as an answer to "who is asking, from where, for
+ * what": state and agent name, then the working directory, then the tool and
+ * its environment, then the literal command. The previous implementation led
+ * with the tool name and never showed which agent was asking at all — the one
+ * thing the note says makes the prompt decidable.
+ *
+ * Locked differs in three ways and only three: the env pill turns danger-toned,
+ * a line appears saying the environment always asks, and Allow always is gone.
+ *
+ * DEVIATION: Figma draws no countdown. The gate fails closed after 60s
+ * (interaction.DefaultTimeout) and the backend stamps expiresAt, so hiding the
+ * clock would hide a denial that is about to happen on its own. It sits beside
+ * depth, which is the row Figma uses for session metadata.
  */
 export function AgentPermissionRequest({
   pending,
@@ -33,7 +51,6 @@ export function AgentPermissionRequest({
 }: AgentPermissionRequestProps) {
   const { secondsLeft, expired } = usePermissionDeadline(pending, timeoutSeconds);
 
-  // Derive environment: explicit prop or inspect params for locked/prod tags
   const isLocked =
     explicitEnv === "locked" ||
     (typeof pending.params === "object" &&
@@ -45,19 +62,28 @@ export function AgentPermissionRequest({
       ));
   const env: PermissionEnv = isLocked ? "locked" : "open";
 
-
   const toolTitle = permissionToolTitle(pending.params);
   const options = parsePermissionOptions(pending.params);
-  const agentTitle = session?.title || pending.title || pending.sessionId.slice(0, 8);
+  const agentTitle =
+    session?.title || pending.title || pending.sessionId.slice(0, 8);
   const cwd = session?.projectPath || ".";
+  // Depth comes off the request, not the session: it is the caller's depth,
+  // and a subagent's request carries a deeper one than the session it belongs
+  // to. Figma 909:28 shows "depth 2" on a request from a depth-2 caller.
+  const depth = pending.depth ?? session?.depth ?? 0;
 
-  // Find allow once and allow always from options, or fallback
-  const allowOnceOption = options.find(
-    (o) =>
-      o.optionId.includes("once") ||
-      o.name.toLowerCase().includes("once") ||
-      o.kind.includes("once"),
-  ) ?? options[0];
+  const command =
+    typeof pending.params === "object" && pending.params !== null
+      ? ((pending.params as Record<string, unknown>).command as string | undefined)
+      : undefined;
+
+  const allowOnceOption =
+    options.find(
+      (o) =>
+        o.optionId.includes("once") ||
+        o.name.toLowerCase().includes("once") ||
+        o.kind.includes("once"),
+    ) ?? options[0];
 
   const allowAlwaysOption = options.find(
     (o) =>
@@ -66,121 +92,106 @@ export function AgentPermissionRequest({
       o.kind.includes("always"),
   );
 
+  // Allow always is dropped whenever the environment is locked, whatever the
+  // vendor offered — Figma: "env always wins".
+  const showAllowAlways = env === "open" && Boolean(allowAlwaysOption);
+
+  // Three buttons have to fit 248px of inner width, so the Open variant squeezes
+  // its padding; Locked has room for the usual px-3. Both are 32 tall.
+  const actionPad = showAllowAlways ? "px-2" : "px-3";
+
   return (
     <div
       role="alert"
       data-testid="agent-permission-request"
       data-env={env}
       className={cn(
-        "flex w-full max-w-[272px] flex-col rounded-lg border bg-surface-tinted p-3 shadow-sm select-none",
-        env === "locked"
-          ? "border-status-warning/60"
-          : "border-border-subtle",
+        "flex w-full max-w-[272px] flex-col gap-3 rounded-control p-3",
+        "border border-border-subtle bg-surface-raised",
         className,
       )}
     >
-      {/* Header: Tool title, Env tag, Countdown deadline */}
-      <div className="flex items-center justify-between gap-1 pb-1.5 border-b border-border-subtle/50">
-        <div className="flex items-center gap-1.5 min-w-0">
-          <ShieldAlert
-            className={cn(
-              "size-3.5 shrink-0",
-              env === "locked" ? "text-status-warning" : "text-text-secondary",
-            )}
-            aria-hidden="true"
-          />
-          <span className="truncate text-caption-11-medium text-text-primary">
-            {toolTitle}
-          </span>
-        </div>
+      {/* who */}
+      <div className="flex w-full items-center gap-2">
+        <AgentState status="awaiting" />
+        <p className="min-w-0 flex-1 truncate text-body-13-medium text-text-primary">
+          {agentTitle}
+        </p>
+        <p className="shrink-0 text-caption-11 text-text-tertiary whitespace-nowrap">
+          {/* One string, not text + expression: renderToString splits those
+              with comment markers, so "depth 1" would not be contiguous. */}
+          {`depth ${depth} · ${expired ? "expired" : `${secondsLeft}s`}`}
+        </p>
+      </div>
 
-        <div className="flex items-center gap-1 shrink-0">
-          {env === "locked" ? (
-            <span
-              data-testid="permission-env-locked"
-              className="inline-flex items-center gap-0.5 rounded-sm bg-status-warning/15 px-1 py-0.2 text-code-11 text-status-warning"
-              title="Locked environment (requires confirmation)"
-            >
-              <Lock className="size-2.5 shrink-0" aria-hidden="true" />
-              <span>LOCKED</span>
-            </span>
-          ) : (
-            <span
-              data-testid="permission-env-open"
-              className="inline-flex items-center gap-0.5 rounded-sm bg-surface-base px-1 py-0.2 text-code-11 text-text-tertiary"
-            >
-              <Unlock className="size-2.5 shrink-0" aria-hidden="true" />
-              <span>OPEN</span>
-            </span>
+      <p className="w-full text-caption-11 text-text-tertiary">{cwd}</p>
+
+      {/* ask */}
+      <div className="flex w-full items-center gap-2">
+        <p className="min-w-0 flex-1 truncate text-label-12 text-text-secondary">
+          {toolTitle}
+        </p>
+        <span
+          data-testid={env === "locked" ? "permission-env-locked" : "permission-env-open"}
+          className={cn(
+            "shrink-0 rounded-full px-2 py-1 text-caption-11-medium",
+            env === "locked"
+              ? "bg-(--feedback-danger-soft) text-status-danger"
+              : "bg-(--state-soft) text-text-secondary",
           )}
-
-          <span
-            data-testid="permission-deadline"
-            className={cn(
-              "rounded-sm px-1 py-0.2 text-code-11",
-              secondsLeft <= 10
-                ? "bg-status-danger/15 text-status-danger"
-                : "bg-surface-base text-text-tertiary",
-            )}
-            title="Auto fail-closed deadline"
-          >
-            {`${secondsLeft}s`}
-          </span>
-        </div>
+        >
+          {env === "locked" ? "prod" : "dev"}
+        </span>
       </div>
 
-      {/* Caller Identity */}
-      <div className="flex flex-col gap-0.5 py-2">
-        <div className="flex items-center justify-between text-caption-11">
-          <span className="text-text-secondary truncate">
-            {agentTitle}
-          </span>
-          <span className="text-text-tertiary shrink-0">
-            {`depth ${pending.depth}`}
-          </span>
-        </div>
-        <div className="flex items-center text-code-11 text-text-tertiary truncate">
-          <span className="truncate">{cwd}</span>
-        </div>
-      </div>
+      {command ? (
+        <p className="w-full text-body-12 text-text-primary break-all">
+          {command}
+        </p>
+      ) : null}
 
-      {/* Action Buttons: Allow once (primary), Allow always, Deny */}
-      <div className="flex flex-col gap-1.5 pt-1.5 border-t border-border-subtle/50">
-        <div className="flex items-center gap-1.5">
-          {/* Allow once is always primary */}
-          <button
+      {env === "locked" ? (
+        <p className="w-full text-caption-11 text-text-tertiary">
+          prod requires confirmation every time
+        </p>
+      ) : null}
+
+      <div className="flex items-start gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={busy || expired}
+          data-testid="permission-deny"
+          onClick={() => void onResolve(null)}
+          className={cn("h-8 border-border-subtle text-text-secondary", actionPad)}
+        >
+          Deny
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          disabled={busy || expired}
+          data-testid="permission-allow-once"
+          onClick={() =>
+            void onResolve(allowOnceOption ? allowOnceOption.optionId : "allow_once")
+          }
+          className={cn("h-8", actionPad)}
+        >
+          Allow once
+        </Button>
+        {showAllowAlways && allowAlwaysOption ? (
+          <Button
             type="button"
-            data-testid="permission-allow-once"
+            variant="outline"
+            size="sm"
             disabled={busy || expired}
-            onClick={() => void onResolve(allowOnceOption ? allowOnceOption.optionId : "allow_once")}
-            className="flex-1 h-7 rounded-control bg-action-primary px-2 text-label-12 text-action-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50 cursor-pointer text-center"
-          >
-            {allowOnceOption?.name || "Allow once"}
-          </button>
-
-          {/* Deny */}
-          <button
-            type="button"
-            data-testid="permission-deny"
-            disabled={busy || expired}
-            onClick={() => void onResolve(null)}
-            className="h-7 rounded-control border border-border-subtle bg-surface-raised px-2.5 text-label-12 text-text-secondary transition-colors hover:text-text-primary hover:bg-surface-tinted disabled:opacity-50 cursor-pointer"
-          >
-            Deny
-          </button>
-        </div>
-
-        {/* Allow always (only available in rail where transcript is visible) */}
-        {allowAlwaysOption ? (
-          <button
-            type="button"
             data-testid="permission-allow-always"
-            disabled={busy || expired}
             onClick={() => void onResolve(allowAlwaysOption.optionId)}
-            className="w-full h-6 rounded-control border border-border-subtle bg-surface-base px-2 text-caption-11 text-text-tertiary transition-colors hover:text-text-secondary hover:bg-surface-tinted disabled:opacity-50 cursor-pointer text-center"
+            className={cn("h-8 border-border-subtle", actionPad)}
           >
-            {allowAlwaysOption.name || "Allow always"}
-          </button>
+            Allow always
+          </Button>
         ) : null}
       </div>
     </div>

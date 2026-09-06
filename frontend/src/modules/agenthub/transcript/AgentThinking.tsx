@@ -1,14 +1,11 @@
 import * as React from "react";
-import { ChevronDown, ChevronRight, Sparkles } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
+
 import { cn } from "@/lib/utils";
 
 export type AgentThinkingProps = {
-  /**
-   * Reasoning / thought block.
-   * Figma node: 1029:2742 (Agent / Thinking)
-   * Variants: Collapsed / Expanded
-   */
   text: string;
+  /** "6s" — Figma reads it back as "Thought for 6s", past tense. */
   duration?: string;
   expanded?: boolean;
   defaultExpanded?: boolean;
@@ -16,6 +13,18 @@ export type AgentThinkingProps = {
   className?: string;
 };
 
+/**
+ * Agent / Thinking — Figma `1029:2742`, collapsed state `1029:2731`.
+ *
+ * The quietest thing in the transcript: state/soft, no border, one line of
+ * Caption/11 in the tertiary tier. It is a receipt that reasoning happened, and
+ * it sits between things you actually need to read — a bordered card at
+ * surface/base gave it the same weight as a tool call.
+ *
+ * "Thought for 6s", not "Thinking…": by the time the chunk is in the transcript
+ * the thinking is over, and a present-tense label on a finished block reads as
+ * a stuck spinner.
+ */
 export function AgentThinking({
   text,
   duration,
@@ -25,50 +34,43 @@ export function AgentThinking({
   className,
 }: AgentThinkingProps) {
   const [internalExpanded, setInternalExpanded] = React.useState(defaultExpanded);
-
   const isExpanded = controlledExpanded ?? internalExpanded;
 
   const toggle = () => {
-    if (onToggleExpanded) {
-      onToggleExpanded();
-    } else {
-      setInternalExpanded((prev) => !prev);
-    }
+    if (onToggleExpanded) onToggleExpanded();
+    else setInternalExpanded((prev) => !prev);
   };
 
   return (
     <div
-      className={cn(
-        "flex flex-col w-full max-w-full rounded-md border border-border-subtle bg-surface-base/60 overflow-hidden",
-        className,
-      )}
       data-testid="agent-thinking"
       data-state={isExpanded ? "expanded" : "collapsed"}
+      className={cn(
+        "flex w-full max-w-full flex-col gap-2 rounded-control bg-(--state-soft) px-3 py-2",
+        className,
+      )}
     >
       <button
         type="button"
         onClick={toggle}
-        className="flex h-(--control-height-md) shrink-0 items-center justify-between gap-2 px-3 text-left hover:bg-surface-raised/40 transition-colors"
+        aria-expanded={isExpanded}
+        className="flex w-full items-center gap-2 text-left cursor-pointer"
       >
-        <div className="flex items-center gap-2 min-w-0">
-          <Sparkles className="size-(--icon-14) text-text-tertiary shrink-0" />
-          <span className="truncate text-caption-11-medium text-text-tertiary">
-            {`Thinking${duration ? ` (${duration})` : "..."}`}
-          </span>
-        </div>
-
         {isExpanded ? (
-          <ChevronDown className="size-(--icon-12) text-text-tertiary shrink-0" />
+          <ChevronDown className="size-3 shrink-0 text-text-tertiary" aria-hidden="true" />
         ) : (
-          <ChevronRight className="size-(--icon-12) text-text-tertiary shrink-0" />
+          <ChevronRight className="size-3 shrink-0 text-text-tertiary" aria-hidden="true" />
         )}
+        <span className="min-w-0 flex-1 truncate text-caption-11 text-text-tertiary">
+          {duration ? `Thought for ${duration}` : "Thought"}
+        </span>
       </button>
 
-      {isExpanded && (
-        <div className="border-t border-border-subtle p-3 text-caption-11 text-text-secondary select-text whitespace-pre-wrap overflow-x-auto">
+      {isExpanded ? (
+        <p className="w-full overflow-x-auto text-caption-11 whitespace-pre-wrap text-text-secondary select-text">
           {text}
-        </div>
-      )}
+        </p>
+      ) : null}
     </div>
   );
 }

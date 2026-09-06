@@ -103,12 +103,20 @@ export function AgentPermissionToastHost({
   }
 
   return (
-    <AgentPermissionToast
-      pending={pending}
-      session={session}
-      onResolve={handleResolve}
-      onOpenRail={handleOpenRail}
-      busy={busy}
-    />
+    // Placement is the host's job, not the card's. Figma 924:152 draws a 420
+    // card; "bottom-right, floating over the module" is in its description, and
+    // a card that positions itself cannot be put anywhere else — including the
+    // gallery, where it would fly to the corner of the page.
+    <div className="pointer-events-none fixed right-4 bottom-4 z-50">
+      <div className="pointer-events-auto">
+        <AgentPermissionToast
+          pending={pending}
+          session={session}
+          onResolve={handleResolve}
+          onOpenRail={handleOpenRail}
+          busy={busy}
+        />
+      </div>
+    </div>
   );
 }

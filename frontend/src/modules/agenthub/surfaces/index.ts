@@ -1,6 +1,7 @@
 export * from "./AgentJumpToLatest";
 export * from "./AgentMenu";
 export * from "./AgentSessionError";
+export * from "./AgentState";
 export * from "./AgentNewSession";
 export * from "./AgentRow";
 export * from "./AgentSidebarTree";
@@ -11,3 +12,6 @@ export * from "./AgentRail";
 export * from "./AgentPermissionRequest";
 export * from "./AgentPermissionToast";
 export * from "./AgentDockBadge";
+export * from "./AgentSwarmStrip";
+export * from "./AgentMetaInspector";
+export * from "./VendorIcon";
