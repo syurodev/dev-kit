@@ -54,7 +54,19 @@ type SessionLoader interface {
 	Load(ctx context.Context, spec OpenSpec, acpSessionID string) (SessionRuntime, error)
 }
 
-// RuntimeHandlers wires permission + update callbacks before Prompt.// RuntimeHandlers wires permission + update callbacks before Prompt.
+// RuntimeDeleter is implemented by runtimes whose vendor keeps its own copy of
+// the conversation and can be told to destroy it.
+//
+// Optional for the same reason SessionLoader is: whether the vendor stores a
+// session at all is a fact about the vendor. A runtime without this is not
+// broken, it simply has nothing of its own to delete.
+type RuntimeDeleter interface {
+	// Delete asks the vendor to forget the session. Called before Close,
+	// because after Close there is no connection to ask on.
+	Delete(ctx context.Context) error
+}
+
+// RuntimeHandlers wires permission + update callbacks before Prompt.// RuntimeHandlers wires permission + update callbacks before Prompt.// RuntimeHandlers wires permission + update callbacks before Prompt.
 type RuntimeHandlers struct {
 	OnUpdate     func(update json.RawMessage, meta json.RawMessage)
 	OnPermission func(ctx context.Context, params json.RawMessage) (json.RawMessage, error)

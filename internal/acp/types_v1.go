@@ -59,7 +59,15 @@ type SessionLoadResult struct {
 	Meta      json.RawMessage `json:"_meta,omitempty"`
 }
 
-// PromptRequest is the params object for session/prompt// PromptRequest is the params object for session/prompt.
+// SessionDeleteRequest is the params object for session/delete. The agent
+// tears down whatever it still holds in memory and removes the session's file
+// from its own store; the result is empty.
+type SessionDeleteRequest struct {
+	SessionID string          `json:"sessionId"`
+	Meta      json.RawMessage `json:"_meta,omitempty"`
+}
+
+// PromptRequest is the params object for session/prompt// PromptRequest is the params object for session/prompt// PromptRequest is the params object for session/prompt.
 type PromptRequest struct {
 	SessionID string          `json:"sessionId"`
 	Prompt    []ContentBlock  `json:"prompt"`

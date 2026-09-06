@@ -381,6 +381,11 @@ func (s *Service) DeleteSession(ctx context.Context, id string) error {
 
 	ids := descendantsOf(byID, id)
 	for _, target := range ids {
+		// Ask the vendor to forget it before the connection goes away. Best
+		// effort on purpose: the user asked DevKit to delete a session, and
+		// failing the whole operation because the agent could not tidy its own
+		// copy would leave the rows behind too — the worse of the two states.
+		s.deleteVendorCopy(ctx, target)
 		if err := s.CloseSession(ctx, target); err != nil && !errors.Is(err, ErrSessionNotFound) {
 			return err
 		}
@@ -388,7 +393,28 @@ func (s *Service) DeleteSession(ctx context.Context, id string) error {
 	return s.store.DeleteSessions(ctx, ids)
 }
 
-// descendantsOf returns id and everything beneath it, deepest last, so callers
+// deleteVendorCopy tells the vendor to destroy its own record of a session.
+//
+// DevKit's DeleteSession removed its rows and stopped there, so a conversation
+// deleted "for good" — the words in the confirmation — stayed readable in the
+// vendor's own store. Only reachable while a runtime is live: a session whose
+// process already died keeps its vendor-side copy, which is recorded rather
+// than hidden.
+func (s *Service) deleteVendorCopy(ctx context.Context, sessionID string) {
+	s.mu.Lock()
+	rt := s.runtimes[sessionID]
+	s.mu.Unlock()
+
+	deleter, ok := rt.(RuntimeDeleter)
+	if !ok {
+		return
+	}
+	if err := deleter.Delete(ctx); err != nil && s.OnRecordError != nil {
+		s.OnRecordError(sessionID, err)
+	}
+}
+
+// descendantsOf returns id and everything beneath it// descendantsOf returns id and everything beneath it, deepest last, so callers
 // that must respect parent links can walk the slice backwards.
 func descendantsOf(byID map[string]AgentSession, root string) []string {
 	out := []string{root}

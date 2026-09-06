@@ -191,11 +191,13 @@ func TestParseKeepsTheVendorsOwnKindForUnknowns(t *testing.T) {
 	// six. The other nine degraded to "unknown" with the vendor's own name
 	// thrown away, so an unmodelled kind and a malformed notification looked
 	// identical and neither was reported.
-	u := agenthub.ParseSessionUpdate([]byte(`{"sessionUpdate":"subagent_spawned","agentId":"a1"}`))
+	// async_task_spawned is still unmodelled; subagent_spawned used to be the
+	// example here and stopped being one, which is the point of the report.
+	u := agenthub.ParseSessionUpdate([]byte(`{"sessionUpdate":"async_task_spawned","taskId":"t1"}`))
 	if u.Kind != agenthub.UpdateUnknown {
 		t.Fatalf("kind = %q, want unknown", u.Kind)
 	}
-	if u.WireKind != "subagent_spawned" {
+	if u.WireKind != "async_task_spawned" {
 		t.Fatalf("wireKind = %q, want the vendor's own string", u.WireKind)
 	}
 	if len(u.Raw) == 0 {

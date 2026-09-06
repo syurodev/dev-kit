@@ -588,3 +588,63 @@ func TestOrphanSessionStaysUnavailableWithoutALoader(t *testing.T) {
 		t.Fatalf("err = %v, want ErrUnavailable", err)
 	}
 }
+
+// deletableRuntime records whether the vendor was asked to forget the session.
+type deletableRuntime struct {
+	titlingRuntime
+	deleted chan struct{}
+}
+
+func (r *deletableRuntime) Delete(context.Context) error {
+	close(r.deleted)
+	return nil
+}
+
+func TestDeleteSessionAsksTheVendorToForgetItToo(t *testing.T) {
+	ctx := context.Background()
+	db, err := storage.Open(filepath.Join(t.TempDir(), "devkit.db"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if err := storage.Migrate(ctx, db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	rt := &deletableRuntime{deleted: make(chan struct{})}
+	reg := agenthub.NewRegistry()
+	reg.Register(deletableAdapter{rt: rt})
+	svc := agenthub.NewService(reg, agenthub.NewSQLStore(db), func(string, json.RawMessage) {})
+
+	sess, err := svc.CreateSession(ctx, agenthub.CreateInput{
+		AgentType: agenthub.AgentType("titling"), Cwd: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if err := svc.DeleteSession(ctx, sess.ID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+
+	// The confirmation says the transcript is deleted for good. Before this the
+	// vendor kept its own copy on disk, so it was not.
+	select {
+	case <-rt.deleted:
+	default:
+		t.Fatal("vendor was never asked to delete its copy of the session")
+	}
+}
+
+type deletableAdapter struct{ rt *deletableRuntime }
+
+func (a deletableAdapter) Type() agenthub.AgentType { return agenthub.AgentType("titling") }
+func (a deletableAdapter) Open(context.Context, agenthub.OpenSpec) (agenthub.SessionRuntime, error) {
+	return a.rt, nil
+}
+func (a deletableAdapter) NormalizeUsage(json.RawMessage) (agenthub.NormalizedUsage, error) {
+	return agenthub.NormalizedUsage{}, nil
+}
+func (a deletableAdapter) NormalizeToolSummary(json.RawMessage, json.RawMessage) ([]string, string, error) {
+	return nil, "", nil
+}
+func (a deletableAdapter) Extensions() []string { return nil }

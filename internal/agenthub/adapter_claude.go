@@ -54,7 +54,10 @@ type ClaudeOptions struct {
 	OnUnknownMethod func(method string, params json.RawMessage)
 }
 
-var _ SessionLoader = (*ClaudeAdapter)(nil)
+var (
+	_ SessionLoader  = (*ClaudeAdapter)(nil)
+	_ RuntimeDeleter = (*claudeRuntime)(nil)
+)
 
 // ClaudeAdapter is a VendorAdapter that speaks ACP to Claude inside a sandbox.
 type ClaudeAdapter struct {
@@ -675,6 +678,30 @@ func (r *claudeRuntime) SetHandlers(h RuntimeHandlers) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.handlers = h
+}
+
+// Delete asks Claude to remove its own copy of the session, satisfying
+// RuntimeDeleter.
+//
+// DevKit's DeleteSession removed its rows and left this behind: the vendor
+// keeps every session as a file under its own directory, so a conversation the
+// user deleted "for good" stayed readable there. The dialog says it cannot be
+// undone, and until this it could be.
+//
+// ponytail: only reachable while a runtime is live. Deleting a session whose
+// process is gone would mean spawning one to clean up after it — resumeRuntime
+// makes that possible if the leftovers ever matter more than the cost.
+func (r *claudeRuntime) Delete(ctx context.Context) error {
+	if r.acpSessionID == "" {
+		return nil
+	}
+	var out json.RawMessage
+	if err := r.conn.Call(ctx, "session/delete", acp.SessionDeleteRequest{
+		SessionID: r.acpSessionID,
+	}, &out); err != nil {
+		return fmt.Errorf("%w: session/delete: %v", ErrProcessFailed, err)
+	}
+	return nil
 }
 
 func (r *claudeRuntime) handlersSnapshot() RuntimeHandlers {
