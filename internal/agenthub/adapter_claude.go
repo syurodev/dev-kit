@@ -224,7 +224,33 @@ func claudeEnvAllowlist() map[string]string {
 	return env
 }
 
-// sessionNewMeta cuts the agent off from the user's own Claude Code settings.
+// devkitClientCapabilities is what DevKit tells the agent it can handle.
+//
+// Sending none — which is what this did until now — is not neutral. The agent
+// reads this to decide what to send back, so an empty object is a claim that
+// DevKit understands nothing, and it acted on it: with a swarm prompt that
+// spawned two subagents, declaring `subagents` alone took agent_message_chunk
+// from 2 to 13 (measured against claude-agent-acp 0.74.0). Everything those
+// subagents said was being dropped on the wire, in the module built around
+// running several agents at once.
+//
+// Only what DevKit actually serves goes in here. `fs` and `terminal` are
+// deliberately absent: ClientHandler has no implementation for them and
+// UnknownMethod refuses the call, so advertising them would invite a request
+// DevKit answers with an error. Measurement says this vendor never asks —
+// three cases, read in cwd, write outside cwd, and a shell command, produced
+// no fs/* or terminal/* call even with both advertised — but the rule is to
+// declare what is true, not what is harmless.
+func devkitClientCapabilities() map[string]any {
+	return map[string]any{
+		// The client understands updates that come from a subagent. DevKit
+		// renders them in the parent transcript rather than as their own
+		// session; nesting is a UI question, losing the text was a wire one.
+		"subagents": map[string]any{},
+	}
+}
+
+// sessionNewMeta cuts the agent off// sessionNewMeta cuts the agent off from the user's own Claude Code settings.
 //
 // claude-agent-acp passes settingSources: ["user","project","local"] to the
 // Agent SDK for every session, so ~/.claude/settings.json, the project's
@@ -436,8 +462,9 @@ func (a *ClaudeAdapter) Open(ctx context.Context, spec OpenSpec) (SessionRuntime
 
 	var initRes acp.InitializeResult
 	if err := conn.Call(hsCtx, "initialize", acp.InitializeRequest{
-		ProtocolVersion: 1,
-		ClientInfo:      map[string]any{"name": "devkit", "version": "0.0.0"},
+		ProtocolVersion:    1,
+		ClientCapabilities: devkitClientCapabilities(),
+		ClientInfo:         map[string]any{"name": "devkit", "version": "0.0.0"},
 	}, &initRes); err != nil {
 		cleanup()
 		return nil, handshakeErr("initialize", err)

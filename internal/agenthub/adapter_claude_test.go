@@ -450,3 +450,28 @@ func TestUnknownMethodIsRefusedAndReportedOnce(t *testing.T) {
 		t.Fatalf("reported %v, want each method once", got)
 	}
 }
+
+func TestClientCapabilitiesDeclareOnlyWhatDevKitServes(t *testing.T) {
+	caps := devkitClientCapabilities()
+
+	// Measured: the agent reads this to decide what to send back. With a prompt
+	// that spawns two subagents, declaring `subagents` took agent_message_chunk
+	// through this adapter from 7 to 20 — everything the subagents said was
+	// being dropped on the wire before, in the module built around running
+	// several agents at once.
+	if _, ok := caps["subagents"]; !ok {
+		t.Fatal("subagents not declared; subagent output is dropped on the wire")
+	}
+
+	// fs and terminal must stay absent while ClientHandler has no
+	// implementation for them: UnknownMethod refuses the call, so advertising
+	// them invites a request DevKit answers with an error. Measurement says
+	// this vendor never asks, but the rule is to declare what is true rather
+	// than what is harmless — and OnUnknownMethod is what reports it if the
+	// vendor ever starts asking.
+	for _, unserved := range []string{"fs", "terminal"} {
+		if _, ok := caps[unserved]; ok {
+			t.Fatalf("declared %q, which ClientHandler does not implement", unserved)
+		}
+	}
+}
