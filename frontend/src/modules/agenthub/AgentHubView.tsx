@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   agentHubCancel,
   agentHubChooseDirectory,
+  agentHubChooseFiles,
   agentHubCloseSession,
   agentHubCreateSession,
   agentHubDeleteSession,
@@ -75,6 +76,9 @@ export function AgentHubView() {
     descendants: number;
   } | null>(null);
   const unpin = useAgentPinsStore((state) => state.unpin);
+  // Per session: attachments belong to the turn you are composing, and
+  // switching tabs must not carry someone else's files into your prompt.
+  const [attachments, setAttachments] = useState<Record<string, string[]>>({});
 
   useEffect(() => {
     if (!newSessionOpen) return;
@@ -172,8 +176,36 @@ export function AgentHubView() {
     setErrorReason(app.code === "unknown" ? app.message : `${app.code} — ${app.message}`);
   }
 
+  async function handleBrowseContext() {
+    if (!activeSession) return;
+    try {
+      const picked = await agentHubChooseFiles(activeSession.projectPath);
+      if (picked.length === 0) return; // cancelled
+      setAttachments((prev) => {
+        const current = prev[activeSession.id] ?? [];
+        // Picking the same file twice is a slip, not an instruction to send it
+        // twice.
+        const merged = [...current, ...picked.filter((p) => !current.includes(p))];
+        return { ...prev, [activeSession.id]: merged };
+      });
+    } catch (e) {
+      reportError(e);
+    }
+  }
+
+  function handleRemoveAttachment(path: string) {
+    if (!activeSession) return;
+    setAttachments((prev) => ({
+      ...prev,
+      [activeSession.id]: (prev[activeSession.id] ?? []).filter((p) => p !== path),
+    }));
+  }
+
   async function handleSend() {
-    if (!activeSession || !activePrompt.trim() || busy) return;
+    if (!activeSession || busy) return;
+    const attached = attachments[activeSession.id] ?? [];
+    // A prompt with attachments and no words is a turn: "look at these".
+    if (!activePrompt.trim() && attached.length === 0) return;
     const text = activePrompt.trim();
     setPrompt(activeSession.id, "");
     setBusy(true);
@@ -183,7 +215,11 @@ export function AgentHubView() {
       await agentHubInvoke({
         sessionId: activeSession.id,
         prompt: text,
+        attachments: attached,
       });
+      // Cleared only once the turn was accepted: a failed send should leave the
+      // files where the user put them rather than make them pick again.
+      setAttachments((prev) => ({ ...prev, [activeSession.id]: [] }));
       upsertSession(await agentHubGetStatus(activeSession.id));
     } catch (e) {
       reportError(e);
@@ -353,6 +389,9 @@ export function AgentHubView() {
             errorMessage={errorReason || error}
             onRetrySession={() => void handleSend()}
             onNewSession={() => setNewSessionOpen(true)}
+            attachments={activeSession ? attachments[activeSession.id] ?? [] : []}
+            onBrowseContext={() => void handleBrowseContext()}
+            onRemoveAttachment={handleRemoveAttachment}
           />
         </div>
       )}

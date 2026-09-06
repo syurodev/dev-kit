@@ -48,7 +48,7 @@ export function AgentHubCancel(id: string): $CancellablePromise<void> {
 }
 
 /**
- * AgentHubChooseDirectory opens the native folder picker and returns the chosen
+ * AgentHubChooseDirectory opens the native folder picker// AgentHubChooseDirectory opens the native folder picker and returns the chosen
  * path, or "" when the user cancelled. Cancelling is not an error: the dialog
  * that called this stays open with the field untouched, and an error there
  * would render as a failure the user did not cause.
@@ -58,6 +58,17 @@ export function AgentHubCancel(id: string): $CancellablePromise<void> {
  */
 export function AgentHubChooseDirectory(startIn: string): $CancellablePromise<string> {
     return $Call.ByID(1823626190, startIn);
+}
+
+/**
+ * AgentHubChooseFiles opens the native file picker and returns the chosen
+ * paths, empty when the user cancelled.
+ * 
+ * Multi-select because attaching context is usually "these three files", and a
+ * picker that closes after one turns that into three trips through a modal.
+ */
+export function AgentHubChooseFiles(startIn: string): $CancellablePromise<string[] | null> {
+    return $Call.ByID(2207084814, startIn);
 }
 
 /**

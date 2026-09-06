@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Command as CommandIcon, FileText, Folder, Bot } from "lucide-react";
+import { Command as CommandIcon, FileText, Folder, FolderOpen, Bot } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import {
@@ -27,6 +27,8 @@ export type AgentMenuProps = {
   contextFiles?: ContextFileItem[];
   onSelectCommand?: (commandName: string) => void;
   onSelectContext?: (filePath: string) => void;
+  /** Opens the native file picker. Rendered first, above whatever is listed. */
+  onBrowseContext?: () => void;
   /** The control that opens the menu — the composer passes its pill. */
   children: ReactNode;
   className?: string;
@@ -64,6 +66,7 @@ export function AgentMenu({
   contextFiles = [],
   onSelectCommand,
   onSelectContext,
+  onBrowseContext,
   children,
   className,
 }: AgentMenuProps) {
@@ -84,6 +87,21 @@ export function AgentMenu({
         <DropdownMenuLabel className="p-2 text-caption-11 text-text-tertiary">
           {isCommands ? "Commands" : "Add context"}
         </DropdownMenuLabel>
+
+        {!isCommands && onBrowseContext ? (
+          // First, and present even when the list below is empty: without a
+          // way in, an empty context menu is a dead end rather than a menu.
+          <DropdownMenuItem
+            data-testid="agent-menu-browse"
+            onSelect={onBrowseContext}
+            className="h-8 gap-2 rounded-[6px] p-2"
+          >
+            <FolderOpen className="size-3 shrink-0" aria-hidden="true" />
+            <span className="min-w-0 flex-1 truncate text-body-12 text-text-primary">
+              Browse files…
+            </span>
+          </DropdownMenuItem>
+        ) : null}
 
         {isCommands
           ? commands.map((command) => (

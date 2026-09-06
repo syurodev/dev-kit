@@ -212,3 +212,21 @@ func TestAgentHubDeleteSessionRemovesItFromTheList(t *testing.T) {
 		t.Fatalf("sessions after delete = %d, want 0", len(list))
 	}
 }
+
+func TestAgentHubChooseFilesCancelReturnsEmptyNotNil(t *testing.T) {
+	// A nil slice marshals as null where the frontend expects a list, and the
+	// composer would then try to spread it. Cancel is the common case.
+	svc := newBridgeWithAgentHub(t)
+	svc.openFilesDialog = func(string, string) ([]string, error) { return nil, nil }
+
+	got, err := svc.AgentHubChooseFiles("")
+	if err != nil {
+		t.Fatalf("cancel reported as error: %v", err)
+	}
+	if got == nil {
+		t.Fatal("returned nil; the frontend expects a list")
+	}
+	if len(got) != 0 {
+		t.Fatalf("paths = %v, want empty", got)
+	}
+}

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+
+	"devkit/internal/acp"
 )
 
 var mockSessionSeq atomic.Uint64
@@ -93,7 +95,10 @@ func (r *mockRuntime) SetHandlers(h RuntimeHandlers) {
 	r.handlers = h
 }
 
-func (r *mockRuntime) Prompt(ctx context.Context, text string) (PromptOutcome, error) {
+func (r *mockRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock) (PromptOutcome, error) {
+	// The mock's behaviour is driven by markers in the text; attachments are
+	// carried but not interpreted, which is what a stand-in should do.
+	text := PromptText(prompt)
 	if err := ctx.Err(); err != nil {
 		return PromptOutcome{}, err
 	}

@@ -26,6 +26,7 @@ export type AgentComposerProps = {
   onRemoveAttachment?: (path: string) => void;
   onSelectCommand?: (name: string) => void;
   onSelectContext?: (path: string) => void;
+  onBrowseContext?: () => void;
   commands?: AvailableCommand[];
   contextFiles?: ContextFileItem[];
   disabled?: boolean;
@@ -82,6 +83,7 @@ export function AgentComposer({
   onRemoveAttachment,
   onSelectCommand,
   onSelectContext,
+  onBrowseContext,
   commands = [],
   contextFiles = [],
   disabled = false,
@@ -207,6 +209,7 @@ export function AgentComposer({
             mode="context"
             contextFiles={contextFiles}
             onSelectContext={onSelectContext}
+            onBrowseContext={onBrowseContext}
           >
             <Button
               type="button"

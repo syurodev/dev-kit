@@ -710,7 +710,7 @@ func (r *claudeRuntime) handlersSnapshot() RuntimeHandlers {
 	return r.handlers
 }
 
-func (r *claudeRuntime) Prompt(ctx context.Context, text string) (PromptOutcome, error) {
+func (r *claudeRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock) (PromptOutcome, error) {
 	if err := ctx.Err(); err != nil {
 		return PromptOutcome{}, err
 	}
@@ -726,10 +726,7 @@ func (r *claudeRuntime) Prompt(ctx context.Context, text string) (PromptOutcome,
 	var res acp.PromptResult
 	err := conn.Call(ctx, "session/prompt", acp.PromptRequest{
 		SessionID: sid,
-		Prompt: []acp.ContentBlock{{
-			Type: "text",
-			Text: text,
-		}},
+		Prompt:    prompt,
 	}, &res)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {

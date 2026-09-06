@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"sort"
+	"strings"
 	"sync"
 
 	"devkit/internal/acp"
@@ -33,7 +34,11 @@ type VendorAdapter interface {
 // SessionRuntime is a live vendor session (in-process or subprocess).
 type SessionRuntime interface {
 	ACPSessionID() string
-	Prompt(ctx context.Context, text string) (PromptOutcome, error)
+	// Prompt sends one turn. Blocks rather than a string because a turn is not
+	// always text: the agent advertises promptCapabilities.image and
+	// embeddedContext, and acp.PromptRequest has modelled []ContentBlock since
+	// this package was written — the string was the narrowing, not the wire.
+	Prompt(ctx context.Context, prompt []acp.ContentBlock) (PromptOutcome, error)
 	Cancel(ctx context.Context) error
 	Close(ctx context.Context) error
 	SetHandlers(h RuntimeHandlers)
@@ -117,4 +122,22 @@ func (r *Registry) Types() []AgentType {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
 	return out
+}
+
+// TextPrompt is the common case: one block, all text. Named rather than inlined
+// so a caller that only has a string does not have to know the block shape.
+func TextPrompt(text string) []acp.ContentBlock {
+	return []acp.ContentBlock{{Type: "text", Text: text}}
+}
+
+// PromptText joins the text blocks of a prompt, ignoring the rest. For
+// adapters that speak a text-only vendor protocol, and for logs.
+func PromptText(prompt []acp.ContentBlock) string {
+	var b strings.Builder
+	for _, block := range prompt {
+		if block.Type == "text" || block.Type == "" {
+			b.WriteString(block.Text)
+		}
+	}
+	return b.String()
 }

@@ -81,10 +81,40 @@ type PromptResult struct {
 	Meta       json.RawMessage `json:"_meta,omitempty"`
 }
 
-// ContentBlock is a displayable content unit (text baseline for v1 hub).
+// ContentBlock is one unit of a prompt or a message. Field names, and which
+// ones each variant requires, are taken from the v1 schema the SDK generates
+// (@agentclientprotocol/sdk, dist/v2/schema), not from the prose:
+//
+//	text           text
+//	image          data (base64), mimeType
+//	resource_link  name, uri            — a pointer; the reader opens it
+//	resource       resource{uri, text|blob, mimeType} — the contents, inline
+//
+// One struct rather than a union, because the wire is one JSON object with a
+// discriminator and Go's zero values already mean "absent" once every field is
+// omitempty. A union would buy correctness DevKit does not need and cost every
+// call site a type switch.
 type ContentBlock struct {
 	Type string `json:"type"`
 	Text string `json:"text,omitempty"`
+	// Data is base64 for type=image; MimeType is required alongside it.
+	Data     string `json:"data,omitempty"`
+	MimeType string `json:"mimeType,omitempty"`
+	// URI and Name carry type=resource_link.
+	URI  string `json:"uri,omitempty"`
+	Name string `json:"name,omitempty"`
+	// Resource carries type=resource: the contents travel with the prompt
+	// instead of the reader having to open a path.
+	Resource *ResourceContents `json:"resource,omitempty"`
+}
+
+// ResourceContents is the body of an embedded resource block. Exactly one of
+// Text or Blob is set; Blob is base64.
+type ResourceContents struct {
+	URI      string `json:"uri"`
+	Text     string `json:"text,omitempty"`
+	Blob     string `json:"blob,omitempty"`
+	MimeType string `json:"mimeType,omitempty"`
 }
 
 // SessionUpdateParams is the params object for session/update notifications

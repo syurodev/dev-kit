@@ -31,8 +31,15 @@ type CreateInput struct {
 
 // InvokeInput is a blocking prompt against an existing hub session.
 type InvokeInput struct {
-	SessionID       string
-	Prompt          string
+	SessionID string
+	Prompt    string
+	// Attachments are absolute paths DevKit reads and sends with the prompt.
+	// Read by DevKit rather than by the agent on purpose: a path is only useful
+	// to the agent if the file is inside its jail, and attaching something from
+	// elsewhere on the machine is the case a path cannot serve. See
+	// attachment.go for the check that keeps that from becoming a way around
+	// the sandbox.
+	Attachments     []string
 	CallerSessionID string // optional; used for CheckCycle on cross-session invoke
 }
 
@@ -588,7 +595,14 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 		s.emit(in.SessionID, userEchoUpdate(in.Prompt, userEcho.MessageID))
 	}
 
-	outcome, promptErr := rt.Prompt(ctx, in.Prompt)
+	invoker, _ := identity.FromContext(ctx)
+	prompt, err := buildPrompt(in.Prompt, in.Attachments, sess.ProjectPath, callerIsAgent(invoker))
+	if err != nil {
+		_ = s.setSessionStatus(recordCtx, in.SessionID, SessionStatusIdle)
+		return InvokeResult{Status: "error"}, err
+	}
+
+	outcome, promptErr := rt.Prompt(ctx, prompt)
 	if permDenied.Load() {
 		_ = s.setSessionStatus(recordCtx, in.SessionID, SessionStatusError)
 		return InvokeResult{Status: "error"}, ErrPermissionDenied

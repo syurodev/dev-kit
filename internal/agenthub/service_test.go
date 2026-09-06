@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"devkit/internal/acp"
 	"devkit/internal/agenthub"
 	"devkit/internal/storage"
 )
@@ -335,7 +336,7 @@ func (r *dyingRuntime) SetHandlers(h agenthub.RuntimeHandlers) { r.handlers = h 
 func (r *dyingRuntime) Cancel(context.Context) error           { return nil }
 func (r *dyingRuntime) Close(context.Context) error            { return nil }
 
-func (r *dyingRuntime) Prompt(ctx context.Context, _ string) (agenthub.PromptOutcome, error) {
+func (r *dyingRuntime) Prompt(ctx context.Context, _ []acp.ContentBlock) (agenthub.PromptOutcome, error) {
 	r.cancel() // the process died; whoever was waiting on this turn gave up
 	update, _ := json.Marshal(map[string]any{
 		"sessionUpdate": "agent_message_chunk",
@@ -432,7 +433,7 @@ func (r *titlingRuntime) SetHandlers(h agenthub.RuntimeHandlers) { r.handlers = 
 func (r *titlingRuntime) Cancel(context.Context) error           { return nil }
 func (r *titlingRuntime) Close(context.Context) error            { return nil }
 
-func (r *titlingRuntime) Prompt(context.Context, string) (agenthub.PromptOutcome, error) {
+func (r *titlingRuntime) Prompt(context.Context, []acp.ContentBlock) (agenthub.PromptOutcome, error) {
 	if r.handlers.OnUpdate != nil {
 		r.handlers.OnUpdate([]byte(`{"sessionUpdate":"session_info_update","title":"Dev-kit-backend"}`), nil)
 	}

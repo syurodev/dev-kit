@@ -56,6 +56,16 @@ export interface InvokeInput {
     "Prompt": string;
 
     /**
+     * Attachments are absolute paths DevKit reads and sends with the prompt.
+     * Read by DevKit rather than by the agent on purpose: a path is only useful
+     * to the agent if the file is inside its jail, and attaching something from
+     * elsewhere on the machine is the case a path cannot serve. See
+     * attachment.go for the check that keeps that from becoming a way around
+     * the sandbox.
+     */
+    "Attachments": string[] | null;
+
+    /**
      * optional; used for CheckCycle on cross-session invoke
      */
     "CallerSessionID": string;

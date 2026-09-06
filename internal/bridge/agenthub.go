@@ -260,7 +260,54 @@ func defaultOpenDirectoryDialog(title, startIn string) (string, error) {
 	return dialog.PromptForSingleSelection()
 }
 
-// AgentHubChooseDirectory opens the native folder picker and returns the chosen
+// AgentHubChooseFiles opens the native file picker and returns the chosen
+// paths, empty when the user cancelled.
+//
+// Multi-select because attaching context is usually "these three files", and a
+// picker that closes after one turns that into three trips through a modal.
+func (s *AppService) AgentHubChooseFiles(startIn string) ([]string, error) {
+	result, err := s.Call(context.Background(), "builtin.agenthub", "agenthub:execute", "session:new", map[string]any{
+		"action": "choose_files",
+	}, func(context.Context) (any, error) {
+		dialogFunc := s.openFilesDialog
+		if dialogFunc == nil {
+			dialogFunc = defaultOpenFilesDialog
+		}
+		return dialogFunc("Attach files to the prompt", startIn)
+	})
+	if err != nil {
+		return nil, err
+	}
+	// Normalised here rather than in the dialog: every implementation of that
+	// hook — the native one, a test's, a future one — would otherwise have to
+	// remember, and a nil slice marshals as null where the frontend spreads a
+	// list. The boundary is the place that owns the contract.
+	if paths, _ := result.([]string); paths != nil {
+		return paths, nil
+	}
+	return []string{}, nil
+}
+
+// defaultOpenFilesDialog is the native file picker, sibling of
+// defaultOpenDirectoryDialog.
+func defaultOpenFilesDialog(title, startIn string) ([]string, error) {
+	app := application.Get()
+	if app == nil || app.Dialog == nil {
+		return nil, errors.New("dialog service unavailable")
+	}
+	dialog := app.Dialog.OpenFile().
+		CanChooseFiles(true).
+		CanChooseDirectories(false).
+		SetTitle(title)
+	if startIn != "" {
+		dialog.SetDirectory(startIn)
+	}
+	// Cancel comes back as no paths and no error; AgentHubChooseFiles turns
+	// that into an empty list.
+	return dialog.PromptForMultipleSelection()
+}
+
+// AgentHubChooseDirectory opens the native folder picker// AgentHubChooseDirectory opens the native folder picker and returns the chosen
 // path, or "" when the user cancelled. Cancelling is not an error: the dialog
 // that called this stays open with the field untouched, and an error there
 // would render as a failure the user did not cause.

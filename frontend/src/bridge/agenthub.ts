@@ -49,6 +49,8 @@ export type CreateSessionInput = {
 export type InvokeSessionInput = {
   sessionId: string;
   prompt: string;
+  /** Absolute paths DevKit reads and sends with the prompt. */
+  attachments?: string[];
   callerSessionId?: string;
 };
 
@@ -170,6 +172,7 @@ export function agentHubInvoke(
     const result = await AppService.AgentHubInvoke({
       SessionID: input.sessionId,
       Prompt: input.prompt,
+      Attachments: input.attachments ?? [],
       CallerSessionID: input.callerSessionId ?? "",
     });
     return toInvokeResult(result);
@@ -187,6 +190,12 @@ export function agentHubCancel(sessionId: string): Promise<void> {
  * cancelling is not a failure, and the dialog that called this should stay
  * open with the field untouched.
  */
+export function agentHubChooseFiles(startIn = ""): Promise<string[]> {
+  return callBridge(async () =>
+    (await AppService.AgentHubChooseFiles(startIn)) ?? [],
+  );
+}
+
 export function agentHubChooseDirectory(startIn = ""): Promise<string> {
   return callBridge(
     () => AppService.AgentHubChooseDirectory(startIn) as Promise<string>,

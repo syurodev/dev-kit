@@ -28,6 +28,10 @@ export type AgentHubContentProps = {
   onRetrySession?: () => void;
   onCloseSession?: () => void;
   onNewSession?: () => void;
+  /** Files the user attached to the turn being composed. */
+  attachments?: string[];
+  onBrowseContext?: () => void;
+  onRemoveAttachment?: (path: string) => void;
   className?: string;
 };
 
@@ -86,6 +90,9 @@ export function AgentHubContent({
   onRetrySession,
   onCloseSession,
   onNewSession,
+  attachments = [],
+  onBrowseContext,
+  onRemoveAttachment,
   className,
 }: AgentHubContentProps) {
   const effectiveState: AgentHubContentState = explicitState
@@ -245,6 +252,9 @@ export function AgentHubContent({
               vendor={vendor}
               agentName={displayTitle}
               commands={commands}
+              attachedFiles={attachments}
+              onBrowseContext={onBrowseContext}
+              onRemoveAttachment={onRemoveAttachment}
               className="min-w-0 flex-1"
             />
           </div>

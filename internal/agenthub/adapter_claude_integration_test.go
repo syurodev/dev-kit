@@ -33,7 +33,7 @@ func TestClaudeACPIntegration(t *testing.T) {
 	if rt.ACPSessionID() == "" {
 		t.Fatal("expected ACP session id")
 	}
-	out, err := rt.Prompt(context.Background(), "Reply with exactly: pong")
+	out, err := rt.Prompt(context.Background(), agenthub.TextPrompt("Reply with exactly: pong"))
 	if err != nil {
 		t.Fatalf("Prompt: %v", err)
 	}
@@ -123,8 +123,8 @@ func TestClaudeACPMetaChannelStillWorks(t *testing.T) {
 	probe := filepath.Join(home, ".claude", "devkit-hook-probe-does-not-exist.txt")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	if _, err := rt.Prompt(ctx, "Use the Read tool on "+probe+
-		" and report in one line exactly what happened. Do not retry."); err != nil {
+	if _, err := rt.Prompt(ctx, agenthub.TextPrompt("Use the Read tool on "+probe+
+		" and report in one line exactly what happened. Do not retry.")); err != nil {
 		t.Logf("Prompt returned %v (the assertion below is what matters)", err)
 	}
 
@@ -247,7 +247,7 @@ func TestClaudeACPResumeAcrossProcesses(t *testing.T) {
 	acpID := rt.ACPSessionID()
 	// A codeword rather than a fact the model could answer from training: the
 	// question is whether the earlier turn came back, not whether it can guess.
-	if _, err := rt.Prompt(ctx, "Remember this codeword: PANGOLIN-47. Just say OK."); err != nil {
+	if _, err := rt.Prompt(ctx, agenthub.TextPrompt("Remember this codeword: PANGOLIN-47. Just say OK.")); err != nil {
 		t.Fatalf("first prompt: %v", err)
 	}
 	_ = rt.Close(ctx) // what a restart does to the process
@@ -279,7 +279,7 @@ func TestClaudeACPResumeAcrossProcesses(t *testing.T) {
 		},
 	})
 
-	if _, err := resumed.Prompt(ctx, "What codeword did I ask you to remember? Answer with just the word."); err != nil {
+	if _, err := resumed.Prompt(ctx, agenthub.TextPrompt("What codeword did I ask you to remember? Answer with just the word.")); err != nil {
 		t.Fatalf("prompt after resume: %v", err)
 	}
 

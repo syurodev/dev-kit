@@ -711,6 +711,27 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       expect(short).toContain("42 lines");
     });
 
+    it("shows attached files and a way to add them", () => {
+      // The composer had attachedFiles and contextFiles props from the start
+      // and nothing fed them: the attach button opened a menu that could only
+      // ever be empty, and there was no path from a file to a prompt.
+      const html = renderToString(
+        <AgentHubContent
+          session={mockSession}
+          attachments={["/x/RefundService.java", "/x/shot.png"]}
+          onBrowseContext={() => {}}
+          onRemoveAttachment={() => {}}
+          promptValue=""
+          onPromptChange={() => {}}
+          onSend={() => {}}
+          onCancel={() => {}}
+        />,
+      );
+      expect(html).toContain("RefundService.java");
+      expect(html).toContain("shot.png");
+      expect(html).toContain('data-testid="composer-attach-button"');
+    });
+
     it("says what a session IS when empty, not just that there is none", () => {
       // Figma's note: Empty is the first thing a new user meets.
       const html = renderToString(
