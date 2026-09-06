@@ -15,7 +15,7 @@ import {
 } from "../../bridge/agenthub";
 import { codeGraphProjectRoot } from "../../bridge/codegraph";
 import { copyText } from "../../bridge/clipboard";
-import { errorMessage } from "../../bridge/errors";
+import { toAppError } from "../../bridge/errors";
 import { useAgentHubSidebar } from "./useAgentHubSidebar";
 import { useAgentTranscript } from "./transcript";
 import {
@@ -57,6 +57,11 @@ export function AgentHubView() {
 
   const [vendors, setVendors] = useState<string[]>(DEFAULT_VENDORS);
   const [newSessionOpen, setNewSessionOpen] = useState(false);
+  // Figma 948:2204 writes the reason as "agenthub.processFailed — the agent
+  // exited after …": the DevKit code AND what happened. errorMessage() gives
+  // only the humanised half, so the card was saying "Agent process failed."
+  // — true, and no more actionable than the red dot the note complains about.
+  const [errorReason, setErrorReason] = useState("");
   // The folder Code Graph has open, offered as one click in the new-session
   // dialog. Read when the dialog opens rather than on mount: Code Graph may
   // have opened a project since, and a stale path is worse than no suggestion.
@@ -138,6 +143,7 @@ export function AgentHubView() {
   }) {
     setBusy(true);
     setError("");
+    setErrorReason("");
     setSandboxHint("");
     try {
       const session = await agentHubCreateSession({
@@ -151,13 +157,19 @@ export function AgentHubView() {
       setNewSessionOpen(false);
       setNewSessionParent(null);
     } catch (e) {
-      setError(errorMessage(e));
+      reportError(e);
       if (params.vendor === "claude" && isSandboxUnavailableError(e)) {
         setSandboxHint(sandboxUnavailableMessage());
       }
     } finally {
       setBusy(false);
     }
+  }
+
+  function reportError(e: unknown) {
+    const app = toAppError(e);
+    setError(app.message);
+    setErrorReason(app.code === "unknown" ? app.message : `${app.code} — ${app.message}`);
   }
 
   async function handleSend() {
@@ -174,7 +186,7 @@ export function AgentHubView() {
       });
       upsertSession(await agentHubGetStatus(activeSession.id));
     } catch (e) {
-      setError(errorMessage(e));
+      reportError(e);
       try {
         upsertSession(await agentHubGetStatus(activeSession.id));
       } catch {}
@@ -189,7 +201,7 @@ export function AgentHubView() {
       await agentHubCancel(activeSession.id);
       upsertSession(await agentHubGetStatus(activeSession.id));
     } catch (e) {
-      setError(errorMessage(e));
+      reportError(e);
     }
   }
 
@@ -200,7 +212,7 @@ export function AgentHubView() {
       await agentHubCancel(session.id);
       upsertSession(await agentHubGetStatus(session.id));
     } catch (e) {
-      setError(errorMessage(e));
+      reportError(e);
     }
   }
 
@@ -213,7 +225,7 @@ export function AgentHubView() {
         setActiveSessionId(next ? next.id : "");
       }
     } catch (e) {
-      setError(errorMessage(e));
+      reportError(e);
     }
   }
 
@@ -246,7 +258,7 @@ export function AgentHubView() {
         setActiveSessionId(next ? next.id : "");
       }
     } catch (e) {
-      setError(errorMessage(e));
+      reportError(e);
     }
   }
 
@@ -263,7 +275,7 @@ export function AgentHubView() {
       const next = sessions.find((s) => s.id !== closedId && s.status !== "closed");
       setActiveSessionId(next ? next.id : "");
     } catch (e) {
-      setError(errorMessage(e));
+      reportError(e);
     } finally {
       setBusy(false);
     }
@@ -338,7 +350,7 @@ export function AgentHubView() {
             onCancel={() => void handleCancel()}
             onCloseSession={() => void handleCloseSession()}
             streaming={busy || activeSession?.status === "running"}
-            errorMessage={error}
+            errorMessage={errorReason || error}
             onRetrySession={() => void handleSend()}
             onNewSession={() => setNewSessionOpen(true)}
           />
@@ -354,6 +366,7 @@ export function AgentHubView() {
           setNewSessionOpen(next);
           if (!next) {
             setError("");
+            setErrorReason("");
             setSandboxHint("");
             setNewSessionParent(null);
           }

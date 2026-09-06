@@ -17,7 +17,14 @@ import { AgentMetaInspector } from "./AgentMetaInspector";
 
 export type TranscriptStreamProps = {
   items: TranscriptItem[];
+  /** The vendor, for marks and metadata — not what a message is signed with. */
   vendor?: string;
+  /**
+   * What the agent is called. Figma's Message names the agent ("refund-worker"),
+   * not the vendor: with a swarm running, five bubbles signed "claude" tell you
+   * nothing about which of the five said it.
+   */
+  agentName?: string;
   loading?: boolean;
   className?: string;
 };
@@ -31,9 +38,11 @@ export type TranscriptStreamProps = {
 export function TranscriptStream({
   items,
   vendor = "Claude",
+  agentName,
   loading = false,
   className,
 }: TranscriptStreamProps) {
+  const speaker = agentName || vendor;
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showJump, setShowJump] = useState(false);
   const [unread, setUnread] = useState(0);
@@ -183,17 +192,23 @@ export function TranscriptStream({
           // all. One unstructured paragraph stays a bubble: that is a remark,
           // not a document, and Figma gives it the avatar.
           const body = item.text || (typeof item.raw === "string" ? item.raw : "");
+          // An agent message with nothing in it is not a message. These arrive
+          // as the placeholder for a turn that errored before its first chunk,
+          // and rendering one draws an empty bubble under an author line —
+          // which reads as the agent having said something unreadable.
+          if (!body.trim()) return null;
+
           const blocks = parseMarkdown(body);
           const rich =
             blocks.length > 1 || (blocks.length === 1 && blocks[0].type !== "paragraph");
 
           return rich ? (
-            <AgentMessageRich key={item.id} author={vendor} text={body} />
+            <AgentMessageRich key={item.id} author={speaker} text={body} />
           ) : (
             <AgentMessage
               key={item.id}
               align="start"
-              author={vendor}
+              author={speaker}
               text={body}
               footer={turnMeta(item) ? (
                 <button

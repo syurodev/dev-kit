@@ -623,6 +623,34 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       expect(html).toContain("data-testid=\"agent-composer\"");
     });
 
+    it("drops an empty message and signs the rest with the agent's name", () => {
+      const html = renderToString(
+        <AgentHubContent
+          session={{ ...mockSession, title: "", status: "error" }}
+          items={[
+            { id: "1", kind: "agent_message_chunk", text: "401 token revoked." },
+            // The placeholder for a turn that errored before its first chunk.
+            { id: "2", kind: "agent_message_chunk", text: "" },
+          ]}
+          errorMessage="agenthub.processFailed — Agent process failed."
+          promptValue=""
+          onPromptChange={() => {}}
+          onSend={() => {}}
+          onCancel={() => {}}
+        />,
+      );
+
+      // One bubble, not two: an empty one reads as the agent having said
+      // something unreadable.
+      expect((html.match(/data-testid="agent-message"/g) ?? []).length).toBe(1);
+      // Signed by the agent, not the vendor — five bubbles saying "claude"
+      // tell you nothing about which of five agents spoke.
+      expect(html).toContain("Session sess-100");
+      expect(html).not.toContain(">claude<");
+      // Figma's reason is the DevKit code AND what happened.
+      expect(html).toContain("agenthub.processFailed — Agent process failed.");
+    });
+
     it("says what a session IS when empty, not just that there is none", () => {
       // Figma's note: Empty is the first thing a new user meets.
       const html = renderToString(

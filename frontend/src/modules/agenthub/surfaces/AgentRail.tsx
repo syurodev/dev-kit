@@ -180,6 +180,7 @@ export function AgentRail({
             <TranscriptStream
               items={items}
               vendor={vendor}
+              agentName={displayTitle}
               loading={false}
             />
           </div>

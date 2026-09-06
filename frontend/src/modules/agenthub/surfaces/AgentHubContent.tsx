@@ -195,7 +195,7 @@ export function AgentHubContent({
           className="flex min-h-0 w-full flex-1 flex-col gap-5"
         >
           <div className="min-h-0 flex-1">
-            <TranscriptStream items={items} vendor={vendor} />
+            <TranscriptStream items={items} vendor={vendor} agentName={displayTitle} />
           </div>
           <div className="w-full shrink-0 px-5 pb-5">
             <AgentSessionError
@@ -214,7 +214,12 @@ export function AgentHubContent({
           className="flex min-h-0 w-full min-w-0 flex-1 flex-col"
         >
           <div className="min-h-0 flex-1 overflow-hidden">
-            <TranscriptStream items={items} vendor={vendor} loading={false} />
+            <TranscriptStream
+              items={items}
+              vendor={vendor}
+              agentName={displayTitle}
+              loading={false}
+            />
           </div>
 
           <div className="flex w-full shrink-0 items-center gap-3 px-5">
