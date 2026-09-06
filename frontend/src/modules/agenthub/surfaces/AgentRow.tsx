@@ -1,18 +1,24 @@
+import * as React from "react";
 import { Bot, Pin } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { AgentState, type AgentStatus } from "./AgentState";
 import type { AgentSession } from "@/bridge/agenthub";
 
-export type AgentRowProps = {
+/**
+ * Extends the button's own props on purpose. A closed prop list here silently
+ * broke the sidebar's context menu: Radix's ContextMenuTrigger with `asChild`
+ * clones its child and hands it `onContextMenu`, `ref` and its data attributes,
+ * and a component that neither spreads nor forwards them drops the lot — the
+ * trigger bound to nothing and the webview's own Reload/Inspect menu answered
+ * the right-click instead. Anything wrapping a row needs its props to arrive.
+ */
+export type AgentRowProps = React.ComponentProps<"button"> & {
   session: AgentSession;
   selected?: boolean;
   turnCount?: number;
   /** Sorted to the top of the tree; marked so the order is explicable. */
   pinned?: boolean;
-  onClick?: () => void;
-  className?: string;
-  id?: string;
 };
 
 /**
@@ -61,18 +67,15 @@ export function AgentRow({
   selected = false,
   turnCount,
   pinned = false,
-  onClick,
   className,
-  id,
+  ...props
 }: AgentRowProps) {
   const title = session.title || `Session ${session.id.slice(0, 8)}`;
   const project = session.projectPath?.split("/").filter(Boolean).pop() ?? "";
 
   return (
     <button
-      id={id}
       type="button"
-      onClick={onClick}
       aria-current={selected ? "true" : undefined}
       data-testid="agent-row"
       data-selected={selected}
@@ -84,6 +87,7 @@ export function AgentRow({
           : "border border-transparent bg-transparent hover:bg-(--state-soft)",
         className,
       )}
+      {...props}
     >
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex w-full items-center gap-2">

@@ -418,6 +418,38 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       expect(html).toContain("1 agent waiting on you");
     });
 
+    it("actually binds the context menu to the row", () => {
+      // The regression this exists for: AgentRow had a closed prop list, so
+      // ContextMenuTrigger's cloned onContextMenu and data attributes were
+      // dropped on the floor. The trigger bound to nothing and the webview's
+      // own Reload/Inspect menu answered the right-click instead of ours.
+      //
+      // Handlers are invisible to renderToString, but the attributes the
+      // trigger puts on its child are not — and they arrive by the same
+      // clone. If these are missing, nothing was wired.
+      const html = renderToString(
+        <AgentSidebarTree
+          sessions={[
+            {
+              id: "sess-menu",
+              agentType: "mock",
+              projectPath: "/p",
+              status: "idle",
+              parentSessionId: null,
+              depth: 0,
+              title: "one",
+              acpSessionId: "acp-menu",
+            },
+          ]}
+          onSelectSession={() => {}}
+          onNewSession={() => {}}
+          onDeleteSession={() => {}}
+        />,
+      );
+      expect(html).toContain('data-slot="context-menu-trigger"');
+      expect(html).toContain('data-testid="agent-row"');
+    });
+
     it("counts the whole subtree, because that is what delete takes", () => {
       const at = (id: string, parent: string | null): AgentSession => ({
         id,
