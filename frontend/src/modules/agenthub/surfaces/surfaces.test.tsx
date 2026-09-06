@@ -651,6 +651,66 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       expect(html).toContain("agenthub.processFailed — Agent process failed.");
     });
 
+    it("shows the human's own prompt, and counts it as a turn", () => {
+      // Neither existed on screen: ACP has a user_message_chunk kind but
+      // claude-agent-acp never echoes the prompt back, so the transcript held
+      // replies with nothing to reply to, and the composer read "0 turns"
+      // beside a non-zero cost.
+      const html = renderToString(
+        <AgentHubContent
+          session={mockSession}
+          items={[{ id: "u1", kind: "user_message_chunk", text: "kiểm tra thực tế" }]}
+          promptValue=""
+          onPromptChange={() => {}}
+          onSend={() => {}}
+          onCancel={() => {}}
+        />,
+      );
+      expect(html).toContain("kiểm tra thực tế");
+      expect(html).toContain(">You<");
+      expect(html).toContain("1 turn · $");
+    });
+
+    it("keeps a tool's whole output out of the one-line result slot", () => {
+      // An MCP tool returns a JSON document. Figma's right-hand slot holds
+      // "running…" or "exit 1"; a document in a nowrap, no-shrink span made
+      // the row wider than the module and gave the transcript a horizontal
+      // scrollbar.
+      const blob = JSON.stringify({ result: [{ id: "caad65a3dc6457d655a02a64", name: "Chiro local" }] });
+      const html = renderToString(
+        <AgentHubContent
+          session={mockSession}
+          items={[
+            {
+              id: "t1",
+              kind: "tool_call",
+              toolCall: { id: "c1", title: "mcp__devkit__db_listProfiles", status: "completed", rawOutput: blob },
+            },
+          ]}
+          promptValue=""
+          onPromptChange={() => {}}
+          onSend={() => {}}
+          onCancel={() => {}}
+        />,
+      );
+      expect(html).toContain("mcp__devkit__db_listProfiles");
+      expect(html).not.toContain("caad65a3dc6457d655a02a64");
+      // A short result still belongs there.
+      const short = renderToString(
+        <AgentHubContent
+          session={mockSession}
+          items={[
+            { id: "t2", kind: "tool_call", toolCall: { id: "c2", title: "Read", status: "completed", rawOutput: "42 lines" } },
+          ]}
+          promptValue=""
+          onPromptChange={() => {}}
+          onSend={() => {}}
+          onCancel={() => {}}
+        />,
+      );
+      expect(short).toContain("42 lines");
+    });
+
     it("says what a session IS when empty, not just that there is none", () => {
       // Figma's note: Empty is the first thing a new user meets.
       const html = renderToString(

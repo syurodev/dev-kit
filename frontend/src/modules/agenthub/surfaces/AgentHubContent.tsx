@@ -1,3 +1,4 @@
+import { UpdateKind } from "../../../../bindings/devkit/internal/agenthub/models";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import type { AgentSession } from "@/bridge/agenthub";
@@ -231,6 +232,16 @@ export function AgentHubContent({
               onCancel={onCancel}
               streaming={streaming}
               usage={usage}
+              turnCount={
+                // A turn is a thing the human said. Counting them here beats
+                // threading InvokeResult.turnCount through the view: this
+                // survives a reload, because the transcript does.
+                items.filter(
+                  (item) =>
+                    item.kind === "user_message_chunk" ||
+                    item.kind === UpdateKind.UpdateUserMessageChunk,
+                ).length
+              }
               vendor={vendor}
               agentName={displayTitle}
               commands={commands}

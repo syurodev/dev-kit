@@ -133,7 +133,7 @@ export function AgentComposer({
           data-testid="composer-meta-left"
           className="min-w-0 flex-1 text-caption-11-medium text-text-secondary"
         >
-          {`${turnCount} turns · $${cost.toFixed(2)}`}
+          {`${turnCount} turn${turnCount === 1 ? "" : "s"} · $${cost.toFixed(2)}`}
         </p>
         <div
           data-testid="composer-meta-right"

@@ -505,6 +505,24 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 		},
 	})
 
+	// Record what the human said before the agent gets a chance to answer.
+	// ACP has a user_message_chunk kind but claude-agent-acp never echoes the
+	// prompt back — session/update only carries what the agent emits — so a
+	// transcript reloaded from the store showed the replies with nothing to
+	// reply to. Written under recordCtx like every other transcript write, and
+	// best-effort for the same reason: losing the echo must not fail the turn.
+	if text := strings.TrimSpace(in.Prompt); text != "" {
+		userEcho := SessionUpdate{
+			Kind:      UpdateUserMessageChunk,
+			Content:   &ContentBlock{Type: "text", Text: in.Prompt},
+			MessageID: uuid.NewString(),
+		}
+		if err := s.recorder.Record(recordCtx, in.SessionID, userEcho); err != nil && s.OnRecordError != nil {
+			s.OnRecordError(in.SessionID, err)
+		}
+		s.emit(in.SessionID, userEchoUpdate(in.Prompt, userEcho.MessageID))
+	}
+
 	outcome, promptErr := rt.Prompt(ctx, in.Prompt)
 	if permDenied.Load() {
 		_ = s.setSessionStatus(recordCtx, in.SessionID, SessionStatusError)
@@ -575,7 +593,23 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 	}, nil
 }
 
-// Cancel requests cancellation of the in-flight prompt on a session.
+// userEchoUpdate is the same echo in ACP's own wire shape, for the live event.
+// The UI parses session/update notifications, not SessionUpdate values, so the
+// echo has to arrive looking like one or the open rail would show the prompt
+// only after a reload.
+func userEchoUpdate(text, messageID string) json.RawMessage {
+	body, err := json.Marshal(map[string]any{
+		"sessionUpdate": string(UpdateUserMessageChunk),
+		"content":       map[string]any{"type": "text", "text": text},
+		"messageId":     messageID,
+	})
+	if err != nil {
+		return nil
+	}
+	return body
+}
+
+// Cancel requests cancellation of the in-flight prompt on a session.// Cancel requests cancellation of the in-flight prompt on a session.
 func (s *Service) Cancel(ctx context.Context, id string) error {
 	if err := s.authorizeTarget(ctx, id); err != nil {
 		return err

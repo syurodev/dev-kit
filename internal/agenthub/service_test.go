@@ -399,8 +399,16 @@ func TestTranscriptSurvivesTheContextThatKilledTheTurn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("transcript: %v", err)
 	}
-	if len(entries) != 1 || entries[0].Text != "401 token revoked" {
-		t.Fatalf("entries = %+v, want the agent's error message", entries)
+	// Two rows: the prompt DevKit echoes in itself, then the agent's reply.
+	// Both are written under the context the dead turn cannot cancel.
+	if len(entries) != 2 {
+		t.Fatalf("entries = %d, want the user echo and the agent's error message", len(entries))
+	}
+	if entries[0].Kind != agenthub.UpdateUserMessageChunk || entries[0].Text != "go" {
+		t.Fatalf("first entry = %+v, want the user's own prompt", entries[0])
+	}
+	if entries[1].Text != "401 token revoked" {
+		t.Fatalf("second entry = %+v, want the agent's error message", entries[1])
 	}
 
 	// And the session must not be left saying "running" forever: the status

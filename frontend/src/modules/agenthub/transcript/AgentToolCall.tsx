@@ -86,6 +86,20 @@ const FALLBACK: Record<ToolState, string> = {
   failed: "failed",
 };
 
+/**
+ * Whether rawOutput can stand in the header's status slot.
+ *
+ * A JSON document never can, however short: an MCP tool answers with one, and
+ * `{"result":[{"id":"caad65a3…"}]}` is both unreadable at 11px and unbounded —
+ * it is the payload, not a summary of it. Length alone was the wrong test; a
+ * 67-character document passed it.
+ */
+function isOneLineStatus(raw: string): boolean {
+  const text = raw.trim();
+  if (!text || text.includes("\n") || text.length > 60) return false;
+  return !text.startsWith("{") && !text.startsWith("[");
+}
+
 export function AgentToolCall({ call, className }: AgentToolCallProps) {
   const KindIcon = kindIcon(call.kind);
   const state = toToolState(call.status);
@@ -96,7 +110,14 @@ export function AgentToolCall({ call, className }: AgentToolCallProps) {
   // rawOutput is `unknown` off the wire — an object stringifies to
   // "[object Object]", which is worse than saying nothing.
   const raw = typeof call.rawOutput === "string" ? call.rawOutput : "";
-  const result = state === "failed" ? FALLBACK.failed : raw || FALLBACK[state];
+  // Figma's right-hand slot holds a status or a one-line result ("running…",
+  // "exit 1", "POST /refunds → RefundController.create"). An MCP tool returns
+  // a whole JSON document there; putting it in a nowrap, no-shrink span made
+  // the row wider than the module and gave the transcript a horizontal
+  // scrollbar. Long or multi-line output belongs in the block below, which
+  // scrolls inside itself.
+  const summary = isOneLineStatus(raw) ? raw : "";
+  const result = state === "failed" ? FALLBACK.failed : summary || FALLBACK[state];
   const reason = state === "failed" ? raw : "";
 
   return (
@@ -124,7 +145,7 @@ export function AgentToolCall({ call, className }: AgentToolCallProps) {
           <span
             data-testid="tool-call-result"
             className={cn(
-              "shrink-0 truncate text-caption-11 whitespace-nowrap",
+              "min-w-0 max-w-[50%] shrink truncate text-caption-11 whitespace-nowrap",
               state === "failed"
                 ? "text-status-danger"
                 : state === "done"
@@ -153,7 +174,7 @@ export function AgentToolCall({ call, className }: AgentToolCallProps) {
       {reason ? (
         <p
           data-testid="tool-call-reason"
-          className="w-full text-caption-11 break-words text-text-secondary"
+          className="w-full max-w-full text-caption-11 break-all whitespace-pre-wrap text-text-secondary"
         >
           {reason}
         </p>
