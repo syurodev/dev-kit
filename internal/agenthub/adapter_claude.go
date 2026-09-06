@@ -213,7 +213,34 @@ func claudeEnvAllowlist() map[string]string {
 	return env
 }
 
-// claudeCredentialPaths returns Claude Code's own config/credential paths.
+// sessionNewMeta cuts the agent off from the user's own Claude Code settings.
+//
+// claude-agent-acp passes settingSources: ["user","project","local"] to the
+// Agent SDK for every session, so ~/.claude/settings.json, the project's
+// .claude/settings.json and settings.local.json all applied inside DevKit's
+// jail. Two of the things those files can carry defeat the permission gate
+// outright, because the gate is the LAST step of the SDK's evaluation order
+// (hooks → deny → ask → mode → allow → the gate):
+//
+//	permissions.allow      an allow rule approves the call before the gate is
+//	                       reached. Measured: with {"allow":["Bash"]} a shell
+//	                       command that writes a file ran and the gate was
+//	                       never asked.
+//	permissions.defaultMode acp-agent reads it and makes it the session's
+//	                       permission mode, so acceptEdits or bypassPermissions
+//	                       in a user's settings silences the gate for whole
+//	                       classes of tool.
+//
+// An empty settingSources leaves the agent with the programmatic tier only —
+// which is what DevKit passes and controls. It does not disable managed
+// (MDM/policy) settings, which is correct: an organisation's policy should
+// still bind an agent running on its machine.
+//
+// This is a jailbreak fix, not a preference: the whole premise of
+// PermissionWaiter is that it sees every tool call it is meant to gate.
+var sessionNewMeta = json.RawMessage(`{"claudeCode":{"options":{"settingSources":[]}}}`)
+
+// claudeCredentialPaths returns Claude Code's own config/credential paths.// claudeCredentialPaths returns Claude Code's own config/credential paths.
 //
 // The jail hides $HOME, which assumed the agent authenticates with
 // ANTHROPIC_API_KEY. Subscription login does not: the credentials live in
@@ -372,6 +399,7 @@ func (a *ClaudeAdapter) Open(ctx context.Context, spec OpenSpec) (SessionRuntime
 	if err := conn.Call(hsCtx, "session/new", acp.SessionNewRequest{
 		Cwd:        pol.WorkDir,
 		McpServers: mcpServers,
+		Meta:       sessionNewMeta,
 	}, &newRes); err != nil {
 		cleanup()
 		return nil, handshakeErr("session/new", err)

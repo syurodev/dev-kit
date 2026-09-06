@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+
+	"devkit/internal/acp"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -318,5 +320,47 @@ func TestOpenFailsFastWhenVendorDiesDuringHandshake(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("Open did not return: the handshake is unbounded again")
+	}
+}
+
+func TestSessionNewCutsOffUserSettings(t *testing.T) {
+	// claude-agent-acp passes settingSources ["user","project","local"] to the
+	// Agent SDK unless session/new._meta overrides it, which let a user's own
+	// ~/.claude/settings.json reach inside the jail. Measured against the real
+	// CLI: with permissions.allow ["Bash"], a shell command that wrote a file
+	// ran and the permission gate was never consulted — the gate is the last
+	// step of the evaluation order, so an allow rule skips it entirely.
+	//
+	// Asserting the wire bytes, not the Go value: the agent reads this as JSON
+	// at a path it chose, and a struct that marshals to the wrong shape would
+	// silently restore the hole.
+	body, err := json.Marshal(acp.SessionNewRequest{
+		Cwd:        "/x",
+		McpServers: []any{},
+		Meta:       sessionNewMeta,
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var wire struct {
+		Meta struct {
+			ClaudeCode struct {
+				Options struct {
+					SettingSources *[]string `json:"settingSources"`
+				} `json:"options"`
+			} `json:"claudeCode"`
+		} `json:"_meta"`
+	}
+	if err := json.Unmarshal(body, &wire); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	got := wire.Meta.ClaudeCode.Options.SettingSources
+	if got == nil {
+		t.Fatalf("settingSources missing from session/new: %s", body)
+	}
+	if len(*got) != 0 {
+		t.Fatalf("settingSources = %v, want empty so no user settings apply", *got)
 	}
 }
