@@ -1,10 +1,11 @@
-import { AtSign, Command as CommandIcon, ArrowUp, X, Bot } from "lucide-react";
+import { AtSign, Command as CommandIcon, ArrowUp, X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { AgentFileChip } from "../transcript/AgentFileChip";
 import { AgentMenu, type ContextFileItem } from "./AgentMenu";
 import type { AvailableCommand, Usage } from "../types";
+import { VendorIcon } from "./VendorIcon";
 
 export type ComposerSize = "wide" | "rail";
 export type ComposerState = "idle" | "streaming" | "attached";
@@ -138,7 +139,7 @@ export function AgentComposer({
           data-testid="composer-meta-right"
           className="flex shrink-0 items-center gap-2"
         >
-          <Bot className="size-3 shrink-0 text-icon-secondary" aria-hidden="true" />
+          <VendorIcon vendor={vendor} className="size-3 text-icon-secondary" />
           <span className="text-caption-11 text-text-tertiary whitespace-nowrap">
             {vendorLabel}
           </span>

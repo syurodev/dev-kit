@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { Bot, ChevronDown } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { VendorIcon } from "./VendorIcon";
 import {
   Dialog,
   DialogContent,
@@ -110,7 +111,7 @@ export function AgentNewSession({
             Vendor
           </label>
           <div className={cn(fieldClass, "border-border-subtle")}>
-            <Bot className="size-3.5 shrink-0 text-icon-secondary" aria-hidden="true" />
+            <VendorIcon vendor={vendor} className="size-3.5 text-icon-secondary" />
             {/* A native select, styled to the field. The shared Select is a
                 Radix popover with its own trigger chrome; Figma draws a plain
                 field with a chevron, and the option list is three vendors. */}

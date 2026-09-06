@@ -418,6 +418,46 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       expect(html).toContain("1 agent waiting on you");
     });
 
+    it("wears the vendor's own mark, not a generic robot", () => {
+      // Figma draws Icon/agent-claude and Icon/agent-codex. Four surfaces were
+      // still on lucide's Bot, so every vendor looked identical everywhere
+      // except the module header — which is the one place you already know
+      // which agent you are looking at.
+      const claude = {
+        id: "sess-vendor",
+        agentType: "claude",
+        projectPath: "/p",
+        status: "idle" as const,
+        parentSessionId: null,
+        depth: 0,
+        title: "one",
+        acpSessionId: "acp-v",
+      };
+      const row = renderToString(<AgentRow session={claude} />);
+      expect(row).toContain('data-vendor="claude"');
+      expect(row).not.toContain("lucide-bot");
+
+      const composer = renderToString(
+        <AgentComposer
+          value=""
+          onChange={() => {}}
+          onSend={() => {}}
+          onCancel={() => {}}
+          vendor="claude"
+        />,
+      );
+      expect(composer).toContain('data-vendor="claude"');
+      expect(composer).not.toContain("lucide-bot");
+
+      // A vendor DevKit has not drawn falls back to one shape on purpose, so
+      // unknown is visibly unknown rather than wearing someone else's logo.
+      const unknown = renderToString(
+        <AgentRow session={{ ...claude, agentType: "acme-agent" }} />,
+      );
+      expect(unknown).not.toContain("data-vendor=");
+      expect(unknown).toContain("lucide-bot");
+    });
+
     it("actually binds the context menu to the row", () => {
       // The regression this exists for: AgentRow had a closed prop list, so
       // ContextMenuTrigger's cloned onContextMenu and data attributes were

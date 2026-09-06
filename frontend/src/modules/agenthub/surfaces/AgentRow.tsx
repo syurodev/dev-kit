@@ -1,8 +1,9 @@
 import * as React from "react";
-import { Bot, Pin } from "lucide-react";
+import { Pin } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { AgentState, type AgentStatus } from "./AgentState";
+import { VendorIcon } from "./VendorIcon";
 import type { AgentSession } from "@/bridge/agenthub";
 
 /**
@@ -91,7 +92,7 @@ export function AgentRow({
     >
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex w-full items-center gap-2">
-          <Bot className="size-3 shrink-0 text-icon-secondary" aria-hidden="true" />
+          <VendorIcon vendor={session.agentType} className="size-3 text-icon-secondary" />
           <span className="min-w-0 flex-1 truncate text-body-13-medium text-text-primary">
             {title}
           </span>

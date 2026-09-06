@@ -1,4 +1,3 @@
-import { Bot } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { AgentSession, PendingPermission } from "@/bridge/agenthub";
 import type { AvailableCommand, TranscriptItem, Usage } from "../types";
@@ -7,6 +6,7 @@ import { AgentComposer } from "./AgentComposer";
 import { AgentPermissionRequest } from "./AgentPermissionRequest";
 import { AgentState, type AgentStatus } from "./AgentState";
 import { AgentSwarmStrip } from "./AgentSwarmStrip";
+import { VendorIcon } from "./VendorIcon";
 
 export type AgentRailState = "Conversation" | "Empty";
 
@@ -126,7 +126,10 @@ export function AgentRail({
           className="flex w-full shrink-0 flex-col gap-1 px-2 py-3"
         >
           <div className="flex w-full items-center gap-2">
-            <Bot className="size-3.5 shrink-0 text-icon-secondary" aria-hidden="true" />
+            <VendorIcon
+              vendor={activeSession.agentType}
+              className="size-3.5 text-icon-secondary"
+            />
             <span className="min-w-0 flex-1 truncate text-body-13-medium text-text-primary">
               {displayTitle}
             </span>
