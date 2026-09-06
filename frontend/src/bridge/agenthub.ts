@@ -6,7 +6,9 @@ import type {
   AgentSession as RawSession,
   AgentType as RawAgentType,
   InvokeResult as RawInvokeResult,
+  TranscriptEntry,
 } from "../../bindings/devkit/internal/agenthub/models";
+import type { SessionUpdate } from "../modules/agenthub/types";
 
 export type AgentVendor = "mock" | "claude";
 
@@ -53,6 +55,7 @@ export type InvokeSessionInput = {
 export type SessionUpdateEvent = {
   sessionId: string;
   update: unknown;
+  parsed: SessionUpdate | null;
 };
 
 export type PendingPermission = {
@@ -62,6 +65,15 @@ export type PendingPermission = {
   caller: string;
   title: string;
   depth: number;
+  /**
+   * When the request arrived and when the gate closes on its own, both stamped
+   * by the backend. The UI must render this deadline rather than start its own
+   * clock on mount: a toast often mounts long after the request arrived — the
+   * rail was closed, the user was in another module — and a fresh countdown
+   * would promise time that no longer exists. ISO strings, empty when unknown.
+   */
+  createdAt: string;
+  expiresAt: string;
 };
 
 export type PermissionOption = {
@@ -170,6 +182,15 @@ export function agentHubCancel(sessionId: string): Promise<void> {
   );
 }
 
+export function agentHubTranscript(
+  sessionId: string,
+): Promise<TranscriptEntry[]> {
+  return callBridge(async () => {
+    const list = await AppService.AgentHubTranscript(sessionId);
+    return list ?? [];
+  });
+}
+
 export function agentHubResolvePermission(
   id: string,
   outcome: unknown,
@@ -214,6 +235,7 @@ function parseSessionUpdate(data: unknown): SessionUpdateEvent | null {
   return {
     sessionId,
     update: record.update ?? record.Update ?? null,
+    parsed: (record.parsed ?? record.Parsed ?? null) as SessionUpdate | null,
   };
 }
 
@@ -239,7 +261,13 @@ function parsePermission(data: unknown): PendingPermission | null {
     caller: typeof record.caller === "string" ? record.caller : `agent:${sessionId}`,
     title: typeof record.title === "string" ? record.title : "",
     depth: typeof record.depth === "number" ? record.depth : 0,
+    createdAt: isoString(record.createdAt ?? record.CreatedAt),
+    expiresAt: isoString(record.expiresAt ?? record.ExpiresAt),
   };
+}
+
+function isoString(value: unknown): string {
+  return typeof value === "string" ? value : "";
 }
 
 export function agentHubPendingPermissions(): Promise<PendingPermission[]> {
@@ -251,6 +279,8 @@ export function agentHubPendingPermissions(): Promise<PendingPermission[]> {
           id: (raw as any).ID ?? raw.id,
           sessionId: (raw as any).SessionID ?? raw.sessionId,
           params: (raw as any).Params ?? raw.params,
+          createdAt: (raw as any).CreatedAt ?? (raw as any).createdAt,
+          expiresAt: (raw as any).ExpiresAt ?? (raw as any).expiresAt,
         }),
       )
       .filter((p): p is PendingPermission => p !== null);

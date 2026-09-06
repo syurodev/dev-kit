@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 import { AnimatePresence, Reorder, motion } from "framer-motion";
-import { Wrench, X } from "lucide-react";
+import { Plus, Wrench, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getModule } from "../../modules/registry";
 import type { TabStatus, WorkbenchTab } from "../../stores/workbenchTabs";
@@ -24,6 +24,7 @@ type TabStripProps = {
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
   onReorder: (fromId: string, beforeId: string | null) => void;
+  onNewTab?: () => void;
   /** True while the ⌘⇧E/Ctrl⇧E quick-switch shortcut is held (see
    * Workbench.tsx) — forces every tab to full width (same as hovering)
    * and turns on ArrowLeft/ArrowRight + Enter/Escape navigation. */
@@ -86,7 +87,7 @@ function groupTabs(tabs: WorkbenchTab[]): TabGroup[] {
 // own, smaller floor (INACTIVE_MIN_WIDTH_PX, just enough for the icon and
 // the reserved close-button space), past which the strip scrolls
 // horizontally instead of shrinking further.
-const MAX_TAB_WIDTH_PX = 180;
+const MAX_TAB_WIDTH_PX = 200;
 // Kept equal to MAX_TAB_WIDTH_PX: if the active tab's floor were ever above
 // the general cap, a roomy strip would render it *narrower* than a cramped
 // one (capped by MAX_TAB_WIDTH_PX in the roomy branch, locked at its own
@@ -322,101 +323,67 @@ function TabGroupRow({
                 onSelect(tab.id);
               }}
               className={cn(
-                // overflow-hidden: at INACTIVE_MIN_WIDTH_PX there isn't
-                // room for icon + reserved close-button space + any title
-                // at once — content clips down to just the icon rather than
-                // spilling out of the tab's bounds. bg-foreground/5 on
-                // inactive tabs: the strip's own pill container border
-                // alone read as too faint to tell individual tabs apart at
-                // a glance.
-                "group relative flex h-[30px] shrink-0 items-center overflow-hidden rounded-full border border-transparent py-0 pl-2.5 pr-7 text-[12.5px] font-medium transition-[filter] [--wails-draggable:no-drag]",
-                // Inactive tabs carry no fill and no border in the design —
-                // the active one is the only thing wearing the pill.
-                isActive && "border-[var(--glass-border)] bg-[var(--glass-float-bg)]",
-                // Plain CSS :hover (not JS-tracked hoveredTabId state) —
-                // hovering one tab used to re-render every sibling in this
-                // group (they all read the same hoveredTabId), which
-                // spuriously re-ran each one's `layout` FLIP measurement
-                // and read as a slight left-right jitter across the whole
-                // row. pointerEvents below already disables hit-testing on
-                // siblings during a drag, so :hover can't fire on them
-                // then either — no JS gating needed for that case.
-                !isActive && "hover:brightness-125",
-                isActive ? "text-text-primary" : "text-text-secondary",
-                // The ⌘⇧E keyboard-browsing cursor — separate from isActive,
-                // since Enter hasn't committed it as the active tab yet.
-                tab.id === keyboardFocusedTabId
-                  ? "ring-2 ring-foreground/80"
-                  : "",
+                "group relative flex h-8 max-w-[200px] shrink-0 items-center rounded-[6px] border px-3 gap-2 transition-[filter,border-color,background-color] select-none [--wails-draggable:no-drag]",
+                isActive
+                  ? "bg-surface-raised border-border text-text-primary"
+                  : tab.preview
+                    ? "bg-[var(--state-soft)] border-border-subtle border-dashed text-body-12 text-text-secondary hover:bg-[var(--state-soft)]/80"
+                    : "bg-[var(--state-soft)] border-border-subtle border-solid text-label-12 text-text-secondary hover:bg-[var(--state-soft)]/80",
               )}
             >
-              {/* Plain CSS transition, not a shared layoutId Motion node —
-                  the layoutId version ran its own FLIP+spring computation
-                  on every render where this tab's position could differ,
-                  including mid-drag/reorder (its own layout="position"
-                  FLIP was already running then too), two separate Motion
-                  systems tracking the same tab concurrently. Reported
-                  stutter was specifically on drop, exactly where both
-                  would be settling at once — removing this one entirely
-                  in favor of a plain background-color transition trades
-                  the old "slides between tabs when switching active"
-                  effect for a same-spot fade, one fewer animated layer
-                  for the reorder/drop path to fight with. */}
-              <div
-                className={cn(
-                  "absolute inset-0 rounded-full transition-opacity duration-150 ease-out",
-                  isActive ? "opacity-100" : "opacity-0",
-                )}
-              />
-              <span className="relative z-10 flex min-w-0 flex-1 items-center">
+              {/* Focus ring: separate layer at radius 8, not the pill's radius 6 (Figma 448:343 exception) */}
+              {tab.id === keyboardFocusedTabId && (
+                <span
+                  className="pointer-events-none absolute -inset-[2px] rounded-[8px] border-2 border-[var(--border-focus,#b2d5e5)]"
+                  aria-hidden="true"
+                />
+              )}
+              <span className="relative z-10 flex min-w-0 flex-1 items-center gap-2">
                 {(() => {
-                  // A tab-level `icon` (set by whoever called openTab) wins
-                  // over the module's self-registered default
-                  // (modules/registry.ts ModuleManifest.icon) — no separate
-                  // tab-strip-only icon map to drift either way.
                   const ModuleIcon =
                     tab.icon ?? getModule(tab.moduleId)?.icon ?? Wrench;
                   return <ModuleIcon className="size-3.5 shrink-0 opacity-85" />;
                 })()}
-                {tab.status && tab.status !== "idle" ? (
-                  <span
-                    className={cn(
-                      "ml-[7px] size-1.5 shrink-0 rounded-full",
-                      statusDotClass(tab.status),
-                    )}
-                  />
-                ) : null}
                 <span
                   className={cn(
-                    "ml-[7px] truncate",
-                    // A preview tab is Regular where a committed one is
-                    // Medium — the design carries that difference in weight,
-                    // not in italics.
-                    tab.preview && "font-normal",
+                    "truncate flex-1 min-w-0",
+                    tab.preview ? "text-body-12 font-normal text-text-secondary" : "text-label-12",
                   )}
                 >
                   {tab.title}
                 </span>
+                {/* Active state status dot: 6px */}
+                {isActive && tab.status && tab.status !== "idle" ? (
+                  <span
+                    className={cn(
+                      "size-1.5 shrink-0 rounded-full",
+                      statusDotClass(tab.status),
+                    )}
+                  />
+                ) : null}
               </span>
-              <span
-                role="button"
-                tabIndex={0}
-                aria-label={`Close ${tab.title}`}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onClose(tab.id);
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
+              {/* Close button: 12px, shown on Active and Inactive, NOT on Preview */}
+              {!tab.preview && (
+                <span
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Close ${tab.title}`}
+                  onClick={(event) => {
                     event.stopPropagation();
                     onClose(tab.id);
-                  }
-                }}
-                className="absolute right-1 top-1/2 z-10 flex size-[18px] -translate-y-1/2 scale-75 items-center justify-center rounded opacity-0 transition-[opacity,transform] duration-150 ease-out hover:bg-foreground/10 focus:scale-100 focus:opacity-100 group-hover:scale-100 group-hover:opacity-100 [--wails-draggable:no-drag]"
-              >
-                <X className="size-3" />
-              </span>
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      onClose(tab.id);
+                    }
+                  }}
+                  className="z-10 flex size-3 shrink-0 items-center justify-center rounded text-text-secondary hover:text-text-primary transition-colors focus:outline-none [--wails-draggable:no-drag] cursor-pointer"
+                >
+                  <X className="size-3" />
+                </span>
+              )}
             </Reorder.Item>
           );
         })}
@@ -431,12 +398,13 @@ export function TabStrip({
   onSelect,
   onClose,
   onReorder,
+  onNewTab,
   keyboardBrowsing,
   onExitBrowsing,
 }: TabStripProps) {
   const [keyboardFocusedTabId, setKeyboardFocusedTabId] = useState<
     string | null
-  >(null);
+  >(keyboardBrowsing ? activeTabId : null);
   // Kept current every render so the "seed on browsing start" effect below
   // can read the latest activeTabId without needing it in its own
   // dependency array (which would re-seed on every activeTabId change
@@ -667,20 +635,11 @@ export function TabStrip({
     // tabs need, scrolling past that once they don't fit.
     <div
       ref={scrollRef}
-      // No rule under the strip. Figma's `Tab Strip` draws one, but the tabs
-      // sit directly on the content card here and the line read as a seam
-      // across it.
-      className="flex h-10 min-w-0 w-full items-center justify-start px-2 [--wails-draggable:no-drag]"
+      className="flex h-12 min-w-0 w-full items-center justify-start p-2 gap-2 [--wails-draggable:no-drag]"
     >
       <div
-        // Only drawn when there's at least one visible tab to hold —
-        // otherwise (e.g. Dock-browsing a module whose home view has no
-        // strip entry, see isHiddenHomePreview) it rendered as an empty
-        // capsule with nothing inside it.
-        // Figma's strip has no capsule around the tabs: it is flat with a
-        // rule under it, and the pill shape belongs to the active tab alone.
-        // 4px between tabs, per `Tab Strip`.
-        className="scrollbar-hide flex max-w-full items-center gap-1 overflow-x-auto"
+        // 449:325: gap-2 between tab items
+        className="scrollbar-hide flex max-w-full items-center gap-2 overflow-x-auto"
         style={pillWidthPx !== undefined ? { width: pillWidthPx } : undefined}
       >
         <AnimatePresence initial={false}>
@@ -721,6 +680,17 @@ export function TabStrip({
           ))}
         </AnimatePresence>
       </div>
+      {/* New-tab button: 28x28, radius 8, plus glyph 13px (Figma 449:325) */}
+      <button
+        type="button"
+        aria-label="New tab"
+        onClick={onNewTab}
+        className="size-7 shrink-0 rounded-[8px] flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-[var(--state-soft)] transition-colors cursor-pointer"
+      >
+        <Plus className="size-[13px]" />
+      </button>
+      {/* Trailing spacer: a flex-grow 8px-high frame after new-tab (Figma 449:325) */}
+      <div className="flex-1 h-2 self-center" aria-hidden="true" />
     </div>
   );
 }

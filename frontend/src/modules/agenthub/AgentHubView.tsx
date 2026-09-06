@@ -1,93 +1,108 @@
-// frontend/src/modules/agenthub/AgentHubView.tsx
 import { useEffect, useMemo, useState } from "react";
 import {
+  agentHubCancel,
   agentHubCreateSession,
   agentHubGetStatus,
+  agentHubInvoke,
   agentHubListVendorTypes,
-  agentHubResolvePermission,
-  cancelledPermissionOutcome,
   isSandboxUnavailableError,
-  parsePermissionOptions,
-  permissionToolTitle,
   sandboxUnavailableMessage,
-  selectedPermissionOutcome,
   type AgentVendor,
 } from "../../bridge/agenthub";
 import { errorMessage } from "../../bridge/errors";
-import { SessionTab } from "./SessionTab";
-import { EMPTY_TRANSCRIPT, useAgentSessionsStore } from "../../stores/agentSessions";
+import { useAgentHubSidebar } from "./useAgentHubSidebar";
+import { useAgentTranscript } from "./transcript";
+import {
+  AgentHubContent,
+  AgentNewSession,
+} from "./surfaces";
+import { TranscriptGallery } from "./transcript/TranscriptGallery";
+import { useAgentSessionsStore } from "../../stores/agentSessions";
 
 const DEFAULT_VENDORS: AgentVendor[] = ["mock", "claude"];
 
 export function AgentHubView() {
+  const [showGallery, setShowGallery] = useState(() => {
+    if (typeof window !== "undefined") {
+      return new URLSearchParams(window.location.search).get("gallery") === "1";
+    }
+    return false;
+  });
+
   const sessions = useAgentSessionsStore((state) => state.sessions);
   const activeSessionId = useAgentSessionsStore((state) => state.activeSessionId);
   const setActiveSessionId = useAgentSessionsStore((state) => state.setActiveSessionId);
   const upsertSession = useAgentSessionsStore((state) => state.upsertSession);
-  // Transcripts and the pending permission live in the store now: they must
-  // outlive this view, because the agent keeps working after you navigate away.
   const transcripts = useAgentSessionsStore((state) => state.transcripts);
   const setPrompt = useAgentSessionsStore((state) => state.setPrompt);
-  const updateLines = useAgentSessionsStore((state) => state.updateLines);
-  const pending = useAgentSessionsStore((state) => state.pending);
-  const dequeuePending = useAgentSessionsStore((state) => state.dequeuePending);
+  const pendingQueue = useAgentSessionsStore((state) => state.pendingQueue);
 
   const [vendors, setVendors] = useState<string[]>(DEFAULT_VENDORS);
-  const [vendor, setVendor] = useState<string>("mock");
-  const [cwd, setCwd] = useState(".");
+  const [newSessionOpen, setNewSessionOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [sandboxHint, setSandboxHint] = useState("");
-  const [permBusy, setPermBusy] = useState(false);
 
   const activeSession = useMemo(
-    () => sessions.find((s) => s.id === activeSessionId) ?? sessions[0],
+    () => sessions.find((s) => s.id === activeSessionId) ?? sessions[0] ?? null,
     [sessions, activeSessionId],
   );
-  const activeTranscript = activeSession
-    ? transcripts[activeSession.id] ?? EMPTY_TRANSCRIPT
-    : EMPTY_TRANSCRIPT;
 
+  const parentSession = useMemo(() => {
+    if (!activeSession?.parentSessionId) return null;
+    return sessions.find((s) => s.id === activeSession.parentSessionId) ?? null;
+  }, [sessions, activeSession]);
+
+  const activePrompt = activeSession
+    ? transcripts[activeSession.id]?.prompt ?? ""
+    : "";
+
+  // Live typed transcript model powered by useAgentTranscript
+  const transcriptModel = useAgentTranscript(activeSession?.id ?? "");
+
+  // Auto-select first session if none active
   useEffect(() => {
     if (!activeSessionId && sessions.length > 0) {
       setActiveSessionId(sessions[0].id);
     }
   }, [sessions, activeSessionId, setActiveSessionId]);
 
+  // Load available vendor types
   useEffect(() => {
     let mounted = true;
     agentHubListVendorTypes()
       .then((list) => {
-        if (!mounted || list.length === 0) {
-          return;
-        }
+        if (!mounted || list.length === 0) return;
         setVendors(list);
-        if (!list.includes(vendor)) {
-          setVendor(list[0]);
-        }
       })
       .catch(() => {
-        // Keep mock|claude defaults when listing fails (e.g. hub unavailable).
+        // Keep fallback
       });
     return () => {
       mounted = false;
     };
   }, []);
 
-  async function onNewTab() {
+  async function handleCreateSession(params: {
+    vendor: string;
+    cwd: string;
+    title?: string;
+  }) {
     setBusy(true);
     setError("");
     setSandboxHint("");
     try {
       const session = await agentHubCreateSession({
-        agentType: vendor,
-        cwd: cwd.trim() || ".",
+        agentType: params.vendor,
+        cwd: params.cwd,
+        title: params.title,
       });
       upsertSession(session);
       setActiveSessionId(session.id);
+      setNewSessionOpen(false);
     } catch (e) {
       setError(errorMessage(e));
-      if (vendor === "claude" && isSandboxUnavailableError(e)) {
+      if (params.vendor === "claude" && isSandboxUnavailableError(e)) {
         setSandboxHint(sandboxUnavailableMessage());
       }
     } finally {
@@ -95,161 +110,129 @@ export function AgentHubView() {
     }
   }
 
-  async function resolvePermission(optionId: string | null) {
-    if (!pending) {
-      return;
-    }
-    setPermBusy(true);
+  async function handleSend() {
+    if (!activeSession || !activePrompt.trim() || busy) return;
+    const text = activePrompt.trim();
+    setPrompt(activeSession.id, "");
+    setBusy(true);
     setError("");
     try {
-      const outcome =
-        optionId === null
-          ? cancelledPermissionOutcome()
-          : selectedPermissionOutcome(optionId);
-      await agentHubResolvePermission(pending.id, outcome);
-      dequeuePending(pending.id);
-      try {
-        upsertSession(await agentHubGetStatus(pending.sessionId));
-      } catch (e) {
-        setError(errorMessage(e));
-      }
+      upsertSession({ ...activeSession, status: "running" });
+      await agentHubInvoke({
+        sessionId: activeSession.id,
+        prompt: text,
+      });
+      upsertSession(await agentHubGetStatus(activeSession.id));
     } catch (e) {
       setError(errorMessage(e));
+      try {
+        upsertSession(await agentHubGetStatus(activeSession.id));
+      } catch {}
     } finally {
-      setPermBusy(false);
+      setBusy(false);
     }
   }
 
-  const permissionOptions = pending
-    ? parsePermissionOptions(pending.params)
-    : [];
+  async function handleCancel() {
+    if (!activeSession) return;
+    try {
+      await agentHubCancel(activeSession.id);
+      upsertSession(await agentHubGetStatus(activeSession.id));
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  }
+
+
+
+  // Group pending permission counts per session
+  const pendingCounts = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const p of pendingQueue) {
+      map[p.sessionId] = (map[p.sessionId] ?? 0) + 1;
+    }
+    return map;
+  }, [pendingQueue]);
+
+  useAgentHubSidebar({
+    sessions,
+    activeSessionId: activeSession?.id,
+    pendingCounts,
+    onSelectSession: setActiveSessionId,
+    onNewSession: () => setNewSessionOpen(true),
+  });
 
   return (
-    <section className="agenthub-view">
-      <h2>Agent Hub</h2>
+    <div
+      data-testid="agenthub-view"
+      className="relative flex size-full min-h-0 flex-1 overflow-hidden bg-surface-base"
+    >
+      {/* Dev toggle button in top right for leaf showcase gallery */}
+      <button
+        type="button"
+        onClick={() => setShowGallery((prev) => !prev)}
+        data-testid="toggle-transcript-gallery"
+        className="absolute top-2 right-4 z-40 rounded-sm border border-border-subtle bg-surface-base/90 px-2 py-0.5 text-caption-11 text-text-tertiary shadow-sm hover:text-text-primary hover:bg-surface-tinted cursor-pointer"
+      >
+        {showGallery ? "Show Swarm" : "Leaf Gallery"}
+      </button>
 
-      <div className="agenthub-header">
-        <label>
-          Vendor
-          <select
-            aria-label="agenthub-vendor"
-            value={vendor}
-            disabled={busy}
-            onChange={(e) => setVendor(e.target.value)}
-          >
-            {vendors.map((v) => (
-              <option key={v} value={v}>
-                {v}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="agenthub-cwd">
-          Working directory
-          <input
-            aria-label="agenthub-cwd"
-            value={cwd}
-            disabled={busy}
-            onChange={(e) => setCwd(e.target.value)}
-            placeholder="."
-          />
-        </label>
-        <button type="button" onClick={() => void onNewTab()} disabled={busy}>
-          New tab
-        </button>
-      </div>
-
-      {activeSession ? (
-        <SessionTab
-          session={activeSession}
-          lines={activeTranscript.lines}
-          prompt={activeTranscript.prompt}
-          busy={busy}
-          onPromptChange={(prompt) => setPrompt(activeSession.id, prompt)}
-          onLinesChange={(updater) => updateLines(activeSession.id, updater)}
-          onSessionChange={(session) => upsertSession(session)}
-          onError={setError}
-        />
+      {showGallery ? (
+        <div className="size-full overflow-y-auto pt-8">
+          <TranscriptGallery />
+        </div>
       ) : (
-        <p className="agenthub-empty">No sessions. Create a tab to begin.</p>
+        <div className="flex size-full min-h-0 flex-1 overflow-hidden">
+          {/* The swarm tree is NOT drawn here — useAgentHubSidebar publishes it
+              into the shell rail, which is where Figma's _Slot / Sidebar Content
+              puts a module's rail. Drawing it here as well gave two vertical
+              rails side by side whenever the shell sidebar was open. */}
+
+          {/* Surface: Agent Hub / Content (1136×804) */}
+          <AgentHubContent
+            session={activeSession}
+            parentSession={parentSession}
+            items={transcriptModel.items}
+            usage={transcriptModel.usage}
+            commands={transcriptModel.commands}
+            promptValue={activePrompt}
+            onPromptChange={(val) => activeSession && setPrompt(activeSession.id, val)}
+            onSend={() => void handleSend()}
+            onCancel={() => void handleCancel()}
+            streaming={busy || activeSession?.status === "running"}
+            errorMessage={error}
+            onRetrySession={() => void handleSend()}
+            onNewSession={() => setNewSessionOpen(true)}
+          />
+        </div>
       )}
 
-      {sandboxHint ? (
-        <div className="agenthub-sandbox-error" role="alert">
-          <p>{sandboxHint}</p>
-          <button
-            type="button"
-            onClick={() => {
-              setVendor("mock");
-              setSandboxHint("");
+      {/* Surface: Agent / New Session Modal Dialog */}
+      {newSessionOpen ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="New Session Modal"
+          data-testid="new-session-modal-backdrop"
+          className="absolute inset-0 z-50 flex items-center justify-center bg-palette-onyx/60 backdrop-blur-xs animate-in fade-in duration-150"
+        >
+          <AgentNewSession
+            vendors={vendors}
+            busy={busy}
+            error={error || sandboxHint}
+            onCreate={handleCreateSession}
+            onCancel={() => {
+              setNewSessionOpen(false);
               setError("");
+              setSandboxHint("");
             }}
-          >
-            Switch to mock vendor
-          </button>
+            onSwitchToMock={() => {
+              setError("");
+              setSandboxHint("");
+            }}
+          />
         </div>
       ) : null}
-
-      {error ? <p role="alert">{error}</p> : null}
-
-      {pending ? (
-        <div className="agenthub-permission-backdrop" role="presentation">
-          <div
-            className="agenthub-permission-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label="agenthub-permission"
-          >
-            <h3>{permissionToolTitle(pending.params)}</h3>
-            <p>
-              Agent <strong>{pending.title || pending.sessionId.slice(0, 8)}</strong>
-              {" "}(depth {pending.depth}) needs a permission decision.
-              {useAgentSessionsStore.getState().pendingQueue.length > 1
-                ? ` ${useAgentSessionsStore.getState().pendingQueue.length - 1} more waiting.`
-                : ""}
-            </p>
-            <pre className="agenthub-permission-params">
-              {safeJson(pending.params)}
-            </pre>
-            <div className="agenthub-permission-actions">
-              <button
-                type="button"
-                disabled={permBusy}
-                onClick={() => void resolvePermission(null)}
-              >
-                Deny
-              </button>
-              {permissionOptions.map((opt) => (
-                <button
-                  key={opt.optionId}
-                  type="button"
-                  disabled={permBusy}
-                  onClick={() => void resolvePermission(opt.optionId)}
-                >
-                  {opt.name}
-                </button>
-              ))}
-              {permissionOptions.length === 0 ? (
-                <button
-                  type="button"
-                  disabled={permBusy}
-                  onClick={() => void resolvePermission("allow")}
-                >
-                  Allow
-                </button>
-              ) : null}
-            </div>
-          </div>
-        </div>
-      ) : null}
-    </section>
+    </div>
   );
-}
-
-function safeJson(value: unknown): string {
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
 }

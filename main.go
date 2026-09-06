@@ -60,6 +60,9 @@ const (
 	minWindowHeight = 700
 )
 
+// transcriptRetentionDays is how long agent transcript rows are kept.
+const transcriptRetentionDays = 90
+
 func main() {
 	if application.System.IsServer() {
 		host, err := servermode.ValidateHost(os.Getenv("WAILS_SERVER_HOST"))
@@ -234,6 +237,12 @@ func main() {
 			"sessionId": p.SessionID,
 			"params":    rawJSON(p.Params),
 			"caller":    identity.Agent(p.SessionID).String(),
+			// The UI shows the deadline; it must not invent one. A countdown
+			// started when a toast mounts is wrong whenever the toast mounts
+			// late, which is the normal case for a request that arrives while
+			// the rail is closed.
+			"createdAt": p.CreatedAt.Format(time.RFC3339Nano),
+			"expiresAt": p.ExpiresAt.Format(time.RFC3339Nano),
 		}
 		// Title/depth let the prompt say which agent is asking; the hub
 		// service is assigned a few lines below and exists by prompt time.
@@ -247,13 +256,43 @@ func main() {
 		}
 		emitAppEvent("agenthub:permission", payload)
 	})
-	agentSvc := agenthub.NewService(agentReg, agenthub.NewSQLStore(db), func(sessionID string, update json.RawMessage) {
+	agentStore := agenthub.NewSQLStore(db)
+
+	// Nothing had ever deleted from agent_transcript: it is append-plus-upsert,
+	// no session delete cascades into it, and a long session writes a row per
+	// streamed chunk. Prune once at startup rather than on a timer — the table
+	// only grows while the app runs, and a boot is the one moment where a short
+	// blocking sweep costs nothing a user can perceive.
+	//
+	// POLICY, not a measurement: 90 days is a deliberately conservative default
+	// so this cannot surprise anyone by eating recent work. Set it to whatever
+	// the product actually wants transcripts to live for.
+	// Same shape as the audit prune above: best-effort, logged, never fatal.
+	cutoff := time.Now().AddDate(0, 0, -transcriptRetentionDays)
+	if removed, err := agentStore.PruneTranscriptsBefore(context.Background(), cutoff); err != nil {
+		log.Printf("agenthub: transcript prune: %v", err)
+	} else if removed > 0 {
+		log.Printf("agenthub: pruned %d transcript rows older than %d days", removed, transcriptRetentionDays)
+	}
+
+	agentSvc := agenthub.NewService(agentReg, agentStore, func(sessionID string, update json.RawMessage) {
+		// `update` stays on the wire unchanged so the Meta Inspector can show
+		// exactly what the vendor sent; `parsed` is the normalized shape the
+		// transcript renders from. Sending both means the UI never has to
+		// learn ACP's wire format, and a kind this build does not model still
+		// arrives instead of being dropped.
 		emitAppEvent("agenthub:sessionUpdate", map[string]any{
 			"sessionId": sessionID,
 			"update":    rawJSON(update),
+			"parsed":    agenthub.ParseSessionUpdate(update),
 		})
 	})
 	agentSvc.ResolvePermission = agentWaiter.Resolve
+	// Keep the stamped deadline and the enforced one from drifting apart.
+	agentWaiter.Timeout = agentSvc.PermissionTimeoutOrDefault()
+	agentSvc.OnRecordError = func(sessionID string, err error) {
+		log.Printf("agenthub: transcript write failed for session %s: %v", sessionID, err)
+	}
 	container.AgentHub = agentSvc
 	container.AgentHubPermissions = agentWaiter
 
@@ -401,15 +440,22 @@ func main() {
 	if resolvedDark {
 		backgroundColour = application.NewRGB(2, 2, 2)
 	}
-	// DEVKIT_OPAQUE_WINDOW=1 keeps the window solid on every platform, so the
-	// UI can be judged on its own colours instead of whatever desktop happens
-	// to be behind it. The frontend needs no counterpart: html/body stay
-	// transparent under .native either way, and the solid colour below is the
-	// same value as --background-app.
-	opaqueWindow := os.Getenv("DEVKIT_OPAQUE_WINDOW") == "1"
+	// The window is SOLID by default. It used to be transparent so the native
+	// backdrop showed through, which reads well on a plain desktop and badly on
+	// a busy one: module content ends up sitting on the user's wallpaper, and
+	// every surface colour is judged against whatever happens to be behind the
+	// window rather than against the palette. The glass tiers still work — they
+	// now tint over --background-app instead of the desktop, which is what they
+	// are specified as relative to anyway.
+	//
+	// DEVKIT_TRANSLUCENT_WINDOW=1 restores the vibrancy path (macOS Mac.Backdrop,
+	// Windows 11 22H2+ Mica). It is kept rather than deleted because
+	// 01 Foundations § Glass materials still documents that behaviour and it is
+	// the only way to compare the two side by side.
+	translucentWindow := os.Getenv("DEVKIT_TRANSLUCENT_WINDOW") == "1"
 	macBackdrop := application.MacBackdropNormal
 	backgroundType := application.BackgroundTypeSolid
-	if opaqueWindow {
+	if !translucentWindow {
 		// Nothing to do: solid type, themed colour, normal backdrop.
 	} else if runtime.GOOS == "darwin" {
 		backgroundColour = application.NewRGBA(0, 0, 0, 0)
@@ -430,6 +476,20 @@ func main() {
 		windowsTheme = application.Light
 	}
 
+	// HiddenInset with a compact toolbar style. AppKit draws the traffic lights
+	// against its own title bar and Wails v3 beta.15 exposes no way to move
+	// them, so the preset is the only lever: plain Hidden put them above our
+	// 40px bar's centre line, plain HiddenInset put them below it, and the
+	// compact toolbar lands between the two. The frontend closes the last two
+	// pixels with --titlebar-optical-offset.
+	//
+	// UseToolbar comes with HiddenInset and is what makes AppKit inset the
+	// lights at all; the separator stays hidden. If the toolbar ever interferes
+	// with dragging, MacTitleBarHidden is the fallback — drag behaviour lives in
+	// the frontend (--wails-draggable) with InvisibleTitleBarHeight at zero.
+	macTitleBar := application.MacTitleBarHiddenInset
+	macTitleBar.ToolbarStyle = application.MacToolbarStyleUnifiedCompact
+
 	// Reopen where the user left the window. Falls back to the launch default
 	// when nothing is stored yet or the stored frame is unusable.
 	windowOptions := application.WebviewWindowOptions{
@@ -448,9 +508,7 @@ func main() {
 			Backdrop:                macBackdrop,
 			// Match AppKit's vibrancy, rim and titlebar to the persisted web theme.
 			Appearance: macAppearance,
-			// Hidden avoids the additional NSToolbar used by HiddenInset and
-			// matches the frontend's compact 30px titlebar.
-			TitleBar: application.MacTitleBarHidden,
+			TitleBar: macTitleBar,
 		},
 		Windows: application.WindowsWindow{
 			Theme: windowsTheme,

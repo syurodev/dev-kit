@@ -1,12 +1,16 @@
 package agenthub
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"devkit/internal/sandbox"
 )
@@ -258,5 +262,61 @@ func TestClaudeEnvFallsBackToCurrentUser(t *testing.T) {
 	t.Setenv("LOGNAME", "")
 	if got := claudeEnvAllowlist()["USER"]; got == "" {
 		t.Fatal("USER must fall back to the current OS user")
+	}
+}
+
+// deadVendorRunner starts a process that exits immediately, which is what a
+// missing or crashing vendor binary looks like from Open's side: the pipes open,
+// then stdout closes without a single JSON-RPC frame ever arriving.
+type deadVendorRunner struct{}
+
+func (deadVendorRunner) StartPiped(context.Context, sandbox.Policy, sandbox.Cmd) (*sandbox.Proc, error) {
+	cmd := exec.Command("sh", "-c", "exit 0")
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, err
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	return sandbox.NewProcPiped(cmd, stdin, stdout, &bytes.Buffer{}), nil
+}
+
+// Open used to hang forever here. acp.Conn.Call selects on ctx.Done() and the
+// response channel; Open deliberately passes a ctx with no deadline, and nothing
+// cancelled it when the process died, so both handshake calls parked and every
+// ErrProcessFailed branch below them was unreachable. The capture test still
+// carries the measurement: "a missing binary hung Open for the full 15m".
+//
+// The bound is the serve loop ending, not the timeout — so this returns in
+// milliseconds, and a five second ceiling here is a hang detector, not a wait.
+func TestOpenFailsFastWhenVendorDiesDuringHandshake(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "claude-agent-acp")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	a := NewClaudeAdapter(ClaudeOptions{Command: bin, Runner: deadVendorRunner{}})
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := a.Open(context.Background(), OpenSpec{Cwd: t.TempDir()})
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, ErrProcessFailed) {
+			t.Fatalf("want ErrProcessFailed, got %v", err)
+		}
+		if !strings.Contains(err.Error(), "exited during handshake") {
+			t.Fatalf("error should name the process exit, got %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Open did not return: the handshake is unbounded again")
 	}
 }

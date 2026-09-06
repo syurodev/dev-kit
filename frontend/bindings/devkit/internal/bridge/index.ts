@@ -6,7 +6,7 @@ export {
     AppService
 };
 
-export {
+export type {
     ActiveProfileDTO,
     AuthStatusDTO,
     ExecuteCommandRequest,

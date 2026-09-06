@@ -32,18 +32,18 @@ export function DockItem({ item }: { item: DockEntry }) {
       }}
       onMouseLeave={() => item.panel && setPanelOpen(false)}
       className={cn(
-        "relative flex size-8 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors",
+        "relative flex size-8 shrink-0 items-center justify-center rounded-[18px] transition-colors",
         item.isActive
-          ? "bg-accent text-foreground"
-          : "hover:bg-accent/60 hover:text-foreground",
+          ? "bg-surface-base text-text-primary"
+          : "bg-transparent text-text-secondary hover:text-text-primary",
         item.unavailable && "pointer-events-none opacity-40",
       )}
     >
       <item.icon className="size-4" />
-      {item.badge ? (
+      {item.badgeNode ?? (item.badge ? (
         <span
           className={cn(
-            "absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold",
+            "absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-caption-11-medium",
             item.urgent
               ? "bg-(--status-permission-soft) text-(--status-permission)"
               : "bg-muted text-muted-foreground",
@@ -51,7 +51,7 @@ export function DockItem({ item }: { item: DockEntry }) {
         >
           {item.badge}
         </span>
-      ) : null}
+      ) : null)}
     </button>
   );
 

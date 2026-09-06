@@ -16,16 +16,14 @@ export function CollapsedDock({
   activeIndex: number;
 }) {
   return (
-    <div aria-hidden="true" className="flex items-center gap-1 px-2 py-[5px]">
+    <div aria-hidden="true" className="flex items-center gap-1 px-2 py-1">
       {Array.from({ length: count }, (_, i) => (
         <span
           key={i}
           className={cn(
             "h-[3px] w-3 rounded-full transition-colors",
-            // action/primary is the same token --sidebar-primary already uses
-            // for an active nav item, so "you are here" reads the same
-            // everywhere in the app.
-            i === activeIndex ? "bg-primary" : "bg-text-tertiary/45",
+            // action/primary for active line, text-tertiary for others per Figma 208:438
+            i === activeIndex ? "bg-action-primary" : "bg-text-tertiary",
           )}
         />
       ))}

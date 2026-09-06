@@ -25,18 +25,18 @@ function Tabs({
 }
 
 const tabsListVariants = cva(
-  "group/tabs-list inline-flex w-fit items-center justify-center rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none",
+  "group/tabs-list inline-flex w-fit items-center justify-center text-text-tertiary group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col",
   {
     variants: {
       variant: {
-        default: "bg-muted",
-        line: "gap-1 bg-transparent",
+        default: "h-8 rounded-md bg-black/25 p-1 gap-1",
+        line: "gap-1 bg-transparent p-0 rounded-none",
       },
     },
     defaultVariants: {
       variant: "default",
     },
-  }
+  },
 )
 
 function TabsList({
@@ -63,11 +63,18 @@ function TabsTrigger({
     <TabsPrimitive.Trigger
       data-slot="tabs-trigger"
       className={cn(
-        "group/tabs-trigger relative inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-md border border-transparent px-1.5 py-0.5 text-sm font-medium whitespace-nowrap text-foreground/60 transition-all group-data-vertical/tabs:w-full group-data-vertical/tabs:justify-start hover:text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-50 has-data-[icon=inline-end]:pr-1 has-data-[icon=inline-start]:pl-1 dark:text-muted-foreground dark:hover:text-foreground group-data-[variant=default]/tabs-list:data-active:shadow-sm group-data-[variant=line]/tabs-list:data-active:shadow-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
-        "group-data-[variant=line]/tabs-list:bg-transparent group-data-[variant=line]/tabs-list:data-active:bg-transparent dark:group-data-[variant=line]/tabs-list:data-active:border-transparent dark:group-data-[variant=line]/tabs-list:data-active:bg-transparent",
-        "data-active:bg-background data-active:text-foreground dark:data-active:border-input dark:data-active:bg-input/30 dark:data-active:text-foreground",
-        "after:absolute after:bg-foreground after:opacity-0 after:transition-opacity group-data-horizontal/tabs:after:inset-x-0 group-data-horizontal/tabs:after:bottom-[-5px] group-data-horizontal/tabs:after:h-0.5 group-data-vertical/tabs:after:inset-y-0 group-data-vertical/tabs:after:-right-1 group-data-vertical/tabs:after:w-0.5 group-data-[variant=line]/tabs-list:data-active:after:opacity-100",
-        className
+        // Figma `Tabs / Trigger` 317:380 sets label AND count to 14 Medium
+        // ("text-sm font-medium" in the node description). Step 2 moved this off
+        // caption-11 but landed on 13; the real value is 14, which is why
+        // `text-title-14` / `text-body-14-medium` were added to the scale.
+        "group/tabs-trigger relative inline-flex h-6 items-center justify-center gap-1.5 rounded-sm px-2 py-0.5 text-body-14-medium whitespace-nowrap text-text-tertiary transition-all",
+        "hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-info",
+        "disabled:pointer-events-none disabled:opacity-50",
+        "group-data-[variant=default]/tabs-list:data-active:bg-white/10 group-data-[variant=default]/tabs-list:data-active:border group-data-[variant=default]/tabs-list:data-active:border-white/8 group-data-[variant=default]/tabs-list:data-active:text-text-primary",
+        "group-data-[variant=line]/tabs-list:bg-transparent group-data-[variant=line]/tabs-list:data-active:bg-transparent group-data-[variant=line]/tabs-list:data-active:text-text-primary",
+        "after:absolute after:bottom-0 after:inset-x-0 after:h-0.5 after:bg-text-primary after:opacity-0 after:transition-opacity group-data-[variant=line]/tabs-list:data-active:after:opacity-100",
+        "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-(--icon-14)",
+        className,
       )}
       {...props}
     />
@@ -81,7 +88,7 @@ function TabsContent({
   return (
     <TabsPrimitive.Content
       data-slot="tabs-content"
-      className={cn("flex-1 text-sm outline-none", className)}
+      className={cn("flex-1 text-body-13 text-text-primary outline-none", className)}
       {...props}
     />
   )
@@ -93,9 +100,8 @@ function TabsCount({ className, ...props }: React.ComponentProps<"span">) {
       data-slot="tabs-count"
       className={cn(
         "inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1",
-        "bg-foreground/10 text-[10px] font-medium tabular-nums text-foreground/70",
-        "group-data-active/tabs-trigger:bg-foreground/15 group-data-active/tabs-trigger:text-foreground",
-        className
+        "bg-white/6 text-body-14-medium tabular-nums text-text-tertiary",
+        className,
       )}
       {...props}
     />

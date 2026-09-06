@@ -1,7 +1,8 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Wrench } from "lucide-react";
 import { LazyMotion, domAnimation } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { AgentDockBadge } from "@/modules/agenthub/surfaces/AgentDockBadge";
 import { useAgentSessionsStore } from "../../stores/agentSessions";
 import { useDockStore } from "./dock-store";
 import { DockItem } from "./DockItem";
@@ -29,6 +30,7 @@ const BOTTOM_ZONE = 160;
 
 export function Dock({ modules, activeModuleId, onSelectModule }: DockProps) {
   const sessions = useAgentSessionsStore((state) => state.sessions);
+  const pendingQueue = useAgentSessionsStore((state) => state.pendingQueue);
   const setActiveSessionId = useAgentSessionsStore((state) => state.setActiveSessionId);
   const contextItems = useDockStore((state) => state.contextItems);
   const pillRef = useRef<HTMLDivElement | null>(null);
@@ -82,8 +84,23 @@ export function Dock({ modules, activeModuleId, onSelectModule }: DockProps) {
   const baseItems: DockEntry[] = modules.map((module, index) => {
     const isAgentHub = module.id === "agenthub";
     const registeredModule = getModule(module.id);
-    const badge = isAgentHub && sessions.length > 0 ? String(sessions.length) : null;
-    const urgent = isAgentHub && sessions.some((s) => s.status === "awaiting_permission");
+    const waitingCount = isAgentHub
+      ? pendingQueue.length ||
+        sessions.filter((s) => s.status === "awaiting_permission").length
+      : 0;
+    const isRunning = isAgentHub && sessions.some((s) => s.status === "running");
+
+    let badgeNode: ReactNode = undefined;
+    if (isAgentHub) {
+      if (waitingCount > 0) {
+        badgeNode = <AgentDockBadge state="waiting" count={waitingCount} />;
+      } else if (isRunning) {
+        badgeNode = <AgentDockBadge state="running" />;
+      }
+    }
+
+    const badge = !isAgentHub && sessions.length > 0 ? String(sessions.length) : null;
+    const urgent = isAgentHub && waitingCount > 0;
     return {
       id: module.id,
       title: module.title,
@@ -95,6 +112,7 @@ export function Dock({ modules, activeModuleId, onSelectModule }: DockProps) {
       isActive: module.id === activeModuleId,
       unavailable: module.unavailable,
       badge,
+      badgeNode,
       urgent,
       shortcut: shortcutLabel(index),
       onClick: () => onSelectModule(module.id),
@@ -205,26 +223,21 @@ export function Dock({ modules, activeModuleId, onSelectModule }: DockProps) {
             }
           }}
           className={cn(
-            "pointer-events-auto relative box-content glass-float",
+            "pointer-events-auto relative box-content bg-[rgba(29,29,29,0.62)] backdrop-blur-[20px] border border-[rgba(255,255,255,0.1)] shadow-[inset_0px_1px_0px_0px_rgba(255,255,255,0.07),0_8px_16px_0_rgba(0,0,0,0.35)]",
             // No overflow-hidden: DockItem's AgentHub panel opens above the
             // pill (absolute bottom-full) and a clipping ancestor would swallow
             // it. The outgoing form is out of sight on opacity alone.
             "motion-safe:transition-[width,height,border-radius,translate]",
             expanded
-              // Opening pops: liquid-taffy's house spring, 22% overshoot.
-              ? "rounded-2xl motion-safe:duration-500 motion-safe:ease-house-spring"
-              // Closing does not. The same spring undershoots ~30px below the
-              // resting width on its way back, and with nothing clipping the
-              // pill the dashes hung outside it for ~11 frames. That family's
-              // OUT_STRONG is the curve for an exit, and an exit is what this
-              // is — the pop belongs to the thing arriving.
-              //
-              // rounded-[7.5px] is half the resting pill's own height
-              // (CollapsedDock's 3px dash between 5px paddings) — a true pill,
-              // and unlike rounded-full a value that interpolates: 9999px
-              // stays clamped to fully-round for the whole morph and then
-              // snaps to 16px at the end. delay-100: see `form` above — the
-              // shrink waits out the icons' fade.
+              // Figma 208:438: Expanded is rounded-[18px]
+              ? "rounded-[18px] motion-safe:duration-500 motion-safe:ease-house-spring"
+              // Closing: half resting height (CollasedDock 3px dash + 4px py = 11px / 2 = ~5.5px to 7.5px)
+              // Figma 208:431 (Collapsed) specifies radius/full. 7.5px is kept
+              // deliberately: the resting pill is 11px tall, so CSS clamps both
+              // values to the same 5.5px and they render identically — but a
+              // radius that animates from 18px to 999px snaps almost instantly,
+              // while 18 -> 7.5 morphs across the whole 350ms. Do not "fix" it
+              // to rounded-full without re-tuning this transition.
               : "rounded-[7.5px] motion-safe:delay-100 motion-safe:duration-[350ms] motion-safe:ease-out-strong",
           )}
         >
@@ -253,7 +266,8 @@ export function Dock({ modules, activeModuleId, onSelectModule }: DockProps) {
             inert={!expanded}
             className={cn(
               form,
-              "flex items-center gap-1 p-1.5",
+              // Figma 208:438: p-2, gap-1
+              "flex items-center gap-1 p-2",
               expanded ? "opacity-100 delay-150 duration-150" : "opacity-0 duration-100",
             )}
           >

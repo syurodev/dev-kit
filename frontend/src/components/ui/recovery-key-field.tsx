@@ -2,7 +2,6 @@ import * as React from "react"
 import { Copy, Check, Download, Eye, EyeOff } from "lucide-react"
 
 import { cn } from "@/lib/utils"
-import { Button } from "./button"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./tooltip"
 
 export interface RecoveryKeyFieldProps extends React.ComponentProps<"div"> {
@@ -57,8 +56,7 @@ function RecoveryKeyField({
       <div
         data-slot="recovery-key-field"
         className={cn(
-          "flex flex-col gap-2 rounded-[14px] border p-4.5 bg-surface-base transition-colors w-full max-w-[640px]",
-          isCopied ? "border-status-success" : "border-border",
+          "flex flex-col justify-between w-full max-w-[640px] h-[132px] min-h-[132px] rounded-[14px] border border-[rgba(255,255,255,0.1)] bg-[rgba(29,29,29,0.55)] px-[17px] py-[15px] backdrop-blur-[20px] shadow-[inset_0px_1px_0px_0px_rgba(255,255,255,0.06)] transition-colors",
           className
         )}
         {...props}
@@ -66,18 +64,20 @@ function RecoveryKeyField({
         {/* Header line */}
         <div className="flex items-center justify-between">
           <span
+            data-slot="recovery-key-label"
             className={cn(
-              "text-[11px] font-medium tracking-[0.55px] uppercase transition-colors",
+              "text-label-11-caps transition-colors",
               isCopied ? "text-status-success" : "text-status-recovery"
             )}
           >
-            {isCopied ? "RECOVERY KEY · COPIED" : "RECOVERY KEY · SHOWN ONCE"}
+            RECOVERY KEY · SHOWN ONCE
           </span>
 
           <button
             type="button"
+            data-slot="recovery-key-reveal-toggle"
             onClick={() => setIsRevealed(!isRevealed)}
-            className="text-text-tertiary hover:text-text-primary text-[11px] font-medium flex items-center gap-1 transition-colors"
+            className="text-text-tertiary hover:text-text-primary text-caption-11-medium flex items-center gap-1 transition-colors cursor-pointer"
           >
             {isRevealed ? (
               <>
@@ -94,27 +94,30 @@ function RecoveryKeyField({
         </div>
 
         {/* Key Display & Actions */}
-        <div className="flex items-center justify-between gap-3 py-1">
-          <p className="font-mono text-[15px] font-medium text-text-primary tracking-wide select-all">
+        <div className="flex items-center justify-between gap-3">
+          <p
+            data-slot="recovery-key-value"
+            className="text-code-12-medium text-text-primary select-all font-mono"
+          >
             {isRevealed ? recoveryKey : maskedKey}
           </p>
 
           <div className="flex items-center gap-2 shrink-0">
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button
+                <button
                   type="button"
-                  variant="secondary"
-                  size="icon"
+                  data-slot="recovery-key-copy-button"
                   onClick={handleCopy}
                   aria-label="Copy recovery key"
+                  className="flex size-9 items-center justify-center rounded-control border border-[rgba(255,255,255,0.1)] bg-[rgba(29,29,29,0.55)] backdrop-blur-[12px] text-text-primary hover:bg-white/10 transition-colors cursor-pointer"
                 >
                   {isCopied ? (
                     <Check className="size-4 text-status-success" strokeWidth={2} />
                   ) : (
                     <Copy className="size-4 text-text-primary" strokeWidth={1.5} />
                   )}
-                </Button>
+                </button>
               </TooltipTrigger>
               <TooltipContent>
                 {isCopied ? "Copied to clipboard" : "Copy recovery key"}
@@ -123,15 +126,15 @@ function RecoveryKeyField({
 
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button
+                <button
                   type="button"
-                  variant="secondary"
-                  size="icon"
+                  data-slot="recovery-key-download-button"
                   onClick={handleDownload}
                   aria-label="Download recovery key"
+                  className="flex size-9 items-center justify-center rounded-control border border-[rgba(255,255,255,0.1)] bg-[rgba(29,29,29,0.55)] backdrop-blur-[12px] text-text-primary hover:bg-white/10 transition-colors cursor-pointer"
                 >
                   <Download className="size-4 text-text-primary" strokeWidth={1.5} />
-                </Button>
+                </button>
               </TooltipTrigger>
               <TooltipContent>Download recovery key file</TooltipContent>
             </Tooltip>
@@ -140,8 +143,9 @@ function RecoveryKeyField({
 
         {/* Consequence footer note */}
         <p
+          data-slot="recovery-key-footer"
           className={cn(
-            "text-[11px] font-normal leading-normal transition-colors",
+            "text-caption-11 transition-colors",
             isCopied ? "text-status-success" : "text-text-tertiary"
           )}
         >

@@ -162,7 +162,7 @@ export function InteractionHost() {
             <DialogDescription id="interaction-select-desc">
               An MCP tool needs an active {pending.kind || "connection"} profile.
             </DialogDescription>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-caption-11 text-text-tertiary">
               Requested by <code>{pending.caller || "unknown"}</code>
               {queue.length > 1 ? ` · ${queue.length - 1} more waiting` : ""}
             </p>
@@ -170,7 +170,7 @@ export function InteractionHost() {
           {profiles.length === 0 ? (
             <p role="status">No profiles available. Create one in the module view first.</p>
           ) : (
-            <label className="grid gap-2 text-sm">
+            <label className="grid gap-2 text-body-13">
               <span>Profile</span>
               <select
                 aria-label="interaction-profile"
@@ -227,12 +227,12 @@ export function InteractionHost() {
           <DialogDescription id="interaction-confirm-desc">
             Review the environment and tool before allowing this request.
           </DialogDescription>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-caption-11 text-text-tertiary">
             Requested by <code>{pending.caller || "unknown"}</code>
             {queue.length > 1 ? ` · ${queue.length - 1} more waiting` : ""}
           </p>
         </DialogHeader>
-        <div className="grid gap-3 text-sm">
+        <div className="grid gap-3 text-body-13">
           <div className="flex items-center gap-2">
             <span className="text-muted-foreground">Environment</span>
             <Badge className={envBadgeClass(pending.env)}>{pending.env || "unknown"}</Badge>

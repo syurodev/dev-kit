@@ -3,13 +3,16 @@ package agenthub
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"errors"
 	"time"
 )
 
 const (
-	tableAgentSessions = "agent_sessions"
-	tableAgentTurns    = "agent_turns"
-	storeTimeLayout    = time.RFC3339Nano
+	tableAgentSessions   = "agent_sessions"
+	tableAgentTurns      = "agent_turns"
+	tableAgentTranscript = "agent_transcript"
+	storeTimeLayout      = time.RFC3339Nano
 )
 
 // Store persists hub-owned agent sessions and turn records.
@@ -20,6 +23,7 @@ type Store interface {
 	ListSessions(ctx context.Context) ([]AgentSession, error)
 	InsertTurn(ctx context.Context, t TurnRecord) error
 	ListTurns(ctx context.Context, sessionID string) ([]TurnRecord, error)
+	TranscriptStore
 }
 
 // SQLStore implements Store against SQLite tables created by storage migration 13.
@@ -205,4 +209,161 @@ func (st *SQLStore) ListTurns(ctx context.Context, sessionID string) ([]TurnReco
 		out = append(out, t)
 	}
 	return out, rows.Err()
+}
+
+// --- transcript ---
+
+const transcriptColumns = `id, session_id, seq, kind, tool_call_id, text, payload, created_at, updated_at`
+
+// AppendTranscript writes a new row and assigns its sequence number in the same
+// statement. Computing seq in Go would need a read-then-write, and two updates
+// landing between the read and the write would collide on the unique index.
+func (st *SQLStore) AppendTranscript(ctx context.Context, e TranscriptEntry) error {
+	_, err := st.db.ExecContext(ctx, `
+		INSERT INTO `+tableAgentTranscript+` (`+transcriptColumns+`)
+		VALUES (?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM `+tableAgentTranscript+` WHERE session_id = ?), ?, ?, ?, ?, ?, ?)`,
+		e.ID, e.SessionID, e.SessionID, string(e.Kind), e.ToolCallID, e.Text,
+		nullRawJSON(e.Payload), formatStoreTime(e.CreatedAt), formatStoreTime(e.UpdatedAt),
+	)
+	return err
+}
+
+// UpdateTranscript rewrites the mutable part of a row: the accumulated text of
+// a chunk run, or the merged state of a tool call. Kind and seq never change.
+func (st *SQLStore) UpdateTranscript(ctx context.Context, e TranscriptEntry) error {
+	res, err := st.db.ExecContext(ctx, `
+		UPDATE `+tableAgentTranscript+`
+		SET text = ?, payload = ?, updated_at = ?
+		WHERE id = ?`,
+		e.Text, nullRawJSON(e.Payload), formatStoreTime(e.UpdatedAt), e.ID,
+	)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return ErrTranscriptEntryNotFound
+	}
+	return nil
+}
+
+func (st *SQLStore) LastTranscriptEntry(ctx context.Context, sessionID string) (TranscriptEntry, bool, error) {
+	row := st.db.QueryRowContext(ctx, `
+		SELECT `+transcriptColumns+`
+		FROM `+tableAgentTranscript+`
+		WHERE session_id = ?
+		ORDER BY seq DESC
+		LIMIT 1`, sessionID)
+	return scanOptionalTranscript(row)
+}
+
+func (st *SQLStore) FindTranscriptToolCall(ctx context.Context, sessionID, toolCallID string) (TranscriptEntry, bool, error) {
+	if toolCallID == "" {
+		return TranscriptEntry{}, false, nil
+	}
+	row := st.db.QueryRowContext(ctx, `
+		SELECT `+transcriptColumns+`
+		FROM `+tableAgentTranscript+`
+		WHERE session_id = ? AND tool_call_id = ?
+		ORDER BY seq DESC
+		LIMIT 1`, sessionID, toolCallID)
+	return scanOptionalTranscript(row)
+}
+
+// FindTranscriptKind returns the session-level row for one kind, if any. Used
+// to upsert usage / commands / mode instead of appending them.
+func (st *SQLStore) FindTranscriptKind(ctx context.Context, sessionID string, kind UpdateKind) (TranscriptEntry, bool, error) {
+	row := st.db.QueryRowContext(ctx, `
+		SELECT `+transcriptColumns+`
+		FROM `+tableAgentTranscript+`
+		WHERE session_id = ? AND kind = ?
+		ORDER BY seq ASC
+		LIMIT 1`, sessionID, string(kind))
+	return scanOptionalTranscript(row)
+}
+
+// PruneTranscriptsBefore deletes transcript rows created before cutoff and
+// reports how many went.
+//
+// Nothing ever deleted from this table: it is append-plus-upsert only, no
+// session delete cascades into it, and a single long-running agent session
+// writes a row per chunk. The table was unbounded by construction.
+//
+// Deliberately time-based rather than "keep the last N rows per session":
+// trimming inside a session would make a transcript silently lose its middle,
+// and a reload would then show the user a different conversation than the one
+// they watched arrive.
+func (st *SQLStore) PruneTranscriptsBefore(ctx context.Context, cutoff time.Time) (int64, error) {
+	res, err := st.db.ExecContext(ctx,
+		`DELETE FROM `+tableAgentTranscript+` WHERE created_at < ?`,
+		formatStoreTime(cutoff),
+	)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+func (st *SQLStore) ListTranscript(ctx context.Context, sessionID string) ([]TranscriptEntry, error) {
+	rows, err := st.db.QueryContext(ctx, `
+		SELECT `+transcriptColumns+`
+		FROM `+tableAgentTranscript+`
+		WHERE session_id = ?
+		ORDER BY seq ASC`, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []TranscriptEntry{}
+	for rows.Next() {
+		e, err := scanTranscript(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+type transcriptScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanTranscript(sc transcriptScanner) (TranscriptEntry, error) {
+	var (
+		e                    TranscriptEntry
+		kind                 string
+		payload              sql.NullString
+		createdAt, updatedAt string
+	)
+	if err := sc.Scan(&e.ID, &e.SessionID, &e.Seq, &kind, &e.ToolCallID, &e.Text, &payload, &createdAt, &updatedAt); err != nil {
+		return TranscriptEntry{}, err
+	}
+	e.Kind = UpdateKind(kind)
+	if payload.Valid {
+		e.Payload = json.RawMessage(payload.String)
+	}
+	var err error
+	if e.CreatedAt, err = parseStoreTime(createdAt); err != nil {
+		return TranscriptEntry{}, err
+	}
+	if e.UpdatedAt, err = parseStoreTime(updatedAt); err != nil {
+		return TranscriptEntry{}, err
+	}
+	return e, nil
+}
+
+func scanOptionalTranscript(row *sql.Row) (TranscriptEntry, bool, error) {
+	e, err := scanTranscript(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return TranscriptEntry{}, false, nil
+	}
+	if err != nil {
+		return TranscriptEntry{}, false, err
+	}
+	return e, true, nil
 }

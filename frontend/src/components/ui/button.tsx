@@ -5,7 +5,7 @@ import { Slot } from "radix-ui"
 import { cn } from "@/lib/utils"
 
 const buttonVariants = cva(
-  "group/button inline-flex shrink-0 items-center justify-center font-medium whitespace-nowrap transition-all outline-none select-none disabled:pointer-events-none disabled:opacity-38 aria-invalid:border-status-danger focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-info focus-visible:border-status-info [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap transition-all outline-none select-none disabled:pointer-events-none disabled:opacity-38 aria-invalid:border-status-danger focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-info focus-visible:border-status-info [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
@@ -24,16 +24,16 @@ const buttonVariants = cva(
         link: "text-status-info underline-offset-4 hover:underline",
       },
       size: {
-        xs: "h-7 gap-1.5 rounded-[8px] px-2.5 text-xs [&_svg:not([class*='size-'])]:size-3.5",
-        sm: "h-7 gap-1.5 rounded-[8px] px-3 text-xs [&_svg:not([class*='size-'])]:size-3.5",
-        default: "h-8 gap-2 rounded-[10px] px-4 text-[13px]",
-        md: "h-8 gap-2 rounded-[10px] px-4 text-[13px]",
-        lg: "h-10 gap-2 rounded-[10px] px-4.5 text-[14px]",
-        "icon-xs": "size-6 rounded-[6px] p-0 [&_svg:not([class*='size-'])]:size-3",
-        "icon-sm": "size-7 rounded-[8px] p-0 [&_svg:not([class*='size-'])]:size-3.5",
-        icon: "size-8 rounded-[8px] p-0 [&_svg:not([class*='size-'])]:size-4",
-        "icon-md": "size-8 rounded-[8px] p-0 [&_svg:not([class*='size-'])]:size-4",
-        "icon-lg": "size-10 rounded-[10px] p-0 [&_svg:not([class*='size-'])]:size-5",
+        xs: "h-(--control-height-sm) gap-1.5 rounded-md px-2.5 text-label-12 [&_svg:not([class*='size-'])]:size-(--icon-14)",
+        sm: "h-(--control-height-sm) gap-1.5 rounded-md px-3 text-label-12 [&_svg:not([class*='size-'])]:size-(--icon-14)",
+        default: "h-(--control-height-md) gap-2 rounded-md px-4 text-body-13-medium",
+        md: "h-(--control-height-md) gap-2 rounded-md px-4 text-body-13-medium",
+        lg: "h-(--control-height-xl) gap-2 rounded-control px-4.5 text-body-13-medium",
+        "icon-xs": "size-(--control-height-xs) rounded-sm p-0 [&_svg:not([class*='size-'])]:size-(--icon-12)",
+        "icon-sm": "size-(--control-height-sm) rounded-md p-0 [&_svg:not([class*='size-'])]:size-(--icon-14)",
+        icon: "size-(--control-height-md) rounded-md p-0 [&_svg:not([class*='size-'])]:size-(--icon-16)",
+        "icon-md": "size-(--control-height-md) rounded-md p-0 [&_svg:not([class*='size-'])]:size-(--icon-16)",
+        "icon-lg": "size-(--control-height-xl) rounded-control p-0 [&_svg:not([class*='size-'])]:size-(--icon-20)",
       },
     },
     defaultVariants: {
@@ -70,3 +70,5 @@ function Button({
 }
 
 export { Button, buttonVariants }
+export { IconButton, iconButtonVariants, type IconButtonProps } from "./icon-button"
+

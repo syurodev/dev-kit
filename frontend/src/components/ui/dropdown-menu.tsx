@@ -71,7 +71,15 @@ function DropdownMenuItem({
       data-inset={inset}
       data-variant={variant}
       className={cn(
-        "group/dropdown-menu-item relative flex cursor-default items-center gap-1.5 rounded-md px-1.5 py-1 text-sm outline-hidden select-none focus:bg-foreground/10 focus:text-accent-foreground not-data-[variant=destructive]:focus:**:text-accent-foreground data-inset:pl-7 data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/10 data-[variant=destructive]:focus:text-destructive dark:data-[variant=destructive]:focus:bg-destructive/20 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 data-[variant=destructive]:*:[svg]:text-destructive",
+        "group/dropdown-menu-item relative flex w-full min-w-[200px] h-7 cursor-pointer items-center gap-2 rounded-[6px] px-2 py-1 text-body-13 outline-none select-none transition-colors",
+        "bg-transparent text-text-primary",
+        "focus:bg-[var(--state-soft)] hover:bg-[var(--state-soft)]",
+        "data-[variant=destructive]:bg-transparent data-[variant=destructive]:text-status-danger",
+        "data-[variant=destructive]:focus:bg-[var(--feedback-danger-soft)] data-[variant=destructive]:hover:bg-[var(--feedback-danger-soft)] data-[variant=destructive]:focus:text-status-danger data-[variant=destructive]:hover:text-status-danger",
+        "data-disabled:pointer-events-none data-disabled:opacity-50",
+        "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+        "data-[variant=destructive]:*:[svg]:text-status-danger",
+        inset && "pl-7",
         className
       )}
       {...props}
@@ -93,7 +101,7 @@ function DropdownMenuCheckboxItem({
       data-slot="dropdown-menu-checkbox-item"
       data-inset={inset}
       className={cn(
-        "relative flex cursor-default items-center gap-1.5 rounded-md py-1 pr-8 pl-1.5 text-sm outline-hidden select-none focus:bg-foreground/10 focus:text-accent-foreground focus:**:text-accent-foreground data-inset:pl-7 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "relative flex cursor-default items-center gap-1.5 rounded-md py-1 pr-8 pl-1.5 text-body-13 outline-hidden select-none focus:bg-foreground/10 focus:text-accent-foreground focus:**:text-accent-foreground data-inset:pl-7 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className
       )}
       checked={checked}
@@ -137,7 +145,7 @@ function DropdownMenuRadioItem({
       data-slot="dropdown-menu-radio-item"
       data-inset={inset}
       className={cn(
-        "relative flex cursor-default items-center gap-1.5 rounded-md py-1 pr-8 pl-1.5 text-sm outline-hidden select-none focus:bg-foreground/10 focus:text-accent-foreground focus:**:text-accent-foreground data-inset:pl-7 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "relative flex cursor-default items-center gap-1.5 rounded-md py-1 pr-8 pl-1.5 text-body-13 outline-hidden select-none focus:bg-foreground/10 focus:text-accent-foreground focus:**:text-accent-foreground data-inset:pl-7 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className
       )}
       {...props}
@@ -168,7 +176,7 @@ function DropdownMenuLabel({
       data-slot="dropdown-menu-label"
       data-inset={inset}
       className={cn(
-        "px-1.5 py-1 text-xs font-medium text-muted-foreground data-inset:pl-7",
+        "px-1.5 py-1 text-caption-11-medium text-muted-foreground data-inset:pl-7",
         className
       )}
       {...props}
@@ -197,12 +205,56 @@ function DropdownMenuShortcut({
     <span
       data-slot="dropdown-menu-shortcut"
       className={cn(
-        "ml-auto text-xs tracking-widest text-muted-foreground group-focus/dropdown-menu-item:text-accent-foreground",
+        "ml-auto text-code-11 text-text-tertiary",
         className
       )}
       {...props}
     />
   )
+}
+
+export type ShellMenuItemSpecProps = {
+  tone?: "default" | "danger";
+  state?: "rest" | "hover" | "focus";
+  label: string;
+  icon?: React.ReactNode;
+  shortcut?: string;
+  id?: string;
+  className?: string;
+};
+
+export function ShellMenuItemSpec({
+  tone = "default",
+  state = "rest",
+  label,
+  icon,
+  shortcut,
+  id,
+  className,
+}: ShellMenuItemSpecProps) {
+  const isDanger = tone === "danger";
+  const isHover = state === "hover" || state === "focus";
+
+  return (
+    <div
+      id={id}
+      data-slot="menu-item-spec"
+      data-tone={tone}
+      data-state={state}
+      className={cn(
+        "flex w-[200px] h-7 items-center gap-2 rounded-[6px] px-2 py-1 text-body-13 select-none cursor-pointer transition-colors",
+        !isDanger && !isHover && "bg-transparent text-text-primary",
+        !isDanger && isHover && "bg-[var(--state-soft)] text-text-primary",
+        isDanger && !isHover && "bg-transparent text-status-danger",
+        isDanger && isHover && "bg-[var(--feedback-danger-soft)] text-status-danger",
+        className
+      )}
+    >
+      {icon ? <span className="size-3.5 shrink-0 flex items-center justify-center">{icon}</span> : null}
+      <span className="flex-1 truncate">{label}</span>
+      {shortcut ? <span className="ml-auto text-code-11 text-text-tertiary">{shortcut}</span> : null}
+    </div>
+  );
 }
 
 function DropdownMenuSub({
@@ -224,7 +276,7 @@ function DropdownMenuSubTrigger({
       data-slot="dropdown-menu-sub-trigger"
       data-inset={inset}
       className={cn(
-        "flex cursor-default items-center gap-1.5 rounded-md px-1.5 py-1 text-sm outline-hidden select-none focus:bg-foreground/10 focus:text-accent-foreground not-data-[variant=destructive]:focus:**:text-accent-foreground data-inset:pl-7 data-open:bg-foreground/10 data-open:text-accent-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "flex cursor-default items-center gap-1.5 rounded-md px-1.5 py-1 text-body-13 outline-hidden select-none focus:bg-foreground/10 focus:text-accent-foreground not-data-[variant=destructive]:focus:**:text-accent-foreground data-inset:pl-7 data-open:bg-foreground/10 data-open:text-accent-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className
       )}
       {...props}

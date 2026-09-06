@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"devkit/internal/agenthub"
+	"devkit/internal/interaction"
 )
 
 func TestPermissionTimeoutRejects(t *testing.T) {
@@ -206,5 +207,50 @@ func TestPermissionCancelledOutcomeFailsTurn(t *testing.T) {
 	}
 	if out.Status != "error" {
 		t.Fatalf("status=%q want error", out.Status)
+	}
+}
+
+// The UI renders the deadline; it cannot infer one, because a toast may mount
+// long after the request arrived. So the request has to carry when it closes.
+func TestPendingPermissionCarriesDeadline(t *testing.T) {
+	var seen agenthub.PendingPermission
+	w := agenthub.NewPermissionWaiter(func(p agenthub.PendingPermission) { seen = p })
+	w.Timeout = 30 * time.Second
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+		_, _ = w.Wait(ctx, "sess-1", json.RawMessage(`{"options":[]}`))
+	}()
+	<-done
+
+	if seen.CreatedAt.IsZero() {
+		t.Fatal("CreatedAt not stamped")
+	}
+	if seen.ExpiresAt.IsZero() {
+		t.Fatal("ExpiresAt not stamped; the UI would have to invent a deadline")
+	}
+	if got := seen.ExpiresAt.Sub(seen.CreatedAt); got != 30*time.Second {
+		t.Fatalf("window = %v, want the waiter's configured timeout", got)
+	}
+}
+
+func TestPendingPermissionDeadlineDefaultsToInteractionTimeout(t *testing.T) {
+	var seen agenthub.PendingPermission
+	w := agenthub.NewPermissionWaiter(func(p agenthub.PendingPermission) { seen = p })
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+		_, _ = w.Wait(ctx, "sess-2", json.RawMessage(`{"options":[]}`))
+	}()
+	<-done
+
+	if got := seen.ExpiresAt.Sub(seen.CreatedAt); got != interaction.DefaultTimeout {
+		t.Fatalf("window = %v, want interaction.DefaultTimeout", got)
 	}
 }

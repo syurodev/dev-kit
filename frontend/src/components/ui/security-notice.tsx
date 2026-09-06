@@ -34,20 +34,23 @@ function SecurityNotice({
       data-slot="security-notice"
       data-type={type}
       className={cn(
-        "flex w-full items-start gap-3 rounded-[10px] border px-4 py-3 transition-colors",
-        isSecure && "border-status-success/80 bg-status-success/10",
-        isIrreversible && "border-border bg-surface-raised",
+        "flex w-full items-center gap-3 rounded-control border px-4 py-3 transition-colors backdrop-blur-[12px] shadow-[inset_0px_1px_0px_0px_rgba(255,255,255,0.06)]",
+        isSecure && "h-[72px] min-h-[72px] border-status-success bg-[rgba(153,225,217,0.12)]",
+        isIrreversible && "h-[84px] min-h-[84px] border-[rgba(255,255,255,0.1)] bg-[rgba(29,29,29,0.55)]",
         className
       )}
       {...props}
     >
-      {/* Consequence accent bar for irreversible notice */}
+      {/* Consequence accent bar for irreversible notice: h 40, w3, rounded-[2px], --status-recovery */}
       {isIrreversible && (
-        <div className="h-9 w-[3px] shrink-0 rounded-full bg-status-recovery mt-0.5" />
+        <div
+          data-slot="security-notice-accent-bar"
+          className="h-10 w-[3px] shrink-0 rounded-[2px] bg-status-recovery"
+        />
       )}
 
-      {/* Icon */}
-      <div className="shrink-0 mt-0.5">
+      {/* Icon: 18px */}
+      <div className="shrink-0 flex items-center justify-center">
         {isSecure ? (
           <Shield className="size-[18px] text-status-success" strokeWidth={1.5} />
         ) : (
@@ -55,12 +58,18 @@ function SecurityNotice({
         )}
       </div>
 
-      {/* Text content */}
+      {/* Text content: gap-1 = 4px */}
       <div className="flex flex-1 flex-col gap-1 min-w-0">
-        <p className="text-[14px] font-semibold text-text-primary leading-tight">
+        <p
+          data-slot="security-notice-title"
+          className="text-title-14 text-text-primary"
+        >
           {title || defaultTitle}
         </p>
-        <p className="text-[12px] font-normal text-text-secondary leading-relaxed">
+        <p
+          data-slot="security-notice-description"
+          className="text-body-12 text-text-secondary"
+        >
           {description || defaultDescription}
         </p>
       </div>

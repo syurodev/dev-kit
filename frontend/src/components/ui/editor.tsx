@@ -19,8 +19,8 @@ const editorContainerVariants = cva(
     variants: {
       variant: {
         comment: cn(
-          'flex flex-wrap justify-between gap-1 px-1 py-0.5 text-sm',
-          'rounded-md border-[1.5px] border-transparent bg-transparent',
+          'flex flex-wrap justify-between gap-1 px-1 py-0.5 text-body-13',
+          'rounded-md border-(--stroke-1-5) border-transparent bg-transparent',
           'has-[[data-slate-editor]:focus]:border-brand/50 has-[[data-slate-editor]:focus]:ring-2 has-[[data-slate-editor]:focus]:ring-brand/30',
           'has-aria-disabled:border-input has-aria-disabled:bg-muted'
         ),
@@ -72,16 +72,16 @@ const editorVariants = cva(
         true: 'ring-2 ring-ring ring-offset-2',
       },
       variant: {
-        ai: 'w-full px-0 text-base md:text-sm',
+        ai: 'w-full px-0 text-body-16 md:text-body-13',
         aiChat:
-          'max-h-[min(70vh,320px)] w-full overflow-y-auto px-3 py-2 text-base md:text-sm',
-        comment: cn('rounded-none border-none bg-transparent text-sm'),
+          'max-h-[min(70vh,320px)] w-full overflow-y-auto px-3 py-2 text-body-16 md:text-body-13',
+        comment: cn('rounded-none border-none bg-transparent text-body-13'),
         default:
-          'size-full px-16 pt-4 pb-72 text-base sm:px-[max(64px,calc(50%-350px))]',
-        demo: 'size-full px-16 pt-4 pb-72 text-base sm:px-[max(64px,calc(50%-350px))]',
-        fullWidth: 'size-full px-16 pt-4 pb-72 text-base sm:px-24',
+          'size-full px-16 pt-4 pb-72 text-body-16 sm:px-[max(64px,calc(50%-350px))]',
+        demo: 'size-full px-16 pt-4 pb-72 text-body-16 sm:px-[max(64px,calc(50%-350px))]',
+        fullWidth: 'size-full px-16 pt-4 pb-72 text-body-16 sm:px-24',
         none: '',
-        select: 'px-3 py-2 text-base data-readonly:w-fit',
+        select: 'px-3 py-2 text-body-16 data-readonly:w-fit',
       },
     },
   }

@@ -62,6 +62,7 @@ type MCPEndpoints interface {
 type Service struct {
 	reg               *Registry
 	store             Store
+	recorder          *Recorder
 	runtimes          map[string]SessionRuntime
 	endpoints         map[string]func() // per-session MCP socket close
 	invoking          map[string]struct{}
@@ -73,6 +74,10 @@ type Service struct {
 	MCPEndpoints MCPEndpoints
 	// OnSessionClosed fires after a session is closed (interaction.Hub forgets its allow_always).
 	OnSessionClosed func(sessionID string)
+	// OnRecordError reports a transcript write that failed. It is a hook, not
+	// an error return: losing a row must not abort a turn the vendor is
+	// already running, but it must not be silent either.
+	OnRecordError func(sessionID string, err error)
 }
 
 // NewService wires registry + store. emit may be nil (no-op).
@@ -83,6 +88,7 @@ func NewService(reg *Registry, store Store, emit func(sessionID string, update j
 	return &Service{
 		reg:       reg,
 		store:     store,
+		recorder:  NewRecorder(store),
 		runtimes:  make(map[string]SessionRuntime),
 		endpoints: make(map[string]func()),
 		invoking:  make(map[string]struct{}),
@@ -288,6 +294,16 @@ func (s *Service) GetStatus(ctx context.Context, id string) (AgentSession, error
 	return s.store.GetSession(ctx, id)
 }
 
+// Transcript returns what was said in a session, oldest first. It is the read
+// side of the recorder: the UI calls it on mount and then follows live events,
+// which is what makes a reload mid-turn show the same thing it showed before.
+func (s *Service) Transcript(ctx context.Context, id string) ([]TranscriptEntry, error) {
+	if err := s.authorizeTarget(ctx, id); err != nil {
+		return nil, err
+	}
+	return s.store.ListTranscript(ctx, id)
+}
+
 // CloseSession closes the live runtime (if any) and marks the session closed.
 func (s *Service) CloseSession(ctx context.Context, id string) error {
 	if err := s.authorizeTarget(ctx, id); err != nil {
@@ -405,6 +421,13 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 			lastUpdateMu.Lock()
 			lastUpdate = append(json.RawMessage(nil), update...)
 			lastUpdateMu.Unlock()
+			// Persist before emitting: a UI that reloads mid-turn must find
+			// the same transcript the live event described. Recording is
+			// best-effort — a write failure must not abort a turn the agent is
+			// already running, so the error rides the audit trail, not Prompt.
+			if err := s.recorder.Record(ctx, in.SessionID, ParseSessionUpdate(update)); err != nil && s.OnRecordError != nil {
+				s.OnRecordError(in.SessionID, err)
+			}
 			s.emit(in.SessionID, update)
 		},
 		OnPermission: func(ctx context.Context, params json.RawMessage) (json.RawMessage, error) {

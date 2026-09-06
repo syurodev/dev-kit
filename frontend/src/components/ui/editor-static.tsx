@@ -25,15 +25,15 @@ export const editorVariants = cva(
         true: 'ring-2 ring-ring ring-offset-2',
       },
       variant: {
-        ai: 'w-full px-0 text-base md:text-sm',
+        ai: 'w-full px-0 text-body-16 md:text-body-13',
         aiChat:
-          'max-h-[min(70vh,320px)] w-full overflow-y-auto px-5 py-3 text-base md:text-sm',
+          'max-h-[min(70vh,320px)] w-full overflow-y-auto px-5 py-3 text-body-16 md:text-body-13',
         default:
-          'size-full px-16 pt-4 pb-72 text-base sm:px-[max(64px,calc(50%-350px))]',
-        demo: 'size-full px-16 pt-4 pb-72 text-base sm:px-[max(64px,calc(50%-350px))]',
-        fullWidth: 'size-full px-16 pt-4 pb-72 text-base sm:px-24',
+          'size-full px-16 pt-4 pb-72 text-body-16 sm:px-[max(64px,calc(50%-350px))]',
+        demo: 'size-full px-16 pt-4 pb-72 text-body-16 sm:px-[max(64px,calc(50%-350px))]',
+        fullWidth: 'size-full px-16 pt-4 pb-72 text-body-16 sm:px-24',
         none: '',
-        select: 'px-3 py-2 text-base data-readonly:w-fit',
+        select: 'px-3 py-2 text-body-16 data-readonly:w-fit',
       },
     },
   }

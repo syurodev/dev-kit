@@ -1,10 +1,16 @@
 import { useState } from "react";
-import { agentHubGetStatus, agentHubResolvePermission, cancelledPermissionOutcome,
-  parsePermissionOptions, permissionToolTitle, selectedPermissionOutcome } from "@/bridge/agenthub";
+import {
+  agentHubCancel,
+  agentHubGetStatus,
+  agentHubInvoke,
+  agentHubResolvePermission,
+  cancelledPermissionOutcome,
+  selectedPermissionOutcome,
+} from "@/bridge/agenthub";
 import { errorMessage } from "@/bridge/errors";
-import { Button } from "@/components/ui/button";
-import { SessionTab } from "@/modules/agenthub/SessionTab";
-import { EMPTY_TRANSCRIPT, useAgentSessionsStore } from "@/stores/agentSessions";
+import { AgentRail } from "@/modules/agenthub/surfaces";
+import { useAgentTranscript } from "@/modules/agenthub/transcript";
+import { useAgentSessionsStore } from "@/stores/agentSessions";
 
 /**
  * The running conversation, in the shell's companion slot.
@@ -20,20 +26,24 @@ import { EMPTY_TRANSCRIPT, useAgentSessionsStore } from "@/stores/agentSessions"
 export function AgentCompanion() {
   const sessions = useAgentSessionsStore((s) => s.sessions);
   const activeSessionId = useAgentSessionsStore((s) => s.activeSessionId);
+  const setActiveSessionId = useAgentSessionsStore((s) => s.setActiveSessionId);
   const transcripts = useAgentSessionsStore((s) => s.transcripts);
   const upsertSession = useAgentSessionsStore((s) => s.upsertSession);
   const setPrompt = useAgentSessionsStore((s) => s.setPrompt);
-  const updateLines = useAgentSessionsStore((s) => s.updateLines);
   const pending = useAgentSessionsStore((s) => s.pending);
   const dequeuePending = useAgentSessionsStore((s) => s.dequeuePending);
 
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
   const [permBusy, setPermBusy] = useState(false);
 
-  const session = sessions.find((s) => s.id === activeSessionId) ?? sessions[0];
-  const transcript = session ? (transcripts[session.id] ?? EMPTY_TRANSCRIPT) : EMPTY_TRANSCRIPT;
+  const session = sessions.find((s) => s.id === activeSessionId) ?? sessions[0] ?? null;
+  const prompt = session ? (transcripts[session.id]?.prompt ?? "") : "";
 
-  async function resolve(optionId: string | null) {
+  // Live transcript stream for the active session in rail
+  const transcriptModel = useAgentTranscript(session?.id ?? "");
+
+  async function resolvePermission(optionId: string | null) {
     if (!pending) return;
     setPermBusy(true);
     setError("");
@@ -51,72 +61,56 @@ export function AgentCompanion() {
     }
   }
 
-  if (!session) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-1 p-6 text-center">
-        <p className="text-sm text-muted-foreground">No agent session yet.</p>
-        <p className="text-xs text-text-tertiary">
-          Open Agent Hub to start one — it needs a vendor and a working directory.
-        </p>
-      </div>
-    );
+  async function handleSend() {
+    if (!session || !prompt.trim() || busy) return;
+    const text = prompt.trim();
+    setPrompt(session.id, "");
+    setBusy(true);
+    setError("");
+    try {
+      upsertSession({ ...session, status: "running" });
+      await agentHubInvoke({
+        sessionId: session.id,
+        prompt: text,
+      });
+      upsertSession(await agentHubGetStatus(session.id));
+    } catch (e) {
+      setError(errorMessage(e));
+      try {
+        upsertSession(await agentHubGetStatus(session.id));
+      } catch {}
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleCancel() {
+    if (!session) return;
+    try {
+      await agentHubCancel(session.id);
+      upsertSession(await agentHubGetStatus(session.id));
+    } catch (e) {
+      setError(errorMessage(e));
+    }
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-center gap-2 px-3 py-2.5 pr-12">
-        <span className="truncate text-sm font-semibold text-text-primary">Agent</span>
-        <span className="truncate font-mono text-[10px] text-text-tertiary">
-          {session.agentType} · {session.status}
-        </span>
-      </div>
-
-      {/* A permission request is the case where you press send and nothing
-          happens, so it is stated here rather than only in the Agent Hub. */}
-      {pending && pending.sessionId === session.id ? (
-        <div className="mx-3 mb-2 shrink-0 rounded-lg border border-border-subtle bg-surface-tinted p-2.5">
-          <p className="mb-2 text-xs text-text-primary">
-            Waiting for permission: {permissionToolTitle(pending.params)}
-          </p>
-          <div className="flex flex-wrap gap-1.5">
-            {parsePermissionOptions(pending.params).map((opt) => (
-              <Button
-                key={opt.optionId}
-                size="sm"
-                className="h-6 px-2 text-xs"
-                disabled={permBusy}
-                onClick={() => void resolve(opt.optionId)}
-              >
-                {opt.name}
-              </Button>
-            ))}
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-6 px-2 text-xs"
-              disabled={permBusy}
-              onClick={() => void resolve(null)}
-            >
-              Cancel
-            </Button>
-          </div>
-        </div>
-      ) : null}
-
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <SessionTab
-          session={session}
-          lines={transcript.lines}
-          prompt={transcript.prompt}
-          busy={false}
-          onPromptChange={(prompt) => setPrompt(session.id, prompt)}
-          onLinesChange={(updater) => updateLines(session.id, updater)}
-          onSessionChange={upsertSession}
-          onError={setError}
-        />
-      </div>
-
-      {error ? <p className="shrink-0 px-3 pb-2 text-xs text-destructive">{error}</p> : null}
-    </div>
+    <AgentRail
+      sessions={sessions}
+      activeSession={session}
+      onSelectSession={(id) => setActiveSessionId(id)}
+      items={transcriptModel.items}
+      usage={transcriptModel.usage}
+      commands={transcriptModel.commands}
+      promptValue={prompt}
+      onPromptChange={(val) => session && setPrompt(session.id, val)}
+      onSend={() => void handleSend()}
+      onCancel={() => void handleCancel()}
+      streaming={busy || session?.status === "running"}
+      pendingPermission={pending}
+      onResolvePermission={resolvePermission}
+      permissionBusy={permBusy}
+      errorMessage={error}
+    />
   );
 }

@@ -6,6 +6,7 @@ import { useResizableSize } from "@/workbench/useResizableSize";
 import { GAP_WIDTH, maxPanelWidth, useWindowWidth } from "@/workbench/panelLayout";
 import { SPLIT_MIN_HEIGHT, splitColumn } from "@/workbench/splitColumn";
 import { usePanelWidthsStore } from "@/stores/panelWidths";
+import { ShellResizeHandle } from "@/components/ui/resize-handle";
 import { cn } from "@/lib/utils";
 
 type PanelState = {
@@ -97,7 +98,10 @@ function PanelCard({
     <div
       style={style}
       className={cn(
-        "relative flex min-h-0 flex-col overflow-hidden rounded-xl glass-panel",
+        // Figma panel-surface 116:1348 is surface/base at full opacity with a
+        // glass/border hairline and radius/10 — the same material as the content
+        // card, not a glass tier. It was glass-panel (55%) at radius 12.
+        "relative flex min-h-0 flex-col overflow-hidden shell-surface",
         className,
       )}
     >
@@ -223,21 +227,13 @@ export function SplitPanelSlot() {
         className="flex min-h-0 shrink-0 overflow-hidden"
       >
         {open ? (
-          <div
-            role="separator"
-            aria-orientation="vertical"
+          <ShellResizeHandle
+            orientation="vertical"
             aria-label="Resize panel"
             onPointerDown={onPointerDown}
+            isResizing={isResizing}
             style={{ width: GAP_WIDTH }}
-            className="group flex shrink-0 cursor-col-resize items-center justify-center"
-          >
-            <div
-              className={cn(
-                "h-full w-px bg-transparent transition-colors",
-                isResizing ? "bg-ring" : "group-hover:bg-border",
-              )}
-            />
-          </div>
+          />
         ) : null}
 
         <div ref={columnRef} className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -251,21 +247,13 @@ export function SplitPanelSlot() {
           ) : null}
 
           {bothOpen ? (
-            <div
-              role="separator"
-              aria-orientation="horizontal"
+            <ShellResizeHandle
+              orientation="horizontal"
               aria-label="Resize panel split"
               onPointerDown={splitDrag.onPointerDown}
+              isResizing={splitDrag.isResizing}
               style={{ height: GAP_WIDTH }}
-              className="group flex shrink-0 cursor-row-resize items-center justify-center"
-            >
-              <div
-                className={cn(
-                  "h-px w-full bg-transparent transition-colors",
-                  splitDrag.isResizing ? "bg-ring" : "group-hover:bg-border",
-                )}
-              />
-            </div>
+            />
           ) : null}
 
           {companion ? (

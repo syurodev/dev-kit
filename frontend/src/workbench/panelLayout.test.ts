@@ -6,6 +6,7 @@ import {
   CONTENT_MIN_HEIGHT,
   TITLE_BAR_HEIGHT,
   GAP_WIDTH,
+  WINDOW_GUTTER,
 } from "./panelLayout";
 
 const SIDEBAR_MIN = 240;
@@ -81,10 +82,13 @@ test("the bottom slot's ceiling leaves the content row its floor", () => {
   const windowHeight = 800;
   const max = maxBottomHeight({ windowHeight, min: 120, hardMax: 600 });
   expect(max).toBeLessThan(600);
+  // One sash above the slot, one window gutter below it — not two sashes. They
+  // read the same while both were 8; the window gutter is now 4.
   expect(max).toBe(
-    windowHeight - TITLE_BAR_HEIGHT - CONTENT_MIN_HEIGHT - GAP_WIDTH * 2,
+    windowHeight - TITLE_BAR_HEIGHT - CONTENT_MIN_HEIGHT - GAP_WIDTH - WINDOW_GUTTER,
   );
-  const contentRow = windowHeight - TITLE_BAR_HEIGHT - max - GAP_WIDTH * 2;
+  const contentRow =
+    windowHeight - TITLE_BAR_HEIGHT - max - GAP_WIDTH - WINDOW_GUTTER;
   expect(contentRow).toBe(CONTENT_MIN_HEIGHT);
 });
 

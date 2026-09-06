@@ -71,7 +71,7 @@ export function TabSwitcher({ open, onClose }: TabSwitcherProps) {
           popup was indistinguishable at a glance from the ⌘K Commands
           palette — both are the same CommandDialog chrome around a plain
           list. This row is the actual visual differentiator. */}
-      <div className="flex items-center gap-1.5 border-b border-border/50 px-3 py-2 text-xs font-medium text-muted-foreground">
+      <div className="flex items-center gap-1.5 border-b border-border/50 px-3 py-2 text-caption-11-medium text-text-tertiary">
         <ArrowLeftRight className="size-3.5" />
         Switch tab
       </div>
@@ -96,7 +96,7 @@ export function TabSwitcher({ open, onClose }: TabSwitcherProps) {
               >
                 <ModuleIcon className="size-3.5 shrink-0 opacity-70" />
                 <span className="truncate">{tab.title}</span>
-                <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+                <span className="ml-auto shrink-0 text-caption-11 text-text-tertiary">
                   {moduleTitle}
                 </span>
               </CommandItem>

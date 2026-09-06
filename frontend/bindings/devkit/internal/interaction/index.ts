@@ -3,6 +3,9 @@
 
 export {
     Kind,
-    Pending,
     Type
+} from "./models.js";
+
+export type {
+    Pending
 } from "./models.js";

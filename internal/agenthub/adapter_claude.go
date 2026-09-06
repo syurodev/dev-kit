@@ -22,6 +22,13 @@ type SandboxRunner interface {
 	StartPiped(ctx context.Context, p sandbox.Policy, c sandbox.Cmd) (*sandbox.Proc, error)
 }
 
+// handshakeTimeout bounds initialize + session/new. It is a backstop only: a
+// dead process is caught immediately through the serve loop, so this fires only
+// for a vendor that is running and simply never answers. Generous, because a
+// cold npx start can take real time and a false failure here means the user
+// cannot open a session at all.
+const handshakeTimeout = 60 * time.Second
+
 // ClaudeOptions configures the Claude ACP vendor adapter.
 type ClaudeOptions struct {
 	// Command is the agent binary. Prefer an absolute path resolved before the jail.
@@ -312,13 +319,45 @@ func (a *ClaudeAdapter) Open(ctx context.Context, spec OpenSpec) (SessionRuntime
 		<-rt.serveDone
 	}
 
+	// The handshake must not be able to outlive the process it is talking to.
+	//
+	// acp.Conn.Call blocks in a select on ctx.Done() and the response channel.
+	// The caller's ctx has no deadline here (Open deliberately detaches the
+	// process from the request that started it), so a vendor that dies without
+	// closing stdout left both calls below parked forever: no error, no log,
+	// nothing for the UI to render but a spinner. Every ErrProcessFailed branch
+	// in this function was unreachable in exactly the case it was written for.
+	//
+	// serveDone closes when conn.Serve returns, which is what process death and
+	// pipe EOF both look like from here, so it is the real signal. The timeout
+	// is only a backstop for a process that is alive but never answers.
+	hsCtx, cancelHandshake := context.WithTimeout(ctx, handshakeTimeout)
+	defer cancelHandshake()
+	go func() {
+		select {
+		case <-rt.serveDone:
+			cancelHandshake()
+		case <-hsCtx.Done():
+		}
+	}()
+	// Reports what actually went wrong: a cancelled handshake reads as a
+	// context error, which says nothing about the process having exited.
+	handshakeErr := func(stage string, err error) error {
+		select {
+		case <-rt.serveDone:
+			return fmt.Errorf("%w: %s: agent process exited during handshake", ErrProcessFailed, stage)
+		default:
+			return fmt.Errorf("%w: %s: %v", ErrProcessFailed, stage, err)
+		}
+	}
+
 	var initRes acp.InitializeResult
-	if err := conn.Call(ctx, "initialize", acp.InitializeRequest{
+	if err := conn.Call(hsCtx, "initialize", acp.InitializeRequest{
 		ProtocolVersion: 1,
 		ClientInfo:      map[string]any{"name": "devkit", "version": "0.0.0"},
 	}, &initRes); err != nil {
 		cleanup()
-		return nil, fmt.Errorf("%w: initialize: %v", ErrProcessFailed, err)
+		return nil, handshakeErr("initialize", err)
 	}
 
 	// Non-nil even with no endpoints: mcpServers is a required field.
@@ -330,12 +369,12 @@ func (a *ClaudeAdapter) Open(ctx context.Context, spec OpenSpec) (SessionRuntime
 		mcpServers = append(mcpServers, srv)
 	}
 	var newRes acp.SessionNewResult
-	if err := conn.Call(ctx, "session/new", acp.SessionNewRequest{
+	if err := conn.Call(hsCtx, "session/new", acp.SessionNewRequest{
 		Cwd:        pol.WorkDir,
 		McpServers: mcpServers,
 	}, &newRes); err != nil {
 		cleanup()
-		return nil, fmt.Errorf("%w: session/new: %v", ErrProcessFailed, err)
+		return nil, handshakeErr("session/new", err)
 	}
 	if newRes.SessionID == "" {
 		cleanup()

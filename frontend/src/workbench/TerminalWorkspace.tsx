@@ -30,56 +30,54 @@ export function TerminalWorkspace({ moduleContent }: { moduleContent?: React.Rea
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {/* The Tabs root is a COLUMN by design (list above, content below), so it
-          wraps the strip only. Putting the + button inside it pushed the button
-          onto a second row and centred everything. Row layout is this div's
-          job, not the primitive's. */}
-      <div className="flex shrink-0 items-center gap-1 border-b border-border-subtle px-2 py-1">
+      {/* Terminal tabs strip: 48px height (h-12), 190×30 tab pills (EXCEPTION: not 200×32),
+          28×28 action buttons per Figma 204:428 */}
+      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border-subtle px-2">
         <Tabs value={value} onValueChange={setActive} className="min-w-0 flex-1 gap-0">
-          {/* Default (segmented) rather than line: this card is bg-card, which
-              resolves to surface/base, while the track is bg-muted =
-              surface/raised. Two different colours, so the track reads. On the
-              old popover those were the same colour and it would not have. */}
-          <TabsList className="max-w-full justify-start overflow-x-auto [&::-webkit-scrollbar]:hidden">
+          <TabsList className="h-[30px] max-w-full justify-start gap-2 bg-transparent p-0 overflow-x-auto [&::-webkit-scrollbar]:hidden">
             {showModule && (
-              <TabsTrigger value={MODULE_KEY} className="flex-none px-2 text-xs">
+              <TabsTrigger
+                value={MODULE_KEY}
+                className="w-[190px] h-[30px] flex-none rounded-[6px] px-2 text-label-12 data-[state=active]:bg-surface-raised data-[state=active]:text-text-primary data-[state=inactive]:bg-[var(--state-soft)] data-[state=inactive]:text-text-secondary"
+              >
                 Panel
               </TabsTrigger>
             )}
             {tabs.map((t) => (
-              <TabsTrigger key={t.key} value={t.key} className="flex-none gap-1 px-2 pr-1 text-xs">
-                {t.title}
+              <TabsTrigger
+                key={t.key}
+                value={t.key}
+                className="w-[190px] h-[30px] flex-none gap-1 rounded-[6px] px-2 pr-1.5 text-label-12 data-[state=active]:bg-surface-raised data-[state=active]:text-text-primary data-[state=inactive]:bg-[var(--state-soft)] data-[state=inactive]:text-text-secondary"
+              >
+                <span className="truncate flex-1 text-left">{t.title}</span>
                 <span
                   role="button"
                   tabIndex={-1}
                   aria-label={`Close ${t.title}`}
                   onPointerDown={(e) => {
-                    // pointerdown, not click: the trigger activates on pointer
-                    // down, so a click handler would first switch to the tab it
-                    // is about to close.
                     e.preventDefault();
                     e.stopPropagation();
                     closeTab(t.key);
                   }}
-                  className="rounded p-0.5 opacity-40 hover:bg-foreground/10 hover:opacity-100"
+                  className="rounded p-0.5 opacity-60 hover:bg-foreground/10 hover:opacity-100"
                 >
-                  {/* Sized by class: TabsTrigger forces size-4 on any svg that
-                      has no size class of its own. */}
                   <X className="size-3" />
                 </span>
               </TabsTrigger>
             ))}
           </TabsList>
         </Tabs>
-        <Button
-          size="icon"
-          variant="ghost"
-          className="size-6 shrink-0"
-          aria-label="New terminal"
-          onClick={openTab}
-        >
-          <Plus className="size-3.5" />
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            size="icon"
+            variant="ghost"
+            className="size-7 shrink-0 rounded-[8px] hover:bg-[var(--state-soft)] hover:text-text-primary cursor-pointer p-0"
+            aria-label="New terminal"
+            onClick={openTab}
+          >
+            <Plus className="size-[13px]" />
+          </Button>
+        </div>
       </div>
 
       <div className="relative min-h-0 flex-1">
@@ -94,9 +92,9 @@ export function TerminalWorkspace({ moduleContent }: { moduleContent?: React.Rea
           </div>
         ))}
         {tabs.length === 0 && !showModule && (
-          <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
+          <div className="flex h-full flex-col items-center justify-center gap-2 text-body-13 text-text-tertiary">
             <p>No terminal open.</p>
-            <Button size="sm" variant="secondary" className="h-7 px-2 text-xs" onClick={openTab}>
+            <Button size="sm" variant="secondary" className="h-7 px-2 text-label-12" onClick={openTab}>
               New terminal
             </Button>
           </div>

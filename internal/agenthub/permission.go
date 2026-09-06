@@ -27,6 +27,12 @@ type PendingPermission struct {
 	SessionID string          `json:"sessionId"`
 	Params    json.RawMessage `json:"params"`
 	CreatedAt time.Time       `json:"createdAt"`
+	// ExpiresAt is when the gate closes on its own. It ships with the request
+	// because the UI cannot infer it: a toast may mount long after the request
+	// arrived — the rail was closed, the user was in another module, the lazy
+	// chunk was still loading — and a countdown started at mount would promise
+	// time that no longer exists.
+	ExpiresAt time.Time `json:"expiresAt"`
 }
 
 // PermissionWaiter blocks ACP session/request_permission until Complete or timeout.
@@ -37,6 +43,10 @@ type PendingPermission struct {
 // agenthub:permission and resolve via Complete (mirror interaction.Complete).
 type PermissionWaiter struct {
 	notify func(PendingPermission)
+	// Timeout must match Service.PermissionTimeout — it only stamps ExpiresAt
+	// for the UI; the deadline that actually closes the gate is the context in
+	// Service.mediatePermission. Zero means interaction.DefaultTimeout.
+	Timeout time.Duration
 
 	mu      sync.Mutex
 	pending map[string]*permissionWait // by ID; at most one per SessionID
@@ -65,11 +75,13 @@ func (w *PermissionWaiter) Wait(ctx context.Context, sessionID string, params js
 		return nil, err
 	}
 	resCh := make(chan json.RawMessage, 1)
+	now := time.Now().UTC()
 	p := PendingPermission{
 		ID:        id,
 		SessionID: sessionID,
 		Params:    append(json.RawMessage(nil), params...),
-		CreatedAt: time.Now().UTC(),
+		CreatedAt: now,
+		ExpiresAt: now.Add(w.timeout()),
 	}
 
 	w.mu.Lock()
@@ -152,6 +164,19 @@ func (w *PermissionWaiter) invalidate(id string) {
 		p.finished = true
 		delete(w.pending, id)
 	}
+}
+
+func (w *PermissionWaiter) timeout() time.Duration {
+	if w.Timeout > 0 {
+		return w.Timeout
+	}
+	return interaction.DefaultTimeout
+}
+
+// PermissionTimeoutOrDefault exposes the deadline the gate actually enforces so
+// the waiter can stamp a matching ExpiresAt instead of duplicating the constant.
+func (s *Service) PermissionTimeoutOrDefault() time.Duration {
+	return s.permissionTimeout()
 }
 
 func (s *Service) permissionTimeout() time.Duration {

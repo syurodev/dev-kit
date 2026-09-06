@@ -7,6 +7,8 @@ import {
   onAgentHubSessionUpdate,
 } from "../bridge/agenthub";
 import { appendUpdateLine, useAgentSessionsStore } from "../stores/agentSessions";
+import { useWorkbenchTabsStore, type TabStatus } from "../stores/workbenchTabs";
+import { UpdateKind } from "../../bindings/devkit/internal/agenthub/models";
 
 /**
  * Keeps the shared Agent Hub session store in sync regardless of which
@@ -47,15 +49,40 @@ export function AgentSessionsSubscriber() {
   }, [setSessions, enqueuePending]);
 
   /**
-   * The transcript stream. This used to be subscribed inside AgentHubView,
-   * which tore it down on every module switch: an agent that kept working
-   * while you looked at something else streamed into a handler nobody had
-   * registered, and those turns were lost outright. It belongs here, beside
-   * the session sync, for exactly the reason in this file's header.
+   * The transcript stream & tab status synchronization.
+   * `agenthub:sessionUpdate` → `setTabStatus`
+   *
+   * Subscribed globally so turns continue streaming when working in another module.
+   * Synchronizes tab status with ACP update stream ('running' during turns, 'error' on failure).
+   * Tasks will be the second consumer of setTabStatus.
    */
   useEffect(() => {
     return onAgentHubSessionUpdate((event) => {
       updateLines(event.sessionId, (prev) => appendUpdateLine(prev, event.update));
+
+      // Synchronize tab status: find open tabs belonging to Agent Hub
+      const { openTabs, setTabStatus } = useWorkbenchTabsStore.getState();
+      const targetTabs = openTabs.filter(
+        (t) =>
+          t.moduleId === "agenthub" &&
+          (!t.params?.sessionId || t.params.sessionId === event.sessionId),
+      );
+
+      if (targetTabs.length > 0) {
+        let nextStatus: TabStatus = "running";
+        if (event.parsed) {
+          const kind = event.parsed.kind;
+          if (
+            kind === UpdateKind.UpdateToolCallUpdate &&
+            event.parsed.toolCall?.status === "failed"
+          ) {
+            nextStatus = "error";
+          }
+        }
+        for (const tab of targetTabs) {
+          setTabStatus(tab.id, nextStatus);
+        }
+      }
     });
   }, [updateLines]);
 

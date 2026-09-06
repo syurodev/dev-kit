@@ -16,13 +16,13 @@ function LoadingStatus({
     <div
       data-slot="loading-status"
       className={cn(
-        "flex h-12 w-fit items-center gap-3 rounded-[12px] bg-surface-raised px-4 border border-border-subtle shadow-sm",
+        "flex h-12 w-[320px] items-center gap-3 rounded-[12px] border border-[rgba(255,255,255,0.1)] bg-[rgba(29,29,29,0.62)] pl-[14px] pr-4 backdrop-blur-[12px] shadow-[inset_0px_1px_0px_0px_rgba(255,255,255,0.06),0_6px_10px_0_rgba(0,0,0,0.3)] select-none",
         className
       )}
       {...props}
     >
-      <LoaderCircle className="size-4 animate-spin text-status-info" strokeWidth={1.5} />
-      <span className="text-[13px] font-medium text-text-secondary">
+      <LoaderCircle className="size-4 animate-spin text-icon-secondary shrink-0" strokeWidth={1.5} />
+      <span className="text-body-13-medium text-text-secondary truncate">
         {text}
       </span>
     </div>

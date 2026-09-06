@@ -36,7 +36,7 @@ const popoverVariants = cva(
 );
 
 const inputVariants = cva(
-  'flex h-[28px] w-full rounded-md border-none bg-transparent px-1.5 py-1 text-base placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-transparent md:text-sm'
+  'flex h-(--control-height-sm) w-full rounded-md border-none bg-transparent px-1.5 py-1 text-body-13 placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-transparent'
 );
 
 export function LinkFloatingToolbar({

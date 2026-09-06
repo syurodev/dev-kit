@@ -7,9 +7,10 @@ import {
   useWindowHeight,
 } from "@/workbench/panelLayout";
 import { useBottomContentStore } from "@/stores/bottomContent";
-import { TerminalWorkspace } from "@/workbench/TerminalWorkspace";
 import { useBottomSlotStore } from "@/stores/bottomSlot";
+import { TerminalWorkspace } from "@/workbench/TerminalWorkspace";
 import { SidebarModuleIdContext } from "@/components/ui/sidebar-shell";
+import { ShellResizeHandle } from "@/components/ui/resize-handle";
 
 /**
  * Registers `content` as the calling module's bottom-slot panel for as long as
@@ -101,27 +102,20 @@ export function BottomSlotSurface({ activeModuleId }: { activeModuleId: string |
         className="flex min-w-0 shrink-0 flex-col overflow-hidden"
       >
         {open ? (
-          <div
-            role="separator"
-            aria-orientation="horizontal"
+          <ShellResizeHandle
+            orientation="horizontal"
             aria-label="Resize bottom panel"
             onPointerDown={onPointerDown}
+            isResizing={isResizing}
             style={{ height: GAP_WIDTH }}
-            className="group flex shrink-0 cursor-row-resize items-center justify-center"
-          >
-            <div
-              className={
-                isResizing
-                  ? "h-px w-full bg-ring transition-colors"
-                  : "h-px w-full bg-transparent transition-colors group-hover:bg-border"
-              }
-            />
-          </div>
+          />
         ) : null}
         {/* Same treatment as SplitPanelSlot's own box — a raised content card,
             not the recessed bg-sidebar rail. A terminal or a task log reads as
             content, not as navigation chrome. */}
-        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl glass-panel">
+        {/* Figma bottom-surface 204:462: surface/base, glass/border, radius/10 —
+            identical to the content card and the side panel. */}
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden shell-surface">
           {/* The workspace owns this surface: terminals belong to the shell so
               they survive a module switch, the way a build running in one must.
               Module-registered content still gets a tab beside them. */}

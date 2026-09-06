@@ -1,13 +1,23 @@
 import { useEffect, useState } from "react";
 
 /**
- * Transparent gutter between the centre content card and either side panel.
- * Single source of truth for both SidebarSurface and SplitPanelSlot — see the
- * gotcha in docs: this value once drifted from a hardcoded Tailwind `w-2`,
- * which made changing it have no visual effect. Both panels set it via inline
+ * Transparent gutter / sash between the centre content card and either side panel.
+ * Single source of truth for both SidebarSurface and SplitPanelSlot — matches 8px
+ * sash in Figma App Shell (107:137). Both panels set it via inline
  * `style={{ width: GAP_WIDTH }}`, never a utility class.
  */
-export const GAP_WIDTH = 4;
+export const GAP_WIDTH = 8;
+
+/**
+ * The margin between the window edge and the content row (`mx-1 mb-1` on
+ * Workbench.tsx). Figma App Shell 107:137 draws this at 8, the same as the
+ * sash; DevKit runs it at 4 so the shell reads tighter against the window.
+ *
+ * Deliberately a separate constant from GAP_WIDTH even when the two are equal:
+ * one is a draggable sash between two surfaces, the other is dead margin at the
+ * window edge, and collapsing them hid a bug in maxBottomHeight below.
+ */
+export const WINDOW_GUTTER = 4;
 
 /** Hard floor for the centre content area, whatever the two side panels do. */
 export const CONTENT_MIN_WIDTH = 480;
@@ -48,11 +58,10 @@ export function maxPanelWidth(opts: {
 }
 
 /**
- * The title bar's fixed height. Mirrors the `h-[30px]` on Workbench.tsx's
- * <header> — a Tailwind class cannot be read from here, so the two are kept
- * in step by hand. Change one, change the other.
+ * The title bar's fixed height. Mirrors the `h-10` (40px) on Workbench.tsx's
+ * <header> — Step 4a reconciled to Figma Titlebar 732:2170 (1440×40).
  */
-export const TITLE_BAR_HEIGHT = 30;
+export const TITLE_BAR_HEIGHT = 40;
 
 /** Hard floor for the centre content row, whatever the bottom slot does. */
 export const CONTENT_MIN_HEIGHT = 240;
@@ -77,9 +86,10 @@ export function useWindowHeight(): number {
  * above it a floor. Passing a fake `otherEffectiveWidth: 0` through the other
  * function would have hidden that difference behind a coincidence.
  *
- * The two GAP_WIDTHs are different things that happen to be equal: the gutter
- * between the content row and this slot, and the window margin below it (the
- * `mb-1` on Workbench.tsx's content wrapper).
+ * The two terms subtracted below are different things: GAP_WIDTH is the sash
+ * between the content row and this slot, WINDOW_GUTTER is the dead margin below
+ * it at the window edge. They used to be one `GAP_WIDTH * 2`, which was only
+ * correct while both happened to be 8.
  *
  * Never returns less than `min`, for the same reason maxPanelWidth does not.
  */
@@ -89,6 +99,7 @@ export function maxBottomHeight(opts: {
   hardMax: number;
 }): number {
   const { windowHeight, min, hardMax } = opts;
-  const available = windowHeight - TITLE_BAR_HEIGHT - CONTENT_MIN_HEIGHT - GAP_WIDTH * 2;
+  const available =
+    windowHeight - TITLE_BAR_HEIGHT - CONTENT_MIN_HEIGHT - GAP_WIDTH - WINDOW_GUTTER;
   return Math.max(min, Math.min(hardMax, available));
 }

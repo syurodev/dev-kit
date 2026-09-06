@@ -3,16 +3,12 @@
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
-import { Create as $Create } from "@wailsio/runtime";
-
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore: Unused imports
 import * as json$0 from "../../../encoding/json/models.js";
 
 /**
  * AgentSession is the hub-owned session record (DevKit UUID, not ACP id).
  */
-export class AgentSession {
+export interface AgentSession {
     "ID": string;
     "AgentType": AgentType;
     "ProjectPath": string;
@@ -23,50 +19,6 @@ export class AgentSession {
     "ACPSessionID": string;
     "CreatedAt": string;
     "UpdatedAt": string;
-
-    /** Creates a new AgentSession instance. */
-    constructor($$source: Partial<AgentSession> = {}) {
-        if (!("ID" in $$source)) {
-            this["ID"] = "";
-        }
-        if (!("AgentType" in $$source)) {
-            this["AgentType"] = AgentType.$zero;
-        }
-        if (!("ProjectPath" in $$source)) {
-            this["ProjectPath"] = "";
-        }
-        if (!("Status" in $$source)) {
-            this["Status"] = SessionStatus.$zero;
-        }
-        if (!("ParentSessionID" in $$source)) {
-            this["ParentSessionID"] = null;
-        }
-        if (!("Depth" in $$source)) {
-            this["Depth"] = 0;
-        }
-        if (!("Title" in $$source)) {
-            this["Title"] = null;
-        }
-        if (!("ACPSessionID" in $$source)) {
-            this["ACPSessionID"] = "";
-        }
-        if (!("CreatedAt" in $$source)) {
-            this["CreatedAt"] = "0001-01-01T00:00:00.000Z";
-        }
-        if (!("UpdatedAt" in $$source)) {
-            this["UpdatedAt"] = "0001-01-01T00:00:00.000Z";
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new AgentSession instance from a string or object.
-     */
-    static createFrom($$source: any = {}): AgentSession {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new AgentSession($$parsedSource as Partial<AgentSession>);
-    }
 }
 
 /**
@@ -85,7 +37,7 @@ export enum AgentType {
 /**
  * CreateInput is the request to open a new agent session.
  */
-export class CreateInput {
+export interface CreateInput {
     "AgentType": AgentType;
     "Cwd": string;
 
@@ -94,38 +46,12 @@ export class CreateInput {
      */
     "ParentSessionID": string;
     "Title": string | null;
-
-    /** Creates a new CreateInput instance. */
-    constructor($$source: Partial<CreateInput> = {}) {
-        if (!("AgentType" in $$source)) {
-            this["AgentType"] = AgentType.$zero;
-        }
-        if (!("Cwd" in $$source)) {
-            this["Cwd"] = "";
-        }
-        if (!("ParentSessionID" in $$source)) {
-            this["ParentSessionID"] = "";
-        }
-        if (!("Title" in $$source)) {
-            this["Title"] = null;
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new CreateInput instance from a string or object.
-     */
-    static createFrom($$source: any = {}): CreateInput {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new CreateInput($$parsedSource as Partial<CreateInput>);
-    }
 }
 
 /**
  * InvokeInput is a blocking prompt against an existing hub session.
  */
-export class InvokeInput {
+export interface InvokeInput {
     "SessionID": string;
     "Prompt": string;
 
@@ -133,112 +59,39 @@ export class InvokeInput {
      * optional; used for CheckCycle on cross-session invoke
      */
     "CallerSessionID": string;
-
-    /** Creates a new InvokeInput instance. */
-    constructor($$source: Partial<InvokeInput> = {}) {
-        if (!("SessionID" in $$source)) {
-            this["SessionID"] = "";
-        }
-        if (!("Prompt" in $$source)) {
-            this["Prompt"] = "";
-        }
-        if (!("CallerSessionID" in $$source)) {
-            this["CallerSessionID"] = "";
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new InvokeInput instance from a string or object.
-     */
-    static createFrom($$source: any = {}): InvokeInput {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new InvokeInput($$parsedSource as Partial<InvokeInput>);
-    }
 }
 
 /**
  * InvokeResult is the MCP/UI-facing outcome of a blocking Invoke.
  */
-export class InvokeResult {
+export interface InvokeResult {
     /**
      * completed | cancelled | error
      */
     "status": string;
     "summary": string;
-    "filesChanged": string[];
+    "filesChanged": string[] | null;
     "turnCount": number;
     "stopReason": string;
-
-    /** Creates a new InvokeResult instance. */
-    constructor($$source: Partial<InvokeResult> = {}) {
-        if (!("status" in $$source)) {
-            this["status"] = "";
-        }
-        if (!("summary" in $$source)) {
-            this["summary"] = "";
-        }
-        if (!("filesChanged" in $$source)) {
-            this["filesChanged"] = [];
-        }
-        if (!("turnCount" in $$source)) {
-            this["turnCount"] = 0;
-        }
-        if (!("stopReason" in $$source)) {
-            this["stopReason"] = "";
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new InvokeResult instance from a string or object.
-     */
-    static createFrom($$source: any = {}): InvokeResult {
-        const $$createField2_0 = $$createType0;
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        if ("filesChanged" in $$parsedSource) {
-            $$parsedSource["filesChanged"] = $$createField2_0($$parsedSource["filesChanged"]);
-        }
-        return new InvokeResult($$parsedSource as Partial<InvokeResult>);
-    }
 }
 
 /**
  * PendingPermission is a permission prompt awaiting UI resolution.
  */
-export class PendingPermission {
+export interface PendingPermission {
     "id": string;
     "sessionId": string;
     "params": json$0.RawMessage;
     "createdAt": string;
 
-    /** Creates a new PendingPermission instance. */
-    constructor($$source: Partial<PendingPermission> = {}) {
-        if (!("id" in $$source)) {
-            this["id"] = "";
-        }
-        if (!("sessionId" in $$source)) {
-            this["sessionId"] = "";
-        }
-        if (!("params" in $$source)) {
-            this["params"] = null;
-        }
-        if (!("createdAt" in $$source)) {
-            this["createdAt"] = "0001-01-01T00:00:00.000Z";
-        }
-
-        Object.assign(this, $$source);
-    }
-
     /**
-     * Creates a new PendingPermission instance from a string or object.
+     * ExpiresAt is when the gate closes on its own. It ships with the request
+     * because the UI cannot infer it: a toast may mount long after the request
+     * arrived — the rail was closed, the user was in another module, the lazy
+     * chunk was still loading — and a countdown started at mount would promise
+     * time that no longer exists.
      */
-    static createFrom($$source: any = {}): PendingPermission {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new PendingPermission($$parsedSource as Partial<PendingPermission>);
-    }
+    "expiresAt": string;
 }
 
 /**
@@ -257,5 +110,74 @@ export enum SessionStatus {
     SessionStatusClosed = "closed",
 };
 
-// Private type creation functions
-const $$createType0 = $Create.Array($Create.Any);
+/**
+ * TranscriptEntry is one persisted row of a session's conversation.
+ * 
+ * Sessions and turns are operational records — they answer "what ran, what did
+ * it cost". The transcript answers "what was said", which is the only part a
+ * person needs back after a reload, and it is the part the hub used to lose
+ * entirely: session/update went straight to the UI event bus and nowhere else.
+ */
+export interface TranscriptEntry {
+    "ID": string;
+    "SessionID": string;
+    "Seq": number;
+    "Kind": UpdateKind;
+
+    /**
+     * ToolCallID is set for tool-call entries. It is the merge key: ACP sends
+     * tool_call once and then tool_call_update repeatedly for the same id, and
+     * a transcript that appended each one would show the same call five times.
+     */
+    "ToolCallID": string;
+
+    /**
+     * Text holds the accumulated text of a chunk entry. Consecutive chunks of
+     * the same kind coalesce into one row — chunks arrive per token, and one
+     * row each would make the table grow faster than anything else in DevKit.
+     */
+    "Text": string;
+
+    /**
+     * Payload is the normalized SessionUpdate for non-chunk kinds.
+     */
+    "Payload": json$0.RawMessage;
+    "CreatedAt": string;
+    "UpdatedAt": string;
+}
+
+/**
+ * UpdateKind is the `sessionUpdate` discriminator of an ACP session/update
+ * notification. The transport keeps the notification a raw blob (see
+ * acp.SessionUpdateParams); this is where it becomes something the hub and the
+ * UI can branch on without either of them learning ACP's wire shape.
+ */
+export enum UpdateKind {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    UpdateUserMessageChunk = "user_message_chunk",
+    UpdateAgentMessageChunk = "agent_message_chunk",
+    UpdateAgentThoughtChunk = "agent_thought_chunk",
+    UpdateToolCall = "tool_call",
+    UpdateToolCallUpdate = "tool_call_update",
+    UpdatePlan = "plan",
+    UpdateAvailableCommands = "available_commands_update",
+    UpdateCurrentMode = "current_mode_update",
+
+    /**
+     * UpdateUsage was not in the spec text this parser was written from; it
+     * turned up in a real claude-agent-acp 0.74 capture and is the source of
+     * the context counter and running cost the composer shows.
+     */
+    UpdateUsage = "usage_update",
+
+    /**
+     * UpdateUnknown is a kind this build does not model. The raw blob is kept
+     * so a vendor that ships a new kind degrades to "not rendered" rather than
+     * "silently dropped" — the Meta Inspector surface reads Raw.
+     */
+    UpdateUnknown = "unknown",
+};

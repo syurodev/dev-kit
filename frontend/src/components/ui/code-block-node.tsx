@@ -148,7 +148,7 @@ export function CodeBlockElement({
       {...props}
     >
       <div className="relative rounded-md bg-muted/50">
-        <pre className="overflow-x-auto p-8 pr-4 font-mono text-sm leading-[normal] [tab-size:2] print:break-inside-avoid">
+        <pre className="overflow-x-auto p-8 pr-4 text-code-12 [tab-size:2] print:break-inside-avoid">
           <code>{props.children}</code>
         </pre>
 
@@ -160,7 +160,7 @@ export function CodeBlockElement({
             <Button
               size="icon"
               variant="ghost"
-              className="size-6 text-xs"
+              className="size-6 text-label-12"
               onClick={() => formatCodeBlock(editor, { element })}
               title="Format code"
             >
@@ -173,7 +173,7 @@ export function CodeBlockElement({
           <CopyButton
             size="icon"
             variant="ghost"
-            className="size-6 gap-1 text-muted-foreground text-xs"
+            className="size-6 gap-1 text-muted-foreground text-label-12"
             value={() => NodeApi.string(element)}
           />
         </div>
@@ -216,7 +216,7 @@ function CodeBlockCombobox({
         <Button
           size="sm"
           variant="ghost"
-          className="h-6 select-none justify-between gap-1 px-2 text-muted-foreground text-xs"
+          className="h-6 select-none justify-between gap-1 px-2 text-muted-foreground text-caption-11"
           aria-expanded={open}
           role="combobox"
         >
@@ -274,7 +274,7 @@ function CodeBlockLanguageLabel({ lang }: { lang?: string | null }) {
   if (!label) return null;
 
   return (
-    <span className="flex h-6 select-none items-center px-2 text-muted-foreground text-xs">
+    <span className="flex h-6 select-none items-center px-2 text-muted-foreground text-caption-11">
       {label}
     </span>
   );

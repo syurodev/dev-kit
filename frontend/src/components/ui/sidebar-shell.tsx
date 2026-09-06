@@ -10,6 +10,7 @@ import {
 import { usePanelWidthsStore } from "@/stores/panelWidths";
 import { useSidebarContentStore } from "@/stores/sidebarContent";
 import { useSidebarOpenStore } from "@/stores/sidebarShell";
+import { ShellResizeHandle } from "@/components/ui/resize-handle";
 
 /**
  * Identifies which module a mounted view belongs to. Provided once per module
@@ -63,14 +64,14 @@ export function SidebarSection({
     <>
       {onToggle && (
         <ChevronDown
-          className={`size-3 text-text-tertiary transition-transform ${open ? "" : "-rotate-90"}`}
+          className={`size-(--icon-12) text-text-tertiary transition-transform ${open ? "" : "-rotate-90"}`}
         />
       )}
-      <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-tertiary group-hover:text-text-secondary">
+      <span className="text-label-11-caps text-text-tertiary group-hover:text-text-secondary">
         {label}
       </span>
       {count !== undefined && (
-        <span className="text-[10px] font-mono text-text-tertiary/70">{count}</span>
+        <span className="text-code-11 text-text-tertiary/70">{count}</span>
       )}
     </>
   );
@@ -121,7 +122,7 @@ export function SidebarRow({
       // the label's line box is 17, so whichever is taller was deciding the
       // row's height — and a control that only appears on hover decided it
       // twice. h-8 is control/height-md; nothing inside can move it.
-      className={`group flex h-8 items-center gap-2 rounded-lg px-3 text-[13px] ${
+      className={`group flex h-(--control-height-md) items-center gap-2 rounded-lg px-3 text-body-13 ${
         active
           ? "bg-surface-raised text-text-primary"
           : "text-text-secondary hover:bg-surface-raised"
@@ -136,7 +137,7 @@ export function SidebarRow({
         <span className="truncate">{label}</span>
       </button>
       {count !== undefined && (
-        <span className="text-[11px] text-text-tertiary">{count}</span>
+        <span className="text-caption-11 text-text-tertiary">{count}</span>
       )}
       {trailing}
     </div>
@@ -200,26 +201,24 @@ export function SidebarSurface({ activeModuleId }: { activeModuleId: string | nu
             card. glass-rail is the most transparent material — borderless,
             near-clear tint so the native vibrancy backdrop carries it, the way
             Finder/Notes sidebars sit closest to the desktop. */}
-        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl glass-rail">
+        {/* Figma sidebar-surface 116:1367 is the one docked surface with no
+            material at all: no fill, no border, no radius — just p-2. Its
+            description says the shell wrapper "owns the background/app fill
+            shared with the titlebar", so the rail shows that through rather
+            than painting its own. glass-rail resolves to transparent, which is
+            why the fill was already right; the radius and the missing pad were
+            not. The 8px pad is what makes a 280 rail hold 264 of content. */}
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden p-2 glass-rail">
           {content}
         </div>
         {open ? (
-          <div
-            role="separator"
-            aria-orientation="vertical"
+          <ShellResizeHandle
+            orientation="vertical"
             aria-label="Resize sidebar"
             onPointerDown={onPointerDown}
+            isResizing={isResizing}
             style={{ width: GAP_WIDTH }}
-            className="group flex shrink-0 cursor-col-resize items-center justify-center"
-          >
-            <div
-              className={
-                isResizing
-                  ? "h-full w-px bg-ring transition-colors"
-                  : "h-full w-px bg-transparent transition-colors group-hover:bg-border"
-              }
-            />
-          </div>
+          />
         ) : null}
       </m.div>
     </LazyMotion>

@@ -1,5 +1,6 @@
 import * as React from "react"
 import { Command as CommandPrimitive } from "cmdk"
+import { Search, Check } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import {
@@ -9,11 +10,27 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import {
-  InputGroup,
-  InputGroupAddon,
-} from "@/components/ui/input-group"
-import { SearchIcon, CheckIcon } from "lucide-react"
+
+/**
+ * Shell / Command Palette (Figma 719:1475 — Results / Empty)
+ *
+ * - Box: 640 wide, rounded-14, glass-float 62% + backdrop-blur-[20px] + --glass-border,
+ *   NO shadow, NO inset highlight
+ * - Search row: h56, pl-5 pr-4, gap-3, glyph 20; text 16 SemiBold (text-title-16) —
+ *   --text-tertiary as placeholder, --text-primary once typed
+ * - Kbd chip: --surface-raised + --border-subtle, r6, p-1, Mono 11 --text-tertiary
+ * - Hairline: 1px --border-subtle, one above the list and one above the footer
+ * - List (Results): px-2, gap-1, pt-1 pb-2
+ * - List (Empty): px-2, gap-2, pt-10 pb-12, items-center
+ * - Group head: Mono 11 Regular --text-tertiary, pt-2 pb-1 pl-3 (text-code-11)
+ *   EXCEPTION — MODULES / COMMANDS group heads are Code/11 mono uppercase text, not Label/11 Caps.
+ * - Row: h40, r8, px-3, gap-3, glyph 16
+ * - Active row: --surface-raised + label 13 Medium --text-primary
+ * - Other rows: no background at all + label 13 Regular --text-secondary
+ *   EXCEPTION — inactive rows have no background, not a faint one. Only the active row gets --surface-raised.
+ * - Empty title / body: 16 SemiBold --text-secondary (text-title-16) / 13 Regular --text-tertiary (text-body-13)
+ * - Footer: h40, px-5, gap-4, Mono 11 --text-tertiary (text-code-11)
+ */
 
 function Command({
   className,
@@ -23,7 +40,7 @@ function Command({
     <CommandPrimitive
       data-slot="command"
       className={cn(
-        "flex size-full flex-col overflow-hidden rounded-xl! bg-popover p-1 text-popover-foreground",
+        "flex w-[640px] max-w-[640px] flex-col overflow-hidden rounded-[14px] bg-[rgba(29,29,29,0.62)] backdrop-blur-[20px] border border-[rgba(255,255,255,0.1)] shadow-none text-text-primary select-none",
         className
       )}
       {...props}
@@ -52,7 +69,7 @@ function CommandDialog({
       </DialogHeader>
       <DialogContent
         className={cn(
-          "top-1/3 translate-y-0 overflow-hidden rounded-xl! p-0",
+          "top-1/3 translate-y-0 overflow-hidden rounded-[14px]! p-0 border-none bg-transparent shadow-none w-[640px] max-w-[640px]",
           className
         )}
         showCloseButton={showCloseButton}
@@ -65,23 +82,30 @@ function CommandDialog({
 
 function CommandInput({
   className,
+  shortcut = "esc",
   ...props
-}: React.ComponentProps<typeof CommandPrimitive.Input>) {
+}: React.ComponentProps<typeof CommandPrimitive.Input> & {
+  shortcut?: string;
+}) {
   return (
-    <div data-slot="command-input-wrapper" className="p-1 pb-0">
-      <InputGroup className="h-8! rounded-lg! border-input/30 bg-input/30 shadow-none! *:data-[slot=input-group-addon]:pl-2!">
-        <CommandPrimitive.Input
-          data-slot="command-input"
-          className={cn(
-            "w-full text-sm outline-hidden disabled:cursor-not-allowed disabled:opacity-50",
-            className
-          )}
-          {...props}
-        />
-        <InputGroupAddon>
-          <SearchIcon className="size-4 shrink-0 opacity-50" />
-        </InputGroupAddon>
-      </InputGroup>
+    <div
+      data-slot="command-input-wrapper"
+      className="flex h-14 shrink-0 items-center gap-3 border-b border-border-subtle pl-5 pr-4"
+    >
+      <Search className="size-5 shrink-0 text-text-tertiary" />
+      <CommandPrimitive.Input
+        data-slot="command-input"
+        className={cn(
+          "flex-1 bg-transparent text-title-16 text-text-primary placeholder:text-text-tertiary outline-none disabled:cursor-not-allowed disabled:opacity-50",
+          className
+        )}
+        {...props}
+      />
+      {shortcut ? (
+        <kbd className="rounded-[6px] border border-border-subtle bg-surface-raised p-1 text-code-11 text-text-tertiary">
+          {shortcut}
+        </kbd>
+      ) : null}
     </div>
   )
 }
@@ -94,7 +118,7 @@ function CommandList({
     <CommandPrimitive.List
       data-slot="command-list"
       className={cn(
-        "no-scrollbar max-h-72 scroll-py-1 overflow-x-hidden overflow-y-auto outline-none",
+        "no-scrollbar max-h-80 overflow-x-hidden overflow-y-auto outline-none px-2 pt-1 pb-2 flex flex-col gap-1",
         className
       )}
       {...props}
@@ -104,14 +128,24 @@ function CommandList({
 
 function CommandEmpty({
   className,
+  title = "No results found",
+  children = "Try searching for a different command or keyword.",
   ...props
-}: React.ComponentProps<typeof CommandPrimitive.Empty>) {
+}: React.ComponentProps<typeof CommandPrimitive.Empty> & {
+  title?: string;
+}) {
   return (
     <CommandPrimitive.Empty
       data-slot="command-empty"
-      className={cn("py-6 text-center text-sm", className)}
+      className={cn(
+        "flex flex-col items-center justify-center gap-2 px-2 pt-10 pb-12 text-center",
+        className
+      )}
       {...props}
-    />
+    >
+      <p className="text-title-16 text-text-secondary">{title}</p>
+      <p className="text-body-13 text-text-tertiary">{children}</p>
+    </CommandPrimitive.Empty>
   )
 }
 
@@ -123,7 +157,7 @@ function CommandGroup({
     <CommandPrimitive.Group
       data-slot="command-group"
       className={cn(
-        "overflow-hidden p-1 text-foreground **:[[cmdk-group-heading]]:px-2 **:[[cmdk-group-heading]]:py-1.5 **:[[cmdk-group-heading]]:text-xs **:[[cmdk-group-heading]]:font-medium **:[[cmdk-group-heading]]:text-muted-foreground",
+        "overflow-hidden text-text-primary **:[[cmdk-group-heading]]:pt-2 **:[[cmdk-group-heading]]:pb-1 **:[[cmdk-group-heading]]:pl-3 **:[[cmdk-group-heading]]:text-code-11 **:[[cmdk-group-heading]]:uppercase **:[[cmdk-group-heading]]:font-normal **:[[cmdk-group-heading]]:text-text-tertiary",
         className
       )}
       {...props}
@@ -138,7 +172,7 @@ function CommandSeparator({
   return (
     <CommandPrimitive.Separator
       data-slot="command-separator"
-      className={cn("-mx-1 h-px bg-border", className)}
+      className={cn("h-px bg-border-subtle", className)}
       {...props}
     />
   )
@@ -153,13 +187,19 @@ function CommandItem({
     <CommandPrimitive.Item
       data-slot="command-item"
       className={cn(
-        "group/command-item relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none in-data-[slot=dialog-content]:rounded-lg! data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 data-selected:bg-muted data-selected:text-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 data-selected:*:[svg]:text-foreground",
+        "group/command-item relative flex h-10 cursor-pointer items-center gap-3 rounded-[8px] px-3 text-body-13 text-text-secondary outline-none select-none transition-colors",
+        // Inactive: NO background at all (EXCEPTION)
+        "bg-transparent",
+        // Active: --surface-raised + text-body-13-medium text-text-primary
+        "data-[selected=true]:bg-surface-raised data-[selected=true]:text-body-13-medium data-[selected=true]:text-text-primary",
+        "data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50",
+        "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className
       )}
       {...props}
     >
       {children}
-      <CheckIcon className="ml-auto opacity-0 group-has-data-[slot=command-shortcut]/command-item:hidden group-data-[checked=true]/command-item:opacity-100" />
+      <Check className="ml-auto size-4 opacity-0 group-data-[selected=true]/command-item:opacity-100 text-text-secondary" />
     </CommandPrimitive.Item>
   )
 }
@@ -172,11 +212,33 @@ function CommandShortcut({
     <span
       data-slot="command-shortcut"
       className={cn(
-        "ml-auto text-xs tracking-widest text-muted-foreground group-data-selected/command-item:text-foreground",
+        // Figma 719:1475: every row's shortcut is a kbd chip on surface/raised
+        // with a border/subtle hairline, and it stays text/tertiary even on the
+        // selected row — only the row label steps up to text/primary.
+        "ml-auto rounded-[6px] border border-border-subtle bg-surface-raised p-1 text-code-11 text-text-tertiary",
         className
       )}
       {...props}
     />
+  )
+}
+
+function CommandFooter({
+  className,
+  ...props
+}: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="command-footer"
+      className={cn(
+        "flex h-10 shrink-0 items-center gap-4 border-t border-border-subtle px-5 text-code-11 text-text-tertiary",
+        className
+      )}
+      {...props}
+    >
+      {/* Figma 719:1475 draws the footer as a single mono run, not as chips. */}
+      <span className="whitespace-pre">{`↑↓ navigate   ·   ↵ open   ·   esc close`}</span>
+    </div>
   )
 }
 
@@ -190,4 +252,5 @@ export {
   CommandItem,
   CommandShortcut,
   CommandSeparator,
+  CommandFooter,
 }

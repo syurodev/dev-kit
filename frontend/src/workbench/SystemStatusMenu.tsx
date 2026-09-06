@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
 import { Activity, Bot, CloudCheck, Lock, LockOpen } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -8,7 +7,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
 import { vaultStatus, type VaultState } from "../bridge/vault";
 import { syncConflicts } from "../bridge/sync";
 import { useAgentSessionsStore } from "../stores/agentSessions";
@@ -93,28 +91,65 @@ export function SystemStatusMenu({
       <Tooltip>
         <TooltipTrigger asChild>
           <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              aria-label={statusLabel(status)}
-              className={cn(
-                "relative size-[26px] shrink-0 rounded-[7px] [--wails-draggable:no-drag]",
-                severity === "attention" && "text-status-danger",
-                severity === "active" && "text-action-primary",
-              )}
-            >
-              <Activity className="size-3.5" />
-              {severity !== "neutral" && (
-                // The badge is the half of the signal that survives colour
-                // blindness: presence, not hue.
-                <span
-                  className={cn(
-                    "absolute right-1 top-1 size-1.5 rounded-full ring-2 ring-[var(--background-app)]",
-                    severity === "attention" ? "bg-status-danger" : "bg-action-primary",
-                  )}
-                />
-              )}
-            </Button>
+            {severity === "neutral" ? (
+              <button
+                type="button"
+                aria-label={statusLabel(status)}
+                className="size-7 shrink-0 rounded-[8px] flex items-center justify-center text-text-secondary hover:bg-[var(--state-soft)] hover:text-text-primary transition-colors cursor-pointer [--wails-draggable:no-drag]"
+              >
+                <Activity className="size-4" />
+              </button>
+            ) : severity === "attention" ? (
+              <button
+                type="button"
+                aria-label={statusLabel(status)}
+                className="size-7 shrink-0 rounded-none p-0 flex items-center justify-center transition-colors cursor-pointer text-status-danger hover:opacity-90 [--wails-draggable:no-drag]"
+              >
+                {/* Full-bleed 28x28 attention graphic without radius wrapper */}
+                <svg
+                  width="28"
+                  height="28"
+                  viewBox="0 0 28 28"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="size-7"
+                >
+                  <path
+                    d="M5 14H8.5L11 8.5L14.5 19.5L17 14H23"
+                    stroke="currentColor"
+                    strokeWidth="1.75"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  <circle cx="21" cy="7" r="3" fill="currentColor" />
+                </svg>
+              </button>
+            ) : (
+              <button
+                type="button"
+                aria-label={statusLabel(status)}
+                className="size-7 shrink-0 rounded-none p-0 flex items-center justify-center transition-colors cursor-pointer text-action-primary hover:opacity-90 [--wails-draggable:no-drag]"
+              >
+                {/* Full-bleed 28x28 active graphic without radius wrapper */}
+                <svg
+                  width="28"
+                  height="28"
+                  viewBox="0 0 28 28"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="size-7"
+                >
+                  <path
+                    d="M5 14H8.5L11 8.5L14.5 19.5L17 14H23"
+                    stroke="currentColor"
+                    strokeWidth="1.75"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  <circle cx="21" cy="7" r="2.5" fill="currentColor" />
+                </svg>
+              </button>
+            )}
           </DropdownMenuTrigger>
         </TooltipTrigger>
         <TooltipContent side="bottom">{statusLabel(status)}</TooltipContent>

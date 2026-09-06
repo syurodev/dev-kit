@@ -258,7 +258,7 @@ function TablePicker() {
         )}
       </div>
 
-      <div className="text-center text-current text-xs">
+      <div className="text-center text-current text-caption-11">
         {tablePicker.size.rowCount} x {tablePicker.size.colCount}
       </div>
     </div>

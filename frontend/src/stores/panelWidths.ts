@@ -32,8 +32,8 @@ type PanelWidthsState = {
  * without every consumer re-rendering on every drag frame.
  */
 export const usePanelWidthsStore = create<PanelWidthsState>((set) => ({
-  sidebarWidth: 320,
-  splitPanelWidth: 420,
+  sidebarWidth: 280,
+  splitPanelWidth: 320,
   splitTopHeight: 430,
   sidebarOpen: false,
   splitPanelOpen: false,

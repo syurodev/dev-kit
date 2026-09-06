@@ -37,17 +37,21 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Kbd } from "@/components/ui/kbd";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { SplitPanelProvider, SplitPanelSlot } from "@/components/ui/split-panel";
-import { SidebarSurface, SidebarModuleIdContext } from "@/components/ui/sidebar-shell";
-import { BottomSlotSurface } from "@/components/ui/bottom-slot";
+import { SidebarModuleIdContext } from "@/components/ui/sidebar-shell";
 import { useModuleActionsStore } from "../stores/moduleActions";
 import { useWorkbenchTabsStore, type WorkbenchTab } from "../stores/workbenchTabs";
 import { useSidebarOpenStore } from "../stores/sidebarShell";
 import { useBottomSlotStore } from "../stores/bottomSlot";
 import { useAgentSessionsStore } from "../stores/agentSessions";
-import { AgentCompanionSlot } from "./AgentCompanionSlot";
+import { AppShell } from "./AppShell";
 import { cn } from "@/lib/utils";
 import { haveSameTabMembers } from "./workbenchViewMemo";
+
+const LazyAgentPermissionToastHost = lazy(() =>
+  import("./AgentPermissionToastHost").then((m) => ({
+    default: m.AgentPermissionToastHost,
+  })),
+);
 
 // Settings absorbs Sync as a tab (SettingsView) — both stay registered
 // modules (backend still reports "sync", so removing its registration
@@ -60,6 +64,7 @@ const HEADER_ONLY_MODULE_IDS = new Set(["settings", "sync"]);
 // active within the last MODULE_GRACE_MS. See useMountedModuleIds below.
 const MODULE_GRACE_MS = 2 * 60 * 1000;
 const MAX_MOUNTED_MODULES = 3;
+
 
 registerModule(toolsModule);
 registerModule(notesModule);
@@ -194,7 +199,7 @@ const WorkbenchViews = memo(
     return (
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {hasMetadataWarning ? (
-          <Alert variant="destructive" className="m-4 mb-0 w-auto">
+          <Alert variant="error" className="m-4 mb-0 w-auto">
             <AlertDescription>
               Module metadata is unavailable or out of sync.
             </AlertDescription>
@@ -209,7 +214,7 @@ const WorkbenchViews = memo(
           )}
         >
           {openTabs.length === 0 ? (
-            <p role="status" className="text-sm text-muted-foreground">
+            <p role="status" className="text-body-13 text-text-tertiary">
               {availableModules.length === 0
                 ? "No modules are currently available."
                 : "No view is currently available."}
@@ -246,7 +251,7 @@ const WorkbenchViews = memo(
                     fallback={
                       <div
                         role="status"
-                        className="p-4 text-sm text-muted-foreground"
+                        className="p-4 text-body-13 text-text-tertiary"
                       >
                         Loading {tab.title}...
                       </div>
@@ -528,29 +533,48 @@ export function Workbench() {
   const hasMetadataWarning = metadataError || parityIssues.length > 0;
 
   return (
-    <SplitPanelProvider>
-      {/* Transparent, not bg-background: this outer frame is what the native
-          macOS vibrancy blur (Mac.Backdrop in main.go) needs to show through.
-          Only the content card below (bg-card) stays opaque. */}
-      <div className="relative flex h-svh w-full flex-col overflow-hidden bg-transparent">
-        <AgentSessionsSubscriber />
-        {/* The whole compact row is the window drag surface. Interactive
-            module/global actions opt out individually with no-drag so Wails
-            leaves their pointer events to the webview. main.go deliberately
-            keeps InvisibleTitleBarHeight at zero: that native hit-zone cannot
-            make the same child-level distinction. */}
-        <header
-          className={cn(
-            "relative flex h-10 shrink-0 items-center gap-2 pr-3 transition-[padding-left] duration-300 ease-out motion-reduce:transition-none [--wails-draggable:drag]",
-            isFullscreen ? "pl-1" : "pl-20",
-          )}
-        >
+    <AppShell
+      fullscreen={isFullscreen}
+      activeModuleId={activeModule?.id ?? null}
+      dock={
+        <Dock
+          activeModuleId={activeModule?.id ?? ""}
+          modules={dockModules}
+          onSelectModule={focusModule}
+        />
+      }
+      overlays={
+        <>
+          <AgentSessionsSubscriber />
+          <CommandPalette
+            open={paletteOpen}
+            commands={commands}
+            onClose={() => setPaletteOpen(false)}
+          />
+          <Suspense fallback={null}>
+            <SettingsModal
+              open={settingsOpen}
+              onClose={() => setSettingsOpen(false)}
+            />
+          </Suspense>
+          <TabSwitcher open={switcher === "popup"} onClose={() => setSwitcher("closed")} />
+          <InteractionHost />
+          <Suspense fallback={null}>
+            <LazyAgentPermissionToastHost activeModuleId={activeModule?.id ?? null} />
+          </Suspense>
+        </>
+      }
+      titlebar={
+        <>
           {/* Sidebar toggle sits immediately after the traffic lights and
               deliberately OUTSIDE the three zones below — it is not a status
               item, a module action, or an app action, so it does not belong to
-              any of them. mx-2 lands it at x=88 against the header's pl-20
-              (80px) traffic-light reservation, matching sidebar-toggle's own
-              x=88 in the App Shell component in Figma. */}
+              any of them. pl-21 (84px) + mx-1 (4px) puts its left edge at
+              x=88, matching sidebar-toggle's own x=88 in the App Shell
+              component in Figma. The reservation used to be pl-20, which is
+              80px and landed the control at 84 — the comment claimed 88 and
+              the arithmetic did not. Traffic lights end at x=72, so 88 also
+              reproduces Figma's 16px clearance. */}
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -560,11 +584,11 @@ export function Workbench() {
                 aria-pressed={sidebarOpen}
                 className={cn(
                   sidebarOpen && "bg-accent text-foreground",
-                  "mx-1 size-[26px] shrink-0 rounded-[7px] [--wails-draggable:no-drag]",
+                  "mx-1 size-7 shrink-0 rounded-[8px] hover:bg-[var(--state-soft)] hover:text-text-primary [--wails-draggable:no-drag]",
                 )}
                 onClick={() => setSidebarOpen(!sidebarOpen)}
               >
-                <PanelLeft className="size-3.5" />
+                <PanelLeft className="size-4" />
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom">Toggle sidebar</TooltipContent>
@@ -576,7 +600,7 @@ export function Workbench() {
               beside the profile it describes. Module actions move left, where
               they sit next to the content they act on; everything the shell
               owns collects on the right. */}
-          <div className="flex h-full min-w-0 flex-1 items-center gap-2">
+          <div className="flex h-full min-w-0 flex-1 items-center gap-1">
             <div className="flex min-w-0 items-center gap-1">
               {moduleActions.map((action) => (
                 <Tooltip key={action.id}>
@@ -588,18 +612,18 @@ export function Workbench() {
                       aria-pressed={action.isActive}
                       className={cn(
                         action.isActive && "bg-accent text-foreground",
-                        "size-[26px] shrink-0 rounded-[7px] [--wails-draggable:no-drag]",
+                        "size-7 shrink-0 rounded-[8px] hover:bg-[var(--state-soft)] hover:text-text-primary [--wails-draggable:no-drag]",
                       )}
                       onClick={action.onClick}
                     >
-                      <action.icon className="size-3.5" />
+                      <action.icon className="size-4" />
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent side="bottom">{action.label}</TooltipContent>
                 </Tooltip>
               ))}
             </div>
-            <div className="min-w-0 flex-1 select-none truncate text-xs text-muted-foreground">
+            <div className="min-w-0 flex-1 select-none truncate text-caption-11 text-text-tertiary">
               {metadataLoading ? "Loading module metadata..." : null}
             </div>
             <div className="flex shrink-0 items-center gap-1">
@@ -614,10 +638,10 @@ export function Workbench() {
                     variant="ghost"
                     size="icon-xs"
                     aria-label="Commands"
-                    className="size-[26px] shrink-0 rounded-[7px] [--wails-draggable:no-drag]"
+                    className="size-7 shrink-0 rounded-[8px] hover:bg-[var(--state-soft)] hover:text-text-primary [--wails-draggable:no-drag]"
                     onClick={() => setPaletteOpen(true)}
                   >
-                    <Search className="size-3.5" />
+                    <Search className="size-4" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
@@ -630,10 +654,10 @@ export function Workbench() {
                     variant="ghost"
                     size="icon-xs"
                     aria-label="Settings"
-                    className="size-[26px] shrink-0 rounded-[7px] [--wails-draggable:no-drag]"
+                    className="size-7 shrink-0 rounded-[8px] hover:bg-[var(--state-soft)] hover:text-text-primary [--wails-draggable:no-drag]"
                     onClick={() => setSettingsOpen(true)}
                   >
-                    <SettingsIcon className="size-3.5" />
+                    <SettingsIcon className="size-4" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
@@ -659,11 +683,11 @@ export function Workbench() {
                     aria-pressed={bottomOpen}
                     className={cn(
                       bottomOpen && "bg-accent text-foreground",
-                      "size-[26px] shrink-0 rounded-[7px] [--wails-draggable:no-drag]",
+                      "size-7 shrink-0 rounded-[8px] hover:bg-[var(--state-soft)] hover:text-text-primary [--wails-draggable:no-drag]",
                     )}
                     onClick={() => setBottomOpen(!bottomOpen)}
                   >
-                    <PanelBottom className="size-3.5" />
+                    <PanelBottom className="size-4" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">Toggle bottom panel</TooltipContent>
@@ -681,81 +705,37 @@ export function Workbench() {
                     aria-pressed={chatOpen}
                     className={cn(
                       chatOpen && "bg-accent text-foreground",
-                      "size-[26px] shrink-0 rounded-[7px] [--wails-draggable:no-drag]",
+                      "size-7 shrink-0 rounded-[8px] hover:bg-[var(--state-soft)] hover:text-text-primary [--wails-draggable:no-drag]",
                     )}
                     onClick={() => setChatOpen(!chatOpen)}
                   >
-                    <MessageSquare className="size-3.5" />
+                    <MessageSquare className="size-4" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">Toggle agent conversation</TooltipContent>
               </Tooltip>
             </div>
           </div>
-        </header>
-        {/* Transparent row: the main content card and the split panel are two
-            independent bg-card boxes, separated by a gap that shows the same
-            transparent/vibrancy background as the mx-1/mb-1 margins around
-            this whole row — not one shared card with an internal divider. */}
-        <div className="mx-1 mb-1 flex min-h-0 flex-1">
-          <SidebarSurface activeModuleId={activeModule?.id ?? null} />
-          {/* The bottom slot is stacked under the module content ONLY — the
-              sidebar and the split panel keep their full height either side of
-              it, so opening it never shortens them. min-w-0 because this
-              column has no overflow-hidden of its own to zero its automatic
-              minimum width, and without it the two side panels could not
-              squeeze it. */}
-          <div className="flex min-w-0 min-h-0 flex-1 flex-col">
-            {/* One card holds the strip and the views, which is how Figma's
-                content-surface is built: tab-strip at y=1, content-slot at
-                y=41, both inside the same rounded glass panel. The strip used
-                to float above the card with a gap between them. */}
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl glass-panel">
-            {/* The strip was built, exported, and never mounted — the tab
-                state drove the views and the ⌃Tab switcher, but nothing ever
-                drew the tabs. Several comments in this file already refer to
-                "the real tab strip", so this is the missing wiring rather than
-                a new feature. */}
-            <TabStrip
-              tabs={openTabs}
-              activeTabId={activeTabId}
-              onSelect={setActiveTab}
-              onClose={closeTab}
-              onReorder={reorderTab}
-              keyboardBrowsing={switcher === "browsing"}
-              onExitBrowsing={() => setSwitcher("closed")}
-            />
-            <WorkbenchViews
-              availableModules={availableModules}
-              hasMetadataWarning={hasMetadataWarning}
-              openTabs={openTabs}
-              activeTabId={activeTabId}
-            />
-            </div>
-            <BottomSlotSurface activeModuleId={activeModule?.id ?? null} />
-          </div>
-          <AgentCompanionSlot />
-          <SplitPanelSlot />
-        </div>
-        <Dock
-          activeModuleId={activeModule?.id ?? ""}
-          modules={dockModules}
-          onSelectModule={focusModule}
-        />
-        <CommandPalette
-          open={paletteOpen}
-          commands={commands}
-          onClose={() => setPaletteOpen(false)}
-        />
-        <Suspense fallback={null}>
-          <SettingsModal
-            open={settingsOpen}
-            onClose={() => setSettingsOpen(false)}
-          />
-        </Suspense>
-        <TabSwitcher open={switcher === "popup"} onClose={() => setSwitcher("closed")} />
-        <InteractionHost />
-      </div>
-    </SplitPanelProvider>
+        </>
+      }
+    >
+      {/* The strip was built, exported, and never mounted — the tab state drove
+          the views and the ⌃Tab switcher, but nothing ever drew the tabs. */}
+      <TabStrip
+        tabs={openTabs}
+        activeTabId={activeTabId}
+        onSelect={setActiveTab}
+        onClose={closeTab}
+        onReorder={reorderTab}
+        keyboardBrowsing={switcher === "browsing"}
+        onExitBrowsing={() => setSwitcher("closed")}
+      />
+      <WorkbenchViews
+        availableModules={availableModules}
+        hasMetadataWarning={hasMetadataWarning}
+        openTabs={openTabs}
+        activeTabId={activeTabId}
+      />
+    </AppShell>
   );
 }

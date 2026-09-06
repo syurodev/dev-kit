@@ -1,0 +1,136 @@
+package agenthub_test
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"devkit/internal/agenthub"
+)
+
+// goldenPath is read by both sides of the contract: this test writes it, and
+// frontend/src/modules/agenthub/transcriptGolden.test.ts reads it.
+const goldenPath = "testdata/transcript_golden.json"
+
+// goldenUpdates is the input half of the contract. Each entry exercises one
+// rule the recorder and the TypeScript reducer must agree on; the order matters
+// because several of the rules are about what happens *between* two updates.
+var goldenUpdates = []string{
+	// two chunks of one message coalesce
+	`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Inspecting "},"messageId":"m1"}`,
+	`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"the code."},"messageId":"m1"}`,
+	// a new messageId starts a new row even though the kind is unchanged
+	`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Second message."},"messageId":"m2"}`,
+	// a different kind starts a new row
+	`{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"weighing the fixture"}}`,
+	// a tool call, then a partial update that must not clear title/kind
+	`{"sessionUpdate":"tool_call","toolCallId":"c1","title":"Edit RefundService","kind":"edit","status":"pending"}`,
+	`{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"in_progress"}`,
+	// a second call must not absorb the first one's updates
+	`{"sessionUpdate":"tool_call","toolCallId":"c2","title":"Run tests","kind":"execute","status":"pending"}`,
+	// an update for c1 arriving after c2 must find c1, not the last row
+	`{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"completed","content":[{"type":"diff","path":"/billing/RefundService.java","oldText":"round(x)","newText":"round(x, 2)"}],"locations":[{"path":"/billing/RefundService.java","line":44}]}`,
+	// non-chunk kinds each get their own row
+	`{"sessionUpdate":"plan","entries":[{"content":"Move the rounding","status":"completed"},{"content":"Rerun tests","status":"in_progress"}]}`,
+	`{"sessionUpdate":"available_commands_update","availableCommands":[{"name":"compact","description":"summarise the turn"}]}`,
+	`{"sessionUpdate":"usage_update","used":24503,"size":1000000,"cost":{"amount":0.21,"currency":"USD"}}`,
+	// an unmodelled kind is kept, not dropped
+	`{"sessionUpdate":"something_new","payload":{"a":1}}`,
+	// a chunk after a tool call starts a fresh row rather than folding backwards
+	`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Done."},"messageId":"m3"}`,
+}
+
+// goldenFile is the shape on disk: the inputs and the rows they produce.
+// Parsed is the middle stage and the one TypeScript actually consumes: the
+// frontend never sees a raw ACP blob, it receives the `parsed` field of the
+// agenthub:sessionUpdate event. Recording all three stages makes the fixture
+// document the whole pipeline rather than just its ends.
+type goldenFile struct {
+	Note    string                     `json:"note"`
+	Updates []json.RawMessage          `json:"updates"`
+	Parsed  []agenthub.SessionUpdate   `json:"parsed"`
+	Rows    []agenthub.TranscriptEntry `json:"rows"`
+}
+
+// TestTranscriptGolden runs the real recorder against the real SQLite store and
+// compares the result with the committed fixture.
+//
+// The fixture exists because the TypeScript reducer has to produce the same
+// model as this recorder — a reload mid-conversation must not change what the
+// user is reading. Before this file, both sides were verified against a
+// hand-written idea of what the other one did, so a shared misunderstanding
+// would have passed on both sides. Now they compare against one artifact.
+//
+// Regenerate deliberately: UPDATE_GOLDEN=1 go test ./internal/agenthub/ -run TestTranscriptGolden
+func TestTranscriptGolden(t *testing.T) {
+	store := newTestStore(t)
+	session := seedSession(t, store)
+	recordAll(t, store, session, goldenUpdates...)
+
+	rows, err := store.ListTranscript(context.Background(), session)
+	if err != nil {
+		t.Fatalf("list transcript: %v", err)
+	}
+
+	// IDs are uuids and the timestamps are wall-clock, so neither can be part
+	// of a fixture. Everything the UI actually renders survives.
+	for i := range rows {
+		rows[i].ID = ""
+		rows[i].SessionID = ""
+		rows[i].CreatedAt = rows[i].CreatedAt.UTC().Truncate(0)
+		rows[i].UpdatedAt = rows[i].UpdatedAt.UTC().Truncate(0)
+	}
+	stripped := make([]agenthub.TranscriptEntry, len(rows))
+	for i, r := range rows {
+		stripped[i] = agenthub.TranscriptEntry{
+			Seq:        r.Seq,
+			Kind:       r.Kind,
+			ToolCallID: r.ToolCallID,
+			Text:       r.Text,
+			Payload:    r.Payload,
+		}
+	}
+
+	updates := make([]json.RawMessage, len(goldenUpdates))
+	parsed := make([]agenthub.SessionUpdate, len(goldenUpdates))
+	for i, u := range goldenUpdates {
+		updates[i] = json.RawMessage(u)
+		parsed[i] = agenthub.ParseSessionUpdate(json.RawMessage(u))
+	}
+	got := goldenFile{
+		Note: "Generated by internal/agenthub/transcript_golden_test.go. " +
+			"Read by frontend/src/modules/agenthub/transcriptGolden.test.ts. " +
+			"Regenerate with UPDATE_GOLDEN=1; never edit by hand.",
+		Updates: updates,
+		Parsed:  parsed,
+		Rows:    stripped,
+	}
+
+	encoded, err := json.MarshalIndent(got, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	encoded = append(encoded, '\n')
+
+	if os.Getenv("UPDATE_GOLDEN") == "1" {
+		if err := os.MkdirAll(filepath.Dir(goldenPath), 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := os.WriteFile(goldenPath, encoded, 0o600); err != nil {
+			t.Fatalf("write golden: %v", err)
+		}
+		t.Logf("wrote %s (%d rows)", goldenPath, len(stripped))
+		return
+	}
+
+	want, err := os.ReadFile(goldenPath)
+	if err != nil {
+		t.Fatalf("read golden (regenerate with UPDATE_GOLDEN=1): %v", err)
+	}
+	if string(want) != string(encoded) {
+		t.Fatalf("recorder output drifted from %s.\nRegenerate with UPDATE_GOLDEN=1 and review the diff — "+
+			"if this changed on purpose, the TypeScript reducer has to change with it.\n--- got ---\n%s", goldenPath, encoded)
+	}
+}

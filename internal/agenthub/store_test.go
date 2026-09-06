@@ -2,6 +2,7 @@ package agenthub_test
 
 import (
 	"context"
+	"fmt"
 	"encoding/json"
 	"path/filepath"
 	"testing"
@@ -170,5 +171,53 @@ func TestStoreInsertListTurns(t *testing.T) {
 	}
 	if len(empty) != 0 {
 		t.Fatalf("ListTurns missing session len = %d, want 0", len(empty))
+	}
+}
+
+// agent_transcript had no delete path of any kind: append-plus-upsert only, no
+// session delete cascading into it, and one row per streamed chunk. The table
+// was unbounded by construction, so this pins that it can now be bounded.
+func TestPruneTranscriptsBeforeKeepsRecentRows(t *testing.T) {
+	store := newTestStore(t)
+	sql, ok := store.(*agenthub.SQLStore)
+	if !ok {
+		t.Fatalf("want *agenthub.SQLStore, got %T", store)
+	}
+	ctx := context.Background()
+
+	if err := sql.InsertSession(ctx, sampleSession("s1")); err != nil {
+		t.Fatal(err)
+	}
+
+	old := time.Now().AddDate(0, 0, -120)
+	recent := time.Now()
+	for i, at := range []time.Time{old, old, recent} {
+		if err := sql.AppendTranscript(ctx, agenthub.TranscriptEntry{
+			ID:        fmt.Sprintf("t%d", i+1),
+			SessionID: "s1",
+			Seq:       int64(i + 1),
+			Kind:      agenthub.UpdateAgentMessageChunk,
+			Text:      "x",
+			CreatedAt: at,
+			UpdatedAt: at,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	removed, err := sql.PruneTranscriptsBefore(ctx, time.Now().AddDate(0, 0, -90))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed != 2 {
+		t.Fatalf("want 2 rows pruned, got %d", removed)
+	}
+
+	rows, err := sql.ListTranscript(ctx, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("want 1 row kept, got %d", len(rows))
 	}
 }
