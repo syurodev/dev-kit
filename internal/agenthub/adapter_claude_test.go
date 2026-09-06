@@ -424,3 +424,29 @@ func TestSessionNewOmitsTheHookWhenDevKitIsNotInTheJail(t *testing.T) {
 		t.Fatal("hook installed without a binary to run")
 	}
 }
+
+func TestUnknownMethodIsRefusedAndReportedOnce(t *testing.T) {
+	// Refusing is right — answering fs/read_text_file with a made-up result
+	// would be worse than an error. What was wrong is that the error went only
+	// to the agent, so an ACP surface DevKit is specified to serve could have
+	// been requested every turn since Phase 4 without leaving a trace.
+	var got []string
+	h := &claudeConnHandler{onUnknownMethod: func(method string, _ json.RawMessage) {
+		got = append(got, method)
+	}}
+
+	for i := 0; i < 3; i++ {
+		if _, err := h.UnknownMethod(context.Background(), "fs/read_text_file", nil); err == nil {
+			t.Fatal("unimplemented method was not refused")
+		}
+	}
+	if _, err := h.UnknownMethod(context.Background(), "terminal/create", nil); err == nil {
+		t.Fatal("unimplemented method was not refused")
+	}
+
+	// Once per method: the question is whether the vendor uses it at all, and
+	// the second call adds nothing but noise to a desktop log.
+	if len(got) != 2 || got[0] != "fs/read_text_file" || got[1] != "terminal/create" {
+		t.Fatalf("reported %v, want each method once", got)
+	}
+}

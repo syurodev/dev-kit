@@ -41,6 +41,17 @@ type ClaudeOptions struct {
 	AllowNpx bool
 	// Runner overrides sandbox.DefaultRunner(); nil uses the platform default.
 	Runner SandboxRunner
+	// OnUnknownMethod reports an agent→client ACP method this build does not
+	// implement, once per method per process.
+	//
+	// It exists because the answer to "does Claude ever call fs/* or
+	// terminal/*" cannot be read off the vendor's bundle — the plumbing is
+	// there (methods.client.fs.readTextFile) but no call site was found — and
+	// NFR-1 makes it the point where the Capability Gateway is supposed to
+	// mediate the agent's file access. Until one of these is logged, DevKit's
+	// Gateway sees no file access at all and nobody knows whether that is
+	// because the agent never asks or because we never answered.
+	OnUnknownMethod func(method string, params json.RawMessage)
 }
 
 // ClaudeAdapter is a VendorAdapter that speaks ACP to Claude inside a sandbox.
@@ -361,7 +372,7 @@ func (a *ClaudeAdapter) Open(ctx context.Context, spec OpenSpec) (SessionRuntime
 		cwd:    pol.WorkDir,
 		killer: &procKiller{proc: proc},
 	}
-	handler := &claudeConnHandler{rt: rt}
+	handler := &claudeConnHandler{rt: rt, onUnknownMethod: a.opts.OnUnknownMethod}
 	conn := acp.NewConn(rw, handler)
 	rt.conn = conn
 
@@ -663,7 +674,8 @@ func (r *claudeRuntime) Close(ctx context.Context) error {
 
 // claudeConnHandler bridges agent→client ACP methods onto RuntimeHandlers.
 type claudeConnHandler struct {
-	rt *claudeRuntime
+	rt              *claudeRuntime
+	onUnknownMethod func(method string, params json.RawMessage)
 }
 
 func (h *claudeConnHandler) RequestPermission(ctx context.Context, params json.RawMessage) (json.RawMessage, error) {
@@ -690,8 +702,27 @@ func (h *claudeConnHandler) SessionUpdate(ctx context.Context, params json.RawMe
 	return nil
 }
 
+// UnknownMethod refuses agent→client methods this build does not implement,
+// and — unlike before — says so somewhere a person can see.
+//
+// The refusal itself is correct: answering fs/read_text_file with a made-up
+// result would be worse than an error. What was wrong is that the error went
+// only to the agent, so an ACP surface DevKit is specified to serve could have
+// been requested on every turn since Phase 4 without leaving a trace.
 func (h *claudeConnHandler) UnknownMethod(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
 	_ = ctx
-	_ = params
+	if h.onUnknownMethod != nil && markMethodSeen(method) {
+		h.onUnknownMethod(method, params)
+	}
 	return nil, fmt.Errorf("unsupported method %q", method)
+}
+
+// unknownMethodSeen dedupes the report. Process-wide rather than per session:
+// the question these answer is "does this vendor use this method at all", and
+// the second occurrence adds nothing to it.
+var unknownMethodSeen sync.Map
+
+func markMethodSeen(method string) bool {
+	_, loaded := unknownMethodSeen.LoadOrStore(method, struct{}{})
+	return !loaded
 }

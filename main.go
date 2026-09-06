@@ -222,10 +222,19 @@ func main() {
 	// Prefer an installed claude-agent-acp over `npx -y`: npx needs a writable
 	// ~/.npm and the whole npm lib tree, neither of which exists inside the
 	// jail (measured — npx dies on EPERM before it downloads anything).
-	claudeOpts := agenthub.ClaudeOptions{AllowNpx: true}
+	// See ClaudeOptions.OnUnknownMethod: this is the measurement that decides
+	// whether fs/* and terminal/* are worth implementing. NFR-1 says the
+	// Capability Gateway mediates the agent's file access there; today it
+	// mediates none, and nobody knows whether that is because the agent never
+	// asks or because DevKit never offered.
+	reportUnknownMethod := func(method string, params json.RawMessage) {
+		log.Printf("agenthub: agent called unimplemented ACP method %q (refused): %s",
+			method, truncateForLog(params, 300))
+	}
+	claudeOpts := agenthub.ClaudeOptions{AllowNpx: true, OnUnknownMethod: reportUnknownMethod}
 	if acp, lookErr := exec.LookPath("claude-agent-acp"); lookErr == nil {
 		if abs, absErr := filepath.Abs(acp); absErr == nil {
-			claudeOpts = agenthub.ClaudeOptions{Command: abs}
+			claudeOpts = agenthub.ClaudeOptions{Command: abs, OnUnknownMethod: reportUnknownMethod}
 		}
 	} else {
 		log.Printf("agenthub: claude-agent-acp not on PATH, falling back to npx (likely to fail inside the sandbox); install it with: npm i -g @agentclientprotocol/claude-agent-acp")

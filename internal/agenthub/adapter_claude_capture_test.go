@@ -14,6 +14,27 @@ import (
 	"devkit/internal/agenthub"
 )
 
+// capturePrompt is what the captured session is asked to do.
+//
+// The default exercises read, edit and shell, which is what the original
+// question needed: whether Claude really sends the `diff` and `terminal` tool
+// content the spec allows. DEVKIT_CLAUDE_CAPTURE_PROMPT overrides it, because
+// the kinds still unmodelled — subagent_spawned, subagent_state_update,
+// async_task_* — only appear when the turn does something this prompt does not,
+// and editing the test to find out would mean the next question needs another
+// edit. Example for the subagent kinds:
+//
+//	DEVKIT_CLAUDE_CAPTURE_PROMPT="Use the Task tool to spawn two subagents in
+//	parallel: one lists the files here, one reports the Python version. Wait
+//	for both and summarise."
+func capturePrompt() string {
+	if p := os.Getenv("DEVKIT_CLAUDE_CAPTURE_PROMPT"); p != "" {
+		return p
+	}
+	return "Read rounding.py, then change round() to use two decimal places, " +
+		"then run `python3 -c \"import rounding; print(rounding.total(1234))\"` and tell me the result."
+}
+
 // TestClaudeACPCapture records every session/update a real Claude session emits
 // and writes them as JSONL. It exists because the transcript types in update.go
 // were written from the ACP spec, not from traffic: the spec says a tool call
@@ -91,8 +112,7 @@ func TestClaudeACPCapture(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	out, promptErr := rt.Prompt(ctx, "Read rounding.py, then change round() to use two decimal places, "+
-		"then run `python3 -c \"import rounding; print(rounding.total(1234))\"` and tell me the result.")
+	out, promptErr := rt.Prompt(ctx, capturePrompt())
 	if promptErr != nil {
 		t.Logf("Prompt returned error (still writing whatever was captured): %v", promptErr)
 	} else {
