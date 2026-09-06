@@ -193,6 +193,17 @@ export function agentHubChooseDirectory(startIn = ""): Promise<string> {
   );
 }
 
+/**
+ * Ends the session: the agent process is shut down and its MCP endpoint
+ * released. Not the same as agentHubCancel, which stops the turn in flight and
+ * leaves the agent running. Not undoable — the session stays as history.
+ */
+export function agentHubCloseSession(sessionId: string): Promise<void> {
+  return callBridge(
+    () => AppService.AgentHubCloseSession(sessionId) as Promise<void>,
+  );
+}
+
 export function agentHubTranscript(
   sessionId: string,
 ): Promise<TranscriptEntry[]> {

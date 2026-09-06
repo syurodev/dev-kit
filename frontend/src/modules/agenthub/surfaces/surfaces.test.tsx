@@ -538,6 +538,40 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       expect(html).toContain('data-slot="agent-state"');
       expect(html).not.toContain('data-testid="content-header-status"');
     });
+
+    it("offers Cancel turn only while a turn is in flight", () => {
+      const base = {
+        session: mockSession,
+        promptValue: "",
+        onPromptChange: () => {},
+        onSend: () => {},
+        onCancel: () => {},
+        onCloseSession: () => {},
+      };
+      // Cancel turn with nothing running would cancel nothing.
+      expect(renderToString(<AgentHubContent {...base} />)).not.toContain(
+        'data-testid="content-cancel-turn"',
+      );
+      expect(renderToString(<AgentHubContent {...base} streaming />)).toContain(
+        'data-testid="content-cancel-turn"',
+      );
+    });
+
+    it("shows Close only when something can actually close the session", () => {
+      const base = {
+        session: mockSession,
+        promptValue: "",
+        onPromptChange: () => {},
+        onSend: () => {},
+        onCancel: () => {},
+      };
+      expect(renderToString(<AgentHubContent {...base} />)).not.toContain(
+        'data-testid="content-close-session"',
+      );
+      expect(
+        renderToString(<AgentHubContent {...base} onCloseSession={() => {}} />),
+      ).toContain('data-testid="content-close-session"');
+    });
   });
 
   describe("AgentRail", () => {

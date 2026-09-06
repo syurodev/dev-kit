@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   agentHubCancel,
   agentHubChooseDirectory,
+  agentHubCloseSession,
   agentHubCreateSession,
   agentHubGetStatus,
   agentHubInvoke,
@@ -166,6 +167,25 @@ export function AgentHubView() {
     }
   }
 
+  async function handleCloseSession() {
+    if (!activeSession) return;
+    const closedId = activeSession.id;
+    setBusy(true);
+    try {
+      await agentHubCloseSession(closedId);
+      upsertSession(await agentHubGetStatus(closedId));
+      // The session stays in the tree as history, but selecting it would show
+      // a dead transcript under a live composer. Move to the next agent that
+      // can still be talked to, or to the empty state if there is none.
+      const next = sessions.find((s) => s.id !== closedId && s.status !== "closed");
+      setActiveSessionId(next ? next.id : "");
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
 
 
   // Group pending permission counts per session
@@ -222,6 +242,7 @@ export function AgentHubView() {
             onPromptChange={(val) => activeSession && setPrompt(activeSession.id, val)}
             onSend={() => void handleSend()}
             onCancel={() => void handleCancel()}
+            onCloseSession={() => void handleCloseSession()}
             streaming={busy || activeSession?.status === "running"}
             errorMessage={error}
             onRetrySession={() => void handleSend()}

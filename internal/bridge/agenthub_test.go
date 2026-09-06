@@ -153,3 +153,37 @@ func TestAgentHubChooseDirectoryCancelIsNotAnError(t *testing.T) {
 		t.Fatalf("path = %q, want empty", got)
 	}
 }
+
+func TestAgentHubCloseSessionMarksClosedAndKeepsHistory(t *testing.T) {
+	svc := newBridgeWithAgentHub(t)
+	sess, err := svc.AgentHubCreateSession(agenthub.CreateInput{
+		AgentType: agenthub.AgentTypeMock,
+		Cwd:       t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	if err := svc.AgentHubCloseSession(context.Background(), sess.ID); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	after, err := svc.AgentHubGetStatus(sess.ID)
+	if err != nil {
+		t.Fatalf("status after close: %v", err)
+	}
+	if after.Status != agenthub.SessionStatusClosed {
+		t.Fatalf("status = %q, want closed", after.Status)
+	}
+
+	// Closing ends the process, it does not delete the record: the tree shows
+	// closed agents as history, and a transcript you can no longer read is a
+	// worse outcome than one you cannot reply to.
+	list, err := svc.AgentHubListAgents()
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("sessions after close = %d, want 1", len(list))
+	}
+}

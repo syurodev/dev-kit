@@ -153,6 +153,25 @@ func (s *AppService) AgentHubCancel(ctx context.Context, id string) error {
 	return err
 }
 
+// AgentHubCloseSession shuts the live runtime down and marks the session
+// closed. Distinct from AgentHubCancel, which stops the turn in flight and
+// leaves the agent running: closing ends the process, releases its MCP
+// endpoint and is not undoable — the session stays in the store as history.
+func (s *AppService) AgentHubCloseSession(ctx context.Context, id string) error {
+	opaqueID := hubSessionID(id)
+	_, err := s.Call(ctx, "builtin.agenthub", "agenthub:execute", "session:"+opaqueID, map[string]any{
+		"action":     "close_session",
+		"session_id": opaqueID,
+	}, func(callCtx context.Context) (any, error) {
+		svc, err := s.agentHubService()
+		if err != nil {
+			return nil, err
+		}
+		return nil, svc.CloseSession(callCtx, id)
+	})
+	return err
+}
+
 func (s *AppService) AgentHubListVendorTypes() ([]agenthub.AgentType, error) {
 	result, err := s.Call(context.Background(), "builtin.agenthub", "agenthub:read", "vendor:list", map[string]any{
 		"action": "list_vendor_types",

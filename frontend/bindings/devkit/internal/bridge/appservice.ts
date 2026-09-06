@@ -60,6 +60,16 @@ export function AgentHubChooseDirectory(startIn: string): $CancellablePromise<st
     return $Call.ByID(1823626190, startIn);
 }
 
+/**
+ * AgentHubCloseSession shuts the live runtime down and marks the session
+ * closed. Distinct from AgentHubCancel, which stops the turn in flight and
+ * leaves the agent running: closing ends the process, releases its MCP
+ * endpoint and is not undoable — the session stays in the store as history.
+ */
+export function AgentHubCloseSession(id: string): $CancellablePromise<void> {
+    return $Call.ByID(1287039358, id);
+}
+
 export function AgentHubCreateSession(input: agenthub$0.CreateInput): $CancellablePromise<agenthub$0.AgentSession> {
     return $Call.ByID(146979054, input);
 }
