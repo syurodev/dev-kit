@@ -9,11 +9,14 @@ import {
   MessageFooter,
 } from "@/components/ui/message";
 import { BubbleContent } from "@/components/ui/bubble";
+import { VendorIcon } from "../surfaces/VendorIcon";
 
 export type AgentMessageProps = {
   /** Start = the agent, End = you. Figma `926:126`. */
   align?: "start" | "end";
   author?: string;
+  /** Which vendor is speaking, for the avatar mark. */
+  vendor?: string;
   text?: string;
   timestamp?: string;
   avatar?: React.ReactNode;
@@ -32,10 +35,10 @@ export type AgentMessageProps = {
  * you." The primitives already carry the reversal, the avatar's self-end and
  * the footer's justify-end, so this file only supplies the tones.
  *
- * The avatar is the author's initial on a 24px round, not a generic Bot/User
- * pair: with several agents in a swarm, two Bot glyphs are the same glyph, and
- * the name is the only thing that tells refund-worker from docs-sweep. Yours
- * takes action/primary, the way it does everywhere the accent means "you".
+ * The agent's avatar is its vendor mark; yours is your initial on
+ * action/primary, the way the accent means "you" everywhere else. An initial
+ * on both sides read as two people — and with an untitled session the agent's
+ * came out "S", for the word "Session".
  *
  * The bubble has no border in Figma — the fill is what separates the two
  * speakers (surface/raised for the agent, surface/tinted for you), and a
@@ -44,6 +47,7 @@ export type AgentMessageProps = {
 export function AgentMessage({
   align = "start",
   author,
+  vendor,
   text,
   timestamp,
   avatar,
@@ -53,7 +57,7 @@ export function AgentMessage({
 }: AgentMessageProps) {
   const isAgent = align === "start";
   const defaultAuthor = author ?? (isAgent ? "Agent" : "You");
-  const initial = defaultAuthor.trim().charAt(0) || (isAgent ? "a" : "y");
+  const initial = defaultAuthor.trim().charAt(0) || "y";
 
   return (
     <Message
@@ -69,7 +73,12 @@ export function AgentMessage({
             : "bg-action-primary text-action-primary-foreground",
         )}
       >
-        {avatar ?? <span aria-hidden="true">{initial}</span>}
+        {avatar ??
+          (isAgent ? (
+            <VendorIcon vendor={vendor} className="size-3.5" />
+          ) : (
+            <span aria-hidden="true">{initial}</span>
+          ))}
       </MessageAvatar>
 
       <MessageContent className="min-w-0 max-w-full gap-1">

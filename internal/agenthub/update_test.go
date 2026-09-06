@@ -1,6 +1,7 @@
 package agenthub_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"testing"
 
@@ -182,5 +183,38 @@ func TestParseSessionUpdateChunkCarriesMessageID(t *testing.T) {
 
 	if got.MessageID != "7d557a03" {
 		t.Fatalf("messageId = %q", got.MessageID)
+	}
+}
+
+func TestParseKeepsTheVendorsOwnKindForUnknowns(t *testing.T) {
+	// claude-agent-acp emits fifteen sessionUpdate kinds; this build models
+	// six. The other nine degraded to "unknown" with the vendor's own name
+	// thrown away, so an unmodelled kind and a malformed notification looked
+	// identical and neither was reported.
+	u := agenthub.ParseSessionUpdate([]byte(`{"sessionUpdate":"subagent_spawned","agentId":"a1"}`))
+	if u.Kind != agenthub.UpdateUnknown {
+		t.Fatalf("kind = %q, want unknown", u.Kind)
+	}
+	if u.WireKind != "subagent_spawned" {
+		t.Fatalf("wireKind = %q, want the vendor's own string", u.WireKind)
+	}
+	if len(u.Raw) == 0 {
+		t.Fatal("raw dropped; the payload is the only record of what arrived")
+	}
+
+	// A payload that is not a session/update at all has no kind to report.
+	bad := agenthub.ParseSessionUpdate([]byte(`not json`))
+	if bad.Kind != agenthub.UpdateUnknown || bad.WireKind != "" {
+		t.Fatalf("malformed parse = %+v, want unknown with no wire kind", bad)
+	}
+
+	// Not persisted: the stored payload would carry the same string twice.
+	body, err := json.Marshal(agenthub.ParseSessionUpdate(
+		[]byte(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"x"}}`)))
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if bytes.Contains(body, []byte("wireKind")) {
+		t.Fatalf("wireKind persisted into the transcript payload: %s", body)
 	}
 }

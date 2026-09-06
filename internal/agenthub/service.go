@@ -63,6 +63,7 @@ type Service struct {
 	reg               *Registry
 	store             Store
 	recorder          *Recorder
+	unknownSeen       map[string]struct{}
 	runtimes          map[string]SessionRuntime
 	endpoints         map[string]func() // per-session MCP socket close
 	invoking          map[string]struct{}
@@ -74,6 +75,17 @@ type Service struct {
 	MCPEndpoints MCPEndpoints
 	// OnSessionClosed fires after a session is closed (interaction.Hub forgets its allow_always).
 	OnSessionClosed func(sessionID string)
+	// OnUnknownUpdate reports a session/update kind this build does not model,
+	// once per kind per session. claude-agent-acp emits fifteen kinds and this
+	// build parses six; the other nine — subagent_spawned, async_task_*,
+	// session_info_update among them — were degrading to UpdateUnknown and
+	// vanishing without a trace, so nothing on screen or in the log said the
+	// vendor had started sending something new.
+	//
+	// A hook rather than a log call for the same reason OnRecordError is one:
+	// internal/agenthub owns no logger.
+	OnUnknownUpdate func(sessionID, wireKind string, raw json.RawMessage)
+
 	// OnRecordError reports a transcript write that failed. It is a hook, not
 	// an error return: losing a row must not abort a turn the vendor is
 	// already running, but it must not be silent either.
@@ -487,7 +499,15 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 			// keeping was the one guaranteed to be dropped — the log read
 			// "transcript write failed: context canceled" and the UI drew an
 			// empty bubble where the agent's error should have been.
-			if err := s.recorder.Record(recordCtx, in.SessionID, ParseSessionUpdate(update)); err != nil && s.OnRecordError != nil {
+			parsed := ParseSessionUpdate(update)
+			if parsed.Kind == UpdateUnknown && s.OnUnknownUpdate != nil {
+				// Once per kind per session: a stream of chunks of one unknown
+				// kind is one fact, not a thousand log lines.
+				if s.markUnknownSeen(in.SessionID, parsed.WireKind) {
+					s.OnUnknownUpdate(in.SessionID, parsed.WireKind, parsed.Raw)
+				}
+			}
+			if err := s.recorder.Record(recordCtx, in.SessionID, parsed); err != nil && s.OnRecordError != nil {
 				s.OnRecordError(in.SessionID, err)
 			}
 			s.emit(in.SessionID, update)
@@ -607,6 +627,23 @@ func userEchoUpdate(text, messageID string) json.RawMessage {
 		return nil
 	}
 	return body
+}
+
+// markUnknownSeen reports whether this is the first time the session has seen
+// this wire kind, and records it. Keyed by session so a long-lived hub still
+// reports a new kind on the next session rather than staying quiet forever.
+func (s *Service) markUnknownSeen(sessionID, wireKind string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.unknownSeen == nil {
+		s.unknownSeen = make(map[string]struct{})
+	}
+	key := sessionID + "\x00" + wireKind
+	if _, ok := s.unknownSeen[key]; ok {
+		return false
+	}
+	s.unknownSeen[key] = struct{}{}
+	return true
 }
 
 // Cancel requests cancellation of the in-flight prompt on a session.// Cancel requests cancellation of the in-flight prompt on a session.

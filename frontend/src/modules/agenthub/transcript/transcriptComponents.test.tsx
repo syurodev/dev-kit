@@ -70,6 +70,30 @@ describe("Agent Hub Transcript Leaves", () => {
     });
   });
 
+  describe("AgentMessage avatars", () => {
+    it("marks the agent with its vendor and you with your initial", () => {
+      // An initial on both sides read as two people, and an untitled session
+      // gave the agent "S" — for the word "Session".
+      const agent = renderToString(
+        <AgentMessage align="start" author="Session 506ecea1" vendor="claude" text="hi" />,
+      );
+      expect(agent).toContain('data-vendor="claude"');
+      expect(agent).not.toContain(">S</span>");
+
+      const you = renderToString(<AgentMessage align="end" author="You" text="hi" />);
+      expect(you).toContain(">Y<");
+      expect(you).not.toContain("data-vendor=");
+    });
+
+    it("falls back to the one shape for a vendor DevKit has not drawn", () => {
+      const html = renderToString(
+        <AgentMessage align="start" author="a" vendor="acme-agent" text="hi" />,
+      );
+      expect(html).toContain("lucide-bot");
+      expect(html).not.toContain("data-vendor=");
+    });
+  });
+
   describe("AgentThinking", () => {
     it("renders collapsed thinking block", () => {
       const html = renderToString(

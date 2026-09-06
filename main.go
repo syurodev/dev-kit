@@ -293,6 +293,15 @@ func main() {
 	agentSvc.OnRecordError = func(sessionID string, err error) {
 		log.Printf("agenthub: transcript write failed for session %s: %v", sessionID, err)
 	}
+	agentSvc.OnUnknownUpdate = func(sessionID, wireKind string, raw json.RawMessage) {
+		// Once per kind per session. claude-agent-acp emits fifteen
+		// sessionUpdate kinds and this build parses six; the rest were
+		// degrading to "unknown" and disappearing, so a vendor adding one
+		// looked exactly like nothing happening. Logged with a slice of the
+		// payload because the kind alone rarely says what it carries.
+		log.Printf("agenthub: unmodelled session/update kind %q for session %s: %s",
+			wireKind, sessionID, truncateForLog(raw, 300))
+	}
 	container.AgentHub = agentSvc
 	container.AgentHubPermissions = agentWaiter
 
@@ -508,7 +517,7 @@ func main() {
 			Backdrop:                macBackdrop,
 			// Match AppKit's vibrancy, rim and titlebar to the persisted web theme.
 			Appearance: macAppearance,
-			TitleBar: macTitleBar,
+			TitleBar:   macTitleBar,
 		},
 		Windows: application.WindowsWindow{
 			Theme: windowsTheme,
@@ -599,4 +608,13 @@ func rawJSON(raw json.RawMessage) any {
 		return string(raw)
 	}
 	return value
+}
+
+// truncateForLog keeps a vendor payload readable in a log line. Agent output
+// can be a whole file; a log that scrolls the terminal is a log nobody reads.
+func truncateForLog(raw []byte, max int) string {
+	if len(raw) <= max {
+		return string(raw)
+	}
+	return string(raw[:max]) + "…"
 }

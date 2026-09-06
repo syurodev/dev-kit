@@ -112,8 +112,18 @@ type SessionUpdate struct {
 	// MessageID identifies the assistant message a chunk belongs to. Claude
 	// sends it on every chunk; it is a stricter coalescing key than "same kind"
 	// because two consecutive messages would otherwise fold into one bubble.
-	MessageID string          `json:"messageId,omitempty"`
-	Raw       json.RawMessage `json:"raw,omitempty"`
+	MessageID string `json:"messageId,omitempty"`
+	// WireKind is the sessionUpdate string exactly as the vendor sent it, kept
+	// even when Kind degrades to UpdateUnknown. Without it an unmodelled kind
+	// is indistinguishable from a malformed one, and the whole point of
+	// reporting unknowns is to learn what the vendor started sending.
+	//
+	// Not persisted: for every kind this build models it is the same string as
+	// Kind, and for the ones it does not, Raw already carries it. A field on
+	// every transcript row that no reader reads is a bigger database for
+	// nothing.
+	WireKind string          `json:"-"`
+	Raw      json.RawMessage `json:"raw,omitempty"`
 }
 
 // IsChunk reports whether the update is a streaming text fragment. Chunks are
@@ -176,6 +186,7 @@ func ParseSessionUpdate(raw json.RawMessage) SessionUpdate {
 	if err := json.Unmarshal(raw, &wire); err != nil {
 		return out
 	}
+	out.WireKind = wire.SessionUpdate
 
 	switch UpdateKind(wire.SessionUpdate) {
 	case UpdateUserMessageChunk, UpdateAgentMessageChunk, UpdateAgentThoughtChunk:
