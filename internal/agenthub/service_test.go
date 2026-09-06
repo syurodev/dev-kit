@@ -320,3 +320,96 @@ func TestDeleteSessionUnknownID(t *testing.T) {
 		t.Fatalf("err = %v, want agenthub.ErrSessionNotFound", err)
 	}
 }
+
+// dyingRuntime reproduces the failure the desktop log showed: the agent dies,
+// the caller's context is cancelled, and the update carrying the agent's own
+// error message arrives after that. Recording it under the turn's context made
+// that last update — the only one that says why — the one guaranteed to be lost.
+type dyingRuntime struct {
+	handlers agenthub.RuntimeHandlers
+	cancel   context.CancelFunc
+}
+
+func (r *dyingRuntime) ACPSessionID() string                   { return "acp-dying" }
+func (r *dyingRuntime) SetHandlers(h agenthub.RuntimeHandlers) { r.handlers = h }
+func (r *dyingRuntime) Cancel(context.Context) error           { return nil }
+func (r *dyingRuntime) Close(context.Context) error            { return nil }
+
+func (r *dyingRuntime) Prompt(ctx context.Context, _ string) (agenthub.PromptOutcome, error) {
+	r.cancel() // the process died; whoever was waiting on this turn gave up
+	update, _ := json.Marshal(map[string]any{
+		"sessionUpdate": "agent_message_chunk",
+		"content":       map[string]any{"type": "text", "text": "401 token revoked"},
+	})
+	if r.handlers.OnUpdate != nil {
+		r.handlers.OnUpdate(update, nil)
+	}
+	return agenthub.PromptOutcome{}, ctx.Err()
+}
+
+type dyingAdapter struct{ rt *dyingRuntime }
+
+func (a dyingAdapter) Type() agenthub.AgentType { return agenthub.AgentType("dying") }
+func (a dyingAdapter) Open(context.Context, agenthub.OpenSpec) (agenthub.SessionRuntime, error) {
+	return a.rt, nil
+}
+func (a dyingAdapter) NormalizeUsage(json.RawMessage) (agenthub.NormalizedUsage, error) {
+	return agenthub.NormalizedUsage{}, nil
+}
+func (a dyingAdapter) NormalizeToolSummary(json.RawMessage, json.RawMessage) ([]string, string, error) {
+	return nil, "", nil
+}
+func (a dyingAdapter) Extensions() []string { return nil }
+
+func TestTranscriptSurvivesTheContextThatKilledTheTurn(t *testing.T) {
+	db, err := storage.Open(filepath.Join(t.TempDir(), "devkit.db"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if err := storage.Migrate(context.Background(), db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	rt := &dyingRuntime{}
+	reg := agenthub.NewRegistry()
+	reg.Register(dyingAdapter{rt: rt})
+	svc := agenthub.NewService(reg, agenthub.NewSQLStore(db), func(string, json.RawMessage) {})
+
+	var recordErr error
+	svc.OnRecordError = func(_ string, err error) { recordErr = err }
+
+	sess, err := svc.CreateSession(context.Background(), agenthub.CreateInput{
+		AgentType: agenthub.AgentType("dying"),
+		Cwd:       t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	rt.cancel = cancel
+	_, _ = svc.Invoke(ctx, agenthub.InvokeInput{SessionID: sess.ID, Prompt: "go"})
+
+	if recordErr != nil {
+		t.Fatalf("transcript write failed: %v", recordErr)
+	}
+	entries, err := svc.Transcript(context.Background(), sess.ID)
+	if err != nil {
+		t.Fatalf("transcript: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Text != "401 token revoked" {
+		t.Fatalf("entries = %+v, want the agent's error message", entries)
+	}
+
+	// And the session must not be left saying "running" forever: the status
+	// write happens on the same dead context.
+	after, err := svc.GetStatus(context.Background(), sess.ID)
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if after.Status == agenthub.SessionStatusRunning {
+		t.Fatal("session stuck in running after the turn died")
+	}
+}

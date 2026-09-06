@@ -455,6 +455,12 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 		return InvokeResult{}, ErrVendorUnknown
 	}
 
+	// Everything that records what happened has to outlive whatever went
+	// wrong. Values (caller identity, capability scope) are kept; only the
+	// cancellation is dropped. SQLite's own busy_timeout bounds these writes,
+	// so no deadline of ours is needed to stop one hanging forever.
+	recordCtx := context.WithoutCancel(ctx)
+
 	if err := s.setSessionStatus(ctx, in.SessionID, SessionStatusRunning); err != nil {
 		return InvokeResult{}, err
 	}
@@ -474,7 +480,14 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 			// the same transcript the live event described. Recording is
 			// best-effort — a write failure must not abort a turn the agent is
 			// already running, so the error rides the audit trail, not Prompt.
-			if err := s.recorder.Record(ctx, in.SessionID, ParseSessionUpdate(update)); err != nil && s.OnRecordError != nil {
+			//
+			// recordCtx, not ctx: the turn's context is cancelled the moment
+			// the turn goes wrong, and the update that says *why* is the last
+			// one to arrive. Writing it under ctx meant the one message worth
+			// keeping was the one guaranteed to be dropped — the log read
+			// "transcript write failed: context canceled" and the UI drew an
+			// empty bubble where the agent's error should have been.
+			if err := s.recorder.Record(recordCtx, in.SessionID, ParseSessionUpdate(update)); err != nil && s.OnRecordError != nil {
 				s.OnRecordError(in.SessionID, err)
 			}
 			s.emit(in.SessionID, update)
@@ -494,7 +507,7 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 
 	outcome, promptErr := rt.Prompt(ctx, in.Prompt)
 	if permDenied.Load() {
-		_ = s.setSessionStatus(ctx, in.SessionID, SessionStatusError)
+		_ = s.setSessionStatus(recordCtx, in.SessionID, SessionStatusError)
 		return InvokeResult{Status: "error"}, ErrPermissionDenied
 	}
 	if promptErr != nil {
@@ -503,13 +516,13 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 			finalStatus = SessionStatusIdle
 			promptErr = ErrCancelled
 		}
-		_ = s.setSessionStatus(ctx, in.SessionID, finalStatus)
+		_ = s.setSessionStatus(recordCtx, in.SessionID, finalStatus)
 		return InvokeResult{Status: statusForInvokeErr(promptErr)}, promptErr
 	}
 
 	usage, err := adapter.NormalizeUsage(outcome.Meta)
 	if err != nil {
-		_ = s.setSessionStatus(ctx, in.SessionID, SessionStatusError)
+		_ = s.setSessionStatus(recordCtx, in.SessionID, SessionStatusError)
 		return InvokeResult{Status: "error"}, err
 	}
 	lastUpdateMu.Lock()
@@ -517,7 +530,7 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 	lastUpdateMu.Unlock()
 	files, summary, err := adapter.NormalizeToolSummary(outcome.Meta, updateCopy)
 	if err != nil {
-		_ = s.setSessionStatus(ctx, in.SessionID, SessionStatusError)
+		_ = s.setSessionStatus(recordCtx, in.SessionID, SessionStatusError)
 		return InvokeResult{Status: "error"}, err
 	}
 	if summary == "" {
@@ -526,7 +539,7 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 
 	usageJSON, err := json.Marshal(usage)
 	if err != nil {
-		_ = s.setSessionStatus(ctx, in.SessionID, SessionStatusError)
+		_ = s.setSessionStatus(recordCtx, in.SessionID, SessionStatusError)
 		return InvokeResult{Status: "error"}, err
 	}
 
@@ -538,18 +551,18 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 		RawMeta:    append(json.RawMessage(nil), outcome.Meta...),
 		CreatedAt:  time.Now().UTC(),
 	}
-	if err := s.store.InsertTurn(ctx, turn); err != nil {
-		_ = s.setSessionStatus(ctx, in.SessionID, SessionStatusError)
+	if err := s.store.InsertTurn(recordCtx, turn); err != nil {
+		_ = s.setSessionStatus(recordCtx, in.SessionID, SessionStatusError)
 		return InvokeResult{Status: "error"}, err
 	}
 
-	turns, err := s.store.ListTurns(ctx, in.SessionID)
+	turns, err := s.store.ListTurns(recordCtx, in.SessionID)
 	if err != nil {
-		_ = s.setSessionStatus(ctx, in.SessionID, SessionStatusError)
+		_ = s.setSessionStatus(recordCtx, in.SessionID, SessionStatusError)
 		return InvokeResult{Status: "error"}, err
 	}
 
-	if err := s.setSessionStatus(ctx, in.SessionID, SessionStatusIdle); err != nil {
+	if err := s.setSessionStatus(recordCtx, in.SessionID, SessionStatusIdle); err != nil {
 		return InvokeResult{Status: "error"}, err
 	}
 
