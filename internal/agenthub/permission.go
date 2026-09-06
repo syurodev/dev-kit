@@ -211,6 +211,16 @@ func isDeniedPermissionOutcome(raw json.RawMessage) bool {
 	}
 }
 
+// HookDenyReason is what the PreToolUse hook says when it blocks a tool from
+// reaching Claude Code's own credentials, and what a test asserts on to prove
+// the hook ran at all.
+//
+// It lives here rather than in cmd/devkit-mcp so the two sides cannot drift:
+// the hook is installed through claude-agent-acp's private
+// _meta.claudeCode.options channel, and a silently reworded reason would make
+// the integration test that guards that channel pass while guarding nothing.
+const HookDenyReason = "DevKit blocks agent access to Claude Code's own credentials"
+
 // mediatePermission fails closed: nil resolver, timeout, cancel, or deny → deny.
 // Never auto-approves. Returns an ACP cancelled/rejected Result body together
 // with ErrPermissionDenied so Conn can deliver Result while Invoke fails closed.

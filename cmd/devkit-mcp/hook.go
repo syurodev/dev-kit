@@ -6,6 +6,8 @@ import (
 	"io"
 	"os"
 	"strings"
+
+	"devkit/internal/agenthub"
 )
 
 // runPreToolUseHook is the PreToolUse hook Agent Hub installs into every Claude
@@ -48,7 +50,7 @@ func runPreToolUseHook() error {
 			"hookSpecificOutput": map[string]any{
 				"hookEventName":            "PreToolUse",
 				"permissionDecision":       "deny",
-				"permissionDecisionReason": "DevKit blocks agent access to Claude Code's own credentials (" + hit + "). The agent process authenticates with them; tools may not read them.",
+				"permissionDecisionReason": agenthub.HookDenyReason + " (" + hit + "). The agent process authenticates with them; tools may not read them.",
 			},
 		})
 	}
