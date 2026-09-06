@@ -238,7 +238,52 @@ func claudeEnvAllowlist() map[string]string {
 //
 // This is a jailbreak fix, not a preference: the whole premise of
 // PermissionWaiter is that it sees every tool call it is meant to gate.
-var sessionNewMeta = json.RawMessage(`{"claudeCode":{"options":{"settingSources":[]}}}`)
+//
+// The same _meta carries a PreToolUse hook when we know where DevKit's own
+// binary lives inside the jail. settingSources shuts outside settings out;
+// the hook is the one rule DevKit puts back in, and it runs before every
+// other step of the evaluation order. See runPreToolUseHook.
+func sessionNewMeta(hookCommand string) json.RawMessage {
+	options := map[string]any{"settingSources": []string{}}
+	if hookCommand != "" {
+		options["settings"] = map[string]any{
+			"hooks": map[string]any{
+				"PreToolUse": []any{
+					map[string]any{
+						"hooks": []any{
+							map[string]any{
+								"type":    "command",
+								"command": hookCommand,
+								"args":    []string{"hook", "pretooluse"},
+							},
+						},
+					},
+				},
+			},
+		}
+	}
+	body, err := json.Marshal(map[string]any{"claudeCode": map[string]any{"options": options}})
+	if err != nil {
+		// Only static, marshalable values go in above; a failure here would be
+		// a programming error, and dropping the hook silently is worse than
+		// dropping the whole _meta loudly at the next line.
+		return json.RawMessage(`{"claudeCode":{"options":{"settingSources":[]}}}`)
+	}
+	return body
+}
+
+// devkitHookCommand is the path to DevKit's own binary as the agent sees it.
+// SessionHost already hands the same path over as the devkit MCP server's
+// command, so the jail is guaranteed to have it bound and executable — reading
+// it back from the spec beats threading a second copy through OpenSpec.
+func devkitHookCommand(spec OpenSpec) string {
+	for _, srv := range spec.McpServers {
+		if srv.Name == "devkit" && srv.Command != "" {
+			return srv.Command
+		}
+	}
+	return ""
+}
 
 // claudeCredentialPaths returns Claude Code's own config/credential paths.// claudeCredentialPaths returns Claude Code's own config/credential paths.
 //
@@ -399,7 +444,7 @@ func (a *ClaudeAdapter) Open(ctx context.Context, spec OpenSpec) (SessionRuntime
 	if err := conn.Call(hsCtx, "session/new", acp.SessionNewRequest{
 		Cwd:        pol.WorkDir,
 		McpServers: mcpServers,
-		Meta:       sessionNewMeta,
+		Meta:       sessionNewMeta(devkitHookCommand(spec)),
 	}, &newRes); err != nil {
 		cleanup()
 		return nil, handshakeErr("session/new", err)

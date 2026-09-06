@@ -22,6 +22,16 @@ func main() {
 	}
 	if len(args) > 0 {
 		switch args[0] {
+		case "hook":
+			if len(args) < 2 || args[1] != "pretooluse" {
+				fmt.Fprintln(os.Stderr, "usage: devkit-mcp hook pretooluse")
+				os.Exit(2)
+			}
+			if err := runPreToolUseHook(); err != nil {
+				fmt.Fprintln(os.Stderr, err.Error())
+				os.Exit(1)
+			}
+			return
 		case "install", "uninstall":
 			if err := runInstallCmd(args[0], args[1:]); err != nil {
 				fmt.Fprintln(os.Stderr, err.Error())

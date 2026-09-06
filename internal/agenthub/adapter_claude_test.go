@@ -337,7 +337,7 @@ func TestSessionNewCutsOffUserSettings(t *testing.T) {
 	body, err := json.Marshal(acp.SessionNewRequest{
 		Cwd:        "/x",
 		McpServers: []any{},
-		Meta:       sessionNewMeta,
+		Meta:       sessionNewMeta(""),
 	})
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
@@ -362,5 +362,65 @@ func TestSessionNewCutsOffUserSettings(t *testing.T) {
 	}
 	if len(*got) != 0 {
 		t.Fatalf("settingSources = %v, want empty so no user settings apply", *got)
+	}
+}
+
+func TestSessionNewInstallsThePreToolUseHook(t *testing.T) {
+	// Measured against the real agent: session/new._meta accepts a settings
+	// object with a command hook, the hook fires before the tool runs, and its
+	// tool_use_id is the same id the ACP permission request carries — so the
+	// hook and the gate are talking about the same call.
+	spec := OpenSpec{McpServers: []acp.McpServerStdio{{Name: "devkit", Command: "/jail/devkit-mcp"}}}
+	if got := devkitHookCommand(spec); got != "/jail/devkit-mcp" {
+		t.Fatalf("hook command = %q, want the devkit MCP server's own binary", got)
+	}
+
+	var wire struct {
+		ClaudeCode struct {
+			Options struct {
+				SettingSources *[]string `json:"settingSources"`
+				Settings       struct {
+					Hooks struct {
+						PreToolUse []struct {
+							Hooks []struct {
+								Type    string   `json:"type"`
+								Command string   `json:"command"`
+								Args    []string `json:"args"`
+							} `json:"hooks"`
+						} `json:"PreToolUse"`
+					} `json:"hooks"`
+				} `json:"settings"`
+			} `json:"options"`
+		} `json:"claudeCode"`
+	}
+	if err := json.Unmarshal(sessionNewMeta(devkitHookCommand(spec)), &wire); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	opts := wire.ClaudeCode.Options
+	if opts.SettingSources == nil || len(*opts.SettingSources) != 0 {
+		t.Fatalf("settingSources = %v, want empty alongside the hook", opts.SettingSources)
+	}
+	groups := opts.Settings.Hooks.PreToolUse
+	if len(groups) != 1 || len(groups[0].Hooks) != 1 {
+		t.Fatalf("PreToolUse hooks = %+v, want exactly one", groups)
+	}
+	h := groups[0].Hooks[0]
+	if h.Type != "command" || h.Command != "/jail/devkit-mcp" {
+		t.Fatalf("hook = %+v, want a command hook on DevKit's own binary", h)
+	}
+	if len(h.Args) != 2 || h.Args[0] != "hook" || h.Args[1] != "pretooluse" {
+		t.Fatalf("hook args = %v, want [hook pretooluse]", h.Args)
+	}
+}
+
+func TestSessionNewOmitsTheHookWhenDevKitIsNotInTheJail(t *testing.T) {
+	// No devkit MCP server means no binary bound inside the jail. Naming a
+	// command that is not there would make every tool call log a hook error.
+	if got := devkitHookCommand(OpenSpec{}); got != "" {
+		t.Fatalf("hook command = %q, want empty", got)
+	}
+	if bytes.Contains(sessionNewMeta(""), []byte("PreToolUse")) {
+		t.Fatal("hook installed without a binary to run")
 	}
 }
