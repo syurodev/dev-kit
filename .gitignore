@@ -1,6 +1,10 @@
 # Task / build output
 .task
 bin
+# `go build .` writes the module binary here. Anchored to the repo root so it
+# cannot match a directory of the same name deeper in the tree. It was tracked
+# until 2026-09-06 — 57MB that every local build turned into a pending commit.
+/devkit
 target/
 analyzer/target/
 analyzer/dependency-reduced-pom.xml
