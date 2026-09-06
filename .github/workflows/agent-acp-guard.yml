@@ -18,18 +18,27 @@ name: Agent ACP guard
 # make this suite green forever and tell us nothing about the release that
 # actually breaks us.
 
+# PARKED — manual only until this job can actually pass here.
+#
+# Two things stop it, and neither is the guard's fault:
+#
+#   Auth. DevKit runs on a Claude subscription, not an API key: the CLI itself
+#   reports apiKeySource "none" and the token lives in the macOS keychain. A
+#   headless Linux runner cannot reach that, so the ANTHROPIC_API_KEY this job
+#   asks for is a credential the project does not have and would exercise a
+#   different auth path from the one that ships.
+#
+#   Sandbox. The first run failed at initialize in 0.00s, before auth could
+#   matter — ubuntu-latest is 24.04, which restricts unprivileged user
+#   namespaces, and bwrap needs them.
+#
+# The schedule and push triggers are removed rather than the file, because a
+# job that is red every week teaches people to ignore CI, and this one exists
+# precisely to be looked at when it goes red. Re-enable them once the Ubuntu
+# build is verified by hand (see implementation-status.mdx), or move the job to
+# a self-hosted macOS runner where the subscription and Seatbelt already work.
 on:
-  schedule:
-    # Mondays, 03:00 UTC. Failure is a heads-up, not an outage — a working week
-    # is the right resolution for "upstream changed something".
-    - cron: "0 3 * * 1"
   workflow_dispatch:
-  push:
-    paths:
-      - "internal/acp/**"
-      - "internal/agenthub/**"
-      - "cmd/devkit-mcp/**"
-      - ".github/workflows/agent-acp-guard.yml"
 
 concurrency:
   group: agent-acp-guard-${{ github.ref }}
