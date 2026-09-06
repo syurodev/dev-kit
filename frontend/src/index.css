@@ -329,6 +329,25 @@
     background-color: var(--background-app);
     color-scheme: dark;
   }
+  /* The document itself must never scroll. A desktop window's chrome is fixed:
+     the title bar, the rail and the dock are placed against the window, not
+     against a scrollable page, so a single pixel of document overflow — or a
+     macOS rubber-band bounce, which needs no overflow at all — drags the whole
+     shell off its own frame.
+
+     Electron templates ship this; nothing in Wails does it for us, which is why
+     it looked like a platform difference. #root is included because AppShell
+     sizes itself with h-svh and would otherwise be measuring against a body
+     with no height of its own.
+
+     Anything that needs to scroll scrolls inside its own box. */
+  html,
+  body,
+  #root {
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
   /* .native is set by main.tsx when running inside Wails: the window there is
      transparent and backed by native vibrancy, which an opaque html/body
      would paint over. Plain browsers keep the opaque fallback above. */

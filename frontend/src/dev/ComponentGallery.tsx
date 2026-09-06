@@ -115,7 +115,10 @@ function TagInputGalleryDemo() {
  */
 export default function ComponentGallery() {
   return (
-    <div className="min-h-screen bg-background-app text-text-primary">
+    // h-full + its own scroller, not min-h-screen: the document no longer
+    // scrolls (see index.css), so a page that relied on it would be stuck
+    // showing only its first screen.
+    <div className="h-full overflow-y-auto bg-background-app text-text-primary">
       <header className="border-b border-border-subtle px-6 py-4">
         <h1 className="text-title-16">DevKit component gallery</h1>
         <p className="text-body-12 text-text-secondary">
