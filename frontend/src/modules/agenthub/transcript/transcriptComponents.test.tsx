@@ -1,4 +1,8 @@
 import { describe, expect, it } from "bun:test";
+import {
+  applySessionUpdate,
+  createInitialTranscriptModel,
+} from "../transcript";
 import { renderToString } from "react-dom/server";
 import {
   AgentMessage,
@@ -9,6 +13,7 @@ import {
   AgentToolTerminal,
   AgentFileChip,
   AgentPlan,
+  AgentSubagent,
   AgentInvokeResult,
   AgentRateLimit,
   AgentImage,
@@ -371,6 +376,45 @@ describe("Agent Hub Transcript Leaves", () => {
       // The canvas keeps its height so the transcript does not jump as
       // attachments resolve.
       expect(html).toContain("h-[225px]");
+    });
+  });
+
+  describe("AgentSubagent", () => {
+    it("pairs spawn and state into one card", () => {
+      // Two updates say half a thing each: spawn carries the name and the
+      // task, the state update carries only the id and the new state. Rendering
+      // them as two rows would show "List directory files" once and
+      // "completed" attached to nothing.
+      let model = createInitialTranscriptModel();
+      model = applySessionUpdate(model, {
+        kind: "subagent_spawned",
+        subagent: { id: "a3df", name: "List directory files", task: "List the files." },
+      } as never);
+      model = applySessionUpdate(model, {
+        kind: "subagent_state_update",
+        subagent: { id: "a3df", state: "completed" },
+      } as never);
+
+      expect(model.items).toHaveLength(1);
+      expect(model.items[0].subagent).toEqual({
+        id: "a3df",
+        name: "List directory files",
+        task: "List the files.",
+        state: "completed",
+      });
+
+      const html = renderToString(
+        <AgentSubagent subagent={model.items[0].subagent!} />,
+      );
+      expect(html).toContain("List directory files");
+      expect(html).toContain("List the files.");
+      expect(html).toContain(">completed<");
+    });
+
+    it("keeps running until told otherwise", () => {
+      const html = renderToString(<AgentSubagent subagent={{ id: "x" }} />);
+      expect(html).toContain('data-state="running"');
+      expect(html).toContain("Subagent");
     });
   });
 });

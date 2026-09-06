@@ -11,3 +11,4 @@ export * from "./AgentRateLimit";
 export * from "./AgentImage";
 export * from "./AgentMessageRich";
 export * from "./agentMarkdown";
+export * from "./AgentSubagent";

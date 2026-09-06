@@ -26,6 +26,13 @@ const (
 	// goal extension) an objective in _meta. Only the title is modelled — an
 	// objective is something a human typed with /goal, not a name to show.
 	UpdateSessionInfo UpdateKind = "session_info_update"
+	// UpdateSubagentSpawned and UpdateSubagentState report an agent the vendor
+	// started inside its own process. They are not DevKit sessions: nothing
+	// here created them, Invoke cannot reach them, and CloseSession has no
+	// hold on them. They are events in the parent's transcript, and the
+	// vendor's subagentSessionId is the only handle to them.
+	UpdateSubagentSpawned UpdateKind = "subagent_spawned"
+	UpdateSubagentState   UpdateKind = "subagent_state_update"
 	// UpdateUnknown is a kind this build does not model. The raw blob is kept
 	// so a vendor that ships a new kind degrades to "not rendered" rather than
 	// "silently dropped" — the Meta Inspector surface reads Raw.
@@ -116,7 +123,9 @@ type SessionUpdate struct {
 	// Title is the vendor's own name for the session, generated after the
 	// first exchange. Empty on the goal-carrying shape of the same kind.
 	Title string `json:"title,omitempty"`
-	Usage *Usage `json:"usage,omitempty"`
+	// Subagent carries the vendor-side agent a subagent_* update is about.
+	Subagent *Subagent `json:"subagent,omitempty"`
+	Usage    *Usage    `json:"usage,omitempty"`
 	// MessageID identifies the assistant message a chunk belongs to. Claude
 	// sends it on every chunk; it is a stricter coalescing key than "same kind"
 	// because two consecutive messages would otherwise fold into one bubble.
@@ -132,6 +141,19 @@ type SessionUpdate struct {
 	// nothing.
 	WireKind string          `json:"-"`
 	Raw      json.RawMessage `json:"raw,omitempty"`
+}
+
+// Subagent is an agent the vendor ran inside its own process, as reported by
+// subagent_spawned and subagent_state_update.
+//
+// Name and Task arrive on spawn and are absent on the state update, which
+// carries only the id and the new state — so a reader has to keep the pair
+// together by ID rather than expect either message to be complete.
+type Subagent struct {
+	ID    string `json:"id"`
+	Name  string `json:"name,omitempty"`
+	Task  string `json:"task,omitempty"`
+	State string `json:"state,omitempty"`
 }
 
 // IsChunk reports whether the update is a streaming text fragment. Chunks are
@@ -162,22 +184,26 @@ func (u SessionUpdate) Text() string {
 // Typing it as the object shape would make every tool_call notification fail to
 // unmarshal and degrade to UpdateUnknown.
 type wireUpdate struct {
-	SessionUpdate string          `json:"sessionUpdate"`
-	Content       json.RawMessage `json:"content"`
-	ToolCallID    string          `json:"toolCallId"`
-	Title         string          `json:"title"`
-	Kind          string          `json:"kind"`
-	Status        string          `json:"status"`
-	Locations     json.RawMessage `json:"locations"`
-	RawInput      json.RawMessage `json:"rawInput"`
-	RawOutput     json.RawMessage `json:"rawOutput"`
-	Entries       json.RawMessage `json:"entries"`
-	Commands      json.RawMessage `json:"availableCommands"`
-	CurrentMode   string          `json:"currentModeId"`
-	MessageID     string          `json:"messageId"`
-	Used          int64           `json:"used"`
-	Size          int64           `json:"size"`
-	Cost          json.RawMessage `json:"cost"`
+	SessionUpdate     string          `json:"sessionUpdate"`
+	Content           json.RawMessage `json:"content"`
+	ToolCallID        string          `json:"toolCallId"`
+	Title             string          `json:"title"`
+	Kind              string          `json:"kind"`
+	Status            string          `json:"status"`
+	Locations         json.RawMessage `json:"locations"`
+	RawInput          json.RawMessage `json:"rawInput"`
+	RawOutput         json.RawMessage `json:"rawOutput"`
+	Entries           json.RawMessage `json:"entries"`
+	Commands          json.RawMessage `json:"availableCommands"`
+	CurrentMode       string          `json:"currentModeId"`
+	SubagentSessionID string          `json:"subagentSessionId"`
+	Name              string          `json:"name"`
+	Task              string          `json:"task"`
+	State             string          `json:"state"`
+	MessageID         string          `json:"messageId"`
+	Used              int64           `json:"used"`
+	Size              int64           `json:"size"`
+	Cost              json.RawMessage `json:"cost"`
 }
 
 // ParseSessionUpdate normalizes one session/update blob. It never returns an
@@ -216,6 +242,14 @@ func ParseSessionUpdate(raw json.RawMessage) SessionUpdate {
 	case UpdateCurrentMode:
 		out.Kind = UpdateCurrentMode
 		out.Mode = wire.CurrentMode
+	case UpdateSubagentSpawned, UpdateSubagentState:
+		out.Kind = UpdateKind(wire.SessionUpdate)
+		out.Subagent = &Subagent{
+			ID:    wire.SubagentSessionID,
+			Name:  wire.Name,
+			Task:  wire.Task,
+			State: wire.State,
+		}
 	case UpdateSessionInfo:
 		// The goal-carrying shape of this kind has no title. Leaving it as
 		// UpdateUnknown would put it back in the log every session; naming it

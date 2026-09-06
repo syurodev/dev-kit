@@ -10,6 +10,7 @@ import {
   AgentPlan,
   AgentInvokeResult,
   AgentRateLimit,
+  AgentSubagent,
   parseMarkdown,
 } from "../transcript/index";
 import { AgentJumpToLatest } from "./AgentJumpToLatest";
@@ -150,6 +151,20 @@ export function TranscriptStream({
               status: "completed",
             };
             return <AgentToolCall key={item.id} call={toolCall} />;
+          }
+
+          // A subagent the vendor ran inside its own process. The transcript
+          // model pairs spawn and state into one item, so there is one card
+          // per subagent rather than one per event.
+          if (
+            kind === UpdateKind.UpdateSubagentSpawned ||
+            kind === UpdateKind.UpdateSubagentState ||
+            kind === "subagent_spawned" ||
+            kind === "subagent_state_update"
+          ) {
+            return item.subagent ? (
+              <AgentSubagent key={item.id} subagent={item.subagent} />
+            ) : null;
           }
 
           // Plan update

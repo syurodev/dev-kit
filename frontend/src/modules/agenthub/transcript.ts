@@ -7,6 +7,7 @@ import type {
   TranscriptAction,
   TranscriptItem,
   TranscriptModel,
+  Subagent,
 } from "./types";
 
 export type {
@@ -261,6 +262,45 @@ export function applySessionUpdate(
       updatedAt: new Date().toISOString(),
     };
     return { ...model, items: [...model.items, newItem] };
+  }
+
+  // Subagents: one card per subagent, not one row per event. Spawn carries the
+  // name and the task, the state update carries only the id — so they are
+  // paired here the way tool calls are, rather than rendered as two lines that
+  // say half a thing each.
+  if (
+    kind === UpdateKind.UpdateSubagentSpawned ||
+    kind === UpdateKind.UpdateSubagentState ||
+    kind === "subagent_spawned" ||
+    kind === "subagent_state_update"
+  ) {
+    const incoming = update.subagent;
+    if (incoming?.id) {
+      const index = model.items.findIndex((item) => item.subagent?.id === incoming.id);
+      if (index >= 0) {
+        const merged: Subagent = { ...model.items[index].subagent, ...incoming };
+        // Spawn is the only message with a name; a state update must not blank it.
+        merged.name = incoming.name || model.items[index].subagent?.name;
+        merged.task = incoming.task || model.items[index].subagent?.task;
+        const nextItems = [...model.items];
+        nextItems[index] = {
+          ...model.items[index],
+          subagent: merged,
+          raw: update.raw ?? model.items[index].raw,
+          updatedAt: new Date().toISOString(),
+        };
+        return { ...model, items: nextItems };
+      }
+      const newItem: TranscriptItem = {
+        id: generateId(),
+        kind: UpdateKind.UpdateSubagentSpawned,
+        subagent: { ...incoming },
+        raw: update.raw,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      return { ...model, items: [...model.items, newItem] };
+    }
   }
 
   // Unknown / unmodelled kinds: kept intact with raw payload

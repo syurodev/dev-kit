@@ -93,6 +93,8 @@ export type SessionUpdate = {
   plan?: PlanEntry[];
   commands?: AvailableCommand[];
   mode?: string;
+  /** Set on subagent_spawned and subagent_state_update. */
+  subagent?: Subagent | null;
   /**
    * The vendor's own name for the session, on session_info_update. Empty on
    * the goal-carrying shape of the same kind — one kind, two payloads.
@@ -101,6 +103,21 @@ export type SessionUpdate = {
   usage?: Usage | null;
   messageId?: string;
   raw?: unknown;
+};
+
+/**
+ * Subagent is an agent the vendor ran inside its own process.
+ *
+ * Not a DevKit session: nothing here created it, the composer cannot address
+ * it, and closing it is not ours to do. Name and task arrive on spawn; the
+ * state update carries only the id and the new state, so the two have to be
+ * kept together by id rather than read one at a time.
+ */
+export type Subagent = {
+  id: string;
+  name?: string;
+  task?: string;
+  state?: string;
 };
 
 /**
@@ -114,6 +131,7 @@ export type TranscriptItem = {
   toolCallId?: string;
   toolCall?: ToolCall;
   plan?: PlanEntry[];
+  subagent?: Subagent;
   raw?: unknown;
   createdAt?: string;
   updatedAt?: string;

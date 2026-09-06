@@ -243,12 +243,37 @@ func claudeEnvAllowlist() map[string]string {
 // three cases, read in cwd, write outside cwd, and a shell command, produced
 // no fs/* or terminal/* call even with both advertised — but the rule is to
 // declare what is true, not what is harmless.
+// DevkitClientCapabilitiesForTest exposes the declaration to the external test
+// package. The capabilities themselves stay unexported: nothing outside this
+// adapter should be choosing what DevKit claims to support.
+func DevkitClientCapabilitiesForTest() map[string]any { return devkitClientCapabilities() }
+
 func devkitClientCapabilities() map[string]any {
 	return map[string]any{
 		// The client understands updates that come from a subagent. DevKit
 		// renders them in the parent transcript rather than as their own
 		// session; nesting is a UI question, losing the text was a wire one.
 		"subagents": map[string]any{},
+		// The structured subagent events sit behind a second gate: an
+		// extension declared under _meta.jetbrains.air, which claude-agent-acp
+		// honours. Declaring `subagents` alone forwards a subagent's text but
+		// not the fact that one exists — measured: with the block below, the
+		// same prompt also produced subagent_spawned (with the subagent's id,
+		// name and task) and subagent_state_update.
+		//
+		// The namespace is JetBrains' and the vendor's, not something DevKit
+		// chose. asyncTasks and sessionFailure are declared alongside because
+		// they are the same extension and the same version; whether their
+		// updates get modelled is a separate question from whether we are
+		// allowed to see them.
+		"_meta": map[string]any{
+			"jetbrains": map[string]any{
+				"air": map[string]any{
+					"version":      1,
+					"capabilities": []string{"nativeSubagentSessions", "asyncTasks", "sessionFailure"},
+				},
+			},
+		},
 	}
 }
 

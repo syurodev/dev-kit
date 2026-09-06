@@ -245,3 +245,75 @@ func TestParseSessionInfoCarriesTheTitleButNotTheGoal(t *testing.T) {
 		t.Fatalf("title = %q, want empty on the goal shape", goal.Title)
 	}
 }
+
+func TestParseSubagentUpdates(t *testing.T) {
+	// Captured from claude-agent-acp 0.74.0 with the air extension declared.
+	// Without that declaration these two never arrive at all — only the
+	// subagent's text does, as ordinary agent_message_chunk.
+	spawned := agenthub.ParseSessionUpdate([]byte(`{"sessionUpdate":"subagent_spawned",` +
+		`"subagentSessionId":"a3df49ca2b5690428","name":"List directory files",` +
+		`"task":"List the files and directories in /private/tmp/proj.","capabilities":{}}`))
+	if spawned.Kind != agenthub.UpdateSubagentSpawned {
+		t.Fatalf("kind = %q, want subagent_spawned", spawned.Kind)
+	}
+	if spawned.Subagent == nil || spawned.Subagent.ID != "a3df49ca2b5690428" {
+		t.Fatalf("subagent = %+v, want the vendor's id", spawned.Subagent)
+	}
+	if spawned.Subagent.Name != "List directory files" || spawned.Subagent.Task == "" {
+		t.Fatalf("subagent = %+v, want name and task", spawned.Subagent)
+	}
+
+	// The state update carries the id and nothing else about the subagent, so
+	// a reader has to keep the pair together rather than expect either message
+	// to be complete on its own.
+	state := agenthub.ParseSessionUpdate([]byte(`{"sessionUpdate":"subagent_state_update",` +
+		`"subagentSessionId":"a3df49ca2b5690428","state":"completed"}`))
+	if state.Kind != agenthub.UpdateSubagentState {
+		t.Fatalf("kind = %q, want subagent_state_update", state.Kind)
+	}
+	if state.Subagent == nil || state.Subagent.State != "completed" {
+		t.Fatalf("subagent = %+v, want the new state", state.Subagent)
+	}
+	if state.Subagent.Name != "" {
+		t.Fatalf("name = %q, want empty; only spawn carries it", state.Subagent.Name)
+	}
+}
+
+func TestClientCapabilitiesCarryTheAirExtension(t *testing.T) {
+	// Two gates, not one: `subagents` forwards a subagent's text, the air
+	// extension is what makes the vendor say a subagent exists at all.
+	body, err := json.Marshal(agenthub.DevkitClientCapabilitiesForTest())
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var caps struct {
+		Subagents map[string]any `json:"subagents"`
+		Meta      struct {
+			JetBrains struct {
+				Air struct {
+					Version      int      `json:"version"`
+					Capabilities []string `json:"capabilities"`
+				} `json:"air"`
+			} `json:"jetbrains"`
+		} `json:"_meta"`
+	}
+	if err := json.Unmarshal(body, &caps); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if caps.Subagents == nil {
+		t.Fatal("subagents not declared")
+	}
+	air := caps.Meta.JetBrains.Air
+	if air.Version != 1 {
+		t.Fatalf("air version = %d, want 1", air.Version)
+	}
+	var found bool
+	for _, c := range air.Capabilities {
+		if c == "nativeSubagentSessions" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("air capabilities = %v, want nativeSubagentSessions", air.Capabilities)
+	}
+}

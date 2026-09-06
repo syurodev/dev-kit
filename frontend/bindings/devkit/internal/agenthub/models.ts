@@ -183,6 +183,16 @@ export enum UpdateKind {
     UpdateSessionInfo = "session_info_update",
 
     /**
+     * UpdateSubagentSpawned and UpdateSubagentState report an agent the vendor
+     * started inside its own process. They are not DevKit sessions: nothing
+     * here created them, Invoke cannot reach them, and CloseSession has no
+     * hold on them. They are events in the parent's transcript, and the
+     * vendor's subagentSessionId is the only handle to them.
+     */
+    UpdateSubagentSpawned = "subagent_spawned",
+    UpdateSubagentState = "subagent_state_update",
+
+    /**
      * UpdateUnknown is a kind this build does not model. The raw blob is kept
      * so a vendor that ships a new kind degrades to "not rendered" rather than
      * "silently dropped" — the Meta Inspector surface reads Raw.
