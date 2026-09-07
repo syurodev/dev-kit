@@ -3,7 +3,8 @@ import type { UpdateKind } from "../../../bindings/devkit/internal/agenthub/mode
 /**
  * ContentBlock is one ACP displayable unit. Only `text` carries meaning for
  * every vendor; the rest are kept as-is so the UI can decide what it can show.
- * Mirrors internal/agenthub/update.go: ContentBlock
+ * Mirrors internal/acp/types_v1.go: ContentBlock — the Go side aliases it
+ * rather than copying it, so this is the one shape to keep in step.
  */
 export type ContentBlock = {
   type: string;
@@ -12,6 +13,13 @@ export type ContentBlock = {
   data?: string;
   uri?: string;
   name?: string;
+  /** Set when type === "resource": the contents travel with the block. */
+  resource?: {
+    uri: string;
+    text?: string;
+    blob?: string;
+    mimeType?: string;
+  };
 };
 
 /**

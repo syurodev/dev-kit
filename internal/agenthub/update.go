@@ -1,6 +1,10 @@
 package agenthub
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"devkit/internal/acp"
+)
 
 // UpdateKind is the `sessionUpdate` discriminator of an ACP session/update
 // notification. The transport keeps the notification a raw blob (see
@@ -39,19 +43,13 @@ const (
 	UpdateUnknown UpdateKind = "unknown"
 )
 
-// ContentBlock is one ACP displayable unit. Only `text` carries meaning for
-// every vendor; the rest are kept as-is so the UI can decide what it can show.
-type ContentBlock struct {
-	Type     string `json:"type"`
-	Text     string `json:"text,omitempty"`
-	MimeType string `json:"mimeType,omitempty"`
-	// Data is base64 for image/audio. It is deliberately not decoded here: the
-	// hub never needs the bytes, and decoding would double a screenshot in RAM
-	// on its way to the UI.
-	Data string `json:"data,omitempty"`
-	URI  string `json:"uri,omitempty"`
-	Name string `json:"name,omitempty"`
-}
+// ContentBlock is one ACP displayable unit. It is the wire type, not a copy of
+// it: the transcript stores what the vendor sent, so a second struct here only
+// bought a chance to drift. It already had — acp.ContentBlock grew `resource`
+// when prompts learned to carry file contents, and the copy did not, so an
+// embedded resource coming back from the agent lost its body on the way to the
+// UI. Alias, so there is one shape and one place to widen it.
+type ContentBlock = acp.ContentBlock
 
 // ToolCallLocation is a file the tool call touched. ACP says clients should
 // render these to implement follow-along.

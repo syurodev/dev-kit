@@ -319,3 +319,23 @@ func TestClientCapabilitiesCarryTheAirExtension(t *testing.T) {
 		t.Fatalf("air capabilities = %v, want nativeSubagentSessions", air.Capabilities)
 	}
 }
+
+// A chunk can carry an embedded resource, the same shape DevKit sends when a
+// prompt has an attachment. The struct this parses into used to be a private
+// copy of acp.ContentBlock without the Resource field, so the body arrived and
+// was dropped on the floor. This is the test that fails if the copy comes back.
+func TestParseSessionUpdateKeepsAnEmbeddedResource(t *testing.T) {
+	raw := json.RawMessage(`{"sessionUpdate":"agent_message_chunk","content":{"type":"resource","resource":{"uri":"file:///w/main.go","text":"package main","mimeType":"text/x-go"}}}`)
+
+	got := agenthub.ParseSessionUpdate(raw)
+
+	if got.Content == nil {
+		t.Fatal("Content is nil for a resource block")
+	}
+	if got.Content.Resource == nil {
+		t.Fatal("Resource is nil; the block's body was dropped")
+	}
+	if got.Content.Resource.Text != "package main" {
+		t.Fatalf("Resource.Text = %q", got.Content.Resource.Text)
+	}
+}
