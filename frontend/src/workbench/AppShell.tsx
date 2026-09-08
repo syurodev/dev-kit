@@ -25,7 +25,7 @@ import { AgentCompanionSlot } from "./AgentCompanionSlot";
  * Geometry, with the code that owns each number:
  *
  *   titlebar        40 tall                  components/ui/titlebar.tsx
- *   window gutter   4 (Figma draws 8)        WINDOW_GUTTER, panelLayout.ts
+ *   window gutter   0, flush (Figma draws 8)  WINDOW_GUTTER, panelLayout.ts
  *   sidebar         280 + 8 sash             sidebar-shell.tsx / panelWidths
  *   content-surface fills, opaque, radius 10 .shell-surface, index.css
  *   panel           320 + 8 sash             split-panel.tsx / panelWidths
@@ -76,10 +76,17 @@ export function AppShell({
       <div className="relative flex h-svh w-full flex-col overflow-hidden bg-bg-app">
         <Titlebar fullscreen={fullscreen}>{titlebar}</Titlebar>
 
-        {/* content-row. The 4px window gutter is a deliberate departure from
-            Figma's 8 — see WINDOW_GUTTER. The 8px sashes between surfaces are
-            unchanged; only the dead margin at the window edge is tighter. */}
-        <div className="mx-1 mb-1 flex min-h-0 flex-1">
+        {/* content-row, flush to the window (WINDOW_GUTTER is 0; Figma draws 8).
+            The 8px sashes between surfaces are unchanged — only the dead margin
+            at the window edge is gone.
+
+            Flush is what makes the corner right rather than approximately
+            right: macOS masks the window's content to its own squircle, so a
+            surface that reaches the edge is rounded BY the window instead of
+            having to imitate it. An inset surface had to draw its own corner
+            parallel to one CSS cannot express, and every radius we tried was
+            wrong by a measurable amount. */}
+        <div className="flex min-h-0 flex-1">
           <SidebarSurface activeModuleId={activeModuleId} />
 
           {/* The bottom slot stacks under the module content ONLY — the sidebar

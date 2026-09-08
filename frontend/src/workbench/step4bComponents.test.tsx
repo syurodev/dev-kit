@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { WINDOW_GUTTER } from "./panelLayout";
 import { describe, expect, it } from "bun:test";
 import { renderToString } from "react-dom/server";
 import { ShellResizeHandle } from "@/components/ui/resize-handle";
@@ -79,6 +80,25 @@ describe("Step 4b Shell Overlays & Composition Reconciliation", () => {
       if (!wrapper) throw new Error("no h-svh shell wrapper found");
       expect(wrapper).toContain("bg-bg-app");
       expect(wrapper).not.toContain("bg-transparent");
+    });
+
+    it("keeps the shell flush, with square bottom corners for the window to round", () => {
+      // macOS masks the window's content to its own squircle. A flush surface
+      // is therefore rounded BY the window, exactly, on every platform — but
+      // only while it draws no corner of its own and nothing insets it. Give it
+      // a radius and it cuts inside the mask; give it a margin and it has to
+      // imitate a curve CSS cannot draw.
+      expect(WINDOW_GUTTER).toBe(0);
+
+      const shell = readFileSync(new URL("./AppShell.tsx", import.meta.url), "utf8");
+      const row = shell.split("\n").find((line) => line.includes("flex min-h-0 flex-1"));
+      expect(row).toBeDefined();
+      expect(row).not.toContain("mx-");
+      expect(row).not.toContain("mb-");
+
+      const css = readFileSync(new URL("../index.css", import.meta.url), "utf8");
+      expect(css).toContain("border-bottom-left-radius: 0;");
+      expect(css).toContain("border-bottom-right-radius: 0;");
     });
 
     it("clamps every resizable shell surface at render, not only while dragging", () => {

@@ -17,7 +17,12 @@ export const GAP_WIDTH = 8;
  * one is a draggable sash between two surfaces, the other is dead margin at the
  * window edge, and collapsing them hid a bug in maxBottomHeight below.
  */
-export const WINDOW_GUTTER = 4;
+// Zero while the shell runs flush to the window. A gutter only ever cost
+// something: it opened a 4px band whose corner had to be kept parallel to the
+// window's, and macOS draws that corner as a squircle no CSS radius can match.
+// Flush, the window's own mask does the rounding and there is nothing to match.
+// Restore to 4 to bring the band back — every consumer reads this constant.
+export const WINDOW_GUTTER = 0;
 
 /** Hard floor for the centre content area, whatever the two side panels do. */
 export const CONTENT_MIN_WIDTH = 480;
