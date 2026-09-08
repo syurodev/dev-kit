@@ -89,21 +89,21 @@ export function NoteHistoryPanel({
       <div className="border-b border-border px-3 py-2">
         <div className="flex items-center gap-2">
           <History className="size-4 text-text-secondary" />
-          <span className="text-sm font-semibold text-text-primary">History</span>
+          <span className="text-title-14 text-text-primary">History</span>
         </div>
-        <p className="mt-0.5 text-[11px] text-text-tertiary">
+        <p className="mt-0.5 text-caption-11 text-text-tertiary">
           checkpoints every idle 5 min · keeps last 50
         </p>
       </div>
 
       {error && (
-        <div className="border-b border-status-danger/30 bg-status-danger/10 px-3 py-2 text-xs text-status-danger">
+        <div className="border-b border-status-danger/30 bg-status-danger/10 px-3 py-2 text-body-12 text-status-danger">
           {error}
         </div>
       )}
 
       <ScrollArea className="min-h-0 flex-1">
-        <ul className="p-2 text-xs">
+        <ul className="p-2 text-body-12">
           <li>
             <button
               type="button"
@@ -129,7 +129,7 @@ export function NoteHistoryPanel({
               >
                 <span className="font-mono text-text-primary">v{versions.length - index}</span>
                 <span className="text-text-tertiary">{relativeAge(version.createdAt)}</span>
-                <span className="ml-auto text-[10px] text-text-tertiary">{version.trigger}</span>
+                <span className="ml-auto text-caption-11 text-text-tertiary">{version.trigger}</span>
               </button>
             </li>
           ))}
@@ -139,7 +139,7 @@ export function NoteHistoryPanel({
       {selected && (
         <div className="flex min-h-0 flex-[2] flex-col border-t border-border">
           <ScrollArea className="min-h-0 flex-1">
-            <pre className="p-3 font-mono text-[11px] leading-relaxed">
+            <pre className="p-3 text-code-11">
               {diff.map((line, i) => (
                 <div
                   key={i}

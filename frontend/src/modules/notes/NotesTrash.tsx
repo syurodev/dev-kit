@@ -61,7 +61,7 @@ export function NotesTrash({ onChanged }: { onChanged: () => void }) {
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
       <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-2.5">
-        <span className="text-xs text-text-tertiary">
+        <span className="text-body-12 text-text-tertiary">
           items in trash are deleted permanently after 30 days
         </span>
         <Button
@@ -76,14 +76,14 @@ export function NotesTrash({ onChanged }: { onChanged: () => void }) {
       </div>
 
       {error && (
-        <div className="border-b border-status-danger/30 bg-status-danger/10 px-4 py-2 text-xs text-status-danger">
+        <div className="border-b border-status-danger/30 bg-status-danger/10 px-4 py-2 text-body-12 text-status-danger">
           {error}
         </div>
       )}
 
       <div className="flex-1 overflow-auto p-4">
         {items.length === 0 ? (
-          <p className="pt-10 text-center text-xs text-text-tertiary">Trash is empty.</p>
+          <p className="pt-10 text-center text-body-13 text-text-tertiary">Trash is empty.</p>
         ) : (
           <ul className="space-y-2">
             {items.map((note) => (
@@ -93,19 +93,19 @@ export function NotesTrash({ onChanged }: { onChanged: () => void }) {
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="truncate text-sm font-medium text-text-primary">
+                    <span className="truncate text-body-13-medium text-text-primary">
                       {note.title || "Untitled"}
                     </span>
                     {note.effectiveTags.slice(0, 1).map((tag) => (
-                      <Badge key={tag} variant="outline" className="text-[10px]">
+                      <Badge key={tag} variant="outline" className="text-label-12">
                         {tag}
                       </Badge>
                     ))}
                   </div>
-                  <p className="mt-0.5 line-clamp-1 text-xs text-text-secondary">
+                  <p className="mt-0.5 line-clamp-1 text-body-12 text-text-secondary">
                     {note.preview}
                   </p>
-                  <p className="mt-1 text-[11px] text-text-tertiary">
+                  <p className="mt-1 text-caption-11 text-text-tertiary">
                     purges in {daysUntilPurge(note.purgesAt)} days
                   </p>
                 </div>

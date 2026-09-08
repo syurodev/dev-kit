@@ -418,10 +418,10 @@ export function NotesDashboard({
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 <div>
-                  <h1 className="text-2xl font-bold tracking-tight text-foreground">
+                  <h1 className="text-heading-24 text-foreground">
                     Notes
                   </h1>
-                  <p className="text-[13px] text-muted-foreground">
+                  <p className="text-body-13 text-muted-foreground">
                     {filtered.length} {filtered.length === 1 ? "note" : "notes"} ·{" "}
                     {scopeLabel}
                   </p>
@@ -486,7 +486,7 @@ export function NotesDashboard({
                 />
               ))}
               {filtered.length === 0 ? (
-                <p className="col-span-full px-1 py-6 text-sm text-muted-foreground">
+                <p className="col-span-full px-1 py-6 text-body-13 text-muted-foreground">
                   No notes match this view.
                 </p>
               ) : null}

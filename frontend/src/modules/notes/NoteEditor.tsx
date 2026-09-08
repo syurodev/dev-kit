@@ -112,16 +112,16 @@ function NoteBacklinks({ noteId }: { noteId: string }) {
 
   return (
     <div className="space-y-1.5">
-      <span className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">
+      <span className="text-label-11-caps text-text-tertiary">
         Backlinks · {backlinks.length}
       </span>
       <ul className="space-y-1.5">
         {backlinks.map((note) => (
           <li key={note.id} className="rounded border border-border bg-surface-raised p-2">
-            <p className="truncate text-xs font-medium text-text-primary">
+            <p className="truncate text-body-13-medium text-text-primary">
               {note.title || "Untitled"}
             </p>
-            <p className="mt-0.5 line-clamp-1 text-[11px] text-text-tertiary">{note.preview}</p>
+            <p className="mt-0.5 line-clamp-1 text-caption-11 text-text-tertiary">{note.preview}</p>
           </li>
         ))}
       </ul>
@@ -159,7 +159,7 @@ function NoteMetaPanel({
   return (
     <div className="flex flex-col gap-5 p-4">
       <div>
-        <p className="mb-2 text-xs font-medium tracking-[0.4px] text-muted-foreground uppercase">
+        <p className="mb-2 text-label-11-caps text-muted-foreground">
           Folder
         </p>
         <Select value={folderId || "ungrouped"} onValueChange={onFolderChange}>
@@ -185,14 +185,14 @@ function NoteMetaPanel({
       </div>
 
       <div>
-        <p className="mb-2 text-xs font-medium tracking-[0.4px] text-muted-foreground uppercase">
+        <p className="mb-2 text-label-11-caps text-muted-foreground">
           Color
         </p>
         <ColorPicker value={color} onChange={onColorChange} allowInherit />
       </div>
 
       <div>
-        <p className="mb-2 text-xs font-medium tracking-[0.4px] text-muted-foreground uppercase">
+        <p className="mb-2 text-label-11-caps text-muted-foreground">
           Tags
         </p>
         <Input
@@ -224,7 +224,7 @@ function NoteMetaPanel({
             ) : null}
             {inherited.length > 0 ? (
               <div className="flex flex-wrap items-center gap-1">
-                <span className="text-xs text-muted-foreground">From folder:</span>
+                <span className="text-body-12 text-muted-foreground">From folder:</span>
                 {inherited.map((tag) => (
                   <TagChip key={tag} tag={tag} readOnly />
                 ))}
@@ -581,7 +581,7 @@ export function NoteEditor({ params }: NoteEditorProps) {
   if (loadError) {
     return (
       <div className="flex flex-1 items-center justify-center p-4">
-        <p role="alert" className="text-sm text-destructive">
+        <p role="alert" className="text-body-13 text-destructive">
           {loadError}
         </p>
       </div>
@@ -591,7 +591,7 @@ export function NoteEditor({ params }: NoteEditorProps) {
   if (!note) {
     return (
       <div className="flex flex-1 items-center justify-center p-4">
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <p className="text-body-13 text-muted-foreground">Loading…</p>
       </div>
     );
   }
@@ -602,7 +602,7 @@ export function NoteEditor({ params }: NoteEditorProps) {
           open rather than closing under the reader: the body is on screen and
           still theirs to copy out. Saying so beats a tab that vanishes. */}
       {note.deletedAt && (
-        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-status-warning/30 bg-status-warning/10 px-4 py-2 text-xs text-status-warning">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-status-warning/30 bg-status-warning/10 px-4 py-2 text-body-12 text-status-warning">
           <span>
             <strong className="font-semibold">This note is in the trash.</strong> It was deleted
             somewhere else while you had it open. Edits still save, and it stays in the trash
@@ -611,7 +611,7 @@ export function NoteEditor({ params }: NoteEditorProps) {
           <Button
             size="sm"
             variant="outline"
-            className="h-7 shrink-0 text-xs"
+            className="h-7 shrink-0 text-label-12"
             onClick={() => void restoreNote(note.id).then(() => setNote({ ...note, deletedAt: "" }))}
           >
             Restore
@@ -630,7 +630,7 @@ export function NoteEditor({ params }: NoteEditorProps) {
         </Button>
         <nav
           aria-label="Note breadcrumb"
-          className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground"
+          className="flex min-w-0 items-center gap-1 text-body-12 text-muted-foreground"
         >
           <button type="button" className="shrink-0 hover:text-foreground" onClick={onBack}>
             Notes
@@ -640,7 +640,7 @@ export function NoteEditor({ params }: NoteEditorProps) {
           <span aria-hidden>/</span>
           <span className="truncate text-foreground">{title || "Untitled"}</span>
         </nav>
-        <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+        <span className="ml-auto shrink-0 text-caption-11 text-muted-foreground">
           {status === "saving" ? "Saving…" : status === "saved" ? "Saved" : null}
         </span>
         <Button
@@ -656,7 +656,7 @@ export function NoteEditor({ params }: NoteEditorProps) {
       {saveError ? (
         <p
           role="alert"
-          className="shrink-0 border-b border-border px-4 py-1 text-xs text-destructive"
+          className="shrink-0 border-b border-border px-4 py-1 text-body-12 text-destructive"
         >
           {saveError}
         </p>
@@ -672,7 +672,7 @@ export function NoteEditor({ params }: NoteEditorProps) {
                 setTitle(e.target.value);
                 scheduleSave(e.target.value);
               }}
-              className="h-auto w-full border-none bg-transparent px-0 py-1 text-3xl font-bold tracking-tight shadow-none focus-visible:ring-0"
+              className="h-auto w-full border-none bg-transparent px-0 py-1 text-heading-24 shadow-none focus-visible:ring-0"
             />
             <Editor placeholder="Write something..." className="mt-6 px-0" />
           </div>

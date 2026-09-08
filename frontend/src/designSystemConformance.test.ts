@@ -25,7 +25,10 @@ const BASELINE: Record<string, { twText: number; rawPx: number; rawHex: number }
   "modules/codegraph": { twText: 47, rawPx: 43, rawHex: 0 },
   "modules/database": { twText: 124, rawPx: 100, rawHex: 4 },
   "modules/kafka": { twText: 0, rawPx: 0, rawHex: 0 },
-  "modules/notes": { twText: 28, rawPx: 18, rawHex: 0 },
+  // Converted 2026-09-08. The one remaining rawPx is max-w-[720px], the note
+  // writing column — a content measure, not a design step; the scale has no
+  // bucket for it and inventing one would be worse than the literal.
+  "modules/notes": { twText: 0, rawPx: 1, rawHex: 0 },
   "modules/settings": { twText: 1, rawPx: 60, rawHex: 0 },
   "modules/ssh": { twText: 0, rawPx: 0, rawHex: 0 },
   "modules/sync": { twText: 0, rawPx: 0, rawHex: 0 },

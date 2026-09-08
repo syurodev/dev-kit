@@ -58,10 +58,10 @@ function MermaidDiagram({ source }: { source: string }) {
   }, [id, resolvedTheme, source]);
 
   if (state.status === "error") {
-    return <p className="text-sm text-destructive">Mermaid error: {state.message}</p>;
+    return <p className="text-body-13 text-destructive">Mermaid error: {state.message}</p>;
   }
   if (state.status === "rendering") {
-    return <p className="text-sm text-muted-foreground">Rendering diagram…</p>;
+    return <p className="text-body-13 text-muted-foreground">Rendering diagram…</p>;
   }
   // eslint-disable-next-line react/no-danger -- Mermaid's own render output, not user HTML
   return <div dangerouslySetInnerHTML={{ __html: state.svg }} />;

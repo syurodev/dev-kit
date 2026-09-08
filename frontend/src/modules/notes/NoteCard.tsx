@@ -39,16 +39,16 @@ export function NoteCard({
       <span className="flex min-w-0 items-center gap-1.5">
         {accent ? (
           <span
-            className="size-2 shrink-0 rounded-[4px]"
+            className="size-2 shrink-0 rounded-sm"
             style={{ background: accent }}
             aria-hidden
           />
         ) : null}
-        <span className="min-w-0 truncate text-base font-semibold tracking-[0.2px] text-foreground">
+        <span className="min-w-0 truncate text-title-16 text-foreground">
           {note.title || "Untitled"}
         </span>
       </span>
-      <span className="line-clamp-3 flex-1 text-[13px] leading-[1.4] tracking-[0.1px] text-muted-foreground">
+      <span className="line-clamp-3 flex-1 text-body-13 text-muted-foreground">
         {note.preview || "No preview"}
       </span>
       <span className="flex items-center justify-between gap-2">
@@ -58,7 +58,7 @@ export function NoteCard({
               key={tag.toLowerCase()}
               role="button"
               tabIndex={0}
-              className="inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-semibold tracking-[0.4px]"
+              className="inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-label-12"
               style={tagSoftBackground(tag)}
               onClick={(e) => {
                 e.stopPropagation();
@@ -77,7 +77,7 @@ export function NoteCard({
             </span>
           ))}
         </span>
-        <span className="shrink-0 text-xs tracking-[0.4px] text-muted-foreground">
+        <span className="shrink-0 text-caption-11 text-muted-foreground">
           {relativeTime(note.updatedAt)}
         </span>
       </span>
