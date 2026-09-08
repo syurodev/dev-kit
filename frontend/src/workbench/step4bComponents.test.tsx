@@ -62,6 +62,25 @@ describe("Step 4b Shell Overlays & Composition Reconciliation", () => {
       }
     });
 
+    it("paints background/app on the shell wrapper", () => {
+      // Figma sidebar-surface 116:1367 has no material of its own and its
+      // description hands the fill up: the wrapper "owns the background/app
+      // fill shared with the titlebar". The titlebar root is bare for the same
+      // reason. So both surfaces are only ever the right colour if this one
+      // element paints it — leave it transparent and they show whatever is
+      // behind the window, which with a translucent window is the wallpaper.
+      const source = readFileSync(
+        new URL("./AppShell.tsx", import.meta.url),
+        "utf8",
+      );
+      const wrapper = source
+        .split("\n")
+        .find((line) => line.includes("h-svh"));
+      if (!wrapper) throw new Error("no h-svh shell wrapper found");
+      expect(wrapper).toContain("bg-bg-app");
+      expect(wrapper).not.toContain("bg-transparent");
+    });
+
   describe("Shell / Resize Handle (Figma 699:1104)", () => {
     it("EXCEPTION: Rest state is completely empty (no hairline, no grip, no border, no background)", () => {
       const html = renderToString(

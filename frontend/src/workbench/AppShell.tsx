@@ -61,9 +61,19 @@ export function AppShell({
 }: AppShellProps) {
   return (
     <SplitPanelProvider>
-      {/* Transparent so the window's own solid colour shows through — the
-          frontend never repaints --background-app itself. */}
-      <div className="relative flex h-svh w-full flex-col overflow-hidden bg-transparent">
+      {/* The shell wrapper owns background/app. That is Figma's own wording:
+          sidebar-surface 116:1367 has no material at all and its description
+          says the wrapper "owns the background/app fill shared with the
+          titlebar", and the titlebar root is likewise bare — no fill, border,
+          blur or shadow. Both read as chrome because they show this through.
+
+          It used to be bg-transparent, deferring to the colour the native
+          window paints. That holds only while the window is opaque. With
+          DEVKIT_TRANSLUCENT_WINDOW=1 nothing painted background/app at all, so
+          the two bare surfaces showed the desktop and every neighbouring
+          colour got judged against someone's wallpaper. Painting it here makes
+          the frontend say what Figma says, in either window mode. */}
+      <div className="relative flex h-svh w-full flex-col overflow-hidden bg-bg-app">
         <Titlebar fullscreen={fullscreen}>{titlebar}</Titlebar>
 
         {/* content-row. The 4px window gutter is a deliberate departure from

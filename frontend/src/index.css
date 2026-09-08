@@ -348,9 +348,15 @@
     overflow: hidden;
     overscroll-behavior: none;
   }
-  /* .native is set by main.tsx when running inside Wails: the window there is
-     transparent and backed by native vibrancy, which an opaque html/body
-     would paint over. Plain browsers keep the opaque fallback above. */
+  /* .native is set by main.tsx when running inside Wails. html/body stay clear
+     there so nothing paints over the native window; background/app is painted
+     by the shell wrapper in AppShell, which is the layer Figma says owns it.
+     Plain browsers keep the opaque fallback above.
+
+     This used to say the window is "transparent and backed by native
+     vibrancy". It is solid by default since the backdrop change in main.go;
+     vibrancy is behind DEVKIT_TRANSLUCENT_WINDOW=1 and, with the wrapper now
+     painting the app fill, that flag no longer shows the desktop through. */
   html.native,
   html.native body {
     background-color: transparent;
