@@ -45,7 +45,7 @@ export function EditFolderDialog({
         </DialogHeader>
 
         <div className="space-y-1.5">
-          <label className="text-xs font-medium text-text-primary" htmlFor="folder-name">
+          <label className="text-label-12 text-text-primary" htmlFor="folder-name">
             Folder name
           </label>
           <Input
@@ -58,7 +58,7 @@ export function EditFolderDialog({
         </div>
 
         <div className="space-y-2">
-          <span className="text-xs font-medium text-text-primary">Icon</span>
+          <span className="text-label-12 text-text-primary">Icon</span>
           <div className="flex flex-wrap gap-2">
             {FOLDER_ICONS.map(({ name: iconName, Icon }) => (
               <button
@@ -73,7 +73,7 @@ export function EditFolderDialog({
                     : "border-border bg-surface-raised text-text-secondary hover:text-text-primary"
                 }`}
               >
-                <Icon className="w-[17px] h-[17px]" />
+                <Icon className="size-4" />
               </button>
             ))}
           </div>
@@ -81,7 +81,7 @@ export function EditFolderDialog({
 
         {/* The screen states its own boundary; it is worth repeating where
             someone is choosing a shield or a padlock. */}
-        <p className="text-[11px] font-mono text-text-tertiary">
+        <p className="text-code-11 text-text-tertiary">
           the folder icon is cosmetic — grouping never changes how a profile connects
         </p>
 

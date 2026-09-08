@@ -102,7 +102,7 @@ function visibleColumns(data: TableNodeData): string[] {
 function TableNode({ data }: { data: TableNodeData }) {
   return (
     <div
-      className={`bg-surface-raised rounded-xl shadow-lg min-w-[260px] max-w-[340px] overflow-hidden text-xs font-mono border ${
+      className={`bg-surface-raised rounded-xl shadow-lg min-w-[260px] max-w-[340px] overflow-hidden text-code-12 border ${
         data.isFocused
           ? "border-action-primary ring-1 ring-action-primary/40"
           : "border-border/80"
@@ -131,7 +131,7 @@ function TableNode({ data }: { data: TableNodeData }) {
             N–N
           </span>
         )}
-        <span className="text-[10px] text-text-tertiary font-sans bg-surface-raised px-1.5 py-0.5 rounded">
+        <span className="text-caption-11 text-text-tertiary font-sans bg-surface-raised px-1.5 py-0.5 rounded">
           {data.expanded
             ? `${data.columns.length} cols`
             : `${visibleColumns(data).length}/${data.columns.length}`}
@@ -151,7 +151,7 @@ function TableNode({ data }: { data: TableNodeData }) {
           return (
             <div
               key={col}
-              className="relative flex items-center justify-between py-0.5 px-1.5 rounded hover:bg-surface-base/80 text-[11px]"
+              className="relative flex items-center justify-between py-0.5 px-1.5 rounded hover:bg-surface-base/80 text-caption-11"
             >
               {/* Target handle for incoming relations */}
               <Handle
@@ -283,7 +283,7 @@ function BareSelect({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         title={title}
-        className="appearance-none bg-transparent border-0 outline-none h-8 pl-2 pr-6 text-xs text-text-primary w-full cursor-pointer"
+        className="appearance-none bg-transparent border-0 outline-none h-8 pl-2 pr-6 text-body-12 text-text-primary w-full cursor-pointer"
       >
         {children}
       </select>
@@ -1053,7 +1053,7 @@ export function ERDView() {
                 <option value="2">2 hops</option>
                 <option value="3">3 hops</option>
               </BareSelect>
-              <span className="px-2.5 h-full flex items-center border-l border-border text-[11px] font-mono text-text-tertiary shrink-0">
+              <span className="px-2.5 h-full flex items-center border-l border-border text-code-11 text-text-tertiary shrink-0">
                 {Object.keys(visibleTables).length}
               </span>
             </>
@@ -1064,7 +1064,7 @@ export function ERDView() {
           <Button
             variant={showSiblingEdges ? "secondary" : "ghost"}
             size="sm"
-            className="h-8 text-xs gap-1.5"
+            className="h-8 text-label-12 gap-1.5"
             onClick={() => setShowSiblingEdges((v) => !v)}
             title="Show relations between the neighbours themselves, not just the ones touching the focused table"
           >
@@ -1076,7 +1076,7 @@ export function ERDView() {
         <Button
           variant="ghost"
           size="sm"
-          className="h-8 text-xs gap-1.5"
+          className="h-8 text-label-12 gap-1.5"
           onClick={() =>
             setExpandedTables((current) =>
               Object.values(current).some(Boolean)
@@ -1100,7 +1100,7 @@ export function ERDView() {
 
         {indexes.length === 0 && (
           <span
-            className="flex items-center gap-1.5 h-7 px-2.5 rounded-lg bg-status-warning/10 text-status-warning text-[11px]"
+            className="flex items-center gap-1.5 h-7 px-2.5 rounded-lg bg-status-warning/10 text-status-warning text-caption-11"
             title="No index metadata for this schema, so every relation is drawn as one-to-many. One-to-one needs a unique index to prove it."
           >
             <AlertTriangle className="w-3 h-3" />
@@ -1108,7 +1108,7 @@ export function ERDView() {
           </span>
         )}
 
-        <div className="flex items-center gap-3 text-[11px] text-text-secondary">
+        <div className="flex items-center gap-3 text-caption-11 text-text-secondary">
           <span className="flex items-center gap-1.5" title="Foreign keys the database actually enforces">
             <span className="w-4 h-px bg-status-info" />
             {declaredFKs.length} declared
@@ -1165,10 +1165,10 @@ export function ERDView() {
         ) : (
           <div className="h-full flex flex-col items-center justify-center text-center p-8 text-text-tertiary">
             <Network className="w-8 h-8 text-text-tertiary mb-2 opacity-50" />
-            <h3 className="text-sm font-semibold text-text-primary mb-1">
+            <h3 className="text-title-14 text-text-primary mb-1">
               No Tables in Schema &ldquo;{selectedSchema}&rdquo;
             </h3>
-            <p className="text-xs max-w-sm text-text-secondary">
+            <p className="text-body-12 max-w-sm text-text-secondary">
               The selected schema has no tables indexed in the local cache. Index your schema from the sidebar explorer.
             </p>
           </div>

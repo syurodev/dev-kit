@@ -85,7 +85,7 @@ export function SavedQueriesView() {
           the same bar height across tabs stops the content jumping on switch. */}
       <div className="px-3 min-h-12 py-2 border-b border-border bg-surface-raised/30 flex flex-wrap items-center justify-between gap-3 shrink-0">
         <div className="flex items-center gap-2">
-          <span className="text-xs text-text-tertiary">Synced across devices</span>
+          <span className="text-body-12 text-text-tertiary">Synced across devices</span>
         </div>
 
         <div className="flex items-center gap-2">
@@ -95,14 +95,14 @@ export function SavedQueriesView() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search saved queries…"
-              className="h-7 pl-7 text-xs bg-surface-base w-48"
+              className="h-7 pl-7 text-body-12 bg-surface-base w-48"
             />
           </div>
 
           <Button
             variant="outline"
             size="sm"
-            className="h-7 text-xs gap-1.5"
+            className="h-7 text-label-12 gap-1.5"
             onClick={fetchSavedQueries}
             disabled={loading || !selectedProfileId}
           >
@@ -113,7 +113,7 @@ export function SavedQueriesView() {
           <Button
             variant="default"
             size="sm"
-            className="h-7 text-xs gap-1.5"
+            className="h-7 text-label-12 gap-1.5"
             onClick={() => setShowSaveQueryModal(true)}
             disabled={!selectedProfileId}
           >
@@ -128,13 +128,13 @@ export function SavedQueriesView() {
         {isVaultLocked ? (
           <div className="p-6 rounded-xl border border-border bg-surface-raised/50 text-center flex flex-col items-center justify-center max-w-md mx-auto my-12">
             <Lock className="w-8 h-8 text-amber-500 mb-2" />
-            <h3 className="text-sm font-semibold text-text-primary">Vault is Locked</h3>
-            <p className="text-xs text-text-secondary mt-1 leading-relaxed">
+            <h3 className="text-title-14 text-text-primary">Vault is Locked</h3>
+            <p className="text-body-13 text-text-secondary mt-1">
               Saved queries are encrypted at rest with your vault key. Unlock your vault to access your saved queries.
             </p>
           </div>
         ) : error ? (
-          <div className="p-4 rounded-lg bg-status-danger/10 border border-status-danger/30 text-xs text-status-danger">
+          <div className="p-4 rounded-lg bg-status-danger/10 border border-status-danger/30 text-body-12 text-status-danger">
             {error}
           </div>
         ) : filtered.length > 0 ? (
@@ -144,7 +144,7 @@ export function SavedQueriesView() {
               className="p-3 rounded-lg border border-border bg-surface-raised hover:bg-surface-raised/80 transition-colors flex flex-col gap-2 group"
             >
               <div className="flex items-center justify-between">
-                <span className="font-semibold text-xs text-text-primary">
+                <span className="text-title-13 text-text-primary">
                   {query.name}
                 </span>
 
@@ -152,7 +152,7 @@ export function SavedQueriesView() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-6 px-2 text-[11px] gap-1 text-text-secondary hover:text-text-primary"
+                    className="h-6 px-2 text-caption-11 gap-1 text-text-secondary hover:text-text-primary"
                     onClick={() => handleCopy(query)}
                   >
                     {copiedId === query.id ? (
@@ -166,7 +166,7 @@ export function SavedQueriesView() {
                   <Button
                     variant="secondary"
                     size="sm"
-                    className="h-6 px-2 text-[11px] gap-1"
+                    className="h-6 px-2 text-caption-11 gap-1"
                     onClick={() => handleOpenInConsole(query)}
                   >
                     <Terminal className="w-3 h-3" />
@@ -185,16 +185,16 @@ export function SavedQueriesView() {
                 </div>
               </div>
 
-              <pre className="font-mono text-xs text-text-secondary bg-surface-base p-2.5 rounded border border-border/40 overflow-x-auto whitespace-pre-wrap">
+              <pre className="text-code-12 text-text-secondary bg-surface-base p-2.5 rounded border border-border/40 overflow-x-auto whitespace-pre-wrap">
                 {query.sql}
               </pre>
             </div>
           ))
         ) : (
-          <div className="text-center py-16 text-xs text-text-tertiary">
+          <div className="text-center py-16 text-body-12 text-text-tertiary">
             <Bookmark className="w-8 h-8 text-text-tertiary mx-auto mb-2 opacity-50" />
             <p>No saved queries yet.</p>
-            <p className="text-[11px] mt-1">Save reusable statements with custom names to access them anytime.</p>
+            <p className="text-caption-11 mt-1">Save reusable statements with custom names to access them anytime.</p>
           </div>
         )}
       </div>

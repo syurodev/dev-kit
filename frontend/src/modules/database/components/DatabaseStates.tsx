@@ -25,10 +25,10 @@ function ContentState({
       <div className="w-12 h-12 rounded-xl bg-surface-raised border border-border flex items-center justify-center">
         {icon}
       </div>
-      <h3 className="text-sm font-semibold text-text-primary">{title}</h3>
-      <p className="text-xs max-w-md text-text-secondary leading-relaxed">{body}</p>
+      <h3 className="text-title-14 text-text-primary">{title}</h3>
+      <p className="text-body-13 max-w-md text-text-secondary">{body}</p>
       {detail && (
-        <p className="text-[11px] font-mono text-text-tertiary bg-surface-raised border border-border rounded px-2 py-1">
+        <p className="text-code-11 text-text-tertiary bg-surface-raised border border-border rounded px-2 py-1">
           {detail}
         </p>
       )}

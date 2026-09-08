@@ -28,7 +28,7 @@ export function DatabaseBanners() {
     <div className="flex flex-col shrink-0">
       {/* Screen 25: Env Tag Unresolved */}
       {isEnvUnresolved && (
-        <div className="bg-amber-500/10 border-b border-amber-500/30 px-4 py-2.5 flex items-center justify-between text-xs text-amber-500">
+        <div className="bg-amber-500/10 border-b border-amber-500/30 px-4 py-2.5 flex items-center justify-between text-body-12 text-amber-500">
           <div className="flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 shrink-0" />
             <div>
@@ -38,7 +38,7 @@ export function DatabaseBanners() {
           <Button
             variant="outline"
             size="sm"
-            className="h-6 text-[11px] border-amber-500/40 text-amber-500 hover:bg-amber-500/20"
+            className="h-6 text-caption-11 border-amber-500/40 text-amber-500 hover:bg-amber-500/20"
             onClick={() => setShowConnectionOptionsDialog(true)}
           >
             <Settings2 className="w-3 h-3 mr-1" />
@@ -49,7 +49,7 @@ export function DatabaseBanners() {
 
       {/* Screen 19: SSH Tunnel Unavailable */}
       {isTunnelMissing && (
-        <div className="bg-status-danger/10 border-b border-status-danger/30 px-4 py-2.5 flex items-center justify-between text-xs text-status-danger">
+        <div className="bg-status-danger/10 border-b border-status-danger/30 px-4 py-2.5 flex items-center justify-between text-body-12 text-status-danger">
           <div className="flex items-center gap-2">
             <Radio className="w-4 h-4 shrink-0" />
             <div>
@@ -59,7 +59,7 @@ export function DatabaseBanners() {
           <Button
             variant="outline"
             size="sm"
-            className="h-6 text-[11px] border-status-danger/40 text-status-danger hover:bg-status-danger/20"
+            className="h-6 text-caption-11 border-status-danger/40 text-status-danger hover:bg-status-danger/20"
             onClick={() => setShowConnectionOptionsDialog(true)}
           >
             <Settings2 className="w-3 h-3 mr-1" />

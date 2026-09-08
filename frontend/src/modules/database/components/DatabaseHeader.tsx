@@ -67,41 +67,41 @@ export function DatabaseHeader() {
           {profile ? (
             <>
               <div className="flex items-center gap-2">
-                <h1 className="text-sm font-semibold text-text-primary truncate">
+                <h1 className="text-title-14 text-text-primary truncate">
                   {profile.name}
                 </h1>
                 <EngineBadge engine={profile.engine} showPlaceholder />
               </div>
 
-              <div className="flex items-center gap-1.5 text-xs text-text-tertiary">
-                <span className="font-mono text-[11px]">
+              <div className="flex items-center gap-1.5 text-body-12 text-text-tertiary">
+                <span className="text-code-11">
                   {profile.username}@{profile.host}:{profile.port}/{profile.database}
                 </span>
 
                 {isProd ? (
-                  <Badge variant="destructive" className="text-[10px] px-1.5 py-0">
+                  <Badge variant="destructive" className="text-caption-11 px-1.5 py-0">
                     <ShieldAlert className="w-3 h-3 mr-1" />
                     PROD
                   </Badge>
                 ) : profile.env ? (
-                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-text-secondary">
+                  <Badge variant="outline" className="text-caption-11 px-1.5 py-0 text-text-secondary">
                     env: {profile.env}
                   </Badge>
                 ) : null}
 
                 {profile.readOnly ? (
-                  <Badge variant="destructive" className="text-[10px] px-1.5 py-0 bg-amber-500/15 text-amber-500 border-amber-500/30">
+                  <Badge variant="destructive" className="text-caption-11 px-1.5 py-0 bg-amber-500/15 text-amber-500 border-amber-500/30">
                     <Shield className="w-3 h-3 mr-1" />
                     Safe-Mode (Read-Only)
                   </Badge>
                 ) : (
-                  <Badge variant="secondary" className="text-[10px] px-1.5 py-0 text-text-tertiary">
+                  <Badge variant="secondary" className="text-caption-11 px-1.5 py-0 text-text-tertiary">
                     Read / Write
                   </Badge>
                 )}
 
                 {profile.sshProfileId && (
-                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-status-info border-status-info/30">
+                  <Badge variant="outline" className="text-caption-11 px-1.5 py-0 text-status-info border-status-info/30">
                     <Radio className="w-3 h-3 mr-1" />
                     SSH Tunnel
                   </Badge>
@@ -109,7 +109,7 @@ export function DatabaseHeader() {
               </div>
             </>
           ) : (
-            <div className="text-xs text-text-tertiary font-medium">
+            <div className="text-label-12 text-text-tertiary">
               No connection selected
             </div>
           )}
@@ -120,7 +120,7 @@ export function DatabaseHeader() {
           <div className="flex items-center gap-2">
             {testResult && (
               <span
-                className={`text-xs flex items-center gap-1 px-2 py-0.5 rounded border ${
+                className={`text-body-12 flex items-center gap-1 px-2 py-0.5 rounded border ${
                   testResult.ok
                     ? "text-status-success bg-status-success/10 border-status-success/30"
                     : "text-status-danger bg-status-danger/10 border-status-danger/30"
@@ -138,7 +138,7 @@ export function DatabaseHeader() {
             <Button
               variant="outline"
               size="sm"
-              className="h-7 text-xs"
+              className="h-7 text-label-12"
               onClick={handleTest}
               disabled={testing}
             >
@@ -148,7 +148,7 @@ export function DatabaseHeader() {
             <Button
               variant="secondary"
               size="sm"
-              className="h-7 text-xs gap-1.5"
+              className="h-7 text-label-12 gap-1.5"
               onClick={() => setShowConnectionOptionsDialog(true)}
             >
               <Settings2 className="w-3.5 h-3.5" />

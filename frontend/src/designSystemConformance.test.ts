@@ -26,7 +26,10 @@ const BASELINE: Record<string, { twText: number; rawPx: number; rawHex: number }
   // labels, which design-system.mdx names as a deliberate exception: a zoomable
   // canvas has its own scale and its labels are not UI text.
   "modules/codegraph": { twText: 0, rawPx: 3, rawHex: 0 },
-  "modules/database": { twText: 124, rawPx: 100, rawHex: 4 },
+  // Converted 2026-09-08. 15 rawPx remain and none is a design step: 5 are the
+  // ERD canvas node labels (same carve-out as CodeGraph) and 10 are dialog and
+  // panel widths — content measures the Scale has no bucket for.
+  "modules/database": { twText: 0, rawPx: 15, rawHex: 0 },
   "modules/kafka": { twText: 0, rawPx: 0, rawHex: 0 },
   // Converted 2026-09-08. The one remaining rawPx is max-w-[720px], the note
   // writing column — a content measure, not a design step; the scale has no
@@ -44,6 +47,9 @@ const BASELINE: Record<string, { twText: number; rawPx: number; rawHex: number }
 const HEX_EXEMPT = [
   "components/ui/font-color-toolbar-button.tsx",
   "components/ui/code-block-node-static.tsx",
+  // Vendor brand marks. A logo's colour is the vendor's, not the theme's —
+  // binding it to a semantic token would recolour someone else's trademark.
+  "modules/database/icons/engineMarks.tsx",
 ];
 
 const TAILWIND_TEXT = /\btext-(xs|sm|base|lg|xl|2xl|3xl|4xl)\b/g;

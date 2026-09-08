@@ -94,7 +94,7 @@ export function DeleteProfileDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <ul className="space-y-1.5 text-xs">
+        <ul className="space-y-1.5 text-body-12">
           {losses.map((loss) => (
             <li key={loss.label} className="flex items-baseline gap-2">
               <span className="text-text-primary">{loss.label}</span>

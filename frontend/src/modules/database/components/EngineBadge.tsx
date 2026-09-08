@@ -43,13 +43,13 @@ export function EngineBadge({
   return (
     <div className={`inline-flex items-center gap-1.5 ${className}`}>
       <span
-        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium border ${meta.colorClass}`}
+        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-caption-11-medium border ${meta.colorClass}`}
       >
         <span className={`w-1.5 h-1.5 rounded-full ${meta.accentDot}`} />
         <span>{meta.name}</span>
       </span>
       {showPlaceholder ? (
-        <span className="text-[10px] text-text-tertiary font-mono bg-surface-base px-1.5 py-0.5 rounded border border-border">
+        <span className="text-caption-11 text-text-tertiary font-mono bg-surface-base px-1.5 py-0.5 rounded border border-border">
           {meta.placeholder}
         </span>
       ) : null}

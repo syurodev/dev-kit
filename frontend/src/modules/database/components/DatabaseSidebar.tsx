@@ -155,7 +155,7 @@ export function DatabaseSidebar() {
             value={filterQuery}
             onChange={(e) => setFilterQuery(e.target.value)}
             placeholder="Search connections & tables…"
-            className="h-8 pl-8 pr-7 text-xs bg-surface-raised border-border"
+            className="h-8 pl-8 pr-7 text-body-12 bg-surface-raised border-border"
           />
           {filterQuery && (
             <button
@@ -200,7 +200,7 @@ export function DatabaseSidebar() {
             <Button
               variant="secondary"
               size="sm"
-              className="h-6 px-2 text-xs gap-1"
+              className="h-6 px-2 text-body-12 gap-1"
               onClick={() => setShowNewConnectionDialog(true)}
               title="New connection"
             >
@@ -232,7 +232,7 @@ export function DatabaseSidebar() {
             <div key={folder.id} className="space-y-1">
               <ContextMenu>
               <ContextMenuTrigger asChild>
-              <div className="w-full flex items-center gap-2 px-2 py-1 rounded-md text-xs text-text-secondary hover:bg-surface-raised transition-colors group">
+              <div className="w-full flex items-center gap-2 px-2 py-1 rounded-md text-body-12 text-text-secondary hover:bg-surface-raised transition-colors group">
                 <button
                   type="button"
                   onClick={() => toggleFolder(folder.id)}
@@ -247,9 +247,9 @@ export function DatabaseSidebar() {
                     name={folder.icon}
                     className="w-3.5 h-3.5 shrink-0 text-action-primary"
                   />
-                  <span className="font-medium text-[11px] truncate">{folder.name}</span>
+                  <span className="text-caption-11-medium truncate">{folder.name}</span>
                 </button>
-                <span className="text-[10px] text-text-tertiary">{folderProfiles.length}</span>
+                <span className="text-caption-11 text-text-tertiary">{folderProfiles.length}</span>
                 <button
                   type="button"
                   onClick={() => setEditingFolderId(folder.id)}
@@ -305,7 +305,7 @@ export function DatabaseSidebar() {
         {ungroupedProfiles.length > 0 && (
           <div className="space-y-1 pt-1">
             {folderEntries.length > 0 && (
-              <span className="px-2 text-[10px] font-semibold text-text-tertiary uppercase tracking-wider">
+              <span className="px-2 text-label-11-caps text-text-tertiary">
                 Ungrouped
               </span>
             )}
@@ -331,12 +331,12 @@ export function DatabaseSidebar() {
         )}
 
         {profiles.length === 0 && !loadingProfiles && (
-          <div className="text-center py-6 px-4 text-xs text-text-tertiary">
+          <div className="text-center py-6 px-4 text-body-12 text-text-tertiary">
             <p>No connections configured.</p>
             <Button
               variant="outline"
               size="sm"
-              className="mt-2 text-xs"
+              className="mt-2 text-body-12"
               onClick={() => setShowNewConnectionDialog(true)}
             >
               <Plus className="w-3 h-3 mr-1" /> Add Profile
@@ -366,7 +366,7 @@ export function DatabaseSidebar() {
               rail gets narrow. */}
           {selectedProfileId ? (
             <div className="flex items-center gap-1 min-w-0">
-              <span className="text-[10px] text-text-tertiary truncate">
+              <span className="text-caption-11 text-text-tertiary truncate">
                 {schemaSnapshot?.indexedAt
                   ? relativeTime(schemaSnapshot.indexedAt)
                   : "not indexed"}
@@ -401,7 +401,7 @@ export function DatabaseSidebar() {
                   <button
                     type="button"
                     onClick={() => toggleSchemaExpand(schemaName)}
-                    className="w-full flex items-center gap-2 px-2 py-1 rounded-md text-xs text-text-secondary hover:text-text-primary hover:bg-surface-raised transition-colors"
+                    className="w-full flex items-center gap-2 px-2 py-1 rounded-md text-body-12 text-text-secondary hover:text-text-primary hover:bg-surface-raised transition-colors"
                   >
                     {isSchemaExpanded ? (
                       <ChevronDown className="w-3 h-3 text-text-tertiary" />
@@ -409,10 +409,10 @@ export function DatabaseSidebar() {
                       <ChevronRight className="w-3 h-3 text-text-tertiary" />
                     )}
                     <Folder className="w-3.5 h-3.5 text-amber-500" />
-                    <span className="font-mono text-[11px] font-medium flex-1 text-left">
+                    <span className="text-code-11 flex-1 text-left">
                       {schemaName}
                     </span>
-                    <span className="text-[10px] text-text-tertiary">{tableEntries.length}</span>
+                    <span className="text-caption-11 text-text-tertiary">{tableEntries.length}</span>
                   </button>
 
                   {isSchemaExpanded && (
@@ -431,7 +431,7 @@ export function DatabaseSidebar() {
                               <ContextMenu>
                               <ContextMenuTrigger asChild>
                               <div
-                                className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-xs cursor-pointer group ${
+                                className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-body-12 cursor-pointer group ${
                                   isFocused
                                     ? "bg-surface-raised text-action-primary"
                                     : "text-text-primary hover:bg-surface-raised"
@@ -456,7 +456,7 @@ export function DatabaseSidebar() {
                                     isFocused ? "text-action-primary" : "text-sky-400"
                                   }`}
                                 />
-                                <span className="font-mono text-[11px] flex-1 truncate text-left">
+                                <span className="text-code-11 flex-1 truncate text-left">
                                   {tableName}
                                 </span>
                                 {/* Clicking a row focuses the ERD. Without a
@@ -468,7 +468,7 @@ export function DatabaseSidebar() {
                                     aria-label="Focused in the ERD"
                                   />
                                 ) : (
-                                  <span className="text-[9px] text-text-tertiary opacity-0 group-hover:opacity-100">
+                                  <span className="text-caption-11 text-text-tertiary opacity-0 group-hover:opacity-100">
                                     {columnNames ? `${columnNames.length} cols` : ""}
                                   </span>
                                 )}
@@ -513,7 +513,7 @@ export function DatabaseSidebar() {
                                     loadedCols.map((col) => (
                                       <div
                                         key={col.name}
-                                        className="flex items-center justify-between gap-1 px-1 py-1 text-[10px] font-mono text-text-secondary hover:text-text-primary"
+                                        className="flex items-center justify-between gap-1 px-1 py-1 text-code-11 text-text-secondary hover:text-text-primary"
                                       >
                                         <div className="flex items-center gap-1 truncate">
                                           {col.name.endsWith("_id") || col.name === "id" ? (
@@ -523,13 +523,13 @@ export function DatabaseSidebar() {
                                           )}
                                           <span className="truncate">{col.name}</span>
                                         </div>
-                                        <span className="text-[9px] text-text-tertiary bg-surface-raised px-1 rounded-md">
+                                        <span className="text-caption-11 text-text-tertiary bg-surface-raised px-1 rounded-md">
                                           {col.dataType}
                                         </span>
                                       </div>
                                     ))
                                   ) : (
-                                    <div className="text-[10px] text-text-tertiary py-1">
+                                    <div className="text-caption-11 text-text-tertiary py-1">
                                       {(columnNames || []).map((colName) => (
                                         <div key={colName} className="px-1 py-1 font-mono truncate">
                                           {colName}
@@ -548,7 +548,7 @@ export function DatabaseSidebar() {
               );
             })
           ) : (
-            <div className="text-center py-8 text-xs text-text-tertiary">
+            <div className="text-center py-8 text-body-12 text-text-tertiary">
               {selectedProfileId ? (
                 indexingSchema ? (
                   <p className="flex items-center justify-center gap-2">
@@ -619,7 +619,7 @@ function ProfileItem({
     <ContextMenu>
     <ContextMenuTrigger asChild>
     <div
-      className={`group relative flex items-center justify-between p-2 rounded-lg text-xs cursor-pointer transition-colors border ${
+      className={`group relative flex items-center justify-between p-2 rounded-lg text-body-12 cursor-pointer transition-colors border ${
         isSelected
           ? "bg-surface-raised border-action-primary/40 text-text-primary shadow-xs"
           : "border-transparent text-text-secondary hover:bg-surface-raised/60 hover:text-text-primary"
@@ -630,18 +630,18 @@ function ProfileItem({
         <span className={`w-2 h-2 rounded-full mt-1 shrink-0 ${engineMeta.accentDot}`} />
         <div className="truncate flex-1">
           <div className="flex items-center gap-2">
-            <span className="font-semibold text-xs text-text-primary truncate">{profile.name}</span>
+            <span className="text-title-13 text-text-primary truncate">{profile.name}</span>
             {isProd ? (
-              <Badge variant="destructive" className="text-[9px] px-1 py-0 h-3.5">
+              <Badge variant="destructive" className="text-caption-11 px-1 py-0 h-4">
                 PROD
               </Badge>
             ) : profile.env ? (
-              <Badge variant="outline" className="text-[9px] px-1 py-0 h-3.5 text-text-tertiary">
+              <Badge variant="outline" className="text-caption-11 px-1 py-0 h-4 text-text-tertiary">
                 {profile.env}
               </Badge>
             ) : null}
           </div>
-          <div className="text-[10px] text-text-tertiary truncate font-mono mt-1">
+          <div className="text-caption-11 text-text-tertiary truncate font-mono mt-1">
             {profile.username}@{profile.host}:{profile.port}/{profile.database}
           </div>
         </div>

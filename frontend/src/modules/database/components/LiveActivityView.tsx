@@ -111,7 +111,7 @@ export function LiveActivityView() {
       <div className="px-3 min-h-12 py-2 border-b border-border bg-surface-raised/30 flex flex-wrap items-center justify-between gap-3 shrink-0">
         <div className="flex items-center gap-2">
           {!engineHasNoSessions && (
-            <span className="text-xs text-text-secondary">
+            <span className="text-body-12 text-text-secondary">
               {sessions.length} active {sessions.length === 1 ? "session" : "sessions"}
             </span>
           )}
@@ -124,14 +124,14 @@ export function LiveActivityView() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search active sessions…"
-              className="h-7 pl-7 text-xs bg-surface-base w-48"
+              className="h-7 pl-7 text-body-12 bg-surface-base w-48"
             />
           </div>
 
           <Button
             variant="outline"
             size="sm"
-            className="h-7 text-xs gap-1.5"
+            className="h-7 text-label-12 gap-1.5"
             onClick={fetchSessions}
             disabled={loading || !selectedProfileId}
           >
@@ -143,7 +143,7 @@ export function LiveActivityView() {
 
       {/* Status or Error Notice */}
       {statusMessage && (
-        <div className="bg-status-success/10 border-b border-status-success/30 px-4 py-2 text-xs text-status-success flex items-center justify-between">
+        <div className="bg-status-success/10 border-b border-status-success/30 px-4 py-2 text-body-12 text-status-success flex items-center justify-between">
           <span className="flex items-center gap-1.5 font-medium">
             <CheckCircle2 className="w-3.5 h-3.5" />
             {statusMessage}
@@ -152,7 +152,7 @@ export function LiveActivityView() {
       )}
 
       {error && (
-        <div className="bg-status-danger/10 border-b border-status-danger/30 px-4 py-2 text-xs text-status-danger flex items-center justify-between">
+        <div className="bg-status-danger/10 border-b border-status-danger/30 px-4 py-2 text-body-12 text-status-danger flex items-center justify-between">
           <span>{error}</span>
         </div>
       )}
@@ -164,16 +164,16 @@ export function LiveActivityView() {
             <div className="w-12 h-12 rounded-xl bg-surface-raised border border-border flex items-center justify-center mb-3">
               <Activity className="w-6 h-6 text-text-secondary" />
             </div>
-            <h3 className="text-sm font-semibold text-text-primary mb-1">
+            <h3 className="text-title-14 text-text-primary mb-1">
               {profile?.engine === "sqlite" ? "SQLite does not report sessions" : "This engine does not report sessions"}
             </h3>
-            <p className="text-xs max-w-sm text-text-secondary leading-relaxed">
+            <p className="text-body-13 max-w-sm text-text-secondary">
               There is no server and no connection pool, so there is nothing to inspect.
               Activity is available on PostgreSQL, MySQL and MariaDB profiles.
             </p>
           </div>
         ) : filtered.length > 0 ? (
-          <table className="w-full text-left text-xs border-collapse font-mono" aria-label="Live sessions">
+          <table className="w-full text-left text-code-12 border-collapse" aria-label="Live sessions">
             <thead className="bg-surface-raised sticky top-0 border-b border-border text-text-secondary z-10">
               <tr>
                 <th className="px-3 py-2 font-semibold w-20">PID</th>
@@ -200,7 +200,7 @@ export function LiveActivityView() {
                       {s.pid}
                     </td>
                     <td className="px-3 py-2.5">
-                      <span className="px-1.5 py-0.5 rounded text-[10px] bg-surface-raised text-text-secondary">
+                      <span className="px-1.5 py-0.5 rounded text-caption-11 bg-surface-raised text-text-secondary">
                         {s.state}
                       </span>
                     </td>
@@ -209,7 +209,7 @@ export function LiveActivityView() {
                     </td>
                     <td className="px-3 py-2.5 text-text-secondary">
                       <div className="truncate">{s.user}</div>
-                      <div className="text-[10px] text-text-tertiary truncate font-mono">
+                      <div className="text-caption-11 text-text-tertiary truncate font-mono">
                         {s.client}
                       </div>
                     </td>
@@ -220,7 +220,7 @@ export function LiveActivityView() {
                       {hasBlockers ? (
                         <div className="flex items-center gap-1">
                           <Lock className="w-3 h-3 text-status-danger shrink-0" />
-                          <span className="text-[11px] font-semibold text-status-danger">
+                          <span className="text-title-11 text-status-danger">
                             PID {s.blockedBy.join(", ")}
                           </span>
                         </div>
@@ -228,14 +228,14 @@ export function LiveActivityView() {
                         <span className="text-text-tertiary">—</span>
                       )}
                     </td>
-                    <td className="px-3 py-2.5 font-mono text-[11px] text-text-secondary truncate max-w-xs" title={s.query}>
+                    <td className="px-3 py-2.5 text-code-11 text-text-secondary truncate max-w-xs" title={s.query}>
                       {s.query || "<idle>"}
                     </td>
                     <td className="px-3 py-2.5 text-right space-x-1">
                       <Button
                         variant="outline"
                         size="sm"
-                        className="h-6 px-1.5 text-[10px] text-text-secondary hover:text-text-primary"
+                        className="h-6 px-1.5 text-caption-11 text-text-secondary hover:text-text-primary"
                         onClick={() => setConfirmAction({ type: "cancel", session: s })}
                         title="Cancel this running query statement"
                       >
@@ -244,7 +244,7 @@ export function LiveActivityView() {
                       <Button
                         variant="destructive"
                         size="sm"
-                        className="h-6 px-1.5 text-[10px]"
+                        className="h-6 px-1.5 text-caption-11"
                         onClick={() => setConfirmAction({ type: "terminate", session: s })}
                         title="Terminate connection and rollback transaction"
                       >
@@ -261,10 +261,10 @@ export function LiveActivityView() {
             <div className="w-12 h-12 rounded-xl bg-surface-raised border border-border flex items-center justify-center mb-3">
               <Activity className="w-6 h-6 text-text-secondary" />
             </div>
-            <h3 className="text-sm font-semibold text-text-primary mb-1">
+            <h3 className="text-title-14 text-text-primary mb-1">
               No Active Queries Running
             </h3>
-            <p className="text-xs max-w-sm text-text-secondary leading-relaxed">
+            <p className="text-body-13 max-w-sm text-text-secondary">
               This server currently has no long-running or blocked queries. Activity snapshots are taken on-demand when you refresh.
             </p>
           </div>
@@ -280,12 +280,12 @@ export function LiveActivityView() {
                 <AlertTriangle className="w-5 h-5" />
               </div>
               <div className="space-y-1">
-                <h3 className="text-sm font-semibold text-text-primary">
+                <h3 className="text-title-14 text-text-primary">
                   {confirmAction.type === "cancel"
                     ? "Cancel Query Statement?"
                     : "Terminate Session Connection?"}
                 </h3>
-                <p className="text-xs text-text-secondary leading-relaxed">
+                <p className="text-body-13 text-text-secondary">
                   {confirmAction.type === "cancel"
                     ? `This will cancel the currently executing query on PID ${confirmAction.session.pid}. The client connection remains open.`
                     : `This will forcefully disconnect session PID ${confirmAction.session.pid} and roll back its transaction.`}
@@ -294,12 +294,12 @@ export function LiveActivityView() {
             </div>
 
             {/* Target Statement Detail */}
-            <div className="p-2.5 rounded-lg bg-surface-raised border border-border text-xs font-mono space-y-1">
-              <div className="flex justify-between text-[11px] text-text-tertiary">
+            <div className="p-2.5 rounded-lg bg-surface-raised border border-border text-code-12 space-y-1">
+              <div className="flex justify-between text-caption-11 text-text-tertiary">
                 <span>PID: {confirmAction.session.pid}</span>
                 <span>User: {confirmAction.session.user}</span>
               </div>
-              <div className="text-[11px] text-text-secondary truncate">
+              <div className="text-caption-11 text-text-secondary truncate">
                 {confirmAction.session.query}
               </div>
             </div>
@@ -307,13 +307,13 @@ export function LiveActivityView() {
             {/* Warning notices */}
             <div className="space-y-2">
               {isProd && (
-                <div className="p-2 rounded bg-status-danger/10 border border-status-danger/30 text-[11px] text-status-danger flex items-center gap-1.5 font-medium">
+                <div className="p-2 rounded bg-status-danger/10 border border-status-danger/30 text-caption-11-medium text-status-danger flex items-center gap-1.5">
                   <ShieldAlert className="w-4 h-4 shrink-0" />
                   <span>Production Environment: This action affects live workloads.</span>
                 </div>
               )}
 
-              <p className="text-[11px] text-text-tertiary italic">
+              <p className="text-caption-11 text-text-tertiary italic">
                 * Note: Safe mode does not guard against session termination or query cancellation.
               </p>
             </div>

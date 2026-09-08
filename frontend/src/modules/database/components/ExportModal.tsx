@@ -41,7 +41,7 @@ export function ExportModal() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Download className="w-4 h-4 text-action-primary" />
-            <h3 className="text-sm font-semibold text-text-primary">Export Query Results</h3>
+            <h3 className="text-title-14 text-text-primary">Export Query Results</h3>
           </div>
           <Button
             variant="ghost"
@@ -53,7 +53,7 @@ export function ExportModal() {
           </Button>
         </div>
 
-        <p className="text-xs text-text-secondary">
+        <p className="text-body-12 text-text-secondary">
           Export the current {queryResult.rowCount} row(s) into a file using the native file saver.
         </p>
 
@@ -69,8 +69,8 @@ export function ExportModal() {
             onClick={() => setFormat("csv")}
           >
             <FileSpreadsheet className="w-5 h-5 text-action-primary" />
-            <span className="font-semibold text-xs mt-1">CSV Format</span>
-            <span className="text-[10px] text-text-tertiary">RFC 4180 standard table</span>
+            <span className="text-title-13 mt-1">CSV Format</span>
+            <span className="text-caption-11 text-text-tertiary">RFC 4180 standard table</span>
           </button>
 
           <button
@@ -83,42 +83,42 @@ export function ExportModal() {
             onClick={() => setFormat("json")}
           >
             <FileJson className="w-5 h-5 text-action-primary" />
-            <span className="font-semibold text-xs mt-1">JSON Format</span>
-            <span className="text-[10px] text-text-tertiary">Array of string objects</span>
+            <span className="text-title-13 mt-1">JSON Format</span>
+            <span className="text-caption-11 text-text-tertiary">Array of string objects</span>
           </button>
         </div>
 
         {/* JSON String disclaimer per spec Screen 20 */}
         {format === "json" && (
-          <div className="p-2.5 rounded bg-surface-raised border border-border text-[11px] text-text-secondary leading-relaxed">
+          <div className="p-2.5 rounded bg-surface-raised border border-border text-caption-11 text-text-secondary">
             <strong>Note:</strong> JSON exports every column value strictly as a string (e.g. <code className="font-mono bg-surface-base px-1 py-0.5 rounded">{"\"id\": \"42\""}</code>) preserving the QueryResult wire schema without type guessing.
           </div>
         )}
 
         {/* Filename Input */}
         <div className="space-y-1.5">
-          <label className="text-xs font-medium text-text-primary">Suggested Filename</label>
+          <label className="text-label-12 text-text-primary">Suggested Filename</label>
           <div className="flex items-center gap-1.5">
             <Input
               value={filename}
               onChange={(e) => setFilename(e.target.value)}
-              className="text-xs h-8 flex-1"
+              className="text-label-12 h-8 flex-1"
             />
-            <span className="text-xs font-mono text-text-tertiary">
+            <span className="text-code-12 text-text-tertiary">
               {format === "csv" ? ".csv" : ".json"}
             </span>
           </div>
         </div>
 
         {exportedPath && (
-          <div className="p-2.5 rounded bg-status-success/10 border border-status-success/30 text-xs text-status-success flex items-center gap-2">
+          <div className="p-2.5 rounded bg-status-success/10 border border-status-success/30 text-body-12 text-status-success flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 shrink-0" />
             <span className="truncate">Saved to {exportedPath}</span>
           </div>
         )}
 
         {error && (
-          <div className="p-2.5 rounded bg-status-danger/10 border border-status-danger/30 text-xs text-status-danger flex items-center gap-2">
+          <div className="p-2.5 rounded bg-status-danger/10 border border-status-danger/30 text-body-12 text-status-danger flex items-center gap-2">
             <AlertCircle className="w-4 h-4 shrink-0" />
             <span>{error}</span>
           </div>

@@ -41,7 +41,7 @@ export function SaveQueryModal() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Bookmark className="w-4 h-4 text-action-primary" />
-            <h3 className="text-sm font-semibold text-text-primary">Save Query</h3>
+            <h3 className="text-title-14 text-text-primary">Save Query</h3>
           </div>
           <Button
             variant="ghost"
@@ -53,30 +53,30 @@ export function SaveQueryModal() {
           </Button>
         </div>
 
-        <p className="text-xs text-text-secondary">
+        <p className="text-body-12 text-text-secondary">
           Give this statement a memorable name. Saved queries sync securely with your vault across devices.
         </p>
 
         <div className="space-y-2">
-          <label className="text-xs font-medium text-text-primary">Query Name</label>
+          <label className="text-label-12 text-text-primary">Query Name</label>
           <Input
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="e.g. Monthly active users count"
-            className="text-xs h-8"
+            className="text-label-12 h-8"
             autoFocus
           />
         </div>
 
         <div className="space-y-1">
-          <label className="text-[11px] font-medium text-text-tertiary">SQL Preview</label>
-          <pre className="font-mono text-[11px] text-text-secondary bg-surface-raised p-2 rounded border border-border max-h-32 overflow-y-auto whitespace-pre-wrap">
+          <label className="text-caption-11-medium text-text-tertiary">SQL Preview</label>
+          <pre className="text-code-11 text-text-secondary bg-surface-raised p-2 rounded border border-border max-h-32 overflow-y-auto whitespace-pre-wrap">
             {sql}
           </pre>
         </div>
 
         {error && (
-          <div className="p-2 rounded bg-status-danger/10 border border-status-danger/30 text-xs text-status-danger">
+          <div className="p-2 rounded bg-status-danger/10 border border-status-danger/30 text-body-12 text-status-danger">
             {error}
           </div>
         )}

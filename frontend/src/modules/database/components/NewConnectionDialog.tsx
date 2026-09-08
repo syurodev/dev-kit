@@ -112,8 +112,8 @@ export function NewConnectionDialog() {
               <Database className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-text-primary">New Database Connection</h3>
-              <p className="text-[11px] text-text-tertiary">
+              <h3 className="text-title-14 text-text-primary">New Database Connection</h3>
+              <p className="text-caption-11 text-text-tertiary">
                 Credentials are encrypted with your master vault key.
               </p>
             </div>
@@ -129,7 +129,7 @@ export function NewConnectionDialog() {
         </div>
 
         {/* Form Fields */}
-        <div className="grid grid-cols-2 gap-3 text-xs">
+        <div className="grid grid-cols-2 gap-3 text-body-12">
           {/* Connection Name */}
           <div className="col-span-2 space-y-1">
             <label className="font-medium text-text-primary">Connection Name</label>
@@ -137,7 +137,7 @@ export function NewConnectionDialog() {
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. Production Analytics Replica"
-              className="text-xs h-8"
+              className="text-label-12 h-8"
               autoFocus
             />
           </div>
@@ -148,7 +148,7 @@ export function NewConnectionDialog() {
             <select
               value={engine}
               onChange={(e) => handleEngineChange(e.target.value as any)}
-              className="w-full h-8 px-2.5 rounded-lg border border-border bg-surface-raised text-xs text-text-primary outline-none focus:border-action-primary"
+              className="w-full h-8 px-2.5 rounded-lg border border-border bg-surface-raised text-body-13 text-text-primary outline-none focus:border-action-primary"
             >
               <option value="postgres">PostgreSQL</option>
               <option value="mysql">MySQL</option>
@@ -162,7 +162,7 @@ export function NewConnectionDialog() {
             <select
               value={env}
               onChange={(e) => setEnv(e.target.value)}
-              className="w-full h-8 px-2.5 rounded-lg border border-border bg-surface-raised text-xs text-text-primary outline-none focus:border-action-primary"
+              className="w-full h-8 px-2.5 rounded-lg border border-border bg-surface-raised text-body-13 text-text-primary outline-none focus:border-action-primary"
             >
               {envTags.map((tag) => (
                 <option key={tag.id} value={tag.name}>
@@ -179,7 +179,7 @@ export function NewConnectionDialog() {
               value={host}
               onChange={(e) => setHost(e.target.value)}
               placeholder="127.0.0.1 or db.example.com"
-              className="text-xs h-8 font-mono"
+              className="h-8 text-code-12"
             />
           </div>
 
@@ -190,7 +190,7 @@ export function NewConnectionDialog() {
               type="number"
               value={port}
               onChange={(e) => setPort(Number(e.target.value))}
-              className="text-xs h-8 font-mono"
+              className="h-8 text-code-12"
             />
           </div>
 
@@ -201,7 +201,7 @@ export function NewConnectionDialog() {
               value={database}
               onChange={(e) => setDatabase(e.target.value)}
               placeholder="mydb"
-              className="text-xs h-8 font-mono"
+              className="h-8 text-code-12"
             />
           </div>
 
@@ -212,7 +212,7 @@ export function NewConnectionDialog() {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               placeholder="postgres"
-              className="text-xs h-8 font-mono"
+              className="h-8 text-code-12"
             />
           </div>
 
@@ -224,7 +224,7 @@ export function NewConnectionDialog() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••••••"
-              className="text-xs h-8 font-mono"
+              className="h-8 text-code-12"
             />
           </div>
 
@@ -234,7 +234,7 @@ export function NewConnectionDialog() {
             <select
               value={sslMode}
               onChange={(e) => setSslMode(e.target.value)}
-              className="w-full h-8 px-2.5 rounded-lg border border-border bg-surface-raised text-xs text-text-primary outline-none focus:border-action-primary"
+              className="w-full h-8 px-2.5 rounded-lg border border-border bg-surface-raised text-body-13 text-text-primary outline-none focus:border-action-primary"
             >
               <option value="disable">disable (loopback dev only)</option>
               <option value="require">require</option>
@@ -251,7 +251,7 @@ export function NewConnectionDialog() {
             <select
               value={sshProfileId}
               onChange={(e) => setSshProfileId(e.target.value)}
-              className="w-full h-8 px-2.5 rounded-lg border border-border bg-surface-raised text-xs text-text-primary outline-none focus:border-action-primary"
+              className="w-full h-8 px-2.5 rounded-lg border border-border bg-surface-raised text-body-13 text-text-primary outline-none focus:border-action-primary"
             >
               <option value="">Direct Connection (No Tunnel)</option>
               {sshProfiles.map((ssh) => (
@@ -264,7 +264,7 @@ export function NewConnectionDialog() {
         </div>
 
         {error && (
-          <div className="p-2.5 rounded bg-status-danger/10 border border-status-danger/30 text-xs text-status-danger flex items-center gap-2">
+          <div className="p-2.5 rounded bg-status-danger/10 border border-status-danger/30 text-body-12 text-status-danger flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 shrink-0" />
             <span>{error}</span>
           </div>
@@ -283,7 +283,7 @@ export function NewConnectionDialog() {
             {testing ? "Testing…" : "Test connection"}
           </Button>
           {testResult && (
-            <span className="text-xs text-status-success">{testResult}</span>
+            <span className="text-body-12 text-status-success">{testResult}</span>
           )}
           <div className="flex-1" />
           <Button

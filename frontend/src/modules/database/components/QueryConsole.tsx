@@ -200,7 +200,7 @@ export function QueryConsole() {
             <Button
               variant="default"
               size="sm"
-              className="h-7 text-xs gap-1.5 font-medium shadow-xs"
+              className="h-7 text-label-12 gap-1.5 shadow-xs"
               onClick={() => void executeQuery()}
               disabled={runningQuery || !selectedProfileId}
             >
@@ -217,7 +217,7 @@ export function QueryConsole() {
             <Button
               variant="outline"
               size="sm"
-              className="h-7 text-xs gap-1 text-text-secondary"
+              className="h-7 text-label-12 gap-1 text-text-secondary"
               onClick={() => void handleExplain(false)}
               disabled={runningQuery || explaining || !selectedProfileId}
               title="Explain query plan without executing"
@@ -229,7 +229,7 @@ export function QueryConsole() {
             <Button
               variant="outline"
               size="sm"
-              className="h-7 text-xs gap-1 text-text-secondary"
+              className="h-7 text-label-12 gap-1 text-text-secondary"
               onClick={() => void handleExplain(true)}
               disabled={runningQuery || explaining || !selectedProfileId}
               title="Execute statement in rolled-back transaction to measure actual time"
@@ -241,7 +241,7 @@ export function QueryConsole() {
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 text-xs gap-1 text-text-secondary hover:text-text-primary"
+              className="h-7 text-label-12 gap-1 text-text-secondary hover:text-text-primary"
               onClick={() => setShowSaveQueryModal(true)}
               disabled={!sql.trim()}
             >
@@ -256,7 +256,7 @@ export function QueryConsole() {
               <Button
                 variant="outline"
                 size="sm"
-                className="h-7 text-xs gap-1 text-text-secondary"
+                className="h-7 text-label-12 gap-1 text-text-secondary"
                 onClick={() => setShowExportModal(true)}
               >
                 <Download className="w-3.5 h-3.5" />
@@ -283,7 +283,7 @@ export function QueryConsole() {
 
       {/* DevKit Advice for MySQL placeholder mismatch (Screen 21) */}
       {hasPlaceholderMismatch && (
-        <div className="bg-amber-500/10 border-b border-amber-500/30 px-4 py-2 flex items-center justify-between text-xs text-amber-500 shrink-0">
+        <div className="bg-amber-500/10 border-b border-amber-500/30 px-4 py-2 flex items-center justify-between text-body-12 text-amber-500 shrink-0">
           <div className="flex items-center gap-2">
             <Info className="w-4 h-4 shrink-0" />
             <span>
@@ -294,7 +294,7 @@ export function QueryConsole() {
           <Button
             variant="ghost"
             size="sm"
-            className="h-6 text-[11px] text-amber-500 hover:bg-amber-500/20"
+            className="h-6 text-caption-11 text-amber-500 hover:bg-amber-500/20"
             onClick={() => setSql(sql.replace(/\$\d+/g, "?"))}
           >
             Auto-fix placeholders
@@ -304,7 +304,7 @@ export function QueryConsole() {
 
       {/* 30s Execution Timer Bar (Screen 14) */}
       {runningQuery && (
-        <div className="bg-surface-raised border-b border-border px-4 py-2.5 flex items-center justify-between text-xs shrink-0">
+        <div className="bg-surface-raised border-b border-border px-4 py-2.5 flex items-center justify-between text-body-12 shrink-0">
           <div className="flex items-center gap-3 flex-1 max-w-md">
             <div className="flex items-center gap-1.5 text-text-primary font-medium">
               <Clock className="w-4 h-4 text-action-primary animate-pulse" />
@@ -317,26 +317,26 @@ export function QueryConsole() {
                 style={{ width: `${Math.min(100, (elapsed / 30) * 100)}%` }}
               />
             </div>
-            <span className="text-[11px] text-text-tertiary">30s cap</span>
+            <span className="text-caption-11 text-text-tertiary">30s cap</span>
           </div>
         </div>
       )}
 
       {/* Safe-Mode Rejected Banner (Screen 18) */}
       {isReadOnlyRejection && (
-        <div className="bg-status-danger/10 border-b border-status-danger/30 p-3 flex items-start gap-2.5 text-xs text-status-danger shrink-0">
+        <div className="bg-status-danger/10 border-b border-status-danger/30 p-3 flex items-start gap-2.5 text-body-12 text-status-danger shrink-0">
           <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5" />
           <div className="flex-1 space-y-1">
             <div className="font-semibold flex items-center gap-2">
               <span>Operation Rejected by Database Engine (Safe-Mode Policy)</span>
-              <span className="font-mono text-[10px] bg-status-danger/20 px-1 py-0.5 rounded">
+              <span className="text-code-11 bg-status-danger/20 px-1 py-0.5 rounded">
                 SQLSTATE 25006
               </span>
             </div>
-            <p className="text-text-secondary text-[11px] leading-relaxed">
+            <p className="text-text-secondary text-caption-11">
               This connection is operating in <strong>Safe-Mode (Read-Only)</strong>. Mutating queries (INSERT, UPDATE, DELETE, DDL) are blocked by the database session. You can change this setting in Connection Options.
             </p>
-            <div className="font-mono text-[11px] text-text-tertiary bg-surface-base p-1.5 rounded border border-border mt-1">
+            <div className="text-code-11 text-text-tertiary bg-surface-base p-1.5 rounded border border-border mt-1">
               {queryError}
             </div>
           </div>
@@ -355,7 +355,7 @@ export function QueryConsole() {
           vault shut and are already in memory. Clearing them would destroy
           work the lock has no claim on. */}
       {isVaultLockedError(queryError) && (
-        <div className="bg-status-warning/10 border-b border-status-warning/30 px-4 py-2.5 flex items-center justify-between gap-3 text-xs shrink-0">
+        <div className="bg-status-warning/10 border-b border-status-warning/30 px-4 py-2.5 flex items-center justify-between gap-3 text-body-12 shrink-0">
           <div className="flex items-center gap-2 text-status-warning">
             <KeyRound className="w-4 h-4 shrink-0" />
             <span>
@@ -364,7 +364,7 @@ export function QueryConsole() {
               opening history, needs the vault key again.
             </span>
           </div>
-          <Button size="sm" className="h-7 text-xs shrink-0" onClick={requestVaultUnlock}>
+          <Button size="sm" className="h-7 text-label-12 shrink-0" onClick={requestVaultUnlock}>
             Unlock vault
           </Button>
         </div>
@@ -372,11 +372,11 @@ export function QueryConsole() {
 
       {/* Generic Error Banner (Screen 13) */}
       {queryError && !isReadOnlyRejection && !isVaultLockedError(queryError) && (
-        <div className="bg-status-danger/10 border-b border-status-danger/30 p-3 flex items-start gap-2.5 text-xs text-status-danger shrink-0">
+        <div className="bg-status-danger/10 border-b border-status-danger/30 p-3 flex items-start gap-2.5 text-body-12 text-status-danger shrink-0">
           <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
           <div className="flex-1 space-y-1">
             <div className="font-semibold">Query Execution Error</div>
-            <div className="font-mono text-[11px] text-text-primary bg-surface-base p-2 rounded border border-border whitespace-pre-wrap">
+            <div className="text-code-11 text-text-primary bg-surface-base p-2 rounded border border-border whitespace-pre-wrap">
               {queryError}
             </div>
           </div>
@@ -392,12 +392,12 @@ export function QueryConsole() {
 
       {/* Query Status */}
       {queryStatus && !queryError && (
-        <div className="bg-status-success/10 border-b border-status-success/20 px-4 py-1.5 flex items-center justify-between text-xs text-status-success shrink-0">
+        <div className="bg-status-success/10 border-b border-status-success/20 px-4 py-1.5 flex items-center justify-between text-body-12 text-status-success shrink-0">
           <span className="flex items-center gap-1.5 font-medium">
             <CheckCircle2 className="w-3.5 h-3.5" />
             {queryStatus}
           </span>
-          <span className="text-[11px] text-text-tertiary">
+          <span className="text-caption-11 text-text-tertiary">
             Double-click any cell to inspect its content
           </span>
         </div>
@@ -408,24 +408,24 @@ export function QueryConsole() {
         {queryResult ? (
           <div className="flex flex-col h-full">
             {/* Table Meta Bar */}
-            <div className="px-4 py-2 border-b border-border flex items-center justify-between text-xs bg-surface-raised/30 shrink-0">
+            <div className="px-4 py-2 border-b border-border flex items-center justify-between text-body-12 bg-surface-raised/30 shrink-0">
               <div className="flex items-center gap-2 font-medium text-text-primary">
                 <TableIcon className="w-3.5 h-3.5 text-text-secondary" />
                 <span>{queryResult.rowCount} row(s)</span>
                 {queryResult.truncated && (
-                  <Badge variant="secondary" className="text-[10px] bg-amber-500/15 text-amber-500 border-amber-500/30">
+                  <Badge variant="secondary" className="text-caption-11 bg-amber-500/15 text-amber-500 border-amber-500/30">
                     Capped at 200 rows
                   </Badge>
                 )}
               </div>
-              <div className="flex items-center gap-2 text-text-tertiary text-[11px]">
+              <div className="flex items-center gap-2 text-text-tertiary text-caption-11">
                 <span>{queryResult.columns.length} columns</span>
               </div>
             </div>
 
             {/* Virtualized/Scrollable Table */}
             <div className="flex-1 overflow-auto">
-              <table className="w-full text-left text-xs border-collapse font-mono" aria-label="Query results">
+              <table className="w-full text-left text-code-12 border-collapse" aria-label="Query results">
                 <thead className="bg-surface-raised sticky top-0 z-10 border-b border-border shadow-2xs">
                   <tr>
                     <th className="w-12 px-3 py-2 text-center text-text-tertiary font-semibold border-r border-border/40 select-none bg-surface-raised">
@@ -457,7 +457,7 @@ export function QueryConsole() {
                               the column" over a capped result would hand
                               someone 200 rows of an unknown total. */}
                           {queryResult.truncated && (
-                            <ContextMenuLabel className="text-[10px] font-normal text-status-warning">
+                            <ContextMenuLabel className="text-caption-11 font-normal text-status-warning">
                               result was capped — this is not the whole column
                             </ContextMenuLabel>
                           )}
@@ -472,7 +472,7 @@ export function QueryConsole() {
                       key={i}
                       className="hover:bg-surface-raised/60 transition-colors group"
                     >
-                      <td className="w-12 px-3 py-2 text-center text-text-tertiary text-[11px] border-r border-border/40 select-none bg-surface-base group-hover:bg-surface-raised/40">
+                      <td className="w-12 px-3 py-2 text-center text-text-tertiary text-caption-11 border-r border-border/40 select-none bg-surface-base group-hover:bg-surface-raised/40">
                         {i + 1}
                       </td>
                       {row.map((cell, j) => {
@@ -488,7 +488,7 @@ export function QueryConsole() {
                                 title="Click to inspect cell"
                               >
                                 {cell === "" ? (
-                                  <span className="text-text-tertiary italic text-[10px]">
+                                  <span className="text-text-tertiary italic text-caption-11">
                                     NULL
                                   </span>
                                 ) : (
@@ -538,10 +538,10 @@ export function QueryConsole() {
             <div className="w-12 h-12 rounded-xl bg-surface-raised border border-border flex items-center justify-center mb-3">
               <FileCode2 className="w-6 h-6 text-text-secondary" />
             </div>
-            <h3 className="text-sm font-semibold text-text-primary mb-1">
+            <h3 className="text-title-14 text-text-primary mb-1">
               {selectedProfileId ? "Query Console Ready" : "No Connection Selected"}
             </h3>
-            <p className="text-xs max-w-sm text-text-secondary leading-relaxed">
+            <p className="text-body-13 max-w-sm text-text-secondary">
               {selectedProfileId
                 ? `Type a SQL query above and click Run (or press ${shortcut("Enter")}). Autocomplete will suggest schemas and tables as you type.`
                 : "Select a connection profile in the sidebar to start writing queries."}

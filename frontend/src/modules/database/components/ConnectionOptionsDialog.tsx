@@ -66,10 +66,10 @@ export function ConnectionOptionsDialog() {
               <Settings2 className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-text-primary">
+              <h3 className="text-title-14 text-text-primary">
                 Connection Options · {profile.name}
               </h3>
-              <p className="text-[11px] text-text-tertiary">
+              <p className="text-caption-11 text-text-tertiary">
                 Metadata-only write path (does not re-encrypt password).
               </p>
             </div>
@@ -85,20 +85,20 @@ export function ConnectionOptionsDialog() {
         </div>
 
         {/* Options List */}
-        <div className="space-y-4 text-xs">
+        <div className="space-y-4 text-body-12">
           {/* Environment Tag */}
           <div className="p-3 rounded-lg border border-border bg-surface-raised space-y-2">
             <div className="flex items-center justify-between">
               <div>
                 <label className="font-semibold text-text-primary block">Environment Policy Tag</label>
-                <p className="text-[11px] text-text-tertiary">
+                <p className="text-caption-11 text-text-tertiary">
                   Controls Capability Gateway confirmation prompts and agent tool safety.
                 </p>
               </div>
               <select
                 value={env}
                 onChange={(e) => setEnv(e.target.value)}
-                className="h-8 px-2.5 rounded-lg border border-border bg-surface-base text-xs text-text-primary outline-none focus:border-action-primary min-w-[120px]"
+                className="h-8 px-2.5 rounded-lg border border-border bg-surface-base text-body-13 text-text-primary outline-none focus:border-action-primary min-w-[120px]"
               >
                 {envTags.map((tag) => (
                   <option key={tag.id} value={tag.name}>
@@ -109,7 +109,7 @@ export function ConnectionOptionsDialog() {
             </div>
 
             {isProd && (
-              <div className="p-2 rounded bg-status-danger/10 border border-status-danger/30 text-[11px] text-status-danger flex items-start gap-2">
+              <div className="p-2 rounded bg-status-danger/10 border border-status-danger/30 text-caption-11 text-status-danger flex items-start gap-2">
                 <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5" />
                 <div>
                   <strong className="font-semibold">Production Tag Active:</strong> All queries executed via MCP agents will mandate explicit human confirmation. Destructive session actions will require additional verification.
@@ -125,7 +125,7 @@ export function ConnectionOptionsDialog() {
                 <Shield className="w-3.5 h-3.5 text-status-warning" />
                 <span>Safe-Mode (Read-Only)</span>
               </div>
-              <p className="text-[11px] text-text-tertiary leading-relaxed">
+              <p className="text-caption-11 text-text-tertiary">
                 Postgres/MySQL sets <code className="font-mono bg-surface-base px-1 py-0.5 rounded">default_transaction_read_only = on</code> per session. Mutating statements are blocked by the database engine itself. Toggling will recreate the connection pool.
               </p>
             </div>
@@ -140,14 +140,14 @@ export function ConnectionOptionsDialog() {
                   <Radio className="w-3.5 h-3.5 text-status-info" />
                   <span>SSH Tunnel Forwarding</span>
                 </div>
-                <p className="text-[11px] text-text-tertiary">
+                <p className="text-caption-11 text-text-tertiary">
                   Routes traffic through an encrypted SSH tunnel profile.
                 </p>
               </div>
               <select
                 value={sshProfileId}
                 onChange={(e) => setSshProfileId(e.target.value)}
-                className="h-8 px-2.5 rounded-lg border border-border bg-surface-base text-xs text-text-primary outline-none focus:border-action-primary min-w-[150px]"
+                className="h-8 px-2.5 rounded-lg border border-border bg-surface-base text-body-13 text-text-primary outline-none focus:border-action-primary min-w-[150px]"
               >
                 <option value="">Direct (No Tunnel)</option>
                 {sshProfiles.map((ssh) => (
@@ -159,7 +159,7 @@ export function ConnectionOptionsDialog() {
             </div>
 
             {sshProfileId && (
-              <div className="p-2 rounded bg-surface-base border border-border/60 text-[11px] font-mono text-text-secondary flex items-center justify-between">
+              <div className="p-2 rounded bg-surface-base border border-border/60 text-code-11 text-text-secondary flex items-center justify-between">
                 <span>Tunnel Map:</span>
                 <span className="text-action-primary">127.0.0.1:&lt;dynamic_port&gt; → {profile.host}:{profile.port}</span>
               </div>
@@ -168,7 +168,7 @@ export function ConnectionOptionsDialog() {
         </div>
 
         {error && (
-          <div className="p-2.5 rounded bg-status-danger/10 border border-status-danger/30 text-xs text-status-danger flex items-center gap-2">
+          <div className="p-2.5 rounded bg-status-danger/10 border border-status-danger/30 text-body-12 text-status-danger flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 shrink-0" />
             <span>{error}</span>
           </div>
