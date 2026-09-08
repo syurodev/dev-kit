@@ -105,17 +105,23 @@
     --stroke-2: 2px;
 
     /* The window's own corner, and the only value in this file that depends on
-       the OS — everything inside stays on DevKit's ladder. The default is the
-       geometry the shell already implied: radius/10 on the content card plus
-       the 4px window gutter.
+       the OS — everything inside stays on DevKit's ladder.
 
-       Measured on macOS 27 by tracing the corner arc of a `screencapture -o`
-       of the real window: the inset reaches zero 40 device px up from the
-       bottom edge at 2x, so the radius is 20pt. The arc runs consistently
-       tighter than a circle of that radius (11 device px of inset where a
-       circle gives 16) — that is a squircle, which CSS cannot draw: WebKit has
-       no `corner-shape`. 20 - gutter gets the curves close; it cannot get them
-       parallel. Tune down a point or two if the diagonal still reads open. */
+       macOS 26+ publishes three, by window chrome: toolbar 26pt, **compact
+       toolbar 20pt**, titlebar 16pt. main.go sets
+       MacToolbarStyleUnifiedCompact, so DevKit's is the middle one. Measured
+       independently before that table turned up — trace the corner arc of a
+       `screencapture -o` of the real window and the inset reaches zero 40
+       device px up at 2x — which is the same 20pt.
+
+       Coupled to main.go: change ToolbarStyle and this number changes with it.
+       theme/nativeCorners.test.ts holds the two together.
+
+       The arc also runs tighter than a circle of that radius, because Apple
+       draws a squircle. WebKit has no `corner-shape`, so anything derived from
+       this is a circular approximation: right on the axes, open at the
+       diagonal. The default below is the geometry the shell already implied —
+       radius/10 on the card plus the 4px window gutter. */
     --radius-window: 14px;
 
     /* Radius system */
@@ -392,10 +398,10 @@
 /* Glass materials — see the tier comment on the --glass-* tokens above.
    Plain classes (not @utility) so a media-query fallback can retint all
    three at once. */
-/* macOS 26 (Tahoe) moved to a noticeably larger window corner. Earlier macOS,
-   Windows and Linux stay on the default until each is measured the same way
-   this one was — a guessed number is the canned-by-eye value the design system
-   exists to keep out. */
+/* macOS 26+ compact-toolbar window: 20pt, per Apple's own Window corners
+   table and confirmed by tracing the real window's arc. Earlier macOS, Windows
+   and Linux stay on the default until each is sourced the same way — a guessed
+   number is exactly the canned-by-eye value this system exists to keep out. */
 :root[data-os="macos-26"] {
   --radius-window: 20px;
 }

@@ -35,6 +35,18 @@ describe("native window corners", () => {
     }
   });
 
+  test("the macOS corner stays tied to the toolbar style that sets it", () => {
+    // Apple publishes three window corners by chrome: toolbar 26pt, compact
+    // toolbar 20pt, titlebar 16pt. Which one applies is decided in main.go, in
+    // another language, and nothing else would notice the day it changes.
+    const mainGo = readFileSync(new URL("../../../main.go", import.meta.url), "utf8");
+    expect(mainGo).toContain("MacToolbarStyleUnifiedCompact");
+
+    const css = readFileSync(new URL("../index.css", import.meta.url), "utf8");
+    const macos = css.match(/\[data-os="macos-26"\]\s*\{[^}]*--radius-window:\s*(\d+)px/);
+    expect(Number(macos?.[1])).toBe(20);
+  });
+
   test("the default window radius matches the shell's own corner plus the gutter", () => {
     // With no data-os the geometry must be exactly what it was before any of
     // this existed: radius/10 on the card, 4px of gutter. Otherwise the
