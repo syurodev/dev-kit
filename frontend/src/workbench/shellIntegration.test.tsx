@@ -7,23 +7,35 @@ import { AgentPermissionToastHost } from "./AgentPermissionToastHost";
 describe("Phase 4 Shell Integration", () => {
   beforeEach(() => {
     useWorkbenchTabsStore.setState({
-      openTabs: [
-        {
-          id: "agenthub:agenthub.sessions",
-          moduleId: "agenthub",
-          viewId: "agenthub.sessions",
-          title: "Agent Hub",
-          status: "idle",
+      activeModuleId: "agenthub",
+      modules: {
+        agenthub: {
+          openTabs: [
+            {
+              id: "agenthub:agenthub.sessions",
+              moduleId: "agenthub",
+              viewId: "agenthub.sessions",
+              title: "Agent Hub",
+              status: "idle",
+            },
+          ],
+          activeTabId: "agenthub:agenthub.sessions",
+          tabMru: ["agenthub:agenthub.sessions"],
         },
-        {
-          id: "notes:notes.list",
-          moduleId: "notes",
-          viewId: "notes.list",
-          title: "Notes",
-          status: "idle",
+        notes: {
+          openTabs: [
+            {
+              id: "notes:notes.list",
+              moduleId: "notes",
+              viewId: "notes.list",
+              title: "Notes",
+              status: "idle",
+            },
+          ],
+          activeTabId: "notes:notes.list",
+          tabMru: ["notes:notes.list"],
         },
-      ],
-      activeTabId: "agenthub:agenthub.sessions",
+      },
     });
 
     useAgentSessionsStore.setState({
@@ -51,11 +63,12 @@ describe("Phase 4 Shell Integration", () => {
       const { setTabStatus } = useWorkbenchTabsStore.getState();
       setTabStatus("agenthub:agenthub.sessions", "running");
 
-      const tab = useWorkbenchTabsStore.getState().openTabs.find((t) => t.id === "agenthub:agenthub.sessions");
+      const { modules } = useWorkbenchTabsStore.getState();
+      const tab = modules.agenthub.openTabs.find((t) => t.id === "agenthub:agenthub.sessions");
       expect(tab?.status).toBe("running");
 
-      // Verify other tabs unaffected
-      const notesTab = useWorkbenchTabsStore.getState().openTabs.find((t) => t.id === "notes:notes.list");
+      // Another module's partition is untouched — not even a new object.
+      const notesTab = modules.notes.openTabs.find((t) => t.id === "notes:notes.list");
       expect(notesTab?.status).toBe("idle");
     });
   });

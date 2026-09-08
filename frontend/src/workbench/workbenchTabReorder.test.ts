@@ -29,9 +29,14 @@ describe("workbench tab reorder isolation", () => {
 
   test("does not publish a new store state for an order no-op", () => {
     useWorkbenchTabsStore.setState({
-      openTabs: [first, second],
-      activeTabId: first.id,
-      tabMru: [first.id, second.id],
+      activeModuleId: "notes",
+      modules: {
+        notes: {
+          openTabs: [first, second],
+          activeTabId: first.id,
+          tabMru: [first.id, second.id],
+        },
+      },
     });
     const before = useWorkbenchTabsStore.getState();
 
@@ -42,22 +47,33 @@ describe("workbench tab reorder isolation", () => {
 
   test("preserves tab object identity for a real reorder", () => {
     useWorkbenchTabsStore.setState({
-      openTabs: [first, second],
-      activeTabId: first.id,
-      tabMru: [first.id, second.id],
+      activeModuleId: "notes",
+      modules: {
+        notes: {
+          openTabs: [first, second],
+          activeTabId: first.id,
+          tabMru: [first.id, second.id],
+        },
+      },
     });
 
     useWorkbenchTabsStore.getState().reorderTab(first.id, null);
 
-    expect(useWorkbenchTabsStore.getState().openTabs).toEqual([second, first]);
-    expect(useWorkbenchTabsStore.getState().openTabs[1]).toBe(first);
+    const { openTabs } = useWorkbenchTabsStore.getState().modules.notes;
+    expect(openTabs).toEqual([second, first]);
+    expect(openTabs[1]).toBe(first);
   });
 
   test("does not publish state when the already-active tab is selected", () => {
     useWorkbenchTabsStore.setState({
-      openTabs: [first, second],
-      activeTabId: first.id,
-      tabMru: [first.id, second.id],
+      activeModuleId: "notes",
+      modules: {
+        notes: {
+          openTabs: [first, second],
+          activeTabId: first.id,
+          tabMru: [first.id, second.id],
+        },
+      },
     });
     const before = useWorkbenchTabsStore.getState();
 

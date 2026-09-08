@@ -7,7 +7,7 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { getModule } from "../modules/registry";
-import { useWorkbenchTabsStore } from "../stores/workbenchTabs";
+import { selectActiveModuleTabs, useWorkbenchTabsStore } from "../stores/workbenchTabs";
 
 type TabSwitcherProps = {
   open: boolean;
@@ -32,9 +32,10 @@ type TabSwitcherProps = {
  * without an Input present; cmdk focuses the first item automatically.
  */
 export function TabSwitcher({ open, onClose }: TabSwitcherProps) {
-  const openTabs = useWorkbenchTabsStore((state) => state.openTabs);
-  const activeTabId = useWorkbenchTabsStore((state) => state.activeTabId);
-  const tabMru = useWorkbenchTabsStore((state) => state.tabMru);
+  // One module's tabs, not everyone's: tabs belong to the module that opened
+  // them, and switching between modules is the Dock's job (module-tabs.mdx
+  // names cross-module navigation a non-goal of per-module ownership).
+  const { openTabs, activeTabId, tabMru } = useWorkbenchTabsStore(selectActiveModuleTabs);
   const setActiveTab = useWorkbenchTabsStore((state) => state.setActiveTab);
 
   // A module's home view opened via the Dock (no specific item picked yet)

@@ -7,7 +7,7 @@ import {
   onAgentHubSessionUpdate,
 } from "../bridge/agenthub";
 import { appendUpdateLine, useAgentSessionsStore } from "../stores/agentSessions";
-import { useWorkbenchTabsStore, type TabStatus } from "../stores/workbenchTabs";
+import { moduleTabs, useWorkbenchTabsStore, type TabStatus } from "../stores/workbenchTabs";
 import { UpdateKind } from "../../bindings/devkit/internal/agenthub/models";
 
 /**
@@ -74,11 +74,9 @@ export function AgentSessionsSubscriber() {
       }
 
       // Synchronize tab status: find open tabs belonging to Agent Hub
-      const { openTabs, setTabStatus } = useWorkbenchTabsStore.getState();
-      const targetTabs = openTabs.filter(
-        (t) =>
-          t.moduleId === "agenthub" &&
-          (!t.params?.sessionId || t.params.sessionId === event.sessionId),
+      const { modules, setTabStatus } = useWorkbenchTabsStore.getState();
+      const targetTabs = moduleTabs(modules, "agenthub").openTabs.filter(
+        (t) => !t.params?.sessionId || t.params.sessionId === event.sessionId,
       );
 
       if (targetTabs.length > 0) {

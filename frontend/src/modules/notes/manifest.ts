@@ -7,6 +7,9 @@ export const notesModule: ModuleManifest = {
   version: "1.0.0",
   apiVersion: "1",
   icon: FileText,
+  // A tab per note (NotesView opens one per card, NoteEditor pins it on the
+  // first edit) — the one module today with several items open at once.
+  tabs: true,
   capabilities: ["notes:read", "notes:write"],
   commands: [
     {

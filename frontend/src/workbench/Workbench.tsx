@@ -39,7 +39,12 @@ import { Kbd } from "@/components/ui/kbd";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { SidebarModuleIdContext } from "@/components/ui/sidebar-shell";
 import { useModuleActionsStore } from "../stores/moduleActions";
-import { useWorkbenchTabsStore, type WorkbenchTab } from "../stores/workbenchTabs";
+import {
+  allOpenTabs,
+  moduleTabs,
+  useWorkbenchTabsStore,
+  type WorkbenchTab,
+} from "../stores/workbenchTabs";
 import { useSidebarOpenStore } from "../stores/sidebarShell";
 import { useBottomSlotStore } from "../stores/bottomSlot";
 import { useAgentSessionsStore } from "../stores/agentSessions";
@@ -79,7 +84,10 @@ registerModule(codegraphModule);
 type WorkbenchViewsProps = {
   availableModules: ModuleManifest[];
   hasMetadataWarning: boolean;
+  /** Every module's tabs — this layer keeps recently-left modules mounted. */
   openTabs: WorkbenchTab[];
+  /** The module on screen, and the active tab of that module. */
+  activeModuleId: string;
   activeTabId: string;
 };
 
@@ -90,6 +98,7 @@ function areWorkbenchViewsPropsEqual(
   return (
     previous.availableModules === next.availableModules &&
     previous.hasMetadataWarning === next.hasMetadataWarning &&
+    previous.activeModuleId === next.activeModuleId &&
     previous.activeTabId === next.activeTabId &&
     haveSameTabMembers(previous.openTabs, next.openTabs)
   );
@@ -173,16 +182,17 @@ const WorkbenchViews = memo(
     availableModules,
     hasMetadataWarning,
     openTabs,
+    activeModuleId,
     activeTabId,
   }: WorkbenchViewsProps) {
-    const activeTab = openTabs.find((tab) => tab.id === activeTabId);
+    // The module is state now, not something inferred from whichever tab is
+    // active: a module whose last tab was just closed is still the module on
+    // screen, and inferring it from a tab would have flashed the first
+    // module in the list for the frame before its home view reopens.
     const activeModule =
-      availableModules.find((module) => module.id === activeTab?.moduleId) ??
+      availableModules.find((module) => module.id === activeModuleId) ??
       availableModules[0];
-    const recentModuleIds = useMountedModuleIds(
-      activeTab?.moduleId ?? "",
-      HEADER_ONLY_MODULE_IDS,
-    );
+    const recentModuleIds = useMountedModuleIds(activeModuleId, HEADER_ONLY_MODULE_IDS);
     // The active module is unioned in directly (not only through
     // recentModuleIds) because useMountedModuleIds only learns about it via
     // an effect, which runs one render after activeTab already changed —
@@ -192,7 +202,7 @@ const WorkbenchViews = memo(
     // new Set identity every render, so its dependency never matched).
     const mountedModuleIds = new Set([
       ...HEADER_ONLY_MODULE_IDS,
-      ...(activeTab ? [activeTab.moduleId] : []),
+      ...(activeModuleId ? [activeModuleId] : []),
       ...recentModuleIds,
     ]);
 
@@ -293,8 +303,15 @@ export function Workbench() {
   const setChatOpen = useAgentSessionsStore((s) => s.setChatOpen);
 
   const moduleActions = useModuleActionsStore((s) => s.actions);
-  const openTabs = useWorkbenchTabsStore((state) => state.openTabs);
-  const activeTabId = useWorkbenchTabsStore((state) => state.activeTabId);
+  const activeModuleId = useWorkbenchTabsStore((state) => state.activeModuleId);
+  const tabModules = useWorkbenchTabsStore((state) => state.modules);
+  // The strip and the switcher see one module's tabs; only the views layer
+  // sees everyone's, because it keeps recently-left modules mounted. Memoised
+  // on the map's identity so a reorder inside one module still reaches
+  // haveSameTabMembers and is recognised as a no-op for the heavy subtree.
+  const activeTabs = moduleTabs(tabModules, activeModuleId);
+  const allTabs = useMemo(() => allOpenTabs(tabModules), [tabModules]);
+  const focusModuleInStore = useWorkbenchTabsStore((state) => state.focusModule);
   const openTab = useWorkbenchTabsStore((state) => state.openTab);
   const setActiveTab = useWorkbenchTabsStore((state) => state.setActiveTab);
   const closeTab = useWorkbenchTabsStore((state) => state.closeTab);
@@ -483,38 +500,39 @@ export function Workbench() {
     () => activityModules.filter((module) => !HEADER_ONLY_MODULE_IDS.has(module.id)),
     [activityModules],
   );
-  const activeTab = openTabs.find((tab) => tab.id === activeTabId);
   const activeModule =
-    availableModules.find((module) => module.id === activeTab?.moduleId) ??
+    availableModules.find((module) => module.id === activeModuleId) ??
     availableModules[0];
 
   function focusModule(moduleId: string) {
     const module = getModule(moduleId);
     const view = module?.views[0];
-    if (module && view) {
-      // Start the module request before the tab state update triggers render.
-      // The same cached promise is consumed by React.lazy in WorkbenchViews.
-      const preload = view.preload?.();
-      void preload?.catch(() => undefined);
-      // Every module's home view opens as the one shared preview tab, not
-      // a permanent tab of its own — casually visiting a module via the
-      // Dock (without pinning anything inside it) shouldn't leave a tab
-      // behind once you move on to another module. Confirmed explicitly:
-      // this applies uniformly, not just to modules with a list-then-item
-      // structure — switching from Notes to SSH via the Dock must replace
-      // Notes' tab, not leave it stranded alongside a new permanent SSH
-      // one. Picking a specific item inside a module (Notes: a note) still
-      // replaces this same preview slot in place via openTab's existing
-      // logic; a module's own view can still promote it to permanent
-      // later (Notes does, on first edit, via pinTab) if that's ever
-      // wired up for other modules too.
-      openTab({
-        moduleId: module.id,
-        viewId: view.id,
-        title: module.title,
-        preview: true,
-      });
+    if (!module || !view) {
+      return;
     }
+    // Start the module request before the tab state update triggers render.
+    // The same cached promise is consumed by React.lazy in WorkbenchViews.
+    const preload = view.preload?.();
+    void preload?.catch(() => undefined);
+    focusModuleInStore(moduleId);
+    // Sticky (module-tabs.mdx): a module that already has a tab active comes
+    // back to exactly that tab — its tabs are its own and were never touched
+    // by whatever happened in other modules meanwhile. Only a module with
+    // nothing open gets its home view, and that opens as the module's preview
+    // tab: casually visiting via the Dock (without pinning anything inside)
+    // shouldn't leave a permanent tab behind. Picking a specific item (Notes:
+    // a note) replaces that same preview slot in place via openTab; a
+    // module's own view can promote it to permanent later (Notes does, on
+    // first edit, via pinTab).
+    if (moduleTabs(useWorkbenchTabsStore.getState().modules, moduleId).activeTabId) {
+      return;
+    }
+    openTab({
+      moduleId: module.id,
+      viewId: view.id,
+      title: module.title,
+      preview: true,
+    });
   }
 
   // Mirrors for the mount-once keydown listener above, which must not close
@@ -525,10 +543,21 @@ export function Workbench() {
   focusModuleRef.current = focusModule;
 
   useEffect(() => {
-    if (openTabs.length === 0 && availableModules.length > 0) {
-      focusModule(availableModules[0].id);
+    if (availableModules.length === 0) {
+      return;
     }
-  }, [availableModules, openTabs.length]);
+    if (!activeModuleId) {
+      focusModule(availableModules[0].id);
+      return;
+    }
+    // Closing a module's last tab empties its partition. The module stays on
+    // screen and gets its home view back (module-tabs.mdx: "đã đóng hết →
+    // về view home mặc định"), rather than the app jumping to whichever
+    // module happens to be first in the list.
+    if (activeTabs.openTabs.length === 0) {
+      focusModule(activeModuleId);
+    }
+  }, [availableModules, activeModuleId, activeTabs.openTabs.length]);
   const commands = availableModules.flatMap((module) => module.commands);
   const hasMetadataWarning = metadataError || parityIssues.length > 0;
 
@@ -719,22 +748,28 @@ export function Workbench() {
         </>
       }
     >
-      {/* The strip was built, exported, and never mounted — the tab state drove
-          the views and the ⌃Tab switcher, but nothing ever drew the tabs. */}
-      <TabStrip
-        tabs={openTabs}
-        activeTabId={activeTabId}
-        onSelect={setActiveTab}
-        onClose={closeTab}
-        onReorder={reorderTab}
-        keyboardBrowsing={switcher === "browsing"}
-        onExitBrowsing={() => setSwitcher("closed")}
-      />
+      {/* The strip belongs to the module on screen and shows only its tabs.
+          It is drawn only for modules that opted in (ModuleManifest.tabs):
+          a module with a single view has nothing to switch between, and the
+          48px would sit under the 40px title bar as a second empty band —
+          which is exactly what read as "the title bar is too tall". */}
+      {activeModule?.tabs ? (
+        <TabStrip
+          tabs={activeTabs.openTabs}
+          activeTabId={activeTabs.activeTabId}
+          onSelect={setActiveTab}
+          onClose={closeTab}
+          onReorder={reorderTab}
+          keyboardBrowsing={switcher === "browsing"}
+          onExitBrowsing={() => setSwitcher("closed")}
+        />
+      ) : null}
       <WorkbenchViews
         availableModules={availableModules}
         hasMetadataWarning={hasMetadataWarning}
-        openTabs={openTabs}
-        activeTabId={activeTabId}
+        openTabs={allTabs}
+        activeModuleId={activeModule?.id ?? ""}
+        activeTabId={activeTabs.activeTabId}
       />
     </AppShell>
   );
