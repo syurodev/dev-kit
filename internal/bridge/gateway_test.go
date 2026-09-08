@@ -39,7 +39,7 @@ func TestAppServiceCallSetsMetadata(t *testing.T) {
 	container := app.NewContainer()
 	svc := NewAppService(container)
 
-	_, err := svc.Call(context.Background(), "builtin.notes", "notes:read", "note:list", map[string]any{
+	_, err := NewCaller(svc).Call(context.Background(), "builtin.notes", "notes:read", "note:list", map[string]any{
 		"origin": "mcp",
 		"action": "list",
 	}, func(context.Context) (any, error) {

@@ -370,7 +370,7 @@ func main() {
 		return applyNativeTheme(mainWindow, theme)
 	})
 	mcpServer := mcp.NewServerFromContainer(mcp.Deps{
-		Caller:    appService,
+		Caller:    bridge.NewCaller(appService),
 		Notes:     container.Notes,
 		Vault:     container.Vault,
 		Search:    mcp.NewSearchAPI(container.Items),

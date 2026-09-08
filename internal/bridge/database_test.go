@@ -84,7 +84,7 @@ func TestDatabaseWriteMethodsAreAbsentFromMCPTools(t *testing.T) {
 	container := app.NewContainer()
 	service := NewAppService(container)
 	server := mcp.NewServer(mcp.Deps{
-		Caller: service,
+		Caller: NewCaller(service),
 		Envs:   container.Environments,
 		DB:     container.Database,
 	})

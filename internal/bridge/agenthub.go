@@ -49,7 +49,7 @@ func hubSessionID(value string) string {
 }
 
 func (s *AppService) AgentHubListAgents() ([]agenthub.AgentSession, error) {
-	result, err := s.Call(context.Background(), "builtin.agenthub", "agenthub:read", "session:list", map[string]any{
+	result, err := s.call(context.Background(), "builtin.agenthub", "agenthub:read", "session:list", map[string]any{
 		"action": "list_agents",
 	}, func(ctx context.Context) (any, error) {
 		svc, err := s.agentHubService()
@@ -65,7 +65,7 @@ func (s *AppService) AgentHubListAgents() ([]agenthub.AgentSession, error) {
 }
 
 func (s *AppService) AgentHubCreateSession(input agenthub.CreateInput) (agenthub.AgentSession, error) {
-	result, err := s.Call(context.Background(), "builtin.agenthub", "agenthub:execute", "session:new", map[string]any{
+	result, err := s.call(context.Background(), "builtin.agenthub", "agenthub:execute", "session:new", map[string]any{
 		"action":     "create_session",
 		"agent_type": string(input.AgentType),
 	}, func(ctx context.Context) (any, error) {
@@ -83,7 +83,7 @@ func (s *AppService) AgentHubCreateSession(input agenthub.CreateInput) (agenthub
 
 func (s *AppService) AgentHubGetStatus(id string) (agenthub.AgentSession, error) {
 	opaqueID := hubSessionID(id)
-	result, err := s.Call(context.Background(), "builtin.agenthub", "agenthub:read", "session:"+opaqueID, map[string]any{
+	result, err := s.call(context.Background(), "builtin.agenthub", "agenthub:read", "session:"+opaqueID, map[string]any{
 		"action":     "get_status",
 		"session_id": opaqueID,
 	}, func(ctx context.Context) (any, error) {
@@ -104,7 +104,7 @@ func (s *AppService) AgentHubGetStatus(id string) (agenthub.AgentSession, error)
 // another agent's transcript is refused by authorizeTarget, not by the UI.
 func (s *AppService) AgentHubTranscript(id string) ([]agenthub.TranscriptEntry, error) {
 	opaqueID := hubSessionID(id)
-	result, err := s.Call(context.Background(), "builtin.agenthub", "agenthub:read", "session:"+opaqueID, map[string]any{
+	result, err := s.call(context.Background(), "builtin.agenthub", "agenthub:read", "session:"+opaqueID, map[string]any{
 		"action":     "transcript",
 		"session_id": opaqueID,
 	}, func(ctx context.Context) (any, error) {
@@ -122,7 +122,7 @@ func (s *AppService) AgentHubTranscript(id string) ([]agenthub.TranscriptEntry, 
 
 func (s *AppService) AgentHubInvoke(ctx context.Context, input agenthub.InvokeInput) (agenthub.InvokeResult, error) {
 	opaqueID := hubSessionID(input.SessionID)
-	result, err := s.Call(ctx, "builtin.agenthub", "agenthub:execute", "session:"+opaqueID, map[string]any{
+	result, err := s.call(ctx, "builtin.agenthub", "agenthub:execute", "session:"+opaqueID, map[string]any{
 		"action":     "invoke",
 		"session_id": opaqueID,
 	}, func(callCtx context.Context) (any, error) {
@@ -140,7 +140,7 @@ func (s *AppService) AgentHubInvoke(ctx context.Context, input agenthub.InvokeIn
 
 func (s *AppService) AgentHubCancel(ctx context.Context, id string) error {
 	opaqueID := hubSessionID(id)
-	_, err := s.Call(ctx, "builtin.agenthub", "agenthub:execute", "session:"+opaqueID, map[string]any{
+	_, err := s.call(ctx, "builtin.agenthub", "agenthub:execute", "session:"+opaqueID, map[string]any{
 		"action":     "cancel",
 		"session_id": opaqueID,
 	}, func(callCtx context.Context) (any, error) {
@@ -159,7 +159,7 @@ func (s *AppService) AgentHubCancel(ctx context.Context, id string) error {
 // endpoint and is not undoable — the session stays in the store as history.
 func (s *AppService) AgentHubCloseSession(ctx context.Context, id string) error {
 	opaqueID := hubSessionID(id)
-	_, err := s.Call(ctx, "builtin.agenthub", "agenthub:execute", "session:"+opaqueID, map[string]any{
+	_, err := s.call(ctx, "builtin.agenthub", "agenthub:execute", "session:"+opaqueID, map[string]any{
 		"action":     "close_session",
 		"session_id": opaqueID,
 	}, func(callCtx context.Context) (any, error) {
@@ -177,7 +177,7 @@ func (s *AppService) AgentHubCloseSession(ctx context.Context, id string) error 
 // whatever was still running.
 func (s *AppService) AgentHubDeleteSession(ctx context.Context, id string) error {
 	opaqueID := hubSessionID(id)
-	_, err := s.Call(ctx, "builtin.agenthub", "agenthub:execute", "session:"+opaqueID, map[string]any{
+	_, err := s.call(ctx, "builtin.agenthub", "agenthub:execute", "session:"+opaqueID, map[string]any{
 		"action":     "delete_session",
 		"session_id": opaqueID,
 	}, func(callCtx context.Context) (any, error) {
@@ -191,7 +191,7 @@ func (s *AppService) AgentHubDeleteSession(ctx context.Context, id string) error
 }
 
 func (s *AppService) AgentHubListVendorTypes() ([]agenthub.AgentType, error) {
-	result, err := s.Call(context.Background(), "builtin.agenthub", "agenthub:read", "vendor:list", map[string]any{
+	result, err := s.call(context.Background(), "builtin.agenthub", "agenthub:read", "vendor:list", map[string]any{
 		"action": "list_vendor_types",
 	}, func(context.Context) (any, error) {
 		svc, err := s.agentHubService()
@@ -209,7 +209,7 @@ func (s *AppService) AgentHubListVendorTypes() ([]agenthub.AgentType, error) {
 // AgentHubResolvePermission completes a pending ACP permission prompt from the UI.
 func (s *AppService) AgentHubResolvePermission(id string, outcome json.RawMessage) error {
 	opaqueID := recordID(id)
-	_, err := s.Call(context.Background(), "builtin.agenthub", "agenthub:execute", "permission:complete", map[string]any{
+	_, err := s.call(context.Background(), "builtin.agenthub", "agenthub:execute", "permission:complete", map[string]any{
 		"action": "resolve_permission",
 		"id":     opaqueID,
 	}, func(context.Context) (any, error) {
@@ -226,7 +226,7 @@ func (s *AppService) AgentHubResolvePermission(id string, outcome json.RawMessag
 // user, oldest first. The frontend uses it to rebuild its queue on mount;
 // live arrivals still come through the agenthub:permission event.
 func (s *AppService) AgentHubPendingPermissions() ([]agenthub.PendingPermission, error) {
-	result, err := s.Call(context.Background(), "builtin.agenthub", "agenthub:read", "permission:list", map[string]any{
+	result, err := s.call(context.Background(), "builtin.agenthub", "agenthub:read", "permission:list", map[string]any{
 		"action": "pending_permissions",
 	}, func(context.Context) (any, error) {
 		waiter, err := s.agentHubPermissions()
@@ -266,7 +266,7 @@ func defaultOpenDirectoryDialog(title, startIn string) (string, error) {
 // Multi-select because attaching context is usually "these three files", and a
 // picker that closes after one turns that into three trips through a modal.
 func (s *AppService) AgentHubChooseFiles(startIn string) ([]string, error) {
-	result, err := s.Call(context.Background(), "builtin.agenthub", "agenthub:execute", "session:new", map[string]any{
+	result, err := s.call(context.Background(), "builtin.agenthub", "agenthub:execute", "session:new", map[string]any{
 		"action": "choose_files",
 	}, func(context.Context) (any, error) {
 		dialogFunc := s.openFilesDialog
@@ -315,7 +315,7 @@ func defaultOpenFilesDialog(title, startIn string) ([]string, error) {
 // startIn is a hint, not a constraint — the picker opens there when the path
 // exists and falls back to the system default otherwise.
 func (s *AppService) AgentHubChooseDirectory(startIn string) (string, error) {
-	result, err := s.Call(context.Background(), "builtin.agenthub", "agenthub:execute", "session:new", map[string]any{
+	result, err := s.call(context.Background(), "builtin.agenthub", "agenthub:execute", "session:new", map[string]any{
 		"action": "choose_directory",
 	}, func(context.Context) (any, error) {
 		dialogFunc := s.openDirDialog

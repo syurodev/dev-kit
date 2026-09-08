@@ -10,9 +10,6 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 import * as agenthub$0 from "../agenthub/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
-import * as capabilities$0 from "../capabilities/models.js";
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore: Unused imports
 import * as codegraph$0 from "../codegraph/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -149,14 +146,6 @@ export function AuthLogout(): $CancellablePromise<void> {
 
 export function AuthStatus(): $CancellablePromise<$models.AuthStatusDTO> {
     return $Call.ByID(1688778362);
-}
-
-/**
- * Call runs a capability-gated handler and maps errors through publicError.
- * Bridge UI methods and MCP tool handlers must both use this entrypoint.
- */
-export function Call(subject: string, capability: string, scope: string, metadata: { [_ in string]?: any } | null, handler: capabilities$0.Handler): $CancellablePromise<any> {
-    return $Call.ByID(1812104438, subject, capability, scope, metadata, handler);
 }
 
 /**
