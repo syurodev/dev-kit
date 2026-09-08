@@ -67,7 +67,7 @@ export function EdgeLabelPill({ kind, children }: { kind: "call" | "di"; childre
   const info = "var(--status-info)";
   return (
     <span
-      className="rounded-full border px-2.25 py-1 font-mono text-[10px] font-medium tracking-[0.02em] shadow-[0_2px_6px_rgba(0,0,0,0.45)]"
+      className="rounded-full border px-2.25 py-1 text-code-11 shadow-[0_2px_6px_rgba(0,0,0,0.45)]"
       style={
         kind === "di"
           ? {

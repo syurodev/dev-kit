@@ -42,7 +42,7 @@ export function ApiNode({ data, selected }: NodeProps & { data: ApiNodeData }) {
 
       <div className="flex items-center gap-2.5">
         <span
-          className="flex size-7.5 shrink-0 items-center justify-center rounded-[9px] group-hover:brightness-125"
+          className="flex size-7.5 shrink-0 items-center justify-center rounded-control group-hover:brightness-125"
           style={{ backgroundColor: `color-mix(in srgb, ${accent} 14%, transparent)` }}
         >
           <Icon size={16} strokeWidth={2} style={{ color: accent }} />
@@ -56,7 +56,7 @@ export function ApiNode({ data, selected }: NodeProps & { data: ApiNodeData }) {
           </span>
           <span
             title={data.titleTooltip ?? data.title}
-            className="truncate text-sm font-semibold text-text-primary"
+            className="truncate text-title-14 text-text-primary"
           >
             {data.title}
           </span>
@@ -64,7 +64,7 @@ export function ApiNode({ data, selected }: NodeProps & { data: ApiNodeData }) {
       </div>
       <span
         title={data.detailTooltip ?? data.detail}
-        className="truncate rounded-lg bg-surface-tinted px-2.5 py-[7px] font-mono text-[11px] text-text-secondary"
+        className="truncate rounded-lg bg-surface-tinted px-2.5 py-2 text-code-11 text-text-secondary"
       >
         {data.detail}
       </span>

@@ -69,7 +69,7 @@ export function FileTree({ entries, selectedPath, onSelectFile }: FileTreeProps)
           return (
             <button
               key={entry.path}
-              className={`absolute left-0 top-0 flex w-full items-center gap-1 truncate px-2 text-left text-sm hover:bg-surface-raised ${
+              className={`absolute left-0 top-0 flex w-full items-center gap-1 truncate px-2 text-left text-body-13 hover:bg-surface-raised ${
                 selectedPath === entry.path ? "bg-surface-raised" : ""
               }`}
               style={{

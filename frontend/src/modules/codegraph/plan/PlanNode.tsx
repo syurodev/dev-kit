@@ -39,7 +39,7 @@ export function PlanNode({ data, selected }: NodeProps & { data: PlanNodeData })
 
       <div className="flex items-center gap-2.5">
         <span
-          className="flex size-7.5 shrink-0 items-center justify-center rounded-[9px]"
+          className="flex size-7.5 shrink-0 items-center justify-center rounded-control"
           style={{ backgroundColor: `color-mix(in srgb, ${accent} 14%, transparent)` }}
         >
           <Icon size={16} strokeWidth={2} style={{ color: accent }} />
@@ -51,14 +51,14 @@ export function PlanNode({ data, selected }: NodeProps & { data: PlanNodeData })
           >
             {visual.label}
           </span>
-          <span title={data.fqn} className="truncate text-sm font-semibold text-text-primary">
+          <span title={data.fqn} className="truncate text-title-14 text-text-primary">
             {data.title}
           </span>
         </span>
         {data.commentCount > 0 && (
           <span
             title={`${data.commentCount} comment(s)`}
-            className="shrink-0 rounded-full bg-foreground/10 px-1.5 text-[10px] tabular-nums text-foreground/70"
+            className="shrink-0 rounded-full bg-foreground/10 px-1.5 text-caption-11 tabular-nums text-foreground/70"
           >
             {data.commentCount}
           </span>
@@ -66,12 +66,12 @@ export function PlanNode({ data, selected }: NodeProps & { data: PlanNodeData })
       </div>
 
       <div className="flex items-center gap-2">
-        <span className={cn("shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium", status.badge)}>
+        <span className={cn("shrink-0 rounded px-1.5 py-0.5 text-caption-11-medium", status.badge)}>
           {status.label}
         </span>
         <span
           title={data.fqn}
-          className="min-w-0 flex-1 truncate rounded-lg bg-surface-tinted px-2 py-[3px] text-right font-mono text-[10px] text-text-secondary"
+          className="min-w-0 flex-1 truncate rounded-lg bg-surface-tinted px-2 py-1 text-right text-code-11 text-text-secondary"
         >
           {data.fqn}
         </span>

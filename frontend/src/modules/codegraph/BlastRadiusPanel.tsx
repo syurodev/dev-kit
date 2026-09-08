@@ -49,7 +49,7 @@ export function BlastRadiusPanel({
         <Button
           size="sm"
           variant="secondary"
-          className="h-6 shrink-0 px-2 text-xs"
+          className="h-6 shrink-0 px-2 text-label-12"
           disabled={busy}
           onClick={() => void load()}
         >
@@ -59,16 +59,16 @@ export function BlastRadiusPanel({
         {/* An empty list and a failed call look identical if both render as
             nothing, so the no-dependents case says so in words. */}
         {files?.length === 0 && (
-          <span className="text-[11px] text-text-tertiary">
+          <span className="text-caption-11 text-text-tertiary">
             Nothing else depends on this file.
           </span>
         )}
         {files && files.length > 0 && (
-          <span className="font-mono text-[11px] text-status-warning">
+          <span className="text-code-11 text-status-warning">
             {files.length} dependent file{files.length === 1 ? "" : "s"}
           </span>
         )}
-        {error && <span className="truncate text-[11px] text-destructive">{error}</span>}
+        {error && <span className="truncate text-caption-11 text-destructive">{error}</span>}
       </div>
 
       {files && files.length > 0 && (
@@ -78,7 +78,7 @@ export function BlastRadiusPanel({
               <button
                 type="button"
                 onClick={() => onOpenFile(f)}
-                className="w-full truncate rounded px-1 py-0.5 text-left font-mono text-[11px] text-text-secondary hover:bg-surface-raised"
+                className="w-full truncate rounded px-1 py-0.5 text-left text-code-11 text-text-secondary hover:bg-surface-raised"
               >
                 {f}
               </button>

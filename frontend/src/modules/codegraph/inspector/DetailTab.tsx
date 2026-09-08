@@ -33,15 +33,15 @@ export function DetailTab({ snippet, loading, error, onEdit }: DetailTabProps) {
     [snippet],
   );
 
-  if (loading) return <p className="p-4 text-sm text-muted-foreground">Loading source…</p>;
-  if (error) return <p className="p-4 text-sm text-destructive">{error}</p>;
+  if (loading) return <p className="p-4 text-body-13 text-muted-foreground">Loading source…</p>;
+  if (error) return <p className="p-4 text-body-13 text-destructive">{error}</p>;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 p-3">
       {snippet?.fqn && (
         <div className="flex flex-col gap-1">
-          <span className="font-mono text-[10px] tracking-[0.08em] text-text-tertiary">FQN</span>
-          <span className="truncate rounded-lg bg-surface-tinted px-2.5 py-1.5 font-mono text-[11px] text-text-secondary">
+          <span className="text-code-11 text-text-tertiary">FQN</span>
+          <span className="truncate rounded-lg bg-surface-tinted px-2.5 py-1.5 text-code-11 text-text-secondary">
             {snippet.fqn}
           </span>
         </div>
@@ -49,14 +49,14 @@ export function DetailTab({ snippet, loading, error, onEdit }: DetailTabProps) {
 
       <div className="flex min-h-0 flex-1 flex-col gap-1">
         <div className="flex items-center gap-2">
-          <span className="min-w-0 flex-1 truncate font-mono text-[10px] tracking-[0.08em] text-text-tertiary">
+          <span className="min-w-0 flex-1 truncate text-code-11 text-text-tertiary">
             {snippet ? `SOURCE · ${snippet.filePath.split("/").pop()}:${snippet.line}` : "SOURCE"}
           </span>
           {snippet && onEdit && (
             <Button
               variant="secondary"
               size="sm"
-              className="h-6 shrink-0 px-2 text-xs"
+              className="h-6 shrink-0 px-2 text-label-12"
               onClick={onEdit}
             >
               Edit
@@ -77,7 +77,7 @@ export function DetailTab({ snippet, loading, error, onEdit }: DetailTabProps) {
             />
           </div>
         ) : (
-          <p className="rounded-lg bg-surface-tinted px-2.5 py-2 text-xs text-text-tertiary">
+          <p className="rounded-lg bg-surface-tinted px-2.5 py-2 text-body-12 text-text-tertiary">
             Not implemented yet — there is no file to open.
           </p>
         )}

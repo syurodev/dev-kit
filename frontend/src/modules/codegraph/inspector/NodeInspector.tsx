@@ -47,16 +47,16 @@ export function NodeInspector({
     <Tabs defaultValue="detail" className="flex min-h-0 flex-1 flex-col gap-0">
       <div className="flex shrink-0 items-center gap-2 px-3 py-2.5 pr-12">
         <span
-          className="flex size-7.5 shrink-0 items-center justify-center rounded-[9px]"
+          className="flex size-7.5 shrink-0 items-center justify-center rounded-control"
           style={{ backgroundColor: `color-mix(in srgb, ${accent} 14%, transparent)` }}
         >
           <Icon size={16} strokeWidth={2} style={{ color: accent }} />
         </span>
         <span className="flex min-w-0 flex-col">
-          <span title={node.label} className="truncate text-sm font-semibold text-text-primary">
+          <span title={node.label} className="truncate text-title-14 text-text-primary">
             {node.label.split(".").slice(-2).join(".")}
           </span>
-          <span className="truncate font-mono text-[10px] tracking-[0.06em] text-text-tertiary">
+          <span className="truncate text-code-11 text-text-tertiary">
             {visual.label} · {node.kind}
           </span>
         </span>

@@ -78,7 +78,7 @@ export function CodeGraphSidebar(props: CodeGraphSidebarProps) {
     .sort((a, b) => planStatusOrder(a.status) - planStatusOrder(b.status));
 
   return (
-    <div className="flex h-full flex-col gap-3 p-3 text-sm">
+    <div className="flex h-full flex-col gap-3 p-3 text-body-13">
       <div className="flex flex-col gap-2">
         <div className="flex items-center gap-2">
           <Button onClick={onPickProject} disabled={busy} size="sm" className="flex-1">
@@ -91,14 +91,14 @@ export function CodeGraphSidebar(props: CodeGraphSidebarProps) {
           )}
         </div>
         {projectPath && (
-          <span className="text-xs text-muted-foreground truncate font-mono" title={projectPath}>
+          <span className="text-code-12 truncate text-muted-foreground" title={projectPath}>
             {projectPath}
           </span>
         )}
       </div>
 
-      {status && <p className="text-xs text-muted-foreground">{status}</p>}
-      {error && <p className="text-xs text-destructive">{error}</p>}
+      {status && <p className="text-body-12 text-muted-foreground">{status}</p>}
+      {error && <p className="text-body-12 text-destructive">{error}</p>}
 
       <input
         type="search"
@@ -106,7 +106,7 @@ export function CodeGraphSidebar(props: CodeGraphSidebarProps) {
         onChange={(e) => onQueryChange(e.target.value)}
         placeholder="Search files or endpoints…"
         aria-label="Search files or endpoints"
-        className="w-full rounded-md border border-border-subtle bg-surface-tinted px-2.5 py-1.5 text-xs text-text-primary placeholder:text-text-tertiary focus-visible:border-ring focus-visible:outline-none"
+        className="w-full rounded-md border border-border-subtle bg-surface-tinted px-2.5 py-1.5 text-body-13 text-text-primary placeholder:text-text-tertiary focus-visible:border-ring focus-visible:outline-none"
       />
 
       <div className="flex items-center gap-1 border-b pb-2">
@@ -146,15 +146,15 @@ export function CodeGraphSidebar(props: CodeGraphSidebarProps) {
                 }`}
                 onClick={() => onSelectEndpoint(ep)}
               >
-                <span className="font-mono text-xs font-semibold uppercase text-status-info shrink-0">
+                <span className="text-code-12-medium uppercase text-status-info shrink-0">
                   {ep.httpMethod}
                 </span>
-                <span className="text-xs truncate">{ep.path}</span>
+                <span className="text-body-12 truncate">{ep.path}</span>
               </button>
             </li>
           ))}
           {shownEndpoints.length === 0 && !busy && (
-            <li className="text-xs text-muted-foreground py-2 text-center">
+            <li className="text-body-12 text-muted-foreground py-2 text-center">
               No endpoints yet — open a project to index it.
             </li>
           )}
@@ -178,22 +178,22 @@ export function CodeGraphSidebar(props: CodeGraphSidebarProps) {
                 <span className="flex items-center gap-2">
                   <span
                     className={cn(
-                      "shrink-0 rounded px-1 text-[10px] font-medium",
+                      "shrink-0 rounded px-1 text-caption-11-medium",
                       PLAN_STATUS[n.status].badge,
                     )}
                   >
                     {PLAN_STATUS[n.status].label}
                   </span>
-                  <span className="truncate text-xs">{n.label}</span>
+                  <span className="truncate text-body-12">{n.label}</span>
                 </span>
-                <span className="truncate font-mono text-[10px] text-text-tertiary" title={n.fqn}>
+                <span className="truncate text-code-11 text-text-tertiary" title={n.fqn}>
                   {n.fqn}
                 </span>
               </button>
             </li>
           ))}
           {planNodes.length === 0 && (
-            <li className="py-2 text-center text-xs text-muted-foreground">
+            <li className="py-2 text-center text-body-12 text-muted-foreground">
               {planError
                 ? "No plan for this project yet."
                 : "No plan nodes. An agent creates one with codegraph.proposeFlow."}

@@ -99,8 +99,8 @@ export function PlanCommentsPopover({
     >
       <div className="flex shrink-0 items-center gap-2 border-b border-border-subtle px-3 py-2">
         <span className="flex min-w-0 flex-1 flex-col">
-          <span className="text-sm font-semibold text-text-primary">Comments</span>
-          <span title={label} className="truncate font-mono text-[10px] text-text-tertiary">
+          <span className="text-title-14 text-text-primary">Comments</span>
+          <span title={label} className="truncate text-code-11 text-text-tertiary">
             {label}
           </span>
         </span>
@@ -118,7 +118,7 @@ export function PlanCommentsPopover({
       {/* Not decoration: a comment here is handed to the agent with the plan
           and steers what gets built. Letting someone believe it is a private
           note would make the feature actively misleading. */}
-      <p className="shrink-0 border-b border-border-subtle px-3 py-1.5 text-[11px] text-text-tertiary">
+      <p className="shrink-0 border-b border-border-subtle px-3 py-1.5 text-caption-11 text-text-tertiary">
         The agent reads this and it steers the implementation — not a private note.
       </p>
 
@@ -128,22 +128,22 @@ export function PlanCommentsPopover({
             <li
               key={c.commentId}
               className={cn(
-                "rounded-lg px-2.5 py-1.5 text-xs",
+                "rounded-lg px-2.5 py-1.5 text-body-12",
                 c.author === "agent"
                   ? "bg-surface-tinted text-text-secondary"
                   : "bg-foreground/5 text-text-primary",
               )}
             >
-              <span className="mb-0.5 block font-mono text-[10px] text-text-tertiary">
+              <span className="mb-0.5 block text-code-11 text-text-tertiary">
                 {c.author}
               </span>
               <span className="whitespace-pre-wrap">{c.body}</span>
             </li>
           ))}
           {thread?.length === 0 && (
-            <li className="text-xs text-muted-foreground">No comments on this node yet.</li>
+            <li className="text-body-12 text-muted-foreground">No comments on this node yet.</li>
           )}
-          {!thread && <li className="text-xs text-muted-foreground">Loading…</li>}
+          {!thread && <li className="text-body-12 text-muted-foreground">Loading…</li>}
         </ul>
       </ScrollArea>
 
@@ -153,12 +153,12 @@ export function PlanCommentsPopover({
           onChange={(e) => setDraft(e.target.value)}
           rows={3}
           placeholder="Tell the agent what to do differently here…"
-          className="w-full resize-none rounded-md border border-border-subtle bg-surface-tinted px-2.5 py-1.5 text-xs text-text-primary placeholder:text-text-tertiary focus-visible:border-ring focus-visible:outline-none"
+          className="w-full resize-none rounded-md border border-border-subtle bg-surface-tinted px-2.5 py-1.5 text-body-13 text-text-primary placeholder:text-text-tertiary focus-visible:border-ring focus-visible:outline-none"
         />
         <div className="flex items-center gap-2">
           <Button
             size="sm"
-            className="h-6 shrink-0 px-2 text-xs"
+            className="h-6 shrink-0 px-2 text-label-12"
             disabled={sending || !draft.trim()}
             onClick={() => void send()}
           >
@@ -166,11 +166,11 @@ export function PlanCommentsPopover({
           </Button>
           {/* Delivery into a live session is not built. Saying "sent to the
               agent" would be false in every case today — see comments.go. */}
-          <span className="text-[11px] text-text-tertiary">
+          <span className="text-caption-11 text-text-tertiary">
             Saved. The agent sees this next time it reads the plan.
           </span>
         </div>
-        {error && <p className="text-[11px] text-destructive">{error}</p>}
+        {error && <p className="text-caption-11 text-destructive">{error}</p>}
       </div>
     </div>
   );

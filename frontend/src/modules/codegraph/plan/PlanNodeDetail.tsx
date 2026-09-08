@@ -36,15 +36,15 @@ export function PlanNodeDetail({
   return (
     <div className="flex flex-col gap-1.5 border-b border-border-subtle px-3 py-2">
       <div className="flex items-center gap-2">
-        <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${status.badge}`}>
+        <span className={`shrink-0 rounded px-1.5 py-0.5 text-caption-11-medium ${status.badge}`}>
           {status.label}
         </span>
-        <span className="truncate text-xs font-medium text-text-primary">{node.label}</span>
-        <span className="ml-auto shrink-0 text-[10px] text-text-tertiary">{status.hint}</span>
+        <span className="truncate text-label-12 text-text-primary">{node.label}</span>
+        <span className="ml-auto shrink-0 text-caption-11 text-text-tertiary">{status.hint}</span>
       </div>
 
       {node.description && (
-        <p className="text-[11px] text-text-secondary">{node.description}</p>
+        <p className="text-caption-11 text-text-secondary">{node.description}</p>
       )}
 
       <div className="flex items-center gap-1.5">
@@ -55,11 +55,11 @@ export function PlanNodeDetail({
               onChange={(e) => setDraft(e.target.value)}
               spellCheck={false}
               aria-label="Fully-qualified name"
-              className="min-w-0 flex-1 rounded-md border border-border-subtle bg-surface-tinted px-2 py-1 font-mono text-[11px] text-text-primary focus-visible:border-ring focus-visible:outline-none"
+              className="min-w-0 flex-1 rounded-md border border-border-subtle bg-surface-tinted px-2 py-1 text-code-11 text-text-primary focus-visible:border-ring focus-visible:outline-none"
             />
             <Button
               size="sm"
-              className="h-6 shrink-0 px-2 text-xs"
+              className="h-6 shrink-0 px-2 text-label-12"
               disabled={busy || !changed}
               onClick={() => onRelink(draft.trim())}
             >
@@ -68,7 +68,7 @@ export function PlanNodeDetail({
             <Button
               size="sm"
               variant="ghost"
-              className="h-6 shrink-0 px-2 text-xs"
+              className="h-6 shrink-0 px-2 text-label-12"
               onClick={() => {
                 setDraft(node.fqn);
                 setEditing(false);
@@ -81,14 +81,14 @@ export function PlanNodeDetail({
           <>
             <span
               title={node.fqn}
-              className="min-w-0 flex-1 truncate font-mono text-[11px] text-text-tertiary"
+              className="min-w-0 flex-1 truncate text-code-11 text-text-tertiary"
             >
               {node.fqn}
             </span>
             <Button
               size="sm"
               variant="secondary"
-              className="h-6 shrink-0 px-2 text-xs"
+              className="h-6 shrink-0 px-2 text-label-12"
               onClick={() => setEditing(true)}
             >
               Relink…

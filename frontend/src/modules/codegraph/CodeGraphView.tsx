@@ -412,21 +412,21 @@ export function CodeGraphView() {
           {subgraph && rootId ? (
             <div className="flex flex-1 flex-col overflow-hidden">
               <div className="flex items-center gap-2 px-3 pt-2">
-                <span className="font-mono text-[11px] text-text-tertiary">
+                <span className="text-code-11 text-text-tertiary">
                   {subgraph.nodes.length} nodes · {subgraph.edges.length} edges
                 </span>
                 {subgraph.truncated && (
                   <>
                     <span
                       title="The backend capped this subgraph; some nodes are not shown yet."
-                      className="font-mono text-[11px] text-status-warning"
+                      className="text-code-11 text-status-warning"
                     >
                       partial
                     </span>
                     <Button
                       variant="secondary"
                       size="sm"
-                      className="h-6 px-2 text-xs"
+                      className="h-6 px-2 text-label-12"
                       disabled={loadingMore || !subgraph.continuation}
                       onClick={() => void loadMoreNeighbors()}
                     >
@@ -446,7 +446,7 @@ export function CodeGraphView() {
               </div>
             </div>
           ) : (
-            <div className="flex h-full items-center justify-center p-4 text-sm text-muted-foreground">
+            <div className="flex h-full items-center justify-center p-4 text-body-13 text-muted-foreground">
               Select an endpoint from the sidebar to view its flow graph.
             </div>
           )}
@@ -510,7 +510,7 @@ export function CodeGraphView() {
               </div>
             </>
           ) : (
-            <div className="flex h-full items-center justify-center p-4 text-center text-sm text-muted-foreground">
+            <div className="flex h-full items-center justify-center p-4 text-center text-body-13 text-muted-foreground">
               {planBusy
                 ? "Loading plan…"
                 : "No plan for this project yet. An agent creates one with codegraph.proposeFlow; you approve it here."}
@@ -523,9 +523,9 @@ export function CodeGraphView() {
         <div className="flex flex-1 flex-col overflow-hidden">
           {selectedFile ? (
             <div className="flex flex-1 flex-col overflow-hidden">
-              <div className="flex items-center justify-between border-b px-3 py-1.5 text-sm text-muted-foreground">
+              <div className="flex items-center justify-between border-b px-3 py-1.5 text-body-13 text-muted-foreground">
                 <span className="truncate font-mono">{selectedFile}</span>
-                {fileDirty && <span className="text-status-warning text-xs font-mono">unsaved</span>}
+                {fileDirty && <span className="text-code-12 text-status-warning">unsaved</span>}
               </div>
               <div className="flex-1 overflow-hidden">
                 <CodeEditor
@@ -536,14 +536,14 @@ export function CodeGraphView() {
               </div>
             </div>
           ) : (
-            <div className="flex h-full items-center justify-center p-4 text-sm text-muted-foreground">
+            <div className="flex h-full items-center justify-center p-4 text-body-13 text-muted-foreground">
               Select a file from the sidebar to edit it. Ctrl/Cmd+S saves.
             </div>
           )}
           {selectedFile && (
             <BlastRadiusPanel key={selectedFile} filePath={selectedFile} onOpenFile={openFile} />
           )}
-          {fileError && <p className="px-3 py-1 text-xs text-destructive">{fileError}</p>}
+          {fileError && <p className="px-3 py-1 text-body-12 text-destructive">{fileError}</p>}
         </div>
       )}
     </div>

@@ -22,7 +22,10 @@ import { join } from "node:path";
 // debt as a number; lower it as you convert, never raise it.
 const BASELINE: Record<string, { twText: number; rawPx: number; rawHex: number }> = {
   "modules/agenthub": { twText: 0, rawPx: 45, rawHex: 6 },
-  "modules/codegraph": { twText: 47, rawPx: 43, rawHex: 0 },
+  // Converted 2026-09-08. The three remaining rawPx are the 9px canvas node
+  // labels, which design-system.mdx names as a deliberate exception: a zoomable
+  // canvas has its own scale and its labels are not UI text.
+  "modules/codegraph": { twText: 0, rawPx: 3, rawHex: 0 },
   "modules/database": { twText: 124, rawPx: 100, rawHex: 4 },
   "modules/kafka": { twText: 0, rawPx: 0, rawHex: 0 },
   // Converted 2026-09-08. The one remaining rawPx is max-w-[720px], the note

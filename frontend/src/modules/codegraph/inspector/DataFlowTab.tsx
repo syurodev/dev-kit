@@ -57,12 +57,12 @@ export function DataFlowTab({ nodeId, onJump }: { nodeId: string; onJump: (id: s
     };
   }, [picked]);
 
-  if (error) return <p className="p-3 text-xs text-destructive">{error}</p>;
-  if (!fields) return <p className="p-3 text-xs text-muted-foreground">Loading fields…</p>;
+  if (error) return <p className="p-3 text-body-12 text-destructive">{error}</p>;
+  if (!fields) return <p className="p-3 text-body-12 text-muted-foreground">Loading fields…</p>;
 
   if (fields.length === 0) {
     return (
-      <p className="p-3 text-xs text-muted-foreground">
+      <p className="p-3 text-body-12 text-muted-foreground">
         This node touches no fields, so there is nothing to trace.
       </p>
     );
@@ -78,7 +78,7 @@ export function DataFlowTab({ nodeId, onJump }: { nodeId: string; onJump: (id: s
             key={`${f.classId}.${f.fieldName}`}
             size="sm"
             variant={picked?.fieldName === f.fieldName ? "secondary" : "ghost"}
-            className="h-6 gap-1 px-2 font-mono text-[11px]"
+            className="h-6 gap-1 px-2 text-code-11"
             onClick={() => setPicked(f)}
           >
             {f.fieldName}
@@ -90,16 +90,16 @@ export function DataFlowTab({ nodeId, onJump }: { nodeId: string; onJump: (id: s
       </div>
 
       {!picked && (
-        <p className="px-3 pb-3 text-xs text-muted-foreground">
+        <p className="px-3 pb-3 text-body-12 text-muted-foreground">
           Pick a field to trace it through the call graph.
         </p>
       )}
 
-      {picked && !trace && <p className="px-3 pb-3 text-xs text-muted-foreground">Tracing…</p>}
+      {picked && !trace && <p className="px-3 pb-3 text-body-12 text-muted-foreground">Tracing…</p>}
 
       {trace && (
         <>
-          <p className="px-3 text-[11px] text-text-tertiary">
+          <p className="px-3 text-caption-11 text-text-tertiary">
             Ordered by <span className="font-mono">{trace.orderedBy}</span> — line order within each
             method, not execution order.
           </p>
@@ -110,10 +110,10 @@ export function DataFlowTab({ nodeId, onJump }: { nodeId: string; onJump: (id: s
                   <li
                     key={row.key}
                     style={{ paddingLeft: row.depth * 12 }}
-                    className="mt-1.5 flex items-baseline gap-1.5 text-xs font-medium text-text-primary"
+                    className="mt-1.5 flex items-baseline gap-1.5 text-label-12 text-text-primary"
                   >
                     <span className="truncate">{shortLabel(row.label, "method")}</span>
-                    <span className="truncate font-mono text-[10px] text-text-tertiary">
+                    <span className="truncate text-code-11 text-text-tertiary">
                       {row.filePath}
                     </span>
                   </li>
@@ -124,7 +124,7 @@ export function DataFlowTab({ nodeId, onJump }: { nodeId: string; onJump: (id: s
                       disabled={!row.targetId}
                       onClick={() => row.targetId && onJump(row.targetId)}
                       className={cn(
-                        "flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left font-mono text-[11px]",
+                        "flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left text-code-11",
                         row.targetId
                           ? "text-text-secondary hover:bg-surface-raised"
                           : "cursor-default text-text-tertiary",

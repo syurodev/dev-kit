@@ -23,31 +23,31 @@ export function PlanBar({
 
   return (
     <div className="flex items-center gap-2 border-b border-border-subtle px-3 py-1.5">
-      <span className="text-xs font-medium text-text-primary">{aggregateLabel(plan.aggregate)}</span>
-      <span className="font-mono text-[11px] text-text-tertiary">
+      <span className="text-label-12 text-text-primary">{aggregateLabel(plan.aggregate)}</span>
+      <span className="text-code-11 text-text-tertiary">
         {done}/{plan.nodes.length} done
       </span>
       {plan.description && (
-        <span className="min-w-0 flex-1 truncate text-[11px] text-text-tertiary" title={plan.description}>
+        <span className="min-w-0 flex-1 truncate text-caption-11 text-text-tertiary" title={plan.description}>
           {plan.description}
         </span>
       )}
       {plan.state === "draft" ? (
         <Button
           size="sm"
-          className="ml-auto h-6 shrink-0 px-2 text-xs"
+          className="ml-auto h-6 shrink-0 px-2 text-label-12"
           disabled={busy}
           onClick={onApprove}
         >
           Approve plan
         </Button>
       ) : (
-        <span className="ml-auto shrink-0 text-[11px] text-text-tertiary">approved</span>
+        <span className="ml-auto shrink-0 text-caption-11 text-text-tertiary">approved</span>
       )}
       <Button
         size="sm"
         variant="secondary"
-        className="h-6 shrink-0 px-2 text-xs"
+        className="h-6 shrink-0 px-2 text-label-12"
         disabled={busy}
         onClick={onRefresh}
       >
