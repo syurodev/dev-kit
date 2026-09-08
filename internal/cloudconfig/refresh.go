@@ -30,8 +30,8 @@ type ApplyUpdate struct {
 
 // RefreshOptions configures the background desktop config refresh loop.
 type RefreshOptions struct {
-	ConfigDir string
-	Client    *http.Client
+	ConfigDir      string
+	Client         *http.Client
 	FromEnv        bool
 	StartupFetched bool
 	OnApply        func(ApplyUpdate)

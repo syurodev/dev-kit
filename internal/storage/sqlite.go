@@ -34,8 +34,8 @@ const (
 	// which is deliberate — a transcript is operational, project data lives in
 	// Tasks instead.
 	TableAgentTranscript = "agent_transcript"
-	TableAppPreferences     = "app_preferences"
-	TableUIState            = "ui_state"
+	TableAppPreferences  = "app_preferences"
+	TableUIState         = "ui_state"
 	// TableDBQueryHistory is deliberately outside vault_items: sync has no
 	// path to this table, which is what keeps query history on one device.
 	TableDBQueryHistory = "db_query_history"

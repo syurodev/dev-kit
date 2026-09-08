@@ -7,9 +7,9 @@ import (
 )
 
 const (
-	keyringDEKKeyID      = "dek"
-	keyringRecordType    = "keyring"
-	keyringMasterWrapID  = "master"
+	keyringDEKKeyID       = "dek"
+	keyringRecordType     = "keyring"
+	keyringMasterWrapID   = "master"
 	keyringRecoveryWrapID = "recovery"
 )
 

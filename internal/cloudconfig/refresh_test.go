@@ -99,9 +99,9 @@ func TestRefreshRateLimitedBackoff(t *testing.T) {
 			slept.Add(int64(d))
 			return nil
 		},
-		Jitter: func(max time.Duration) time.Duration { return max },
+		Jitter:       func(max time.Duration) time.Duration { return max },
 		PollInterval: time.Millisecond,
-		OnApply: func(ApplyUpdate) { cancel() },
+		OnApply:      func(ApplyUpdate) { cancel() },
 	})
 
 	<-ctx.Done()
