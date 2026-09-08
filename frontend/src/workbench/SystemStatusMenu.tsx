@@ -95,7 +95,7 @@ export function SystemStatusMenu({
               <button
                 type="button"
                 aria-label={statusLabel(status)}
-                className="size-7 shrink-0 rounded-[8px] flex items-center justify-center text-text-secondary hover:bg-[var(--state-soft)] hover:text-text-primary transition-colors cursor-pointer [--wails-draggable:no-drag]"
+                className="size-7 shrink-0 rounded-[8px] flex items-center justify-center text-text-secondary hover:bg-state-soft hover:text-text-primary transition-colors cursor-pointer [--wails-draggable:no-drag]"
               >
                 <Activity className="size-4" />
               </button>

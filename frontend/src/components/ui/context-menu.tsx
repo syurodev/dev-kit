@@ -90,7 +90,7 @@ function ContextMenuItem({
       className={cn(
         "group/context-menu-item relative flex w-full min-w-[200px] h-7 cursor-pointer items-center gap-2 rounded-[6px] px-2 py-1 text-body-13 outline-none select-none transition-colors",
         "bg-transparent text-text-primary",
-        "focus:bg-[var(--state-soft)] hover:bg-[var(--state-soft)]",
+        "focus:bg-state-soft hover:bg-state-soft",
         "data-[variant=destructive]:bg-transparent data-[variant=destructive]:text-status-danger",
         "data-[variant=destructive]:focus:bg-[var(--feedback-danger-soft)] data-[variant=destructive]:hover:bg-[var(--feedback-danger-soft)] data-[variant=destructive]:focus:text-status-danger data-[variant=destructive]:hover:text-status-danger",
         "data-disabled:pointer-events-none data-disabled:opacity-50",

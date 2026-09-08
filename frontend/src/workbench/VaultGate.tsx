@@ -258,7 +258,7 @@ export function VaultGate({ children }: { children: ReactNode }) {
         <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center overflow-auto rounded-xl border border-border bg-card p-4 md:p-8">
           {/* State 1: Checking status */}
         {gateStep === "checking" && (
-          <div className="flex w-full max-w-[640px] flex-col gap-6 rounded-xl border border-border bg-surface-glass-modal p-8 md:p-12 shadow-[0px_20px_48px_-8px_rgba(0,0,0,0.48)] backdrop-blur-[14px]">
+          <div className="flex w-full max-w-[640px] flex-col gap-6 rounded-xl border border-border bg-surface-glass-modal p-8 md:p-12 glass-modal">
             <div className="flex flex-col gap-2">
               <span className="text-label-11-caps text-action-primary">
                 VAULT
@@ -281,7 +281,7 @@ export function VaultGate({ children }: { children: ReactNode }) {
 
         {/* State 2: First-run Setup - Step 1: Create Master Password */}
         {gateStep === "setup_password" && (
-          <div className="flex w-full max-w-[760px] flex-col gap-6 rounded-xl border border-border bg-surface-glass-modal p-8 md:p-12 shadow-[0px_20px_48px_-8px_rgba(0,0,0,0.48)] backdrop-blur-[14px]">
+          <div className="flex w-full max-w-[760px] flex-col gap-6 rounded-xl border border-border bg-surface-glass-modal p-8 md:p-12 glass-modal">
             <div className="flex flex-col gap-2">
               <span className="text-label-11-caps text-action-primary">
                 FIRST-RUN SETUP
@@ -401,7 +401,7 @@ export function VaultGate({ children }: { children: ReactNode }) {
 
         {/* State 3: First-run Setup - Step 2: Save Recovery Key */}
         {gateStep === "setup_recovery" && (
-          <div className="flex w-full max-w-[820px] flex-col gap-6 rounded-xl border border-border bg-surface-glass-modal p-8 md:p-12 shadow-[0px_20px_48px_-8px_rgba(0,0,0,0.48)] backdrop-blur-[14px]">
+          <div className="flex w-full max-w-[820px] flex-col gap-6 rounded-xl border border-border bg-surface-glass-modal p-8 md:p-12 glass-modal">
             <div className="flex flex-col gap-2">
               <span className="text-label-11-caps text-action-primary">
                 SHOWN EXACTLY ONCE
@@ -455,7 +455,7 @@ export function VaultGate({ children }: { children: ReactNode }) {
 
         {/* State 4: First-run Setup - Step 4: Ready */}
         {gateStep === "setup_ready" && (
-          <div className="flex w-full max-w-[696px] flex-col items-center gap-6 text-center rounded-xl border border-border bg-surface-glass-modal p-8 md:p-12 shadow-[0px_20px_48px_-8px_rgba(0,0,0,0.48)] backdrop-blur-[14px]">
+          <div className="flex w-full max-w-[696px] flex-col items-center gap-6 text-center rounded-xl border border-border bg-surface-glass-modal p-8 md:p-12 glass-modal">
             <div className="flex flex-col items-center gap-3">
               <div className="flex size-12 items-center justify-center rounded-full bg-action-primary/15 border border-action-primary/30">
                 <Check className="size-6 text-action-primary" strokeWidth={2.5} />
@@ -496,7 +496,7 @@ export function VaultGate({ children }: { children: ReactNode }) {
 
         {/* State 5: Returning User - Unlock with Password */}
         {gateStep === "unlock_password" && (
-          <div className="flex w-full max-w-[680px] flex-col gap-6 rounded-xl border border-border bg-surface-glass-modal p-8 md:p-12 shadow-[0px_20px_48px_-8px_rgba(0,0,0,0.48)] backdrop-blur-[14px]">
+          <div className="flex w-full max-w-[680px] flex-col gap-6 rounded-xl border border-border bg-surface-glass-modal p-8 md:p-12 glass-modal">
             <div className="flex flex-col gap-2">
               <span className="text-label-11-caps text-action-primary">
                 WELCOME BACK
@@ -586,7 +586,7 @@ export function VaultGate({ children }: { children: ReactNode }) {
 
         {/* State 6: Returning User - Unlock with Recovery Key */}
         {gateStep === "unlock_recovery" && (
-          <div className="flex w-full max-w-[720px] flex-col gap-6 rounded-xl border border-border bg-surface-glass-modal p-8 md:p-12 shadow-[0px_20px_48px_-8px_rgba(0,0,0,0.48)] backdrop-blur-[14px]">
+          <div className="flex w-full max-w-[720px] flex-col gap-6 rounded-xl border border-border bg-surface-glass-modal p-8 md:p-12 glass-modal">
             <div className="flex flex-col gap-2">
               <span className="text-label-11-caps text-status-recovery">
                 RECOVERY ACCESS

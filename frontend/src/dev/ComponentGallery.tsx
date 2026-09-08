@@ -246,7 +246,7 @@ export default function ComponentGallery() {
         </Spec>
 
         <Spec node="378:70 / 378:71" label="Select / Menu & Option — Menu 220×142 r=10 glass-modal; Option 32px r=6 Selected adds bg-white/6 + check">
-          <div id="measure-select-menu" className="flex w-[220px] flex-col rounded-control border border-[rgba(255,255,255,0.1)] bg-[rgba(29,29,29,0.85)] p-1.5 shadow-2xl backdrop-blur-xl">
+          <div id="measure-select-menu" className="flex w-[220px] flex-col rounded-control border border-glass-border bg-surface-glass-modal p-1.5 shadow-2xl backdrop-blur-xl">
             <div id="measure-select-option-selected" className="flex h-8 w-full items-center justify-between rounded-sm bg-white/6 px-2.5 py-1.5 text-body-13 text-text-primary">
               <span>Production Replica</span>
               <span className="text-text-primary">✓</span>
@@ -308,7 +308,7 @@ export default function ComponentGallery() {
 
         <Spec node="28:79" label="Tooltip — 132×32 r=8, fill #1d1d1d@72%, stroke #ffffff@10%, text 12 Medium">
           <div className="flex flex-wrap items-center gap-6">
-            <div id="measure-tooltip" className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[rgba(255,255,255,0.1)] bg-surface-glass-floating px-3 text-label-12 text-text-primary shadow-xl backdrop-blur-md">
+            <div id="measure-tooltip" className="inline-flex h-8 items-center gap-1.5 rounded-md border border-glass-border bg-surface-glass-floating px-3 text-label-12 text-text-primary shadow-xl backdrop-blur-md">
               <span>View branch history</span>
             </div>
             <TooltipProvider>
@@ -408,15 +408,15 @@ export default function ComponentGallery() {
           <div className="flex flex-col gap-4 w-full bg-background-app p-2 rounded-lg border border-border-subtle">
             <div className="text-caption-11 text-text-tertiary">Windowed Mode (traffic lights reserved at left, x=88 sidebar toggle):</div>
             <Titlebar id="measure-titlebar-windowed" className="w-full">
-              <div className="mx-1 size-7 shrink-0 rounded-[8px] flex items-center justify-center hover:bg-[var(--state-soft)]">
+              <div className="mx-1 size-7 shrink-0 rounded-[8px] flex items-center justify-center hover:bg-state-soft">
                 <PanelLeft className="size-4 text-text-secondary" />
               </div>
               <div className="flex h-full min-w-0 flex-1 items-center gap-1">
                 <div id="measure-module-actions" className="flex min-w-0 items-center gap-1">
-                  <div className="size-7 shrink-0 rounded-[8px] flex items-center justify-center hover:bg-[var(--state-soft)]">
+                  <div className="size-7 shrink-0 rounded-[8px] flex items-center justify-center hover:bg-state-soft">
                     <FileText className="size-4 text-text-secondary" />
                   </div>
-                  <div className="size-7 shrink-0 rounded-[8px] flex items-center justify-center hover:bg-[var(--state-soft)]">
+                  <div className="size-7 shrink-0 rounded-[8px] flex items-center justify-center hover:bg-state-soft">
                     <Terminal className="size-4 text-text-secondary" />
                   </div>
                 </div>
@@ -424,20 +424,20 @@ export default function ComponentGallery() {
                   dev-kit-app
                 </div>
                 <div id="measure-app-actions" className="flex shrink-0 items-center gap-1">
-                  <div id="measure-system-status-neutral-spec" className="size-7 shrink-0 rounded-[8px] flex items-center justify-center hover:bg-[var(--state-soft)] text-text-secondary">
+                  <div id="measure-system-status-neutral-spec" className="size-7 shrink-0 rounded-[8px] flex items-center justify-center hover:bg-state-soft text-text-secondary">
                     <Activity className="size-4" />
                   </div>
                   <span className="mx-1 h-4 w-px shrink-0 bg-border" aria-hidden />
-                  <div className="size-7 shrink-0 rounded-[8px] flex items-center justify-center hover:bg-[var(--state-soft)] text-text-secondary">
+                  <div className="size-7 shrink-0 rounded-[8px] flex items-center justify-center hover:bg-state-soft text-text-secondary">
                     <Search className="size-4" />
                   </div>
-                  <div className="size-7 shrink-0 rounded-[8px] flex items-center justify-center hover:bg-[var(--state-soft)] text-text-secondary">
+                  <div className="size-7 shrink-0 rounded-[8px] flex items-center justify-center hover:bg-state-soft text-text-secondary">
                     <SettingsIcon className="size-4" />
                   </div>
-                  <div className="size-7 shrink-0 rounded-[8px] flex items-center justify-center hover:bg-[var(--state-soft)] text-text-secondary">
+                  <div className="size-7 shrink-0 rounded-[8px] flex items-center justify-center hover:bg-state-soft text-text-secondary">
                     <PanelBottom className="size-4" />
                   </div>
-                  <div className="size-7 shrink-0 rounded-[8px] flex items-center justify-center hover:bg-[var(--state-soft)] text-text-secondary">
+                  <div className="size-7 shrink-0 rounded-[8px] flex items-center justify-center hover:bg-state-soft text-text-secondary">
                     <MessageSquare className="size-4" />
                   </div>
                 </div>
@@ -446,12 +446,12 @@ export default function ComponentGallery() {
 
             <div className="text-caption-11 text-text-tertiary">Fullscreen Mode (no traffic lights, pl-4 = 16px):</div>
             <Titlebar id="measure-titlebar-fullscreen" fullscreen className="w-full">
-              <div className="size-7 shrink-0 rounded-[8px] flex items-center justify-center hover:bg-[var(--state-soft)]">
+              <div className="size-7 shrink-0 rounded-[8px] flex items-center justify-center hover:bg-state-soft">
                 <PanelLeft className="size-4 text-text-secondary" />
               </div>
               <div className="flex h-full min-w-0 flex-1 items-center gap-1">
                 <div className="flex min-w-0 items-center gap-1">
-                  <div className="size-7 shrink-0 rounded-[8px] flex items-center justify-center hover:bg-[var(--state-soft)]">
+                  <div className="size-7 shrink-0 rounded-[8px] flex items-center justify-center hover:bg-state-soft">
                     <FileText className="size-4 text-text-secondary" />
                   </div>
                 </div>
@@ -468,7 +468,7 @@ export default function ComponentGallery() {
               <button
                 id="measure-titlebar-action-default"
                 type="button"
-                className="size-7 shrink-0 rounded-[8px] flex items-center justify-center text-text-secondary hover:bg-[var(--state-soft)] hover:text-text-primary transition-colors cursor-pointer"
+                className="size-7 shrink-0 rounded-[8px] flex items-center justify-center text-text-secondary hover:bg-state-soft hover:text-text-primary transition-colors cursor-pointer"
               >
                 <Search id="measure-titlebar-action-icon" className="size-4" />
               </button>
@@ -478,7 +478,7 @@ export default function ComponentGallery() {
               <button
                 id="measure-titlebar-action-hover"
                 type="button"
-                className="size-7 shrink-0 rounded-[8px] flex items-center justify-center bg-[var(--state-soft)] text-text-primary transition-colors cursor-pointer"
+                className="size-7 shrink-0 rounded-[8px] flex items-center justify-center bg-state-soft text-text-primary transition-colors cursor-pointer"
               >
                 <Search className="size-4" />
               </button>
@@ -501,7 +501,7 @@ export default function ComponentGallery() {
             <div className="flex flex-col gap-1 items-center">
               <span className="text-caption-11 text-text-tertiary">Neutral (r=8 wrapper, 16px glyph)</span>
               <div
-                className="size-7 shrink-0 rounded-[8px] flex items-center justify-center text-text-secondary hover:bg-[var(--state-soft)] cursor-pointer"
+                className="size-7 shrink-0 rounded-[8px] flex items-center justify-center text-text-secondary hover:bg-state-soft cursor-pointer"
               >
                 <Activity className="size-4" />
               </div>
@@ -576,7 +576,7 @@ export default function ComponentGallery() {
               <span className="text-caption-11 text-text-tertiary">Inactive (state-soft, subtle border, 12px close, no dot)</span>
               <div
                 id="measure-tab-pill-inactive"
-                className="group relative flex h-8 max-w-[200px] shrink-0 items-center rounded-[6px] border border-solid border-border-subtle bg-[var(--state-soft)] px-3 gap-2 text-label-12 text-text-secondary"
+                className="group relative flex h-8 max-w-[200px] shrink-0 items-center rounded-[6px] border border-solid border-border-subtle bg-state-soft px-3 gap-2 text-label-12 text-text-secondary"
               >
                 <Wrench className="size-3.5 shrink-0 opacity-85" />
                 <span className="truncate flex-1 min-w-0">Inactive Pill</span>
@@ -591,7 +591,7 @@ export default function ComponentGallery() {
               <span className="text-caption-11 text-text-tertiary">Preview (state-soft, subtle dashed border, body-12, no close)</span>
               <div
                 id="measure-tab-pill-preview"
-                className="group relative flex h-8 max-w-[200px] shrink-0 items-center rounded-[6px] border border-dashed border-border-subtle bg-[var(--state-soft)] px-3 gap-2 text-body-12 text-text-secondary"
+                className="group relative flex h-8 max-w-[200px] shrink-0 items-center rounded-[6px] border border-dashed border-border-subtle bg-state-soft px-3 gap-2 text-body-12 text-text-secondary"
               >
                 <Wrench className="size-3.5 shrink-0 opacity-85" />
                 <span className="truncate flex-1 min-w-0 font-normal">Preview Pill</span>
@@ -628,7 +628,7 @@ export default function ComponentGallery() {
               <span className="text-caption-11 text-text-tertiary">Collapsed State (blur 20, 0.07 inset highlight, 12×3 lines)</span>
               <div
                 id="measure-dock-collapsed"
-                className="relative box-content bg-[rgba(29,29,29,0.62)] backdrop-blur-[20px] border border-[rgba(255,255,255,0.1)] shadow-[inset_0px_1px_0px_0px_rgba(255,255,255,0.07),0_8px_16px_0_rgba(0,0,0,0.35)] rounded-[7.5px]"
+                className="relative box-content bg-glass-float backdrop-blur-[20px] border border-glass-border shadow-[inset_0px_1px_0px_0px_rgba(255,255,255,0.07),0_8px_16px_0_rgba(0,0,0,0.35)] rounded-[7.5px]"
               >
                 <div className="flex items-center gap-1 px-2 py-1">
                   <span id="measure-dock-collapsed-line-active" className="h-[3px] w-3 rounded-full bg-action-primary" />
@@ -646,7 +646,7 @@ export default function ComponentGallery() {
               <span className="text-caption-11 text-text-tertiary">Expanded State (p-2, rounded-[18px], active surface-base, inactive transparent)</span>
               <div
                 id="measure-dock-expanded"
-                className="relative box-content bg-[rgba(29,29,29,0.62)] backdrop-blur-[20px] border border-[rgba(255,255,255,0.1)] shadow-[inset_0px_1px_0px_0px_rgba(255,255,255,0.07),0_8px_16px_0_rgba(0,0,0,0.35)] rounded-[18px]"
+                className="relative box-content bg-glass-float backdrop-blur-[20px] border border-glass-border shadow-[inset_0px_1px_0px_0px_rgba(255,255,255,0.07),0_8px_16px_0_rgba(0,0,0,0.35)] rounded-[18px]"
               >
                 <div className="flex items-center gap-1 p-2">
                   <div
@@ -1031,7 +1031,7 @@ export default function ComponentGallery() {
             <span className="text-caption-11 text-text-tertiary">Terminal Tab Pill (190×30, r6, label-12)</span>
             <div
               id="measure-shell-terminal-pill"
-              className="flex h-[30px] w-[190px] items-center gap-1 rounded-[6px] border border-border-subtle bg-surface-raised px-2 text-label-12 text-text-primary"
+              className="flex h-(--control-height-sm) w-[190px] items-center gap-1 rounded-[6px] border border-border-subtle bg-surface-raised px-2 text-label-12 text-text-primary"
             >
               <Terminal className="size-3.5 shrink-0 opacity-80" />
               <span className="truncate flex-1">zsh (terminal 1)</span>

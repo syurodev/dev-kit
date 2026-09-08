@@ -73,7 +73,7 @@ function DropdownMenuItem({
       className={cn(
         "group/dropdown-menu-item relative flex w-full min-w-[200px] h-7 cursor-pointer items-center gap-2 rounded-[6px] px-2 py-1 text-body-13 outline-none select-none transition-colors",
         "bg-transparent text-text-primary",
-        "focus:bg-[var(--state-soft)] hover:bg-[var(--state-soft)]",
+        "focus:bg-state-soft hover:bg-state-soft",
         "data-[variant=destructive]:bg-transparent data-[variant=destructive]:text-status-danger",
         "data-[variant=destructive]:focus:bg-[var(--feedback-danger-soft)] data-[variant=destructive]:hover:bg-[var(--feedback-danger-soft)] data-[variant=destructive]:focus:text-status-danger data-[variant=destructive]:hover:text-status-danger",
         "data-disabled:pointer-events-none data-disabled:opacity-50",
@@ -244,7 +244,7 @@ export function ShellMenuItemSpec({
       className={cn(
         "flex w-[200px] h-7 items-center gap-2 rounded-[6px] px-2 py-1 text-body-13 select-none cursor-pointer transition-colors",
         !isDanger && !isHover && "bg-transparent text-text-primary",
-        !isDanger && isHover && "bg-[var(--state-soft)] text-text-primary",
+        !isDanger && isHover && "bg-state-soft text-text-primary",
         isDanger && !isHover && "bg-transparent text-status-danger",
         isDanger && isHover && "bg-[var(--feedback-danger-soft)] text-status-danger",
         className

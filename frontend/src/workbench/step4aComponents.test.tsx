@@ -46,10 +46,10 @@ describe("Step 4a Shell Chrome Reconciliation", () => {
   describe("Titlebar Action (Figma 674:47115)", () => {
     it("verifies action button specifications: 28x28, radius 8, 16px icon, state-soft hover", () => {
       const actionClass =
-        "size-7 shrink-0 rounded-[8px] hover:bg-[var(--state-soft)] hover:text-text-primary [--wails-draggable:no-drag]";
+        "size-7 shrink-0 rounded-[8px] hover:bg-state-soft hover:text-text-primary [--wails-draggable:no-drag]";
       expect(actionClass).toContain("size-7"); // 28px
       expect(actionClass).toContain("rounded-[8px]"); // radius 8
-      expect(actionClass).toContain("hover:bg-[var(--state-soft)]");
+      expect(actionClass).toContain("hover:bg-state-soft");
     });
   });
 
@@ -172,7 +172,7 @@ describe("Step 4a Shell Chrome Reconciliation", () => {
         />,
       );
 
-      expect(html).toContain("bg-[var(--state-soft)]");
+      expect(html).toContain("bg-state-soft");
       expect(html).toContain("border-border-subtle");
       expect(html).toContain('aria-label="Close All Notes"');
     });

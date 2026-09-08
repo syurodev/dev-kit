@@ -5,6 +5,8 @@ import { cn } from "@/lib/utils";
 import { AgentDockBadge } from "@/modules/agenthub/surfaces/AgentDockBadge";
 import { useAgentSessionsStore } from "../../stores/agentSessions";
 import { useDockStore } from "./dock-store";
+import { usePanelWidthsStore } from "../../stores/panelWidths";
+import { GAP_WIDTH } from "../panelLayout";
 import { DockItem } from "./DockItem";
 import { CollapsedDock } from "./CollapsedDock";
 import { EXPAND_LIFT, isPointerOverDock, shortcutLabel } from "./dockActivation";
@@ -33,6 +35,13 @@ export function Dock({ modules, activeModuleId, onSelectModule }: DockProps) {
   const pendingQueue = useAgentSessionsStore((state) => state.pendingQueue);
   const setActiveSessionId = useAgentSessionsStore((state) => state.setActiveSessionId);
   const contextItems = useDockStore((state) => state.contextItems);
+
+  // The dock is centred on the module column, so it needs to know how much of
+  // the row the two side panels are occupying.
+  const sidebarOpen = usePanelWidthsStore((s) => s.sidebarOpen);
+  const sidebarWidth = usePanelWidthsStore((s) => s.sidebarWidth);
+  const splitPanelOpen = usePanelWidthsStore((s) => s.splitPanelOpen);
+  const splitPanelWidth = usePanelWidthsStore((s) => s.splitPanelWidth);
   const pillRef = useRef<HTMLDivElement | null>(null);
   const collapsedRef = useRef<HTMLDivElement | null>(null);
   const expandedRef = useRef<HTMLDivElement | null>(null);
@@ -186,7 +195,30 @@ export function Dock({ modules, activeModuleId, onSelectModule }: DockProps) {
     // layout effect above costs nothing. LazyMotion stays because DockItem's
     // AgentHub panel needs a features ancestor.
     <LazyMotion features={domAnimation}>
-      <nav className="pointer-events-none fixed inset-x-0 bottom-2 z-50 flex justify-center">
+      {/* Centred on the module column, not on the window. The dock is fixed and
+          used to be inset-x-0 + justify-center, which put the pill at the
+          window's midpoint while Figma places it inside the bottom surface —
+          and the bottom surface is only as wide as the module column. Open the
+          sidebar and the pill drifted off the tray it belongs to.
+          shell-primitives.mdx carried this as a known unhandled consequence.
+
+          Padding rather than a computed left: justify-center then centres
+          inside the content box, so the two panels each push their own side.
+
+          ponytail: uses the panels' stored widths, not the clamped ones they
+          render at. The two agree except on a window narrow enough for the
+          render clamp to bite, where the pill leans by the difference. Read
+          the effective widths off the panels if that ever shows. */}
+      <nav
+        className={cn(
+          "pointer-events-none fixed inset-x-0 bottom-2 z-50 flex justify-center",
+          "motion-safe:transition-[padding] motion-safe:duration-[220ms] motion-safe:ease-in-out",
+        )}
+        style={{
+          paddingLeft: sidebarOpen ? sidebarWidth + GAP_WIDTH : 0,
+          paddingRight: splitPanelOpen ? splitPanelWidth + GAP_WIDTH : 0,
+        }}
+      >
         <div
           ref={pillRef}
           // A tab stop only while collapsed, because the collapsed pill has no
@@ -223,7 +255,7 @@ export function Dock({ modules, activeModuleId, onSelectModule }: DockProps) {
             }
           }}
           className={cn(
-            "pointer-events-auto relative box-content bg-[rgba(29,29,29,0.62)] backdrop-blur-[20px] border border-[rgba(255,255,255,0.1)] shadow-[inset_0px_1px_0px_0px_rgba(255,255,255,0.07),0_8px_16px_0_rgba(0,0,0,0.35)]",
+            "pointer-events-auto relative box-content bg-glass-float backdrop-blur-[20px] border border-glass-border shadow-[inset_0px_1px_0px_0px_rgba(255,255,255,0.07),0_8px_16px_0_rgba(0,0,0,0.35)]",
             // No overflow-hidden: DockItem's AgentHub panel opens above the
             // pill (absolute bottom-full) and a clipping ancestor would swallow
             // it. The outgoing form is out of sight on opacity alone.

@@ -56,7 +56,7 @@ function RecoveryKeyField({
       <div
         data-slot="recovery-key-field"
         className={cn(
-          "flex flex-col justify-between w-full max-w-[640px] h-[132px] min-h-[132px] rounded-[14px] border border-[rgba(255,255,255,0.1)] bg-[rgba(29,29,29,0.55)] px-[17px] py-[15px] backdrop-blur-[20px] shadow-[inset_0px_1px_0px_0px_rgba(255,255,255,0.06)] transition-colors",
+          "flex flex-col justify-between w-full max-w-[640px] h-[132px] min-h-[132px] rounded-[14px] border border-glass-border bg-glass-panel px-[17px] py-[15px] backdrop-blur-[20px] shadow-[inset_0px_1px_0px_0px_rgba(255,255,255,0.06)] transition-colors",
           className
         )}
         {...props}
@@ -110,7 +110,7 @@ function RecoveryKeyField({
                   data-slot="recovery-key-copy-button"
                   onClick={handleCopy}
                   aria-label="Copy recovery key"
-                  className="flex size-9 items-center justify-center rounded-control border border-[rgba(255,255,255,0.1)] bg-[rgba(29,29,29,0.55)] backdrop-blur-[12px] text-text-primary hover:bg-white/10 transition-colors cursor-pointer"
+                  className="flex size-9 items-center justify-center rounded-control border border-glass-border bg-glass-panel backdrop-blur-[12px] text-text-primary hover:bg-white/10 transition-colors cursor-pointer"
                 >
                   {isCopied ? (
                     <Check className="size-4 text-status-success" strokeWidth={2} />
@@ -131,7 +131,7 @@ function RecoveryKeyField({
                   data-slot="recovery-key-download-button"
                   onClick={handleDownload}
                   aria-label="Download recovery key"
-                  className="flex size-9 items-center justify-center rounded-control border border-[rgba(255,255,255,0.1)] bg-[rgba(29,29,29,0.55)] backdrop-blur-[12px] text-text-primary hover:bg-white/10 transition-colors cursor-pointer"
+                  className="flex size-9 items-center justify-center rounded-control border border-glass-border bg-glass-panel backdrop-blur-[12px] text-text-primary hover:bg-white/10 transition-colors cursor-pointer"
                 >
                   <Download className="size-4 text-text-primary" strokeWidth={1.5} />
                 </button>

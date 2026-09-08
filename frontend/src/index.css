@@ -47,6 +47,15 @@
     --color-status-danger: var(--status-danger);
 
     --color-border-subtle: var(--border-subtle);
+    --color-glass-border: var(--glass-border);
+
+    /* State layers and the float tint had values but no utilities, so 31 call
+       sites wrote bg-[var(--state-soft)] by hand. A token nothing can name is
+       a token nothing binds to. */
+    --color-state-soft: var(--state-soft);
+    --color-surface-well: var(--surface-well);
+    --color-glass-float: var(--glass-float-bg);
+    --color-glass-panel: var(--glass-panel-bg);
 
     /* Standard shadcn / Tailwind semantic aliases */
     --color-sidebar-ring: var(--sidebar-ring);
@@ -419,6 +428,16 @@
   background-color: var(--glass-panel-bg);
   border: 1px solid var(--glass-border);
   box-shadow: inset 0 1px 0 var(--glass-highlight);
+}
+
+/* Modal tier: deeper than float, for the surfaces that take over the window.
+   Six VaultGate cards carried this shadow and blur as literals — one class so
+   they cannot drift apart the way a copied value always eventually does. The
+   fill stays on the caller, which already uses the surface/glass-modal token. */
+.glass-modal {
+  box-shadow: 0 20px 48px -8px rgba(0, 0, 0, 0.48);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
 }
 
 .glass-float {

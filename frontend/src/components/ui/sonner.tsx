@@ -67,7 +67,7 @@ export function ToastSpecCard({
       data-slot="toast"
       data-tone={tone}
       className={cn(
-        "relative flex w-[380px] items-start gap-3 rounded-[14px] bg-[rgba(29,29,29,0.62)] p-3 pl-4 backdrop-blur-[20px] border border-[rgba(255,255,255,0.1)] shadow-[0_12px_16px_0_rgba(0,0,0,0.45)] select-none",
+        "relative flex w-[380px] items-start gap-3 rounded-[14px] bg-glass-float p-3 pl-4 backdrop-blur-[20px] border border-glass-border shadow-[0_12px_16px_0_rgba(0,0,0,0.45)] select-none",
         className
       )}
     >
@@ -117,7 +117,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
       toastOptions={{
         classNames: {
           toast:
-            "w-[380px] rounded-[14px] bg-[rgba(29,29,29,0.62)] backdrop-blur-[20px] border border-[rgba(255,255,255,0.1)] shadow-[0_12px_16px_0_rgba(0,0,0,0.45)] pl-4 pr-3 py-3 gap-3 items-start text-text-primary",
+            "w-[380px] rounded-[14px] bg-glass-float backdrop-blur-[20px] border border-glass-border shadow-[0_12px_16px_0_rgba(0,0,0,0.45)] pl-4 pr-3 py-3 gap-3 items-start text-text-primary",
           title: "text-body-13-medium text-text-primary",
           description: "text-body-12 text-text-tertiary mt-0",
           actionButton:

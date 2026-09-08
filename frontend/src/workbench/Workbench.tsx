@@ -584,7 +584,7 @@ export function Workbench() {
                 aria-pressed={sidebarOpen}
                 className={cn(
                   sidebarOpen && "bg-accent text-foreground",
-                  "mx-1 size-7 shrink-0 rounded-[8px] hover:bg-[var(--state-soft)] hover:text-text-primary [--wails-draggable:no-drag]",
+                  "mx-1 size-7 shrink-0 rounded-[8px] hover:bg-state-soft hover:text-text-primary [--wails-draggable:no-drag]",
                 )}
                 onClick={() => setSidebarOpen(!sidebarOpen)}
               >
@@ -612,7 +612,7 @@ export function Workbench() {
                       aria-pressed={action.isActive}
                       className={cn(
                         action.isActive && "bg-accent text-foreground",
-                        "size-7 shrink-0 rounded-[8px] hover:bg-[var(--state-soft)] hover:text-text-primary [--wails-draggable:no-drag]",
+                        "size-7 shrink-0 rounded-[8px] hover:bg-state-soft hover:text-text-primary [--wails-draggable:no-drag]",
                       )}
                       onClick={action.onClick}
                     >
@@ -638,7 +638,7 @@ export function Workbench() {
                     variant="ghost"
                     size="icon-xs"
                     aria-label="Commands"
-                    className="size-7 shrink-0 rounded-[8px] hover:bg-[var(--state-soft)] hover:text-text-primary [--wails-draggable:no-drag]"
+                    className="size-7 shrink-0 rounded-[8px] hover:bg-state-soft hover:text-text-primary [--wails-draggable:no-drag]"
                     onClick={() => setPaletteOpen(true)}
                   >
                     <Search className="size-4" />
@@ -654,7 +654,7 @@ export function Workbench() {
                     variant="ghost"
                     size="icon-xs"
                     aria-label="Settings"
-                    className="size-7 shrink-0 rounded-[8px] hover:bg-[var(--state-soft)] hover:text-text-primary [--wails-draggable:no-drag]"
+                    className="size-7 shrink-0 rounded-[8px] hover:bg-state-soft hover:text-text-primary [--wails-draggable:no-drag]"
                     onClick={() => setSettingsOpen(true)}
                   >
                     <SettingsIcon className="size-4" />
@@ -683,7 +683,7 @@ export function Workbench() {
                     aria-pressed={bottomOpen}
                     className={cn(
                       bottomOpen && "bg-accent text-foreground",
-                      "size-7 shrink-0 rounded-[8px] hover:bg-[var(--state-soft)] hover:text-text-primary [--wails-draggable:no-drag]",
+                      "size-7 shrink-0 rounded-[8px] hover:bg-state-soft hover:text-text-primary [--wails-draggable:no-drag]",
                     )}
                     onClick={() => setBottomOpen(!bottomOpen)}
                   >
@@ -705,7 +705,7 @@ export function Workbench() {
                     aria-pressed={chatOpen}
                     className={cn(
                       chatOpen && "bg-accent text-foreground",
-                      "size-7 shrink-0 rounded-[8px] hover:bg-[var(--state-soft)] hover:text-text-primary [--wails-draggable:no-drag]",
+                      "size-7 shrink-0 rounded-[8px] hover:bg-state-soft hover:text-text-primary [--wails-draggable:no-drag]",
                     )}
                     onClick={() => setChatOpen(!chatOpen)}
                   >

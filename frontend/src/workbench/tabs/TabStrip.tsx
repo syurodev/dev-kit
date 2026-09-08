@@ -327,8 +327,8 @@ function TabGroupRow({
                 isActive
                   ? "bg-surface-raised border-border text-text-primary"
                   : tab.preview
-                    ? "bg-[var(--state-soft)] border-border-subtle border-dashed text-body-12 text-text-secondary hover:bg-[var(--state-soft)]/80"
-                    : "bg-[var(--state-soft)] border-border-subtle border-solid text-label-12 text-text-secondary hover:bg-[var(--state-soft)]/80",
+                    ? "bg-state-soft border-border-subtle border-dashed text-body-12 text-text-secondary hover:bg-state-soft/80"
+                    : "bg-state-soft border-border-subtle border-solid text-label-12 text-text-secondary hover:bg-state-soft/80",
               )}
             >
               {/* Focus ring: separate layer at radius 8, not the pill's radius 6 (Figma 448:343 exception) */}
@@ -685,7 +685,7 @@ export function TabStrip({
         type="button"
         aria-label="New tab"
         onClick={onNewTab}
-        className="size-7 shrink-0 rounded-[8px] flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-[var(--state-soft)] transition-colors cursor-pointer"
+        className="size-7 shrink-0 rounded-[8px] flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-state-soft transition-colors cursor-pointer"
       >
         <Plus className="size-[13px]" />
       </button>

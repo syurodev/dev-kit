@@ -193,7 +193,7 @@ describe("Step 4b Shell Overlays & Composition Reconciliation", () => {
       expect(html).toContain("w-[380px]");
       expect(html).toContain("rounded-[14px]");
       expect(html).toContain("backdrop-blur-[20px]");
-      expect(html).toContain("bg-[rgba(29,29,29,0.62)]");
+      expect(html).toContain("bg-glass-float");
       expect(html).toContain("shadow-[0_12px_16px_0_rgba(0,0,0,0.45)]");
     });
 
@@ -270,7 +270,7 @@ describe("Step 4b Shell Overlays & Composition Reconciliation", () => {
       expect(html).toContain("w-[640px]");
       expect(html).toContain("rounded-[14px]");
       expect(html).toContain("backdrop-blur-[20px]");
-      expect(html).toContain("bg-[rgba(29,29,29,0.62)]");
+      expect(html).toContain("bg-glass-float");
       expect(html).toContain("shadow-none");
       expect(html).not.toContain("shadow-[inset_");
     });
@@ -347,7 +347,7 @@ describe("Step 4b Shell Overlays & Composition Reconciliation", () => {
       const hoverHtml = renderToString(
         <ShellMenuItemSpec tone="default" state="hover" label="Action" />
       );
-      expect(hoverHtml).toContain("bg-[var(--state-soft)]");
+      expect(hoverHtml).toContain("bg-state-soft");
     });
 
     it("EXCEPTION: Danger at rest has NO red background; only label is status-danger", () => {

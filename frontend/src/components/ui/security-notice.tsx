@@ -36,7 +36,7 @@ function SecurityNotice({
       className={cn(
         "flex w-full items-center gap-3 rounded-control border px-4 py-3 transition-colors backdrop-blur-[12px] shadow-[inset_0px_1px_0px_0px_rgba(255,255,255,0.06)]",
         isSecure && "h-[72px] min-h-[72px] border-status-success bg-[rgba(153,225,217,0.12)]",
-        isIrreversible && "h-[84px] min-h-[84px] border-[rgba(255,255,255,0.1)] bg-[rgba(29,29,29,0.55)]",
+        isIrreversible && "h-[84px] min-h-[84px] border-glass-border bg-glass-panel",
         className
       )}
       {...props}

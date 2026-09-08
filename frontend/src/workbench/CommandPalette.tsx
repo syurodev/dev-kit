@@ -65,7 +65,7 @@ export function CommandPaletteStaticCard({
       data-slot="command-palette-static"
       data-state={state}
       className={cn(
-        "flex w-[640px] max-w-[640px] flex-col overflow-hidden rounded-[14px] bg-[rgba(29,29,29,0.62)] backdrop-blur-[20px] border border-[rgba(255,255,255,0.1)] shadow-none text-text-primary select-none",
+        "flex w-[640px] max-w-[640px] flex-col overflow-hidden rounded-[14px] bg-glass-float backdrop-blur-[20px] border border-glass-border shadow-none text-text-primary select-none",
         className
       )}
     >
