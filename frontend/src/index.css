@@ -104,6 +104,20 @@
     --stroke-1-5: 1.5px;
     --stroke-2: 2px;
 
+    /* The window's own corner, and the only value in this file that depends on
+       the OS — everything inside stays on DevKit's ladder. The default is the
+       geometry the shell already implied: radius/10 on the content card plus
+       the 4px window gutter.
+
+       Measured on macOS 27 by tracing the corner arc of a `screencapture -o`
+       of the real window: the inset reaches zero 40 device px up from the
+       bottom edge at 2x, so the radius is 20pt. The arc runs consistently
+       tighter than a circle of that radius (11 device px of inset where a
+       circle gives 16) — that is a squircle, which CSS cannot draw: WebKit has
+       no `corner-shape`. 20 - gutter gets the curves close; it cannot get them
+       parallel. Tune down a point or two if the diagonal still reads open. */
+    --radius-window: 14px;
+
     /* Radius system */
     --radius-none: 0;
     --radius-sm: 6px;
@@ -378,6 +392,14 @@
 /* Glass materials — see the tier comment on the --glass-* tokens above.
    Plain classes (not @utility) so a media-query fallback can retint all
    three at once. */
+/* macOS 26 (Tahoe) moved to a noticeably larger window corner. Earlier macOS,
+   Windows and Linux stay on the default until each is measured the same way
+   this one was — a guessed number is the canned-by-eye value the design system
+   exists to keep out. */
+:root[data-os="macos-26"] {
+  --radius-window: 20px;
+}
+
 .glass-rail {
   background-color: var(--glass-rail-bg);
 }
@@ -422,6 +444,26 @@
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-control);
   box-shadow: inset 0 1px 0 var(--glass-highlight);
+}
+
+/* Concentric corners: two curves stay parallel only when
+   inner radius = outer radius - the gap between them. The shell sits 4px
+   inside the window (WINDOW_GUTTER in workbench/panelLayout.ts), so a docked
+   surface whose corner meets the window's corner has to derive from it. At
+   radius/10 against a 20pt window corner the gap fanned open at the diagonal,
+   which is the mismatch that reads as "the app's corner is wrong".
+
+   Only the bottom pair: the top corners sit 40px down, under the title bar,
+   nowhere near a window corner. macOS does the same with its own sidebars.
+
+   ponytail: applies to every .shell-surface, not only the one actually in the
+   window's corner. Right in the default layout (bottom slot closed, split
+   panel closed); with the bottom slot open the content card's bottom corners
+   are mid-window and merely a little rounder. Make it stateful only if that
+   ever shows. */
+.shell-surface {
+  border-bottom-left-radius: calc(var(--radius-window) - 4px);
+  border-bottom-right-radius: calc(var(--radius-window) - 4px);
 }
 
 .glass-panel {
