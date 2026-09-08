@@ -164,7 +164,9 @@ describe("Step 3 Feedback & Security Reconciliation", () => {
   // Figma 30:69 still says "Title bar remains 30px" and needs updating.
 
   describe("VaultGate Integration", () => {
-    it("renders initial checking state with LoadingStatus component", () => {
+    // Figma `Vault Content / Checking` (751:1435) draws a spinner beside the
+    // status line and a mono footnote under it — not the LoadingStatus card.
+    it("renders the checking step inside the Vault Stage", () => {
       const { VaultGate } = require("../../workbench/VaultGate")
       const html = renderToString(
         <VaultGate>
@@ -172,9 +174,13 @@ describe("Step 3 Feedback & Security Reconciliation", () => {
         </VaultGate>,
       )
 
-      expect(html).toContain('data-slot="loading-status"')
       expect(html).toContain("Checking secure storage status…")
       expect(html).toContain("DevKit is verifying the local vault state")
+      expect(html).toContain("No workspace data is exposed during this check.")
+      // The gate is the whole screen, so the stage is opaque and the titlebar
+      // carries no workbench actions (748:1391).
+      expect(html).toContain("bg-surface-base")
+      expect(html).not.toContain("Workbench Main Area")
     })
   })
 })

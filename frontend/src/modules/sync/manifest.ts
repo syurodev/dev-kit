@@ -7,8 +7,8 @@ export const syncModule: ModuleManifest = {
   version: "1.0.0",
   apiVersion: "1",
   icon: RefreshCw,
-  // Keeps the shell's padding until this module owns its own chrome.
-  padded: true,
+  // The view draws its own 24px inset (Figma 779:206).
+  padded: false,
   capabilities: ["sync:manage"],
   commands: [
     {

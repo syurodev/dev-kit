@@ -46,7 +46,7 @@ const BASELINE: Record<string, { twText: number; rawPx: number; rawHex: number }
   // it is where the hand-written glass materials were found — including a real
   // light-theme bug, since a hardcoded rgba(255,255,255,0.1) hairline stays
   // white on a white surface. Worth adding as its own row.
-  workbench: { twText: 0, rawPx: 52, rawHex: 1 },
+  workbench: { twText: 0, rawPx: 35, rawHex: 1 },
 };
 
 // Two files carry raw hex on purpose and are not design-system surfaces: a
