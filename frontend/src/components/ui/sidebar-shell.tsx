@@ -122,7 +122,10 @@ export function SidebarRow({
       // the label's line box is 17, so whichever is taller was deciding the
       // row's height — and a control that only appears on hover decided it
       // twice. h-8 is control/height-md; nothing inside can move it.
-      className={`group flex h-(--control-height-md) items-center gap-2 rounded-lg px-3 text-body-13 ${
+      // rounded-md, not rounded-lg: in this file's scale lg is 14 (a container
+      // radius) and md is the 8 the comment above has asked for all along —
+      // the class was written against Tailwind's default ladder, where lg=8.
+      className={`group flex h-(--control-height-md) items-center gap-2 rounded-md px-3 text-body-13 ${
         active
           ? "bg-surface-raised text-text-primary"
           : "text-text-secondary hover:bg-surface-raised"

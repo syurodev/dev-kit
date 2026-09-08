@@ -35,7 +35,10 @@ const BASELINE: Record<string, { twText: number; rawPx: number; rawHex: number }
   // writing column — a content measure, not a design step; the scale has no
   // bucket for it and inventing one would be worse than the literal.
   "modules/notes": { twText: 0, rawPx: 1, rawHex: 0 },
-  "modules/settings": { twText: 1, rawPx: 60, rawHex: 0 },
+  // Converted 2026-09-09 against Figma 11 Settings. The 9 remaining rawPx are
+  // the modal's own frame (620×940, a 220 nav, 656 content columns) and the
+  // two blur radii — measures of the modal, not steps on the scale.
+  "modules/settings": { twText: 0, rawPx: 9, rawHex: 0 },
   "modules/ssh": { twText: 0, rawPx: 0, rawHex: 0 },
   "modules/sync": { twText: 0, rawPx: 0, rawHex: 0 },
   "modules/tools": { twText: 0, rawPx: 0, rawHex: 0 },

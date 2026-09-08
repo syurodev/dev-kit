@@ -18,6 +18,13 @@ import { useTheme } from "@/theme/ThemeProvider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { SecurityNotice } from "@/components/ui/security-notice";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { McpInstallPanel } from "./McpInstallPanel";
@@ -37,14 +44,11 @@ import {
 import {
   User,
   Sun,
-  Code,
   Monitor,
   SlidersHorizontal,
   Laptop,
   LockKeyhole,
-  LogOut,
   Trash2,
-  Plus,
   X,
   RefreshCw,
 } from "lucide-react";
@@ -57,6 +61,13 @@ export interface SettingsModalProps {
   onClose: () => void;
 }
 
+/**
+ * Figma `Settings Shell` (762:1759): 940×620 on the float glass tier —
+ * glass/float-bg, glass/border, radius 14, blur 20, a 24/64/-12 shadow at
+ * 55%. A 56px header with the title and a 32px close, a hairline under it,
+ * a 220px nav with a hairline on its right, and the section content 32 in
+ * from both.
+ */
 export function SettingsModal({ open, onClose }: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>("account");
 
@@ -84,39 +95,39 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
             onClose();
           }
         }}
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 backdrop-blur-[12px] p-4 select-none animate-in fade-in duration-200"
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[12px] select-none animate-in fade-in duration-200"
       >
-        {/* Settings Modal Frame 940x620px */}
         <div
           data-slot="settings-modal"
           onClick={(e) => e.stopPropagation()}
-          className="flex h-[620px] w-full max-w-[940px] flex-col overflow-hidden rounded-[18px] border border-border bg-surface-glass-modal shadow-[0px_20px_48px_-8px_rgba(0,0,0,0.56)] backdrop-blur-[16px] text-text-primary animate-in zoom-in-95 duration-200"
+          className="flex h-[620px] w-full max-w-[940px] flex-col overflow-hidden rounded-lg border border-glass-border bg-glass-float text-text-primary shadow-[0px_24px_64px_-12px_rgba(0,0,0,0.55)] backdrop-blur-[20px] animate-in zoom-in-95 duration-200"
         >
           {/* Modal Header · 56px */}
-          <div className="flex h-14 w-full shrink-0 items-center justify-between border-b border-border-subtle px-6">
-            <span className="text-[15px] font-medium text-text-primary">Settings</span>
+          <div className="flex h-14 w-full shrink-0 items-center justify-between border-b border-border-subtle pr-3 pl-6">
+            <span className="text-title-16 text-text-primary">Settings</span>
 
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   type="button"
-                  variant="secondary"
+                  variant="ghost"
                   size="icon"
                   onClick={onClose}
                   aria-label="Close settings"
-                  className="size-8 rounded-[8px]"
+                  className="size-8 rounded-md"
                 >
-                  <X className="size-4 text-text-secondary hover:text-text-primary" strokeWidth={1.5} />
+                  <X className="size-4" strokeWidth={1.5} />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>Close settings (Esc)</TooltipContent>
             </Tooltip>
           </div>
 
-          {/* Modal Body: Sidebar (220px) + Content (656px) */}
+          {/* Modal Body: Nav (220px) + Content */}
           <div className="flex min-h-0 flex-1 overflow-hidden">
-            {/* Sidebar Navigation */}
-            <div className="flex w-[220px] shrink-0 flex-col gap-1 border-r border-border-subtle bg-surface-raised/80 p-3">
+            {/* The nav has no fill of its own — a hairline separates it from
+                the content and the glass shows through both. */}
+            <div className="flex w-[220px] shrink-0 flex-col gap-1 border-r border-border-subtle px-3 py-4">
               <NavItem
                 active={activeTab === "account"}
                 icon={User}
@@ -144,7 +155,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
             </div>
 
             {/* Content Panel Area */}
-            <div className="flex flex-1 flex-col overflow-y-auto p-8 min-h-0">
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-8">
               {activeTab === "account" && <AccountTab />}
               {activeTab === "appearance" && <AppearanceTab />}
               {activeTab === "sync" && <SyncDevicesTab />}
@@ -161,6 +172,9 @@ export function SettingsView() {
   return <SettingsModal open={true} onClose={() => {}} />;
 }
 
+/** Settings Nav Item (761:1753 Active / 761:1758 Inactive): 32 tall, 12/10
+ * padding-gap, radius 8, a 16px glyph. Active is surface/raised with a
+ * subtle stroke and Body/13 Medium; inactive is bare, Body/13, secondary. */
 function NavItem({
   active,
   icon: Icon,
@@ -176,33 +190,38 @@ function NavItem({
     <button
       type="button"
       onClick={onClick}
+      aria-current={active ? "page" : undefined}
       className={cn(
-        "group relative flex w-full items-center gap-3 rounded-[8px] px-3 py-2 text-[13px] transition-colors outline-none",
+        "flex h-8 w-full items-center gap-2.5 rounded-md border px-3 text-left outline-none transition-colors",
         active
-          ? "bg-action-primary/10 text-text-primary font-medium"
-          : "text-text-secondary hover:bg-surface-base hover:text-text-primary font-normal"
+          ? "border-border-subtle bg-surface-raised text-body-13-medium text-text-primary"
+          : "border-transparent text-body-13 text-text-secondary hover:bg-state-soft hover:text-text-primary",
       )}
     >
-      {/* 3px Lime Accent line for active nav */}
-      <div
-        className={cn(
-          "h-[18px] w-[3px] rounded-full transition-all shrink-0",
-          active ? "bg-action-primary" : "bg-transparent"
-        )}
-      />
-
-      <Icon
-        className={cn("size-4 shrink-0 transition-opacity", active ? "opacity-100" : "opacity-60")}
-        strokeWidth={1.5}
-      />
-
+      <Icon className="size-4 shrink-0" strokeWidth={1.5} />
       <span className="truncate">{label}</span>
     </button>
   );
 }
 
+/** Every section opens the same way (765:2000–2003): Heading/24 (Figma draws
+ * 22 SemiBold, snapped up to the scale), 6px, Body/13 tertiary, 28px. */
+function SectionHeader({ title, description }: { title: string; description: string }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <h2 className="text-heading-24 text-text-primary">{title}</h2>
+      <p className="text-body-13 text-text-tertiary">{description}</p>
+    </div>
+  );
+}
+
+/** THEME / CODE & TERMINAL — Label/11 Caps, tertiary, 10px above its control. */
+function GroupLabel({ children }: { children: React.ReactNode }) {
+  return <p className="text-label-11-caps text-text-tertiary">{children}</p>;
+}
+
 // ----------------------------------------------------------------------
-// 1. Account Tab
+// 1. Account Tab — Figma `Settings Content / Account` (765:1999)
 // ----------------------------------------------------------------------
 function AccountTab() {
   const [auth, setAuth] = useState<AuthStatus>({ authenticated: false, expiresAt: "" });
@@ -249,51 +268,38 @@ function AccountTab() {
   }
 
   return (
-    <div className="flex flex-col gap-6 max-w-[560px]">
-      <div className="flex flex-col gap-2">
-        <h2 className="text-[28px] font-semibold tracking-tight text-text-primary">Account</h2>
-        <p className="text-[14px] leading-relaxed text-text-secondary">
-          Identity used for sync. Managed by your identity provider — not stored locally.
-        </p>
-      </div>
+    <div className="flex w-full max-w-[656px] flex-col gap-7">
+      <SectionHeader
+        title="Account"
+        description="Identity used for sync. Managed by your identity provider — not stored locally."
+      />
 
-      {/* Identity Card */}
-      <div className="flex items-center gap-4 py-2">
-        <div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-action-primary text-action-primary-foreground font-semibold text-base select-none">
+      {/* identity (765:2004): a raised card — 40px avatar on surface/well,
+          the address in Body/14 Medium, the session line in Code/12, and the
+          sign-out as a destructive control on the right. */}
+      <div className="flex items-center gap-3.5 rounded-control border border-border-subtle bg-surface-raised px-4 py-3.5">
+        <div className="flex size-10 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-surface-well text-code-12-medium text-text-secondary select-none">
           SY
         </div>
 
-        <div className="flex flex-col gap-1 min-w-0">
-          <span className="text-[14px] font-medium text-text-primary truncate">
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="truncate text-body-14-medium text-text-primary">
             {auth.authenticated ? "syuro.dev@gmail.com" : "Not signed in"}
           </span>
-
-          <div className="flex items-center gap-2">
-            <div
-              className={cn(
-                "size-1.5 rounded-full shrink-0",
-                auth.authenticated ? "bg-status-success" : "bg-text-tertiary"
-              )}
-            />
-            <span className="text-[13px] text-text-secondary">
-              {auth.authenticated ? "Signed in — session active" : "Offline / Local only"}
-            </span>
-          </div>
+          <span className="text-code-12 text-text-tertiary">
+            {auth.authenticated ? "Signed in · session active" : "Offline · local only"}
+          </span>
         </div>
-      </div>
 
-      {/* Action Button */}
-      <div>
         {auth.authenticated ? (
           <Button
             type="button"
-            variant="secondary"
+            variant="destructive"
             size="default"
             disabled={busy}
             onClick={handleSignOut}
           >
-            <LogOut className="size-3.5" strokeWidth={1.5} />
-            <span>{busy ? "Signing out…" : "Sign out"}</span>
+            {busy ? "Signing out…" : "Sign out"}
           </Button>
         ) : (
           <Button
@@ -303,26 +309,63 @@ function AccountTab() {
             disabled={busy}
             onClick={handleSignIn}
           >
-            <span>{busy ? "Connecting browser…" : "Sign in with browser"}</span>
+            {busy ? "Connecting browser…" : "Sign in with browser"}
           </Button>
         )}
       </div>
 
-      {error ? <p className="text-[12px] text-status-danger">{error}</p> : null}
+      {error ? <p className="text-body-12 text-status-danger">{error}</p> : null}
 
-      {/* Security Notice */}
       <SecurityNotice
         type="secure"
-        title="Password never leaves your browser"
-        description="DevKit signs you in through your system browser (PKCE). Your password is never sent to or stored by DevKit."
+        title="Your password never leaves your browser"
+        description="DevKit signs you in through your system browser using PKCE. The password is never sent to or stored by DevKit."
       />
     </div>
   );
 }
 
 // ----------------------------------------------------------------------
-// 2. Appearance Tab
+// 2. Appearance Tab — Figma `Settings Content / Appearance` (763:1792)
 // ----------------------------------------------------------------------
+
+/** stepper (763:1818): − · value · + in one 104×36 raised control. The
+ * value is mono; the two buttons are sans, because they are buttons. */
+function SizeStepper({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (size: number) => void;
+}) {
+  function step(delta: number) {
+    onChange(Math.min(24, Math.max(10, value + delta)));
+  }
+  return (
+    <div className="flex h-9 w-26 overflow-hidden rounded-md border border-border bg-surface-raised">
+      <button
+        type="button"
+        aria-label="Smaller"
+        onClick={() => step(-1)}
+        className="w-8 text-body-13 text-text-secondary hover:bg-state-soft hover:text-text-primary"
+      >
+        −
+      </button>
+      <span className="flex w-10 items-center justify-center text-code-12 text-text-primary">
+        {value}
+      </span>
+      <button
+        type="button"
+        aria-label="Larger"
+        onClick={() => step(1)}
+        className="w-8 text-body-13 text-text-secondary hover:bg-state-soft hover:text-text-primary"
+      >
+        +
+      </button>
+    </div>
+  );
+}
+
 function FontSettingRow({
   label,
   font,
@@ -337,11 +380,11 @@ function FontSettingRow({
   onSize: (size: number) => void;
 }) {
   return (
-    <div className="flex items-end gap-3">
-      <div className="flex flex-col gap-1.5">
-        <span className="text-[12px] text-text-secondary">{label}</span>
+    <div className="flex items-end gap-4">
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+        <span className="text-label-12 text-text-secondary">{label}</span>
         <Select value={font} onValueChange={(value) => onFont(value as MonoFont)}>
-          <SelectTrigger className="w-[220px] font-mono-devkit text-[13px]">
+          <SelectTrigger className="h-9 w-full border-border bg-surface-raised text-code-12">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -349,7 +392,7 @@ function FontSettingRow({
               <SelectItem
                 key={option}
                 value={option}
-                className="font-mono-devkit text-[13px]"
+                className="text-code-12"
                 style={{ fontFamily: monoFontStack(option) }}
               >
                 {option}
@@ -359,81 +402,79 @@ function FontSettingRow({
         </Select>
       </div>
       <div className="flex flex-col gap-1.5">
-        <span className="text-[12px] text-text-secondary">Size</span>
-        <Input
-          type="number"
-          min={10}
-          max={24}
-          value={size}
-          onChange={(e) => {
-            const next = Number(e.target.value);
-            if (Number.isFinite(next)) onSize(Math.min(24, Math.max(10, next)));
-          }}
-          className="w-[72px] font-mono-devkit text-[13px]"
-        />
+        <span className="text-label-12 text-text-secondary">Size</span>
+        <SizeStepper value={size} onChange={onSize} />
       </div>
     </div>
   );
 }
+
+const THEME_OPTIONS = ["system", "light", "dark"] as const;
 
 function AppearanceTab() {
   const { theme, setTheme } = useTheme();
   const { codeFont, codeSize, terminalFont, terminalSize, setAppearance } = useAppearanceStore();
 
   return (
-    <div className="flex flex-col gap-6 max-w-[560px]">
-      <div className="flex flex-col gap-2">
-        <h2 className="text-[28px] font-semibold tracking-tight text-text-primary">Appearance</h2>
-        <p className="text-[14px] leading-relaxed text-text-secondary">
-          Theme follows your explicit choice, or the OS when set to System.
-        </p>
+    <div className="flex w-full max-w-[656px] flex-col gap-7">
+      <SectionHeader
+        title="Appearance"
+        description="Theme follows your explicit choice, or the OS when set to System."
+      />
+
+      <div className="flex flex-col gap-2.5">
+        <GroupLabel>Theme</GroupLabel>
+        {/* segmented/theme (763:1799): a surface/well trough with 4px of
+            padding; the chosen segment is raised with a subtle stroke. */}
+        <div
+          role="radiogroup"
+          aria-label="Theme"
+          className="flex w-fit gap-1 rounded-control border border-border-subtle bg-surface-well p-1"
+        >
+          {THEME_OPTIONS.map((option) => {
+            const active = theme === option;
+            return (
+              <button
+                key={option}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                onClick={() => void setTheme(option)}
+                className={cn(
+                  "h-8 rounded-sm border px-4.5 capitalize transition-colors",
+                  active
+                    ? "border-border-subtle bg-surface-raised text-body-13-medium text-text-primary"
+                    : "border-transparent text-body-13 text-text-secondary hover:text-text-primary",
+                )}
+              >
+                {option}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
-      <div className="flex flex-col gap-3 pt-2">
-        <div className="flex items-center gap-2 text-action-primary">
-          <Sun className="size-3.5" strokeWidth={1.5} />
-          <span className="text-[10px] font-medium tracking-wider uppercase">THEME</span>
+      <div className="flex flex-col gap-2.5">
+        <GroupLabel>Code &amp; terminal</GroupLabel>
+        <div className="flex flex-col gap-4">
+          <FontSettingRow
+            label="Code font"
+            font={codeFont}
+            size={codeSize}
+            onFont={(font) => setAppearance({ codeFont: font })}
+            onSize={(size) => setAppearance({ codeSize: size })}
+          />
+          <FontSettingRow
+            label="Terminal font"
+            font={terminalFont}
+            size={terminalSize}
+            onFont={(font) => setAppearance({ terminalFont: font })}
+            onSize={(size) => setAppearance({ terminalSize: size })}
+          />
         </div>
-
-        <div className="flex items-center gap-3">
-          {(["dark", "light", "system"] as const).map((option) => (
-            <Button
-              key={option}
-              type="button"
-              variant={theme === option ? "default" : "secondary"}
-              size="default"
-              onClick={() => void setTheme(option)}
-              className="w-20 capitalize"
-            >
-              {option}
-            </Button>
-          ))}
-        </div>
-      </div>
-
-      <div className="flex flex-col gap-4 pt-2">
-        <div className="flex items-center gap-2 text-action-primary">
-          <Code className="size-3.5" strokeWidth={1.5} />
-          <span className="text-[10px] font-medium tracking-wider uppercase">CODE & TERMINAL</span>
-        </div>
-
-        <FontSettingRow
-          label="Code font"
-          font={codeFont}
-          size={codeSize}
-          onFont={(font) => setAppearance({ codeFont: font })}
-          onSize={(size) => setAppearance({ codeSize: size })}
-        />
-        <FontSettingRow
-          label="Terminal font"
-          font={terminalFont}
-          size={terminalSize}
-          onFont={(font) => setAppearance({ terminalFont: font })}
-          onSize={(size) => setAppearance({ terminalSize: size })}
-        />
-
+        {/* preview (763:1843): the chosen face at the chosen size, on a well. */}
         <p
-          className="text-text-tertiary"
+          className="mt-1.5 rounded-md border border-border-subtle bg-surface-well px-3.5 py-3 text-text-secondary"
           style={{ fontFamily: monoFontStack(codeFont), fontSize: codeSize }}
         >
           {`const vault = unlock(masterKey); // ${codeSize}px preview`}
@@ -444,8 +485,43 @@ function AppearanceTab() {
 }
 
 // ----------------------------------------------------------------------
-// 3. Sync & Devices Tab
+// 3. Sync & Devices Tab — Figma `Settings Content / Sync & Devices` (765:2019)
 // ----------------------------------------------------------------------
+
+/** device (765:2024): one raised card per device — 18px glyph, the name in
+ * Body/14 Medium, the last-seen line in Code/12, and Revoke as a destructive
+ * control. This device's Revoke is drawn but disabled at 45%. */
+function DeviceRow({
+  icon: Icon,
+  name,
+  detail,
+  current,
+}: {
+  icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
+  name: string;
+  detail: string;
+  current?: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-control border border-border-subtle bg-surface-raised px-4 py-3">
+      <Icon className="size-4.5 shrink-0 text-text-secondary" strokeWidth={1.5} />
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="truncate text-body-14-medium text-text-primary">{name}</span>
+        <span className="text-code-12 text-text-tertiary">{detail}</span>
+      </div>
+      <Button
+        type="button"
+        variant="destructive"
+        size="default"
+        disabled={current}
+        className={cn(current && "opacity-45")}
+      >
+        Revoke
+      </Button>
+    </div>
+  );
+}
+
 function SyncDevicesTab() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [error, setError] = useState("");
@@ -476,101 +552,54 @@ function SyncDevicesTab() {
   }
 
   return (
-    <div className="flex flex-col gap-6 w-full max-w-[656px]">
-      <div className="flex items-start justify-between">
-        <div className="flex flex-col gap-2 max-w-[500px]">
-          <h2 className="text-[28px] font-semibold tracking-tight text-text-primary">
-            Sync & Devices
-          </h2>
-          <p className="text-[14px] leading-relaxed text-text-secondary">
-            Devices with access to your synced vault. Revoking a device blocks it until it signs in again.
-          </p>
-        </div>
-
+    <div className="flex w-full max-w-[656px] flex-col gap-7">
+      <div className="flex items-start justify-between gap-4">
+        <SectionHeader
+          title="Sync & Devices"
+          description="Devices with access to your synced vault. Revoking a device blocks it until it signs in again."
+        />
+        {/* Not in the Figma section, kept: it is the one way to force a sync
+            from here, and dropping a working action to match a mock is a
+            regression dressed as fidelity. */}
         <Button
           type="button"
-          variant="secondary"
+          variant="outline"
           size="sm"
           disabled={isSyncing}
           onClick={handleSyncNow}
-          className="gap-1.5"
+          className="shrink-0"
         >
           <RefreshCw className={cn("size-3.5", isSyncing && "animate-spin")} strokeWidth={1.5} />
-          <span>Sync now</span>
+          Sync now
         </Button>
       </div>
 
-      {/* Device List */}
-      <div className="flex flex-col divide-y divide-border-subtle rounded-[14px] border border-border bg-surface-base/60 overflow-hidden">
-        {/* Device 1: Current MacBook Pro */}
-        <div className="flex items-center justify-between p-4">
-          <div className="flex items-center gap-3.5">
-            <div className="flex size-9 items-center justify-center rounded-[8px] bg-surface-raised border border-border-subtle">
-              <Laptop className="size-4 text-text-primary" strokeWidth={1.5} />
-            </div>
-            <div className="flex flex-col gap-0.5">
-              <span className="text-[14px] font-medium text-text-primary">MacBook Pro</span>
-              <span className="text-[12px] text-status-success font-medium">
-                This device · Active now
-              </span>
-            </div>
-          </div>
-          <span className="rounded-full bg-status-success/15 px-2.5 py-1 text-[11px] font-medium text-status-success">
-            Current
-          </span>
-        </div>
-
-        {/* Device 2: Mac mini */}
-        <div className="flex items-center justify-between p-4">
-          <div className="flex items-center gap-3.5">
-            <div className="flex size-9 items-center justify-center rounded-[8px] bg-surface-raised border border-border-subtle">
-              <Monitor className="size-4 text-text-secondary" strokeWidth={1.5} />
-            </div>
-            <div className="flex flex-col gap-0.5">
-              <span className="text-[14px] font-medium text-text-primary">Mac mini (office)</span>
-              <span className="text-[12px] text-text-tertiary">Last active 2 days ago</span>
-            </div>
-          </div>
-          <Button type="button" variant="secondary" size="xs">
-            Revoke
-          </Button>
-        </div>
-
-        {/* Device 3: Studio setup */}
-        <div className="flex items-center justify-between p-4">
-          <div className="flex items-center gap-3.5">
-            <div className="flex size-9 items-center justify-center rounded-[8px] bg-surface-raised border border-border-subtle">
-              <Monitor className="size-4 text-text-secondary" strokeWidth={1.5} />
-            </div>
-            <div className="flex flex-col gap-0.5">
-              <span className="text-[14px] font-medium text-text-primary">Studio setup</span>
-              <span className="text-[12px] text-text-tertiary">Last active 19 days ago</span>
-            </div>
-          </div>
-          <Button type="button" variant="secondary" size="xs">
-            Revoke
-          </Button>
-        </div>
+      {/* ponytail: three hard-coded devices until GET /v1/sync/devices is
+          wired to the desktop bridge (implementation-status.mdx lists device
+          management UI as still to do). */}
+      <div className="flex flex-col gap-2">
+        <DeviceRow icon={Laptop} name="MacBook Pro" detail="This device · active now" current />
+        <DeviceRow icon={Monitor} name="Mac mini (office)" detail="Last active 2 days ago" />
+        <DeviceRow icon={Monitor} name="Studio setup" detail="Last active 19 days ago" />
       </div>
 
-      {error ? <p className="text-[12px] text-status-danger">{error}</p> : null}
+      {error ? <p className="text-body-12 text-status-danger">{error}</p> : null}
 
-      {/* Security Notice */}
       <SecurityNotice
         type="irreversible"
-        title="Revoking a device invalidates its session"
-        description="A revoked device is immediately blocked from synchronizing or reading newly updated vault items."
+        title="A revoked device is blocked immediately"
+        description="It is denylisted right away and must sign in again before it can push or pull."
       />
     </div>
   );
 }
 
 // ----------------------------------------------------------------------
-// 4. Environments Tab
+// 4. Environments Tab — Figma `Settings Content / Environments` (766:1999)
 // ----------------------------------------------------------------------
 function EnvironmentsTab() {
   const [tags, setTags] = useState<EnvTag[]>([]);
-  const [showNewForm, setShowNewForm] = useState(false);
+  const [newOpen, setNewOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [newRequiresConfirmation, setNewRequiresConfirmation] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -598,7 +627,7 @@ function EnvironmentsTab() {
       await createEnvTag(newName.trim().toLowerCase(), newRequiresConfirmation);
       setNewName("");
       setNewRequiresConfirmation(false);
-      setShowNewForm(false);
+      setNewOpen(false);
       await refresh();
     } catch (e) {
       setError(errorMessage(e));
@@ -618,122 +647,105 @@ function EnvironmentsTab() {
   }
 
   return (
-    <div className="flex flex-col gap-6 w-full max-w-[656px]">
+    <div className="flex w-full max-w-[656px] flex-col gap-6">
+      <SectionHeader
+        title="Environments"
+        description="Env tags required by SSH, Database and Kafka profiles. prod is locked and always requires confirmation."
+      />
+
+      {/* tag/* (766:2004): one raised card per tag — the name in Code/12
+          Medium, a danger-soft "requires confirmation" chip where it applies,
+          and the delete glyph on the right for tags that are not built in. */}
       <div className="flex flex-col gap-2">
-        <h2 className="text-[28px] font-semibold tracking-tight text-text-primary">
-          Environments
-        </h2>
-        <p className="text-[14px] leading-relaxed text-text-secondary">
-          Env tags required by SSH, Database, and Kafka profiles. prod is locked and always requires confirmation.
-        </p>
-      </div>
-
-      {/* Tag List */}
-      <div className="flex flex-col divide-y divide-border-subtle rounded-[14px] border border-border bg-surface-base/60 overflow-hidden">
-        {tags.map((tag) => {
-          const isProd = tag.name === "prod";
-
-          return (
-            <div key={tag.id} className="flex h-[48px] items-center justify-between px-4">
-              <div className="flex items-center gap-3">
-                <span className="font-mono text-[14px] font-medium text-text-primary">
-                  {tag.name}
-                </span>
-
-                {isProd && (
-                  <div className="flex items-center gap-1.5 rounded-md bg-status-warning/10 border border-status-warning/30 px-2 py-0.5 text-[11px] font-medium text-status-warning">
-                    <LockKeyhole className="size-3" strokeWidth={1.5} />
-                    <span>REQUIRES CONFIRMATION</span>
-                  </div>
-                )}
-              </div>
-
-              {!tag.isBuiltin && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-xs"
-                      onClick={() => void handleDeleteTag(tag)}
-                      aria-label={`Delete ${tag.name}`}
-                    >
-                      <Trash2 className="size-3.5 text-text-tertiary hover:text-status-danger" strokeWidth={1.5} />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Delete environment tag</TooltipContent>
-                </Tooltip>
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      {/* New Tag Form */}
-      {showNewForm ? (
-        <form
-          onSubmit={handleCreateTag}
-          className="flex flex-col gap-4 rounded-[14px] border border-border bg-surface-base p-4.5"
-        >
-          <span className="text-[14px] font-semibold text-text-primary">
-            New environment tag
-          </span>
-
-          <div className="flex flex-col gap-1.5 max-w-[360px]">
-            <label className="text-[12px] font-medium text-text-secondary">Tag name</label>
-            <Input
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              placeholder="e.g. canary, uat, sandbox"
-              autoFocus
-              required
-              className="font-mono text-[13px]"
-            />
-          </div>
-
-          <label className="flex items-center gap-2.5 cursor-pointer py-1">
-            <Checkbox
-              checked={newRequiresConfirmation}
-              onCheckedChange={(checked) => setNewRequiresConfirmation(Boolean(checked))}
-            />
-            <span className="text-[13px] text-text-primary">
-              Require confirmation before executing actions
-            </span>
-          </label>
-
-          <div className="flex items-center gap-2.5 pt-1">
-            <Button
-              type="button"
-              variant="secondary"
-              size="default"
-              onClick={() => setShowNewForm(false)}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" disabled={busy || !newName.trim()} size="default">
-              <span>{busy ? "Adding…" : "Add environment"}</span>
-            </Button>
-          </div>
-        </form>
-      ) : (
-        <div>
-          <Button
-            type="button"
-            variant="default"
-            size="default"
-            onClick={() => setShowNewForm(true)}
-            className="gap-2"
+        {tags.map((tag) => (
+          <div
+            key={tag.id}
+            className="flex items-center gap-2.5 rounded-control border border-border-subtle bg-surface-raised py-2.5 pr-3 pl-3.5"
           >
-            <Plus className="size-3.5" strokeWidth={2} />
-            <span>Add tag</span>
-          </Button>
-        </div>
-      )}
+            <span className="text-code-12-medium text-text-primary">{tag.name}</span>
+            <span className="flex-1" />
+            {tag.requiresConfirmation ? (
+              <span className="flex h-6 items-center gap-1.5 rounded-sm border border-(--border-danger) bg-(--feedback-danger-soft) pr-2.5 pl-2 text-code-11 text-status-danger">
+                <LockKeyhole className="size-3.5" strokeWidth={1.5} />
+                requires confirmation
+              </span>
+            ) : null}
+            {tag.isBuiltin ? null : (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={() => void handleDeleteTag(tag)}
+                    aria-label={`Delete ${tag.name}`}
+                  >
+                    <Trash2 className="size-4 text-text-tertiary hover:text-status-danger" strokeWidth={1.5} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Delete environment tag</TooltipContent>
+              </Tooltip>
+            )}
+          </div>
+        ))}
+      </div>
 
-      {error ? <p className="text-[12px] text-status-danger">{error}</p> : null}
+      <div>
+        <Button
+          type="button"
+          variant="outline"
+          size="default"
+          className="bg-surface-raised"
+          onClick={() => setNewOpen(true)}
+        >
+          New tag
+        </Button>
+      </div>
+
+      {error ? <p className="text-body-12 text-status-danger">{error}</p> : null}
+
+      {/* Settings / New Tag Dialog (766:2045): a dialog over the shell, not a
+          form unfolding inside the list. */}
+      <Dialog open={newOpen} onOpenChange={setNewOpen}>
+        <DialogContent className="sm:max-w-md">
+          <form onSubmit={handleCreateTag} className="flex flex-col gap-4">
+            <DialogHeader>
+              <DialogTitle>New environment tag</DialogTitle>
+            </DialogHeader>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-label-12 text-text-secondary">Tag name</label>
+              <Input
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="e.g. canary, uat, sandbox"
+                autoFocus
+                required
+                className="text-code-12"
+              />
+            </div>
+            <label className="flex cursor-pointer items-center gap-2.5 py-1">
+              <Checkbox
+                checked={newRequiresConfirmation}
+                onCheckedChange={(checked) => setNewRequiresConfirmation(Boolean(checked))}
+              />
+              <span className="text-body-13 text-text-primary">
+                Require confirmation before executing actions
+              </span>
+            </label>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setNewOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={busy || !newName.trim()}>
+                {busy ? "Adding…" : "Add environment"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* MCP Proxy Install section */}
-      <div className="pt-4 border-t border-border-subtle">
+      <div className="border-t border-border-subtle pt-4">
         <McpInstallPanel />
       </div>
     </div>

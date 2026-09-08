@@ -1,5 +1,7 @@
 import { useCallback, useMemo, useRef } from "react";
 import { useSidebarContent } from "@/components/ui/sidebar-shell";
+import { useWorkbenchTabsStore } from "../../stores/workbenchTabs";
+import { getModule } from "../registry";
 import { NotesSidebar } from "./NotesSidebar";
 import { useNotesSidebarStore } from "./notesSidebarStore";
 
@@ -16,10 +18,14 @@ import { useNotesSidebarStore } from "./notesSidebarStore";
 export function useNotesSidebar(onNavigate?: () => void) {
   const scope = useNotesSidebarStore((s) => s.scope);
   const folders = useNotesSidebarStore((s) => s.folders);
+  const notes = useNotesSidebarStore((s) => s.notes);
   const counts = useNotesSidebarStore((s) => s.counts);
   const trashCount = useNotesSidebarStore((s) => s.trashCount);
+  const expanded = useNotesSidebarStore((s) => s.expanded);
   const setScope = useNotesSidebarStore((s) => s.setScope);
+  const toggleExpanded = useNotesSidebarStore((s) => s.toggleExpanded);
   const requestAction = useNotesSidebarStore((s) => s.requestAction);
+  const openTab = useWorkbenchTabsStore((s) => s.openTab);
 
   // Callers pass a plain function redefined every render. Holding it in a ref
   // keeps it out of the memo's dependencies, so the rail re-registers when what
@@ -27,6 +33,24 @@ export function useNotesSidebar(onNavigate?: () => void) {
   const navigateRef = useRef(onNavigate);
   navigateRef.current = onNavigate;
   const navigate = useCallback(() => navigateRef.current?.(), []);
+
+  // A note row in the rail opens the note the same way a dashboard card does:
+  // as the module's preview tab. The rail is the module's, so it may open
+  // tabs directly rather than round-tripping through the dashboard.
+  const openNote = useCallback(
+    (note: { id: string; title: string }) => {
+      const preload = getModule("notes")?.views.find((v) => v.id === "notes.editor")?.preload?.();
+      void preload?.catch(() => undefined);
+      openTab({
+        moduleId: "notes",
+        viewId: "notes.editor",
+        title: note.title || "Untitled",
+        params: { noteId: note.id },
+        preview: true,
+      });
+    },
+    [openTab],
+  );
 
   // Memoised on what it actually renders. useSidebarContent re-registers
   // whenever the element identity changes, and a fresh element every render
@@ -40,8 +64,16 @@ export function useNotesSidebar(onNavigate?: () => void) {
           navigate();
         }}
         folders={folders}
+        notes={notes}
         counts={counts}
         trashCount={trashCount}
+        expanded={expanded}
+        onToggleExpanded={toggleExpanded}
+        onNewNote={() => {
+          requestAction({ kind: "newNote" });
+          navigate();
+        }}
+        onOpenNote={openNote}
         onCreateFolder={() => {
           requestAction({ kind: "create" });
           navigate();
@@ -60,7 +92,19 @@ export function useNotesSidebar(onNavigate?: () => void) {
         }}
       />
     ),
-    [scope, folders, counts, trashCount, setScope, requestAction, navigate],
+    [
+      scope,
+      folders,
+      notes,
+      counts,
+      trashCount,
+      expanded,
+      setScope,
+      toggleExpanded,
+      requestAction,
+      navigate,
+      openNote,
+    ],
   );
 
   useSidebarContent(content);

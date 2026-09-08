@@ -1,23 +1,31 @@
 import { create } from "zustand";
-import type { NoteFolder } from "../../bridge/notes";
+import type { NoteFolder, NoteSummary } from "../../bridge/notes";
 import type { NotesScope } from "./NotesSidebar";
 
-export type FolderAction = { kind: "create" } | { kind: "rename" | "tags" | "delete"; folder: NoteFolder };
+export type FolderAction =
+  | { kind: "create" }
+  | { kind: "newNote" }
+  | { kind: "rename" | "tags" | "delete"; folder: NoteFolder };
 
 type NotesSidebarState = {
   scope: NotesScope;
-  foldersOpen: boolean;
   folders: NoteFolder[];
+  /** Every live note, so the rail can list a folder's notes under it when the
+   * folder is expanded (Figma 812:3731 shows "Work" open with its notes). */
+  notes: NoteSummary[];
   counts: { all: number; ungrouped: number; byFolder: Map<string, number> };
   trashCount: number;
+  /** Which expandable rows (folder ids, or "ungrouped") are open. */
+  expanded: Set<string>;
   /** Set by whichever view the click happened in; consumed by the dashboard,
-   *  which owns the dialogs. */
+   *  which owns the dialogs and note creation. */
   pendingAction: FolderAction | null;
 
   setScope: (scope: NotesScope) => void;
-  setFoldersOpen: (open: boolean) => void;
+  toggleExpanded: (id: string) => void;
   setData: (data: {
     folders: NoteFolder[];
+    notes: NoteSummary[];
     counts: { all: number; ungrouped: number; byFolder: Map<string, number> };
   }) => void;
   setTrashCount: (count: number) => void;
@@ -36,14 +44,24 @@ type NotesSidebarState = {
  */
 export const useNotesSidebarStore = create<NotesSidebarState>((set) => ({
   scope: "all",
-  foldersOpen: true,
   folders: [],
+  notes: [],
   counts: { all: 0, ungrouped: 0, byFolder: new Map() },
   trashCount: 0,
+  expanded: new Set(),
   pendingAction: null,
 
   setScope: (scope) => set({ scope }),
-  setFoldersOpen: (foldersOpen) => set({ foldersOpen }),
+  toggleExpanded: (id) =>
+    set((state) => {
+      const expanded = new Set(state.expanded);
+      if (expanded.has(id)) {
+        expanded.delete(id);
+      } else {
+        expanded.add(id);
+      }
+      return { expanded };
+    }),
   setData: (data) => set(data),
   setTrashCount: (trashCount) => set({ trashCount }),
   requestAction: (pendingAction) => set({ pendingAction }),

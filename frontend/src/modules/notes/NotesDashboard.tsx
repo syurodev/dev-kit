@@ -1,8 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Plus,
-  X,
-} from "lucide-react";
+import { Plus, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -284,12 +281,18 @@ export function NotesDashboard({
     return { all: notes.length, ungrouped, byFolder };
   }, [notes, folderIds]);
 
-  const scopeLabel = useMemo(() => {
-    if (scope === "all") return "All";
-    if (scope === "ungrouped") return "Ungrouped";
-    const folderId = scope.slice(7);
-    return folders.find((f) => f.id === folderId)?.name ?? "All";
-  }, [scope, folders]);
+  // Every tag in play, as toggle chips beside the search (Figma 799:3174 shows
+  // the whole set with the active ones lit), not only the selected ones.
+  const allTags = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const n of notes) {
+      for (const tag of n.effectiveTags) {
+        const key = tag.toLowerCase();
+        if (!seen.has(key)) seen.set(key, tag);
+      }
+    }
+    return [...seen.values()].sort((a, b) => a.localeCompare(b));
+  }, [notes]);
 
   function toggleTagFilter(tag: string) {
     setSelectedTags((prev) => {
@@ -381,8 +384,8 @@ export function NotesDashboard({
   const clearAction = useNotesSidebarStore((s) => s.clearAction);
 
   useEffect(() => {
-    setSidebarData({ folders, counts });
-  }, [folders, counts, setSidebarData]);
+    setSidebarData({ folders, notes, counts });
+  }, [folders, notes, counts, setSidebarData]);
 
   // The dialogs live here, so a folder action raised from the editor's copy of
   // the rail is handed over rather than duplicated.
@@ -390,6 +393,8 @@ export function NotesDashboard({
     if (!pendingAction) return;
     if (pendingAction.kind === "create") {
       setCreateOpen(true);
+    } else if (pendingAction.kind === "newNote") {
+      void onCreateNote();
     } else if (pendingAction.kind === "rename") {
       setRenameFolder(pendingAction.folder);
       setRenameName(pendingAction.folder.name);
@@ -414,53 +419,62 @@ export function NotesDashboard({
       <div className="flex h-full min-h-0 w-full">
 
         <section className="flex min-h-0 flex-1 flex-col">
-          <div className="flex flex-col gap-2 border-b border-border px-3 py-3">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <div>
-                  <h1 className="text-heading-24 text-foreground">
-                    Notes
-                  </h1>
-                  <p className="text-body-13 text-muted-foreground">
-                    {filtered.length} {filtered.length === 1 ? "note" : "notes"} ·{" "}
-                    {scopeLabel}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Input
-                  aria-label="note-search"
-                  placeholder="Search notes..."
-                  value={query}
-                  onChange={(e) => {
-                    setQuery(e.target.value);
-                  }}
-                  className="h-9 w-64"
-                />
-                <Button
-                  type="button"
-                  size="lg"
-                  variant="outline"
-                  disabled={creating}
-                  onClick={() => void onCreateNote()}
-                >
-                  <Plus className="size-4" />
-                  New note
-                </Button>
-              </div>
+          {/* Figma `Notes / Dashboard Content` (799:3369): one row — search
+              at 360 wide, the tag set as toggle chips, and the primary
+              "New note" at the far right. No page title: the rail and the tab
+              already say where you are. Cards start 80 down, hence pb-7. */}
+          <div className="flex items-center gap-3 px-6 pt-5 pb-7">
+            <div className="relative w-90 shrink-0">
+              <Search className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-text-tertiary" />
+              <Input
+                aria-label="note-search"
+                placeholder="Search notes…"
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                }}
+                className="h-8 border-border-subtle bg-surface-well pl-8"
+              />
             </div>
-            {selectedTags.length > 0 ? (
-              <div className="flex flex-wrap items-center gap-1.5">
-                {selectedTags.map((tag) => (
-                  <TagChip
-                    key={tag.toLowerCase()}
-                    tag={tag}
-                    onClick={() => toggleTagFilter(tag)}
-                    onRemove={() => toggleTagFilter(tag)}
-                  />
-                ))}
+            {allTags.length > 0 ? (
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                {allTags.map((tag) => {
+                  const key = tag.toLowerCase();
+                  const active = selectedTags.some((t) => t.toLowerCase() === key);
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() => toggleTagFilter(tag)}
+                      className={cn(
+                        "flex h-6 items-center gap-1.5 rounded-md border px-2.5 text-code-11 transition-colors",
+                        active
+                          ? "border-border bg-state-soft text-text-primary"
+                          : "border-border-subtle bg-surface-raised text-text-secondary hover:text-text-primary",
+                      )}
+                    >
+                      <span
+                        className="size-1.5 shrink-0 rounded-full"
+                        style={{ background: tagChipVar(tag) }}
+                        aria-hidden
+                      />
+                      {tag}
+                    </button>
+                  );
+                })}
               </div>
             ) : null}
+            <div className="flex-1" />
+            <Button
+              type="button"
+              size="default"
+              disabled={creating}
+              onClick={() => void onCreateNote()}
+            >
+              <Plus className="size-3.5" />
+              New note
+            </Button>
           </div>
 
           {scope === "trash" ? (
@@ -474,7 +488,9 @@ export function NotesDashboard({
             />
           ) : (
           <ScrollArea className="min-h-0 flex-1">
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] gap-4 p-3">
+            {/* 348-wide cards on a 20px gap (Figma draws 22/20 — one step on
+                the 4px grid), 24px in from the card edge. */}
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(348px,1fr))] gap-5 px-6 pb-6">
               {filtered.map((note) => (
                 <NoteCard
                   key={note.id}

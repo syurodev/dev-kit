@@ -1,4 +1,4 @@
-import { Inbox, LayoutGrid, MoreHorizontal, Plus, Trash2 } from "lucide-react";
+import { ChevronRight, FileText, MoreHorizontal, Plus, Trash2 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -6,18 +6,26 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { SidebarRow } from "@/components/ui/sidebar-shell";
+import { cn } from "@/lib/utils";
+import type { NoteFolder, NoteSummary } from "../../bridge/notes";
 import { folderDotVar } from "./folderColors";
-import type { NoteFolder } from "../../bridge/notes";
+import { relativeTime } from "./relativeTime";
 
 export type NotesScope = "all" | "ungrouped" | "trash" | `folder:${string}`;
 
 /**
- * Figma `Notes / Sidebar Content` (424:303), on the shell's rail primitives.
+ * Figma `Notes / Sidebar Content`, Selected=All (812:3731), on the shell's
+ * rail primitives.
  *
- * The component has no section headings: folders are rows carrying their own
- * colour as a dot, and Trash sits at the bottom behind a rule rather than
- * third in the top group. Its metrics are rounded onto the 4px grid the
- * Foundations page mandates — see SidebarRow for why.
+ * Top to bottom: a "New note" action, All, Ungrouped, a FOLDERS label with
+ * each folder as a row carrying its colour as a dot, "New folder", then a
+ * MAINTENANCE label with Trash. Ungrouped and every folder are expandable
+ * and list their notes underneath as 28px rows indented past the dot column.
+ *
+ * Expanding is a second click on the selected row, not a separate chevron
+ * target: SidebarRow's icon slot sits inside its button, and a button inside
+ * a button is not HTML. The chevron reflects the state; the row is the
+ * control.
  *
  * Plain markup rather than the shadcn Sidebar components: SidebarMenuButton
  * calls useSidebar() and throws outside a SidebarProvider, so those cannot
@@ -27,8 +35,13 @@ export function NotesSidebar({
   scope,
   onScopeChange,
   folders,
+  notes,
   counts,
   trashCount,
+  expanded,
+  onToggleExpanded,
+  onNewNote,
+  onOpenNote,
   onCreateFolder,
   onRenameFolder,
   onEditFolderTags,
@@ -37,97 +50,205 @@ export function NotesSidebar({
   scope: NotesScope;
   onScopeChange: (scope: NotesScope) => void;
   folders: NoteFolder[];
+  notes: NoteSummary[];
   counts: { all: number; ungrouped: number; byFolder: Map<string, number> };
   trashCount: number;
+  expanded: Set<string>;
+  onToggleExpanded: (id: string) => void;
+  onNewNote: () => void;
+  onOpenNote: (note: NoteSummary) => void;
   onCreateFolder: () => void;
   onRenameFolder: (folder: NoteFolder) => void;
   onEditFolderTags: (folder: NoteFolder) => void;
   onDeleteFolder: (folder: NoteFolder) => void;
 }) {
+  const folderIds = new Set(folders.map((f) => f.id));
+
+  function notesIn(id: string): NoteSummary[] {
+    if (id === "ungrouped") {
+      return notes.filter((n) => !n.folderId || !folderIds.has(n.folderId));
+    }
+    return notes.filter((n) => n.folderId === id);
+  }
+
+  // Selecting a row selects its scope and opens it; selecting it again folds
+  // it. The chevron only reports which of those the next click will do.
+  function selectExpandable(id: string, nextScope: NotesScope) {
+    if (scope === nextScope) {
+      onToggleExpanded(id);
+      return;
+    }
+    onScopeChange(nextScope);
+    if (!expanded.has(id)) {
+      onToggleExpanded(id);
+    }
+  }
+
   return (
-    <div className="flex h-full flex-col select-none p-4">
-      <div className="flex-1 space-y-1 overflow-y-auto">
-        <SidebarRow
-          icon={<LayoutGrid className="size-4 shrink-0" />}
-          label="All"
-          count={counts.all}
-          active={scope === "all"}
-          onClick={() => onScopeChange("all")}
-        />
-        <SidebarRow
-          icon={<Inbox className="size-4 shrink-0" />}
-          label="Ungrouped"
-          count={counts.ungrouped}
-          active={scope === "ungrouped"}
-          onClick={() => onScopeChange("ungrouped")}
-        />
+    <div className="flex h-full flex-col gap-0.5 overflow-y-auto p-2 select-none">
+      {/* action/new-note (815:4437): a raised, bordered control at the top of
+          the rail rather than a row — it makes something, it does not go
+          somewhere. */}
+      <button
+        type="button"
+        onClick={onNewNote}
+        className="flex h-8 w-full items-center gap-2 rounded-md border border-border bg-surface-raised px-3 text-text-primary hover:border-status-info"
+      >
+        <Plus className="size-3.5 shrink-0" />
+        <span className="flex-1 text-left text-body-13-medium">New note</span>
+        <span className="text-code-11 text-text-tertiary">⌘N</span>
+      </button>
+      <div className="h-1.5 shrink-0" />
 
-        {folders.map((folder) => (
-          <SidebarRow
-            key={folder.id}
-            icon={
-              // A folder is its colour: an 8px dot, not a tinted folder glyph.
-              <span
-                className="size-2 shrink-0 rounded-full"
-                style={{ backgroundColor: folderDotVar(folder.color) }}
-              />
-            }
-            label={folder.name}
-            count={counts.byFolder.get(folder.id) ?? 0}
-            active={scope === `folder:${folder.id}`}
-            onClick={() => onScopeChange(`folder:${folder.id}`)}
-            trailing={
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    aria-label={`${folder.name} options`}
-                    // Opacity, not display: `hidden` gave the button no box
-                    // until hover, so revealing it grew the row and shoved the
-                    // count sideways. Reserving the space keeps the row still.
-                    // Focus-visible too, or it is unreachable by keyboard.
-                    className="rounded-md p-1 text-text-tertiary opacity-0 hover:text-text-primary focus-visible:opacity-100 group-hover:opacity-100"
-                  >
-                    <MoreHorizontal className="size-4" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" side="right">
-                  <DropdownMenuItem onSelect={() => onRenameFolder(folder)}>
-                    Rename
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => onEditFolderTags(folder)}>
-                    Edit tags
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    variant="destructive"
-                    onSelect={() => onDeleteFolder(folder)}
-                  >
-                    Delete
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            }
-          />
-        ))}
+      <SidebarRow
+        icon={<Chevron hidden />}
+        label="All"
+        count={counts.all}
+        active={scope === "all"}
+        onClick={() => onScopeChange("all")}
+      />
+      <SidebarRow
+        icon={<Chevron open={expanded.has("ungrouped")} />}
+        label="Ungrouped"
+        count={counts.ungrouped}
+        active={scope === "ungrouped"}
+        onClick={() => selectExpandable("ungrouped", "ungrouped")}
+      />
+      {expanded.has("ungrouped") ? (
+        <NoteRows notes={notesIn("ungrouped")} onOpenNote={onOpenNote} />
+      ) : null}
 
-        <SidebarRow
-          icon={<Plus className="size-4 shrink-0" />}
-          label="New folder"
-          onClick={onCreateFolder}
-        />
-      </div>
+      <SectionLabel>Folders</SectionLabel>
+      {folders.map((folder) => {
+        const id = folder.id;
+        const isOpen = expanded.has(id);
+        return (
+          <div key={id} className="contents">
+            <SidebarRow
+              icon={
+                <>
+                  <Chevron open={isOpen} />
+                  {/* A folder is its colour: an 8px dot, not a tinted glyph. */}
+                  <span
+                    className="size-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: folderDotVar(folder.color) }}
+                  />
+                </>
+              }
+              label={folder.name}
+              count={counts.byFolder.get(id) ?? 0}
+              active={scope === `folder:${id}`}
+              onClick={() => selectExpandable(id, `folder:${id}`)}
+              trailing={
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label={`${folder.name} options`}
+                      // Opacity, not display: `hidden` gave the button no box
+                      // until hover, so revealing it grew the row and shoved the
+                      // count sideways. Reserving the space keeps the row still.
+                      // Focus-visible too, or it is unreachable by keyboard.
+                      className="rounded-md p-1 text-text-tertiary opacity-0 hover:text-text-primary focus-visible:opacity-100 group-hover:opacity-100"
+                    >
+                      <MoreHorizontal className="size-4" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" side="right">
+                    <DropdownMenuItem onSelect={() => onRenameFolder(folder)}>
+                      Rename
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => onEditFolderTags(folder)}>
+                      Edit tags
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      variant="destructive"
+                      onSelect={() => onDeleteFolder(folder)}
+                    >
+                      Delete
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              }
+            />
+            {isOpen ? <NoteRows notes={notesIn(id)} onOpenNote={onOpenNote} /> : null}
+          </div>
+        );
+      })}
+      <SidebarRow
+        icon={<Plus className="size-3.5 shrink-0 text-text-tertiary" />}
+        label="New folder"
+        onClick={onCreateFolder}
+      />
 
-      {/* Trash is pinned to the bottom behind a rule, as the component draws
-          it — it is where things go, not another way to browse them. */}
-      <div className="mt-4 border-t border-border pt-2">
-        <SidebarRow
-          icon={<Trash2 className="size-4 shrink-0" />}
-          label="Trash"
-          count={trashCount}
-          active={scope === "trash"}
-          onClick={() => onScopeChange("trash")}
-        />
-      </div>
+      <SectionLabel>Maintenance</SectionLabel>
+      <SidebarRow
+        icon={<Trash2 className="size-3.5 shrink-0" />}
+        label="Trash"
+        count={trashCount}
+        active={scope === "trash"}
+        onClick={() => onScopeChange("trash")}
+      />
     </div>
+  );
+}
+
+/** 14px chevron slot. `hidden` keeps the column so "All" lines up with the
+ * expandable rows below it, as the Figma row does with an invisible glyph. */
+function Chevron({ open, hidden }: { open?: boolean; hidden?: boolean }) {
+  return (
+    <ChevronRight
+      className={cn(
+        "size-3.5 shrink-0 text-text-tertiary transition-transform",
+        open && "rotate-90",
+        hidden && "invisible",
+      )}
+    />
+  );
+}
+
+/** label/FOLDERS, label/MAINTENANCE: Label/11 Caps, pt-14 pb-6. The Figma
+ * frame sets these in Geist Mono, but page 13 is largely unbound and
+ * design-system.mdx names Label/11 Caps as the uppercase-label step — the
+ * documented rule wins over one unbound text layer. */
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="px-3 pt-3.5 pb-1.5 text-label-11-caps text-text-tertiary">{children}</div>
+  );
+}
+
+/** Note Row (811:3500): h-28, indented past the chevron + dot columns, file
+ * glyph, name in Body/13, age in Code/11. */
+function NoteRows({
+  notes,
+  onOpenNote,
+}: {
+  notes: NoteSummary[];
+  onOpenNote: (note: NoteSummary) => void;
+}) {
+  if (notes.length === 0) {
+    return (
+      <div className="pl-12 pr-3 text-caption-11 text-text-tertiary">No notes</div>
+    );
+  }
+  return (
+    <>
+      {notes.map((note) => (
+        <button
+          key={note.id}
+          type="button"
+          onClick={() => onOpenNote(note)}
+          className="flex h-7 w-full items-center gap-2 rounded-md pl-12 pr-3 text-left text-text-secondary hover:bg-surface-raised hover:text-text-primary"
+        >
+          <FileText className="size-3.5 shrink-0 text-text-tertiary" />
+          <span className="min-w-0 flex-1 truncate text-body-13">
+            {note.title || "Untitled"}
+          </span>
+          <span className="shrink-0 text-code-11 text-text-tertiary">
+            {relativeTime(note.updatedAt)}
+          </span>
+        </button>
+      ))}
+    </>
   );
 }
