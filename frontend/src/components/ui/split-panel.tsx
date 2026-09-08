@@ -101,7 +101,7 @@ function PanelCard({
         // Figma panel-surface 116:1348 is surface/base at full opacity with a
         // glass/border hairline and radius/10 — the same material as the content
         // card, not a glass tier. It was glass-panel (55%) at radius 12.
-        "relative flex min-h-0 flex-col overflow-hidden shell-surface shell-surface-raised",
+        "relative flex min-h-0 flex-col overflow-hidden shell-surface",
         className,
       )}
     >
