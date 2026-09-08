@@ -184,19 +184,22 @@ export function SplitPanelSlot() {
     wasOpenRef.current = panel !== null;
   }, [panel, setWidth]);
 
+  // Clamped against the sidebar, not just a flat ceiling: with both panels
+  // open on a narrow window, a flat 720 here would crush the centre content
+  // area straight through its floor. Hoisted out of the hook call because the
+  // rendered width needs the same ceiling the drag does.
+  const max = maxPanelWidth({
+    windowWidth,
+    otherEffectiveWidth: sidebarOpen ? sidebarWidth : 0,
+    min: MIN_PANEL_WIDTH,
+    hardMax: MAX_PANEL_WIDTH,
+  });
+
   const { isResizing, onPointerDown } = useResizableSize({
     size: width,
     onSizeChange: setWidth,
     min: MIN_PANEL_WIDTH,
-    // Clamped against the sidebar, not just a flat ceiling: with both panels
-    // open on a narrow window, a flat 720 here would crush the centre content
-    // area straight through its floor.
-    max: maxPanelWidth({
-      windowWidth,
-      otherEffectiveWidth: sidebarOpen ? sidebarWidth : 0,
-      min: MIN_PANEL_WIDTH,
-      hardMax: MAX_PANEL_WIDTH,
-    }),
+    max,
     axis: "x",
     sign: -1,
   });
@@ -222,7 +225,9 @@ export function SplitPanelSlot() {
     <LazyMotion features={domAnimation}>
       <m.div
         initial={{ width: 0 }}
-        animate={{ width: open ? width + GAP_WIDTH : 0 }}
+        // Clamped at render for the same reason as the sidebar and the bottom
+        // slot: the ceiling moves with the window, the stored width does not.
+        animate={{ width: open ? Math.min(width, max) + GAP_WIDTH : 0 }}
         transition={isResizing ? { duration: 0 } : { duration: 0.22, ease: "easeInOut" }}
         className="flex min-h-0 shrink-0 overflow-hidden"
       >

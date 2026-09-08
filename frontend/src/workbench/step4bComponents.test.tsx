@@ -81,6 +81,38 @@ describe("Step 4b Shell Overlays & Composition Reconciliation", () => {
       expect(wrapper).not.toContain("bg-transparent");
     });
 
+    it("clamps every resizable shell surface at render, not only while dragging", () => {
+      // The ceiling depends on the window; the stored size does not. Drag a
+      // panel wide, then narrow the window, and a surface that only clamps on
+      // drag keeps its old size and crushes its neighbour. bottom-slot fixed
+      // this on the vertical axis and left a note that the sidebar still had
+      // the hole; split-panel had it too. All three clamp now.
+      const surfaces = {
+        "sidebar-shell.tsx": new URL(
+          "../components/ui/sidebar-shell.tsx",
+          import.meta.url,
+        ),
+        "split-panel.tsx": new URL(
+          "../components/ui/split-panel.tsx",
+          import.meta.url,
+        ),
+        "bottom-slot.tsx": new URL(
+          "../components/ui/bottom-slot.tsx",
+          import.meta.url,
+        ),
+      };
+
+      for (const [name, url] of Object.entries(surfaces)) {
+        // The size animation, not the opacity fade split-panel also has: the
+        // one that resolves the surface's extent, so it carries GAP_WIDTH.
+        const animate = readFileSync(url, "utf8")
+          .split("\n")
+          .find((line) => line.includes("animate={{") && line.includes("GAP_WIDTH"));
+        if (!animate) throw new Error(`${name}: no sizing animate prop found`);
+        expect(animate).toContain("Math.min(");
+      }
+    });
+
   describe("Shell / Resize Handle (Figma 699:1104)", () => {
     it("EXCEPTION: Rest state is completely empty (no hairline, no grip, no border, no background)", () => {
       const html = renderToString(

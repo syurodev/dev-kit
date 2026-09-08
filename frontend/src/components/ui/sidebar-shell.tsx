@@ -192,7 +192,14 @@ export function SidebarSurface({ activeModuleId }: { activeModuleId: string | nu
     <LazyMotion features={domAnimation}>
       <m.div
         initial={{ width: 0 }}
-        animate={{ width: open ? sidebarWidth + GAP_WIDTH : 0 }}
+        // Clamped at render, not only while dragging. The clamp depends on the
+        // window, and the window can shrink long after the drag ended: drag to
+        // 600 on a wide window, then narrow it, and this shrink-0 rail would
+        // keep its 600 and crush the module column beside it. bottom-slot.tsx
+        // fixed this on the vertical axis and left a note saying the sidebar
+        // still had the hole; this is that note being paid. The *stored* width
+        // stays unclamped, so widening the window restores the user's choice.
+        animate={{ width: open ? Math.min(sidebarWidth, max) + GAP_WIDTH : 0 }}
         transition={isResizing ? { duration: 0 } : { duration: 0.22, ease: "easeInOut" }}
         className="flex min-h-0 shrink-0 overflow-hidden"
       >
