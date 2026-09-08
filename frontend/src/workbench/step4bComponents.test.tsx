@@ -101,6 +101,28 @@ describe("Step 4b Shell Overlays & Composition Reconciliation", () => {
       expect(css).toContain("border-bottom-right-radius: 0;");
     });
 
+    it("puts the side panel one tone above the content it sits beside", () => {
+      // Figma App Shell binds panel-surface to surface/raised across all four
+      // Panel=Open variants. The point is the LADDER, not the value: sidebar
+      // darkest, content next, panel lightest — measured off Claude's shell
+      // (17 / 21 / 40) where the panel reads as floating. Give the panel the
+      // same surface/base as the content and the shell goes back to reading as
+      // one flat sheet with cuts in it.
+      const panel = readFileSync(
+        new URL("../components/ui/split-panel.tsx", import.meta.url),
+        "utf8",
+      );
+      const surface = panel
+        .split("\n")
+        .find((line) => line.includes("shell-surface"));
+      expect(surface).toContain("shell-surface-raised");
+
+      const css = readFileSync(new URL("../index.css", import.meta.url), "utf8");
+      expect(css).toContain("--shell-surface-fill: var(--surface-raised)");
+      // The base surface has to read the override, or the modifier does nothing.
+      expect(css).toContain("var(--shell-surface-fill, var(--surface-base))");
+    });
+
     it("clamps every resizable shell surface at render, not only while dragging", () => {
       // The ceiling depends on the window; the stored size does not. Drag a
       // panel wide, then narrow the window, and a surface that only clamps on

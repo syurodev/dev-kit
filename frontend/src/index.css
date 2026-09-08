@@ -418,10 +418,23 @@
 }
 
 .shell-surface {
-  background-color: var(--surface-base);
+  background-color: var(--shell-surface-fill, var(--surface-base));
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-control);
   box-shadow: inset 0 1px 0 var(--glass-highlight);
+}
+
+/* The side panel takes surface/raised, one step above the content it sits
+   beside. Figma App Shell 116:1348 and its three sibling variants bind it there
+   now, after measuring Claude: its shell reads as three tones — sidebar 17,
+   content 21, panel 40 — where the panel is the LIGHTEST and slightly tinted,
+   so it reads as floating rather than as more of the same card. DevKit already
+   had the token for that: surface/raised is #23212c, violet-leaning, the same
+   character as Claude's rgb(40,42,55). It was simply never used here; the panel
+   and the content were both surface/base, which is why the shell read as one
+   flat sheet cut into pieces. */
+.shell-surface-raised {
+  --shell-surface-fill: var(--surface-raised);
 }
 
 /* The shell is flush to the window, so its bottom corners must be square: the
