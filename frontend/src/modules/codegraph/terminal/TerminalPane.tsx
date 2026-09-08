@@ -124,7 +124,7 @@ export function TerminalPane() {
     <div className="flex h-full min-h-0 flex-col">
       {error && (
         <div className="flex shrink-0 items-center gap-2 px-3 py-1.5">
-          <p className="min-w-0 flex-1 truncate text-body-12 text-destructive">{error}</p>
+          <p className="min-w-0 flex-1 truncate text-body-12 text-status-danger">{error}</p>
           <Button size="sm" variant="secondary" className="h-6 shrink-0 px-2 text-label-12" onClick={retry}>
             Retry
           </Button>

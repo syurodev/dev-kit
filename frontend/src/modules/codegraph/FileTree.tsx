@@ -1,6 +1,8 @@
 // frontend/src/modules/codegraph/FileTree.tsx
 import { useMemo, useRef, useState } from "react";
+import { ChevronRight, FileCode2, Folder } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { cn } from "@/lib/utils";
 import type { CodeGraphFileEntry } from "../../bridge/codegraph";
 
 type FileTreeProps = {
@@ -35,6 +37,9 @@ export function visibleEntries(entries: CodeGraphFileEntry[], expanded: Set<stri
   });
 }
 
+/** Figma `Files Tab Content` (862:33549): 28px rows, 16px per depth, chevron 10 · glyph 13 · name. */
+const ROW_HEIGHT = 28;
+
 export function FileTree({ entries, selectedPath, onSelectFile }: FileTreeProps) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const rows = useMemo(() => visibleEntries(entries, expanded), [entries, expanded]);
@@ -43,7 +48,7 @@ export function FileTree({ entries, selectedPath, onSelectFile }: FileTreeProps)
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 28,
+    estimateSize: () => ROW_HEIGHT,
     overscan: 12,
   });
 
@@ -66,12 +71,16 @@ export function FileTree({ entries, selectedPath, onSelectFile }: FileTreeProps)
           const entry = rows[item.index];
           const depth = depthOf(entry.path);
           const name = entry.path.slice(entry.path.lastIndexOf("/") + 1);
+          const selected = selectedPath === entry.path;
           return (
             <button
               key={entry.path}
-              className={`absolute left-0 top-0 flex w-full items-center gap-1 truncate px-2 text-left text-body-13 hover:bg-surface-raised ${
-                selectedPath === entry.path ? "bg-surface-raised" : ""
-              }`}
+              className={cn(
+                "absolute top-0 left-0 flex w-full items-center gap-1.5 rounded-sm border pr-2 text-left",
+                selected
+                  ? "border-border-subtle bg-surface-raised"
+                  : "border-transparent hover:bg-surface-raised/60",
+              )}
               style={{
                 height: item.size,
                 transform: `translateY(${item.start}px)`,
@@ -79,8 +88,31 @@ export function FileTree({ entries, selectedPath, onSelectFile }: FileTreeProps)
               }}
               onClick={() => (entry.isDir ? toggle(entry.path) : onSelectFile(entry.path))}
             >
-              <span className="text-muted-foreground">{entry.isDir ? (expanded.has(entry.path) ? "▾" : "▸") : ""}</span>
-              <span className={entry.isDir ? "font-medium" : ""}>{name}</span>
+              <span className="flex size-2.5 shrink-0 items-center justify-center text-text-tertiary">
+                {entry.isDir && (
+                  <ChevronRight
+                    size={10}
+                    className={cn("transition-transform", expanded.has(entry.path) && "rotate-90")}
+                  />
+                )}
+              </span>
+              {entry.isDir ? (
+                <Folder size={13} className="shrink-0 text-text-tertiary" />
+              ) : (
+                <FileCode2 size={13} className="shrink-0 text-text-tertiary" />
+              )}
+              <span
+                className={cn(
+                  "min-w-0 flex-1 truncate",
+                  entry.isDir
+                    ? "text-label-12 text-text-primary"
+                    : selected
+                      ? "text-body-12 text-text-primary"
+                      : "text-body-12 text-text-secondary",
+                )}
+              >
+                {name}
+              </span>
             </button>
           );
         })}

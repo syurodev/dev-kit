@@ -223,7 +223,7 @@ export function QueryConsole() {
         {queryResult && (
           <Button
             variant="outline"
-            size="lg"
+            size="default"
             className="bg-surface-raised"
             onClick={() => setShowExportModal(true)}
           >
@@ -233,7 +233,7 @@ export function QueryConsole() {
         )}
         <Button
           variant="default"
-          size="lg"
+          size="default"
           onClick={() => void executeQuery()}
           disabled={runningQuery || !selectedProfileId}
         >

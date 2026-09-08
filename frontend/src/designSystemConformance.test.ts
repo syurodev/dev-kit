@@ -25,7 +25,7 @@ const BASELINE: Record<string, { twText: number; rawPx: number; rawHex: number }
   // Converted 2026-09-08. The three remaining rawPx are the 9px canvas node
   // labels, which design-system.mdx names as a deliberate exception: a zoomable
   // canvas has its own scale and its labels are not UI text.
-  "modules/codegraph": { twText: 0, rawPx: 3, rawHex: 0 },
+  "modules/codegraph": { twText: 0, rawPx: 0, rawHex: 0 },
   // Converted 2026-09-08. 15 rawPx remain and none is a design step: 5 are the
   // ERD canvas node labels (same carve-out as CodeGraph) and 10 are dialog and
   // panel widths — content measures the Scale has no bucket for.

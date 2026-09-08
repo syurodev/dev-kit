@@ -129,7 +129,7 @@ export function DatabaseHeader() {
 
             <Button
               variant="outline"
-              size="lg"
+              size="default"
               className="bg-surface-raised"
               onClick={handleTest}
               disabled={testing}
@@ -139,7 +139,7 @@ export function DatabaseHeader() {
 
             <Button
               variant="outline"
-              size="lg"
+              size="default"
               className="bg-surface-raised"
               onClick={() => setShowConnectionOptionsDialog(true)}
             >

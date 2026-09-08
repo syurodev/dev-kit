@@ -1,20 +1,39 @@
 import { Button } from "@/components/ui/button";
-import { aggregateLabel } from "./planStatus";
 import type { CodeGraphPlanProgress } from "@/bridge/codegraphPlan";
 
 /**
- * Whole-plan state and the one human-only action.
+ * Figma plan `canvas-header` left half (482:8255): the PLAN chip and the
+ * plan's name, drawn into FlowCanvas's header slot.
+ */
+export function PlanHeader({ plan }: { plan: CodeGraphPlanProgress }) {
+  return (
+    <>
+      <span className="rounded-sm bg-status-success px-2 py-0.75 text-code-12-medium text-action-primary-foreground">
+        PLAN
+      </span>
+      <span className="truncate text-title-16 text-text-primary" title={plan.description}>
+        {plan.description || "Untitled plan"}
+      </span>
+    </>
+  );
+}
+
+/**
+ * The right half: "in_progress · 2/5 · 5 nodes · 4 edges" and the one
+ * human-only action.
  *
  * Approval is deliberately a single decision for the entire plan, not per node
  * — codegraph.mdx § "Bridge & MCP mới". A draft plan is inert until it happens.
  */
-export function PlanBar({
+export function PlanMeta({
   plan,
+  edgeCount,
   busy,
   onApprove,
   onRefresh,
 }: {
   plan: CodeGraphPlanProgress;
+  edgeCount: number;
   busy: boolean;
   onApprove: () => void;
   onRefresh: () => void;
@@ -22,37 +41,21 @@ export function PlanBar({
   const done = plan.nodes.filter((n) => n.status === "implemented_matching").length;
 
   return (
-    <div className="flex items-center gap-2 border-b border-border-subtle px-3 py-1.5">
-      <span className="text-label-12 text-text-primary">{aggregateLabel(plan.aggregate)}</span>
+    <>
       <span className="text-code-11 text-text-tertiary">
-        {done}/{plan.nodes.length} done
+        {plan.aggregate} · {done}/{plan.nodes.length} · {plan.nodes.length} nodes · {edgeCount}{" "}
+        edges
       </span>
-      {plan.description && (
-        <span className="min-w-0 flex-1 truncate text-caption-11 text-text-tertiary" title={plan.description}>
-          {plan.description}
-        </span>
-      )}
       {plan.state === "draft" ? (
-        <Button
-          size="sm"
-          className="ml-auto h-6 shrink-0 px-2 text-label-12"
-          disabled={busy}
-          onClick={onApprove}
-        >
+        <Button size="xs" disabled={busy} onClick={onApprove}>
           Approve plan
         </Button>
       ) : (
-        <span className="ml-auto shrink-0 text-caption-11 text-text-tertiary">approved</span>
+        <span className="text-code-11 text-text-tertiary">approved</span>
       )}
-      <Button
-        size="sm"
-        variant="secondary"
-        className="h-6 shrink-0 px-2 text-label-12"
-        disabled={busy}
-        onClick={onRefresh}
-      >
+      <Button size="xs" variant="outline" className="bg-surface-raised" disabled={busy} onClick={onRefresh}>
         Refresh
       </Button>
-    </div>
+    </>
   );
 }

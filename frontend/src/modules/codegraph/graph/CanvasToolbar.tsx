@@ -8,6 +8,7 @@ export type CanvasToolbarProps = {
   fitActive?: boolean;
 };
 
+/** Figma `canvas-toolbar` (482:4535): 26px tools on a soft strip, 3px inset. */
 export function CanvasToolbar({ onSearch, onFit, onExpand, fitActive }: CanvasToolbarProps) {
   const buttons = [
     { icon: Search, action: onSearch, active: false, label: "Search nodes" },
@@ -15,7 +16,7 @@ export function CanvasToolbar({ onSearch, onFit, onExpand, fitActive }: CanvasTo
     { icon: Maximize, action: onExpand, active: false, label: "Expand all" },
   ];
   return (
-    <div className="flex gap-0.5 rounded-control border border-border-subtle bg-surface-raised p-0.75">
+    <div className="flex gap-0.5 rounded-control border border-border-subtle bg-state-soft p-0.75">
       {buttons.map(({ icon: Icon, action, active, label }) => (
         <button
           key={label}
@@ -23,8 +24,8 @@ export function CanvasToolbar({ onSearch, onFit, onExpand, fitActive }: CanvasTo
           aria-label={label}
           onClick={action}
           className={cn(
-            "flex size-6.5 items-center justify-center rounded-md",
-            active && "bg-surface-tinted",
+            "flex size-6.5 items-center justify-center rounded-sm hover:bg-state-soft",
+            active && "bg-state-soft",
           )}
         >
           <Icon size={14} className="text-icon-secondary" />

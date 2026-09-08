@@ -1,14 +1,20 @@
 import type { PlanAggregate, PlanNodeStatus } from "@/bridge/codegraphPlan";
 
+/** Figma plan `badge` (862:33608): 16 tall, radius 6, Code/11, a 1px stroke. */
+export const PLAN_BADGE =
+  "inline-flex h-4 shrink-0 items-center rounded-sm border px-1.5 text-code-11 whitespace-nowrap";
+
 /**
- * Visual treatment per plan-node status.
+ * Visual treatment per plan-node status, read off Figma's plan sidebar
+ * (862:33605) and plan canvas (482:8255).
  *
  * Deliberately achromatic. The node's layer already spends the four accent
  * colours — status/info, status/success, status/warning and text/tertiary —
- * so status is carried by border style and a neutral badge instead. A green
- * "done" and a "Repository" node would otherwise be the same colour saying two
- * different things. `destructive` is the one exception: it belongs to no layer,
- * and diverged is the one state that has to read as a problem.
+ * so status is carried by border style (dashed = the plan is not satisfied)
+ * and a neutral badge. A green "done" and a "Repository" node would otherwise
+ * be the same colour saying two different things. `status-danger` is the one
+ * exception: it belongs to no layer, and diverged is the one state that has
+ * to read as a problem.
  */
 export const PLAN_STATUS: Record<
   PlanNodeStatus,
@@ -16,26 +22,26 @@ export const PLAN_STATUS: Record<
 > = {
   not_implemented: {
     label: "Planned",
-    border: "border-dashed border-foreground/25",
-    badge: "bg-foreground/5 text-foreground/50",
+    border: "border-dashed border-border-subtle",
+    badge: "border-border-subtle bg-state-soft text-text-secondary opacity-70",
     hint: "No code matches this FQN yet.",
   },
   pending_enhancement: {
     label: "Needs change",
-    border: "border-dashed border-foreground/50",
-    badge: "bg-foreground/10 text-foreground/70",
+    border: "border-dashed border-border",
+    badge: "border-border bg-state-soft text-text-secondary",
     hint: "The method exists but does not yet call what the plan says it should.",
   },
   implemented_matching: {
     label: "Done",
-    border: "border-solid border-foreground/20",
-    badge: "bg-foreground/10 text-foreground/60",
+    border: "border-solid border-border-subtle",
+    badge: "border-border-subtle bg-state-soft text-text-secondary",
     hint: "Code matches the plan.",
   },
   implemented_diverged: {
     label: "Diverged",
-    border: "border-solid border-2 border-destructive",
-    badge: "bg-destructive/15 text-destructive",
+    border: "border-solid border-2 border-status-danger",
+    badge: "border-status-danger bg-(--feedback-danger-soft) text-status-danger",
     hint: "Code exists but its calls do not match the planned edges.",
   },
 };

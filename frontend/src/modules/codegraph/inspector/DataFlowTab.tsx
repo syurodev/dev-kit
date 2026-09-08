@@ -57,12 +57,12 @@ export function DataFlowTab({ nodeId, onJump }: { nodeId: string; onJump: (id: s
     };
   }, [picked]);
 
-  if (error) return <p className="p-3 text-body-12 text-destructive">{error}</p>;
-  if (!fields) return <p className="p-3 text-body-12 text-muted-foreground">Loading fields…</p>;
+  if (error) return <p className="p-3 text-body-12 text-status-danger">{error}</p>;
+  if (!fields) return <p className="p-3 text-body-12 text-text-tertiary">Loading fields…</p>;
 
   if (fields.length === 0) {
     return (
-      <p className="p-3 text-body-12 text-muted-foreground">
+      <p className="p-3 text-body-12 text-text-tertiary">
         This node touches no fields, so there is nothing to trace.
       </p>
     );
@@ -90,12 +90,12 @@ export function DataFlowTab({ nodeId, onJump }: { nodeId: string; onJump: (id: s
       </div>
 
       {!picked && (
-        <p className="px-3 pb-3 text-body-12 text-muted-foreground">
+        <p className="px-3 pb-3 text-body-12 text-text-tertiary">
           Pick a field to trace it through the call graph.
         </p>
       )}
 
-      {picked && !trace && <p className="px-3 pb-3 text-body-12 text-muted-foreground">Tracing…</p>}
+      {picked && !trace && <p className="px-3 pb-3 text-body-12 text-text-tertiary">Tracing…</p>}
 
       {trace && (
         <>

@@ -68,7 +68,7 @@ export function BlastRadiusPanel({
             {files.length} dependent file{files.length === 1 ? "" : "s"}
           </span>
         )}
-        {error && <span className="truncate text-caption-11 text-destructive">{error}</span>}
+        {error && <span className="truncate text-caption-11 text-status-danger">{error}</span>}
       </div>
 
       {files && files.length > 0 && (

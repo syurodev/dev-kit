@@ -47,6 +47,17 @@ export type FlowCanvasProps = {
    * selection only reacts to clicks on the canvas itself.
    */
   selectedNodeId?: string | null;
+  /**
+   * Figma `canvas-header` (482:4528): what the graph is, at the left — a
+   * method chip and a path, or the PLAN chip and its name.
+   */
+  header?: ReactNode;
+  /** Right of the header, before the toolbar: "4 nodes · 3 edges" and friends. */
+  meta?: ReactNode;
+  /** `canvas-hint` (482:4564): the one-line glass card in the bottom-right. */
+  hint?: ReactNode;
+  /** Adds the dashed-border legend the plan canvas needs. */
+  planLegend?: boolean;
 };
 
 export function FlowCanvas(props: FlowCanvasProps) {
@@ -57,7 +68,21 @@ export function FlowCanvas(props: FlowCanvasProps) {
   );
 }
 
-function Canvas({ rootId, nodes, edges, onSelect, inspector, nodeType = "apiNode", buildData, edgeLabel, selectedNodeId }: FlowCanvasProps) {
+function Canvas({
+  rootId,
+  nodes,
+  edges,
+  onSelect,
+  inspector,
+  nodeType = "apiNode",
+  buildData,
+  edgeLabel,
+  selectedNodeId,
+  header,
+  meta,
+  hint,
+  planLegend,
+}: FlowCanvasProps) {
   const { getNodes, setNodes, fitView } = useReactFlow();
   const nodesInitialized = useNodesInitialized();
   const [placed, setPlaced] = useState(false);
@@ -148,34 +173,51 @@ function Canvas({ rootId, nodes, edges, onSelect, inspector, nodeType = "apiNode
   }, [nodesInitialized, placed, ranks, getNodes, setNodes, fitView]);
 
   return (
-    <div className={placed ? "size-full" : "size-full opacity-0"}>
-      <ReactFlow
-        defaultNodes={initialNodes}
-        defaultEdges={flowEdges}
-        nodeTypes={nodeTypes}
-        edgeTypes={edgeTypes}
-        // Read-only view: positions come from the layout, and nobody authors
-        // edges by hand, so both editing affordances are off.
-        nodesDraggable={false}
-        nodesConnectable={false}
-        onlyRenderVisibleElements
-        onNodeClick={(_, node) => onSelect?.(node.id)}
-        proOptions={{ hideAttribution: false }}
-      >
-        <Background gap={24} size={2} color="color-mix(in srgb, var(--text-primary) 8%, transparent)" />
-        <Panel position="bottom-left">
-          <LayerLegend />
-        </Panel>
-        <Panel position="top-right">
+    <div className="flex size-full flex-col px-6 pt-5">
+      {/* Header lives outside ReactFlow but inside its provider, so the
+          toolbar's fitView works and the row never pans with the graph. */}
+      <div className="flex shrink-0 items-center justify-between gap-4 pb-1">
+        <div className="flex min-w-0 items-center gap-2.5">{header}</div>
+        <div className="flex shrink-0 items-center gap-3.5">
+          {meta}
           <CanvasToolbar
             onSearch={() => {}}
             onFit={() => void fitView({ padding: 0.2, duration: 200 })}
             onExpand={() => {}}
             fitActive
           />
-        </Panel>
-        {inspector}
-      </ReactFlow>
+        </div>
+      </div>
+      <div className="h-px shrink-0 bg-border-subtle" />
+
+      <div className={placed ? "min-h-0 flex-1" : "min-h-0 flex-1 opacity-0"}>
+        <ReactFlow
+          defaultNodes={initialNodes}
+          defaultEdges={flowEdges}
+          nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
+          // Read-only view: positions come from the layout, and nobody authors
+          // edges by hand, so both editing affordances are off.
+          nodesDraggable={false}
+          nodesConnectable={false}
+          onlyRenderVisibleElements
+          onNodeClick={(_, node) => onSelect?.(node.id)}
+          proOptions={{ hideAttribution: false }}
+        >
+          <Background gap={24} size={2} color="color-mix(in srgb, var(--text-primary) 8%, transparent)" />
+          <Panel position="bottom-left">
+            <LayerLegend plan={planLegend} />
+          </Panel>
+          {hint && (
+            <Panel position="bottom-right">
+              <div className="rounded-md border border-glass-border bg-surface-glass-floating px-3 py-2.25 text-label-12 text-text-secondary shadow-[0_6px_10px_rgba(0,0,0,0.35)] backdrop-blur-lg">
+                {hint}
+              </div>
+            </Panel>
+          )}
+          {inspector}
+        </ReactFlow>
+      </div>
     </div>
   );
 }

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import type { CodeGraphPlanNode } from "@/bridge/codegraphPlan";
-import { PLAN_STATUS } from "./planStatus";
+import { PLAN_BADGE, PLAN_STATUS } from "./planStatus";
 
 /**
  * The selected plan node, with its FQN editable.
@@ -34,11 +35,9 @@ export function PlanNodeDetail({
   const changed = draft.trim() !== node.fqn && draft.trim().length > 0;
 
   return (
-    <div className="flex flex-col gap-1.5 border-b border-border-subtle px-3 py-2">
+    <div className="flex flex-col gap-1.5 border-b border-border-subtle px-6 py-2">
       <div className="flex items-center gap-2">
-        <span className={`shrink-0 rounded px-1.5 py-0.5 text-caption-11-medium ${status.badge}`}>
-          {status.label}
-        </span>
+        <span className={cn(PLAN_BADGE, status.badge)}>{status.label}</span>
         <span className="truncate text-label-12 text-text-primary">{node.label}</span>
         <span className="ml-auto shrink-0 text-caption-11 text-text-tertiary">{status.hint}</span>
       </div>
@@ -55,20 +54,14 @@ export function PlanNodeDetail({
               onChange={(e) => setDraft(e.target.value)}
               spellCheck={false}
               aria-label="Fully-qualified name"
-              className="min-w-0 flex-1 rounded-md border border-border-subtle bg-surface-tinted px-2 py-1 text-code-11 text-text-primary focus-visible:border-ring focus-visible:outline-none"
+              className="min-w-0 flex-1 rounded-md border border-border-subtle bg-state-soft px-2 py-1 text-code-11 text-text-primary focus-visible:border-ring focus-visible:outline-none"
             />
-            <Button
-              size="sm"
-              className="h-6 shrink-0 px-2 text-label-12"
-              disabled={busy || !changed}
-              onClick={() => onRelink(draft.trim())}
-            >
+            <Button size="xs" disabled={busy || !changed} onClick={() => onRelink(draft.trim())}>
               Relink
             </Button>
             <Button
-              size="sm"
+              size="xs"
               variant="ghost"
-              className="h-6 shrink-0 px-2 text-label-12"
               onClick={() => {
                 setDraft(node.fqn);
                 setEditing(false);
@@ -85,12 +78,7 @@ export function PlanNodeDetail({
             >
               {node.fqn}
             </span>
-            <Button
-              size="sm"
-              variant="secondary"
-              className="h-6 shrink-0 px-2 text-label-12"
-              onClick={() => setEditing(true)}
-            >
+            <Button size="xs" variant="outline" className="bg-surface-raised" onClick={() => setEditing(true)}>
               Relink…
             </Button>
           </>

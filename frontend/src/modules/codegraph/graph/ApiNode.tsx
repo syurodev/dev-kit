@@ -1,5 +1,5 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { LAYERS, layerOf } from "./tokens";
+import { ICON_BADGE, LAYERS, layerOf } from "./tokens";
 import { cn } from "@/lib/utils";
 
 export type ApiNodeData = {
@@ -12,6 +12,9 @@ export type ApiNodeData = {
 };
 
 /**
+ * Figma `API Node` (162:183): 268 wide, radius 14, padding 12, a 30px icon
+ * ring, the layer name in caps over the title, and a state-soft detail well.
+ *
  * State uses a neutral border ramp (subtle -> tertiary -> white 2px) rather
  * than the layer colour. `--border-focus` in the design system resolves to the
  * same hex as `--status-info`, so a focus-coloured ring is invisible on a
@@ -26,11 +29,10 @@ export function ApiNode({ data, selected }: NodeProps & { data: ApiNodeData }) {
   return (
     <div
       className={cn(
-        "group w-67 rounded-xl bg-surface-raised p-3",
-        "flex flex-col gap-2.5",
+        "group flex w-67 flex-col gap-2.5 rounded-lg bg-surface-raised p-3",
         selected
-          ? "border-2 border-text-primary shadow-[0_6px_16px_rgba(0,0,0,0.45)]"
-          : "border border-border-subtle shadow-[0_1px_3px_rgba(0,0,0,0.18)] hover:border-text-tertiary hover:shadow-[0_4px_12px_rgba(0,0,0,0.35)]",
+          ? "border-2 border-text-primary shadow-[0_6px_8px_rgba(0,0,0,0.45)]"
+          : "border border-border-subtle shadow-[0_1px_1.5px_rgba(0,0,0,0.18)] hover:border-text-tertiary hover:shadow-[0_4px_6px_rgba(0,0,0,0.35)]",
       )}
     >
       {/* Handles are the anchors the connector geometry attaches to: a straight
@@ -41,17 +43,11 @@ export function ApiNode({ data, selected }: NodeProps & { data: ApiNodeData }) {
       <Handle id="bottom" type="source" position={Position.Bottom} className="!opacity-0" />
 
       <div className="flex items-center gap-2.5">
-        <span
-          className="flex size-7.5 shrink-0 items-center justify-center rounded-control group-hover:brightness-125"
-          style={{ backgroundColor: `color-mix(in srgb, ${accent} 14%, transparent)` }}
-        >
+        <span className={ICON_BADGE}>
           <Icon size={16} strokeWidth={2} style={{ color: accent }} />
         </span>
         <span className="flex min-w-0 flex-col gap-0.5">
-          <span
-            className="font-mono text-[9px] font-medium tracking-[0.06em]"
-            style={{ color: accent }}
-          >
+          <span className="text-label-11-caps" style={{ color: accent }}>
             {visual.label}
           </span>
           <span
@@ -64,7 +60,7 @@ export function ApiNode({ data, selected }: NodeProps & { data: ApiNodeData }) {
       </div>
       <span
         title={data.detailTooltip ?? data.detail}
-        className="truncate rounded-lg bg-surface-tinted px-2.5 py-2 text-code-11 text-text-secondary"
+        className="truncate rounded-md bg-state-soft px-2.5 py-1.75 text-code-11 text-text-secondary"
       >
         {data.detail}
       </span>

@@ -1,4 +1,5 @@
 import { useEffect, useMemo } from "react";
+import { FileCode2, GitFork, Loader2, RotateCcw, TriangleAlert } from "lucide-react";
 import { Dialogs } from "@wailsio/runtime";
 import { keymap } from "@codemirror/view";
 import { CodeEditor } from "@/components/code-editor/CodeEditor";
@@ -8,12 +9,15 @@ import { useSplitPanel } from "@/components/ui/split-panel";
 import { CodeGraphSidebar } from "./CodeGraphSidebar";
 import { BlastRadiusPanel } from "./BlastRadiusPanel";
 import { NodeInspector } from "./inspector/NodeInspector";
-import { PlanBar } from "./plan/PlanBar";
+import { PlanHeader, PlanMeta } from "./plan/PlanBar";
 import { PlanNodeDetail } from "./plan/PlanNodeDetail";
 import { PlanCommentsPopover } from "./plan/PlanCommentsPopover";
 import { languageExtensionForPath } from "./editorLanguage";
 import { FlowCanvas } from "./graph/FlowCanvas";
+import { CanvasProgress, CanvasState } from "./graph/CanvasState";
 import { shortLabel } from "./graph/labels";
+import { methodChipClass } from "./graph/tokens";
+import { cn } from "@/lib/utils";
 import {
   openCodeGraphProject,
   listCodeGraphEndpoints,
@@ -334,6 +338,10 @@ export function CodeGraphView() {
     const targets = new Set(planEdges.map((e) => e.to));
     return planFlowNodes.find((n) => !targets.has(n.id))?.id ?? planFlowNodes[0]?.id ?? null;
   }, [planFlowNodes, planEdges]);
+  const rootEndpoint = useMemo(
+    () => endpoints.find((ep) => ep.entryNode === rootId) ?? null,
+    [endpoints, rootId],
+  );
   const snippet = useCodeGraphStore((s) => s.snippet);
   const snippetLoading = useCodeGraphStore((s) => s.snippetLoading);
   const snippetError = useCodeGraphStore((s) => s.snippetError);
@@ -410,45 +418,95 @@ export function CodeGraphView() {
       {activeTab === "endpoints" && (
         <div className="flex flex-1 flex-col overflow-hidden">
           {subgraph && rootId ? (
-            <div className="flex flex-1 flex-col overflow-hidden">
-              <div className="flex items-center gap-2 px-3 pt-2">
-                <span className="text-code-11 text-text-tertiary">
-                  {subgraph.nodes.length} nodes · {subgraph.edges.length} edges
-                </span>
-                {subgraph.truncated && (
+            <FlowCanvas
+              key={rootId}
+              rootId={rootId}
+              nodes={subgraph.nodes}
+              edges={subgraph.edges}
+              onSelect={(nodeId) => void inspectNode(nodeId)}
+              header={
+                rootEndpoint ? (
                   <>
                     <span
-                      title="The backend capped this subgraph; some nodes are not shown yet."
-                      className="text-code-11 text-status-warning"
+                      className={cn(
+                        "rounded-sm px-2 py-0.75 text-code-12-medium uppercase",
+                        methodChipClass(rootEndpoint.httpMethod),
+                      )}
                     >
-                      partial
+                      {rootEndpoint.httpMethod}
                     </span>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      className="h-6 px-2 text-label-12"
-                      disabled={loadingMore || !subgraph.continuation}
-                      onClick={() => void loadMoreNeighbors()}
-                    >
-                      {loadingMore ? "Loading…" : "Load more"}
-                    </Button>
+                    <span className="truncate text-title-16 text-text-primary">{rootEndpoint.path}</span>
                   </>
-                )}
-              </div>
-              <div className="flex-1 overflow-hidden">
-                <FlowCanvas
-                  key={rootId}
-                  rootId={rootId}
-                  nodes={subgraph.nodes}
-                  edges={subgraph.edges}
-                  onSelect={(nodeId) => void inspectNode(nodeId)}
-                />
-              </div>
-            </div>
+                ) : (
+                  <span className="truncate text-title-16 text-text-primary">{rootId}</span>
+                )
+              }
+              meta={
+                <>
+                  <span className="text-code-11 text-text-tertiary">
+                    {subgraph.nodes.length} nodes · {subgraph.edges.length} edges
+                  </span>
+                  {subgraph.truncated && (
+                    <>
+                      <span
+                        title="The backend capped this subgraph; some nodes are not shown yet."
+                        className="text-code-11 text-status-warning"
+                      >
+                        partial
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="xs"
+                        className="bg-surface-raised"
+                        disabled={loadingMore || !subgraph.continuation}
+                        onClick={() => void loadMoreNeighbors()}
+                      >
+                        {loadingMore ? "Loading…" : "Load more"}
+                      </Button>
+                    </>
+                  )}
+                </>
+              }
+              hint={
+                <>
+                  <strong className="text-text-primary">Click</strong> to open code
+                </>
+              }
+            />
+          ) : busy ? (
+            <CanvasState
+              icon={Loader2}
+              title="Analyzing codebase"
+              body="Indexing controllers, services and repositories. The graph opens as soon as the first route resolves."
+            >
+              <CanvasProgress />
+            </CanvasState>
+          ) : error ? (
+            <CanvasState icon={TriangleAlert} title="Could not analyze this project" body={error}>
+              <Button variant="outline" className="bg-surface-raised" onClick={() => reindex(projectPath)} disabled={!projectPath}>
+                Re-run analysis
+                <RotateCcw className="size-4" />
+              </Button>
+            </CanvasState>
           ) : (
-            <div className="flex h-full items-center justify-center p-4 text-body-13 text-muted-foreground">
-              Select an endpoint from the sidebar to view its flow graph.
-            </div>
+            <CanvasState
+              icon={GitFork}
+              title={projectPath ? "Pick an endpoint to graph" : "Open a Java project"}
+              body={
+                projectPath
+                  ? "Choose a route on the left and DevKit traces its controller, services and repositories from the analyzed codebase."
+                  : "DevKit indexes the project's controllers, services and repositories, then draws the call chain behind each route."
+              }
+            >
+              {projectPath ? (
+                <span className="flex items-center gap-2 rounded-md bg-state-soft px-2.5 py-1.25 text-body-12 text-text-tertiary">
+                  <span className="text-code-11">⌘K</span>
+                  search endpoints
+                </span>
+              ) : (
+                <Button onClick={pickAndOpenProject}>Open Java project…</Button>
+              )}
+            </CanvasState>
           )}
         </div>
       )}
@@ -457,12 +515,6 @@ export function CodeGraphView() {
         <div className="flex flex-1 flex-col overflow-hidden">
           {plan && planRootId ? (
             <>
-              <PlanBar
-                plan={plan}
-                busy={planBusy}
-                onApprove={() => void approvePlan()}
-                onRefresh={() => void loadPlan()}
-              />
               {selectedPlanNode && (
                 <PlanNodeDetail
                   node={selectedPlanNode}
@@ -477,6 +529,22 @@ export function CodeGraphView() {
                   nodes={planFlowNodes}
                   edges={planFlowEdges}
                   nodeType="planNode"
+                  planLegend
+                  header={<PlanHeader plan={plan} />}
+                  meta={
+                    <PlanMeta
+                      plan={plan}
+                      edgeCount={planEdges.length}
+                      busy={planBusy}
+                      onApprove={() => void approvePlan()}
+                      onRefresh={() => void loadPlan()}
+                    />
+                  }
+                  hint={
+                    <>
+                      <strong className="text-text-primary">Click</strong> to open comments
+                    </>
+                  }
                   buildData={(n) => {
                     const p = planById.get(n.id);
                     return {
@@ -509,12 +577,16 @@ export function CodeGraphView() {
                 />
               </div>
             </>
+          ) : planBusy ? (
+            <CanvasState icon={Loader2} title="Loading plan" body="Reading the plan and recomputing each node's status against the index.">
+              <CanvasProgress />
+            </CanvasState>
           ) : (
-            <div className="flex h-full items-center justify-center p-4 text-center text-body-13 text-muted-foreground">
-              {planBusy
-                ? "Loading plan…"
-                : "No plan for this project yet. An agent creates one with codegraph.proposeFlow; you approve it here."}
-            </div>
+            <CanvasState
+              icon={GitFork}
+              title="No plan for this project yet"
+              body="An agent creates one with codegraph.proposeFlow; you approve it here, and every node shows how far the code has caught up."
+            />
           )}
         </div>
       )}
@@ -523,9 +595,9 @@ export function CodeGraphView() {
         <div className="flex flex-1 flex-col overflow-hidden">
           {selectedFile ? (
             <div className="flex flex-1 flex-col overflow-hidden">
-              <div className="flex items-center justify-between border-b px-3 py-1.5 text-body-13 text-muted-foreground">
-                <span className="truncate font-mono">{selectedFile}</span>
-                {fileDirty && <span className="text-code-12 text-status-warning">unsaved</span>}
+              <div className="flex h-9 items-center justify-between border-b border-border-subtle px-6">
+                <span className="truncate text-code-11 text-text-secondary">{selectedFile}</span>
+                {fileDirty && <span className="text-code-11 text-status-warning">unsaved</span>}
               </div>
               <div className="flex-1 overflow-hidden">
                 <CodeEditor
@@ -536,14 +608,16 @@ export function CodeGraphView() {
               </div>
             </div>
           ) : (
-            <div className="flex h-full items-center justify-center p-4 text-body-13 text-muted-foreground">
-              Select a file from the sidebar to edit it. Ctrl/Cmd+S saves.
-            </div>
+            <CanvasState
+              icon={FileCode2}
+              title="Pick a file to edit"
+              body="Select a file from the sidebar to open it here. ⌘S saves it back to disk; Impact lists what else depends on it."
+            />
           )}
           {selectedFile && (
             <BlastRadiusPanel key={selectedFile} filePath={selectedFile} onOpenFile={openFile} />
           )}
-          {fileError && <p className="px-3 py-1 text-body-12 text-destructive">{fileError}</p>}
+          {fileError && <p className="px-6 py-1 text-body-12 text-status-danger">{fileError}</p>}
         </div>
       )}
     </div>
