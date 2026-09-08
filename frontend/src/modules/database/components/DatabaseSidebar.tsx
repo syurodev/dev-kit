@@ -4,7 +4,6 @@ import {
   RefreshCw,
   Folder,
   ChevronRight,
-  ChevronDown,
   Table as TableIcon,
   Columns,
   Key,
@@ -21,7 +20,6 @@ import {
   Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
   ContextMenu,
@@ -41,11 +39,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { SidebarSection } from "@/components/ui/sidebar-shell";
+import { cn } from "@/lib/utils";
 import { useDatabaseStore, type DatabaseFolder } from "../databaseStore";
 import { FolderIcon } from "../folderIcons";
 import { EditFolderDialog } from "./EditFolderDialog";
 import { DeleteProfileDialog } from "./DeleteProfileDialog";
-import { getEngineMeta } from "./EngineBadge";
+import { Chip, EngineMark } from "./EngineBadge";
 import { deleteProfile } from "../../../bridge/database";
 import { copyText } from "../../../bridge/clipboard";
 
@@ -67,6 +66,19 @@ function relativeTime(iso: string): string {
   return `${days} day${days === 1 ? "" : "s"} ago`;
 }
 
+/**
+ * Figma `DB / Sidebar Content` (741:8). Two labelled sections. Under
+ * CONNECTIONS, group rows at 32 (chevron 14 · glyph 16 · name in Body/13
+ * Medium · count in Code/11) and profile rows at 48 (engine mark · name over
+ * host in Code/11 · an env chip); the selected profile is raised with a
+ * subtle stroke. Under SCHEMA, a tree of 32px rows indented 8 / 24 / 40 for
+ * schema / table / column, each a chevron slot, a 16px glyph, the name, and
+ * a Code/11 count or type on the right.
+ *
+ * The page groups connections by environment; DevKit groups them by the
+ * folders the user makes. The rows are the page's, the model is DevKit's —
+ * layout is what the Figma is for.
+ */
 export function DatabaseSidebar() {
   const {
     profiles,
@@ -142,35 +154,49 @@ export function DatabaseSidebar() {
     }
   }
 
+  const profileItemProps = (p: (typeof profiles)[number], currentFolderId: string) => ({
+    profile: p,
+    isSelected: p.id === selectedProfileId,
+    onSelect: () => setSelectedProfileId(p.id),
+    onOptions: () => {
+      setSelectedProfileId(p.id);
+      setShowConnectionOptionsDialog(true);
+    },
+    onDelete: () => setDeletingProfileId(p.id),
+    folders,
+    currentFolderId,
+    onMove: (folderId: string) => assignProfileToFolder(p.id, folderId),
+  });
+
   return (
     <div className="flex h-full flex-col select-none">
       {/* One search, at the top, for the whole sidebar. It used to sit under the
           CONNECTIONS heading while also filtering the 161 tables two sections
           below — the box and the list it acted on were nowhere near each
-          other. */}
-      <div className="p-3 pb-3">
+          other. Not on the Figma page; kept, it is how 161 tables get found. */}
+      <div className="p-2 pb-1">
         <div className="relative">
-          <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-tertiary" />
+          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-text-tertiary" />
           <Input
             value={filterQuery}
             onChange={(e) => setFilterQuery(e.target.value)}
             placeholder="Search connections & tables…"
-            className="h-8 pl-8 pr-7 text-body-12 bg-surface-raised border-border"
+            className="h-8 border-border-subtle bg-surface-well pr-7 pl-8"
           />
           {filterQuery && (
             <button
               type="button"
               onClick={() => setFilterQuery("")}
-              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md text-text-tertiary hover:text-text-primary"
+              className="absolute top-1/2 right-2 -translate-y-1/2 rounded-md p-1 text-text-tertiary hover:text-text-primary"
               title="Clear search"
             >
-              <X className="w-3 h-3" />
+              <X className="size-3" />
             </button>
           )}
         </div>
       </div>
 
-      <div className="px-3 pb-2 flex items-center justify-between">
+      <div className="flex items-center justify-between pr-2">
         <SidebarSection
           label="Connections"
           count={profiles.length}
@@ -178,35 +204,33 @@ export function DatabaseSidebar() {
           onToggle={() => toggleSidebarSection("connections")}
         />
         <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6 text-text-secondary hover:text-text-primary"
-              onClick={() => void fetchProfiles()}
-              disabled={loadingProfiles}
-              title="Refresh connections"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${loadingProfiles ? "animate-spin" : ""}`} />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6 text-text-secondary hover:text-text-primary"
-              onClick={() => createFolder(`Folder ${folders.length + 1}`)}
-              title="New folder"
-            >
-              <FolderPlus className="w-3.5 h-3.5" />
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              className="h-6 px-2 text-body-12 gap-1"
-              onClick={() => setShowNewConnectionDialog(true)}
-              title="New connection"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>New</span>
-            </Button>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={() => void fetchProfiles()}
+            disabled={loadingProfiles}
+            title="Refresh connections"
+          >
+            <RefreshCw className={cn("size-3.5", loadingProfiles && "animate-spin")} />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={() => createFolder(`Folder ${folders.length + 1}`)}
+            title="New folder"
+          >
+            <FolderPlus className="size-3.5" />
+          </Button>
+          <Button
+            variant="outline"
+            size="xs"
+            className="bg-surface-raised"
+            onClick={() => setShowNewConnectionDialog(true)}
+            title="New connection"
+          >
+            <Plus className="size-3.5" />
+            New
+          </Button>
         </div>
       </div>
 
@@ -215,147 +239,117 @@ export function DatabaseSidebar() {
           empty column the height of the window while 161 tables scrolled in
           the bottom half. */}
       {openSections.connections && (
-      <div
-        className={`overflow-y-auto px-2 pb-2 space-y-2 ${
-          openSections.tables ? "shrink-0 max-h-[40%]" : "flex-1 min-h-0"
-        }`}
-      >
-        {/* Folders */}
-        {folderEntries.map(({ folder, profiles: folderProfiles }) => {
-          const visibleProfiles = folderProfiles.filter(
-            (p) => filterMatch(p.name) || filterMatch(p.database) || filterMatch(p.host)
-          );
-          if (filterQuery && visibleProfiles.length === 0) return null;
+        <div
+          className={cn(
+            "flex flex-col gap-0.5 overflow-y-auto px-2 pb-2",
+            openSections.tables ? "max-h-[40%] shrink-0" : "min-h-0 flex-1",
+          )}
+        >
+          {folderEntries.map(({ folder, profiles: folderProfiles }) => {
+            const visibleProfiles = folderProfiles.filter(
+              (p) => filterMatch(p.name) || filterMatch(p.database) || filterMatch(p.host),
+            );
+            if (filterQuery && visibleProfiles.length === 0) return null;
 
-          const isExpanded = expandedFolders[folder.id] !== false;
-          return (
-            <div key={folder.id} className="space-y-1">
-              <ContextMenu>
-              <ContextMenuTrigger asChild>
-              <div className="w-full flex items-center gap-2 px-2 py-1 rounded-md text-body-12 text-text-secondary hover:bg-surface-raised transition-colors group">
-                <button
-                  type="button"
-                  onClick={() => toggleFolder(folder.id)}
-                  className="flex items-center gap-2 flex-1 min-w-0 text-left hover:text-text-primary"
-                >
-                  {isExpanded ? (
-                    <ChevronDown className="w-3 h-3 text-text-tertiary shrink-0" />
-                  ) : (
-                    <ChevronRight className="w-3 h-3 text-text-tertiary shrink-0" />
-                  )}
-                  <FolderIcon
-                    name={folder.icon}
-                    className="w-3.5 h-3.5 shrink-0 text-action-primary"
-                  />
-                  <span className="text-caption-11-medium truncate">{folder.name}</span>
-                </button>
-                <span className="text-caption-11 text-text-tertiary">{folderProfiles.length}</span>
-                <button
-                  type="button"
-                  onClick={() => setEditingFolderId(folder.id)}
-                  className="p-1 rounded-md text-text-tertiary hover:text-text-primary opacity-0 group-hover:opacity-100"
-                  title={`Edit ${folder.name}`}
-                >
-                  <Pencil className="w-3 h-3" />
-                </button>
-              </div>
-              </ContextMenuTrigger>
-              <ContextMenuContent>
-                <ContextMenuItem onSelect={() => setEditingFolderId(folder.id)}>
-                  <Pencil />
-                  Edit folder
-                </ContextMenuItem>
-                <ContextMenuItem onSelect={() => createFolder(`Folder ${folders.length + 1}`)}>
-                  <FolderPlus />
-                  New folder
-                </ContextMenuItem>
-                <ContextMenuSeparator />
-                <ContextMenuItem variant="destructive" onSelect={() => deleteFolder(folder.id)}>
-                  <Trash2 />
-                  Delete folder
-                </ContextMenuItem>
-              </ContextMenuContent>
-              </ContextMenu>
+            const isExpanded = expandedFolders[folder.id] !== false;
+            return (
+              <div key={folder.id} className="flex flex-col gap-0.5">
+                <ContextMenu>
+                  <ContextMenuTrigger asChild>
+                    {/* Group row (741:11): 32 tall, chevron · glyph · name · count. */}
+                    <div className="group flex h-8 items-center gap-2 rounded-md pr-3 pl-2 text-text-secondary hover:bg-surface-raised">
+                      <button
+                        type="button"
+                        onClick={() => toggleFolder(folder.id)}
+                        className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                      >
+                        <ChevronRight
+                          className={cn(
+                            "size-3.5 shrink-0 text-text-tertiary transition-transform",
+                            isExpanded && "rotate-90",
+                          )}
+                        />
+                        <FolderIcon name={folder.icon} className="size-4 shrink-0 text-text-secondary" />
+                        <span className="truncate text-body-13-medium text-text-primary">
+                          {folder.name}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingFolderId(folder.id)}
+                        className="rounded-md p-1 text-text-tertiary opacity-0 hover:text-text-primary focus-visible:opacity-100 group-hover:opacity-100"
+                        title={`Edit ${folder.name}`}
+                      >
+                        <Pencil className="size-3" />
+                      </button>
+                      <span className="text-code-11 text-text-tertiary">{folderProfiles.length}</span>
+                    </div>
+                  </ContextMenuTrigger>
+                  <ContextMenuContent>
+                    <ContextMenuItem onSelect={() => setEditingFolderId(folder.id)}>
+                      <Pencil />
+                      Edit folder
+                    </ContextMenuItem>
+                    <ContextMenuItem onSelect={() => createFolder(`Folder ${folders.length + 1}`)}>
+                      <FolderPlus />
+                      New folder
+                    </ContextMenuItem>
+                    <ContextMenuSeparator />
+                    <ContextMenuItem variant="destructive" onSelect={() => deleteFolder(folder.id)}>
+                      <Trash2 />
+                      Delete folder
+                    </ContextMenuItem>
+                  </ContextMenuContent>
+                </ContextMenu>
 
-              {isExpanded && (
-                <div className="pl-4 space-y-1">
-                  {visibleProfiles.map((p) => (
-                    <ProfileItem
-                      key={p.id}
-                      profile={p}
-                      isSelected={p.id === selectedProfileId}
-                      onSelect={() => setSelectedProfileId(p.id)}
-                      onOptions={() => {
-                        setSelectedProfileId(p.id);
-                        setShowConnectionOptionsDialog(true);
-                      }}
-                      onDelete={() => setDeletingProfileId(p.id)}
-                      folders={folders}
-                      currentFolderId={folder.id}
-                      onMove={(folderId) => assignProfileToFolder(p.id, folderId)}
-                    />
+                {isExpanded &&
+                  visibleProfiles.map((p) => (
+                    <ProfileItem key={p.id} {...profileItemProps(p, folder.id)} />
                   ))}
-                </div>
+              </div>
+            );
+          })}
+
+          {ungroupedProfiles.length > 0 && (
+            <div className="flex flex-col gap-0.5">
+              {folderEntries.length > 0 && (
+                <span className="px-3 pt-2 pb-1 text-label-11-caps text-text-tertiary">Ungrouped</span>
               )}
+              {ungroupedProfiles
+                .filter((p) => filterMatch(p.name) || filterMatch(p.database) || filterMatch(p.host))
+                .map((p) => (
+                  <ProfileItem key={p.id} {...profileItemProps(p, "")} />
+                ))}
             </div>
-          );
-        })}
+          )}
 
-        {/* Ungrouped Profiles */}
-        {ungroupedProfiles.length > 0 && (
-          <div className="space-y-1 pt-1">
-            {folderEntries.length > 0 && (
-              <span className="px-2 text-label-11-caps text-text-tertiary">
-                Ungrouped
-              </span>
-            )}
-            {ungroupedProfiles
-              .filter((p) => filterMatch(p.name) || filterMatch(p.database) || filterMatch(p.host))
-              .map((p) => (
-                <ProfileItem
-                  key={p.id}
-                  profile={p}
-                  isSelected={p.id === selectedProfileId}
-                  onSelect={() => setSelectedProfileId(p.id)}
-                  onOptions={() => {
-                    setSelectedProfileId(p.id);
-                    setShowConnectionOptionsDialog(true);
-                  }}
-                  onDelete={() => setDeletingProfileId(p.id)}
-                  folders={folders}
-                  currentFolderId=""
-                  onMove={(folderId) => assignProfileToFolder(p.id, folderId)}
-                />
-              ))}
-          </div>
-        )}
-
-        {profiles.length === 0 && !loadingProfiles && (
-          <div className="text-center py-6 px-4 text-body-12 text-text-tertiary">
-            <p>No connections configured.</p>
-            <Button
-              variant="outline"
-              size="sm"
-              className="mt-2 text-body-12"
-              onClick={() => setShowNewConnectionDialog(true)}
-            >
-              <Plus className="w-3 h-3 mr-1" /> Add Profile
-            </Button>
-          </div>
-        )}
-      </div>
+          {profiles.length === 0 && !loadingProfiles && (
+            <div className="px-4 py-6 text-center text-body-12 text-text-tertiary">
+              <p>No connections configured.</p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-2"
+                onClick={() => setShowNewConnectionDialog(true)}
+              >
+                <Plus className="size-3" /> Add profile
+              </Button>
+            </div>
+          )}
+        </div>
       )}
 
       {/* The schema tree takes whatever is left — it is the list with 161 rows
           in it, so it is the one that needs the room. */}
       <div
-        className={`flex flex-col border-t border-border ${
-          openSections.tables ? "flex-1 min-h-0" : "shrink-0"
-        }`}
+        className={cn(
+          "flex flex-col border-t border-border-subtle",
+          openSections.tables ? "min-h-0 flex-1" : "shrink-0",
+        )}
       >
-        <div className="px-3 py-2 flex items-center justify-between gap-2">
+        <div className="flex items-center justify-between gap-2 pr-2">
           <SidebarSection
-            label="Tables"
+            label="Schema"
             count={filterQuery ? matchingTables : totalTables}
             open={openSections.tables}
             onToggle={() => toggleSidebarSection("tables")}
@@ -365,16 +359,16 @@ export function DatabaseSidebar() {
               a relative age and hides behind the button it belongs to once the
               rail gets narrow. */}
           {selectedProfileId ? (
-            <div className="flex items-center gap-1 min-w-0">
-              <span className="text-caption-11 text-text-tertiary truncate">
+            <div className="flex min-w-0 items-center gap-1">
+              <span className="truncate text-caption-11 text-text-tertiary">
                 {schemaSnapshot?.indexedAt
                   ? relativeTime(schemaSnapshot.indexedAt)
                   : "not indexed"}
               </span>
               <Button
                 variant="ghost"
-                size="icon"
-                className="h-6 w-6 text-text-tertiary hover:text-text-primary shrink-0"
+                size="icon-xs"
+                className="shrink-0"
                 onClick={() => void refreshSchema(selectedProfileId)}
                 disabled={indexingSchema}
                 title={
@@ -383,41 +377,42 @@ export function DatabaseSidebar() {
                     : "Index schema"
                 }
               >
-                <RefreshCw className={`w-3 h-3 ${indexingSchema ? "animate-spin" : ""}`} />
+                <RefreshCw className={cn("size-3", indexingSchema && "animate-spin")} />
               </Button>
             </div>
           ) : null}
         </div>
 
         {openSections.tables && (
-        <div className="flex-1 overflow-y-auto p-2 space-y-1 border-t border-border/60">
-          {selectedProfileId && schemaSnapshot?.namespace ? (
-            Object.entries(schemaSnapshot.namespace).map(([schemaName, tables]) => {
-              const isSchemaExpanded = expandedSchemas[schemaName] ?? true;
-              const tableEntries = Object.entries(tables || {});
+          <div className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2 pb-2">
+            {selectedProfileId && schemaSnapshot?.namespace ? (
+              Object.entries(schemaSnapshot.namespace).map(([schemaName, tables]) => {
+                const isSchemaExpanded = expandedSchemas[schemaName] ?? true;
+                const tableEntries = Object.entries(tables || {});
 
-              return (
-                <div key={schemaName} className="space-y-1">
-                  <button
-                    type="button"
-                    onClick={() => toggleSchemaExpand(schemaName)}
-                    className="w-full flex items-center gap-2 px-2 py-1 rounded-md text-body-12 text-text-secondary hover:text-text-primary hover:bg-surface-raised transition-colors"
-                  >
-                    {isSchemaExpanded ? (
-                      <ChevronDown className="w-3 h-3 text-text-tertiary" />
-                    ) : (
-                      <ChevronRight className="w-3 h-3 text-text-tertiary" />
-                    )}
-                    <Folder className="w-3.5 h-3.5 text-amber-500" />
-                    <span className="text-code-11 flex-1 text-left">
-                      {schemaName}
-                    </span>
-                    <span className="text-caption-11 text-text-tertiary">{tableEntries.length}</span>
-                  </button>
+                return (
+                  <div key={schemaName} className="flex flex-col gap-0.5">
+                    {/* Schema row (741:73): indent 8. */}
+                    <button
+                      type="button"
+                      onClick={() => toggleSchemaExpand(schemaName)}
+                      className="flex h-8 w-full items-center gap-2 rounded-md pr-3 pl-2 text-text-secondary hover:bg-surface-raised hover:text-text-primary"
+                    >
+                      <ChevronRight
+                        className={cn(
+                          "size-3.5 shrink-0 text-text-tertiary transition-transform",
+                          isSchemaExpanded && "rotate-90",
+                        )}
+                      />
+                      <Folder className="size-4 shrink-0 text-text-tertiary" />
+                      <span className="min-w-0 flex-1 truncate text-left text-body-13">
+                        {schemaName}
+                      </span>
+                      <span className="text-code-11 text-text-tertiary">{tableEntries.length}</span>
+                    </button>
 
-                  {isSchemaExpanded && (
-                    <div className="pl-4 space-y-1">
-                      {tableEntries
+                    {isSchemaExpanded &&
+                      tableEntries
                         .filter(([tableName]) => filterMatch(tableName))
                         .map(([tableName, columnNames]) => {
                           const tableKey = `${schemaName}.${tableName}`;
@@ -427,142 +422,147 @@ export function DatabaseSidebar() {
                           const loadedCols = tableColumnsMap[tableKey];
 
                           return (
-                            <div key={tableName} className="space-y-1">
+                            <div key={tableName} className="flex flex-col gap-0.5">
                               <ContextMenu>
-                              <ContextMenuTrigger asChild>
-                              <div
-                                className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-body-12 cursor-pointer group ${
-                                  isFocused
-                                    ? "bg-surface-raised text-action-primary"
-                                    : "text-text-primary hover:bg-surface-raised"
-                                }`}
-                                onClick={() => {
-                                  // Clicking a table is also how the ERD is
-                                  // focused — picking one out of 161 in a
-                                  // dropdown is not a real gesture.
-                                  setSelectedSchema(schemaName);
-                                  setSelectedTable(tableName);
-                                  void toggleTableExpand(schemaName, tableName);
-                                }}
-                                onDoubleClick={() => handleInsertTable(tableName)}
-                              >
-                                {isTableExpanded ? (
-                                  <ChevronDown className="w-2.5 h-2.5 text-text-tertiary" />
-                                ) : (
-                                  <ChevronRight className="w-2.5 h-2.5 text-text-tertiary" />
-                                )}
-                                <TableIcon
-                                  className={`w-3 h-3 ${
-                                    isFocused ? "text-action-primary" : "text-sky-400"
-                                  }`}
-                                />
-                                <span className="text-code-11 flex-1 truncate text-left">
-                                  {tableName}
-                                </span>
-                                {/* Clicking a row focuses the ERD. Without a
-                                    mark the diagram just changes and nothing
-                                    says which row did it. */}
-                                {isFocused ? (
-                                  <Crosshair
-                                    className="w-3 h-3 text-action-primary shrink-0"
-                                    aria-label="Focused in the ERD"
-                                  />
-                                ) : (
-                                  <span className="text-caption-11 text-text-tertiary opacity-0 group-hover:opacity-100">
-                                    {columnNames ? `${columnNames.length} cols` : ""}
-                                  </span>
-                                )}
-                              </div>
-                              </ContextMenuTrigger>
-                              {/* Inserting a SELECT was double-click only —
-                                  an action with no visible affordance at all.
-                                  The menu names it and keeps the shortcut. */}
-                              <ContextMenuContent>
-                                <ContextMenuItem onSelect={() => handleInsertTable(tableName)}>
-                                  Select 50 rows
-                                  <ContextMenuShortcut>Double-click</ContextMenuShortcut>
-                                </ContextMenuItem>
-                                <ContextMenuItem
-                                  onSelect={() => {
-                                    setSelectedSchema(schemaName);
-                                    setSelectedTable(tableName);
-                                    setActiveTab("erd");
-                                  }}
-                                >
-                                  <Crosshair />
-                                  Focus in ERD
-                                </ContextMenuItem>
-                                <ContextMenuItem onSelect={() => void copyText(tableName)}>
-                                  <Copy />
-                                  Copy table name
-                                </ContextMenuItem>
-                                <ContextMenuSeparator />
-                                <ContextMenuItem
-                                  onSelect={() => void refreshSchema(selectedProfileId)}
-                                  disabled={indexingSchema}
-                                >
-                                  <RefreshCw />
-                                  Re-index schema
-                                </ContextMenuItem>
-                              </ContextMenuContent>
+                                <ContextMenuTrigger asChild>
+                                  {/* Table row (741:80): indent 24. */}
+                                  <div
+                                    className={cn(
+                                      "group flex h-8 cursor-pointer items-center gap-2 rounded-md pr-3 pl-6",
+                                      isFocused
+                                        ? "bg-surface-raised text-text-primary"
+                                        : "text-text-secondary hover:bg-surface-raised hover:text-text-primary",
+                                    )}
+                                    onClick={() => {
+                                      // Clicking a table is also how the ERD is
+                                      // focused — picking one out of 161 in a
+                                      // dropdown is not a real gesture.
+                                      setSelectedSchema(schemaName);
+                                      setSelectedTable(tableName);
+                                      void toggleTableExpand(schemaName, tableName);
+                                    }}
+                                    onDoubleClick={() => handleInsertTable(tableName)}
+                                  >
+                                    <ChevronRight
+                                      className={cn(
+                                        "size-3.5 shrink-0 text-text-tertiary transition-transform",
+                                        isTableExpanded && "rotate-90",
+                                      )}
+                                    />
+                                    <TableIcon
+                                      className={cn(
+                                        "size-4 shrink-0",
+                                        isFocused ? "text-status-info" : "text-text-tertiary",
+                                      )}
+                                    />
+                                    <span className="min-w-0 flex-1 truncate text-left text-body-13">
+                                      {tableName}
+                                    </span>
+                                    {/* Clicking a row focuses the ERD. Without a
+                                        mark the diagram just changes and nothing
+                                        says which row did it. */}
+                                    {isFocused ? (
+                                      <Crosshair
+                                        className="size-3.5 shrink-0 text-status-info"
+                                        aria-label="Focused in the ERD"
+                                      />
+                                    ) : (
+                                      <span className="text-code-11 text-text-tertiary">
+                                        {columnNames ? `${columnNames.length} cols` : ""}
+                                      </span>
+                                    )}
+                                  </div>
+                                </ContextMenuTrigger>
+                                {/* Inserting a SELECT was double-click only —
+                                    an action with no visible affordance at all.
+                                    The menu names it and keeps the shortcut. */}
+                                <ContextMenuContent>
+                                  <ContextMenuItem onSelect={() => handleInsertTable(tableName)}>
+                                    Select 50 rows
+                                    <ContextMenuShortcut>Double-click</ContextMenuShortcut>
+                                  </ContextMenuItem>
+                                  <ContextMenuItem
+                                    onSelect={() => {
+                                      setSelectedSchema(schemaName);
+                                      setSelectedTable(tableName);
+                                      setActiveTab("erd");
+                                    }}
+                                  >
+                                    <Crosshair />
+                                    Focus in ERD
+                                  </ContextMenuItem>
+                                  <ContextMenuItem onSelect={() => void copyText(tableName)}>
+                                    <Copy />
+                                    Copy table name
+                                  </ContextMenuItem>
+                                  <ContextMenuSeparator />
+                                  <ContextMenuItem
+                                    onSelect={() => void refreshSchema(selectedProfileId)}
+                                    disabled={indexingSchema}
+                                  >
+                                    <RefreshCw />
+                                    Re-index schema
+                                  </ContextMenuItem>
+                                </ContextMenuContent>
                               </ContextMenu>
 
-                              {isTableExpanded && (
-                                <div className="pl-4 space-y-1 border-l border-border/40 ml-3 my-1">
-                                  {loadedCols ? (
-                                    loadedCols.map((col) => (
+                              {/* Column rows (741:89): indent 40, blank chevron
+                                  slot, glyph, name, type in Code/11. */}
+                              {isTableExpanded &&
+                                (loadedCols
+                                  ? loadedCols.map((col) => (
                                       <div
                                         key={col.name}
-                                        className="flex items-center justify-between gap-1 px-1 py-1 text-code-11 text-text-secondary hover:text-text-primary"
+                                        className="flex h-8 items-center gap-2 rounded-md pr-3 pl-10 text-text-secondary hover:text-text-primary"
                                       >
-                                        <div className="flex items-center gap-1 truncate">
-                                          {col.name.endsWith("_id") || col.name === "id" ? (
-                                            <Key className="w-2.5 h-2.5 text-amber-400 shrink-0" />
-                                          ) : (
-                                            <Columns className="w-2.5 h-2.5 text-text-tertiary shrink-0" />
-                                          )}
-                                          <span className="truncate">{col.name}</span>
-                                        </div>
-                                        <span className="text-caption-11 text-text-tertiary bg-surface-raised px-1 rounded-md">
+                                        <span className="size-3.5 shrink-0" />
+                                        {col.name.endsWith("_id") || col.name === "id" ? (
+                                          <Key className="size-4 shrink-0 text-text-tertiary" />
+                                        ) : (
+                                          <Columns className="size-4 shrink-0 text-text-tertiary" />
+                                        )}
+                                        <span className="min-w-0 flex-1 truncate text-body-13">
+                                          {col.name}
+                                        </span>
+                                        <span className="text-code-11 text-text-tertiary">
                                           {col.dataType}
                                         </span>
                                       </div>
                                     ))
-                                  ) : (
-                                    <div className="text-caption-11 text-text-tertiary py-1">
-                                      {(columnNames || []).map((colName) => (
-                                        <div key={colName} className="px-1 py-1 font-mono truncate">
+                                  : (columnNames || []).map((colName) => (
+                                      <div
+                                        key={colName}
+                                        className="flex h-8 items-center gap-2 rounded-md pr-3 pl-10 text-text-secondary"
+                                      >
+                                        <span className="size-3.5 shrink-0" />
+                                        <Columns className="size-4 shrink-0 text-text-tertiary" />
+                                        <span className="min-w-0 flex-1 truncate text-body-13">
                                           {colName}
-                                        </div>
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
-                              )}
+                                        </span>
+                                      </div>
+                                    )))}
                             </div>
                           );
                         })}
-                    </div>
-                  )}
-                </div>
-              );
-            })
-          ) : (
-            <div className="text-center py-8 text-body-12 text-text-tertiary">
-              {selectedProfileId ? (
-                indexingSchema ? (
-                  <p className="flex items-center justify-center gap-2">
-                    <RefreshCw className="w-3 h-3 animate-spin" /> Indexing schema…
-                  </p>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="py-8 text-center text-body-12 text-text-tertiary">
+                {selectedProfileId ? (
+                  indexingSchema ? (
+                    <p className="flex items-center justify-center gap-2">
+                      <RefreshCw className="size-3 animate-spin" /> Indexing schema…
+                    </p>
+                  ) : (
+                    <p>Schema cache empty. Click refresh above to index.</p>
+                  )
                 ) : (
-                  <p>Schema cache empty. Click refresh above to index.</p>
-                )
-              ) : (
-                <p>Select a connection to view its schema.</p>
-              )}
-            </div>
-          )}
-        </div>
+                  <p>Select a connection to view its schema.</p>
+                )}
+              </div>
+            )}
+          </div>
         )}
       </div>
 
@@ -593,6 +593,12 @@ export function DatabaseSidebar() {
   );
 }
 
+/**
+ * Profile row (741:19): 48 tall, the engine's mark, the name over the host in
+ * Code/11, and an env chip on the right. Selected is raised with a subtle
+ * stroke; the hover-only actions sit between the text and the chip so the
+ * chip never moves.
+ */
 function ProfileItem({
   profile,
   isSelected,
@@ -612,155 +618,158 @@ function ProfileItem({
   currentFolderId: string;
   onMove: (folderId: string) => void;
 }) {
-  const engineMeta = getEngineMeta(profile.engine);
-  const isProd = profile.env?.toLowerCase() === "prod" || profile.env?.toLowerCase() === "production";
+  const env = (profile.env || "").toLowerCase();
+  const isProd = env === "prod" || env === "production";
 
   return (
     <ContextMenu>
-    <ContextMenuTrigger asChild>
-    <div
-      className={`group relative flex items-center justify-between p-2 rounded-lg text-body-12 cursor-pointer transition-colors border ${
-        isSelected
-          ? "bg-surface-raised border-action-primary/40 text-text-primary shadow-xs"
-          : "border-transparent text-text-secondary hover:bg-surface-raised/60 hover:text-text-primary"
-      }`}
-      onClick={onSelect}
-    >
-      <div className="flex items-start gap-2 truncate flex-1 min-w-0">
-        <span className={`w-2 h-2 rounded-full mt-1 shrink-0 ${engineMeta.accentDot}`} />
-        <div className="truncate flex-1">
-          <div className="flex items-center gap-2">
-            <span className="text-title-13 text-text-primary truncate">{profile.name}</span>
-            {isProd ? (
-              <Badge variant="destructive" className="text-caption-11 px-1 py-0 h-4">
-                PROD
-              </Badge>
-            ) : profile.env ? (
-              <Badge variant="outline" className="text-caption-11 px-1 py-0 h-4 text-text-tertiary">
-                {profile.env}
-              </Badge>
-            ) : null}
-          </div>
-          <div className="text-caption-11 text-text-tertiary truncate font-mono mt-1">
-            {profile.username}@{profile.host}:{profile.port}/{profile.database}
-          </div>
-        </div>
-      </div>
-
-      <div className="flex items-center gap-1 shrink-0">
-        {profile.readOnly && (
-          <span title="Safe-mode (Read-Only) active">
-            <Shield className="w-3 h-3 text-status-warning" />
-          </span>
-        )}
-        {profile.sshProfileId && (
-          <span title="SSH Tunnel enabled">
-            <Radio className="w-3 h-3 text-status-info" />
-          </span>
-        )}
-
-        <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 ml-1">
-          {/* Figma drew the folder dialog but not the way a profile gets into
-              one. A menu is the smallest thing that works and reads: the list
-              is short, and it says where the profile is now. */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                className="p-1 text-text-tertiary hover:text-text-primary rounded-md"
-                onClick={(e) => e.stopPropagation()}
-                title="Move to folder"
-              >
-                <FolderInput className="w-3 h-3" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-              <DropdownMenuItem onSelect={() => onMove("")} disabled={!currentFolderId}>
-                <Folder />
-                Ungrouped
-              </DropdownMenuItem>
-              {folders.map((f) => (
-                <DropdownMenuItem
-                  key={f.id}
-                  onSelect={() => onMove(f.id)}
-                  disabled={f.id === currentFolderId}
-                >
-                  <FolderIcon name={f.icon} className="size-4" />
-                  {f.name}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <button
-            type="button"
-            className="p-1 text-text-tertiary hover:text-text-primary rounded-md"
-            onClick={(e) => {
-              e.stopPropagation();
-              onOptions();
-            }}
-            title="Connection options"
-          >
-            <Settings2 className="w-3 h-3" />
-          </button>
-          <button
-            type="button"
-            className="p-1 text-text-tertiary hover:text-status-danger rounded-md"
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete();
-            }}
-            title="Delete profile"
-          >
-            <Trash2 className="w-3 h-3" />
-          </button>
-        </div>
-      </div>
-    </div>
-    </ContextMenuTrigger>
-
-    <ContextMenuContent>
-      <ContextMenuSub>
-        <ContextMenuSubTrigger>
-          <FolderInput />
-          Move to folder
-        </ContextMenuSubTrigger>
-        <ContextMenuSubContent>
-          <ContextMenuItem onSelect={() => onMove("")} disabled={!currentFolderId}>
-            <Folder />
-            Ungrouped
-          </ContextMenuItem>
-          {folders.map((f) => (
-            <ContextMenuItem
-              key={f.id}
-              onSelect={() => onMove(f.id)}
-              disabled={f.id === currentFolderId}
+      <ContextMenuTrigger asChild>
+        <div
+          className={cn(
+            "group flex h-12 cursor-pointer items-center gap-2 rounded-md border pr-3 pl-2 transition-colors",
+            isSelected
+              ? "border-border-subtle bg-surface-raised"
+              : "border-transparent hover:bg-surface-raised/60",
+          )}
+          onClick={onSelect}
+        >
+          <EngineMark engine={profile.engine} />
+          <div className="flex min-w-0 flex-1 flex-col">
+            <span
+              className={cn(
+                "truncate",
+                isSelected ? "text-body-13-medium text-text-primary" : "text-body-13 text-text-secondary",
+              )}
             >
-              <FolderIcon name={f.icon} className="size-4" />
-              {f.name}
+              {profile.name}
+            </span>
+            <span className="truncate text-code-11 text-text-tertiary">
+              {profile.host}:{profile.port}
+              {profile.database ? ` · ${profile.database}` : ""}
+            </span>
+          </div>
+
+          {profile.readOnly && (
+            <span title="Safe-mode (Read-Only) active">
+              <Shield className="size-3.5 text-text-tertiary" />
+            </span>
+          )}
+          {profile.sshProfileId && (
+            <span title="SSH Tunnel enabled">
+              <Radio className="size-3.5 text-text-tertiary" />
+            </span>
+          )}
+
+          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 has-[:focus-visible]:opacity-100">
+            {/* Figma drew the folder dialog but not the way a profile gets into
+                one. A menu is the smallest thing that works and reads: the list
+                is short, and it says where the profile is now. */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="rounded-md p-1 text-text-tertiary hover:text-text-primary"
+                  onClick={(e) => e.stopPropagation()}
+                  title="Move to folder"
+                >
+                  <FolderInput className="size-3" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                <DropdownMenuItem onSelect={() => onMove("")} disabled={!currentFolderId}>
+                  <Folder />
+                  Ungrouped
+                </DropdownMenuItem>
+                {folders.map((f) => (
+                  <DropdownMenuItem
+                    key={f.id}
+                    onSelect={() => onMove(f.id)}
+                    disabled={f.id === currentFolderId}
+                  >
+                    <FolderIcon name={f.icon} className="size-4" />
+                    {f.name}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <button
+              type="button"
+              className="rounded-md p-1 text-text-tertiary hover:text-text-primary"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOptions();
+              }}
+              title="Connection options"
+            >
+              <Settings2 className="size-3" />
+            </button>
+            <button
+              type="button"
+              className="rounded-md p-1 text-text-tertiary hover:text-status-danger"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete();
+              }}
+              title="Delete profile"
+            >
+              <Trash2 className="size-3" />
+            </button>
+          </div>
+
+          {profile.env ? (
+            <Chip
+              tone={isProd ? "danger" : "default"}
+              className={cn("h-5 px-2", !isProd && "text-text-tertiary")}
+            >
+              {env}
+            </Chip>
+          ) : null}
+        </div>
+      </ContextMenuTrigger>
+
+      <ContextMenuContent>
+        <ContextMenuSub>
+          <ContextMenuSubTrigger>
+            <FolderInput />
+            Move to folder
+          </ContextMenuSubTrigger>
+          <ContextMenuSubContent>
+            <ContextMenuItem onSelect={() => onMove("")} disabled={!currentFolderId}>
+              <Folder />
+              Ungrouped
             </ContextMenuItem>
-          ))}
-        </ContextMenuSubContent>
-      </ContextMenuSub>
-      <ContextMenuItem onSelect={onOptions}>
-        <Settings2 />
-        Connection options
-      </ContextMenuItem>
-      <ContextMenuItem
-        onSelect={() =>
-          void copyText(
-            `${profile.username}@${profile.host}:${profile.port}/${profile.database}`,
-          )
-        }
-      >
-        <Copy />
-        Copy connection target
-      </ContextMenuItem>
-      <ContextMenuSeparator />
-      <ContextMenuItem variant="destructive" onSelect={onDelete}>
-        <Trash2 />
-        Delete connection
-      </ContextMenuItem>
-    </ContextMenuContent>
+            {folders.map((f) => (
+              <ContextMenuItem
+                key={f.id}
+                onSelect={() => onMove(f.id)}
+                disabled={f.id === currentFolderId}
+              >
+                <FolderIcon name={f.icon} className="size-4" />
+                {f.name}
+              </ContextMenuItem>
+            ))}
+          </ContextMenuSubContent>
+        </ContextMenuSub>
+        <ContextMenuItem onSelect={onOptions}>
+          <Settings2 />
+          Connection options
+        </ContextMenuItem>
+        <ContextMenuItem
+          onSelect={() =>
+            void copyText(
+              `${profile.username}@${profile.host}:${profile.port}/${profile.database}`,
+            )
+          }
+        >
+          <Copy />
+          Copy connection target
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem variant="destructive" onSelect={onDelete}>
+          <Trash2 />
+          Delete connection
+        </ContextMenuItem>
+      </ContextMenuContent>
     </ContextMenu>
   );
 }

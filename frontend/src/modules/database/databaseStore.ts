@@ -115,6 +115,9 @@ export type DatabaseStoreState = {
   queryStartTime: number | null;
   queryError: string;
   queryStatus: string;
+  /** Wall-clock time of the last successful run — Figma's "412 ms" beside
+   * the row count (742:37). null until a query has finished. */
+  queryDurationMs: number | null;
 
   // Selected cell for CellInspector
   inspectedCell: { columnName: string; value: string } | null;
@@ -194,6 +197,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   queryStartTime: null,
   queryError: "",
   queryStatus: "",
+  queryDurationMs: null,
 
   inspectedCell: null,
 
@@ -226,6 +230,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       queryResult: null,
       queryError: "",
       queryStatus: "",
+      queryDurationMs: null,
       tableColumnsMap: {},
       // A focused table belongs to the database it was picked from.
       selectedTable: "",
@@ -358,11 +363,13 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     const { selectedProfileId, sql } = get();
     if (!selectedProfileId) return;
 
+    const startedAt = Date.now();
     set({
       runningQuery: true,
-      queryStartTime: Date.now(),
+      queryStartTime: startedAt,
       queryError: "",
       queryStatus: "",
+      queryDurationMs: null,
       queryResult: null,
     });
 
@@ -373,6 +380,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
         runningQuery: false,
         queryStartTime: null,
         queryStatus: `Success: ${result.rowCount} row(s) returned`,
+        queryDurationMs: Date.now() - startedAt,
       });
     } catch (e) {
       set({
@@ -380,6 +388,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
         runningQuery: false,
         queryStartTime: null,
         queryStatus: "",
+        queryDurationMs: null,
       });
     }
   },
