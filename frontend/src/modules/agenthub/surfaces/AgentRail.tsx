@@ -104,7 +104,7 @@ export function AgentRail({
       className={cn(
         // No fill: panel-surface behind the rail is the ground. pl-3 pr-5
         // leaves the right margin the shell's scroll ruler occupies.
-        "flex h-full w-[320px] flex-col overflow-hidden pt-0 pr-5 pb-3 pl-3 select-none",
+        "flex h-full w-80 flex-col overflow-hidden pt-0 pr-5 pb-3 pl-3 select-none",
         className,
       )}
     >
@@ -150,7 +150,7 @@ export function AgentRail({
           <p className="text-body-13-medium text-text-secondary">
             No agents running
           </p>
-          <p className="w-[232px] text-caption-11 text-text-tertiary">
+          <p className="w-58 text-caption-11 text-text-tertiary">
             Open Agent Hub to start one — it needs a vendor and a working
             directory.
           </p>

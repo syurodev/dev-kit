@@ -30,12 +30,12 @@ export function AgentImage({ src, name = "image.png", dimensions, className }: A
     <div
       data-testid="agent-image"
       className={cn(
-        "flex w-full max-w-[400px] flex-col overflow-hidden rounded-control",
+        "flex w-full max-w-100 flex-col overflow-hidden rounded-control",
         "border border-border-subtle bg-surface-raised",
         className,
       )}
     >
-      <div className="flex h-[225px] w-full shrink-0 items-center justify-center bg-surface-base select-none">
+      <div className="flex h-56.25 w-full shrink-0 items-center justify-center bg-surface-base select-none">
         {src && !failed ? (
           <img
             src={src}

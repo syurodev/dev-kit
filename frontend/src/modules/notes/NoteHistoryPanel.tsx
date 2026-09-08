@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { History, RotateCcw } from "lucide-react";
+import { Clock, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { cn } from "@/lib/utils";
 import {
   getNoteVersion,
   listNoteVersions,
@@ -25,12 +26,23 @@ export function relativeAge(iso: string, now: number = Date.now()): string {
   return `${days} day${days === 1 ? "" : "s"} ago`;
 }
 
+/** Figma history row (424:3583): the trigger is the only coloured word. */
+function triggerClass(trigger: string): string {
+  if (trigger === "pre-restore") return "text-status-recovery";
+  return "text-text-tertiary";
+}
+
+const ROW = "flex h-8 w-full items-center gap-2 rounded-md border px-3 text-left";
+
 /**
- * Figma `Notes / History Panel Content` and `Notes / History Diff Content`.
+ * Figma `Notes / History Panel Content` (424:3578) and `History Diff`
+ * (803:3680). A clock and "History" over the checkpoint rule, then one 32px
+ * row per version — "v14" in Code/12 Medium, its age in Code/11, the trigger
+ * at the right — with the picked row on a soft fill inside a focus stroke.
  *
- * The list is versions; picking one diffs it against what is on screen now.
- * Current is a row of its own so the top of the list is always the thing you
- * are comparing against, not a version that happens to match it.
+ * Picking one diffs it against what is on screen now. Current is a row of
+ * its own so the top of the list is always the thing you are comparing
+ * against, not a version that happens to match it.
  */
 export function NoteHistoryPanel({
   noteId,
@@ -86,34 +98,36 @@ export function NoteHistoryPanel({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="border-b border-border px-3 py-2">
-        <div className="flex items-center gap-2">
-          <History className="size-4 text-text-secondary" />
-          <span className="text-title-14 text-text-primary">History</span>
-        </div>
-        <p className="mt-0.5 text-caption-11 text-text-tertiary">
+      <div className="flex flex-col gap-1.5 px-4 pt-5 pb-2">
+        <span className="flex items-center gap-2 text-body-14-medium text-text-primary">
+          <Clock className="size-3.5 text-text-secondary" />
+          History
+        </span>
+        <span className="text-code-11 text-text-tertiary">
           checkpoints every idle 5 min · keeps last 50
-        </p>
+        </span>
       </div>
 
       {error && (
-        <div className="border-b border-status-danger/30 bg-status-danger/10 px-3 py-2 text-body-12 text-status-danger">
+        <div className="mx-4 mb-2 rounded-md border border-(--border-danger) bg-(--feedback-danger-soft) px-3 py-2 text-body-12 text-status-danger">
           {error}
         </div>
       )}
 
       <ScrollArea className="min-h-0 flex-1">
-        <ul className="p-2 text-body-12">
+        <ul className="flex flex-col gap-1.5 px-4 pb-4">
           <li>
             <button
               type="button"
               onClick={() => setSelected(null)}
-              className={`flex w-full items-baseline gap-2 rounded px-2 py-1.5 text-left ${
-                selected ? "hover:bg-surface-raised" : "bg-surface-raised text-text-primary"
-              }`}
+              className={cn(
+                ROW,
+                selected ? "border-transparent hover:bg-state-soft" : "border-status-info bg-state-soft",
+              )}
             >
-              <span className="font-mono text-text-primary">current</span>
-              <span className="text-text-tertiary">now</span>
+              <span className="text-code-12-medium text-text-primary">v{versions.length + 1}</span>
+              <span className="text-code-11 text-text-tertiary">now</span>
+              <span className="ml-auto text-code-11 text-(--brand-text)">current</span>
             </button>
           </li>
           {versions.map((version, index) => (
@@ -121,15 +135,18 @@ export function NoteHistoryPanel({
               <button
                 type="button"
                 onClick={() => void select(version)}
-                className={`flex w-full items-baseline gap-2 rounded px-2 py-1.5 text-left ${
+                className={cn(
+                  ROW,
                   selected?.id === version.id
-                    ? "bg-surface-raised text-text-primary"
-                    : "hover:bg-surface-raised"
-                }`}
+                    ? "border-status-info bg-state-soft"
+                    : "border-transparent hover:bg-state-soft",
+                )}
               >
-                <span className="font-mono text-text-primary">v{versions.length - index}</span>
-                <span className="text-text-tertiary">{relativeAge(version.createdAt)}</span>
-                <span className="ml-auto text-caption-11 text-text-tertiary">{version.trigger}</span>
+                <span className="text-code-12-medium text-text-primary">v{versions.length - index}</span>
+                <span className="text-code-11 text-text-tertiary">{relativeAge(version.createdAt)}</span>
+                <span className={cn("ml-auto text-code-11", triggerClass(version.trigger))}>
+                  {version.trigger}
+                </span>
               </button>
             </li>
           ))}
@@ -137,9 +154,9 @@ export function NoteHistoryPanel({
       </ScrollArea>
 
       {selected && (
-        <div className="flex min-h-0 flex-[2] flex-col border-t border-border">
+        <div className="flex min-h-0 flex-[2] flex-col border-t border-border-subtle">
           <ScrollArea className="min-h-0 flex-1">
-            <pre className="p-3 text-code-11">
+            <pre className="p-4 text-code-11">
               {diff.map((line, i) => (
                 <div
                   key={i}
@@ -147,7 +164,7 @@ export function NoteHistoryPanel({
                     line.kind === "added"
                       ? "bg-status-success/10 text-status-success"
                       : line.kind === "removed"
-                        ? "bg-status-danger/10 text-status-danger"
+                        ? "bg-(--feedback-danger-soft) text-status-danger"
                         : "text-text-secondary"
                   }
                 >
@@ -157,8 +174,8 @@ export function NoteHistoryPanel({
               ))}
             </pre>
           </ScrollArea>
-          <div className="border-t border-border p-2">
-            <Button size="sm" className="w-full" onClick={() => void restore()}>
+          <div className="border-t border-border-subtle px-4 py-3">
+            <Button className="w-full" onClick={() => void restore()}>
               <RotateCcw />
               Restore this version
             </Button>

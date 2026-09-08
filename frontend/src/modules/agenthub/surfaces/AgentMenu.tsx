@@ -80,7 +80,7 @@ export function AgentMenu({
         data-testid="agent-menu"
         data-mode={mode}
         className={cn(
-          "w-[320px] rounded-control border-border-subtle bg-surface-glass-floating p-1",
+          "w-80 rounded-control border-border-subtle bg-surface-glass-floating p-1",
           className,
         )}
       >
@@ -94,7 +94,7 @@ export function AgentMenu({
           <DropdownMenuItem
             data-testid="agent-menu-browse"
             onSelect={onBrowseContext}
-            className="h-8 gap-2 rounded-[6px] p-2"
+            className="h-8 gap-2 rounded-sm p-2"
           >
             <FolderOpen className="size-3 shrink-0" aria-hidden="true" />
             <span className="min-w-0 flex-1 truncate text-body-12 text-text-primary">
@@ -109,7 +109,7 @@ export function AgentMenu({
                 key={command.name}
                 data-testid="agent-menu-command"
                 onSelect={() => onSelectCommand?.(command.name)}
-                className="h-8 gap-2 rounded-[6px] p-2"
+                className="h-8 gap-2 rounded-sm p-2"
               >
                 <CommandIcon className="size-3 shrink-0" aria-hidden="true" />
                 <span className="min-w-0 flex-1 truncate text-code-12 text-text-primary">
@@ -129,7 +129,7 @@ export function AgentMenu({
                   key={file.path}
                   data-testid="agent-menu-context"
                   onSelect={() => onSelectContext?.(file.path)}
-                  className="h-8 gap-2 rounded-[6px] p-2"
+                  className="h-8 gap-2 rounded-sm p-2"
                 >
                   <Glyph className="size-3 shrink-0" aria-hidden="true" />
                   <span className="min-w-0 flex-1 truncate text-code-12 text-text-primary">

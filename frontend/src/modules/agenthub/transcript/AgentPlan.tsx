@@ -20,9 +20,9 @@ export type AgentPlanProps = {
  * as cancelled.
  *
  * Marks, read off the exported SVGs rather than guessed:
- *   completed    filled #99E1D9 — status/success
- *   in_progress  filled #B2D5E5 — status/info, matching Tool Call running
- *   pending      1px ring #8B8E8A — text/tertiary, hollow because nothing
+ *   completed    filled — status/success
+ *   in_progress  filled — status/info, matching Tool Call running
+ *   pending      1px ring — text/tertiary, hollow because nothing
  *                has happened yet
  *
  * Only the in-progress step steps up to Medium/primary. That is the line you

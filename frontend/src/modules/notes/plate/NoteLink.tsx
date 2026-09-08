@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { FileText } from "lucide-react";
+import { FileText, Link2 } from "lucide-react";
 import { createPlatePlugin } from "platejs/react";
 import { PlateElement, type PlateElementProps } from "platejs/react";
 import type { TComboboxInputElement } from "platejs";
@@ -52,13 +52,15 @@ export function NoteLinkElement(props: PlateElementProps) {
         contentEditable={false}
         data-note-link={noteId}
         title={state === "deleted" ? "This note is in the trash" : undefined}
-        className={`inline-flex items-center gap-1 rounded px-1 align-baseline text-[0.95em] ${
+        className={`inline-flex items-center gap-1 rounded-sm border px-1.75 py-0.5 align-baseline text-label-12 ${
           state === "live"
-            ? "bg-action-primary/10 text-action-primary"
-            : "bg-surface-raised text-text-tertiary line-through"
+            ? "border-status-info bg-status-info/8 text-status-info"
+            : state === "deleted"
+              ? "border-glass-border bg-state-soft text-text-tertiary line-through opacity-75"
+              : "border-dashed border-glass-border bg-state-soft text-text-tertiary line-through"
         }`}
       >
-        <FileText className="size-3" />
+        <Link2 className="size-2.75" />
         {label || (state === "missing" ? "deleted note" : "…")}
       </span>
       {props.children}

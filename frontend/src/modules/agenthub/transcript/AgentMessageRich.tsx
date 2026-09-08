@@ -34,7 +34,7 @@ function Inline({ text }: { text: string }) {
             return (
               <code
                 key={idx}
-                className="rounded-[6px] bg-surface-base px-1 text-code-12 text-text-primary"
+                className="rounded-sm bg-surface-base px-1 text-code-12 text-text-primary"
               >
                 {token.value}
               </code>
@@ -124,7 +124,7 @@ function Block({ block }: { block: MarkdownBlock }) {
 
     case "table":
       return (
-        <div className="w-full overflow-x-auto rounded-[6px] border border-border-subtle">
+        <div className="w-full overflow-x-auto rounded-sm border border-border-subtle">
           <table className="w-full border-collapse">
             <thead>
               <tr className="bg-surface-base">
@@ -176,7 +176,7 @@ export function AgentMessageRich({ text, author, className }: AgentMessageRichPr
       {author ? (
         <p className="text-caption-11 whitespace-nowrap text-text-tertiary">{author}</p>
       ) : null}
-      <div className="flex w-full flex-col gap-3 rounded-[10px] bg-surface-raised p-3 select-text">
+      <div className="flex w-full flex-col gap-3 rounded-control bg-surface-raised p-3 select-text">
         {blocks.map((block, idx) => (
           <Block key={idx} block={block} />
         ))}

@@ -67,7 +67,7 @@ export function AgentToolTerminal({
         ) : null}
       </div>
 
-      <pre className="w-full overflow-x-auto rounded-[6px] bg-surface-base p-2 text-code-11 whitespace-pre text-text-secondary select-text">
+      <pre className="w-full overflow-x-auto rounded-sm bg-surface-base p-2 text-code-11 whitespace-pre text-text-secondary select-text">
         <code>{output || "(no output)"}</code>
       </pre>
     </div>

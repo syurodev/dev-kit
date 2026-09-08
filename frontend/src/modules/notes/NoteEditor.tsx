@@ -3,10 +3,15 @@ import {
   ArrowLeft,
   Bold,
   Code,
+  FileText,
+  Folder,
   Italic,
+  Link2,
+  Palette,
   PanelRight,
   History,
   Strikethrough,
+  Tag,
   Trash2,
   Underline,
   X,
@@ -14,7 +19,6 @@ import {
 import { KEYS } from "platejs";
 import { Plate, usePlateEditor } from "platejs/react";
 import { toast } from "sonner";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Editor, EditorContainer } from "@/components/ui/editor";
 import { FloatingToolbar } from "@/components/ui/floating-toolbar";
@@ -78,7 +82,9 @@ function TagChip({
   readOnly?: boolean;
 }) {
   return (
-    <Badge variant="secondary" className="gap-1.5 bg-muted text-foreground">
+    // Tag / Chip (378:2674): state-soft on a subtle stroke, radius 6, the
+    // name in 11 Medium and a 10px remove glyph.
+    <span className="inline-flex items-center gap-1.25 rounded-sm border border-border-subtle bg-state-soft py-0.75 pr-1.5 pl-2 text-caption-11-medium text-text-secondary">
       <span
         className="size-1.5 shrink-0 rounded-full"
         style={{ background: tagChipVar(tag) }}
@@ -89,13 +95,13 @@ function TagChip({
         <button
           type="button"
           aria-label={`Remove ${tag}`}
-          className="inline-flex"
+          className="inline-flex text-text-tertiary hover:text-text-primary"
           onClick={onRemove}
         >
-          <X className="size-3" />
+          <X className="size-2.5" />
         </button>
       ) : null}
-    </Badge>
+    </span>
   );
 }
 
@@ -111,17 +117,16 @@ function NoteBacklinks({ noteId }: { noteId: string }) {
   if (backlinks.length === 0) return null;
 
   return (
-    <div className="space-y-1.5">
-      <span className="text-label-11-caps text-text-tertiary">
-        Backlinks · {backlinks.length}
-      </span>
-      <ul className="space-y-1.5">
+    <div className="flex flex-col gap-4.5">
+      <MetaLabel icon={Link2}>Backlinks · {backlinks.length}</MetaLabel>
+      <ul className="-mt-2 flex flex-col gap-2">
         {backlinks.map((note) => (
-          <li key={note.id} className="rounded border border-border bg-surface-raised p-2">
-            <p className="truncate text-body-13-medium text-text-primary">
-              {note.title || "Untitled"}
-            </p>
-            <p className="mt-0.5 line-clamp-1 text-caption-11 text-text-tertiary">{note.preview}</p>
+          <li key={note.id} className="flex flex-col gap-0.75 rounded-control bg-state-soft px-3 py-2.25">
+            <span className="flex items-center gap-1.5">
+              <Link2 className="size-2.75 shrink-0 text-text-tertiary" />
+              <span className="truncate text-label-12 text-text-primary">{note.title || "Untitled"}</span>
+            </span>
+            <p className="truncate text-caption-11 text-text-tertiary">{note.preview}</p>
           </li>
         ))}
       </ul>
@@ -129,6 +134,22 @@ function NoteBacklinks({ noteId }: { noteId: string }) {
   );
 }
 
+/** Meta panel `label-row` (445:1225): a 12px glyph beside a caps label. */
+function MetaLabel({ icon: Icon, children }: { icon: typeof Folder; children: React.ReactNode }) {
+  return (
+    <span className="flex items-center gap-1.75 text-label-11-caps text-text-tertiary">
+      <Icon className="size-3" />
+      {children}
+    </span>
+  );
+}
+
+/**
+ * Figma `Notes / Meta Panel Content` (424:3542): "Note details", then FOLDER
+ * (a select), COLOR (dots + "Inherit from folder"), TAGS (a chip field with
+ * the inherited line under it) and BACKLINKS · n as soft cards. 20px inset,
+ * 18px between groups.
+ */
 function NoteMetaPanel({
   noteId,
   folders,
@@ -157,13 +178,12 @@ function NoteMetaPanel({
   onRemoveTag: (tag: string) => void;
 }) {
   return (
-    <div className="flex flex-col gap-5 p-4">
-      <div>
-        <p className="mb-2 text-label-11-caps text-muted-foreground">
-          Folder
-        </p>
+    <div className="flex flex-col gap-4.5 p-5">
+      <span className="text-body-14-medium text-text-primary">Note details</span>
+      <div className="flex flex-col gap-4.5">
+        <MetaLabel icon={Folder}>Folder</MetaLabel>
         <Select value={folderId || "ungrouped"} onValueChange={onFolderChange}>
-          <SelectTrigger size="sm" className="w-full" aria-label="note-folder">
+          <SelectTrigger className="w-full border-border bg-state-soft" aria-label="note-folder">
             <SelectValue placeholder="Folder" />
           </SelectTrigger>
           <SelectContent>
@@ -184,53 +204,41 @@ function NoteMetaPanel({
         </Select>
       </div>
 
-      <div>
-        <p className="mb-2 text-label-11-caps text-muted-foreground">
-          Color
-        </p>
+      <div className="flex flex-col gap-4.5">
+        <MetaLabel icon={Palette}>Color</MetaLabel>
         <ColorPicker value={color} onChange={onColorChange} allowInherit />
       </div>
 
-      <div>
-        <p className="mb-2 text-label-11-caps text-muted-foreground">
-          Tags
-        </p>
-        <Input
-          aria-label="Add tag"
-          placeholder="Add tag…"
-          value={tagDraft}
-          onChange={(e) => onTagDraftChange(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === ",") {
-              e.preventDefault();
-              onAddTag(tagDraft);
-            }
-          }}
-          onBlur={() => {
-            if (tagDraft.trim()) {
-              onAddTag(tagDraft);
-            }
-          }}
-          className="h-8"
-        />
-        {ownTags.length > 0 || inherited.length > 0 ? (
-          <div className="mt-2 space-y-1.5">
-            {ownTags.length > 0 ? (
-              <div className="flex flex-wrap gap-1">
-                {ownTags.map((tag) => (
-                  <TagChip key={tag} tag={tag} onRemove={() => onRemoveTag(tag)} />
-                ))}
-              </div>
-            ) : null}
-            {inherited.length > 0 ? (
-              <div className="flex flex-wrap items-center gap-1">
-                <span className="text-body-12 text-muted-foreground">From folder:</span>
-                {inherited.map((tag) => (
-                  <TagChip key={tag} tag={tag} readOnly />
-                ))}
-              </div>
-            ) : null}
-          </div>
+      <div className="flex flex-col gap-4.5">
+        <MetaLabel icon={Tag}>Tags</MetaLabel>
+        {/* Tag / Input (378:2678): chips and the caret share one field. */}
+        <label className="flex min-h-9 w-full flex-wrap items-center gap-1.5 rounded-md border border-border bg-state-soft py-1.5 pr-2.5 pl-2">
+          {ownTags.map((tag) => (
+            <TagChip key={tag} tag={tag} onRemove={() => onRemoveTag(tag)} />
+          ))}
+          <input
+            aria-label="Add tag"
+            placeholder="Add tag…"
+            value={tagDraft}
+            onChange={(e) => onTagDraftChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === ",") {
+                e.preventDefault();
+                onAddTag(tagDraft);
+              }
+            }}
+            onBlur={() => {
+              if (tagDraft.trim()) {
+                onAddTag(tagDraft);
+              }
+            }}
+            className="min-w-16 flex-1 bg-transparent text-body-12 text-text-primary outline-none placeholder:text-text-tertiary"
+          />
+        </label>
+        {inherited.length > 0 ? (
+          <span className="-mt-2 truncate text-code-11 text-text-tertiary">
+            inherited from folder:  {inherited.join("  ")}
+          </span>
         ) : null}
       </div>
 
@@ -618,52 +626,51 @@ export function NoteEditor({ params }: NoteEditorProps) {
           </Button>
         </div>
       )}
-      <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2">
-        <Button
-          type="button"
-          size="icon-sm"
-          variant="ghost"
-          aria-label="Back to notes"
-          onClick={onBack}
-        >
-          <ArrowLeft className="size-4" />
-        </Button>
-        <nav
-          aria-label="Note breadcrumb"
-          className="flex min-w-0 items-center gap-1 text-body-12 text-muted-foreground"
-        >
-          <button type="button" className="shrink-0 hover:text-foreground" onClick={onBack}>
-            Notes
-          </button>
-          <span aria-hidden>/</span>
-          <span className="truncate">{folderName}</span>
-          <span aria-hidden>/</span>
-          <span className="truncate text-foreground">{title || "Untitled"}</span>
-        </nav>
-        <span className="ml-auto shrink-0 text-caption-11 text-muted-foreground">
-          {status === "saving" ? "Saving…" : status === "saved" ? "Saved" : null}
-        </span>
-        <Button
-          type="button"
-          size="icon-sm"
-          variant="ghost"
-          aria-label="Delete note"
-          onClick={() => void onDelete()}
-        >
-          <Trash2 className="size-4" />
-        </Button>
-      </div>
       {saveError ? (
         <p
           role="alert"
-          className="shrink-0 border-b border-border px-4 py-1 text-body-12 text-destructive"
+          className="shrink-0 border-b border-border-subtle px-6 py-1 text-body-12 text-status-danger"
         >
           {saveError}
         </p>
       ) : null}
       <Plate editor={editor} onChange={() => scheduleSave(title)}>
         <EditorContainer className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-[720px] px-6 pt-10 pb-24">
+          {/* Editor Content (424:3473): the crumb sits on the writing column's
+              own left edge, 20 down; the column starts at 56; 720 wide. No
+              header bar — the tab strip above is the header. */}
+          <div className="mx-auto w-full max-w-180 px-6 pt-5 pb-24">
+            <div className="flex h-4 items-center gap-2 text-code-11 text-text-tertiary">
+              <button
+                type="button"
+                aria-label="Back to notes"
+                className="shrink-0 hover:text-text-primary"
+                onClick={onBack}
+              >
+                <ArrowLeft className="size-3.25" />
+              </button>
+              <FileText className="size-3.25 shrink-0" />
+              <nav aria-label="Note breadcrumb" className="flex min-w-0 items-center gap-1">
+                <button type="button" className="shrink-0 hover:text-text-primary" onClick={onBack}>
+                  Notes
+                </button>
+                <span aria-hidden>/</span>
+                <span className="truncate">{folderName}</span>
+                <span aria-hidden>/</span>
+                <span className="truncate text-text-secondary">{title || "Untitled"}</span>
+              </nav>
+              <span className="ml-auto shrink-0">
+                {status === "saving" ? "Saving…" : status === "saved" ? "Saved" : null}
+              </span>
+              <button
+                type="button"
+                aria-label="Delete note"
+                className="shrink-0 hover:text-status-danger"
+                onClick={() => void onDelete()}
+              >
+                <Trash2 className="size-3.25" />
+              </button>
+            </div>
             <Input
               aria-label="note-title"
               value={title}
@@ -672,9 +679,9 @@ export function NoteEditor({ params }: NoteEditorProps) {
                 setTitle(e.target.value);
                 scheduleSave(e.target.value);
               }}
-              className="h-auto w-full border-none bg-transparent px-0 py-1 text-heading-24 shadow-none focus-visible:ring-0"
+              className="mt-5 h-auto w-full border-none bg-transparent px-0 py-1 text-display-32 shadow-none focus-visible:ring-0"
             />
-            <Editor placeholder="Write something..." className="mt-6 px-0" />
+            <Editor placeholder="Write something..." className="mt-4 px-0" />
           </div>
           <FloatingToolbar>
             <MarkToolbarButton nodeType={KEYS.bold} tooltip="Bold">

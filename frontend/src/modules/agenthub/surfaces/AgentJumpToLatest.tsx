@@ -38,7 +38,7 @@ export function AgentJumpToLatest({
       data-testid="agent-jump-to-latest"
       className={cn(
         "inline-flex items-center gap-1 rounded-full px-3 py-1",
-        "border border-border-subtle bg-surface-glass-floating backdrop-blur-[12px]",
+        "border border-border-subtle bg-surface-glass-floating backdrop-blur-md",
         "text-caption-11-medium whitespace-nowrap text-text-secondary",
         "hover:text-text-primary focus-visible:ring-ring focus-visible:ring-1 focus-visible:outline-none",
         "cursor-pointer select-none",

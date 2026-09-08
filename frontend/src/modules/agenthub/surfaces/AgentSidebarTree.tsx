@@ -154,7 +154,7 @@ export function AgentSidebarTree({
   return (
     <div
       data-testid="agent-sidebar-tree"
-      className={cn("flex h-full w-full max-w-[264px] flex-col", className)}
+      className={cn("flex h-full w-full max-w-66 flex-col", className)}
     >
       <div className="flex w-full shrink-0 items-center gap-2 p-3">
         <span className="min-w-0 flex-1 text-label-12 text-text-secondary">
@@ -166,7 +166,7 @@ export function AgentSidebarTree({
           size="xs"
           data-testid="agent-tree-new"
           onClick={onNewSession}
-          className="h-6 rounded-[6px] border-border-subtle px-2 text-caption-11-medium text-text-secondary"
+          className="h-6 rounded-sm border-border-subtle px-2 text-caption-11-medium text-text-secondary"
         >
           + New
         </Button>

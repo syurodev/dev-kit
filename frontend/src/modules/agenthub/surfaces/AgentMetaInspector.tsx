@@ -96,8 +96,8 @@ export function AgentMetaInspector({
         data-testid="agent-meta-inspector"
         showCloseButton={false}
         className={cn(
-          "w-[544px] max-w-[calc(100%-2rem)] gap-4 rounded-[14px] p-5 sm:max-w-[544px]",
-          "border border-(--glass-border) bg-(--surface-glass-modal) backdrop-blur-[16px]",
+          "w-136 max-w-[calc(100%-2rem)] gap-4 rounded-lg p-5 sm:max-w-136",
+          "border border-(--glass-border) bg-(--surface-glass-modal) backdrop-blur-lg",
           "shadow-[0px_20px_48px_-8px_rgba(0,0,0,0.5)] ring-0",
           className,
         )}
@@ -138,7 +138,7 @@ export function AgentMetaInspector({
             disabled={!raw}
             data-testid="meta-inspector-copy"
             onClick={handleCopy}
-            className="h-6 rounded-[6px] border-border-subtle px-2 text-caption-11-medium text-text-secondary"
+            className="h-6 rounded-sm border-border-subtle px-2 text-caption-11-medium text-text-secondary"
           >
             {copied ? "Copied" : "Copy"}
           </Button>
@@ -147,7 +147,7 @@ export function AgentMetaInspector({
         <pre
           data-testid="meta-inspector-raw"
           className={cn(
-            "max-h-[240px] w-full overflow-auto rounded-control p-3",
+            "max-h-60 w-full overflow-auto rounded-control p-3",
             "border border-border-subtle bg-surface-base",
             "text-code-11 whitespace-pre-wrap text-text-secondary select-text",
           )}

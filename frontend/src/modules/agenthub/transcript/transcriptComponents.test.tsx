@@ -375,7 +375,7 @@ describe("Agent Hub Transcript Leaves", () => {
       expect(html).not.toContain("<img");
       // The canvas keeps its height so the transcript does not jump as
       // attachments resolve.
-      expect(html).toContain("h-[225px]");
+      expect(html).toContain("h-56.25");
     });
   });
 

@@ -97,8 +97,8 @@ export function AgentPermissionToast({
       data-testid="agent-permission-toast"
       data-env={env}
       className={cn(
-        "flex w-full max-w-[420px] flex-col gap-3 rounded-control p-4",
-        "border border-(--glass-border) bg-(--glass-float-bg) backdrop-blur-[12px]",
+        "flex w-full max-w-105 flex-col gap-3 rounded-control p-4",
+        "border border-(--glass-border) bg-(--glass-float-bg) backdrop-blur-md",
         "shadow-[0px_12px_32px_-4px_rgba(0,0,0,0.45),inset_0px_1px_0px_0px_rgba(255,255,255,0.06)]",
         className,
       )}
@@ -155,7 +155,7 @@ export function AgentPermissionToast({
           value={elapsedPercent}
           aria-label="Time left to answer"
           data-testid="toast-deadline"
-          className="h-[3px] min-w-0 flex-1 bg-(--state-soft) [&_[data-slot=progress-indicator]]:bg-text-tertiary"
+          className="h-0.75 min-w-0 flex-1 bg-(--state-soft) [&_[data-slot=progress-indicator]]:bg-text-tertiary"
         />
         <span className="shrink-0 text-caption-11 text-text-tertiary whitespace-nowrap">
           {expired ? "expired" : `${secondsLeft}s left`}

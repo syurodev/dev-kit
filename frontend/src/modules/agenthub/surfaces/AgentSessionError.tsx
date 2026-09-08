@@ -60,7 +60,7 @@ export function AgentSessionError({
       data-testid="agent-session-error"
       data-cause={cause}
       className={cn(
-        "flex w-full max-w-[536px] flex-col gap-2 rounded-control p-3",
+        "flex w-full max-w-134 flex-col gap-2 rounded-control p-3",
         "bg-(--feedback-danger-soft) border border-(--border-danger)",
         className,
       )}

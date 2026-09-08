@@ -21,20 +21,20 @@ import { join } from "node:path";
 // Surfaces already converted sit at 0 and must stay there. The rest carry their
 // debt as a number; lower it as you convert, never raise it.
 const BASELINE: Record<string, { twText: number; rawPx: number; rawHex: number }> = {
-  "modules/agenthub": { twText: 0, rawPx: 45, rawHex: 6 },
-  // Converted 2026-09-08. The three remaining rawPx are the 9px canvas node
-  // labels, which design-system.mdx names as a deliberate exception: a zoomable
-  // canvas has its own scale and its labels are not UI text.
+  // Converted 2026-09-09: arbitrary px moved onto the spacing scale (w-80,
+  // max-w-66, h-56.25…) and the hex in the comments went with them.
+  "modules/agenthub": { twText: 0, rawPx: 0, rawHex: 0 },
+  // Reconciled with Figma 14 on 2026-09-09. The 9px canvas labels became
+  // text-label-11-caps — consistency across surfaces beat the literal size.
   "modules/codegraph": { twText: 0, rawPx: 0, rawHex: 0 },
   // Converted 2026-09-08. 15 rawPx remain and none is a design step: 5 are the
   // ERD canvas node labels (same carve-out as CodeGraph) and 10 are dialog and
   // panel widths — content measures the Scale has no bucket for.
   "modules/database": { twText: 0, rawPx: 15, rawHex: 0 },
   "modules/kafka": { twText: 0, rawPx: 0, rawHex: 0 },
-  // Converted 2026-09-08. The one remaining rawPx is max-w-[720px], the note
-  // writing column — a content measure, not a design step; the scale has no
-  // bucket for it and inventing one would be worse than the literal.
-  "modules/notes": { twText: 0, rawPx: 1, rawHex: 0 },
+  // Reconciled with Figma 13 on 2026-09-09; the 720 writing column is
+  // max-w-180 on the spacing scale.
+  "modules/notes": { twText: 0, rawPx: 0, rawHex: 0 },
   // Converted 2026-09-09 against Figma 11 Settings. The 9 remaining rawPx are
   // the modal's own frame (620×940, a 220 nav, 656 content columns) and the
   // two blur radii — measures of the modal, not steps on the scale.
@@ -42,10 +42,11 @@ const BASELINE: Record<string, { twText: number; rawPx: number; rawHex: number }
   "modules/ssh": { twText: 0, rawPx: 0, rawHex: 0 },
   "modules/sync": { twText: 0, rawPx: 0, rawHex: 0 },
   "modules/tools": { twText: 0, rawPx: 0, rawHex: 0 },
-  // NOTE: components/ (132 files, the shared UI) is not tracked here yet, and
-  // it is where the hand-written glass materials were found — including a real
+  // components/ (the shared UI) joined the table 2026-09-09 at its measured
+  // debt. It is where the hand-written glass materials live — including a
   // light-theme bug, since a hardcoded rgba(255,255,255,0.1) hairline stays
-  // white on a white surface. Worth adding as its own row.
+  // white on a white surface — so this row is the one to work down next.
+  components: { twText: 1, rawPx: 108, rawHex: 48 },
   workbench: { twText: 0, rawPx: 35, rawHex: 1 },
 };
 

@@ -707,37 +707,40 @@ function EnvironmentsTab() {
       {/* Settings / New Tag Dialog (766:2045): a dialog over the shell, not a
           form unfolding inside the list. */}
       <Dialog open={newOpen} onOpenChange={setNewOpen}>
-        <DialogContent className="sm:max-w-md">
-          <form onSubmit={handleCreateTag} className="flex flex-col gap-4">
+        <DialogContent className="max-w-114 px-6 pt-5.5 pb-5 sm:max-w-114">
+          <form onSubmit={handleCreateTag} className="flex flex-col">
             <DialogHeader>
-              <DialogTitle>New environment tag</DialogTitle>
+              <DialogTitle className="text-title-16">New environment tag</DialogTitle>
             </DialogHeader>
-            <div className="flex flex-col gap-1.5">
+            <div className="mt-5 flex flex-col gap-1.5">
               <label className="text-label-12 text-text-secondary">Tag name</label>
               <Input
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
-                placeholder="e.g. canary, uat, sandbox"
+                placeholder="e.g. canary"
                 autoFocus
                 required
-                className="text-code-12"
+                className="h-9 border-border bg-surface-well text-code-12"
               />
+              <span className="mt-0.5 text-body-12 text-text-tertiary">
+                Lowercase, no spaces. Must be unique.
+              </span>
             </div>
-            <label className="flex cursor-pointer items-center gap-2.5 py-1">
+            <label className="mt-4.5 flex cursor-pointer items-center gap-2.5">
               <Checkbox
                 checked={newRequiresConfirmation}
                 onCheckedChange={(checked) => setNewRequiresConfirmation(Boolean(checked))}
               />
-              <span className="text-body-13 text-text-primary">
-                Require confirmation before executing actions
+              <span className="text-body-13 text-text-secondary">
+                Requires confirmation before MCP tools can use this tag
               </span>
             </label>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setNewOpen(false)}>
+            <DialogFooter className="mt-5.5 gap-2">
+              <Button type="button" variant="outline" className="bg-surface-raised" onClick={() => setNewOpen(false)}>
                 Cancel
               </Button>
               <Button type="submit" disabled={busy || !newName.trim()}>
-                {busy ? "Adding…" : "Add environment"}
+                {busy ? "Creating…" : "Create tag"}
               </Button>
             </DialogFooter>
           </form>

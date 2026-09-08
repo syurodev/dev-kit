@@ -106,7 +106,7 @@ export function AgentPermissionRequest({
       data-testid="agent-permission-request"
       data-env={env}
       className={cn(
-        "flex w-full max-w-[272px] flex-col gap-3 rounded-control p-3",
+        "flex w-full max-w-68 flex-col gap-3 rounded-control p-3",
         "border border-border-subtle bg-surface-raised",
         className,
       )}

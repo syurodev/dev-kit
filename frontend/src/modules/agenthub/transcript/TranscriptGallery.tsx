@@ -37,7 +37,7 @@ func run() {
 
   return (
     <div
-      className="flex flex-col gap-6 p-6 max-w-[760px] mx-auto overflow-y-auto"
+      className="flex flex-col gap-6 p-6 max-w-190 mx-auto overflow-y-auto"
       data-testid="transcript-gallery"
     >
       <div className="flex items-center justify-between border-b border-border-subtle pb-3">

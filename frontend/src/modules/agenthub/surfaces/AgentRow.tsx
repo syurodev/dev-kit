@@ -82,7 +82,7 @@ export function AgentRow({
       data-selected={selected}
       data-pinned={pinned}
       className={cn(
-        "flex w-full max-w-[264px] items-center gap-3 rounded-md px-3 py-2 text-left transition-colors cursor-pointer",
+        "flex w-full max-w-66 items-center gap-3 rounded-md px-3 py-2 text-left transition-colors cursor-pointer",
         selected
           ? "border border-border-subtle bg-surface-raised"
           : "border border-transparent bg-transparent hover:bg-(--state-soft)",

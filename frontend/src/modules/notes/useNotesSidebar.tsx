@@ -4,6 +4,8 @@ import { useWorkbenchTabsStore } from "../../stores/workbenchTabs";
 import { getModule } from "../registry";
 import { NotesSidebar } from "./NotesSidebar";
 import { useNotesSidebarStore } from "./notesSidebarStore";
+import { useNotesRefreshStore } from "../../stores/notesRefresh";
+import { deleteNote } from "../../bridge/notes";
 
 /**
  * Registers the Notes rail from whichever view is mounted.
@@ -26,6 +28,7 @@ export function useNotesSidebar(onNavigate?: () => void) {
   const toggleExpanded = useNotesSidebarStore((s) => s.toggleExpanded);
   const requestAction = useNotesSidebarStore((s) => s.requestAction);
   const openTab = useWorkbenchTabsStore((s) => s.openTab);
+  const bumpNotesRefresh = useNotesRefreshStore((s) => s.bump);
 
   // Callers pass a plain function redefined every render. Holding it in a ref
   // keeps it out of the memo's dependencies, so the rail re-registers when what
@@ -38,7 +41,7 @@ export function useNotesSidebar(onNavigate?: () => void) {
   // as the module's preview tab. The rail is the module's, so it may open
   // tabs directly rather than round-tripping through the dashboard.
   const openNote = useCallback(
-    (note: { id: string; title: string }) => {
+    (note: { id: string; title: string }, preview = true) => {
       const preload = getModule("notes")?.views.find((v) => v.id === "notes.editor")?.preload?.();
       void preload?.catch(() => undefined);
       openTab({
@@ -46,10 +49,22 @@ export function useNotesSidebar(onNavigate?: () => void) {
         viewId: "notes.editor",
         title: note.title || "Untitled",
         params: { noteId: note.id },
-        preview: true,
+        preview,
       });
     },
     [openTab],
+  );
+  const openNoteInTab = useCallback(
+    (note: { id: string; title: string }) => openNote(note, false),
+    [openNote],
+  );
+  // Trash is soft (30 days, see NotesTrash), so the rail may do it without a
+  // confirm; the dashboard and open editors re-read on the bump.
+  const trashNote = useCallback(
+    (note: { id: string }) => {
+      void deleteNote(note.id).then(bumpNotesRefresh).catch(() => undefined);
+    },
+    [bumpNotesRefresh],
   );
 
   // Memoised on what it actually renders. useSidebarContent re-registers
@@ -74,6 +89,8 @@ export function useNotesSidebar(onNavigate?: () => void) {
           navigate();
         }}
         onOpenNote={openNote}
+        onOpenNoteInTab={openNoteInTab}
+        onTrashNote={trashNote}
         onCreateFolder={() => {
           requestAction({ kind: "create" });
           navigate();
@@ -104,6 +121,8 @@ export function useNotesSidebar(onNavigate?: () => void) {
       requestAction,
       navigate,
       openNote,
+      openNoteInTab,
+      trashNote,
     ],
   );
 

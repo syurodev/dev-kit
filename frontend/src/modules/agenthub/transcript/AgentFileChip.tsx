@@ -27,7 +27,7 @@ export function AgentFileChip({
         // (I1048:3173): state/soft fill, no border, radius/6, px-2 py-1 which
         // is the 24 tall the standalone node draws, gap/1, and a Code/11 label.
         // It was border-subtle on surface/raised at radius/2 with gap-1.5.
-        "inline-flex h-6 max-w-full shrink-0 items-center gap-1 rounded-[6px] bg-(--state-soft) px-2 py-1 transition-colors hover:bg-surface-tinted cursor-pointer select-none",
+        "inline-flex h-6 max-w-full shrink-0 items-center gap-1 rounded-sm bg-(--state-soft) px-2 py-1 transition-colors hover:bg-surface-tinted cursor-pointer select-none",
         className,
       )}
       data-testid="agent-file-chip"

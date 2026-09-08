@@ -1,4 +1,12 @@
-import { ChevronRight, FileText, MoreHorizontal, Plus, Trash2 } from "lucide-react";
+import { ChevronRight, ExternalLink, FilePlus, FileText, MoreHorizontal, Plus, Tag, Trash2, Type } from "lucide-react";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuShortcut,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -42,6 +50,8 @@ export function NotesSidebar({
   onToggleExpanded,
   onNewNote,
   onOpenNote,
+  onOpenNoteInTab,
+  onTrashNote,
   onCreateFolder,
   onRenameFolder,
   onEditFolderTags,
@@ -57,6 +67,9 @@ export function NotesSidebar({
   onToggleExpanded: (id: string) => void;
   onNewNote: () => void;
   onOpenNote: (note: NoteSummary) => void;
+  /** Open pinned — "Open in new tab" in the note's context menu. */
+  onOpenNoteInTab: (note: NoteSummary) => void;
+  onTrashNote: (note: NoteSummary) => void;
   onCreateFolder: () => void;
   onRenameFolder: (folder: NoteFolder) => void;
   onEditFolderTags: (folder: NoteFolder) => void;
@@ -115,7 +128,12 @@ export function NotesSidebar({
         onClick={() => selectExpandable("ungrouped", "ungrouped")}
       />
       {expanded.has("ungrouped") ? (
-        <NoteRows notes={notesIn("ungrouped")} onOpenNote={onOpenNote} />
+        <NoteRows
+          notes={notesIn("ungrouped")}
+          onOpenNote={onOpenNote}
+          onOpenNoteInTab={onOpenNoteInTab}
+          onTrashNote={onTrashNote}
+        />
       ) : null}
 
       <SectionLabel>Folders</SectionLabel>
@@ -124,6 +142,8 @@ export function NotesSidebar({
         const isOpen = expanded.has(id);
         return (
           <div key={id} className="contents">
+            <ContextMenu>
+              <ContextMenuTrigger asChild>
             <SidebarRow
               icon={
                 <>
@@ -171,7 +191,41 @@ export function NotesSidebar({
                 </DropdownMenu>
               }
             />
-            {isOpen ? <NoteRows notes={notesIn(id)} onOpenNote={onOpenNote} /> : null}
+              </ContextMenuTrigger>
+              <ContextMenuContent>
+                <ContextMenuItem
+                  onSelect={() => {
+                    if (scope !== `folder:${id}`) onScopeChange(`folder:${id}`);
+                    onNewNote();
+                  }}
+                >
+                  <FilePlus />
+                  New note here
+                  <ContextMenuShortcut>⌘N</ContextMenuShortcut>
+                </ContextMenuItem>
+                <ContextMenuItem onSelect={() => onRenameFolder(folder)}>
+                  <Type />
+                  Rename
+                </ContextMenuItem>
+                <ContextMenuItem onSelect={() => onEditFolderTags(folder)}>
+                  <Tag />
+                  Edit tags
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem variant="destructive" onSelect={() => onDeleteFolder(folder)}>
+                  <Trash2 />
+                  Delete folder
+                </ContextMenuItem>
+              </ContextMenuContent>
+            </ContextMenu>
+            {isOpen ? (
+              <NoteRows
+                notes={notesIn(id)}
+                onOpenNote={onOpenNote}
+                onOpenNoteInTab={onOpenNoteInTab}
+                onTrashNote={onTrashNote}
+              />
+            ) : null}
           </div>
         );
       })}
@@ -222,9 +276,13 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 function NoteRows({
   notes,
   onOpenNote,
+  onOpenNoteInTab,
+  onTrashNote,
 }: {
   notes: NoteSummary[];
   onOpenNote: (note: NoteSummary) => void;
+  onOpenNoteInTab: (note: NoteSummary) => void;
+  onTrashNote: (note: NoteSummary) => void;
 }) {
   if (notes.length === 0) {
     return (
@@ -234,20 +292,38 @@ function NoteRows({
   return (
     <>
       {notes.map((note) => (
-        <button
-          key={note.id}
-          type="button"
-          onClick={() => onOpenNote(note)}
-          className="flex h-7 w-full items-center gap-2 rounded-md pl-12 pr-3 text-left text-text-secondary hover:bg-surface-raised hover:text-text-primary"
-        >
-          <FileText className="size-3.5 shrink-0 text-text-tertiary" />
-          <span className="min-w-0 flex-1 truncate text-body-13">
-            {note.title || "Untitled"}
-          </span>
-          <span className="shrink-0 text-code-11 text-text-tertiary">
-            {relativeTime(note.updatedAt)}
-          </span>
-        </button>
+        <ContextMenu key={note.id}>
+          <ContextMenuTrigger asChild>
+            <button
+              type="button"
+              onClick={() => onOpenNote(note)}
+              className="flex h-7 w-full items-center gap-2 rounded-md pl-12 pr-3 text-left text-text-secondary hover:bg-surface-raised hover:text-text-primary"
+            >
+              <FileText className="size-3.5 shrink-0 text-text-tertiary" />
+              <span className="min-w-0 flex-1 truncate text-body-13">
+                {note.title || "Untitled"}
+              </span>
+              <span className="shrink-0 text-code-11 text-text-tertiary">
+                {relativeTime(note.updatedAt)}
+              </span>
+            </button>
+          </ContextMenuTrigger>
+          {/* Figma also lists "Move to folder…" and "Version history"; the
+              first has no picker outside the editor's meta panel and the
+              second lives in the editor, so both open the note instead. */}
+          <ContextMenuContent>
+            <ContextMenuItem onSelect={() => onOpenNoteInTab(note)}>
+              <ExternalLink />
+              Open in new tab
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem variant="destructive" onSelect={() => onTrashNote(note)}>
+              <Trash2 />
+              Move to trash
+              <ContextMenuShortcut>⌫</ContextMenuShortcut>
+            </ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
       ))}
     </>
   );

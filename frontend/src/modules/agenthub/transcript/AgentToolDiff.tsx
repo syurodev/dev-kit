@@ -80,7 +80,7 @@ export function AgentToolDiff({
       </div>
 
       {lines.length > 0 ? (
-        <div className="w-full overflow-x-auto rounded-[6px] bg-surface-base text-code-12 select-text">
+        <div className="w-full overflow-x-auto rounded-sm bg-surface-base text-code-12 select-text">
           {lines.map((line, idx) => (
             <div
               key={idx}

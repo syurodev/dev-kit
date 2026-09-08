@@ -125,8 +125,8 @@ export function AgentComposer({
         // The outer frame carries the border and NO fill — the meta band shows
         // the ground behind the composer, which is what makes the top read as a
         // thick border rather than as a header.
-        "flex w-full flex-col gap-2 rounded-[14px] border border-border-subtle px-1 pt-3 pb-1",
-        rail ? "max-w-[280px]" : "max-w-[1096px]",
+        "flex w-full flex-col gap-2 rounded-lg border border-border-subtle px-1 pt-3 pb-1",
+        rail ? "max-w-70" : "max-w-274",
         className,
       )}
     >

@@ -91,8 +91,8 @@ export function AgentNewSession({
           // Figma 946:2199 sits on surface/glass-modal with its own blur and a
           // deep shadow, at radius/14 and 440 wide — DialogContent defaults to
           // popover at radius/12 and sm:max-w-sm.
-          "w-[440px] max-w-[calc(100%-2rem)] gap-4 rounded-[14px] p-5 sm:max-w-[440px]",
-          "border border-(--glass-border) bg-(--surface-glass-modal) backdrop-blur-[16px]",
+          "w-110 max-w-[calc(100%-2rem)] gap-4 rounded-lg p-5 sm:max-w-110",
+          "border border-(--glass-border) bg-(--surface-glass-modal) backdrop-blur-lg",
           "shadow-[0px_20px_48px_-8px_rgba(0,0,0,0.5)] ring-0",
           className,
         )}
@@ -179,7 +179,7 @@ export function AgentNewSession({
             type="button"
             data-testid="new-session-suggested"
             onClick={() => setCwd(suggestedCwd)}
-            className="flex w-full items-center gap-2 rounded-[6px] bg-(--state-soft) p-2 text-left hover:bg-surface-raised cursor-pointer"
+            className="flex w-full items-center gap-2 rounded-sm bg-(--state-soft) p-2 text-left hover:bg-surface-raised cursor-pointer"
           >
             <span className="shrink-0 text-caption-11-medium text-text-tertiary">
               {suggestedLabel}
@@ -196,7 +196,7 @@ export function AgentNewSession({
         {parentName ? (
           <div
             data-testid="new-session-inherited"
-            className="flex w-full items-center gap-2 rounded-[6px] bg-(--state-soft) p-2"
+            className="flex w-full items-center gap-2 rounded-sm bg-(--state-soft) p-2"
           >
             <span className="shrink-0 text-caption-11-medium text-text-tertiary">
               Parent
@@ -210,7 +210,7 @@ export function AgentNewSession({
         {error ? (
           <div
             data-testid="new-session-error"
-            className="flex w-full items-start gap-2 rounded-[6px] bg-(--feedback-danger-soft) p-2"
+            className="flex w-full items-start gap-2 rounded-sm bg-(--feedback-danger-soft) p-2"
           >
             <p className="min-w-0 flex-1 text-caption-11 text-status-danger">
               {error}

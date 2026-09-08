@@ -34,8 +34,8 @@ export type AgentToolCallProps = {
  * Failed is the only state that changes the ground (feedback/danger-soft) and
  * the only one that adds a second line — the reason.
  *
- * Dots, from the exported SVGs: running #B2D5E5 status/info, done #8B8E8A
- * text/tertiary, failed #D87886 status/danger. Done is deliberately grey: a
+ * Dots, from the exported SVGs: running status/info, done
+ * text/tertiary, failed status/danger. Done is deliberately grey: a
  * finished tool call is not good news, it is just finished.
  */
 function kindIcon(kind?: string) {
@@ -198,7 +198,7 @@ export function AgentToolCall({ call, className }: AgentToolCallProps) {
           return (
             <pre
               key={idx}
-              className="w-full overflow-x-auto rounded-[6px] bg-surface-base p-2 text-code-11 whitespace-pre text-text-secondary select-text"
+              className="w-full overflow-x-auto rounded-sm bg-surface-base p-2 text-code-11 whitespace-pre text-text-secondary select-text"
             >
               <code>{item.content.text}</code>
             </pre>

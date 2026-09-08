@@ -55,7 +55,7 @@ export function AgentInvokeResult({
     <div
       data-testid="agent-invoke-result"
       className={cn(
-        "flex w-full max-w-full flex-col gap-3 rounded-[10px] p-3",
+        "flex w-full max-w-full flex-col gap-3 rounded-control p-3",
         "border border-border-subtle bg-surface-raised",
         className,
       )}
@@ -89,7 +89,7 @@ export function AgentInvokeResult({
             <div
               key={path}
               data-testid="invoke-result-file"
-              className="flex w-full items-center gap-2 rounded-[6px] bg-(--state-soft) px-2 py-1 text-caption-11"
+              className="flex w-full items-center gap-2 rounded-sm bg-(--state-soft) px-2 py-1 text-caption-11"
             >
               <span className="min-w-0 flex-1 truncate text-text-secondary">{path}</span>
               {onOpenDiff ? (

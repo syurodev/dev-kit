@@ -178,7 +178,7 @@ export function AgentHubContent({
           <p className="text-title-16 text-text-secondary">No agent running</p>
           {/* Figma's note: Empty is the first thing a new user meets, so it
               explains what a session IS. The old copy said only where to click. */}
-          <p className="w-[420px] max-w-full text-body-12 text-text-tertiary">
+          <p className="w-105 max-w-full text-body-12 text-text-tertiary">
             Each session gets its own sandbox, its own working directory, and its own
             connection to DevKit&apos;s tools. Sessions started by an agent appear as
             children of it.
