@@ -93,9 +93,11 @@ export type DatabaseStoreState = {
   // Cosmetic folder groups (uistate)
   folders: DatabaseFolder[];
   expandedFolders: Record<string, boolean>; // folder id -> open
-  // Which sidebar panes are open. Cosmetic like the folders above, and
-  // persisted for the same reason: it survives switching module and back.
-  openSidebarSections: Record<string, boolean>;
+  // Which connection is unfolded in the sidebar tree. Deliberately NOT
+  // persisted, unlike the folders: folders are local, profiles come from the
+  // bridge, and a remembered flag for a profile that was deleted meanwhile
+  // describes nothing.
+  expandedProfiles: Record<string, boolean>; // profile id -> open
   // Percent of the console's height given to the editor.
   consoleEditorSize: number;
 
@@ -141,10 +143,10 @@ export type DatabaseStoreState = {
 
   // Folder actions
   toggleFolder: (folderId: string) => void;
+  toggleProfileExpand: (profileId: string) => void;
   createFolder: (name: string) => void;
   updateFolder: (id: string, patch: { name?: string; icon?: string }) => void;
   deleteFolder: (id: string) => void;
-  toggleSidebarSection: (section: string) => void;
   setConsoleEditorSize: (size: number) => void;
   assignProfileToFolder: (profileId: string, folderId: string) => void;
 
@@ -180,7 +182,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
 
   folders: DEFAULT_FOLDERS,
   expandedFolders: { production: true, development: true },
-  openSidebarSections: { connections: true, tables: true },
+  expandedProfiles: {},
   consoleEditorSize: 30,
 
   schemaSnapshot: null,
@@ -234,6 +236,9 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       tableColumnsMap: {},
       // A focused table belongs to the database it was picked from.
       selectedTable: "",
+      // Picking a connection is what indexes it, so the tree unfolds it in the
+      // same click rather than asking for a second one.
+      expandedProfiles: { ...get().expandedProfiles, [id]: true },
     });
     if (id) {
       void get().loadSchemaSnapshot(id);
@@ -253,12 +258,12 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     set({ expandedFolders: { ...current, [folderId]: current[folderId] === false } });
   },
 
-  setConsoleEditorSize: (size: number) => set({ consoleEditorSize: size }),
-
-  toggleSidebarSection: (section: string) => {
-    const current = get().openSidebarSections;
-    set({ openSidebarSections: { ...current, [section]: current[section] === false } });
+  toggleProfileExpand: (profileId: string) => {
+    const current = get().expandedProfiles;
+    set({ expandedProfiles: { ...current, [profileId]: !current[profileId] } });
   },
+
+  setConsoleEditorSize: (size: number) => set({ consoleEditorSize: size }),
 
   createFolder: (name: string) => {
     const trimmed = name.trim();
@@ -407,7 +412,6 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       partialize: (state) => ({
         folders: state.folders,
         expandedFolders: state.expandedFolders,
-        openSidebarSections: state.openSidebarSections,
         consoleEditorSize: state.consoleEditorSize,
       }),
     },
