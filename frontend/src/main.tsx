@@ -2,6 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import './index.css'
 import App from './App'
+import { installNativeZoomGuard } from './lib/nativeZoom'
 
 // Inside Wails, html/body stay clear so nothing paints over the native window;
 // background/app is painted by the shell wrapper in AppShell, which is the
@@ -12,6 +13,10 @@ import App from './App'
 // solid by default since the backdrop change in main.go.)
 if ('_wails' in window) {
   document.documentElement.classList.add('native')
+  // Only inside the desktop window. A browser tab — the component gallery —
+  // keeps its page zoom, which there is a real accessibility affordance rather
+  // than a gesture landing on the wrong layer.
+  installNativeZoomGuard(window)
 }
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
