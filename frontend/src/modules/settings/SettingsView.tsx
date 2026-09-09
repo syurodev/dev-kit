@@ -96,12 +96,12 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
             onClose();
           }
         }}
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[12px] select-none animate-in fade-in duration-200"
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[12px] select-none animate-in fade-in duration-(--motion-base)"
       >
         <div
           data-slot="settings-modal"
           onClick={(e) => e.stopPropagation()}
-          className="flex h-[620px] w-full max-w-[940px] flex-col overflow-hidden rounded-lg border border-glass-border bg-glass-float text-text-primary shadow-[0px_24px_64px_-12px_rgba(0,0,0,0.55)] backdrop-blur-[20px] animate-in zoom-in-95 duration-200"
+          className="flex h-[620px] w-full max-w-[940px] flex-col overflow-hidden rounded-lg border border-glass-border bg-glass-float text-text-primary shadow-[0px_24px_64px_-12px_rgba(0,0,0,0.55)] backdrop-blur-[20px] animate-in zoom-in-95 duration-(--motion-base)"
         >
           {/* Modal Header · 56px */}
           <div className="flex h-14 w-full shrink-0 items-center justify-between border-b border-border-subtle pr-3 pl-6">

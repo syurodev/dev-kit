@@ -55,7 +55,7 @@ export function QueryPlanView({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-      <div className="bg-surface-base border border-border rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+      <div className="bg-surface-base border border-border rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-(--motion-base)">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-surface-raised/50">
           <div className="flex items-center gap-2.5">

@@ -826,6 +826,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+    .animate-in, .animate-out {
+        animation: none !important;
+    }
     .react-flow__edge.animated path {
         animation: none;
     }
