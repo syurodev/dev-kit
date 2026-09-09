@@ -9,7 +9,7 @@ export const codegraphModule: ModuleManifest = {
   icon: Network,
   // Keeps the shell's padding until this module owns its own chrome.
   padded: true,
-  capabilities: ["codegraph:index", "codegraph:read"],
+  capabilities: ["codegraph:index", "codegraph:read", "codegraph:toolchain"],
   commands: [
     {
       id: "codegraph.open_project",

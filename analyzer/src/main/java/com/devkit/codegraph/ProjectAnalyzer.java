@@ -25,15 +25,91 @@ import java.util.stream.Stream;
 public class ProjectAnalyzer {
 
     private final Path projectRoot;
-    private final Path sourceRoot;
+    private final List<Path> sourceRoots;
+
+    /** Directories that never hold source anyone wrote. */
+    private static final Set<String> SKIP_DIRS = Set.of(
+            ".git", ".hg", ".svn", "node_modules", "vendor",
+            "target", "build", "out", "dist", ".gradle", ".idea", ".vscode");
+
+    /**
+     * How far below the project root a source root may sit. A service in a
+     * monorepo is conventionally one or two levels down
+     * (services/orders/src/main/java), so six leaves room without turning the
+     * search into a full crawl.
+     */
+    private static final int MAX_SOURCE_ROOT_DEPTH = 6;
 
     public ProjectAnalyzer(Path projectRoot) {
         this.projectRoot = projectRoot;
-        // v1 assumes the conventional Maven/Gradle layout. A project using a
-        // different layout just won't have any of its files found below —
-        // it produces an empty (not crashing) index, which is a known
-        // limitation to document, not a special case to handle here.
-        this.sourceRoot = projectRoot.resolve("src/main/java");
+        this.sourceRoots = discoverSourceRoots(projectRoot);
+    }
+
+    /**
+     * Finds every conventional source root under the project.
+     *
+     * The analyzer used to resolve exactly one, projectRoot/src/main/java, and
+     * that made a whole shape of repository silently unanalyzable: point it at
+     * a folder of microservices, where each service has its own
+     * &lt;service&gt;/src/main/java, and there is no such directory at the top,
+     * so it returned an empty index and the UI reported an empty project rather
+     * than a misread one.
+     *
+     * Discovering them all also keeps cross-service resolution working, which
+     * splitting the run into one subprocess per service would have lost: a
+     * shared module's types resolve because every root goes into the same
+     * CombinedTypeSolver.
+     *
+     * The fallback is deliberate. A folder holding .java files and no Maven or
+     * Gradle layout at all is still something a person wants to read, so the
+     * project root itself becomes the source root.
+     */
+    private static List<Path> discoverSourceRoots(Path projectRoot) {
+        List<Path> roots = new ArrayList<>();
+        if (!Files.isDirectory(projectRoot)) {
+            return roots;
+        }
+        try (Stream<Path> walk = Files.walk(projectRoot, MAX_SOURCE_ROOT_DEPTH)) {
+            walk.filter(Files::isDirectory)
+                .filter(dir -> !isSkipped(projectRoot, dir))
+                .filter(ProjectAnalyzer::isConventionalSourceRoot)
+                .forEach(roots::add);
+        } catch (IOException e) {
+            // An unreadable tree is not a crash: fall through to the checks
+            // below, which produce an empty index rather than an exception.
+        }
+        if (!roots.isEmpty()) {
+            return roots;
+        }
+        if (containsJavaSource(projectRoot)) {
+            roots.add(projectRoot);
+        }
+        return roots;
+    }
+
+    private static boolean isConventionalSourceRoot(Path dir) {
+        return dir.endsWith(Path.of("src", "main", "java"));
+    }
+
+    /** True when any segment below the project root is one we never descend into. */
+    private static boolean isSkipped(Path projectRoot, Path dir) {
+        Path relative = projectRoot.relativize(dir);
+        for (Path segment : relative) {
+            String name = segment.toString();
+            if (SKIP_DIRS.contains(name) || (name.startsWith(".") && name.length() > 1)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean containsJavaSource(Path projectRoot) {
+        try (Stream<Path> walk = Files.walk(projectRoot, MAX_SOURCE_ROOT_DEPTH)) {
+            return walk.filter(p -> p.toString().endsWith(".java"))
+                       .anyMatch(p -> !isSkipped(projectRoot, p.getParent()));
+        } catch (IOException e) {
+            return false;
+        }
     }
 
     public AnalysisResult analyze() throws IOException {
@@ -42,26 +118,45 @@ public class ProjectAnalyzer {
         }
 
         AnalysisResult result = new AnalysisResult();
-        if (!Files.isDirectory(sourceRoot)) {
+        if (sourceRoots.isEmpty()) {
             return result;
         }
 
-        CombinedTypeSolver typeSolver = TypeSolverFactory.build(sourceRoot);
+        CombinedTypeSolver typeSolver = TypeSolverFactory.build(sourceRoots);
         // Without an explicit language level, JavaParser defaults to one too
         // old to parse records, pattern-matching instanceof, or multi-label
         // switch cases (all Java 14+) — every such file fails to parse and
         // silently vanishes from the index via parseFile's catch-all below,
-        // with no node, no edge, no error. JAVA_21 matches this project's
-        // own maven.compiler.release; verified against the installed
-        // javaparser-core 3.28.2 jar that this constant exists.
+        // with no node, no edge, no error.
+        //
+        // This is the newest syntax the analyzer can READ, and it is a separate
+        // knob from maven.compiler.release, which is only the bytecode the
+        // analyzer itself is compiled to. They are deliberately different: the
+        // release stays at 21 so the jar runs on the JDK people actually have
+        // (an IDE's bundled runtime, a distro's openjdk-21), while the language
+        // level runs ahead so a project written in newer Java is still indexed.
+        // JavaParser is a parser, not javac — it needs no JDK 25 to read Java 25.
+        //
+        // Raise this, not the release, when a newer Java ships. Verified against
+        // the installed javaparser-core 3.28.2 jar that this constant exists.
         StaticJavaParser.setConfiguration(new ParserConfiguration()
-                .setLanguageLevel(ParserConfiguration.LanguageLevel.JAVA_21)
+                .setLanguageLevel(ParserConfiguration.LanguageLevel.JAVA_25)
                 .setSymbolResolver(new JavaSymbolSolver(typeSolver)));
 
+        // One list across every source root: the two passes below need to see
+        // the whole repository at once, which is what lets a call from one
+        // service into a shared module resolve.
         List<ParsedFile> files = new ArrayList<>();
-        try (Stream<Path> walk = Files.walk(sourceRoot)) {
-            for (Path javaFile : walk.filter(p -> p.toString().endsWith(".java")).toList()) {
-                parseFile(javaFile).ifPresent(files::add);
+        Set<Path> seen = new HashSet<>();
+        for (Path root : sourceRoots) {
+            try (Stream<Path> walk = Files.walk(root)) {
+                for (Path javaFile : walk.filter(p -> p.toString().endsWith(".java")).toList()) {
+                    // Nested source roots would otherwise parse a file twice
+                    // and duplicate every node it declares.
+                    if (seen.add(javaFile.toAbsolutePath().normalize())) {
+                        parseFile(javaFile).ifPresent(files::add);
+                    }
+                }
             }
         }
 

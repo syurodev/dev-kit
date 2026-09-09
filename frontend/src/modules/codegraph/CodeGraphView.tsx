@@ -1,11 +1,12 @@
 import { useEffect, useMemo } from "react";
-import { FileCode2, GitFork, Loader2, RotateCcw, TriangleAlert } from "lucide-react";
+import { FileCode2, FolderSearch, GitFork, Loader2, RotateCcw, TriangleAlert } from "lucide-react";
 import { Dialogs } from "@wailsio/runtime";
 import { keymap } from "@codemirror/view";
 import { CodeEditor } from "@/components/code-editor/CodeEditor";
 import { Button } from "@/components/ui/button";
 import { useSidebarContent } from "@/components/ui/sidebar-shell";
 import { useSplitPanel } from "@/components/ui/split-panel";
+import { AnalyzerSetup } from "./AnalyzerSetup";
 import { CodeGraphSidebar } from "./CodeGraphSidebar";
 import { BlastRadiusPanel } from "./BlastRadiusPanel";
 import { NodeInspector } from "./inspector/NodeInspector";
@@ -19,6 +20,7 @@ import { shortLabel } from "./graph/labels";
 import { methodChipClass } from "./graph/tokens";
 import { cn } from "@/lib/utils";
 import {
+  codeGraphAnalyzerStatus,
   openCodeGraphProject,
   listCodeGraphEndpoints,
   getCodeGraphNeighbors,
@@ -36,7 +38,7 @@ import {
   getCodeGraphPlanEdges,
   getCodeGraphPlanProgress,
 } from "../../bridge/codegraphPlan";
-import { errorMessage } from "../../bridge/errors";
+import { errorMessage, toAppError } from "../../bridge/errors";
 import { useCodeGraphStore } from "./codegraphStore";
 
 // Reads and writes go through the module store rather than useState — see
@@ -52,22 +54,56 @@ async function loadFiles() {
   }
 }
 
+/**
+ * Refreshes which analyzers are built.
+ *
+ * Called on mount and after a build, never on a timer: it probes the machine
+ * for a JDK and Maven, which costs a subprocess apiece. A probe that fails
+ * leaves the statuses null, which reads as "assume fine" — a broken status call
+ * must not hide a working module behind a setup panel.
+ */
+async function loadAnalyzerStatus() {
+  try {
+    set({ analyzerStatuses: await codeGraphAnalyzerStatus() });
+  } catch {
+    set({ analyzerStatuses: null });
+  }
+}
+
+/**
+ * What the sidebar says after an index.
+ *
+ * A monorepo indexes as one graph, so without a module count four services
+ * look exactly like one project that happens to have a lot of endpoints. Said
+ * only when there is more than one — "1 module" is noise on the common case.
+ *
+ * Exported for its own test: it is the one piece of this file that is a pure
+ * function of two numbers, and the alternative was driving a native folder
+ * picker to check a string.
+ */
+export function indexedStatus(moduleCount: number, endpointCount: number): string {
+  const modules = moduleCount > 1 ? `${moduleCount} modules · ` : "";
+  return `Indexed. ${modules}${endpointCount} endpoint(s) found.`;
+}
+
 async function reindex(path: string) {
   set({
     busy: true,
     status: "Indexing…",
     error: "",
+    errorCode: "",
     subgraph: null,
     rootId: null,
   });
   try {
-    await openCodeGraphProject(path);
+    const detected = await openCodeGraphProject(path);
     const list = await listCodeGraphEndpoints();
     set({ endpoints: list });
     await loadFiles();
-    set({ status: `Indexed. ${list.length} endpoint(s) found.` });
+    set({ status: indexedStatus(detected.modules.length, list.length) });
   } catch (e) {
-    set({ endpoints: [], files: [], status: "", error: errorMessage(e) });
+    const failure = toAppError(e);
+    set({ endpoints: [], files: [], status: "", error: failure.message, errorCode: failure.code });
   } finally {
     set({ busy: false });
   }
@@ -280,6 +316,7 @@ export function CodeGraphView() {
   const rootId = useCodeGraphStore((s) => s.rootId);
   const status = useCodeGraphStore((s) => s.status);
   const error = useCodeGraphStore((s) => s.error);
+  const errorCode = useCodeGraphStore((s) => s.errorCode);
   const busy = useCodeGraphStore((s) => s.busy);
   const activeTab = useCodeGraphStore((s) => s.activeTab);
   const files = useCodeGraphStore((s) => s.files);
@@ -289,6 +326,10 @@ export function CodeGraphView() {
   const fileError = useCodeGraphStore((s) => s.fileError);
   const loadingMore = useCodeGraphStore((s) => s.loadingMore);
   const query = useCodeGraphStore((s) => s.query);
+  const analyzerStatuses = useCodeGraphStore((s) => s.analyzerStatuses);
+  // Null (not probed, or the probe failed) counts as ready: a status call that
+  // cannot answer must not hide a working module behind a setup panel.
+  const missingAnalyzers = (analyzerStatuses ?? []).filter((s) => !s.ready);
   const inspectorNodeId = useCodeGraphStore((s) => s.inspectorNodeId);
   const inspectorNode = useMemo(
     () => subgraph?.nodes.find((n) => n.id === inspectorNodeId) ?? null,
@@ -349,6 +390,12 @@ export function CodeGraphView() {
   // Subscribed once: the handler reads live state through snapshot(), so it
   // never needs to re-subscribe and cannot capture a stale closure.
   useEffect(() => onCodeGraphIndexUpdated(() => void refreshAfterReindex()), []);
+
+  // Probe once per mount. Cheap enough there and the answer cannot change
+  // without someone installing a JDK, which is not something to poll for.
+  useEffect(() => {
+    void loadAnalyzerStatus();
+  }, []);
 
   const { openPanel, closePanel } = useSplitPanel();
 
@@ -412,6 +459,24 @@ export function CodeGraphView() {
       onSelectPlanNode={(id) => set({ selectedPlanNodeId: id })}
     />,
   );
+
+  // Nothing in CodeGraph works without an analyzer, so setup takes the whole
+  // canvas rather than sitting in a corner of a module that cannot do anything.
+  // The sidebar is still mounted above, so the project picker stays reachable.
+  if (missingAnalyzers.length > 0) {
+    return (
+      <AnalyzerSetup
+        statuses={missingAnalyzers}
+        onBuilt={() => {
+          void loadAnalyzerStatus();
+          // The project the user already chose is still selected; index it now
+          // rather than making them pick it again.
+          const path = snapshot().projectPath;
+          if (path) void reindex(path);
+        }}
+      />
+    );
+  }
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden">
@@ -480,6 +545,14 @@ export function CodeGraphView() {
               body="Indexing controllers, services and repositories. The graph opens as soon as the first route resolves."
             >
               <CanvasProgress />
+            </CanvasState>
+          ) : error && errorCode === "unsupported_project" ? (
+            /* Nothing was analyzed and nothing is wrong with the analyzer —
+               the folder simply is not a project. Offering a retry here would
+               be a button that cannot work; the only useful move is choosing
+               somewhere else. */
+            <CanvasState icon={FolderSearch} title="Nothing to index in that folder" body={error}>
+              <Button onClick={pickAndOpenProject}>Choose another folder…</Button>
             </CanvasState>
           ) : error ? (
             <CanvasState icon={TriangleAlert} title="Could not analyze this project" body={error}>

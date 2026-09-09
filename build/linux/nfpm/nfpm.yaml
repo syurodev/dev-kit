@@ -19,6 +19,13 @@ release: "1"
 contents:
   - src: "./bin/dev-kit"
     dst: "/usr/local/bin/dev-kit"
+  # The CodeGraph analyzer, built by the `common:build:analyzer` task the
+  # packaging depends on. <prefix>/share/dev-kit is where the app looks: the
+  # binary is at <prefix>/bin, and installedResourcePaths in
+  # internal/codegraph/artifact.go walks up one and across. Change one, change
+  # the other.
+  - src: "./analyzer/target/codegraph-analyzer.jar"
+    dst: "/usr/local/share/dev-kit/codegraph-analyzer.jar"
   - src: "./build/appicon.png"
     dst: "/usr/share/icons/hicolor/128x128/apps/dev-kit.png"
   - src: "./build/linux/dev-kit.desktop"

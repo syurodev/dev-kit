@@ -149,11 +149,43 @@ export function AuthStatus(): $CancellablePromise<$models.AuthStatusDTO> {
 }
 
 /**
+ * CodeGraphAnalyzerStatus reports, per language, whether that analyzer is
+ * built and — when it is not — exactly which programs are missing and what to
+ * install. The UI renders this instead of the bare "analyzer not configured"
+ * error a failed index used to produce, which told the user nothing they could
+ * act on.
+ * 
+ * Read-only and side-effect free apart from running each program's version
+ * flag, so it takes codegraph:read rather than a capability of its own.
+ */
+export function CodeGraphAnalyzerStatus(): $CancellablePromise<codegraph$0.ToolchainStatus[] | null> {
+    return $Call.ByID(3354799789);
+}
+
+/**
  * CodeGraphApprovePlan is human-only — exposed on the bridge for the UI,
  * deliberately absent from the MCP tool surface.
  */
 export function CodeGraphApprovePlan(): $CancellablePromise<void> {
     return $Call.ByID(1130561769);
+}
+
+/**
+ * CodeGraphBuildAnalyzer builds one language's analyzer and installs it, with
+ * no restart: on success the next CodeGraphOpenProject indexes for real.
+ * 
+ * The build's output reaches the frontend as codegraph:analyzerBuildOutput
+ * events (wired in main.go, same shape as codegraph:indexUpdated) rather than
+ * as a returned transcript, because a cold Maven cache takes minutes and a call
+ * that returns only at the end is indistinguishable from a hang. The return
+ * value is the outcome, not the log.
+ * 
+ * Its own capability: this is the one CodeGraph call that runs a build tool
+ * against the user's machine, and a grant that covers reading an index should
+ * not silently also cover that.
+ */
+export function CodeGraphBuildAnalyzer(language: string): $CancellablePromise<void> {
+    return $Call.ByID(2644427237, language);
 }
 
 /**
@@ -209,7 +241,15 @@ export function CodeGraphListPlanNodeComments(planNodeID: string): $CancellableP
     return $Call.ByID(44393988, planNodeID);
 }
 
-export function CodeGraphOpenProject(path: string): $CancellablePromise<void> {
+/**
+ * CodeGraphOpenProject indexes a folder and reports what it turned out to hold.
+ * 
+ * Returning the detection rather than just an error is what lets the UI say
+ * how many modules were found. A repository of microservices is the case that
+ * needs it: it indexes as one graph, and without a count it is indistinguishable
+ * on screen from a single project that happens to have a lot of endpoints.
+ */
+export function CodeGraphOpenProject(path: string): $CancellablePromise<codegraph$0.DetectedProject> {
     return $Call.ByID(1356804218, path);
 }
 

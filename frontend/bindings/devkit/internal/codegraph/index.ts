@@ -6,6 +6,7 @@ export type {
     CodeSnippet,
     DataFlowStep,
     DataFlowTrace,
+    DetectedProject,
     Edge,
     Endpoint,
     FieldRef,
@@ -20,6 +21,8 @@ export type {
     PlanNode,
     PlanNodeProgress,
     PlanProgress,
+    Requirement,
     Subgraph,
-    SymbolMatch
+    SymbolMatch,
+    ToolchainStatus
 } from "./models.js";

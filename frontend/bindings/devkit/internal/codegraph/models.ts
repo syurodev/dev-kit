@@ -84,6 +84,21 @@ export interface DataFlowTrace {
 }
 
 /**
+ * DetectedProject is what a folder turned out to hold.
+ */
+export interface DetectedProject {
+    "language": string;
+    "label": string;
+
+    /**
+     * Modules are the module roots found, relative to the folder that was
+     * opened, "." meaning the folder itself. A repository of microservices has
+     * one entry per service; a single project has exactly one.
+     */
+    "modules": string[] | null;
+}
+
+/**
  * Edge is a directed call relationship between two Nodes, by Node.ID.
  */
 export interface Edge {
@@ -326,6 +341,48 @@ export interface PlanProgress {
 }
 
 /**
+ * Requirement is one external program an analyzer toolchain needs before it
+ * can be built, together with what was actually found on this machine.
+ * 
+ * The install hint is deliberately per-requirement rather than one paragraph
+ * per toolchain: "the runtime is missing" and "the build tool is too old" are
+ * different sentences, and a user reads the one that applies to them.
+ */
+export interface Requirement {
+    "program": string;
+    "label": string;
+
+    /**
+     * MinVersion is compared component-by-component against Found. Empty
+     * means being present is the whole requirement.
+     */
+    "minVersion": string;
+
+    /**
+     * Found is the version detected on this machine, or "" when nothing was
+     * found (or what was found did not answer its version flag).
+     */
+    "found": string;
+
+    /**
+     * Path is the executable that will actually be used, and Source names
+     * where it came from — "PATH", an install root variable, an IDE's own copy.
+     * Worth showing: on a machine carrying several versions of a toolchain,
+     * "which one" is the question the user is about to ask next.
+     */
+    "path": string;
+    "source": string;
+    "met": boolean;
+
+    /**
+     * Problem says what is wrong in one phrase, empty when Met. It is written
+     * for display, not for parsing.
+     */
+    "problem": string;
+    "installHint": string;
+}
+
+/**
  * Subgraph is one bounded page of a GetNeighbors result.
  */
 export interface Subgraph {
@@ -355,4 +412,51 @@ export interface SymbolMatch {
     "kind": string;
     "filePath": string;
     "line": number;
+}
+
+/**
+ * ToolchainStatus is the snapshot the frontend renders. Everything the setup
+ * panel needs to decide what to say is on it, so the UI never re-derives a
+ * policy the backend already applied.
+ */
+export interface ToolchainStatus {
+    "language": string;
+    "label": string;
+
+    /**
+     * Ready means the analyzer can run right now: the artifact is there AND so
+     * is the runtime that launches it. Both halves matter — a packaged app
+     * ships the artifact but not a runtime, and calling that ready would send
+     * the user to an opaque failure at their first index instead of to a
+     * sentence naming what to install.
+     */
+    "ready": boolean;
+
+    /**
+     * HasArtifact separates the two ways of not being ready: nothing built yet
+     * (which a build fixes) from built but unrunnable (which it does not). The
+     * UI says a different thing for each.
+     */
+    "hasArtifact": boolean;
+
+    /**
+     * Buildable means every requirement is met, so offering a build button is
+     * honest. False with Ready false is the "install these first" case.
+     */
+    "buildable": boolean;
+
+    /**
+     * Artifact is the artifact in use when Ready, and where a build would put
+     * one when not. Either way it is the path worth showing.
+     */
+    "artifact": string;
+
+    /**
+     * Bundled reports that the artifact in use shipped with the app rather
+     * than being built here. The setup panel never appears in that case; the
+     * field is for a diagnostics view that wants to say which copy is running.
+     */
+    "bundled": boolean;
+    "buildCommand": string;
+    "requirements": Requirement[] | null;
 }

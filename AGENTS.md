@@ -133,6 +133,91 @@ platform module).
   `dbus-x11` on PATH (single-instance uses `dbus-launch`). A bare Xvfb has no window
   manager, so maximise/minimise do nothing there — close and the layout are testable.
 
+### CodeGraph analyzer toolchain
+The Java analyzer is not committed as a jar — it is built from `analyzer/` on the machine
+that runs DevKit. When it is missing, CodeGraph now shows a setup panel that can run that
+build itself (`internal/codegraph/toolchain.go`), rather than failing an index with
+"analyzer not configured".
+
+- `Toolchain` is per language and is the extension point for the next analyzer: a value
+  with its own requirements, build command and artifact path. `DefaultToolchains` is the
+  registry; `main.go` wires it and hot-swaps the analyzer in on a successful build, so no
+  restart is needed.
+- **Discovery is not `PATH`** (`internal/codegraph/locate.go`). Plenty of Java developers
+  have IntelliJ and nothing else: the IDE ships its own JetBrains Runtime, bundles a full
+  Maven under `plugins/maven/lib/maven3`, and downloads project JDKs into `~/.jdks` —
+  none of which reach `PATH`. The probe searches `JAVA_HOME`/`MAVEN_HOME`, `PATH`,
+  `~/.jdks`, SDKMAN, JetBrains Toolbox and app bundles, and the system JDK directories,
+  then picks the NEWEST version that clears the minimum. The build runs the resolved
+  paths with `JAVA_HOME` set and both `bin` directories prepended to `PATH`.
+- A `mvnw` in `analyzer/` would be preferred over everything else, which would drop the
+  Maven requirement entirely. There is no wrapper today; `mavenCandidates` already looks
+  for one.
+- **The jar ships inside the package.** `common:build:analyzer` builds it and the
+  packaging tasks depend on it, so a released app never shows the setup panel — that is
+  the from-source path. Each platform puts it where `installedResourcePaths`
+  (`internal/codegraph/artifact.go`) looks, and the two must be changed together:
+
+  | Package | Jar lands at | Declared in |
+  | --- | --- | --- |
+  | deb / rpm / arch | `/usr/local/share/dev-kit/` | `build/linux/nfpm/nfpm.yaml` |
+  | macOS `.app` | `Contents/Resources/` | `build/darwin/Taskfile.yml` |
+  | Windows NSIS | beside the `.exe` | `build/windows/nsis/project.nsi` |
+
+  **AppImage and MSIX do not carry it.** `wails3 generate appimage` and `wails3 tool msix`
+  build their payload from the binary alone and expose no hook for extra files, so those
+  two fall back to the setup panel. Fixing that means either replacing those tasks with a
+  hand-rolled AppDir/package step or a change upstream in Wails — neither is done here.
+- `task dev` and `task build` deliberately do NOT build the analyzer: a contributor
+  without a JDK can still work on everything else and gets the setup panel, which is what
+  it is for. Only the packaging targets require the toolchain.
+- **A JRE is still required to RUN the analyzer, on every path.** Shipping the jar removes
+  Maven and the build, not Java: `Toolchain.Run` is `java -jar …`. `Ready` therefore means
+  artifact AND runtime, and `HasArtifact` separates the two failures so the panel can say
+  "build this" or "install a runtime" rather than offering a build that would not help.
+  Removing the last requirement means bundling a JRE per platform — measured at 57 MB with
+  `jlink --add-modules java.se` (a trimmed module set saves only 2 MB and breaks
+  `ReflectionTypeSolver` for target projects using `java.sql`, `java.net.http` and the
+  rest, so it would have to be the full one). Not done.
+- **Two Java versions, deliberately different.** `analyzer/pom.xml` sets
+  `maven.compiler.release` to 21 — the bytecode the analyzer itself is compiled to, so it
+  runs on the JDK people actually have (an IDE's bundled runtime, a distro's
+  `openjdk-21`). `ParserConfiguration.LanguageLevel` in `ProjectAnalyzer.java` is
+  `JAVA_25` — the newest syntax it can READ in a target project. They are independent:
+  JavaParser is a parser, not javac, so reading Java 25 needs no JDK 25. When a newer Java
+  ships, raise the language level, never the release. A file whose syntax the parser
+  rejects is swallowed by `parseFile`'s catch-all and vanishes from the index with no node,
+  no edge and no error — `parsesSyntaxNewerThanTheAnalyzerOwnBytecode` guards that.
+- The build is unsandboxed by design: it is the developer's own repository, built with
+  their own toolchain, and Maven needs the network and `~/.m2`.
+- End-to-end (real Maven, minutes, network):
+  `DEVKIT_ANALYZER_BUILD_E2E=1 go test ./internal/codegraph/ -run BuildsForReal -v -timeout 20m`
+
+### CodeGraph: opening a project
+`Service.OpenProject` does three things before any analyzer runs, each because the version
+without it was worse.
+
+- **Detection gates the subprocess** (`internal/codegraph/detect.go`). Without it, opening
+  any folder started a JVM to walk it and reported the empty result as an empty project
+  rather than as the wrong folder. A `Toolchain` declares `Markers` (build files) and
+  `SourceExt`; a directory holding a marker is a module root. Unrecognised folders get
+  `ErrUnsupportedProject`, which the UI renders as "choose another folder" rather than as a
+  failed analysis (its own bridge code, `unsupported_project`, so the two are not confused).
+  Detection is skipped when no toolchain is registered — an empty registry knows nothing and
+  must not refuse everything.
+- **A folder of microservices is one index, not none.** `ProjectAnalyzer` discovers every
+  `src/main/java` below the root (skipping `target/`, `node_modules/`, dot-dirs; depth 6),
+  falling back to the root itself for a bare folder of `.java` files. All roots go into one
+  `CombinedTypeSolver`, which is what keeps a call from one service into a shared module
+  resolvable — one subprocess per service would lose that. `filePath` is relative to the
+  project root, so roots never collide.
+- **A known project reuses its stored index, then re-indexes in the background.** The index
+  is persisted per project (`ProjectDBPath`); re-deriving it on every open cost as much as
+  the first index with the UI blocked throughout. Reuse requires BOTH `HasIndex` and
+  `IndexedProject == this project` — the per-project file is a naming convention, and a
+  convention is not something the code can check, so the index records which project it
+  describes (`index_meta`). An index written before that table simply re-indexes once.
+
 ### Notes / gotchas
 - Sync login: production uses `internal/cloudconfig` (pinned `GET /v1/desktop/config`, disk cache, refresh on reconnect). Set `DEVKIT_OIDC_*` to override remote/cache for local dev. Omit all OIDC env + stay offline with no cache for local-only vault/modules.
 - Storage is a single SQLite file (`modernc.org/sqlite`, no cgo) opened with

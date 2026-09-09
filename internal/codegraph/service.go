@@ -37,6 +37,19 @@ type Service struct {
 
 	terminalRegistry *terminal.Registry
 
+	// toolchains is what BuildAnalyzer can build; see toolchain.go. Guarded by
+	// mu with everything else. buildMu is separate and is held for the whole
+	// length of a build — minutes on a cold Maven cache — which mu, taken on
+	// every read of the index, could not be.
+	toolchains []Toolchain
+	buildMu    sync.Mutex
+
+	// detected is what the open folder turned out to hold — which language, and
+	// which module roots. Recorded during OpenProject so the answer costs one
+	// walk rather than one per caller who wants it, and so the UI can say "4
+	// modules" instead of leaving a monorepo looking like a single project.
+	detected DetectedProject
+
 	indexVersion int
 	reindexing   bool
 
@@ -45,7 +58,12 @@ type Service struct {
 	// implementations only: a slow listener stalls the file watcher. nil means
 	// nobody is listening, which is the normal case in tests.
 	OnIndexUpdated func(version int)
-	reindexPending bool
+	// OnAnalyzerBuildOutput fires for every line an analyzer build writes, on
+	// the goroutine draining the build's output. Same contract as
+	// OnIndexUpdated: non-blocking implementations only, nil means nobody is
+	// listening. Set once at wiring time, before any build starts.
+	OnAnalyzerBuildOutput func(language, line string)
+	reindexPending        bool
 	// debounceInterval is the quiet period after the last fsnotify event
 	// before a re-index actually runs. 750ms in production; tests shorten it
 	// (this is an unexported field set directly in-package, same pattern
@@ -140,10 +158,63 @@ func (s *Service) StartTerminal(rows, cols int) (string, error) {
 	return reg.Register("builtin.codegraph", pty), nil
 }
 
-// OpenProject runs the analyzer over projectPath and replaces the active
-// index. A failed analyze leaves the service with no active project rather
-// than a stale or partial one.
+// OpenProject makes a folder the active project. A failed analyze leaves the
+// service with no active project rather than a stale or partial one.
+//
+// Three things happen before any analyzer runs, and each exists because the
+// version without it was worse.
+//
+// It refuses a folder no toolchain recognises. Analyzing anyway meant starting
+// a JVM, walking a stranger's Downloads folder and reporting the empty result
+// as an empty project rather than as the wrong folder.
+//
+// It reuses an index this project already has. The index is persisted per
+// project (see ProjectDBPath), and re-deriving it on every open made reopening
+// a large repository cost exactly as much as indexing it the first time, with
+// the UI blocked throughout for a result almost always identical to the one
+// already on disk.
+//
+// And having reused it, it re-indexes in the background, through the same
+// lenient path the file watcher uses: a stale index is worth showing
+// immediately, but only if it stops being stale on its own.
 func (s *Service) OpenProject(ctx context.Context, projectPath string) error {
+	// Only where there is something to detect with. A Service with no
+	// toolchains registered — an ephemeral one, a test with its own analyzer —
+	// has no vocabulary for recognising a project, and refusing every folder on
+	// the strength of an empty registry would be a gate that knows nothing
+	// standing in front of an analyzer that does.
+	var detected DetectedProject
+	if len(s.toolchainList()) > 0 {
+		found, err := s.DetectProject(projectPath)
+		if err != nil {
+			s.stopWatcher()
+			return fmt.Errorf("codegraph: open %q: %w", projectPath, err)
+		}
+		detected = found
+	}
+	s.mu.Lock()
+	s.detected = detected
+	s.mu.Unlock()
+
+	// Ask before analyzing. Both halves are required: the store must hold an
+	// index AND that index must be this project's. A store holding rows is a
+	// weaker claim than a store holding the right rows, and acting on the
+	// weaker one hands one project's index to another.
+	if s.storedIndexMatches(ctx, projectPath) {
+		s.mu.Lock()
+		s.active = true
+		s.projectRoot = projectPath
+		s.mu.Unlock()
+
+		_ = s.restartWatcher(projectPath) // non-fatal: see restartWatcher's doc comment
+		// Background, and deliberately not awaited: the point is that the user
+		// gets the stored index now. runReindex leaves the old index in place
+		// if the fresh one fails, and fires OnIndexUpdated only if anything
+		// actually changed — so the UI either stays as it is or refreshes once.
+		go s.runReindex(context.Background())
+		return nil
+	}
+
 	result, err := s.analyzer.Analyze(ctx, projectPath)
 	if err != nil {
 		s.stopWatcher()
@@ -161,8 +232,43 @@ func (s *Service) OpenProject(ctx context.Context, projectPath string) error {
 	s.indexVersion++
 	s.mu.Unlock()
 
+	// Stamp the index with the project it describes, so the next open can
+	// recognise it. Best-effort: failing to record it costs one re-index, which
+	// is not worth failing an otherwise successful open over.
+	if err := s.store.SetIndexedProject(ctx, filepath.Clean(projectPath)); err != nil {
+		// Nothing to do but carry on; the next open re-analyzes.
+		_ = err
+	}
+
 	_ = s.restartWatcher(projectPath) // non-fatal: see restartWatcher's doc comment
 	return nil
+}
+
+// ActiveDetection reports what the open project turned out to hold. Zero-valued
+// when nothing is open, or when no toolchain was registered to detect with.
+func (s *Service) ActiveDetection() DetectedProject {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if !s.active {
+		return DetectedProject{}
+	}
+	return s.detected
+}
+
+// storedIndexMatches reports whether the open store already holds an index
+// built from this exact project.
+func (s *Service) storedIndexMatches(ctx context.Context, projectPath string) bool {
+	has, err := s.store.HasIndex(ctx)
+	if err != nil || !has {
+		return false
+	}
+	indexed, err := s.store.IndexedProject(ctx)
+	if err != nil || indexed == "" {
+		// Unknown provenance — an index written before the stamp existed. One
+		// re-index costs less than showing the wrong project's graph.
+		return false
+	}
+	return indexed == filepath.Clean(projectPath)
 }
 
 // activeProject returns the current store and project root under the read
@@ -1171,6 +1277,8 @@ func (s *Service) RelinkPlanNode(ctx context.Context, planNodeID, fqn string) er
 type nilStore struct{}
 
 func (nilStore) ReplaceIndex(context.Context, AnalysisResult) error { return ErrNoActiveProject }
+func (nilStore) IndexedProject(context.Context) (string, error)     { return "", nil }
+func (nilStore) SetIndexedProject(context.Context, string) error    { return nil }
 func (nilStore) HasIndex(context.Context) (bool, error)             { return false, nil }
 func (nilStore) ListEndpoints(context.Context) ([]Endpoint, error)  { return nil, ErrNoActiveProject }
 func (nilStore) GetEndpoint(context.Context, string) (Endpoint, error) {

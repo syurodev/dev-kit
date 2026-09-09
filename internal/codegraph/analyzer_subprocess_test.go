@@ -4,41 +4,39 @@ package codegraph
 import (
 	"context"
 	"errors"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 )
 
-// analyzerJarPath locates the fat jar built by Task 7 Step 1. Tests that
-// need a real jar skip (not fail) when it hasn't been built yet, so this
-// package's test suite still passes in an environment that only has the Go
-// toolchain — the jar is a separate, optional build artifact from a
-// different toolchain (Maven), not something `go test` can produce itself.
-func analyzerJarPath(t *testing.T) string {
+// builtJavaAnalyzer returns a Java toolchain whose artifact is actually on
+// disk. Tests that need a real analyzer skip (not fail) when it has not been
+// built, so this package's suite still passes in an environment that only has
+// the Go toolchain — the jar comes from a different toolchain (Maven), not
+// something `go test` can produce itself.
+func builtJavaAnalyzer(t *testing.T) Toolchain {
 	t.Helper()
-	path, err := filepath.Abs("../../analyzer/target/codegraph-analyzer.jar")
+	repoRoot, err := filepath.Abs("../..")
 	if err != nil {
-		t.Fatalf("resolve analyzer jar path: %v", err)
+		t.Fatalf("resolve repo root: %v", err)
 	}
-	if _, err := os.Stat(path); err != nil {
-		t.Skipf("analyzer jar not built at %s (run `cd analyzer && mvn package` first): %v", path, err)
+	toolchain := JavaToolchain(repoRoot)
+	if toolchain.installedArtifact() == "" {
+		t.Skipf("analyzer not built (run `cd analyzer && mvn package` first); searched %v", toolchain.Search)
 	}
-	return path
+	return toolchain
 }
 
 func TestSubprocessAnalyzerAnalyzesSampleProject(t *testing.T) {
-	jarPath := analyzerJarPath(t)
-	if _, err := exec.LookPath("java"); err != nil {
-		t.Skip("java not on PATH")
-	}
+	toolchain := builtJavaAnalyzer(t)
 
 	projectPath, err := filepath.Abs("../../analyzer/src/test/resources/sample-project")
 	if err != nil {
 		t.Fatalf("resolve sample project path: %v", err)
 	}
 
-	analyzer := NewSubprocessAnalyzerWithJar(jarPath)
+	// No LookPath guard: the toolchain finds its own runtime wherever it lives,
+	// which is the whole point — a JDK inside an IDE is not on PATH.
+	analyzer := toolchain.Analyzer()
 	result, err := analyzer.Analyze(context.Background(), projectPath)
 	if err != nil {
 		t.Fatalf("Analyze: %v", err)
@@ -92,9 +90,19 @@ func TestSubprocessAnalyzerAnalyzesSampleProject(t *testing.T) {
 	}
 }
 
-func TestSubprocessAnalyzerWithoutJarConfiguredReturnsNotConfigured(t *testing.T) {
+func TestSubprocessAnalyzerWithoutAToolchainReturnsNotConfigured(t *testing.T) {
 	analyzer := NewSubprocessAnalyzer()
 	_, err := analyzer.Analyze(context.Background(), "/some/project")
+	if !errors.Is(err, ErrAnalyzerNotConfigured) {
+		t.Fatalf("expected ErrAnalyzerNotConfigured, got %v", err)
+	}
+}
+
+func TestToolchainAnalyzerWithoutABuiltArtifactReturnsNotConfigured(t *testing.T) {
+	// A toolchain that knows how to build an analyzer but has not yet is not
+	// the same as no analyzer at all — but from a caller's side it fails the
+	// same way, which is what keeps the setup panel's trigger a single error.
+	_, err := JavaToolchain(t.TempDir()).Analyzer().Analyze(context.Background(), "/some/project")
 	if !errors.Is(err, ErrAnalyzerNotConfigured) {
 		t.Fatalf("expected ErrAnalyzerNotConfigured, got %v", err)
 	}

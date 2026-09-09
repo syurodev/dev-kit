@@ -65,7 +65,7 @@ func RegisterBuiltins(container *Container) error {
 			APIVersion:   modules.CurrentAPIVersion,
 			Commands:     []string{"codegraph.open_project"},
 			Views:        []string{"codegraph.explorer"},
-			Capabilities: []string{"codegraph:index", "codegraph:read"},
+			Capabilities: []string{"codegraph:index", "codegraph:read", "codegraph:toolchain"},
 		},
 		{
 			ID:           "agenthub",

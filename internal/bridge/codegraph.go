@@ -7,17 +7,29 @@ import (
 	"devkit/internal/codegraph"
 )
 
-func (s *AppService) CodeGraphOpenProject(path string) error {
-	_, err := s.call(context.Background(), "builtin.codegraph", "codegraph:index", "project:new", map[string]any{
+// CodeGraphOpenProject indexes a folder and reports what it turned out to hold.
+//
+// Returning the detection rather than just an error is what lets the UI say
+// how many modules were found. A repository of microservices is the case that
+// needs it: it indexes as one graph, and without a count it is indistinguishable
+// on screen from a single project that happens to have a lot of endpoints.
+func (s *AppService) CodeGraphOpenProject(path string) (codegraph.DetectedProject, error) {
+	result, err := s.call(context.Background(), "builtin.codegraph", "codegraph:index", "project:new", map[string]any{
 		"action": "open_project",
 	}, func(ctx context.Context) (any, error) {
 		dbPath := codegraph.ProjectDBPath(s.container.ConfigDir, path)
 		if err := s.container.CodeGraph.SetProjectPath(dbPath); err != nil {
 			return nil, err
 		}
-		return nil, s.container.CodeGraph.OpenProject(ctx, path)
+		if err := s.container.CodeGraph.OpenProject(ctx, path); err != nil {
+			return nil, err
+		}
+		return s.container.CodeGraph.ActiveDetection(), nil
 	})
-	return err
+	if err != nil {
+		return codegraph.DetectedProject{}, err
+	}
+	return result.(codegraph.DetectedProject), nil
 }
 
 func (s *AppService) CodeGraphListEndpoints() ([]codegraph.Endpoint, error) {
@@ -204,4 +216,52 @@ func (s *AppService) CodeGraphProjectRoot() (string, error) {
 		return "", err
 	}
 	return result.(string), nil
+}
+
+// CodeGraphAnalyzerStatus reports, per language, whether that analyzer is
+// built and — when it is not — exactly which programs are missing and what to
+// install. The UI renders this instead of the bare "analyzer not configured"
+// error a failed index used to produce, which told the user nothing they could
+// act on.
+//
+// Read-only and side-effect free apart from running each program's version
+// flag, so it takes codegraph:read rather than a capability of its own.
+func (s *AppService) CodeGraphAnalyzerStatus() ([]codegraph.ToolchainStatus, error) {
+	result, err := s.call(context.Background(), "builtin.codegraph", "codegraph:read", "project:active", map[string]any{
+		"action": "analyzer_status",
+	}, func(ctx context.Context) (any, error) {
+		if s.container.CodeGraph == nil {
+			return []codegraph.ToolchainStatus{}, nil
+		}
+		return s.container.CodeGraph.AnalyzerStatus(ctx), nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]codegraph.ToolchainStatus), nil
+}
+
+// CodeGraphBuildAnalyzer builds one language's analyzer and installs it, with
+// no restart: on success the next CodeGraphOpenProject indexes for real.
+//
+// The build's output reaches the frontend as codegraph:analyzerBuildOutput
+// events (wired in main.go, same shape as codegraph:indexUpdated) rather than
+// as a returned transcript, because a cold Maven cache takes minutes and a call
+// that returns only at the end is indistinguishable from a hang. The return
+// value is the outcome, not the log.
+//
+// Its own capability: this is the one CodeGraph call that runs a build tool
+// against the user's machine, and a grant that covers reading an index should
+// not silently also cover that.
+func (s *AppService) CodeGraphBuildAnalyzer(language string) error {
+	_, err := s.call(context.Background(), "builtin.codegraph", "codegraph:toolchain", "analyzer:build", map[string]any{
+		"action":   "build_analyzer",
+		"language": language,
+	}, func(ctx context.Context) (any, error) {
+		if s.container.CodeGraph == nil {
+			return nil, codegraph.ErrUnknownToolchain
+		}
+		return nil, s.container.CodeGraph.BuildAnalyzer(ctx, language)
+	})
+	return err
 }

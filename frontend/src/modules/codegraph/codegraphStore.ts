@@ -8,6 +8,7 @@ import type {
   CodeGraphEndpoint,
   CodeGraphFileEntry,
   CodeGraphSubgraph,
+  CodeGraphToolchainStatus,
 } from "@/bridge/codegraph";
 
 type CodeGraphState = {
@@ -17,6 +18,13 @@ type CodeGraphState = {
   rootId: string | null;
   status: string;
   error: string;
+  /**
+   * The bridge error code behind `error`, or "". "unsupported_project" is the
+   * one the view branches on: picking the wrong folder needs a different offer
+   * from an analysis that broke, and a retry button on a folder that will never
+   * analyze is a button that cannot work.
+   */
+  errorCode: string;
   busy: boolean;
 
   /** True while fetching the next page of a truncated subgraph. */
@@ -52,6 +60,14 @@ type CodeGraphState = {
   /** Filters the sidebar's visible list; applies to whichever tab is active. */
   query: string;
 
+  /**
+   * Per-language analyzer readiness, or null until the first probe answers.
+   * Null and "all ready" both render the normal module — the setup panel only
+   * takes over once we know an analyzer is genuinely missing, so a slow probe
+   * never flashes it at someone whose analyzer is fine.
+   */
+  analyzerStatuses: CodeGraphToolchainStatus[] | null;
+
   set: (patch: Partial<CodeGraphState>) => void;
 };
 
@@ -76,6 +92,7 @@ export const useCodeGraphStore = create<CodeGraphState>((set) => ({
   rootId: null,
   status: "",
   error: "",
+  errorCode: "",
   busy: false,
   loadingMore: false,
 
@@ -98,6 +115,7 @@ export const useCodeGraphStore = create<CodeGraphState>((set) => ({
   fileDirty: false,
   fileError: "",
   query: "",
+  analyzerStatuses: null,
 
   set: (patch) => set(patch),
 }));

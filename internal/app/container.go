@@ -186,6 +186,11 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.codegraph", Capability: "codegraph:fs", Scope: "project:active"},
 		{SubjectID: "builtin.codegraph", Capability: "codegraph:fs", Scope: "file:*"},
 		{SubjectID: "builtin.codegraph", Capability: "codegraph:terminal", Scope: "project:active"},
+		// Building an analyzer runs a build tool against the user's machine.
+		// Its own capability rather than folding into codegraph:index: a grant
+		// that lets a subject read a code index should not also let it start
+		// Maven.
+		{SubjectID: "builtin.codegraph", Capability: "codegraph:toolchain", Scope: "analyzer:build"},
 		{SubjectID: "builtin.codegraph", Capability: "terminal:io", Scope: "session:*"},
 		{SubjectID: "builtin.codegraph", Capability: "codegraph:plan", Scope: "plan:active"},
 		{SubjectID: "builtin.kafka", Capability: "kafka:connect", Scope: "profile:list"},

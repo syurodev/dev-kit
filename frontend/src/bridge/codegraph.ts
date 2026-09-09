@@ -28,8 +28,26 @@ export type CodeGraphSymbolMatch = {
   line: number;
 };
 
-export async function openCodeGraphProject(path: string): Promise<void> {
-  return callBridge(() => AppService.CodeGraphOpenProject(path));
+/** What a folder turned out to hold, once opened. */
+export type CodeGraphDetectedProject = {
+  language: string;
+  label: string;
+  /**
+   * Module roots relative to the opened folder, "." meaning the folder itself.
+   * A repository of microservices has one entry per service.
+   */
+  modules: string[];
+};
+
+export async function openCodeGraphProject(path: string): Promise<CodeGraphDetectedProject> {
+  return callBridge(async () => {
+    const detected = await AppService.CodeGraphOpenProject(path);
+    return {
+      language: detected.language,
+      label: detected.label,
+      modules: detected.modules ?? [],
+    };
+  });
 }
 
 export async function listCodeGraphEndpoints(): Promise<CodeGraphEndpoint[]> {
@@ -233,5 +251,91 @@ const INDEX_UPDATED_EVENT = "codegraph:indexUpdated";
 export function onCodeGraphIndexUpdated(handler: (version: number) => void): () => void {
   return Events.On(INDEX_UPDATED_EVENT, (ev) => {
     handler(Number(ev.data?.version ?? 0));
+  });
+}
+
+/** One program an analyzer build needs, and what was found on this machine. */
+export type CodeGraphRequirement = {
+  program: string;
+  label: string;
+  minVersion: string;
+  /** Detected version, or "" when nothing usable was found. */
+  found: string;
+  /** The executable that will actually be run. */
+  path: string;
+  /** Where it came from — "PATH", "JAVA_HOME", "IDE-bundled Maven". */
+  source: string;
+  met: boolean;
+  problem: string;
+  installHint: string;
+};
+
+/** Whether one language's analyzer is built, and what stands in the way. */
+export type CodeGraphToolchainStatus = {
+  language: string;
+  label: string;
+  /** The analyzer can run now: the artifact exists AND so does its runtime. */
+  ready: boolean;
+  /** Separates "nothing built yet" from "built but no runtime to launch it". */
+  hasArtifact: boolean;
+  buildable: boolean;
+  artifact: string;
+  buildCommand: string;
+  requirements: CodeGraphRequirement[];
+};
+
+/**
+ * Per language: is that analyzer built, and if not, what is missing.
+ *
+ * Probes the machine for a JDK and Maven, so it costs a few subprocesses —
+ * call it when the setup panel is on screen, not on a timer.
+ */
+export async function codeGraphAnalyzerStatus(): Promise<CodeGraphToolchainStatus[]> {
+  return callBridge(async () => {
+    const list = await AppService.CodeGraphAnalyzerStatus();
+    return (list ?? []).map((s) => ({
+      language: s.language,
+      label: s.label,
+      ready: s.ready,
+      hasArtifact: s.hasArtifact,
+      buildable: s.buildable,
+      artifact: s.artifact,
+      buildCommand: s.buildCommand,
+      requirements: (s.requirements ?? []).map((r) => ({
+        program: r.program,
+        label: r.label,
+        minVersion: r.minVersion,
+        found: r.found,
+        path: r.path,
+        source: r.source,
+        met: r.met,
+        problem: r.problem,
+        installHint: r.installHint,
+      })),
+    }));
+  });
+}
+
+/**
+ * Builds one language's analyzer and installs it — no restart, the next index
+ * uses it. Resolves when the build finishes; watch
+ * onCodeGraphAnalyzerBuildOutput for what it is doing in the meantime.
+ */
+export async function buildCodeGraphAnalyzer(language: string): Promise<void> {
+  return callBridge(() => AppService.CodeGraphBuildAnalyzer(language));
+}
+
+const ANALYZER_BUILD_OUTPUT_EVENT = "codegraph:analyzerBuildOutput";
+
+/**
+ * Every line the analyzer build writes, as it writes it. A cold Maven cache
+ * takes minutes, and a spinner that cannot say why is indistinguishable from a
+ * hang. Returns an unsubscribe function.
+ */
+export function onCodeGraphAnalyzerBuildOutput(
+  handler: (language: string, line: string) => void,
+): () => void {
+  return Events.On(ANALYZER_BUILD_OUTPUT_EVENT, (ev) => {
+    handler(String(ev.data?.language ?? ""), String(ev.data?.line ?? ""));
   });
 }
