@@ -9,6 +9,7 @@ import {
   Lock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ListSkeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { useDatabaseStore } from "../databaseStore";
 import {
@@ -20,8 +21,9 @@ import {
 import { errorMessage } from "../../../bridge/errors";
 
 export function LiveActivityView() {
-  const { profiles, selectedProfileId } = useDatabaseStore();
-  const [sessions, setSessions] = useState<SessionRow[]>([]);
+  const { profiles, selectedProfileId, activeTab } = useDatabaseStore();
+  // null until the first snapshot answers — see ListSkeleton.
+  const [sessions, setSessions] = useState<SessionRow[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
@@ -67,9 +69,12 @@ export function LiveActivityView() {
     }
   }
 
+  // Re-snapshot on every entry to the tab, not only on profile change: the
+  // view stays mounted between visits now (DatabaseView), and a snapshot is
+  // on-demand by its own description.
   useEffect(() => {
-    void fetchSessions();
-  }, [selectedProfileId]);
+    if (activeTab === "activity") void fetchSessions();
+  }, [selectedProfileId, activeTab]);
 
   async function handleConfirmAction() {
     if (!confirmAction || !selectedProfileId) return;
@@ -94,7 +99,7 @@ export function LiveActivityView() {
     }
   }
 
-  const filtered = sessions.filter(
+  const filtered = (sessions ?? []).filter(
     (s) =>
       !search ||
       s.pid.includes(search) ||
@@ -112,7 +117,7 @@ export function LiveActivityView() {
         <div className="flex items-center gap-2">
           {!engineHasNoSessions && (
             <span className="text-body-12 text-text-secondary">
-              {sessions.length} active {sessions.length === 1 ? "session" : "sessions"}
+              {sessions?.length ?? 0} active {sessions?.length === 1 ? "session" : "sessions"}
             </span>
           )}
         </div>
@@ -172,6 +177,8 @@ export function LiveActivityView() {
               Activity is available on PostgreSQL, MySQL and MariaDB profiles.
             </p>
           </div>
+        ) : sessions === null ? (
+          <ListSkeleton />
         ) : filtered.length > 0 ? (
           <table className="w-full text-left text-code-12 border-collapse" aria-label="Live sessions">
             <thead className="bg-surface-raised sticky top-0 border-b border-border text-text-secondary z-10">

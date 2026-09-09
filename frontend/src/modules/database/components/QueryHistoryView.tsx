@@ -12,14 +12,15 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ListSkeleton } from "@/components/ui/skeleton";
 import { useDatabaseStore } from "../databaseStore";
 import { listQueryHistory, type HistoryEntry } from "../../../bridge/database";
 import { errorMessage } from "../../../bridge/errors";
 import { isVaultLockedError } from "../errorStates";
 
 export function QueryHistoryView() {
-  const { selectedProfileId, setSql, setActiveTab } = useDatabaseStore();
-  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const { selectedProfileId, setSql, setActiveTab, activeTab } = useDatabaseStore();
+  const [history, setHistory] = useState<HistoryEntry[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
@@ -40,9 +41,11 @@ export function QueryHistoryView() {
     }
   }
 
+  // Refetch on entry: the view stays mounted between visits (DatabaseView),
+  // and a query run in the console meanwhile must show up here.
   useEffect(() => {
-    void fetchHistory();
-  }, [selectedProfileId]);
+    if (activeTab === "history") void fetchHistory();
+  }, [selectedProfileId, activeTab]);
 
   function handleCopy(entry: HistoryEntry) {
     void copyText(entry.sql);
@@ -57,7 +60,7 @@ export function QueryHistoryView() {
 
   const isVaultLocked = isVaultLockedError(error);
 
-  const filtered = history.filter((h) =>
+  const filtered = (history ?? []).filter((h) =>
     !search || h.sql.toLowerCase().includes(search.toLowerCase())
   );
 
@@ -109,6 +112,8 @@ export function QueryHistoryView() {
           <div className="p-4 rounded-lg bg-status-danger/10 border border-status-danger/30 text-body-12 text-status-danger">
             {error}
           </div>
+        ) : history === null ? (
+          <ListSkeleton className="p-0" />
         ) : filtered.length > 0 ? (
           filtered.map((entry) => (
             <div

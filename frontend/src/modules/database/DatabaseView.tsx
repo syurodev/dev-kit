@@ -1,6 +1,6 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSidebarContent } from "@/components/ui/sidebar-shell";
-import { useDatabaseStore } from "./databaseStore";
+import { useDatabaseStore, type DatabaseTab } from "./databaseStore";
 import { DatabaseSidebar } from "./components/DatabaseSidebar";
 import { DatabaseHeader } from "./components/DatabaseHeader";
 import { DatabaseBanners } from "./components/DatabaseBanners";
@@ -48,6 +48,17 @@ export function DatabaseView() {
   const showVaultLocked = isVaultLockedError(profileError);
   const showTLSRefused = isInsecureTLSError(blocking);
 
+  const [visited, setVisited] = useState<ReadonlySet<DatabaseTab>>(() => new Set([activeTab]));
+  useEffect(() => {
+    setVisited((prev) => (prev.has(activeTab) ? prev : new Set(prev).add(activeTab)));
+  }, [activeTab]);
+  const keep = (tab: DatabaseTab, view: React.ReactNode) =>
+    tab === activeTab || visited.has(tab) ? (
+      <div key={tab} className={tab === activeTab ? "contents" : "hidden"}>
+        {view}
+      </div>
+    ) : null;
+
   return (
     <div className="h-full w-full flex overflow-hidden text-text-primary">
       <main className="flex-1 flex flex-col h-full overflow-hidden min-w-0">
@@ -64,11 +75,16 @@ export function DatabaseView() {
             />
           ) : (
             <>
-          {activeTab === "console" && <QueryConsole />}
+          {/* Tabs stay mounted once visited (hidden, like same-module tabs
+              in WorkbenchViews): unmount-on-leave meant every return began
+              from empty local state and flashed its "nothing here" copy
+              before the refetch landed. ERD is the exception — React Flow
+              measures itself, and a display:none canvas measures as 0. */}
+          {keep("console", <QueryConsole />)}
           {activeTab === "erd" && <ERDView />}
-          {activeTab === "activity" && <LiveActivityView />}
-          {activeTab === "history" && <QueryHistoryView />}
-          {activeTab === "saved" && <SavedQueriesView />}
+          {keep("activity", <LiveActivityView />)}
+          {keep("history", <QueryHistoryView />)}
+          {keep("saved", <SavedQueriesView />)}
             </>
           )}
         </div>

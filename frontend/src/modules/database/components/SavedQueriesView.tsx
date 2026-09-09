@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ListSkeleton } from "@/components/ui/skeleton";
 import { useDatabaseStore } from "../databaseStore";
 import {
   listSavedQueries,
@@ -23,8 +24,8 @@ import { errorMessage } from "../../../bridge/errors";
 import { isVaultLockedError } from "../errorStates";
 
 export function SavedQueriesView() {
-  const { selectedProfileId, setSql, setActiveTab, setShowSaveQueryModal } = useDatabaseStore();
-  const [queries, setQueries] = useState<SavedQuery[]>([]);
+  const { selectedProfileId, setSql, setActiveTab, setShowSaveQueryModal, activeTab } = useDatabaseStore();
+  const [queries, setQueries] = useState<SavedQuery[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
@@ -45,9 +46,10 @@ export function SavedQueriesView() {
     }
   }
 
+  // Refetch on entry — the view stays mounted between visits (DatabaseView).
   useEffect(() => {
-    void fetchSavedQueries();
-  }, [selectedProfileId]);
+    if (activeTab === "saved") void fetchSavedQueries();
+  }, [selectedProfileId, activeTab]);
 
   async function handleDelete(queryId: string) {
     try {
@@ -71,7 +73,7 @@ export function SavedQueriesView() {
 
   const isVaultLocked = isVaultLockedError(error);
 
-  const filtered = queries.filter(
+  const filtered = (queries ?? []).filter(
     (q) =>
       !search ||
       q.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -137,6 +139,8 @@ export function SavedQueriesView() {
           <div className="p-4 rounded-lg bg-status-danger/10 border border-status-danger/30 text-body-12 text-status-danger">
             {error}
           </div>
+        ) : queries === null ? (
+          <ListSkeleton className="p-0" />
         ) : filtered.length > 0 ? (
           filtered.map((query) => (
             <div
