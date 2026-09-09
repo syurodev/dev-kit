@@ -208,7 +208,9 @@ describe("Step 2 Form Controls Reconciliation", () => {
 
       expect(html).toContain("bg-transparent")
       expect(html).toContain("rounded-none")
-      expect(html).toContain("after:bg-text-primary")
+      // The bottom rule is the shared sliding indicator now, not an ::after.
+      expect(html).toContain('data-slot="tabs-indicator"')
+      expect(html).toContain("tabs-list:bg-text-primary")
     })
   })
 

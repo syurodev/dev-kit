@@ -823,6 +823,24 @@
       translate: 0 -4px;
     }
   }
+
+  /* Tab panel swap — components/ui/tabs.tsx. The leaving panel fades on
+     data-leaving; the arriving one mounts after it is gone and fades up from
+     2px below via @starting-style. Never both on screen, so no height jump. */
+  .tabs-content-swap {
+    opacity: 1;
+    translate: 0 0;
+    transition:
+      opacity var(--motion-fast) var(--ease-out-strong),
+      translate var(--motion-fast) var(--ease-out-strong);
+    @starting-style {
+      opacity: 0;
+      translate: 0 2px;
+    }
+  }
+  .tabs-content-swap[data-leaving] {
+    opacity: 0;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -834,5 +852,8 @@
     }
     .tree-row-enter {
         animation: none;
+    }
+    .tabs-content-swap {
+        transition: none;
     }
 }
