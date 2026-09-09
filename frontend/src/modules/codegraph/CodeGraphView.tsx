@@ -15,7 +15,7 @@ import { PlanNodeDetail } from "./plan/PlanNodeDetail";
 import { PlanCommentsPopover } from "./plan/PlanCommentsPopover";
 import { languageExtensionForPath } from "./editorLanguage";
 import { FlowCanvas } from "./graph/FlowCanvas";
-import { CanvasProgress, CanvasState } from "./graph/CanvasState";
+import { EmptyProgress, EmptyState } from "@/components/ui/empty-state";
 import { shortLabel } from "./graph/labels";
 import { methodChipClass } from "./graph/tokens";
 import { cn } from "@/lib/utils";
@@ -539,30 +539,30 @@ export function CodeGraphView() {
               }
             />
           ) : busy ? (
-            <CanvasState
+            <EmptyState
               icon={Loader2}
               title="Analyzing codebase"
               body="Indexing controllers, services and repositories. The graph opens as soon as the first route resolves."
             >
-              <CanvasProgress />
-            </CanvasState>
+              <EmptyProgress />
+            </EmptyState>
           ) : error && errorCode === "unsupported_project" ? (
             /* Nothing was analyzed and nothing is wrong with the analyzer —
                the folder simply is not a project. Offering a retry here would
                be a button that cannot work; the only useful move is choosing
                somewhere else. */
-            <CanvasState icon={FolderSearch} title="Nothing to index in that folder" body={error}>
+            <EmptyState icon={FolderSearch} title="Nothing to index in that folder" body={error}>
               <Button onClick={pickAndOpenProject}>Choose another folder…</Button>
-            </CanvasState>
+            </EmptyState>
           ) : error ? (
-            <CanvasState icon={TriangleAlert} title="Could not analyze this project" body={error}>
+            <EmptyState icon={TriangleAlert} title="Could not analyze this project" body={error}>
               <Button variant="outline" className="bg-surface-raised" onClick={() => reindex(projectPath)} disabled={!projectPath}>
                 Re-run analysis
                 <RotateCcw className="size-4" />
               </Button>
-            </CanvasState>
+            </EmptyState>
           ) : (
-            <CanvasState
+            <EmptyState
               icon={GitFork}
               title={projectPath ? "Pick an endpoint to graph" : "Open a Java project"}
               body={
@@ -579,7 +579,7 @@ export function CodeGraphView() {
               ) : (
                 <Button onClick={pickAndOpenProject}>Open Java project…</Button>
               )}
-            </CanvasState>
+            </EmptyState>
           )}
         </div>
       )}
@@ -651,11 +651,11 @@ export function CodeGraphView() {
               </div>
             </>
           ) : planBusy ? (
-            <CanvasState icon={Loader2} title="Loading plan" body="Reading the plan and recomputing each node's status against the index.">
-              <CanvasProgress />
-            </CanvasState>
+            <EmptyState icon={Loader2} title="Loading plan" body="Reading the plan and recomputing each node's status against the index.">
+              <EmptyProgress />
+            </EmptyState>
           ) : (
-            <CanvasState
+            <EmptyState
               icon={GitFork}
               title="No plan for this project yet"
               body="An agent creates one with codegraph.proposeFlow; you approve it here, and every node shows how far the code has caught up."
@@ -681,7 +681,7 @@ export function CodeGraphView() {
               </div>
             </div>
           ) : (
-            <CanvasState
+            <EmptyState
               icon={FileCode2}
               title="Pick a file to edit"
               body="Select a file from the sidebar to open it here. ⌘S saves it back to disk; Impact lists what else depends on it."

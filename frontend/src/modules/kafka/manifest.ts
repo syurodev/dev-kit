@@ -7,8 +7,8 @@ export const kafkaModule: ModuleManifest = {
   version: "1.0.0",
   apiVersion: "1",
   icon: Workflow,
-  // Keeps the shell's padding until this module owns its own chrome.
-  padded: true,
+  // The view draws its own 24px inset (Figma 1137:17).
+  padded: false,
   capabilities: ["kafka:connect", "kafka:produce"],
   commands: [
     {

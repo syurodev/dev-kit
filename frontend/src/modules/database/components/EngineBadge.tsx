@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { Chip } from "@/components/ui/chip";
 import { MariaDBMark, MySQLMark, PostgresMark, SQLiteMark } from "../icons/engineMarks";
 
 export type EngineType = "postgres" | "mysql" | "mariadb" | "sqlite" | string;
@@ -26,34 +27,7 @@ export function EngineMark({ engine, className }: { engine?: string; className?:
   return <Mark className={cn("size-4 shrink-0", className)} />;
 }
 
-/**
- * Figma `chip/*` (742:10, 742:16): 24 tall, 10 across, radius 8, Code/11 —
- * surface/raised with a subtle stroke by default, the danger-soft pair for
- * anything that should give pause (prod).
- */
-export function Chip({
-  tone = "default",
-  className,
-  children,
-}: {
-  tone?: "default" | "danger";
-  className?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <span
-      className={cn(
-        "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-code-11 whitespace-nowrap",
-        tone === "danger"
-          ? "border-(--border-danger) bg-(--feedback-danger-soft) text-status-danger"
-          : "border-border-subtle bg-surface-raised text-text-secondary",
-        className,
-      )}
-    >
-      {children}
-    </span>
-  );
-}
+export { Chip } from "@/components/ui/chip";
 
 export function EngineBadge({
   engine,

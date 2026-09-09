@@ -1,522 +1,433 @@
-import { useEffect, useState } from "react";
-import {
-  connectKafka,
-  createKafkaProfile,
-  deleteKafkaProfile,
-  describeKafkaTopic,
-  disconnectKafka,
-  getKafkaConnectionStatus,
-  listKafkaConsumerGroups,
-  listKafkaProfiles,
-  listKafkaTopics,
-  peekKafkaMessages,
-  publishKafkaMessage,
-  testKafkaConnection,
-  type KafkaConnectionStatus,
-  type KafkaConsumerGroup,
-  type KafkaMessage,
-  type KafkaProfile,
-  type KafkaTopic,
-  type KafkaTopicDetail,
-  type PublishOutcome,
-} from "../../bridge/kafka";
-import { listEnvTags, type EnvTag } from "../../bridge/environments";
-import { errorMessage } from "../../bridge/errors";
+import { useEffect, useMemo } from "react";
+import { json } from "@codemirror/lang-json";
+import { Loader2, PlugZap, RefreshCw, Send, ServerOff, TriangleAlert, Workflow } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Chip } from "@/components/ui/chip";
+import { CodeEditor } from "@/components/code-editor/CodeEditor";
+import { EmptyProgress, EmptyState } from "@/components/ui/empty-state";
+import { useSidebarContent } from "@/components/ui/sidebar-shell";
+import { useSplitPanel } from "@/components/ui/split-panel";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { shortcut } from "@/lib/shortcut";
+import { cn } from "@/lib/utils";
+import { errorMessage } from "@/bridge/errors";
+import { KafkaSidebar } from "./KafkaSidebar";
+import { MessagePanel } from "./MessagePanel";
+import { NewClusterDialog } from "./NewClusterDialog";
+import { formatClock, formatOffset } from "./kafkaForm";
+import { useKafkaStore, type KafkaTab } from "./kafkaStore";
 
-const SECURITY_PROTOCOLS = ["PLAINTEXT", "SSL", "SASL_PLAINTEXT", "SASL_SSL"] as const;
-const SASL_MECHANISMS = ["PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512"] as const;
+const CARD = "min-h-0 flex-1 overflow-auto rounded-md border border-border-subtle bg-surface-well";
+const CELL_INPUT = "w-16 bg-transparent text-code-12 text-text-primary outline-none placeholder:text-text-tertiary";
 
-const emptyForm = {
-  name: "",
-  bootstrap: "127.0.0.1:9092",
-  securityProtocol: "PLAINTEXT",
-  saslMechanism: "PLAIN",
-  username: "",
-  secret: "",
-  env: "dev",
-};
-
-function isSaslProtocol(protocol: string): boolean {
-  return protocol === "SASL_PLAINTEXT" || protocol === "SASL_SSL";
+/** Figma `Kafka / Field` (1136:17): a named value you change before running something. */
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="flex h-7 items-center gap-1.5 rounded-md border border-border-subtle bg-surface-well px-3 text-code-11 text-text-tertiary">
+      {label}
+      {children}
+    </label>
+  );
 }
 
+/**
+ * Figma `Kafka / Content` (1141:63759). One connected cluster; three views of
+ * it — Topics, Publish, Consumer groups — switched by a tab row in the header
+ * the way the database module does, since Kafka does not opt into workbench
+ * tabs. Below the row, each view is its own pane. Before a cluster is
+ * connected the pane is one of Disconnected / Connecting / Error.
+ */
 export function KafkaView() {
-  const [profiles, setProfiles] = useState<KafkaProfile[]>([]);
-  const [envTags, setEnvTags] = useState<EnvTag[]>([]);
-  const [form, setForm] = useState({ ...emptyForm });
-  const [selectedId, setSelectedId] = useState("");
-  const [connectionStatus, setConnectionStatus] = useState<KafkaConnectionStatus>({
-    connected: false,
-  });
-  const [topics, setTopics] = useState<KafkaTopic[]>([]);
-  const [selectedTopic, setSelectedTopic] = useState("");
-  const [topicDetail, setTopicDetail] = useState<KafkaTopicDetail | null>(null);
-  const [peekPartition, setPeekPartition] = useState(0);
-  const [peekLimit, setPeekLimit] = useState(50);
-  const [peekOffset, setPeekOffset] = useState(-1);
-  const [messages, setMessages] = useState<KafkaMessage[]>([]);
-  const [consumerGroups, setConsumerGroups] = useState<KafkaConsumerGroup[]>([]);
-  const [publishTopic, setPublishTopic] = useState("");
-  const [publishKey, setPublishKey] = useState("");
-  const [publishPayload, setPublishPayload] = useState("");
-  const [publishPartition, setPublishPartition] = useState("");
-  const [publishResult, setPublishResult] = useState<PublishOutcome | null>(null);
-  const [status, setStatus] = useState("");
-  const [error, setError] = useState("");
+  const profiles = useKafkaStore((s) => s.profiles);
+  const selectedId = useKafkaStore((s) => s.selectedId);
+  const connection = useKafkaStore((s) => s.connection);
+  const phase = useKafkaStore((s) => s.phase);
+  const error = useKafkaStore((s) => s.error);
+  const testing = useKafkaStore((s) => s.testing);
+  const testResult = useKafkaStore((s) => s.testResult);
+  const selectedTopic = useKafkaStore((s) => s.selectedTopic);
+  const topicDetail = useKafkaStore((s) => s.topicDetail);
+  const peekPartition = useKafkaStore((s) => s.peekPartition);
+  const peekLimit = useKafkaStore((s) => s.peekLimit);
+  const peekOffset = useKafkaStore((s) => s.peekOffset);
+  const messages = useKafkaStore((s) => s.messages);
+  const peeking = useKafkaStore((s) => s.peeking);
+  const peeked = useKafkaStore((s) => s.peeked);
+  const peekDurationMs = useKafkaStore((s) => s.peekDurationMs);
+  const peekError = useKafkaStore((s) => s.peekError);
+  const groups = useKafkaStore((s) => s.groups);
+  const groupsLoading = useKafkaStore((s) => s.groupsLoading);
+  const publish = useKafkaStore((s) => s.publish);
+  const publishing = useKafkaStore((s) => s.publishing);
+  const publishResult = useKafkaStore((s) => s.publishResult);
+  const publishError = useKafkaStore((s) => s.publishError);
+  const activeTab = useKafkaStore((s) => s.activeTab);
+  const inspected = useKafkaStore((s) => s.inspected);
+  const refreshProfiles = useKafkaStore((s) => s.refreshProfiles);
+  const connect = useKafkaStore((s) => s.connect);
+  const testConnection = useKafkaStore((s) => s.testConnection);
+  const setPeek = useKafkaStore((s) => s.setPeek);
+  const peek = useKafkaStore((s) => s.peek);
+  const refreshGroups = useKafkaStore((s) => s.refreshGroups);
+  const setPublish = useKafkaStore((s) => s.setPublish);
+  const publishMessage = useKafkaStore((s) => s.publishMessage);
+  const setActiveTab = useKafkaStore((s) => s.setActiveTab);
+  const inspect = useKafkaStore((s) => s.inspect);
+  const setShowNewCluster = useKafkaStore((s) => s.setShowNewCluster);
 
-  async function refreshProfiles() {
-    const [list, tags, conn] = await Promise.all([
-      listKafkaProfiles(),
-      listEnvTags(),
-      getKafkaConnectionStatus(),
-    ]);
-    setProfiles(list);
-    setEnvTags(tags);
-    setConnectionStatus(conn);
-    if (!selectedId && list.length > 0) {
-      setSelectedId(list[0].id);
-    }
-  }
+  useEffect(() => {
+    void refreshProfiles().catch((e) => useKafkaStore.setState({ error: errorMessage(e) }));
+  }, [refreshProfiles]);
 
-  async function refreshConnectedData() {
-    if (!connectionStatus.connected) {
-      setTopics([]);
-      setTopicDetail(null);
-      setMessages([]);
-      setConsumerGroups([]);
+  // The rail reads the store itself, so the element never needs to change.
+  useSidebarContent(useMemo(() => <KafkaSidebar />, []));
+
+  const { openPanel, closePanel } = useSplitPanel();
+  useEffect(() => {
+    if (!inspected) {
+      closePanel();
       return;
     }
-    try {
-      const [topicList, groups] = await Promise.all([
-        listKafkaTopics(),
-        listKafkaConsumerGroups(),
-      ]);
-      setTopics(topicList);
-      setConsumerGroups(groups);
-      if (!selectedTopic && topicList.length > 0) {
-        setSelectedTopic(topicList[0].name);
-      }
-    } catch (e) {
-      setError(errorMessage(e));
-    }
+    openPanel(<MessagePanel message={inspected} topic={selectedTopic} partition={peekPartition} />, {
+      width: 400,
+      onClose: () => inspect(null),
+    });
+    return () => closePanel();
+  }, [inspected, selectedTopic, peekPartition, openPanel, closePanel, inspect]);
+
+  const jsonExtension = useMemo(() => [json()], []);
+  const profile = profiles.find((p) => p.id === selectedId);
+
+  function onKeyDown(e: React.KeyboardEvent) {
+    if (!(e.metaKey || e.ctrlKey) || e.key !== "Enter") return;
+    e.preventDefault();
+    if (activeTab === "topics") void peek();
+    if (activeTab === "publish") void publishMessage();
   }
 
-  useEffect(() => {
-    void refreshProfiles().catch((e) => setError(errorMessage(e)));
-  }, []);
-
-  useEffect(() => {
-    void refreshConnectedData();
-  }, [connectionStatus.connected]);
-
-  useEffect(() => {
-    if (!connectionStatus.connected || !selectedTopic) {
-      setTopicDetail(null);
-      return;
-    }
-    void describeKafkaTopic(selectedTopic)
-      .then((detail) => {
-        setTopicDetail(detail);
-        if (detail.partitions.length > 0) {
-          setPeekPartition(detail.partitions[0]);
-        }
-        setPublishTopic(selectedTopic);
-      })
-      .catch((e) => setError(errorMessage(e)));
-  }, [connectionStatus.connected, selectedTopic]);
-
-  async function onCreate() {
-    setError("");
-    setStatus("");
-    try {
-      const bootstrapServers = form.bootstrap
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
-      const created = await createKafkaProfile({
-        name: form.name,
-        bootstrapServers,
-        securityProtocol: form.securityProtocol,
-        saslMechanism: isSaslProtocol(form.securityProtocol) ? form.saslMechanism : "",
-        username: isSaslProtocol(form.securityProtocol) ? form.username : "",
-        secret: form.secret,
-        env: form.env,
-      });
-      setForm({ ...emptyForm });
-      setSelectedId(created.id);
-      await refreshProfiles();
-    } catch (e) {
-      setError(errorMessage(e));
-    }
+  if (!connection.connected) {
+    return (
+      <div className="flex h-full flex-col overflow-hidden">
+        {phase === "connecting" ? (
+          <EmptyState
+            icon={Loader2}
+            title={`Connecting to ${profile?.name ?? "cluster"}`}
+            body="Reaching the broker and reading cluster metadata. Every call to a broker has a timeout — nothing here can hang the app."
+          >
+            <span className="text-code-11 text-text-tertiary">
+              {profile?.bootstrapServers.join(", ")} · {profile?.securityProtocol}
+              {profile?.saslMechanism ? ` / ${profile.saslMechanism}` : ""}
+            </span>
+            <EmptyProgress />
+          </EmptyState>
+        ) : phase === "error" ? (
+          <EmptyState
+            icon={TriangleAlert}
+            tone="danger"
+            title={`Could not connect to ${profile?.name ?? "cluster"}`}
+            body="Nothing was changed, and the other saved clusters are untouched."
+          >
+            {/* The broker's own words, verbatim: a paraphrase is what stops
+                someone recognising an error they have seen before. */}
+            <pre className="max-w-140 rounded-md border border-border-subtle bg-surface-well px-4 py-3 text-left text-code-12 whitespace-pre-wrap text-status-danger select-text">
+              {error}
+            </pre>
+            <Button onClick={() => profile && void connect(profile.id)} disabled={!profile}>
+              <RefreshCw className="size-3.5" />
+              Retry
+            </Button>
+          </EmptyState>
+        ) : (
+          <EmptyState
+            icon={profile ? Workflow : ServerOff}
+            title={profile ? "Not connected" : "No cluster picked"}
+            body={
+              profile
+                ? "Pick a cluster in the rail to connect. DevKit holds one connection at a time — topics, groups and every peek belong to the cluster that is open."
+                : "Save a cluster's bootstrap servers and credentials once; the profile is encrypted into the vault like an SSH or database profile."
+            }
+          >
+            {profile ? (
+              <>
+                {testResult && (
+                  <span className={cn("text-code-11", testResult.ok ? "text-status-success" : "text-status-danger")}>
+                    {testResult.message}
+                  </span>
+                )}
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" className="bg-surface-raised" disabled={testing} onClick={() => void testConnection(profile.id)}>
+                    {testing ? "Testing…" : "Test connection"}
+                  </Button>
+                  <Button onClick={() => void connect(profile.id)}>
+                    <PlugZap className="size-3.5" />
+                    Connect {profile.name}
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <Button onClick={() => setShowNewCluster(true)}>Add cluster</Button>
+            )}
+          </EmptyState>
+        )}
+        <NewClusterDialog />
+      </div>
+    );
   }
 
-  async function onTest() {
-    setError("");
-    setStatus("Testing…");
-    try {
-      await testKafkaConnection(selectedId);
-      setStatus("Connection OK");
-    } catch (e) {
-      setStatus("");
-      setError(errorMessage(e));
-    }
-  }
-
-  async function onConnect() {
-    setError("");
-    setStatus("Connecting…");
-    try {
-      await connectKafka(selectedId);
-      const conn = await getKafkaConnectionStatus();
-      setConnectionStatus(conn);
-      setStatus("Connected");
-      await refreshConnectedData();
-    } catch (e) {
-      setStatus("");
-      setError(errorMessage(e));
-    }
-  }
-
-  async function onDisconnect() {
-    setError("");
-    setStatus("Disconnecting…");
-    try {
-      await disconnectKafka();
-      const conn = await getKafkaConnectionStatus();
-      setConnectionStatus(conn);
-      setSelectedTopic("");
-      setPublishResult(null);
-      setStatus("Disconnected");
-    } catch (e) {
-      setStatus("");
-      setError(errorMessage(e));
-    }
-  }
-
-  async function onPeek() {
-    if (!selectedTopic) return;
-    setError("");
-    setStatus("Peeking messages…");
-    try {
-      setMessages(
-        await peekKafkaMessages(selectedTopic, peekPartition, peekLimit, peekOffset),
-      );
-      setStatus("");
-    } catch (e) {
-      setStatus("");
-      setMessages([]);
-      setError(errorMessage(e));
-    }
-  }
-
-  async function onPublish() {
-    setError("");
-    setStatus("Publishing…");
-    try {
-      const partition =
-        publishPartition.trim() === "" ? undefined : Number(publishPartition);
-      const result = await publishKafkaMessage({
-        topic: publishTopic,
-        key: publishKey || undefined,
-        value: publishPayload,
-        partition,
-      });
-      setPublishResult(result);
-      setStatus(
-        `Published to partition ${result.partition} at offset ${result.offset}`,
-      );
-    } catch (e) {
-      setStatus("");
-      setPublishResult(null);
-      setError(errorMessage(e));
-    }
-  }
-
-  const selectedProfile = profiles.find((p) => p.id === selectedId);
+  const partitions = topicDetail?.partitions ?? [];
 
   return (
-    <section className="kafka-view">
-      <h2>Kafka</h2>
-
-      <div className="kafka-create">
-        <input
-          aria-label="kafka-name"
-          placeholder="Profile name"
-          value={form.name}
-          onChange={(e) => setForm({ ...form, name: e.target.value })}
-        />
-        <input
-          aria-label="kafka-bootstrap"
-          placeholder="Bootstrap servers (comma-separated)"
-          value={form.bootstrap}
-          onChange={(e) => setForm({ ...form, bootstrap: e.target.value })}
-        />
-        <select
-          aria-label="kafka-security-protocol"
-          value={form.securityProtocol}
-          onChange={(e) => setForm({ ...form, securityProtocol: e.target.value })}
-        >
-          {SECURITY_PROTOCOLS.map((protocol) => (
-            <option key={protocol} value={protocol}>
-              {protocol}
-            </option>
-          ))}
-        </select>
-        {isSaslProtocol(form.securityProtocol) ? (
+    <div className="flex h-full flex-col overflow-hidden px-6 pt-3.5 pb-6" onKeyDown={onKeyDown}>
+      {/* header (1137:18): what the pane is looking at, and the one action that acts on it. */}
+      <div className="flex shrink-0 items-center gap-3 pb-3">
+        {activeTab === "groups" ? (
           <>
-            <select
-              aria-label="kafka-sasl-mechanism"
-              value={form.saslMechanism}
-              onChange={(e) => setForm({ ...form, saslMechanism: e.target.value })}
-            >
-              {SASL_MECHANISMS.map((mechanism) => (
-                <option key={mechanism} value={mechanism}>
-                  {mechanism}
-                </option>
-              ))}
-            </select>
-            <input
-              aria-label="kafka-username"
-              placeholder="SASL username"
-              value={form.username}
-              onChange={(e) => setForm({ ...form, username: e.target.value })}
-            />
+            <h1 className="text-title-16 text-text-primary">Consumer groups</h1>
+            <Chip>{groups.length} group{groups.length === 1 ? "" : "s"}</Chip>
           </>
-        ) : null}
-        <input
-          aria-label="kafka-secret"
-          type="password"
-          placeholder={isSaslProtocol(form.securityProtocol) ? "SASL password" : "Secret (optional)"}
-          value={form.secret}
-          onChange={(e) => setForm({ ...form, secret: e.target.value })}
-        />
-        <select
-          aria-label="kafka-env"
-          value={form.env}
-          onChange={(e) => setForm({ ...form, env: e.target.value })}
-        >
-          {envTags.map((tag) => (
-            <option key={tag.id} value={tag.name}>
-              {tag.name}
-            </option>
-          ))}
-        </select>
-        <button type="button" onClick={onCreate}>
-          Save connection
-        </button>
+        ) : activeTab === "publish" ? (
+          <h1 className="text-title-16 text-text-primary">Publish</h1>
+        ) : (
+          <>
+            <h1 className="truncate text-title-16 text-text-primary">{selectedTopic || profile?.name}</h1>
+            {topicDetail && (
+              <div className="flex items-center gap-2">
+                <Chip>{partitions.length} partition{partitions.length === 1 ? "" : "s"}</Chip>
+                <Chip>{topicDetail.replicationFactor} replica{topicDetail.replicationFactor === 1 ? "" : "s"}</Chip>
+              </div>
+            )}
+          </>
+        )}
+        <span className="flex-1" />
+        {activeTab === "topics" && (
+          <>
+            <Button variant="outline" className="bg-surface-raised" onClick={() => setActiveTab("publish")}>
+              Publish
+            </Button>
+            <Button onClick={() => void peek()} disabled={!selectedTopic || peeking}>
+              {peeking ? "Peeking…" : "Peek"}
+              <span className="text-code-11 opacity-65">{shortcut("Enter")}</span>
+            </Button>
+          </>
+        )}
+        {activeTab === "publish" && (
+          <Button onClick={() => void publishMessage()} disabled={publishing || !publish.topic || !publish.payload}>
+            <Send className="size-3.5" />
+            {publishing ? "Publishing…" : "Publish"}
+            <span className="text-code-11 opacity-65">{shortcut("Enter")}</span>
+          </Button>
+        )}
+        {activeTab === "groups" && (
+          <Button variant="outline" className="bg-surface-raised" onClick={() => void refreshGroups()} disabled={groupsLoading}>
+            <RefreshCw className={cn("size-3.5", groupsLoading && "animate-spin")} />
+            Refresh
+          </Button>
+        )}
       </div>
 
-      <div className="kafka-profiles">
-        <label>
-          Connection
-          <select
-            aria-label="kafka-profile-select"
-            value={selectedId}
-            onChange={(e) => setSelectedId(e.target.value)}
-          >
-            <option value="">— select —</option>
-            {profiles.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name} ({p.bootstrapServers.join(", ")})
-              </option>
-            ))}
-          </select>
-        </label>
-        <button type="button" onClick={onTest} disabled={!selectedId}>
-          Test connection
-        </button>
-        <button
-          type="button"
-          onClick={onConnect}
-          disabled={!selectedId || connectionStatus.connected}
-        >
-          Connect
-        </button>
-        <button
-          type="button"
-          onClick={onDisconnect}
-          disabled={!connectionStatus.connected}
-        >
-          Disconnect
-        </button>
-        {selectedId ? (
-          <button
-            type="button"
-            aria-label="kafka-delete"
-            onClick={async () => {
-              await deleteKafkaProfile(selectedId);
-              setSelectedId("");
-              await refreshProfiles();
-            }}
-          >
-            Delete
-          </button>
-        ) : null}
-      </div>
+      <Tabs
+        value={activeTab}
+        onValueChange={(v) => setActiveTab(v as KafkaTab)}
+        className="min-h-0 flex-1 gap-3.5"
+      >
+        <TabsList className="shrink-0">
+          <TabsTrigger value="topics">Topics</TabsTrigger>
+          <TabsTrigger value="publish">Publish</TabsTrigger>
+          <TabsTrigger value="groups">Consumer groups</TabsTrigger>
+        </TabsList>
 
-      <div className="kafka-connection-status" aria-label="kafka-connection-status">
-        <p>
-          Status:{" "}
-          {connectionStatus.connected
-            ? `connected (${selectedProfile?.name ?? connectionStatus.profileId ?? "profile"})`
-            : "not connected"}
-        </p>
-      </div>
-
-      {connectionStatus.connected ? (
-        <>
-          <div className="kafka-topics">
-            <h3>Topics</h3>
-            <button type="button" onClick={() => void refreshConnectedData()}>
-              Refresh topics
-            </button>
-            <label>
-              Topic
+        {/* ---- Topics: the peek and its result. */}
+        <TabsContent value="topics" className="flex min-h-0 flex-1 flex-col gap-3.5">
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <Field label="partition">
               <select
-                aria-label="kafka-topic-select"
-                value={selectedTopic}
-                onChange={(e) => setSelectedTopic(e.target.value)}
+                value={peekPartition}
+                onChange={(e) => setPeek({ peekPartition: Number(e.target.value) })}
+                className={cn(CELL_INPUT, "w-auto")}
+                aria-label="Partition"
               >
-                <option value="">— select —</option>
-                {topics.map((t) => (
-                  <option key={t.name} value={t.name}>
-                    {t.name}
-                  </option>
+                {(partitions.length ? partitions : [0]).map((id) => (
+                  <option key={id} value={id}>{id}</option>
                 ))}
               </select>
-            </label>
-            {topicDetail ? (
-              <div aria-label="kafka-topic-detail">
-                <p>
-                  Replication factor: {topicDetail.replicationFactor}; partitions:{" "}
-                  {topicDetail.partitions.join(", ")}
-                </p>
-              </div>
-            ) : null}
+            </Field>
+            <Field label="from offset">
+              <input
+                type="number"
+                min={-1}
+                value={peekOffset < 0 ? "" : peekOffset}
+                placeholder="latest"
+                onChange={(e) => setPeek({ peekOffset: e.target.value === "" ? -1 : Number(e.target.value) })}
+                className={CELL_INPUT}
+                aria-label="From offset"
+              />
+            </Field>
+            <Field label="limit">
+              <input
+                type="number"
+                min={1}
+                max={500}
+                value={peekLimit}
+                onChange={(e) => setPeek({ peekLimit: Number(e.target.value) })}
+                className={cn(CELL_INPUT, "w-12")}
+                aria-label="Limit"
+              />
+            </Field>
           </div>
 
-          <div className="kafka-peek">
-            <h3>Peek messages</h3>
-            <label>
-              Partition
-              <select
-                aria-label="kafka-peek-partition"
-                value={peekPartition}
-                onChange={(e) => setPeekPartition(Number(e.target.value))}
-              >
-                {(topicDetail?.partitions ?? [0]).map((id) => (
-                  <option key={id} value={id}>
-                    {id}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <input
-              aria-label="kafka-peek-limit"
-              type="number"
-              min={1}
-              max={500}
-              value={peekLimit}
-              onChange={(e) => setPeekLimit(Number(e.target.value))}
-            />
-            <input
-              aria-label="kafka-peek-offset"
-              type="number"
-              placeholder="Offset (-1 = latest)"
-              value={peekOffset}
-              onChange={(e) => setPeekOffset(Number(e.target.value))}
-            />
-            <button type="button" onClick={onPeek} disabled={!selectedTopic}>
-              Peek
-            </button>
-            {messages.length > 0 ? (
-              <table aria-label="kafka-messages-table">
-                <thead>
-                  <tr>
-                    <th>Offset</th>
-                    <th>Key</th>
-                    <th>Value</th>
-                    <th>Timestamp</th>
+          <div className="flex h-5 shrink-0 items-center gap-6">
+            {peeked && !peekError && (
+              <>
+                <span className="text-body-13-medium text-text-primary">
+                  {messages.length} message{messages.length === 1 ? "" : "s"}
+                </span>
+                {peekDurationMs != null && (
+                  <span className="text-body-13-medium text-text-primary">{peekDurationMs} ms</span>
+                )}
+              </>
+            )}
+            <span className="flex-1" />
+            {/* The one thing a Kafka UI can quietly mislead about, said on the screen. */}
+            <Chip className="text-text-tertiary">a peek never commits an offset</Chip>
+          </div>
+
+          <div className={CARD}>
+            {peekError ? (
+              <pre className="px-4 py-3 text-code-12 whitespace-pre-wrap text-status-danger select-text">{peekError}</pre>
+            ) : !peeked ? (
+              <div className="flex h-full flex-col items-center justify-center gap-1.5 p-8 text-center">
+                <span className="text-body-13 text-text-secondary">
+                  {selectedTopic ? `Peek ${selectedTopic} to read its last ${peekLimit} records` : "Pick a topic in the rail"}
+                </span>
+                <span className="text-code-11 text-text-tertiary">
+                  reads from the partition, commits nothing, holds at most 500
+                </span>
+              </div>
+            ) : messages.length === 0 ? (
+              <div className="flex h-full flex-col items-center justify-center gap-1.5 p-8 text-center">
+                <span className="text-body-13 text-text-secondary">
+                  No messages in partition {peekPartition} from that offset
+                </span>
+                <span className="text-code-11 text-text-tertiary">
+                  the partition may be empty, or the offset may sit past its end
+                </span>
+              </div>
+            ) : (
+              <table className="w-full table-fixed border-collapse text-left text-code-12" aria-label="Peeked messages">
+                <thead className="sticky top-0 z-10 bg-surface-raised">
+                  <tr className="text-code-12-medium text-text-secondary">
+                    <th className="h-10 w-28 border-b border-border-subtle px-4">Offset</th>
+                    <th className="h-10 w-50 border-b border-border-subtle px-4">Key</th>
+                    <th className="h-10 border-b border-border-subtle px-4">Value</th>
+                    <th className="h-10 w-35 border-b border-border-subtle px-4">Time</th>
                   </tr>
                 </thead>
                 <tbody>
                   {messages.map((m) => (
-                    <tr key={`${m.offset}-${m.timestamp ?? 0}`}>
-                      <td>{m.offset}</td>
-                      <td>{m.key ?? ""}</td>
-                      <td>{m.value}</td>
-                      <td>{m.timestamp ?? ""}</td>
+                    <tr
+                      key={`${m.offset}-${m.timestamp ?? 0}`}
+                      onClick={() => inspect(m)}
+                      className={cn(
+                        "cursor-pointer border-b border-border-subtle hover:bg-surface-raised/60",
+                        inspected === m && "bg-surface-raised",
+                      )}
+                    >
+                      <td className="h-9 truncate px-4 text-text-tertiary">{formatOffset(m.offset)}</td>
+                      <td className="h-9 truncate px-4 text-text-primary">{m.key ?? ""}</td>
+                      <td className="h-9 truncate px-4 text-text-secondary" title="Click to open">{m.value}</td>
+                      <td className="h-9 truncate px-4 text-code-11 text-text-tertiary">{formatClock(m.timestamp)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            ) : null}
-          </div>
-
-          <div className="kafka-consumer-groups">
-            <h3>Consumer groups</h3>
-            {consumerGroups.length === 0 ? (
-              <p>No consumer groups</p>
-            ) : (
-              <ul aria-label="kafka-consumer-groups">
-                {consumerGroups.map((g) => (
-                  <li key={g.groupId}>
-                    {g.groupId}
-                    {g.lag !== undefined ? ` (lag: ${g.lag})` : ""}
-                  </li>
-                ))}
-              </ul>
             )}
           </div>
+        </TabsContent>
 
-          <div className="kafka-publish">
-            <h3>Publish</h3>
-            <input
-              aria-label="kafka-publish-topic"
-              placeholder="Topic"
-              value={publishTopic}
-              onChange={(e) => setPublishTopic(e.target.value)}
-            />
-            <input
-              aria-label="kafka-publish-key"
-              placeholder="Key (optional)"
-              value={publishKey}
-              onChange={(e) => setPublishKey(e.target.value)}
-            />
-            <textarea
-              aria-label="kafka-publish-payload"
-              placeholder="Payload"
-              value={publishPayload}
-              onChange={(e) => setPublishPayload(e.target.value)}
-            />
-            <input
-              aria-label="kafka-publish-partition"
-              type="number"
-              placeholder="Partition (optional)"
-              value={publishPartition}
-              onChange={(e) => setPublishPartition(e.target.value)}
-            />
-            <button
-              type="button"
-              onClick={onPublish}
-              disabled={!publishTopic || !publishPayload}
-            >
-              Publish
-            </button>
-            {publishResult ? (
-              <p aria-label="kafka-publish-result">
-                Partition {publishResult.partition}, offset {publishResult.offset}
-                {publishResult.timestamp !== undefined
-                  ? `, timestamp ${publishResult.timestamp}`
-                  : ""}
-              </p>
-            ) : null}
+        {/* ---- Publish: the target, the body, and the receipt. */}
+        <TabsContent value="publish" className="flex min-h-0 flex-1 flex-col gap-3.5">
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <Field label="topic">
+              <input
+                value={publish.topic}
+                onChange={(e) => setPublish({ topic: e.target.value })}
+                className={cn(CELL_INPUT, "w-44")}
+                aria-label="Topic"
+                required
+              />
+            </Field>
+            <Field label="key">
+              <input
+                value={publish.key}
+                onChange={(e) => setPublish({ key: e.target.value })}
+                placeholder="optional"
+                className={cn(CELL_INPUT, "w-36")}
+                aria-label="Key"
+              />
+            </Field>
+            <Field label="partition">
+              <input
+                value={publish.partition}
+                onChange={(e) => setPublish({ partition: e.target.value })}
+                placeholder="auto"
+                className={cn(CELL_INPUT, "w-12")}
+                aria-label="Partition"
+              />
+            </Field>
           </div>
-        </>
-      ) : null}
+          <span className="shrink-0 text-label-11-caps text-text-tertiary">Payload</span>
+          <div className={cn(CARD, "overflow-hidden")}>
+            <CodeEditor value={publish.payload} onChange={(v) => setPublish({ payload: v })} extensions={jsonExtension} wrap />
+          </div>
+          {/* The receipt is the point of the form: a publish that reports
+              nothing cannot be told apart from one that silently went nowhere. */}
+          {publishResult && (
+            <div className="flex h-9 shrink-0 items-center gap-2 rounded-md bg-status-success/10 px-4 text-code-12 text-status-success">
+              <span className="size-1.5 rounded-full bg-status-success" />
+              delivered to partition {publishResult.partition} at offset {formatOffset(publishResult.offset)}
+            </div>
+          )}
+          {publishError && (
+            <pre className="shrink-0 rounded-md border border-(--border-danger) bg-(--feedback-danger-soft) px-4 py-2.5 text-code-12 whitespace-pre-wrap text-status-danger select-text">
+              {publishError}
+            </pre>
+          )}
+        </TabsContent>
 
-      {status ? <p className="db-status">{status}</p> : null}
-      {error ? <p role="alert">{error}</p> : null}
-    </section>
+        {/* ---- Consumer groups: who is behind, and by how much. */}
+        <TabsContent value="groups" className="flex min-h-0 flex-1 flex-col">
+          <div className={CARD}>
+            {groups.length === 0 ? (
+              <div className="flex h-full items-center justify-center p-8 text-body-13 text-text-tertiary">
+                {groupsLoading ? "Loading…" : "No consumer groups on this cluster."}
+              </div>
+            ) : (
+              <table className="w-full table-fixed border-collapse text-left" aria-label="Consumer groups">
+                <thead className="sticky top-0 z-10 bg-surface-raised">
+                  <tr className="text-code-12-medium text-text-secondary">
+                    <th className="h-10 border-b border-border-subtle px-4">Group</th>
+                    <th className="h-10 w-28 border-b border-border-subtle px-4">Lag</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {groups.map((g) => (
+                    <tr key={g.groupId} className="border-b border-border-subtle">
+                      <td className="h-9 truncate px-4 text-body-13 text-text-primary">{g.groupId}</td>
+                      {/* Lag is the number that makes someone act, so it is the only one that shouts. */}
+                      <td className={cn("h-9 px-4 text-code-12", g.lag ? "text-status-warning" : "text-text-tertiary")}>
+                        {g.lag == null ? "—" : formatOffset(g.lag)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </TabsContent>
+      </Tabs>
+
+      {error && <p role="alert" className="shrink-0 pt-2 text-body-12 text-status-danger">{error}</p>}
+      <NewClusterDialog />
+    </div>
   );
 }
