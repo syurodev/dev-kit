@@ -67,13 +67,12 @@ function relativeTime(iso: string): string {
   return `${days} day${days === 1 ? "" : "s"} ago`;
 }
 
-const COUNT = "shrink-0 text-code-11 text-text-tertiary";
-const GLYPH = "size-4 shrink-0 text-text-tertiary";
+const GLYPH = "size-3.5 shrink-0 text-text-tertiary";
 /** Hover-only row actions. Opacity rather than `hidden`, so revealing them
  *  does not resize the row and shove the count sideways. */
 const ACTIONS =
   "flex items-center gap-0.5 opacity-0 group-hover:opacity-100 has-[:focus-visible]:opacity-100";
-const ACTION = "rounded-md p-0.5 text-text-tertiary hover:text-text-primary";
+const ACTION = "rounded-sm p-0.5 text-text-tertiary hover:text-text-primary";
 
 /**
  * One tree, DataGrip-shaped: folder → connection → schema → table → column.
@@ -161,7 +160,7 @@ export function DatabaseSidebar() {
           ) : (
             <Columns className={GLYPH} />
           ),
-        trailing: <span className={COUNT}>{col.dataType}</span>,
+        meta: col.dataType,
         title: `${col.dataType}${col.nullable ? "" : " · not null"}`,
       }));
     }
@@ -196,11 +195,10 @@ export function DatabaseSidebar() {
         onActivate: () => handleInsertTable(tableName),
         children: columnNodes(schemaName, tableName),
         emptyLabel: "No columns",
+        meta: columnNames.length || undefined,
         trailing: focused ? (
-          <Crosshair className="size-3.5 shrink-0 text-status-info" aria-label="Focused in the ERD" />
-        ) : (
-          <span className={COUNT}>{columnNames.length || ""}</span>
-        ),
+          <Crosshair className="size-3 shrink-0 text-status-info" aria-label="Focused in the ERD" />
+        ) : null,
         wrap: (row) => (
           <ContextMenu key={`table:${key}`}>
             <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
@@ -251,9 +249,7 @@ export function DatabaseSidebar() {
       onToggle: () => toggleSchemaExpand(schemaName),
       children: tableNodes(schemaName),
       emptyLabel: "No tables",
-      trailing: (
-        <span className={COUNT}>{Object.keys(namespace[schemaName] ?? {}).length}</span>
-      ),
+      meta: Object.keys(namespace[schemaName] ?? {}).length,
     }));
   }
 
@@ -266,7 +262,7 @@ export function DatabaseSidebar() {
     return {
       id: `profile:${profile.id}`,
       label: profile.name,
-      icon: <EngineMark engine={profile.engine} />,
+      icon: <EngineMark engine={profile.engine} className="size-3.5" />,
       // Only the indexed connection can show a schema, so the fold state of
       // the others is not offered as a lie.
       expandable: true,
@@ -441,13 +437,16 @@ export function DatabaseSidebar() {
     return {
       id: `folder:${folder.id}`,
       label: folder.name,
-      icon: <FolderIcon name={folder.icon} className="size-4 shrink-0 text-text-secondary" />,
-      expandable: true,
+      icon: <FolderIcon name={folder.icon} className="size-3.5 shrink-0 text-text-secondary" />,
+      // An empty folder gets no chevron rather than one that opens onto an
+      // "Empty folder" line: the count already says it, and the row it saves
+      // is a row.
+      expandable: inFolder.length > 0,
       expanded: filtering || expandedFolders[folder.id] !== false,
       onToggle: () => toggleFolder(folder.id),
       children: visible.map((p) => profileNode(p, folder.id)),
-      emptyLabel: filtering ? "No connections match" : "Empty folder",
-      trailing: <span className={COUNT}>{inFolder.length}</span>,
+      emptyLabel: "No connections match",
+      meta: inFolder.length,
       wrap: (row) => (
         <ContextMenu key={`folder:${folder.id}`}>
           <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
@@ -498,7 +497,7 @@ export function DatabaseSidebar() {
             <button
               type="button"
               onClick={() => setFilterQuery("")}
-              className="absolute top-1/2 right-2 -translate-y-1/2 rounded-md p-1 text-text-tertiary hover:text-text-primary"
+              className="absolute top-1/2 right-1.5 -translate-y-1/2 rounded-sm p-0.5 text-text-tertiary hover:text-text-primary"
               title="Clear search"
             >
               <X className="size-3" />
@@ -507,28 +506,28 @@ export function DatabaseSidebar() {
         </div>
         <Button
           variant="ghost"
-          size="icon-sm"
+          size="icon-xs"
           onClick={() => void fetchProfiles()}
           disabled={loadingProfiles}
           title="Refresh connections"
         >
-          <RefreshCw className={cn("size-3.5", loadingProfiles && "animate-spin")} />
+          <RefreshCw className={cn("size-3", loadingProfiles && "animate-spin")} />
         </Button>
         <Button
           variant="ghost"
-          size="icon-sm"
+          size="icon-xs"
           onClick={() => createFolder(`Folder ${folders.length + 1}`)}
           title="New folder"
         >
-          <FolderPlus className="size-3.5" />
+          <FolderPlus className="size-3" />
         </Button>
         <Button
           variant="ghost"
-          size="icon-sm"
+          size="icon-xs"
           onClick={() => setShowNewConnectionDialog(true)}
           title="New connection"
         >
-          <Plus className="size-3.5" />
+          <Plus className="size-3" />
         </Button>
       </div>
 
@@ -540,7 +539,7 @@ export function DatabaseSidebar() {
         </span>
       ) : null}
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-1 pb-2">
+      <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
         {profiles.length === 0 && !loadingProfiles ? (
           <div className="px-4 py-6 text-center text-body-12 text-text-tertiary">
             <p>No connections configured.</p>

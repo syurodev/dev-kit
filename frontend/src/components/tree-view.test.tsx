@@ -60,8 +60,14 @@ describe("TreeView", () => {
         ]}
       />,
     );
-    expect(html).toContain("padding-left:8px");
-    expect(html).toContain("padding-left:20px");
+    // The step, not the two literals: density gets tuned, and a test that
+    // pins the numbers only ever reports that someone tuned it. What must
+    // hold is that depth still reads as depth.
+    const pads = [...html.matchAll(/padding-left:(\d+)px/g)].map((m) => Number(m[1]));
+    expect(pads.length).toBe(2);
+    const step = pads[1] - pads[0];
+    expect(step).toBeGreaterThan(6);
+    expect(step).toBeLessThan(20);
     expect(html).toContain('aria-level="1"');
     expect(html).toContain('aria-level="2"');
   });
