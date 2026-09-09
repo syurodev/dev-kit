@@ -1,5 +1,11 @@
-import { FolderOpen } from "lucide-react";
+import { FolderOpen, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FileTree } from "./FileTree";
@@ -93,34 +99,48 @@ export function CodeGraphSidebar(props: CodeGraphSidebarProps) {
   return (
     <div className="flex h-full flex-col gap-3.5 px-2 py-4">
       <div className="flex flex-col gap-1.5">
-        {/* Wraps rather than overflows. Buttons are whitespace-nowrap by
-            design, so neither of these can shrink below its label — and side
-            by side they need ~279px against the 224px a minimum-width sidebar
-            (240px, less px-2) actually has. The old flex row simply ran off the
-            edge and clipped Re-index in half.
+        {/* Icon-only, so the row cannot outgrow the sidebar however narrow
+            the sash is pulled. Buttons are whitespace-nowrap by design and
+            these two labels wanted ~279px against the 224px a minimum-width
+            sidebar has; square affordances are 88px and stay 88px.
 
-            flex-auto rather than flex-1 on the primary is what makes the wrap
-            happen at all: flex-1 bases at 0, so both would stay on one line and
-            squeeze instead, truncating the label of the button that matters
-            most. Basing on content lets the secondary drop to its own line and
-            the primary take the full width above it. min-w-0 and the truncating
-            label are the floor under that, for a width no sash should reach. */}
-        <div className="flex flex-wrap items-center gap-2">
-          <Button onClick={onPickProject} disabled={busy} className="min-w-0 flex-auto">
-            <FolderOpen className="size-3.5" />
-            <span className="min-w-0 truncate">Open Java project…</span>
-          </Button>
-          {projectPath && (
-            <Button
-              onClick={onReindex}
-              disabled={busy}
-              variant="outline"
-              className="shrink-0 bg-surface-raised px-3"
-            >
-              Re-index
-            </Button>
-          )}
-        </div>
+            Icons alone need somewhere for the words to live, so each carries
+            both a tooltip for the mouse and an aria-label for a screen
+            reader — the label did not disappear, it moved. */}
+        <TooltipProvider>
+          <div className="flex items-center gap-2">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={onPickProject}
+                  disabled={busy}
+                  size="icon"
+                  aria-label="Open Java project"
+                >
+                  <FolderOpen />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Open Java project…</TooltipContent>
+            </Tooltip>
+            {projectPath && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    onClick={onReindex}
+                    disabled={busy}
+                    variant="outline"
+                    size="icon"
+                    aria-label="Re-index project"
+                    className="bg-surface-raised"
+                  >
+                    <RefreshCw />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Re-index project</TooltipContent>
+              </Tooltip>
+            )}
+          </div>
+        </TooltipProvider>
         {projectPath && (
           <span className="truncate text-code-11 text-text-tertiary" title={projectPath}>
             {projectPath}
