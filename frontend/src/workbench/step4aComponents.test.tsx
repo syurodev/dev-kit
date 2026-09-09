@@ -15,7 +15,7 @@ describe("Step 4a Shell Chrome Reconciliation", () => {
       // against that local — it never touched the component, and it had already
       // drifted (pr-3 while the shell rendered pr-4) with the suite still green.
       // Render the real thing.
-      const html = renderToString(<Titlebar>content</Titlebar>);
+      const html = renderToString(<Titlebar platform="mac">content</Titlebar>);
 
       expect(html).toContain("h-10");
       expect(html).toContain("gap-1");
@@ -30,14 +30,55 @@ describe("Step 4a Shell Chrome Reconciliation", () => {
     it("reserves the traffic lights in windowed mode and drops them in fullscreen", () => {
       // Figma 732:2170 Mode: module zone starts at 88 windowed (pl-21 + the
       // first control's mx-1) and at space/4 fullscreen.
-      expect(renderToString(<Titlebar>x</Titlebar>)).toContain("pl-21");
-      expect(renderToString(<Titlebar fullscreen>x</Titlebar>)).toContain("pl-4");
+      expect(renderToString(<Titlebar platform="mac">x</Titlebar>)).toContain("pl-21");
+      expect(renderToString(<Titlebar platform="mac" fullscreen>x</Titlebar>)).toContain(
+        "pl-4",
+      );
+    });
+
+    it("reserves nothing where the OS puts its window buttons on the right", () => {
+      // The 84px is a macOS traffic-light reservation and nothing else. On
+      // Ubuntu it rendered as an empty left end with the sidebar toggle
+      // floating at x=88, which is the bug this asserts against.
+      for (const platform of ["linux", "windows", "web"] as const) {
+        const html = renderToString(<Titlebar platform={platform}>x</Titlebar>);
+        expect(html).toContain("pl-4");
+        expect(html).not.toContain("pl-21");
+        // The optical offset is a calibration against the traffic lights too.
+        expect(html).not.toContain("titlebar-optical-offset");
+      }
+    });
+
+    it("draws window controls exactly where the window is frameless", () => {
+      // Linux only, matching framelessWindow in native_webview_linux.go: GTK
+      // draws no decoration there, so a window with no controls here has none
+      // at all. macOS has the traffic lights and Windows its native caption.
+      const linux = renderToString(<Titlebar platform="linux">x</Titlebar>);
+      expect(linux).toContain("Minimise window");
+      expect(linux).toContain("Maximise window");
+      expect(linux).toContain("Close window");
+      // Flush to the window corner, the way a native cluster sits.
+      expect(linux).toContain("pr-1");
+
+      for (const platform of ["mac", "windows", "web"] as const) {
+        expect(renderToString(<Titlebar platform={platform}>x</Titlebar>)).not.toContain(
+          "Close window",
+        );
+      }
+      // Fullscreen has nothing to minimise, maximise or restore to.
+      expect(
+        renderToString(
+          <Titlebar platform="linux" fullscreen>
+            x
+          </Titlebar>,
+        ),
+      ).not.toContain("Close window");
     });
 
     it("is one component — the vault gate and the workbench share it", () => {
       // Five title bars existed before 2026-09-06. macOS pins the traffic
       // lights to the window, so more than one height cannot be aligned.
-      const html = renderToString(<Titlebar>x</Titlebar>);
+      const html = renderToString(<Titlebar platform="mac">x</Titlebar>);
       expect(html).toContain('data-slot="title-bar"');
       expect(html).not.toContain("h-[30px]");
     });

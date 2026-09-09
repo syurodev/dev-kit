@@ -64,6 +64,10 @@ const (
 const transcriptRetentionDays = 90
 
 func main() {
+	// Before anything can bring up GTK/WebKit: the webview process inherits
+	// this environment, and WebKitGTK reads it once, at startup.
+	configureWebviewEnv()
+
 	if application.System.IsServer() {
 		host, err := servermode.ValidateHost(os.Getenv("WAILS_SERVER_HOST"))
 		if err != nil {
@@ -534,6 +538,10 @@ func main() {
 			// above (Windows 11 22H2+); Wails ignores it on a solid window.
 			BackdropType: application.Mica,
 		},
+		// Linux only, and the whole reason is that GTK would otherwise stack its
+		// own decoration on top of the app's title bar. See framelessWindow in
+		// native_webview_linux.go.
+		Frameless:        framelessWindow,
 		BackgroundType:   backgroundType,
 		BackgroundColour: backgroundColour,
 		URL:              "/",
@@ -568,6 +576,9 @@ func main() {
 			// so a restored frame is checked against them here rather than
 			// before the window is created.
 			recentreIfOffScreen(mainWindow, wailsApp.Screen)
+			// Frameless windows never get their Title applied; put it back
+			// once the native window exists. No-op off Linux.
+			applyWindowTitle(mainWindow, windowOptions.Title)
 			if enableNativeHighRefreshRate(mainWindow) {
 				log.Printf("WKWebView native refresh rate enabled (private WebKit API)")
 			} else if runtime.GOOS == "darwin" {

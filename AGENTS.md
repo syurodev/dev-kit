@@ -109,6 +109,30 @@ go test ./internal/sandbox/ -run 'TestSmokeAgentShapedProcess|TestBwrapCanWriteW
 - Default denies host `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.config/gcloud`; symlink binds into deny → `ErrInvalidPolicy`.
 - Product docs: `syurodev/base` → `/dev-kit/sandbox` (ADR-009).
 
+### Linux desktop (GTK4 / WebKitGTK)
+The shell was written macOS-first and now branches in exactly two places; nothing else
+in the frontend knows what OS it is on (`frontend/src/lib/platform.ts` is the only
+platform module).
+
+- **Black window on first run.** WebKitGTK's DMABUF renderer fails silently on hosts
+  that cannot share the buffer (VMs, containers, some Wayland/driver combinations):
+  the page loads and the DOM is live in the Web Inspector, but nothing paints. It looks
+  total rather than merely wrong because `.native` leaves html/body transparent, so what
+  shows through is the window's near-black `BackgroundColour`. `native_webview_linux.go`
+  now sets `WEBKIT_DISABLE_DMABUF_RENDERER=1` before GTK comes up unless the variable is
+  already in the environment — export it yourself (any value) to take the decision back.
+- **Frameless window.** GTK would otherwise stack its own decoration above DevKit's 40px
+  title bar. `Frameless` is on for Linux only (`framelessWindow`); Wails' JS runtime keeps
+  drag (`--wails-draggable`) and re-implements edge resize for this case. The frontend
+  draws minimise/maximise/close itself (`components/ui/window-controls.tsx`) because a
+  frameless window otherwise has none, and `Titlebar` drops the 84px macOS traffic-light
+  reservation everywhere except macOS. Wails skips `gtk_window_set_title` on a frameless
+  window, so `applyWindowTitle` puts WM_NAME back by hand.
+- **Verifying the GUI headlessly.** `Xvfb :99 -screen 0 1400x900x24` + `DISPLAY=:99
+  ./bin/dev-kit`, then `import -window root shot.png` and drive it with `xdotool`. Needs
+  `dbus-x11` on PATH (single-instance uses `dbus-launch`). A bare Xvfb has no window
+  manager, so maximise/minimise do nothing there — close and the layout are testable.
+
 ### Notes / gotchas
 - Sync login: production uses `internal/cloudconfig` (pinned `GET /v1/desktop/config`, disk cache, refresh on reconnect). Set `DEVKIT_OIDC_*` to override remote/cache for local dev. Omit all OIDC env + stay offline with no cache for local-only vault/modules.
 - Storage is a single SQLite file (`modernc.org/sqlite`, no cgo) opened with
