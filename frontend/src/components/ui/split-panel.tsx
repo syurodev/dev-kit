@@ -245,20 +245,34 @@ export function SplitPanelSlot() {
   return (
     <LazyMotion features={domAnimation}>
       <m.div
-        initial={{ width: 0 }}
+        initial={{ width: 0, paddingRight: 0 }}
         // Clamped at render for the same reason as the sidebar and the bottom
         // slot: the ceiling moves with the window, the stored width does not.
         // One line on purpose: step4bComponents.test.tsx finds the sizing
         // animation by scanning for a line carrying both animate={{ and
         // GAP_WIDTH, and asserts it clamps with Math.min.
-        animate={{ width: open ? Math.min(width, max) + GAP_WIDTH + PANEL_INSET : 0 }}
+        animate={{ width: open ? Math.min(width, max) + GAP_WIDTH + PANEL_INSET : 0, paddingRight: open ? PANEL_INSET : 0 }}
         transition={isResizing ? { duration: 0 } : { duration: 0.22, ease: "easeInOut" }}
         // Padding here, not a margin on the cards: columnRef measures the
         // height the two slots share, and splitColumn divides exactly that.
         // Padding on this wrapper shrinks the measurement to match; a margin
         // inside it would leave splitColumn dividing a height that no longer
         // exists.
-        className="flex min-h-0 shrink-0 overflow-hidden py-2 pr-2"
+        //
+        // The horizontal half is animated rather than a class because padding
+        // survives width: 0 — the box is border-box, so padding is its own
+        // floor and the closed column still measured PANEL_INSET wide. That
+        // left an 8px dead band down the window edge with no panel behind it.
+        // Animated in step with the width, it also means the card does not
+        // jump sideways at the first frame of the close.
+        //
+        // Bottom only, and as a class: the top edge stays flush under the
+        // title bar so the panel lines up with the content card beside it,
+        // and a band there would read as the panel hanging rather than
+        // sitting in the window. The bottom costs nothing while the column
+        // has no width, and holding it steady keeps the card from sliding
+        // vertically as it opens.
+        className="flex min-h-0 shrink-0 overflow-hidden pb-2"
       >
         {open ? (
           <ShellResizeHandle
