@@ -72,6 +72,31 @@ describe("TreeView", () => {
     expect(html).toContain('aria-level="2"');
   });
 
+  it("wraps children in an animating branch and numbers rows for the stagger", () => {
+    const html = renderToString(
+      <TreeView
+        nodes={[
+          {
+            id: "s",
+            label: "public",
+            expandable: true,
+            expanded: true,
+            children: [
+              { id: "a", label: "ba_account" },
+              { id: "b", label: "ba_user" },
+            ],
+          },
+        ]}
+      />,
+    );
+    // The CSS in index.css keys off exactly these: the branch class for the
+    // 0fr→1fr track, role=group as the clipped grid item, --i for the delay.
+    expect(html).toContain('class="tree-branch"');
+    expect(html).toContain('role="group"');
+    expect(html).toContain("--i:1");
+    expect(html).not.toContain("data-closing");
+  });
+
   it("gives a leaf no chevron", () => {
     const html = renderToString(<TreeView nodes={[{ id: "c", label: "id" }]} />);
     expect(chevrons(html)).toBe(0);

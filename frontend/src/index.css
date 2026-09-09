@@ -23,6 +23,14 @@
     /* Same file's OUT_STRONG — the family's non-overshooting exit curve. */
     --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
 
+    /* Motion is three durations, not a number per component: fast for hover,
+       press and chips; base for open/close and tab switches; slow for panels,
+       dialogs and the dock. Closing uses fast where opening uses base, so a
+       close always reads as more decisive than the open. */
+    --motion-fast: 120ms;
+    --motion-base: 180ms;
+    --motion-slow: 240ms;
+
     /* Semantic tokens */
     --color-bg-app: var(--background-app);
     --color-bg-canvas: var(--background-canvas);
@@ -778,8 +786,53 @@
 /* React Flow animates edge dashes with a CSS keyframe on every edge at once.
    At schema scale that is a lot of motion, and it is exactly the kind someone
    with vestibular sensitivity asks the OS to stop. */
+/* Tree open/close — components/tree-view.tsx. The branch is a one-row grid
+   whose track goes 0fr → 1fr, so the height animates to "auto" with no
+   measuring; @starting-style gives the freshly mounted branch its 0fr start.
+   Rows inside stagger in by their --i, capped so a 200-table schema does not
+   arrive as a train — everything past the eighth row lands together. */
+@layer components {
+  .tree-branch {
+    display: grid;
+    grid-template-rows: 1fr;
+    opacity: 1;
+    transition:
+      grid-template-rows var(--motion-base) var(--ease-out-strong),
+      opacity var(--motion-base) var(--ease-out-strong);
+    @starting-style {
+      grid-template-rows: 0fr;
+      opacity: 0;
+    }
+  }
+  .tree-branch[data-closing] {
+    grid-template-rows: 0fr;
+    opacity: 0;
+    transition-duration: var(--motion-fast);
+  }
+  .tree-branch > * {
+    min-height: 0;
+    overflow: hidden;
+  }
+  .tree-row-enter {
+    animation: tree-row-enter var(--motion-base) var(--ease-out-strong) both;
+    animation-delay: calc(min(var(--i, 0), 8) * 15ms);
+  }
+  @keyframes tree-row-enter {
+    from {
+      opacity: 0;
+      translate: 0 -4px;
+    }
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
     .react-flow__edge.animated path {
+        animation: none;
+    }
+    .tree-branch {
+        transition: none;
+    }
+    .tree-row-enter {
         animation: none;
     }
 }

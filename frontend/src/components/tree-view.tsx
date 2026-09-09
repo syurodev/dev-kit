@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -63,6 +63,28 @@ function indent(level: number): number {
   return ROW_INSET + level * ROW_INDENT;
 }
 
+// ponytail: mirrors --motion-fast in index.css; a token read would need a
+// getComputedStyle per branch for a number that changes once a year.
+const CLOSE_MS = 120;
+
+/**
+ * True while `open`, and for CLOSE_MS after it turns false — the window the
+ * collapse transition needs the children still in the DOM. Opening is the
+ * cheap direction: mount, and CSS @starting-style takes it from there.
+ */
+function useLingering(open: boolean): boolean {
+  const [lingering, setLingering] = useState(open);
+  useEffect(() => {
+    if (open) {
+      setLingering(true);
+      return;
+    }
+    const t = setTimeout(() => setLingering(false), CLOSE_MS);
+    return () => clearTimeout(t);
+  }, [open]);
+  return open || lingering;
+}
+
 export function TreeView({
   nodes,
   className,
@@ -80,15 +102,16 @@ export function TreeView({
 function TreeRows({ nodes, level }: { nodes: TreeNodeData[]; level: number }) {
   return (
     <>
-      {nodes.map((node) => (
-        <TreeRow key={node.id} node={node} level={level} />
+      {nodes.map((node, i) => (
+        <TreeRow key={node.id} node={node} level={level} index={i} />
       ))}
     </>
   );
 }
 
-function TreeRow({ node, level }: { node: TreeNodeData; level: number }) {
+function TreeRow({ node, level, index }: { node: TreeNodeData; level: number; index: number }) {
   const open = !!node.expandable && !!node.expanded;
+  const branchMounted = useLingering(open);
 
   const row = (
     <div
@@ -98,12 +121,12 @@ function TreeRow({ node, level }: { node: TreeNodeData; level: number }) {
       aria-selected={node.selected || undefined}
       title={node.title}
       className={cn(
-        "group flex h-6 items-center gap-1 rounded-md pr-1.5",
+        "group tree-row-enter flex h-6 items-center gap-1 rounded-md pr-1.5",
         node.selected
           ? "bg-surface-raised text-text-primary"
           : "text-text-secondary hover:bg-surface-raised/60 hover:text-text-primary",
       )}
-      style={{ paddingLeft: indent(level) }}
+      style={{ paddingLeft: indent(level), "--i": index } as CSSProperties}
     >
       {/* One button for the whole row, chevron included: a separate chevron
           target would be a button inside a button. Clicking a row both selects
@@ -140,17 +163,24 @@ function TreeRow({ node, level }: { node: TreeNodeData; level: number }) {
   return (
     <>
       {node.wrap ? node.wrap(row) : row}
-      {open &&
-        (node.children?.length ? (
-          <TreeRows nodes={node.children} level={level + 1} />
-        ) : (
-          <span
-            className="flex h-6 items-center pr-1.5 text-code-11 text-text-tertiary"
-            style={{ paddingLeft: indent(level + 1) + 16 }}
-          >
-            {node.loading ? "Loading…" : node.emptyLabel}
-          </span>
-        ))}
+      {branchMounted && (
+        // Stays mounted through the collapse (see useLingering); inert so a
+        // closing branch cannot keep focus or be tabbed into meanwhile.
+        <div className="tree-branch" data-closing={open ? undefined : ""} inert={!open}>
+          <div role="group">
+            {node.children?.length ? (
+              <TreeRows nodes={node.children} level={level + 1} />
+            ) : (
+              <span
+                className="flex h-6 items-center pr-1.5 text-code-11 text-text-tertiary"
+                style={{ paddingLeft: indent(level + 1) + 16 }}
+              >
+                {node.loading ? "Loading…" : node.emptyLabel}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
     </>
   );
 }
