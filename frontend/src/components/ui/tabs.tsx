@@ -2,27 +2,26 @@
 
 import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
-import { motion } from "framer-motion"
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion"
 import { Tabs as TabsPrimitive } from "radix-ui"
 
+import { noMotion, slideTransition, slideVariants, type SlideCustom } from "@/lib/motion"
 import { cn } from "@/lib/utils"
-
-// ponytail: mirrors --motion-fast in index.css, same trade as tree-view.tsx.
-const CONTENT_OUT_MS = 120
 
 /**
  * What the triggers and panels need that Radix keeps to itself: the selected
- * value (so the one active trigger can host the shared sliding indicator) and
- * a lagging `shown` value, which is how a switch becomes "old panel fades,
- * then the new one fades in" instead of a cut — the old panel stays mounted
- * for CONTENT_OUT_MS after Radix has already moved on, and the new one is
- * not mounted until then, so only one panel ever takes up space.
+ * value (so the one active trigger can host the shared sliding indicator), the
+ * direction the selection just moved in (so panels slide the way the strip
+ * reads — pick a tab to the right, content arrives from the right), and a
+ * register so triggers can report the strip's order. Radix never exposes it.
  */
 const TabsValueContext = React.createContext<{
   value?: string
-  shown?: string
+  dir: number
   id: string
-}>({ id: "" })
+  reduced: boolean
+  register: (value: string) => void
+}>({ id: "", dir: 1, reduced: false, register: () => {} })
 
 function Tabs({
   className,
@@ -34,17 +33,25 @@ function Tabs({
 }: React.ComponentProps<typeof TabsPrimitive.Root>) {
   const [inner, setInner] = React.useState(defaultValue)
   const current = value ?? inner
-  const [shown, setShown] = React.useState(current)
-  React.useEffect(() => {
-    if (current === shown) return
-    const lag = window.matchMedia("(prefers-reduced-motion: reduce)").matches
-      ? 0
-      : CONTENT_OUT_MS
-    const t = setTimeout(() => setShown(current), lag)
-    return () => clearTimeout(t)
-  }, [current, shown])
   const id = React.useId()
-  const ctx = React.useMemo(() => ({ value: current, shown, id }), [current, shown, id])
+  const reduced = useReducedMotion() ?? false
+  // Strip order by trigger mount order; direction is where `current` sits
+  // relative to the value it replaced. Read during render, settled in an
+  // effect, so a controlled change and a click compute the same way.
+  const order = React.useRef<string[]>([])
+  const previous = React.useRef(current)
+  const dir =
+    order.current.indexOf(current ?? "") < order.current.indexOf(previous.current ?? "") ? -1 : 1
+  React.useEffect(() => {
+    previous.current = current
+  }, [current])
+  const register = React.useCallback((v: string) => {
+    if (!order.current.includes(v)) order.current.push(v)
+  }, [])
+  const ctx = React.useMemo(
+    () => ({ value: current, dir, id, reduced, register }),
+    [current, dir, id, reduced, register],
+  )
   return (
     <TabsValueContext.Provider value={ctx}>
       <TabsPrimitive.Root
@@ -55,8 +62,11 @@ function Tabs({
           setInner(next)
           onValueChange?.(next)
         }}
+        // relative + x-clip: the leaving panel goes absolute against this box
+        // and both panels travel past its sides. clip, not hidden, so nothing
+        // vertical (focus rings, an overflowing row) gets cut.
         className={cn(
-          "group/tabs flex gap-2 data-horizontal:flex-col",
+          "group/tabs relative flex gap-2 overflow-x-clip data-horizontal:flex-col",
           className
         )}
         {...props}
@@ -103,6 +113,8 @@ function TabsTrigger({
   ...props
 }: React.ComponentProps<typeof TabsPrimitive.Trigger>) {
   const ctx = React.useContext(TabsValueContext)
+  const { register } = ctx
+  React.useLayoutEffect(() => register(value), [register, value])
   return (
     <TabsPrimitive.Trigger
       data-slot="tabs-trigger"
@@ -145,24 +157,46 @@ function TabsTrigger({
 function TabsContent({
   className,
   value,
+  children,
   ...props
 }: React.ComponentProps<typeof TabsPrimitive.Content>) {
   const ctx = React.useContext(TabsValueContext)
-  if (ctx.shown !== value) return null
+  const panel = React.useRef<HTMLDivElement>(null)
+  // Measured on the way out: while this panel is leaving, `panel` still holds
+  // its node, so the exit variant can pin it exactly where it was.
+  const custom: SlideCustom = {
+    dir: ctx.dir,
+    top: panel.current?.offsetTop ?? 0,
+    height: panel.current?.offsetHeight ?? 0,
+  }
   // forceMount: while this panel is the one leaving, Radix already considers
-  // another value selected and would hide it before its fade could play.
+  // another value selected and would hide it before its slide could play.
   return (
-    <TabsPrimitive.Content
-      data-slot="tabs-content"
-      value={value}
-      forceMount
-      data-leaving={ctx.value === value ? undefined : ""}
-      className={cn(
-        "tabs-content-swap flex-1 text-body-13 text-text-primary outline-none",
-        className,
-      )}
-      {...props}
-    />
+    <AnimatePresence initial={false} custom={custom}>
+      {ctx.value === value ? (
+        <TabsPrimitive.Content
+          key={value}
+          data-slot="tabs-content"
+          value={value}
+          forceMount
+          asChild
+          {...props}
+        >
+          <motion.div
+            ref={panel}
+            custom={custom}
+            variants={slideVariants}
+            initial="enter"
+            animate="center"
+            exit="exit"
+            transition={ctx.reduced ? noMotion : slideTransition}
+            className={cn("flex-1 text-body-13 text-text-primary outline-none", className)}
+          >
+            {children}
+          </motion.div>
+        </TabsPrimitive.Content>
+      ) : null}
+    </AnimatePresence>
   )
 }
 

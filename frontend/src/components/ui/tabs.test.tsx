@@ -14,11 +14,13 @@ describe("Tabs", () => {
     </Tabs>,
   );
 
-  it("mounts only the shown panel, wired for the swap transition", () => {
+  it("mounts only the active panel, inside a box the slide can clip against", () => {
     expect(html).toContain("panel-b");
     expect(html).not.toContain("panel-a");
-    expect(html).toContain("tabs-content-swap");
-    expect(html).not.toContain("data-leaving");
+    expect(html).toContain('data-slot="tabs-content"');
+    // The leaving panel goes absolute against the root and both travel past
+    // its sides — without these two the slide either jumps or spills.
+    expect(html).toMatch(/data-slot="tabs" class="[^"]*\brelative\b[^"]*overflow-x-clip/);
   });
 
   it("puts exactly one sliding indicator, on the active trigger", () => {
