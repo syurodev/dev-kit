@@ -17,12 +17,24 @@ export const GAP_WIDTH = 8;
  * one is a draggable sash between two surfaces, the other is dead margin at the
  * window edge, and collapsing them hid a bug in maxBottomHeight below.
  */
-// Zero while the shell runs flush to the window. A gutter only ever cost
-// something: it opened a 4px band whose corner had to be kept parallel to the
-// window's, and macOS draws that corner as a squircle no CSS radius can match.
-// Flush, the window's own mask does the rounding and there is nothing to match.
-// Restore to 4 to bring the band back — every consumer reads this constant.
-export const WINDOW_GUTTER = 0;
+// The band of app background between the window edge and the shell surfaces,
+// on the three sides that have one: left, right and bottom. The top is flush,
+// because the title bar is already the app's own chrome and a band under it
+// would read as the surfaces hanging rather than sitting.
+//
+// This was 0 for a while, so that macOS would round the surfaces with the
+// window's own squircle mask and nothing had to imitate a curve CSS cannot
+// draw. What that traded away was structure: flush surfaces are walls of the
+// window, and DevKit's are cards. Inset far enough to read as a deliberate
+// band rather than a failed attempt at a parallel corner, they are plainly
+// separate objects, so their corners owe the window's nothing — and they look
+// the same on Linux and Windows, which never had a squircle to defer to.
+//
+// 8, the same as the sash, so the shell sits on one rhythm. Still a separate
+// constant from GAP_WIDTH even at the same value: one is a draggable sash
+// between two surfaces, the other is dead margin at the window edge, and
+// collapsing them hid a bug in maxBottomHeight below.
+export const WINDOW_GUTTER = 8;
 
 /** Hard floor for the centre content area, whatever the two side panels do. */
 export const CONTENT_MIN_WIDTH = 480;
@@ -58,7 +70,12 @@ export function maxPanelWidth(opts: {
   hardMax: number;
 }): number {
   const { windowWidth, otherEffectiveWidth, min, hardMax } = opts;
-  const available = windowWidth - otherEffectiveWidth - CONTENT_MIN_WIDTH - GAP_WIDTH * 2;
+  // Both gutters come off the top: the row is inset from either window edge,
+  // so that width was never the panels' to divide, and leaving it in would let
+  // a panel grow until the centre content sat WINDOW_GUTTER * 2 under the floor
+  // this function exists to hold.
+  const available =
+    windowWidth - WINDOW_GUTTER * 2 - otherEffectiveWidth - CONTENT_MIN_WIDTH - GAP_WIDTH * 2;
   return Math.max(min, Math.min(hardMax, available));
 }
 

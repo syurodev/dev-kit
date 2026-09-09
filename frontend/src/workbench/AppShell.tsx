@@ -25,7 +25,7 @@ import { AgentCompanionSlot } from "./AgentCompanionSlot";
  * Geometry, with the code that owns each number:
  *
  *   titlebar        40 tall                  components/ui/titlebar.tsx
- *   window gutter   0, flush (Figma draws 8)  WINDOW_GUTTER, panelLayout.ts
+ *   window gutter   8 on l/r/b, flush on top  WINDOW_GUTTER, panelLayout.ts
  *   sidebar         280 + 8 sash             sidebar-shell.tsx / panelWidths
  *   content-surface fills, opaque, radius 10 .shell-surface, index.css
  *   panel           320 + 8 sash             split-panel.tsx / panelWidths
@@ -76,17 +76,24 @@ export function AppShell({
       <div className="relative flex h-svh w-full flex-col overflow-hidden bg-bg-app">
         <Titlebar fullscreen={fullscreen}>{titlebar}</Titlebar>
 
-        {/* content-row, flush to the window (WINDOW_GUTTER is 0; Figma draws 8).
-            The 8px sashes between surfaces are unchanged — only the dead margin
-            at the window edge is gone.
+        {/* content-row, inset WINDOW_GUTTER from the window on the three sides
+            that have an edge, and flush under the title bar. One band, drawn
+            here rather than by each surface, so the shell reads as a set of
+            cards on the app background and every one of them is inset by the
+            same amount whether or not its neighbours are open.
 
-            Flush is what makes the corner right rather than approximately
-            right: macOS masks the window's content to its own squircle, so a
-            surface that reaches the edge is rounded BY the window instead of
-            having to imitate it. An inset surface had to draw its own corner
-            parallel to one CSS cannot express, and every radius we tried was
-            wrong by a measurable amount. */}
-        <div className="flex min-h-0 flex-1">
+            The row owns it deliberately. When the split panel drew its own
+            inset instead, the column still measured that width while closed —
+            padding survives width: 0 on a border-box — and left a dead band
+            down the window edge with no panel behind it. A margin on the row
+            has nothing to collapse.
+
+            This used to be flush at 0, so macOS would round the surfaces with
+            the window's own squircle mask. That is a real advantage and it is
+            given up on purpose: it only ever applied to one platform, and it
+            cost the shell its structure — flush surfaces are the walls of the
+            window, and these are cards. */}
+        <div className="mx-2 mb-2 flex min-h-0 flex-1">
           <SidebarSurface activeModuleId={activeModuleId} />
 
           {/* The bottom slot stacks under the module content ONLY — the sidebar

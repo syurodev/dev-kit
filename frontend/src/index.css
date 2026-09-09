@@ -480,38 +480,6 @@
   box-shadow: inset 0 1px 0 var(--glass-highlight);
 }
 
-/* The shell is flush to the window, so its bottom corners must be square: the
-   window's own mask rounds them, and macOS draws that as a squircle. Give the
-   surface a radius of its own and it cuts INSIDE that mask, leaving a sliver of
-   background in the corner — which is the whole reason this rule exists rather
-   than nothing existing here at all.
-
-   The measurements behind that, kept because they cost a screencapture and a
-   numeric fit: the window corner is 20pt (Apple's Window corners table for a
-   compact-toolbar window, and tracing the real arc agrees), and it is a
-   superellipse. Against it, a circular inner corner inset 4pt has a
-   perpendicular gap that varies by 2.2pt at radius 10 and 4.4pt at radius 16 —
-   "inner = outer - gap" is Apple's rule and it needs both curves to be
-   squircles. Flush needs no fit at all. */
-.shell-surface {
-  border-bottom-left-radius: 0;
-  border-bottom-right-radius: 0;
-}
-
-/* The exception, for a surface that floats inside the window rather than
-   docking to its edge: it draws all four of its own corners, because no window
-   mask covers them.
-
-   The rule above is not a style choice to be consistent with — it is the
-   window doing the rounding, which only works while the surface actually
-   reaches the edge. Inset one by even a few pixels and the mask no longer
-   touches its corners: square is then square, not "rounded by the window". So
-   an inset surface must undo it, and the two rules are a pair. */
-.shell-surface-inset {
-  border-bottom-left-radius: var(--radius-control);
-  border-bottom-right-radius: var(--radius-control);
-}
-
 /* Glass without the blur, for the platform that cannot draw it.
    
    Every tier below is a translucent fill that only becomes a surface because
