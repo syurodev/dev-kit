@@ -98,7 +98,7 @@ export function NotesSidebar({
   }
 
   return (
-    <div className="flex h-full flex-col gap-0.5 overflow-y-auto p-2 select-none">
+    <div className="flex h-full flex-col gap-0.5 overflow-y-auto py-2 select-none">
       {/* action/new-note (815:4437): a raised, bordered control at the top of
           the rail rather than a row — it makes something, it does not go
           somewhere. */}

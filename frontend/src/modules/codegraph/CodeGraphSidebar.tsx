@@ -97,7 +97,7 @@ export function CodeGraphSidebar(props: CodeGraphSidebarProps) {
     .sort((a, b) => planStatusOrder(a.status) - planStatusOrder(b.status));
 
   return (
-    <div className="flex h-full flex-col gap-3.5 px-2 py-4">
+    <div className="flex h-full flex-col gap-3.5 py-4">
       <div className="flex flex-col gap-1.5">
         {/* Icon-only, so the row cannot outgrow the sidebar however narrow
             the sash is pulled. Buttons are whitespace-nowrap by design and

@@ -156,7 +156,7 @@ export function AgentSidebarTree({
       data-testid="agent-sidebar-tree"
       className={cn("flex h-full w-full max-w-66 flex-col", className)}
     >
-      <div className="flex w-full shrink-0 items-center gap-2 p-3">
+      <div className="flex w-full shrink-0 items-center gap-2 py-3">
         <span className="min-w-0 flex-1 text-label-12 text-text-secondary">
           Swarm
         </span>
@@ -174,7 +174,7 @@ export function AgentSidebarTree({
 
       <div className="h-px w-full shrink-0 bg-border-subtle" />
 
-      <div className="flex min-h-0 w-full flex-1 flex-col gap-1 overflow-y-auto p-2">
+      <div className="flex min-h-0 w-full flex-1 flex-col gap-1 overflow-y-auto py-2">
         {ordered.map((session) => {
           const child = Boolean(session.parentSessionId);
           return (
@@ -293,7 +293,7 @@ export function AgentSidebarTree({
       {waiting > 0 ? (
         <div
           data-testid="agent-tree-attention"
-          className="flex w-full shrink-0 items-center gap-2 bg-(--state-soft) p-3"
+          className="flex w-full shrink-0 items-center gap-2 bg-(--state-soft) px-2 py-3"
         >
           <span
             aria-hidden="true"

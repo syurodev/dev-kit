@@ -117,7 +117,7 @@ export function KafkaSidebar() {
 
   return (
     <div className="flex h-full flex-col select-none">
-      <div className="flex items-center gap-0.5 p-1.5 pb-1">
+      <div className="flex items-center gap-0.5 pt-1.5 pb-1">
         <div className="relative min-w-0 flex-1">
           <Search className="pointer-events-none absolute top-1/2 left-2 size-3 -translate-y-1/2 text-text-tertiary" />
           <Input
@@ -133,7 +133,7 @@ export function KafkaSidebar() {
         </Button>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
+      <div className="min-h-0 flex-1 overflow-y-auto pb-2">
         {profiles.length === 0 ? (
           <div className="px-4 py-6 text-center text-body-12 text-text-tertiary">
             <p>No clusters saved.</p>
@@ -149,7 +149,7 @@ export function KafkaSidebar() {
       </div>
 
       {/* The one fact the rail must always answer: am I connected, and to what. */}
-      <div className="flex h-10 shrink-0 items-center gap-1.5 px-3 text-code-11 text-text-tertiary">
+      <div className="flex h-10 shrink-0 items-center gap-1.5 px-2 text-code-11 text-text-tertiary">
         <span
           className={cn("size-1.5 shrink-0 rounded-full", connection.connected ? "bg-status-success" : "bg-text-tertiary")}
         />

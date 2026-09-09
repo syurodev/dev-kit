@@ -484,7 +484,7 @@ export function DatabaseSidebar() {
 
   return (
     <div className="flex h-full flex-col select-none">
-      <div className="flex items-center gap-1 p-2 pb-1">
+      <div className="flex items-center gap-1 pt-2 pb-1">
         <div className="relative min-w-0 flex-1">
           <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-text-tertiary" />
           <Input
@@ -534,12 +534,12 @@ export function DatabaseSidebar() {
       {/* Searching a 173-table list and being shown a shorter one with no idea
           how much it cut is the part that made the box feel broken. */}
       {filtering && selectedProfileId ? (
-        <span className="px-3 pb-1 text-code-11 text-text-tertiary">
+        <span className="px-2 pb-1 text-code-11 text-text-tertiary">
           {matchCount} table{matchCount === 1 ? "" : "s"} match
         </span>
       ) : null}
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
+      <div className="min-h-0 flex-1 overflow-y-auto pb-2">
         {profiles.length === 0 && !loadingProfiles ? (
           <div className="px-4 py-6 text-center text-body-12 text-text-tertiary">
             <p>No connections configured.</p>

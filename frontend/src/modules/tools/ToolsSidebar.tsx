@@ -52,7 +52,7 @@ export function ToolsSidebar() {
 
   return (
     <div className="flex h-full flex-col select-none">
-      <div className="p-1.5 pb-1">
+      <div className="pt-1.5 pb-1">
         <div className="relative">
           <Search className="pointer-events-none absolute top-1/2 left-2 size-3 -translate-y-1/2 text-text-tertiary" />
           <Input
@@ -64,13 +64,13 @@ export function ToolsSidebar() {
           />
         </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-1.5">
-        <span className="flex h-8 items-center px-3 text-label-11-caps text-text-tertiary">Implemented</span>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <span className="flex h-8 items-center px-2 text-label-11-caps text-text-tertiary">Implemented</span>
         {IMPLEMENTED.filter(show).map((t) => <Row key={t.id} {...t} enabled />)}
-        <span className="flex h-8 items-center px-3 text-label-11-caps text-text-tertiary">Design</span>
+        <span className="flex h-8 items-center px-2 text-label-11-caps text-text-tertiary">Design</span>
         {DESIGNED.filter(show).map((t) => <Row key={t.id} {...t} enabled={false} />)}
       </div>
-      <div className="flex h-10 shrink-0 items-center px-3 text-code-11 text-text-tertiary">
+      <div className="flex h-10 shrink-0 items-center px-2 text-code-11 text-text-tertiary">
         pure functions · nothing is stored
       </div>
     </div>
