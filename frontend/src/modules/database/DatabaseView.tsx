@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { Activity, useEffect, useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useSidebarContent } from "@/components/ui/sidebar-shell";
-import { useDatabaseStore, type DatabaseTab } from "./databaseStore";
+import { useDatabaseStore } from "./databaseStore";
 import { DatabaseSidebar } from "./components/DatabaseSidebar";
 import { DatabaseHeader } from "./components/DatabaseHeader";
 import { DatabaseBanners } from "./components/DatabaseBanners";
@@ -59,17 +59,6 @@ export function DatabaseView() {
   const showVaultLocked = isVaultLockedError(profileError);
   const showTLSRefused = isInsecureTLSError(blocking);
 
-  const [visited, setVisited] = useState<ReadonlySet<DatabaseTab>>(() => new Set([activeTab]));
-  useEffect(() => {
-    setVisited((prev) => (prev.has(activeTab) ? prev : new Set(prev).add(activeTab)));
-  }, [activeTab]);
-  const keep = (tab: DatabaseTab, view: React.ReactNode) =>
-    tab === activeTab || visited.has(tab) ? (
-      <div key={tab} className={tab === activeTab ? "contents" : "hidden"}>
-        {view}
-      </div>
-    ) : null;
-
   return (
     <div className="h-full w-full flex overflow-hidden text-text-primary">
       <main className="flex-1 flex flex-col h-full overflow-hidden min-w-0">
@@ -86,16 +75,23 @@ export function DatabaseView() {
             />
           ) : (
             <>
-          {/* Tabs stay mounted once visited (hidden, like same-module tabs
-              in WorkbenchViews): unmount-on-leave meant every return began
-              from empty local state and flashed its "nothing here" copy
-              before the refetch landed. ERD is the exception — React Flow
-              measures itself, and a display:none canvas measures as 0. */}
-          {keep("console", <QueryConsole />)}
-          {activeTab === "erd" && <ERDView />}
-          {keep("activity", <LiveActivityView />)}
-          {keep("history", <QueryHistoryView />)}
-          {keep("saved", <SavedQueriesView />)}
+              {/* Activity mode="visible"|"hidden" replaces manual keep-alive (visited set).
+                  Effects are paused while hidden and resumed on return.
+                  ERD remains mount-on-demand: React Flow measures canvas dimensions and
+                  cannot layout properly when hidden. */}
+              <Activity mode={activeTab === "console" ? "visible" : "hidden"}>
+                <QueryConsole />
+              </Activity>
+              {activeTab === "erd" && <ERDView />}
+              <Activity mode={activeTab === "activity" ? "visible" : "hidden"}>
+                <LiveActivityView />
+              </Activity>
+              <Activity mode={activeTab === "history" ? "visible" : "hidden"}>
+                <QueryHistoryView />
+              </Activity>
+              <Activity mode={activeTab === "saved" ? "visible" : "hidden"}>
+                <SavedQueriesView />
+              </Activity>
             </>
           )}
         </div>
