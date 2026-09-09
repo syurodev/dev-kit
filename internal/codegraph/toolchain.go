@@ -26,8 +26,8 @@ var (
 	// to install; this is the error the caller turns into that message.
 	ErrToolchainIncomplete = errors.New("codegraph: analyzer toolchain is incomplete")
 	// ErrBuildAlreadyRunning is returned when a second build is requested
-	// while one is in flight. Two Maven runs writing the same target/ produce
-	// a corrupt jar rather than two jars.
+	// while one is in flight. Two builds writing the same output directory
+	// produce one corrupt artifact rather than two good ones.
 	ErrBuildAlreadyRunning = errors.New("codegraph: analyzer build already running")
 	// ErrArtifactMissing is returned when a build reported success but the
 	// artifact is not where the toolchain says it should be — a renamed
@@ -40,7 +40,7 @@ var (
 // can be built, together with what was actually found on this machine.
 //
 // The install hint is deliberately per-requirement rather than one paragraph
-// per toolchain: the answer to "Java is missing" and "Maven is too old" are
+// per toolchain: "the runtime is missing" and "the build tool is too old" are
 // different sentences, and a user reads the one that applies to them.
 type Requirement struct {
 	Program string `json:"program"`
@@ -52,9 +52,9 @@ type Requirement struct {
 	// found (or what was found did not answer its version flag).
 	Found string `json:"found"`
 	// Path is the executable that will actually be used, and Source names
-	// where it came from — "PATH", "JAVA_HOME", "IDE-bundled Maven". Worth
-	// showing: on a machine with several JDKs, "which one" is the question the
-	// user is about to ask next.
+	// where it came from — "PATH", an install root variable, an IDE's own copy.
+	// Worth showing: on a machine carrying several versions of a toolchain,
+	// "which one" is the question the user is about to ask next.
 	Path   string `json:"path"`
 	Source string `json:"source"`
 	Met    bool   `json:"met"`
@@ -82,26 +82,53 @@ type Requirement struct {
 type Toolchain struct {
 	Language string
 	Label    string
-	// Artifact is where the build lands and where the analyzer is wired from.
+	// Artifact is where a build of this toolchain writes its output. It is not
+	// necessarily where a usable artifact is found: a packaged install ships
+	// one and never builds. See Search.
 	Artifact string
+	// Search lists, in order, every place a usable artifact may already be —
+	// what the package shipped, then what a local build produced. The first
+	// that exists is what the analyzer is wired at, and its presence is what
+	// makes the toolchain Ready. Empty means "only Artifact counts".
+	Search []string
 	// Dir is the working directory the build command runs in.
 	Dir string
 	// Build is the argv to run. Not a shell string: no quoting rules, no shell
 	// on the path between us and the process.
 	//
 	// Build[0] names a requirement rather than a binary: it is replaced with
-	// whatever path that requirement resolved to, so a Maven found inside
-	// IntelliJ is invoked where it actually lives instead of being looked up
-	// on a PATH it is not on.
+	// whatever path that requirement resolved to, so a build tool found inside
+	// an IDE is invoked where it actually lives instead of being looked up on
+	// a PATH it is not on.
 	Build []string
+	// Run is the argv that runs the built analyzer over a project, with the
+	// three placeholders below substituted. Run[0] names a requirement too, so
+	// the runtime discovered for building is the one used for running — without
+	// that, a machine whose only copy of that runtime lives inside an IDE could
+	// build the analyzer and then fail to launch it.
+	Run []string
 	// HomeEnv maps an environment variable to the requirement whose install
-	// root should fill it — {"JAVA_HOME": "java"} for Maven. Without it a
-	// bundled Maven launched by absolute path has no idea which JDK to use and
-	// fails on exactly the machine this discovery exists to support: one with
-	// IntelliJ and nothing on PATH.
+	// root should fill it — a build tool that locates its runtime through a
+	// *_HOME convention needs this, and the Java toolchain's
+	// {"JAVA_HOME": "java"} is the current example. Without it a build tool
+	// launched by absolute path has no idea which runtime to use, and fails on
+	// exactly the machine this discovery exists to support: one where
+	// everything lives inside an IDE and nothing is on PATH.
 	HomeEnv      map[string]string
 	Requirements []Requirement
 }
+
+// The placeholders a Toolchain's Run argv is written in terms of. Substituted
+// per invocation: the artifact is whichever copy the search settled on, and the
+// project and output paths change every call.
+const (
+	// ArtifactArg is replaced with the analyzer artifact in use.
+	ArtifactArg = "${artifact}"
+	// ProjectArg is replaced with the directory to analyze.
+	ProjectArg = "${project}"
+	// OutputArg is replaced with the file the analyzer must write its index to.
+	OutputArg = "${output}"
+)
 
 // ToolchainStatus is the snapshot the frontend renders. Everything the setup
 // panel needs to decide what to say is on it, so the UI never re-derives a
@@ -109,72 +136,20 @@ type Toolchain struct {
 type ToolchainStatus struct {
 	Language string `json:"language"`
 	Label    string `json:"label"`
-	// Ready means the artifact exists and the analyzer can run right now.
+	// Ready means a usable artifact exists and the analyzer can run right now.
 	Ready bool `json:"ready"`
 	// Buildable means every requirement is met, so offering a build button is
 	// honest. False with Ready false is the "install these first" case.
-	Buildable    bool          `json:"buildable"`
-	Artifact     string        `json:"artifact"`
+	Buildable bool `json:"buildable"`
+	// Artifact is the artifact in use when Ready, and where a build would put
+	// one when not. Either way it is the path worth showing.
+	Artifact string `json:"artifact"`
+	// Bundled reports that the artifact in use shipped with the app rather
+	// than being built here. The setup panel never appears in that case; the
+	// field is for a diagnostics view that wants to say which copy is running.
+	Bundled      bool          `json:"bundled"`
 	BuildCommand string        `json:"buildCommand"`
 	Requirements []Requirement `json:"requirements"`
-}
-
-// JavaToolchain describes the bundled Java analyzer.
-//
-// The paths are relative, which ties this to a process started from the repo
-// root — the same dev-time assumption main.go has always made for the jar, and
-// the same one a packaged build will have to replace (see
-// NewSubprocessAnalyzerWithJar's doc comment). Passing the root in rather than
-// resolving it here keeps that decision at the wiring layer where it belongs.
-//
-// Java 21 is not a guess: analyzer/pom.xml sets maven.compiler.release to 21,
-// so the jar's own bytecode requires a 21+ runtime. A newer JDK is fine to
-// build and run with — what the analyzer can PARSE is fixed by
-// ParserConfiguration.LanguageLevel in ProjectAnalyzer.java, not by the JDK it
-// happens to run on.
-func JavaToolchain(repoRoot string) Toolchain {
-	return Toolchain{
-		Language: "java",
-		Label:    "Java",
-		Artifact: filepath.Join(repoRoot, "analyzer", "target", "codegraph-analyzer.jar"),
-		Dir:      filepath.Join(repoRoot, "analyzer"),
-		// Build[0] is the requirement name, swapped for the Maven that was
-		// actually found. -B keeps the output line-oriented instead of
-		// redrawing a progress bar with carriage returns, which is what makes
-		// it readable when streamed into a log view a line at a time.
-		Build: []string{"mvn", "-B", "-DskipTests", "package"},
-		// Maven finds its JDK through JAVA_HOME. Set from whichever java the
-		// probe settled on, so a Maven bundled inside an IDE builds with the
-		// IDE's JDK without either being on PATH.
-		HomeEnv: map[string]string{"JAVA_HOME": "java"},
-		Requirements: []Requirement{
-			{
-				Program:    "java",
-				Label:      "Java Development Kit",
-				MinVersion: "21",
-				locate:     javaCandidates,
-				// java writes its version to stderr, hence CombinedOutput in
-				// the probe. The quoted form covers both the modern "21.0.10"
-				// and the legacy "1.8.0_402", which compares correctly against
-				// 21 without special-casing: 1 < 21.
-				versionArgs:    []string{"-version"},
-				versionPattern: regexp.MustCompile(`version "([0-9][0-9._]*)"`),
-				InstallHint:    "Install a JDK 21 or newer — `sudo apt install openjdk-21-jdk` on Ubuntu, `brew install openjdk@21` on macOS. IntelliJ users already have one: File → Project Structure → SDKs, or let the IDE download one into ~/.jdks.",
-			},
-			{
-				Program:    "mvn",
-				Label:      "Apache Maven",
-				MinVersion: "3.6",
-				locate:     mavenCandidates,
-				// maven-shade-plugin 3.6.0 in analyzer/pom.xml needs 3.6.3+;
-				// 3.6 is the floor this checks, close enough to catch the
-				// genuinely ancient ones without failing a working machine.
-				versionArgs:    []string{"-version"},
-				versionPattern: regexp.MustCompile(`Apache Maven ([0-9][0-9.]*)`),
-				InstallHint:    "Install Maven — `sudo apt install maven` on Ubuntu, `brew install maven` on macOS. IntelliJ bundles one; DevKit uses it automatically if it can find the IDE.",
-			},
-		},
-	}
 }
 
 // DefaultToolchains is the registry: every analyzer DevKit knows how to build.
@@ -201,7 +176,7 @@ func (s *Service) toolchainList() []Toolchain {
 // AnalyzerStatus probes the machine once per registered toolchain and reports
 // what is ready, what is buildable, and what is missing.
 //
-// Probing shells out to `java -version` and `mvn -version`, so this is not
+// Probing shells out to each required program's version flag, so this is not
 // free — call it when the user is looking at the setup panel, not on a timer.
 func (s *Service) AnalyzerStatus(ctx context.Context) []ToolchainStatus {
 	toolchains := s.toolchainList()
@@ -214,20 +189,29 @@ func (s *Service) AnalyzerStatus(ctx context.Context) []ToolchainStatus {
 
 func (t Toolchain) status(ctx context.Context) ToolchainStatus {
 	requirements, buildable := t.resolve(ctx)
+	installed := t.installedArtifact()
+	artifact := t.Artifact
+	if installed != "" {
+		artifact = installed
+	}
 	return ToolchainStatus{
 		Language:     t.Language,
 		Label:        t.Label,
-		Ready:        t.artifactExists(),
+		Ready:        installed != "",
 		Buildable:    buildable,
-		Artifact:     t.Artifact,
+		Artifact:     artifact,
+		Bundled:      installed != "" && installed != t.Artifact,
 		BuildCommand: strings.Join(t.Build, " "),
 		Requirements: requirements,
 	}
 }
 
-func (t Toolchain) artifactExists() bool {
-	info, err := os.Stat(t.Artifact)
-	return err == nil && !info.IsDir() && info.Size() > 0
+// installedArtifact is the usable artifact this toolchain would run, or "".
+func (t Toolchain) installedArtifact() string {
+	if len(t.Search) > 0 {
+		return firstExisting(t.Search)
+	}
+	return firstExisting([]string{t.Artifact})
 }
 
 // resolve probes every requirement and reports whether all of them are met.
@@ -249,7 +233,8 @@ func (t Toolchain) resolve(ctx context.Context) ([]Requirement, bool) {
 // a place can hold anything — ~/.jdks routinely has a 17 sitting next to a 21,
 // and picking whichever the glob returned first would fail a machine that has
 // exactly what the build needs. First-match is only the tiebreak, which is what
-// keeps JAVA_HOME and PATH ahead of a stray JDK when both would do.
+// keeps a configured install root and PATH ahead of a stray copy found by a
+// glob, when both would do.
 func (r Requirement) probe(ctx context.Context, dir string) Requirement {
 	var candidates []candidate
 	if r.locate != nil {
@@ -271,7 +256,7 @@ func (r Requirement) probe(ctx context.Context, dir string) Requirement {
 			continue
 		}
 		// Remember the closest miss so the message can name a real version
-		// ("Java 17.0.9 is older than 21") instead of a generic absence.
+		// ("17.0.9 is older than 21") instead of a generic absence.
 		if got.Found != "" && compareVersions(got.Found, newestSeen.Found) > 0 {
 			newestSeen = got
 		}
@@ -291,12 +276,12 @@ func (r Requirement) inspect(ctx context.Context, c candidate) Requirement {
 	r.Path = c.path
 	r.Source = c.source
 
-	// CombinedOutput because `java -version` writes to stderr, and a version
-	// banner is small enough that buffering it is not a concern.
+	// CombinedOutput because a version banner is as likely to go to stderr as
+	// to stdout, and it is small enough that buffering it is not a concern.
 	cmd := exec.CommandContext(ctx, c.path, r.versionArgs...)
-	// A bundled Maven needs a JDK to even print its version. Give it the one
-	// the user configured; if that is wrong the java requirement reports it
-	// separately.
+	// A launcher script may need its own runtime just to print a version. Give
+	// it the environment the user configured; if that runtime is itself wrong,
+	// its own requirement reports that separately.
 	cmd.Env = os.Environ()
 	out, err := cmd.CombinedOutput()
 	if err != nil && len(out) == 0 {
@@ -325,8 +310,8 @@ var versionComponent = regexp.MustCompile(`[0-9]+`)
 
 // compareVersions orders two dotted versions component by component, reading
 // every run of digits and ignoring the separators between them. That is what
-// makes Java's legacy "1.8.0_402" comparable to "21" without a special case:
-// it reads as 1.8.0.402, and 1 < 21.
+// makes a legacy scheme like "1.8.0_402" comparable to "21" without a special
+// case: it reads as 1.8.0.402, and 1 < 21.
 //
 // A missing component counts as zero, so "3" and "3.0" are equal and "3" is
 // below "3.6". An empty version sorts below everything, which is what lets the
@@ -371,14 +356,14 @@ func versionAtLeast(found, minimum string) bool {
 // the caller does not have to restart the app or re-wire anything.
 //
 // Every line the build writes goes to OnAnalyzerBuildOutput as it arrives, so
-// the UI can show a real build rather than a spinner: a Maven run that
-// downloads its dependencies takes minutes on a cold cache, and a progress bar
-// that cannot say why is indistinguishable from a hang.
+// the UI can show a real build rather than a spinner: a build that downloads
+// its dependencies takes minutes on a cold cache, and a progress bar that
+// cannot say why is indistinguishable from a hang.
 //
 // The build runs unsandboxed, as the same user, exactly as typing the command
 // in a terminal would: it is the developer's own repository being built with
-// the developer's own toolchain, and Maven needs the network and ~/.m2 to do
-// its job at all.
+// the developer's own toolchain, and a build tool needs the network and its
+// own package cache to do its job at all.
 func (s *Service) BuildAnalyzer(ctx context.Context, language string) error {
 	var toolchain Toolchain
 	found := false
@@ -413,12 +398,61 @@ func (s *Service) BuildAnalyzer(ctx context.Context, language string) error {
 	}); err != nil {
 		return err
 	}
-	if !toolchain.artifactExists() {
+	// The build's own output, not whatever the search finds: a build that
+	// silently produced nothing must not read as success because a stale
+	// bundled copy happens to be lying around.
+	if firstExisting([]string{toolchain.Artifact}) == "" {
 		return fmt.Errorf("%w: expected %s", ErrArtifactMissing, toolchain.Artifact)
 	}
 
-	s.SetAnalyzer(NewSubprocessAnalyzerWithJar(toolchain.Artifact))
+	s.SetAnalyzer(toolchain.Analyzer())
 	return nil
+}
+
+// Analyzer returns an Analyzer that runs this toolchain's artifact.
+//
+// It resolves nothing now: the artifact and the runtime are looked up per
+// analysis, so installing the runtime — or building the analyzer — takes
+// effect without a restart, and startup pays for no subprocess probes.
+func (t Toolchain) Analyzer() Analyzer {
+	return toolchainAnalyzer{toolchain: t}
+}
+
+// analyzerCommand builds the argv and environment for one analysis, or reports
+// why it cannot.
+func (t Toolchain) analyzerCommand(ctx context.Context, project, output string) ([]string, []string, error) {
+	artifact := t.installedArtifact()
+	if artifact == "" || len(t.Run) == 0 {
+		return nil, nil, ErrAnalyzerNotConfigured
+	}
+
+	// Only the program that actually launches the analyzer, not every build
+	// requirement: running an analyzer needs its runtime, never its build tool.
+	runtimeReq, ok := t.requirement(t.Run[0])
+	if !ok {
+		return nil, nil, fmt.Errorf("%w: %s names no requirement %q", ErrUnknownToolchain, t.Language, t.Run[0])
+	}
+	resolved := runtimeReq.probe(ctx, t.Dir)
+	if !resolved.Met {
+		return nil, nil, fmt.Errorf("%w: %s", ErrToolchainIncomplete, resolved.Problem)
+	}
+
+	replace := strings.NewReplacer(ArtifactArg, artifact, ProjectArg, project, OutputArg, output)
+	argv := make([]string, 0, len(t.Run))
+	argv = append(argv, resolved.Path)
+	for _, arg := range t.Run[1:] {
+		argv = append(argv, replace.Replace(arg))
+	}
+	return argv, t.environ(map[string]Requirement{resolved.Program: resolved}), nil
+}
+
+func (t Toolchain) requirement(program string) (Requirement, bool) {
+	for _, req := range t.Requirements {
+		if req.Program == program {
+			return req, true
+		}
+	}
+	return Requirement{}, false
 }
 
 func (t Toolchain) run(ctx context.Context, resolved []Requirement, onLine func(string)) error {
@@ -431,7 +465,8 @@ func (t Toolchain) run(ctx context.Context, resolved []Requirement, onLine func(
 	}
 
 	// Build[0] names a requirement; run whatever path it resolved to. Without
-	// this a bundled Maven would be re-looked-up on a PATH it is not on.
+	// this a tool found off PATH would be looked up again on a PATH it is not
+	// on, and the discovery would have been for nothing.
 	program := t.Build[0]
 	if req, ok := byProgram[program]; ok && req.Path != "" {
 		program = req.Path
@@ -440,8 +475,8 @@ func (t Toolchain) run(ctx context.Context, resolved []Requirement, onLine func(
 	cmd.Dir = t.Dir
 	cmd.Env = t.environ(byProgram)
 
-	// One pipe for both streams: Maven writes warnings to stderr and the build
-	// log to stdout, and a reader who sees them apart cannot reconstruct the
+	// One pipe for both streams: build tools put warnings on stderr and the
+	// log on stdout, and a reader who sees them apart cannot reconstruct the
 	// order they happened in — which is the only thing that makes a failing
 	// build readable.
 	pipeReader, pipeWriter := io.Pipe()
@@ -490,9 +525,9 @@ func (t Toolchain) run(ctx context.Context, resolved []Requirement, onLine func(
 //
 // Two things go in: the *_HOME variables named by HomeEnv, and the directory of
 // every resolved program prepended to PATH. The second matters as much as the
-// first — Maven's launcher, its plugins and the forked compiler all look for
-// `java` by name, and on the machine this discovery exists for (IntelliJ
-// installed, nothing on PATH) they would not find one.
+// first — a build tool's launcher, its plugins and any compiler it forks all
+// look for the runtime by bare name, and on the machine this discovery exists
+// for (everything inside an IDE, nothing on PATH) they would not find it.
 func (t Toolchain) environ(byProgram map[string]Requirement) []string {
 	env := os.Environ()
 	var pathPrefix []string
@@ -501,8 +536,8 @@ func (t Toolchain) environ(byProgram map[string]Requirement) []string {
 			pathPrefix = append(pathPrefix, filepath.Dir(req.Path))
 		}
 	}
-	// Map iteration is unordered and PATH order decides which java wins; sort
-	// so the same machine builds the same way twice.
+	// Map iteration is unordered and PATH order decides which copy of a program
+	// wins; sort so the same machine builds the same way twice.
 	sort.Strings(pathPrefix)
 
 	for variable, program := range t.HomeEnv {
@@ -510,8 +545,8 @@ func (t Toolchain) environ(byProgram map[string]Requirement) []string {
 		if !ok || req.Path == "" {
 			continue
 		}
-		// <home>/bin/java -> <home>. Both JAVA_HOME and MAVEN_HOME point at
-		// the install root, one level above the bin directory.
+		// <root>/bin/<program> -> <root>. Every *_HOME convention points at the
+		// install root, one level above the bin directory.
 		env = append(env, variable+"="+filepath.Dir(filepath.Dir(req.Path)))
 	}
 	if len(pathPrefix) > 0 {

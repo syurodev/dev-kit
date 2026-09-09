@@ -153,11 +153,15 @@ build itself (`internal/codegraph/toolchain.go`), rather than failing an index w
 - A `mvnw` in `analyzer/` would be preferred over everything else, which would drop the
   Maven requirement entirely. There is no wrapper today; `mavenCandidates` already looks
   for one.
-- Java 21 is the floor because `analyzer/pom.xml` sets `maven.compiler.release` to 21. A
-  newer JDK builds and runs it fine. What the analyzer can PARSE is a separate knob:
-  `ParserConfiguration.LanguageLevel.JAVA_21` in `ProjectAnalyzer.java`. A target project
-  using syntax newer than 21 fails to parse and its files vanish from the index silently
-  (`parseFile`'s catch-all) — raise that constant, not the JDK.
+- **Two Java versions, deliberately different.** `analyzer/pom.xml` sets
+  `maven.compiler.release` to 21 — the bytecode the analyzer itself is compiled to, so it
+  runs on the JDK people actually have (an IDE's bundled runtime, a distro's
+  `openjdk-21`). `ParserConfiguration.LanguageLevel` in `ProjectAnalyzer.java` is
+  `JAVA_25` — the newest syntax it can READ in a target project. They are independent:
+  JavaParser is a parser, not javac, so reading Java 25 needs no JDK 25. When a newer Java
+  ships, raise the language level, never the release. A file whose syntax the parser
+  rejects is swallowed by `parseFile`'s catch-all and vanishes from the index with no node,
+  no edge and no error — `parsesSyntaxNewerThanTheAnalyzerOwnBytecode` guards that.
 - The build is unsandboxed by design: it is the developer's own repository, built with
   their own toolchain, and Maven needs the network and `~/.m2`.
 - End-to-end (real Maven, minutes, network):

@@ -329,6 +329,44 @@ class ProjectAnalyzerTest {
     }
 
     @Test
+    void parsesSyntaxNewerThanTheAnalyzerOwnBytecode(@TempDir Path tempDir) throws IOException {
+        // The language level and maven.compiler.release are different knobs.
+        // This file uses an unnamed variable in a catch clause (Java 22) and an
+        // unnamed pattern variable (Java 21+), neither of which the analyzer's
+        // own release of 21 can compile — but JavaParser is a parser, not
+        // javac, so it reads them fine at LanguageLevel.JAVA_25.
+        //
+        // The failure this guards against is silent: a file the parser rejects
+        // is swallowed by parseFile's catch-all and simply vanishes from the
+        // index, with no node, no edge and no error anywhere.
+        Path projectRoot = tempDir.resolve("project");
+        Path pkg = projectRoot.resolve("src/main/java/com/acme/newer");
+        Files.createDirectories(pkg);
+        Files.writeString(pkg.resolve("Unnamed.java"), """
+                package com.acme.newer;
+                public class Unnamed {
+                    public int count(java.util.List<String> items) {
+                        int total = 0;
+                        for (String _ : items) {
+                            total++;
+                        }
+                        try {
+                            total += items.size();
+                        } catch (RuntimeException _) {
+                            total = 0;
+                        }
+                        return total;
+                    }
+                }
+                """);
+
+        AnalysisResult result = new ProjectAnalyzer(projectRoot).analyze();
+
+        boolean hasClassNode = result.nodes.stream().anyMatch(n -> n.label.equals("com.acme.newer.Unnamed"));
+        assertTrue(hasClassNode, "a file using Java 22 syntax must still be indexed: " + result.nodes);
+    }
+
+    @Test
     void recordsCallSiteWithLineForAResolvedProjectCall() throws Exception {
         AnalysisResult result = new ProjectAnalyzer(sampleProjectRoot()).analyze();
 

@@ -9,33 +9,40 @@ import (
 	"os/exec"
 )
 
-// subprocessAnalyzer invokes the bundled Java analyzer CLI (see
-// docs/superpowers/plans/2026-08-19-codegraph-java-analyzer.md) as a
-// one-shot subprocess: `java -jar <jarPath> <projectPath> <outputPath>`,
-// then reads and parses the index.json it writes. An empty jarPath means
-// "not configured yet" (e.g. the jar hasn't been built/bundled) — Analyze
-// fails clearly rather than trying to exec an empty path.
-type subprocessAnalyzer struct {
-	jarPath string
+// Running a built analyzer as a one-shot subprocess.
+//
+// The contract every language's analyzer honours: it is invoked with a project
+// directory and an output path, writes an index as JSON to that path, and
+// exits. Nothing here knows which language, which runtime, or which artifact —
+// the Toolchain says all three (see Toolchain.Run and the ${...} placeholders),
+// so a second language needs no change in this file.
+
+// toolchainAnalyzer runs whatever artifact its toolchain currently resolves to.
+//
+// It holds the toolchain rather than a path because both change under it: the
+// artifact appears when a build finishes, and the runtime appears when the user
+// installs a JDK. Resolving per analysis means either takes effect immediately,
+// and costs one extra process on a call that already spawns one.
+type toolchainAnalyzer struct {
+	toolchain Toolchain
 }
 
+// unconfiguredAnalyzer stands in where no toolchain has been wired at all — the
+// in-memory container, every test double. It fails clearly rather than trying
+// to exec an empty path.
+type unconfiguredAnalyzer struct{}
+
+// NewSubprocessAnalyzer returns an analyzer with nothing behind it. Service
+// starts here and is given a real one once a toolchain is registered.
 func NewSubprocessAnalyzer() Analyzer {
-	return subprocessAnalyzer{}
+	return unconfiguredAnalyzer{}
 }
 
-// NewSubprocessAnalyzerWithJar points the analyzer at a specific built jar.
-// Production wiring (internal/app/container.go) will resolve the real
-// bundled jar path once packaging/distribution is decided — a separate,
-// later concern from getting the subprocess invocation itself correct.
-func NewSubprocessAnalyzerWithJar(jarPath string) Analyzer {
-	return subprocessAnalyzer{jarPath: jarPath}
+func (unconfiguredAnalyzer) Analyze(context.Context, string) (AnalysisResult, error) {
+	return AnalysisResult{}, ErrAnalyzerNotConfigured
 }
 
-func (a subprocessAnalyzer) Analyze(ctx context.Context, projectPath string) (AnalysisResult, error) {
-	if a.jarPath == "" {
-		return AnalysisResult{}, ErrAnalyzerNotConfigured
-	}
-
+func (a toolchainAnalyzer) Analyze(ctx context.Context, projectPath string) (AnalysisResult, error) {
 	outputFile, err := os.CreateTemp("", "codegraph-index-*.json")
 	if err != nil {
 		return AnalysisResult{}, fmt.Errorf("codegraph: create temp output file: %w", err)
@@ -44,9 +51,18 @@ func (a subprocessAnalyzer) Analyze(ctx context.Context, projectPath string) (An
 	outputFile.Close()
 	defer os.Remove(outputPath)
 
-	cmd := exec.CommandContext(ctx, "java", "-jar", a.jarPath, projectPath, outputPath)
+	argv, env, err := a.toolchain.analyzerCommand(ctx, projectPath, outputPath)
+	if err != nil {
+		return AnalysisResult{}, err
+	}
+
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	// The toolchain's own environment, not whatever the app inherited: the
+	// runtime that was discovered may live somewhere PATH has never heard of,
+	// and an analyzer that shells out again needs to find it.
+	cmd.Env = env
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return AnalysisResult{}, fmt.Errorf("codegraph: analyzer subprocess failed: %w (output: %s)", err, out)
+		return AnalysisResult{}, fmt.Errorf("codegraph: %s analyzer subprocess failed: %w (output: %s)", a.toolchain.Language, err, out)
 	}
 
 	data, err := os.ReadFile(outputPath)

@@ -51,11 +51,20 @@ public class ProjectAnalyzer {
         // old to parse records, pattern-matching instanceof, or multi-label
         // switch cases (all Java 14+) — every such file fails to parse and
         // silently vanishes from the index via parseFile's catch-all below,
-        // with no node, no edge, no error. JAVA_21 matches this project's
-        // own maven.compiler.release; verified against the installed
-        // javaparser-core 3.28.2 jar that this constant exists.
+        // with no node, no edge, no error.
+        //
+        // This is the newest syntax the analyzer can READ, and it is a separate
+        // knob from maven.compiler.release, which is only the bytecode the
+        // analyzer itself is compiled to. They are deliberately different: the
+        // release stays at 21 so the jar runs on the JDK people actually have
+        // (an IDE's bundled runtime, a distro's openjdk-21), while the language
+        // level runs ahead so a project written in newer Java is still indexed.
+        // JavaParser is a parser, not javac — it needs no JDK 25 to read Java 25.
+        //
+        // Raise this, not the release, when a newer Java ships. Verified against
+        // the installed javaparser-core 3.28.2 jar that this constant exists.
         StaticJavaParser.setConfiguration(new ParserConfiguration()
-                .setLanguageLevel(ParserConfiguration.LanguageLevel.JAVA_21)
+                .setLanguageLevel(ParserConfiguration.LanguageLevel.JAVA_25)
                 .setSymbolResolver(new JavaSymbolSolver(typeSolver)));
 
         List<ParsedFile> files = new ArrayList<>();

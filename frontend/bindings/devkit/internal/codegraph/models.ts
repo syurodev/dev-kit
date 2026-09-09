@@ -330,7 +330,7 @@ export interface PlanProgress {
  * can be built, together with what was actually found on this machine.
  * 
  * The install hint is deliberately per-requirement rather than one paragraph
- * per toolchain: the answer to "Java is missing" and "Maven is too old" are
+ * per toolchain: "the runtime is missing" and "the build tool is too old" are
  * different sentences, and a user reads the one that applies to them.
  */
 export interface Requirement {
@@ -351,9 +351,9 @@ export interface Requirement {
 
     /**
      * Path is the executable that will actually be used, and Source names
-     * where it came from — "PATH", "JAVA_HOME", "IDE-bundled Maven". Worth
-     * showing: on a machine with several JDKs, "which one" is the question the
-     * user is about to ask next.
+     * where it came from — "PATH", an install root variable, an IDE's own copy.
+     * Worth showing: on a machine carrying several versions of a toolchain,
+     * "which one" is the question the user is about to ask next.
      */
     "path": string;
     "source": string;
@@ -409,7 +409,7 @@ export interface ToolchainStatus {
     "label": string;
 
     /**
-     * Ready means the artifact exists and the analyzer can run right now.
+     * Ready means a usable artifact exists and the analyzer can run right now.
      */
     "ready": boolean;
 
@@ -418,7 +418,19 @@ export interface ToolchainStatus {
      * honest. False with Ready false is the "install these first" case.
      */
     "buildable": boolean;
+
+    /**
+     * Artifact is the artifact in use when Ready, and where a build would put
+     * one when not. Either way it is the path worth showing.
+     */
     "artifact": string;
+
+    /**
+     * Bundled reports that the artifact in use shipped with the app rather
+     * than being built here. The setup panel never appears in that case; the
+     * field is for a diagnostics view that wants to say which copy is running.
+     */
+    "bundled": boolean;
     "buildCommand": string;
     "requirements": Requirement[] | null;
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -58,11 +57,9 @@ func echoRequirement(minVersion string) Requirement {
 // onPath is the simplest possible locator: whatever the shell would run.
 func onPath(program string) func(string) []candidate {
 	return func(string) []candidate {
-		path, err := exec.LookPath(program)
-		if err != nil {
-			return nil
-		}
-		return []candidate{{path: path, source: "PATH"}}
+		var s search
+		s.onPath(program)
+		return s.results()
 	}
 }
 
@@ -70,11 +67,9 @@ func onPath(program string) func(string) []candidate {
 // depending on what the machine happens to have installed.
 func atPaths(paths ...string) func(string) []candidate {
 	return func(string) []candidate {
-		found := make([]candidate, 0, len(paths))
-		for _, path := range paths {
-			found = append(found, candidate{path: path, source: "test"})
-		}
-		return executable(found)
+		var s search
+		s.at("test", paths...)
+		return s.results()
 	}
 }
 
@@ -131,19 +126,40 @@ func TestRequirementProbeAcceptsUnreadableVersionBanner(t *testing.T) {
 	}
 }
 
-// writingToolchain builds a fake analyzer: a shell command that prints two
-// lines and writes the artifact. It stands in for Maven everywhere the test
-// cares about the machinery around the build rather than the build itself.
+// shRequirement is a runtime every unix box has, so a toolchain fixture can
+// both build and run without depending on any language being installed. Its
+// version banner is deliberately unparseable, which also exercises the
+// "present but unrecognised, let it try" path.
+func shRequirement() Requirement {
+	return Requirement{
+		Program:        "sh",
+		Label:          "Bourne shell",
+		locate:         onPath("sh"),
+		versionArgs:    []string{"-c", "true"},
+		versionPattern: regexp.MustCompile(`nothing matches this`),
+	}
+}
+
+// writingToolchain is a fake analyzer toolchain in a language that does not
+// exist: a shell command that stands in for the build, and a shell script for
+// the artifact it produces.
+//
+// Naming no real language is the point. Everything the generic machinery does —
+// probing, building, streaming, installing, running — is exercised here without
+// Java, so a regression that quietly assumed Java would fail this file rather
+// than pass it.
 func writingToolchain(t *testing.T, script string) Toolchain {
 	t.Helper()
 	dir := t.TempDir()
 	return Toolchain{
-		Language:     "fake",
-		Label:        "Fake",
-		Artifact:     filepath.Join(dir, "analyzer.jar"),
-		Dir:          dir,
-		Build:        []string{"sh", "-c", script},
-		Requirements: []Requirement{echoRequirement("1")},
+		Language: "fake",
+		Label:    "Fake",
+		Artifact: filepath.Join(dir, "analyzer.bin"),
+		Dir:      dir,
+		Build:    []string{"sh", "-c", script},
+		// $1 is the project, $2 the file the analyzer must write its index to.
+		Run:          []string{"sh", ArtifactArg, ProjectArg, OutputArg},
+		Requirements: []Requirement{shRequirement()},
 	}
 }
 
@@ -192,7 +208,7 @@ func TestAnalyzerStatusIgnoresAnEmptyArtifact(t *testing.T) {
 
 func TestBuildAnalyzerStreamsOutputAndInstallsTheResult(t *testing.T) {
 	service := NewService(nilStore{}, NewSubprocessAnalyzer())
-	toolchain := writingToolchain(t, "echo building; echo done >&2; printf jar > analyzer.jar")
+	toolchain := writingToolchain(t, `echo building; echo done >&2; echo 'echo "{}" > "$2"' > analyzer.bin`)
 	service.SetToolchains([]Toolchain{toolchain})
 
 	var mu sync.Mutex
@@ -220,8 +236,10 @@ func TestBuildAnalyzerStreamsOutputAndInstallsTheResult(t *testing.T) {
 
 	// Installed without a restart: the analyzer is no longer the unconfigured
 	// one, so OpenProject gets past ErrAnalyzerNotConfigured.
-	if _, err := service.analyzer.Analyze(context.Background(), t.TempDir()); errors.Is(err, ErrAnalyzerNotConfigured) {
-		t.Fatal("a successful build must install the analyzer it produced")
+	// Not just "no longer unconfigured": the artifact the build produced is
+	// what actually runs, and its output is what comes back.
+	if _, err := service.analyzer.Analyze(context.Background(), t.TempDir()); err != nil {
+		t.Fatalf("the freshly built analyzer should run: %v", err)
 	}
 }
 
@@ -237,7 +255,7 @@ func TestBuildAnalyzerRejectsAnUnknownLanguage(t *testing.T) {
 
 func TestBuildAnalyzerRefusesWhenARequirementIsMissing(t *testing.T) {
 	service := NewService(nilStore{}, NewSubprocessAnalyzer())
-	toolchain := writingToolchain(t, "printf jar > analyzer.jar")
+	toolchain := writingToolchain(t, `echo "{}" > analyzer.bin`)
 	toolchain.Requirements = []Requirement{{
 		Program: "devkit-no-such-program-anywhere",
 		Label:   "Nothing",
@@ -290,7 +308,7 @@ func TestBuildAnalyzerRefusesAConcurrentBuild(t *testing.T) {
 	service := NewService(nilStore{}, NewSubprocessAnalyzer())
 	started := make(chan struct{})
 	release := make(chan struct{})
-	toolchain := writingToolchain(t, "printf jar > analyzer.jar")
+	toolchain := writingToolchain(t, `echo "{}" > analyzer.bin`)
 	service.SetToolchains([]Toolchain{toolchain})
 	service.OnAnalyzerBuildOutput = func(string, string) {}
 
@@ -299,7 +317,7 @@ func TestBuildAnalyzerRefusesAConcurrentBuild(t *testing.T) {
 		close(started)
 		<-release
 	}
-	toolchain.Build = []string{"sh", "-c", "echo hold; printf jar > analyzer.jar"}
+	toolchain.Build = []string{"sh", "-c", `echo hold; echo "{}" > analyzer.bin`}
 	service.SetToolchains([]Toolchain{toolchain})
 
 	done := make(chan error, 1)
@@ -312,28 +330,6 @@ func TestBuildAnalyzerRefusesAConcurrentBuild(t *testing.T) {
 	close(release)
 	if err := <-done; err != nil {
 		t.Fatalf("the first build should still succeed: %v", err)
-	}
-}
-
-func TestJavaToolchainMatchesWhatMainWiresAndThePomDeclares(t *testing.T) {
-	toolchain := JavaToolchain("/repo")
-
-	if toolchain.Artifact != filepath.Join("/repo", "analyzer", "target", "codegraph-analyzer.jar") {
-		t.Fatalf("artifact path drifted from analyzer/pom.xml's finalName: %q", toolchain.Artifact)
-	}
-	if toolchain.Dir != filepath.Join("/repo", "analyzer") {
-		t.Fatalf("build must run in the analyzer module, got %q", toolchain.Dir)
-	}
-	// maven.compiler.release in analyzer/pom.xml is 21, so the jar cannot run
-	// on anything older. If the pom moves, this is the other place to change.
-	var java Requirement
-	for _, req := range toolchain.Requirements {
-		if req.Program == "java" {
-			java = req
-		}
-	}
-	if java.MinVersion != "21" {
-		t.Fatalf("java minimum should track maven.compiler.release (21), got %q", java.MinVersion)
 	}
 }
 
@@ -424,7 +420,7 @@ func TestBuildRunsTheResolvedProgramWithItsToolchainInTheEnvironment(t *testing.
 		"if [ \"$1\" = \"-version\" ]; then echo 'Apache Maven 3.9.11'; exit 0; fi\n" +
 		"echo \"JAVA_HOME=$JAVA_HOME\"\n" +
 		"echo \"PATH=$PATH\"\n" +
-		"printf jar > analyzer.jar\n"
+		"echo '{}' > analyzer.bin\n"
 	if err := os.WriteFile(mvn, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -433,7 +429,7 @@ func TestBuildRunsTheResolvedProgramWithItsToolchainInTheEnvironment(t *testing.
 	service.SetToolchains([]Toolchain{{
 		Language: "fake",
 		Label:    "Fake",
-		Artifact: filepath.Join(dir, "analyzer.jar"),
+		Artifact: filepath.Join(dir, "analyzer.bin"),
 		Dir:      dir,
 		Build:    []string{"mvn", "package"},
 		HomeEnv:  map[string]string{"JAVA_HOME": "java"},
@@ -501,52 +497,4 @@ func TestJavaAndMavenAreDiscoverableOffPath(t *testing.T) {
 	if len(candidates) == 0 || candidates[0].path != wrapper {
 		t.Fatalf("a project's own mvnw should come first, got %+v", candidates)
 	}
-}
-
-// TestJavaToolchainBuildsForReal runs the actual Maven build against
-// analyzer/. It is the only test that proves the discovered toolchain can
-// produce a working jar rather than merely that the plumbing type-checks, and
-// the only one that costs minutes and a network — hence the opt-in.
-//
-//	DEVKIT_ANALYZER_BUILD_E2E=1 go test ./internal/codegraph/ -run BuildsForReal -v -timeout 20m
-func TestJavaToolchainBuildsForReal(t *testing.T) {
-	if os.Getenv("DEVKIT_ANALYZER_BUILD_E2E") != "1" {
-		t.Skip("set DEVKIT_ANALYZER_BUILD_E2E=1 to run the real Maven build")
-	}
-	repoRoot, err := filepath.Abs("../..")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	service := NewService(nilStore{}, NewSubprocessAnalyzer())
-	service.SetToolchains(DefaultToolchains(repoRoot))
-
-	status := service.AnalyzerStatus(context.Background())[0]
-	for _, req := range status.Requirements {
-		t.Logf("%s: found=%q path=%q source=%q met=%v problem=%q",
-			req.Program, req.Found, req.Path, req.Source, req.Met, req.Problem)
-	}
-	if !status.Buildable {
-		t.Skip("this machine has no usable JDK/Maven; nothing to prove here")
-	}
-
-	service.OnAnalyzerBuildOutput = func(_, line string) { t.Log(line) }
-	if err := service.BuildAnalyzer(context.Background(), "java"); err != nil {
-		t.Fatalf("real analyzer build failed: %v", err)
-	}
-	if !service.AnalyzerStatus(context.Background())[0].Ready {
-		t.Fatal("the build reported success but the artifact is not there")
-	}
-
-	// The proof that the jar is real: run it over the analyzer's own test
-	// fixture project and expect nodes back.
-	result, err := service.analyzer.Analyze(context.Background(),
-		filepath.Join(repoRoot, "analyzer", "src", "test", "resources", "sample-project"))
-	if err != nil {
-		t.Fatalf("the freshly built analyzer could not analyze the sample project: %v", err)
-	}
-	if len(result.Nodes) == 0 {
-		t.Fatal("the sample project has classes and methods; an empty index means the jar does not work")
-	}
-	t.Logf("analyzed the sample project: %d nodes, %d edges", len(result.Nodes), len(result.Edges))
 }

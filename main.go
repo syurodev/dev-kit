@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"sync"
 	"time"
 
@@ -343,17 +342,16 @@ func main() {
 	container.CodeGraph.SetTerminalRegistry(terminalRegistry)
 	defer terminalRegistry.CloseAll()
 
-	// Dev-time wiring: resolve the analyzer artifacts relative to the working
-	// directory (this binary is always run from the repo root — see
-	// build/Taskfile.yml's run:server/run:desktop tasks). A real packaged
-	// build needs a different resolution strategy (bundled resource path or
-	// an env var override) — deliberately not decided here; see
-	// analyzer_subprocess.go's own doc comment on NewSubprocessAnalyzerWithJar.
+	// The analyzer toolchain registry: per language, what to build, what that
+	// build needs, and every place a usable artifact may already be. It is what
+	// lets the UI do something about a missing analyzer other than print
+	// "analyzer not configured". One language today; the module is meant to
+	// grow more, and adding one is a Toolchain value rather than a change here.
 	//
-	// The toolchain registry is what lets the UI do something about a missing
-	// analyzer other than print "analyzer not configured": it carries what to
-	// build, what the build needs, and where the artifact lands, per language.
-	// One entry today; the module is meant to grow more.
+	// "." is where the analyzer SOURCE lives for a process started from the
+	// repository root, which is the dev-time assumption. A packaged install has
+	// no source and finds its shipped artifact through the toolchain's own
+	// search instead — see analyzerSearchPaths.
 	toolchains := codegraph.DefaultToolchains(".")
 	container.CodeGraph.SetToolchains(toolchains)
 	container.CodeGraph.OnAnalyzerBuildOutput = func(language, line string) {
@@ -362,15 +360,20 @@ func main() {
 			"line":     line,
 		})
 	}
-	for _, toolchain := range toolchains {
-		if info, err := os.Stat(toolchain.Artifact); err == nil && !info.IsDir() {
-			container.CodeGraph.SetAnalyzer(codegraph.NewSubprocessAnalyzerWithJar(toolchain.Artifact))
+	// Wire the analyzer unconditionally: it resolves its artifact and its
+	// runtime per analysis, so a jar that appears later — because the user
+	// built it from the setup panel — needs no restart and no re-wiring.
+	for _, status := range container.CodeGraph.AnalyzerStatus(context.Background()) {
+		if status.Ready {
 			continue
 		}
-		// Not fatal and no longer the end of the story: CodeGraph now shows a
-		// setup panel that can run this build itself.
-		log.Printf("codegraph: %s analyzer not built at %q — CodeGraph will offer to build it (%s)",
-			toolchain.Language, toolchain.Artifact, strings.Join(toolchain.Build, " "))
+		// Not fatal and no longer the end of the story: CodeGraph shows a setup
+		// panel that can run this build itself.
+		log.Printf("codegraph: %s analyzer not built — CodeGraph will offer to build it (%s in %s)",
+			status.Language, status.BuildCommand, status.Artifact)
+	}
+	for _, toolchain := range toolchains {
+		container.CodeGraph.SetAnalyzer(toolchain.Analyzer())
 	}
 
 	defer container.Database.Close()
