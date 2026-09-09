@@ -60,8 +60,19 @@ type Requirement struct {
 	Met    bool   `json:"met"`
 	// Problem says what is wrong in one phrase, empty when Met. It is written
 	// for display, not for parsing.
-	Problem     string `json:"problem"`
+	Problem string `json:"problem"`
+	// InstallHint is the prose: what to know beyond running a command, such as
+	// where an IDE already keeps one. No commands in it.
 	InstallHint string `json:"installHint"`
+	// Install are the commands that would fix it, already narrowed to the
+	// platform DevKit is running on.
+	//
+	// Separate from the hint because a command buried in a sentence is a
+	// command nobody can copy — and because the sentence rendered its own
+	// backticks, since the panel prints text rather than markdown. Narrowed
+	// here rather than in the UI because this process knows its own GOOS and
+	// the frontend would only be guessing.
+	Install []InstallCommand `json:"install"`
 
 	// How the probe works, not something the UI should render. locate lists
 	// where to look, in preference order, given the toolchain's build
@@ -69,6 +80,13 @@ type Requirement struct {
 	locate         func(dir string) []candidate
 	versionArgs    []string
 	versionPattern *regexp.Regexp
+}
+
+// InstallCommand is one way to install a missing program, with the packaging
+// ecosystem it belongs to so the reader can pick the line that is theirs.
+type InstallCommand struct {
+	Label   string `json:"label"`
+	Command string `json:"command"`
 }
 
 // Toolchain is everything needed to turn one language's analyzer source into

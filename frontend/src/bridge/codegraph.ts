@@ -254,6 +254,12 @@ export function onCodeGraphIndexUpdated(handler: (version: number) => void): () 
   });
 }
 
+/** One way to install a missing program, already narrowed to this platform. */
+export type CodeGraphInstallCommand = {
+  label: string;
+  command: string;
+};
+
 /** One program an analyzer build needs, and what was found on this machine. */
 export type CodeGraphRequirement = {
   program: string;
@@ -268,6 +274,7 @@ export type CodeGraphRequirement = {
   met: boolean;
   problem: string;
   installHint: string;
+  install: CodeGraphInstallCommand[];
 };
 
 /** Whether one language's analyzer is built, and what stands in the way. */
@@ -311,6 +318,7 @@ export async function codeGraphAnalyzerStatus(): Promise<CodeGraphToolchainStatu
         met: r.met,
         problem: r.problem,
         installHint: r.installHint,
+        install: (r.install ?? []).map((c) => ({ label: c.label, command: c.command })),
       })),
     }));
   });

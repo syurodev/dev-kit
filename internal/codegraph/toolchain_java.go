@@ -86,7 +86,32 @@ func javaRequirement() Requirement {
 		// special-casing: 1 < 21.
 		versionArgs:    []string{"-version"},
 		versionPattern: regexp.MustCompile(`version "([0-9][0-9._]*)"`),
-		InstallHint:    "Install a JDK 21 or newer — `sudo apt install openjdk-21-jdk` on Ubuntu, `brew install openjdk@21` on macOS. IntelliJ users already have one: File → Project Structure → SDKs, or let the IDE download one into ~/.jdks.",
+		InstallHint:    "IntelliJ users already have one — File → Project Structure → SDKs, or let the IDE download a JDK into ~/.jdks. DevKit finds it there without any of this.",
+		Install:        javaInstallCommands(),
+	}
+}
+
+// javaInstallCommands are the ways to get a JDK 21+ on the platform DevKit is
+// running on. Only that platform: a Linux user reading a brew command is
+// reading noise, and the process already knows which one it is.
+func javaInstallCommands() []InstallCommand {
+	switch runtime.GOOS {
+	case "darwin":
+		return []InstallCommand{
+			{Label: "Homebrew", Command: "brew install openjdk@21"},
+			{Label: "SDKMAN", Command: "sdk install java 21-tem"},
+		}
+	case "windows":
+		return []InstallCommand{
+			{Label: "winget", Command: "winget install EclipseAdoptium.Temurin.21.JDK"},
+			{Label: "Chocolatey", Command: "choco install temurin21"},
+		}
+	default:
+		return []InstallCommand{
+			{Label: "Debian / Ubuntu", Command: "sudo apt install openjdk-21-jdk"},
+			{Label: "Fedora / RHEL", Command: "sudo dnf install java-21-openjdk-devel"},
+			{Label: "Arch", Command: "sudo pacman -S jdk21-openjdk"},
+		}
 	}
 }
 
@@ -101,7 +126,29 @@ func mavenRequirement() Requirement {
 		// without failing a working machine.
 		versionArgs:    []string{"-version"},
 		versionPattern: regexp.MustCompile(`Apache Maven ([0-9][0-9.]*)`),
-		InstallHint:    "Install Maven — `sudo apt install maven` on Ubuntu, `brew install maven` on macOS. IntelliJ bundles one; DevKit uses it automatically if it can find the IDE.",
+		InstallHint:    "IntelliJ bundles a Maven of its own — DevKit uses it automatically if it can find the IDE, so installing one is only needed when it cannot.",
+		Install:        mavenInstallCommands(),
+	}
+}
+
+func mavenInstallCommands() []InstallCommand {
+	switch runtime.GOOS {
+	case "darwin":
+		return []InstallCommand{
+			{Label: "Homebrew", Command: "brew install maven"},
+			{Label: "SDKMAN", Command: "sdk install maven"},
+		}
+	case "windows":
+		return []InstallCommand{
+			{Label: "winget", Command: "winget install Apache.Maven"},
+			{Label: "Chocolatey", Command: "choco install maven"},
+		}
+	default:
+		return []InstallCommand{
+			{Label: "Debian / Ubuntu", Command: "sudo apt install maven"},
+			{Label: "Fedora / RHEL", Command: "sudo dnf install maven"},
+			{Label: "Arch", Command: "sudo pacman -S maven"},
+		}
 	}
 }
 

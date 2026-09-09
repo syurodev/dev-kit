@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, Hammer, Loader2, TriangleAlert, Wrench } from "lucide-react";
+import { Check, Copy, Hammer, Loader2, TriangleAlert, Wrench } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { errorMessage } from "@/bridge/errors";
+import { copyText } from "@/bridge/clipboard";
 import {
   buildCodeGraphAnalyzer,
   onCodeGraphAnalyzerBuildOutput,
+  type CodeGraphInstallCommand,
   type CodeGraphRequirement,
   type CodeGraphToolchainStatus,
 } from "@/bridge/codegraph";
@@ -164,6 +166,48 @@ function ToolchainCard({
   );
 }
 
+/**
+ * One install command: which ecosystem it belongs to, the command itself, and a
+ * click that copies it.
+ *
+ * The list is already narrowed to this platform by the backend, so what is on
+ * screen is the handful of lines that could actually be typed here.
+ */
+function InstallCommandRow({ option }: { option: CodeGraphInstallCommand }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    try {
+      await copyText(option.command);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard is unavailable in some webviews; the command is selectable.
+    }
+  }
+
+  return (
+    <li className="flex items-center gap-2">
+      <span className="w-32 shrink-0 text-caption-11 text-text-tertiary">{option.label}</span>
+      <button
+        type="button"
+        onClick={() => void copy()}
+        title="Copy"
+        className="group/cmd flex min-w-0 flex-1 items-center gap-2 rounded-md border border-border-subtle bg-bg-canvas px-2.5 py-1 text-left transition-colors hover:border-status-info"
+      >
+        <code className="min-w-0 flex-1 truncate text-code-11 text-text-secondary">
+          {option.command}
+        </code>
+        {copied ? (
+          <Check className="size-3.5 shrink-0 text-status-success" />
+        ) : (
+          <Copy className="size-3.5 shrink-0 text-text-tertiary opacity-0 transition-opacity group-hover/cmd:opacity-100" />
+        )}
+      </button>
+    </li>
+  );
+}
+
 function RequirementRow({ requirement }: { requirement: CodeGraphRequirement }) {
   const version = requirement.found ? ` ${requirement.found}` : "";
   return (
@@ -194,10 +238,27 @@ function RequirementRow({ requirement }: { requirement: CodeGraphRequirement }) 
           </span>
         )}
         {!requirement.met && (
-          <span className="text-body-12 text-text-tertiary">
-            {requirement.problem ? `${requirement.problem}. ` : ""}
-            {requirement.installHint}
-          </span>
+          <>
+            {requirement.problem && (
+              <span className="text-body-12 text-text-tertiary">{requirement.problem}.</span>
+            )}
+            {/* Commands as commands, not as backticks inside a sentence. The
+                panel renders text rather than markdown, so the old prose
+                printed its own backticks — and a command buried in a
+                paragraph is one nobody can copy. */}
+            {requirement.install.length > 0 && (
+              <ul className="mt-1.5 flex flex-col gap-1">
+                {requirement.install.map((option) => (
+                  <InstallCommandRow key={option.command} option={option} />
+                ))}
+              </ul>
+            )}
+            {requirement.installHint && (
+              <span className="mt-1.5 text-body-12 text-text-tertiary">
+                {requirement.installHint}
+              </span>
+            )}
+          </>
         )}
       </div>
     </li>
