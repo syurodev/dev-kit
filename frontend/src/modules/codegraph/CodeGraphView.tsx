@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from "react";
-import { FileCode2, GitFork, Loader2, RotateCcw, TriangleAlert } from "lucide-react";
+import { FileCode2, FolderSearch, GitFork, Loader2, RotateCcw, TriangleAlert } from "lucide-react";
 import { Dialogs } from "@wailsio/runtime";
 import { keymap } from "@codemirror/view";
 import { CodeEditor } from "@/components/code-editor/CodeEditor";
@@ -38,7 +38,7 @@ import {
   getCodeGraphPlanEdges,
   getCodeGraphPlanProgress,
 } from "../../bridge/codegraphPlan";
-import { errorMessage } from "../../bridge/errors";
+import { errorMessage, toAppError } from "../../bridge/errors";
 import { useCodeGraphStore } from "./codegraphStore";
 
 // Reads and writes go through the module store rather than useState — see
@@ -75,6 +75,7 @@ async function reindex(path: string) {
     busy: true,
     status: "Indexing…",
     error: "",
+    errorCode: "",
     subgraph: null,
     rootId: null,
   });
@@ -85,7 +86,8 @@ async function reindex(path: string) {
     await loadFiles();
     set({ status: `Indexed. ${list.length} endpoint(s) found.` });
   } catch (e) {
-    set({ endpoints: [], files: [], status: "", error: errorMessage(e) });
+    const failure = toAppError(e);
+    set({ endpoints: [], files: [], status: "", error: failure.message, errorCode: failure.code });
   } finally {
     set({ busy: false });
   }
@@ -298,6 +300,7 @@ export function CodeGraphView() {
   const rootId = useCodeGraphStore((s) => s.rootId);
   const status = useCodeGraphStore((s) => s.status);
   const error = useCodeGraphStore((s) => s.error);
+  const errorCode = useCodeGraphStore((s) => s.errorCode);
   const busy = useCodeGraphStore((s) => s.busy);
   const activeTab = useCodeGraphStore((s) => s.activeTab);
   const files = useCodeGraphStore((s) => s.files);
@@ -526,6 +529,14 @@ export function CodeGraphView() {
               body="Indexing controllers, services and repositories. The graph opens as soon as the first route resolves."
             >
               <CanvasProgress />
+            </CanvasState>
+          ) : error && errorCode === "unsupported_project" ? (
+            /* Nothing was analyzed and nothing is wrong with the analyzer —
+               the folder simply is not a project. Offering a retry here would
+               be a button that cannot work; the only useful move is choosing
+               somewhere else. */
+            <CanvasState icon={FolderSearch} title="Nothing to index in that folder" body={error}>
+              <Button onClick={pickAndOpenProject}>Choose another folder…</Button>
             </CanvasState>
           ) : error ? (
             <CanvasState icon={TriangleAlert} title="Could not analyze this project" body={error}>

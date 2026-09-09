@@ -58,7 +58,18 @@ func JavaToolchain(repoRoot string) Toolchain {
 		// Maven finds its JDK through JAVA_HOME. Set from whichever java the
 		// probe settled on, so a Maven bundled inside an IDE builds with the
 		// IDE's JDK without either being on PATH.
-		HomeEnv:      map[string]string{"JAVA_HOME": "java"},
+		HomeEnv: map[string]string{"JAVA_HOME": "java"},
+		// Every build system a Java project plausibly uses. One of these in a
+		// directory makes it a module, so a monorepo of services registers as
+		// one module per service rather than as a single confusing root.
+		Markers: []string{
+			"pom.xml",
+			"build.gradle", "build.gradle.kts",
+			"settings.gradle", "settings.gradle.kts",
+			"build.xml",   // Ant
+			"BUILD.bazel", // Bazel
+		},
+		SourceExt:    ".java",
 		Requirements: []Requirement{javaRequirement(), mavenRequirement()},
 	}
 }

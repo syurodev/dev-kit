@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	_ "modernc.org/sqlite"
@@ -82,7 +83,25 @@ CREATE TABLE IF NOT EXISTS plan_edges (
 	to_plan_node_id TEXT NOT NULL,
 	condition TEXT NOT NULL
 );
+
+-- Which project this index file describes.
+--
+-- The file is already per project by naming convention (see ProjectDBPath),
+-- but a convention is not something the code can check. Recording it here is
+-- what lets an open reuse an index only when it is THIS project's — a store
+-- holding rows is not the same claim as a store holding the right rows, and
+-- acting on the weaker one reuses one project's index for another.
+--
+-- An index written before this table existed simply has no row, which reads as
+-- "unknown" and costs one full re-index, once.
+CREATE TABLE IF NOT EXISTS index_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 `
+
+// indexedProjectKey is the index_meta row holding the project root.
+const indexedProjectKey = "project_root"
 
 // sqliteStore is a Store backed by one SQLite file per project. It is not
 // safe for concurrent use by multiple goroutines without external locking —
@@ -218,6 +237,34 @@ func (s *sqliteStore) HasIndex(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("codegraph: HasIndex: %w", err)
 	}
 	return count > 0, nil
+}
+
+// IndexedProject returns the project root this index was built from, or ""
+// when the index predates the record or was never written.
+func (s *sqliteStore) IndexedProject(ctx context.Context) (string, error) {
+	var root string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT value FROM index_meta WHERE key = ?`, indexedProjectKey).Scan(&root)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("codegraph: IndexedProject: %w", err)
+	}
+	return root, nil
+}
+
+// SetIndexedProject records which project the index now describes. Called
+// after every successful ReplaceIndex, so the two cannot drift.
+func (s *sqliteStore) SetIndexedProject(ctx context.Context, root string) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO index_meta (key, value) VALUES (?, ?)
+		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+		indexedProjectKey, root)
+	if err != nil {
+		return fmt.Errorf("codegraph: SetIndexedProject: %w", err)
+	}
+	return nil
 }
 
 func (s *sqliteStore) ListEndpoints(ctx context.Context) ([]Endpoint, error) {

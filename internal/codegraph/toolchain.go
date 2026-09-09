@@ -114,7 +114,16 @@ type Toolchain struct {
 	// launched by absolute path has no idea which runtime to use, and fails on
 	// exactly the machine this discovery exists to support: one where
 	// everything lives inside an IDE and nothing is on PATH.
-	HomeEnv      map[string]string
+	HomeEnv map[string]string
+	// Markers name the files that identify one module of this language — a
+	// build file, in practice. A directory holding one is a module root, which
+	// is how a folder of microservices is recognised as several rather than
+	// mistaken for one. See Detect.
+	Markers []string
+	// SourceExt is the language's source-file extension. Used only as the
+	// fallback when a folder holds source but no build file at all, which is
+	// still a project someone wants to read.
+	SourceExt    string
 	Requirements []Requirement
 }
 

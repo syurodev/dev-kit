@@ -8,6 +8,7 @@ import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeS
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.stream.Stream;
 
 /**
@@ -22,9 +23,23 @@ import java.util.stream.Stream;
 public class TypeSolverFactory {
 
     public static CombinedTypeSolver build(Path projectSourceRoot) throws IOException {
+        return build(List.of(projectSourceRoot));
+    }
+
+    /**
+     * One solver over every source root in the project.
+     *
+     * A repository of microservices has one root per service, and they belong
+     * in the same solver rather than in one solver each: that is what lets a
+     * call from one service into a shared module resolve to a real declaration
+     * instead of going unresolved.
+     */
+    public static CombinedTypeSolver build(List<Path> projectSourceRoots) throws IOException {
         CombinedTypeSolver typeSolver = new CombinedTypeSolver();
         typeSolver.add(new ReflectionTypeSolver());
-        typeSolver.add(new JavaParserTypeSolver(projectSourceRoot));
+        for (Path sourceRoot : projectSourceRoots) {
+            typeSolver.add(new JavaParserTypeSolver(sourceRoot));
+        }
 
         addJarsUnder(typeSolver, Path.of(System.getProperty("user.home"), ".m2", "repository"));
         addJarsUnder(typeSolver, Path.of(System.getProperty("user.home"), ".gradle", "caches", "modules-2", "files-2.1"));

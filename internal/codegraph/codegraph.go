@@ -299,6 +299,10 @@ type Analyzer interface {
 // ReplaceIndex overwrites it wholesale on every (re-)index.
 type Store interface {
 	ReplaceIndex(ctx context.Context, result AnalysisResult) error
+	// IndexedProject / SetIndexedProject say which project the stored index
+	// describes, so an open can tell "this project's index" from "an index".
+	IndexedProject(ctx context.Context) (string, error)
+	SetIndexedProject(ctx context.Context, root string) error
 	HasIndex(ctx context.Context) (bool, error)
 	ListEndpoints(ctx context.Context) ([]Endpoint, error)
 	GetEndpoint(ctx context.Context, endpointID string) (Endpoint, error)

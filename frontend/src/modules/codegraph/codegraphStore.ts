@@ -18,6 +18,13 @@ type CodeGraphState = {
   rootId: string | null;
   status: string;
   error: string;
+  /**
+   * The bridge error code behind `error`, or "". "unsupported_project" is the
+   * one the view branches on: picking the wrong folder needs a different offer
+   * from an analysis that broke, and a retry button on a folder that will never
+   * analyze is a button that cannot work.
+   */
+  errorCode: string;
   busy: boolean;
 
   /** True while fetching the next page of a truncated subgraph. */
@@ -85,6 +92,7 @@ export const useCodeGraphStore = create<CodeGraphState>((set) => ({
   rootId: null,
   status: "",
   error: "",
+  errorCode: "",
   busy: false,
   loadingMore: false,
 

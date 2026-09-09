@@ -1840,3 +1840,92 @@ func TestOnIndexUpdatedRunsWithoutHoldingTheLock(t *testing.T) {
 		t.Fatal("callback deadlocked: it is being called while the service lock is held")
 	}
 }
+
+// reopenService builds a service whose store is a real file, so a second
+// service can open the same index the way a restart would.
+func reopenService(t *testing.T, dbPath string, analyzer Analyzer) *Service {
+	t.Helper()
+	store, err := newSQLiteStore(dbPath)
+	if err != nil {
+		t.Fatalf("newSQLiteStore: %v", err)
+	}
+	t.Cleanup(func() { store.Close() })
+	svc := NewService(store, analyzer)
+	svc.debounceInterval = 20 * time.Millisecond
+	t.Cleanup(func() { svc.Close() })
+	return svc
+}
+
+func TestOpenProjectReusesThisProjectsStoredIndex(t *testing.T) {
+	// Re-deriving the index on every open made reopening a large repository
+	// cost as much as the first index, with the UI blocked throughout, for a
+	// result almost always identical to the one already on disk.
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "Foo.java"), []byte("class Foo {}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dbPath := filepath.Join(t.TempDir(), "index.db")
+
+	var first atomic.Int32
+	svc := reopenService(t, dbPath, countingAnalyzer{result: sampleResult(), calls: &first})
+	if err := svc.OpenProject(context.Background(), dir); err != nil {
+		t.Fatalf("first open: %v", err)
+	}
+	if first.Load() != 1 {
+		t.Fatalf("the first open has nothing to reuse, so it analyzes: %d", first.Load())
+	}
+	svc.Close()
+
+	// A second service over the same index file — what a restart looks like.
+	var second atomic.Int32
+	reopened := reopenService(t, dbPath, countingAnalyzer{result: sampleResult(), calls: &second})
+	if err := reopened.OpenProject(context.Background(), dir); err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+
+	// Usable immediately, from the stored index, without waiting on an analyze.
+	endpoints, err := reopened.ListEndpoints(context.Background())
+	if err != nil {
+		t.Fatalf("ListEndpoints straight after reopen: %v", err)
+	}
+	if len(endpoints) == 0 {
+		t.Fatal("the stored index should be queryable the moment the project opens")
+	}
+
+	// And it does not stay stale: a background re-index follows.
+	deadline := time.Now().Add(2 * time.Second)
+	for second.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if second.Load() == 0 {
+		t.Fatal("reusing the stored index must still trigger a background re-index")
+	}
+}
+
+func TestOpenProjectDoesNotReuseAnotherProjectsIndex(t *testing.T) {
+	// The store is per project by naming convention, but a convention is not
+	// something the code can check — so the index says which project it is.
+	dirA := t.TempDir()
+	dirB := t.TempDir()
+	for _, dir := range []string{dirA, dirB} {
+		if err := os.WriteFile(filepath.Join(dir, "Foo.java"), []byte("class Foo {}"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dbPath := filepath.Join(t.TempDir(), "index.db")
+
+	var calls atomic.Int32
+	svc := reopenService(t, dbPath, countingAnalyzer{result: sampleResult(), calls: &calls})
+	if err := svc.OpenProject(context.Background(), dirA); err != nil {
+		t.Fatalf("open A: %v", err)
+	}
+	callsAfterA := calls.Load()
+
+	// Same store, different project: reusing here would show A's graph for B.
+	if err := svc.OpenProject(context.Background(), dirB); err != nil {
+		t.Fatalf("open B: %v", err)
+	}
+	if calls.Load() == callsAfterA {
+		t.Fatal("a different project must be analyzed, not read from another project's index")
+	}
+}

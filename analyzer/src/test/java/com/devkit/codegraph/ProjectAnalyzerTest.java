@@ -367,6 +367,81 @@ class ProjectAnalyzerTest {
     }
 
     @Test
+    void analyzesEveryServiceInAMonorepoAndResolvesAcrossThem(@TempDir Path tempDir) throws IOException {
+        // Opening a folder of microservices used to produce an empty index in
+        // silence: the analyzer looked only at <root>/src/main/java, which a
+        // monorepo does not have, so nothing was found and the UI reported an
+        // empty project rather than a misread one.
+        //
+        // Cross-service resolution is the reason all roots go into one run
+        // rather than one subprocess per service: orders calls into a shared
+        // module, and that edge only exists if both are solved together.
+        Path root = tempDir.resolve("monorepo");
+        writeJava(root, "services/orders/src/main/java/com/acme/orders/OrderService.java", """
+                package com.acme.orders;
+                import com.acme.shared.Ids;
+                public class OrderService {
+                    public String create() {
+                        return Ids.next();
+                    }
+                }
+                """);
+        writeJava(root, "services/billing/src/main/java/com/acme/billing/BillingService.java", """
+                package com.acme.billing;
+                public class BillingService {
+                    public int charge() { return 1; }
+                }
+                """);
+        writeJava(root, "libs/shared/src/main/java/com/acme/shared/Ids.java", """
+                package com.acme.shared;
+                public class Ids {
+                    public static String next() { return "id"; }
+                }
+                """);
+        // Build output must not be mistaken for a source root, or every
+        // generated copy would be indexed alongside the real thing.
+        writeJava(root, "services/orders/target/generated-sources/src/main/java/com/acme/orders/Ghost.java", """
+                package com.acme.orders;
+                public class Ghost {}
+                """);
+
+        AnalysisResult result = new ProjectAnalyzer(root).analyze();
+
+        Set<String> labels = result.nodes.stream().map(n -> n.label).collect(Collectors.toSet());
+        assertTrue(labels.contains("com.acme.orders.OrderService"), "orders service missing: " + labels);
+        assertTrue(labels.contains("com.acme.billing.BillingService"), "billing service missing: " + labels);
+        assertTrue(labels.contains("com.acme.shared.Ids"), "shared module missing: " + labels);
+        assertFalse(labels.contains("com.acme.orders.Ghost"), "build output must not be indexed: " + labels);
+
+        boolean crossService = result.edges.stream().anyMatch(e ->
+                e.from.contains("com.acme.orders.OrderService.create") && e.to.contains("com.acme.shared.Ids.next"));
+        assertTrue(crossService, "a call from one service into a shared module must resolve: " + result.edges);
+    }
+
+    @Test
+    void analyzesAPlainFolderOfJavaFilesWithNoBuildLayout(@TempDir Path tempDir) throws IOException {
+        // No Maven or Gradle layout at all. Still something a person wants to
+        // read, so the folder itself is the source root.
+        Path root = tempDir.resolve("loose");
+        writeJava(root, "Standalone.java", """
+                public class Standalone {
+                    public int value() { return 7; }
+                }
+                """);
+
+        AnalysisResult result = new ProjectAnalyzer(root).analyze();
+
+        assertTrue(result.nodes.stream().anyMatch(n -> n.label.equals("Standalone")),
+                "a bare folder of .java files must still be indexed: " + result.nodes);
+    }
+
+    private static void writeJava(Path root, String relativePath, String source) throws IOException {
+        Path file = root.resolve(relativePath);
+        Files.createDirectories(file.getParent());
+        Files.writeString(file, source);
+    }
+
+    @Test
     void recordsCallSiteWithLineForAResolvedProjectCall() throws Exception {
         AnalysisResult result = new ProjectAnalyzer(sampleProjectRoot()).analyze();
 

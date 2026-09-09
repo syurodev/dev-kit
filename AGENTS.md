@@ -193,6 +193,31 @@ build itself (`internal/codegraph/toolchain.go`), rather than failing an index w
 - End-to-end (real Maven, minutes, network):
   `DEVKIT_ANALYZER_BUILD_E2E=1 go test ./internal/codegraph/ -run BuildsForReal -v -timeout 20m`
 
+### CodeGraph: opening a project
+`Service.OpenProject` does three things before any analyzer runs, each because the version
+without it was worse.
+
+- **Detection gates the subprocess** (`internal/codegraph/detect.go`). Without it, opening
+  any folder started a JVM to walk it and reported the empty result as an empty project
+  rather than as the wrong folder. A `Toolchain` declares `Markers` (build files) and
+  `SourceExt`; a directory holding a marker is a module root. Unrecognised folders get
+  `ErrUnsupportedProject`, which the UI renders as "choose another folder" rather than as a
+  failed analysis (its own bridge code, `unsupported_project`, so the two are not confused).
+  Detection is skipped when no toolchain is registered — an empty registry knows nothing and
+  must not refuse everything.
+- **A folder of microservices is one index, not none.** `ProjectAnalyzer` discovers every
+  `src/main/java` below the root (skipping `target/`, `node_modules/`, dot-dirs; depth 6),
+  falling back to the root itself for a bare folder of `.java` files. All roots go into one
+  `CombinedTypeSolver`, which is what keeps a call from one service into a shared module
+  resolvable — one subprocess per service would lose that. `filePath` is relative to the
+  project root, so roots never collide.
+- **A known project reuses its stored index, then re-indexes in the background.** The index
+  is persisted per project (`ProjectDBPath`); re-deriving it on every open cost as much as
+  the first index with the UI blocked throughout. Reuse requires BOTH `HasIndex` and
+  `IndexedProject == this project` — the per-project file is a naming convention, and a
+  convention is not something the code can check, so the index records which project it
+  describes (`index_meta`). An index written before that table simply re-indexes once.
+
 ### Notes / gotchas
 - Sync login: production uses `internal/cloudconfig` (pinned `GET /v1/desktop/config`, disk cache, refresh on reconnect). Set `DEVKIT_OIDC_*` to override remote/cache for local dev. Omit all OIDC env + stay offline with no cache for local-only vault/modules.
 - Storage is a single SQLite file (`modernc.org/sqlite`, no cgo) opened with
