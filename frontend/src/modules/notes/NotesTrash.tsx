@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { MoreHorizontal, Search, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,7 +19,6 @@ import {
   listTrashedNotes,
   purgeNote,
   restoreNote,
-  type TrashedNote,
 } from "../../bridge/notes";
 import { errorMessage } from "../../bridge/errors";
 import { noteCardSurface } from "./noteColor";
@@ -38,28 +38,20 @@ export function daysUntilPurge(purgesAt: string, now: number = Date.now()): numb
  * days" (warning; danger once it is close) and Restore / Delete at 24px.
  */
 export function NotesTrash({ onChanged }: { onChanged: () => void }) {
-  const [items, setItems] = useState<TrashedNote[]>([]);
+  const queryClient = useQueryClient();
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");
   const [confirmEmpty, setConfirmEmpty] = useState(false);
 
-  const refresh = useCallback(async () => {
-    try {
-      setItems(await listTrashedNotes());
-      setError("");
-    } catch (e) {
-      setError(errorMessage(e));
-    }
-  }, []);
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
+  const { data: items = [] } = useQuery({
+    queryKey: ["notes", "trash"],
+    queryFn: () => listTrashedNotes(),
+  });
 
   async function act(run: () => Promise<unknown>) {
     try {
       await run();
-      await refresh();
+      await queryClient.invalidateQueries({ queryKey: ["notes"] });
       onChanged();
     } catch (e) {
       setError(errorMessage(e));

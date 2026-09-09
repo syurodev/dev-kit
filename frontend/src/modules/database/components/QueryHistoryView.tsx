@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { copyText } from "../../../bridge/clipboard";
 import {
   History,
@@ -28,32 +29,27 @@ export function QueryHistoryView() {
       activeTab: s.activeTab,
     }))
   );
-  const [history, setHistory] = useState<HistoryEntry[] | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+
   const [search, setSearch] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  async function fetchHistory() {
-    if (!selectedProfileId) return;
-    setLoading(true);
-    setError("");
-    try {
-      const list = await listQueryHistory(selectedProfileId);
-      setHistory(list);
-    } catch (e) {
-      setError(errorMessage(e));
-      setHistory([]);
-    } finally {
-      setLoading(false);
-    }
-  }
+  const {
+    data: historyData,
+    isPending,
+    isFetching,
+    error: queryError,
+    refetch,
+  } = useQuery({
+    queryKey: ["database", "history", selectedProfileId],
+    queryFn: () => (selectedProfileId ? listQueryHistory(selectedProfileId) : Promise.resolve([])),
+    enabled: Boolean(selectedProfileId) && activeTab === "history",
+    placeholderData: (previousData) => previousData,
+  });
 
-  // Refetch on entry: the view stays mounted between visits (DatabaseView),
-  // and a query run in the console meanwhile must show up here.
-  useEffect(() => {
-    if (activeTab === "history") void fetchHistory();
-  }, [selectedProfileId, activeTab]);
+  const loading = isFetching;
+  const error = queryError ? errorMessage(queryError) : "";
+  const isVaultLocked = isVaultLockedError(error);
+  const history = isPending && !historyData ? null : (historyData ?? []);
 
   function handleCopy(entry: HistoryEntry) {
     void copyText(entry.sql);
@@ -65,8 +61,6 @@ export function QueryHistoryView() {
     setSql(entry.sql);
     setActiveTab("console");
   }
-
-  const isVaultLocked = isVaultLockedError(error);
 
   const filtered = (history ?? []).filter((h) =>
     !search || h.sql.toLowerCase().includes(search.toLowerCase())
@@ -97,7 +91,7 @@ export function QueryHistoryView() {
             variant="outline"
             size="sm"
             className="h-7 text-label-12 gap-1.5"
-            onClick={fetchHistory}
+            onClick={() => void refetch()}
             disabled={loading || !selectedProfileId}
           >
             <RefreshCw className={`w-3 h-3 ${loading ? "animate-spin" : ""}`} />

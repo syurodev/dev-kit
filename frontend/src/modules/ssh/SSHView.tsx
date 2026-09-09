@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createSSHProfile,
   deleteSSHProfile,
@@ -10,11 +11,9 @@ import {
   stopSSHForward,
   testSSHConnection,
   trustSSHHostKey,
-  type SSHForward,
   type SSHForwardDirection,
-  type SSHProfile,
 } from "../../bridge/ssh";
-import { listEnvTags, type EnvTag } from "../../bridge/environments";
+import { listEnvTags } from "../../bridge/environments";
 import { errorMessage } from "../../bridge/errors";
 
 const emptyForm = {
@@ -28,9 +27,7 @@ const emptyForm = {
 };
 
 export function SSHView() {
-  const [profiles, setProfiles] = useState<SSHProfile[]>([]);
-  const [forwards, setForwards] = useState<SSHForward[]>([]);
-  const [envTags, setEnvTags] = useState<EnvTag[]>([]);
+  const queryClient = useQueryClient();
   const [form, setForm] = useState({ ...emptyForm });
   const [selectedId, setSelectedId] = useState("");
   const [command, setCommand] = useState("echo hello from $(hostname)");
@@ -45,27 +42,34 @@ export function SSHView() {
   const [forwardTargetHost, setForwardTargetHost] = useState("127.0.0.1");
   const [forwardTargetPort, setForwardTargetPort] = useState(5432);
 
-  async function refresh() {
-    try {
-      const [list, activeForwards, tags] = await Promise.all([
-        listSSHProfiles(),
-        listSSHForwards(),
-        listEnvTags(),
-      ]);
-      setProfiles(list);
-      setForwards(activeForwards);
-      setEnvTags(tags);
-      if (!selectedId && list.length > 0) {
-        setSelectedId(list[0].id);
-      }
-    } catch (e) {
-      setError(errorMessage(e));
-    }
-  }
+  const { data: profiles = [] } = useQuery({
+    queryKey: ["ssh", "profiles"],
+    queryFn: () => listSSHProfiles(),
+  });
+
+  const { data: forwards = [] } = useQuery({
+    queryKey: ["ssh", "forwards"],
+    queryFn: () => listSSHForwards(),
+  });
+
+  const { data: envTags = [] } = useQuery({
+    queryKey: ["environments", "tags"],
+    queryFn: () => listEnvTags(),
+  });
 
   useEffect(() => {
-    void refresh();
-  }, []);
+    if (!selectedId && profiles.length > 0) {
+      setSelectedId(profiles[0].id);
+    }
+  }, [selectedId, profiles]);
+
+  async function refresh() {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["ssh", "profiles"] }),
+      queryClient.invalidateQueries({ queryKey: ["ssh", "forwards"] }),
+      queryClient.invalidateQueries({ queryKey: ["environments", "tags"] }),
+    ]);
+  }
 
   async function onCreate() {
     setError("");
@@ -147,7 +151,7 @@ export function SSHView() {
         },
         passphrase,
       );
-      setForwards((current) => [...current, started]);
+      void queryClient.invalidateQueries({ queryKey: ["ssh", "forwards"] });
       setStatus(`Forward started on ${started.listenHost}:${started.listenPort}.`);
     } catch (e) {
       setStatus("");
@@ -161,7 +165,7 @@ export function SSHView() {
     setError("");
     try {
       await stopSSHForward(id);
-      setForwards((current) => current.filter((forward) => forward.id !== id));
+      void queryClient.invalidateQueries({ queryKey: ["ssh", "forwards"] });
       setStatus("Forward stopped.");
     } catch (e) {
       setError(errorMessage(e));

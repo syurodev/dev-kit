@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ShieldCheck, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useSidebarContent } from "@/components/ui/sidebar-shell";
@@ -12,7 +13,6 @@ import {
   syncNow,
   syncStatus,
   type AuthStatus,
-  type SyncConflict,
   type SyncReport,
   type SyncStatus,
 } from "../../bridge/sync";
@@ -82,31 +82,26 @@ function Meter({ label, total, segments }: { label: string; total: number; segme
  * sidebar lists the device pair and every conflict.
  */
 export function SyncView() {
-  const [authentication, setAuthentication] = useState<AuthStatus>(signedOut);
-  const [connection, setConnection] = useState<SyncStatus>(disconnected);
+  const queryClient = useQueryClient();
   const [report, setReport] = useState<SyncReport | null>(null);
-  const [conflicts, setConflicts] = useState<SyncConflict[]>([]);
   const [resolving, setResolving] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  async function refreshStatus() {
-    setConnection(await syncStatus());
-  }
+  const { data: connection = disconnected } = useQuery({
+    queryKey: ["sync", "status"],
+    queryFn: () => syncStatus(),
+  });
 
-  async function refreshAuthentication() {
-    setAuthentication(await authStatus());
-  }
+  const { data: authentication = signedOut } = useQuery({
+    queryKey: ["auth", "status"],
+    queryFn: () => authStatus(),
+  });
 
-  async function refreshConflicts() {
-    setConflicts(await syncConflicts());
-  }
-
-  useEffect(() => {
-    refreshStatus().catch((caught) => setError(errorMessage(caught)));
-    refreshAuthentication().catch((caught) => setError(errorMessage(caught)));
-    refreshConflicts().catch((caught) => setError(errorMessage(caught)));
-  }, []);
+  const { data: conflicts = [] } = useQuery({
+    queryKey: ["sync", "conflicts"],
+    queryFn: () => syncConflicts(),
+  });
 
   async function onConnect() {
     setBusy(true);
@@ -114,13 +109,11 @@ export function SyncView() {
     setReport(null);
     try {
       await syncConnect();
-      await refreshStatus();
+      void queryClient.invalidateQueries({ queryKey: ["sync"] });
+      void queryClient.invalidateQueries({ queryKey: ["auth"] });
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
-      // Authentication can succeed before the gateway handshake fails. Always
-      // refresh here so the UI permits Sign out of that stored session.
-      await refreshAuthentication().catch((caught) => setError(errorMessage(caught)));
       setBusy(false);
     }
   }
@@ -130,8 +123,7 @@ export function SyncView() {
     setError("");
     try {
       setReport(await syncNow());
-      await refreshStatus();
-      await refreshConflicts();
+      void queryClient.invalidateQueries({ queryKey: ["sync"] });
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
@@ -144,7 +136,7 @@ export function SyncView() {
     setError("");
     try {
       await syncDisconnect();
-      setConnection(disconnected);
+      void queryClient.invalidateQueries({ queryKey: ["sync"] });
       setReport(null);
     } catch (caught) {
       setError(errorMessage(caught));
@@ -158,8 +150,8 @@ export function SyncView() {
     setError("");
     try {
       await authLogout();
-      setAuthentication(signedOut);
-      setConnection(disconnected);
+      void queryClient.invalidateQueries({ queryKey: ["auth"] });
+      void queryClient.invalidateQueries({ queryKey: ["sync"] });
       setReport(null);
     } catch (caught) {
       setError(errorMessage(caught));
@@ -186,7 +178,7 @@ export function SyncView() {
         onClose={() => setResolving(null)}
         onResolved={() => {
           setResolving(null);
-          refreshConflicts().catch((caught) => setError(errorMessage(caught)));
+          void queryClient.invalidateQueries({ queryKey: ["sync", "conflicts"] });
         }}
       />
     );

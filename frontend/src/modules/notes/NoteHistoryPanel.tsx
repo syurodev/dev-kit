@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Clock, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -53,23 +54,28 @@ export function NoteHistoryPanel({
   currentBody: string;
   onRestored: (body: string) => void;
 }) {
-  const [versions, setVersions] = useState<NoteVersion[]>([]);
+  const queryClient = useQueryClient();
   const [selected, setSelected] = useState<NoteVersion | null>(null);
   const [selectedBody, setSelectedBody] = useState("");
   const [error, setError] = useState("");
 
-  const refresh = useCallback(async () => {
-    try {
-      setVersions(await listNoteVersions(noteId));
-      setError("");
-    } catch (e) {
-      setError(errorMessage(e));
-    }
-  }, [noteId]);
+  const { data: versions = [] } = useQuery({
+    queryKey: ["notes", "versions", noteId],
+    queryFn: () => listNoteVersions(noteId),
+    enabled: Boolean(noteId),
+  });
 
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
+  const restoreMutation = useMutation({
+    mutationFn: async (versionId: string) => restoreNoteVersion(noteId, versionId),
+    onSuccess: (note) => {
+      onRestored(note.body);
+      setSelected(null);
+      void queryClient.invalidateQueries({ queryKey: ["notes", "versions", noteId] });
+    },
+    onError: (e) => {
+      setError(errorMessage(e));
+    },
+  });
 
   async function select(version: NoteVersion) {
     try {
@@ -84,14 +90,8 @@ export function NoteHistoryPanel({
 
   async function restore() {
     if (!selected) return;
-    try {
-      const note = await restoreNoteVersion(noteId, selected.id);
-      onRestored(note.body);
-      setSelected(null);
-      await refresh();
-    } catch (e) {
-      setError(errorMessage(e));
-    }
+    setError("");
+    await restoreMutation.mutateAsync(selected.id);
   }
 
   const diff = selected ? lineDiff(selectedBody, currentBody) : [];

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   createEnvTag,
   deleteEnvTag,
@@ -12,7 +13,6 @@ import {
   syncConnect,
   syncNow,
   syncStatus,
-  type AuthStatus,
 } from "../../bridge/sync";
 import { useTheme } from "@/theme/ThemeProvider";
 import { useShallow } from "zustand/react/shallow";
@@ -225,34 +225,28 @@ function GroupLabel({ children }: { children: React.ReactNode }) {
 // 1. Account Tab — Figma `Settings Content / Account` (765:1999)
 // ----------------------------------------------------------------------
 function AccountTab() {
-  const [auth, setAuth] = useState<AuthStatus>({ authenticated: false, expiresAt: "" });
+  const queryClient = useQueryClient();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  async function loadAuth() {
-    try {
-      const s = await authStatus();
-      setAuth(s);
-    } catch (e) {
-      setError(errorMessage(e));
-    }
-  }
+  const { data: auth = { authenticated: false, expiresAt: "" } } = useQuery({
+    queryKey: ["auth", "status"],
+    queryFn: () => authStatus(),
+  });
 
-  useEffect(() => {
-    void loadAuth();
-  }, []);
+  const logoutMutation = useMutation({
+    mutationFn: () => authLogout(),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["auth", "status"] });
+    },
+    onError: (e) => {
+      setError(errorMessage(e));
+    },
+  });
 
   async function handleSignOut() {
-    setBusy(true);
     setError("");
-    try {
-      await authLogout();
-      await loadAuth();
-    } catch (e) {
-      setError(errorMessage(e));
-    } finally {
-      setBusy(false);
-    }
+    await logoutMutation.mutateAsync();
   }
 
   async function handleSignIn() {
@@ -260,7 +254,7 @@ function AccountTab() {
     setError("");
     try {
       await syncConnect();
-      await loadAuth();
+      void queryClient.invalidateQueries({ queryKey: ["auth", "status"] });
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -532,27 +526,21 @@ function DeviceRow({
 }
 
 function SyncDevicesTab() {
+  const queryClient = useQueryClient();
   const [isSyncing, setIsSyncing] = useState(false);
   const [error, setError] = useState("");
 
-  async function loadSync() {
-    try {
-      await syncStatus();
-    } catch (e) {
-      setError(errorMessage(e));
-    }
-  }
-
-  useEffect(() => {
-    void loadSync();
-  }, []);
+  useQuery({
+    queryKey: ["sync", "status"],
+    queryFn: () => syncStatus(),
+  });
 
   async function handleSyncNow() {
     setIsSyncing(true);
     setError("");
     try {
       await syncNow();
-      await loadSync();
+      void queryClient.invalidateQueries({ queryKey: ["sync", "status"] });
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -607,51 +595,46 @@ function SyncDevicesTab() {
 // 4. Environments Tab — Figma `Settings Content / Environments` (766:1999)
 // ----------------------------------------------------------------------
 function EnvironmentsTab() {
-  const [tags, setTags] = useState<EnvTag[]>([]);
+  const queryClient = useQueryClient();
   const [newOpen, setNewOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [newRequiresConfirmation, setNewRequiresConfirmation] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [mutationError, setMutationError] = useState("");
 
-  async function refresh() {
-    try {
-      setTags(await listEnvTags());
-    } catch (e) {
-      setError(errorMessage(e));
-    }
-  }
+  const { data: tags = [], error: queryError } = useQuery({
+    queryKey: ["environments", "tags"],
+    queryFn: () => listEnvTags(),
+  });
 
-  useEffect(() => {
-    void refresh();
-  }, []);
+  const error = mutationError || (queryError ? errorMessage(queryError) : "");
 
   async function handleCreateTag(e?: React.FormEvent) {
     if (e) e.preventDefault();
     if (!newName.trim()) return;
 
     setBusy(true);
-    setError("");
+    setMutationError("");
     try {
       await createEnvTag(newName.trim().toLowerCase(), newRequiresConfirmation);
       setNewName("");
       setNewRequiresConfirmation(false);
       setNewOpen(false);
-      await refresh();
+      void queryClient.invalidateQueries({ queryKey: ["environments", "tags"] });
     } catch (e) {
-      setError(errorMessage(e));
+      setMutationError(errorMessage(e));
     } finally {
       setBusy(false);
     }
   }
 
   async function handleDeleteTag(tag: EnvTag) {
-    setError("");
+    setMutationError("");
     try {
       await deleteEnvTag(tag.id);
-      await refresh();
+      void queryClient.invalidateQueries({ queryKey: ["environments", "tags"] });
     } catch (e) {
-      setError(errorMessage(e));
+      setMutationError(errorMessage(e));
     }
   }
 

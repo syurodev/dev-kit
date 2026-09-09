@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   ReactFlow,
   useNodesState,
@@ -39,7 +40,6 @@ import {
   listIndexes,
   type ForeignKey,
   type ColumnInfo,
-  type IndexInfo,
 } from "../../../bridge/database";
 
 /**
@@ -520,8 +520,6 @@ export function ERDView() {
       setSelectedTable: s.setSelectedTable,
     }))
   );
-  const [declaredFKs, setDeclaredFKs] = useState<ForeignKey[]>([]);
-
   const schemas = useMemo(() => {
     return Object.keys(schemaSnapshot?.namespace || {});
   }, [schemaSnapshot]);
@@ -533,42 +531,32 @@ export function ERDView() {
   }, [schemas, selectedSchema]);
 
   // Load declared Foreign Keys
-  useEffect(() => {
-    async function loadFKs() {
-      if (!selectedProfileId || !selectedSchema) return;
+  const { data: declaredFKs = [] } = useQuery({
+    queryKey: ["database", "erd", "fks", selectedProfileId, selectedSchema],
+    queryFn: async () => {
+      if (!selectedProfileId || !selectedSchema) return [];
       try {
-        const fks = await listForeignKeys(selectedProfileId, selectedSchema);
-        setDeclaredFKs(fks);
+        return await listForeignKeys(selectedProfileId, selectedSchema);
       } catch {
-        setDeclaredFKs([]);
+        return [];
       }
-    }
-    void loadFKs();
-  }, [selectedProfileId, selectedSchema]);
+    },
+    enabled: Boolean(selectedProfileId && selectedSchema),
+  });
 
-  // Indexes answer the one question column names never can: whether a relation
-  // is one-to-one or one-to-many. One call for the whole schema, like the
-  // foreign keys above. A driver that cannot report them fails softly — every
-  // relation then reads as one-to-many, which is what the ERD showed before.
-  const [indexes, setIndexes] = useState<IndexInfo[]>([]);
-
-  useEffect(() => {
-    async function loadIndexes() {
-      if (!selectedProfileId || !selectedSchema) return;
+  // Indexes answer whether a relation is one-to-one or one-to-many.
+  const { data: indexes = [] } = useQuery({
+    queryKey: ["database", "erd", "indexes", selectedProfileId, selectedSchema],
+    queryFn: async () => {
+      if (!selectedProfileId || !selectedSchema) return [];
       try {
-        setIndexes(await listIndexes(selectedProfileId, selectedSchema));
+        return await listIndexes(selectedProfileId, selectedSchema);
       } catch {
-        setIndexes([]);
+        return [];
       }
-    }
-    void loadIndexes();
-  }, [selectedProfileId, selectedSchema]);
-
-  // Table names come from the cache; the ERD then fetches typed columns because
-  // the naming heuristic cannot run on names alone. One pass on open — the
-  // design page notes the ERD is opened far less often than the console is
-  // typed in, so this is not on any hot path.
-  const [typedColumns, setTypedColumns] = useState<Record<string, ColumnInfo[]>>({});
+    },
+    enabled: Boolean(selectedProfileId && selectedSchema),
+  });
 
   const tablesInSchema = useMemo(() => {
     if (!schemaSnapshot?.namespace || !schemaSnapshot.namespace[selectedSchema]) {
@@ -577,13 +565,14 @@ export function ERDView() {
     return schemaSnapshot.namespace[selectedSchema] || {};
   }, [schemaSnapshot, selectedSchema]);
 
-  useEffect(() => {
-    let cancelled = false;
-    async function loadColumns() {
+  const tableNamesKey = Object.keys(tablesInSchema).sort().join(",");
+
+  const { data: typedColumns = {} } = useQuery({
+    queryKey: ["database", "erd", "columns", selectedProfileId, selectedSchema, tableNamesKey],
+    queryFn: async () => {
       const names = Object.keys(tablesInSchema);
       if (!selectedProfileId || !selectedSchema || names.length === 0) {
-        setTypedColumns({});
-        return;
+        return {};
       }
       const entries = await Promise.all(
         names.map(async (table) => {
@@ -594,13 +583,10 @@ export function ERDView() {
           }
         }),
       );
-      if (!cancelled) setTypedColumns(Object.fromEntries(entries));
-    }
-    void loadColumns();
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedProfileId, selectedSchema, tablesInSchema]);
+      return Object.fromEntries(entries);
+    },
+    enabled: Boolean(selectedProfileId && selectedSchema && Object.keys(tablesInSchema).length > 0),
+  });
 
   // Compute Inferred Relationships (<x>_id -> <x>.id or <x>s.id)
   const inferredRelationships = useMemo(() => {

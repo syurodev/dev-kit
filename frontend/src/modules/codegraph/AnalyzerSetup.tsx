@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useMutation } from "@tanstack/react-query";
 import { Check, Copy, Hammer, Loader2, TriangleAlert, Wrench } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -69,10 +70,21 @@ function ToolchainCard({
   status: CodeGraphToolchainStatus;
   onBuilt: () => void;
 }) {
-  const [building, setBuilding] = useState(false);
   const [lines, setLines] = useState<string[]>([]);
   const [error, setError] = useState("");
   const logRef = useRef<HTMLPreElement>(null);
+
+  const buildMutation = useMutation({
+    mutationFn: () => buildCodeGraphAnalyzer(status.language),
+    onSuccess: () => {
+      onBuilt();
+    },
+    onError: (e) => {
+      setError(errorMessage(e));
+    },
+  });
+
+  const building = buildMutation.isPending;
 
   // Subscribe for the card's whole life rather than only while building: the
   // first lines arrive before the promise has even been awaited, and a
@@ -96,17 +108,9 @@ function ToolchainCard({
   }, [lines]);
 
   async function build() {
-    setBuilding(true);
     setError("");
     setLines([]);
-    try {
-      await buildCodeGraphAnalyzer(status.language);
-      onBuilt();
-    } catch (e) {
-      setError(errorMessage(e));
-    } finally {
-      setBuilding(false);
-    }
+    await buildMutation.mutateAsync();
   }
 
   return (

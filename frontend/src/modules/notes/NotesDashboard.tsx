@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -33,7 +34,6 @@ import {
   searchNotes,
   updateFolder,
   type NoteFolder,
-  type NoteSummary,
   listTrashedNotes,
 } from "../../bridge/notes";
 import { FOLDER_COLORS, type FolderColor } from "./folderColors";
@@ -186,9 +186,9 @@ export function NotesDashboard({
   onPreloadEditor,
   onChanged,
 }: NotesDashboardProps) {
-  const [notes, setNotes] = useState<NoteSummary[]>([]);
-  const [folders, setFolders] = useState<NoteFolder[]>([]);
+  const queryClient = useQueryClient();
   const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const scope = useNotesSidebarStore((s) => s.scope) as Scope;
   const setScope = useNotesSidebarStore((s) => s.setScope);
   // The badge is read from the trash itself rather than derived from the note
@@ -211,49 +211,40 @@ export function NotesDashboard({
   const [editTags, setEditTags] = useState<string[]>([]);
 
   const [deleteTarget, setDeleteTarget] = useState<NoteFolder | null>(null);
-  const refreshRequestRef = useRef(0);
-
-  const folderIds = useMemo(() => new Set(folders.map((f) => f.id)), [folders]);
-
-  const refresh = useCallback(async (q: string) => {
-    const request = ++refreshRequestRef.current;
-    try {
-      const [list, folderList] = await Promise.all([
-        q.trim() ? searchNotes(q) : listNotes(),
-        listFolders(),
-      ]);
-      // A slower bridge response for an older query must not replace the
-      // results for what the user is currently typing.
-      if (request !== refreshRequestRef.current) return;
-      setNotes(list);
-      setFolders(folderList);
-    } catch (e) {
-      if (request === refreshRequestRef.current) {
-        toast.error(errorMessage(e));
-      }
-    }
-  }, []);
 
   useEffect(() => {
-    void listTrashedNotes()
-      .then((items) => setTrashCount(items.length))
-      .catch(() => setTrashCount(0));
-  }, [refreshToken, scope]);
-
-  useEffect(() => {
-    // Searching through the native bridge on every keystroke creates avoidable
-    // IPC and SQLite work. Empty queries and explicit refreshes remain fast;
-    // typed searches are coalesced into one request after a short pause.
     const timer = window.setTimeout(
-      () => void refresh(query),
+      () => setDebouncedQuery(query.trim()),
       query.trim() ? 200 : 0,
     );
-    return () => {
-      window.clearTimeout(timer);
-      // Also invalidate a request that already crossed the debounce boundary.
-      refreshRequestRef.current += 1;
-    };
-  }, [query, refresh, refreshToken]);
+    return () => window.clearTimeout(timer);
+  }, [query]);
+
+  const { data: notes = [] } = useQuery({
+    queryKey: ["notes", "list", debouncedQuery],
+    queryFn: () => (debouncedQuery ? searchNotes(debouncedQuery) : listNotes()),
+    placeholderData: (prev) => prev,
+  });
+
+  const { data: folders = [] } = useQuery({
+    queryKey: ["notes", "folders"],
+    queryFn: () => listFolders(),
+  });
+
+  const { data: trashedNotes = [] } = useQuery({
+    queryKey: ["notes", "trash"],
+    queryFn: () => listTrashedNotes(),
+  });
+
+  useEffect(() => {
+    setTrashCount(trashedNotes.length);
+  }, [trashedNotes.length, setTrashCount]);
+
+  useEffect(() => {
+    void queryClient.invalidateQueries({ queryKey: ["notes"] });
+  }, [refreshToken, queryClient]);
+
+  const folderIds = useMemo(() => new Set(folders.map((f) => f.id)), [folders]);
 
   const filtered = useMemo(() => {
     return notes.filter((n) => {

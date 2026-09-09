@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft,
   Bold,
@@ -45,7 +46,6 @@ import {
   listBacklinks,
   checkpointNote,
   restoreNote,
-  type NoteSummary,
 } from "../../bridge/notes";
 import { useModuleAction } from "../../stores/moduleActions";
 import { NoteHistoryPanel } from "./NoteHistoryPanel";
@@ -106,13 +106,11 @@ function TagChip({
 }
 
 function NoteBacklinks({ noteId }: { noteId: string }) {
-  const [backlinks, setBacklinks] = useState<NoteSummary[]>([]);
-
-  useEffect(() => {
-    void listBacklinks(noteId)
-      .then(setBacklinks)
-      .catch(() => setBacklinks([]));
-  }, [noteId]);
+  const { data: backlinks = [] } = useQuery({
+    queryKey: ["notes", "backlinks", noteId],
+    queryFn: () => listBacklinks(noteId),
+    enabled: Boolean(noteId),
+  });
 
   if (backlinks.length === 0) return null;
 

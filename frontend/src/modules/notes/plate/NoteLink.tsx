@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { FileText, Link2 } from "lucide-react";
 import { createPlatePlugin } from "platejs/react";
 import { PlateElement, type PlateElementProps } from "platejs/react";
@@ -11,7 +11,7 @@ import {
   InlineComboboxInput,
   InlineComboboxItem,
 } from "@/components/ui/inline-combobox";
-import { noteLinkMarkup, resolveNoteLinks, searchNotes, type NoteSummary } from "../../../bridge/notes";
+import { noteLinkMarkup, resolveNoteLinks, searchNotes } from "../../../bridge/notes";
 
 export const NOTE_LINK_KEY = "note_link";
 export const NOTE_LINK_INPUT_KEY = "note_link_input";
@@ -23,7 +23,8 @@ export const NOTE_LINK_INPUT_KEY = "note_link_input";
  *
  * This is an inline void element, which the editor had none of: LinkKit is
  * inline but wraps real text, and ImageUpload is void but block-level. So the
- * schema, the render and the markdown round trip are all wired here.
+ * plugin registers inline + void on the element, and Slate handles cursor
+ * traversal past it as an atomic unit.
  */
 export const NoteLinkPlugin = createPlatePlugin({
   key: NOTE_LINK_KEY,
@@ -32,19 +33,25 @@ export const NoteLinkPlugin = createPlatePlugin({
 
 export function NoteLinkElement(props: PlateElementProps) {
   const noteId = (props.element as { noteId?: string }).noteId ?? "";
-  const [label, setLabel] = useState("");
-  const [state, setState] = useState<"live" | "deleted" | "missing">("live");
 
-  useEffect(() => {
-    if (!noteId) return;
-    void resolveNoteLinks([noteId])
-      .then(([target]) => {
-        if (!target) return;
-        setLabel(target.title);
-        setState(target.missing ? "missing" : target.deleted ? "deleted" : "live");
-      })
-      .catch(() => undefined);
-  }, [noteId]);
+  const { data: target } = useQuery({
+    queryKey: ["notes", "link", noteId],
+    queryFn: async () => {
+      if (!noteId) return null;
+      const [t] = await resolveNoteLinks([noteId]);
+      return t ?? null;
+    },
+    enabled: Boolean(noteId),
+  });
+
+  const label = target?.title ?? "";
+  const state: "live" | "deleted" | "missing" = target
+    ? target.missing
+      ? "missing"
+      : target.deleted
+        ? "deleted"
+        : "live"
+    : "live";
 
   return (
     <PlateElement {...props} as="span">
@@ -73,13 +80,11 @@ export function NoteLinkElement(props: PlateElementProps) {
  *  matches on title. */
 export function NoteLinkInputElement(props: PlateElementProps<TComboboxInputElement>) {
   const { editor, element } = props;
-  const [results, setResults] = useState<NoteSummary[]>([]);
 
-  useEffect(() => {
-    void searchNotes("")
-      .then(setResults)
-      .catch(() => setResults([]));
-  }, []);
+  const { data: results = [] } = useQuery({
+    queryKey: ["notes", "search", ""],
+    queryFn: () => searchNotes(""),
+  });
 
   return (
     <PlateElement {...props} as="span">

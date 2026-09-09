@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Bookmark, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,6 +9,7 @@ import { saveQuery } from "../../../bridge/database";
 import { errorMessage } from "../../../bridge/errors";
 
 export function SaveQueryModal() {
+  const queryClient = useQueryClient();
   const {
     selectedProfileId,
     sql,
@@ -34,6 +36,7 @@ export function SaveQueryModal() {
     setError("");
     try {
       await saveQuery(selectedProfileId, name.trim(), sql);
+      void queryClient.invalidateQueries({ queryKey: ["database", "saved", selectedProfileId] });
       setShowSaveQueryModal(false);
       setName("");
     } catch (e) {

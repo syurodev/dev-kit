@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
   RefreshCw,
@@ -22,6 +23,7 @@ import {
 import { errorMessage } from "../../../bridge/errors";
 
 export function LiveActivityView() {
+  const queryClient = useQueryClient();
   const { profiles, selectedProfileId, activeTab } = useDatabaseStore(
     useShallow((s) => ({
       profiles: s.profiles,
@@ -29,82 +31,91 @@ export function LiveActivityView() {
       activeTab: s.activeTab,
     }))
   );
-  // null until the first snapshot answers — see ListSkeleton.
-  const [sessions, setSessions] = useState<SessionRow[] | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+
   const [statusMessage, setStatusMessage] = useState("");
+  const [mutationError, setMutationError] = useState("");
   const [search, setSearch] = useState("");
 
-  // Confirmation dialog state (Screen 12)
-  // An engine with no server has no sessions to report. That is a different
-  // answer from "nothing is running", and the controls below are removed rather
-  // than left pointing at data that can never arrive.
-  const [engineHasNoSessions, setEngineHasNoSessions] = useState(false);
   const [confirmAction, setConfirmAction] = useState<{
     type: "cancel" | "terminate";
     session: SessionRow;
   } | null>(null);
-  const [actionInProgress, setActionInProgress] = useState(false);
 
   const profile = profiles.find((p) => p.id === selectedProfileId);
   const isProd = profile?.env?.toLowerCase() === "prod" || profile?.env?.toLowerCase() === "production";
 
-  async function fetchSessions() {
-    if (!selectedProfileId) return;
-    setLoading(true);
-    setError("");
-    setEngineHasNoSessions(false);
-    try {
+  const {
+    data: sessionsData,
+    isPending,
+    isFetching,
+    error: queryError,
+    refetch,
+  } = useQuery({
+    queryKey: ["database", "activity", selectedProfileId],
+    queryFn: async () => {
+      if (!selectedProfileId) return [];
       const list = await listActivity(selectedProfileId);
-      // Sort by duration descending
-      const sorted = [...list].sort((a, b) => {
+      return [...list].sort((a, b) => {
         return (b.duration || "").localeCompare(a.duration || "");
       });
-      setSessions(sorted);
-    } catch (e) {
-      const message = errorMessage(e);
-      if (message.includes("does not report sessions")) {
-        setEngineHasNoSessions(true);
-        setError("");
-      } else {
-        setError(message);
-      }
-      setSessions([]);
-    } finally {
-      setLoading(false);
-    }
-  }
+    },
+    enabled: Boolean(selectedProfileId) && activeTab === "activity",
+    placeholderData: (previousData) => previousData,
+  });
 
-  // Re-snapshot on every entry to the tab, not only on profile change: the
-  // view stays mounted between visits now (DatabaseView), and a snapshot is
-  // on-demand by its own description.
-  useEffect(() => {
-    if (activeTab === "activity") void fetchSessions();
-  }, [selectedProfileId, activeTab]);
+  const queryErrStr = queryError ? errorMessage(queryError) : "";
+  const engineHasNoSessions = queryErrStr.includes("does not report sessions");
+  const error = mutationError || (engineHasNoSessions ? "" : queryErrStr);
+
+  const cancelMutation = useMutation({
+    mutationFn: async (pid: string) => {
+      if (!selectedProfileId) return;
+      await cancelQuery(selectedProfileId, pid);
+    },
+    onSuccess: (_, pid) => {
+      setStatusMessage(`Query cancelled for PID ${pid}`);
+      void queryClient.invalidateQueries({ queryKey: ["database", "activity", selectedProfileId] });
+      setConfirmAction(null);
+    },
+    onError: (e) => {
+      setMutationError(errorMessage(e));
+    },
+  });
+
+  const terminateMutation = useMutation({
+    mutationFn: async (pid: string) => {
+      if (!selectedProfileId) return;
+      await terminateSession(selectedProfileId, pid);
+    },
+    onSuccess: (_, pid) => {
+      setStatusMessage(`Session terminated for PID ${pid}`);
+      void queryClient.invalidateQueries({ queryKey: ["database", "activity", selectedProfileId] });
+      setConfirmAction(null);
+    },
+    onError: (e) => {
+      setMutationError(errorMessage(e));
+    },
+  });
+
+  const actionInProgress = cancelMutation.isPending || terminateMutation.isPending;
+  const loading = isFetching;
 
   async function handleConfirmAction() {
     if (!confirmAction || !selectedProfileId) return;
-    setActionInProgress(true);
     setStatusMessage("");
-    setError("");
-
-    try {
-      if (confirmAction.type === "cancel") {
-        await cancelQuery(selectedProfileId, confirmAction.session.pid);
-        setStatusMessage(`Query cancelled for PID ${confirmAction.session.pid}`);
-      } else {
-        await terminateSession(selectedProfileId, confirmAction.session.pid);
-        setStatusMessage(`Session terminated for PID ${confirmAction.session.pid}`);
-      }
-      setConfirmAction(null);
-      await fetchSessions();
-    } catch (e) {
-      setError(errorMessage(e));
-    } finally {
-      setActionInProgress(false);
+    setMutationError("");
+    if (confirmAction.type === "cancel") {
+      await cancelMutation.mutateAsync(confirmAction.session.pid);
+    } else {
+      await terminateMutation.mutateAsync(confirmAction.session.pid);
     }
   }
+
+  const sessions = engineHasNoSessions
+    ? []
+    : isPending && !sessionsData
+      ? null
+      : (sessionsData ?? []);
 
   const filtered = (sessions ?? []).filter(
     (s) =>
@@ -144,7 +155,7 @@ export function LiveActivityView() {
             variant="outline"
             size="sm"
             className="h-7 text-label-12 gap-1.5"
-            onClick={fetchSessions}
+            onClick={() => void refetch()}
             disabled={loading || !selectedProfileId}
           >
             <RefreshCw className={`w-3 h-3 ${loading ? "animate-spin" : ""}`} />

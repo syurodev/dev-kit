@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { copyText } from "../../../bridge/clipboard";
 import {
   Bookmark,
@@ -25,6 +26,7 @@ import { errorMessage } from "../../../bridge/errors";
 import { isVaultLockedError } from "../errorStates";
 
 export function SavedQueriesView() {
+  const queryClient = useQueryClient();
   const { selectedProfileId, setSql, setActiveTab, setShowSaveQueryModal, activeTab } = useDatabaseStore(
     useShallow((s) => ({
       selectedProfileId: s.selectedProfileId,
@@ -34,39 +36,42 @@ export function SavedQueriesView() {
       activeTab: s.activeTab,
     }))
   );
-  const [queries, setQueries] = useState<SavedQuery[] | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+
   const [search, setSearch] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [mutationError, setMutationError] = useState("");
 
-  async function fetchSavedQueries() {
-    if (!selectedProfileId) return;
-    setLoading(true);
-    setError("");
-    try {
-      const list = await listSavedQueries(selectedProfileId);
-      setQueries(list);
-    } catch (e) {
-      setError(errorMessage(e));
-      setQueries([]);
-    } finally {
-      setLoading(false);
-    }
-  }
+  const {
+    data: queriesData,
+    isPending,
+    isFetching,
+    error: queryError,
+    refetch,
+  } = useQuery({
+    queryKey: ["database", "saved", selectedProfileId],
+    queryFn: () => (selectedProfileId ? listSavedQueries(selectedProfileId) : Promise.resolve([])),
+    enabled: Boolean(selectedProfileId) && activeTab === "saved",
+    placeholderData: (previousData) => previousData,
+  });
 
-  // Refetch on entry — the view stays mounted between visits (DatabaseView).
-  useEffect(() => {
-    if (activeTab === "saved") void fetchSavedQueries();
-  }, [selectedProfileId, activeTab]);
+  const deleteMutation = useMutation({
+    mutationFn: (queryId: string) => deleteSavedQuery(queryId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["database", "saved", selectedProfileId] });
+    },
+    onError: (e) => {
+      setMutationError(errorMessage(e));
+    },
+  });
+
+  const loading = isFetching || deleteMutation.isPending;
+  const error = mutationError || (queryError ? errorMessage(queryError) : "");
+  const isVaultLocked = isVaultLockedError(error);
+  const queries = isPending && !queriesData ? null : (queriesData ?? []);
 
   async function handleDelete(queryId: string) {
-    try {
-      await deleteSavedQuery(queryId);
-      await fetchSavedQueries();
-    } catch (e) {
-      setError(errorMessage(e));
-    }
+    setMutationError("");
+    await deleteMutation.mutateAsync(queryId);
   }
 
   function handleCopy(entry: SavedQuery) {
@@ -79,8 +84,6 @@ export function SavedQueriesView() {
     setSql(entry.sql);
     setActiveTab("console");
   }
-
-  const isVaultLocked = isVaultLockedError(error);
 
   const filtered = (queries ?? []).filter(
     (q) =>
@@ -105,7 +108,7 @@ export function SavedQueriesView() {
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search saved queries…"
+              placeholder="Filter saved queries…"
               className="h-7 pl-7 text-body-12 bg-surface-base w-48"
             />
           </div>
@@ -114,7 +117,7 @@ export function SavedQueriesView() {
             variant="outline"
             size="sm"
             className="h-7 text-label-12 gap-1.5"
-            onClick={fetchSavedQueries}
+            onClick={() => void refetch()}
             disabled={loading || !selectedProfileId}
           >
             <RefreshCw className={`w-3 h-3 ${loading ? "animate-spin" : ""}`} />
