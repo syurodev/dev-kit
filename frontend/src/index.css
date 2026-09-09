@@ -233,6 +233,13 @@
     --ring: var(--status-info);
     --radius: 10px;
 
+    /* Scrollbar. Not a Foundations token — Figma draws no scrollbar — so it
+       is pinned to the same neutral the hairlines use rather than invented:
+       visible against surface/base and surface/well, invisible against the
+       content. */
+    --scrollbar-thumb: rgba(255, 255, 255, 0.16);
+    --scrollbar-thumb-hover: rgba(255, 255, 255, 0.3);
+
     /* Sidebar / Workbench Frame */
     --sidebar: var(--background-app);
     --sidebar-foreground: var(--text-secondary);
@@ -297,6 +304,9 @@
     --note-folder-violet: #6a4fc0;
     --note-folder-pink: #b04a8f;
     --note-folder-gray: #6e7075;
+
+    --scrollbar-thumb: rgba(0, 0, 0, 0.2);
+    --scrollbar-thumb-hover: rgba(0, 0, 0, 0.34);
 }
 
 .dark {
@@ -372,6 +382,52 @@
   }
   code, kbd, samp, pre {
     font-family: var(--font-mono);
+  }
+
+  /* Scrollbars.
+     `scrollbar-width` / `scrollbar-color` are the standard properties (WebKit
+     from Safari 18.2, Chromium from 121) and they are the ones to want here:
+     they thin and tint the scrollbar while leaving it NATIVE, so macOS's own
+     "Show scroll bars" setting still decides whether it overlays the content
+     or reserves a gutter.
+
+     A `::-webkit-scrollbar` rule cannot do that. Styling that pseudo-element
+     opts the whole scroller out of the native overlay scrollbar and into the
+     legacy one, which reserves its width permanently — so a rail that costs
+     nothing today would start costing 8px on every machine. It is the
+     fallback for engines without the standard properties, not the default.
+
+     scrollbar-color inherits; scrollbar-width does not. Hence two selectors,
+     and hence `*` rather than `html` for the width. The scrollbar-hide
+     utilities still win: they land in the utilities layer, this is base. */
+  html {
+    scrollbar-color: var(--scrollbar-thumb) transparent;
+  }
+  * {
+    scrollbar-width: thin;
+  }
+
+  @supports not (scrollbar-width: thin) {
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track,
+    ::-webkit-scrollbar-corner {
+      background: transparent;
+    }
+    /* The transparent border with a content-box clip is what insets the bar: an
+       8px track carrying a 4px thumb, rather than a 4px track the pointer has
+       to hit exactly. */
+    ::-webkit-scrollbar-thumb {
+      background-color: var(--scrollbar-thumb);
+      background-clip: content-box;
+      border: 2px solid transparent;
+      border-radius: var(--radius-full);
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background-color: var(--scrollbar-thumb-hover);
+    }
   }
 }
 
