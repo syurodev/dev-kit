@@ -498,3 +498,48 @@ func TestJavaAndMavenAreDiscoverableOffPath(t *testing.T) {
 		t.Fatalf("a project's own mvnw should come first, got %+v", candidates)
 	}
 }
+
+func TestReadyNeedsBothTheArtifactAndItsRuntime(t *testing.T) {
+	// A packaged app ships the artifact and not a runtime. Reporting that as
+	// ready hides the setup panel and sends the user to an opaque failure at
+	// their first index instead of to a sentence naming what to install.
+	toolchain := writingToolchain(t, "true")
+	toolchain.Run = []string{"nothing-like-this-is-installed", ArtifactArg}
+	toolchain.Requirements = []Requirement{{
+		Program: "nothing-like-this-is-installed",
+		Label:   "Missing runtime",
+		locate:  onPath("nothing-like-this-is-installed"),
+	}}
+	if err := os.WriteFile(toolchain.Artifact, []byte("built"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	status := toolchain.status(context.Background())
+	if !status.HasArtifact {
+		t.Fatal("the artifact is on disk")
+	}
+	if status.Ready {
+		t.Fatal("an analyzer with no runtime to launch it cannot run, so it is not ready")
+	}
+
+	// And the other way round: a runtime with nothing to run is also not ready,
+	// but it is the case a build fixes — which is why the two are separate.
+	missing := writingToolchain(t, "true")
+	notReady := missing.status(context.Background())
+	if notReady.Ready || notReady.HasArtifact {
+		t.Fatalf("nothing built yet: %+v", notReady)
+	}
+	if !notReady.Buildable {
+		t.Fatal("sh is present, so this one is buildable — the panel offers the build")
+	}
+}
+
+func TestReadyWhenTheArtifactAndRuntimeAreBothThere(t *testing.T) {
+	toolchain := writingToolchain(t, "true")
+	if err := os.WriteFile(toolchain.Artifact, []byte("built"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if status := toolchain.status(context.Background()); !status.Ready || !status.HasArtifact {
+		t.Fatalf("artifact plus runtime is ready: %+v", status)
+	}
+}

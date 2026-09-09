@@ -171,6 +171,14 @@ build itself (`internal/codegraph/toolchain.go`), rather than failing an index w
 - `task dev` and `task build` deliberately do NOT build the analyzer: a contributor
   without a JDK can still work on everything else and gets the setup panel, which is what
   it is for. Only the packaging targets require the toolchain.
+- **A JRE is still required to RUN the analyzer, on every path.** Shipping the jar removes
+  Maven and the build, not Java: `Toolchain.Run` is `java -jar …`. `Ready` therefore means
+  artifact AND runtime, and `HasArtifact` separates the two failures so the panel can say
+  "build this" or "install a runtime" rather than offering a build that would not help.
+  Removing the last requirement means bundling a JRE per platform — measured at 57 MB with
+  `jlink --add-modules java.se` (a trimmed module set saves only 2 MB and breaks
+  `ReflectionTypeSolver` for target projects using `java.sql`, `java.net.http` and the
+  rest, so it would have to be the full one). Not done.
 - **Two Java versions, deliberately different.** `analyzer/pom.xml` sets
   `maven.compiler.release` to 21 — the bytecode the analyzer itself is compiled to, so it
   runs on the JDK people actually have (an IDE's bundled runtime, a distro's

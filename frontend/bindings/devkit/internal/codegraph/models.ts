@@ -409,9 +409,20 @@ export interface ToolchainStatus {
     "label": string;
 
     /**
-     * Ready means a usable artifact exists and the analyzer can run right now.
+     * Ready means the analyzer can run right now: the artifact is there AND so
+     * is the runtime that launches it. Both halves matter — a packaged app
+     * ships the artifact but not a runtime, and calling that ready would send
+     * the user to an opaque failure at their first index instead of to a
+     * sentence naming what to install.
      */
     "ready": boolean;
+
+    /**
+     * HasArtifact separates the two ways of not being ready: nothing built yet
+     * (which a build fixes) from built but unrunnable (which it does not). The
+     * UI says a different thing for each.
+     */
+    "hasArtifact": boolean;
 
     /**
      * Buildable means every requirement is met, so offering a build button is

@@ -136,8 +136,16 @@ const (
 type ToolchainStatus struct {
 	Language string `json:"language"`
 	Label    string `json:"label"`
-	// Ready means a usable artifact exists and the analyzer can run right now.
+	// Ready means the analyzer can run right now: the artifact is there AND so
+	// is the runtime that launches it. Both halves matter — a packaged app
+	// ships the artifact but not a runtime, and calling that ready would send
+	// the user to an opaque failure at their first index instead of to a
+	// sentence naming what to install.
 	Ready bool `json:"ready"`
+	// HasArtifact separates the two ways of not being ready: nothing built yet
+	// (which a build fixes) from built but unrunnable (which it does not). The
+	// UI says a different thing for each.
+	HasArtifact bool `json:"hasArtifact"`
 	// Buildable means every requirement is met, so offering a build button is
 	// honest. False with Ready false is the "install these first" case.
 	Buildable bool `json:"buildable"`
@@ -197,13 +205,28 @@ func (t Toolchain) status(ctx context.Context) ToolchainStatus {
 	return ToolchainStatus{
 		Language:     t.Language,
 		Label:        t.Label,
-		Ready:        installed != "",
+		Ready:        installed != "" && t.runtimeMet(requirements),
+		HasArtifact:  installed != "",
 		Buildable:    buildable,
 		Artifact:     artifact,
 		Bundled:      installed != "" && installed != t.Artifact,
 		BuildCommand: strings.Join(t.Build, " "),
 		Requirements: requirements,
 	}
+}
+
+// runtimeMet reports whether the program that launches the analyzer is present.
+// Only that one: an analyzer needs its runtime to run, never its build tool.
+func (t Toolchain) runtimeMet(resolved []Requirement) bool {
+	if len(t.Run) == 0 {
+		return false
+	}
+	for _, req := range resolved {
+		if req.Program == t.Run[0] {
+			return req.Met
+		}
+	}
+	return false
 }
 
 // installedArtifact is the usable artifact this toolchain would run, or "".

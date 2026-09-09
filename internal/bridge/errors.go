@@ -188,6 +188,12 @@ func publicError(subject string, err error) *apperrors.AppError {
 			return apperrors.Wrap(codeValidationFailed, "CodeGraph node not found.", true, codegraph.ErrNodeNotFound)
 		case errors.Is(err, codegraph.ErrAnalyzerNotConfigured):
 			return apperrors.Wrap(codeConnectionFailed, "CodeGraph analyzer not configured.", true, codegraph.ErrAnalyzerNotConfigured)
+		// The analyzer exists but the runtime that launches it does not — a
+		// packaged install ships the artifact and not a JDK. CodeGraph's setup
+		// panel says which program is missing and what to install; this is the
+		// backstop for anything that reaches an index without passing it.
+		case errors.Is(err, codegraph.ErrToolchainIncomplete):
+			return apperrors.Wrap(codeConnectionFailed, "The CodeGraph analyzer cannot run: "+err.Error()+".", true, codegraph.ErrToolchainIncomplete)
 		case errors.Is(err, codegraph.ErrNoPlan):
 			return apperrors.Wrap(codeValidationFailed, "No active plan.", true, codegraph.ErrNoPlan)
 		case errors.Is(err, codegraph.ErrPlanNodeNotFound):

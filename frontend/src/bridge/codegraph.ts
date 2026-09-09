@@ -256,7 +256,10 @@ export type CodeGraphRequirement = {
 export type CodeGraphToolchainStatus = {
   language: string;
   label: string;
+  /** The analyzer can run now: the artifact exists AND so does its runtime. */
   ready: boolean;
+  /** Separates "nothing built yet" from "built but no runtime to launch it". */
+  hasArtifact: boolean;
   buildable: boolean;
   artifact: string;
   buildCommand: string;
@@ -276,6 +279,7 @@ export async function codeGraphAnalyzerStatus(): Promise<CodeGraphToolchainStatu
       language: s.language,
       label: s.label,
       ready: s.ready,
+      hasArtifact: s.hasArtifact,
       buildable: s.buildable,
       artifact: s.artifact,
       buildCommand: s.buildCommand,

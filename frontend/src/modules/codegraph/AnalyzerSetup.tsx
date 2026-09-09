@@ -30,6 +30,12 @@ export function AnalyzerSetup({
   statuses: CodeGraphToolchainStatus[];
   onBuilt: () => void;
 }) {
+  // Two different problems wear the same panel, and telling a user to build
+  // something that is already built is worse than saying nothing. An installed
+  // DevKit ships the analyzer but no runtime to launch it, so "not built" and
+  // "cannot run" are both real and they need different sentences.
+  const nothingBuilt = statuses.some((s) => !s.hasArtifact);
+
   return (
     <div className="flex h-full flex-col items-center overflow-auto p-8">
       <div className="flex w-full max-w-180 flex-col items-center gap-6">
@@ -37,11 +43,13 @@ export function AnalyzerSetup({
           <Wrench size={26} className="text-text-secondary" />
         </span>
         <div className="flex flex-col items-center gap-2 text-center">
-          <h3 className="text-title-16 text-text-primary">CodeGraph needs its analyzer</h3>
+          <h3 className="text-title-16 text-text-primary">
+            {nothingBuilt ? "CodeGraph needs its analyzer" : "CodeGraph cannot start its analyzer"}
+          </h3>
           <p className="max-w-140 text-body-13 text-text-secondary">
-            The analyzer is what reads your source and builds the graph. It ships as source and is
-            compiled once, on your machine, with your own toolchain — DevKit can run that build for
-            you.
+            {nothingBuilt
+              ? "The analyzer is what reads your source and builds the graph. It ships as source and is compiled once, on your machine, with your own toolchain — DevKit can run that build for you."
+              : "The analyzer is here, but the runtime that launches it is not. Install what is listed below and reopen this view — nothing needs rebuilding."}
           </p>
         </div>
         {statuses.map((status) => (
@@ -106,19 +114,23 @@ function ToolchainCard({
           <span className="text-body-13-medium text-text-primary">{status.label} analyzer</span>
           <span className="text-code-11 text-text-tertiary">{status.artifact}</span>
         </div>
-        <Button
-          size="sm"
-          disabled={building || !status.buildable}
-          onClick={() => void build()}
-          title={
-            status.buildable
-              ? status.buildCommand
-              : "Install what is missing below, then reload this panel."
-          }
-        >
-          {building ? <Loader2 className="animate-spin" /> : <Hammer />}
-          {building ? "Building…" : "Build analyzer"}
-        </Button>
+        {/* No build button when the artifact is already there: the problem is
+            the runtime, and building again would not touch it. */}
+        {!status.hasArtifact && (
+          <Button
+            size="sm"
+            disabled={building || !status.buildable}
+            onClick={() => void build()}
+            title={
+              status.buildable
+                ? status.buildCommand
+                : "Install what is missing below, then reload this panel."
+            }
+          >
+            {building ? <Loader2 className="animate-spin" /> : <Hammer />}
+            {building ? "Building…" : "Build analyzer"}
+          </Button>
+        )}
       </div>
 
       <ul className="flex flex-col gap-2">
@@ -127,7 +139,7 @@ function ToolchainCard({
         ))}
       </ul>
 
-      {!status.buildable && (
+      {!status.hasArtifact && !status.buildable && (
         <p className="text-body-12 text-text-tertiary">
           Prefer your own terminal? <code className="text-code-11">{status.buildCommand}</code> in{" "}
           <code className="text-code-11">analyzer/</code> does the same thing.
