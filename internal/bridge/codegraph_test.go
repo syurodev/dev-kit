@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"devkit/internal/app"
@@ -33,7 +34,7 @@ func TestCodeGraphOpenProjectThenListEndpoints(t *testing.T) {
 	s.container.CodeGraph = codegraph.NewService(codegraph.NewNilStore(), fakeCodeGraphAnalyzer{result: result})
 	s.container.ConfigDir = t.TempDir()
 
-	if err := s.CodeGraphOpenProject("/fake/project"); err != nil {
+	if _, err := s.CodeGraphOpenProject("/fake/project"); err != nil {
 		t.Fatalf("CodeGraphOpenProject: %v", err)
 	}
 
@@ -55,10 +56,10 @@ func TestCodeGraphOpenProjectTwiceReusesSameStore(t *testing.T) {
 	s.container.CodeGraph = codegraph.NewService(codegraph.NewNilStore(), fakeCodeGraphAnalyzer{result: result})
 	s.container.ConfigDir = t.TempDir()
 
-	if err := s.CodeGraphOpenProject("/fake/project"); err != nil {
+	if _, err := s.CodeGraphOpenProject("/fake/project"); err != nil {
 		t.Fatalf("first CodeGraphOpenProject: %v", err)
 	}
-	if err := s.CodeGraphOpenProject("/fake/project"); err != nil {
+	if _, err := s.CodeGraphOpenProject("/fake/project"); err != nil {
 		t.Fatalf("second CodeGraphOpenProject: %v", err)
 	}
 
@@ -86,7 +87,7 @@ func TestCodeGraphListReadWriteFile(t *testing.T) {
 	s.container.ConfigDir = t.TempDir()
 	dir := t.TempDir()
 
-	if err := s.CodeGraphOpenProject(dir); err != nil {
+	if _, err := s.CodeGraphOpenProject(dir); err != nil {
 		t.Fatalf("CodeGraphOpenProject: %v", err)
 	}
 
@@ -124,7 +125,7 @@ func TestCodeGraphGetCodeSnippet(t *testing.T) {
 	s.container.CodeGraph = codegraph.NewService(codegraph.NewNilStore(), fakeCodeGraphAnalyzer{result: result})
 	s.container.ConfigDir = t.TempDir()
 
-	if err := s.CodeGraphOpenProject(dir); err != nil {
+	if _, err := s.CodeGraphOpenProject(dir); err != nil {
 		t.Fatalf("CodeGraphOpenProject: %v", err)
 	}
 
@@ -272,5 +273,69 @@ func TestCodeGraphProjectRootEmptyWithoutProject(t *testing.T) {
 	}
 	if root != "" {
 		t.Fatalf("root = %q, want empty", root)
+	}
+}
+
+func TestCodeGraphOpenProjectReportsEveryModuleItFound(t *testing.T) {
+	// A monorepo indexes as one graph. Without a module count on the way back,
+	// four services are indistinguishable on screen from one project that
+	// happens to have a lot of endpoints.
+	s := newTestService(t)
+	s.container.CodeGraph = codegraph.NewService(codegraph.NewNilStore(), fakeCodeGraphAnalyzer{
+		result: codegraph.AnalysisResult{
+			Nodes:     []codegraph.Node{{ID: "n1", Label: "A.foo", Kind: "method", Layer: "controller"}},
+			Endpoints: []codegraph.Endpoint{{ID: "ep1", HTTPMethod: "GET", Path: "/a", EntryNode: "n1"}},
+		},
+	})
+	s.container.ConfigDir = t.TempDir()
+	s.container.CodeGraph.SetToolchains([]codegraph.Toolchain{codegraph.JavaToolchain(".")})
+
+	root := t.TempDir()
+	for _, service := range []string{"services/orders", "services/billing", "libs/shared"} {
+		dir := filepath.Join(root, filepath.FromSlash(service))
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "pom.xml"), []byte("<project/>"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	detected, err := s.CodeGraphOpenProject(root)
+	if err != nil {
+		t.Fatalf("CodeGraphOpenProject: %v", err)
+	}
+	if detected.Language != "java" {
+		t.Fatalf("expected the Java toolchain to claim it, got %q", detected.Language)
+	}
+	if len(detected.Modules) != 3 {
+		t.Fatalf("expected three modules, got %v", detected.Modules)
+	}
+}
+
+func TestCodeGraphOpenProjectRefusesAFolderThatIsNotAProject(t *testing.T) {
+	s := newTestService(t)
+	s.container.CodeGraph = codegraph.NewService(codegraph.NewNilStore(), fakeCodeGraphAnalyzer{
+		result: codegraph.AnalysisResult{
+			Nodes:     []codegraph.Node{{ID: "n1", Label: "A.foo", Kind: "method", Layer: "controller"}},
+			Endpoints: []codegraph.Endpoint{{ID: "ep1", HTTPMethod: "GET", Path: "/a", EntryNode: "n1"}},
+		},
+	})
+	s.container.ConfigDir = t.TempDir()
+	s.container.CodeGraph.SetToolchains([]codegraph.Toolchain{codegraph.JavaToolchain(".")})
+
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "notes.txt"), []byte("hello"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := s.CodeGraphOpenProject(root)
+	if err == nil {
+		t.Fatal("a folder of text files is not a project")
+	}
+	// Its own code, so the UI offers "choose another folder" rather than a
+	// retry that could never work.
+	if !strings.HasPrefix(err.Error(), "unsupported_project:") {
+		t.Fatalf("expected the unsupported_project code, got %q", err.Error())
 	}
 }

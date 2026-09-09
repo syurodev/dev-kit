@@ -7,17 +7,29 @@ import (
 	"devkit/internal/codegraph"
 )
 
-func (s *AppService) CodeGraphOpenProject(path string) error {
-	_, err := s.call(context.Background(), "builtin.codegraph", "codegraph:index", "project:new", map[string]any{
+// CodeGraphOpenProject indexes a folder and reports what it turned out to hold.
+//
+// Returning the detection rather than just an error is what lets the UI say
+// how many modules were found. A repository of microservices is the case that
+// needs it: it indexes as one graph, and without a count it is indistinguishable
+// on screen from a single project that happens to have a lot of endpoints.
+func (s *AppService) CodeGraphOpenProject(path string) (codegraph.DetectedProject, error) {
+	result, err := s.call(context.Background(), "builtin.codegraph", "codegraph:index", "project:new", map[string]any{
 		"action": "open_project",
 	}, func(ctx context.Context) (any, error) {
 		dbPath := codegraph.ProjectDBPath(s.container.ConfigDir, path)
 		if err := s.container.CodeGraph.SetProjectPath(dbPath); err != nil {
 			return nil, err
 		}
-		return nil, s.container.CodeGraph.OpenProject(ctx, path)
+		if err := s.container.CodeGraph.OpenProject(ctx, path); err != nil {
+			return nil, err
+		}
+		return s.container.CodeGraph.ActiveDetection(), nil
 	})
-	return err
+	if err != nil {
+		return codegraph.DetectedProject{}, err
+	}
+	return result.(codegraph.DetectedProject), nil
 }
 
 func (s *AppService) CodeGraphListEndpoints() ([]codegraph.Endpoint, error) {

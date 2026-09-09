@@ -241,7 +241,15 @@ export function CodeGraphListPlanNodeComments(planNodeID: string): $CancellableP
     return $Call.ByID(44393988, planNodeID);
 }
 
-export function CodeGraphOpenProject(path: string): $CancellablePromise<void> {
+/**
+ * CodeGraphOpenProject indexes a folder and reports what it turned out to hold.
+ * 
+ * Returning the detection rather than just an error is what lets the UI say
+ * how many modules were found. A repository of microservices is the case that
+ * needs it: it indexes as one graph, and without a count it is indistinguishable
+ * on screen from a single project that happens to have a lot of endpoints.
+ */
+export function CodeGraphOpenProject(path: string): $CancellablePromise<codegraph$0.DetectedProject> {
     return $Call.ByID(1356804218, path);
 }
 

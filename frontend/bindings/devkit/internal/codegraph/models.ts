@@ -84,6 +84,21 @@ export interface DataFlowTrace {
 }
 
 /**
+ * DetectedProject is what a folder turned out to hold.
+ */
+export interface DetectedProject {
+    "language": string;
+    "label": string;
+
+    /**
+     * Modules are the module roots found, relative to the folder that was
+     * opened, "." meaning the folder itself. A repository of microservices has
+     * one entry per service; a single project has exactly one.
+     */
+    "modules": string[] | null;
+}
+
+/**
  * Edge is a directed call relationship between two Nodes, by Node.ID.
  */
 export interface Edge {

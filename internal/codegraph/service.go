@@ -44,6 +44,12 @@ type Service struct {
 	toolchains []Toolchain
 	buildMu    sync.Mutex
 
+	// detected is what the open folder turned out to hold — which language, and
+	// which module roots. Recorded during OpenProject so the answer costs one
+	// walk rather than one per caller who wants it, and so the UI can say "4
+	// modules" instead of leaving a monorepo looking like a single project.
+	detected DetectedProject
+
 	indexVersion int
 	reindexing   bool
 
@@ -177,12 +183,18 @@ func (s *Service) OpenProject(ctx context.Context, projectPath string) error {
 	// has no vocabulary for recognising a project, and refusing every folder on
 	// the strength of an empty registry would be a gate that knows nothing
 	// standing in front of an analyzer that does.
+	var detected DetectedProject
 	if len(s.toolchainList()) > 0 {
-		if _, err := s.DetectProject(projectPath); err != nil {
+		found, err := s.DetectProject(projectPath)
+		if err != nil {
 			s.stopWatcher()
 			return fmt.Errorf("codegraph: open %q: %w", projectPath, err)
 		}
+		detected = found
 	}
+	s.mu.Lock()
+	s.detected = detected
+	s.mu.Unlock()
 
 	// Ask before analyzing. Both halves are required: the store must hold an
 	// index AND that index must be this project's. A store holding rows is a
@@ -230,6 +242,17 @@ func (s *Service) OpenProject(ctx context.Context, projectPath string) error {
 
 	_ = s.restartWatcher(projectPath) // non-fatal: see restartWatcher's doc comment
 	return nil
+}
+
+// ActiveDetection reports what the open project turned out to hold. Zero-valued
+// when nothing is open, or when no toolchain was registered to detect with.
+func (s *Service) ActiveDetection() DetectedProject {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if !s.active {
+		return DetectedProject{}
+	}
+	return s.detected
 }
 
 // storedIndexMatches reports whether the open store already holds an index

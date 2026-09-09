@@ -28,8 +28,26 @@ export type CodeGraphSymbolMatch = {
   line: number;
 };
 
-export async function openCodeGraphProject(path: string): Promise<void> {
-  return callBridge(() => AppService.CodeGraphOpenProject(path));
+/** What a folder turned out to hold, once opened. */
+export type CodeGraphDetectedProject = {
+  language: string;
+  label: string;
+  /**
+   * Module roots relative to the opened folder, "." meaning the folder itself.
+   * A repository of microservices has one entry per service.
+   */
+  modules: string[];
+};
+
+export async function openCodeGraphProject(path: string): Promise<CodeGraphDetectedProject> {
+  return callBridge(async () => {
+    const detected = await AppService.CodeGraphOpenProject(path);
+    return {
+      language: detected.language,
+      label: detected.label,
+      modules: detected.modules ?? [],
+    };
+  });
 }
 
 export async function listCodeGraphEndpoints(): Promise<CodeGraphEndpoint[]> {

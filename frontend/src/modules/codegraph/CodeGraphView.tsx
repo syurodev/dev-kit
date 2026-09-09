@@ -70,6 +70,22 @@ async function loadAnalyzerStatus() {
   }
 }
 
+/**
+ * What the sidebar says after an index.
+ *
+ * A monorepo indexes as one graph, so without a module count four services
+ * look exactly like one project that happens to have a lot of endpoints. Said
+ * only when there is more than one — "1 module" is noise on the common case.
+ *
+ * Exported for its own test: it is the one piece of this file that is a pure
+ * function of two numbers, and the alternative was driving a native folder
+ * picker to check a string.
+ */
+export function indexedStatus(moduleCount: number, endpointCount: number): string {
+  const modules = moduleCount > 1 ? `${moduleCount} modules · ` : "";
+  return `Indexed. ${modules}${endpointCount} endpoint(s) found.`;
+}
+
 async function reindex(path: string) {
   set({
     busy: true,
@@ -80,11 +96,11 @@ async function reindex(path: string) {
     rootId: null,
   });
   try {
-    await openCodeGraphProject(path);
+    const detected = await openCodeGraphProject(path);
     const list = await listCodeGraphEndpoints();
     set({ endpoints: list });
     await loadFiles();
-    set({ status: `Indexed. ${list.length} endpoint(s) found.` });
+    set({ status: indexedStatus(detected.modules.length, list.length) });
   } catch (e) {
     const failure = toAppError(e);
     set({ endpoints: [], files: [], status: "", error: failure.message, errorCode: failure.code });

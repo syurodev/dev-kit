@@ -6,6 +6,7 @@ export type {
     CodeSnippet,
     DataFlowStep,
     DataFlowTrace,
+    DetectedProject,
     Edge,
     Endpoint,
     FieldRef,
