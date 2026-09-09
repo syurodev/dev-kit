@@ -93,13 +93,30 @@ export function CodeGraphSidebar(props: CodeGraphSidebarProps) {
   return (
     <div className="flex h-full flex-col gap-3.5 px-2 py-4">
       <div className="flex flex-col gap-1.5">
-        <div className="flex items-center gap-2">
-          <Button onClick={onPickProject} disabled={busy} className="flex-1">
+        {/* Wraps rather than overflows. Buttons are whitespace-nowrap by
+            design, so neither of these can shrink below its label — and side
+            by side they need ~279px against the 224px a minimum-width sidebar
+            (240px, less px-2) actually has. The old flex row simply ran off the
+            edge and clipped Re-index in half.
+
+            flex-auto rather than flex-1 on the primary is what makes the wrap
+            happen at all: flex-1 bases at 0, so both would stay on one line and
+            squeeze instead, truncating the label of the button that matters
+            most. Basing on content lets the secondary drop to its own line and
+            the primary take the full width above it. min-w-0 and the truncating
+            label are the floor under that, for a width no sash should reach. */}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button onClick={onPickProject} disabled={busy} className="min-w-0 flex-auto">
             <FolderOpen className="size-3.5" />
-            Open Java project…
+            <span className="min-w-0 truncate">Open Java project…</span>
           </Button>
           {projectPath && (
-            <Button onClick={onReindex} disabled={busy} variant="outline" className="bg-surface-raised px-3">
+            <Button
+              onClick={onReindex}
+              disabled={busy}
+              variant="outline"
+              className="shrink-0 bg-surface-raised px-3"
+            >
               Re-index
             </Button>
           )}
