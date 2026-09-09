@@ -32,7 +32,7 @@ test("an open neighbour shrinks this panel's ceiling", () => {
     min: SIDEBAR_MIN,
     hardMax: SIDEBAR_MAX,
   });
-  expect(max).toBe(1200 - 420 - CONTENT_MIN_WIDTH - GAP_WIDTH * 2);
+  expect(max).toBe(1200 - WINDOW_GUTTER * 2 - 420 - CONTENT_MIN_WIDTH - GAP_WIDTH * 2);
   expect(max).toBeLessThan(SIDEBAR_MAX);
 });
 

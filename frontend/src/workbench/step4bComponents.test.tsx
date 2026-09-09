@@ -82,23 +82,29 @@ describe("Step 4b Shell Overlays & Composition Reconciliation", () => {
       expect(wrapper).not.toContain("bg-transparent");
     });
 
-    it("keeps the shell flush, with square bottom corners for the window to round", () => {
-      // macOS masks the window's content to its own squircle. A flush surface
-      // is therefore rounded BY the window, exactly, on every platform — but
-      // only while it draws no corner of its own and nothing insets it. Give it
-      // a radius and it cuts inside the mask; give it a margin and it has to
-      // imitate a curve CSS cannot draw.
-      expect(WINDOW_GUTTER).toBe(0);
+    it("insets the shell from the window and lets every surface draw its own corners", () => {
+      // The shell used to run flush at gutter 0 so that macOS would round the
+      // surfaces with the window's own squircle mask, and .shell-surface
+      // squared its bottom corners to stay out of the way of it. That bought an
+      // exact corner on one platform and cost the shell its structure: flush
+      // surfaces read as the walls of the window, and DevKit's are cards. They
+      // are inset now, on the three sides that have a window edge, and they
+      // draw all four of their own corners on every platform.
+      expect(WINDOW_GUTTER).toBe(8);
 
       const shell = readFileSync(new URL("./AppShell.tsx", import.meta.url), "utf8");
       const row = shell.split("\n").find((line) => line.includes("flex min-h-0 flex-1"));
       expect(row).toBeDefined();
-      expect(row).not.toContain("mx-");
-      expect(row).not.toContain("mb-");
+      // Left, right and bottom. Not the top: the title bar is chrome already,
+      // and a band under it reads as the surfaces hanging in the window.
+      expect(row).toContain("mx-2");
+      expect(row).toContain("mb-2");
+      expect(row).not.toContain("mt-");
 
       const css = readFileSync(new URL("../index.css", import.meta.url), "utf8");
-      expect(css).toContain("border-bottom-left-radius: 0;");
-      expect(css).toContain("border-bottom-right-radius: 0;");
+      expect(css).not.toContain("border-bottom-left-radius: 0;");
+      expect(css).not.toContain("border-bottom-right-radius: 0;");
+      expect(css).toContain("border-radius: var(--radius-control);");
     });
 
     it("clamps every resizable shell surface at render, not only while dragging", () => {

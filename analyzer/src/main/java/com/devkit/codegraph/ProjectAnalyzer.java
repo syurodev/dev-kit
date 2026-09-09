@@ -4,8 +4,11 @@ import com.github.javaparser.ParserConfiguration;
 import com.github.javaparser.Range;
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
-import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.TypeDeclaration;
+import com.github.javaparser.ast.expr.Expression;
+import com.github.javaparser.ast.expr.MethodCallExpr;
+import com.github.javaparser.resolution.types.ResolvedType;
 import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
 import com.github.javaparser.symbolsolver.JavaSymbolSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.CombinedTypeSolver;
@@ -176,11 +179,25 @@ public class ProjectAnalyzer {
         // index if any edge references an unknown node — this must not let
         // one through.
         Set<String> nodeIds = new HashSet<>();
+        // Indexed a second way, by "<declaring type>.<method name>", for the
+        // fallback in addCallEdges. Built once here rather than scanned per
+        // call: a large project has tens of thousands of each, and matching by
+        // prefix inside the loop would be quadratic.
+        Map<String, List<String>> methodsByTypeAndName = new HashMap<>();
         for (Node n : result.nodes) {
             nodeIds.add(n.id);
+            if (!"method".equals(n.kind)) {
+                continue;
+            }
+            int paren = n.id.indexOf('(');
+            if (paren > 0) {
+                methodsByTypeAndName
+                        .computeIfAbsent(n.id.substring(0, paren), k -> new ArrayList<>())
+                        .add(n.id);
+            }
         }
         for (MethodCallSite site : callSites) {
-            addCallEdges(site, classFile, nodeIds, result);
+            addCallEdges(site, classFile, nodeIds, methodsByTypeAndName, result);
             addFieldAccesses(site, result);
         }
 
@@ -206,7 +223,12 @@ public class ProjectAnalyzer {
     }
 
     private void collectDeclarations(ParsedFile file, Map<String, String> classFile, List<MethodCallSite> callSites, AnalysisResult result) {
-        for (ClassOrInterfaceDeclaration classDecl : file.cu().findAll(ClassOrInterfaceDeclaration.class)) {
+        // Every type declaration, not only ClassOrInterfaceDeclaration. A record
+        // is a TypeDeclaration but not a ClassOrInterfaceDeclaration, so the
+        // narrower walk skipped every one of them — and a Spring project keeps
+        // its requests, responses and DTOs in records, which meant they were
+        // missing from the graph and from the file list entirely.
+        for (TypeDeclaration<?> classDecl : file.cu().findAll(TypeDeclaration.class)) {
             String className;
             try {
                 className = classDecl.resolve().getQualifiedName();
@@ -272,10 +294,11 @@ public class ProjectAnalyzer {
         return Optional.of(node.id);
     }
 
-    private void addCallEdges(MethodCallSite site, Map<String, String> classFile, Set<String> nodeIds, AnalysisResult result) {
-        for (com.github.javaparser.ast.expr.MethodCallExpr call : site.methodDecl().findAll(com.github.javaparser.ast.expr.MethodCallExpr.class)) {
+    private void addCallEdges(MethodCallSite site, Map<String, String> classFile, Set<String> nodeIds,
+            Map<String, List<String>> methodsByTypeAndName, AnalysisResult result) {
+        for (MethodCallExpr call : site.methodDecl().findAll(MethodCallExpr.class)) {
             int line = call.getRange().map(r -> r.begin.line).orElse(0);
-            ResolvedMethodDeclaration target;
+            ResolvedMethodDeclaration target = null;
             String targetClass;
             String toNodeId;
             try {
@@ -284,24 +307,43 @@ public class ProjectAnalyzer {
                 targetClass = target.declaringType().getQualifiedName();
                 toNodeId = targetClass + "." + target.getSignature();
             } catch (RuntimeException | StackOverflowError e) {
-                // Unresolved call (missing jar in the local cache, dynamic
-                // dispatch the solver can't follow, unresolved parameter types, etc.)
-                // — FR-8: this is a gap in the graph, not a fatal error for the whole project.
-                // Recorded rather than dropped: a trace that runs into this has to be
-                // able to say the flow was lost here, not just end.
-                result.callSites.add(new CallSite(site.methodId(), "", line, "unresolved"));
-                continue;
+                // Full resolution needs every argument's type, because that is
+                // how an overload is chosen — so one argument the solver cannot
+                // follow takes the whole call with it. That is how a controller
+                // ends up alone in its own graph: `service.query(request.a(),
+                // request.b())` is lost not because `service` is a mystery but
+                // because `request` is a record, whose implicit accessors this
+                // JavaParser cannot resolve.
+                //
+                // The receiver usually resolves perfectly well on its own, so
+                // ask it what type it is and look for that type's method by
+                // name. One match is an answer; several means overloads we have
+                // no way to choose between, and none means the callee is not
+                // ours. Only methods declared on the type itself, not inherited
+                // ones — that is the price of not resolving properly.
+                String[] inferred = inferTarget(call, methodsByTypeAndName);
+                if (inferred == null) {
+                    // Still a gap in the graph, not a fatal error (FR-8).
+                    // Recorded rather than dropped: a trace that runs into this
+                    // has to be able to say the flow was lost here, not just end.
+                    result.callSites.add(new CallSite(site.methodId(), "", line, "unresolved"));
+                    continue;
+                }
+                targetClass = inferred[0];
+                toNodeId = inferred[1];
             }
             if (!nodeIds.contains(toNodeId)) {
                 // Resolved successfully but no node exists for it. Two different
                 // walls, and the trace reads very differently depending on which:
                 // an interface method has a body somewhere we cannot find, a
                 // library method has no body we can ever read.
-                boolean isInterface;
-                try {
-                    isInterface = target.declaringType().isInterface();
-                } catch (RuntimeException | StackOverflowError e) {
-                    isInterface = false;
+                boolean isInterface = false;
+                if (target != null) {
+                    try {
+                        isInterface = target.declaringType().isInterface();
+                    } catch (RuntimeException | StackOverflowError e) {
+                        isInterface = false;
+                    }
                 }
                 result.callSites.add(new CallSite(
                         site.methodId(), "", line, isInterface ? "interface" : "library"));
@@ -320,6 +362,33 @@ public class ProjectAnalyzer {
                 result.fileDependencies.add(new FileDependency(site.filePath(), targetFile));
             }
         }
+    }
+
+    /**
+     * The callee of a call whose arguments would not resolve, found from the
+     * receiver instead: {declaring type, node id}, or null when the receiver
+     * has no type we can name or the name is not uniquely a method of it.
+     */
+    private String[] inferTarget(MethodCallExpr call, Map<String, List<String>> methodsByTypeAndName) {
+        Optional<Expression> scope = call.getScope();
+        if (scope.isEmpty()) {
+            return null; // an unqualified call — this method's own class, already resolvable or already lost
+        }
+        String declaringType;
+        try {
+            ResolvedType scopeType = scope.get().calculateResolvedType();
+            if (!scopeType.isReferenceType()) {
+                return null;
+            }
+            declaringType = scopeType.asReferenceType().getQualifiedName();
+        } catch (RuntimeException | StackOverflowError e) {
+            return null; // the receiver is a mystery too; nothing to infer from
+        }
+        List<String> candidates = methodsByTypeAndName.get(declaringType + "." + call.getNameAsString());
+        if (candidates == null || candidates.size() != 1) {
+            return null;
+        }
+        return new String[] {declaringType, candidates.get(0)};
     }
 
     private void addFieldAccesses(MethodCallSite site, AnalysisResult result) {
@@ -399,7 +468,7 @@ public class ProjectAnalyzer {
         return new ArrayList<>(byKey.values());
     }
 
-    private Node classNode(ClassOrInterfaceDeclaration classDecl, String qualifiedName, String layer, String relativePath, Optional<Range> range) {
+    private Node classNode(TypeDeclaration<?> classDecl, String qualifiedName, String layer, String relativePath, Optional<Range> range) {
         Node node = new Node();
         node.id = qualifiedName;
         node.label = qualifiedName;

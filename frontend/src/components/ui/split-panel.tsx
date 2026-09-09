@@ -82,6 +82,7 @@ export function useSplitPanel() {
 const MIN_PANEL_WIDTH = 320;
 const MAX_PANEL_WIDTH = 720;
 
+
 /** One slot's card: rounded surface, close button, fading content. */
 function PanelCard({
   state,
@@ -227,9 +228,12 @@ export function SplitPanelSlot() {
         initial={{ width: 0 }}
         // Clamped at render for the same reason as the sidebar and the bottom
         // slot: the ceiling moves with the window, the stored width does not.
+        // One line on purpose: step4bComponents.test.tsx finds the sizing
+        // animation by scanning for a line carrying both animate={{ and
+        // GAP_WIDTH, and asserts it clamps with Math.min.
         animate={{ width: open ? Math.min(width, max) + GAP_WIDTH : 0 }}
         transition={isResizing ? { duration: 0 } : { duration: 0.22, ease: "easeInOut" }}
-        className="flex min-h-0 shrink-0 overflow-hidden"
+className="flex min-h-0 shrink-0 overflow-hidden"
       >
         {open ? (
           <ShellResizeHandle

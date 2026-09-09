@@ -1,5 +1,11 @@
-import { FolderOpen } from "lucide-react";
+import { FolderOpen, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FileTree } from "./FileTree";
@@ -93,17 +99,48 @@ export function CodeGraphSidebar(props: CodeGraphSidebarProps) {
   return (
     <div className="flex h-full flex-col gap-3.5 px-2 py-4">
       <div className="flex flex-col gap-1.5">
-        <div className="flex items-center gap-2">
-          <Button onClick={onPickProject} disabled={busy} className="flex-1">
-            <FolderOpen className="size-3.5" />
-            Open Java project…
-          </Button>
-          {projectPath && (
-            <Button onClick={onReindex} disabled={busy} variant="outline" className="bg-surface-raised px-3">
-              Re-index
-            </Button>
-          )}
-        </div>
+        {/* Icon-only, so the row cannot outgrow the sidebar however narrow
+            the sash is pulled. Buttons are whitespace-nowrap by design and
+            these two labels wanted ~279px against the 224px a minimum-width
+            sidebar has; square affordances are 88px and stay 88px.
+
+            Icons alone need somewhere for the words to live, so each carries
+            both a tooltip for the mouse and an aria-label for a screen
+            reader — the label did not disappear, it moved. */}
+        <TooltipProvider>
+          <div className="flex items-center gap-2">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={onPickProject}
+                  disabled={busy}
+                  size="icon"
+                  aria-label="Open Java project"
+                >
+                  <FolderOpen />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Open Java project…</TooltipContent>
+            </Tooltip>
+            {projectPath && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    onClick={onReindex}
+                    disabled={busy}
+                    variant="outline"
+                    size="icon"
+                    aria-label="Re-index project"
+                    className="bg-surface-raised"
+                  >
+                    <RefreshCw />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Re-index project</TooltipContent>
+              </Tooltip>
+            )}
+          </div>
+        </TooltipProvider>
         {projectPath && (
           <span className="truncate text-code-11 text-text-tertiary" title={projectPath}>
             {projectPath}

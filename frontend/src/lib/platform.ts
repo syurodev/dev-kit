@@ -40,9 +40,18 @@ export function detectPlatform(): Platform {
   if (!("_wails" in window)) {
     return "web";
   }
-  if (System.IsMac()) return "mac";
-  if (System.IsWindows()) return "windows";
-  if (System.IsLinux()) return "linux";
+  // Guarded because these read window._wails.environment, and the doc comment
+  // above is the whole reason: the object lands on WindowLoadFinished, which
+  // can be after this runs. Unguarded it is a TypeError at module scope for
+  // any caller that early, which would take the app down rather than mis-read
+  // the platform. The user agent answers correctly either way.
+  try {
+    if (System.IsMac()) return "mac";
+    if (System.IsWindows()) return "windows";
+    if (System.IsLinux()) return "linux";
+  } catch {
+    // Not injected yet.
+  }
   return fromUserAgent(navigator.userAgent);
 }
 
