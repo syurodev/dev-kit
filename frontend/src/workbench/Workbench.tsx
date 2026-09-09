@@ -1,4 +1,5 @@
 import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { ModuleSkeleton } from "./ModuleSkeleton";
 import { Events, Window } from "@wailsio/runtime";
 import { MessageSquare, PanelBottom, PanelLeft, Search, Settings as SettingsIcon } from "lucide-react";
 import { listModules, type ModuleDTO } from "../bridge/commands";
@@ -257,20 +258,13 @@ const WorkbenchViews = memo(
                   key={tab.id}
                   className={tab.id === activeTabId ? "contents" : "hidden"}
                 >
-                  <Suspense
-                    fallback={
-                      <div
-                        role="status"
-                        className="p-4 text-body-13 text-text-tertiary"
-                      >
-                        Loading {tab.title}...
-                      </div>
-                    }
-                  >
-                    <SidebarModuleIdContext.Provider value={tab.moduleId}>
+                  {/* Provider outside Suspense so the skeleton can register
+                      a rail under this module's id while the chunk loads. */}
+                  <SidebarModuleIdContext.Provider value={tab.moduleId}>
+                    <Suspense fallback={<ModuleSkeleton />}>
                       <TabView params={tab.params} />
-                    </SidebarModuleIdContext.Provider>
-                  </Suspense>
+                    </Suspense>
+                  </SidebarModuleIdContext.Provider>
                 </div>
               );
             })
