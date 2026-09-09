@@ -326,6 +326,48 @@ export interface PlanProgress {
 }
 
 /**
+ * Requirement is one external program an analyzer toolchain needs before it
+ * can be built, together with what was actually found on this machine.
+ * 
+ * The install hint is deliberately per-requirement rather than one paragraph
+ * per toolchain: the answer to "Java is missing" and "Maven is too old" are
+ * different sentences, and a user reads the one that applies to them.
+ */
+export interface Requirement {
+    "program": string;
+    "label": string;
+
+    /**
+     * MinVersion is compared component-by-component against Found. Empty
+     * means being present is the whole requirement.
+     */
+    "minVersion": string;
+
+    /**
+     * Found is the version detected on this machine, or "" when nothing was
+     * found (or what was found did not answer its version flag).
+     */
+    "found": string;
+
+    /**
+     * Path is the executable that will actually be used, and Source names
+     * where it came from — "PATH", "JAVA_HOME", "IDE-bundled Maven". Worth
+     * showing: on a machine with several JDKs, "which one" is the question the
+     * user is about to ask next.
+     */
+    "path": string;
+    "source": string;
+    "met": boolean;
+
+    /**
+     * Problem says what is wrong in one phrase, empty when Met. It is written
+     * for display, not for parsing.
+     */
+    "problem": string;
+    "installHint": string;
+}
+
+/**
  * Subgraph is one bounded page of a GetNeighbors result.
  */
 export interface Subgraph {
@@ -355,4 +397,28 @@ export interface SymbolMatch {
     "kind": string;
     "filePath": string;
     "line": number;
+}
+
+/**
+ * ToolchainStatus is the snapshot the frontend renders. Everything the setup
+ * panel needs to decide what to say is on it, so the UI never re-derives a
+ * policy the backend already applied.
+ */
+export interface ToolchainStatus {
+    "language": string;
+    "label": string;
+
+    /**
+     * Ready means the artifact exists and the analyzer can run right now.
+     */
+    "ready": boolean;
+
+    /**
+     * Buildable means every requirement is met, so offering a build button is
+     * honest. False with Ready false is the "install these first" case.
+     */
+    "buildable": boolean;
+    "artifact": string;
+    "buildCommand": string;
+    "requirements": Requirement[] | null;
 }

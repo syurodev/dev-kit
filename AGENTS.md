@@ -133,6 +133,36 @@ platform module).
   `dbus-x11` on PATH (single-instance uses `dbus-launch`). A bare Xvfb has no window
   manager, so maximise/minimise do nothing there — close and the layout are testable.
 
+### CodeGraph analyzer toolchain
+The Java analyzer is not committed as a jar — it is built from `analyzer/` on the machine
+that runs DevKit. When it is missing, CodeGraph now shows a setup panel that can run that
+build itself (`internal/codegraph/toolchain.go`), rather than failing an index with
+"analyzer not configured".
+
+- `Toolchain` is per language and is the extension point for the next analyzer: a value
+  with its own requirements, build command and artifact path. `DefaultToolchains` is the
+  registry; `main.go` wires it and hot-swaps the analyzer in on a successful build, so no
+  restart is needed.
+- **Discovery is not `PATH`** (`internal/codegraph/locate.go`). Plenty of Java developers
+  have IntelliJ and nothing else: the IDE ships its own JetBrains Runtime, bundles a full
+  Maven under `plugins/maven/lib/maven3`, and downloads project JDKs into `~/.jdks` —
+  none of which reach `PATH`. The probe searches `JAVA_HOME`/`MAVEN_HOME`, `PATH`,
+  `~/.jdks`, SDKMAN, JetBrains Toolbox and app bundles, and the system JDK directories,
+  then picks the NEWEST version that clears the minimum. The build runs the resolved
+  paths with `JAVA_HOME` set and both `bin` directories prepended to `PATH`.
+- A `mvnw` in `analyzer/` would be preferred over everything else, which would drop the
+  Maven requirement entirely. There is no wrapper today; `mavenCandidates` already looks
+  for one.
+- Java 21 is the floor because `analyzer/pom.xml` sets `maven.compiler.release` to 21. A
+  newer JDK builds and runs it fine. What the analyzer can PARSE is a separate knob:
+  `ParserConfiguration.LanguageLevel.JAVA_21` in `ProjectAnalyzer.java`. A target project
+  using syntax newer than 21 fails to parse and its files vanish from the index silently
+  (`parseFile`'s catch-all) — raise that constant, not the JDK.
+- The build is unsandboxed by design: it is the developer's own repository, built with
+  their own toolchain, and Maven needs the network and `~/.m2`.
+- End-to-end (real Maven, minutes, network):
+  `DEVKIT_ANALYZER_BUILD_E2E=1 go test ./internal/codegraph/ -run BuildsForReal -v -timeout 20m`
+
 ### Notes / gotchas
 - Sync login: production uses `internal/cloudconfig` (pinned `GET /v1/desktop/config`, disk cache, refresh on reconnect). Set `DEVKIT_OIDC_*` to override remote/cache for local dev. Omit all OIDC env + stay offline with no cache for local-only vault/modules.
 - Storage is a single SQLite file (`modernc.org/sqlite`, no cgo) opened with

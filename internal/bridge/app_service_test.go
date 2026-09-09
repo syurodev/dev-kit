@@ -37,7 +37,7 @@ func TestAppServiceListsModules(t *testing.T) {
 		"sync":      {"sync:manage"},
 		"settings":  {"env:read", "env:write", "preferences:read", "preferences:write"},
 		"agenthub":  {"agenthub:read", "agenthub:execute"},
-		"codegraph": {"codegraph:index", "codegraph:read"},
+		"codegraph": {"codegraph:index", "codegraph:read", "codegraph:toolchain"},
 	}
 	found := map[string]bool{}
 	for _, m := range moduleList {

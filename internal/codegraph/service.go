@@ -37,6 +37,13 @@ type Service struct {
 
 	terminalRegistry *terminal.Registry
 
+	// toolchains is what BuildAnalyzer can build; see toolchain.go. Guarded by
+	// mu with everything else. buildMu is separate and is held for the whole
+	// length of a build — minutes on a cold Maven cache — which mu, taken on
+	// every read of the index, could not be.
+	toolchains []Toolchain
+	buildMu    sync.Mutex
+
 	indexVersion int
 	reindexing   bool
 
@@ -45,7 +52,12 @@ type Service struct {
 	// implementations only: a slow listener stalls the file watcher. nil means
 	// nobody is listening, which is the normal case in tests.
 	OnIndexUpdated func(version int)
-	reindexPending bool
+	// OnAnalyzerBuildOutput fires for every line an analyzer build writes, on
+	// the goroutine draining the build's output. Same contract as
+	// OnIndexUpdated: non-blocking implementations only, nil means nobody is
+	// listening. Set once at wiring time, before any build starts.
+	OnAnalyzerBuildOutput func(language, line string)
+	reindexPending        bool
 	// debounceInterval is the quiet period after the last fsnotify event
 	// before a re-index actually runs. 750ms in production; tests shorten it
 	// (this is an unexported field set directly in-package, same pattern

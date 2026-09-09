@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -342,17 +343,34 @@ func main() {
 	container.CodeGraph.SetTerminalRegistry(terminalRegistry)
 	defer terminalRegistry.CloseAll()
 
-	// Dev-time wiring: resolve the Java analyzer jar relative to the working
+	// Dev-time wiring: resolve the analyzer artifacts relative to the working
 	// directory (this binary is always run from the repo root — see
 	// build/Taskfile.yml's run:server/run:desktop tasks). A real packaged
 	// build needs a different resolution strategy (bundled resource path or
 	// an env var override) — deliberately not decided here; see
 	// analyzer_subprocess.go's own doc comment on NewSubprocessAnalyzerWithJar.
-	const codegraphAnalyzerJarPath = "analyzer/target/codegraph-analyzer.jar"
-	if _, err := os.Stat(codegraphAnalyzerJarPath); err == nil {
-		container.CodeGraph.SetAnalyzer(codegraph.NewSubprocessAnalyzerWithJar(codegraphAnalyzerJarPath))
-	} else {
-		log.Printf("codegraph: analyzer jar not found at %q — CodeGraph indexing will report \"analyzer not configured\" until it is built (cd analyzer && mvn package)", codegraphAnalyzerJarPath)
+	//
+	// The toolchain registry is what lets the UI do something about a missing
+	// analyzer other than print "analyzer not configured": it carries what to
+	// build, what the build needs, and where the artifact lands, per language.
+	// One entry today; the module is meant to grow more.
+	toolchains := codegraph.DefaultToolchains(".")
+	container.CodeGraph.SetToolchains(toolchains)
+	container.CodeGraph.OnAnalyzerBuildOutput = func(language, line string) {
+		emitAppEvent("codegraph:analyzerBuildOutput", map[string]any{
+			"language": language,
+			"line":     line,
+		})
+	}
+	for _, toolchain := range toolchains {
+		if info, err := os.Stat(toolchain.Artifact); err == nil && !info.IsDir() {
+			container.CodeGraph.SetAnalyzer(codegraph.NewSubprocessAnalyzerWithJar(toolchain.Artifact))
+			continue
+		}
+		// Not fatal and no longer the end of the story: CodeGraph now shows a
+		// setup panel that can run this build itself.
+		log.Printf("codegraph: %s analyzer not built at %q — CodeGraph will offer to build it (%s)",
+			toolchain.Language, toolchain.Artifact, strings.Join(toolchain.Build, " "))
 	}
 
 	defer container.Database.Close()

@@ -6,6 +6,7 @@ import { CodeEditor } from "@/components/code-editor/CodeEditor";
 import { Button } from "@/components/ui/button";
 import { useSidebarContent } from "@/components/ui/sidebar-shell";
 import { useSplitPanel } from "@/components/ui/split-panel";
+import { AnalyzerSetup } from "./AnalyzerSetup";
 import { CodeGraphSidebar } from "./CodeGraphSidebar";
 import { BlastRadiusPanel } from "./BlastRadiusPanel";
 import { NodeInspector } from "./inspector/NodeInspector";
@@ -19,6 +20,7 @@ import { shortLabel } from "./graph/labels";
 import { methodChipClass } from "./graph/tokens";
 import { cn } from "@/lib/utils";
 import {
+  codeGraphAnalyzerStatus,
   openCodeGraphProject,
   listCodeGraphEndpoints,
   getCodeGraphNeighbors,
@@ -49,6 +51,22 @@ async function loadFiles() {
     set({ files: await listCodeGraphFiles() });
   } catch (e) {
     set({ fileError: errorMessage(e) });
+  }
+}
+
+/**
+ * Refreshes which analyzers are built.
+ *
+ * Called on mount and after a build, never on a timer: it probes the machine
+ * for a JDK and Maven, which costs a subprocess apiece. A probe that fails
+ * leaves the statuses null, which reads as "assume fine" — a broken status call
+ * must not hide a working module behind a setup panel.
+ */
+async function loadAnalyzerStatus() {
+  try {
+    set({ analyzerStatuses: await codeGraphAnalyzerStatus() });
+  } catch {
+    set({ analyzerStatuses: null });
   }
 }
 
@@ -289,6 +307,10 @@ export function CodeGraphView() {
   const fileError = useCodeGraphStore((s) => s.fileError);
   const loadingMore = useCodeGraphStore((s) => s.loadingMore);
   const query = useCodeGraphStore((s) => s.query);
+  const analyzerStatuses = useCodeGraphStore((s) => s.analyzerStatuses);
+  // Null (not probed, or the probe failed) counts as ready: a status call that
+  // cannot answer must not hide a working module behind a setup panel.
+  const missingAnalyzers = (analyzerStatuses ?? []).filter((s) => !s.ready);
   const inspectorNodeId = useCodeGraphStore((s) => s.inspectorNodeId);
   const inspectorNode = useMemo(
     () => subgraph?.nodes.find((n) => n.id === inspectorNodeId) ?? null,
@@ -349,6 +371,12 @@ export function CodeGraphView() {
   // Subscribed once: the handler reads live state through snapshot(), so it
   // never needs to re-subscribe and cannot capture a stale closure.
   useEffect(() => onCodeGraphIndexUpdated(() => void refreshAfterReindex()), []);
+
+  // Probe once per mount. Cheap enough there and the answer cannot change
+  // without someone installing a JDK, which is not something to poll for.
+  useEffect(() => {
+    void loadAnalyzerStatus();
+  }, []);
 
   const { openPanel, closePanel } = useSplitPanel();
 
@@ -412,6 +440,24 @@ export function CodeGraphView() {
       onSelectPlanNode={(id) => set({ selectedPlanNodeId: id })}
     />,
   );
+
+  // Nothing in CodeGraph works without an analyzer, so setup takes the whole
+  // canvas rather than sitting in a corner of a module that cannot do anything.
+  // The sidebar is still mounted above, so the project picker stays reachable.
+  if (missingAnalyzers.length > 0) {
+    return (
+      <AnalyzerSetup
+        statuses={missingAnalyzers}
+        onBuilt={() => {
+          void loadAnalyzerStatus();
+          // The project the user already chose is still selected; index it now
+          // rather than making them pick it again.
+          const path = snapshot().projectPath;
+          if (path) void reindex(path);
+        }}
+      />
+    );
+  }
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden">

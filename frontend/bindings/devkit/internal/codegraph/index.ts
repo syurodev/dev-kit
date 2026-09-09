@@ -20,6 +20,8 @@ export type {
     PlanNode,
     PlanNodeProgress,
     PlanProgress,
+    Requirement,
     Subgraph,
-    SymbolMatch
+    SymbolMatch,
+    ToolchainStatus
 } from "./models.js";
