@@ -171,6 +171,15 @@ export interface FlowStep {
 }
 
 /**
+ * InstallCommand is one way to install a missing program, with the packaging
+ * ecosystem it belongs to so the reader can pick the line that is theirs.
+ */
+export interface InstallCommand {
+    "label": string;
+    "command": string;
+}
+
+/**
  * NeighborFilter narrows a GetNeighbors query. Layers, when non-empty,
  * restricts results to nodes in one of the listed layers — the doc's own
  * "màu theo layer" framing is the only filter dimension asked for in v1;
@@ -379,7 +388,24 @@ export interface Requirement {
      * for display, not for parsing.
      */
     "problem": string;
+
+    /**
+     * InstallHint is the prose: what to know beyond running a command, such as
+     * where an IDE already keeps one. No commands in it.
+     */
     "installHint": string;
+
+    /**
+     * Install are the commands that would fix it, already narrowed to the
+     * platform DevKit is running on.
+     * 
+     * Separate from the hint because a command buried in a sentence is a
+     * command nobody can copy — and because the sentence rendered its own
+     * backticks, since the panel prints text rather than markdown. Narrowed
+     * here rather than in the UI because this process knows its own GOOS and
+     * the frontend would only be guessing.
+     */
+    "install": InstallCommand[] | null;
 }
 
 /**

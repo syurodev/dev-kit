@@ -12,6 +12,7 @@ export type {
     FieldRef,
     FileEntry,
     FlowStep,
+    InstallCommand,
     NeighborFilter,
     Node,
     Param,
