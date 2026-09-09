@@ -1,4 +1,5 @@
 import { ChevronRight, ExternalLink, FilePlus, FileText, MoreHorizontal, Plus, Tag, Trash2, Type } from "lucide-react";
+import { useAutoAnimate } from "@formkit/auto-animate/react";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -284,13 +285,15 @@ function NoteRows({
   onOpenNoteInTab: (note: NoteSummary) => void;
   onTrashNote: (note: NoteSummary) => void;
 }) {
+  const [listRef] = useAutoAnimate<HTMLDivElement>({ duration: 180, easing: "ease-out" });
+
   if (notes.length === 0) {
     return (
       <div className="pl-12 pr-3 text-caption-11 text-text-tertiary">No notes</div>
     );
   }
   return (
-    <>
+    <div ref={listRef} className="flex flex-col gap-0.5">
       {notes.map((note) => (
         <ContextMenu key={note.id}>
           <ContextMenuTrigger asChild>
@@ -325,6 +328,6 @@ function NoteRows({
           </ContextMenuContent>
         </ContextMenu>
       ))}
-    </>
+    </div>
   );
 }

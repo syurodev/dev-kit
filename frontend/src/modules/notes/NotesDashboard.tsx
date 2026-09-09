@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Search, X } from "lucide-react";
 import { toast } from "sonner";
@@ -186,6 +187,7 @@ export function NotesDashboard({
   onPreloadEditor,
   onChanged,
 }: NotesDashboardProps) {
+  const [cardsRef] = useAutoAnimate<HTMLDivElement>({ duration: 180, easing: "ease-out" });
   const queryClient = useQueryClient();
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -481,7 +483,7 @@ export function NotesDashboard({
           <ScrollArea className="min-h-0 flex-1">
             {/* 348-wide cards on a 20px gap (Figma draws 22/20 — one step on
                 the 4px grid), 24px in from the card edge. */}
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(348px,1fr))] gap-5 px-6 pb-6">
+            <div ref={cardsRef} className="grid grid-cols-[repeat(auto-fill,minmax(348px,1fr))] gap-5 px-6 pb-6">
               {filtered.map((note) => (
                 <NoteCard
                   key={note.id}

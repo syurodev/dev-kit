@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { copyText } from "../../../bridge/clipboard";
 import {
@@ -26,6 +27,7 @@ import { errorMessage } from "../../../bridge/errors";
 import { isVaultLockedError } from "../errorStates";
 
 export function SavedQueriesView() {
+  const [savedListRef] = useAutoAnimate<HTMLDivElement>({ duration: 180, easing: "ease-out" });
   const queryClient = useQueryClient();
   const { selectedProfileId, setSql, setActiveTab, setShowSaveQueryModal, activeTab } = useDatabaseStore(
     useShallow((s) => ({
@@ -154,58 +156,60 @@ export function SavedQueriesView() {
         ) : queries === null ? (
           <ListSkeleton className="p-0" />
         ) : filtered.length > 0 ? (
-          filtered.map((query) => (
-            <div
-              key={query.id}
-              className="p-3 rounded-lg border border-border bg-surface-raised hover:bg-surface-raised/80 transition-colors flex flex-col gap-2 group"
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-title-13 text-text-primary">
-                  {query.name}
-                </span>
+          <div ref={savedListRef} className="space-y-3">
+            {filtered.map((query) => (
+              <div
+                key={query.id}
+                className="p-3 rounded-lg border border-border bg-surface-raised hover:bg-surface-raised/80 transition-colors flex flex-col gap-2 group"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-title-13 text-text-primary">
+                    {query.name}
+                  </span>
 
-                <div className="flex items-center gap-1.5">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 px-2 text-caption-11 gap-1 text-text-secondary hover:text-text-primary"
-                    onClick={() => handleCopy(query)}
-                  >
-                    {copiedId === query.id ? (
-                      <Check className="w-3 h-3 text-status-success" />
-                    ) : (
-                      <Copy className="w-3 h-3" />
-                    )}
-                    <span>{copiedId === query.id ? "Copied" : "Copy"}</span>
-                  </Button>
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-caption-11 gap-1 text-text-secondary hover:text-text-primary"
+                      onClick={() => handleCopy(query)}
+                    >
+                      {copiedId === query.id ? (
+                        <Check className="w-3 h-3 text-status-success" />
+                      ) : (
+                        <Copy className="w-3 h-3" />
+                      )}
+                      <span>{copiedId === query.id ? "Copied" : "Copy"}</span>
+                    </Button>
 
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    className="h-6 px-2 text-caption-11 gap-1"
-                    onClick={() => handleOpenInConsole(query)}
-                  >
-                    <Terminal className="w-3 h-3" />
-                    <span>Run in Console</span>
-                  </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="h-6 px-2 text-caption-11 gap-1"
+                      onClick={() => handleOpenInConsole(query)}
+                    >
+                      <Terminal className="w-3 h-3" />
+                      <span>Run in Console</span>
+                    </Button>
 
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6 text-text-tertiary hover:text-status-danger"
-                    onClick={() => void handleDelete(query.id)}
-                    title="Delete saved query"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 text-text-tertiary hover:text-status-danger"
+                      onClick={() => void handleDelete(query.id)}
+                      title="Delete saved query"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
                 </div>
-              </div>
 
-              <pre className="text-code-12 text-text-secondary bg-surface-base p-2.5 rounded border border-border/40 overflow-x-auto whitespace-pre-wrap">
-                {query.sql}
-              </pre>
-            </div>
-          ))
+                <pre className="text-code-12 text-text-secondary bg-surface-base p-2.5 rounded border border-border/40 overflow-x-auto whitespace-pre-wrap">
+                  {query.sql}
+                </pre>
+              </div>
+            ))}
+          </div>
         ) : (
           <div className="text-center py-16 text-body-12 text-text-tertiary">
             <Bookmark className="w-8 h-8 text-text-tertiary mx-auto mb-2 opacity-50" />

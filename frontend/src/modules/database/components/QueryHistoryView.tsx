@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { useQuery } from "@tanstack/react-query";
 import { copyText } from "../../../bridge/clipboard";
 import {
@@ -21,6 +22,7 @@ import { errorMessage } from "../../../bridge/errors";
 import { isVaultLockedError } from "../errorStates";
 
 export function QueryHistoryView() {
+  const [historyListRef] = useAutoAnimate<HTMLDivElement>({ duration: 180, easing: "ease-out" });
   const { selectedProfileId, setSql, setActiveTab, activeTab } = useDatabaseStore(
     useShallow((s) => ({
       selectedProfileId: s.selectedProfileId,
@@ -117,51 +119,53 @@ export function QueryHistoryView() {
         ) : history === null ? (
           <ListSkeleton className="p-0" />
         ) : filtered.length > 0 ? (
-          filtered.map((entry) => (
-            <div
-              key={entry.id}
-              className="p-3 rounded-lg border border-border bg-surface-raised hover:bg-surface-raised/80 transition-colors flex flex-col gap-2 group"
-            >
-              <div className="flex items-center justify-between text-caption-11 text-text-tertiary">
-                <span className="flex items-center gap-1">
-                  <Calendar className="w-3 h-3" />
-                  {entry.createdAt
-                    ? new Date(entry.createdAt).toLocaleString()
-                    : "Recent query"}
-                </span>
+          <div ref={historyListRef} className="space-y-3">
+            {filtered.map((entry) => (
+              <div
+                key={entry.id}
+                className="p-3 rounded-lg border border-border bg-surface-raised hover:bg-surface-raised/80 transition-colors flex flex-col gap-2 group"
+              >
+                <div className="flex items-center justify-between text-caption-11 text-text-tertiary">
+                  <span className="flex items-center gap-1">
+                    <Calendar className="w-3 h-3" />
+                    {entry.createdAt
+                      ? new Date(entry.createdAt).toLocaleString()
+                      : "Recent query"}
+                  </span>
 
-                <div className="flex items-center gap-1.5">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 px-2 text-caption-11 gap-1 text-text-secondary hover:text-text-primary"
-                    onClick={() => handleCopy(entry)}
-                  >
-                    {copiedId === entry.id ? (
-                      <Check className="w-3 h-3 text-status-success" />
-                    ) : (
-                      <Copy className="w-3 h-3" />
-                    )}
-                    <span>{copiedId === entry.id ? "Copied" : "Copy"}</span>
-                  </Button>
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-caption-11 gap-1 text-text-secondary hover:text-text-primary"
+                      onClick={() => handleCopy(entry)}
+                    >
+                      {copiedId === entry.id ? (
+                        <Check className="w-3 h-3 text-status-success" />
+                      ) : (
+                        <Copy className="w-3 h-3" />
+                      )}
+                      <span>{copiedId === entry.id ? "Copied" : "Copy"}</span>
+                    </Button>
 
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    className="h-6 px-2 text-caption-11 gap-1"
-                    onClick={() => handleOpenInConsole(entry)}
-                  >
-                    <Terminal className="w-3 h-3" />
-                    <span>Open in Console</span>
-                  </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="h-6 px-2 text-caption-11 gap-1"
+                      onClick={() => handleOpenInConsole(entry)}
+                    >
+                      <Terminal className="w-3 h-3" />
+                      <span>Open in Console</span>
+                    </Button>
+                  </div>
                 </div>
-              </div>
 
-              <pre className="text-code-12 text-text-primary bg-surface-base p-2.5 rounded border border-border/40 overflow-x-auto whitespace-pre-wrap">
-                {entry.sql}
-              </pre>
-            </div>
-          ))
+                <pre className="text-code-12 text-text-primary bg-surface-base p-2.5 rounded border border-border/40 overflow-x-auto whitespace-pre-wrap">
+                  {entry.sql}
+                </pre>
+              </div>
+            ))}
+          </div>
         ) : (
           <div className="text-center py-16 text-body-12 text-text-tertiary">
             <History className="w-8 h-8 text-text-tertiary mx-auto mb-2 opacity-50" />

@@ -1,4 +1,5 @@
 import { useEffect, useMemo } from "react";
+import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { json } from "@codemirror/lang-json";
 import { Loader2, PlugZap, RefreshCw, Send, ServerOff, TriangleAlert, Workflow } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -94,6 +95,9 @@ export function KafkaView() {
     });
     return () => closePanel();
   }, [inspected, selectedTopic, peekPartition, openPanel, closePanel, inspect]);
+
+  const [peekTableRef] = useAutoAnimate<HTMLTableSectionElement>({ duration: 180, easing: "ease-out" });
+  const [groupsTableRef] = useAutoAnimate<HTMLTableSectionElement>({ duration: 180, easing: "ease-out" });
 
   const jsonExtension = useMemo(() => [json()], []);
   const profile = profiles.find((p) => p.id === selectedId);
@@ -322,7 +326,7 @@ export function KafkaView() {
                     <th className="h-10 w-35 border-b border-border-subtle px-4">Time</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody ref={peekTableRef}>
                   {messages.map((m) => (
                     <tr
                       key={`${m.offset}-${m.timestamp ?? 0}`}
@@ -409,7 +413,7 @@ export function KafkaView() {
                     <th className="h-10 w-28 border-b border-border-subtle px-4">Lag</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody ref={groupsTableRef}>
                   {groups.map((g) => (
                     <tr key={g.groupId} className="border-b border-border-subtle">
                       <td className="h-9 truncate px-4 text-body-13 text-text-primary">{g.groupId}</td>

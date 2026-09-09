@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { MoreHorizontal, Search, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -38,6 +39,7 @@ export function daysUntilPurge(purgesAt: string, now: number = Date.now()): numb
  * days" (warning; danger once it is close) and Restore / Delete at 24px.
  */
 export function NotesTrash({ onChanged }: { onChanged: () => void }) {
+  const [trashListRef] = useAutoAnimate<HTMLUListElement>({ duration: 180, easing: "ease-out" });
   const queryClient = useQueryClient();
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");
@@ -105,7 +107,7 @@ export function NotesTrash({ onChanged }: { onChanged: () => void }) {
             {items.length === 0 ? "Trash is empty." : "Nothing in the trash matches."}
           </p>
         ) : (
-          <ul className="grid grid-cols-[repeat(auto-fill,minmax(348px,1fr))] gap-5 px-6 pb-6">
+          <ul ref={trashListRef} className="grid grid-cols-[repeat(auto-fill,minmax(348px,1fr))] gap-5 px-6 pb-6">
             {shown.map((note) => {
               const days = daysUntilPurge(note.purgesAt);
               return (
