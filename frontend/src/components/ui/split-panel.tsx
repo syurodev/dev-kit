@@ -82,6 +82,21 @@ export function useSplitPanel() {
 const MIN_PANEL_WIDTH = 320;
 const MAX_PANEL_WIDTH = 720;
 
+/**
+ * How far the right column is held off the window edge.
+ *
+ * The rest of the shell docks flush so that macOS rounds its corners with the
+ * window's own squircle mask — see AppShell and the .shell-surface pair in
+ * index.css. This column opts out of that deal on purpose: it reads as a card
+ * laid over the app rather than another wall of it, and a card has a shadow
+ * gap and four corners of its own on every platform, not just the one whose
+ * compositor happens to draw a curve.
+ *
+ * GAP_WIDTH rather than a number of its own, so the band at the window edge
+ * matches the sash between the surfaces and the column sits on one rhythm.
+ */
+const PANEL_INSET = GAP_WIDTH;
+
 /** One slot's card: rounded surface, close button, fading content. */
 function PanelCard({
   state,
@@ -101,7 +116,7 @@ function PanelCard({
         // Figma panel-surface 116:1348 is surface/base at full opacity with a
         // glass/border hairline and radius/10 — the same material as the content
         // card, not a glass tier. It was glass-panel (55%) at radius 12.
-        "relative flex min-h-0 flex-col overflow-hidden shell-surface",
+        "relative flex min-h-0 flex-col overflow-hidden shell-surface shell-surface-inset",
         className,
       )}
     >
@@ -188,12 +203,18 @@ export function SplitPanelSlot() {
   // open on a narrow window, a flat 720 here would crush the centre content
   // area straight through its floor. Hoisted out of the hook call because the
   // rendered width needs the same ceiling the drag does.
-  const max = maxPanelWidth({
-    windowWidth,
-    otherEffectiveWidth: sidebarOpen ? sidebarWidth : 0,
-    min: MIN_PANEL_WIDTH,
-    hardMax: MAX_PANEL_WIDTH,
-  });
+  // The inset is width this column occupies without ever drawing in it, so
+  // it comes out of the panel's ceiling. Left in, the centre content would be
+  // squeezed PANEL_INSET past the floor maxPanelWidth exists to guarantee.
+  const max = Math.max(
+    MIN_PANEL_WIDTH,
+    maxPanelWidth({
+      windowWidth,
+      otherEffectiveWidth: sidebarOpen ? sidebarWidth : 0,
+      min: MIN_PANEL_WIDTH,
+      hardMax: MAX_PANEL_WIDTH,
+    }) - PANEL_INSET,
+  );
 
   const { isResizing, onPointerDown } = useResizableSize({
     size: width,
@@ -227,9 +248,17 @@ export function SplitPanelSlot() {
         initial={{ width: 0 }}
         // Clamped at render for the same reason as the sidebar and the bottom
         // slot: the ceiling moves with the window, the stored width does not.
-        animate={{ width: open ? Math.min(width, max) + GAP_WIDTH : 0 }}
+        // One line on purpose: step4bComponents.test.tsx finds the sizing
+        // animation by scanning for a line carrying both animate={{ and
+        // GAP_WIDTH, and asserts it clamps with Math.min.
+        animate={{ width: open ? Math.min(width, max) + GAP_WIDTH + PANEL_INSET : 0 }}
         transition={isResizing ? { duration: 0 } : { duration: 0.22, ease: "easeInOut" }}
-        className="flex min-h-0 shrink-0 overflow-hidden"
+        // Padding here, not a margin on the cards: columnRef measures the
+        // height the two slots share, and splitColumn divides exactly that.
+        // Padding on this wrapper shrinks the measurement to match; a margin
+        // inside it would leave splitColumn dividing a height that no longer
+        // exists.
+        className="flex min-h-0 shrink-0 overflow-hidden py-2 pr-2"
       >
         {open ? (
           <ShellResizeHandle

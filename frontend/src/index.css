@@ -498,6 +498,20 @@
   border-bottom-right-radius: 0;
 }
 
+/* The exception, for a surface that floats inside the window rather than
+   docking to its edge: it draws all four of its own corners, because no window
+   mask covers them.
+
+   The rule above is not a style choice to be consistent with — it is the
+   window doing the rounding, which only works while the surface actually
+   reaches the edge. Inset one by even a few pixels and the mask no longer
+   touches its corners: square is then square, not "rounded by the window". So
+   an inset surface must undo it, and the two rules are a pair. */
+.shell-surface-inset {
+  border-bottom-left-radius: var(--radius-control);
+  border-bottom-right-radius: var(--radius-control);
+}
+
 .glass-panel {
   background-color: var(--glass-panel-bg);
   border: 1px solid var(--glass-border);
