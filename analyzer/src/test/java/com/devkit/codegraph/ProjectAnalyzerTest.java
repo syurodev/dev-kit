@@ -37,6 +37,33 @@ class ProjectAnalyzerTest {
     }
 
     @Test
+    void keepsTheCallEdgeWhenAnArgumentIsARecordAccessor() throws IOException {
+        // The bug this pins: full resolution needs every argument's type,
+        // because that is how an overload is chosen, so one argument the solver
+        // cannot follow used to take the whole call with it. Records are that
+        // argument — JavaParser does not resolve their implicit accessors — and
+        // a Spring project passes records into services constantly, so a
+        // controller would sit alone in its own graph with no edges at all.
+        //
+        // The receiver resolves perfectly well on its own, and that is enough
+        // to name the callee.
+        Path projectRoot = Path.of("src/test/resources/record-project");
+        AnalysisResult result = new ProjectAnalyzer(projectRoot).analyze();
+
+        boolean reachesTheService = result.edges.stream().anyMatch(e ->
+                e.from.startsWith("com.acme.tx.TransactionController.getTransactions")
+                        && e.to.startsWith("com.acme.tx.TransactionQueryService.queryPaged"));
+        assertTrue(reachesTheService, "controller should reach the service: " + result.edges);
+
+        // And the record itself is in the index. It is a TypeDeclaration but
+        // not a ClassOrInterfaceDeclaration, so the old walk never saw it and
+        // every request, response and DTO in a project was missing.
+        boolean recordIndexed = result.nodes.stream()
+                .anyMatch(n -> n.kind.equals("class") && n.label.equals("com.acme.tx.TransactionQuery"));
+        assertTrue(recordIndexed, "the record should be a node: " + result.nodes);
+    }
+
+    @Test
     void findsCallEdgeAcrossControllerToServiceToRepository() throws IOException {
         Path projectRoot = Path.of("src/test/resources/sample-project");
         AnalysisResult result = new ProjectAnalyzer(projectRoot).analyze();

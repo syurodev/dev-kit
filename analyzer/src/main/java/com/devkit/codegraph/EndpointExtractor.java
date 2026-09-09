@@ -1,6 +1,6 @@
 package com.devkit.codegraph;
 
-import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.expr.AnnotationExpr;
 import com.github.javaparser.ast.expr.ArrayInitializerExpr;
@@ -30,7 +30,7 @@ public class EndpointExtractor {
             "PatchMapping", "PATCH"
     );
 
-    public static Optional<HttpMapping> extract(ClassOrInterfaceDeclaration classDecl, MethodDeclaration methodDecl) {
+    public static Optional<HttpMapping> extract(TypeDeclaration<?> classDecl, MethodDeclaration methodDecl) {
         for (var entry : MAPPING_ANNOTATION_TO_HTTP_METHOD.entrySet()) {
             Optional<AnnotationExpr> annotation = methodDecl.getAnnotationByName(entry.getKey());
             if (annotation.isPresent()) {
@@ -46,7 +46,7 @@ public class EndpointExtractor {
         return Optional.empty();
     }
 
-    private static String classPath(ClassOrInterfaceDeclaration classDecl) {
+    private static String classPath(TypeDeclaration<?> classDecl) {
         return classDecl.getAnnotationByName("RequestMapping")
                 .map(EndpointExtractor::annotationPath)
                 .orElse("");

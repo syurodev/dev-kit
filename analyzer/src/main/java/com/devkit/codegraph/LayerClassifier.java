@@ -1,6 +1,6 @@
 package com.devkit.codegraph;
 
-import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.TypeDeclaration;
 
 /**
  * Classifies a class's architectural layer from its annotations, matched by
@@ -12,7 +12,7 @@ import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
  */
 public class LayerClassifier {
 
-    public static String classify(ClassOrInterfaceDeclaration decl) {
+    public static String classify(TypeDeclaration<?> decl) {
         if (decl.getAnnotationByName("RestController").isPresent()
                 || decl.getAnnotationByName("Controller").isPresent()) {
             return "controller";
