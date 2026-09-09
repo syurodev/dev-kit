@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { useSidebarContent } from "@/components/ui/sidebar-shell";
 import { useDatabaseStore, type DatabaseTab } from "./databaseStore";
 import { DatabaseSidebar } from "./components/DatabaseSidebar";
@@ -26,7 +27,17 @@ export function DatabaseView() {
     profiles,
     selectedProfileId,
     setShowConnectionOptionsDialog,
-  } = useDatabaseStore();
+  } = useDatabaseStore(
+    useShallow((s) => ({
+      activeTab: s.activeTab,
+      fetchProfiles: s.fetchProfiles,
+      profileError: s.profileError,
+      queryError: s.queryError,
+      profiles: s.profiles,
+      selectedProfileId: s.selectedProfileId,
+      setShowConnectionOptionsDialog: s.setShowConnectionOptionsDialog,
+    }))
+  );
 
   useEffect(() => {
     void fetchProfiles();

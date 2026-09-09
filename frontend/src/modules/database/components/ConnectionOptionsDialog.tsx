@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Settings2, Shield, Radio, ShieldAlert, X, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { useShallow } from "zustand/react/shallow";
 import { useDatabaseStore } from "../databaseStore";
 import { updateProfileOptions } from "../../../bridge/database";
 import { errorMessage } from "../../../bridge/errors";
@@ -15,7 +16,17 @@ export function ConnectionOptionsDialog() {
     envTags,
     sshProfiles,
     fetchProfiles,
-  } = useDatabaseStore();
+  } = useDatabaseStore(
+    useShallow((s) => ({
+      profiles: s.profiles,
+      selectedProfileId: s.selectedProfileId,
+      showConnectionOptionsDialog: s.showConnectionOptionsDialog,
+      setShowConnectionOptionsDialog: s.setShowConnectionOptionsDialog,
+      envTags: s.envTags,
+      sshProfiles: s.sshProfiles,
+      fetchProfiles: s.fetchProfiles,
+    }))
+  );
 
   const profile = profiles.find((p) => p.id === selectedProfileId);
 

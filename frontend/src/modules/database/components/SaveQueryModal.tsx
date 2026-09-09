@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Bookmark, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useShallow } from "zustand/react/shallow";
 import { useDatabaseStore } from "../databaseStore";
 import { saveQuery } from "../../../bridge/database";
 import { errorMessage } from "../../../bridge/errors";
@@ -12,7 +13,14 @@ export function SaveQueryModal() {
     sql,
     showSaveQueryModal,
     setShowSaveQueryModal,
-  } = useDatabaseStore();
+  } = useDatabaseStore(
+    useShallow((s) => ({
+      selectedProfileId: s.selectedProfileId,
+      sql: s.sql,
+      showSaveQueryModal: s.showSaveQueryModal,
+      setShowSaveQueryModal: s.setShowSaveQueryModal,
+    }))
+  );
 
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);

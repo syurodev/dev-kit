@@ -11,6 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ListSkeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
+import { useShallow } from "zustand/react/shallow";
 import { useDatabaseStore } from "../databaseStore";
 import {
   listActivity,
@@ -21,7 +22,13 @@ import {
 import { errorMessage } from "../../../bridge/errors";
 
 export function LiveActivityView() {
-  const { profiles, selectedProfileId, activeTab } = useDatabaseStore();
+  const { profiles, selectedProfileId, activeTab } = useDatabaseStore(
+    useShallow((s) => ({
+      profiles: s.profiles,
+      selectedProfileId: s.selectedProfileId,
+      activeTab: s.activeTab,
+    }))
+  );
   // null until the first snapshot answers — see ListSkeleton.
   const [sessions, setSessions] = useState<SessionRow[] | null>(null);
   const [loading, setLoading] = useState(false);

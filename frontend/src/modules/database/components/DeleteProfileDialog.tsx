@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { listQueryHistory, listSavedQueries, type ConnectionProfile } from "../../../bridge/database";
+import { useShallow } from "zustand/react/shallow";
 import { useDatabaseStore } from "../databaseStore";
 
 /**
@@ -32,7 +33,11 @@ export function DeleteProfileDialog({
   onClose: () => void;
   onConfirm: () => void;
 }) {
-  const { folders } = useDatabaseStore();
+  const { folders } = useDatabaseStore(
+    useShallow((s) => ({
+      folders: s.folders,
+    }))
+  );
   const [historyCount, setHistoryCount] = useState<number | null>(null);
   const [savedCount, setSavedCount] = useState<number | null>(null);
 

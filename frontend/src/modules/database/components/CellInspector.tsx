@@ -2,10 +2,16 @@ import { useState } from "react";
 import { copyText } from "../../../bridge/clipboard";
 import { Copy, Check, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useShallow } from "zustand/react/shallow";
 import { useDatabaseStore } from "../databaseStore";
 
 export function CellInspector() {
-  const { inspectedCell, setInspectedCell } = useDatabaseStore();
+  const { inspectedCell, setInspectedCell } = useDatabaseStore(
+    useShallow((s) => ({
+      inspectedCell: s.inspectedCell,
+      setInspectedCell: s.setInspectedCell,
+    }))
+  );
   const [copied, setCopied] = useState(false);
   const [format, setFormat] = useState<"auto" | "raw" | "json">("auto");
 

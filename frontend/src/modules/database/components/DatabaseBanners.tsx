@@ -1,5 +1,6 @@
 import { Radio, AlertTriangle, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useShallow } from "zustand/react/shallow";
 import { useDatabaseStore } from "../databaseStore";
 
 export function DatabaseBanners() {
@@ -9,7 +10,15 @@ export function DatabaseBanners() {
     envTags,
     sshProfiles,
     setShowConnectionOptionsDialog,
-  } = useDatabaseStore();
+  } = useDatabaseStore(
+    useShallow((s) => ({
+      profiles: s.profiles,
+      selectedProfileId: s.selectedProfileId,
+      envTags: s.envTags,
+      sshProfiles: s.sshProfiles,
+      setShowConnectionOptionsDialog: s.setShowConnectionOptionsDialog,
+    }))
+  );
 
   const profile = profiles.find((p) => p.id === selectedProfileId);
   if (!profile) return null;

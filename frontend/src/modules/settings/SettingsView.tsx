@@ -15,6 +15,7 @@ import {
   type AuthStatus,
 } from "../../bridge/sync";
 import { useTheme } from "@/theme/ThemeProvider";
+import { useShallow } from "zustand/react/shallow";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -413,7 +414,15 @@ const THEME_OPTIONS = ["system", "light", "dark"] as const;
 
 function AppearanceTab() {
   const { theme, setTheme } = useTheme();
-  const { codeFont, codeSize, terminalFont, terminalSize, setAppearance } = useAppearanceStore();
+  const { codeFont, codeSize, terminalFont, terminalSize, setAppearance } = useAppearanceStore(
+    useShallow((s) => ({
+      codeFont: s.codeFont,
+      codeSize: s.codeSize,
+      terminalFont: s.terminalFont,
+      terminalSize: s.terminalSize,
+      setAppearance: s.setAppearance,
+    }))
+  );
 
   return (
     <div className="flex w-full max-w-[656px] flex-col gap-7">

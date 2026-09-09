@@ -40,6 +40,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { TreeView, type TreeNodeData } from "@/components/tree-view";
 import { cn } from "@/lib/utils";
+import { useShallow } from "zustand/react/shallow";
 import { useDatabaseStore } from "../databaseStore";
 import { countTables, filterNamespace, matchesProfile } from "../databaseTree";
 import { FolderIcon } from "../folderIcons";
@@ -126,7 +127,41 @@ export function DatabaseSidebar() {
     sql,
     setShowNewConnectionDialog,
     setShowConnectionOptionsDialog,
-  } = useDatabaseStore();
+  } = useDatabaseStore(
+    useShallow((s) => ({
+      profiles: s.profiles,
+      selectedProfileId: s.selectedProfileId,
+      setSelectedProfileId: s.setSelectedProfileId,
+      loadingProfiles: s.loadingProfiles,
+      fetchProfiles: s.fetchProfiles,
+      folders: s.folders,
+      expandedFolders: s.expandedFolders,
+      setActiveTab: s.setActiveTab,
+      toggleFolder: s.toggleFolder,
+      createFolder: s.createFolder,
+      updateFolder: s.updateFolder,
+      deleteFolder: s.deleteFolder,
+      assignProfileToFolder: s.assignProfileToFolder,
+      expandedProfiles: s.expandedProfiles,
+      toggleProfileExpand: s.toggleProfileExpand,
+      schemaSnapshot: s.schemaSnapshot,
+      indexingSchema: s.indexingSchema,
+      refreshSchema: s.refreshSchema,
+      expandedSchemas: s.expandedSchemas,
+      toggleSchemaExpand: s.toggleSchemaExpand,
+      expandedTables: s.expandedTables,
+      toggleTableExpand: s.toggleTableExpand,
+      selectedSchema: s.selectedSchema,
+      setSelectedSchema: s.setSelectedSchema,
+      selectedTable: s.selectedTable,
+      setSelectedTable: s.setSelectedTable,
+      tableColumnsMap: s.tableColumnsMap,
+      setSql: s.setSql,
+      sql: s.sql,
+      setShowNewConnectionDialog: s.setShowNewConnectionDialog,
+      setShowConnectionOptionsDialog: s.setShowConnectionOptionsDialog,
+    }))
+  );
 
   const [filterQuery, setFilterQuery] = useState("");
   const [editingFolderId, setEditingFolderId] = useState("");

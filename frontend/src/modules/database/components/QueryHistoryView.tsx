@@ -13,13 +13,21 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ListSkeleton } from "@/components/ui/skeleton";
+import { useShallow } from "zustand/react/shallow";
 import { useDatabaseStore } from "../databaseStore";
 import { listQueryHistory, type HistoryEntry } from "../../../bridge/database";
 import { errorMessage } from "../../../bridge/errors";
 import { isVaultLockedError } from "../errorStates";
 
 export function QueryHistoryView() {
-  const { selectedProfileId, setSql, setActiveTab, activeTab } = useDatabaseStore();
+  const { selectedProfileId, setSql, setActiveTab, activeTab } = useDatabaseStore(
+    useShallow((s) => ({
+      selectedProfileId: s.selectedProfileId,
+      setSql: s.setSql,
+      setActiveTab: s.setActiveTab,
+      activeTab: s.activeTab,
+    }))
+  );
   const [history, setHistory] = useState<HistoryEntry[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");

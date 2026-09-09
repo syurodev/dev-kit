@@ -38,6 +38,7 @@ import { cn } from "@/lib/utils";
 import { copyText } from "../../../bridge/clipboard";
 import { requestVaultUnlock } from "@/workbench/vaultUnlockRequest";
 import { isVaultLockedError } from "../errorStates";
+import { useShallow } from "zustand/react/shallow";
 import { useDatabaseStore } from "../databaseStore";
 import { getEngineMeta } from "./EngineBadge";
 import { explain, explainAnalyze, type QueryPlan } from "../../../bridge/database";
@@ -93,7 +94,27 @@ export function QueryConsole() {
     setShowSaveQueryModal,
     consoleEditorSize,
     setConsoleEditorSize,
-  } = useDatabaseStore();
+  } = useDatabaseStore(
+    useShallow((s) => ({
+      profiles: s.profiles,
+      selectedProfileId: s.selectedProfileId,
+      sql: s.sql,
+      setSql: s.setSql,
+      queryResult: s.queryResult,
+      queryDurationMs: s.queryDurationMs,
+      runningQuery: s.runningQuery,
+      queryStartTime: s.queryStartTime,
+      queryError: s.queryError,
+      executeQuery: s.executeQuery,
+      clearQueryError: s.clearQueryError,
+      schemaSnapshot: s.schemaSnapshot,
+      setInspectedCell: s.setInspectedCell,
+      setShowExportModal: s.setShowExportModal,
+      setShowSaveQueryModal: s.setShowSaveQueryModal,
+      consoleEditorSize: s.consoleEditorSize,
+      setConsoleEditorSize: s.setConsoleEditorSize,
+    }))
+  );
 
   const [elapsed, setElapsed] = useState(0);
   const [activePlan, setActivePlan] = useState<QueryPlan | null>(null);

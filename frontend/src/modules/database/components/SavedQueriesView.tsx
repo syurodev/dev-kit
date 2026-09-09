@@ -14,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ListSkeleton } from "@/components/ui/skeleton";
+import { useShallow } from "zustand/react/shallow";
 import { useDatabaseStore } from "../databaseStore";
 import {
   listSavedQueries,
@@ -24,7 +25,15 @@ import { errorMessage } from "../../../bridge/errors";
 import { isVaultLockedError } from "../errorStates";
 
 export function SavedQueriesView() {
-  const { selectedProfileId, setSql, setActiveTab, setShowSaveQueryModal, activeTab } = useDatabaseStore();
+  const { selectedProfileId, setSql, setActiveTab, setShowSaveQueryModal, activeTab } = useDatabaseStore(
+    useShallow((s) => ({
+      selectedProfileId: s.selectedProfileId,
+      setSql: s.setSql,
+      setActiveTab: s.setActiveTab,
+      setShowSaveQueryModal: s.setShowSaveQueryModal,
+      activeTab: s.activeTab,
+    }))
+  );
   const [queries, setQueries] = useState<SavedQuery[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");

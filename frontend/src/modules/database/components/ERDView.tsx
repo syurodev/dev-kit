@@ -31,6 +31,7 @@ import {
   Spline,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useShallow } from "zustand/react/shallow";
 import { useDatabaseStore } from "../databaseStore";
 import {
   listForeignKeys,
@@ -509,7 +510,16 @@ export function ERDView() {
     setSelectedSchema,
     selectedTable: focusTable,
     setSelectedTable: setFocusTable,
-  } = useDatabaseStore();
+  } = useDatabaseStore(
+    useShallow((s) => ({
+      selectedProfileId: s.selectedProfileId,
+      schemaSnapshot: s.schemaSnapshot,
+      selectedSchema: s.selectedSchema,
+      setSelectedSchema: s.setSelectedSchema,
+      selectedTable: s.selectedTable,
+      setSelectedTable: s.setSelectedTable,
+    }))
+  );
   const [declaredFKs, setDeclaredFKs] = useState<ForeignKey[]>([]);
 
   const schemas = useMemo(() => {

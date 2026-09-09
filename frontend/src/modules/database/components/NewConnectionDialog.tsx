@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Database, X, AlertTriangle, Radio } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useShallow } from "zustand/react/shallow";
 import { useDatabaseStore } from "../databaseStore";
 import { createProfile, testNewConnection } from "../../../bridge/database";
 import { errorMessage } from "../../../bridge/errors";
@@ -14,7 +15,16 @@ export function NewConnectionDialog() {
     sshProfiles,
     fetchProfiles,
     setSelectedProfileId,
-  } = useDatabaseStore();
+  } = useDatabaseStore(
+    useShallow((s) => ({
+      showNewConnectionDialog: s.showNewConnectionDialog,
+      setShowNewConnectionDialog: s.setShowNewConnectionDialog,
+      envTags: s.envTags,
+      sshProfiles: s.sshProfiles,
+      fetchProfiles: s.fetchProfiles,
+      setSelectedProfileId: s.setSelectedProfileId,
+    }))
+  );
 
   const [engine, setEngine] = useState<"postgres" | "mysql" | "mariadb">("postgres");
   const [name, setName] = useState("");

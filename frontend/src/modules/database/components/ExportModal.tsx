@@ -2,12 +2,19 @@ import { useState } from "react";
 import { Download, FileSpreadsheet, FileJson, X, CheckCircle2, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useShallow } from "zustand/react/shallow";
 import { useDatabaseStore } from "../databaseStore";
 import { exportQueryResult } from "../export";
 import { errorMessage } from "../../../bridge/errors";
 
 export function ExportModal() {
-  const { queryResult, showExportModal, setShowExportModal } = useDatabaseStore();
+  const { queryResult, showExportModal, setShowExportModal } = useDatabaseStore(
+    useShallow((s) => ({
+      queryResult: s.queryResult,
+      showExportModal: s.showExportModal,
+      setShowExportModal: s.setShowExportModal,
+    }))
+  );
   const [format, setFormat] = useState<"csv" | "json">("csv");
   const [filename, setFilename] = useState("query-result");
   const [exporting, setExporting] = useState(false);

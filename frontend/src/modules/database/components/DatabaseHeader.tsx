@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Chip, EngineBadge } from "./EngineBadge";
 import { useDatabaseStore, type DatabaseTab } from "../databaseStore";
+import { useShallow } from "zustand/react/shallow";
 import { testConnection } from "../../../bridge/database";
 import { useState } from "react";
 import { errorMessage } from "../../../bridge/errors";
@@ -42,7 +43,15 @@ export function DatabaseHeader() {
     activeTab,
     setActiveTab,
     setShowConnectionOptionsDialog,
-  } = useDatabaseStore();
+  } = useDatabaseStore(
+    useShallow((s) => ({
+      profiles: s.profiles,
+      selectedProfileId: s.selectedProfileId,
+      activeTab: s.activeTab,
+      setActiveTab: s.setActiveTab,
+      setShowConnectionOptionsDialog: s.setShowConnectionOptionsDialog,
+    }))
+  );
 
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
