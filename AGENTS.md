@@ -153,6 +153,24 @@ build itself (`internal/codegraph/toolchain.go`), rather than failing an index w
 - A `mvnw` in `analyzer/` would be preferred over everything else, which would drop the
   Maven requirement entirely. There is no wrapper today; `mavenCandidates` already looks
   for one.
+- **The jar ships inside the package.** `common:build:analyzer` builds it and the
+  packaging tasks depend on it, so a released app never shows the setup panel — that is
+  the from-source path. Each platform puts it where `installedResourcePaths`
+  (`internal/codegraph/artifact.go`) looks, and the two must be changed together:
+
+  | Package | Jar lands at | Declared in |
+  | --- | --- | --- |
+  | deb / rpm / arch | `/usr/local/share/dev-kit/` | `build/linux/nfpm/nfpm.yaml` |
+  | macOS `.app` | `Contents/Resources/` | `build/darwin/Taskfile.yml` |
+  | Windows NSIS | beside the `.exe` | `build/windows/nsis/project.nsi` |
+
+  **AppImage and MSIX do not carry it.** `wails3 generate appimage` and `wails3 tool msix`
+  build their payload from the binary alone and expose no hook for extra files, so those
+  two fall back to the setup panel. Fixing that means either replacing those tasks with a
+  hand-rolled AppDir/package step or a change upstream in Wails — neither is done here.
+- `task dev` and `task build` deliberately do NOT build the analyzer: a contributor
+  without a JDK can still work on everything else and gets the setup panel, which is what
+  it is for. Only the packaging targets require the toolchain.
 - **Two Java versions, deliberately different.** `analyzer/pom.xml` sets
   `maven.compiler.release` to 21 — the bytecode the analyzer itself is compiled to, so it
   runs on the JDK people actually have (an IDE's bundled runtime, a distro's

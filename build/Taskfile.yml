@@ -173,6 +173,36 @@ tasks:
 
 
 
+  build:analyzer:
+    summary: Builds the CodeGraph analyzer that ships inside the package
+    # A package without its analyzer is a broken deliverable: CodeGraph falls
+    # back to its setup panel and asks the user to install a JDK and Maven,
+    # which is the from-source path, not something an installed app should do.
+    # So every packaging task depends on this, and the preconditions below fail
+    # the package rather than shipping one that cannot analyze anything.
+    #
+    # PATH is enough here on purpose. The app searches IDEs and version managers
+    # because its users did not sign up to have a JDK; whoever runs a release
+    # build did.
+    dir: analyzer
+    run: once
+    sources:
+      - pom.xml
+      - src/main/**/*.java
+    generates:
+      - target/codegraph-analyzer.jar
+    preconditions:
+      - sh: 'command -v java > /dev/null 2>&1'
+        msg: |
+          A JDK 21 or newer is required to build the CodeGraph analyzer.
+          Ubuntu: sudo apt install openjdk-21-jdk   macOS: brew install openjdk@21
+      - sh: 'command -v mvn > /dev/null 2>&1'
+        msg: |
+          Maven is required to build the CodeGraph analyzer.
+          Ubuntu: sudo apt install maven   macOS: brew install maven
+    cmds:
+      - mvn -B -DskipTests package
+
   generate:bindings:
     summary: Generates bindings for the frontend
     run: once

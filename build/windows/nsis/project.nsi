@@ -93,6 +93,12 @@ Section
     
     !insertmacro wails.files
 
+    ; The CodeGraph analyzer, built by the `common:build:analyzer` task the
+    ; installer target depends on. It sits beside the executable, which is where
+    ; installedResourcePaths in internal/codegraph/artifact.go looks on Windows.
+    ; Change one, change the other. The uninstaller's RMDir /r below takes it.
+    File "..\..\..\analyzer\target\codegraph-analyzer.jar"
+
     CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
     CreateShortCut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
 
