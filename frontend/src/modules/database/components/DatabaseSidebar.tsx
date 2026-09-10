@@ -230,6 +230,11 @@ export function DatabaseSidebar() {
       return {
         id: `table:${key}`,
         label: tableName,
+        // Names are truncated at the rail's width, and a schema of
+        // backup_his_medical_records_* tables truncates to the same string
+        // several times over. The tooltip is the only thing telling them apart
+        // without expanding each one.
+        title: `${schemaName}.${tableName}`,
         icon: <TableIcon className={cn(GLYPH, focused && "text-status-info")} />,
         expandable: true,
         expanded: !!expandedTables[key],
