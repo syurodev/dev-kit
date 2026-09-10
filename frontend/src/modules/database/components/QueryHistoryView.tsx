@@ -23,8 +23,10 @@ import { errorMessage } from "../../../bridge/errors";
 import { isVaultLockedError } from "../errorStates";
 import { openConsoleTab } from "../documents";
 import { useIsActiveDocument } from "../useIsActiveDocument";
+import { useDatabaseChrome } from "../useDatabaseChrome";
 
 export function QueryHistoryView() {
+  useDatabaseChrome();
   const [historyListRef] = useAutoAnimate<HTMLDivElement>({ duration: 180, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
   const { selectedProfileId, setSql } = useDatabaseStore(
     useShallow((s) => ({

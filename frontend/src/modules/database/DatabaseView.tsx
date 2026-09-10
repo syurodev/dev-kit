@@ -1,15 +1,13 @@
-import { useEffect, useMemo } from "react";
+import { useEffect } from "react";
 import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
-import { useSidebarContent } from "@/components/ui/sidebar-shell";
 import { DEFAULT_CONSOLE_ID, useDatabaseStore } from "./databaseStore";
-import { DatabaseSidebar } from "./components/DatabaseSidebar";
 import { DatabaseBanners } from "./components/DatabaseBanners";
 import { QueryConsole } from "./components/QueryConsole";
 import { DatabaseOverlays } from "./DatabaseOverlays";
 import { TLSRefusedState, VaultLockedState } from "./components/DatabaseStates";
 import { isInsecureTLSError, isVaultLockedError } from "./errorStates";
-import { useDatabaseModuleActions } from "./useDatabaseModuleActions";
+import { useDatabaseChrome } from "./useDatabaseChrome";
 import { useIsActiveDocument } from "./useIsActiveDocument";
 
 /**
@@ -50,9 +48,7 @@ export function DatabaseView({ params }: { params?: Record<string, unknown> }) {
     }
   }, [schemaError]);
 
-  const sidebar = useMemo(() => <DatabaseSidebar />, []);
-  useSidebarContent(sidebar);
-  useDatabaseModuleActions();
+  useDatabaseChrome();
 
   const blocking = profileError || queryError;
   const profile = profiles.find((p) => p.id === selectedProfileId);

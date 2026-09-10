@@ -26,8 +26,10 @@ import {
   type SessionRow,
 } from "../../../bridge/database";
 import { errorMessage } from "../../../bridge/errors";
+import { useDatabaseChrome } from "../useDatabaseChrome";
 
 export function LiveActivityView() {
+  useDatabaseChrome();
   const queryClient = useQueryClient();
   const { profiles, selectedProfileId } = useDatabaseStore(
     useShallow((s) => ({

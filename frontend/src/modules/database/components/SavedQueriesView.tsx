@@ -28,8 +28,10 @@ import { errorMessage } from "../../../bridge/errors";
 import { isVaultLockedError } from "../errorStates";
 import { openConsoleTab } from "../documents";
 import { useIsActiveDocument } from "../useIsActiveDocument";
+import { useDatabaseChrome } from "../useDatabaseChrome";
 
 export function SavedQueriesView() {
+  useDatabaseChrome();
   const [savedListRef] = useAutoAnimate<HTMLDivElement>({ duration: 180, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
   const queryClient = useQueryClient();
   const { selectedProfileId, setSql, setShowSaveQueryModal } = useDatabaseStore(

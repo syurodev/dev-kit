@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useDatabaseStore } from "./databaseStore";
 import { QueryConsole } from "./components/QueryConsole";
+import { useDatabaseChrome } from "./useDatabaseChrome";
 import { DatabaseOverlays } from "./DatabaseOverlays";
 import { useIsActiveDocument } from "./useIsActiveDocument";
 
@@ -17,6 +18,7 @@ export function TableDataView({ params }: { params?: Record<string, unknown> }) 
   const table = typeof params?.table === "string" ? params.table : "";
   const consoleId = `table:${schema}.${table}`;
 
+  useDatabaseChrome();
   const setSql = useDatabaseStore((s) => s.setSql);
   const executeQuery = useDatabaseStore((s) => s.executeQuery);
   const hasSql = useDatabaseStore((s) => Boolean(s.consoles[consoleId]?.sql));

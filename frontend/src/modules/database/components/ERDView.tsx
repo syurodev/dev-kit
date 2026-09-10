@@ -42,6 +42,7 @@ import {
   type ColumnInfo,
 } from "../../../bridge/database";
 import { EMPTY_ARRAY, EMPTY_OBJECT } from "@/lib/stableEmpty";
+import { useDatabaseChrome } from "../useDatabaseChrome";
 
 /**
  * The naming heuristic needs types, not just names. Two columns are treated as
@@ -501,6 +502,7 @@ export function placeByHop(
 }
 
 export function ERDView() {
+  useDatabaseChrome();
   // Schema and focused table live in the store, not here: the sidebar picks a
   // table by clicking it, which is the natural gesture at 161 tables, and the
   // dropdown is just a second way into the same state.
