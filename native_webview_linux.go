@@ -15,31 +15,55 @@ import (
 	"unsafe"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+
+	"devkit/internal/gpu"
 )
 
 // WebKitGTK composites the page into a DMABUF-backed buffer it shares with GTK.
-// When that buffer cannot be shared — a VM with no real GPU, a container, some
-// Wayland/driver combinations — WebKitGTK does not fall back and does not warn:
-// the page loads, the DOM is live and inspectable, and the window paints
-// nothing. DevKit makes that failure look total rather than merely wrong,
-// because main.tsx marks the document `native` and index.css then leaves
-// html/body transparent, so what shows through is the window's own near-black
-// BackgroundColour and the app appears to have died at startup.
+// When that buffer cannot be shared — a VM with no real GPU, a container, an
+// Xvfb session — WebKitGTK does not fall back and does not warn: the page
+// loads, the DOM is live and inspectable, and the window paints nothing. DevKit
+// makes that failure look total rather than merely wrong, because main.tsx
+// marks the document `native` and index.css then leaves html/body transparent,
+// so what shows through is the window's own near-black BackgroundColour and the
+// app appears to have died at startup.
 //
-// Turning the DMABUF renderer off costs some GPU buffer sharing and is the
-// difference between a usable window and a black one. An operator who knows
-// their machine composites correctly takes the decision back by exporting
-// WEBKIT_DISABLE_DMABUF_RENDERER themselves — any value at all, including "0",
-// leaves this untouched and hands the interpretation to WebKitGTK.
+// Turning the renderer off is the cure, and it is not free: it takes WebKitGTK
+// off GPU buffer sharing and onto a CPU path. Doing that unconditionally — as
+// this did until the render-node check below — cost every Linux machine its
+// compositing, including the ones that share buffers perfectly well. The
+// original diagnosis was made under Xvfb, where there is no GPU at all, and the
+// conclusion generalised further than the evidence did: measured on an Ubuntu
+// desktop, the difference was roughly 30fps against a smooth window.
+//
+// A DRM render node is the handle a process opens to allocate and export a GPU
+// buffer, so its presence is the actual precondition rather than a proxy for
+// it. Absent, there is nothing to share and the renderer goes off exactly as
+// before; present, WebKitGTK keeps the fast path.
+//
+// An operator overrides either way by exporting WEBKIT_DISABLE_DMABUF_RENDERER
+// themselves — any value at all, including "0", leaves this untouched and hands
+// the interpretation to WebKitGTK. The startup line below names that escape
+// hatch, because the failure it guards against is silent by nature and the
+// person hitting it has a black window and nothing to search for.
 const webkitDisableDMABUFRenderer = "WEBKIT_DISABLE_DMABUF_RENDERER"
 
 func configureWebviewEnv() {
 	if _, set := os.LookupEnv(webkitDisableDMABUFRenderer); set {
 		return
 	}
+	if gpu.HasRenderNode(gpu.DRMDeviceDir) {
+		return
+	}
 	if err := os.Setenv(webkitDisableDMABUFRenderer, "1"); err != nil {
 		log.Printf("webview: could not set %s: %v", webkitDisableDMABUFRenderer, err)
+		return
 	}
+	log.Printf(
+		"webview: no DRM render node in %s, disabling the DMABUF renderer so the window paints; "+
+			"set %s=0 to override if this machine composites correctly",
+		gpu.DRMDeviceDir, webkitDisableDMABUFRenderer,
+	)
 }
 
 // GTK draws its own decoration — a title bar carrying the window name and the
