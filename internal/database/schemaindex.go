@@ -42,28 +42,28 @@ func (s *Service) IndexSchema(ctx context.Context, id string) (SchemaSnapshot, e
 	if err != nil {
 		return SchemaSnapshot{}, err
 	}
-	namespace := make(SchemaNamespace, len(schemas))
+	indexed := make(SchemaColumns, len(schemas))
 	for _, schema := range schemas {
 		tables, err := conn.ListTables(ctx, schema)
 		if err != nil {
 			return SchemaSnapshot{}, err
 		}
-		entry := make(map[string][]string, len(tables))
+		entry := make(map[string][]ColumnInfo, len(tables))
 		for _, table := range tables {
 			columns, err := conn.ListColumns(ctx, schema, table.Name)
 			if err != nil {
 				return SchemaSnapshot{}, err
 			}
-			names := make([]string, 0, len(columns))
-			for _, column := range columns {
-				names = append(names, column.Name)
-			}
-			entry[table.Name] = names
+			entry[table.Name] = columns
 		}
-		namespace[schema] = entry
+		indexed[schema] = entry
 	}
 
-	snapshot := SchemaSnapshot{Namespace: namespace, IndexedAt: time.Now().UTC()}
+	snapshot := SchemaSnapshot{
+		Namespace: indexed.Namespace(),
+		Columns:   indexed,
+		IndexedAt: time.Now().UTC(),
+	}
 	if err := repo.Put(id, snapshot); err != nil {
 		return SchemaSnapshot{}, err
 	}

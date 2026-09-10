@@ -164,6 +164,14 @@ export interface SavedQuery {
 }
 
 /**
+ * SchemaColumns is the same three levels carrying the whole column, and it is
+ * the one the index actually builds: ListColumns already returns the type and
+ * the nullability, and keeping only the names meant the sidebar had to ask for
+ * them again, one table at a time, on every expand.
+ */
+export type SchemaColumns = { [_ in string]?: { [_ in string]?: ColumnInfo[] | null } | null } | null;
+
+/**
  * SchemaNamespace is the shape @codemirror/lang-sql already understands:
  * schema → table → column names. Three levels map 1:1 onto
  * ListSchemas → ListTables → ListColumns, so nothing is transformed on the way
@@ -175,9 +183,13 @@ export type SchemaNamespace = { [_ in string]?: { [_ in string]?: string[] | nul
  * SchemaSnapshot is a cached index plus when it was taken. The timestamp is
  * shown to the user: a stale suggestion nobody knows is stale is worse than no
  * suggestion.
+ * 
+ * Namespace is derived from Columns on the way out. It stays on the struct
+ * because the SQL editor's completion source consumes exactly that shape.
  */
 export interface SchemaSnapshot {
     "namespace": SchemaNamespace;
+    "columns": SchemaColumns;
     "indexed_at": string;
 }
 

@@ -118,6 +118,12 @@ export type DatabaseStoreState = {
   expandedSchemas: Record<string, boolean>;
   expandedTables: Record<string, boolean>;
   tableColumnsMap: Record<string, ColumnInfo[]>; // "schema.table" -> columns
+  /**
+   * Why a table's columns could not be read, keyed the same way. Its own field
+   * rather than queryError: a rail failure written into the console's error
+   * slot is a failure nobody looking at the rail can see.
+   */
+  tableColumnsError: Record<string, string>;
 
   // Query console state
   sql: string;
@@ -208,6 +214,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   expandedSchemas: { "public": true },
   expandedTables: {},
   tableColumnsMap: {},
+  tableColumnsError: {},
 
   sql: "SELECT 1 AS n, 'hello' AS greeting;",
   queryResult: null,
@@ -251,6 +258,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       queryStatus: "",
       queryDurationMs: null,
       tableColumnsMap: {},
+      tableColumnsError: {},
       // A focused table belongs to the database it was picked from.
       selectedTable: "",
       // Picking a connection is what indexes it, so the tree unfolds it in the
@@ -364,16 +372,26 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     const isNowExpanded = !expanded[key];
     set({ expandedTables: { ...expanded, [key]: isNowExpanded } });
 
-    if (isNowExpanded && !get().tableColumnsMap[key]) {
+    // The snapshot already carries every column's type, so opening a table
+    // normally costs nothing. listColumns runs only for a snapshot written
+    // before the cache carried types, which the next re-index retires.
+    const indexed = get().schemaSnapshot?.columns?.[schema]?.[table];
+    if (isNowExpanded && !indexed?.length && !get().tableColumnsMap[key]) {
       const profileId = get().selectedProfileId;
       if (!profileId) return;
       try {
         const columns = await listColumns(profileId, schema, table);
-        set((state) => ({
-          tableColumnsMap: { ...state.tableColumnsMap, [key]: columns },
-        }));
+        set((state) => {
+          const { [key]: _cleared, ...rest } = state.tableColumnsError;
+          return {
+            tableColumnsMap: { ...state.tableColumnsMap, [key]: columns },
+            tableColumnsError: rest,
+          };
+        });
       } catch (e) {
-        set({ queryError: errorMessage(e) });
+        set((state) => ({
+          tableColumnsError: { ...state.tableColumnsError, [key]: errorMessage(e) },
+        }));
       }
     }
   },

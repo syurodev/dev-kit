@@ -16,6 +16,7 @@ import {
   FolderInput,
   Crosshair,
   Trash2,
+  TriangleAlert,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SidebarHeader, SidebarSearch } from "@/components/ui/sidebar-shell";
@@ -118,6 +119,7 @@ export function DatabaseSidebar() {
     selectedTable,
     setSelectedTable,
     tableColumnsMap,
+    tableColumnsError,
     setSql,
     sql,
     setShowNewConnectionDialog,
@@ -151,6 +153,7 @@ export function DatabaseSidebar() {
       selectedTable: s.selectedTable,
       setSelectedTable: s.setSelectedTable,
       tableColumnsMap: s.tableColumnsMap,
+      tableColumnsError: s.tableColumnsError,
       setSql: s.setSql,
       sql: s.sql,
       setShowNewConnectionDialog: s.setShowNewConnectionDialog,
@@ -179,9 +182,13 @@ export function DatabaseSidebar() {
 
   function columnNodes(schemaName: string, tableName: string): TreeNodeData[] {
     const key = `${schemaName}.${tableName}`;
-    const loaded = tableColumnsMap[key];
-    if (loaded) {
-      return loaded.map((col) => ({
+    // The snapshot is the first source and usually the only one: indexing
+    // already read every column's type, so a freshly indexed schema shows types
+    // the instant a table opens, with no round trip to wait on. listColumns is
+    // the fallback for a snapshot taken before the cache carried types.
+    const columns = schemaSnapshot?.columns?.[schemaName]?.[tableName] ?? tableColumnsMap[key];
+    if (columns?.length) {
+      return columns.map((col) => ({
         id: `col:${key}.${col.name}`,
         label: col.name,
         icon:
@@ -194,13 +201,26 @@ export function DatabaseSidebar() {
         title: `${col.dataType}${col.nullable ? "" : " · not null"}`,
       }));
     }
-    // The snapshot carries names but no types, so the row is drawn from it
-    // while listColumns is in flight rather than showing nothing.
-    return (namespace[schemaName]?.[tableName] ?? []).map((name) => ({
+    // Names with no types: an old snapshot whose listColumns is still in flight,
+    // or one that failed. Drawn anyway — the names are still true.
+    const names: TreeNodeData[] = (namespace[schemaName]?.[tableName] ?? []).map((name) => ({
       id: `col:${key}.${name}`,
       label: name,
       icon: <Columns className={GLYPH} />,
     }));
+    // A failure has to be visible where it happened. emptyLabel cannot carry it:
+    // the names above are still listed, so the branch is never empty and that
+    // slot never renders.
+    const failure = tableColumnsError[key];
+    if (failure) {
+      names.push({
+        id: `col-error:${key}`,
+        label: <span className="text-status-danger">Column types unavailable</span>,
+        icon: <TriangleAlert className={cn(GLYPH, "text-status-danger")} />,
+        title: failure,
+      });
+    }
+    return names;
   }
 
   function tableNodes(schemaName: string): TreeNodeData[] {
@@ -224,7 +244,7 @@ export function DatabaseSidebar() {
         },
         onActivate: () => handleInsertTable(tableName),
         children: columnNodes(schemaName, tableName),
-        emptyLabel: "No columns",
+        emptyLabel: tableColumnsError[key] ?? "No columns",
         meta: columnNames.length || undefined,
         trailing: focused ? (
           <Crosshair className="size-3 shrink-0 text-status-info" aria-label="Focused in the ERD" />

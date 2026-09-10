@@ -12,6 +12,7 @@ export type {
     QueryPlan,
     QueryResult,
     SavedQuery,
+    SchemaColumns,
     SchemaNamespace,
     SchemaSnapshot,
     SessionRow,

@@ -15,11 +15,40 @@ import (
 // out to the editor.
 type SchemaNamespace map[string]map[string][]string
 
+// SchemaColumns is the same three levels carrying the whole column, and it is
+// the one the index actually builds: ListColumns already returns the type and
+// the nullability, and keeping only the names meant the sidebar had to ask for
+// them again, one table at a time, on every expand.
+type SchemaColumns map[string]map[string][]ColumnInfo
+
+// Namespace projects the names back out for @codemirror/lang-sql, which wants
+// nothing else. Derived rather than stored beside SchemaColumns so the two can
+// never disagree about which columns a table has.
+func (c SchemaColumns) Namespace() SchemaNamespace {
+	namespace := make(SchemaNamespace, len(c))
+	for schema, tables := range c {
+		entry := make(map[string][]string, len(tables))
+		for table, columns := range tables {
+			names := make([]string, 0, len(columns))
+			for _, column := range columns {
+				names = append(names, column.Name)
+			}
+			entry[table] = names
+		}
+		namespace[schema] = entry
+	}
+	return namespace
+}
+
 // SchemaSnapshot is a cached index plus when it was taken. The timestamp is
 // shown to the user: a stale suggestion nobody knows is stale is worse than no
 // suggestion.
+//
+// Namespace is derived from Columns on the way out. It stays on the struct
+// because the SQL editor's completion source consumes exactly that shape.
 type SchemaSnapshot struct {
 	Namespace SchemaNamespace `json:"namespace"`
+	Columns   SchemaColumns   `json:"columns"`
 	IndexedAt time.Time       `json:"indexed_at"`
 }
 
@@ -46,16 +75,24 @@ func (r *SQLSchemaCache) Get(profileID string) (SchemaSnapshot, bool, error) {
 	if err != nil {
 		return SchemaSnapshot{}, false, err
 	}
-	var namespace SchemaNamespace
-	if err := json.Unmarshal([]byte(raw), &namespace); err != nil {
-		return SchemaSnapshot{}, false, err
+	var columns SchemaColumns
+	if err := json.Unmarshal([]byte(raw), &columns); err != nil {
+		// A row written before the cache carried types holds bare name strings
+		// where a column object is expected. Reported as a miss rather than an
+		// error: re-indexing is exactly the recovery, and it is one the caller
+		// already knows how to do.
+		return SchemaSnapshot{}, false, nil
 	}
 	when, _ := time.Parse(time.RFC3339Nano, indexedAt)
-	return SchemaSnapshot{Namespace: namespace, IndexedAt: when}, true, nil
+	return SchemaSnapshot{
+		Namespace: columns.Namespace(),
+		Columns:   columns,
+		IndexedAt: when,
+	}, true, nil
 }
 
 func (r *SQLSchemaCache) Put(profileID string, snapshot SchemaSnapshot) error {
-	raw, err := json.Marshal(snapshot.Namespace)
+	raw, err := json.Marshal(snapshot.Columns)
 	if err != nil {
 		return err
 	}

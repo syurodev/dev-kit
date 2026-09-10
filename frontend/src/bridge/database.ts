@@ -1,5 +1,6 @@
 import { callBridge, callBridgeCancellable, type CancellableCall } from "./client";
 import { AppService } from "../../bindings/devkit/internal/bridge";
+import type * as DatabaseModels from "../../bindings/devkit/internal/database/models";
 
 export type ConnectionProfile = {
   id: string;
@@ -97,10 +98,54 @@ export type ForeignKey = {
 
 export type SchemaNamespace = Record<string, Record<string, string[]>>;
 
+/** Same three levels as SchemaNamespace, carrying the whole column. */
+export type SchemaColumns = Record<string, Record<string, ColumnInfo[]>>;
+
 export type SchemaSnapshot = {
+  /** Names only — the shape @codemirror/lang-sql consumes. */
   namespace: SchemaNamespace;
+  columns: SchemaColumns;
   indexedAt: string;
 };
+
+function toSnapshot(snap: DatabaseModels.SchemaSnapshot): SchemaSnapshot {
+  const namespace: SchemaNamespace = {};
+  for (const [schema, tables] of Object.entries(snap.namespace ?? {})) {
+    if (!tables) continue;
+    namespace[schema] = {};
+    for (const [table, cols] of Object.entries(tables)) {
+      namespace[schema][table] = (cols ?? []).map((c) => c ?? "");
+    }
+  }
+  return {
+    namespace,
+    columns: toSchemaColumns(snap.columns),
+    indexedAt: snap.indexed_at,
+  };
+}
+
+/**
+ * The index already reads every column's type, so the tree has it without
+ * asking again. Empty for a snapshot written before the cache carried types —
+ * the backend reports one of those as a miss and re-indexes, so this is only
+ * ever empty for the moment before that lands.
+ */
+function toSchemaColumns(raw: DatabaseModels.SchemaColumns): SchemaColumns {
+  const out: SchemaColumns = {};
+  for (const [schema, tables] of Object.entries(raw ?? {})) {
+    if (!tables) continue;
+    out[schema] = {};
+    for (const [table, columns] of Object.entries(tables)) {
+      out[schema][table] = (columns ?? []).map((c) => ({
+        name: c.name,
+        dataType: c.data_type,
+        nullable: c.nullable,
+        position: c.position,
+      }));
+    }
+  }
+  return out;
+}
 
 export type HistoryEntry = {
   id: string;
@@ -375,43 +420,13 @@ export function listForeignKeys(id: string, schema: string): Promise<ForeignKey[
 
 export function indexSchema(id: string): Promise<SchemaSnapshot> {
   return callBridge(async () => {
-    const snap = await AppService.DBIndexSchema(id);
-    const namespace: SchemaNamespace = {};
-    if (snap.namespace) {
-      for (const [sch, tables] of Object.entries(snap.namespace)) {
-        if (tables) {
-          namespace[sch] = {};
-          for (const [tbl, cols] of Object.entries(tables)) {
-            namespace[sch][tbl] = (cols ?? []).map((c) => c ?? "");
-          }
-        }
-      }
-    }
-    return {
-      namespace,
-      indexedAt: snap.indexed_at,
-    };
+    return toSnapshot(await AppService.DBIndexSchema(id));
   });
 }
 
 export function getSchemaCache(id: string): Promise<SchemaSnapshot> {
   return callBridge(async () => {
-    const snap = await AppService.DBGetSchemaCache(id);
-    const namespace: SchemaNamespace = {};
-    if (snap.namespace) {
-      for (const [sch, tables] of Object.entries(snap.namespace)) {
-        if (tables) {
-          namespace[sch] = {};
-          for (const [tbl, cols] of Object.entries(tables)) {
-            namespace[sch][tbl] = (cols ?? []).map((c) => c ?? "");
-          }
-        }
-      }
-    }
-    return {
-      namespace,
-      indexedAt: snap.indexed_at,
-    };
+    return toSnapshot(await AppService.DBGetSchemaCache(id));
   });
 }
 
