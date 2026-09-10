@@ -78,7 +78,7 @@ export const EMPTY_MODULE_TABS: ModuleTabs = Object.freeze({
   tabMru: [],
 }) as ModuleTabs;
 
-type WorkbenchTabsState = {
+export type WorkbenchTabsState = {
   /** The module the content area is showing. Set by the Dock, by opening or
    * activating any tab, and by nothing else. */
   activeModuleId: string;

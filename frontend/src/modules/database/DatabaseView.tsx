@@ -6,14 +6,11 @@ import { DEFAULT_CONSOLE_ID, useDatabaseStore } from "./databaseStore";
 import { DatabaseSidebar } from "./components/DatabaseSidebar";
 import { DatabaseBanners } from "./components/DatabaseBanners";
 import { QueryConsole } from "./components/QueryConsole";
-import { NewConnectionDialog } from "./components/NewConnectionDialog";
-import { ConnectionOptionsDialog } from "./components/ConnectionOptionsDialog";
-import { ExportModal } from "./components/ExportModal";
-import { SaveQueryModal } from "./components/SaveQueryModal";
-import { CellInspector } from "./components/CellInspector";
+import { DatabaseOverlays } from "./DatabaseOverlays";
 import { TLSRefusedState, VaultLockedState } from "./components/DatabaseStates";
 import { isInsecureTLSError, isVaultLockedError } from "./errorStates";
 import { useDatabaseModuleActions } from "./useDatabaseModuleActions";
+import { useIsActiveDocument } from "./useIsActiveDocument";
 
 /**
  * One query console, as a document.
@@ -37,6 +34,7 @@ export function DatabaseView({ params }: { params?: Record<string, unknown> }) {
       })),
     );
   const queryError = useDatabaseStore((s) => s.consoles[consoleId]?.queryError ?? "");
+  const isActive = useIsActiveDocument("database.console", { consoleId });
 
   useEffect(() => {
     void fetchProfiles();
@@ -75,11 +73,7 @@ export function DatabaseView({ params }: { params?: Record<string, unknown> }) {
     <div className="flex h-full w-full flex-col overflow-hidden text-text-primary">
       <DatabaseBanners />
       <QueryConsole consoleId={consoleId} />
-      <NewConnectionDialog />
-      <ConnectionOptionsDialog />
-      <ExportModal />
-      <SaveQueryModal />
-      <CellInspector />
+      {isActive ? <DatabaseOverlays /> : null}
     </div>
   );
 }

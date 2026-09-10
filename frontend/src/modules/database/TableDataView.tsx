@@ -1,6 +1,8 @@
 import { useEffect } from "react";
 import { useDatabaseStore } from "./databaseStore";
 import { QueryConsole } from "./components/QueryConsole";
+import { DatabaseOverlays } from "./DatabaseOverlays";
+import { useIsActiveDocument } from "./useIsActiveDocument";
 
 /**
  * One table's data, as its own document.
@@ -18,6 +20,7 @@ export function TableDataView({ params }: { params?: Record<string, unknown> }) 
   const setSql = useDatabaseStore((s) => s.setSql);
   const executeQuery = useDatabaseStore((s) => s.executeQuery);
   const hasSql = useDatabaseStore((s) => Boolean(s.consoles[consoleId]?.sql));
+  const isActive = useIsActiveDocument("database.table", { schema, table });
 
   // Seeded once. Re-seeding on every mount would throw away a WHERE the user
   // added, and this view remounts whenever its tab leaves the mount window.
@@ -29,7 +32,12 @@ export function TableDataView({ params }: { params?: Record<string, unknown> }) 
     void executeQuery(consoleId);
   }, [consoleId, hasSql, table, setSql, executeQuery]);
 
-  return <QueryConsole consoleId={consoleId} />;
+  return (
+    <>
+      <QueryConsole consoleId={consoleId} />
+      {isActive ? <DatabaseOverlays /> : null}
+    </>
+  );
 }
 
 export default TableDataView;
