@@ -4,7 +4,15 @@ import type { ReactNode } from "react";
 type SidebarContentState = {
   /** Registered sidebar content, keyed by the owning module's id. */
   content: Record<string, ReactNode>;
-  setContent: (moduleId: string, node: ReactNode | null) => void;
+  /**
+   * Who is registering, and what each one offered, per module. A module with
+   * several documents open has several of them registering the same rail, so
+   * the rail may only go away when the last one leaves — and when a temporary
+   * registrar leaves (a Suspense skeleton), the rail has to fall back to what
+   * a remaining one offered rather than keeping the skeleton's.
+   */
+  registrars: Record<string, Array<{ id: string; node: ReactNode }>>;
+  setContent: (moduleId: string, node: ReactNode | null, registrar?: string) => void;
 };
 
 /**
@@ -26,19 +34,44 @@ type SidebarContentState = {
  */
 export const useSidebarContentStore = create<SidebarContentState>((set) => ({
   content: {},
-  setContent: (moduleId, node) =>
+  registrars: {},
+  setContent: (moduleId, node, registrar = moduleId) =>
     set((state) => {
+      const current = state.registrars[moduleId] ?? [];
+
       if (node === null) {
-        if (!(moduleId in state.content)) {
+        const remaining = current.filter((entry) => entry.id !== registrar);
+        if (remaining.length === current.length) {
           return state;
         }
-        const next = { ...state.content };
-        delete next[moduleId];
-        return { content: next };
+        if (remaining.length === 0) {
+          const nextContent = { ...state.content };
+          delete nextContent[moduleId];
+          const nextRegistrars = { ...state.registrars };
+          delete nextRegistrars[moduleId];
+          return { content: nextContent, registrars: nextRegistrars };
+        }
+        // Someone is still here, so the rail stays — and it becomes THEIRS.
+        // Falling through with the leaver's node is how a Suspense skeleton's
+        // placeholder rail outlived the skeleton.
+        return {
+          content: { ...state.content, [moduleId]: remaining[remaining.length - 1].node },
+          registrars: { ...state.registrars, [moduleId]: remaining },
+        };
       }
-      if (state.content[moduleId] === node) {
+
+      const without = current.filter((entry) => entry.id !== registrar);
+      const registrars = [...without, { id: registrar, node }];
+      if (
+        state.content[moduleId] === node &&
+        current.length === registrars.length &&
+        current[current.length - 1]?.id === registrar
+      ) {
         return state;
       }
-      return { content: { ...state.content, [moduleId]: node } };
+      return {
+        content: { ...state.content, [moduleId]: node },
+        registrars: { ...state.registrars, [moduleId]: registrars },
+      };
     }),
 }));

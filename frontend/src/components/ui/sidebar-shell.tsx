@@ -48,12 +48,17 @@ const useIsomorphicLayoutEffect =
 export function useSidebarContent(content: React.ReactNode | null) {
   const moduleId = React.useContext(SidebarModuleIdContext);
   const setContent = useSidebarContentStore((s) => s.setContent);
+  // Identifies this caller for as long as it is mounted. A module with several
+  // documents open has several of them registering the same rail, and an
+  // unconditional clear on unmount emptied it for the ones still on screen —
+  // closing one Database tab blanked the rail under the others.
+  const registrar = React.useId();
 
   useIsomorphicLayoutEffect(() => {
     if (!moduleId) return;
-    setContent(moduleId, content);
-    return () => setContent(moduleId, null);
-  }, [moduleId, content, setContent]);
+    setContent(moduleId, content, registrar);
+    return () => setContent(moduleId, null, registrar);
+  }, [moduleId, content, setContent, registrar]);
 }
 
 /**
