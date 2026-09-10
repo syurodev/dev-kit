@@ -1,4 +1,4 @@
-import { callBridge } from "./client";
+import { callBridge, callBridgeCancellable, type CancellableCall } from "./client";
 import { AppService } from "../../bindings/devkit/internal/bridge";
 
 export type KafkaProfile = {
@@ -195,16 +195,20 @@ export function describeKafkaTopic(topic: string): Promise<KafkaTopicDetail> {
   });
 }
 
+/**
+ * Cancellable: a peek can wait on a broker across a network, which is the one
+ * Kafka read slow enough to want a Cancel (see callBridgeCancellable).
+ */
 export function peekKafkaMessages(
   topic: string,
   partition: number,
   limit: number,
   offset: number,
-): Promise<KafkaMessage[]> {
-  return callBridge(async () => {
-    const messages = await AppService.KafkaPeekMessages(topic, partition, limit, offset);
-    return (messages ?? []).map(toMessage);
-  });
+): CancellableCall<KafkaMessage[]> {
+  return callBridgeCancellable(
+    () => AppService.KafkaPeekMessages(topic, partition, limit, offset),
+    (messages) => (messages ?? []).map(toMessage),
+  );
 }
 
 export function listKafkaConsumerGroups(): Promise<KafkaConsumerGroup[]> {

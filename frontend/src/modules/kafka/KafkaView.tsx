@@ -1,11 +1,12 @@
 import { useEffect, useMemo } from "react";
 import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { json } from "@codemirror/lang-json";
-import { Loader2, PlugZap, RefreshCw, Send, ServerOff, TriangleAlert, Workflow } from "lucide-react";
+import { Loader2, PlugZap, RefreshCw, Send, ServerOff, TriangleAlert, Users, Workflow } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Chip } from "@/components/ui/chip";
 import { CodeEditor } from "@/components/code-editor/CodeEditor";
 import { EmptyProgress, EmptyState } from "@/components/ui/empty-state";
+import { useVirtualRows } from "@/components/ui/virtual-rows";
 import { useSidebarContent } from "@/components/ui/sidebar-shell";
 import { useSplitPanel } from "@/components/ui/split-panel";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -18,7 +19,10 @@ import { NewClusterDialog } from "./NewClusterDialog";
 import { formatClock, formatOffset } from "./kafkaForm";
 import { useKafkaStore, type KafkaTab } from "./kafkaStore";
 
-const CARD = "min-h-0 flex-1 overflow-auto rounded-md border border-border-subtle bg-surface-well";
+const PEEK_ROW_HEIGHT = 36;
+
+const CARD =
+  "min-h-0 flex-1 overflow-auto scrollbar-gutter-stable rounded-md border border-border-subtle bg-surface-well";
 const CELL_INPUT = "w-16 bg-transparent text-code-12 text-text-primary outline-none placeholder:text-text-tertiary";
 
 /** Figma `Kafka / Field` (1136:17): a named value you change before running something. */
@@ -69,6 +73,7 @@ export function KafkaView() {
   const testConnection = useKafkaStore((s) => s.testConnection);
   const setPeek = useKafkaStore((s) => s.setPeek);
   const peek = useKafkaStore((s) => s.peek);
+  const cancelPeek = useKafkaStore((s) => s.cancelPeek);
   const refreshGroups = useKafkaStore((s) => s.refreshGroups);
   const setPublish = useKafkaStore((s) => s.setPublish);
   const publishMessage = useKafkaStore((s) => s.publishMessage);
@@ -107,6 +112,11 @@ export function KafkaView() {
     if (activeTab === "topics") void peek();
     if (activeTab === "publish") void publishMessage();
   }
+
+  // Above the disconnected early return: a hook cannot sit behind one. A peek
+  // holds up to 500 rows and windows past 100 (frontend performance 6.3);
+  // rows are h-9, so 36px each.
+  const peekRows = useVirtualRows(messages.length, PEEK_ROW_HEIGHT);
 
   if (!connection.connected) {
     return (
@@ -159,9 +169,10 @@ export function KafkaView() {
                 )}
                 <div className="flex items-center gap-2">
                   <Button variant="outline" className="bg-surface-raised" disabled={testing} onClick={() => void testConnection(profile.id)}>
+                    {testing && <Loader2 className="size-3.5 animate-spin" />}
                     {testing ? "Testing…" : "Test connection"}
                   </Button>
-                  <Button onClick={() => void connect(profile.id)}>
+                  <Button onClick={() => void connect(profile.id)} disabled={testing}>
                     <PlugZap className="size-3.5" />
                     Connect {profile.name}
                   </Button>
@@ -186,19 +197,27 @@ export function KafkaView() {
         {activeTab === "groups" ? (
           <>
             <h1 className="text-title-16 text-text-primary">Consumer groups</h1>
-            <Chip>{groups.length} group{groups.length === 1 ? "" : "s"}</Chip>
+            <Chip><span className="tabular-nums">{groups.length}</span> group{groups.length === 1 ? "" : "s"}</Chip>
           </>
         ) : activeTab === "publish" ? (
           <h1 className="text-title-16 text-text-primary">Publish</h1>
         ) : (
           <>
             <h1 className="truncate text-title-16 text-text-primary">{selectedTopic || profile?.name}</h1>
-            {topicDetail && (
-              <div className="flex items-center gap-2">
-                <Chip>{partitions.length} partition{partitions.length === 1 ? "" : "s"}</Chip>
-                <Chip>{topicDetail.replicationFactor} replica{topicDetail.replicationFactor === 1 ? "" : "s"}</Chip>
-              </div>
-            )}
+            {/* Kept in the layout while describeTopic is still out, not mounted
+                when it answers (smoothness 3.2): the chips sit after a
+                shrinkable truncating h1, so appearing late used to pull the
+                topic name sideways. `invisible` holds the box; the min widths
+                make the placeholder and the filled chip the same size for any
+                count up to three digits, so the swap moves nothing either. */}
+            <div className={cn("flex items-center gap-2", !topicDetail && "invisible")} aria-hidden={!topicDetail}>
+              <Chip className="min-w-24 justify-center">
+                <span className="tabular-nums">{partitions.length}</span> partition{partitions.length === 1 ? "" : "s"}
+              </Chip>
+              <Chip className="min-w-22 justify-center">
+                <span className="tabular-nums">{topicDetail?.replicationFactor ?? 0}</span> replica{topicDetail?.replicationFactor === 1 ? "" : "s"}
+              </Chip>
+            </div>
           </>
         )}
         <span className="flex-1" />
@@ -207,7 +226,15 @@ export function KafkaView() {
             <Button variant="outline" className="bg-surface-raised" onClick={() => setActiveTab("publish")}>
               Publish
             </Button>
+            {/* Cancel sits beside Peek rather than replacing it, so the row's
+                widths do not change when a peek starts (smoothness 5). */}
+            {peeking && (
+              <Button variant="outline" className="bg-surface-raised" onClick={cancelPeek}>
+                Cancel
+              </Button>
+            )}
             <Button onClick={() => void peek()} disabled={!selectedTopic || peeking}>
+              {peeking && <Loader2 className="size-3.5 animate-spin" />}
               {peeking ? "Peeking…" : "Peek"}
               <span className="text-code-11 opacity-65">{shortcut("Enter")}</span>
             </Button>
@@ -282,10 +309,10 @@ export function KafkaView() {
             {peeked && !peekError && (
               <>
                 <span className="text-body-13-medium text-text-primary">
-                  {messages.length} message{messages.length === 1 ? "" : "s"}
+                  <span className="tabular-nums">{messages.length}</span> message{messages.length === 1 ? "" : "s"}
                 </span>
                 {peekDurationMs != null && (
-                  <span className="text-body-13-medium text-text-primary">{peekDurationMs} ms</span>
+                  <span className="text-body-13-medium text-text-primary tabular-nums">{peekDurationMs} ms</span>
                 )}
               </>
             )}
@@ -294,9 +321,22 @@ export function KafkaView() {
             <Chip className="text-text-tertiary">a peek never commits an offset</Chip>
           </div>
 
-          <div className={CARD}>
+          <div
+            ref={peekRows.scrollRef}
+            className={cn(
+              CARD,
+              peeking && "pointer-events-none opacity-60 transition-opacity duration-(--motion-base)",
+            )}
+          >
             {peekError ? (
-              <pre className="px-4 py-3 text-code-12 whitespace-pre-wrap text-status-danger select-text">{peekError}</pre>
+              /* The failure takes the result's place and keeps the card's box,
+                 so nothing around it moves. The rows themselves are still in
+                 the store, so a cancel or a stale answer never destroys them. */
+              <EmptyState icon={TriangleAlert} tone="danger" title="Peek failed" body={peekError}>
+                <Button variant="outline" className="bg-surface-raised" onClick={() => void peek()}>
+                  Retry
+                </Button>
+              </EmptyState>
             ) : !peeked ? (
               <div className="flex h-full flex-col items-center justify-center gap-1.5 p-8 text-center">
                 <span className="text-body-13 text-text-secondary">
@@ -326,21 +366,28 @@ export function KafkaView() {
                   </tr>
                 </thead>
                 <tbody>
-                  {messages.map((m) => (
-                    <tr
-                      key={`${m.offset}-${m.timestamp ?? 0}`}
-                      onClick={() => inspect(m)}
-                      className={cn(
-                        "cursor-pointer border-b border-border-subtle hover:bg-surface-raised/60",
-                        inspected === m && "bg-surface-raised",
-                      )}
-                    >
-                      <td className="h-9 truncate px-4 text-text-tertiary">{formatOffset(m.offset)}</td>
-                      <td className="h-9 truncate px-4 text-text-primary">{m.key ?? ""}</td>
-                      <td className="h-9 truncate px-4 text-text-secondary" title="Click to open">{m.value}</td>
-                      <td className="h-9 truncate px-4 text-code-11 text-text-tertiary">{formatClock(m.timestamp)}</td>
-                    </tr>
-                  ))}
+                  {/* Spacer rows, not absolute positioning: see virtual-rows. */}
+                  {peekRows.padTop > 0 && <tr style={{ height: peekRows.padTop }} aria-hidden />}
+                  {peekRows.indices.map((i) => {
+                    const m = messages[i];
+                    return (
+                      <tr
+                        key={`${m.offset}-${m.timestamp ?? 0}`}
+                        onClick={() => inspect(m)}
+                        data-accent={inspected === m ? "on" : undefined}
+                        className={cn(
+                          "row-accent cursor-pointer border-b border-border-subtle hover:bg-surface-raised/60",
+                          inspected === m && "bg-surface-raised",
+                        )}
+                      >
+                        <td className="h-9 truncate px-4 text-text-tertiary tabular-nums">{formatOffset(m.offset)}</td>
+                        <td className="h-9 truncate px-4 text-text-primary">{m.key ?? ""}</td>
+                        <td className="h-9 truncate px-4 text-text-secondary" title="Click to open">{m.value}</td>
+                        <td className="h-9 truncate px-4 text-code-11 text-text-tertiary tabular-nums">{formatClock(m.timestamp)}</td>
+                      </tr>
+                    );
+                  })}
+                  {peekRows.padBottom > 0 && <tr style={{ height: peekRows.padBottom }} aria-hidden />}
                 </tbody>
               </table>
             )}
@@ -401,9 +448,15 @@ export function KafkaView() {
         <TabsContent value="groups" className="flex min-h-0 flex-1 flex-col">
           <div className={CARD}>
             {groups.length === 0 ? (
-              <div className="flex h-full items-center justify-center p-8 text-body-13 text-text-tertiary">
-                {groupsLoading ? "Loading…" : "No consumer groups on this cluster."}
-              </div>
+              <EmptyState
+                icon={Users}
+                title={groupsLoading ? "Loading consumer groups…" : "No consumer groups"}
+                body={
+                  groupsLoading
+                    ? "Reading group offsets from the cluster."
+                    : "Nothing is consuming from this cluster yet. Groups appear here once a consumer commits an offset."
+                }
+              />
             ) : (
               <table className="w-full table-fixed border-collapse text-left" aria-label="Consumer groups">
                 <thead className="sticky top-0 z-10 bg-surface-raised">
@@ -417,8 +470,13 @@ export function KafkaView() {
                     <tr key={g.groupId} className="border-b border-border-subtle">
                       <td className="h-9 truncate px-4 text-body-13 text-text-primary">{g.groupId}</td>
                       {/* Lag is the number that makes someone act, so it is the only one that shouts. */}
-                      <td className={cn("h-9 px-4 text-code-12", g.lag ? "text-status-warning" : "text-text-tertiary")}>
-                        {g.lag == null ? "—" : formatOffset(g.lag)}
+                      <td className={cn("h-9 px-4 text-code-12 tabular-nums", g.lag ? "text-status-warning" : "text-text-tertiary")}>
+                        {/* Keyed by the value, so a refresh that moves the lag
+                            replays the blink and one that does not stays
+                            still. Groups only: a peek replaces all 500 rows. */}
+                        <span key={String(g.lag)} className="value-blink">
+                          {g.lag == null ? "—" : formatOffset(g.lag)}
+                        </span>
                       </td>
                     </tr>
                   ))}

@@ -99,6 +99,13 @@ export function ToastSpecCard({
   );
 }
 
+/**
+ * How long a toast stays. Not a --motion-* token: those are how long something
+ * takes to move (120/180/240 ms), and this is how long it waits to be read.
+ * One number here so the five call sites cannot each pick their own.
+ */
+const TOAST_DURATION_MS = 4000;
+
 const Toaster = ({ ...props }: ToasterProps) => {
   const { theme = "system" } = useTheme();
 
@@ -106,6 +113,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
     <Sonner
       theme={theme as ToasterProps["theme"]}
       position="bottom-right"
+      duration={TOAST_DURATION_MS}
       className="toaster group"
       icons={{
         success: <CircleCheck className="size-5 shrink-0 text-status-success" />,

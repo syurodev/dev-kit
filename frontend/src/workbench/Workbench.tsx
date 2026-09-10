@@ -262,7 +262,13 @@ const WorkbenchViews = memo(
                       a rail under this module's id while the chunk loads. */}
                   <SidebarModuleIdContext.Provider value={tab.moduleId}>
                     <Suspense fallback={<ModuleSkeleton />}>
-                      <TabView params={tab.params} />
+                      {/* module-enter mounts with the chunk, so its
+                          @starting-style fires at the skeleton→content swap
+                          and nowhere else. It is the flex box the `contents`
+                          wrapper gave the module before. */}
+                      <div className="module-enter">
+                        <TabView params={tab.params} />
+                      </div>
                     </Suspense>
                   </SidebarModuleIdContext.Provider>
                 </div>

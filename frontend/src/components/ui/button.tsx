@@ -5,7 +5,11 @@ import { Slot } from "radix-ui"
 import { cn } from "@/lib/utils"
 
 const buttonVariants = cva(
-  "group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap transition-all outline-none select-none disabled:pointer-events-none disabled:opacity-38 aria-invalid:border-status-danger focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-info focus-visible:border-status-info [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  // active:scale is the press feedback from the catalogue (smoothness 4.4);
+  // transition-all already covers the disabled↔enabled colour and opacity
+  // change, and the duration comes off the token rather than Tailwind's 150ms
+  // default so buttons move at the same speed as everything else.
+  "group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap transition-all duration-(--motion-fast) ease-(--ease-out-strong) active:scale-[0.98] outline-none select-none disabled:pointer-events-none disabled:opacity-38 aria-invalid:border-status-danger focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-info focus-visible:border-status-info [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {

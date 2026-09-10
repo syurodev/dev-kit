@@ -1,9 +1,19 @@
+import { Suspense, lazy } from "react";
 import { Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { TerminalPane } from "@/modules/codegraph/terminal/TerminalPane";
 import { useTerminalTabsStore } from "@/stores/terminalTabs";
 import { cn } from "@/lib/utils";
+
+// xterm plus its stylesheet is 324 KiB — a third of the shell's initial JS for
+// something nobody sees until they open a terminal. Splitting it here rather
+// than at the workspace keeps the tab strip in the shell chunk, so the strip
+// and the "New terminal" button still paint in the first frame.
+const TerminalPane = lazy(() =>
+  import("@/modules/codegraph/terminal/TerminalPane").then((m) => ({
+    default: m.TerminalPane,
+  })),
+);
 
 /**
  * The bottom slot's terminals, owned by the shell.
@@ -88,7 +98,9 @@ export function TerminalWorkspace({ moduleContent }: { moduleContent?: React.Rea
         )}
         {tabs.map((t) => (
           <div key={t.key} className={cn("absolute inset-0", value !== t.key && "hidden")}>
-            <TerminalPane />
+            <Suspense fallback={null}>
+              <TerminalPane />
+            </Suspense>
           </div>
         ))}
         {tabs.length === 0 && !showModule && (

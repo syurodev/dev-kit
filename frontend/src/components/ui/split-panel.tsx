@@ -8,6 +8,7 @@ import { SPLIT_MIN_HEIGHT, splitColumn } from "@/workbench/splitColumn";
 import { usePanelWidthsStore } from "@/stores/panelWidths";
 import { ShellResizeHandle } from "@/components/ui/resize-handle";
 import { cn } from "@/lib/utils";
+import { CONTENT_FADE_DELAY, EASE_OUT_STRONG, MOTION_BASE, MOTION_FAST, MOTION_SLOW } from "@/lib/motion";
 
 type PanelState = {
   content: React.ReactNode;
@@ -117,12 +118,17 @@ function PanelCard({
         <X className="size-4" />
       </Button>
       <AnimatePresence>
+        {/* The body follows the container rather than arriving with it
+            (smoothness 4.4): the panel slides, then its content fades up 60 ms
+            behind — which is what makes the panel read as bringing something
+            in rather than blinking into place. Leaving is the reverse and
+            faster, with no delay to wait through. */}
         <m.div
           key="panel-content"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.15 }}
+          exit={{ opacity: 0, transition: { duration: MOTION_FAST, delay: 0 } }}
+          transition={{ duration: MOTION_BASE, delay: CONTENT_FADE_DELAY, ease: EASE_OUT_STRONG }}
           className="flex min-h-0 flex-1 flex-col overflow-auto"
         >
           {state.content}
@@ -232,7 +238,12 @@ export function SplitPanelSlot() {
         // animation by scanning for a line carrying both animate={{ and
         // GAP_WIDTH, and asserts it clamps with Math.min.
         animate={{ width: open ? Math.min(width, max) + GAP_WIDTH : 0 }}
-        transition={isResizing ? { duration: 0 } : { duration: 0.22, ease: "easeInOut" }}
+        // Closing is faster than opening, everywhere (smoothness 4.1).
+        transition={
+          isResizing
+            ? { duration: 0 }
+            : { duration: open ? MOTION_SLOW : MOTION_FAST, ease: EASE_OUT_STRONG }
+        }
 className="flex min-h-0 shrink-0 overflow-hidden"
       >
         {open ? (

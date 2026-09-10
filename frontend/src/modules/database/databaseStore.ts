@@ -14,7 +14,16 @@ import {
 } from "../../bridge/database";
 import { listEnvTags, type EnvTag } from "../../bridge/environments";
 import { listSSHProfiles, type SSHProfile } from "../../bridge/ssh";
-import { errorMessage } from "../../bridge/errors";
+import { errorMessage, isCancelError } from "../../bridge/errors";
+import type { CancellableCall } from "../../bridge/client";
+
+/**
+ * The statement currently in flight, if any. Module scope rather than store
+ * state: it is a handle, not something a component renders, and putting a
+ * promise in the store would make every subscriber re-render when a query
+ * starts.
+ */
+let inFlightQuery: CancellableCall<QueryResult> | null = null;
 
 export type DatabaseTab = "console" | "erd" | "activity" | "history" | "saved";
 
@@ -120,6 +129,12 @@ export type DatabaseStoreState = {
   /** Wall-clock time of the last successful run — Figma's "412 ms" beside
    * the row count (742:37). null until a query has finished. */
   queryDurationMs: number | null;
+  /**
+   * Identifies the run whose answer is allowed to land. Bumped on every
+   * execute, so a slow first statement finishing after a faster second one
+   * cannot overwrite the newer result (smoothness 5, "stale response").
+   */
+  queryRunId: number;
 
   // Selected cell for CellInspector
   inspectedCell: { columnName: string; value: string } | null;
@@ -160,6 +175,7 @@ export type DatabaseStoreState = {
 
   // Query actions
   executeQuery: () => Promise<void>;
+  cancelQuery: () => void;
   clearQueryResult: () => void;
   clearQueryError: () => void;
 };
@@ -200,6 +216,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   queryError: "",
   queryStatus: "",
   queryDurationMs: null,
+  queryRunId: 0,
 
   inspectedCell: null,
 
@@ -368,18 +385,24 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     const { selectedProfileId, sql } = get();
     if (!selectedProfileId) return;
 
+    const runId = get().queryRunId + 1;
     const startedAt = Date.now();
+    // queryResult and queryDurationMs deliberately survive the set: the
+    // previous table stays on screen (dimmed by the console) until the new one
+    // replaces it, rather than the pane emptying for the length of the run.
     set({
       runningQuery: true,
       queryStartTime: startedAt,
       queryError: "",
       queryStatus: "",
-      queryDurationMs: null,
-      queryResult: null,
+      queryRunId: runId,
     });
 
+    const call = runQuery(selectedProfileId, sql);
+    inFlightQuery = call;
     try {
-      const result = await runQuery(selectedProfileId, sql);
+      const result = await call;
+      if (get().queryRunId !== runId) return;
       set({
         queryResult: result,
         runningQuery: false,
@@ -388,14 +411,35 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
         queryDurationMs: Date.now() - startedAt,
       });
     } catch (e) {
+      if (get().queryRunId !== runId) return;
+      // A cancel is something the user asked for; it leaves the previous
+      // result in place and says nothing in the error slot.
+      if (isCancelError(e)) {
+        set({ runningQuery: false, queryStartTime: null, queryStatus: "" });
+        return;
+      }
       set({
         queryError: errorMessage(e),
         runningQuery: false,
         queryStartTime: null,
         queryStatus: "",
-        queryDurationMs: null,
       });
+    } finally {
+      if (inFlightQuery === call) inFlightQuery = null;
     }
+  },
+
+  /**
+   * Stops the statement, not just the waiting: the bridge call carries a Go
+   * context that Wails cancels for us. The rejection that follows is a
+   * CancelError, which executeQuery drops without touching the result.
+   */
+  cancelQuery: () => {
+    const call = inFlightQuery;
+    if (!call) return;
+    inFlightQuery = null;
+    set({ runningQuery: false, queryStartTime: null, queryStatus: "" });
+    call.cancel();
   },
 
   clearQueryResult: () => set({ queryResult: null }),

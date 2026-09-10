@@ -12,7 +12,7 @@ import { SavedQueriesView } from "./SavedQueriesView";
  */
 describe("Database tab views, first paint", () => {
   it.each([
-    ["activity", <LiveActivityView />, "No Active Queries Running"],
+    ["activity", <LiveActivityView />, "No active queries running"],
     ["history", <QueryHistoryView />, "No queries recorded"],
     ["saved", <SavedQueriesView />, "No saved queries yet"],
   ])("%s shows a skeleton, not the empty copy", (_name, view, emptyCopy) => {

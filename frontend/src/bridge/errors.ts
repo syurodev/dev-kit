@@ -89,3 +89,12 @@ export function toAppError(error: unknown): AppError {
 export function errorMessage(error: unknown): string {
   return toAppError(error).message;
 }
+
+/**
+ * True for the rejection @wailsio/runtime produces when a call is cancelled
+ * (see callBridgeCancellable). A cancelled call is something the user asked
+ * for, so it must not land in an error card — callers drop it silently.
+ */
+export function isCancelError(error: unknown): boolean {
+  return error instanceof Error && error.name === "CancelError";
+}

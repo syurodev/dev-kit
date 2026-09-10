@@ -9,6 +9,10 @@ import {
   CheckCircle2,
   Lock,
 } from "lucide-react";
+import { EmptyState } from "@/components/ui/empty-state";
+import { useVirtualRows } from "@/components/ui/virtual-rows";
+
+const SESSION_ROW_HEIGHT = 42;
 import { Button } from "@/components/ui/button";
 import { ListSkeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
@@ -128,6 +132,10 @@ export function LiveActivityView() {
       s.application.toLowerCase().includes(search.toLowerCase())
   );
 
+  // A busy server can report hundreds of sessions; past 100 the table windows
+  // (frontend performance 6.3). Rows are py-2.5 around a 17px line box, so 42.
+  const sessionRows = useVirtualRows(filtered.length, SESSION_ROW_HEIGHT);
+
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden select-none">
       {/* Header Toolbar */}
@@ -183,20 +191,13 @@ export function LiveActivityView() {
       )}
 
       {/* Main Table / Empty State */}
-      <div className="flex-1 overflow-auto">
+      <div ref={sessionRows.scrollRef} className="flex-1 overflow-auto scrollbar-gutter-stable">
         {engineHasNoSessions ? (
-          <div className="h-full flex flex-col items-center justify-center text-center p-8 text-text-tertiary">
-            <div className="w-12 h-12 rounded-xl bg-surface-raised border border-border flex items-center justify-center mb-3">
-              <Activity className="w-6 h-6 text-text-secondary" />
-            </div>
-            <h3 className="text-title-14 text-text-primary mb-1">
-              {profile?.engine === "sqlite" ? "SQLite does not report sessions" : "This engine does not report sessions"}
-            </h3>
-            <p className="text-body-13 max-w-sm text-text-secondary">
-              There is no server and no connection pool, so there is nothing to inspect.
-              Activity is available on PostgreSQL, MySQL and MariaDB profiles.
-            </p>
-          </div>
+          <EmptyState
+            icon={Activity}
+            title={profile?.engine === "sqlite" ? "SQLite does not report sessions" : "This engine does not report sessions"}
+            body="There is no server and no connection pool, so there is nothing to inspect. Activity is available on PostgreSQL, MySQL and MariaDB profiles."
+          />
         ) : sessions === null ? (
           <ListSkeleton />
         ) : filtered.length > 0 ? (
@@ -214,7 +215,10 @@ export function LiveActivityView() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border/40 text-text-primary">
-              {filtered.map((s) => {
+              {/* Spacer rows, not absolute positioning: see virtual-rows. */}
+              {sessionRows.padTop > 0 && <tr style={{ height: sessionRows.padTop }} aria-hidden />}
+              {sessionRows.indices.map((i) => {
+                const s = filtered[i];
                 const hasBlockers = s.blockedBy && s.blockedBy.length > 0;
                 return (
                   <tr
@@ -281,20 +285,17 @@ export function LiveActivityView() {
                   </tr>
                 );
               })}
+              {sessionRows.padBottom > 0 && (
+                <tr style={{ height: sessionRows.padBottom }} aria-hidden />
+              )}
             </tbody>
           </table>
         ) : (
-          <div className="h-full flex flex-col items-center justify-center text-center p-8 text-text-tertiary">
-            <div className="w-12 h-12 rounded-xl bg-surface-raised border border-border flex items-center justify-center mb-3">
-              <Activity className="w-6 h-6 text-text-secondary" />
-            </div>
-            <h3 className="text-title-14 text-text-primary mb-1">
-              No Active Queries Running
-            </h3>
-            <p className="text-body-13 max-w-sm text-text-secondary">
-              This server currently has no long-running or blocked queries. Activity snapshots are taken on-demand when you refresh.
-            </p>
-          </div>
+          <EmptyState
+            icon={Activity}
+            title="No active queries running"
+            body="This server currently has no long-running or blocked queries. Activity snapshots are taken on-demand when you refresh."
+          />
         )}
       </div>
 

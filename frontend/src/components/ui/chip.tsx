@@ -18,7 +18,10 @@ export function Chip({
   return (
     <span
       className={cn(
-        "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-code-11 whitespace-nowrap",
+        // A chip's whole job is to change — connected to disconnected, a
+        // count going up — so the colour change gets the fast token rather
+        // than snapping (smoothness 4.4).
+        "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-code-11 whitespace-nowrap transition-colors duration-(--motion-fast) ease-(--ease-out-strong)",
         tone === "danger"
           ? "border-(--border-danger) bg-(--feedback-danger-soft) text-status-danger"
           : "border-border-subtle bg-surface-raised text-text-secondary",

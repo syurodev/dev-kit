@@ -574,7 +574,7 @@ export function DatabaseSidebar() {
         </span>
       ) : null}
 
-      <div className="min-h-0 flex-1 overflow-y-auto pb-2">
+      <div className="min-h-0 flex-1 overflow-y-auto scrollbar-gutter-stable pb-2">
         {profiles.length === 0 && !loadingProfiles ? (
           <div className="px-4 py-6 text-center text-body-12 text-text-tertiary">
             <p>No connections configured.</p>

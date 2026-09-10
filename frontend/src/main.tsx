@@ -31,6 +31,14 @@ if ('_wails' in window) {
   }
 }
 
+// Dev-only instrumentation (smoothness 9). Dynamic, so the chunk never lands
+// in the bundle the performance budget measures; the localStorage switch is
+// what makes it reachable in a production build when a "it feels janky"
+// report needs numbers.
+if (import.meta.env.DEV || localStorage.getItem('devkitPerf') === '1') {
+  void import('./lib/perfTrace').then((m) => m.installPerfTrace())
+}
+
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
     <App />

@@ -22,7 +22,14 @@ import {
   type PublishOutcome,
 } from "@/bridge/kafka";
 import { listEnvTags, type EnvTag } from "@/bridge/environments";
-import { errorMessage } from "@/bridge/errors";
+import { errorMessage, isCancelError } from "@/bridge/errors";
+import type { CancellableCall } from "@/bridge/client";
+
+/**
+ * The peek currently in flight. Module scope, not store state: a promise is a
+ * handle, not something a component renders.
+ */
+let inFlightPeek: CancellableCall<KafkaMessage[]> | null = null;
 import { parsePartition } from "./kafkaForm";
 
 export type KafkaTab = "topics" | "publish" | "groups";
@@ -57,6 +64,8 @@ type KafkaState = {
   peeked: boolean;
   peekDurationMs: number | null;
   peekError: string;
+  /** Guards against a slow peek landing after a newer one (smoothness 5). */
+  peekRunId: number;
 
   groups: KafkaConsumerGroup[];
   groupsLoading: boolean;
@@ -81,6 +90,7 @@ type KafkaState = {
   selectTopic: (name: string) => Promise<void>;
   setPeek: (patch: Partial<Pick<KafkaState, "peekPartition" | "peekLimit" | "peekOffset">>) => void;
   peek: () => Promise<void>;
+  cancelPeek: () => void;
   refreshGroups: () => Promise<void>;
   setPublish: (patch: Partial<PublishForm>) => void;
   publishMessage: () => Promise<void>;
@@ -124,6 +134,7 @@ export const useKafkaStore = create<KafkaState>((set, get) => ({
   peekLimit: 50,
   peekOffset: -1,
   peeking: false,
+  peekRunId: 0,
   groupsLoading: false,
   publish: { topic: "", key: "", payload: "", partition: "" },
   publishing: false,
@@ -231,16 +242,38 @@ export const useKafkaStore = create<KafkaState>((set, get) => ({
   peek: async () => {
     const { selectedTopic, peekPartition, peekLimit, peekOffset } = get();
     if (!selectedTopic) return;
-    set({ peeking: true, peekError: "", inspected: null });
+    const runId = get().peekRunId + 1;
+    // messages and peekDurationMs survive: the previous table stays on screen,
+    // dimmed, until this peek answers (smoothness 5).
+    set({ peeking: true, peekError: "", inspected: null, peekRunId: runId });
     const startedAt = Date.now();
+    const call = peekKafkaMessages(selectedTopic, peekPartition, peekLimit, peekOffset);
+    inFlightPeek = call;
     try {
-      const messages = await peekKafkaMessages(selectedTopic, peekPartition, peekLimit, peekOffset);
-      set({ messages, peeked: true, peekDurationMs: Date.now() - startedAt });
+      const messages = await call;
+      if (get().peekRunId !== runId) return;
+      set({ messages, peeked: true, peekDurationMs: Date.now() - startedAt, peeking: false });
     } catch (e) {
-      set({ messages: [], peeked: true, peekError: errorMessage(e) });
+      if (get().peekRunId !== runId) return;
+      if (isCancelError(e)) {
+        set({ peeking: false });
+        return;
+      }
+      // The rows already on screen came out of the broker and are still true;
+      // the failure belongs beside them, not in place of them.
+      set({ peeked: true, peekError: errorMessage(e), peeking: false });
     } finally {
-      set({ peeking: false });
+      if (inFlightPeek === call) inFlightPeek = null;
     }
+  },
+
+  /** Stops the peek at the broker: the bridge call carries a Go context. */
+  cancelPeek: () => {
+    const call = inFlightPeek;
+    if (!call) return;
+    inFlightPeek = null;
+    set({ peeking: false });
+    call.cancel();
   },
 
   refreshGroups: async () => {

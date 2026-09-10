@@ -10,6 +10,7 @@ import {
   Radio,
   Shield,
   ShieldAlert,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -62,9 +63,12 @@ export function DatabaseHeader() {
     if (!selectedProfileId) return;
     setTesting(true);
     setTestResult(null);
+    const startedAt = Date.now();
     try {
       await testConnection(selectedProfileId);
-      setTestResult({ ok: true, message: "Connected successfully" });
+      // The number is the point: a connection that takes 40 ms and one that
+      // takes 4 s are different facts about the same "Connected" (smoothness 5).
+      setTestResult({ ok: true, message: `Connected successfully in ${Date.now() - startedAt} ms` });
     } catch (e) {
       setTestResult({ ok: false, message: errorMessage(e) });
     } finally {
@@ -143,6 +147,7 @@ export function DatabaseHeader() {
               onClick={handleTest}
               disabled={testing}
             >
+              {testing && <Loader2 className="size-3.5 animate-spin" />}
               {testing ? "Testing…" : "Test connection"}
             </Button>
 

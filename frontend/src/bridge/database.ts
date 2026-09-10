@@ -1,4 +1,4 @@
-import { callBridge } from "./client";
+import { callBridge, callBridgeCancellable, type CancellableCall } from "./client";
 import { AppService } from "../../bindings/devkit/internal/bridge";
 
 export type ConnectionProfile = {
@@ -269,16 +269,20 @@ export function testConnection(id: string): Promise<void> {
   return callBridge(() => AppService.DBTestConnection(id) as Promise<void>);
 }
 
-export function runQuery(id: string, sql: string): Promise<QueryResult> {
-  return callBridge(async () => {
-    const result = await AppService.DBQuery(id, sql);
-    return {
+/**
+ * Cancellable: DBQuery takes a context all the way down to the driver, so
+ * stopping the promise stops the statement (see callBridgeCancellable).
+ */
+export function runQuery(id: string, sql: string): CancellableCall<QueryResult> {
+  return callBridgeCancellable(
+    () => AppService.DBQuery(id, sql),
+    (result) => ({
       columns: result.columns ?? [],
       rows: (result.rows ?? []).map((r) => (r ?? []).map((c) => c ?? "")),
       rowCount: result.row_count,
       truncated: result.truncated,
-    };
-  });
+    }),
+  );
 }
 
 export function saveExportFile(suggestedName: string, content: string): Promise<string> {

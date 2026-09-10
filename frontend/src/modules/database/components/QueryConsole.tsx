@@ -15,6 +15,7 @@ import {
   Columns3,
   List,
   KeyRound,
+  Loader2,
 } from "lucide-react";
 import { sql as codemirrorSql, PostgreSQL, MySQL, MariaSQL } from "@codemirror/lang-sql";
 import { Button } from "@/components/ui/button";
@@ -35,6 +36,9 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { cn } from "@/lib/utils";
+import { useVirtualRows } from "@/components/ui/virtual-rows";
+
+const RESULT_ROW_HEIGHT = 36;
 import { copyText } from "../../../bridge/clipboard";
 import { requestVaultUnlock } from "@/workbench/vaultUnlockRequest";
 import { isVaultLockedError } from "../errorStates";
@@ -87,6 +91,7 @@ export function QueryConsole() {
     queryStartTime,
     queryError,
     executeQuery,
+    cancelQuery,
     clearQueryError,
     schemaSnapshot,
     setInspectedCell,
@@ -106,6 +111,7 @@ export function QueryConsole() {
       queryStartTime: s.queryStartTime,
       queryError: s.queryError,
       executeQuery: s.executeQuery,
+      cancelQuery: s.cancelQuery,
       clearQueryError: s.clearQueryError,
       schemaSnapshot: s.schemaSnapshot,
       setInspectedCell: s.setInspectedCell,
@@ -115,6 +121,10 @@ export function QueryConsole() {
       setConsoleEditorSize: s.setConsoleEditorSize,
     }))
   );
+
+  // Result sets cap at 200 rows today but the cap is a setting; past 100 the
+  // table windows (frontend performance 6.3). Rows are h-9, so 36px each.
+  const resultRows = useVirtualRows(queryResult?.rows.length ?? 0, RESULT_ROW_HEIGHT);
 
   const [elapsed, setElapsed] = useState(0);
   const [activePlan, setActivePlan] = useState<QueryPlan | null>(null);
@@ -252,14 +262,27 @@ export function QueryConsole() {
             Export
           </Button>
         )}
+        {/* The wait belongs in the control that started it (smoothness 5), and
+            Cancel appears beside it rather than replacing it — the Run button
+            keeps its place in the row so nothing else shifts. */}
+        {runningQuery && (
+          <Button variant="outline" size="default" className="bg-surface-raised" onClick={cancelQuery}>
+            <XCircle className="size-3.5" />
+            Cancel
+          </Button>
+        )}
         <Button
           variant="default"
           size="default"
           onClick={() => void executeQuery()}
           disabled={runningQuery || !selectedProfileId}
         >
-          <Play className="size-3.5 fill-current" />
-          Run
+          {runningQuery ? (
+            <Loader2 className="size-3.5 animate-spin" />
+          ) : (
+            <Play className="size-3.5 fill-current" />
+          )}
+          {runningQuery ? "Running…" : "Run"}
           <span className="text-code-11 opacity-65">{shortcut("Enter")}</span>
         </Button>
       </div>
@@ -405,17 +428,27 @@ export function QueryConsole() {
           )}
 
           {queryResult ? (
-            <div className="flex min-h-0 flex-1 flex-col">
+            /* The previous result stays put while the next statement runs and
+               is only dimmed (smoothness 5, "no clearing the old result"). It
+               is also inert: clicking a cell of a table that is about to be
+               replaced opens an inspector on stale data. */
+            <div
+              className={cn(
+                "flex min-h-0 flex-1 flex-col",
+                runningQuery && "pointer-events-none opacity-60 transition-opacity duration-(--motion-base)",
+              )}
+            >
               {/* 742:36–742:39: "200 rows  412 ms" and the cap chip. */}
               <div className="flex h-9 shrink-0 items-center gap-6">
                 <span className="text-body-13-medium text-text-primary">
-                  {queryResult.rowCount} {queryResult.rowCount === 1 ? "row" : "rows"}
+                  <span className="tabular-nums">{queryResult.rowCount}</span>{" "}
+                  {queryResult.rowCount === 1 ? "row" : "rows"}
                 </span>
                 {queryDurationMs != null && (
-                  <span className="text-body-13-medium text-text-primary">{queryDurationMs} ms</span>
+                  <span className="text-body-13-medium text-text-primary tabular-nums">{queryDurationMs} ms</span>
                 )}
                 <span className="text-caption-11 text-text-tertiary">
-                  {queryResult.columns.length} columns
+                  <span className="tabular-nums">{queryResult.columns.length}</span> columns
                 </span>
                 <span className="flex-1" />
                 {queryResult.truncated && (
@@ -426,7 +459,10 @@ export function QueryConsole() {
               </div>
 
               {/* result (743:8): a well card; header on surface/raised. */}
-              <div className="min-h-0 flex-1 overflow-auto rounded-md border border-border-subtle bg-surface-well">
+              <div
+                ref={resultRows.scrollRef}
+                className="min-h-0 flex-1 overflow-auto scrollbar-gutter-stable rounded-md border border-border-subtle bg-surface-well"
+              >
                 <table className="w-full border-collapse text-left text-code-12" aria-label="Query results">
                   <thead className="sticky top-0 z-10 bg-surface-raised">
                     <tr>
@@ -466,7 +502,11 @@ export function QueryConsole() {
                     </tr>
                   </thead>
                   <tbody>
-                    {queryResult.rows.map((row, i) => (
+                    {/* Spacer rows, not absolute positioning: see virtual-rows. */}
+                    {resultRows.padTop > 0 && <tr style={{ height: resultRows.padTop }} aria-hidden />}
+                    {resultRows.indices.map((i) => {
+                      const row = queryResult.rows[i];
+                      return (
                       <tr key={i} className="group transition-colors hover:bg-surface-raised/60">
                         {row.map((cell, j) => {
                           const colName = queryResult.columns[j] || `col_${j}`;
@@ -522,7 +562,11 @@ export function QueryConsole() {
                           );
                         })}
                       </tr>
-                    ))}
+                      );
+                    })}
+                    {resultRows.padBottom > 0 && (
+                      <tr style={{ height: resultRows.padBottom }} aria-hidden />
+                    )}
                   </tbody>
                 </table>
               </div>
