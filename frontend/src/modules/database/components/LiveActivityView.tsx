@@ -18,6 +18,7 @@ import { ListSkeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { useShallow } from "zustand/react/shallow";
 import { useDatabaseStore } from "../databaseStore";
+import { useIsActiveDocument } from "../useIsActiveDocument";
 import {
   listActivity,
   cancelQuery,
@@ -28,13 +29,17 @@ import { errorMessage } from "../../../bridge/errors";
 
 export function LiveActivityView() {
   const queryClient = useQueryClient();
-  const { profiles, selectedProfileId, activeTab } = useDatabaseStore(
+  const { profiles, selectedProfileId } = useDatabaseStore(
     useShallow((s) => ({
       profiles: s.profiles,
       selectedProfileId: s.selectedProfileId,
-      activeTab: s.activeTab,
     }))
   );
+  // Being mounted is not permission to query a production server. A module's
+  // inactive tabs stay mounted so their state survives a switch, so what used
+  // to be `activeTab === "activity"` has to become "is my tab the one on
+  // screen" now that this view is a document.
+  const isActive = useIsActiveDocument("database.activity");
 
   const [statusMessage, setStatusMessage] = useState("");
   const [mutationError, setMutationError] = useState("");
@@ -63,7 +68,7 @@ export function LiveActivityView() {
         return (b.duration || "").localeCompare(a.duration || "");
       });
     },
-    enabled: Boolean(selectedProfileId) && activeTab === "activity",
+    enabled: Boolean(selectedProfileId) && isActive,
     placeholderData: (previousData) => previousData,
     // A snapshot is on-demand by its own copy: re-take it on every entry.
     staleTime: 0,
