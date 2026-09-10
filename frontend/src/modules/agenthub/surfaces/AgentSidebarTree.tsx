@@ -44,9 +44,9 @@ export type AgentSidebarTreeProps = {
  * line down its left edge — the line is what makes the chain readable when two
  * siblings sit next to each other, and padding alone does not draw it.
  *
- * The footer is where the waiting count lives. That is why Agent / Row carries
- * no per-row badge: one number for the whole tree, in the place you look when
- * you are deciding whether anything needs you at all.
+ * The waiting count lives in the footer, which is why Agent / Row carries no
+ * per-row badge: one number for the whole tree, where you look when deciding
+ * whether anything needs you at all.
  */
 
 /**

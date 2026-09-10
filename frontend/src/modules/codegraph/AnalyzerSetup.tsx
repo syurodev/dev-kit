@@ -18,14 +18,12 @@ import { createProgressBuffer } from "@/lib/progressBuffer";
 /**
  * What CodeGraph shows when its analyzer has not been built.
  *
- * This replaces a red line reading "connection_failed: CodeGraph analyzer not
- * configured." — true, unactionable, and shown in a sidebar the user was not
- * looking at. Nothing in the module works without an analyzer, so the setup
- * takes the whole canvas rather than hiding in a toast.
+ * Nothing in the module works without an analyzer, so the setup takes the whole
+ * canvas rather than a red "connection_failed" line in a sidebar nobody is
+ * looking at.
  *
- * It is per-language by construction: CodeGraph analyzes Java today and is
- * meant to grow, and a machine can be ready for one language and not another.
- * Each toolchain gets its own card, its own requirement list and its own build.
+ * Per-language by construction: a machine can be ready for one language and not
+ * another, so each toolchain gets its own card, requirements and build.
  */
 export function AnalyzerSetup({
   statuses,

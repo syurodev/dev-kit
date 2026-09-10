@@ -23,9 +23,8 @@ const TerminalPane = lazy(() =>
  * one thing tabs exist to avoid. xterm re-fits itself when a hidden pane comes
  * back, because its size changes from zero and the ResizeObserver fires.
  *
- * TabsContent is deliberately not used: Radix unmounts inactive content, which
- * is exactly the behaviour above rules out. The tab strip still comes from the
- * shared component so it matches every other tab row in the app.
+ * Not TabsContent: Radix unmounts inactive content, which is what the paragraph
+ * above rules out. The tab strip is still the shared component.
  */
 export function TerminalWorkspace({ moduleContent }: { moduleContent?: React.ReactNode }) {
   const tabs = useTerminalTabsStore((s) => s.tabs);

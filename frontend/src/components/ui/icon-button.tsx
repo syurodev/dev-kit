@@ -12,10 +12,8 @@ import { cn } from "@/lib/utils";
  * a white 10% hairline — not a transparent button; those are exactly
  * --glass-panel-bg / --glass-border. Its icon is text/primary, not secondary.
  *
- * There is no sm, lg, secondary or outline here on purpose. The 28px icon
- * affordance in the titlebar is `Titlebar Action` (674:47115), its own
- * component with its own focus ring, and it arrives in step 4 of the reconcile
- * plan. Folding it in here would duplicate the concept before it is built.
+ * No sm, lg, secondary or outline on purpose: the titlebar's 28px affordance is
+ * `Titlebar Action` (674:47115), its own component with its own focus ring.
  */
 const iconButtonVariants = cva(
   "group/icon-button inline-flex shrink-0 items-center justify-center size-(--control-height-md) rounded-md p-0 transition-all outline-none select-none disabled:pointer-events-none disabled:opacity-38 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-info [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-(--icon-16)",

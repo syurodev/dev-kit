@@ -19,12 +19,11 @@ export type CancellableCall<T> = Promise<T> & {
  * callBridge for the handful of operations that are slow enough to need a
  * Cancel button (smoothness 5).
  *
- * `callBridge` awaits inside an async function, which turns the binding's
- * CancellablePromise into a plain one and throws `cancel` away. This keeps the
- * chain cancellable instead: @wailsio/runtime's `Call` sends a `CancelCall`
- * message carrying the call id, and the Go bridge cancels the context it
- * handed to the driver — so cancelling here really does stop the query,
- * the peek or the connect, not just the UI's interest in the answer.
+ * `callBridge` awaits inside an async function, which flattens the binding's
+ * CancellablePromise and throws `cancel` away. This keeps the chain cancellable:
+ * @wailsio/runtime's `Call` sends a `CancelCall` with the call id and the Go
+ * bridge cancels the context it gave the driver, so cancelling really stops the
+ * query, peek or connect — not just the UI's interest in the answer.
  *
  * `then` on a CancellablePromise propagates cancellation up the chain, so the
  * mapped promise returned here cancels the underlying call. A CancelError is

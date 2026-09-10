@@ -78,21 +78,18 @@ const ACTION = "rounded-sm p-0.5 text-text-tertiary hover:text-text-primary";
 /**
  * One tree, DataGrip-shaped: folder → connection → schema → table → column.
  *
- * It used to be two stacked panes, Connections over Schema, which forced the
- * rail to answer "how do I split the height" before it could answer anything
- * else — one connection left an empty column while 173 tables scrolled in the
- * bottom half. Nesting the schema under the connection it belongs to removes
- * the question: every level is the same list, and depth carries the meaning
- * the two headings used to.
+ * One tree rather than two stacked panes: separate Connections and Schema panes
+ * force the rail to answer "how do I split the height" first, and one connection
+ * leaves an empty column while 173 tables scroll below it. Nested, every level
+ * is the same list and depth carries what the headings would have.
  *
  * The one place this is not DataGrip: DevKit indexes a single connection at a
  * time (`schemaSnapshot` belongs to `selectedProfileId`), so only the selected
  * connection unfolds. Opening another one selects it, which is what indexes it.
  *
- * Not drawn, for want of data rather than taste: DataGrip's `tables` / `views`
- * grouping folders, and `keys` / `indexes` under a table. The snapshot holds
- * tables and their columns and nothing else, and a wrapper folder whose only
- * possible child is the group below it is a click that buys nothing.
+ * Not drawn for want of data: DataGrip's `tables`/`views` grouping folders and
+ * `keys`/`indexes` under a table. The snapshot holds tables and columns only,
+ * and a folder whose only child is the group below it is a click for nothing.
  */
 export function DatabaseSidebar() {
   const {

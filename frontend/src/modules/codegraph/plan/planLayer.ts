@@ -4,14 +4,12 @@ import { type Layer } from "../graph/tokens";
  * Guesses a planned node's layer from the name the agent committed to.
  *
  * The real classifier reads Spring annotations (LayerClassifier.java), which a
- * class that does not exist yet cannot have — so at plan time the intended name
- * is the only signal there is. This is explicitly a guess about intent, not a
- * claim about code: once the class exists, its status tells you whether the
- * code matches, and the real graph classifies it from its annotations.
+ * class that does not exist yet cannot have, so at plan time the intended name
+ * is the only signal. A guess about intent, not a claim about code.
  *
- * Falls back to "unknown", which is also what the analyzer returns for any
- * class without a layer annotation — so an unrecognised name looks exactly
- * like the real thing rather than like a failure.
+ * Falls back to "unknown", which is also what the analyzer returns for a class
+ * without a layer annotation — so an unrecognised name looks like the real
+ * thing rather than like a failure.
  */
 export function inferPlanLayer(fqn: string): Layer {
   // Compare on the simple class name: a package called `.service.` should not

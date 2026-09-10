@@ -10,9 +10,8 @@ export type DiffLine = {
  * inserting one line at the top would otherwise mark every line below it as
  * both removed and added, which is the opposite of what a history is for.
  *
- * Lines, not words. A note body is prose and the question the panel answers is
- * "what changed between these two saves", which reads better whole-line — the
- * same call the git-style markers in ResolvePanel already make.
+ * Lines, not words: the panel answers "what changed between these two saves",
+ * which reads better whole-line — the call ResolvePanel's markers already make.
  */
 export function lineDiff(before: string, after: string): DiffLine[] {
   const a = before.split("\n");

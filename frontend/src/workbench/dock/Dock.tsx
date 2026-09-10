@@ -173,18 +173,16 @@ export function Dock({ modules, activeModuleId, onSelectModule }: DockProps) {
 
   // Centered on the box so both forms stay put while it springs around them.
   //
-  // The fades are staggered against the spring rather than run alongside it,
-  // because a form is only ever as wide as the box at the two ENDS of a morph.
-  // Fading the icons in from t0 left the outermost two visibly outside the
-  // pill for the first ~100ms. So each form is on screen only while the box is
-  // big enough to hold it: opening, the icons wait for the spring to overshoot
-  // past its target (280px by 150ms, target 262); closing, they leave first
-  // and the box waits them out before it starts shrinking. The dashes take the
-  // same delay on the way in so the two never overlap at half opacity.
+  // The fades are staggered against the spring, not run alongside it: a form is
+  // only as wide as the box at the two ENDS of a morph, so fading icons in from
+  // t0 left the outermost two outside the pill for ~100ms. Each form is on
+  // screen only while the box can hold it — opening, the icons wait for the
+  // spring to overshoot (280px by 150ms, target 262); closing, they leave first
+  // and the box waits them out. The dashes take the same delay inbound so the
+  // two never overlap at half opacity.
   //
-  // Checked frame by frame in a browser, both directions: no icon and no dash
-  // ever crosses the pill's edge. Change a duration or a delay here and that
-  // stops being true.
+  // Verified frame by frame both directions: nothing crosses the pill's edge.
+  // Change a duration or delay here and that stops being true.
   const form =
     "absolute top-1/2 left-1/2 w-max -translate-x-1/2 -translate-y-1/2 motion-safe:transition-opacity";
 

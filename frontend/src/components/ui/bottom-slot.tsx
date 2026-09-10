@@ -18,10 +18,9 @@ import { ShellResizeHandle } from "@/components/ui/resize-handle";
  * is currently shown — that is a global toggle (useBottomSlotStore), so a
  * module registers unconditionally and the shell decides visibility.
  *
- * Reuses SidebarModuleIdContext rather than introducing a second identical
- * context: it answers "which module is this subtree", which is the same
- * question both slots ask, and WorkbenchViews already provides it once per
- * module subtree.
+ * Reuses SidebarModuleIdContext rather than a second identical context: both
+ * slots ask "which module is this subtree", and WorkbenchViews already provides
+ * it once per module subtree.
  *
  * Deliberately reads only the store's setter: see stores/bottomContent.ts for
  * why subscribing to the content itself here would deadlock the render loop.
@@ -51,10 +50,9 @@ const MAX_BOTTOM_HEIGHT = 600;
  * cutting across the sidebar. The vertical extent is unchanged.
  *
  * The dock floats over this surface on purpose (Dock.tsx is `fixed bottom-2`,
- * and the Figma places the pill inside the bottom surface's bounds) — there is
- * deliberately no bottom padding here to make room for it. Note the dock
- * centres on the *window*, not on this column, so with the sidebar open the
- * pill no longer sits over this surface's own centre.
+ * and Figma places the pill inside the bottom surface's bounds), so there is no
+ * bottom padding here to make room for it. It centres on the *window*, not this
+ * column, so with the sidebar open the pill is off this surface's own centre.
  */
 export function BottomSlotSurface({ activeModuleId }: { activeModuleId: string | null }) {
   const open = useBottomSlotStore((s) => s.open);

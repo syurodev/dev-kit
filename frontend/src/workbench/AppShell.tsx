@@ -11,13 +11,10 @@ import { AgentCompanionSlot } from "./AgentCompanionSlot";
  * children: a titlebar instance at 0,0 1440x40, a content-row at 8,40, and a
  * dock at 666,879.
  *
- * This file exists because that boundary kept getting lost. The shell was ~40
- * lines of layout buried inside a 785-line Workbench that also owned tab state,
- * module mounting, the command palette and the settings modal, so no single
- * place could be compared against the Figma node. A reconcile pass split along
- * file sizes instead of that boundary and left a gap nothing owned — the window
- * gutter, the translucent content card and the traffic-light alignment all lived
- * in it.
+ * The file exists to keep that boundary findable: with the layout buried inside
+ * Workbench there was no single place to compare against the node, and the
+ * window gutter, the content card and the traffic-light alignment fell into a
+ * gap nothing owned.
  *
  * What is layout lives here. What is state stays in Workbench and arrives
  * through the slots below.

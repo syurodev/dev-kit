@@ -18,12 +18,11 @@ export type NodeInspectorProps = {
  * the 30px icon ring, the short name in Title/13 over "SERVICE · METHOD" in
  * caps, then the Detail / Data flow strip and the body.
  *
- * It lived in a canvas popover briefly and every bug that followed came from
- * that: a fixed-size box clipped at the viewport edge, the canvas swallowed the
- * wheel, and code wrapped badly at 400px. Source and a call trace both need
- * width, height and their own scroll, and both outlive a glance at one node —
- * which is a panel, not a popover. Comments stay a popover, on the plan canvas:
- * different object, shorter life, and anchoring is the point there.
+ * A panel, not a canvas popover: source and a call trace need width, height and
+ * their own scroll, and both outlive a glance at one node. In a popover the box
+ * clipped at the viewport edge, the canvas swallowed the wheel, and code wrapped
+ * badly at 400px. Comments stay a popover on the plan canvas — shorter life, and
+ * anchoring is the point there.
  *
  * No close button here — SplitPanel draws its own, hence the header's right
  * padding.

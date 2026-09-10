@@ -29,10 +29,9 @@ function ago(unixSeconds: number): string {
  * the thread glyph and the node's FQN; comments as 22px avatar + caps meta +
  * body; a composer with the primary send square; the delivery note under it.
  *
- * This one stays a popover while Detail and Data flow moved to the right
- * panel, and the split is not arbitrary: a comment is short, written about the
- * node you are pointing at, and done with when you close it. Anchoring is the
- * point. Detail and a call trace are long, scrolling, and outlive the glance.
+ * A popover while Detail and Data flow are a panel, and the split is not
+ * arbitrary: a comment is short, about the node you are pointing at, and done
+ * when you close it — anchoring is the point. A call trace outlives the glance.
  *
  * placeInspector keeps it on screen — it flips sides, picks the vertical align
  * that does not clip, and gives up on anchoring entirely when no side has room.

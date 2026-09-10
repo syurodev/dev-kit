@@ -1,11 +1,10 @@
 /**
  * Where to put the node inspector so it stays readable in a small window.
  *
- * NodeToolbar anchors to a node with no idea the viewport exists: a fixed-size
- * panel beside a node near an edge simply runs off it, clipped on two sides at
- * once. This decides, from geometry alone, whether there is still room to
- * anchor — and gives up on anchoring when there is not, rather than rendering
- * a panel half outside the canvas.
+ * NodeToolbar anchors to a node with no idea the viewport exists, so a panel
+ * beside a node near an edge runs off it. This decides from geometry alone
+ * whether there is room to anchor, and gives up rather than render half
+ * outside the canvas.
  *
  * Pure on purpose: every rule below is a pixel comparison, and pixel
  * comparisons are worth testing without mounting React Flow.

@@ -14,10 +14,10 @@ export type AgentMessageRichProps = {
 /**
  * Agent / Message Rich — Figma `1060:3171`.
  *
- * The wide variant of Agent / Message: no avatar, full width, and the bubble
- * holds structured prose instead of one paragraph. This is the shape an agent's
- * actual answer takes — a heading, a couple of lists, a table of before/after
- * values — and the plain bubble was printing the markdown source for all of it.
+ * The wide variant of Agent / Message: no avatar, full width, structured prose
+ * instead of one paragraph. This is the shape an agent's answer actually takes —
+ * a heading, some lists, a table of before/after values — which the plain bubble
+ * can only print as markdown source.
  *
  * Tones are Figma's: body at Body/13 primary, list markers in the tertiary tier
  * so the text column stays clean, inline code on surface/base (the same well

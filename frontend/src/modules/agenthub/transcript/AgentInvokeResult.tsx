@@ -21,13 +21,12 @@ export type AgentInvokeResultProps = {
  * neither reached the screen. The file list is the part that matters — it is
  * what a master agent hands you to review after a worker finishes."
  *
- * So the files are full-width rows with an Open diff affordance, not the little
- * inline chips a tool call uses. A chip says a file was touched in passing; a
- * row is a queue of things to review.
+ * So the files are full-width rows with an Open diff affordance, not a tool
+ * call's inline chips: a chip says a file was touched in passing, a row is a
+ * queue of things to review.
  *
- * The head is "{agent} returned", not "Task Complete" — with a swarm running,
- * an unattributed completion tells you nothing, the same reason the permission
- * request names who is asking.
+ * The head is "{agent} returned", not "Task Complete" — with a swarm running an
+ * unattributed completion tells you nothing.
  */
 export function AgentInvokeResult({
   summary,

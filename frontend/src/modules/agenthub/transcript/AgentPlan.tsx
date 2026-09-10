@@ -14,10 +14,9 @@ export type AgentPlanProps = {
  * statuses (pending / in_progress / completed) so the transcript shows where
  * the agent is, not merely that it made a plan."
  *
- * So the status word is printed, per step, in ACP's own vocabulary. The
- * previous implementation replaced it with a progress bar plus line-through —
- * a bar says how far, not where, and strike-through on a completed step reads
- * as cancelled.
+ * So the status word is printed per step in ACP's own vocabulary, rather than a
+ * progress bar and line-through: a bar says how far, not where, and a struck-out
+ * completed step reads as cancelled.
  *
  * Marks, read off the exported SVGs rather than guessed:
  *   completed    filled — status/success

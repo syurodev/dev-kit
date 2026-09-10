@@ -18,9 +18,8 @@ export type AgentCodeBlockProps = {
  * darker well is the whole idea — it is the same relationship the terminal and
  * the diff use, so all three read as "machine text" without a border each.
  *
- * The head is language, then path, then Copy. There is no collapse chevron:
- * Figma draws none, and nothing in the transcript wired one — a toggle with no
- * caller is a toggle nobody can reach.
+ * The head is language, then path, then Copy. No collapse chevron: Figma draws
+ * none and nothing in the transcript would wire one.
  */
 export function AgentCodeBlock({
   code,

@@ -41,10 +41,9 @@ export type AgentNewSessionProps = {
  * chosen — an agent spawning a child inherits both, and cwd must stay inside
  * the parent's project."
  *
- * So there are exactly two inputs and one read-only inheritance row. The
- * previous implementation also offered a title field and a "switch to mock"
- * escape hatch, neither of which is in the design, and drew its own backdrop
- * with role="dialog" by hand — no focus trap, no escape key, no scroll lock.
+ * So there are exactly two inputs and one read-only inheritance row — no title
+ * field, no mock escape hatch. The Dialog primitive carries the backdrop, focus
+ * trap, escape key and scroll lock that a hand-rolled role="dialog" does not.
  *
  * Error is not a separate layout: the working-directory input takes a danger
  * border and one danger-toned row appears above the actions. Everything else

@@ -20,16 +20,13 @@ import { ShellResizeHandle } from "@/components/ui/resize-handle";
 export const SidebarModuleIdContext = React.createContext<string | null>(null);
 
 /**
- * Layout effect, not effect — the rail has to be in the same paint as the body
+ * Layout effect, not effect — the rail must be in the same paint as the body
  * that registered it (smoothness 2.5). A passive effect writes the store after
- * the commit, and React flushes passive work in a separate task, so the browser
- * is free to paint the module without its rail in between. Measured in headless
- * Chromium with the app's own React: sampling the DOM from rAF (the tick before
- * a frame paints), the rail trails the body by 1 frame in 4 of 5 runs once the
- * module's own commit costs 14 ms, and in 5 of 5 at 20 ms — which is what a
- * real module mount costs. Under a trivial commit the split does not appear,
- * which is why it reads as intermittent rather than always-on. With the layout
- * effect the delta is 0 frames at every load tested.
+ * the commit and React flushes passive work in a separate task, leaving the
+ * browser free to paint the module without its rail. Measured in headless
+ * Chromium: the rail trails the body by a frame in 4 of 5 runs at a 14ms commit
+ * and 5 of 5 at 20ms — a real module mount — but not under a trivial one, which
+ * is why it read as intermittent. With the layout effect the delta is 0.
  *
  * Guarded for SSR: `useLayoutEffect` warns under renderToString, and several
  * module views are rendered that way in tests.

@@ -16,13 +16,12 @@ import { useDatabaseStore } from "../databaseStore";
 /**
  * Figma `DB / Delete Profile Dialog` (576:7817).
  *
- * Deleting a profile used to happen on the first click of a hover icon, with
- * no confirmation anywhere — not in the UI and not behind a capability, since
- * DBDeleteProfile is scoped the same as running a query.
+ * Nothing else gates this: DBDeleteProfile is scoped the same as running a
+ * query, so there is no capability prompt behind it.
  *
  * The dialog's job is not the extra click. It is naming what goes with the
- * profile: the sealed password, the local history, the saved queries. Those
- * are invisible from the sidebar row, so nobody could weigh the loss before.
+ * profile — the sealed password, the local history, the saved queries — none of
+ * which is visible from the sidebar row.
  */
 export function DeleteProfileDialog({
   profile,

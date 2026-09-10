@@ -31,10 +31,9 @@ export type NotesScope = "all" | "ungrouped" | "trash" | `folder:${string}`;
  * MAINTENANCE label with Trash. Ungrouped and every folder are expandable
  * and list their notes underneath as 28px rows indented past the dot column.
  *
- * Expanding is a second click on the selected row, not a separate chevron
- * target: SidebarRow's icon slot sits inside its button, and a button inside
- * a button is not HTML. The chevron reflects the state; the row is the
- * control.
+ * Expanding is a second click on the selected row, not a chevron target:
+ * SidebarRow's icon slot is inside its button, and a button inside a button is
+ * not HTML. The chevron reflects state; the row is the control.
  *
  * Plain markup rather than the shadcn Sidebar components: SidebarMenuButton
  * calls useSidebar() and throws outside a SidebarProvider, so those cannot

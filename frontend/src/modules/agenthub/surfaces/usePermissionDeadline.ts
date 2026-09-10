@@ -8,18 +8,15 @@ import type { PendingPermission } from "../../../bridge/agenthub";
  *
  * The gate is enforced in Go (`Service.mediatePermission` bounds the wait with
  * `PermissionTimeout`, default `interaction.DefaultTimeout`); the request ships
- * `expiresAt` so the surface can show it. Two things follow, and both were
- * wrong in the first implementation:
+ * `expiresAt` so the surface can show it. Two things follow:
  *
- * 1. The countdown starts at `expiresAt`, not at mount. A toast routinely
- *    mounts late — the rail was closed, the user was in another module, the
- *    lazy chunk was still loading — and a clock started at mount shows time the
- *    gate no longer has. A remount would restart it and show even more.
- * 2. Reaching zero does NOT resolve the request. A client that sends a cancel
- *    at zero is a second authority racing the real one, and in the mount-late
- *    case it fires early and kills a request the user still had time to
- *    approve. The gate closes itself; the pending item then disappears from the
- *    event stream on its own.
+ * 1. The countdown starts at `expiresAt`, not at mount. A toast routinely mounts
+ *    late — rail closed, another module, lazy chunk still loading — and a clock
+ *    started at mount shows time the gate does not have; a remount shows more.
+ * 2. Reaching zero does NOT resolve the request. Cancelling at zero is a second
+ *    authority racing the real one, and when the mount was late it fires early
+ *    and kills a request the user could still approve. The gate closes itself,
+ *    and the pending item leaves the event stream on its own.
  */
 export function usePermissionDeadline(
   pending: Pick<PendingPermission, "id" | "createdAt" | "expiresAt">,

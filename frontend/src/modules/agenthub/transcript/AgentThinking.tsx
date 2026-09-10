@@ -17,9 +17,9 @@ export type AgentThinkingProps = {
  * Agent / Thinking — Figma `1029:2742`, collapsed state `1029:2731`.
  *
  * The quietest thing in the transcript: state/soft, no border, one line of
- * Caption/11 in the tertiary tier. It is a receipt that reasoning happened, and
- * it sits between things you actually need to read — a bordered card at
- * surface/base gave it the same weight as a tool call.
+ * Caption/11 in the tertiary tier. It is a receipt that reasoning happened,
+ * sitting between things you actually need to read — a bordered card at
+ * surface/base would give it a tool call's weight.
  *
  * "Thought for 6s", not "Thinking…": by the time the chunk is in the transcript
  * the thinking is over, and a present-tense label on a finished block reads as

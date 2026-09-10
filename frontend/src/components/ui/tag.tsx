@@ -8,15 +8,14 @@ import { cn } from "@/lib/utils";
 /**
  * Tag / Chip (Figma 378:2674) — 74×20, r=6, label Caption/11 Medium.
  *
- * It is a glass chip, not a solid block: white at 6% over whatever is behind,
- * with a candy-blue 8% hairline. Built as an opaque `surface/raised` fill it
- * looks plausible on one background and disappears on another, which is the
- * whole reason the design uses a translucent tier here.
+ * A glass chip, not a solid block: white at 6% over whatever is behind, with a
+ * candy-blue 8% hairline. An opaque `surface/raised` fill looks plausible on one
+ * background and disappears on another, which is why the design uses a
+ * translucent tier here.
  *
- * Figma gives this component no variants, so neither does this. Its padding
- * there is 3/6/3/8 with a 5px gap — all off the 4px grid — so the on-scale
- * 8/8 with a 4px gap is used instead, and the 20px height is fixed rather than
- * derived from padding. Flagged as a Figma-side drift, not copied.
+ * No variants, as in Figma. Its padding there is 3/6/3/8 with a 5px gap — all
+ * off the 4px grid — so on-scale 8/8 with a 4px gap is used instead and the 20px
+ * height is fixed. Flagged as Figma-side drift, not copied.
  */
 const tagVariants = cva(
   "inline-flex h-5 items-center justify-center gap-1 rounded-sm border px-2 bg-white/6 border-status-info/8 text-text-secondary text-caption-11-medium whitespace-nowrap transition-all select-none shrink-0",

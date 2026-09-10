@@ -14,11 +14,10 @@ type AgentPinsState = {
 /**
  * Which agents the user pinned to the top of the swarm tree.
  *
- * Deliberately not a column on agent_sessions: a pin is a per-person view
- * preference, not something about the agent, and putting it in the session row
- * would make it something an agent could read about itself and something the
- * bridge would have to authorize. ui_state is what this app already uses for
- * exactly this kind of state.
+ * Not a column on agent_sessions: a pin is a per-person view preference, not a
+ * fact about the agent, and in the session row it becomes something an agent
+ * could read about itself and the bridge would have to authorize. ui_state is
+ * where this app already keeps such state.
  *
  * Ids of deleted sessions are dropped as they are noticed rather than swept:
  * an id in this list that matches nothing simply never sorts anything.

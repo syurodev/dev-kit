@@ -18,9 +18,8 @@ export type AgentSubagentProps = {
  * the transcript rather than an invented card: state/soft, one line of what it
  * was asked to do, and the state.
  *
- * The alternative was to draw it in the swarm tree beside real sessions. That
- * would have made the sidebar claim you can click into something that does not
- * exist as a session, which is a worse lie than a plain row.
+ * Not in the swarm tree beside real sessions: that would have the sidebar claim
+ * you can click into something which is not a session.
  *
  * Two updates, one card: spawn carries the name and the task, the state update
  * carries only the id and the new state.

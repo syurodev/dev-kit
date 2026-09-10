@@ -76,8 +76,8 @@ export function rowAsJSON(columns: string[], row: string[]): string {
  * The table is Code/12 throughout — header on surface/raised in Medium, the
  * first column primary, the rest secondary, NULL in the warning colour.
  *
- * What the page does not draw and this keeps: Explain, Explain Analyze,
- * Save, the resizable split, and every banner. They work.
+ * Kept though the page does not draw them: Explain, Explain Analyze, Save, the
+ * resizable split and the banners.
  */
 export function QueryConsole() {
   const {

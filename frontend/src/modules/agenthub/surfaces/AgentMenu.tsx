@@ -43,11 +43,9 @@ export type AgentMenuProps = {
  * Only the header text, the glyphs and the data change, so this is one list
  * with two sources rather than two menus.
  *
- * Built on DropdownMenu rather than a positioned div. The version this replaces
- * was a hand-rolled card with its own search box that Figma does not have — and
- * it had no caller at all, so none of it had ever run. Radix brings the
- * positioning, the keyboard walk, the focus trap and the outside-click that a
- * menu needs and that the hand-rolled one had none of.
+ * Built on DropdownMenu rather than a positioned div: Radix brings the
+ * positioning, keyboard walk, focus trap and outside-click a menu needs, none of
+ * which a hand-rolled card gets for free.
  *
  * Surface note: the menu sits on `surface/glass-floating` (72%), not on the
  * `glass-float` (62%) that DropdownMenuContent defaults to. Two different float

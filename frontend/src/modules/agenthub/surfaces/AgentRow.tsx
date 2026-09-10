@@ -28,9 +28,9 @@ export type AgentRowProps = React.ComponentProps<"button"> & {
  *
  * Figma's note removes a whole axis: "Status lives on the nested Agent / State
  * instance, so a row does not need a variant per status." The three variants
- * are only backgrounds; everything a status changes is inside AgentState. The
- * previous implementation had its own StatusIndicator switch, which is the
- * second dot-and-colour table in this module — AgentState is the first.
+ * are only backgrounds; everything a status changes is inside AgentState. A
+ * local status switch here would be a second dot-and-colour table in a module
+ * that already has one.
  *
  * The three fills, read off the rendered node because they are alphas rather
  * than named tokens on the frame:

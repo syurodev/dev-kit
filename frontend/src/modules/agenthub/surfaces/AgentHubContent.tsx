@@ -46,11 +46,9 @@ export type AgentHubContentProps = {
  * Three states, one header, and the header is the whole identity of the agent
  * on one line: vendor mark, name, live state, then the lineage in the quiet
  * tier — "depth 2 · parent auth-refactor · ~/acme/billing-service" is the
- * boundary this agent may act within, which is the thing you check before you
- * let it carry on. The previous implementation had a chevron breadcrumb, a
- * vendor pill, a depth pill, a folder icon and a fourth colour-coded status
- * pill; the pill was a third status vocabulary next to AgentState, and the
- * lineage was scattered across four chips instead of read as one sentence.
+ * boundary this agent may act within, the thing you check before letting it
+ * carry on. One sentence rather than four chips, and no status pill: that would
+ * be a third status vocabulary next to AgentState.
  *
  * Empty has no header and no composer — there is no agent to name and nothing
  * to send to. Error keeps the header but drops "Cancel turn": the turn is

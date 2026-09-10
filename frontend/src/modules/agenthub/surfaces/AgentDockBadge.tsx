@@ -17,9 +17,8 @@ export type AgentDockBadgeProps = {
  * leaves nothing else behind. Waiting shows a count and must be answered;
  * Running is a dot and needs nothing."
  *
- * Both wear a 2px background/app ring. The badge sits on the dock icon, and
- * without the ring a warning-yellow pill on a light icon has no edge — the ring
- * is what makes it read as attached rather than as part of the glyph.
+ * Both wear a 2px background/app ring: on a light dock icon a warning-yellow
+ * pill has no edge without it, and reads as part of the glyph.
  *
  * Running does not pulse. It is the "needs nothing" state, and an animation
  * that never stops is the one thing on the dock you cannot ignore.

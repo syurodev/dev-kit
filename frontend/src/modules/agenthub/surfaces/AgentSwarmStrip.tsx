@@ -26,10 +26,9 @@ export type AgentSwarmStripProps = {
  * and what is waiting; a row of chips switches between them, with the overflow
  * collapsed into a "+N" chip rather than wrapping a 320px rail into three rows.
  *
- * Three chip shapes, and the difference is weight rather than colour: an idle
- * chip has no ground at all, the selected one takes surface/raised with a
- * border/subtle hairline and steps its label up to Medium/primary, and "+N" is
- * the hairline alone.
+ * Three chip shapes, differing by weight rather than colour: idle has no ground,
+ * selected takes surface/raised with a border/subtle hairline and a
+ * Medium/primary label, and "+N" is the hairline alone.
  */
 export function AgentSwarmStrip({
   sessions,

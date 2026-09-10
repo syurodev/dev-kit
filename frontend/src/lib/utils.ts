@@ -5,13 +5,12 @@ import { extendTailwindMerge } from "tailwind-merge"
  * The 18 type utilities declared in index.css. tailwind-merge has to be told
  * they are font sizes.
  *
- * Without this it classifies an unrecognised `text-*` as a colour, decides
- * `text-body-13-medium` and `text-action-primary-foreground` are the same kind
- * of class, and drops whichever came first. Measured in the browser: the
- * primary button rendered near-white #f0f1eb on lime #c6ff34 (~1.3:1, illegible)
- * because its `text-action-primary-foreground` was stripped, and the
- * destructive button lost its danger colour the same way. Nothing failed —
- * `renderToString` + `toContain` cannot see a class that was merged away.
+ * Without this it reads an unrecognised `text-*` as a colour, treats
+ * `text-body-13-medium` and `text-action-primary-foreground` as the same kind of
+ * class, and drops whichever came first. Measured: the primary button rendered
+ * near-white on lime (~1.3:1, illegible) with its foreground class stripped, and
+ * nothing failed — `renderToString` + `toContain` cannot see a merged-away
+ * class.
  */
 const TYPE_UTILITIES = [
   "display-32",

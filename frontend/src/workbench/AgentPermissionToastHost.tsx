@@ -18,8 +18,8 @@ import { useAgentSessionsStore } from "@/stores/agentSessions";
  * - The rail is closed (!chatOpen) OR another module is active and the rail is
  *   focused on a different session.
  *
- * Provides "Open rail" to inspect the full transcript in the companion rail
- * before granting persistent permissions, and "Allow once" for single-turn approval.
+ * "Open rail" reaches the full transcript before granting anything persistent;
+ * "Allow once" approves a single turn.
  */
 export type AgentPermissionToastHostProps = {
   activeModuleId?: string | null;

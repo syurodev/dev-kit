@@ -26,9 +26,6 @@ export type AgentStatus =
  *
  * Closed is the one that is not a token on its own: 0.5x139 + 0.5x29 = 84 on
  * every channel. A closed session is a dimmed idle, not a colour of its own.
- *
- * This existed in Figma and not in code, so the rail and the permission card
- * had each drawn their own dot. It is shared now.
  */
 
 const DOT_CLASS: Record<AgentStatus, string> = {

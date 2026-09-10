@@ -10,10 +10,9 @@ import { cn } from "@/lib/utils";
  * children, and a tree that infers "leaf" from an empty `children` would draw
  * it without a chevron — leaving no way to open it and trigger the fetch.
  *
- * Expansion is the caller's state, not the row's: every node carries its own
- * `expanded` + `onToggle`. The database sidebar keeps that state in its
- * Zustand store because opening a node is what starts a bridge call, and
- * because folder state is persisted across module switches.
+ * Expansion is the caller's state: every node carries its own `expanded` +
+ * `onToggle`. The database sidebar keeps it in Zustand because opening a node
+ * starts a bridge call and folder state outlives a module switch.
  */
 export type TreeNodeData = {
   id: string;

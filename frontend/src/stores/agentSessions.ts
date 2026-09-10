@@ -44,10 +44,10 @@ type AgentSessionsState = {
   sessions: AgentSession[];
   activeSessionId: string;
   /**
-   * The conversations themselves. These used to be useState inside
-   * AgentHubView, which meant leaving the module unmounted the subtree and
-   * threw the transcript away — and, worse, dropped the event subscription so
-   * updates arriving while you were elsewhere were never collected at all.
+   * The conversations themselves. They live here, not in AgentHubView state,
+   * because leaving the module would unmount the subtree — throwing away the
+   * transcript and, worse, dropping the event subscription, so updates arriving
+   * while you were elsewhere were never collected at all.
    */
   transcripts: Record<string, TranscriptState>;
   pending: PendingPermission | null;

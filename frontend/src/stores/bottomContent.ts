@@ -12,11 +12,10 @@ type BottomContentState = {
  * reasons, as stores/sidebarContent.ts. Read that file's doc comment before
  * changing this one; all of it applies here.
  *
- * In short: Zustand rather than Context, because with a Context the module
- * doing the registering is itself a consumer and registration feeds back into
- * its own render; keyed by module id, because more than one module is mounted
- * at a time; and identity-checked on write, because the effect that registers
- * depends on the node it registers.
+ * In short: Zustand rather than Context (a registering module is itself a
+ * consumer, so registration feeds back into its own render), keyed by module id
+ * (several are mounted at once), identity-checked on write (the registering
+ * effect depends on the node it registers).
  */
 export const useBottomContentStore = create<BottomContentState>((set) => ({
   content: {},

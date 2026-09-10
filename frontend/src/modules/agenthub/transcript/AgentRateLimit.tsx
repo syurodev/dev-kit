@@ -18,12 +18,11 @@ export type AgentRateLimitProps = {
  * Agent / Rate Limit — Figma `1044:3195`, variants `1044:3179` Warning and
  * `1044:3187` Exhausted.
  *
- * One row, and the text stays in the ordinary secondary tier in both variants.
- * Only the ground and the icon carry the level — state/soft with a
- * status/warning triangle, or feedback/danger-soft with a status/danger one.
- * The previous version tinted the sentence itself and put a coloured border
- * around the row, which made a warning about a quota shout louder than the
- * session error next to it.
+ * One row, text in the ordinary secondary tier in both variants: only the
+ * ground and the icon carry the level — state/soft with a status/warning
+ * triangle, or feedback/danger-soft with a status/danger one. Tinting the
+ * sentence and bordering the row makes a quota warning shout louder than the
+ * session error beside it.
  *
  * Both sentences name the time you get it back. A limit with no reset time is
  * indistinguishable from a broken agent.

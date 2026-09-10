@@ -26,10 +26,10 @@ export type AgentToolCallProps = {
  * finished, failed. Failed keeps its reason inline; a red dot alone tells you
  * nothing to act on."
  *
- * One row: dot, kind icon, tool name, then the right-hand slot that carries
+ * One row: dot, kind icon, tool name, then the right-hand slot carrying
  * whatever the status has to say — "running…", the result, "exit 1". That slot
- * is the status, which is why there is no uppercase DONE/FAILED badge: the
- * badge said the same thing twice and left no room for the result.
+ * is the status, so there is no uppercase DONE/FAILED badge: it would say the
+ * same thing twice and leave no room for the result.
  *
  * Failed is the only state that changes the ground (feedback/danger-soft) and
  * the only one that adds a second line — the reason.

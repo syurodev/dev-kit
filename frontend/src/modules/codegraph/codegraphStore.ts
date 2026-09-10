@@ -74,12 +74,11 @@ type CodeGraphState = {
 /**
  * CodeGraph's view state lives outside the component on purpose.
  *
- * Visiting a module from the Dock opens it as the single shared *preview* tab,
- * and openTab replaces whatever preview tab is already there (see
- * stores/workbenchTabs.ts). So switching to another module drops CodeGraph's
- * tab entirely and unmounts its subtree — any useState in the view is gone,
- * and coming back showed an empty "Open Java project…" screen even though Go
- * still had the project indexed and watched.
+ * A Dock visit opens the module as the single shared *preview* tab, and openTab
+ * replaces whichever preview tab is there (stores/workbenchTabs.ts). Switching
+ * modules therefore drops CodeGraph's tab and unmounts its subtree, so useState
+ * in the view would come back as an empty "Open Java project…" screen even
+ * though Go still has the project indexed and watched.
  *
  * Deliberately not persisted: the Go service holds the active project in
  * memory too, so this dying with the process keeps the two sides consistent.

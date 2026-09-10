@@ -25,13 +25,11 @@ type TabStripProps = {
   onClose: (id: string) => void;
   onReorder: (fromId: string, beforeId: string | null) => void;
   onNewTab?: () => void;
-  /** True while the ⌘⇧E/Ctrl⇧E quick-switch shortcut is held (see
-   * Workbench.tsx) — forces every tab to full width (same as hovering)
-   * and turns on ArrowLeft/ArrowRight + Enter/Escape navigation. */
+  /** True while ⌘⇧E/Ctrl⇧E is held (Workbench.tsx): every tab goes full
+   * width and ArrowLeft/Right + Enter/Escape navigate the strip. */
   keyboardBrowsing: boolean;
-  /** Called once browsing ends, however it ended (Enter, Escape, or the
-   * modifier keys being released in Workbench.tsx) — the caller resets
-   * whatever triggered keyboardBrowsing in the first place. */
+  /** Browsing ended — by Enter, Escape, or the modifier release. The caller
+   * resets whatever set keyboardBrowsing. */
   onExitBrowsing: () => void;
 };
 
@@ -41,20 +39,12 @@ type TabGroup = {
 };
 
 /**
- * Groups tabs by moduleId, preserving each group's left-to-right position
- * as the position its first tab first appeared at (not disturbed by which
- * module is currently active) and each group's own tabs in their existing
- * relative order.
- */
-/**
- * A module's home view opened as the shared preview tab (Dock click, no
- * specific item picked yet — see Workbench.tsx's focusModule) never gets a
- * strip entry: it isn't a distinct piece of content to track, just "you're
- * looking at this module." Rendering it anyway meant every Dock click tore
- * down one module's whole tab group and mounted a new one, which is what
- * actually read as jerky — not just the individual tab's own transition.
- * Picking a specific item (e.g. a note) opens a different viewId in the
- * same preview slot and becomes visible normally.
+ * A module's home view opened as the shared preview tab (a Dock click with no
+ * item picked yet — Workbench.tsx's focusModule) gets no strip entry: it is
+ * not a distinct piece of content, just "you're looking at this module".
+ * Rendering it meant every Dock click tore down a whole tab group and mounted
+ * a new one, which is what read as jerky. Picking an item opens a different
+ * viewId in the same preview slot and shows up normally.
  */
 function isHiddenHomePreview(tab: WorkbenchTab): boolean {
   return Boolean(
@@ -62,6 +52,10 @@ function isHiddenHomePreview(tab: WorkbenchTab): boolean {
   );
 }
 
+/**
+ * Groups tabs by moduleId. A group sits where its first tab first appeared —
+ * not where the active module is — and keeps its tabs in relative order.
+ */
 function groupTabs(tabs: WorkbenchTab[]): TabGroup[] {
   const groups: TabGroup[] = [];
   const byModule = new Map<string, TabGroup>();
@@ -77,25 +71,17 @@ function groupTabs(tabs: WorkbenchTab[]): TabGroup[] {
   return groups;
 }
 
-// Width model: split the strip's actual measured width evenly across every
-// tab, capped at MAX_TAB_WIDTH_PX — one or two short-titled tabs shouldn't
-// stretch into one giant mostly-empty pill just because the strip has the
-// room. Opening more tabs (past what fits at the cap) shrinks everyone's
-// equal share together. Once that equal share would push the active tab
-// below its own floor, the active tab locks at ACTIVE_MIN_WIDTH_PX instead
-// and only the *other* tabs keep splitting whatever's left — down to their
-// own, smaller floor (INACTIVE_MIN_WIDTH_PX, just enough for the icon and
-// the reserved close-button space), past which the strip scrolls
-// horizontally instead of shrinking further.
+// Width model: the strip's measured width splits evenly across all tabs,
+// capped so a couple of short titles don't stretch into giant empty pills.
+// More tabs shrink everyone together; once the equal share would push the
+// active tab below its floor, it locks there and only the others keep
+// splitting the rest. Past the inactive floor the strip scrolls instead.
 const MAX_TAB_WIDTH_PX = 200;
-// Kept equal to MAX_TAB_WIDTH_PX: if the active tab's floor were ever above
-// the general cap, a roomy strip would render it *narrower* than a cramped
-// one (capped by MAX_TAB_WIDTH_PX in the roomy branch, locked at its own
-// higher floor only once cramped) — backwards from what "floor" should mean.
+// Equal to the cap on purpose: a floor above it would render the active tab
+// narrower in a roomy strip than in a cramped one — backwards for a "floor".
 const ACTIVE_MIN_WIDTH_PX = MAX_TAB_WIDTH_PX;
-// Floor for an inactive tab: pl-3 (12px) + icon (16px) + pr-8 (32px reserved
-// for the close button) sums to 60px at rest — 52px still leaves the icon
-// fully visible even at the exact floor, just tighter than at rest.
+// pl-3 + icon + pr-8 (reserved for close) is 60px at rest; 52px still shows
+// the icon whole.
 const INACTIVE_MIN_WIDTH_PX = 52;
 
 type TabGroupRowProps = {
@@ -110,25 +96,18 @@ type TabGroupRowProps = {
 };
 
 /**
- * Renders one module's tabs as a self-contained draggable Reorder.Group,
- * scoped to just this group's tabs — dragging a tab only ever reorders it
- * among its own group's siblings, never across groups, so a tab can never
- * leave its module's color cluster.
+ * One module's tabs as a self-contained Reorder.Group. Dragging reorders
+ * within the group only, so a tab can never leave its module's colour cluster.
  *
- * When hosted inside a draggable shell region, this row opts out with no-drag.
- * This is important because Wails detects draggable targets from a capture-
- * phase mousedown before Motion's pointer gesture. Once it invokes the native
- * window move, the OS owns the pointer and React cannot recover the tab drag.
+ * Inside a draggable shell region the row opts out with no-drag: Wails detects
+ * drag targets on a capture-phase mousedown, before Motion's pointer gesture,
+ * and once it starts the native window move the OS owns the pointer and React
+ * cannot recover the tab drag.
  *
- * `layout="position"` used to live on both the tab and its group wrapper,
- * animating position via FLIP whenever a sibling's width changed (an
- * equal-share recompute, or a drag) instead of snapping instantly. Removed
- * as a diagnostic step for a drop-stutter that survived every other fix —
- * see the inline comments at each removal site. The tab's own `width` is
- * still a separate, real size change, animated through `animate={{ width }}`
- * (a direct tween). The close button is absolutely positioned in permanently
- * reserved space, so hover and drag alone never change a tab's measured
- * width — only the deliberate equal-share width does.
+ * There is no `layout` prop — position snaps rather than FLIPs, which is what
+ * finally settled a drop-stutter. Width is still animated via `animate`, and
+ * the close button sits in permanently reserved absolute space so only the
+ * deliberate equal-share recompute ever changes a measured width.
  */
 function TabGroupRow({
   tabs,
@@ -145,10 +124,9 @@ function TabGroupRow({
   const [visualTabs, setVisualTabs] = useState(tabs);
   const [draggingTabId, setDraggingTabId] = useState<string | null>(null);
   const visualTabsRef = useRef(tabs);
-  // A Reorder.Item is also a button, so WebKit dispatches a click after the
-  // pointerup that ends a drag. Consuming that synthetic click prevents a
-  // reorder of an inactive tab from also activating it and synchronously
-  // hydrating a heavy editor immediately after drop.
+  // A Reorder.Item is also a button, so WebKit fires a click after the
+  // pointerup ending a drag. Consuming it stops a reorder from also activating
+  // an inactive tab and hydrating a heavy editor on drop.
   const suppressActivationForId = useRef<string | null>(null);
   const suppressionClearTimer = useRef<ReturnType<typeof setTimeout> | null>(
     null,
@@ -195,19 +173,16 @@ function TabGroupRow({
         (tab) => tab.id === draggedId,
       );
       const beforeId = visualTabsRef.current[index + 1]?.id ?? null;
-      // Skip the store commit when the gesture never actually crossed a
-      // neighbor — otherwise every accidental sub-threshold jiggle produces
-      // a new (but content-identical) openTabs array and needless strip/store
-      // work. WorkbenchViews also ignores pure order changes as a second
-      // boundary protecting the mounted editor tree.
+      // No commit when the gesture never crossed a neighbour: a jiggle would
+      // otherwise produce a new but identical openTabs array. WorkbenchViews
+      // ignores pure order changes as a second guard on the mounted tree.
       if (beforeId !== dragOriginBeforeId.current) {
         onReorder(draggedId, beforeId);
       }
     }
     activeDragId.current = null;
-    // Native click follows mouseup in the same event turn. Clear on the next
-    // task so a missing click (for example, dropping outside) cannot suppress
-    // a later intentional click.
+    // The native click follows mouseup in the same turn; clearing on the next
+    // task keeps a missing click (dropping outside) from suppressing a real one.
     suppressionClearTimer.current = setTimeout(() => {
       suppressActivationForId.current = null;
       suppressionClearTimer.current = null;
@@ -240,48 +215,22 @@ function TabGroupRow({
               as="button"
               value={tab}
               key={tab.id}
-              // layout="position" removed (was here): dropping it as a test
-              // for a reported drop-stutter that survived every other
-              // targeted fix (frozen widths, pinned pill width, disabled
-              // drag momentum, removing the active-highlight's own
-              // layoutId) — this was the last remaining Motion layer
-              // actively tracking every tab's position on every render,
-              // including throughout a drag/reorder. Without it, a sibling
-              // whose width or list position changes will snap instead of
-              // sliding smoothly — an explicit tradeoff to isolate whether
-              // this specific system is the source, not a settled decision
-              // to keep it removed either way.
-              // Framer's drag defaults to momentum: on release, the item
-              // keeps drifting along its velocity for a moment before the
-              // layout system pulls it back to its actual slot — two
-              // motions competing right at drop, which read as a stutter
-              // exactly when the tab was supposed to be smoothly settling
-              // into place. Disabling it means release stops the item dead
-              // where the pointer left it, so the layout transition is the
-              // only motion happening from that point on.
+              // Momentum would keep the item drifting on release while the
+              // layout system pulls it back to its slot — two motions competing
+              // at drop, which read as the stutter.
               dragMomentum={false}
-              // Scaling a text-heavy tab forces WebKit to re-rasterise its
-              // label and icon while Motion is also projecting every sibling.
-              // A raised stacking order is enough feedback here and keeps the
-              // compositor work limited to translation.
+              // Scaling a text-heavy tab makes WebKit re-rasterise label and
+              // icon while Motion projects every sibling. Stacking order is
+              // enough feedback and keeps the work to translation.
               whileDrag={{ zIndex: 10 }}
-              // opacity/scale here (not just width) are what drive the
-              // AnimatePresence enter/exit — dropping them from `animate`
-              // would leave a newly-appeared tab stuck at its `initial`
-              // opacity/scale forever, since nothing would ever animate it
-              // to its resting state. widthPx is always a real number once
-              // TabStrip has measured its own container at least once;
-              // "auto" is only a fallback for the very first paint before
-              // that measurement lands.
+              // opacity/scale belong here, not just width: they are what drives
+              // the AnimatePresence enter, and without them a new tab would sit
+              // at its `initial` values forever. widthPx is a real number once
+              // the container has been measured; "auto" covers the first paint.
               animate={{ opacity: 1, scale: 1, width: widthPx ?? "auto" }}
-              // One shared duration/easing across layout, width, opacity and
-              // scale — these used to run at mismatched speeds (layout
-              // 45ms vs. width 260ms vs. opacity/scale 180ms), so a new or
-              // closing tab's footprint (layout FLIP) snapped into its
-              // final position almost instantly while the tab itself was
-              // still visibly growing/shrinking and fading into or out of
-              // that already-settled gap — two motions landing at different
-              // times read as a jerky double-step rather than one motion.
+              // One duration and easing for all four properties. Mismatched
+              // speeds made the FLIP footprint land long before the tab had
+              // finished growing into it — one motion read as two.
               transition={{
                 layout: { duration: 0.22, ease: "easeOut" },
                 width: { duration: 0.22, ease: "easeOut" },
@@ -289,10 +238,9 @@ function TabGroupRow({
                 scale: { duration: 0.22, ease: "easeOut" },
               }}
               style={{
-                // Siblings can visually pass under the captured pointer while
-                // Motion projects them into a new slot. Excluding them from
-                // hit-testing prevents WKWebView from retaining multiple hover
-                // chains for elements that are no longer under the cursor.
+                // Siblings pass under the captured pointer as Motion projects
+                // them. Excluding them from hit-testing stops WKWebView holding
+                // hover chains for elements no longer under the cursor.
                 pointerEvents:
                   draggingTabId !== null && draggingTabId !== tab.id
                     ? "none"
@@ -300,12 +248,9 @@ function TabGroupRow({
               }}
               onDragStart={() => handleDragStart(tab.id)}
               onDragEnd={handleDragEnd}
-              // Width included here too (not just opacity/scale): without
-              // it, a new tab's DOM footprint (and the FLIP-computed gap
-              // its neighbors slide to fill) was already full-size from the
-              // very first frame — only the fade/scale was gradual — so
-              // neighbors visibly jumped aside before the new tab existed
-              // to fill that space. Same idea in reverse on close.
+              // Width belongs here too: without it a new tab's footprint is
+              // full-size on the first frame, so neighbours jump aside before
+              // the tab exists to fill the gap. Same in reverse on close.
               initial={{ opacity: 0, scale: 0.95, width: 0 }}
               exit={{ opacity: 0, scale: 0.95, width: 0 }}
               type="button"
@@ -405,16 +350,13 @@ export function TabStrip({
   const [keyboardFocusedTabId, setKeyboardFocusedTabId] = useState<
     string | null
   >(keyboardBrowsing ? activeTabId : null);
-  // Kept current every render so the "seed on browsing start" effect below
-  // can read the latest activeTabId without needing it in its own
-  // dependency array (which would re-seed on every activeTabId change
-  // while already browsing, fighting the user's own arrow-key moves).
+  // Kept current so the seed effect below reads the latest activeTabId without
+  // taking it as a dependency — that would re-seed mid-browse and fight the
+  // user's arrow keys.
   const activeTabIdRef = useRef(activeTabId);
   activeTabIdRef.current = activeTabId;
-  // Memoized (not a plain .filter() every render): both effects below use
-  // this as a dependency, and a freshly-identitied array on every render
-  // would make them re-run — and re-set state — on every render forever,
-  // regardless of whether `tabs` actually changed.
+  // Memoised because both effects below depend on it: a new array identity
+  // every render would re-run and re-set state forever.
   const visibleTabs = useMemo(
     () => tabs.filter((tab) => !isHiddenHomePreview(tab)),
     [tabs],
@@ -473,27 +415,21 @@ export function TabStrip({
     onSelect,
     onExitBrowsing,
   ]);
-  // Keyed by moduleId rather than a single boolean so two groups reporting
-  // out of order (shouldn't happen with one pointer, but costs nothing to
-  // be exact about) can't clobber each other's state.
+  // Keyed by moduleId, not a boolean, so two groups reporting out of order
+  // cannot clobber each other.
   const [draggingGroupIds, setDraggingGroupIds] = useState<Set<string>>(
     new Set(),
   );
-  // Snapshot of every tab's width taken the instant a drag starts, reused
-  // for the whole gesture instead of recomputing — see the isDragging block
-  // below for why.
+  // Widths snapshotted when a drag starts and reused for the gesture — see the
+  // isDragging block below.
   const dragFreezeWidthsRef = useRef<Map<string, number | undefined> | null>(
     null,
   );
   const scrollRef = useRef<HTMLDivElement>(null);
-  // The strip's own available width (its box, not its content) — this is
-  // what the equal-share width model below divides among tabs. Reliable
-  // because scrollRef is styled `w-full`: its clientWidth is always the
-  // column's full width regardless of whether its content over- or
-  // under-fills it, so measuring it can't create a feedback loop with the
-  // very tab widths it's used to compute. Only the container's own box can
-  // resize it (the grid column, e.g. on window resize) — tab width tweens
-  // don't, so a plain ResizeObserver is enough with no settle timer needed.
+  // The strip's box, not its content — what the equal-share model divides.
+  // scrollRef is `w-full`, so its clientWidth is the column's width whether or
+  // not the content overflows: no feedback loop with the tab widths it feeds.
+  // Only the grid column resizes it, so a plain ResizeObserver suffices.
   const [containerWidth, setContainerWidth] = useState<number | undefined>(
     undefined,
   );
@@ -532,33 +468,27 @@ export function TabStrip({
   const visualOrder = groups.flatMap((group) => group.tabs);
   const hasVisibleActive = visualOrder.some((tab) => tab.id === activeTabId);
 
-  // The at-rest equal-share/cramped computation, independent of drag or
-  // keyboard-browsing state — used directly when neither is active, and as
-  // the drag-freeze snapshot's source (see below) while a drag is.
+  // The at-rest widths, independent of drag and keyboard browsing: used
+  // directly when neither is active, and as the drag-freeze source when one is.
   const computedWidths = new Map<string, number | undefined>();
   const equalShare =
     containerWidth !== undefined && visualOrder.length > 0
       ? containerWidth / visualOrder.length
       : undefined;
   if (equalShare === undefined) {
-    // First paint, before the container has been measured even once —
-    // "auto" (via widthPx ?? "auto" below) until the real share is known.
+    // First paint, before any measurement — "auto" until the share is known.
     visualOrder.forEach((tab) => computedWidths.set(tab.id, undefined));
   } else if (!hasVisibleActive || equalShare >= ACTIVE_MIN_WIDTH_PX) {
-    // Room for everyone at (at least) the active tab's floor — including
-    // when nothing in the strip is actually active (Dock-browsing a hidden
-    // home preview, see isHiddenHomePreview), where there's no one tab to
-    // prioritize a width for in the first place.
+    // Room for everyone at the active tab's floor — including when nothing is
+    // active (a hidden home preview), where no tab needs prioritising.
     const share = Math.min(
       MAX_TAB_WIDTH_PX,
       Math.max(equalShare, INACTIVE_MIN_WIDTH_PX),
     );
     visualOrder.forEach((tab) => computedWidths.set(tab.id, share));
   } else if (containerWidth !== undefined) {
-    // Cramped: the active tab locks at its floor, and every other tab
-    // splits whatever's left — shrinking further as more open, down to
-    // their own smaller floor, past which the strip scrolls instead
-    // (overflow-x-auto below) rather than shrinking anyone further.
+    // Cramped: the active tab locks at its floor and the rest split what is
+    // left, down to their own floor. Past that the strip scrolls.
     const remaining = containerWidth - ACTIVE_MIN_WIDTH_PX;
     const inactiveCount = visualOrder.length - 1;
     const inactiveShare =
@@ -575,15 +505,9 @@ export function TabStrip({
 
   const isDragging = draggingGroupIds.size > 0;
   if (isDragging && dragFreezeWidthsRef.current === null) {
-    // Snapshot the instant a drag starts (this render's computedWidths is
-    // still the pre-drag values — only the drag flag changed this frame,
-    // nothing feeding computedWidths itself has). Reusing this snapshot for
-    // the whole gesture, rather than forcing every tab to one shared width,
-    // is what keeps a drag that crosses a sibling and comes back without
-    // dropping from visibly jumping widths on the way in and back out —
-    // cramped tabs (an uneven active/inactive split) used to visibly snap
-    // to a uniform width the instant any drag started, then snap back on
-    // release, even when the gesture never actually committed a reorder.
+    // computedWidths still holds the pre-drag values this frame — only the drag
+    // flag changed. Holding that snapshot for the gesture is what stops a drag
+    // that crosses a sibling and returns from jumping widths on the way.
     dragFreezeWidthsRef.current = new Map(computedWidths);
   } else if (!isDragging && dragFreezeWidthsRef.current !== null) {
     dragFreezeWidthsRef.current = null;
@@ -591,25 +515,18 @@ export function TabStrip({
 
   let widths = computedWidths;
   if (keyboardBrowsing) {
-    // Keyboard-browsing (⌘⇧E) deliberately widens every tab to the same
-    // comfortable width for readability while arrow-navigating — a real
+    // ⌘⇧E widens every tab equally for readability while arrow-navigating — an
     // intentional change, not something to freeze against.
     widths = new Map(visualOrder.map((tab) => [tab.id, ACTIVE_MIN_WIDTH_PX]));
   } else if (isDragging && dragFreezeWidthsRef.current) {
     widths = dragFreezeWidthsRef.current;
   }
-  // The pill's own rendered width, computed directly from data we already
-  // have instead of letting it size itself from the live flex layout of its
-  // children. Framer Motion's Reorder drag appears to change how the
-  // dragged item participates in that flex flow while a drag is active
-  // (its sibling(s)' widths never changed per the logging above, but the
-  // *pill's own* measured width still visibly shifted, which moved the pill
-  // under the old justify-center — the border looked like it was moving even
-  // though no tab's width was). Pinning the pill to a width we
-  // computed ourselves sidesteps whatever Framer is doing internally,
-  // rather than chasing it. gap-1.5 (6px) between every tab regardless of
-  // group boundaries at 4px (verified: outer gaps between groups + each group's
-  // own internal gaps always sum to visualOrder.length - 1 total gaps).
+  // The pill's width, computed from data we already have rather than sized by
+  // its children's live flex layout: Reorder's drag changes how the dragged
+  // item participates in that flow, which shifted the pill's measured width
+  // (and so its centring) even though no tab's width had changed. Gaps are 4px
+  // between every tab, group boundaries included — the outer and inner gaps
+  // always sum to visualOrder.length - 1.
   const tabWidthValues = visualOrder.map((tab) => widths.get(tab.id));
   const pillWidthPx = tabWidthValues.every((value) => typeof value === "number")
     ? tabWidthValues.reduce(
@@ -646,15 +563,11 @@ export function TabStrip({
           {groups.map((group) => (
             <motion.div
               key={group.moduleId}
-              // layout="position" removed here too, same test as the tab
-              // level above — see that comment.
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              // Matches the individual tab's own layout/width/opacity/scale
-              // timing below exactly (0.22s easeOut across the board) — a
-              // group appearing/disappearing and its tab(s) doing the same
-              // needs to land at the same moment, not slightly staggered.
+              // Same 0.22s easeOut as the tabs themselves: a group and its tabs
+              // appearing together must land at the same moment.
               transition={{
                 layout: { duration: 0.22, ease: "easeOut" },
                 opacity: { duration: 0.22, ease: "easeOut" },

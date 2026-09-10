@@ -1,11 +1,9 @@
 /**
  * A cadence for progress that arrives faster than anyone can read it.
  *
- * Smoothness 5 asks for progress that updates 4–10 times a second, not once
- * per file: a Maven build on a cold cache writes thousands of lines, and a
- * setState per line is thousands of renders nobody sees — the same frame
- * budget spent on text that scrolls past. This collects what arrives and hands
- * it over on a fixed beat instead.
+ * Smoothness 5 asks for 4–10 updates a second, not one per file: a cold-cache
+ * Maven build writes thousands of lines, and a setState per line is thousands of
+ * renders nobody sees. This collects what arrives and hands it over on a beat.
  *
  * Not a debounce: a debounce would show nothing at all while output keeps
  * coming, which is precisely the case that needs to look alive. The first item

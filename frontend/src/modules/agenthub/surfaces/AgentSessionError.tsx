@@ -25,11 +25,9 @@ export type AgentSessionErrorProps = {
  * code, what actually happened, and the one action that gets you out — a
  * coloured dot on its own gives you nothing to do."
  *
- * The previous implementation was a different card: a generic title, a
- * DEV-KIT-500 badge whose code was a fallback constant rather than anything the
- * backend sent, a paragraph of static prose, and three buttons including a
- * "Switch to Mock" that Figma does not have. Running it showed exactly what the
- * note warns against — a crash with no reason on screen.
+ * So the code shown is the one the backend actually sent, never a fallback
+ * constant, and the copy is the reason rather than static prose — otherwise a
+ * crash reaches the screen with nothing on it to act on.
  *
  * The two variants differ only in copy and in the primary action's label; the
  * surface, the structure and the tones are identical, so they are one layout

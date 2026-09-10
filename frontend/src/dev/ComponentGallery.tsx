@@ -98,12 +98,11 @@ function TagInputGalleryDemo() {
  * A browser-reachable gallery of the shared components, so they can be looked
  * at without the desktop app.
  *
- * Why this exists: `App.tsx` wraps everything in `VaultGate`, which calls
- * `vaultStatus()` over the Wails bridge. In a plain browser that call never
- * resolves, so the workbench — and every component inside it — is unreachable
- * and the page sits on "Checking secure storage" forever. Four phases of UI
- * work shipped on `renderToString` + `toContain` for exactly this reason, and
- * string assertions cannot see overlap, overflow or an invisible element.
+ * `App.tsx` wraps everything in `VaultGate`, which calls `vaultStatus()` over
+ * the Wails bridge. In a plain browser that never resolves, so the workbench and
+ * every component in it is unreachable behind "Checking secure storage" — which
+ * leaves `renderToString` + `toContain` as the only check, and string assertions
+ * cannot see overlap, overflow or an invisible element.
  *
  * Reached at `?gallery=1`, mounted before the gate, lazy-loaded so it stays out
  * of the initial bundle. Bridge-backed data is unavailable here by design —

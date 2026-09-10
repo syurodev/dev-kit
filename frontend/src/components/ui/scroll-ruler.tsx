@@ -3,31 +3,22 @@ import * as React from "react"
 import { cn } from "@/lib/utils"
 
 /**
- * Shell / Scroll Ruler.
+ * Shell / Scroll Ruler — a sparse position indicator: one tick per milestone
+ * plus one for the viewport. No tick grid down the full height.
  *
- * A sparse position indicator: one tick per milestone, plus one for where the
- * viewport currently is. Nothing else — no tick grid down the full height.
+ * A deliberate departure from Figma `700:1100`, which draws a tick every ~5px.
+ * Dense ticks encode nothing the scroll position does not already say; sparse
+ * ones encode where the meaningful places are, which is all a ruler adds over a
+ * scrollbar. That node is marked "spec — do not instance" and the App Shell
+ * frames draw their rulers inline, so nothing depends on the dense reading.
  *
- * This deliberately departs from Figma `700:1100`, which draws a tick every
- * ~5px (80 of them over 400px). That reads as a decorated scrollbar: dense
- * ticks encode nothing the scroll position does not already say. Sparse ticks
- * encode *where the meaningful places are*, which is the only thing a ruler
- * adds over a scrollbar. The Figma node is marked "spec — do not instance" and
- * the App Shell frames draw their rulers inline, so nothing else depends on
- * the dense reading.
+ * Two rules kept from the spec, both about honesty rather than density:
+ * it renders nothing unless the region actually overflows ("a scrollbar over
+ * content that fits is a lie about how much there is"), and length never
+ * encodes anything — colour alone separates a milestone from the position.
  *
- * Two rules kept from the spec, because they are about honesty rather than
- * density:
- *
- *  1. It renders NOTHING unless the region actually overflows. Figma: "a
- *     scrollbar over content that fits is a lie about how much there is."
- *  2. Length never encodes anything. Every tick is the same size, and colour
- *     alone separates a milestone from the current position — Figma's own
- *     rule, "a milestone differs only in colour".
- *
- * Sparse ticks are also why this needs no measurement: with no 5px grid to
- * stay in phase with, every position is a percentage, so there is no
- * ResizeObserver, no callback ref and no snapping.
+ * Sparse ticks are also why this needs no measurement: with no 5px grid to stay
+ * in phase with, every position is a percentage.
  */
 
 const TRACK_WIDTH = 8

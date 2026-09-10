@@ -15,21 +15,16 @@ type TabSwitcherProps = {
 };
 
 /**
- * The detail popup reached by holding ⌘⇧E (or pressing E again) once
- * already browsing the real tab strip — see Workbench.tsx's keydown/keyup
- * handling. A first, un-held ⌘⇧E press never opens this: it hands control
- * to TabStrip.tsx's own ArrowLeft/ArrowRight + Enter navigation directly
- * on the real tabs instead, no popup at all. MRU order, not the tab
- * strip's own left-to-right/module-clustered order, since the whole point
- * of escalating here is jumping back to whatever was just being looked at
- * with more detail than the strip itself shows.
+ * The detail popup reached by holding ⌘⇧E, or pressing E again while already
+ * browsing the strip (Workbench.tsx's keydown/keyup). A first, un-held press
+ * never opens it — that hands control to TabStrip's own arrow navigation on the
+ * real tabs. MRU order rather than the strip's module-clustered order: the point
+ * of escalating here is jumping back to what was just being looked at.
  *
- * No CommandInput (unlike CommandPalette): releasing either modifier key
- * closes this popup (see Workbench.tsx), which means there's never a
- * window where the user could actually type a search term without also
- * closing it — showing a search box that can't practically be used would
- * be misleading. Arrow keys + Enter over CommandList/CommandItem work
- * without an Input present; cmdk focuses the first item automatically.
+ * No CommandInput, unlike CommandPalette: releasing either modifier closes the
+ * popup, so there is no window in which a search term could be typed, and a
+ * search box that cannot be used is misleading. Arrows and Enter work over
+ * CommandList without an Input, and cmdk focuses the first item.
  */
 export function TabSwitcher({ open, onClose }: TabSwitcherProps) {
   // One module's tabs, not everyone's: tabs belong to the module that opened

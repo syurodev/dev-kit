@@ -70,15 +70,12 @@ export type ModuleManifest = {
   /**
    * Show a tab strip at the top of this module's content area.
    *
-   * Opt-in, because a strip only earns its 48px when the module has the idea
-   * of several items open at once — Notes (a tab per note), later Agent Hub
-   * (a tab per session) and Database (a tab per table). A module with one
-   * view has nothing to switch between; giving it a strip with a single tab
-   * in it is chrome for its own sake, and the shell reads 40px of title bar
-   * plus 48px of strip before any content. Tab STATE exists for every module
-   * regardless (stores/workbenchTabs.ts), so switching modules through the
-   * Dock always comes back to what was open; this only decides whether the
-   * strip is drawn.
+   * Opt-in: a strip earns its 48px only where a module has several items open
+   * at once — Notes (a tab per note), Agent Hub (per session), Database (per
+   * table). With one view there is nothing to switch between, and the shell
+   * already reads 40px of title bar before any content. Tab STATE exists for
+   * every module regardless (stores/workbenchTabs.ts); this only decides
+   * whether the strip is drawn.
    *
    * Presentational and frontend-only: the backend has no opinion, so module
    * parity ignores it.

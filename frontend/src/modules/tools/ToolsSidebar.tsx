@@ -8,9 +8,8 @@ import { useToolsStore } from "./toolsStore";
 /**
  * Figma `Tools / Sidebar Content` (1143:5): the registry as a list.
  *
- * It used to be split into "Implemented" and "Design", because six of the seven
- * were drawn and not built. They are all built now, so the split has nothing
- * left to say and the heading goes with it.
+ * Flat, with no headings: every tool is built, so there is nothing for a
+ * grouping to say.
  */
 export function ToolsSidebar() {
   const selected = useToolsStore((s) => s.selected);

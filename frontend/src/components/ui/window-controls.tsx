@@ -14,13 +14,12 @@ import { cn } from "@/lib/utils"
  * decoration at all: without this component the window has no controls and no
  * way to close from the keyboard-free path.
  *
- * It is deliberately NOT a Figma component. Figma 732:2170 is a macOS bar and
- * has no such cluster, because AppKit supplies it. Rather than invent a shape,
- * every value here is borrowed from the title bar's own action buttons — 28px,
- * radius 8, state/soft hover, 12px glyph — so the controls read as part of the
- * same row. Close is the one departure: it takes the danger tokens on hover,
- * which is the convention on every desktop and the only affordance separating
- * "close the window" from "collapse a panel" at a glance.
+ * Not a Figma component: 732:2170 is a macOS bar and has no such cluster,
+ * because AppKit supplies it. Rather than invent a shape, every value is
+ * borrowed from the title bar's own action buttons — 28px, radius 8, state/soft
+ * hover, 12px glyph — so the controls read as part of the same row. Close is the
+ * one departure, taking the danger tokens on hover: the desktop convention, and
+ * the only thing separating it from "collapse a panel" at a glance.
  */
 
 /**

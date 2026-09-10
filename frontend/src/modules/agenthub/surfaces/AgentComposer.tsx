@@ -44,11 +44,10 @@ export type AgentComposerProps = {
  * top region reads as a thick top border — it is not a header for the
  * conversation, it travels with the composer."
  *
- * So there are two boxes, not one: an outer bordered frame at radius/14 whose
- * only fill is nothing, and an inner surface/raised field at radius/10. The meta
- * line lives between them. The previous implementation drew a single box with a
- * bottom-bordered header strip inside it, which reads as a header for whatever
- * is above.
+ * So there are two boxes, not one: an outer bordered frame at radius/14 with no
+ * fill, and an inner surface/raised field at radius/10, with the meta line
+ * between them. A single box with a bottom-bordered header strip inside it
+ * would read as a header for whatever sits above.
  *
  * State is small: Streaming swaps the send glyph for a stop and changes the
  * placeholder; Attached inserts a chip row at the top of the field. Nothing else

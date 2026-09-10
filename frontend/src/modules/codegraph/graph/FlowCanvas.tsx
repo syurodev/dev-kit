@@ -33,10 +33,10 @@ const edgeTypes = { connector: ConnectorEdge };
  * inspector open (which puts the canvas under 600px wide) the last node in a
  * vertical chain parks under the legend and has its file chip clipped by it.
  *
- * The old `padding: 0.2` could not fix that at any value: a numeric padding is
- * a fraction of the GRAPH's bounds, not the viewport's, so the taller the
- * graph the smaller the real gap — the case that needs the room is exactly the
- * case that loses it. Pixels are the same on every graph.
+ * A numeric `padding` cannot fix it at any value: it is a fraction of the
+ * GRAPH's bounds, not the viewport's, so the taller the graph the smaller the
+ * real gap — the case needing the room is the one that loses it. Pixels are the
+ * same on every graph.
  *
  * The bottom figure is the legend's own height plus React Flow's 15px panel
  * margin, with a little clearance. It is the taller of the two corners, and

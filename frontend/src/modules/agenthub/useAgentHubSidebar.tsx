@@ -9,10 +9,9 @@ import type { AgentSession } from "../../bridge/agenthub";
  * Publishes the swarm tree into the shell rail, the same way Notes publishes
  * its folder rail (see modules/notes/useNotesSidebar).
  *
- * Agent Hub used to draw the swarm as a second rail *inside* its own content
- * card. Two vertical rails side by side whenever the shell sidebar was open,
- * and the shell rail itself sat empty because this module registered nothing —
- * `_Slot / Sidebar Content` in Figma is where a module's rail belongs.
+ * The swarm belongs in the shell rail (`_Slot / Sidebar Content` in Figma), not
+ * in a second rail inside the content card: that leaves two vertical rails side
+ * by side whenever the shell sidebar is open, and the shell rail empty.
  *
  * No module-local store here, unlike Notes: Notes registers from two different
  * views (dashboard and editor) so the rail's data has to outlive either one.

@@ -3,11 +3,10 @@
  * for methods, the qualified type name for classes — so a real node's label
  * looks like `com.synx.devkit.identity.adapter.web.DeviceEnrollmentController.enroll`.
  *
- * A card is a fixed 268px wide, so rendering that raw truncates from the right
- * and leaves only the package prefix on screen: every node in a project reads
- * as `com.synx.devkit.identity.ada…`, which is the half that identifies
- * nothing. Show the tail instead — the class and method are what tell two
- * nodes apart — and keep the full name for the tooltip.
+ * A card is a fixed 268px, so raw those truncate from the right and every node
+ * reads as `com.synx.devkit.identity.ada…` — the half that identifies nothing.
+ * Show the tail, which is what tells two nodes apart, and keep the full name for
+ * the tooltip.
  */
 export function shortLabel(label: string, kind: string): string {
   const segments = label.split(".");

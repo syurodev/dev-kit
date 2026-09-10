@@ -14,12 +14,11 @@ export type AgentToolDiffProps = {
 /**
  * Agent / Tool Diff — Figma `1029:2667`.
  *
- * Additions are drawn in brand/lime, not status/success. That is deliberate in
- * the design and worth not "fixing": green would pair added with the success
- * tone and removed with the danger tone, which reads as good-change and
- * bad-change. A diff has no opinion — lime is the accent DevKit already uses
- * for "this is the new thing", and only the deletion carries a warning colour
- * because a deletion is the half you can lose.
+ * Additions are brand/lime, not status/success — deliberate, and worth not
+ * "fixing". Green would pair added with success and removed with danger, which
+ * reads as good-change and bad-change; a diff has no opinion. Lime is DevKit's
+ * accent for "the new thing", and only deletion carries a warning colour
+ * because deletion is the half you can lose.
  *
  * The counts are +N and −N (a real minus sign, U+2212, as Figma has it — a
  * hyphen next to a lime plus looks like a dash).

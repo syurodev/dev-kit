@@ -55,11 +55,10 @@ function toAgentStatus(status: string): AgentStatus {
  * elsewhere. Permission requests land here inline rather than in a modal: the
  * request blocks the agent, not the person."
  *
- * Four bands: the swarm strip, a header naming the agent, the transcript, then
- * the rail composer. The rail itself paints nothing — panel-surface behind it
- * is the ground, so a fill here would be a second opaque layer on an opaque
- * layer. Padding is asymmetric on purpose: pl-3 pr-5, leaving the right margin
- * the shell's scroll ruler lives in.
+ * Four bands: swarm strip, a header naming the agent, the transcript, the rail
+ * composer. The rail paints nothing — panel-surface behind it is the ground, so
+ * a fill would be a second opaque layer on an opaque one. Padding is asymmetric
+ * on purpose (pl-3 pr-5), leaving the margin the scroll ruler lives in.
  */
 export function AgentRail({
   state: explicitState,

@@ -4,12 +4,11 @@ import { useSidebarContent } from "@/components/ui/sidebar-shell";
 /**
  * What a module column looks like while its chunk is still on the wire.
  *
- * The old fallback was one line of "Loading Notes..." at the top of an empty
- * card, and the rail beside it showed nothing at all — a switch that took a
- * second read as the app hanging. This paints the shape every module shares
- * (rail search + rows, header with title/chips/actions, a toolbar, a list)
- * so the eye has somewhere to land, and registers a rail skeleton under the
- * same module id the real view will overwrite the moment it mounts.
+ * A line of "Loading…" over an empty card, with the rail beside it blank, reads
+ * as the app hanging on any switch that takes a second. This paints the shape
+ * every module shares (rail search + rows, header with title/chips/actions, a
+ * toolbar, a list) so the eye has somewhere to land, and registers a rail
+ * skeleton under the module id the real view overwrites when it mounts.
  */
 export function ModuleSkeleton() {
   useSidebarContent(RAIL);

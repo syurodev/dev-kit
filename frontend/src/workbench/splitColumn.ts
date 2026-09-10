@@ -15,11 +15,10 @@ export type SplitSizes = { top: number; divider: number; bottom: number };
 /**
  * Divides the right column between its two stacked slots.
  *
- * `topHeight` is the remembered drag position, which is stored as an absolute
- * number and therefore outlives the window it was chosen in. Every clamp
- * happens here, at render, rather than when the value is written — the same
- * rule the bottom slot follows, so a value from a taller window is never
- * persisted as a smaller one just because it was once displayed clamped.
+ * `topHeight` is the remembered drag position, stored absolute and so outliving
+ * the window it was chosen in. Clamping happens here at render, never on write —
+ * the bottom slot's rule too — so a value from a taller window is not persisted
+ * smaller just because it was once displayed clamped.
  *
  * Always returns three parts summing exactly to columnHeight, so the caller
  * never has to reconcile a rounding gap against a flex container.

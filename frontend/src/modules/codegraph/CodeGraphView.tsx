@@ -77,9 +77,8 @@ async function loadAnalyzerStatus() {
  * look exactly like one project that happens to have a lot of endpoints. Said
  * only when there is more than one — "1 module" is noise on the common case.
  *
- * Exported for its own test: it is the one piece of this file that is a pure
- * function of two numbers, and the alternative was driving a native folder
- * picker to check a string.
+ * Exported for its own test: a pure function of two numbers, where the
+ * alternative was driving a native folder picker to check a string.
  */
 export function indexedStatus(moduleCount: number, endpointCount: number): string {
   const modules = moduleCount > 1 ? `${moduleCount} modules · ` : "";

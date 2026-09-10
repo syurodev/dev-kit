@@ -31,10 +31,10 @@ export type AgentMetaInspectorProps = {
  * only true for the user if there is somewhere to read it. Opened from a
  * message footer: normalized values above, the raw _meta verbatim below."
  *
- * So the two halves are the point, and the order is the argument: what DevKit
- * understood, then everything it did not, unedited. The closing line says so in
- * the panel itself, because a reader who does not know the raw block is
- * complete cannot trust the normalized one above it.
+ * So the two halves are the point and the order is the argument: what DevKit
+ * understood, then everything it did not, unedited. The panel says so itself —
+ * a reader who cannot tell the raw block is complete cannot trust the
+ * normalized one above it.
  *
  * Raw is pretty-printed rather than re-keyed — the moment this panel reorders
  * or renames a vendor's fields it stops being the verbatim copy it promises.

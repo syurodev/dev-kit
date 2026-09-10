@@ -15,9 +15,8 @@ type BottomSlotState = {
  * one module closes it everywhere until the user reopens it. Default false so
  * the shell still opens on the Figma component's default variant.
  *
- * Only `open` is persisted. The height is deliberately session-only, matching
- * stores/panelWidths.ts, which does not persist the sidebar or split-panel
- * widths either — persisting one panel's size and not the others' would be a
+ * Only `open` is persisted; the height is session-only, matching
+ * stores/panelWidths.ts. Persisting one panel's size and not the others' is a
  * worse inconsistency than persisting none.
  */
 export const useBottomSlotStore = create<BottomSlotState>()(

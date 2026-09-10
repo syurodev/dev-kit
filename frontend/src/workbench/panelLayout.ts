@@ -13,27 +13,21 @@ export const GAP_WIDTH = 8;
  * Workbench.tsx). Figma App Shell 107:137 draws this at 8, the same as the
  * sash; DevKit runs it at 4 so the shell reads tighter against the window.
  *
- * Deliberately a separate constant from GAP_WIDTH even when the two are equal:
- * one is a draggable sash between two surfaces, the other is dead margin at the
- * window edge, and collapsing them hid a bug in maxBottomHeight below.
+ * Separate from GAP_WIDTH even when equal: one is a draggable sash between two
+ * surfaces, the other dead margin at the window edge, and collapsing them hid a
+ * bug in maxBottomHeight below.
  */
 // The band of app background between the window edge and the shell surfaces,
 // on the three sides that have one: left, right and bottom. The top is flush,
 // because the title bar is already the app's own chrome and a band under it
 // would read as the surfaces hanging rather than sitting.
 //
-// This was 0 for a while, so that macOS would round the surfaces with the
-// window's own squircle mask and nothing had to imitate a curve CSS cannot
-// draw. What that traded away was structure: flush surfaces are walls of the
-// window, and DevKit's are cards. Inset far enough to read as a deliberate
-// band rather than a failed attempt at a parallel corner, they are plainly
-// separate objects, so their corners owe the window's nothing — and they look
-// the same on Linux and Windows, which never had a squircle to defer to.
+// Not 0: flush surfaces read as walls of the window, and DevKit's are cards.
+// Inset far enough to read as a deliberate band rather than a failed parallel
+// corner, they owe the window's squircle nothing — and they look the same on
+// Linux and Windows, which never had one to defer to.
 //
-// 8, the same as the sash, so the shell sits on one rhythm. Still a separate
-// constant from GAP_WIDTH even at the same value: one is a draggable sash
-// between two surfaces, the other is dead margin at the window edge, and
-// collapsing them hid a bug in maxBottomHeight below.
+// 8, the same as the sash, so the shell sits on one rhythm.
 export const WINDOW_GUTTER = 8;
 
 /** Hard floor for the centre content area, whatever the two side panels do. */
@@ -109,9 +103,9 @@ export function useWindowHeight(): number {
  * function would have hidden that difference behind a coincidence.
  *
  * The two terms subtracted below are different things: GAP_WIDTH is the sash
- * between the content row and this slot, WINDOW_GUTTER is the dead margin below
- * it at the window edge. They used to be one `GAP_WIDTH * 2`, which was only
- * correct while both happened to be 8.
+ * between the content row and this slot, WINDOW_GUTTER the dead margin below it
+ * at the window edge. Folding them into one `GAP_WIDTH * 2` is correct only
+ * while both happen to be 8.
  *
  * Never returns less than `min`, for the same reason maxPanelWidth does not.
  */

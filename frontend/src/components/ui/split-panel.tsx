@@ -33,12 +33,10 @@ const SplitPanelContext = React.createContext<SplitPanelContextValue | null>(nul
 /**
  * The right column, shared by two stacked slots.
  *
- * `panel` belongs to the active module and dies with it — that is the existing
- * contract every module already uses, unchanged. `companion` belongs to the
- * shell, so it survives module switches; it is where a conversation lives,
- * because a module's subtree is unmounted the moment you leave it (see
- * modules/codegraph/codegraphStore.ts for the same lesson learned the hard
- * way).
+ * `panel` belongs to the active module and dies with it. `companion` belongs to
+ * the shell and survives module switches, which is where a conversation has to
+ * live: a module's subtree unmounts the moment you leave it (see
+ * modules/codegraph/codegraphStore.ts).
  *
  * Width is shared by both. Only the split between them is separately dragged.
  */

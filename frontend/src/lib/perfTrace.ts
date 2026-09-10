@@ -5,10 +5,9 @@ import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
  * mark around every tab and module switch, and a record of every long task
  * with the module that was active when it ran.
  *
- * Subscribes to the store rather than being called from setActiveTab: keeping
- * the hook outside the store means the store carries no dev-only code, and a
- * subscription sees module switches (focusModule) the same way it sees tab
- * ones.
+ * Subscribes to the store rather than being called from setActiveTab, so the
+ * store carries no dev-only code and module switches (focusModule) are seen the
+ * same way tab ones are.
  *
  * Never in a production bundle: main.tsx imports this dynamically behind
  * `import.meta.env.DEV || localStorage.devkitPerf === "1"`, so the chunk is

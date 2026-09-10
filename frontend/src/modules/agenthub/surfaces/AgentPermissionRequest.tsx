@@ -28,9 +28,8 @@ export type AgentPermissionRequestProps = {
  *
  * So the card reads top-down as an answer to "who is asking, from where, for
  * what": state and agent name, then the working directory, then the tool and
- * its environment, then the literal command. The previous implementation led
- * with the tool name and never showed which agent was asking at all — the one
- * thing the note says makes the prompt decidable.
+ * its environment, then the literal command. Leading with the tool name would
+ * drop the attribution the note calls the decidable part.
  *
  * Locked differs in three ways and only three: the env pill turns danger-toned,
  * a line appears saying the environment always asks, and Allow always is gone.

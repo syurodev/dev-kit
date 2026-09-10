@@ -7,10 +7,8 @@ import { installNativeZoomGuard } from './lib/nativeZoom'
 // Inside Wails, html/body stay clear so nothing paints over the native window;
 // background/app is painted by the shell wrapper in AppShell, which is the
 // layer Figma says owns it. index.css keeps html/body opaque for plain
-// browsers, and this class lifts that exactly where Wails is.
-//
-// (This used to say the window is transparent for native vibrancy. It has been
-// solid by default since the backdrop change in main.go.)
+// browsers, and this class lifts that exactly where Wails is. The window is
+// solid by default — see the backdrop handling in main.go.
 if ('_wails' in window) {
   document.documentElement.classList.add('native')
   // Only inside the desktop window. A browser tab — the component gallery —

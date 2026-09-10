@@ -32,14 +32,11 @@ export type AgentPermissionToastProps = {
  * with no trace. Deliberately has no allow-always: a grant that outlives the
  * turn should not be given from the surface with the least context."
  *
- * Two things the rail card does not have, and both are about being the surface
- * you are NOT looking at: a queue pill saying how many more are waiting, and a
- * deadline bar. This is where the design puts the clock — the rail card omits
- * it because you are already there.
+ * Two things the rail card lacks, both because this is the surface you are NOT
+ * looking at: a queue pill counting what is waiting, and the deadline bar.
  *
- * The action row reads left to right as escalating context: "Open rail" takes
- * you to the surface with the full transcript, then Deny, then Allow once. No
- * allow-always, by the note above.
+ * The action row escalates left to right: "Open rail" for the full transcript,
+ * then Deny, then Allow once. No allow-always, per the note.
  */
 export function AgentPermissionToast({
   pending,

@@ -13,29 +13,20 @@ import {
 /**
  * The app's one and only title bar — Figma `Titlebar 732:2170`.
  *
- * There used to be five: Workbench's at 40px, VaultGate's at 30px, a dead
- * `vault-shell.tsx` at 30px, a hand-copied class string inside step4a's test,
- * and another copy in the component gallery. They drifted apart in every way
- * they could — different heights, different traffic-light reservations
- * (pl-20 vs pl-21), different fullscreen insets (pl-1 vs pl-4).
+ * One bar because height cannot vary: macOS fixes the traffic lights at an
+ * offset from the window's top edge and Wails v3 cannot move them, so a bar
+ * that changes height between screens cannot keep them centred on both.
  *
- * Height matters more than it looks. macOS places the traffic lights at a fixed
- * offset from the window's top edge and Wails v3 exposes no way to move them,
- * so a bar that changes height between screens cannot keep them centred on
- * both. One bar, one height, one alignment.
+ * It owns the frame — height, drag region, window-button reservation, end
+ * insets. The contents are the caller's: status text in the vault gate, action
+ * clusters in the workbench.
  *
- * This component owns the frame: height, drag region, window-button
- * reservation and the end insets. What goes inside is the caller's — the vault
- * gate shows status text, the workbench shows action clusters.
- *
- * It also owns the one thing about the frame that is not the same everywhere.
- * The bar above is a macOS bar: AppKit insets the traffic lights into it, so it
- * reserves 84px on the left and leaves the right end to the caller. Linux and
- * Windows put their window buttons on the right instead, which made that
- * reservation 84px of empty space on those platforms — and on Linux the window
- * is frameless (framelessWindow in native_webview_linux.go), so there are no
- * window buttons at all until this bar draws them. Both follow from
- * @/lib/platform; nothing else in the frontend branches on the OS.
+ * It also owns the frame's one platform difference. On macOS AppKit insets the
+ * traffic lights, so the bar reserves 84px on the left. Linux and Windows put
+ * their buttons on the right, making that reservation dead space — and Linux is
+ * frameless (framelessWindow in native_webview_linux.go), so it has no window
+ * buttons at all until this bar draws them. Both follow from @/lib/platform;
+ * nothing else in the frontend branches on the OS.
  */
 
 /**

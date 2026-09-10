@@ -36,13 +36,13 @@ export type AgentMessageProps = {
  * the footer's justify-end, so this file only supplies the tones.
  *
  * The agent's avatar is its vendor mark; yours is your initial on
- * action/primary, the way the accent means "you" everywhere else. An initial
- * on both sides read as two people — and with an untitled session the agent's
- * came out "S", for the word "Session".
+ * action/primary, the way the accent means "you" everywhere else. Initials on
+ * both sides read as two people, and an untitled session yields "S" for
+ * "Session".
  *
- * The bubble has no border in Figma — the fill is what separates the two
- * speakers (surface/raised for the agent, surface/tinted for you), and a
- * hairline on top of that reads as a card rather than as speech.
+ * The bubble has no border: the fill separates the speakers (surface/raised for
+ * the agent, surface/tinted for you), and a hairline over that reads as a card
+ * rather than as speech.
  */
 export function AgentMessage({
   align = "start",

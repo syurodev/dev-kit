@@ -34,10 +34,9 @@ export type VirtualRows = {
  * is scrolled past keep both — the browser still lays the table out normally,
  * `table-fixed` still governs the columns, and the sticky header still sticks.
  *
- * Under the threshold this returns every index and no padding, so callers
- * render one way and the table simply stops windowing when it is short —
- * which is also what makes it render whole under renderToString, where there
- * is no scroll element to measure.
+ * Under the threshold it returns every index and no padding, so callers render
+ * one way and the table just stops windowing when short — which is also what
+ * makes it render whole under renderToString, with no scroll element present.
  */
 export function useVirtualRows(rowCount: number, rowHeight: number): VirtualRows {
   const scrollRef = useRef<HTMLDivElement | null>(null);

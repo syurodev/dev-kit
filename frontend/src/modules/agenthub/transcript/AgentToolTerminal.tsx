@@ -15,10 +15,9 @@ export type AgentToolTerminalProps = {
 /**
  * Agent / Tool Terminal — Figma `1029:2721`, state `1029:2712` Failed.
  *
- * The head names the command, not the terminal id. A ToolCallContent of type
- * terminal carries an opaque id like `term_01H…`, and printing that told you
- * which handle failed rather than what failed — the previous head showed
- * exactly that. The id stays as the fallback for when no command reached us.
+ * The head names the command, not the terminal id: a terminal ToolCallContent
+ * carries an opaque `term_01H…`, which says which handle failed rather than what
+ * failed. The id stays as the fallback when no command reached us.
  *
  * The right-hand slot is the exit status in Figma's own shorthand, "exit 1" in
  * status/danger. There is no uppercase EXITED badge: a zero exit is the
