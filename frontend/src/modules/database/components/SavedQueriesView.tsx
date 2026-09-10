@@ -27,7 +27,7 @@ import { errorMessage } from "../../../bridge/errors";
 import { isVaultLockedError } from "../errorStates";
 
 export function SavedQueriesView() {
-  const [savedListRef] = useAutoAnimate<HTMLDivElement>({ duration: 180, easing: "ease-out" });
+  const [savedListRef] = useAutoAnimate<HTMLDivElement>({ duration: 180, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
   const queryClient = useQueryClient();
   const { selectedProfileId, setSql, setActiveTab, setShowSaveQueryModal, activeTab } = useDatabaseStore(
     useShallow((s) => ({

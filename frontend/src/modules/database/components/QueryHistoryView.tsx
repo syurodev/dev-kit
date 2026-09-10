@@ -22,7 +22,7 @@ import { errorMessage } from "../../../bridge/errors";
 import { isVaultLockedError } from "../errorStates";
 
 export function QueryHistoryView() {
-  const [historyListRef] = useAutoAnimate<HTMLDivElement>({ duration: 180, easing: "ease-out" });
+  const [historyListRef] = useAutoAnimate<HTMLDivElement>({ duration: 180, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
   const { selectedProfileId, setSql, setActiveTab, activeTab } = useDatabaseStore(
     useShallow((s) => ({
       selectedProfileId: s.selectedProfileId,
@@ -46,6 +46,9 @@ export function QueryHistoryView() {
     queryFn: () => (selectedProfileId ? listQueryHistory(selectedProfileId) : Promise.resolve([])),
     enabled: Boolean(selectedProfileId) && activeTab === "history",
     placeholderData: (previousData) => previousData,
+    // Fresh on every entry: a query run in the console must be here when the
+    // tab opens, and nothing invalidates this key from the console path.
+    staleTime: 0,
   });
 
   const loading = isFetching;

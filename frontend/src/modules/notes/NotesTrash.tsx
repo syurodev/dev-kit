@@ -39,7 +39,7 @@ export function daysUntilPurge(purgesAt: string, now: number = Date.now()): numb
  * days" (warning; danger once it is close) and Restore / Delete at 24px.
  */
 export function NotesTrash({ onChanged }: { onChanged: () => void }) {
-  const [trashListRef] = useAutoAnimate<HTMLUListElement>({ duration: 180, easing: "ease-out" });
+  const [trashListRef] = useAutoAnimate<HTMLUListElement>({ duration: 180, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
   const queryClient = useQueryClient();
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");

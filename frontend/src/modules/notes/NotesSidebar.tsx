@@ -285,7 +285,7 @@ function NoteRows({
   onOpenNoteInTab: (note: NoteSummary) => void;
   onTrashNote: (note: NoteSummary) => void;
 }) {
-  const [listRef] = useAutoAnimate<HTMLDivElement>({ duration: 180, easing: "ease-out" });
+  const [listRef] = useAutoAnimate<HTMLDivElement>({ duration: 180, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
 
   if (notes.length === 0) {
     return (

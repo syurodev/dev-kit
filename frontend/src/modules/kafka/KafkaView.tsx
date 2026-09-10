@@ -96,8 +96,7 @@ export function KafkaView() {
     return () => closePanel();
   }, [inspected, selectedTopic, peekPartition, openPanel, closePanel, inspect]);
 
-  const [peekTableRef] = useAutoAnimate<HTMLTableSectionElement>({ duration: 180, easing: "ease-out" });
-  const [groupsTableRef] = useAutoAnimate<HTMLTableSectionElement>({ duration: 180, easing: "ease-out" });
+  const [groupsTableRef] = useAutoAnimate<HTMLTableSectionElement>({ duration: 180, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
 
   const jsonExtension = useMemo(() => [json()], []);
   const profile = profiles.find((p) => p.id === selectedId);
@@ -326,7 +325,7 @@ export function KafkaView() {
                     <th className="h-10 w-35 border-b border-border-subtle px-4">Time</th>
                   </tr>
                 </thead>
-                <tbody ref={peekTableRef}>
+                <tbody>
                   {messages.map((m) => (
                     <tr
                       key={`${m.offset}-${m.timestamp ?? 0}`}

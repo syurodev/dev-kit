@@ -61,6 +61,8 @@ export function LiveActivityView() {
     },
     enabled: Boolean(selectedProfileId) && activeTab === "activity",
     placeholderData: (previousData) => previousData,
+    // A snapshot is on-demand by its own copy: re-take it on every entry.
+    staleTime: 0,
   });
 
   const queryErrStr = queryError ? errorMessage(queryError) : "";

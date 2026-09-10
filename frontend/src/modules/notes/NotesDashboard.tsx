@@ -187,7 +187,7 @@ export function NotesDashboard({
   onPreloadEditor,
   onChanged,
 }: NotesDashboardProps) {
-  const [cardsRef] = useAutoAnimate<HTMLDivElement>({ duration: 180, easing: "ease-out" });
+  const [cardsRef] = useAutoAnimate<HTMLDivElement>({ duration: 180, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
   const queryClient = useQueryClient();
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
