@@ -59,6 +59,13 @@ coverage.out
 .worktrees/
 .superpowers/
 .claude/
+# Shared Claude Code config is tracked; everything else under .claude/ (local
+# settings, caches, worktrees) stays ignored as before.
+!.claude/
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
+.claude/settings.local.json
 .agent/
 .agents/
 .DS_Store
