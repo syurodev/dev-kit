@@ -823,6 +823,64 @@
       translate: 0 -4px;
     }
   }
+
+  /* Skeleton → module content (smoothness 4.4). The wrapper mounts only when
+     the chunk resolves, so @starting-style fires exactly once, at the swap:
+     the skeleton is replaced and the real thing fades up over --motion-base.
+     The skeleton has no exit — it is being replaced, not leaving. The box is
+     what the `contents` wrapper used to give the module: a flex column that
+     fills the section, so wrapping changes nothing about the layout. */
+  .module-enter {
+    display: flex;
+    min-height: 0;
+    flex: 1 1 0%;
+    flex-direction: column;
+    opacity: 1;
+    transition: opacity var(--motion-base) var(--ease-out-strong);
+    @starting-style {
+      opacity: 0;
+    }
+  }
+
+  /* The accent that marks the selected row of a tree or the inspected row of a
+     table (smoothness 4.4). It slides in from the row's own middle rather than
+     appearing: scaleY is a compositor property, so this costs no layout, and a
+     row that is merely hovered never pays for it. */
+  .row-accent {
+    position: relative;
+  }
+  .row-accent::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 2px;
+    border-radius: var(--radius-full);
+    background: var(--color-action-primary, currentColor);
+    opacity: 0;
+    scale: 1 0;
+    transition:
+      opacity var(--motion-fast) var(--ease-out-strong),
+      scale var(--motion-fast) var(--ease-out-strong);
+  }
+  .row-accent[data-accent="on"]::before {
+    opacity: 1;
+    scale: 1 1;
+  }
+
+  /* A number that changed blinks once so the eye is told which cell moved
+     (smoothness 4.4). Driven by a changing React key, so it replays on every
+     new value; only the consumer-group table uses it — a peek replaces every
+     row at once, and 500 blinking cells is a strobe, not a signal. */
+  .value-blink {
+    animation: value-blink var(--motion-fast) var(--ease-out-strong);
+  }
+  @keyframes value-blink {
+    50% {
+      opacity: 0.5;
+    }
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -836,6 +894,15 @@
         transition: none;
     }
     .tree-row-enter {
+        animation: none;
+    }
+    .module-enter {
+        transition: none;
+    }
+    .row-accent::before {
+        transition: none;
+    }
+    .value-blink {
         animation: none;
     }
 }

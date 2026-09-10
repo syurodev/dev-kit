@@ -120,8 +120,9 @@ function TreeRow({ node, level, index }: { node: TreeNodeData; level: number; in
       aria-expanded={node.expandable ? open : undefined}
       aria-selected={node.selected || undefined}
       title={node.title}
+      data-accent={node.selected ? "on" : undefined}
       className={cn(
-        "group tree-row-enter flex h-6 items-center gap-1 rounded-md pr-1.5",
+        "group tree-row-enter row-accent flex h-6 items-center gap-1 rounded-md pr-1.5",
         node.selected
           ? "bg-surface-raised text-text-primary"
           : "text-text-secondary hover:bg-surface-raised/60 hover:text-text-primary",

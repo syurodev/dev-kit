@@ -374,8 +374,9 @@ export function KafkaView() {
                       <tr
                         key={`${m.offset}-${m.timestamp ?? 0}`}
                         onClick={() => inspect(m)}
+                        data-accent={inspected === m ? "on" : undefined}
                         className={cn(
-                          "cursor-pointer border-b border-border-subtle hover:bg-surface-raised/60",
+                          "row-accent cursor-pointer border-b border-border-subtle hover:bg-surface-raised/60",
                           inspected === m && "bg-surface-raised",
                         )}
                       >
@@ -470,7 +471,12 @@ export function KafkaView() {
                       <td className="h-9 truncate px-4 text-body-13 text-text-primary">{g.groupId}</td>
                       {/* Lag is the number that makes someone act, so it is the only one that shouts. */}
                       <td className={cn("h-9 px-4 text-code-12 tabular-nums", g.lag ? "text-status-warning" : "text-text-tertiary")}>
-                        {g.lag == null ? "—" : formatOffset(g.lag)}
+                        {/* Keyed by the value, so a refresh that moves the lag
+                            replays the blink and one that does not stays
+                            still. Groups only: a peek replaces all 500 rows. */}
+                        <span key={String(g.lag)} className="value-blink">
+                          {g.lag == null ? "—" : formatOffset(g.lag)}
+                        </span>
                       </td>
                     </tr>
                   ))}

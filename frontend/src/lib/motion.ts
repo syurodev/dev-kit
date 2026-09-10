@@ -28,3 +28,17 @@ export const slideVariants: Variants = {
 // --motion-base, as a spring with no bounce: data does not wobble.
 export const slideTransition: Transition = { type: "spring", duration: 0.18, bounce: 0 };
 export const noMotion: Transition = { duration: 0 };
+
+/**
+ * The CSS motion tokens, in the seconds framer wants. index.css is the source
+ * of truth (--motion-fast/base/slow, --ease-out-strong); these mirror it so a
+ * framer animation and a CSS one that describe the same gesture cannot drift.
+ */
+export const MOTION_FAST = 0.12;
+export const MOTION_BASE = 0.18;
+export const MOTION_SLOW = 0.24;
+/** --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1). */
+export const EASE_OUT_STRONG = [0.23, 1, 0.32, 1] as const;
+
+/** Content trailing its container, so the panel leads and the body follows. */
+export const CONTENT_FADE_DELAY = 0.06;
