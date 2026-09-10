@@ -16,6 +16,7 @@ const (
 	CommandURLEncode    = "tools.url-encode"
 	CommandURLDecode    = "tools.url-decode"
 	CommandJSONFormat   = "tools.json-format"
+	CommandJWTDecode    = "tools.jwt-decode"
 )
 
 // Capabilities guarding them. tools.mdx splits these deliberately: the util
@@ -65,6 +66,7 @@ var Commands = []Descriptor{
 	{ID: CommandURLEncode, Title: "URL encode", Capability: CapabilityUtil},
 	{ID: CommandURLDecode, Title: "URL decode", Capability: CapabilityUtil},
 	{ID: CommandJSONFormat, Title: "Format JSON", Capability: CapabilityUtil},
+	{ID: CommandJWTDecode, Title: "Decode JWT", Capability: CapabilityUtil},
 }
 
 // CapabilityFor reports which capability guards a command, and whether the

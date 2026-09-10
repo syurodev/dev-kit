@@ -1,6 +1,6 @@
 ---
 title: Tools
-description: Command registry chung — hash và sáu util command (base64, URL, JSON, UUID), tất cả pure function.
+description: Command registry chung — hash và bảy util command (base64, URL, JSON, UUID, JWT), tất cả pure function.
 ---
 
 # Tools
@@ -19,7 +19,7 @@ flowchart LR
   AS -->|builtin.tools| GW[Capability Gateway]
   GW --> REG[internal/commands.Registry]
   REG --> H1[tools.hash]
-  REG --> H2["tools.base64-encode ×6 util"]
+  REG --> H2["tools.base64-encode ×7 util"]
 ```
 
 ## Principles
@@ -28,7 +28,7 @@ flowchart LR
 - Ưu tiên built-in trước khi mở SDK ngoài.
 - Mỗi tool có entry rõ trong registry để search/palette dùng được.
 
-## Hiện trạng: 7 command
+## Hiện trạng: 8 command
 
 Subject luôn `builtin.tools`. Cả 7 command đều đăng ký thật; nguồn duy nhất là
 bảng `tools.Commands` trong `internal/tools/commands.go`, và manifest, grant,
@@ -44,6 +44,7 @@ một command chạy được mà grant viết cho thứ khác.
 | `tools.url-decode` | query-escaped | text | `tools:util` |
 | `tools.json-format` | JSON text | JSON đã indent | `tools:util` |
 | `tools.uuid-generate` | version (`v4` mặc định, `v7`) | UUID string | `tools:util` |
+| `tools.jwt-decode` | JWT (chấp nhận cả tiền tố `Bearer `) | header + payload + thời hạn, dạng text | `tools:util` |
 
 Tất cả pure function — không network, không mutate state, không cần vault
 unlocked. Scope vẫn `command:<id>` opaque.
@@ -67,6 +68,18 @@ cả luật lẫn tiền lệ.
   mũ, khiến file sau format không còn diff được với bản gốc.
 - **`url-encode` dùng `QueryEscape`** — space thành `+`, đúng nghĩa "URL
   encode" mà mọi công cụ khác đưa ra.
+- **`jwt-decode` chỉ giải mã, KHÔNG xác thực.** Đây là điểm quan trọng nhất
+  của tool này. Header và payload của JWT là base64 chứ không phải mã hoá — ai
+  cũng đọc được, và ai cũng **viết** được. Kiểm chữ ký cần signing key mà tool
+  không có và không hỏi. Nên output luôn kèm dòng `SIGNATURE — NOT VERIFIED`
+  và một đoạn nói rõ đừng tin claim chỉ vì thấy nó hiện ra. Ngoài ra:
+  - Cảnh báo riêng khi header ghi `alg: "none"` — token không có chữ ký nào cả,
+    server nào chấp nhận nó thì chấp nhận mọi thứ.
+  - `iat`/`nbf`/`exp` được đổi sang ngày giờ đọc được kèm khoảng cách tới hiện
+    tại (`EXPIRED 2 days ago`, `NOT VALID YET`) — đó là câu hỏi người ta mở
+    decoder ra để trả lời.
+  - Token 5 phần (JWE) báo lỗi riêng: nó đúng định dạng, chỉ là không đọc được
+    nếu không có khoá — khác hẳn "token hỏng".
 
 ### Capability mới, không đổi grant cũ
 
@@ -106,6 +119,7 @@ tương ứng ở tầng dưới — không nhân bản logic.
 | `tools.uuid-generate` | `read` | `builtin.tools` / `tools:util` / `command:tools.uuid-generate` |
 | `tools.url-encode` / `tools.url-decode` | `read` | `builtin.tools` / `tools:util` / `command:tools.url-encode` (tương tự) |
 | `tools.json-format` | `read` | `builtin.tools` / `tools:util` / `command:tools.json-format` |
+| `tools.jwt-decode` | `read` | `builtin.tools` / `tools:util` / `command:tools.jwt-decode` |
 
 Tất cả `readOnlyHint = true` — pure function không có side effect, kể cả command
 generate UUID (không mutate state nào, chỉ sinh giá trị mới).

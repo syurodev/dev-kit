@@ -32,8 +32,8 @@ func TestCommandsAreCompleteAndUnique(t *testing.T) {
 			t.Errorf("command %q has no capability, so nothing guards it", command.ID)
 		}
 	}
-	if len(Commands) != 7 {
-		t.Errorf("Commands has %d entries, want 7 (hash + the six utils)", len(Commands))
+	if len(Commands) != 8 {
+		t.Errorf("Commands has %d entries, want 8 (hash + the seven utils)", len(Commands))
 	}
 }
 

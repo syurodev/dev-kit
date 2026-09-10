@@ -162,6 +162,8 @@ func toolHandler(container *Container, id string) (commands.Handler, error) {
 		return text(container.UtilTools.URLDecode), nil
 	case tools.CommandJSONFormat:
 		return text(container.UtilTools.JSONFormat), nil
+	case tools.CommandJWTDecode:
+		return text(container.UtilTools.JWTDecode), nil
 	case tools.CommandUUIDGenerate:
 		return util(func(request tools.UtilRequest) (tools.UtilResult, error) {
 			return container.UtilTools.UUIDGenerate(request.Version)

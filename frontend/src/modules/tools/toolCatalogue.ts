@@ -2,6 +2,7 @@ import {
   Binary,
   Braces,
   Fingerprint,
+  IdCard,
   Hash,
   Link2,
   Link2Off,
@@ -102,6 +103,16 @@ export const TOOLS: ToolDescriptor[] = [
     shape: "text",
     blurb: "Indent a document without reordering its keys or rewriting its numbers.",
     inputPlaceholder: '{"compact":true}',
+  },
+  {
+    id: "tools.jwt-decode",
+    name: "Decode JWT",
+    icon: IdCard,
+    shape: "text",
+    // The blurb carries the warning too: someone who reads only the rail and
+    // the subtitle should already know this does not check the signature.
+    blurb: "Read a token's header, payload and expiry. Decodes only — the signature is not verified.",
+    inputPlaceholder: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.…",
   },
   {
     id: "tools.uuid-generate",

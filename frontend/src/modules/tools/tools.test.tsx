@@ -18,7 +18,12 @@ describe("catalogue matches the Go command table", () => {
   const goIDs = [...commandsGo.matchAll(/Command\w+\s*=\s*"([^"]+)"/g)].map((m) => m[1]);
 
   it("finds the Go ids at all, so this test cannot pass vacuously", () => {
-    expect(goIDs.length).toBe(7);
+    // Not a hardcoded count: the two "every X has a Y" tests below are the real
+    // check, and this one only has to prove the regex found something and that
+    // the two sides are the same size. A literal here would need editing every
+    // time a tool is added, which is how a guard turns into a chore.
+    expect(goIDs.length).toBeGreaterThan(0);
+    expect(goIDs.length).toBe(TOOLS.length);
   });
 
   it("every Go command has a catalogue entry", () => {
