@@ -41,6 +41,7 @@ import {
   type ForeignKey,
   type ColumnInfo,
 } from "../../../bridge/database";
+import { EMPTY_ARRAY, EMPTY_OBJECT } from "@/lib/stableEmpty";
 
 /**
  * The naming heuristic needs types, not just names. Two columns are treated as
@@ -531,7 +532,7 @@ export function ERDView() {
   }, [schemas, selectedSchema]);
 
   // Load declared Foreign Keys
-  const { data: declaredFKs = [] } = useQuery({
+  const { data: declaredFKs = EMPTY_ARRAY } = useQuery({
     queryKey: ["database", "erd", "fks", selectedProfileId, selectedSchema],
     queryFn: async () => {
       if (!selectedProfileId || !selectedSchema) return [];
@@ -545,7 +546,7 @@ export function ERDView() {
   });
 
   // Indexes answer whether a relation is one-to-one or one-to-many.
-  const { data: indexes = [] } = useQuery({
+  const { data: indexes = EMPTY_ARRAY } = useQuery({
     queryKey: ["database", "erd", "indexes", selectedProfileId, selectedSchema],
     queryFn: async () => {
       if (!selectedProfileId || !selectedSchema) return [];
@@ -567,7 +568,7 @@ export function ERDView() {
 
   const tableNamesKey = Object.keys(tablesInSchema).sort().join(",");
 
-  const { data: typedColumns = {} } = useQuery({
+  const { data: typedColumns = EMPTY_OBJECT } = useQuery({
     queryKey: ["database", "erd", "columns", selectedProfileId, selectedSchema, tableNamesKey],
     queryFn: async () => {
       const names = Object.keys(tablesInSchema);

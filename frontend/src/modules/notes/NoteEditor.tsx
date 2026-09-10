@@ -56,6 +56,7 @@ import { ColorPicker } from "./ColorPicker";
 import { folderDotVar } from "./folderColors";
 import { tagChipVar } from "./tagColor";
 import { NotesEditorKit } from "./plate/plugins";
+import { EMPTY_ARRAY } from "@/lib/stableEmpty";
 
 type SaveStatus = "idle" | "saving" | "saved" | "error";
 
@@ -106,7 +107,7 @@ function TagChip({
 }
 
 function NoteBacklinks({ noteId }: { noteId: string }) {
-  const { data: backlinks = [] } = useQuery({
+  const { data: backlinks = EMPTY_ARRAY } = useQuery({
     queryKey: ["notes", "backlinks", noteId],
     queryFn: () => listBacklinks(noteId),
     enabled: Boolean(noteId),

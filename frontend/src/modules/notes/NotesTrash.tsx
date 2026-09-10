@@ -23,6 +23,7 @@ import {
 } from "../../bridge/notes";
 import { errorMessage } from "../../bridge/errors";
 import { noteCardSurface } from "./noteColor";
+import { EMPTY_ARRAY } from "@/lib/stableEmpty";
 
 /** Whole days until a trashed note is purged, floored — "purges in 0 days"
  *  would be wrong for something that still has hours left. */
@@ -45,7 +46,7 @@ export function NotesTrash({ onChanged }: { onChanged: () => void }) {
   const [error, setError] = useState("");
   const [confirmEmpty, setConfirmEmpty] = useState(false);
 
-  const { data: items = [] } = useQuery({
+  const { data: items = EMPTY_ARRAY } = useQuery({
     queryKey: ["notes", "trash"],
     queryFn: () => listTrashedNotes(),
   });

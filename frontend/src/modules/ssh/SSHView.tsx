@@ -15,6 +15,7 @@ import {
 } from "../../bridge/ssh";
 import { listEnvTags } from "../../bridge/environments";
 import { errorMessage } from "../../bridge/errors";
+import { EMPTY_ARRAY } from "@/lib/stableEmpty";
 
 const emptyForm = {
   name: "",
@@ -42,17 +43,17 @@ export function SSHView() {
   const [forwardTargetHost, setForwardTargetHost] = useState("127.0.0.1");
   const [forwardTargetPort, setForwardTargetPort] = useState(5432);
 
-  const { data: profiles = [] } = useQuery({
+  const { data: profiles = EMPTY_ARRAY } = useQuery({
     queryKey: ["ssh", "profiles"],
     queryFn: () => listSSHProfiles(),
   });
 
-  const { data: forwards = [] } = useQuery({
+  const { data: forwards = EMPTY_ARRAY } = useQuery({
     queryKey: ["ssh", "forwards"],
     queryFn: () => listSSHForwards(),
   });
 
-  const { data: envTags = [] } = useQuery({
+  const { data: envTags = EMPTY_ARRAY } = useQuery({
     queryKey: ["environments", "tags"],
     queryFn: () => listEnvTags(),
   });

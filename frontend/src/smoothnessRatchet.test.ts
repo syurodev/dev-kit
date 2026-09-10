@@ -81,6 +81,26 @@ function blurSurfaces(): number {
   return total;
 }
 
+/**
+ * A query default that allocates on every render: `const { data: x = [] } =
+ * useQuery(...)` hands back a NEW array on every render where data is
+ * undefined. Anything memoised on it recomputes, and anything that writes it
+ * into a store makes the store churn — which is how NotesDashboard rendered
+ * itself into "Maximum update depth exceeded". Use lib/stableEmpty instead.
+ * At 0 this is a guard, not a ratchet.
+ */
+function unstableQueryDefaults(): number {
+  let total = 0;
+  for (const dir of ["modules", "components", "workbench", "dev"]) {
+    for (const file of files(join(ROOT, dir), [".tsx", ".ts"])) {
+      const body = readFileSync(file, "utf8");
+      if (!body.includes("useQuery")) continue;
+      total += count(/data:\s*\w+\s*=\s*(\[\]|\{\})/, body);
+    }
+  }
+  return total;
+}
+
 /** 4.1: an animation whose duration is not one of the three tokens. */
 function untokenisedAnimateIn(): number {
   let total = 0;
@@ -103,6 +123,7 @@ const BASELINE = {
   unvirtualizedTables: 2,
   blurSurfaces: 48,
   untokenisedAnimateIn: 3,
+  unstableQueryDefaults: 0,
 };
 
 const MEASURES = {
@@ -110,6 +131,7 @@ const MEASURES = {
   unvirtualizedTables,
   blurSurfaces,
   untokenisedAnimateIn,
+  unstableQueryDefaults,
 } as const;
 
 describe("smoothness ratchet", () => {
