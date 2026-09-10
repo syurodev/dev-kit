@@ -9,6 +9,8 @@ export type SSHProfile = {
   username: string;
   authMethod: string;
   hostKeyFingerprint: string;
+  /** A passphrase is saved for this key. Readable while the vault is locked. */
+  hasKeyPassphrase: boolean;
 };
 
 export type CreateSSHProfileInput = {
@@ -19,6 +21,12 @@ export type CreateSSHProfileInput = {
   authMethod: string;
   secret: string;
   env: string;
+  /**
+   * Unlocks an encrypted private key, saved in the vault beside it. Required
+   * for such a key: a database tunnel opens with nobody at the keyboard to
+   * prompt, so an unsaved passphrase means the key can never be used.
+   */
+  keyPassphrase?: string;
 };
 
 export type SSHForwardDirection = "local" | "remote";
@@ -44,6 +52,7 @@ function toProfile(p: {
   username: string;
   auth_method: string;
   host_key_fingerprint: string;
+  has_key_passphrase?: boolean;
 }): SSHProfile {
   return {
     id: p.id,
@@ -53,6 +62,7 @@ function toProfile(p: {
     username: p.username,
     authMethod: p.auth_method,
     hostKeyFingerprint: p.host_key_fingerprint,
+    hasKeyPassphrase: Boolean(p.has_key_passphrase),
   };
 }
 
@@ -84,6 +94,7 @@ export function createSSHProfile(input: CreateSSHProfileInput): Promise<SSHProfi
       auth_method: input.authMethod,
       secret: input.secret,
       env: input.env,
+      key_passphrase: input.keyPassphrase ?? "",
     });
     return toProfile(created);
   });

@@ -1,11 +1,23 @@
 import { useState } from "react";
-import { Database, X, AlertTriangle, Radio } from "lucide-react";
+import { Database, X, AlertTriangle, Radio, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useShallow } from "zustand/react/shallow";
 import { useDatabaseStore } from "../databaseStore";
 import { createProfile, testNewConnection } from "../../../bridge/database";
 import { errorMessage } from "../../../bridge/errors";
+
+/** What each mode actually guarantees, in one line. */
+const SSL_MODE_HINT: Record<string, string> = {
+  disable: "No encryption. Refused for anything but a loopback host.",
+  require: "Encrypted, but the server's identity is not checked.",
+  "verify-full": "Encrypted, and the certificate must match the host name.",
+};
+
+/** The modes that read a CA bundle. */
+function verifiesCertificate(sslMode: string): boolean {
+  return sslMode === "verify-full" || sslMode === "verify-ca";
+}
 
 export function NewConnectionDialog() {
   const {
@@ -34,6 +46,7 @@ export function NewConnectionDialog() {
   const [username, setUsername] = useState("postgres");
   const [password, setPassword] = useState("");
   const [sslMode, setSslMode] = useState("disable");
+  const [caCert, setCaCert] = useState("");
   const [env, setEnv] = useState("dev");
   const [sshProfileId, setSshProfileId] = useState("");
 
@@ -41,6 +54,12 @@ export function NewConnectionDialog() {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState("");
   const [error, setError] = useState("");
+
+  const verifies = verifiesCertificate(sslMode);
+  // A bundle typed under verify-full and then left behind by a switch to
+  // require would be saved as a promise the connection does not keep; the
+  // backend refuses that pairing, so drop it here rather than surface an error.
+  const caForSubmit = verifies ? caCert : "";
 
   if (!showNewConnectionDialog) return null;
 
@@ -76,6 +95,7 @@ export function NewConnectionDialog() {
         sslMode,
         env,
         sshProfileId,
+        caCert: caForSubmit,
       });
 
       setShowNewConnectionDialog(false);
@@ -104,6 +124,7 @@ export function NewConnectionDialog() {
         sslMode,
         env,
         sshProfileId,
+        caCert: caForSubmit,
       });
       setTestResult("Connected.");
     } catch (e) {
@@ -250,6 +271,11 @@ export function NewConnectionDialog() {
               <option value="require">require</option>
               <option value="verify-full">verify-full (recommended)</option>
             </select>
+            {/* Each mode makes a different promise, and the difference between
+                the middle one and the last one is the whole point of the CA
+                field below — so say it here rather than leaving it to be
+                discovered by a failed handshake. */}
+            <p className="text-caption-11 text-text-tertiary">{SSL_MODE_HINT[sslMode]}</p>
           </div>
 
           {/* Optional SSH Tunnel */}
@@ -270,7 +296,38 @@ export function NewConnectionDialog() {
                 </option>
               ))}
             </select>
+            {sshProfiles.length === 0 && (
+              <p className="text-caption-11 text-text-tertiary">
+                No SSH profiles yet — add one in the SSH module to reach a database behind a bastion.
+              </p>
+            )}
           </div>
+
+          {/* The CA bundle only exists to make verify-full reachable, so it
+              only appears under the mode that reads it. Mounted-but-hidden
+              rather than unmounted would keep a stale certificate in state. */}
+          {verifies && (
+            <div className="col-span-2 space-y-1">
+              <label className="font-medium text-text-primary flex items-center gap-1">
+                <ShieldCheck className="w-3 h-3 text-status-info" />
+                <span>CA Certificate</span>
+                <span className="font-normal text-text-tertiary">optional</span>
+              </label>
+              <textarea
+                value={caCert}
+                onChange={(e) => setCaCert(e.target.value)}
+                rows={4}
+                spellCheck={false}
+                placeholder={"-----BEGIN CERTIFICATE-----\n…\n-----END CERTIFICATE-----"}
+                className="w-full rounded-lg border border-border bg-surface-raised px-2.5 py-2 text-code-11 text-text-primary outline-none focus:border-action-primary resize-y"
+              />
+              <p className="text-caption-11 text-text-tertiary">
+                Leave empty to use this machine&rsquo;s trust store. Managed databases sign with
+                their own authority — Amazon RDS and Aurora need the RDS CA bundle pasted here, or
+                verify-full cannot succeed.
+              </p>
+            </div>
+          )}
         </div>
 
         {error && (

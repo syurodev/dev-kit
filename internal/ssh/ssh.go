@@ -62,6 +62,9 @@ type ProfileSummary struct {
 	AuthMethod         string `json:"auth_method"`
 	HostKeyFingerprint string `json:"host_key_fingerprint"`
 	Env                string `json:"env"`
+	// HasKeyPassphrase says a passphrase is saved for this key, without
+	// decrypting it — so the answer is available while the vault is locked.
+	HasKeyPassphrase bool `json:"has_key_passphrase"`
 }
 
 type CreateProfileInput struct {
@@ -74,6 +77,11 @@ type CreateProfileInput struct {
 	// (auth_method "key").
 	Secret string `json:"secret"`
 	Env    string `json:"env"`
+	// KeyPassphrase unlocks an encrypted private key. Saved in the vault
+	// beside the key, which is the only way a background reconnect — a
+	// database tunnel opening on its own — can use such a key at all: there is
+	// nobody at the keyboard to ask. Empty for an unencrypted key.
+	KeyPassphrase string `json:"key_passphrase"`
 }
 
 type CommandResult struct {
@@ -126,6 +134,15 @@ func (s *Service) CreateProfile(input CreateProfileInput) (ProfileSummary, error
 	if input.AuthMethod != AuthPassword && input.AuthMethod != AuthKey {
 		return ProfileSummary{}, errors.New("unsupported auth method")
 	}
+	// Parse the key here, with the passphrase as given, so a wrong passphrase
+	// or an encrypted key with none is refused by the form that typed it. The
+	// alternative is a profile that saves cleanly and then fails every time
+	// something opens a tunnel with it, far from the field that was wrong.
+	if input.AuthMethod == AuthKey {
+		if _, err := parsePrivateKey([]byte(input.Secret), input.KeyPassphrase); err != nil {
+			return ProfileSummary{}, err
+		}
+	}
 
 	meta, err := json.Marshal(metadata{
 		Name:       input.Name,
@@ -142,7 +159,20 @@ func (s *Service) CreateProfile(input CreateProfileInput) (ProfileSummary, error
 	if err != nil {
 		return ProfileSummary{}, err
 	}
-	return summaryFromRecord(record)
+	if input.AuthMethod == AuthKey && input.KeyPassphrase != "" {
+		if err := s.storeKeyPassphrase(record.ID, input.KeyPassphrase); err != nil {
+			// The profile without its passphrase is a profile that cannot
+			// connect, so do not leave one behind.
+			_ = s.store.Delete(record.ID)
+			return ProfileSummary{}, err
+		}
+	}
+	summary, err := summaryFromRecord(record)
+	if err != nil {
+		return ProfileSummary{}, err
+	}
+	summary.HasKeyPassphrase = input.KeyPassphrase != ""
+	return summary, nil
 }
 
 func (s *Service) ListProfiles() ([]ProfileSummary, error) {
@@ -156,6 +186,7 @@ func (s *Service) ListProfiles() ([]ProfileSummary, error) {
 		if err != nil {
 			return nil, err
 		}
+		summary.HasKeyPassphrase = s.hasKeyPassphrase(record.ID)
 		summaries = append(summaries, summary)
 	}
 	sort.Slice(summaries, func(i, j int) bool {
@@ -169,6 +200,11 @@ func (s *Service) DeleteProfile(id string) error {
 	// sessions before deleting the profile so a deleted credential cannot leave
 	// an orphaned network path alive in the process.
 	s.stopForwardsForProfile(id)
+	// Before the profile, so a failure here cannot leave an orphaned secret
+	// pointing at an id that no longer resolves.
+	if err := s.deleteKeyPassphrase(id); err != nil {
+		return err
+	}
 	return s.store.Delete(id)
 }
 
@@ -297,6 +333,12 @@ func (s *Service) dial(ctx context.Context, id string, passphrase string) (*goss
 	case AuthPassword:
 		auth = gossh.Password(string(secret))
 	case AuthKey:
+		if passphrase == "" {
+			// Nobody passed one, so use what the profile saved. This is the
+			// path a database tunnel takes: it opens without a caller who
+			// could be prompted.
+			passphrase = s.loadKeyPassphrase(id)
+		}
 		signer, err := parsePrivateKey(secret, passphrase)
 		if err != nil {
 			return nil, err
