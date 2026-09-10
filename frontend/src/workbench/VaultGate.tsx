@@ -300,7 +300,10 @@ export function VaultGate({ children }: { children: ReactNode }) {
 
   // If already unlocked and not in middle of initial setup walkthrough, mount workbench
   if (vaultState === "unlocked" && gateStep !== "setup_ready" && gateStep !== "setup_recovery") {
-    return <>{children}</>;
+    // One transition, not a cut (smoothness 8.1). `display: contents` on the
+    // wrapper so the workbench stays the same flex child it was — the fade is
+    // on the shell itself, which arrives whole rather than part by part.
+    return <div className="shell-enter">{children}</div>;
   }
 
   const contextualLabel =

@@ -842,6 +842,23 @@
     }
   }
 
+  /* Vault gate → workbench, as one crossfade rather than a cut (smoothness
+     8.1). The gate is unmounted and the workbench mounts in its place, so
+     @starting-style is what gives the arriving shell its start; the gate needs
+     no exit because there is nothing left to look at behind it. Measured: the
+     rail, dock and tab strip already land in the same frame as each other, so
+     this fades the shell as one piece, which is the point. */
+  .shell-enter {
+    display: contents;
+  }
+  .shell-enter > * {
+    opacity: 1;
+    transition: opacity var(--motion-base) var(--ease-out-strong);
+    @starting-style {
+      opacity: 0;
+    }
+  }
+
   /* The accent that marks the selected row of a tree or the inspected row of a
      table (smoothness 4.4). It slides in from the row's own middle rather than
      appearing: scaleY is a compositor property, so this costs no layout, and a
@@ -897,6 +914,9 @@
         animation: none;
     }
     .module-enter {
+        transition: none;
+    }
+    .shell-enter > * {
         transition: none;
     }
     .row-accent::before {
