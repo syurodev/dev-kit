@@ -1,5 +1,6 @@
 import { Database } from "lucide-react";
 import { lazyModuleView, type ModuleManifest } from "../registry";
+import { openNewConsoleTab } from "./documents";
 
 export const databaseModule: ModuleManifest = {
   id: "database",
@@ -22,6 +23,9 @@ export const databaseModule: ModuleManifest = {
   // switching tabs moved the content sideways. Nothing here draws a
   // full-bleed divider any more, which is the case the bleed default is for.
   padded: true,
+  // The strip's + button. Several consoles at once is the point of the tab
+  // strip here, and this is the only affordance that offers one.
+  newTab: openNewConsoleTab,
   views: [
     {
       id: "database.console",

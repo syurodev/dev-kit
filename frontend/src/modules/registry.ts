@@ -81,6 +81,15 @@ export type ModuleManifest = {
    * parity ignores it.
    */
   tabs?: boolean;
+  /**
+   * What the strip's + button does. Without it the button is drawn and does
+   * nothing, which is where it stood: the shell cannot know what a new tab
+   * means — a note, a console, a session — so the module says.
+   *
+   * Presentational and frontend-only: the backend has no opinion, so module
+   * parity ignores it.
+   */
+  newTab?: () => void;
 };
 
 export type ModuleMetadata = {

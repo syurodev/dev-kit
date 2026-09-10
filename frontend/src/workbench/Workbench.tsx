@@ -760,6 +760,7 @@ export function Workbench() {
           onSelect={setActiveTab}
           onClose={closeTab}
           onReorder={reorderTab}
+          onNewTab={activeModule?.newTab}
           keyboardBrowsing={switcher === "browsing"}
           onExitBrowsing={() => setSwitcher("closed")}
         />

@@ -26,6 +26,20 @@ export function openConsoleTab(consoleId: string, title = "Console"): void {
   open("database.console", title, Terminal, { consoleId }, false);
 }
 
+/**
+ * A blank console, from the strip's + button.
+ *
+ * The id has to be unique or the new tab would resolve to an existing console
+ * through tabKey and simply focus it — which is what "new" must not do. A
+ * counter rather than a timestamp: two clicks inside the same millisecond are
+ * reachable, a repeated counter value is not.
+ */
+let consoleSerial = 0;
+export function openNewConsoleTab(): void {
+  consoleSerial += 1;
+  openConsoleTab(`console-${consoleSerial}-${Math.random().toString(36).slice(2, 8)}`);
+}
+
 export function openErdTab(): void {
   open("database.erd", "ERD diagram", Network, undefined, false);
 }

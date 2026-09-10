@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { moduleTabs, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
-import { openTableTab } from "./documents";
+import { openNewConsoleTab, openTableTab } from "./documents";
 
 beforeEach(() => {
   useWorkbenchTabsStore.setState({ activeModuleId: "", modules: {} });
@@ -30,4 +30,14 @@ describe("table documents", () => {
     const tabs = moduleTabs(useWorkbenchTabsStore.getState().modules, "database");
     expect(tabs.openTabs).toHaveLength(2);
   });
+});
+
+// The + button must give you a console you did not have. tabKey resolves the
+// same module+view+params to the same tab, so a fixed id would focus the
+// existing console instead of opening a new one.
+test("the + button opens a console each time", () => {
+  openNewConsoleTab();
+  openNewConsoleTab();
+  const tabs = moduleTabs(useWorkbenchTabsStore.getState().modules, "database");
+  expect(tabs.openTabs).toHaveLength(2);
 });
