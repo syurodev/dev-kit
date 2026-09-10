@@ -1,6 +1,9 @@
 import { useState } from "react";
-import { Search } from "lucide-react";
-import { Input } from "@/components/ui/input";
+import {
+  SIDEBAR_ROW_HEIGHT,
+  SidebarHeader,
+  SidebarSearch,
+} from "@/components/ui/sidebar-shell";
 import { cn } from "@/lib/utils";
 import { TOOLS, type ToolDescriptor } from "./toolCatalogue";
 import { useToolsStore } from "./toolsStore";
@@ -26,18 +29,14 @@ export function ToolsSidebar() {
 
   return (
     <div className="flex h-full flex-col select-none">
-      <div className="pt-1.5 pb-1">
-        <div className="relative">
-          <Search className="pointer-events-none absolute top-1/2 left-2 size-3 -translate-y-1/2 text-text-tertiary" />
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search tools…"
-            aria-label="Search tools"
-            className="h-7 border-border-subtle bg-surface-well pl-7 text-body-12"
-          />
-        </div>
-      </div>
+      <SidebarHeader>
+        <SidebarSearch
+          value={query}
+          onChange={setQuery}
+          placeholder="Search tools…"
+          aria-label="Search tools"
+        />
+      </SidebarHeader>
 
       <div className="min-h-0 flex-1 overflow-y-auto scrollbar-gutter-stable">
         {matches.length === 0 ? (
@@ -78,11 +77,11 @@ function ToolRow({
       type="button"
       onClick={onSelect}
       data-accent={active ? "on" : undefined}
-      // h-7 rather than the h-6 this list used: a glyph beside the label needs
-      // the extra pixel of breathing room, and the rail is seven rows long, so
-      // it costs nothing that a scrollbar would notice.
+      // A flat list of eight, so the `list` tier: nothing here is deep enough
+      // to want the tree tier's density.
       className={cn(
-        "row-accent group flex h-7 w-full items-center gap-2 rounded-md px-2 text-left",
+        "row-accent group flex w-full items-center gap-2 rounded-md px-3 text-left",
+        SIDEBAR_ROW_HEIGHT.list,
         active
           ? "bg-surface-raised text-text-primary"
           : "text-text-secondary hover:bg-surface-raised/60 hover:text-text-primary",

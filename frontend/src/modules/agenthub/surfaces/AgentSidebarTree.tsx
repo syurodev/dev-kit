@@ -166,7 +166,7 @@ export function AgentSidebarTree({
           size="xs"
           data-testid="agent-tree-new"
           onClick={onNewSession}
-          className="h-6 rounded-sm border-border-subtle px-2 text-caption-11-medium text-text-secondary"
+          className="h-(--control-height-xs) rounded-md border-border-subtle px-2 text-caption-11-medium text-text-secondary"
         >
           + New
         </Button>

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plug, PlugZap, Plus, Search, Trash2, Zap } from "lucide-react";
+import { Plug, PlugZap, Plus, Trash2, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Chip } from "@/components/ui/chip";
 import {
@@ -9,7 +9,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import { Input } from "@/components/ui/input";
+import { SidebarHeader, SidebarSearch } from "@/components/ui/sidebar-shell";
 import { TreeView, type TreeNodeData } from "@/components/tree-view";
 import { cn } from "@/lib/utils";
 import { useKafkaStore } from "./kafkaStore";
@@ -117,21 +117,17 @@ export function KafkaSidebar() {
 
   return (
     <div className="flex h-full flex-col select-none">
-      <div className="flex items-center gap-0.5 pt-1.5 pb-1">
-        <div className="relative min-w-0 flex-1">
-          <Search className="pointer-events-none absolute top-1/2 left-2 size-3 -translate-y-1/2 text-text-tertiary" />
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search topics…"
-            aria-label="Search clusters and topics"
-            className="h-7 border-border-subtle bg-surface-well pl-7 text-body-12"
-          />
-        </div>
+      <SidebarHeader>
+        <SidebarSearch
+          value={query}
+          onChange={setQuery}
+          placeholder="Search topics…"
+          aria-label="Search clusters and topics"
+        />
         <Button variant="ghost" size="icon-xs" title="New cluster" onClick={() => setShowNewCluster(true)}>
           <Plus className="size-3" />
         </Button>
-      </div>
+      </SidebarHeader>
 
       <div className="min-h-0 flex-1 overflow-y-auto scrollbar-gutter-stable pb-2">
         {profiles.length === 0 ? (

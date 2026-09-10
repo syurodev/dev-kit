@@ -38,7 +38,9 @@ export function visibleEntries(entries: CodeGraphFileEntry[], expanded: Set<stri
 }
 
 /** Figma `Files Tab Content` (862:33549): 28px rows, 16px per depth, chevron 10 · glyph 13 · name. */
-const ROW_HEIGHT = 28;
+// The tree tier (--control-height-xs). Virtualised, so the number has to be
+// here as well as in the class below.
+const ROW_HEIGHT = 24;
 
 export function FileTree({ entries, selectedPath, onSelectFile }: FileTreeProps) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -76,7 +78,7 @@ export function FileTree({ entries, selectedPath, onSelectFile }: FileTreeProps)
             <button
               key={entry.path}
               className={cn(
-                "absolute top-0 left-0 flex w-full items-center gap-1.5 rounded-sm border pr-2 text-left",
+                "absolute top-0 left-0 flex w-full items-center gap-1.5 rounded-md border pr-2 text-left",
                 selected
                   ? "border-border-subtle bg-surface-raised"
                   : "border-transparent hover:bg-surface-raised/60",

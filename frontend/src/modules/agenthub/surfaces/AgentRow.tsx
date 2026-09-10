@@ -2,6 +2,7 @@ import * as React from "react";
 import { Pin } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { SIDEBAR_ROW_HEIGHT } from "@/components/ui/sidebar-shell";
 import { AgentState, type AgentStatus } from "./AgentState";
 import { VendorIcon } from "./VendorIcon";
 import type { AgentSession } from "@/bridge/agenthub";
@@ -82,7 +83,10 @@ export function AgentRow({
       data-selected={selected}
       data-pinned={pinned}
       className={cn(
-        "flex w-full max-w-66 items-center gap-3 rounded-md px-3 py-2 text-left transition-colors cursor-pointer",
+        "flex w-full max-w-66 items-center gap-3 rounded-md px-3 text-left transition-colors cursor-pointer",
+        // Two lines, a title over its meta — the `card` tier, the same height
+        // Sync's rows take. Free vertical padding put it at ~51px instead.
+        SIDEBAR_ROW_HEIGHT.card,
         selected
           ? "border border-border-subtle bg-surface-raised"
           : "border border-transparent bg-transparent hover:bg-(--state-soft)",

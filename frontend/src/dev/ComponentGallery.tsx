@@ -20,6 +20,12 @@ import { Titlebar } from "@/components/ui/titlebar";
 import { ToastSpecCard } from "@/components/ui/sonner";
 import { CommandPaletteStaticCard } from "@/workbench/CommandPalette";
 import { ShellMenuItemSpec } from "@/components/ui/dropdown-menu";
+import {
+  SidebarHeader,
+  SidebarRow,
+  SidebarSearch,
+  SidebarSection,
+} from "@/components/ui/sidebar-shell";
 
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";
@@ -1035,6 +1041,32 @@ export default function ComponentGallery() {
               <Terminal className="size-3.5 shrink-0 opacity-80" />
               <span className="truncate flex-1">zsh (terminal 1)</span>
               <X className="size-3 shrink-0 opacity-60 hover:opacity-100" />
+            </div>
+          </div>
+        </Spec>
+
+        <Spec node="116:1367" label="Sidebar rail — three row tiers, one set of everything else">
+          <div className="flex w-[280px] flex-col gap-4">
+            <SidebarHeader>
+              <SidebarSearch value="" onChange={() => {}} placeholder="Search…" />
+            </SidebarHeader>
+            <div id="measure-rail-tiers" className="flex flex-col">
+              <SidebarSection label="Tree — 24" count={173} />
+              <SidebarRow tier="tree" label="orders" icon={<Terminal className="size-3" />} />
+              <SidebarRow tier="tree" label="order_items" icon={<Terminal className="size-3" />} active />
+              <SidebarSection label="List — 32" />
+              <SidebarRow tier="list" label="Hash text" icon={<Terminal className="size-3.5" />} />
+              <SidebarRow tier="list" label="Decode JWT" icon={<Terminal className="size-3.5" />} active />
+              <SidebarSection label="Card — 48" />
+              <SidebarRow
+                tier="card"
+                label={
+                  <span className="flex flex-col gap-px">
+                    <span className="truncate text-body-13-medium text-text-primary">Cloud</span>
+                    <span className="truncate text-code-11 text-text-tertiary">sync.devkit.io</span>
+                  </span>
+                }
+              />
             </div>
           </div>
         </Spec>

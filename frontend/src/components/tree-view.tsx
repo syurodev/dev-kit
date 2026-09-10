@@ -121,7 +121,9 @@ function TreeRow({ node, level, index }: { node: TreeNodeData; level: number; in
       title={node.title}
       data-accent={node.selected ? "on" : undefined}
       className={cn(
-        "group tree-row-enter row-accent flex h-6 items-center gap-1 rounded-md pr-1.5",
+        // The tree tier (--control-height-xs): depth costs vertical room here,
+        // so a row is denser than the flat lists in other rails.
+        "group tree-row-enter row-accent flex h-(--control-height-xs) items-center gap-1 rounded-md pr-1.5",
         node.selected
           ? "bg-surface-raised text-text-primary"
           : "text-text-secondary hover:bg-surface-raised/60 hover:text-text-primary",
@@ -172,7 +174,7 @@ function TreeRow({ node, level, index }: { node: TreeNodeData; level: number; in
               <TreeRows nodes={node.children} level={level + 1} />
             ) : (
               <span
-                className="flex h-6 items-center pr-1.5 text-code-11 text-text-tertiary"
+                className="flex h-(--control-height-xs) items-center pr-1.5 text-code-11 text-text-tertiary"
                 style={{ paddingLeft: indent(level + 1) + 16 }}
               >
                 {node.loading ? "Loading…" : node.emptyLabel}

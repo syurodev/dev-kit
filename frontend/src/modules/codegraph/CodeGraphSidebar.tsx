@@ -6,7 +6,12 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Input } from "@/components/ui/input";
+import {
+  SIDEBAR_ROW_HEIGHT,
+  SidebarHeader,
+  SidebarSearch,
+  SidebarSection,
+} from "@/components/ui/sidebar-shell";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FileTree } from "./FileTree";
 import { methodChipClass } from "./graph/tokens";
@@ -150,14 +155,15 @@ export function CodeGraphSidebar(props: CodeGraphSidebarProps) {
         {error && <p className="text-caption-11 text-status-danger">{error}</p>}
       </div>
 
-      <Input
-        type="search"
-        value={query}
-        onChange={(e) => onQueryChange(e.target.value)}
-        placeholder="Search files or endpoints…"
-        aria-label="Search files or endpoints"
-        className="bg-state-soft"
-      />
+      <SidebarHeader>
+        <SidebarSearch
+          value={query}
+          onChange={onQueryChange}
+          onClear={() => onQueryChange("")}
+          placeholder="Search files or endpoints…"
+          aria-label="Search files or endpoints"
+        />
+      </SidebarHeader>
 
       <Tabs value={activeTab} onValueChange={(v) => onTabChange(v as CodeGraphSidebarTab)} className="gap-0">
         <TabsList className="w-full">
@@ -169,17 +175,16 @@ export function CodeGraphSidebar(props: CodeGraphSidebarProps) {
 
       {activeTab === "endpoints" && (
         <>
-          <span className="text-label-11-caps text-text-tertiary">
-            {shownEndpoints.length} endpoint{shownEndpoints.length === 1 ? "" : "s"}
-          </span>
-          <ul className="-mt-2 flex min-h-0 flex-1 flex-col overflow-y-auto">
+          <SidebarSection label="Endpoints" count={shownEndpoints.length} />
+          <ul className="flex min-h-0 flex-1 flex-col overflow-y-auto">
             {shownEndpoints.map((ep) => {
               const selected = selectedEndpointId === ep.entryNode;
               return (
                 <li key={ep.id}>
                   <button
                     className={cn(
-                      "flex w-full items-center gap-2.5 rounded-sm border px-2 py-1.5 text-left",
+                      "flex w-full items-center gap-2.5 rounded-md border px-3 text-left",
+                      SIDEBAR_ROW_HEIGHT.list,
                       selected
                         ? "border-border-subtle bg-surface-raised"
                         : "border-transparent hover:bg-surface-raised/60",
@@ -226,7 +231,10 @@ export function CodeGraphSidebar(props: CodeGraphSidebarProps) {
           {planNodes.map((n) => (
             <li key={n.planNodeId}>
               <button
-                className="flex w-full flex-col gap-0.5 rounded-sm px-2 py-1.5 text-left hover:bg-surface-raised/60"
+                className={cn(
+                  "flex w-full flex-col justify-center gap-0.5 rounded-md px-3 text-left hover:bg-surface-raised/60",
+                  SIDEBAR_ROW_HEIGHT.card,
+                )}
                 onClick={() => onSelectPlanNode(n.planNodeId)}
               >
                 <span className="flex w-full items-center gap-2">

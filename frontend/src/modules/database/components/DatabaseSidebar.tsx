@@ -9,18 +9,16 @@ import {
   Key,
   Shield,
   Radio,
-  Search,
   Settings2,
   Pencil,
   Copy,
   FolderPlus,
   FolderInput,
-  X,
   Crosshair,
   Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { SidebarHeader, SidebarSearch } from "@/components/ui/sidebar-shell";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -516,26 +514,13 @@ export function DatabaseSidebar() {
 
   return (
     <div className="flex h-full flex-col select-none">
-      <div className="flex items-center gap-1 pt-2 pb-1">
-        <div className="relative min-w-0 flex-1">
-          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-text-tertiary" />
-          <Input
-            value={filterQuery}
-            onChange={(e) => setFilterQuery(e.target.value)}
-            placeholder="Search connections & tables…"
-            className="h-8 border-border-subtle bg-surface-well pr-7 pl-8"
-          />
-          {filterQuery && (
-            <button
-              type="button"
-              onClick={() => setFilterQuery("")}
-              className="absolute top-1/2 right-1.5 -translate-y-1/2 rounded-sm p-0.5 text-text-tertiary hover:text-text-primary"
-              title="Clear search"
-            >
-              <X className="size-3" />
-            </button>
-          )}
-        </div>
+      <SidebarHeader>
+        <SidebarSearch
+          value={filterQuery}
+          onChange={setFilterQuery}
+          onClear={() => setFilterQuery("")}
+          placeholder="Search connections & tables…"
+        />
         <Button
           variant="ghost"
           size="icon-xs"
@@ -561,7 +546,7 @@ export function DatabaseSidebar() {
         >
           <Plus className="size-3" />
         </Button>
-      </div>
+      </SidebarHeader>
 
       {/* Searching a 173-table list and being shown a shorter one with no idea
           how much it cut is the part that made the box feel broken. */}

@@ -1,5 +1,6 @@
 import { Clock, FileText, KeyRound, Laptop, Server, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { SIDEBAR_ROW_HEIGHT, SidebarSection } from "@/components/ui/sidebar-shell";
 import type { SyncConflict, SyncStatus } from "../../bridge/sync";
 
 /** "note", "secret", anything else → the glyph Figma's rows use (783:252). */
@@ -33,8 +34,8 @@ export function clockOf(iso: string): string {
     : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-const LABEL = "flex items-center px-3 pt-4 pb-1.5 text-label-11-caps text-text-tertiary";
-const ROW = "flex h-12 w-full items-center gap-2 rounded-md border pr-3 pl-2 text-left";
+// Two-line rows (a title over its meta), so the `card` tier.
+const ROW = `flex w-full items-center gap-2 rounded-md border px-3 text-left ${SIDEBAR_ROW_HEIGHT.card}`;
 
 /**
  * Figma `Sync / Sidebar Content` (783:252): DEVICE — this device and the cloud
@@ -55,7 +56,7 @@ export function SyncSidebar({
 }) {
   return (
     <div className="flex h-full flex-col overflow-y-auto">
-      <span className={LABEL}>Device</span>
+      <SidebarSection label="Device" />
       <div className={cn(ROW, "border-transparent")}>
         <Laptop className="size-4 shrink-0 text-text-secondary" />
         <span className="flex min-w-0 flex-1 flex-col gap-px">
@@ -75,10 +76,7 @@ export function SyncSidebar({
         </span>
       </div>
 
-      <span className={LABEL}>
-        <span className="flex-1">Conflicts</span>
-        <span className="text-code-11 normal-case">{conflicts.length}</span>
-      </span>
+      <SidebarSection label="Conflicts" count={conflicts.length} />
       {conflicts.length === 0 ? (
         <span className="px-3 py-2.5 text-body-13 text-text-tertiary">Nothing to resolve.</span>
       ) : (

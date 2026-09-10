@@ -1,5 +1,7 @@
 import * as React from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Search, X } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import { LazyMotion, domAnimation, m } from "framer-motion";
 import { useResizableSize } from "@/workbench/useResizableSize";
 import {
@@ -92,7 +94,9 @@ export function SidebarSection({
   );
 
   return (
-    <div className="flex items-center justify-between gap-2 px-3 py-2">
+    // pt-4/pb-1.5, not a symmetric py: a section heading belongs to the rows
+    // below it, and equal padding leaves it floating between two groups.
+    <div className="flex items-center justify-between gap-2 px-3 pt-4 pb-1.5">
       {onToggle ? (
         <button
           type="button"
@@ -110,6 +114,26 @@ export function SidebarSection({
   );
 }
 
+/**
+ * A rail row's height follows the SHAPE of what it holds, not the module it is
+ * in — so the three tiers are the whole vocabulary and every rail picks from it:
+ *
+ *   tree  24  a deep tree, where depth costs vertical room (Database's five
+ *             levels over 173 tables, Kafka, CodeGraph)
+ *   list  32  one line of label, the default (Tools, Notes)
+ *   card  48  two lines, a title over its meta (Sync, Agent Hub)
+ *
+ * Everything else about a row is identical across all three: rounded-md, px-3,
+ * gap-2, and surface-raised when active.
+ */
+export const SIDEBAR_ROW_HEIGHT = {
+  tree: "h-(--control-height-xs)",
+  list: "h-(--control-height-md)",
+  card: "h-(--control-height-2xl)",
+} as const;
+
+export type SidebarRowTier = keyof typeof SIDEBAR_ROW_HEIGHT;
+
 /** One selectable line in a rail: icon, label, trailing count. */
 export function SidebarRow({
   icon,
@@ -118,6 +142,7 @@ export function SidebarRow({
   active,
   onClick,
   trailing,
+  tier = "list",
 }: {
   icon?: React.ReactNode;
   label: React.ReactNode;
@@ -125,26 +150,26 @@ export function SidebarRow({
   active?: boolean;
   onClick?: () => void;
   trailing?: React.ReactNode;
+  tier?: SidebarRowTier;
 }) {
   return (
     <div
       // Metrics from Foundations, structure from the component. The Figma
       // sidebar draws 31px rows with 7/12 padding and a 9px gap, which the
       // Foundations page itself rules out — "spacing tokens drive auto-layout
-      // gaps and padding, avoid arbitrary values". Rounded onto the grid: 32
-      // tall, 12/8 padding, 8 gap, radius 8 (controls are 6–10).
+      // gaps and padding, avoid arbitrary values". Rounded onto the grid:
+      // 12/8 padding, 8 gap, radius 8 (controls are 6–10).
       // A fixed height, not vertical padding: the trailing control is 24px and
-      // the label's line box is 17, so whichever is taller was deciding the
-      // row's height — and a control that only appears on hover decided it
-      // twice. h-8 is control/height-md; nothing inside can move it.
-      // rounded-md, not rounded-lg: in this file's scale lg is 14 (a container
-      // radius) and md is the 8 the comment above has asked for all along —
-      // the class was written against Tailwind's default ladder, where lg=8.
-      className={`group flex h-(--control-height-md) items-center gap-2 rounded-md px-3 text-body-13 ${
+      // the label's line box is 17, so whichever is taller would decide the
+      // row's height — and a control that only appears on hover would decide it
+      // twice. The tier token is the height; nothing inside can move it.
+      className={cn(
+        "group flex items-center gap-2 rounded-md px-3 text-body-13",
+        SIDEBAR_ROW_HEIGHT[tier],
         active
           ? "bg-surface-raised text-text-primary"
-          : "text-text-secondary hover:bg-surface-raised"
-      }`}
+          : "text-text-secondary hover:bg-surface-raised",
+      )}
     >
       <button
         type="button"
@@ -160,6 +185,63 @@ export function SidebarRow({
       {trailing}
     </div>
   );
+}
+
+/**
+ * The rail's search field. Four rails had grown their own — two at 28px with a
+ * 12px glyph, one at 32px with a 14px one, one with no styling at all — and a
+ * search box is the first thing in a rail, so the drift was visible on every
+ * module switch.
+ *
+ * `onClear` opts into the trailing clear button; without it the right padding
+ * is not reserved, because an X that never appears is 28px of dead field.
+ */
+export function SidebarSearch({
+  value,
+  onChange,
+  onClear,
+  placeholder,
+  "aria-label": ariaLabel,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  onClear?: () => void;
+  placeholder: string;
+  "aria-label"?: string;
+}) {
+  return (
+    <div className="relative min-w-0 flex-1">
+      <Search className="pointer-events-none absolute top-1/2 left-2.5 size-(--icon-14) -translate-y-1/2 text-text-tertiary" />
+      <Input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        aria-label={ariaLabel ?? placeholder}
+        className={cn(
+          "h-(--control-height-md) border-border-subtle bg-surface-well pl-8 text-body-13",
+          onClear && "pr-7",
+        )}
+      />
+      {onClear && value ? (
+        <button
+          type="button"
+          onClick={onClear}
+          title="Clear search"
+          className="absolute top-1/2 right-1.5 -translate-y-1/2 rounded-md p-0.5 text-text-tertiary hover:text-text-primary"
+        >
+          <X className="size-(--icon-12)" />
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * The band a rail's search field and its adjacent actions sit in. One padding
+ * for every rail, so the first row below it starts at the same y everywhere.
+ */
+export function SidebarHeader({ children }: { children: React.ReactNode }) {
+  return <div className="flex items-center gap-1 pt-1.5 pb-1">{children}</div>;
 }
 
 const MIN_SIDEBAR_WIDTH = 240;

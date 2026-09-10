@@ -14,7 +14,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { SidebarRow } from "@/components/ui/sidebar-shell";
+import { SidebarRow, SidebarSection } from "@/components/ui/sidebar-shell";
 import { cn } from "@/lib/utils";
 import type { NoteFolder, NoteSummary } from "../../bridge/notes";
 import { folderDotVar } from "./folderColors";
@@ -136,7 +136,7 @@ export function NotesSidebar({
         />
       ) : null}
 
-      <SectionLabel>Folders</SectionLabel>
+      <SidebarSection label="Folders" />
       {folders.map((folder) => {
         const id = folder.id;
         const isOpen = expanded.has(id);
@@ -235,7 +235,7 @@ export function NotesSidebar({
         onClick={onCreateFolder}
       />
 
-      <SectionLabel>Maintenance</SectionLabel>
+      <SidebarSection label="Maintenance" />
       <SidebarRow
         icon={<Trash2 className="size-3.5 shrink-0" />}
         label="Trash"
@@ -262,15 +262,6 @@ function Chevron({ open, hidden }: { open?: boolean; hidden?: boolean }) {
 }
 
 /** label/FOLDERS, label/MAINTENANCE: Label/11 Caps, pt-14 pb-6. The Figma
- * frame sets these in Geist Mono, but page 13 is largely unbound and
- * design-system.mdx names Label/11 Caps as the uppercase-label step — the
- * documented rule wins over one unbound text layer. */
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="px-3 pt-3.5 pb-1.5 text-label-11-caps text-text-tertiary">{children}</div>
-  );
-}
-
 /** Note Row (811:3500): h-28, indented past the chevron + dot columns, file
  * glyph, name in Body/13, age in Code/11. */
 function NoteRows({
