@@ -54,6 +54,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { EMPTY_ARRAY } from "@/lib/stableEmpty";
 
 type SettingsTab = "account" | "appearance" | "sync" | "environments";
 
@@ -602,7 +603,7 @@ function EnvironmentsTab() {
   const [busy, setBusy] = useState(false);
   const [mutationError, setMutationError] = useState("");
 
-  const { data: tags = [], error: queryError } = useQuery({
+  const { data: tags = EMPTY_ARRAY, error: queryError } = useQuery({
     queryKey: ["environments", "tags"],
     queryFn: () => listEnvTags(),
   });

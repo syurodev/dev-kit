@@ -12,6 +12,7 @@ import {
 } from "../../bridge/notes";
 import { errorMessage } from "../../bridge/errors";
 import { lineDiff } from "./noteDiff";
+import { EMPTY_ARRAY } from "@/lib/stableEmpty";
 
 /** "2h ago" — the panel answers how stale a version is, not when it was made. */
 export function relativeAge(iso: string, now: number = Date.now()): string {
@@ -59,7 +60,7 @@ export function NoteHistoryPanel({
   const [selectedBody, setSelectedBody] = useState("");
   const [error, setError] = useState("");
 
-  const { data: versions = [] } = useQuery({
+  const { data: versions = EMPTY_ARRAY } = useQuery({
     queryKey: ["notes", "versions", noteId],
     queryFn: () => listNoteVersions(noteId),
     enabled: Boolean(noteId),

@@ -62,7 +62,21 @@ export const useNotesSidebarStore = create<NotesSidebarState>((set) => ({
       }
       return { expanded };
     }),
-  setData: (data) => set(data),
+  // Identity-guarded, the same way sidebarContent.ts guards setContent, and for
+  // the same reason: the dashboard both writes this store from an effect and
+  // reads it back through the rail's selectors in the same component, so a set
+  // that changes nothing still re-renders the writer. That is a loop waiting
+  // for an unstable caller — which is exactly what a `= []` query default was.
+  // The reference check is enough: every caller hands over values it already
+  // holds by identity, so equal contents always mean equal references.
+  setData: (data) =>
+    set((state) =>
+      state.folders === data.folders &&
+      state.notes === data.notes &&
+      state.counts === data.counts
+        ? state
+        : data,
+    ),
   setTrashCount: (trashCount) => set({ trashCount }),
   requestAction: (pendingAction) => set({ pendingAction }),
   clearAction: () => set({ pendingAction: null }),

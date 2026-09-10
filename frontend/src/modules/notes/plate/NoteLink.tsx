@@ -12,6 +12,7 @@ import {
   InlineComboboxItem,
 } from "@/components/ui/inline-combobox";
 import { noteLinkMarkup, resolveNoteLinks, searchNotes } from "../../../bridge/notes";
+import { EMPTY_ARRAY } from "@/lib/stableEmpty";
 
 export const NOTE_LINK_KEY = "note_link";
 export const NOTE_LINK_INPUT_KEY = "note_link_input";
@@ -81,7 +82,7 @@ export function NoteLinkElement(props: PlateElementProps) {
 export function NoteLinkInputElement(props: PlateElementProps<TComboboxInputElement>) {
   const { editor, element } = props;
 
-  const { data: results = [] } = useQuery({
+  const { data: results = EMPTY_ARRAY } = useQuery({
     queryKey: ["notes", "search", ""],
     queryFn: () => searchNotes(""),
   });

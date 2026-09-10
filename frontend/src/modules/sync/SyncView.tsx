@@ -20,6 +20,7 @@ import { errorMessage } from "../../bridge/errors";
 import { ResolvePanel } from "./ResolvePanel";
 import { SyncSidebar } from "./SyncSidebar";
 import { pullSegments, pushSegments, type MeterSegment } from "./syncMeter";
+import { EMPTY_ARRAY } from "@/lib/stableEmpty";
 
 const disconnected: SyncStatus = {
   connected: false,
@@ -98,7 +99,7 @@ export function SyncView() {
     queryFn: () => authStatus(),
   });
 
-  const { data: conflicts = [] } = useQuery({
+  const { data: conflicts = EMPTY_ARRAY } = useQuery({
     queryKey: ["sync", "conflicts"],
     queryFn: () => syncConflicts(),
   });

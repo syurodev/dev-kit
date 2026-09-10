@@ -44,6 +44,7 @@ import { useNotesSidebarStore } from "./notesSidebarStore";
 import { NotesTrash } from "./NotesTrash";
 import { NoteCard } from "./NoteCard";
 import { tagChipVar } from "./tagColor";
+import { EMPTY_ARRAY } from "@/lib/stableEmpty";
 
 type Scope = "all" | "ungrouped" | "trash" | `folder:${string}`;
 
@@ -222,18 +223,18 @@ export function NotesDashboard({
     return () => window.clearTimeout(timer);
   }, [query]);
 
-  const { data: notes = [] } = useQuery({
+  const { data: notes = EMPTY_ARRAY } = useQuery({
     queryKey: ["notes", "list", debouncedQuery],
     queryFn: () => (debouncedQuery ? searchNotes(debouncedQuery) : listNotes()),
     placeholderData: (prev) => prev,
   });
 
-  const { data: folders = [] } = useQuery({
+  const { data: folders = EMPTY_ARRAY } = useQuery({
     queryKey: ["notes", "folders"],
     queryFn: () => listFolders(),
   });
 
-  const { data: trashedNotes = [] } = useQuery({
+  const { data: trashedNotes = EMPTY_ARRAY } = useQuery({
     queryKey: ["notes", "trash"],
     queryFn: () => listTrashedNotes(),
   });
