@@ -14,7 +14,18 @@ import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
 function open(viewId: string, title: string, icon: typeof Table2, params?: Record<string, unknown>, preview = true) {
   // Start the chunk before React needs it: the tab appears in the same frame
   // either way, but the view lands sooner.
-  void getModule("database")?.views.find((v) => v.id === viewId)?.preload?.().catch(() => undefined);
+  const preload = getModule("database")?.views.find((v) => v.id === viewId)?.preload;
+  if (preload) {
+    const startedAt = performance.now();
+    void preload()
+      .then(() => {
+        if (import.meta.env.DEV || localStorage.getItem("devkitPerf") === "1") {
+          // eslint-disable-next-line no-console -- dev-only instrumentation
+          console.info(`[chunk] ${viewId} ready in ${Math.round(performance.now() - startedAt)}ms`);
+        }
+      })
+      .catch(() => undefined);
+  }
   useWorkbenchTabsStore.getState().openTab({ moduleId: "database", viewId, title, icon, params, preview });
 }
 

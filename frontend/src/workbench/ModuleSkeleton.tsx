@@ -1,5 +1,30 @@
+import { useEffect, useRef } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useSidebarContent } from "@/components/ui/sidebar-shell";
+
+/**
+ * Times how long this skeleton is on screen, which is how long a tab's chunk
+ * took to arrive. Dev-only and behind the same switch as lib/perfTrace, so a
+ * production build carries neither the timing nor the log.
+ */
+function useSkeletonTrace(): void {
+  const shownAt = useRef(0);
+  if (shownAt.current === 0) {
+    shownAt.current = performance.now();
+  }
+  useEffect(() => {
+    if (!import.meta.env.DEV && localStorage.getItem("devkitPerf") !== "1") {
+      return;
+    }
+    const startedAt = shownAt.current;
+    // eslint-disable-next-line no-console -- dev-only instrumentation
+    console.info(`[skeleton] shown`);
+    return () => {
+      // eslint-disable-next-line no-console -- dev-only instrumentation
+      console.info(`[skeleton] gone after ${Math.round(performance.now() - startedAt)}ms`);
+    };
+  }, []);
+}
 
 /**
  * What a module column looks like while its chunk is still on the wire.
@@ -12,6 +37,7 @@ import { useSidebarContent } from "@/components/ui/sidebar-shell";
  */
 export function ModuleSkeleton() {
   useSidebarContent(RAIL);
+  useSkeletonTrace();
   return (
     <div role="status" aria-label="Loading module" className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center gap-3 border-b border-border px-6 py-3.5">
