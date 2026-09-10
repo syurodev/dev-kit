@@ -43,7 +43,7 @@ import { copyText } from "../../../bridge/clipboard";
 import { requestVaultUnlock } from "@/workbench/vaultUnlockRequest";
 import { isVaultLockedError } from "../errorStates";
 import { useShallow } from "zustand/react/shallow";
-import { useDatabaseStore } from "../databaseStore";
+import { EMPTY_CONSOLE, useDatabaseStore } from "../databaseStore";
 import { getEngineMeta } from "./EngineBadge";
 import { explain, explainAnalyze, type QueryPlan } from "../../../bridge/database";
 import { QueryPlanView } from "./QueryPlanView";
@@ -79,48 +79,40 @@ export function rowAsJSON(columns: string[], row: string[]): string {
  * Kept though the page does not draw them: Explain, Explain Analyze, Save, the
  * resizable split and the banners.
  */
-export function QueryConsole() {
+export function QueryConsole({ consoleId }: { consoleId: string }) {
+  // One subscription per console: the slice is a single object, so a run in
+  // another console changes nothing this component reads.
+  const console = useDatabaseStore((s) => s.consoles[consoleId] ?? EMPTY_CONSOLE);
+  const setSql = useDatabaseStore((s) => s.setSql);
+  const executeQuery = useDatabaseStore((s) => s.executeQuery);
+  const cancelQuery = useDatabaseStore((s) => s.cancelQuery);
+  const setConsoleEditorSize = useDatabaseStore((s) => s.setConsoleEditorSize);
   const {
     profiles,
     selectedProfileId,
-    sql,
-    setSql,
-    queryResult,
-    queryDurationMs,
-    runningQuery,
-    queryStartTime,
-    queryError,
-    executeQuery,
-    cancelQuery,
     clearQueryError,
     schemaSnapshot,
     setInspectedCell,
     setShowExportModal,
     setShowSaveQueryModal,
-    consoleEditorSize,
-    setConsoleEditorSize,
   } = useDatabaseStore(
     useShallow((s) => ({
       profiles: s.profiles,
       selectedProfileId: s.selectedProfileId,
-      sql: s.sql,
-      setSql: s.setSql,
-      queryResult: s.queryResult,
-      queryDurationMs: s.queryDurationMs,
-      runningQuery: s.runningQuery,
-      queryStartTime: s.queryStartTime,
-      queryError: s.queryError,
-      executeQuery: s.executeQuery,
-      cancelQuery: s.cancelQuery,
       clearQueryError: s.clearQueryError,
       schemaSnapshot: s.schemaSnapshot,
       setInspectedCell: s.setInspectedCell,
       setShowExportModal: s.setShowExportModal,
       setShowSaveQueryModal: s.setShowSaveQueryModal,
-      consoleEditorSize: s.consoleEditorSize,
-      setConsoleEditorSize: s.setConsoleEditorSize,
     }))
   );
+
+  // queryResult and queryStartTime are read inside nested closures below
+  // (map callbacks, a setInterval tick). TypeScript narrows a plain const
+  // across a closure boundary but not a property access on a mutable object,
+  // so a null-check on `console.queryResult` wouldn't survive into a `.map`
+  // callback — these locals give the narrowing something it can keep.
+  const { queryResult, queryStartTime } = console;
 
   // Result sets cap at 200 rows today but the cap is a setting; past 100 the
   // table windows (frontend performance 6.3). Rows are h-9, so 36px each.
@@ -135,7 +127,7 @@ export function QueryConsole() {
 
   // 30s Execution timer (Screen 14)
   useEffect(() => {
-    if (!runningQuery || !queryStartTime) {
+    if (!console.runningQuery || !queryStartTime) {
       setElapsed(0);
       return;
     }
@@ -145,7 +137,7 @@ export function QueryConsole() {
       setElapsed(diffSec);
     }, 100);
     return () => clearInterval(interval);
-  }, [runningQuery, queryStartTime]);
+  }, [console.runningQuery, queryStartTime]);
 
   // CodeMirror 6 SQL Dialect & Autocomplete Extension (F2, F3)
   const sqlExtension = useMemo(() => {
@@ -174,28 +166,36 @@ export function QueryConsole() {
   const hasPlaceholderMismatch = useMemo(() => {
     const engine = (profile?.engine || "postgres").toLowerCase();
     if (engine === "mysql" || engine === "mariadb") {
-      return /\$\d+/.test(sql);
+      return /\$\d+/.test(console.sql);
     }
     return false;
-  }, [profile?.engine, sql]);
+  }, [profile?.engine, console.sql]);
 
   // Check if error is safe-mode / read-only rejection (Screen 18)
   const isReadOnlyRejection =
-    queryError.toLowerCase().includes("read-only") ||
-    queryError.includes("25006") ||
-    queryError.toLowerCase().includes("transaction is read-only");
+    console.queryError.toLowerCase().includes("read-only") ||
+    console.queryError.includes("25006") ||
+    console.queryError.toLowerCase().includes("transaction is read-only");
 
   async function handleExplain(analyze: boolean) {
-    if (!selectedProfileId || !sql.trim()) return;
+    if (!selectedProfileId || !console.sql.trim()) return;
     setExplaining(true);
-    clearQueryError();
+    clearQueryError(consoleId);
     try {
       const plan = analyze
-        ? await explainAnalyze(selectedProfileId, sql)
-        : await explain(selectedProfileId, sql);
+        ? await explainAnalyze(selectedProfileId, console.sql)
+        : await explain(selectedProfileId, console.sql);
       setActivePlan(plan);
     } catch (e: any) {
-      useDatabaseStore.setState({ queryError: e.message || String(e) });
+      useDatabaseStore.setState((state) => ({
+        consoles: {
+          ...state.consoles,
+          [consoleId]: {
+            ...(state.consoles[consoleId] ?? EMPTY_CONSOLE),
+            queryError: e.message || String(e),
+          },
+        },
+      }));
     } finally {
       setExplaining(false);
     }
@@ -205,11 +205,11 @@ export function QueryConsole() {
   function handleKeyDown(e: React.KeyboardEvent) {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
-      void executeQuery();
+      void executeQuery(consoleId);
     }
   }
 
-  const busy = runningQuery || explaining || !selectedProfileId;
+  const busy = console.runningQuery || explaining || !selectedProfileId;
 
   return (
     <div className="flex h-full flex-1 flex-col overflow-hidden px-6 pt-3.5 pb-6" onKeyDown={handleKeyDown}>
@@ -243,7 +243,7 @@ export function QueryConsole() {
           variant="ghost"
           size="default"
           onClick={() => setShowSaveQueryModal(true)}
-          disabled={!sql.trim()}
+          disabled={!console.sql.trim()}
         >
           <BookmarkPlus className="size-3.5" />
           Save
@@ -265,8 +265,13 @@ export function QueryConsole() {
         {/* The wait belongs in the control that started it (smoothness 5), and
             Cancel appears beside it rather than replacing it — the Run button
             keeps its place in the row so nothing else shifts. */}
-        {runningQuery && (
-          <Button variant="outline" size="default" className="bg-surface-raised" onClick={cancelQuery}>
+        {console.runningQuery && (
+          <Button
+            variant="outline"
+            size="default"
+            className="bg-surface-raised"
+            onClick={() => cancelQuery(consoleId)}
+          >
             <XCircle className="size-3.5" />
             Cancel
           </Button>
@@ -274,15 +279,15 @@ export function QueryConsole() {
         <Button
           variant="default"
           size="default"
-          onClick={() => void executeQuery()}
-          disabled={runningQuery || !selectedProfileId}
+          onClick={() => void executeQuery(consoleId)}
+          disabled={console.runningQuery || !selectedProfileId}
         >
-          {runningQuery ? (
+          {console.runningQuery ? (
             <Loader2 className="size-3.5 animate-spin" />
           ) : (
             <Play className="size-3.5 fill-current" />
           )}
-          {runningQuery ? "Running…" : "Run"}
+          {console.runningQuery ? "Running…" : "Run"}
           <span className="text-code-11 opacity-65">{shortcut("Enter")}</span>
         </Button>
       </div>
@@ -293,11 +298,11 @@ export function QueryConsole() {
       <ResizablePanelGroup
         orientation="vertical"
         className="min-h-0 flex-1"
-        defaultLayout={{ editor: consoleEditorSize }}
+        defaultLayout={{ editor: console.editorSize }}
         onLayoutChanged={(layout, meta) => {
           // Only a real drag is worth writing through ui_state — the callback
           // also fires on mount and on every constraint recompute.
-          if (meta.isUserInteraction) setConsoleEditorSize(layout.editor);
+          if (meta.isUserInteraction) setConsoleEditorSize(consoleId, layout.editor);
         }}
       >
         {/* Sizes are strings on purpose: this library reads a bare number as
@@ -306,7 +311,12 @@ export function QueryConsole() {
         <ResizablePanel id="editor" minSize="15" className="flex flex-col">
           {/* editor (742:23): a well with a subtle stroke, radius 8. */}
           <div className="relative flex-1 overflow-hidden rounded-md border border-border-subtle bg-surface-well">
-            <CodeEditor value={sql} onChange={setSql} extensions={sqlExtension} wrap />
+            <CodeEditor
+              value={console.sql}
+              onChange={(value) => setSql(consoleId, value)}
+              extensions={sqlExtension}
+              wrap
+            />
           </div>
         </ResizablePanel>
 
@@ -330,7 +340,7 @@ export function QueryConsole() {
                 variant="ghost"
                 size="xs"
                 className="text-status-warning hover:bg-status-warning/20"
-                onClick={() => setSql(sql.replace(/\$\d+/g, "?"))}
+                onClick={() => setSql(consoleId, console.sql.replace(/\$\d+/g, "?"))}
               >
                 Auto-fix placeholders
               </Button>
@@ -338,7 +348,7 @@ export function QueryConsole() {
           )}
 
           {/* 30s Execution Timer Bar (Screen 14) */}
-          {runningQuery && (
+          {console.runningQuery && (
             <div className="mb-2 flex shrink-0 items-center justify-between rounded-md border border-border-subtle bg-surface-raised px-4 py-2.5 text-body-12">
               <div className="flex max-w-md flex-1 items-center gap-3">
                 <div className="flex items-center gap-1.5 text-body-13-medium text-text-primary">
@@ -374,13 +384,13 @@ export function QueryConsole() {
                   change this in Connection options.
                 </p>
                 <div className="mt-1 rounded border border-border bg-surface-base p-1.5 text-code-11 text-text-tertiary">
-                  {queryError}
+                  {console.queryError}
                 </div>
               </div>
               <button
                 type="button"
                 className="p-1 text-text-tertiary hover:text-text-primary"
-                onClick={clearQueryError}
+                onClick={() => clearQueryError(consoleId)}
               >
                 <XCircle className="size-4" />
               </button>
@@ -391,7 +401,7 @@ export function QueryConsole() {
               replacement: the rows on screen came out of the database before the
               vault shut and are already in memory. Clearing them would destroy
               work the lock has no claim on. */}
-          {isVaultLockedError(queryError) && (
+          {isVaultLockedError(console.queryError) && (
             <div className="mb-2 flex shrink-0 items-center justify-between gap-3 rounded-md border border-status-warning/30 bg-status-warning/10 px-4 py-2.5 text-body-12">
               <div className="flex items-center gap-2 text-status-warning">
                 <KeyRound className="size-4 shrink-0" />
@@ -408,19 +418,19 @@ export function QueryConsole() {
           )}
 
           {/* Generic Error Banner (Screen 13) */}
-          {queryError && !isReadOnlyRejection && !isVaultLockedError(queryError) && (
+          {console.queryError && !isReadOnlyRejection && !isVaultLockedError(console.queryError) && (
             <div className="mb-2 flex shrink-0 items-start gap-2.5 rounded-md border border-(--border-danger) bg-(--feedback-danger-soft) p-3 text-body-12 text-status-danger">
               <AlertCircle className="mt-0.5 size-4 shrink-0" />
               <div className="flex-1 space-y-1">
                 <div className="text-body-13-medium">Query execution error</div>
                 <div className="rounded border border-border bg-surface-base p-2 text-code-11 whitespace-pre-wrap text-text-primary">
-                  {queryError}
+                  {console.queryError}
                 </div>
               </div>
               <button
                 type="button"
                 className="p-1 text-text-tertiary hover:text-text-primary"
-                onClick={clearQueryError}
+                onClick={() => clearQueryError(consoleId)}
               >
                 <XCircle className="size-4" />
               </button>
@@ -435,7 +445,7 @@ export function QueryConsole() {
             <div
               className={cn(
                 "flex min-h-0 flex-1 flex-col",
-                runningQuery && "pointer-events-none opacity-60 transition-opacity duration-(--motion-base)",
+                console.runningQuery && "pointer-events-none opacity-60 transition-opacity duration-(--motion-base)",
               )}
             >
               {/* 742:36–742:39: "200 rows  412 ms" and the cap chip. */}
@@ -444,8 +454,8 @@ export function QueryConsole() {
                   <span className="tabular-nums">{queryResult.rowCount}</span>{" "}
                   {queryResult.rowCount === 1 ? "row" : "rows"}
                 </span>
-                {queryDurationMs != null && (
-                  <span className="text-body-13-medium text-text-primary tabular-nums">{queryDurationMs} ms</span>
+                {console.queryDurationMs != null && (
+                  <span className="text-body-13-medium text-text-primary tabular-nums">{console.queryDurationMs} ms</span>
                 )}
                 <span className="text-caption-11 text-text-tertiary">
                   <span className="tabular-nums">{queryResult.columns.length}</span> columns
