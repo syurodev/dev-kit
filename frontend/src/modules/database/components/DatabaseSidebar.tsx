@@ -17,6 +17,10 @@ import {
   Crosshair,
   Trash2,
   TriangleAlert,
+  Activity,
+  Bookmark,
+  History,
+  Network,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SidebarHeader, SidebarSearch } from "@/components/ui/sidebar-shell";
@@ -48,6 +52,13 @@ import { DeleteProfileDialog } from "./DeleteProfileDialog";
 import { Chip, EngineMark } from "./EngineBadge";
 import { deleteProfile, type ConnectionProfile } from "../../../bridge/database";
 import { copyText } from "../../../bridge/clipboard";
+import {
+  openActivityTab,
+  openErdTab,
+  openHistoryTab,
+  openSavedTab,
+  openTableTab,
+} from "../documents";
 
 /**
  * "indexed 2 hours ago" rather than a wall-clock time: the question the label
@@ -99,7 +110,6 @@ export function DatabaseSidebar() {
     fetchProfiles,
     folders,
     expandedFolders,
-    setActiveTab,
     toggleFolder,
     createFolder,
     updateFolder,
@@ -120,8 +130,6 @@ export function DatabaseSidebar() {
     setSelectedTable,
     tableColumnsMap,
     tableColumnsError,
-    setSql,
-    sql,
     setShowNewConnectionDialog,
     setShowConnectionOptionsDialog,
   } = useDatabaseStore(
@@ -133,7 +141,6 @@ export function DatabaseSidebar() {
       fetchProfiles: s.fetchProfiles,
       folders: s.folders,
       expandedFolders: s.expandedFolders,
-      setActiveTab: s.setActiveTab,
       toggleFolder: s.toggleFolder,
       createFolder: s.createFolder,
       updateFolder: s.updateFolder,
@@ -154,8 +161,6 @@ export function DatabaseSidebar() {
       setSelectedTable: s.setSelectedTable,
       tableColumnsMap: s.tableColumnsMap,
       tableColumnsError: s.tableColumnsError,
-      setSql: s.setSql,
-      sql: s.sql,
       setShowNewConnectionDialog: s.setShowNewConnectionDialog,
       setShowConnectionOptionsDialog: s.setShowConnectionOptionsDialog,
     }))
@@ -171,14 +176,6 @@ export function DatabaseSidebar() {
   // exception: opening those would dump every column of every match.
   const filtering = needle.length > 0;
   const namespace = filterNamespace(schemaSnapshot?.namespace ?? {}, needle);
-
-  function handleInsertTable(tableName: string) {
-    if (!sql || sql.trim() === "SELECT 1 AS n, 'hello' AS greeting;") {
-      setSql(`SELECT * FROM ${tableName} LIMIT 50;`);
-    } else {
-      setSql(`${sql} ${tableName}`);
-    }
-  }
 
   function columnNodes(schemaName: string, tableName: string): TreeNodeData[] {
     const key = `${schemaName}.${tableName}`;
@@ -247,7 +244,10 @@ export function DatabaseSidebar() {
           setSelectedSchema(schemaName);
           setSelectedTable(tableName);
         },
-        onActivate: () => handleInsertTable(tableName),
+        // Single click selects and expands; double click opens the data. That
+        // is the DataGrip gesture, and it is why opening a table no longer
+        // overwrites whatever SQL a console had in it.
+        onActivate: () => openTableTab(schemaName, tableName, false),
         children: columnNodes(schemaName, tableName),
         emptyLabel: tableColumnsError[key] ?? "No columns",
         meta: columnNames.length || undefined,
@@ -257,19 +257,19 @@ export function DatabaseSidebar() {
         wrap: (row) => (
           <ContextMenu key={`table:${key}`}>
             <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
-            {/* Inserting a SELECT was double-click only — an action with no
+            {/* Opening the data was double-click only — an action with no
                 visible affordance at all. The menu names it and keeps the
                 shortcut. */}
             <ContextMenuContent>
-              <ContextMenuItem onSelect={() => handleInsertTable(tableName)}>
-                Select 50 rows
+              <ContextMenuItem onSelect={() => openTableTab(schemaName, tableName, false)}>
+                Open data
                 <ContextMenuShortcut>Double-click</ContextMenuShortcut>
               </ContextMenuItem>
               <ContextMenuItem
                 onSelect={() => {
                   setSelectedSchema(schemaName);
                   setSelectedTable(tableName);
-                  setActiveTab("erd");
+                  openErdTab();
                 }}
               >
                 <Crosshair />
@@ -470,6 +470,23 @@ export function DatabaseSidebar() {
             >
               <Copy />
               Copy connection target
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem onSelect={() => openErdTab()}>
+              <Network />
+              ERD diagram
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={() => openActivityTab()}>
+              <Activity />
+              Live activity
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={() => openHistoryTab()}>
+              <History />
+              Query history
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={() => openSavedTab()}>
+              <Bookmark />
+              Saved queries
             </ContextMenuItem>
             <ContextMenuSeparator />
             <ContextMenuItem variant="destructive" onSelect={() => setDeletingProfileId(profile.id)}>

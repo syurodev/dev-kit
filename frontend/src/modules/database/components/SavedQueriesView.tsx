@@ -26,19 +26,20 @@ import {
 } from "../../../bridge/database";
 import { errorMessage } from "../../../bridge/errors";
 import { isVaultLockedError } from "../errorStates";
+import { openConsoleTab } from "../documents";
+import { useIsActiveDocument } from "../useIsActiveDocument";
 
 export function SavedQueriesView() {
   const [savedListRef] = useAutoAnimate<HTMLDivElement>({ duration: 180, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
   const queryClient = useQueryClient();
-  const { selectedProfileId, setSql, setActiveTab, setShowSaveQueryModal, activeTab } = useDatabaseStore(
+  const { selectedProfileId, setSql, setShowSaveQueryModal } = useDatabaseStore(
     useShallow((s) => ({
       selectedProfileId: s.selectedProfileId,
       setSql: s.setSql,
-      setActiveTab: s.setActiveTab,
       setShowSaveQueryModal: s.setShowSaveQueryModal,
-      activeTab: s.activeTab,
     }))
   );
+  const isActive = useIsActiveDocument("database.saved");
 
   const [search, setSearch] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -53,7 +54,7 @@ export function SavedQueriesView() {
   } = useQuery({
     queryKey: ["database", "saved", selectedProfileId],
     queryFn: () => (selectedProfileId ? listSavedQueries(selectedProfileId) : Promise.resolve([])),
-    enabled: Boolean(selectedProfileId) && activeTab === "saved",
+    enabled: Boolean(selectedProfileId) && isActive,
     placeholderData: (previousData) => previousData,
   });
 
@@ -84,8 +85,11 @@ export function SavedQueriesView() {
   }
 
   function handleOpenInConsole(entry: SavedQuery) {
-    setSql(entry.sql);
-    setActiveTab("console");
+    // Namespaced by view: a history entry and a saved query can otherwise
+    // share an id and collide on the same console.
+    const consoleId = `console-saved-${entry.id}`;
+    setSql(consoleId, entry.sql);
+    openConsoleTab(consoleId, entry.name ?? "Console");
   }
 
   const filtered = (queries ?? []).filter(

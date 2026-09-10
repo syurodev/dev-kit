@@ -21,17 +21,18 @@ import { useDatabaseStore } from "../databaseStore";
 import { listQueryHistory, type HistoryEntry } from "../../../bridge/database";
 import { errorMessage } from "../../../bridge/errors";
 import { isVaultLockedError } from "../errorStates";
+import { openConsoleTab } from "../documents";
+import { useIsActiveDocument } from "../useIsActiveDocument";
 
 export function QueryHistoryView() {
   const [historyListRef] = useAutoAnimate<HTMLDivElement>({ duration: 180, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
-  const { selectedProfileId, setSql, setActiveTab, activeTab } = useDatabaseStore(
+  const { selectedProfileId, setSql } = useDatabaseStore(
     useShallow((s) => ({
       selectedProfileId: s.selectedProfileId,
       setSql: s.setSql,
-      setActiveTab: s.setActiveTab,
-      activeTab: s.activeTab,
     }))
   );
+  const isActive = useIsActiveDocument("database.history");
 
   const [search, setSearch] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -45,7 +46,7 @@ export function QueryHistoryView() {
   } = useQuery({
     queryKey: ["database", "history", selectedProfileId],
     queryFn: () => (selectedProfileId ? listQueryHistory(selectedProfileId) : Promise.resolve([])),
-    enabled: Boolean(selectedProfileId) && activeTab === "history",
+    enabled: Boolean(selectedProfileId) && isActive,
     placeholderData: (previousData) => previousData,
     // Fresh on every entry: a query run in the console must be here when the
     // tab opens, and nothing invalidates this key from the console path.
@@ -64,8 +65,11 @@ export function QueryHistoryView() {
   }
 
   function handleOpenInConsole(entry: HistoryEntry) {
-    setSql(entry.sql);
-    setActiveTab("console");
+    // Namespaced by view: a history entry and a saved query can otherwise
+    // share an id and collide on the same console.
+    const consoleId = `console-history-${entry.id}`;
+    setSql(consoleId, entry.sql);
+    openConsoleTab(consoleId);
   }
 
   const filtered = (history ?? []).filter((h) =>
