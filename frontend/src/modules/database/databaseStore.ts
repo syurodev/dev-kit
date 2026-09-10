@@ -90,6 +90,40 @@ export function migrateFoldersToIds<T extends LegacyFolderState>(
   return { ...state, folders, expandedFolders };
 }
 
+/**
+ * One query console's own state. Several consoles are open at once, so none of
+ * this can live as a single field on the store: a result carries the id of the
+ * console that asked for it, and a slow query landing after you switched tabs
+ * has to find its way back to the tab that ran it.
+ */
+export type ConsoleState = {
+  sql: string;
+  queryResult: QueryResult | null;
+  runningQuery: boolean;
+  queryStartTime: number | null;
+  queryError: string;
+  queryStatus: string;
+  queryDurationMs: number | null;
+  queryRunId: number;
+  /** Percent of the console's height given to the editor. */
+  editorSize: number;
+};
+
+/** The console a module opens with, and the one every legacy caller means. */
+export const DEFAULT_CONSOLE_ID = "console-1";
+
+export const EMPTY_CONSOLE: ConsoleState = Object.freeze({
+  sql: "",
+  queryResult: null,
+  runningQuery: false,
+  queryStartTime: null,
+  queryError: "",
+  queryStatus: "",
+  queryDurationMs: null,
+  queryRunId: 0,
+  editorSize: 50,
+}) as ConsoleState;
+
 export type DatabaseStoreState = {
   profiles: ConnectionProfile[];
   selectedProfileId: string;
@@ -107,8 +141,6 @@ export type DatabaseStoreState = {
   // bridge, and a remembered flag for a profile that was deleted meanwhile
   // describes nothing.
   expandedProfiles: Record<string, boolean>; // profile id -> open
-  // Percent of the console's height given to the editor.
-  consoleEditorSize: number;
 
   // Schema state
   schemaSnapshot: SchemaSnapshot | null;
@@ -125,22 +157,8 @@ export type DatabaseStoreState = {
    */
   tableColumnsError: Record<string, string>;
 
-  // Query console state
-  sql: string;
-  queryResult: QueryResult | null;
-  runningQuery: boolean;
-  queryStartTime: number | null;
-  queryError: string;
-  queryStatus: string;
-  /** Wall-clock time of the last successful run — Figma's "412 ms" beside
-   * the row count (742:37). null until a query has finished. */
-  queryDurationMs: number | null;
-  /**
-   * Identifies the run whose answer is allowed to land. Bumped on every
-   * execute, so a slow first statement finishing after a faster second one
-   * cannot overwrite the newer result (smoothness 5, "stale response").
-   */
-  queryRunId: number;
+  /** Every open console's state, keyed by the tab's console id. */
+  consoles: Record<string, ConsoleState>;
 
   // Selected cell for CellInspector
   inspectedCell: { columnName: string; value: string } | null;
@@ -155,7 +173,7 @@ export type DatabaseStoreState = {
   fetchProfiles: () => Promise<void>;
   setSelectedProfileId: (id: string) => void;
   setActiveTab: (tab: DatabaseTab) => void;
-  setSql: (sql: string) => void;
+  setSql: (consoleId: string, sql: string) => void;
   setInspectedCell: (cell: { columnName: string; value: string } | null) => void;
   setShowNewConnectionDialog: (show: boolean) => void;
   setShowConnectionOptionsDialog: (show: boolean) => void;
@@ -168,7 +186,7 @@ export type DatabaseStoreState = {
   createFolder: (name: string) => void;
   updateFolder: (id: string, patch: { name?: string; icon?: string }) => void;
   deleteFolder: (id: string) => void;
-  setConsoleEditorSize: (size: number) => void;
+  setConsoleEditorSize: (consoleId: string, size: number) => void;
   assignProfileToFolder: (profileId: string, folderId: string) => void;
 
   // Schema actions
@@ -180,16 +198,38 @@ export type DatabaseStoreState = {
   setSelectedTable: (table: string) => void;
 
   // Query actions
-  executeQuery: () => Promise<void>;
-  cancelQuery: () => void;
-  clearQueryResult: () => void;
-  clearQueryError: () => void;
+  executeQuery: (consoleId: string) => Promise<void>;
+  cancelQuery: (consoleId: string) => void;
+  clearQueryResult: (consoleId: string) => void;
+  clearQueryError: (consoleId: string) => void;
+  /** Reads a console, defaulting to EMPTY_CONSOLE so callers never branch. */
+  consoleState: (consoleId: string) => ConsoleState;
+  /** Drops a console's slice when its tab closes. */
+  closeConsole: (consoleId: string) => void;
 };
 
 const DEFAULT_FOLDERS: DatabaseFolder[] = [
   { id: "production", name: "Production", icon: "server", profileIds: [] },
   { id: "development", name: "Development", icon: "laptop", profileIds: [] },
 ];
+
+/**
+ * Merges a patch into one console, creating it from EMPTY_CONSOLE if this is
+ * the first thing that touched it. Every console writer goes through here so a
+ * missing slice is never a branch at the call site.
+ */
+function patchConsole(
+  set: (fn: (state: DatabaseStoreState) => Partial<DatabaseStoreState>) => void,
+  consoleId: string,
+  patch: Partial<ConsoleState>,
+): void {
+  set((state) => ({
+    consoles: {
+      ...state.consoles,
+      [consoleId]: { ...(state.consoles[consoleId] ?? EMPTY_CONSOLE), ...patch },
+    },
+  }));
+}
 
 export const useDatabaseStore = create<DatabaseStoreState>()(
   persist(
@@ -205,7 +245,6 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   folders: DEFAULT_FOLDERS,
   expandedFolders: { production: true, development: true },
   expandedProfiles: {},
-  consoleEditorSize: 30,
 
   schemaSnapshot: null,
   indexingSchema: false,
@@ -216,14 +255,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   tableColumnsMap: {},
   tableColumnsError: {},
 
-  sql: "SELECT 1 AS n, 'hello' AS greeting;",
-  queryResult: null,
-  runningQuery: false,
-  queryStartTime: null,
-  queryError: "",
-  queryStatus: "",
-  queryDurationMs: null,
-  queryRunId: 0,
+  consoles: {},
 
   inspectedCell: null,
 
@@ -271,7 +303,6 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   },
 
   setActiveTab: (tab: DatabaseTab) => set({ activeTab: tab }),
-  setSql: (sql: string) => set({ sql }),
   setInspectedCell: (cell) => set({ inspectedCell: cell }),
   setShowNewConnectionDialog: (show) => set({ showNewConnectionDialog: show }),
   setShowConnectionOptionsDialog: (show) => set({ showConnectionOptionsDialog: show }),
@@ -287,8 +318,6 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     const current = get().expandedProfiles;
     set({ expandedProfiles: { ...current, [profileId]: !current[profileId] } });
   },
-
-  setConsoleEditorSize: (size: number) => set({ consoleEditorSize: size }),
 
   createFolder: (name: string) => {
     const trimmed = name.trim();
@@ -460,8 +489,26 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     call.cancel();
   },
 
-  clearQueryResult: () => set({ queryResult: null }),
-  clearQueryError: () => set({ queryError: "" }),
+  consoleState: (consoleId) => get().consoles[consoleId] ?? EMPTY_CONSOLE,
+
+  closeConsole: (consoleId) =>
+    set((state) => {
+      if (!(consoleId in state.consoles)) {
+        return state;
+      }
+      const { [consoleId]: _closed, ...rest } = state.consoles;
+      return { consoles: rest };
+    }),
+
+  setSql: (consoleId, sql) => patchConsole(set, consoleId, { sql }),
+
+  setConsoleEditorSize: (consoleId, size) =>
+    patchConsole(set, consoleId, { editorSize: size }),
+
+  clearQueryResult: (consoleId) =>
+    patchConsole(set, consoleId, { queryResult: null, queryStatus: "", queryDurationMs: null }),
+
+  clearQueryError: (consoleId) => patchConsole(set, consoleId, { queryError: "" }),
     }),
     {
       name: "database.folders",
@@ -474,7 +521,6 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       partialize: (state) => ({
         folders: state.folders,
         expandedFolders: state.expandedFolders,
-        consoleEditorSize: state.consoleEditorSize,
       }),
     },
   ),
