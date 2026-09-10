@@ -76,16 +76,29 @@ func registerMySQLTLS(cfg ConnConfig) (string, error) {
 	case "", "disable":
 		return "", nil
 	case "require", "prefer":
+		if cfg.RootCAPEM != "" {
+			// A bundle was supplied but this mode never checks one. Saying so
+			// beats connecting unverified while the profile claims otherwise.
+			return "", ErrCACertificateWithoutTLS
+		}
 		return "skip-verify", nil
 	default:
-		if cfg.TLSServerName == "" {
+		if cfg.TLSServerName == "" && cfg.RootCAPEM == "" {
 			return "true", nil
 		}
-		name := fmt.Sprintf("devkit-%d", tlsConfigSeq.Add(1))
-		if err := mysqldriver.RegisterTLSConfig(name, &tls.Config{
+		tlsConfig := &tls.Config{
 			ServerName: cfg.TLSServerName,
 			MinVersion: tls.VersionTLS12,
-		}); err != nil {
+		}
+		if cfg.RootCAPEM != "" {
+			pool, err := rootCAPool(cfg.RootCAPEM)
+			if err != nil {
+				return "", err
+			}
+			tlsConfig.RootCAs = pool
+		}
+		name := fmt.Sprintf("devkit-%d", tlsConfigSeq.Add(1))
+		if err := mysqldriver.RegisterTLSConfig(name, tlsConfig); err != nil {
 			return "", err
 		}
 		return name, nil

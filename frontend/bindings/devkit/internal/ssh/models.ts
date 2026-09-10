@@ -18,6 +18,14 @@ export interface CreateProfileInput {
      */
     "secret": string;
     "env": string;
+
+    /**
+     * KeyPassphrase unlocks an encrypted private key. Saved in the vault
+     * beside the key, which is the only way a background reconnect — a
+     * database tunnel opening on its own — can use such a key at all: there is
+     * nobody at the keyboard to ask. Empty for an unencrypted key.
+     */
+    "key_passphrase": string;
 }
 
 /**
@@ -61,4 +69,10 @@ export interface ProfileSummary {
     "auth_method": string;
     "host_key_fingerprint": string;
     "env": string;
+
+    /**
+     * HasKeyPassphrase says a passphrase is saved for this key, without
+     * decrypting it — so the answer is available while the vault is locked.
+     */
+    "has_key_passphrase": boolean;
 }

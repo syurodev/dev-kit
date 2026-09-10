@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"sort"
+	"strings"
 	"sync"
 
 	"devkit/internal/vaultitem"
@@ -19,6 +20,16 @@ const (
 )
 
 var ErrInsecureTLSForRemoteHost = errors.New("insecure TLS is only allowed for loopback database hosts")
+
+// ErrInvalidCACertificate means the supplied CA bundle held no usable
+// certificate. Reported rather than ignored: a bundle that silently does
+// nothing leaves a connection that reads as verified and is not.
+var ErrInvalidCACertificate = errors.New("CA certificate is not valid PEM")
+
+// ErrCACertificateWithoutTLS means a CA bundle was supplied under an SSL mode
+// that never verifies one. The profile would read as pinned to an authority it
+// does not actually check, so the combination is refused instead.
+var ErrCACertificateWithoutTLS = errors.New("a CA certificate needs an SSL mode that verifies it (verify-full)")
 
 // DefaultMaxRows caps query results so the UI stays responsive (§12.4).
 // ponytail: fixed cap; make it configurable per query later if needed.
@@ -51,6 +62,11 @@ type ProfileSummary struct {
 	Engine string `json:"engine,omitempty"`
 	// DriverOptions carries engine-specific parameters that do not generalise.
 	DriverOptions map[string]string `json:"driver_options,omitempty"`
+	// CACert is a PEM bundle used to verify the server certificate instead of
+	// the machine's trust store. Plaintext metadata, not a payload: a CA
+	// certificate is public by construction — it is what everyone checks
+	// against, not something to hide.
+	CACert string `json:"ca_cert,omitempty"`
 }
 
 type CreateProfileInput struct {
@@ -66,6 +82,11 @@ type CreateProfileInput struct {
 	// SSHProfileID is accepted at creation so a tunnelled profile never exists
 	// with a direct connection path, however briefly.
 	SSHProfileID string `json:"ssh_profile_id"`
+	// CACert is a PEM bundle used to verify the server certificate instead of
+	// the machine's trust store. Plaintext metadata, not a payload: a CA
+	// certificate is public by construction — it is what everyone checks
+	// against, not something to hide.
+	CACert string `json:"ca_cert,omitempty"`
 }
 
 type UpdateProfileOptionsInput struct {
@@ -73,6 +94,11 @@ type UpdateProfileOptionsInput struct {
 	ReadOnly bool   `json:"read_only"`
 	// SSHProfileID empty means connect directly.
 	SSHProfileID string `json:"ssh_profile_id"`
+	// CACert is a PEM bundle used to verify the server certificate instead of
+	// the machine's trust store. Plaintext metadata, not a payload: a CA
+	// certificate is public by construction — it is what everyone checks
+	// against, not something to hide.
+	CACert string `json:"ca_cert,omitempty"`
 }
 
 type QueryResult struct {
@@ -110,6 +136,11 @@ type metadata struct {
 	Engine string `json:"engine,omitempty"`
 	// DriverOptions carries engine-specific parameters that do not generalise.
 	DriverOptions map[string]string `json:"driver_options,omitempty"`
+	// CACert is a PEM bundle used to verify the server certificate instead of
+	// the machine's trust store. Plaintext metadata, not a payload: a CA
+	// certificate is public by construction — it is what everyone checks
+	// against, not something to hide.
+	CACert string `json:"ca_cert,omitempty"`
 }
 
 type Service struct {
@@ -158,7 +189,30 @@ func (s *Service) normalizeCreateInput(input CreateProfileInput) (CreateProfileI
 		return input, err
 	}
 	input.SSLMode = sslMode
+
+	// Checked here so a mistyped or half-pasted certificate is refused by the
+	// dialog that typed it, rather than surfacing as a TLS handshake failure
+	// the first time someone runs a query.
+	input.CACert = strings.TrimSpace(input.CACert)
+	if err := validateCACert(input.CACert, input.SSLMode); err != nil {
+		return input, err
+	}
 	return input, nil
+}
+
+// validateCACert rejects a bundle that cannot be parsed, and one supplied under
+// a mode that would never look at it.
+func validateCACert(caCert, sslMode string) error {
+	if caCert == "" {
+		return nil
+	}
+	if sslMode != "verify-full" && sslMode != "verify-ca" {
+		return ErrCACertificateWithoutTLS
+	}
+	if _, err := rootCAPool(caCert); err != nil {
+		return err
+	}
+	return nil
 }
 
 // TestNewConnection dials a profile that does not exist yet. Nothing is
@@ -177,6 +231,7 @@ func (s *Service) TestNewConnection(ctx context.Context, input CreateProfileInpu
 		Engine: input.Engine, Host: input.Host, Port: input.Port,
 		Database: input.Database, Username: input.Username,
 		Password: input.Password, SSLMode: input.SSLMode,
+		RootCAPEM: input.CACert,
 	}
 	if input.SSHProfileID != "" {
 		handle, err := s.pools.openProbeTunnel(ctx, TunnelSpec{
@@ -218,6 +273,7 @@ func (s *Service) CreateProfile(input CreateProfileInput) (ProfileSummary, error
 		Username:     input.Username,
 		SSLMode:      input.SSLMode,
 		Env:          input.Env,
+		CACert:       input.CACert,
 	})
 	if err != nil {
 		return ProfileSummary{}, err
@@ -267,11 +323,23 @@ func (s *Service) UpdateProfileOptions(id string, opts UpdateProfileOptionsInput
 
 	// env costs nothing at runtime; read_only needs a fresh pool so AfterConnect
 	// runs again; the tunnel needs the forward torn down with it.
-	poolChanged := meta.ReadOnly != opts.ReadOnly || meta.SSHProfileID != opts.SSHProfileID
+	// A changed CA bundle is a changed TLS config, which is built when the pool
+	// dials — so like read_only it has to drop the pool, not only the metadata.
+	poolChanged := meta.ReadOnly != opts.ReadOnly ||
+		meta.SSHProfileID != opts.SSHProfileID ||
+		meta.CACert != strings.TrimSpace(opts.CACert)
+
+	// The mode is not editable here, so the bundle is checked against the one
+	// the profile already carries.
+	caCert := strings.TrimSpace(opts.CACert)
+	if err := validateCACert(caCert, meta.SSLMode); err != nil {
+		return ProfileSummary{}, err
+	}
 
 	meta.Env = opts.Env
 	meta.ReadOnly = opts.ReadOnly
 	meta.SSHProfileID = opts.SSHProfileID
+	meta.CACert = caCert
 
 	rawMeta, err := json.Marshal(meta)
 	if err != nil {
@@ -456,15 +524,16 @@ func (s *Service) target(id string) (connectionTarget, error) {
 	}
 	return connectionTarget{
 		cfg: ConnConfig{
-			Engine:   meta.Engine,
-			Host:     meta.Host,
-			Port:     meta.Port,
-			Database: meta.Database,
-			Username: meta.Username,
-			Password: string(password),
-			SSLMode:  sslmode,
-			ReadOnly: meta.ReadOnly,
-			Options:  meta.DriverOptions,
+			Engine:    meta.Engine,
+			Host:      meta.Host,
+			Port:      meta.Port,
+			Database:  meta.Database,
+			Username:  meta.Username,
+			Password:  string(password),
+			SSLMode:   sslmode,
+			ReadOnly:  meta.ReadOnly,
+			Options:   meta.DriverOptions,
+			RootCAPEM: meta.CACert,
 		},
 		sshProfileID: meta.SSHProfileID,
 	}, nil
@@ -545,6 +614,7 @@ func summaryFromRecord(record vaultitem.Record) (ProfileSummary, error) {
 		Engine:        meta.Engine,
 		SSHProfileID:  meta.SSHProfileID,
 		DriverOptions: meta.DriverOptions,
+		CACert:        meta.CACert,
 	}, nil
 }
 

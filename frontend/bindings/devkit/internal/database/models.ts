@@ -27,6 +27,14 @@ export interface CreateProfileInput {
      * with a direct connection path, however briefly.
      */
     "ssh_profile_id": string;
+
+    /**
+     * CACert is a PEM bundle used to verify the server certificate instead of
+     * the machine's trust store. Plaintext metadata, not a payload: a CA
+     * certificate is public by construction — it is what everyone checks
+     * against, not something to hide.
+     */
+    "ca_cert"?: string;
 }
 
 /**
@@ -112,6 +120,14 @@ export interface ProfileSummary {
      * DriverOptions carries engine-specific parameters that do not generalise.
      */
     "driver_options"?: { [_ in string]?: string } | null;
+
+    /**
+     * CACert is a PEM bundle used to verify the server certificate instead of
+     * the machine's trust store. Plaintext metadata, not a payload: a CA
+     * certificate is public by construction — it is what everyone checks
+     * against, not something to hide.
+     */
+    "ca_cert"?: string;
 }
 
 /**
@@ -198,4 +214,12 @@ export interface UpdateProfileOptionsInput {
      * SSHProfileID empty means connect directly.
      */
     "ssh_profile_id": string;
+
+    /**
+     * CACert is a PEM bundle used to verify the server certificate instead of
+     * the machine's trust store. Plaintext metadata, not a payload: a CA
+     * certificate is public by construction — it is what everyone checks
+     * against, not something to hide.
+     */
+    "ca_cert"?: string;
 }

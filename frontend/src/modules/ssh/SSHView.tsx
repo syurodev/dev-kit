@@ -24,6 +24,7 @@ const emptyForm = {
   username: "",
   authMethod: "password",
   secret: "",
+  keyPassphrase: "",
   env: "dev",
 };
 
@@ -219,6 +220,25 @@ export function SSHView() {
           value={form.secret}
           onChange={(e) => setForm({ ...form, secret: e.target.value })}
         />
+        {/* Only for a key, and saved rather than prompted: a database tunnel
+            opens on its own, with nobody at the keyboard to ask. The key is
+            parsed when this form is submitted, so a wrong passphrase is
+            refused here instead of at the first query. */}
+        {form.authMethod === "key" && (
+          <>
+            <input
+              aria-label="ssh-key-passphrase"
+              type="password"
+              placeholder="Key passphrase (leave empty if the key has none)"
+              value={form.keyPassphrase}
+              onChange={(e) => setForm({ ...form, keyPassphrase: e.target.value })}
+            />
+            <p className="text-caption-11 text-text-tertiary">
+              Stored in the vault beside the key. Required for an encrypted key: a database
+              tunnel opens in the background, where there is nobody to prompt.
+            </p>
+          </>
+        )}
         <select
           aria-label="ssh-env"
           value={form.env}

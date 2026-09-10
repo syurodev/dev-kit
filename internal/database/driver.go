@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"crypto/x509"
 	"fmt"
 )
 
@@ -24,6 +25,17 @@ type ConnConfig struct {
 	Username string
 	Password string
 	SSLMode  string
+	// RootCAPEM is a PEM bundle to verify the server certificate against,
+	// instead of the machine's trust store. Managed services sign with their
+	// own authority — an RDS certificate chains to an Amazon RDS CA that is
+	// not installed on a typical desktop — so without this, verify-full is
+	// unreachable for them and the only working choice is the one that skips
+	// verification entirely. Empty means "use the system trust store".
+	//
+	// Carried as PEM rather than a path: a path only means something on the
+	// machine that typed it, and profiles sync between machines.
+	RootCAPEM string
+
 	// TLSServerName overrides the name checked against the server certificate.
 	// Set only when a tunnel points the connection at loopback while the
 	// certificate is still issued for the profile's real host.
@@ -122,4 +134,16 @@ func DefaultPort(engine string) int {
 	default:
 		return 5432
 	}
+}
+
+// rootCAPool turns a PEM bundle into a pool to verify against. It refuses a
+// bundle with nothing in it: silently falling back to the system trust store
+// would turn a typo in a pasted certificate into a connection that looks
+// verified and is not.
+func rootCAPool(pemBundle string) (*x509.CertPool, error) {
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM([]byte(pemBundle)) {
+		return nil, ErrInvalidCACertificate
+	}
+	return pool, nil
 }

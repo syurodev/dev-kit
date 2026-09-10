@@ -40,6 +40,20 @@ func (postgresDriver) Dial(ctx context.Context, cfg ConnConfig) (Conn, error) {
 	if cfg.TLSServerName != "" && poolConfig.ConnConfig.TLSConfig != nil {
 		poolConfig.ConnConfig.TLSConfig.ServerName = cfg.TLSServerName
 	}
+	// Set on the parsed config rather than through a sslrootcert DSN parameter:
+	// that one names a file, and the bundle lives in the profile so it travels
+	// with it. A bundle supplied under an sslmode that builds no TLSConfig
+	// (disable) is a contradiction worth reporting rather than dropping.
+	if cfg.RootCAPEM != "" {
+		if poolConfig.ConnConfig.TLSConfig == nil {
+			return nil, ErrCACertificateWithoutTLS
+		}
+		pool, err := rootCAPool(cfg.RootCAPEM)
+		if err != nil {
+			return nil, err
+		}
+		poolConfig.ConnConfig.TLSConfig.RootCAs = pool
+	}
 	if cfg.ReadOnly {
 		// Runs for every connection the pool opens, which is why toggling
 		// read_only has to drop the pool rather than only rewrite metadata.

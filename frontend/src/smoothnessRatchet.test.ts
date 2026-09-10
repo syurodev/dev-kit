@@ -70,9 +70,19 @@ function unvirtualizedTables(): number {
   return total;
 }
 
-/** 7.1: glass costs GPU on every frame the thing under it changes. */
+/**
+ * 7.1: glass costs GPU on every frame the thing under it changes.
+ *
+ * Only real blur counts. `backdrop-filter: none` is how a surface OPTS OUT —
+ * the prefers-reduced-transparency block is entirely made of them — and prose
+ * mentioning the property costs nothing at all; counting either made the
+ * number go up when glass was being removed, which is backwards.
+ */
 function blurSurfaces(): number {
-  let total = count(/backdrop-filter/, readFileSync(join(ROOT, "index.css"), "utf8"));
+  let total = count(
+    /backdrop-filter:\s*(?!none)/,
+    readFileSync(join(ROOT, "index.css"), "utf8"),
+  );
   for (const dir of ["modules", "components", "workbench", "dev"]) {
     for (const file of files(join(ROOT, dir), [".tsx"])) {
       total += count(/backdrop-blur/, readFileSync(file, "utf8"));

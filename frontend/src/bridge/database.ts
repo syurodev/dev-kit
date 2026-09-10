@@ -14,6 +14,13 @@ export type ConnectionProfile = {
   sshProfileId?: string;
   engine?: string;
   driverOptions?: Record<string, string>;
+  /**
+   * PEM bundle to verify the server certificate against, instead of the
+   * machine's trust store. Managed databases sign with their own authority —
+   * an RDS certificate chains to an Amazon RDS CA that a desktop does not have
+   * — so without this, verify-full is unreachable for them.
+   */
+  caCert?: string;
 };
 
 export type CreateProfileInput = {
@@ -28,12 +35,26 @@ export type CreateProfileInput = {
   engine?: string;
   /** Set at creation so a tunnelled profile never exists with a direct path. */
   sshProfileId?: string;
+  /**
+   * PEM bundle to verify the server certificate against, instead of the
+   * machine's trust store. Managed databases sign with their own authority —
+   * an RDS certificate chains to an Amazon RDS CA that a desktop does not have
+   * — so without this, verify-full is unreachable for them.
+   */
+  caCert?: string;
 };
 
 export type UpdateProfileOptionsInput = {
   env: string;
   readOnly: boolean;
   sshProfileId?: string;
+  /**
+   * PEM bundle to verify the server certificate against, instead of the
+   * machine's trust store. Managed databases sign with their own authority —
+   * an RDS certificate chains to an Amazon RDS CA that a desktop does not have
+   * — so without this, verify-full is unreachable for them.
+   */
+  caCert?: string;
 };
 
 export type QueryResult = {
@@ -135,6 +156,7 @@ function toProfile(p: {
   env: string;
   read_only?: boolean;
   ssh_profile_id?: string;
+  ca_cert?: string;
   engine?: string;
   driver_options?: { [_ in string]?: string } | null;
 }): ConnectionProfile {
@@ -149,6 +171,7 @@ function toProfile(p: {
     env: p.env,
     readOnly: Boolean(p.read_only),
     sshProfileId: p.ssh_profile_id || undefined,
+    caCert: p.ca_cert || undefined,
     engine: p.engine || "postgres",
     driverOptions: p.driver_options
       ? (Object.fromEntries(
@@ -223,6 +246,7 @@ export function createProfile(input: CreateProfileInput): Promise<ConnectionProf
       // Sent at creation, not patched afterwards: a tunnelled profile must
       // never exist with a direct connection path, however briefly.
       ssh_profile_id: input.sshProfileId ?? "",
+      ca_cert: input.caCert ?? "",
     });
     return toProfile(created);
   });
@@ -237,6 +261,7 @@ export function updateProfileOptions(
       env: opts.env,
       read_only: opts.readOnly,
       ssh_profile_id: opts.sshProfileId || "",
+      ca_cert: opts.caCert ?? "",
     });
     return toProfile(updated);
   });
@@ -261,6 +286,7 @@ export function testNewConnection(input: CreateProfileInput): Promise<void> {
         ssl_mode: input.sslMode,
         env: input.env,
         ssh_profile_id: input.sshProfileId ?? "",
+      ca_cert: input.caCert ?? "",
       }) as Promise<void>,
   );
 }
