@@ -1,6 +1,33 @@
-import { useEffect, useRef } from "react";
+import { useContext, useEffect, useRef } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useSidebarContent } from "@/components/ui/sidebar-shell";
+import {
+  SidebarModuleIdContext,
+  useSidebarContent,
+} from "@/components/ui/sidebar-shell";
+import { useSidebarContentStore } from "@/stores/sidebarContent";
+
+/**
+ * Whether this skeleton should draw a rail, decided once when it appears.
+ *
+ * A cold module has no rail yet, and a blank column beside a loading module is
+ * the case this skeleton's rail exists for. A warm one already has the real
+ * rail — registered by a sibling document that is still on screen — and that
+ * rail has nothing to do with which chunk is loading. Replacing it made
+ * opening a second kind of document look like the whole module reloading.
+ *
+ * Decided from a ref rather than re-read: registering changes the very value
+ * the decision reads, so reacting to it would deregister, re-register, and
+ * loop.
+ */
+function useShouldDrawRail(): boolean {
+  const moduleId = useContext(SidebarModuleIdContext);
+  const existing = useSidebarContentStore.getState().content[moduleId ?? ""];
+  const decided = useRef<boolean | null>(null);
+  if (decided.current === null) {
+    decided.current = existing === undefined;
+  }
+  return decided.current;
+}
 
 /**
  * Times how long this skeleton is on screen, which is how long a tab's chunk
@@ -36,7 +63,7 @@ function useSkeletonTrace(): void {
  * skeleton under the module id the real view overwrites when it mounts.
  */
 export function ModuleSkeleton() {
-  useSidebarContent(RAIL);
+  useSidebarContent(useShouldDrawRail() ? RAIL : null);
   useSkeletonTrace();
   return (
     <div role="status" aria-label="Loading module" className="flex min-h-0 flex-1 flex-col">

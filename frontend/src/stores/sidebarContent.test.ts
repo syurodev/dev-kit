@@ -65,3 +65,19 @@ test("a temporary registrar leaving restores the real rail", () => {
   setContent("database", null, "suspense");
   expect(useSidebarContentStore.getState().content["database"]).toBe("REAL");
 });
+
+// The skeleton's own rail is for a COLD module, where the column beside a
+// loading document would otherwise be blank. On a warm one the real rail is
+// already there, registered by a sibling document still on screen, and it has
+// nothing to do with which chunk is loading — replacing it made opening a
+// second kind of document look like the whole module reloading.
+test("a skeleton that declines the rail leaves the real one alone", () => {
+  const { setContent } = useSidebarContentStore.getState();
+
+  setContent("database", "REAL", "document");
+  // A skeleton that saw an existing rail registers nothing at all.
+  setContent("database", null, "skeleton");
+
+  expect(useSidebarContentStore.getState().content["database"]).toBe("REAL");
+  expect(useSidebarContentStore.getState().registrars["database"]).toHaveLength(1);
+});
