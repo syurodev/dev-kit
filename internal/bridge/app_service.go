@@ -58,18 +58,45 @@ func (s *AppService) ListModules() []ModuleDTO {
 }
 
 func (s *AppService) ExecuteCommand(ctx context.Context, request ExecuteCommandRequest) (any, error) {
-	var payload any = request.Payload
-	if request.ID == "tools.hash" {
-		payload = tools.HashRequest{
-			Algorithm: fmt.Sprint(request.Payload["algorithm"]),
-			Input:     fmt.Sprint(request.Payload["input"]),
-		}
+	// The capability comes from the command, not from a constant. Every command
+	// used to be authorised as tools:hash, which was harmless while hash was
+	// the only one and becomes an authorisation bug the moment it is not: a
+	// command would run under a grant written for something else.
+	capability, known := tools.CapabilityFor(request.ID)
+	if !known {
+		return nil, fmt.Errorf("command %q is not a tools command", request.ID)
 	}
+	payload := decodeCommandPayload(request)
 	opaqueID := commandID(request.ID)
-	return s.call(ctx, "builtin.tools", "tools:hash", "command:"+opaqueID, map[string]any{
+	return s.call(ctx, tools.SubjectID, capability, "command:"+opaqueID, map[string]any{
 		"action":     "execute",
 		"command_id": opaqueID,
 	}, func(callCtx context.Context) (any, error) {
 		return s.container.Commands.Execute(callCtx, request.ID, payload)
 	})
+}
+
+// decodeCommandPayload turns the untyped map the webview sends into the request
+// shape the handler asserts. Missing keys read as empty rather than failing
+// here: the service is what knows which of its fields are required, and it
+// already reports that (an unsupported hash algorithm, an unsupported UUID
+// version) in terms the caller can act on.
+func decodeCommandPayload(request ExecuteCommandRequest) any {
+	field := func(name string) string {
+		value, ok := request.Payload[name]
+		if !ok || value == nil {
+			return ""
+		}
+		return fmt.Sprint(value)
+	}
+	if request.ID == tools.CommandHash {
+		return tools.HashRequest{
+			Algorithm: field("algorithm"),
+			Input:     field("input"),
+		}
+	}
+	return tools.UtilRequest{
+		Input:   field("input"),
+		Version: field("version"),
+	}
 }

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 
 	"devkit/internal/commands"
 	"devkit/internal/modules"
@@ -18,9 +19,9 @@ func RegisterBuiltins(container *Container) error {
 			Title:        "Tools",
 			Version:      "1.0.0",
 			APIVersion:   modules.CurrentAPIVersion,
-			Commands:     []string{"tools.hash"},
-			Views:        []string{"tools.hash"},
-			Capabilities: []string{"tools:hash"},
+			Commands:     tools.CommandIDs(),
+			Views:        tools.CommandIDs(),
+			Capabilities: tools.CapabilityIDs(),
 		},
 		{
 			ID:           "notes",
@@ -102,15 +103,72 @@ func RegisterBuiltins(container *Container) error {
 		}
 	}
 
-	return container.Commands.Register(commands.Command{
-		ID:    "tools.hash",
-		Title: "Hash text",
-		Handler: func(ctx context.Context, input any) (any, error) {
-			request, ok := input.(tools.HashRequest)
+	for _, descriptor := range tools.Commands {
+		handler, err := toolHandler(container, descriptor.ID)
+		if err != nil {
+			return err
+		}
+		if err := container.Commands.Register(commands.Command{
+			ID:          descriptor.ID,
+			Title:       descriptor.Title,
+			Permissions: []string{descriptor.Capability},
+			Handler:     handler,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// toolHandler binds one command id to the service call behind it.
+//
+// Each handler asserts the request shape it was given and reports a mismatch
+// rather than returning (nil, nil) as the original hash handler did — a
+// silently empty success is indistinguishable from a command that ran and
+// produced nothing, and the caller has no way to tell which happened.
+func toolHandler(container *Container, id string) (commands.Handler, error) {
+	hashed := func(ctx context.Context, input any) (any, error) {
+		request, ok := input.(tools.HashRequest)
+		if !ok {
+			return nil, fmt.Errorf("command %q expects a HashRequest, got %T", id, input)
+		}
+		return container.HashTools.Hash(request)
+	}
+	util := func(run func(tools.UtilRequest) (tools.UtilResult, error)) commands.Handler {
+		return func(ctx context.Context, input any) (any, error) {
+			request, ok := input.(tools.UtilRequest)
 			if !ok {
-				return nil, nil
+				return nil, fmt.Errorf("command %q expects a UtilRequest, got %T", id, input)
 			}
-			return container.HashTools.Hash(request)
-		},
-	})
+			return run(request)
+		}
+	}
+	text := func(run func(string) (tools.UtilResult, error)) commands.Handler {
+		return util(func(request tools.UtilRequest) (tools.UtilResult, error) {
+			return run(request.Input)
+		})
+	}
+
+	switch id {
+	case tools.CommandHash:
+		return hashed, nil
+	case tools.CommandBase64Encode:
+		return text(container.UtilTools.Base64Encode), nil
+	case tools.CommandBase64Decode:
+		return text(container.UtilTools.Base64Decode), nil
+	case tools.CommandURLEncode:
+		return text(container.UtilTools.URLEncode), nil
+	case tools.CommandURLDecode:
+		return text(container.UtilTools.URLDecode), nil
+	case tools.CommandJSONFormat:
+		return text(container.UtilTools.JSONFormat), nil
+	case tools.CommandUUIDGenerate:
+		return util(func(request tools.UtilRequest) (tools.UtilResult, error) {
+			return container.UtilTools.UUIDGenerate(request.Version)
+		}), nil
+	default:
+		// A descriptor with no handler would register a command that always
+		// fails at call time; failing at startup names the omission instead.
+		return nil, fmt.Errorf("no handler for tools command %q", id)
+	}
 }

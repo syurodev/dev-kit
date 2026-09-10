@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"devkit/internal/permissions"
+	"devkit/internal/tools"
 )
 
 func TestNewContainerWiresCoreServices(t *testing.T) {
@@ -83,6 +84,55 @@ func TestNewContainerGrantsOnlyExactSyncScopes(t *testing.T) {
 		})
 		if decision.Allowed {
 			t.Fatalf("ungranted sync scope %q was allowed", scope)
+		}
+	}
+}
+
+// Every tools command must be registered AND granted. These live in different
+// files, and the failure of letting them drift is silent in both directions: a
+// command registered with no grant is dead on arrival, and a grant with no
+// command is an authorisation nobody revokes because nobody sees it.
+func TestEveryToolsCommandIsRegisteredAndGranted(t *testing.T) {
+	container := NewContainer()
+	if err := RegisterBuiltins(container); err != nil {
+		t.Fatalf("RegisterBuiltins returned error: %v", err)
+	}
+
+	registered := map[string]bool{}
+	for _, command := range container.Commands.List() {
+		registered[command.ID] = true
+	}
+
+	for _, descriptor := range tools.Commands {
+		if !registered[descriptor.ID] {
+			t.Errorf("command %q is in tools.Commands but was never registered", descriptor.ID)
+		}
+		decision := container.Permissions.Check(permissions.Request{
+			SubjectID:  tools.SubjectID,
+			Capability: descriptor.Capability,
+			Scope:      "command:" + descriptor.ID,
+		})
+		if !decision.Allowed {
+			t.Errorf("command %q is registered but not granted: %s", descriptor.ID, decision.Reason)
+		}
+	}
+}
+
+// The split is only worth having if it actually withholds something: a util
+// command must not be reachable through the hash capability.
+func TestUtilCommandsAreNotGrantedUnderTheHashCapability(t *testing.T) {
+	container := NewContainer()
+	for _, descriptor := range tools.Commands {
+		if descriptor.Capability != tools.CapabilityUtil {
+			continue
+		}
+		decision := container.Permissions.Check(permissions.Request{
+			SubjectID:  tools.SubjectID,
+			Capability: tools.CapabilityHash,
+			Scope:      "command:" + descriptor.ID,
+		})
+		if decision.Allowed {
+			t.Errorf("%q is reachable under %s, which defeats the capability split", descriptor.ID, tools.CapabilityHash)
 		}
 	}
 }

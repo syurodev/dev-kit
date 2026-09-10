@@ -10,6 +10,7 @@ import (
 	"devkit/internal/capabilities"
 	"devkit/internal/modules"
 	"devkit/internal/permissions"
+	"devkit/internal/tools"
 )
 
 func newTestService(t *testing.T) *AppService {
@@ -29,7 +30,10 @@ func TestAppServiceListsModules(t *testing.T) {
 		t.Fatalf("len(modules) = %d, want 9", len(moduleList))
 	}
 	wantCapabilities := map[string][]string{
-		"tools":     {"tools:hash"},
+		// tools:util joins tools:hash rather than replacing it — tools.mdx
+		// splits the pure-function group from hashing, and technical contracts
+		// counts an added capability with an untouched grant as compatible.
+		"tools":     {"tools:hash", "tools:util"},
 		"notes":     {"notes:read", "notes:write"},
 		"database":  {"db:query"},
 		"ssh":       {"ssh:connect", "ssh:forward"},
@@ -156,5 +160,88 @@ func TestAppServiceAuditsAllowedAndDeniedSensitiveCallsWithoutSerializingInputs(
 		if strings.Contains(string(serialized), forbidden) {
 			t.Fatalf("serialized audit events leaked %q: %s", forbidden, serialized)
 		}
+	}
+}
+
+// Every util command must reach its service through the bridge. This is the
+// only place the untyped payload from the webview becomes a typed request, and
+// a command whose payload decodes to the wrong shape fails at the handler with
+// nothing on screen to explain it.
+func TestAppServiceExecutesEveryUtilCommand(t *testing.T) {
+	service := newTestService(t)
+	tests := []struct {
+		id      string
+		payload map[string]any
+		want    string
+	}{
+		{id: tools.CommandBase64Encode, payload: map[string]any{"input": "hello"}, want: "aGVsbG8="},
+		{id: tools.CommandBase64Decode, payload: map[string]any{"input": "aGVsbG8="}, want: "hello"},
+		{id: tools.CommandURLEncode, payload: map[string]any{"input": "a b"}, want: "a+b"},
+		{id: tools.CommandURLDecode, payload: map[string]any{"input": "a+b"}, want: "a b"},
+		{id: tools.CommandJSONFormat, payload: map[string]any{"input": `{"a":1}`}, want: "{\n  \"a\": 1\n}"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.id, func(t *testing.T) {
+			result, err := service.ExecuteCommand(context.Background(), ExecuteCommandRequest{
+				ID: tc.id, Payload: tc.payload,
+			})
+			if err != nil {
+				t.Fatalf("ExecuteCommand(%q): %v", tc.id, err)
+			}
+			util, ok := result.(tools.UtilResult)
+			if !ok {
+				t.Fatalf("ExecuteCommand(%q) returned %T, want tools.UtilResult", tc.id, result)
+			}
+			if util.Output != tc.want {
+				t.Errorf("ExecuteCommand(%q) output = %q, want %q", tc.id, util.Output, tc.want)
+			}
+		})
+	}
+}
+
+func TestAppServiceGeneratesUUID(t *testing.T) {
+	service := newTestService(t)
+	for _, version := range []string{"", "v4", "v7"} {
+		result, err := service.ExecuteCommand(context.Background(), ExecuteCommandRequest{
+			ID: tools.CommandUUIDGenerate, Payload: map[string]any{"version": version},
+		})
+		if err != nil {
+			t.Fatalf("ExecuteCommand(uuid %q): %v", version, err)
+		}
+		util, ok := result.(tools.UtilResult)
+		if !ok || len(util.Output) != 36 {
+			t.Fatalf("ExecuteCommand(uuid %q) returned %#v, want a 36-character UUID", version, result)
+		}
+	}
+}
+
+// An id the tools table does not know must be refused before it reaches the
+// registry. Previously every command was authorised as tools:hash, so anything
+// that got registered later would have run under a grant meant for hashing.
+func TestAppServiceRefusesCommandsOutsideTheToolsTable(t *testing.T) {
+	service := newTestService(t)
+	for _, id := range []string{"notes.create", "tools.base64Encode", "", "tools.nope"} {
+		if _, err := service.ExecuteCommand(context.Background(), ExecuteCommandRequest{ID: id}); err == nil {
+			t.Errorf("ExecuteCommand(%q) succeeded, want a refusal", id)
+		}
+	}
+}
+
+// A missing key must read as empty rather than the string "<nil>", which is
+// what fmt.Sprint gives for a nil interface — an algorithm named "<nil>" would
+// reach the service and be reported as unsupported, blaming the wrong thing.
+func TestDecodeCommandPayloadTreatsMissingKeysAsEmpty(t *testing.T) {
+	request := ExecuteCommandRequest{ID: tools.CommandHash, Payload: map[string]any{"input": "x"}}
+	decoded, ok := decodeCommandPayload(request).(tools.HashRequest)
+	if !ok {
+		t.Fatalf("decodeCommandPayload returned %T, want tools.HashRequest", decodeCommandPayload(request))
+	}
+	if decoded.Algorithm != "" {
+		t.Errorf("Algorithm = %q, want empty", decoded.Algorithm)
+	}
+	nilValued := ExecuteCommandRequest{ID: tools.CommandURLEncode, Payload: map[string]any{"input": nil}}
+	util, ok := decodeCommandPayload(nilValued).(tools.UtilRequest)
+	if !ok || util.Input != "" {
+		t.Errorf("decodeCommandPayload with a nil value = %#v, want an empty Input", decodeCommandPayload(nilValued))
 	}
 }
