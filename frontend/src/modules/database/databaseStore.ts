@@ -199,6 +199,9 @@ export type DatabaseStoreState = {
   cancelQuery: (consoleId: string) => void;
   clearQueryResult: (consoleId: string) => void;
   clearQueryError: (consoleId: string) => void;
+  /** Reports a failure into one console — Explain and friends, which run
+   * outside executeQuery but land in the same error slot. */
+  setQueryError: (consoleId: string, message: string) => void;
   /** Reads a console, defaulting to EMPTY_CONSOLE so callers never branch. */
   consoleState: (consoleId: string) => ConsoleState;
   /** Drops a console's slice when its tab closes. */
@@ -511,6 +514,8 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     patchConsole(set, consoleId, { queryResult: null, queryStatus: "", queryDurationMs: null }),
 
   clearQueryError: (consoleId) => patchConsole(set, consoleId, { queryError: "" }),
+
+  setQueryError: (consoleId, message) => patchConsole(set, consoleId, { queryError: message }),
     }),
     {
       name: "database.folders",

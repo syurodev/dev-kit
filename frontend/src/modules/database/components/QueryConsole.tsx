@@ -82,11 +82,14 @@ export function rowAsJSON(columns: string[], row: string[]): string {
 export function QueryConsole({ consoleId }: { consoleId: string }) {
   // One subscription per console: the slice is a single object, so a run in
   // another console changes nothing this component reads.
-  const console = useDatabaseStore((s) => s.consoles[consoleId] ?? EMPTY_CONSOLE);
+  // Not named `console`: shadowing the global inside a 600-line component is a
+  // trap for the next person who reaches for console.error in here.
+  const slice = useDatabaseStore((s) => s.consoles[consoleId] ?? EMPTY_CONSOLE);
   const setSql = useDatabaseStore((s) => s.setSql);
   const executeQuery = useDatabaseStore((s) => s.executeQuery);
   const cancelQuery = useDatabaseStore((s) => s.cancelQuery);
   const setConsoleEditorSize = useDatabaseStore((s) => s.setConsoleEditorSize);
+  const setQueryError = useDatabaseStore((s) => s.setQueryError);
   const {
     profiles,
     selectedProfileId,
@@ -110,9 +113,9 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
   // queryResult and queryStartTime are read inside nested closures below
   // (map callbacks, a setInterval tick). TypeScript narrows a plain const
   // across a closure boundary but not a property access on a mutable object,
-  // so a null-check on `console.queryResult` wouldn't survive into a `.map`
+  // so a null-check on `slice.queryResult` wouldn't survive into a `.map`
   // callback — these locals give the narrowing something it can keep.
-  const { queryResult, queryStartTime } = console;
+  const { queryResult, queryStartTime } = slice;
 
   // Result sets cap at 200 rows today but the cap is a setting; past 100 the
   // table windows (frontend performance 6.3). Rows are h-9, so 36px each.
@@ -127,7 +130,7 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
 
   // 30s Execution timer (Screen 14)
   useEffect(() => {
-    if (!console.runningQuery || !queryStartTime) {
+    if (!slice.runningQuery || !queryStartTime) {
       setElapsed(0);
       return;
     }
@@ -137,7 +140,7 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
       setElapsed(diffSec);
     }, 100);
     return () => clearInterval(interval);
-  }, [console.runningQuery, queryStartTime]);
+  }, [slice.runningQuery, queryStartTime]);
 
   // CodeMirror 6 SQL Dialect & Autocomplete Extension (F2, F3)
   const sqlExtension = useMemo(() => {
@@ -166,36 +169,28 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
   const hasPlaceholderMismatch = useMemo(() => {
     const engine = (profile?.engine || "postgres").toLowerCase();
     if (engine === "mysql" || engine === "mariadb") {
-      return /\$\d+/.test(console.sql);
+      return /\$\d+/.test(slice.sql);
     }
     return false;
-  }, [profile?.engine, console.sql]);
+  }, [profile?.engine, slice.sql]);
 
   // Check if error is safe-mode / read-only rejection (Screen 18)
   const isReadOnlyRejection =
-    console.queryError.toLowerCase().includes("read-only") ||
-    console.queryError.includes("25006") ||
-    console.queryError.toLowerCase().includes("transaction is read-only");
+    slice.queryError.toLowerCase().includes("read-only") ||
+    slice.queryError.includes("25006") ||
+    slice.queryError.toLowerCase().includes("transaction is read-only");
 
   async function handleExplain(analyze: boolean) {
-    if (!selectedProfileId || !console.sql.trim()) return;
+    if (!selectedProfileId || !slice.sql.trim()) return;
     setExplaining(true);
     clearQueryError(consoleId);
     try {
       const plan = analyze
-        ? await explainAnalyze(selectedProfileId, console.sql)
-        : await explain(selectedProfileId, console.sql);
+        ? await explainAnalyze(selectedProfileId, slice.sql)
+        : await explain(selectedProfileId, slice.sql);
       setActivePlan(plan);
     } catch (e: any) {
-      useDatabaseStore.setState((state) => ({
-        consoles: {
-          ...state.consoles,
-          [consoleId]: {
-            ...(state.consoles[consoleId] ?? EMPTY_CONSOLE),
-            queryError: e.message || String(e),
-          },
-        },
-      }));
+      setQueryError(consoleId, e.message || String(e));
     } finally {
       setExplaining(false);
     }
@@ -209,7 +204,7 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
     }
   }
 
-  const busy = console.runningQuery || explaining || !selectedProfileId;
+  const busy = slice.runningQuery || explaining || !selectedProfileId;
 
   return (
     <div className="flex h-full flex-1 flex-col overflow-hidden px-6 pt-3.5 pb-6" onKeyDown={handleKeyDown}>
@@ -243,7 +238,7 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
           variant="ghost"
           size="default"
           onClick={() => setShowSaveQueryModal(true)}
-          disabled={!console.sql.trim()}
+          disabled={!slice.sql.trim()}
         >
           <BookmarkPlus className="size-3.5" />
           Save
@@ -265,7 +260,7 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
         {/* The wait belongs in the control that started it (smoothness 5), and
             Cancel appears beside it rather than replacing it — the Run button
             keeps its place in the row so nothing else shifts. */}
-        {console.runningQuery && (
+        {slice.runningQuery && (
           <Button
             variant="outline"
             size="default"
@@ -280,14 +275,14 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
           variant="default"
           size="default"
           onClick={() => void executeQuery(consoleId)}
-          disabled={console.runningQuery || !selectedProfileId}
+          disabled={slice.runningQuery || !selectedProfileId}
         >
-          {console.runningQuery ? (
+          {slice.runningQuery ? (
             <Loader2 className="size-3.5 animate-spin" />
           ) : (
             <Play className="size-3.5 fill-current" />
           )}
-          {console.runningQuery ? "Running…" : "Run"}
+          {slice.runningQuery ? "Running…" : "Run"}
           <span className="text-code-11 opacity-65">{shortcut("Enter")}</span>
         </Button>
       </div>
@@ -298,7 +293,7 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
       <ResizablePanelGroup
         orientation="vertical"
         className="min-h-0 flex-1"
-        defaultLayout={{ editor: console.editorSize }}
+        defaultLayout={{ editor: slice.editorSize }}
         onLayoutChanged={(layout, meta) => {
           // Only a real drag is worth writing through ui_state — the callback
           // also fires on mount and on every constraint recompute.
@@ -312,7 +307,7 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
           {/* editor (742:23): a well with a subtle stroke, radius 8. */}
           <div className="relative flex-1 overflow-hidden rounded-md border border-border-subtle bg-surface-well">
             <CodeEditor
-              value={console.sql}
+              value={slice.sql}
               onChange={(value) => setSql(consoleId, value)}
               extensions={sqlExtension}
               wrap
@@ -340,7 +335,7 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
                 variant="ghost"
                 size="xs"
                 className="text-status-warning hover:bg-status-warning/20"
-                onClick={() => setSql(consoleId, console.sql.replace(/\$\d+/g, "?"))}
+                onClick={() => setSql(consoleId, slice.sql.replace(/\$\d+/g, "?"))}
               >
                 Auto-fix placeholders
               </Button>
@@ -348,7 +343,7 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
           )}
 
           {/* 30s Execution Timer Bar (Screen 14) */}
-          {console.runningQuery && (
+          {slice.runningQuery && (
             <div className="mb-2 flex shrink-0 items-center justify-between rounded-md border border-border-subtle bg-surface-raised px-4 py-2.5 text-body-12">
               <div className="flex max-w-md flex-1 items-center gap-3">
                 <div className="flex items-center gap-1.5 text-body-13-medium text-text-primary">
@@ -384,7 +379,7 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
                   change this in Connection options.
                 </p>
                 <div className="mt-1 rounded border border-border bg-surface-base p-1.5 text-code-11 text-text-tertiary">
-                  {console.queryError}
+                  {slice.queryError}
                 </div>
               </div>
               <button
@@ -401,7 +396,7 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
               replacement: the rows on screen came out of the database before the
               vault shut and are already in memory. Clearing them would destroy
               work the lock has no claim on. */}
-          {isVaultLockedError(console.queryError) && (
+          {isVaultLockedError(slice.queryError) && (
             <div className="mb-2 flex shrink-0 items-center justify-between gap-3 rounded-md border border-status-warning/30 bg-status-warning/10 px-4 py-2.5 text-body-12">
               <div className="flex items-center gap-2 text-status-warning">
                 <KeyRound className="size-4 shrink-0" />
@@ -418,13 +413,13 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
           )}
 
           {/* Generic Error Banner (Screen 13) */}
-          {console.queryError && !isReadOnlyRejection && !isVaultLockedError(console.queryError) && (
+          {slice.queryError && !isReadOnlyRejection && !isVaultLockedError(slice.queryError) && (
             <div className="mb-2 flex shrink-0 items-start gap-2.5 rounded-md border border-(--border-danger) bg-(--feedback-danger-soft) p-3 text-body-12 text-status-danger">
               <AlertCircle className="mt-0.5 size-4 shrink-0" />
               <div className="flex-1 space-y-1">
                 <div className="text-body-13-medium">Query execution error</div>
                 <div className="rounded border border-border bg-surface-base p-2 text-code-11 whitespace-pre-wrap text-text-primary">
-                  {console.queryError}
+                  {slice.queryError}
                 </div>
               </div>
               <button
@@ -445,7 +440,7 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
             <div
               className={cn(
                 "flex min-h-0 flex-1 flex-col",
-                console.runningQuery && "pointer-events-none opacity-60 transition-opacity duration-(--motion-base)",
+                slice.runningQuery && "pointer-events-none opacity-60 transition-opacity duration-(--motion-base)",
               )}
             >
               {/* 742:36–742:39: "200 rows  412 ms" and the cap chip. */}
@@ -454,8 +449,8 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
                   <span className="tabular-nums">{queryResult.rowCount}</span>{" "}
                   {queryResult.rowCount === 1 ? "row" : "rows"}
                 </span>
-                {console.queryDurationMs != null && (
-                  <span className="text-body-13-medium text-text-primary tabular-nums">{console.queryDurationMs} ms</span>
+                {slice.queryDurationMs != null && (
+                  <span className="text-body-13-medium text-text-primary tabular-nums">{slice.queryDurationMs} ms</span>
                 )}
                 <span className="text-caption-11 text-text-tertiary">
                   <span className="tabular-nums">{queryResult.columns.length}</span> columns
