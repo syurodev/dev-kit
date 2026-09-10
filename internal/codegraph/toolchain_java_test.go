@@ -87,28 +87,62 @@ func TestJavaToolchainBuildsForReal(t *testing.T) {
 // as /usr — and `JAVA_HOME=/usr /usr/bin/java -version` never returns, which is
 // how one wedged analyzer subprocess used to hang a whole test run for ten
 // minutes and orphan the JVM behind it.
+//
+// Every platform's marker is checked from whichever platform runs the test:
+// javaHomeRoot only stats paths, so a Linux CI proves the Windows reading too.
+// DevKit ships on all three, and a marker that is wrong for one of them is a
+// hang on that one.
 func TestJavaHomeRootAnswersOnlyForARealJDK(t *testing.T) {
-	root := t.TempDir()
+	// The shape of the bug: a bin/java with nothing of a JDK around it. This is
+	// /usr on macOS, and /usr on Linux for the alternatives symlink.
+	t.Run("no JDK around the binary", func(t *testing.T) {
+		root, java := fakeJavaBin(t)
+		if got := javaHomeRoot(java); got != "" {
+			t.Fatalf("want no JAVA_HOME for %s, got %q", root, got)
+		}
+	})
+
+	for _, marker := range []struct {
+		name string
+		path []string
+	}{
+		// The manifest every JDK since 9 ships, on all three platforms.
+		{"release manifest", []string{"release"}},
+		{"macOS server VM", []string{"lib", "server", "libjvm.dylib"}},
+		{"linux server VM", []string{"lib", "server", "libjvm.so"}},
+		{"windows server VM", []string{"bin", "server", "jvm.dll"}},
+	} {
+		t.Run(marker.name, func(t *testing.T) {
+			root, java := fakeJavaBin(t)
+			full := filepath.Join(append([]string{root}, marker.path...)...)
+			if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+				t.Fatalf("mkdir: %v", err)
+			}
+			if err := os.WriteFile(full, []byte("x"), 0o644); err != nil {
+				t.Fatalf("write: %v", err)
+			}
+			if got := javaHomeRoot(java); got != root {
+				t.Fatalf("javaHomeRoot = %q, want %q", got, root)
+			}
+		})
+	}
+}
+
+// fakeJavaBin builds <root>/bin/java with nothing else in it, and returns both.
+func fakeJavaBin(t *testing.T) (root, java string) {
+	t.Helper()
+	root = t.TempDir()
 	bin := filepath.Join(root, "bin")
 	if err := os.MkdirAll(bin, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	java := filepath.Join(bin, "java")
-	if err := os.WriteFile(java, []byte("#!/bin/sh\n"), 0o755); err != nil {
+	// The name is irrelevant to javaHomeRoot — it reads the path, not the file —
+	// so java.exe need not be spelled differently here.
+	java = filepath.Join(bin, "java")
+	if err := os.WriteFile(java, []byte("x"), 0o755); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-
-	if got := javaHomeRoot(java); got != "" {
-		t.Fatalf("a bin/java with no JDK beside it must yield no JAVA_HOME, got %q", got)
-	}
-
-	// `release` is the manifest every JDK since 9 ships at its root.
-	if err := os.WriteFile(filepath.Join(root, "release"), []byte("JAVA_VERSION=\"21\"\n"), 0o644); err != nil {
-		t.Fatalf("write release: %v", err)
-	}
-	if got := javaHomeRoot(java); got != root {
-		t.Fatalf("javaHomeRoot = %q, want %q", got, root)
-	}
+	return root, java
 }
 
 // A toolchain whose runtime has no install root must set no *_HOME at all. An

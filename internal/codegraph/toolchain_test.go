@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -550,6 +551,14 @@ func TestReadyWhenTheArtifactAndRuntimeAreBothThere(t *testing.T) {
 // and with no bound the parent waited forever too — a wedged subprocess took a
 // whole test run down for ten minutes and orphaned the child behind it.
 func TestAnalyzeGivesUpOnAnAnalyzerThatNeverExits(t *testing.T) {
+	// writingToolchain's fake analyzer is a shell script. Skipped rather than
+	// failed where there is no shell — on Windows this would otherwise report
+	// ErrToolchainIncomplete, which looks like a bug in the thing under test
+	// instead of a missing fixture.
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("no sh on this platform; the fake analyzer is a shell script")
+	}
+
 	toolchain := writingToolchain(t, "true")
 	// The artifact is the script that runs, so this analyzer's whole behaviour
 	// is to sleep well past any deadline the test would wait for.
