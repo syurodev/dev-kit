@@ -38,7 +38,7 @@ func RegisterBuiltins(container *Container) error {
 			Version:      "1.0.0",
 			APIVersion:   modules.CurrentAPIVersion,
 			Commands:     []string{"database.query"},
-			Views:        []string{"database.connections"},
+			Views:        []string{"database.console", "database.table", "database.erd", "database.activity", "database.history", "database.saved"},
 			Capabilities: []string{"db:query"},
 		},
 		{
