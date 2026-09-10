@@ -3,14 +3,16 @@ import { Download, FileSpreadsheet, FileJson, X, CheckCircle2, AlertCircle } fro
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useShallow } from "zustand/react/shallow";
-import { useDatabaseStore } from "../databaseStore";
+import { EMPTY_CONSOLE, useDatabaseStore } from "../databaseStore";
 import { exportQueryResult } from "../export";
 import { errorMessage } from "../../../bridge/errors";
 
 export function ExportModal() {
-  const { queryResult, showExportModal, setShowExportModal } = useDatabaseStore(
+  // Not named `console`: shadowing the global inside a component is a trap.
+  const modalConsoleId = useDatabaseStore((s) => s.modalConsoleId);
+  const slice = useDatabaseStore((s) => s.consoles[modalConsoleId] ?? EMPTY_CONSOLE);
+  const { showExportModal, setShowExportModal } = useDatabaseStore(
     useShallow((s) => ({
-      queryResult: s.queryResult,
       showExportModal: s.showExportModal,
       setShowExportModal: s.setShowExportModal,
     }))
@@ -20,6 +22,8 @@ export function ExportModal() {
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
   const [exportedPath, setExportedPath] = useState("");
+
+  const queryResult = slice.queryResult;
 
   if (!showExportModal || !queryResult) return null;
 

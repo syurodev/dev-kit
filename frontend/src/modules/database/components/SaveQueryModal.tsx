@@ -4,25 +4,27 @@ import { Bookmark, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useShallow } from "zustand/react/shallow";
-import { useDatabaseStore } from "../databaseStore";
+import { EMPTY_CONSOLE, useDatabaseStore } from "../databaseStore";
 import { saveQuery } from "../../../bridge/database";
 import { errorMessage } from "../../../bridge/errors";
 
 export function SaveQueryModal() {
   const queryClient = useQueryClient();
+  // Not named `console`: shadowing the global inside a component is a trap.
+  const modalConsoleId = useDatabaseStore((s) => s.modalConsoleId);
+  const slice = useDatabaseStore((s) => s.consoles[modalConsoleId] ?? EMPTY_CONSOLE);
   const {
     selectedProfileId,
-    sql,
     showSaveQueryModal,
     setShowSaveQueryModal,
   } = useDatabaseStore(
     useShallow((s) => ({
       selectedProfileId: s.selectedProfileId,
-      sql: s.sql,
       showSaveQueryModal: s.showSaveQueryModal,
       setShowSaveQueryModal: s.setShowSaveQueryModal,
     }))
   );
+  const sql = slice.sql;
 
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);

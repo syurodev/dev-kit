@@ -165,6 +165,12 @@ export type DatabaseStoreState = {
   showConnectionOptionsDialog: boolean;
   showExportModal: boolean;
   showSaveQueryModal: boolean;
+  /**
+   * The console a modal acts on. Set when a console opens a modal, because
+   * "export this result" is about the console that asked, not about whichever
+   * tab wins a race to render.
+   */
+  modalConsoleId: string;
 
   // Actions
   fetchProfiles: () => Promise<void>;
@@ -176,6 +182,8 @@ export type DatabaseStoreState = {
   setShowConnectionOptionsDialog: (show: boolean) => void;
   setShowExportModal: (show: boolean) => void;
   setShowSaveQueryModal: (show: boolean) => void;
+  openExportModal: (consoleId: string) => void;
+  openSaveQueryModal: (consoleId: string) => void;
 
   // Folder actions
   toggleFolder: (folderId: string) => void;
@@ -272,6 +280,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   showConnectionOptionsDialog: false,
   showExportModal: false,
   showSaveQueryModal: false,
+  modalConsoleId: "",
 
   fetchProfiles: async () => {
     set({ loadingProfiles: true, profileError: "" });
@@ -324,6 +333,8 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   setShowConnectionOptionsDialog: (show) => set({ showConnectionOptionsDialog: show }),
   setShowExportModal: (show) => set({ showExportModal: show }),
   setShowSaveQueryModal: (show) => set({ showSaveQueryModal: show }),
+  openExportModal: (consoleId) => set({ showExportModal: true, modalConsoleId: consoleId }),
+  openSaveQueryModal: (consoleId) => set({ showSaveQueryModal: true, modalConsoleId: consoleId }),
 
   toggleFolder: (folderId: string) => {
     const current = get().expandedFolders;

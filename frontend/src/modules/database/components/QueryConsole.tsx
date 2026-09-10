@@ -96,8 +96,8 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
     clearQueryError,
     schemaSnapshot,
     setInspectedCell,
-    setShowExportModal,
-    setShowSaveQueryModal,
+    openExportModal,
+    openSaveQueryModal,
   } = useDatabaseStore(
     useShallow((s) => ({
       profiles: s.profiles,
@@ -105,8 +105,8 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
       clearQueryError: s.clearQueryError,
       schemaSnapshot: s.schemaSnapshot,
       setInspectedCell: s.setInspectedCell,
-      setShowExportModal: s.setShowExportModal,
-      setShowSaveQueryModal: s.setShowSaveQueryModal,
+      openExportModal: s.openExportModal,
+      openSaveQueryModal: s.openSaveQueryModal,
     }))
   );
 
@@ -237,7 +237,7 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
         <Button
           variant="ghost"
           size="default"
-          onClick={() => setShowSaveQueryModal(true)}
+          onClick={() => openSaveQueryModal(consoleId)}
           disabled={!slice.sql.trim()}
         >
           <BookmarkPlus className="size-3.5" />
@@ -251,7 +251,7 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
             variant="outline"
             size="default"
             className="bg-surface-raised"
-            onClick={() => setShowExportModal(true)}
+            onClick={() => openExportModal(consoleId)}
           >
             <Download className="size-3.5" />
             Export
