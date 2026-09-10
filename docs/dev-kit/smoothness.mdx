@@ -44,7 +44,7 @@ trạng thái rỗng-tạm, chứ không phải bằng cách làm fetch nhanh h�
 | 2.2 | **View đã ghé thì giữ mounted.** Đổi tab trong một module là toggle `hidden`, không unmount/remount; state cục bộ (search, scroll, selection) sống tiếp. | Quay lại tab luôn bắt đầu từ trạng thái rỗng + fetch lại. | WorkbenchViews và Database làm vậy (ERD ngoại lệ vì React Flow đo canvas ẩn = 0). Kafka/Tools/Sync/SSH cần rà. |
 | 2.3 | **Dữ liệu dùng chung nằm ở store, không ở component.** Cái gì hai view cùng cần, hoặc cần sống qua remount, thì ở Zustand module store; component chỉ giữ ephemeral. | Mỗi view tự fetch lại cùng dữ liệu; đổi tab là thấy nhấp. | Kafka đúng (một `kafkaStore`); Database các view list vẫn local. |
 | 2.4 | **Refetch không được xoá dữ liệu cũ.** Stale-while-revalidate: giữ danh sách cũ, chỉ icon refresh quay, thay khi dữ liệu mới về. | Danh sách biến mất rồi hiện lại. | Đúng ở 3 view Database sau sửa; cần thành quy tắc chung. |
-| 2.5 | **Sidebar cùng frame với nội dung.** Rail của module phải có hình ngay frame đầu module hiện. | Nội dung hiện trước, rail hiện sau một frame. | `useSidebarContent` đăng ký trong effect → lệch 1 frame. `ModuleSkeleton` che khoảng chờ chunk, chưa che nhịp lệch này. Cần chuyển đăng ký sang layout effect hoặc để rail đọc thẳng store. |
+| 2.5 | **Sidebar cùng frame với nội dung.** Rail của module phải có hình ngay frame đầu module hiện. | Nội dung hiện trước, rail hiện sau một frame. | Đã sửa: `useSidebarContent` chuyển sang layout effect (có guard SSR). Đo trên Chromium headless với chính React của app, lấy mẫu DOM từ nhịp rAF ngay trước mỗi lần vẽ: với passive effect, rail trễ 1 frame ở 4/5 lần chạy khi commit của module tốn 14 ms và 5/5 khi tốn 20 ms; với layout effect delta bằng 0 ở mọi mức tải đo được. Commit rẻ thì không tách — đó là lý do lỗi này cảm giác lúc có lúc không. |
 | 2.6 | **Chunk module nạp trước khi cần.** Hover dock/tab → preload; module hay dùng preload sau khi shell idle. | Bấm module lần đầu thấy skeleton. | Dock có `onPreload`; chưa có idle-preload cho module đã dùng gần đây. |
 | 2.7 | **Skeleton đúng hình.** Skeleton phải trùng bố cục thật (rail + header + body của *chính module đó*) để chuyển sang nội dung là thay chất liệu, không phải đổi bố cục. | Skeleton một kiểu, nội dung kiểu khác → hai lần nhảy. | `ModuleSkeleton` là hình chung; cần bản theo module (thiết kế trong Figma trước). |
 | 2.8 | **Không có trạng thái "đang chuyển".** Mọi cú đổi tab/module: frame đầu sau click đã là nội dung mới (hoặc nội dung cũ + panel mới trượt vào). Không có frame trống ở giữa. | Nháy đen/trắng 1 frame. | Workbench dùng `contents`/`hidden` → không có frame trống; Suspense fallback chỉ khi chunk chưa có. |
@@ -56,15 +56,15 @@ gọi tên được.
 
 | # | Quy tắc | Hiện trạng / nơi áp dụng |
 |---|---|---|
-| 3.1 | **Chiều cao hàng cố định.** Row tree/list/table có `h-*` cố định, không phụ thuộc nội dung có icon/chip hay không. | TreeView `h-6`, Sync row 48, Database profile 48. Bảng Kafka/QueryConsole cần khoá `h` cho `tr`. |
-| 3.2 | **Chỗ cho thứ xuất hiện muộn được đặt trước.** Chip trạng thái, count, spinner, nút "Retry": khi chưa có thì giữ chỗ (`min-w`, `invisible`) chứ không thêm vào sau. | Header Kafka: chip partitions/replicas xuất hiện sau `describeTopic` → title dịch. Cần placeholder. |
-| 3.3 | **Số dùng `tabular-nums`.** Lag, offset, count, thời gian đổi giá trị không được làm cột co giãn. | `TabsCount` có; bảng Kafka offset dùng thin-space, chưa tabular. |
-| 3.4 | **Scrollbar không làm co nội dung.** `scrollbar-gutter: stable` cho vùng cuộn có thể chuyển giữa có/không scrollbar. | Mới 1 chỗ. Vùng cần: bảng kết quả, danh sách history, transcript, rail. |
+| 3.1 | **Chiều cao hàng cố định.** Row tree/list/table có `h-*` cố định, không phụ thuộc nội dung có icon/chip hay không. | TreeView `h-6`, Sync row 48, Database profile 48. Bảng Kafka/QueryConsole đã khoá `h-9` cho ô — cũng là chiều cao hàng mà virtualizer dựa vào. |
+| 3.2 | **Chỗ cho thứ xuất hiện muộn được đặt trước.** Chip trạng thái, count, spinner, nút "Retry": khi chưa có thì giữ chỗ (`min-w`, `invisible`) chứ không thêm vào sau. | Đã sửa header Kafka: hàng chip luôn mounted, chỉ `invisible` khi chưa có `describeTopic`, kèm `min-w` để chip rỗng và chip đầy cùng một hộp với mọi giá trị tới ba chữ số. Các header module khác không có mẫu này. |
+| 3.3 | **Số dùng `tabular-nums`.** Lag, offset, count, thời gian đổi giá trị không được làm cột co giãn. | Đã phủ: `TabsCount`, offset/lag/clock của Kafka, count group và message, và row count · column count · thời gian chạy của QueryConsole. |
+| 3.4 | **Scrollbar không làm co nội dung.** `scrollbar-gutter: stable` cho vùng cuộn có thể chuyển giữa có/không scrollbar. | 7 vùng: kết quả QueryConsole, danh sách history và saved, bảng LiveActivity, bảng peek Kafka, rail Kafka và rail Database — cộng message-scroller đã có từ trước. Đo trên Chromium: chiều rộng nội dung của scroller 1 dòng và 40 dòng bằng nhau (285 px) thay vì lệch đúng 15 px của thanh cuộn. Transcript chưa. |
 | 3.5 | **Không animate `height: auto` bằng JS.** Mở/đóng theo chiều cao dùng grid `0fr → 1fr` (CSS), không đo rồi set số. | TreeView đã theo cách này (`.tree-branch`, `index.css`). |
 | 3.6 | **Font không đổi sau khi vẽ.** Font bundle qua fontsource, nạp đồng bộ trước render đầu. | Geist/Geist Mono/Inter đã bundle; cần xác nhận không có FOUT khi khởi động (`font-display`). |
 | 3.7 | **Icon/hình có kích thước khai sẵn.** `size-*` trên mọi svg; ảnh (avatar, screenshot note) có `width/height` hoặc `aspect-ratio`. | Icon đúng; ảnh trong note cần rà. |
 | 3.8 | **Resize panel: chỉ container chuyển động.** Nội dung bên trong ghim ở kích thước đích (`min-width` cố định trên inner) trong lúc transition; không reflow bảng/editor từng frame. | Sidebar/split/bottom slot đã animate container bằng framer; inner chưa ghim → bảng reflow theo. |
-| 3.9 | **Empty/error/loading cùng khung với nội dung.** Ba trạng thái này vẽ trong đúng vùng nội dung sẽ chiếm, cùng padding, không full-height làm header dịch. | `EmptyState` dùng chung; một số empty-state cũ (`py-16 text-center`) cần đưa về primitive. |
+| 3.9 | **Empty/error/loading cùng khung với nội dung.** Ba trạng thái này vẽ trong đúng vùng nội dung sẽ chiếm, cùng padding, không full-height làm header dịch. | Đã đưa 5 empty-state cũ (`py-16`/`p-8` tự vẽ ở History, Saved, hai chỗ trong LiveActivity, và bảng groups Kafka) về `EmptyState`. Lỗi peek Kafka cũng vào đúng chỗ bảng bằng `EmptyState tone="danger"` kèm Retry. |
 | 3.10 | **Tooltip/popover/menu không đẩy layout.** Luôn portal + absolute; không bao giờ inline. | Radix đúng. |
 
 ## 4. Motion có chủ đích
@@ -102,15 +102,15 @@ phẩm thiết kế (Figma Smart Animate ghép layer theo tên — đúng 1:1 v�
 | Tree mở/đóng | Track `0fr→1fr` 180 ms, con so le 15 ms/dòng cap 8, đóng 120 ms không so le, chevron xoay | Đã có (`components/tree-view.tsx`) |
 | Tabs (shadcn) | Panel trượt theo hướng thanh tab, cũ ghim tại chỗ trượt ra, mới vào trong flow; pill/underline trượt giữa trigger | Đã có (`components/ui/tabs.tsx`) |
 | Tab module Workbench | Cùng slide, nhưng thứ trượt vào là skeleton đúng hình rồi crossfade sang nội dung | Chưa — chờ skeleton theo module (2.7) |
-| Row hover/select | `transition-colors` 120 ms; dòng chọn có vạch accent trượt vào | Hover có; vạch chưa |
+| Row hover/select | `transition-colors` 120 ms; dòng chọn có vạch accent trượt vào | Đã có (`.row-accent`, `scale-y` + opacity 120 ms) trên row selected của TreeView và dòng peek đang inspect. Đo trên Chromium: tắt là opacity 0 / scale `1 0`, bật là opacity 1 / scale 1, transition 0.12 s cả hai thuộc tính |
 | List thêm/bớt | Dòng mới trượt xuống + fade; dòng xoá thu chiều cao rồi biến | Đã có (auto-animate 180 ms trên peek, groups, history, saved, notes list) |
-| Split panel / inspector | Slide từ phải 240 ms, nội dung fade sau 60 ms | Resize có, mở chưa |
+| Split panel / inspector | Slide từ phải 240 ms, nội dung fade sau 60 ms | Đã có: container mở `--motion-slow`, đóng `--motion-fast`; nội dung fade `--motion-base` trễ 60 ms. Số dùng chung qua `lib/motion.ts` |
 | Dialog | Scale 0.98→1 + fade 180 ms, overlay fade, đóng 120 ms | Đã có (`duration-(--motion-base)` vào, `duration-(--motion-fast)` ra qua `tw-animate-css`) |
-| Skeleton → nội dung | Crossfade 180 ms, không cắt | Chưa |
-| Chip trạng thái | Đổi màu có transition; số đổi nhấp một nhịp | Chưa |
-| Button | Press scale 0.98; disabled ↔ enabled có transition màu | Chưa |
-| Toast | Trượt lên + fade; rời 120 ms | Chưa |
-| Dock | Đã có, cần đồng bộ về token | Có, chưa dùng token |
+| Skeleton → nội dung | Crossfade 180 ms, không cắt | Đã có (`.module-enter` + `@starting-style`, mount cùng chunk nên chỉ chạy đúng lúc đổi). Đo trên Chromium: opacity 0.00 → 0.37 → 0.65 trong ba frame đầu, một transition 180 ms |
+| Chip trạng thái | Đổi màu có transition; số đổi nhấp một nhịp | Đã có: `transition-colors` `--motion-fast` trên `Chip`; lag của bảng groups nhấp một nhịp khi đổi giá trị (key theo giá trị). Không gắn ở peek: một lần peek thay cả 500 dòng |
+| Button | Press scale 0.98; disabled ↔ enabled có transition màu | Đã có: `active:scale-[0.98]`, `transition-all` đọc `--motion-fast` thay cho mặc định 150 ms của Tailwind |
+| Toast | Trượt lên + fade; rời 120 ms | Đã mount `<Toaster/>` (lazy) — trước đó **không có** trong cây, nên mọi `toast.error` của Notes đều im lặng. Motion để nguyên của sonner, chỉ chốt một `duration` dùng chung |
+| Dock | Đã có, cần đồng bộ về token | Cố ý giữ nguyên 500 ms mở / 350 ms đóng: `--motion-slow` là 240 ms nên đổi sang token sẽ rút gần một nửa, và 350 ms được canh theo cú morph bo góc 18px → 7.5px mà chính comment trong file dặn đừng chỉnh rời. Dock vẫn là chỗ duy nhất dùng `--ease-house-spring` |
 
 ### 4.5 Ngắt được
 
@@ -126,13 +126,13 @@ agent turn, chunk module lần đầu. Với chúng:
 
 | Quy tắc | Ý nghĩa |
 |---|---|
-| Chờ **tại chỗ hành động** | Spinner/tiến độ nằm trong chính nút vừa bấm ("Running…", "Connecting…"), không phủ cả vùng. |
-| **Không xoá kết quả cũ** | Kết quả SQL trước vẫn hiển thị (mờ nhẹ) tới khi kết quả mới thay; bảng peek cũ giữ tới khi peek mới về. |
-| **Hủy được** | Mọi thao tác > 1 s có Cancel (bridge cần `context` cancel — đã có ở DB/Kafka; UI phải nối). |
-| **Hiện thời gian** | "128 ms", "2.4 s" ngay cạnh kết quả — người dùng tự biết chậm là do đâu. |
-| **Lỗi thay tại chỗ** | Error card vào đúng chỗ kết quả, kèm Retry, không đổi bố cục xung quanh. |
+| Chờ **tại chỗ hành động** | Spinner/tiến độ nằm trong chính nút vừa bấm ("Running…", "Connecting…"), không phủ cả vùng. **Đã có** ở Run, Peek và cả hai nút Test connection; Cancel đứng cạnh nút chính chứ không thay chỗ, để chiều rộng thanh công cụ không đổi. |
+| **Không xoá kết quả cũ** | Kết quả SQL trước vẫn hiển thị (mờ nhẹ) tới khi kết quả mới thay; bảng peek cũ giữ tới khi peek mới về. **Đã có**: `executeQuery` không còn xoá `queryResult` khi bắt đầu, console làm mờ `opacity-60` + `pointer-events-none`; peek Kafka cũng không xoá `messages` khi lỗi. Mỗi bên có một run id nên câu trả lời của lần chạy cũ (kể cả lỗi) bị bỏ, không đè lên lần mới. |
+| **Hủy được** | Mọi thao tác > 1 s có Cancel (bridge cần `context` cancel — đã có ở DB/Kafka; UI phải nối). **Đã nối cho SQL và peek**: `Call` của `@wailsio/runtime` trả `CancellablePromise`, `cancel()` gửi `CancelCall` kèm call id và Go huỷ đúng context đã đưa cho driver. Thứ làm mất khả năng này là `callBridge` — nó `await` trong một hàm async nên biến `CancellablePromise` thành promise thường; `callBridgeCancellable` giữ nguyên chuỗi. Connect và index chưa nối. |
+| **Hiện thời gian** | "128 ms", "2.4 s" ngay cạnh kết quả — người dùng tự biết chậm là do đâu. **Đã có** ở peek Kafka, query console, và test connection của Database. |
+| **Lỗi thay tại chỗ** | Error card vào đúng chỗ kết quả, kèm Retry, không đổi bố cục xung quanh. **Đã có** ở peek Kafka (`EmptyState tone="danger"` + Retry, giữ nguyên hộp của card). Banner lỗi của QueryConsole giữ nguyên thiết kế cũ có chủ đích — nó nằm trên kết quả để dòng đã lấy được không bị xoá. |
 | **Skeleton chỉ lần đầu** | Chỉ khi chưa từng có gì để giữ. Từ lần hai trở đi là stale-while-revalidate. |
-| **Tiến độ có nhịp** | Index/export/sync: cập nhật tiến độ 100–250 ms/lần, không theo từng file. |
+| **Tiến độ có nhịp** | Index/export/sync: cập nhật tiến độ 100–250 ms/lần, không theo từng file. **Đã có** cho log build analyzer: `createProgressBuffer` đẩy phần tử đầu ngay rồi gộp phần còn lại theo nhịp 125 ms, thay cho một `setState` mỗi dòng (một lần build Maven cache lạnh viết hàng nghìn dòng). Export và sync chưa. |
 
 ## 6. Chi phí render và input latency
 
@@ -143,7 +143,7 @@ virtualization và batching; đây là phần chạm tới cảm giác:
 |---|---|---|
 | 6.1 | **Selector hẹp, không destructure cả store.** `const { a, b } = useStore()` render lại theo *mọi* thay đổi của store. | Đã chuyển toàn bộ 16 file sang selector `useShallow`. Ratchet `storeSubscriptionRatchet.test.ts` giữ baseline = 0. |
 | 6.2 | **Việc nặng sau click không chặn frame click.** Mount module nặng, set bảng lớn, dựng graph: `startTransition` hoặc chia frame; frame đầu chỉ vẽ khung. | `startTransition` mới dùng 1 chỗ. |
-| 6.3 | **Bảng > 100 dòng virtualize.** `@tanstack/react-virtual` đã cài. | Chỉ `codegraph/FileTree` dùng. QueryConsole, LiveActivity, Kafka messages chưa. |
+| 6.3 | **Bảng > 100 dòng virtualize.** `@tanstack/react-virtual` đã cài. | Đã phủ QueryConsole, peek Kafka và LiveActivity qua `useVirtualRows` dùng chung — windowing bằng hàng đệm chứ không absolute, vì `<tr>` ra khỏi flow kéo theo chiều rộng cột và làm `thead` sticky hết tác dụng. Dưới ngưỡng 100 dòng thì render thẳng, nên `renderToString` (không có scroller để đo) vẫn ra đủ bảng. Đo trên Chromium, scroller cao 360 px: 80 dòng → 80 `<tr>`; 500 dòng → 26 `<tr>` lúc đứng yên, 43 sau khi cuộn 5000 px, header vẫn dính và cột vẫn 200 px. |
 | 6.4 | **`content-visibility: auto` cho vùng ẩn dưới màn.** | 3 chỗ (Notes card, agent line, message scroller). Cần cho tab ẩn, panel đóng. |
 | 6.5 | **Gõ phím không chờ render phụ.** Editor/ô search cập nhật ngay; filter/kết quả defer (`useDeferredValue`). | Notes search có debounce; các ô search rail filter đồng bộ (ổn khi < 1 000 dòng). |
 | 6.6 | **Phím tắt phản hồi trong frame đó.** ⌘↵, ⌘⇧E, ⌘K: state đổi ngay, việc nặng sau. | Đúng ở Kafka/Workbench; cần đo trên WKWebView. |
@@ -162,8 +162,8 @@ virtualization và batching; đây là phần chạm tới cảm giác:
 
 | # | Quy tắc | Hiện trạng |
 |---|---|---|
-| 8.1 | Vault gate → Workbench là **một** chuyển cảnh (fade/scale), không phải trang trắng rồi shell hiện dần từng phần. | Cần rà: shell mount rồi rail, dock, tab lần lượt hiện. |
-| 8.2 | Fetch khởi động gộp lại: một call lấy profile của mọi module thay vì mỗi module gọi khi mount. | Mỗi module tự `refreshProfiles` khi mount. |
+| 8.1 | Vault gate → Workbench là **một** chuyển cảnh (fade/scale), không phải trang trắng rồi shell hiện dần từng phần. | Đã đo trên app đã build trong Chromium headless (transport Wails giả ghi lại mọi binding call): rail, dock và tab strip **vốn đã** hiện cùng một frame (frame 6 ở mọi lần chạy), nên phần "hiện dần từng phần" không tái hiện. Thứ thiếu là chính cú chuyển: trước đây là cắt thẳng. `.shell-enter` fade shell như một khối qua `@starting-style` (`--motion-base`), `display: contents` nên workbench vẫn là flex child cũ. |
+| 8.2 | Fetch khởi động gộp lại: một call lấy profile của mọi module thay vì mỗi module gọi khi mount. | Đã đo: trước khi gate mở có 4 call (hai `UIStateGet` rehydrate store, `PreferencesGetTheme`, `VaultStatus`); lúc gate bàn giao có thêm 9 (`VaultStatus`, `SyncConflicts`, `AgentHubListAgents`, `AgentHubPendingPermissions`, `InteractionPendingList`, `ListModules`, hai `UIStateGet`, `AgentHubListVendorTypes`) và tất cả rời đi trong khoảng ~50 ms của nhau — đã song song, không phải xếp hàng, nên không có gì để gộp. Không module nào fetch trước khi được mở: các call AgentHub và Sync thuộc bề mặt của shell (companion panel, status menu). Ghi nhận riêng: `InteractionPendingList` poll mỗi 500 ms suốt phiên. |
 | 8.3 | Cửa sổ resize: layout bằng CSS (flex/grid), không JS đo đạc; panel clamp theo `maxPanelWidth` khi render. | Đúng. |
 | 8.4 | Đổi theme: mọi màu là token → một frame; không có phần tử "đuổi theo" theme sau. | Còn rgba glass viết tay trong `components/` (ratchet 48 hex) → lệch ở light theme. |
 
@@ -171,12 +171,24 @@ virtualization và batching; đây là phần chạm tới cảm giác:
 
 - **Long task observer** bật bằng flag dev: `performance.mark` quanh mỗi cú
   đổi tab/module + `PerformanceObserver('longtask')` ghi task > 16 ms kèm
-  module. Đây là bước đầu cho mọi báo cáo "giật".
+  module. Đây là bước đầu cho mọi báo cáo "giật". Đã có ở
+  `frontend/src/lib/perfTrace.ts`: subscribe vào store workbench tabs thay vì
+  gọi từ `setActiveTab` (store không mang code chỉ-dành-cho-dev, và cách này
+  thấy cả cú đổi module). `main.tsx` import động sau
+  `import.meta.env.DEV || localStorage.devkitPerf === "1"`, nên nó thành chunk
+  riêng và không nằm trong bundle mà budget đo.
 - **Frame-đầu test**: SSR render view với store rỗng phải cho skeleton/nội
   dung, không bao giờ cho empty-copy (mẫu: `firstVisit.test.tsx`). Mở rộng
   cho 10 file ở 2.1.
 - **Ratchet** như design-system: đếm `useState([])`-kèm-fetch, destructure cả
-  store, `backdrop-filter`, bảng không virtualize — số chỉ được giảm.
+  store, `backdrop-filter`, bảng không virtualize — số chỉ được giảm. Đã có ở
+  `frontend/src/smoothnessRatchet.test.ts` với baseline đo hôm nay:
+  `useState([])` cạnh effect trong `modules/` là 6, bảng `.map` không
+  virtualizer là 2, `backdrop-filter`/`backdrop-blur` là 48, `animate-in`
+  không kèm `duration-(--motion-*)` là 3. Cố ý đếm thô — regex không phân biệt
+  được fetch với subscription, cũng không biết bảng 12 dòng hay 12 000 dòng —
+  và như design-system ratchet, test cũng đỏ khi số **thấp hơn** baseline, để
+  con số bám thực tế chứ không bám lịch sử.
 - Đo trên **Wails/WKWebView production**, không suy từ Vite dev; pane browser
   ẩn đóng băng timeline animation nên số đo motion phải lấy trên app thật.
 - Budget cảm giác (bổ sung cho budget thông lượng bên kia): đổi tab warm — 0
@@ -270,13 +282,13 @@ viết ở nhiều nơi. Cả hai dep mới đã nối code (`@tanstack/react-qu
 
 | Công cụ | Trạng thái | Thay cho | Quy tắc áp dụng ở DevKit |
 |---|---|---|---|
-| **TanStack Query** | Đã dùng (QueryClient ở App, 3 view Database + 10 view fetch) | Máy trạng thái fetch tự viết trong 10+ view (`useState([])` + `loading` + `error` + effect + refetch tay) — mục 2.1–2.4, 5 | Đã cấu hình QueryClient dùng chung tại `App.tsx` (`retry: 0`, không refetch khi focus/reconnect, staleTime 5 phút); chuyển đổi 3 view mẫu Database (`LiveActivityView`, `QueryHistoryView`, `SavedQueriesView`) và 10 view fetch danh sách/đọc (`SettingsView`, `ERDView`, `AnalyzerSetup`, `SSHView`, `NotesDashboard`, `NoteHistoryPanel`, `NoteLink`, `NotesTrash`, `NoteEditor`, `SyncView`); bảo toàn nguyên vẹn chu trình autosave của Notes. **Quy tắc rút ra khi review (2026-09-10):** query bị gate theo tab (`enabled: activeTab === …`) mà nghiệp vụ là "tươi khi vào" (History sau khi chạy SQL ở Console, Live activity snapshot) phải đặt `staleTime: 0` — với default 5 phút, vào lại tab không refetch và History không thấy query vừa chạy (regression đã sửa ở `eacf60f`). Ngoài ra, thêm Query vào initial chunk đưa JS ban đầu lên 1019.6 KiB / trần 1024 — còn 4 KiB; thứ tiếp theo vào shell phải lazy. |
+| **TanStack Query** | Đã dùng (QueryClient ở App, 3 view Database + 10 view fetch) | Máy trạng thái fetch tự viết trong 10+ view (`useState([])` + `loading` + `error` + effect + refetch tay) — mục 2.1–2.4, 5 | Đã cấu hình QueryClient dùng chung tại `App.tsx` (`retry: 0`, không refetch khi focus/reconnect, staleTime 5 phút); chuyển đổi 3 view mẫu Database (`LiveActivityView`, `QueryHistoryView`, `SavedQueriesView`) và 10 view fetch danh sách/đọc (`SettingsView`, `ERDView`, `AnalyzerSetup`, `SSHView`, `NotesDashboard`, `NoteHistoryPanel`, `NoteLink`, `NotesTrash`, `NoteEditor`, `SyncView`); bảo toàn nguyên vẹn chu trình autosave của Notes. **Quy tắc rút ra khi review (2026-09-10):** query bị gate theo tab (`enabled: activeTab === …`) mà nghiệp vụ là "tươi khi vào" (History sau khi chạy SQL ở Console, Live activity snapshot) phải đặt `staleTime: 0` — với default 5 phút, vào lại tab không refetch và History không thấy query vừa chạy (regression đã sửa ở `eacf60f`). Ngoài ra, thêm Query vào initial chunk đưa JS ban đầu lên 1019.6 KiB / trần 1024 — còn 4 KiB; thứ tiếp theo vào shell phải lazy. **Đã lấy lại chỗ (2026-09-10):** `@xterm/xterm` cùng addon và stylesheet nằm trong initial chunk dù `TerminalPane` chỉ render khi người dùng mở một tab terminal — 323.9 KiB theo phân bổ sourcemap, khoản duy nhất trong shell chỉ có một consumer và không có vai trò gì ở frame đầu. Tách bằng `React.lazy` ngay trong `TerminalWorkspace` (thanh tab và nút New terminal ở lại chunk shell) đưa JS ban đầu **1019.6 → 691.6 KiB**. Quy tắc "thứ tiếp theo vào shell phải lazy" vẫn giữ và đã áp ngay: `<Toaster/>` của sonner tốn 36 KiB nếu mount thẳng nên cũng lazy, `perfTrace` cũng vậy. |
 | **`<Activity>`** (React 19.2) | Đã dùng (DatabaseView thay visited set) | Keep-alive tay: `contents`/`hidden` ở WorkbenchViews, `visited` set ở DatabaseView — mục 2.2 | Đã dùng `mode="visible"|"hidden"` thay thế hoàn toàn cơ chế `visited` set và wrapper ẩn/hiện thủ công trong DatabaseView cho các tab Console, Activity, History, Saved. Giữ nguyên trạng thái và tạm dừng effect khi tab bị ẩn; giữ ERDView ở chế độ mount theo nhu cầu vì canvas React Flow cần đo đạc kích thước thực tế khi gắn vào DOM. Không chạm vào chu trình autosave của Notes và listener của Agent Hub. |
 | **`useShallow`** (zustand) | Đã dùng (16 file, ratchet 0) | Render theo mọi thay đổi store do `const { a, b } = useStore()` — mục 6.1 | Đã chuyển toàn bộ 16 file sang selector `useShallow`. Ratchet `storeSubscriptionRatchet.test.ts` giữ baseline 0; không đổi kiến trúc store. |
 | **`tw-animate-css`** | Đã dùng (22 bề mặt nổi & dialog, guard test SSR) | Dialog/popover/tooltip/dropdown/toast trong catalogue 4.4 — không cần framer hay `@starting-style` tự viết | Đã quy chuẩn các bề mặt nổi Radix và dialog tùy biến về token `duration-(--motion-base)` khi mở và `duration-(--motion-fast)` khi đóng; tắt hoàn toàn animation khi có `prefers-reduced-motion`. Test SSR `floatingMotion.test.tsx` bảo vệ thuộc tính motion. |
 | **`@formkit/auto-animate`** | Đã dùng (groups, history, saved, notes list) | Bọc từng item bằng `AnimatePresence` cho list thêm/xoá/sắp xếp — mục 4.4 | Đã gắn `useAutoAnimate` với thời lượng 180 ms và easing `--ease-out-strong` (cubic-bezier 0.23, 1, 0.32, 1) lên các container danh sách động: bảng consumer groups của Kafka (**không** gắn lên bảng peek: một lần peek thay toàn bộ tới 500 dòng, tức 500 FLIP cùng lúc — auto-animate chỉ cho danh sách thay đổi từng phần), danh sách QueryHistoryView và SavedQueriesView của Database, lưới thẻ ghi chú và sidebar/trash của Notes. Không gắn vào TreeView (đã có motion riêng) và bảng virtualize. |
 | **framer-motion** | Đang dùng (shell + tabs + tree indicator) | — | Chỉ cho slide/`layoutId`/spring cần ngắt được. `layout` ở mức section, không rải lên từng phần tử. Số dùng chung trong `frontend/src/lib/motion.ts`. |
-| **`@tanstack/react-virtual`** | Đã cài, chỉ `codegraph/FileTree` dùng | Bảng > 100 dòng — mục 6.3 | Áp cho QueryConsole result, Kafka messages, LiveActivity. |
+| **`@tanstack/react-virtual`** | Đã dùng (FileTree + 3 bảng) | Bảng > 100 dòng — mục 6.3 | Đã áp cho QueryConsole result, bảng peek Kafka và LiveActivity qua `components/ui/virtual-rows.tsx`. Windowing bằng hai `<tr>` đệm mang chiều cao phần đã cuộn qua, **không** absolute: một `<tr>` ra khỏi flow kéo theo chiều rộng cột và `position: sticky` trên `<thead>` ngừng hoạt động. Ngưỡng 100 dòng nằm một chỗ; dưới ngưỡng hook trả về mọi index và không padding, nên caller chỉ có một đường render. |
 | **`startTransition` / `useDeferredValue`** | Có sẵn, 1 chỗ dùng | Việc nặng sau click chặn frame — mục 6.2, 6.5 | Mount module nặng, set bảng lớn: `startTransition`; ô search rail: `useDeferredValue` cho phần lọc, input cập nhật ngay. |
 | React Compiler | Đang bật | memo tay | Không thêm `memo`/`useMemo` tay khi chưa có profiler. |
 | `react-resizable-panels`, `sonner` | Đã cài, đang dùng | — | Toast đã có motion; panel resize có sẵn. |
@@ -291,14 +303,19 @@ kiến trúc) → TanStack Query cho 10 view fetch, lấy 3 view Database làm m
 
 ## 12. Thứ tự làm
 
-1. **Quét mẫu 2.1 + 2.2 + 6.1** trên 10 file còn lại và 16 file destructure —
-   rẻ nhất, cắt nhiều "nháy" nhất. Kèm ratchet.
-2. **Sidebar cùng frame (2.5)** và **placeholder header (3.2)**.
-3. **Skeleton theo module trong Figma (2.7)** → Workbench slide (4.4).
-4. **Thao tác chậm (5)**: nút tại chỗ + giữ kết quả cũ + Cancel cho SQL, peek,
-   connect, index.
-5. **Bảng virtualize (6.3)** cho QueryConsole, Kafka, LiveActivity.
-6. **Catalogue motion còn lại (4.4)**: dialog, panel mở, list thêm/bớt, skeleton
-   crossfade, chip, button, toast.
-7. **Glass về lớp nổi (7.1)** cùng đợt Foundations v2.
-8. **Khởi động (8.1, 8.2)**.
+1. ~~**Quét mẫu 2.1 + 2.2 + 6.1**~~ — xong đợt 1.
+2. ~~**Sidebar cùng frame (2.5)** và **placeholder header (3.2)**~~ — xong.
+3. **Skeleton theo module trong Figma (2.7)** → Workbench slide (4.4). Còn lại:
+   skeleton vẫn là hình chung, chưa có bản theo từng module.
+4. ~~**Thao tác chậm (5)**~~ — xong cho SQL và peek. **Còn lại: Cancel cho
+   connect và index Code Graph**, và nhịp tiến độ cho export và sync.
+5. ~~**Bảng virtualize (6.3)**~~ — xong.
+6. ~~**Catalogue motion còn lại (4.4)**~~ — xong, trừ Workbench tab slide ở mục
+   3 (phụ thuộc skeleton theo module).
+7. **Glass về lớp nổi (7.1)** cùng đợt Foundations v2 — ratchet `blurSurfaces`
+   đang ở 48.
+8. ~~**Khởi động (8.1, 8.2)**~~ — đã đo và đã có chuyển cảnh; 8.2 hoá ra vốn đã
+   song song. Còn lại: `InteractionPendingList` poll 500 ms/lần suốt phiên.
+9. **Còn nợ từ đợt này**: 2.1 vẫn còn 6 chỗ `useState([])` cạnh effect trong
+   `modules/`; `scrollbar-gutter` chưa phủ transcript; 2 bảng chưa virtualize
+   (`table-node.tsx`, `AgentMessageRich.tsx`) — cả hai đều nhỏ, ratchet giữ số.
