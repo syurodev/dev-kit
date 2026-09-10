@@ -1,0 +1,496 @@
+---
+title: Technical contracts
+description: Các contract ổn định giữa UI, bridge, gateway, core services và storage.
+---
+
+# Technical contracts
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Trang này chốt các contract runtime đang hiện diện trong checkout desktop
+`dev-kit-app/`. Mục tiêu là giúp người implement biết đâu là
+biên giới ổn định, đâu là chi tiết nội bộ có thể thay đổi mà không làm vỡ UI.
+Để xem trạng thái module hiện tại và phần nào còn thiếu runtime, xem
+[Implementation status](/dev-kit/implementation-status). Ma trận control và ADR
+tương ứng nằm ở [Security controls](/dev-kit/security-controls) và
+[Architecture decisions](/dev-kit/architecture-decisions).
+
+## Boundary map
+
+Phần lớn contract public hiện tại đi theo chuỗi capability-gated built-in:
+
+`frontend/src/bridge/*` → `internal/bridge/AppService.*` →
+`AppService.call(...)` → `internal/capabilities/Gateway.Call(...)` →
+`internal/{vaultitem,notes,database,ssh,kafka,codegraph,agenthub,terminal,environments,uistate,preferences,tools,syncclient,syncconflict,…}` hoặc `internal/commands/Registry.Execute(...)` →
+`Repository` / `internal/storage` / `internal/syncstore` / endpoint bên ngoài.
+
+Hai ngoại lệ hiện có cần đọc cùng boundary này:
+
+- `AppService.ListModules()` trả registry data trực tiếp từ
+  `internal/modules.Registry` và không đi qua `AppService.call(...)` hoặc
+  capability audit.
+- DB/SSH service không dừng ở repository/storage; sau khi lookup profile,
+  `internal/database.Service` và `internal/ssh.Service` còn
+  đi tiếp tới remote database/SSH endpoint.
+
+Boundary này được thể hiện ở:
+
+- `frontend/src/bridge/client.ts`
+- `frontend/src/bridge/*.ts` (một adapter mỗi family)
+- `internal/bridge/app_service.go`
+- `internal/bridge/gateway.go`
+- `internal/capabilities/gateway.go`
+
+Ý nghĩa contract:
+
+- UI gọi typed adapter trong `frontend/src/bridge/*`, không gọi trực tiếp
+  generated binding từ feature module.
+- Bridge Go là choke point public duy nhất cho built-in module hiện tại.
+- Capability Gateway kiểm tra quyền và audit trước khi handler thật chạy.
+- **Chỉ method đã cổng hoá mới được export trên `AppService`.** Wails bind *mọi*
+  method exported của service bằng reflection, nên export là hành động công bố
+  ra frontend, không phải chuyện tầm nhìn trong Go. Entrypoint chung của gateway
+  vì thế là `AppService.call` (unexported); `internal/mcp` với tới nó qua
+  `bridge.NewCaller`, không phải qua một method trên service. Có test canh:
+  `TestBoundSurfaceCarriesNoFuncs` (`internal/bridge/bound_surface_test.go`) đỏ
+  nếu một method exported mang tham số hoặc kết quả kiểu func — dấu hiệu rõ nhất
+  của thứ lọt lên bound surface mà JSON không chở nổi.
+- Core service chỉ thấy interface như `Repository`, `Vault`, `commands.Registry`;
+  service không biết UI hoặc component render.
+- `ListModules` là bridge read-only public helper, không phải capability-gated
+  operation.
+
+## Internal module manifest contract
+
+Built-in modules đăng ký metadata qua `ModuleManifest`, không đăng ký handler
+hoặc permission grant trong manifest. Contract hiện tại gồm:
+
+| Field | Contract |
+| --- | --- |
+| `id` | Module identifier ổn định, lowercase và namespaced theo identifier rules. |
+| `title` | Tên hiển thị public của module. |
+| `version` | Semantic version của module, hiện built-in modules dùng `1.0.0`. |
+| `apiVersion` | Version của internal extension contract; version hiện tại là `1`. |
+| `commands` | Danh sách command contribution IDs. Runtime handler vẫn nằm ở command registry/service boundary. |
+| `views` | Danh sách view contribution IDs. Component mapping vẫn do frontend built-in giữ local. |
+| `capabilities` | Declaration metadata để mô tả nhu cầu của module; không tự cấp quyền. |
+
+Backend `internal/modules.Registry` validate manifest trước khi mutate state,
+reject duplicate module/command/view/capability, và trả list deterministic với
+snapshot caller-owned. Built-in descriptors hiện được đăng ký từ
+`internal/app/app.go` cho `tools`, `notes`, `database`, `ssh`, `kafka`,
+`codegraph`, `agenthub`, `sync` và `settings`.
+
+`apiVersion` là compatibility field của contract; type giữ tên
+`ModuleManifest`. Khi permission được thực thi, grants vẫn phải được cấp
+explicit trong policy/container và sensitive calls vẫn đi qua
+`AppService.call(...)` + Capability Gateway.
+
+## Module metadata bridge and frontend parity
+
+`AppService.ListModules()` expose duy nhất public metadata của manifest qua
+`ModuleDTO`: version, API version, command/view IDs và capability declarations.
+Bridge không expose handler, secret, raw grant hoặc runtime implementation
+detail. JSON bridge dùng `api_version`; typed frontend adapter map field này về
+`apiVersion`.
+
+Frontend built-in manifests giữ component mapping local và parity-check với
+metadata từ backend theo module ID, title, version, API version, commands,
+views và capabilities. Mismatch tạo safe metadata warning; backend data không
+được dùng để dynamic-load component hoặc execute arbitrary code.
+
+Workbench xử lý loading/error fallback, module không tương thích và empty state
+ở mức minimal functional UX. Module unavailable không được render view hoặc
+đưa command vào Command Palette; các module tương thích khác vẫn tiếp tục hoạt
+động.
+
+Contract này chưa mở external plugin runtime. Dynamic loading, marketplace và
+MCP runtime vẫn là các phase riêng; sync là built-in client module từ Phase 3B.
+
+## Sync foundation contract
+
+Replication client hiện nằm ở `internal/sync`, `internal/syncclient`,
+`internal/syncconflict` và `internal/syncstore`
+(`{syncoutbox,syncidentity,syncremote,syncconflicts,syncconflictresolve}.go`):
+
+- `SyncContext` bắt buộc `AccountID`, `DeviceID`, sync protocol version,
+  caller-owned operation ID và positive entity version.
+- `ReplicationEnvelope` version 2 bind account/device/protocol/operation ID,
+  entity version, key version, record identity và action `create/update/delete`
+  vào AEAD associated data. Đổi bất kỳ field nào làm decrypt fail.
+- `QueuePayload` dùng operation ID làm idempotency identity. Retry mở và
+  authenticate envelope cũ rồi constant-time compare plaintext; không persist
+  plaintext-derived digest trong `Change` hoặc SQLite.
+- `PushOperation` là DTO wire riêng chỉ chứa idempotency key, operation và
+  encrypted replication envelope. Client creation time và toàn bộ local status,
+  attempts, errors, conflict state, lease timestamps không đi qua `Transport`.
+- Outbox state gồm `pending`, `syncing`, `synced`, `failed`, `conflict`; mỗi
+  `syncing` claim có lease và stale claim được reclaim sau interruption.
+- Local identity store chỉ tạo stable device ID. `AccountID` phải lấy từ
+  authenticated backend session; request-body account/device values không tự
+  tạo authorization.
+- `/v1/sync/session` tạo `AuthSession` từ account/device/expiry do server trả;
+  bearer private, runtime-only và bị loại khi expiry hoặc HTTP `401/403`.
+- `internal/auth` là token source cho production sync: Authorization Code + PKCE
+  S256 mở browser, callback chỉ ở `127.0.0.1`, và refresh token quay vòng trong
+  OS keychain. `syncclient.ConnectWithTokenSource` lấy access token mới trước
+  request; frontend/bridge không nhận hoặc trả bearer/refresh token.
+- `HTTPTransport` chỉ cho HTTPS hoặc explicit loopback HTTP, reject redirect và
+  bound request/response, batch, ciphertext trước khi allocate/decode.
+- Pull decrypt snapshot bằng local vault, validate outer/inner identity và
+  schema theo record type, rồi `SQLRemoteStore` apply mutation + cursor trong
+  cùng transaction. Account binding, monotonic entity version, tombstone và
+  append-only operation journal đều fail closed.
+- Production local writes dùng `SQLMutationRepository`: item row, account-neutral
+  local entity version và durable intent commit trong cùng SQLite transaction.
+  Trước connect không tạo account ID hoặc wire payload.
+- `SyncNow` đọc intent theo autoincrement sequence, mã hóa snapshot/tombstone
+  bằng authenticated account/device context, enqueue idempotently rồi atomically
+  bind entity head và xóa intent. Crash giữa enqueue/commit được retry an toàn.
+- `Connect` chỉ handshake và kiểm tra mismatch với account claim đã tồn tại;
+  account đầu tiên chỉ được claim khi user bấm `SyncNow`. Snapshot có shared
+  conservative size cap và outbox giữ causal order theo entity version.
+- Push ACK ghi applied-operation journal và chỉ đổi `sync_state=synced` nếu ACK
+  vẫn là local head, không có mutation/outbox mới hơn. Pending tombstone hoặc
+  intent mới chặn remote resurrection/apply fail-open.
+
+Migration m7 tạo `sync_outbox` và `sync_cursors`; m8 thêm sync context, lease và
+local device identity; m9 thêm account binding, remote entity-version ledger và
+applied-operation journal; m10 thêm account-neutral local entity ledger + durable
+mutation intents; m11 thêm `sync_conflicts` để giữ bản "theirs" khi resolve
+Git-style; m15 rebuild `sync_conflicts` cho nullable `theirs_snapshot`
+(delete-theirs) + index outbox lineage. M10/m11/m15 không backfill dữ liệu cũ;
+app hiện greenfield.
+
+Conflict resolve contract (client):
+
+- `SyncConflicts` đọc từ `sync_conflicts` (cùng nguồn với Detail/Resolve — mọi entry
+  trong list đều resolvable); trả metadata non-secret gồm `remote_operation`,
+  `remote_entity_version`, `theirs_deleted`. `SyncConflictDetail` decrypt on-demand
+  note text cho merge UI và trả cờ `ours_deleted` / `theirs_deleted` cho các bên là
+  tombstone; `SyncResolveConflict` nhận strategy
+  `use-ours` | `use-theirs` | `merge` (+ merged text cho notes).
+- Delete-theirs: `sync_conflicts.theirs_snapshot` nullable (m15) — một delete op
+  được capture không có record body; resolve `use-theirs` áp tombstone local,
+  `use-ours` re-materialize (update hoặc delete) tại `remote_head + 1`.
+- Orchestration ở `internal/syncconflict`; persistence ở `internal/syncstore`;
+  `bridge` không import `storage`/`syncstore`/`sync` trực tiếp.
+- Không có auto-winner. Secret types chỉ ours/theirs.
+
+## Bridge contract
+
+<Callout type="info" title="Family + pattern, không phải danh sách method">
+Trang này **không** liệt kê từng bridge method — danh sách đó drift ngay khi thêm
+module. Cái ổn định (và là contract thật) là: family nào tồn tại, family đó dùng
+subject/capability/scope pattern gì, và evidence file ở đâu. Danh sách method đầy
+đủ luôn nằm ở trang module tương ứng và ở chính file `internal/bridge/*.go`.
+</Callout>
+
+| Family | Subject / capability | Scope pattern | Evidence | Method list |
+| --- | --- | --- | --- | --- |
+| Vault | `builtin.vault` / `vault:manage` | `vault` | `internal/bridge/vault.go` | [Vault](/dev-kit/vault) |
+| Search | `builtin.search` / `vault:search` | `item:search` | `internal/bridge/search.go` | [Vault](/dev-kit/vault) |
+| Notes | `builtin.notes` / `notes:read`, `notes:write` | `note:list`, `note:search`, `note:new`, `note:<id>`, `note-folder:list`, `note-folder:new`, `note-folder:<id>` | `internal/bridge/notes.go` | [Notes](/dev-kit/notes) |
+| Database | `builtin.database` / `db:query` | `profile:list`, `profile:new`, `profile:active`, `profile:<id>` | `internal/bridge/{database,database_active}.go` | [Database](/dev-kit/database) |
+| SSH | `builtin.ssh` / `ssh:connect` | `profile:list`, `profile:new`, `profile:active`, `profile:<id>` | `internal/bridge/{ssh,ssh_active}.go` | [SSH](/dev-kit/ssh) |
+| SSH forwarding | `builtin.ssh` / `ssh:forward` | `profile:<id>`, `forward:list`, `forward:<id>` | `internal/bridge/ssh.go`, `internal/ssh/forwarding.go` | [SSH](/dev-kit/ssh) |
+| Kafka | `builtin.kafka` / `kafka:connect`, `kafka:produce` | `profile:list`, `profile:new`, `profile:<id>`, `connection` | `internal/bridge/kafka.go`, `internal/kafka` | [Kafka UI](/dev-kit/kafka) |
+| CodeGraph | `builtin.codegraph` / `codegraph:index`, `codegraph:read`, `codegraph:fs`, `codegraph:terminal`, `codegraph:plan` | `project:new`, `project:active`, `file:<relative-path>`, `plan:active` | `internal/bridge/{codegraph,plan}.go`, `internal/codegraph` | [Code Graph](/dev-kit/codegraph) |
+| Terminal I/O | `builtin.codegraph` / `terminal:io` | `session:<id>` | `internal/bridge/terminal.go`, `internal/terminal` | [Terminal](/dev-kit/terminal) |
+| Agent Hub | `builtin.agenthub` / `agenthub:read`, `agenthub:execute` | `session:list`, `session:new`, `session:<id>`, `vendor:list`, `permission:complete` | `internal/bridge/agenthub.go`, `internal/agenthub`, `internal/acp` | [Agent Hub](/dev-kit/agent-hub) |
+| Tools | `builtin.tools` / `tools:hash` | `command:<command-id>` | `internal/bridge/app_service.go`, `internal/commands/registry.go` | [Tools](/dev-kit/tools) |
+| Sync | `builtin.sync` / `sync:manage` | `sync:status`, `sync:login`, `sync:logout`, `sync:connect`, `sync:run`, `sync:disconnect`, `sync:devices`, `sync:conflicts`, `sync:resolve` | `internal/bridge/{sync,syncresolve}.go`, `internal/{auth,syncclient,syncconflict}` | [Data sync](/dev-kit/data-sync) |
+| Environments | `builtin.environments` / `env:read`, `env:write` | `tag:list`, `tag:new`, `tag:<id>` | `internal/bridge/environments.go`, `internal/environments` | [Environments](/dev-kit/environments) |
+| MCP install | `builtin.mcpinstall` / `mcp:install` | `agent:list`, `agent:claude-code`, `agent:codex` | `internal/bridge/mcp_install.go`, `internal/mcp/install` | [MCP / Agent](/dev-kit/mcp-agent) |
+| Interaction | `builtin.interaction` / `interaction:respond` | `pending`, `pending:complete` | `internal/bridge/interaction.go`, `internal/interaction` | [MCP / Agent](/dev-kit/mcp-agent) |
+| UI state | `builtin.uistate` / `ui:read`, `ui:write` | `key:<state-key>` | `internal/bridge/uistate.go`, `internal/uistate` | [UI state](/dev-kit/ui-state) |
+| Preferences | `builtin.settings` / `preferences:read`, `preferences:write` | `theme` | `internal/bridge/preferences.go`, `internal/preferences` | — |
+| Modules | no capability gate; registry read-through only | — | `internal/bridge/app_service.go`, `internal/modules/registry.go` | — |
+
+Cột "MCP tool" cũ đã bỏ khỏi bảng này vì cùng lý do — surface MCP theo module
+nằm ở [MCP / Agent](/dev-kit/mcp-agent), một chỗ duy nhất.
+
+Hai quy tắc bridge quan trọng:
+
+- ID record và command được làm mờ thành scope opaque qua `recordID()` và
+  `commandID()` trong `internal/bridge/gateway.go`; ID không hợp lệ bị hạ về
+  giá trị `"invalid"` thay vì đưa raw input vào audit/policy path.
+- Typed adapter ở frontend map DTO snake_case sang shape UI riêng
+  (`frontend/src/bridge/*.ts`), vì vậy UI contract ổn định là adapter function,
+  không phải generated binding thô.
+
+## Capability contract
+
+Capability Gateway nhận một `CallRequest` gồm `SubjectID`, `Capability`,
+`Scope`, `Metadata`, `Handler` rồi:
+
+1. kiểm tra policy qua `internal/permissions/policy.go`,
+2. redact metadata qua `internal/audit/redact.go`,
+3. ghi audit event,
+4. chỉ gọi handler nếu grant hợp lệ.
+
+Built-in subjects đang được container cấp sẵn trong
+`internal/app/container.go`:
+
+- `builtin.tools`
+- `builtin.notes`
+- `builtin.database`
+- `builtin.ssh`
+- `builtin.kafka`
+- `builtin.codegraph`
+- `builtin.agenthub`
+- `builtin.vault`
+- `builtin.search`
+- `builtin.sync`
+- `builtin.environments`
+- `builtin.mcpinstall`
+- `builtin.interaction`
+- `builtin.uistate`
+- `builtin.settings`
+
+Capability names public hiện tại:
+
+- `tools:hash`
+- `notes:read`
+- `notes:write`
+- `db:query`
+- `ssh:connect`
+- `ssh:forward`
+- `kafka:connect`
+- `kafka:produce`
+- `codegraph:index`
+- `codegraph:read`
+- `codegraph:fs`
+- `codegraph:terminal`
+- `codegraph:plan`
+- `terminal:io`
+- `agenthub:read`
+- `agenthub:execute`
+- `vault:manage`
+- `vault:search`
+- `sync:manage`
+- `env:read`
+- `env:write`
+- `mcp:install`
+- `interaction:respond`
+- `ui:read`
+- `ui:write`
+- `preferences:read`
+- `preferences:write`
+
+Scope families hiện tại:
+
+- `command:<command-id>`
+- `note:list`, `note:search`, `note:new`, `note:<record-id>`
+- `note-folder:list`, `note-folder:new`, `note-folder:<record-id>`
+- `profile:list`, `profile:new`, `profile:active`, `profile:<record-id>`
+- `forward:list`, `forward:<forward-id>`
+- `connection`
+- `project:new`, `project:active`, `file:<relative-path>`, `plan:active`
+- `session:list`, `session:new`, `session:<id>`
+- `vendor:list`, `permission:complete`
+- `vault`
+- `item:search`
+- `tag:list`, `tag:new`, `tag:<record-id>`
+- `agent:list`, `agent:claude-code`, `agent:codex`
+- `pending`, `pending:complete`
+- `key:<state-key>`
+- `theme`
+- `sync:status`, `sync:login`, `sync:logout`, `sync:connect`, `sync:run`,
+  `sync:disconnect`, `sync:devices`, `sync:conflicts`, `sync:resolve`
+
+Generic command scope construction is broader than the runtime surface today:
+
+- bridge formats `command:<opaque-id>` for command execution in general;
+- the current container registers only one executable command, `tools.hash`;
+- the only live grant for that surface is `builtin.tools` / `tools:hash` /
+  `command:tools.hash` in `internal/app/container.go`.
+
+Rule matching trong `internal/permissions/policy.go` hỗ trợ ba dạng:
+
+- exact scope, ví dụ `vault`
+- prefix-bounded wildcard, ví dụ `note:*` hoặc `profile:*`
+- global `*`
+
+Trong container hiện tại, built-in grants dùng exact hoặc prefix scope; đây là
+pattern nên giữ cho caller ngoài dự đoán được behavior mà không phụ thuộc vào
+chi tiết service nội bộ.
+
+## Error contract
+
+Public error qua bridge hiện được chuẩn hóa về `internal/apperrors.AppError`
+với ba field ổn định:
+
+- `code`
+- `message`
+- `recoverable`
+
+Evidence: `internal/apperrors/errors.go`, `internal/bridge/errors.go`,
+`frontend/src/bridge/errors.ts`.
+
+Bridge chỉ publish nhóm code nhỏ sau:
+
+- `validation_failed`
+- `vault_locked`
+- `permission_denied`
+- `connection_failed`
+- `operation_cancelled`
+- `internal_error`
+
+Behavior công khai:
+
+- `context.Canceled` và `context.DeadlineExceeded` được ưu tiên map thành
+  `operation_cancelled`.
+- `vault.ErrLocked` được ưu tiên map thành `vault_locked`, kể cả khi bị wrap.
+- Database và SSH fallback về `connection_failed` thay vì lộ driver/network
+  detail.
+- Safe validation message chỉ đi qua allowlist trong
+  `safeValidationMessages`; các message khác không được coi là public contract.
+- `NewWithDetails(...)` vẫn tồn tại cho source compatibility nhưng chi tiết
+  bổ sung không thuộc public contract và không nên phụ thuộc vào nó.
+
+Boundary redaction:
+
+- Capability Gateway và audit sink đều đi qua `audit.RedactMap(...)`.
+- Key có dạng như `password`, `passwd`, `pwd`, `passphrase`, `private_key`, `secret`, `token`,
+  `recovery`, `encryptionKey`, `credential`, `authorization`, `cookie` sẽ bị thay bằng `[REDACTED]`.
+- Transport/error-envelope redaction không cho raw URL, DSN, SQL text lỗi, raw
+  driver error, hay command stderr đi qua như một public error body. Riêng
+  `SSHRunCommand` vẫn trả `CombinedOutput` trong `CommandResult.Output` như
+  payload command rõ ràng, kể cả khi process exit non-zero.
+
+## Persistence contract
+
+Persistence runtime hiện chia làm ba lớp:
+
+1. Shared item store `internal/vaultitem` — một `Repository` (memory +
+   SQLite) và một `Store` lo storage/crypto/search cho mọi item type.
+2. SQLite kernel + migration runner trong `internal/storage` (owns table-name
+   constants, `schema_migrations`, open/KV).
+3. Sync persistence adapters trong `internal/syncstore` (outbox, cursors,
+   remote apply, identity, local mutations, conflict capture/resolve) — không
+   được import ngược từ `bridge`.
+
+Boundary ổn định:
+
+- Notes/Database/SSH/Kafka service chỉ phụ thuộc một local `Store` interface (được
+  `*vaultitem.Store` thỏa mãn); không còn repository riêng mỗi module.
+- `vaultitem.Record` là shape at-rest chung: `id`, `type`, `metadata` (plaintext
+  JSON), `payload` (envelope mã hóa, nil nếu type không có secret), `created_at`,
+  `updated_at`, `key_version`, `sync_state`.
+- Table hiện tại được chốt trong `internal/storage/sqlite.go`:
+  `vault_keyring` và `vault_items` (id TEXT PRIMARY KEY, type TEXT, data TEXT).
+  Ba bảng cũ `notes`/`connection_profiles`/`ssh_profiles` đã bị drop (migration
+  m6) và thay bằng `vault_items`. Các bảng ngoài `vault_items` — không phải
+  secret, không cần vault unlocked để đọc/quản lý:
+  - m12 `env_tags` (id, name UNIQUE, requires_confirmation, is_builtin, locked);
+    xem [Environments](/dev-kit/environments)
+  - m13 agent hub sessions + turns; xem [Agent Hub](/dev-kit/agent-hub)
+  - m14 app preferences (theme)
+  - m16 `ui_state`; xem [UI state](/dev-kit/ui-state)
+
+  Index của CodeGraph nằm ở SQLite **riêng**, không qua migration runner của
+  `internal/storage` — xem [Code Graph](/dev-kit/codegraph).
+- `storage.Migrate(...)` chạy migration forward-only, idempotent, có version,
+  bằng `schema_migrations` trong `internal/storage/{sqlite,migrations}.go`
+  (m5 tạo `vault_items`, m6 drop bảng cũ). Head hiện tại là **m16**.
+
+Phân ranh dữ liệu nhạy cảm và metadata (mỗi type map field vào `metadata`
+plaintext và `payload` mã hóa của `vault_items`):
+
+- Notes (`type = "note"`): `Body` được mã hóa trong payload, `Title` là plaintext
+  metadata (`internal/notes/notes.go`).
+- Database profiles (`type = "db-profile"`): chỉ `Password` mã hóa; `Host`, `Port`,
+  `Database`, `Username`, `SSLMode`, `env` là metadata không nhạy cảm
+  (`internal/database/database.go`). `env` bắt buộc lúc create và phải tồn tại
+  trong [Environments](/dev-kit/environments) registry.
+- SSH profiles (`type = "ssh-profile"`): chỉ `Secret` mã hóa; `Host`, `Port`,
+  `Username`, `AuthMethod`, `HostKeyFingerprint`, `env` là metadata không nhạy cảm
+  (`internal/ssh/ssh.go`). Cùng rule validate `env` như Database.
+- Kafka profiles (`type = "kafka-profile"`): SASL password hoặc SSL client key
+  mã hóa trong payload; `name`, `bootstrap_servers`, `security_protocol`,
+  `sasl_mechanism`, `username`, `env` là metadata không nhạy cảm
+  (`internal/kafka/kafka.go`). `env` bắt buộc lúc create và phải tồn tại trong
+  [Environments](/dev-kit/environments) registry.
+- Vault keyring vẫn được lưu như một row riêng qua `internal/vault/sqlkeyringstore.go`.
+
+Storage file boundary:
+
+- SQLite được mở với `journal_mode=DELETE`, `foreign_keys=ON`,
+  `busy_timeout=5000` và file permission `0600`
+  (`internal/storage/sqlite.go`).
+- Contract này nói về application-layer encryption + restricted file mode,
+  không đồng nghĩa full-disk encryption.
+
+## Encryption envelope contract
+
+Envelope format public cho dữ liệu mã hóa nằm ở:
+
+- `internal/crypto/envelope.go`
+- `internal/crypto/aead.go`
+
+Contract hiện tại:
+
+- Version hợp lệ: chỉ `2`.
+- Algorithm hợp lệ ở runtime hiện tại: `xchacha20-poly1305`.
+- Envelope field ổn định: `version`, `algorithm`, `key_id`, `nonce`,
+  `ciphertext`.
+
+V2-only:
+
+- Không còn public API tạo hoặc giải mã envelope V1.
+- `OpenWithAD(...)` chỉ nhận V2 và yêu cầu associated data khớp.
+- Envelope V1 bị từ chối với lỗi unsupported version; không có migrate tool.
+- V2 ràng buộc AAD theo bộ ba `record_type`, `record_id`, `key_id`.
+- Canonical AAD được ghép bằng:
+  `record_type + NUL + record_id + NUL + key_id`
+  trong `internal/crypto/aead.go`.
+
+Binding hiện đang được service dùng:
+
+- Notes: `record_type = "note"`, `key_id = "note-body"`
+- Database profile: `record_type = "db-profile"`, `key_id = "db-password"`
+- SSH profile: `record_type = "ssh-profile"`, `key_id = "ssh-secret"`
+- Kafka profile: `record_type = "kafka-profile"`, `key_id = "kafka-secret"`
+
+`record_type` giờ chính là `vault_items.type`, và `record_id` là item id; AAD
+được `vaultitem.Store` ghép trong cả seal (`Create`) lẫn open (`OpenPayload`) nên
+ràng buộc chống swap không đổi.
+
+New secret writes đều đi qua `vaultitem.Store.Create(...)` (gọi `SealV2` bên
+trong) từ:
+
+- `internal/notes/notes.go`
+- `internal/database/database.go`
+- `internal/ssh/ssh.go`
+- `internal/kafka/kafka.go`
+
+Điều này có nghĩa:
+
+- Record mới ghi từ runtime hiện tại đi theo V2.
+- Record V1 cũ không còn được hỗ trợ đọc vì DevKit là greenfield và chưa có dữ
+  liệu V1 production cần bảo toàn.
+
+## Compatibility rules
+
+Những thay đổi sau được xem là backward-compatible với caller hiện tại:
+
+- thêm bridge method mới mà không đổi chữ ký method cũ;
+- thêm built-in subject/capability/scope mới mà không đổi grant cũ;
+- thêm metadata audit mới nếu vẫn redact theo rule hiện tại;
+- thêm migration forward-only mới với version mới;
+- tiếp tục ghi V2 và giữ `OpenWithAD(...)` bắt buộc AAD matching.
+
+Những thay đổi sau cần migration hoặc quyết định kiến trúc rõ ràng trước khi
+coi là hợp lệ:
+
+- đổi tên subject, capability, scope family, hoặc opaque ID rule;
+- thay shape public error vượt quá `code/message/recoverable`;
+- làm safe validation message phụ thuộc vào raw error nội bộ;
+- đổi table name, blob shape, hoặc semantics của `schema_migrations`;
+- chuyển plaintext metadata hiện tại (ví dụ note title, DB/SSH profile
+  metadata) sang encrypted-at-rest mà không có kế hoạch reindex/migration;
+- thêm algorithm mới rồi dùng nó làm default mà không có rule compatibility cho
+  reader cũ;
+- cho UI hoặc module gọi thẳng service/repository mà bỏ qua `AppService.call`
+  và Capability Gateway.

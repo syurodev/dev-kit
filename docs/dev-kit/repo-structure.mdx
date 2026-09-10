@@ -1,0 +1,78 @@
+---
+title: Repo structure
+description: Layout repository và quy ước code chính của DevKit.
+---
+
+# Repo structure
+
+Repo tách rõ frontend, Go core, và docs. Thay đổi đi kèm review gates phù hợp vùng chạm tới.
+Layout dưới đây phản ánh checkout DevKit hiện tại (sau khi flatten `internal/services/*`
+và tách sync persistence / conflict orchestration). Chi tiết quy ước tổ chức Go nằm ở
+`README.md` trong repo `dev-kit`.
+
+## Current layout
+
+```text
+main.go              Wails entry point + dependency wiring
+cmd/
+  mocksyncserver/    In-memory zero-knowledge mock sync server (dev + E2E)
+internal/
+  app/               Composition root: DI container, registries, permission grants
+  bridge/            Wails boundary: DTOs, capability-gated calls, error redaction
+  capabilities/      Capability gateway — authorizes privileged calls + audit
+  auth/              OIDC PKCE browser flow + OS-keychain refresh-token rotation
+  permissions/       Permission policy + request model
+  audit/             Audit event sink + field redaction
+  commands/          Command registry
+  modules/           Module manifest registry
+  crypto/            AEAD, Argon2id KDF, versioned envelope
+  vault/             Master-password keyring + in-memory DEK
+  vaultitem/         Vault-item substrate (Record + Repository + seal/open)
+  environments/      Env tag registry (dev/stg/prod + custom) + Repository (memory/SQL); Settings UI consumer
+  notes/             Notes module
+  database/          Database-connection module (pgx); requires env tag on create
+  ssh/               SSH module (profiles, host keys, port forwarding); requires env tag
+  kafka/             Kafka module (profiles, connect, topics, peek, groups, publish); requires env tag
+  tools/             Hashing tools module
+  syncclient/        Sync application service (connect / syncnow / conflicts)
+  syncconflict/      Conflict-resolution application service
+  sync/              Replication protocol (contract, envelope, transport, runner)
+  storage/           SQLite kernel: open / KV / migrations / schema (owns table names)
+  syncstore/         Sync persistence: outbox, cursors, remote apply, conflicts, identity
+  arch/              Architecture-enforcement tests (no runtime code)
+  servermode/        Loopback-only bind guard for server mode
+  apperrors/         Structured, redactable application errors
+frontend/            React + TypeScript + Vite UI
+docs/                Design specs and plans
+build/               Wails/platform build configuration
+```
+
+## Layering rules (summary)
+
+- Higher layers may import lower ones; never the reverse.
+  Example: `bridge` → `syncclient` / `syncconflict` is OK;
+  `bridge` must not import `storage` / `syncstore` / `sync` / `crypto` directly.
+- Domain modules (`notes`, `database`, `ssh`, …) sit beside each other under
+  `internal/` — không còn thư mục `internal/services/`.
+- Table-name constants sống ở `internal/storage`; `syncstore` chỉ alias.
+- Enforced by `go test ./internal/arch/` (`TestLayering`, `TestNoImportCycles`).
+
+## Review gates
+
+- Đụng vault/crypto → bắt buộc security review checklist.
+- Đụng Extension API → kiểm tra capability + backward compatibility.
+- Đụng sync protocol/schema → có migration plan; conflict resolve phải giữ
+  fail-closed (không auto-winner).
+- Đụng React module/shell, list/table/graph hoặc realtime stream → áp
+  [Frontend performance architecture](/dev-kit/frontend-performance): lazy
+  boundary, bounded bridge response, state/lifecycle ownership, fixture profile
+  và startup/render budget phù hợp.
+
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+<Cards>
+  <Card title="Core foundation" href="/dev-kit/core-foundation" />
+  <Card title="Technical contracts" href="/dev-kit/technical-contracts" />
+  <Card title="Implementation status" href="/dev-kit/implementation-status" />
+  <Card title="Open questions" href="/dev-kit/open-questions" />
+</Cards>

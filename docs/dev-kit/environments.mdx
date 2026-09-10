@@ -1,0 +1,155 @@
+---
+title: Environments
+description: Env tag registry (dev/stg/prod + custom) cho SSH/Database/Kafka profiles và MCP confirmation policy.
+---
+
+# Environments
+
+Environments là registry dùng chung cho **env tag** (`dev`, `stg`, `prod`, và
+tag tùy chỉnh). SSH, Database, và Kafka **bắt buộc** gán một tag hợp lệ khi tạo
+profile (validate qua `EnvLookup.Exists`). Mỗi tag mang flag
+`requiresConfirmation` — MCP confirmation gate đọc flag này lúc gọi tool
+(env thắng `allow_always`).
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+<Callout type="info" title="Implemented — registry, Settings, DeleteTag-in-use, MCP gate">
+Runtime có `internal/environments`, bảng `env_tags` (migration m12), bridge
+`Env*`, Settings UI, và `DeleteTag` chặn tag còn profile tham chiếu
+(`ProfileEnvUsage`). SSH/Database/Kafka reject create nếu thiếu/`unknown` env.
+MCP confirmation gate đọc `requiresConfirmation` (env thắng `allow_always`) —
+xem [`/dev-kit/mcp-agent`](/dev-kit/mcp-agent).
+</Callout>
+
+```mermaid
+flowchart TD
+  SETTINGS[Settings UI] --> BR[frontend/src/bridge/environments.ts]
+  BR --> AS[bridge.AppService Env*]
+  AS -->|builtin.environments| GW[Capability Gateway]
+  GW --> SVC[internal/environments.Service]
+  SVC --> DB[(env_tags)]
+
+  SSH[internal/ssh] -->|EnvLookup.Exists at create| SVC
+  DBMOD[internal/database] -->|EnvLookup.Exists at create| SVC
+  KAFKA[internal/kafka] -->|EnvLookup.Exists at create| SVC
+  MCP[MCP confirmation gate] -->|RequiresConfirmation| SVC
+```
+
+## Data model
+
+`env_tags` là bảng riêng trong `internal/storage` (**không** phải vaultitem) —
+không cần vault unlocked để list/quản lý.
+
+| Field | Value |
+|---|---|
+| `id` | 24 lowercase hex (`vaultitem.NewID`) |
+| `name` | Unique (vd `dev`, `stg`, `prod`, hoặc custom) |
+| `requires_confirmation` | `bool` — MCP confirmation policy |
+| `is_builtin` | `true` cho `dev`/`stg`/`prod` |
+| `locked` | `true` chỉ `prod` — không `UpdateTag` / không xóa |
+
+Packages: `internal/environments/{environments,memory,sqlrepository}.go`,
+`internal/app/envusage.go`, `internal/bridge/environments.go`,
+`frontend/src/modules/settings/SettingsView.tsx`,
+`frontend/src/bridge/environments.ts`.
+
+## Default tags (seed m12)
+
+| Tag | `requiresConfirmation` | Sửa được? |
+|---|---|---|
+| `dev` | `false` | Có (`UpdateTag`) |
+| `stg` | `false` | Có |
+| `prod` | `true` | **Không** — `locked`; service trả `ErrTagLocked` |
+
+Builtin không xóa được (`DeleteTag` reject `IsBuiltin` / `Locked`).
+
+## Tag tùy chỉnh
+
+`CreateTag(name, requiresConfirmation)` → `isBuiltin=false`, `locked=false`.
+Trùng tên (builtin hoặc custom) → `ErrTagExists`.
+
+**Delete in-use (Implemented):** `DeleteTag` tra `ProfileEnvUsage` (composition
+root quét `ssh-profile` / `db-profile` / `kafka-profile` metadata.env). Tag còn
+được profile tham chiếu → `ErrTagInUse` (`environment tag is in use`); bridge map
+`validation_failed`. Đổi profile sang tag khác rồi mới xóa được.
+
+SSH/DB/Kafka validate `Exists` lúc **create**. MCP confirmation gate
+fail-closed nếu tên env trên profile không resolve được
+(`requiresConfirmation = true`) — phòng dữ liệu hỏng / race, không thay cho
+guard delete.
+
+## Bridge & capability (Implemented)
+
+| Method | Capability | Scope | Status |
+|---|---|---|---|
+| `EnvListTags` | `env:read` | `tag:list` | Implemented |
+| `EnvCreateTag` | `env:write` | `tag:new` | Implemented |
+| `EnvUpdateTag` | `env:write` | `tag:<id>` | Implemented |
+| `EnvDeleteTag` | `env:write` | `tag:<id>` | Implemented |
+
+Evidence: `internal/environments/{environments,memory,sqlrepository}.go`,
+`internal/app/envusage.go`, `internal/bridge/environments.go`; tests:
+`internal/environments/*_test.go`, `internal/bridge/environments_test.go`,
+`internal/app/envusage_test.go`. Frontend module `settings` gọi đủ
+list/create/update/delete; form SSH/Database/Kafka dùng
+`frontend/src/bridge/environments.ts`.
+
+Subject `builtin.environments`. Grants ở `internal/app/container.go`.
+`UpdateTag`/`DeleteTag` trên `prod` (locked) luôn reject ở service layer
+(`ErrTagLocked`). Builtin không xóa được dù không `locked`.
+
+## Cách SSH/Database/Kafka dùng tag (Implemented)
+
+Profile lưu **tên tag** string trong metadata (`env`), không copy
+`requiresConfirmation`. Create path (SSH/Database/Kafka):
+
+`CreateProfile` reject nếu `Env` rỗng hoặc không có trong registry
+(`envs.Exists`).
+
+`EnvLookup` khai báo riêng ở từng module (không import `internal/environments`);
+`*environments.Service` thỏa interface khi wiring ở `internal/app/container.go`.
+MCP confirmation gate đọc `requiresConfirmation` lúc gọi; unresolvable env →
+fail closed (`true`).
+
+UI: dropdown env trên `SSHView` / `DatabaseView` / `KafkaView` (load qua
+`EnvListTags`).
+
+## MCP tool surface
+
+Xem [MCP / Agent](/dev-kit/mcp-agent).
+
+| MCP tool | Effect | Map sang | Ghi chú |
+|---|---|---|---|
+| `env.listTags` | `read` | `builtin.environments` / `env:read` / `tag:list` | Agent đọc policy |
+
+**Không expose** create/update/delete qua MCP — quản lý tag là human-only.
+
+Confirmation gate: service tra `requiresConfirmation` **lúc gọi**; đổi flag
+tag áp ngay cho mọi profile mang tag đó. Unresolvable env name → fail closed
+(`true`).
+
+## Rules
+
+- `prod` luôn `requiresConfirmation = true` ở seed + locked — không tắt được
+  qua UI/bridge.
+- Đổi flag tag không-locked đi qua `AppService.call` + gateway (có audit).
+- Prompt confirmation MCP: có `allow_always` khi tag **không** `requiresConfirmation`;
+  khi tag bật (gồm `prod`) **env luôn thắng** — xem [MCP / Agent](/dev-kit/mcp-agent).
+  Policy flag thuộc registry này; dialog/cache thuộc MCP runtime.
+
+## Non-goals (v1)
+
+- RBAC riêng cho ai được sửa tag
+- Tag hierarchy/inheritance
+- Per-profile override `requiresConfirmation`
+
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+<Cards>
+  <Card title="SSH" href="/dev-kit/ssh" description="env bắt buộc trên ssh-profile" />
+  <Card title="Database" href="/dev-kit/database" description="env bắt buộc trên db-profile" />
+  <Card title="Kafka" href="/dev-kit/kafka" description="env bắt buộc trên kafka-profile" />
+  <Card title="MCP / Agent" href="/dev-kit/mcp-agent" description="Confirmation gate — Implemented" />
+  <Card title="Implementation status" href="/dev-kit/implementation-status" />
+  <Card title="Technical contracts" href="/dev-kit/technical-contracts" />
+</Cards>

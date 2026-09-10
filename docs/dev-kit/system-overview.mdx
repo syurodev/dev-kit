@@ -1,0 +1,49 @@
+---
+title: System overview
+description: Nhìn tổng thể shell, modules, vault và sync của DevKit.
+---
+
+# System overview
+
+DevKit tách UI shell, built-in modules, vault với mã hóa application-layer, và sync tùy chọn (target kiến trúc). Mọi truy cập nhạy cảm đi qua biên giới rõ ràng.
+
+```mermaid
+flowchart LR
+  UI[Desktop UI Shell] --> REG[Command Registry]
+  UI --> MOD[Built-in Modules]
+  MOD --> EXT[Extension API target]
+  EXT --> GW[Capability Gateway]
+  GW --> CORE[Go Core Services]
+  CORE --> VAULT[(Vault: encrypted fields)]
+  CORE --> SYNC[Sync client]
+  SYNC -->|Keycloak token + encrypted blobs| EDGE[Gateway MVC]
+  EDGE --> CLOUD[(Sync API + PostgreSQL)]
+```
+
+## Layers
+
+1. **UI Shell** — điều hướng, command palette, theme, cửa sổ.
+2. **Built-in modules** — vault, notes, SSH, tools (Database là sibling module riêng); plugins host là target future.
+3. **Capability Gateway** — choke point cho built-in calls hiện tại; Extension API cho plugin/MCP là target.
+4. **Go core services** — crypto, storage, SSH adapter (và Database sibling); sync client partial — xem [Data & sync](/dev-kit/data-sync).
+5. **Local vault** — record fields nhạy cảm mã hóa ở application layer trên SQLite local.
+6. **Optional sync** — client mã hóa blob trước upload/download; Gateway xác
+   thực Keycloak token và API chỉ lưu opaque envelope cùng routing metadata.
+
+## Key boundaries
+
+- UI/plugin **không** đọc DEK/Master Password trực tiếp.
+- Sync server **không** cần plaintext notes/secrets; backend contract lưu opaque
+  envelope và arbitration metadata.
+- Hook chỉ notify; hành động nhạy cảm phải qua Capability Gateway (built-in hiện tại) hoặc Extension API (target cho plugin/MCP).
+
+Chi tiết runtime và evidence theo checkout hiện tại: [Implementation status](/dev-kit/implementation-status).
+
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+<Cards>
+  <Card title="Shell primitives" href="/dev-kit/shell-primitives" description="Title bar, dock, moduleActions + SplitPanel" />
+  <Card title="Runtime & process" href="/dev-kit/runtime" />
+  <Card title="Data & sync" href="/dev-kit/data-sync" />
+  <Card title="Security model" href="/dev-kit/security" />
+</Cards>

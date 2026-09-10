@@ -1,0 +1,30 @@
+---
+title: Overview
+description: DevKit là workspace desktop local-first cho developer.
+---
+
+# Overview
+
+DevKit là ứng dụng desktop đa nền tảng giúp developer làm việc offline-first: utilities hàng ngày, knowledge được mã hóa, quản lý kết nối an toàn, và nền tảng plugin mở rộng.
+
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+<Cards>
+  <Card title="Vision & principles" href="/dev-kit/vision" description="Local-first, zero-knowledge, least privilege" />
+  <Card title="System overview" href="/dev-kit/system-overview" description="Shell, modules, vault, sync" />
+  <Card title="MCP / Agent" href="/dev-kit/mcp-agent" description="AI agent truy cập có kiểm soát" />
+  <Card title="Security model" href="/dev-kit/security" description="Threat model và encryption" />
+  <Card title="Implementation status" href="/dev-kit/implementation-status" description="Evidence paths và known gaps theo checkout" />
+</Cards>
+
+## Why it exists
+
+- Giữ secrets (SSH, DB, token, notes) trên máy, không phụ thuộc cloud để dùng hàng ngày.
+- Sync chỉ là lớp tùy chọn, server không cần plaintext.
+- Plugin/AI đi qua Extension API + Capability Gateway, không gọi thẳng internal services.
+
+## Out of MVP scope
+
+- Public plugin marketplace
+- Team vault / realtime collaboration
+- Load plugin bên thứ ba chưa được tin cậy

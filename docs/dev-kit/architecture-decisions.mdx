@@ -1,0 +1,598 @@
+---
+title: Architecture decisions
+description: ADR ghi nhận các quyết định kiến trúc đã chấp nhận của DevKit.
+---
+
+# Architecture decisions
+
+Trang này ghi các Architecture Decision Record (ADR) phản ánh runtime và design
+docs hiện có trong checkout desktop `dev-kit-app/`. Mỗi
+record có `Decision`, `Context`, `Alternatives considered`, `Consequences` và
+`Status`. Control implementation evidence nằm ở
+[Security controls](/dev-kit/security-controls); boundary contract ở
+[Technical contracts](/dev-kit/technical-contracts).
+
+## ADR-001: Wails + React + Go core boundaries
+
+**Status:** Accepted
+
+**Decision:** DevKit dùng Wails v3 làm desktop shell, React/TypeScript cho UI,
+và Go cho core services. UI chỉ gọi typed adapter trong `frontend/src/bridge/*`;
+Go expose public surface qua `internal/bridge.AppService`; core logic nằm trong
+`internal/{vaultitem,notes,database,ssh,tools,syncclient,syncconflict,…}`,
+`internal/vault`, `internal/storage`, `internal/syncstore` — không import ngược
+từ frontend generated bindings. Domain packages nằm phẳng dưới `internal/`
+(không còn `internal/services/`). Layering được enforce bởi `internal/arch`.
+
+**Context:** Cần một desktop app cross-platform với offline-first UX, hot-reload
+dev workflow, và security boundary rõ giữa UI untrusted-by-default và Go core
+chứa crypto/vault/connection logic.
+
+**Alternatives considered:**
+
+- **Tauri + Rust core** — nhẹ hơn nhưng đòi hỏi rewrite toàn bộ service layer
+  đã viết bằng Go.
+- **Electron + Node backend** — ecosystem lớn nhưng memory footprint cao hơn và
+  khó giữ crypto/key handling trong memory-safe Go path đã chọn.
+- **Pure web app** — không đáp ứng local-first, file permission, và offline
+  vault gate mà product yêu cầu.
+
+**Consequences:**
+
+- Positive: Một codebase Go cho vault, crypto, DB/SSH; Wails binding generation
+  tự động; React ecosystem cho workbench UI.
+- Negative: Phụ thuộc Wails v3 alpha APIs; cần maintain bridge adapter layer
+  song song với generated bindings.
+- Neutral: Server mode (`-tags server`) chia sẻ cùng Go core nhưng bỏ native
+  window — boundary bridge/core vẫn giữ nguyên.
+
+---
+
+## ADR-002: Internal modules before external plugins
+
+**Status:** Accepted
+
+**Decision:** Phase đầu ship workbench modules (`notes`, `tools`, `database`,
+`ssh`) như internal modules đăng ký qua `internal/modules.Registry` trong
+`app.RegisterBuiltins`. Vault là core infrastructure — `Container.Vault`
+(`internal/vault.Service`) và capability subject `builtin.vault` (`vault:manage`,
+scope `vault`) trong container bootstrap — **không** phải entry trong module
+registry. External plugin SDK, loader, marketplace và untrusted code execution
+**không** ship cho đến khi Extension API và permission model được chứng minh ổn
+định.
+
+**Context:** `docs/architecture/devkit-architecture.md` principle #6 và #7: built-in
+modules trước, security boundaries trước marketplace. Lúc ra quyết định, checkout
+chưa có `internal/plugins`, `internal/marketplace`, `internal/mcp`, `internal/sync`.
+(Cập nhật: `internal/mcp` và `internal/sync` nay đã `Implemented`;
+`internal/plugins` và `internal/marketplace` vẫn chưa tồn tại — xem
+[Implementation status](/dev-kit/implementation-status). Quyết định không đổi:
+plugin/marketplace vẫn sau.)
+
+**Alternatives considered:**
+
+- **Plugin-first platform** — nhanh hơn về extensibility nhưng tăng attack
+  surface trước khi Capability Gateway và audit path mature.
+- **Monolith không module registry** — đơn giản hơn nhưng khó mở rộng sang
+  manifest/contribution model của Phase 2 roadmap.
+- **Fork mỗi feature thành binary riêng** — trái product goal “một workspace
+  thống nhất”.
+
+**Consequences:**
+
+- Positive: Toàn bộ sensitive path đi qua built-in subjects đã biết; policy
+  container bootstrap cố định và testable.
+- Negative: Third-party extension bị delay; cần refactor registry khi mở plugin
+  surface.
+- Neutral: Frontend `frontend/src/modules/registry.ts` mirror pattern nội bộ,
+  chưa phải public Extension API.
+
+---
+
+## ADR-003: Capability Gateway as sensitive-call choke point
+
+**Status:** Accepted
+
+**Decision:** Mọi built-in operation nhạy cảm phải đi qua
+`AppService.call(...)` → `capabilities.Gateway.Call(...)` với
+`subject/capability/scope` check, metadata redaction, và audit trước khi handler
+chạy. Core services không được expose trực tiếp cho UI hoặc future plugin
+callers.
+
+**Context:** Least-privilege principle và threat model yêu cầu một điểm kiểm soát
+duy nhất cho authorization, audit, và redaction — tránh “bridge bypass” khi thêm
+module mới.
+
+**Alternatives considered:**
+
+- **Per-service authorization** — phân tán policy, khó audit thống nhất và dễ
+  miss check khi thêm endpoint.
+- **UI-only permission gating** — không đủ; attacker hoặc bug có thể gọi thẳng
+  bridge method.
+- **Middleware trong Wails generated binding** — khó gắn scope opaque ID và
+  metadata redaction theo từng operation family.
+
+**Consequences:**
+
+- Positive: Allowed/denied audit nhất quán; `recordID()`/`commandID()` opaque
+  scope; tests cover deny path (`internal/capabilities/gateway_test.go`).
+- Negative: `ListModules()` là ngoại lệ read-only không qua gate — cần review khi
+  registry chứa metadata nhạy cảm.
+- Neutral: Future MCP/plugin subjects cần grant model mở rộng trên cùng Gateway.
+
+---
+
+## ADR-004: Application-layer encrypted records instead of SQLCipher
+
+**Status:** Accepted
+
+**Decision:** SQLite (`devkit.db`) lưu JSON blob per record; secret fields được
+mã hóa bằng vault DEK qua versioned crypto envelope **trước khi** persist.
+Không dùng SQLCipher hay full-database encryption trong phase hiện tại. File
+permission `0600`, `journal_mode=DELETE`, và `MaxOpenConns(1)` bổ sung defense
+in depth.
+
+**Context:** Local-first MVP cần encrypt credentials và note body mà không phụ
+thuộc native SQLCipher build (cgo, cross-compile complexity). Nhiều metadata
+(title, host, username) cố ý plaintext để search/list khi vault locked.
+
+**Alternatives considered:**
+
+- **SQLCipher full-DB encryption** — bảo vệ toàn file nhưng thêm cgo/native
+  dependency và khó align với pure-Go `modernc.org/sqlite` driver đang dùng.
+- **OS full-disk encryption only** — không bảo vệ khi vault unlocked hoặc
+  process memory bị đọc.
+- **Encrypt toàn bộ JSON blob** — phá search title và profile list UX hiện tại.
+
+**Consequences:**
+
+- Positive: Cross-platform build đơn giản; envelope versioning (V1/V2) độc lập
+  với SQL schema; field-level encrypt/decrypt chỉ khi vault unlocked.
+- Negative: `devkit.db` và plaintext metadata readable nếu attacker có file access
+  khi vault locked — không phải zero plaintext at rest.
+- Neutral: Có thể bổ sung SQLCipher hoặc field promotion sau nếu threat model
+  yêu cầu, với migration plan riêng.
+
+---
+
+## ADR-005: V2-only envelope with AAD binding
+
+**Status:** Accepted
+
+**Decision:** Chỉ hỗ trợ envelope V2 với XChaCha20-Poly1305 và associated data
+binding `record_type + NUL + record_id + NUL + key_id`. `SealV2` là đường ghi
+duy nhất và `OpenWithAD` yêu cầu V2 cùng associated data matching. Envelope V1
+bị từ chối với unsupported-version error.
+
+**Context:** DevKit là greenfield và chưa có V1 ciphertext production cần bảo
+tồn. Bỏ đường V1 làm giảm complexity và bảo đảm mọi encrypted record đều có
+integrity binding chống swap ciphertext giữa records.
+
+**Alternatives considered:**
+
+- **V1 readability plus V2** — giữ backward compatibility nhưng duy trì đường
+  giải mã không có record binding.
+- **Mandatory migration job at startup** — đảm bảo V2-only nhưng tăng startup
+  risk và phức tạp rollback.
+- **V1 forever** — không có record binding; swap attack surface còn lại.
+
+**Consequences:**
+
+- Positive: Mọi service code (`notes`, `database`, `ssh`) đều ghi và đọc bằng
+  V2 với AAD; API surface nhỏ hơn và không còn nil-AAD decrypt path.
+- Negative: Nếu sau này phát hiện V1 ciphertext ngoài dự kiến, cần một migration
+  tool được thiết kế và phê duyệt riêng.
+- Neutral: Không có bulk re-encrypt flow vì không có V1 production data trong
+  greenfield baseline.
+
+---
+
+## ADR-006: Loopback-only server mode
+
+**Status:** Accepted
+
+**Decision:** Build tag `server` tạo headless HTTP server chỉ bind loopback
+(default `127.0.0.1`). `servermode.ValidateHost` reject public/wildcard
+`WAILS_SERVER_HOST` tại startup. Không expose Docker port publishing cho server
+mode.
+
+**Context:** Server mode phục vụ dev/headless convenience (CI smoke, không GUI)
+— không phải production remote API. Bind public mà chưa có TLS, authn, authz sẽ
+tạo false sense of deployment readiness.
+
+**Alternatives considered:**
+
+- **Public bind + Wails defaults** — tiện demo nhưng expose bridge surface ra
+  LAN/Internet không kiểm soát.
+- **Separate authenticated API server ngay** — scope quá lớn cho MVP; trì hoãn
+  đến thiết kế server riêng.
+- **Disable server mode entirely** — mất headless test path hữu ích.
+
+**Consequences:**
+
+- Positive: Fail-fast nếu misconfigure host; README và `core-foundation.md` align
+  messaging “not a remote API”.
+- Negative: Không chạy server mode trong Docker container reachable từ host mà
+  không weaken guard.
+- Neutral: OS firewall/network policy vẫn là trách nhiệm operator — code chỉ
+  enforce bind address tại startup.
+
+---
+
+## ADR-007: Verified TLS for remote DB and exact SSH host-key pinning
+
+**Status:** Accepted
+
+**Decision:**
+
+1. **Database:** Remote PostgreSQL profiles default `sslmode=verify-full`. Chỉ
+   cho phép `sslmode=disable` trên loopback dev hosts; remote + insecure TLS bị
+   reject (`ErrInsecureTLSForRemoteHost`).
+2. **SSH:** Connection chỉ thành công khi server host-key SHA-256 fingerprint
+   khớp pin đã trust. Empty pin reject; changed key reject. TOFU flow qua
+   `SSHObserveHostKey` → user approve → `SSHTrustHostKey`.
+
+**Context:** Connection modules quản lý credentials đã decrypt từ vault — transport
+security phải giảm MITM risk cho DB và SSH. Dev loopback exception giữ DX cho
+local PostgreSQL/SSH test.
+
+**Alternatives considered:**
+
+- **Trust-on-first-use without persistence** — mỗi session hỏi lại; UX kém và dễ
+  approve nhầm.
+- **Trust system `known_hosts` globally** — không gắn với per-profile pin; khó
+  audit trong app model.
+- **DB TLS disable by default** — tiện dev nhưng nguy hiểm khi profile trỏ
+  remote host.
+- **Custom CA pinning cho DB** — chưa implement; hiện rely system CA store của
+  pgx.
+
+**Consequences:**
+
+- Positive: Remote DB MITM protection mặc định; SSH MITM detected khi key thay
+  đổi; tests cover reject paths.
+- Negative: Manual host-key trust UX; DB custom CA pinning chưa có.
+- Neutral: Passphrase SSH per-operation qua bridge — phụ thuộc redaction + UI
+  discipline, không persist.
+
+---
+
+## ADR-008: Unified `vault_items` store for built-in item types
+
+**Status:** Accepted
+
+**Decision:** Gộp ba store riêng (`notes`, `connection_profiles`, `ssh_profiles`)
+thành một bảng `vault_items` phía sau package chung `internal/vaultitem`
+(`Record`, `Repository` memory + SQLite, và `Store` lo storage/crypto/search).
+Notes/Database/SSH service trở thành thin adapter map field vào `metadata`
+plaintext + `payload` mã hóa, giữ nguyên chữ ký public nên bridge/UI/capability
+không đổi. Thêm bridge family `VaultSearch` với grant `builtin.search` /
+`vault:search` / `item:search` cho search xuyên loại trên metadata.
+
+**Context:** Ba module lặp lại cùng khuôn "vài field plaintext + một secret mã
+hóa" nhưng mỗi cái có repository/crypto/search riêng, và không có nền chung cho
+search xuyên loại, `key_version`, hay `sync_state` mà sync tương lai cần. Đây là
+hạng mục Phase 1 "vault-item repository" mà roadmap đánh dấu là chặn giá trị
+local-first.
+
+**Alternatives considered:**
+
+- **Generic CRUD + type registry hoàn toàn** — sạch nhất cho plugin-defined item
+  type tương lai nhưng refactor lớn, mất type-safety và error/capability contract
+  per-family; hợp Phase 2 hơn.
+- **Chỉ unify bảng (một cột `type`, ba service giữ repository riêng)** — thay đổi
+  nhỏ nhất nhưng không tạo được lớp chung, search vẫn per-service.
+- **Giữ nguyên ba store** — không giao được giá trị vault-item repository.
+
+**Consequences:**
+
+- Positive: một nơi duy nhất lo storage/crypto/search; AAD binding per-type
+  (`key_id` = `note-body`/`db-password`/`ssh-secret`) giữ nguyên chống swap; có
+  `key_version`/`sync_state` làm nền sync; search xuyên loại chạy được khi vault
+  khóa (chỉ đọc metadata).
+- Negative: greenfield nên migration drop ba bảng cũ (m6) mà không backfill; nếu
+  sau này có dữ liệu cần bảo toàn phải thêm migration riêng.
+- Neutral: `record_type` cho DB profile đổi `database-profile` → `db-profile`;
+  search hiện là substring trên metadata JSON, chưa có index trên cột `type`.
+
+---
+
+## ADR-009: OS-primitive sandbox for Agent Hub vendor processes
+
+**Status:** Accepted (2026-08-12) — package **Implemented** on desktop `main`
+(`internal/sandbox`, merged via PR #22)
+
+**Decision:** Trước khi ship Agent Hub vendor spawn (Claude/…), DevKit dùng
+sandbox **OS primitives** qua package leaf `internal/sandbox`:
+
+- Linux: **bubblewrap** (bắt buộc) + **Landlock** best-effort
+- macOS: **Seatbelt** qua `sandbox-exec`
+- Policy allowlist (cwd RW, deny mặc định `~/.ssh` / `~/.aws` / …), env scrubbed
+- Network v1: `none` | `host` (domain-allowlist proxy = v1.1)
+- Windows: ngoài scope v1
+
+Không dùng Firejail / gVisor / Firecracker làm path v1; không nhúng
+`@anthropic-ai/sandbox-runtime` (TypeScript) vào core Go — chỉ tham khảo
+policy. Gateway/permission UI **vẫn bắt buộc**; sandbox không thay consent.
+
+**Context:** Agent CLI có bash/fs ngoài mediation ACP/Gateway. Research /
+plan nằm trên desktop repo (`docs/superpowers/research/2026-08-12-agent-sandbox-oss.md`,
+`docs/superpowers/plans/2026-08-12-agent-sandbox.md`). Claude Code/Codex có
+sandbox first-party nhưng không đủ cho Hub multi-vendor và spawn ACP.
+
+**Alternatives considered:**
+
+- **Chỉ dựa `/sandbox` của Claude / sandbox Codex** — không cover multi-vendor
+  và không đảm bảo ACP spawn đi qua jail.
+- **Podman/Docker mỗi tab** — isolation mạnh hơn nhưng UX/toolchain nặng.
+- **microVM** — mạnh nhất, không phù hợp multi-tab local v1.
+- **Firejail** — setuid/attack surface; rejected.
+
+**Consequences:**
+
+- Positive: một `Runner` dùng lại cho mọi vendor; fail-closed khi thiếu `bwrap`.
+- Negative: phụ thuộc package host (`bubblewrap`); macOS dựa API `sandbox-exec`
+  deprecated nhưng vẫn là thực tế ngành.
+- Negative (đo 2026-09-05): **sandbox không lồng được trên macOS.** `sandbox-exec`
+  gọi bên trong jail DevKit fail `sandbox_apply: Operation not permitted`; không
+  có SBPL operation nào mở được. Sandbox first-party của vendor (Claude Code
+  `/sandbox`, Codex, Gemini) vì thế là **lựa chọn thay thế, không phải lớp bổ
+  sung** — bật nó bên trong DevKit làm mọi lệnh bash của agent fail ngầm. Vendor
+  adapter phải đảm bảo sandbox first-party tắt khi spawn qua DevKit. Lý do giữ
+  lớp DevKit thay vì lớp vendor: công tắc của vendor nằm trong
+  `.claude/settings.json` / `.codex/config.toml` — file trong thư mục agent
+  ghi được; jail DevKit nằm ở process khác, agent không với tới.
+- Neutral: điều kiện "Agent Hub chỉ ship khi vendor adapter spawn qua sandbox"
+  **đã thoả** — Phase 4 v1 (Claude-only) đóng với Claude adapter spawn qua
+  `sandbox.DefaultRunner().StartPiped` (biến thể interactive ACP stdio của
+  `Start`), fail-closed. Xem [Sandbox](/dev-kit/sandbox) và
+  [Implementation status](/dev-kit/implementation-status).
+
+---
+
+## ADR-010: Rich-text (Plate) note editor, not markdown-only
+
+**Status:** Accepted (2026-08-14) — **Implemented**
+(`frontend/src/modules/notes/plate/`, `NoteEditor.tsx`)
+
+**Decision:** Note body vẫn lưu là `string` markdown đã encrypt (envelope
+không đổi), nhưng UI edit bằng **Plate** — rich-text block editor với slash
+menu (heading, quote, code block, mermaid…), floating toolbar, và
+markdown-input-rule (`# `, `- `, `` ``` ``…) auto-convert giống Notion. Body
+serialize/deserialize qua `editor.api.markdown` mỗi lần autosave/load, không
+đổi format lưu trữ hay AAD.
+
+**Context:** Open question ban đầu (xem lịch sử
+[Open questions](/dev-kit/open-questions)) là "markdown only hay rich text có
+code-focused extensions?". Trả lời qua 2 spec triển khai thực tế:
+`docs/superpowers/specs/2026-08-13-notes-module-design.md` (Plate + autosave +
+in-place edit, thay model create-only ban đầu) và
+`docs/superpowers/specs/2026-08-14-notes-folders-ui-design.md` (dashboard,
+folder, tag, slash menu restyle với `Kbd` hotkey thật).
+
+**Alternatives considered:**
+
+- **Plain `<textarea>` markdown-only** — đơn giản nhất, đúng với record shape
+  gốc, nhưng UX kém cho note dài/có code block, không có preview trực quan.
+- **Split-pane markdown + preview** — quen thuộc (kiểu VS Code) nhưng tốn
+  không gian pane, và vẫn cần một markdown parser riêng cho preview.
+- **Full WYSIWYG lưu HTML/JSON riêng** — cần đổi envelope/schema, mất khả năng
+  đọc note bằng tool markdown thuần bên ngoài app; loại vì đụng
+  "Body stays encrypted markdown string" invariant.
+
+**Consequences:**
+
+- Positive: UX ngang app note hiện đại (Notion-like) mà record shape ở rest
+  không đổi — sync/conflict-merge/AAD logic không cần biết gì về Plate.
+- Positive: markdown input rule + slash menu cùng tồn tại — gõ `# ` tự thành
+  H1, không bắt buộc dùng menu.
+- Negative: thêm dependency Plate + plugin set riêng cho notes; slash menu
+  chỉ cover block cơ bản (không H4/image-block/mermaid trong menu — mermaid
+  vẫn qua code block ` ```mermaid `), giữ scope hẹp có chủ đích.
+- Neutral: Không đổi gì ở backend/MCP — `notes.update`/`Update(id, title,
+  body)` vẫn nhận `body` là `string` markdown thuần, không biết tới Plate.
+
+---
+
+## ADR-011: Shared title-bar actions and split panel for module side content
+
+**Status:** Accepted (2026-08-15) — **Implemented**
+(`frontend/src/stores/moduleActions.ts`, `frontend/src/components/ui/split-panel.tsx`,
+`frontend/src/workbench/Workbench.tsx`, `frontend/src/modules/notes/NoteEditor.tsx`)
+
+**Decision:** Thay vì mỗi module tự vẽ toolbar/side-panel riêng cho nhu cầu
+"một hành động phụ + một khối nội dung phụ đi kèm view chính", DevKit thêm hai
+primitive **dùng chung toàn app** ở tầng Workbench:
+
+1. `useModuleActionsStore` (Zustand, `frontend/src/stores/moduleActions.ts`) —
+   một `actions: ModuleAction[]` list; hook `useModuleAction(action | null)`
+   cho module đăng ký một icon-button vào **title bar chung** (cạnh
+   Search/Settings) trong lúc view của module đó đang mount, tự
+   register/unregister theo `id` khi mount/unmount hoặc khi `action` chuyển
+   `null`. `onClick` đọc qua `ref` nên effect chỉ re-run khi
+   `id`/`icon`/`label`/`isActive` đổi, không phải mỗi lần re-render component
+   gọi hook (tránh register/unregister-thrash khi user gõ liên tục).
+2. `SplitPanel` (`SplitPanelProvider` + `SplitPanelSlot` + `useSplitPanel()`,
+   `frontend/src/components/ui/split-panel.tsx`) — một side panel **content-
+   squeezing** (flex sibling co giãn width qua framer-motion, không phải
+   overlay đè lên nội dung) nằm trong khung nội dung chính của Workbench.
+   Module gọi `openPanel(content, { width, onClose })` / `closePanel()` để đẩy
+   bất kỳ `ReactNode` nào vào panel.
+
+`Workbench.tsx` wrap toàn bộ shell trong `SplitPanelProvider`, render
+`moduleActions` thành các nút title-bar trước nút Search, và đặt
+`SplitPanelSlot` làm flex sibling của khung nội dung module đang active.
+Consumer đầu tiên là Notes: `NoteEditor` chuyển hết folder/color/tag editing
+(trước đây là một hàng inline chật trong header editor) vào `NoteMetaPanel`,
+đẩy qua `useSplitPanel`, mở/đóng qua nút `PanelRight` đăng ký bằng
+`useModuleAction` — cho phép cột viết co lại còn `max-w-[720px]` căn giữa
+thay vì full-bleed.
+
+**Context:** Notes cần chuyển từ layout editor "mọi thứ trong 1 header row"
+(title + folder + color + tag chen nhau, soạn thảo tràn sát mép) sang layout
+kiểu tài liệu (Notion/Craft): cột viết căn giữa, metadata tách khỏi header.
+Thay vì xây side panel riêng cho Notes, quyết định làm **primitive dùng
+chung** ngay từ đầu vì pattern "toggle hành động phụ từ title bar + panel nội
+dung phụ ép cột chính lại" là nhu cầu chung cho các module khác trong tương
+lai (Database connection details, SSH profile settings, …), không riêng gì
+Notes. Tham khảo kiến trúc `SplitView`/`SplitPanelSlot` của dự án ngoài
+(CHIRO dashboard) nhưng bỏ mobile-drawer fallback và app-sidebar
+auto-collapse coordination — DevKit desktop-only, không có hai concern đó.
+
+**Alternatives considered:**
+
+- **Panel cục bộ trong `NoteEditor`** (không phải primitive dùng chung) —
+  nhanh nhất cho riêng Notes nhưng phải viết lại y hệt khi Database/SSH cần
+  side panel tương tự; không có chỗ chung để đăng ký title-bar action.
+- **`useEffectEvent`** (React 19, mới stable) cho callback `onClick` lưu
+  trong store thay vì ref-latest-callback pattern — loại vì hook này bắt buộc
+  gọi từ một Effect trong **cùng component** định nghĩa nó; không hợp use
+  case "component A đăng ký, component B (Workbench) gọi lại sau" — ref
+  pattern classic vẫn đúng contract hơn.
+- **Overlay/Sheet đè lên nội dung** thay vì content-squeezing panel — đơn
+  giản hơn về layout nhưng che mất phần cột viết đang gõ dở, không đúng
+  "xem cả hai cùng lúc" mà user muốn khi sửa metadata.
+
+**Consequences:**
+
+- Positive: Module khác (Database/SSH/Kafka/…) có thể tái dùng các primitive
+  này ngay mà không phải build lại state/animation; `Workbench.tsx` chỉ có
+  một chỗ duy nhất biết vẽ title-bar actions + panel slot. Chi tiết API +
+  rules/gotchas: [/dev-kit/shell-primitives](/dev-kit/shell-primitives).
+- Positive: `moduleActions`/`SplitPanel` render rỗng/0-width khi không module
+  nào đăng ký — an toàn thêm vào app shell trước khi có consumer thứ hai.
+- Negative: Thêm hai file store/primitive dùng chung nghĩa là thay đổi hành
+  vi của chúng ảnh hưởng mọi module consumer cùng lúc — cần review kỹ hơn một
+  thay đổi cục bộ trong module.
+- Neutral: React 19 StrictMode double-invoke được xử lý bằng
+  register-by-id-idempotent (`registerAction` upsert theo `id`, không push
+  trùng) thay vì né StrictMode; không cần opt-out StrictMode cho vùng này.
+
+---
+
+## ADR-012: Workbench tab strip in the native titlebar
+
+**Status:** Accepted (2026-08-15) — **Implemented** (Phase 1: module-level
+tabs; Phase 2: Notes per-note tabs with VS Code-style preview/pin and
+drag-to-reorder — `frontend/src/stores/workbenchTabs.ts`,
+`frontend/src/workbench/tabs/TabStrip.tsx`, `frontend/src/workbench/Workbench.tsx`,
+`frontend/src/modules/registry.ts`, `frontend/src/modules/notes/NotesView.tsx`,
+`frontend/src/modules/notes/NoteEditor.tsx`. Phase 3, Agent Hub per-session
+tabs + live status, still pending — see
+[Module tabs → Scope](/dev-kit/module-tabs#scope-module-tabs--notes-per-note-hôm-nay-agent-hub-sau).)
+
+**Supersede đang chờ:** thiết kế Phase 5 ở [Title bar](/dev-kit/title-bar) bỏ
+hẳn tab khỏi title bar (đổi module qua Dock, tab chuyển xuống content area —
+[Module tabs](/dev-kit/module-tabs)). Thiết kế đó còn `Design only`, chưa có
+runtime, nên ADR này **vẫn Accepted + Implemented**; sẽ chuyển `Superseded by
+ADR-013` khi Phase 5 được chốt thành ADR riêng.
+
+**Decision:** Thay `activeModuleId` string đơn (1 module active tại 1 thời
+điểm) bằng model open/close/focus **tab**, hiển thị trong dải `<header>`
+30px (`h-[30px]`) — vùng giữa 3 nút đèn giao thông và cụm icon
+Search/Settings, cuộn ngang khi nhiều tab, giống tab bar VS Code. (Follow-up
+sau khi Phase 2 thêm drag-to-reorder: `Mac.InvisibleTitleBarHeight` trong
+`main.go` giờ cố ý để `0` thay vì dùng native inset — chi tiết mechanism +
+lý do: [Module tabs → Tab strip
+UI](/dev-kit/module-tabs#tab-strip-ui).)
+
+1. `useWorkbenchTabsStore` (Zustand, `frontend/src/stores/workbenchTabs.ts`) —
+   `openTabs: WorkbenchTab[]` phẳng + `activeTabId`. `openTab({moduleId,
+   viewId, title, params?})` là open-or-focus, dedupe theo `tabKey(moduleId,
+   viewId, params)` (params sort theo key rồi join) — thiết kế sẵn cho tab
+   theo-item (1 note = 1 tab) dù Phase 1 mọi module chỉ mở đúng 1 tab "home"
+   (`params` luôn rỗng). `status?: "idle"|"running"|"success"|"error"` +
+   `setTabStatus` cũng dựng sẵn cho live status, chưa module nào gọi.
+2. `TabStrip` (`frontend/src/workbench/tabs/TabStrip.tsx`) — UI cuộn ngang,
+   dùng framer-motion `layout`/`Reorder` (bundle `domMax`, khác
+   `domAnimation` mà `Dock.tsx` dùng) để tab khác trượt mượt khi mảng tab
+   thêm/bớt/kéo-sắp-xếp lại, cộng `AnimatePresence` cho tab đóng fade-out
+   thay vì biến mất tức thì. Icon mỗi tab đọc từ `ModuleManifest.icon` mặc
+   định (mỗi module tự đăng ký, không phải map tra cứu tách rời), tab có thể
+   override riêng. Phase 2 thêm drag-to-reorder + preview/pin tab lên trên
+   nền này — chi tiết hiện tại: [Module tabs → Tab strip
+   UI](/dev-kit/module-tabs#tab-strip-ui).
+3. `ModuleView.component` nới kiểu nhận thêm `params?: Record<string,
+   unknown>` (tương thích ngược — mọi view component 0-tham số hiện tại vẫn
+   gán được vào kiểu mới) để tab sau này truyền dữ liệu theo-item vào view.
+
+`Workbench.tsx` mount **mọi tab đang mở cùng lúc** trong DOM
+(`contents`/`hidden` theo `activeTabId`, không unmount khi đổi tab) để state
+dở dang trong 1 module (SQL đang gõ, note đang sửa) không mất khi user đổi
+sang tab khác rồi quay lại. `Dock` click và nút Settings title-bar cùng đi
+qua 1 hàm `focusModule(moduleId)` duy nhất (mở-hoặc-focus tab home).
+
+**Context:** Titlebar 50px vốn chỉ chứa 1 label module tĩnh + icon cố định
+(Search/Settings) — không gian trống lớn không dùng tới trong lúc user chỉ
+xem được 1 module tại 1 thời điểm. User muốn tận dụng đúng dải titlebar đó
+làm tab bar (giống VS Code), và về sau mở nhiều "item" cùng lúc xuyên module
+(1 tab note + 1 tab kết nối DB) với status cập nhật kể cả khi không đứng tab
+đó (vd 1 agent session đang chạy). Quyết định dựng sẵn primitive dedupe theo
+`params` + field `status` ngay từ Phase 1, dù chưa module nào tiêu thụ, để
+Phase 2 (Notes per-note tab) / Phase 3 (Agent Hub per-session tab + live
+status) không phải đổi lại shape của store.
+
+**Alternatives considered:**
+
+- **Per-item tabs cho Notes/Agent Hub ngay trong Phase 1** — loại vì mỗi
+  module cần refactor state nội bộ riêng (`NotesView`/`AgentHubView` đang tự
+  quản lý list↔detail switch, chưa gọi qua `openTab`); gộp chung vào 1 lượt
+  implementation sẽ làm plan quá lớn, review khó tách bạch lỗi thuộc layer
+  nào (infra tab strip hay module refactor). Tách thành 2 spec riêng sau khi
+  Phase 1 (infra + module-level tabs) đã ổn định.
+- **Animate reveal nút đóng bằng CSS `@starting-style` +
+  `transition-behavior: allow-discrete`** (animate qua ranh giới
+  `display:none`↔`flex`) thay vì đổi hẳn sang `w-0`→`w-4` width transition —
+  loại vì cần xác nhận support WebKit cụ thể trong runtime WKWebView của app
+  mà không live-test được; `w-0`→`w-4` là kỹ thuật CSS transition thuần, đã
+  biết chắc hoạt động ở mọi trình duyệt hiện đại và còn kích hoạt đúng
+  `layout` push trên các tab khác (xem [Module tabs → Rules /
+  gotchas](/dev-kit/module-tabs#rules--gotchas)).
+- **Map `moduleId → icon` tách rời** (1 file dùng chung cho cả `Dock` và
+  `TabStrip`) — cách làm đầu tiên, loại ngay sau khi thấy nó lệch khỏi
+  pattern self-registration mà `views`/`commands`/`capabilities` đã dùng;
+  đổi sang `ModuleManifest.icon` bắt buộc, mỗi module tự khai trong
+  `manifest.ts` của chính nó.
+
+**Consequences:**
+
+- Positive: Titlebar 50px trước đây gần như trống nay là bề mặt chức năng
+  chính — mở/đóng/chuyển module qua tab thay vì chỉ qua Dock. Chi tiết API +
+  rules/gotchas: [/dev-kit/module-tabs](/dev-kit/module-tabs).
+- Positive: Dedupe key + `status` field dựng sẵn từ Phase 1 nghĩa là Phase
+  2/3 (per-note tab, per-session tab + live status qua
+  `agenthub:sessionUpdate`) chỉ cần module tự gọi `openTab`/`setTabStatus`
+  đúng chỗ, không phải sửa lại `useWorkbenchTabsStore`.
+- Negative: `--wails-draggable` giờ phải khai báo tường minh trên mọi phần
+  tử click-được mới trong `<header>` (không có default) — quên set `no-drag`
+  cho 1 nút mới thêm sau này sẽ tạo vùng vừa không kéo được window vừa không
+  bấm được đúng cảm giác.
+- Negative (đã giải quyết 1 phần): Agent Hub per-session tab + live status
+  vẫn chưa implement — `AgentHubView` tự quản `activeSessionId` nội bộ, chưa
+  gọi `openTab`/`setTabStatus`. Notes per-note tab (phần còn lại của use case
+  gốc "1 tab note + 1 tab DB connection") đã implement ở Phase 2, cộng thêm
+  preview/pin tab và drag-to-reorder không nằm trong scope quyết định ban
+  đầu — chi tiết: [Module tabs](/dev-kit/module-tabs).
+
+---
+
+## Evidence (pass 2026-07-24)
+
+Snapshot chuẩn của repo ở
+[Implementation status § Verified snapshot](/dev-kit/implementation-status#verified-snapshot).
+Mục dưới chỉ ghi evidence riêng của pass ADR **đầu tiên**, chạy trên `main` @
+`0403a80`. **Pass này cũ hơn ADR-009…012** (Accepted 2026-08-12…15) — các ADR
+đó chưa nằm trong phạm vi verify của nó; trạng thái Implemented của chúng lấy
+theo Implementation status.
+
+- Verification commands run:
+  - `git branch --show-current`
+  - `git rev-parse HEAD`
+  - `rg -n 'container\.Modules\.Register|builtin\.vault|builtin\.search' ./internal/app/app.go ./internal/app/container.go`
+  - `rg -n 'TableVaultItems|create vault_items|drop legacy' ./internal/storage/sqlite.go`
+  - `test -d ./internal/vaultitem`
+- Primary sources: `docs/architecture/devkit-architecture.md`,
+  `docs/architecture/core-foundation.md`, `main.go`,
+  `internal/capabilities/gateway.go`, `internal/storage/sqlite.go`,
+  `internal/crypto/envelope.go`, `internal/servermode/servermode.go`,
+  `internal/vaultitem/store.go`, `internal/ssh/hostkeys.go`

@@ -1,0 +1,22 @@
+---
+title: Core foundation
+description: Nền tảng Phase 0 đã chốt cho DevKit.
+---
+
+# Core foundation
+
+Core foundation là lớp nền để các module sau dựng lên: app shell, vault primitives, command registry, và quy tắc biên giới API.
+
+## Phase 0 focus
+
+- Khởi tạo shell và cấu trúc package ổn định
+- Vault lock/unlock baseline
+- Command registry tối thiểu
+- Logging/audit không lộ secret
+- Test nền cho crypto/permission paths quan trọng
+
+## Current rules
+
+1. Không gọi tắt internal service từ UI/plugin.
+2. Mọi secret I/O đi qua service có capability.
+3. Feature nhạy cảm chưa có threat model thì chưa merge.

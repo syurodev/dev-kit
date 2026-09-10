@@ -1,0 +1,72 @@
+---
+title: Open questions
+description: Chỉ mục mọi quyết định còn để ngỏ trong dev-kit, gom từ các trang module.
+---
+
+# Open questions
+
+Trang này là **chỉ mục duy nhất** cho những gì chưa chốt. Câu hỏi vẫn sống ở
+đúng ngữ cảnh của nó trong trang module (dạng `Callout` hoặc mục `Open
+questions` cuối trang); ở đây chỉ liệt kê lại kèm link, để không phải đọc hết
+30 trang mới biết còn nợ gì. Quyết định đã chốt nằm ở
+[Architecture decisions](/dev-kit/architecture-decisions).
+
+## Product & platform
+
+| Câu hỏi | Nguồn |
+|---|---|
+| Paid feature đầu tiên: sync, pro tools, team vault, hay marketplace? | — (trang này) |
+| Plugin runtime tương lai: JS, WASM, external process, hay kết hợp? | [Plugins](/dev-kit/plugins) |
+
+## Shell & UI
+
+| Câu hỏi | Nguồn |
+|---|---|
+| Window min-width thật của DevKit là bao nhiêu — cần xác nhận trước khi chốt range clamp 240–480 / 320–720 và sàn content 480px | [Sidebar § Resize](/dev-kit/sidebar#resize) |
+| Status area hiện đủ 4 icon cố định, hay chỉ hiện icon "đang có gì đáng chú ý"? Cần chốt trước khi implement | [Title bar § Vùng 1](/dev-kit/title-bar#vùng-1--status-area-trái) |
+| SplitPanel dành cho chat agent (CodeGraph giả định) hay còn dùng cho việc khác — chưa có ở Shell primitives | [Code Graph § Graph UI](/dev-kit/codegraph#graph-ui-node-link-add-on-v1), [Shell primitives](/dev-kit/shell-primitives) |
+
+## Notes
+
+| Câu hỏi | Nguồn |
+|---|---|
+| Tab của note bị trash từ nơi khác: tự đóng hay hiện trạng thái "đã bị xoá"? | [Notes § Trash](/dev-kit/notes#trash-soft-delete) |
+| UI xem/diff version — vị trí và chi tiết chưa thiết kế, cần 1 lượt riêng | [Notes § Version history](/dev-kit/notes#version-history) |
+| `NotesResolveLinks` trả gì cho note đã purge — cần trạng thái thứ 3 (`missing`) hay gộp chung `deleted`? | [Notes § Backlink](/dev-kit/notes#backlink--wiki-link) |
+
+## Database & SSH
+
+| Câu hỏi | Nguồn |
+|---|---|
+
+## Kafka
+
+| Câu hỏi | Nguồn |
+|---|---|
+| Giới hạn peek mặc định — cố định hay user config? | [Kafka UI § Open questions](/dev-kit/kafka#open-questions) |
+| Publish có cần rate limit riêng (per profile / per subject)? | [Kafka UI § Open questions](/dev-kit/kafka#open-questions) |
+| Protobuf có cần thêm không, hay Avro đủ lâu dài? | [Kafka UI § Open questions](/dev-kit/kafka#open-questions) |
+| Timeout mặc định cho popup chọn cluster — cố định hay theo config? | [Kafka UI § Open questions](/dev-kit/kafka#open-questions) |
+| Polling interval auto-refresh lag (FR-18) | [Kafka UI § Open questions](/dev-kit/kafka#open-questions) |
+| Cap số connection sống cùng lúc (FR-10) — không giới hạn hay cap nhỏ? | [Kafka UI § Open questions](/dev-kit/kafka#open-questions) |
+
+## MCP / Agent
+
+| Câu hỏi | Nguồn |
+|---|---|
+| UI cho user xem/tắt **từng** tool (ngoài grant tĩnh) — v1 hay version sau? | [MCP / Agent § Open questions](/dev-kit/mcp-agent#open-questions) |
+| `db.query` tách `read`/`write` theo parse SQL, hay mọi query = execute + destructive? (khuyến nghị: gộp) | [MCP / Agent § Open questions](/dev-kit/mcp-agent#open-questions) |
+| Thêm agent ID `cursor` ngay sau Claude Code/Codex? | [MCP / Agent § Open questions](/dev-kit/mcp-agent#open-questions) |
+
+## Code Graph
+
+| Câu hỏi | Nguồn |
+|---|---|
+| Multi-project registry cho v2, hay 1-project-active đủ lâu dài? | [Code Graph § Open questions](/dev-kit/codegraph#open-questions) |
+| Index có cần versioned schema riêng để tránh re-index toàn bộ khi thêm field? | [Code Graph § Open questions](/dev-kit/codegraph#open-questions) |
+
+## How to use this page
+
+- Mỗi quyết định được chốt → chuyển thành ADR trong [Architecture decisions](/dev-kit/architecture-decisions), rồi xoá dòng ở đây **và** `Callout` ở trang nguồn.
+- Thêm open question mới ở trang module (giữ ngữ cảnh) → thêm 1 dòng ở đây.
+- Không để open questions block local-first MVP nếu chưa cần.

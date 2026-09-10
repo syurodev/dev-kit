@@ -1,0 +1,210 @@
+---
+title: Design system
+description: Thang typography, spacing, radius và luật bind biến của DevKit — nguồn sự thật là Figma page 01 Foundations, trang này ghi lại contract để nó không chỉ sống trong một file thiết kế.
+---
+
+# Design system
+
+Lớp thị giác của DevKit có nguồn sự thật là **Figma file `DevKit`**, page
+[01 Foundations](https://www.figma.com/design/3dOzSZBYY7QtzANFTCfEe8/DevKit?node-id=24-100).
+Trang này ghi lại thang và luật để chúng đọc được ngoài Figma — vì một contract
+chỉ nằm trong file thiết kế thì code không có gì để đối chiếu, và đó chính là
+loại drift bộ docs này tồn tại để chặn.
+
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+<Callout type="info" title="Design source — đã ánh xạ sang token layer của code">
+Thang dưới đây đã dựng trong Figma (13 text style, 4 collection biến) và đã bind
+trên các page chuẩn. Lớp token thiết kế phía frontend hiện đã được đồng bộ tại
+`dev-kit-app/frontend/src/index.css`: toàn bộ 13 text style đã có utility Tailwind v4
+tương ứng và các biến Scale (control height, icon, stroke, radius) đã được khai báo
+đầy đủ trong `@theme inline`. Việc chuẩn hoá từng component chia sẻ được thực hiện
+theo từng đợt đối chiếu.
+</Callout>
+
+## Typography
+
+**Bảy cỡ, mười tám style.** Phân cấp đến từ **trọng lượng** và **màu chữ**
+trước, cỡ chữ sau cùng — muốn một dòng nổi hơn thì đổi Regular→Medium hoặc
+`text/secondary`→`text/primary`, chỉ khi hai cách đó hết tác dụng mới tăng cỡ.
+Đây là lý do một app dày đặc chỉ cần vài cỡ: mỗi cỡ thêm vào là một bậc phân
+cấp mà mắt không đọc ra được nữa.
+
+Geist cho UI, Geist Mono cho đường dẫn, id, lệnh và giá trị kỹ thuật.
+
+| Style | Cỡ / line-height / tracking | Dùng cho |
+|---|---|---|
+| `Display/32` | 32 / 40 / −1.5% · SemiBold | Vault, first-run |
+| `Heading/24` | 24 / 32 / −1% · SemiBold | tiêu đề trang |
+| `Title/16` | 16 / 24 / −0.5% · SemiBold | tiêu đề section, tên agent trên header |
+| `Title/14` | 14 / 20 / 0 · SemiBold | tiêu đề Security Notice |
+| `Title/13` | 13 / 20 / 0 · SemiBold | tiêu đề Alert |
+| `Title/11` | 11 / 16 / +1% · SemiBold | tiêu đề trong titlebar 30px của Vault Shell |
+| `Body/16` | 16 / 24 / 0 · Regular | **nội dung người dùng** — body của note editor |
+| `Body/14 Medium` | 14 / 20 / 0 · Medium | nhãn và số đếm của tab trigger |
+| `Body/13` | 13 / 20 / 0 · Regular | cỡ mặc định của UI |
+| `Body/13 Medium` | 13 / 20 / 0 · Medium | tên file, tên agent trong list |
+| `Body/12` | 12 / 16 / 0 · Regular | text phụ, mô tả |
+| `Label/12` | 12 / 16 / +2% · Medium | nhãn, badge, nút |
+| `Label/11 Caps` | 11 / 16 / +5% · Medium · UPPERCASE | nhãn IN HOA: `RECOVERY KEY · SHOWN ONCE`, badge `LOCAL · ENCRYPTED` |
+| `Caption/11` | 11 / 16 / +1% · Regular | meta, timestamp, chi phí |
+| `Caption/11 Medium` | 11 / 16 / +1% · Medium | meta cần nhấn |
+| `Code/12` | Mono 12 / 16 / 0 · Regular | đường dẫn, id, lệnh |
+| `Code/12 Medium` | Mono 12 / 16 / 0 · Medium | nhấn trong code |
+| `Code/11` | Mono 11 / 16 / 0 · Regular | bảng dày — CodeGraph, Diff |
+
+<Callout type="info">
+**Vì sao có `Title/*` ở cỡ nhỏ.** Thang ban đầu chỉ đặt SemiBold ở 32/24/16 và
+để 13/12/11 dùng Regular/Medium. Đợt đối chiếu `05 Feedback` và `06 Security`
+cho thấy Figma dùng SemiBold ở 14, 13 và 11 cho **tiêu đề của một khối**, một
+cách có hệ thống chứ không lẻ tẻ. Nên SemiBold là **trọng lượng của vai trò
+tiêu đề**, không phải của riêng cỡ lớn — `Title/*` chạy suốt thang, `Body/*` giữ
+Regular và Medium.
+
+Hai giá trị còn lại của Figma **không** được thêm vào thang, mà snap về cỡ gần
+nhất: khoá khôi phục Mono 15 → `Code/12 Medium`, badge 9px của Vault Shell →
+`Label/11 Caps`. Cả hai chỉ xuất hiện đúng một chỗ; thêm một cỡ cho một lần dùng
+là thêm một bậc phân cấp mà mắt không đọc ra.
+</Callout>
+
+Ba luật đi kèm thang:
+
+- **Line-height chẵn, khớp grid 4px** (16 / 20 / 24 / 32 / 40). Dòng chữ nằm
+  đúng nhịp với spacing thay vì canh mắt. Tỉ lệ giảm dần khi cỡ tăng — cỡ lớn
+  cần ít không khí hơn.
+- **Tracking đi ngược cỡ**: cỡ lớn kéo âm (−0.5% đến −1.5%) vì khoảng chữ mặc
+  định trông rời ra; nhãn và cỡ nhỏ nới dương (+1% đến +2%) để đọc được.
+- **Mono nhỏ hơn sans 1px khi đứng cạnh nhau.** Geist Mono ở cùng px trông to
+  hơn Geist vì chữ vuông và x-height cao — nên `Code/12` đi cạnh `Body/13`.
+
+**Chữ IN HOA là một bậc riêng, không phải một class thêm vào.** Chữ hoa mất hết
+đường lên/xuống nên cần tracking rộng hơn hẳn để đọc được — `Label/11 Caps` để
++5%, gấp năm lần `Caption/11`. Đây là lý do nó tồn tại thay vì viết
+`text-caption-11-medium tracking-wider uppercase`: chồng `tracking-*` lên một
+utility đã khai letter-spacing sẽ đẻ ra một bậc mà thang không định nghĩa, và
+không ai đối chiếu được nữa. Phím tắt (`⌘K`) thì **không** dùng bậc này — mono
+đã dàn ký hiệu đều sẵn, dùng `Code/11` là đủ.
+
+**Đã cho về hưu**: `Heading/18`, `Body/14`, `Body/14 Medium`, `Code/13`. Bậc 18
+và 14 là thang của một app khác — đo thực tế thì 11/12/13 gánh khoảng 75% chữ
+toàn file, còn 14 gần như không dùng. `Code/13` bị thay bởi `Code/12` theo đúng
+luật mono ở trên.
+
+**Hai ngoại lệ có chủ đích, không phải drift**: nhãn node trên canvas CodeGraph
+ở 9px là thang riêng cho canvas zoom được, không phải chữ UI; và cỡ nửa pixel
+(12.5, 11.5, 10.5…) **luôn là lỗi** — chúng sinh ra từ việc scale frame bằng
+⌘+kéo và bị nhoè trên màn 1x.
+
+## Spacing, radius và control
+
+Bốn collection biến trong file: `Primitives` (màu nguồn), `Semantic Color`
+(token dùng trong product UI, hai mode Dark/Light), `Scale` (spacing, radius,
+control height, icon size, stroke) và `Note Palette`.
+
+| Thang | Giá trị |
+|---|---|
+| `space/*` | 0 · 4 · 8 · 12 · 16 · 20 · 24 · 32 · 40 · 48 |
+| `radius/*` | 0 · 6 · 8 · 10 · 14 · 18 · full (999) |
+| `control/height-*` | xs 24 · sm 28 · md 32 · lg 36 · xl 40 · 2xl 48 |
+| `icon/*` | 12 · 14 · 16 · 20 · 24 |
+| `stroke/*` | 1 · 1.5 · 2 |
+
+Radius theo ngữ cảnh: 6–10 cho control, 14–18 cho container, `full` chỉ cho
+status/dot compact. Giá trị ngoài thang là dấu hiệu ai đó canh mắt — khi gặp,
+nắn về bậc gần nhất chứ đừng thêm bậc mới.
+
+## Luật bind
+
+- **Không bao giờ để hex thô hay px thô trong component.** Màu bind vào
+  `Semantic Color`; primitive là chi tiết cài đặt của theme, không phải thứ
+  component gọi trực tiếp. Padding, gap và radius bind vào `Scale`.
+- **Slot sở hữu surface.** Component nội dung (`Agent Hub / Sidebar Content`,
+  `Agent Hub / Content`, …) **không** tự tô nền; `sidebar-surface` (280×852),
+  `content-surface` (852 cao, 4 bậc rộng) và `panel-surface` (320×856) của shell
+  mới là chỗ đặt nền. Nền để review thì đặt trên **component set**, không đặt
+  trên component — xem [Shell primitives](/dev-kit/shell-primitives).
+- **Chiều cao khả dụng khác chiều cao surface.** `content-slot` là 1136×804 vì
+  tab strip lấy 48; `sidebar-content` 264×836; panel chừa 8px bên phải cho
+  scroll ruler.
+
+## Trạng thái tuân thủ
+
+Đo trên toàn file (text = có text style, pad/rad = có bind biến):
+
+| Page | text | padding | radius |
+|---|---|---|---|
+| 07 App Shell | 100% | 100% | 100% |
+| 17 Agent Hub | 100% | 100% | 100% |
+| 03 Button & Icon Button | 0% | 87% | 71% |
+| 05 Feedback & Progress | 0% | 67% | 87% |
+| 06 Security Patterns | 0% | 55% | 73% |
+| 11 Settings | 11% | 28% | 48% |
+| 04 Input & Selection | 0% | 14% | 24% |
+| 13 Notes | 4% | 13% | 36% |
+| 14 CodeGraph | 3% | 14% | 22% |
+| 12 Sync Conflicts | 2% | 10% | 40% |
+| 15 Database | 3% | 12% | 39% |
+| 16 Database — bản thử | 1% | 12% | 22% |
+| 08 Diff | 0% | 0% | 0% |
+
+Hai page đóng băng có chủ đích: **08 Diff** (spec ribbon không được sửa, còn 14
+node nửa pixel) và **15 Database** (bản cũ, còn 1353 node nửa pixel). Các page
+còn lại làm được từng page bằng cùng quy trình — bind giá trị đã đúng thang
+trước, rồi nắn phần lệch, rồi gán text style.
+
+Vì mọi page dùng chung `App Shell`, sửa component đó nâng luôn chrome của
+07/12/13/14/15/16/17 trong một lượt — đây là điểm đòn bẩy lớn nhất của file.
+
+Phía code có ratchet riêng: `frontend/src/designSystemConformance.test.ts`
+đếm theo surface ba thứ không được tăng — text size mặc định của Tailwind
+(`text-sm`…), giá trị `[Npx]` tuỳ ý, hex thô — và **báo đỏ khi baseline cũ
+hơn code** để buộc hạ số. Tính đến 2026-09-09: agenthub, codegraph, kafka,
+notes, ssh, sync, tools về 0/0/0; database 0/15/0; settings 0/9/0; workbench
+0/35/1; `components/` (132 file) chưa vào bảng. Ngoại lệ hex có chủ đích:
+`font-color-toolbar-button`, `code-block-node-static`,
+`database/icons/engineMarks` (mark thương hiệu vendor).
+
+## Hạn chế của Figma đã đo được
+
+Ghi lại vì mỗi cái đã tốn một lượt sửa lại, và không cái nào thấy được bằng
+cách đọc:
+
+- **Instance không override được**: `constraints`, `maxWidth`, `x`/`y`
+  (relative-transform), và **chiều rộng của text — bị từ chối im lặng, không
+  báo lỗi**. Cũng không thêm child mới vào instance được. Hệ quả:
+  `Agent / Message` buộc phải có variant `Width` (Rail/Wide) trong Figma, còn
+  trong React `max-w-[…]` là đủ — đừng mang biến thể đó sang code.
+- **`setBoundVariableForPaint` có thể nướng lại màu base cũ** (thường là đen)
+  dù binding đúng. Luôn resolve giá trị biến trước rồi dùng nó làm base colour.
+- **Node ẩn giữ geometry cũ và không tham gia auto-layout.** Số đo đọc ra từ
+  node ẩn trông y như bug layout; kiểm `visible` trước khi kết luận.
+- **Component set nhiều variant nằm ngang phình rất nhanh** (3 variant 1136 →
+  3504px, trông như bị cắt). Set của slot rộng phải để VERTICAL. `combineAsVariants`
+  cũng **không tự nới set** theo variant — phải cho chính set một auto-layout.
+- **Nửa pixel không bao giờ là chủ ý.** Nếu thấy 12.5 hay 11.5, đó là dấu vết
+  scale frame — nắn về số nguyên.
+- **Không có "slot tuỳ chọn ẩn sẵn".** Child thêm vào component lúc đang ẩn thì
+  instance **không nhận** — kể cả instance tạo mới sau đó, kể cả sau
+  `resetOverrides()`. Và `instance.children` **không liệt kê child đang ẩn**, nên
+  ẩn nó sau khi instance đã nhận cũng làm nó biến mất khỏi tầm với. Chỉ còn hai
+  cách: để slot **mặc định hiện** rồi tắt trên từng instance (`locations` của
+  `Agent / Tool Call` đi đường này), hoặc nâng nó thành **variant** (`State=Attached`
+  của `Agent / Composer` đi đường này).
+- **Icon Lucide vẽ bằng stroke, không phải fill.** Tô màu vào `fills` của vector
+  ra một ô vuông đặc; phải tô `strokes` và xoá `fills`. Kéo icon thô từ bộ
+  `lucide/*` vào thì stroke mặc định là 2 — file dùng **1.5**, phải nắn lại trước
+  khi componentize thành `Icon/<tên>`.
+- **`textAutoResize` bị bỏ qua khi node text đang FILL** trong auto-layout. Muốn
+  code **không xuống dòng** mà cắt ngang (để đọc như một vùng cuộn ngang) thì phải
+  đổi `layoutSizingHorizontal` sang HUG, không phải đổi `textAutoResize`.
+- **`resize()` khoá cả hai trục.** Gọi nó sau khi đã đặt `primaryAxisSizingMode`
+  = AUTO sẽ biến component thành FIXED và variant ra cao 10px. Đặt
+  `layoutSizingVertical = "HUG"` **sau** khi append hết con.
+
+<Cards>
+  <Card title="Shell primitives" href="/dev-kit/shell-primitives" description="Slot nào sở hữu surface nào, và ba primitive dùng chung" />
+  <Card title="Agent Hub" href="/dev-kit/agent-hub" description="Page 17 — bề mặt đầu tiên bind 100% theo thang này" />
+  <Card title="Frontend performance" href="/dev-kit/frontend-performance" description="Ngưỡng virtualize và chuẩn render đi kèm" />
+  <Card title="Notes" href="/dev-kit/notes" description="Body/16 là cỡ đọc của nội dung người dùng" />
+</Cards>

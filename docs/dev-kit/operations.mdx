@@ -1,0 +1,197 @@
+---
+title: Operations
+description: Runbook local để chạy, verify và troubleshoot DevKit.
+---
+
+# Operations
+
+Trang này mô tả cách chạy DevKit trên máy local, verify build/test, quản lý dữ
+liệu và xử lý sự cố thường gặp. Nội dung được kiểm chứng từ checkout desktop `dev-kit-app/` (commit `0403a80ae5ffdb89b2be09e9223b5ff30bdaad33`).
+Boundary contract và security control xem thêm
+[Technical contracts](/dev-kit/technical-contracts) và
+[Security controls](/dev-kit/security-controls).
+
+## Prerequisites
+
+DevKit cần toolchain sau trước khi chạy development hoặc verification:
+
+| Thành phần | Mục đích | Ghi chú |
+| --- | --- | --- |
+| Go | Backend core, tests, server build | Module path `changeme`; pure-Go SQLite driver (không cần cgo cho storage). |
+| Bun hoặc npm | Frontend install/build | `Taskfile.yml` mặc định `PACKAGE_MANAGER=bun`; npm vẫn được hỗ trợ qua `task install:frontend:deps`. |
+| Wails v3 CLI | Desktop dev/build, binding generation | `wails3 dev`, `wails3 generate bindings`. |
+| Display + webview runtime | Desktop mode | `task dev` cần GUI window và webview (macOS/Windows/Linux desktop). Trên Linux thường cần GTK4/WebKitGTK theo yêu cầu Wails. |
+| Task (optional) | Wrapper tiện lợi | `task dev`, `task run:server`, `task test` — không bắt buộc nếu chạy lệnh gốc trực tiếp. |
+
+## Development mode
+
+Chạy desktop app với hot-reload:
+
+```bash
+task dev
+# hoặc
+wails3 dev -config ./build/config.yml -port 9245
+```
+
+`task dev` gọi `wails3 dev` với Vite port mặc định `9245` (override bằng
+`WAILS_VITE_PORT`). Mode này yêu cầu display và webview runtime — không phù hợp
+cho headless CI hoặc SSH session không có GUI.
+
+Ứng dụng khởi động với vault gate bắt buộc: lần đầu hiện **Create Master
+Password**, các lần sau hiện **Unlock** (`frontend/src/workbench/VaultGate.tsx`).
+
+## Headless server mode
+
+Server mode là convenience local không GUI, không phải remote API hay deployment
+surface công khai:
+
+```bash
+task run:server
+# hoặc build rồi chạy binary
+go build -tags server -o bin/dev-kit-server .
+./bin/dev-kit-server
+```
+
+Binding mặc định là loopback `127.0.0.1:8080`: `main.go` chỉ set
+`Server.Host: "127.0.0.1"`; port `8080` là Wails server default (xác nhận qua
+`task run:server` / `build/Taskfile.yml`). Với build tag `server`,
+`WAILS_SERVER_HOST` được
+validate qua `internal/servermode.ValidateHost` — chỉ chấp nhận blank/default
+`127.0.0.1`, `localhost`, hoặc loopback IP; public/wildcard bind bị reject tại
+startup.
+
+**Đây không phải public remote API.** TLS, authentication, authorization và
+public binding chưa được hỗ trợ cho đến khi có thiết kế server riêng. Docker
+port publishing cũng không được hỗ trợ vì container loopback không reachable từ
+host (`task run:docker` cố ý fail với hướng dẫn dùng `task run:server`).
+
+## Verification
+
+Chạy từ root repo DevKit. Dùng `GOCACHE` tách nếu sandbox hoặc permission cache
+gây lỗi:
+
+```bash
+GOCACHE=/private/tmp/devkit-go-cache go test ./...
+GOCACHE=/private/tmp/devkit-go-cache go vet ./...
+GOCACHE=/private/tmp/devkit-go-cache go build -tags server .
+cd frontend && bun run build
+```
+
+| Lệnh | Mục đích |
+| --- | --- |
+| `go test ./...` | Regression cho vault, crypto, bridge, gateway, storage, services. |
+| `go vet ./...` | Static check Go trước commit. |
+| `go build -tags server .` | Xác nhận server entrypoint compile với loopback guard. |
+| `cd frontend && bun run build` | Typecheck (`tsc`) + production Vite bundle. |
+
+`task test` chạy `go test -v -cover ./...` nhưng không set `GOCACHE` override.
+
+## Local data and backup
+
+DevKit lưu dữ liệu persistent trong platform config directory:
+
+| Platform | Path gốc |
+| --- | --- |
+| macOS | `~/Library/Application Support/DevKit/` |
+| Linux | `~/.config/DevKit/` |
+| Windows | `%AppData%\Roaming\DevKit\` (`os.UserConfigDir()` → Roaming) |
+
+File chính: `devkit.db` (SQLite). Thư mục config được tạo với permission `0700`
+(`main.go`); database file được `chmod 0600` khi mở (`internal/storage/sqlite.go`).
+
+Nội dung trên disk:
+
+- **Wrapped key material** trong table `vault_keyring` — KEK-wrapped DEK và KDF
+  params; không lưu Master Password hay recovery key plaintext.
+- **Encrypted envelopes** cho secret fields (note body, DB password, SSH secret).
+- **Plaintext metadata** local (note title, host/username, v.v.) — xem
+  [Technical contracts](/dev-kit/technical-contracts) mục Persistence contract.
+
+**Backup:** Sao chép toàn bộ thư mục `DevKit/` (ít nhất `devkit.db`) khi app đang
+đóng hoặc vault locked để tránh partial write. Backup giữ được wrapped key
+material và encrypted records; restore file vào đúng config path rồi unlock bằng
+Master Password.
+
+**Master Password vs recovery key:**
+
+- Mất Master Password nhưng còn recovery key (được trả một lần tại `SetupVault`)
+  → dùng `UnlockVaultWithRecovery`.
+- Mất cả Master Password **và** recovery key → **không thể** khôi phục DEK; dữ
+  liệu encrypted coi như mất. Đây là zero-knowledge local design, không có
+  backdoor server-side.
+
+## Recovery and troubleshooting
+
+### Vault states
+
+| State | Ý nghĩa | Hành động |
+| --- | --- | --- |
+| `not_configured` | Chưa có keyring trên disk | `SetupVault` — tạo Master Password, nhận recovery key một lần. |
+| `locked` | Keyring tồn tại, DEK không ở memory | `UnlockVault` hoặc `UnlockVaultWithRecovery`. |
+| `unlocked` | DEK trong memory | Các module encrypt/decrypt hoạt động; `LockVault` zeroize DEK. |
+
+Operation cần decrypt (notes body, DB/SSH secret) trả `vault_locked` khi vault
+chưa unlock. Note title search vẫn hoạt động khi locked vì title là plaintext
+metadata.
+
+### Recovery key handling
+
+- Recovery key chỉ trả về từ `SetupVault`; **không** persist, audit, hay log.
+- UI hiển thị key một lần trong `VaultGate` — user phải lưu ngoài app (password
+  manager, in giấy, v.v.).
+- **Không** paste recovery key vào terminal log, CI output, hoặc screenshot công
+  khai.
+- Sau `UnlockVaultWithRecovery`, Master Password cũ vẫn hợp lệ; recovery key
+  không tự rotate.
+
+### Stale server host configuration
+
+Nếu set `WAILS_SERVER_HOST` thành địa chỉ không phải loopback (ví dụ
+`0.0.0.0`, public IP), server build sẽ **fail tại startup** với lỗi từ
+`servermode.ValidateHost`. Fix: bỏ env var (dùng default `127.0.0.1`) hoặc set
+`127.0.0.1` / `localhost` / loopback IP hợp lệ.
+
+### Database connection prerequisites
+
+- Vault phải **unlocked** trước khi tạo profile hoặc query — password field
+  được encrypt/decrypt qua vault.
+- Remote host mặc định `sslmode=verify-full`; `disable` chỉ cho loopback dev.
+- Query timeout 30s; kết quả cap `DefaultMaxRows=200`.
+- Kiểm tra network, credentials, và TLS trust (system CA store của pgx).
+
+### SSH connection prerequisites
+
+- Vault unlocked để decrypt profile secret.
+- Host-key fingerprint phải được trust trước khi connect: dùng
+  `SSHObserveHostKey` → user approve → `SSHTrustHostKey`.
+- Empty hoặc mismatched fingerprint luôn reject (`pinnedHostKeyCallback`).
+- Passphrase chỉ nhận per-operation từ bridge; không persist.
+
+### SQLite permission failures
+
+Nếu `chmod 0600` trên `devkit.db` fail, `storage.Open` đóng DB và trả lỗi thay
+vì để file mở với permission lỏng. Kiểm tra ownership, filesystem read-only, hoặc
+antivirus lock file.
+
+## Evidence (pass 2026-08-01)
+
+Snapshot chuẩn của repo ở
+[Implementation status § Verified snapshot](/dev-kit/implementation-status#verified-snapshot).
+Mục dưới chỉ ghi evidence riêng của pass operations này, chạy trên `main` @
+`0403a80` (working tree lúc đó còn SSH forwarding chưa commit).
+
+- Verification commands run:
+  - `git branch --show-current`
+  - `git rev-parse HEAD`
+  - `git status --short --branch`
+  - `git rev-list --left-right --count origin/main...HEAD`
+  - `rg -n 'UserConfigDir|Server\.Host' ./main.go`
+  - `rg -n '127\.0\.0\.1:8080' ./build/Taskfile.yml`
+  - `GOCACHE=/private/tmp/devkit-go-cache go test ./...`
+  - `GOCACHE=/private/tmp/devkit-go-cache go vet ./...`
+  - `GOCACHE=/private/tmp/devkit-go-cache go build -tags server -o /private/tmp/devkit-server .`
+  - `GOCACHE=/private/tmp/devkit-go-cache go test -race ./internal/ssh ./internal/bridge -count=1`
+  - `cd frontend && bun run build`
+- Evidence paths: `Taskfile.yml`, `build/Taskfile.yml`, `main.go`,
+  `internal/servermode/servermode.go`, `internal/storage/sqlite.go`,
+  `internal/vault/service.go`, `README.md`

@@ -1,0 +1,152 @@
+---
+title: Roadmap
+description: Các phase phát triển và tiêu chí hoàn thành của DevKit.
+---
+
+# Roadmap
+
+Roadmap này tách rõ phần đã có runtime trong checkout hiện tại khỏi các phase mới
+chỉ dừng ở mức design. Trạng thái dùng đúng vocabulary của
+`/dev-kit/implementation-status`; claim implementation luôn đi kèm source hoặc
+trang kiểm chứng.
+
+## Phase 0 — Architecture foundation
+
+- Status: Implemented
+- Goal: Giữ biên giới local-first đã chạy được: vault, service layer, command/module registry, và Capability Gateway làm choke point cho call nhạy cảm.
+- Evidence: `/dev-kit/implementation-status`, `/dev-kit/core-foundation`, `internal/bridge/app_service.go`, `internal/commands/registry.go`, `internal/bridge/gateway.go`, `internal/capabilities/gateway.go`, `internal/modules/registry.go`.
+- Done when: Mọi call nhạy cảm đi qua `AppService.call` + Capability Gateway, module built-in đăng ký qua registry, và baseline audit/permission tiếp tục là invariant bắt buộc.
+- Dependencies: Quyết định kiến trúc trong `docs/architecture/core-foundation.md` và `docs/architecture/devkit-architecture.md`.
+- Out of scope: MCP runtime, sync runtime, external plugin runtime, marketplace.
+
+## Phase 1 — Local MVP
+
+- Status: Implemented
+- Goal: Hoàn tất bộ local workflow để DevKit hữu ích hằng ngày mà chưa cần sync hay plugin bên thứ ba.
+- Evidence: `/dev-kit/implementation-status` xác nhận Vault, Notes, Tools, Database và SSH đã Implemented; `internal/vault/service.go`, `internal/notes/notes.go`, `internal/database/database.go`, `internal/ssh/ssh.go`, `internal/ssh/forwarding.go`.
+- Done when: Các module local-first cốt lõi cần cho solo use đều đạt ít nhất `Implemented` trên `/dev-kit/implementation-status`. Vault-item repository đã **Implemented** (unified `vault_items` store + cross-type `VaultSearch`, xem [ADR-008](/dev-kit/architecture-decisions#adr-008-unified-vault_items-store-for-built-in-item-types)); SSH có local và remote TCP forwarding với bind loopback-only, cleanup theo lifecycle, capability riêng và UI quản lý start/stop.
+- Dependencies: Phase 0 giữ ổn định storage, crypto envelope, permission boundary, và UI shell local-first.
+- Out of scope: SaaS sync, external plugin loading, marketplace, realtime collaboration.
+
+## Phase 2 — Internal Extension API
+
+- Status: Implemented
+- Goal: Chuẩn hoá built-in modules quanh `ModuleManifest` và contribution contract ổn định, trong khi vẫn giữ capability gateway là security boundary và chưa chạy code bên ngoài.
+- Evidence: Backend manifest và registry ở `internal/modules/registry.go`; built-in descriptors ở `internal/app/app.go`; public metadata ở `internal/bridge/app_service.go` (DTO co-located theo handler); frontend manifests, validation và parity-check ở `frontend/src/modules/{registry.ts,*/manifest.ts}` và `frontend/src/workbench/Workbench.tsx`.
+- Current implementation: `ModuleManifest` dùng các fields `id`, `title`, `version`, `apiVersion`, `commands`, `views`, `capabilities`. Backend validate manifest, bảo vệ duplicate module/contribution, trả list deterministic và snapshot độc lập; `ListModules` chỉ expose public metadata; frontend built-in manifests đối chiếu parity với backend và có minimal functional UX cho loading/error, unavailable module và empty state. `capabilities` chỉ là declaration metadata, còn grants vẫn do policy/capability gateway quản lý.
+- Done when: Combined checkout verification pass; built-in modules dùng contract ổn định, registry/bridge/frontend parity được kiểm chứng, và contribution path vẫn không bypass `AppService.call` + Capability Gateway.
+- Dependencies: Phase 0 Capability Gateway + registry; quyết định “internal modules now, untrusted plugins later” trong `docs/architecture/devkit-architecture.md`.
+- Out of scope: External plugin runtime, dynamic loading, marketplace, MCP runtime, sync runtime, signing và sandbox runtime.
+
+## Phase 3 — SaaS sync
+
+- Status: Implemented
+- Goal: Hoàn thiện sync zero-knowledge nhiều thiết bị từ desktop tới backend thật, với Keycloak là source identity và Gateway là trust boundary công khai.
+- Evidence client: `internal/sync/{contract,outbox,envelope,queue,transport,runner,session,httptransport}.go`; orchestration ở `internal/syncclient` + `internal/syncconflict`; persistent state/apply/conflicts ở `internal/syncstore`; bridge/UI ở `internal/bridge/{sync,syncresolve}.go` và `frontend/src/modules/sync`; deployed matrix `cmd/synce2e/` (branch `feat/phase-3-sync-closure`, commit `7708b99`).
+- Evidence backend: companion checkout `dev-kit-backend/` (branch `main`, commit `cca601f`) có Spring Boot API `session/push/pull`, PostgreSQL arbitration/audit, gateway JWT validation và `gateway/` dùng Spring Cloud Gateway Server Web MVC để validate Keycloak token, strip spoofable headers, ký JWT nội bộ và publish JWKS.
+- Current implementation: Phase 3B/3C client, Git-style conflict flow, enrollment handshake và deployed matrix G1–G4 (`go test ./cmd/synce2e/ -count=1 -timeout 15m` PASS ngày 2026-08-10). Backend Phase A, Gateway/Keycloak realm import, private-network Compose và desktop Authorization Code + PKCE/refresh-token rotation đều có runtime/test. JetBrains 3-pane merge UI vẫn deferred UX polish, không phải blocker Phase 3 — thuộc Phase 5.
+- Done when: Có sync client/queue/conflict flow đầy đủ, blob mã hóa end-to-end, device/session binding, pull/apply policy, bridge/UI tối thiểu, và security review chứng minh server không cần plaintext.
+- Dependencies: Local data model ổn định từ Phase 1, envelope/versioning rules từ Phase 0, và contract boundaries từ Phase 2.
+- Out of scope: Team vault, realtime collaboration và server-side plaintext search.
+
+## Phase 4 — Agent Hub (multi-agent sessions)
+
+- Status: Implemented (**Claude-only v1** — Codex/Gemini deferred)
+- Goal: Built-in orchestration để chạy nhiều AI coding agent CLI song song trong
+  Workbench — mỗi agent một tab — qua **ACP tự implement** (DevKit = ACP Client).
+  Trên nền đó mở agent-gọi-agent (`agenthub.invokeAgent`) qua Capability Gateway
+  + MCP tool surface đã có. **v1 chỉ ship mock + Claude**; thêm vendor sau qua
+  cùng `VendorAdapter`.
+- Evidence: [`/dev-kit/agent-hub`](/dev-kit/agent-hub),
+  `internal/acp`, `internal/agenthub` (mock + Claude), bridge/UI,
+  MCP `agenthub.*`, spawn qua [`/dev-kit/sandbox`](/dev-kit/sandbox)
+  `DefaultRunner().StartPiped` (fail-closed). ADR-009; desktop PR #22.
+- Done when: Spawn/cancel/UI/MCP tools cho Claude + mock; **mọi vendor spawn
+  (non-mock) qua `sandbox.DefaultRunner()`**; audit `origin=mcp|ui`; không bypass
+  Capability Gateway. Codex/Gemini **không** bắt buộc để đóng Phase 4.
+- Dependencies: Phase 0–2; MCP Implemented; **sandbox Implemented**.
+- Còn nợ trên chính lớp ACP: Phase 4 đóng với 6/13 mục core types mà § Technical
+  design đặc tả, và `initialize` chưa khai `clientCapabilities` nào — kế hoạch
+  lấp phần còn lại ở [`/dev-kit/agent-hub`](/dev-kit/agent-hub) § Kế hoạch ACP.
+  Không mở lại Phase 4; đây là việc của Phase 5 trở đi.
+- Out of scope (v1): Codex/Gemini adapters; external plugins; marketplace; ACP v2;
+  Windows sandbox parity; microVM-per-tab; production CI smoke vs real Claude Code
+  (desktop smoke recommended).
+
+## Phase 5 — Workbench UI
+
+- Status: **In progress** (nhánh `phase-5-workbench-ui`, 2026-09-09) — shell,
+  tab ownership, Notes, Settings, Database, CodeGraph, Sync (3-pane merge),
+  Vault gate và Agent Hub đã đối chiếu với Figma; còn device-management UI.
+- Goal: Áp design system toàn app theo [Design system](/dev-kit/design-system)
+  và Figma `3dOzSZBYY7QtzANFTCfEe8` (page 01 Foundations là nguồn sự thật —
+  Geist/Geist Mono, 18 text style, thang radius/control/space). Polish shell +
+  mọi module đã Implemented; deferred Sync conflict 3-pane và
+  device-management UI nằm trong phase này. `dev-kit-app/frontend/DESIGN.md`
+  là phân tích marketing Raycast, **không phải** spec.
+- Evidence: `frontend/src/index.css` (token + `@utility text-*`),
+  `frontend/src/designSystemConformance.test.ts` (ratchet theo surface),
+  pages under `frontend/src/workbench/` và `frontend/src/modules/*`.
+- Done when: Ratchet về 0 cho mọi surface kể cả `components/`; Workbench +
+  modules nhìn nhất quán; **UI đủ flex** để thêm vendor Agent Hub (Codex/Gemini),
+  tab/session, Sync conflict panes, và device list **không đập layout**. Không
+  ship plugins.
+- Dependencies: Phase 0–4 core runtime ổn định (Agent Hub Claude-only closed).
+- Out of scope: External plugin runtime, marketplace, redesign marketing site
+  ngoài product chrome trừ khi DESIGN.md yêu cầu.
+
+## Phase 6 — External plugins
+
+- Status: Design only (**sau** Phase 5 Workbench UI)
+- Goal: Mở rộng từ internal modules sang external plugins có isolation,
+  lifecycle, permissioning rõ.
+- Evidence: `/dev-kit/plugins`, `/dev-kit/implementation-status`,
+  `docs/architecture/devkit-architecture.md`; checkout chưa có `internal/plugins`.
+- Done when: Plugin runtime với isolation + Capability Gateway policy mở rộng;
+  không bypass sandbox/security gates.
+- Dependencies: Phase 2 manifest contract; Phase 5 UI ổn định đủ để host plugin
+  views; security gates trong `/dev-kit/security`.
+- Out of scope: Marketplace distribution; remote third-party loading trước isolation.
+
+## Phase 7 — Marketplace
+
+- Status: Design only (**sau** Phase 6 plugins)
+- Goal: Phân phối plugin có kiểm soát — signing, integrity, rollback, audit.
+- Evidence: `/dev-kit/plugins`, `/dev-kit/core-foundation`; checkout chưa có
+  `internal/marketplace`.
+- Done when: Manifest validation, signing, integrity checks, rollback, audit, và
+  sandbox strategy đều là security gate bắt buộc trước khi mở phân phối.
+- Dependencies: Phase 6 plugin runtime ổn định.
+- Out of scope: Marketplace như hạng mục “MVP”; untrusted remote load không isolation.
+
+## Next recommended work
+
+1. ✅ **Đã xong**: unified `vault_items` store + cross-type `VaultSearch` và SSH local/remote forwarding: `/dev-kit/technical-contracts`.
+2. ✅ **Đã xong**: verification và review contract `ModuleManifest`/contribution cho built-in modules; external plugin runtime vẫn chưa thuộc scope: `/dev-kit/plugins`.
+3. ✅ **Phase 3B client đã xong**: authenticated transport, remote apply/cursor và bridge/UI tối thiểu: `/dev-kit/data-sync`.
+4. ✅ **Phase 3C core đã triển khai**: atomic local mutation capture, authenticated outbox materialization, entity version và stale-ACK/tombstone guards.
+5. ✅ **Conflict resolve client đã xong (MVP)**: list → capture theirs → resolve
+   ours/theirs/`merge` (notes-only); mock E2E qua `cmd/mocksyncserver`. Chi tiết:
+   [`/dev-kit/data-sync`](/dev-kit/data-sync).
+6. ✅ **Backend Phase A + Gateway MVC đã có runtime**: Keycloak trust boundary,
+   session/push/pull, PostgreSQL arbitration/audit, internal JWT/JWKS và private
+   network Compose. Chi tiết: [`/dev-kit/saas-backend`](/dev-kit/saas-backend).
+7. ✅ **Phase 3 deployed matrix đã xong**: G1 multi-entity, G2 retry/idempotency,
+   G3 two-device conflict convergence, G4 refresh-expiry và device revoke qua
+   `cmd/synce2e/` trên Compose stack (`7708b99`). Chi tiết:
+   [`/dev-kit/saas-backend`](/dev-kit/saas-backend).
+8. ✅ **BE Phase B device revoke đã xong**: list/revoke API, last-ACTIVE `409`,
+   Redis denylist TTL 60s, Gateway enforce, bridge tối thiểu (backend `2060f39`,
+   app `02afaaa`). Spec:
+   `docs/superpowers/specs/2026-08-11-be-phase-b-device-revoke-design.md`.
+9. ✅ **MCP runtime + install đã xong**: socket host, stdio proxy, tool allowlist,
+   interaction gate (env wins over `allow_always`), install `claude-code`/`codex`
+   × `global`/`project`. Chi tiết: [`/dev-kit/mcp-agent`](/dev-kit/mcp-agent).
+10. ✅ **Phase 4 Agent Hub v1 (Claude-only) đóng**: ACP + mock/Claude + sandbox
+    `StartPiped` + bridge/UI/MCP `agenthub.*`. Codex/Gemini deferred. Chi tiết:
+    [`/dev-kit/agent-hub`](/dev-kit/agent-hub).
+11. 🔄 **Phase 5 Workbench UI đang chạy** (nhánh `phase-5-workbench-ui`):
+    design system + Figma đã áp cho shell, tab ownership và mọi module; còn
+    device-management UI và ratchet cho `components/`. Plugins → Phase 6;
+    marketplace → Phase 7. Spec:
+    `docs/superpowers/specs/2026-08-12-roadmap-ui-before-plugins-design.md`.
