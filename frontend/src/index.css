@@ -488,44 +488,6 @@
   box-shadow: inset 0 1px 0 var(--glass-highlight);
 }
 
-/* Glass without the blur, for the platform that cannot draw it.
-   
-   Every tier below is a translucent fill that only becomes a surface because
-   something blurs what is behind it. WebKitGTK does not paint backdrop-filter
-   on the software compositing path DevKit uses on Linux, so the fill is all
-   that renders and the tier turns into a window onto the page: the New agent
-   session dialog showed the view behind it straight through, text and buttons
-   and all.
-
-   This is a class rather than @supports on purpose. @supports asks whether the
-   declaration parses, not whether it paints, and WebKitGTK answers true and
-   then draws nothing — so the query is not just unhelpful here, it is wrong.
-   main.tsx sets the class from the platform, which is the only thing that
-   actually knows.
-
-   Opaque at each tier's own fill colour, which introduces no new palette
-   value. It does flatten the tiers into one another, but their elevation was
-   never carried by the fill alone — the hairline border, the inset highlight
-   and the drop shadow all render, and under a dialog scrim the darkened page
-   behind does the rest.
-
-   Specificity is why these read :root...: --surface-glass-modal and friends are
-   set on :root and again on :root[data-theme="light"], and a bare class would
-   lose to the latter. Placed after both blocks so the cascade lands here. */
-:root.no-backdrop-blur {
-  --surface-glass-floating: var(--palette-jet-black);
-  --surface-glass-modal: var(--palette-jet-black);
-  --glass-panel-bg: var(--palette-jet-black);
-  --glass-float-bg: var(--palette-jet-black);
-}
-
-:root.no-backdrop-blur[data-theme="light"] {
-  --surface-glass-floating: #ffffff;
-  --surface-glass-modal: #ffffff;
-  --glass-panel-bg: #ffffff;
-  --glass-float-bg: #ffffff;
-}
-
 .glass-panel {
   background-color: var(--glass-panel-bg);
   border: 1px solid var(--glass-border);
@@ -552,6 +514,10 @@
   backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
 }
 
+/* The one switch that turns glass off, and it belongs to the user rather than
+   to a guess about their platform. It has to reach every tier that blurs: the
+   modal one was left out while a Linux class was flattening the tiers anyway,
+   so nobody noticed a dialog staying translucent here. */
 @media (prefers-reduced-transparency: reduce) {
   .glass-rail {
     background-color: var(--background-app);
@@ -560,6 +526,11 @@
     background-color: var(--surface-base);
   }
   .glass-float {
+    background-color: var(--surface-raised);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .glass-modal {
     background-color: var(--surface-raised);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;

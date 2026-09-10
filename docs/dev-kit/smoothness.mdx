@@ -156,7 +156,7 @@ virtualization và batching; đây là phần chạm tới cảm giác:
 | 7.1 | **Glass chỉ cho lớp nổi.** `backdrop-filter` tốn GPU mỗi khi thứ bên dưới đổi; dữ liệu dày (bảng, tree, code) nằm trên bề mặt đục. | 6 khai báo blur; rail/panel/float đều glass. Chốt hướng "minimal nền + glass lớp nổi" (thảo luận 2026-09-09) thì rail và content card về đục. |
 | 7.2 | **`will-change` chỉ đặt ngay trước khi animate và gỡ sau.** Đặt thường trực = layer thừa, memory GPU. | Cần rà. |
 | 7.3 | **Không chồng nhiều lớp mờ.** Popover glass trên panel glass trên rail glass = blur 3 lần cùng pixel. | Xảy ra khi mở menu trong split panel. |
-| 7.4 | **Vibrancy native làm nền, không tự vẽ blur nền cửa sổ.** | Đúng (`no-backdrop-blur` fallback có). |
+| 7.4 | **Vibrancy native làm nền, không tự vẽ blur nền cửa sổ.** | Đúng. Fallback `no-backdrop-blur` đã gỡ (2026-09-10): nó ép kính thành đục cho **mọi** máy Linux, dựa trên tiền đề "DevKit chạy đường software" — mà tiền đề đó do chính cờ DMABUF sinh ra và đã bị gỡ ở `27cfeed`. Đường tắt kính giờ là `prefers-reduced-transparency`, thuộc quyền người dùng chứ không phải một phán đoán về nền tảng, và đã phủ cả tầng modal. |
 
 ## 8. Khởi động và chuyển cảnh lớn
 
