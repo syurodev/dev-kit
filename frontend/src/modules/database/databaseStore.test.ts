@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { DEFAULT_CONSOLE_ID, useDatabaseStore } from "./databaseStore";
+import { useDatabaseStore } from "./databaseStore";
 
 beforeEach(() => {
   useDatabaseStore.setState({ consoles: {} });
@@ -41,5 +41,26 @@ describe("console slices", () => {
     }));
     expect(useDatabaseStore.getState().consoleState("b").queryResult).toBeNull();
     expect(useDatabaseStore.getState().consoleState("a").queryResult?.rowCount).toBe(1);
+  });
+});
+
+// smoothness 5, "stale response": queryRunId is what stops a slow first run
+// overwriting a faster second one. Per console now, so two consoles running at
+// once cannot invalidate each other.
+describe("run tokens", () => {
+  test("each console counts its own runs", () => {
+    const { setSql } = useDatabaseStore.getState();
+    setSql("a", "SELECT 1;");
+    setSql("b", "SELECT 2;");
+
+    useDatabaseStore.setState((s) => ({
+      consoles: {
+        ...s.consoles,
+        a: { ...s.consoleState("a"), queryRunId: 7 },
+      },
+    }));
+
+    expect(useDatabaseStore.getState().consoleState("a").queryRunId).toBe(7);
+    expect(useDatabaseStore.getState().consoleState("b").queryRunId).toBe(0);
   });
 });

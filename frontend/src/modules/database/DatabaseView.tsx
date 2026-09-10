@@ -1,4 +1,5 @@
 import { Activity, useEffect, useMemo } from "react";
+import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
 import { useSidebarContent } from "@/components/ui/sidebar-shell";
 import { useDatabaseStore } from "./databaseStore";
@@ -42,6 +43,13 @@ export function DatabaseView() {
   useEffect(() => {
     void fetchProfiles();
   }, [fetchProfiles]);
+
+  const schemaError = useDatabaseStore((s) => s.schemaError);
+  useEffect(() => {
+    if (schemaError) {
+      toast.error("Could not index the schema", { description: schemaError });
+    }
+  }, [schemaError]);
 
   // The shell owns the sidebar rail — its width, its resize handle and its
   // visibility toggle. A module registers content and never lays it out itself,

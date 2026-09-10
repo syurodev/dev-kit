@@ -15,15 +15,6 @@ import {
 import { listEnvTags, type EnvTag } from "../../bridge/environments";
 import { listSSHProfiles, type SSHProfile } from "../../bridge/ssh";
 import { errorMessage, isCancelError } from "../../bridge/errors";
-import type { CancellableCall } from "../../bridge/client";
-
-/**
- * The statement currently in flight, if any. Module scope rather than store
- * state: it is a handle, not something a component renders, and putting a
- * promise in the store would make every subscriber re-render when a query
- * starts.
- */
-let inFlightQuery: CancellableCall<QueryResult> | null = null;
 
 export type DatabaseTab = "console" | "erd" | "activity" | "history" | "saved";
 
@@ -145,6 +136,12 @@ export type DatabaseStoreState = {
   // Schema state
   schemaSnapshot: SchemaSnapshot | null;
   indexingSchema: boolean;
+  /**
+   * Why the last schema index failed. Its own field rather than a console's
+   * queryError: re-indexing belongs to the connection, and with several
+   * consoles open there is no console it could honestly belong to.
+   */
+  schemaError: string;
   selectedSchema: string;
   selectedTable: string;
   expandedSchemas: Record<string, boolean>;
@@ -231,6 +228,14 @@ function patchConsole(
   }));
 }
 
+/**
+ * The in-flight call per console, so Cancel reaches the right one. Outside the
+ * store because a CancellableCall is not state — nothing renders from it, and
+ * putting it in the store would make every console re-render when any query
+ * starts.
+ */
+const pendingQueries = new Map<string, ReturnType<typeof runQuery>>();
+
 export const useDatabaseStore = create<DatabaseStoreState>()(
   persist(
     (set, get) => ({
@@ -248,6 +253,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
 
   schemaSnapshot: null,
   indexingSchema: false,
+  schemaError: "",
   selectedSchema: "",
   selectedTable: "",
   expandedSchemas: { "public": true },
@@ -285,10 +291,6 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   setSelectedProfileId: (id: string) => {
     set({
       selectedProfileId: id,
-      queryResult: null,
-      queryError: "",
-      queryStatus: "",
-      queryDurationMs: null,
       tableColumnsMap: {},
       tableColumnsError: {},
       // A focused table belongs to the database it was picked from.
@@ -297,6 +299,17 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       // same click rather than asking for a second one.
       expandedProfiles: { ...get().expandedProfiles, [id]: true },
     });
+    // Every console's result came from the connection you just left, so none of
+    // them describe anything any more. The SQL stays: the same query against a
+    // different database is usually why you switched.
+    set((state) => ({
+      consoles: Object.fromEntries(
+        Object.entries(state.consoles).map(([id, console]) => [
+          id,
+          { ...console, queryResult: null, queryError: "", queryStatus: "", queryDurationMs: null },
+        ]),
+      ),
+    }));
     if (id) {
       void get().loadSchemaSnapshot(id);
     }
@@ -377,7 +390,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   },
 
   refreshSchema: async (profileId: string) => {
-    set({ indexingSchema: true });
+    set({ indexingSchema: true, schemaError: "" });
     try {
       const snap = await indexSchema(profileId);
       set({ schemaSnapshot: snap, indexingSchema: false });
@@ -386,7 +399,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
         set({ selectedSchema: schemas[0] });
       }
     } catch (e) {
-      set({ indexingSchema: false, queryError: errorMessage(e) });
+      set({ indexingSchema: false, schemaError: errorMessage(e) });
     }
   },
 
@@ -428,65 +441,54 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   setSelectedSchema: (schema: string) => set({ selectedSchema: schema }),
   setSelectedTable: (table: string) => set({ selectedTable: table }),
 
-  executeQuery: async () => {
-    const { selectedProfileId, sql } = get();
-    if (!selectedProfileId) return;
+  executeQuery: async (consoleId) => {
+    const { selectedProfileId } = get();
+    const console = get().consoleState(consoleId);
+    if (!selectedProfileId || !console.sql.trim()) {
+      return;
+    }
 
-    const runId = get().queryRunId + 1;
-    const startedAt = Date.now();
-    // queryResult and queryDurationMs deliberately survive the set: the
-    // previous table stays on screen (dimmed by the console) until the new one
-    // replaces it, rather than the pane emptying for the length of the run.
-    set({
+    const runId = console.queryRunId + 1;
+    patchConsole(set, consoleId, {
+      queryRunId: runId,
       runningQuery: true,
-      queryStartTime: startedAt,
       queryError: "",
       queryStatus: "",
-      queryRunId: runId,
+      queryStartTime: Date.now(),
     });
 
-    const call = runQuery(selectedProfileId, sql);
-    inFlightQuery = call;
     try {
+      const call = runQuery(selectedProfileId, console.sql);
+      pendingQueries.set(consoleId, call);
       const result = await call;
-      if (get().queryRunId !== runId) return;
-      set({
-        queryResult: result,
-        runningQuery: false,
-        queryStartTime: null,
-        queryStatus: `Success: ${result.rowCount} row(s) returned`,
-        queryDurationMs: Date.now() - startedAt,
-      });
-    } catch (e) {
-      if (get().queryRunId !== runId) return;
-      // A cancel is something the user asked for; it leaves the previous
-      // result in place and says nothing in the error slot.
-      if (isCancelError(e)) {
-        set({ runningQuery: false, queryStartTime: null, queryStatus: "" });
+      // A newer run in THIS console has already started; its answer wins.
+      if (get().consoleState(consoleId).queryRunId !== runId) {
         return;
       }
-      set({
-        queryError: errorMessage(e),
+      patchConsole(set, consoleId, {
+        queryResult: result,
         runningQuery: false,
-        queryStartTime: null,
-        queryStatus: "",
+        queryDurationMs: Date.now() - (get().consoleState(consoleId).queryStartTime ?? Date.now()),
+        queryStatus: `${result.rowCount} row${result.rowCount === 1 ? "" : "s"}`,
       });
+    } catch (e) {
+      if (isCancelError(e)) {
+        // A cancel is something the user asked for; it leaves the previous
+        // result alone.
+        patchConsole(set, consoleId, { runningQuery: false });
+        return;
+      }
+      if (get().consoleState(consoleId).queryRunId !== runId) {
+        return;
+      }
+      patchConsole(set, consoleId, { queryError: errorMessage(e), runningQuery: false });
     } finally {
-      if (inFlightQuery === call) inFlightQuery = null;
+      pendingQueries.delete(consoleId);
     }
   },
 
-  /**
-   * Stops the statement, not just the waiting: the bridge call carries a Go
-   * context that Wails cancels for us. The rejection that follows is a
-   * CancelError, which executeQuery drops without touching the result.
-   */
-  cancelQuery: () => {
-    const call = inFlightQuery;
-    if (!call) return;
-    inFlightQuery = null;
-    set({ runningQuery: false, queryStartTime: null, queryStatus: "" });
-    call.cancel();
+  cancelQuery: (consoleId) => {
+    pendingQueries.get(consoleId)?.cancel();
   },
 
   consoleState: (consoleId) => get().consoles[consoleId] ?? EMPTY_CONSOLE,
