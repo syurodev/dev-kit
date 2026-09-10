@@ -67,6 +67,7 @@ type Container struct {
 	Capabilities *capabilities.Gateway
 	Vault        *vault.Service
 	HashTools    *tools.HashService
+	UtilTools    *tools.UtilService
 	Items        *vaultitem.Store
 	Notes        *notes.Service
 	Environments *environments.Service
@@ -152,8 +153,19 @@ func NewContainerWithStores(
 	itemRepo vaultitem.Repository,
 	envRepo environments.Repository,
 ) *Container {
-	permissionPolicy := permissions.NewPolicy([]permissions.Grant{
-		{SubjectID: "builtin.tools", Capability: "tools:hash", Scope: "command:tools.hash"},
+	toolGrants := make([]permissions.Grant, 0, len(tools.Commands))
+	for _, command := range tools.Commands {
+		toolGrants = append(toolGrants, permissions.Grant{
+			SubjectID:  tools.SubjectID,
+			Capability: command.Capability,
+			Scope:      "command:" + command.ID,
+		})
+	}
+
+	permissionPolicy := permissions.NewPolicy(append(toolGrants, []permissions.Grant{
+		// Tools grants come from tools.Commands so a new command cannot be
+		// registered without one — the failure that leaves a command runnable
+		// with no matching grant, or granted and never wired.
 		{SubjectID: "builtin.notes", Capability: "notes:write", Scope: "note:new"},
 		{SubjectID: "builtin.notes", Capability: "notes:write", Scope: "note:*"},
 		{SubjectID: "builtin.notes", Capability: "notes:read", Scope: "note:list"},
@@ -225,7 +237,7 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "theme"},
 		{SubjectID: "builtin.uistate", Capability: "ui:read", Scope: "key:*"},
 		{SubjectID: "builtin.uistate", Capability: "ui:write", Scope: "key:*"},
-	})
+	}...))
 
 	vaultService := vault.NewService(keyringStore)
 	auditSink := audit.NewMemorySink()
@@ -248,6 +260,7 @@ func NewContainerWithStores(
 		Capabilities: capabilities.NewGateway(permissionPolicy, auditSink),
 		Vault:        vaultService,
 		HashTools:    tools.NewHashService(),
+		UtilTools:    tools.NewUtilService(),
 		Items:        itemStore,
 		Notes:        notes.NewService(itemStore),
 		Environments: envService,
