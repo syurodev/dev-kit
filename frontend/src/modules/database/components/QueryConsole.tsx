@@ -409,13 +409,14 @@ export function QueryConsole() {
               {/* 742:36–742:39: "200 rows  412 ms" and the cap chip. */}
               <div className="flex h-9 shrink-0 items-center gap-6">
                 <span className="text-body-13-medium text-text-primary">
-                  {queryResult.rowCount} {queryResult.rowCount === 1 ? "row" : "rows"}
+                  <span className="tabular-nums">{queryResult.rowCount}</span>{" "}
+                  {queryResult.rowCount === 1 ? "row" : "rows"}
                 </span>
                 {queryDurationMs != null && (
-                  <span className="text-body-13-medium text-text-primary">{queryDurationMs} ms</span>
+                  <span className="text-body-13-medium text-text-primary tabular-nums">{queryDurationMs} ms</span>
                 )}
                 <span className="text-caption-11 text-text-tertiary">
-                  {queryResult.columns.length} columns
+                  <span className="tabular-nums">{queryResult.columns.length}</span> columns
                 </span>
                 <span className="flex-1" />
                 {queryResult.truncated && (
@@ -426,7 +427,7 @@ export function QueryConsole() {
               </div>
 
               {/* result (743:8): a well card; header on surface/raised. */}
-              <div className="min-h-0 flex-1 overflow-auto rounded-md border border-border-subtle bg-surface-well">
+              <div className="min-h-0 flex-1 overflow-auto scrollbar-gutter-stable rounded-md border border-border-subtle bg-surface-well">
                 <table className="w-full border-collapse text-left text-code-12" aria-label="Query results">
                   <thead className="sticky top-0 z-10 bg-surface-raised">
                     <tr>

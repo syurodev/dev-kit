@@ -12,6 +12,7 @@ import {
   Lock,
   Calendar,
 } from "lucide-react";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ListSkeleton } from "@/components/ui/skeleton";
@@ -106,7 +107,7 @@ export function QueryHistoryView() {
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+      <div className="flex-1 overflow-y-auto scrollbar-gutter-stable p-4 space-y-3">
         {isVaultLocked ? (
           <div className="p-6 rounded-xl border border-border bg-surface-raised/50 text-center flex flex-col items-center justify-center max-w-md mx-auto my-12">
             <Lock className="w-8 h-8 text-amber-500 mb-2" />
@@ -170,11 +171,11 @@ export function QueryHistoryView() {
             ))}
           </div>
         ) : (
-          <div className="text-center py-16 text-body-12 text-text-tertiary">
-            <History className="w-8 h-8 text-text-tertiary mx-auto mb-2 opacity-50" />
-            <p>No queries recorded in history yet.</p>
-            <p className="text-caption-11 mt-1">Queries executed in the console will automatically appear here.</p>
-          </div>
+          <EmptyState
+            icon={History}
+            title="No queries recorded in history yet"
+            body="Queries executed in the console will automatically appear here."
+          />
         )}
       </div>
     </div>

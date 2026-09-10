@@ -133,7 +133,7 @@ export function KafkaSidebar() {
         </Button>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto pb-2">
+      <div className="min-h-0 flex-1 overflow-y-auto scrollbar-gutter-stable pb-2">
         {profiles.length === 0 ? (
           <div className="px-4 py-6 text-center text-body-12 text-text-tertiary">
             <p>No clusters saved.</p>

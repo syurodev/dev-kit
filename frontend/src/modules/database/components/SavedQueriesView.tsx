@@ -13,6 +13,7 @@ import {
   Search,
   Lock,
 } from "lucide-react";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ListSkeleton } from "@/components/ui/skeleton";
@@ -140,7 +141,7 @@ export function SavedQueriesView() {
       </div>
 
       {/* Main List */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+      <div className="flex-1 overflow-y-auto scrollbar-gutter-stable p-4 space-y-3">
         {isVaultLocked ? (
           <div className="p-6 rounded-xl border border-border bg-surface-raised/50 text-center flex flex-col items-center justify-center max-w-md mx-auto my-12">
             <Lock className="w-8 h-8 text-amber-500 mb-2" />
@@ -211,11 +212,11 @@ export function SavedQueriesView() {
             ))}
           </div>
         ) : (
-          <div className="text-center py-16 text-body-12 text-text-tertiary">
-            <Bookmark className="w-8 h-8 text-text-tertiary mx-auto mb-2 opacity-50" />
-            <p>No saved queries yet.</p>
-            <p className="text-caption-11 mt-1">Save reusable statements with custom names to access them anytime.</p>
-          </div>
+          <EmptyState
+            icon={Bookmark}
+            title="No saved queries yet"
+            body="Save reusable statements with custom names to access them anytime."
+          />
         )}
       </div>
     </div>

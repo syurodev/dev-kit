@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   Lock,
 } from "lucide-react";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Button } from "@/components/ui/button";
 import { ListSkeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
@@ -183,20 +184,13 @@ export function LiveActivityView() {
       )}
 
       {/* Main Table / Empty State */}
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 overflow-auto scrollbar-gutter-stable">
         {engineHasNoSessions ? (
-          <div className="h-full flex flex-col items-center justify-center text-center p-8 text-text-tertiary">
-            <div className="w-12 h-12 rounded-xl bg-surface-raised border border-border flex items-center justify-center mb-3">
-              <Activity className="w-6 h-6 text-text-secondary" />
-            </div>
-            <h3 className="text-title-14 text-text-primary mb-1">
-              {profile?.engine === "sqlite" ? "SQLite does not report sessions" : "This engine does not report sessions"}
-            </h3>
-            <p className="text-body-13 max-w-sm text-text-secondary">
-              There is no server and no connection pool, so there is nothing to inspect.
-              Activity is available on PostgreSQL, MySQL and MariaDB profiles.
-            </p>
-          </div>
+          <EmptyState
+            icon={Activity}
+            title={profile?.engine === "sqlite" ? "SQLite does not report sessions" : "This engine does not report sessions"}
+            body="There is no server and no connection pool, so there is nothing to inspect. Activity is available on PostgreSQL, MySQL and MariaDB profiles."
+          />
         ) : sessions === null ? (
           <ListSkeleton />
         ) : filtered.length > 0 ? (
@@ -284,17 +278,11 @@ export function LiveActivityView() {
             </tbody>
           </table>
         ) : (
-          <div className="h-full flex flex-col items-center justify-center text-center p-8 text-text-tertiary">
-            <div className="w-12 h-12 rounded-xl bg-surface-raised border border-border flex items-center justify-center mb-3">
-              <Activity className="w-6 h-6 text-text-secondary" />
-            </div>
-            <h3 className="text-title-14 text-text-primary mb-1">
-              No Active Queries Running
-            </h3>
-            <p className="text-body-13 max-w-sm text-text-secondary">
-              This server currently has no long-running or blocked queries. Activity snapshots are taken on-demand when you refresh.
-            </p>
-          </div>
+          <EmptyState
+            icon={Activity}
+            title="No active queries running"
+            body="This server currently has no long-running or blocked queries. Activity snapshots are taken on-demand when you refresh."
+          />
         )}
       </div>
 
