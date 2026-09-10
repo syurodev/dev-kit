@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Chip } from "@/components/ui/chip";
 import { CodeEditor } from "@/components/code-editor/CodeEditor";
 import { EmptyProgress, EmptyState } from "@/components/ui/empty-state";
+import { useVirtualRows } from "@/components/ui/virtual-rows";
 import { useSidebarContent } from "@/components/ui/sidebar-shell";
 import { useSplitPanel } from "@/components/ui/split-panel";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -17,6 +18,8 @@ import { MessagePanel } from "./MessagePanel";
 import { NewClusterDialog } from "./NewClusterDialog";
 import { formatClock, formatOffset } from "./kafkaForm";
 import { useKafkaStore, type KafkaTab } from "./kafkaStore";
+
+const PEEK_ROW_HEIGHT = 36;
 
 const CARD =
   "min-h-0 flex-1 overflow-auto scrollbar-gutter-stable rounded-md border border-border-subtle bg-surface-well";
@@ -109,6 +112,11 @@ export function KafkaView() {
     if (activeTab === "topics") void peek();
     if (activeTab === "publish") void publishMessage();
   }
+
+  // Above the disconnected early return: a hook cannot sit behind one. A peek
+  // holds up to 500 rows and windows past 100 (frontend performance 6.3);
+  // rows are h-9, so 36px each.
+  const peekRows = useVirtualRows(messages.length, PEEK_ROW_HEIGHT);
 
   if (!connection.connected) {
     return (
@@ -314,6 +322,7 @@ export function KafkaView() {
           </div>
 
           <div
+            ref={peekRows.scrollRef}
             className={cn(
               CARD,
               peeking && "pointer-events-none opacity-60 transition-opacity duration-(--motion-base)",
@@ -357,21 +366,27 @@ export function KafkaView() {
                   </tr>
                 </thead>
                 <tbody>
-                  {messages.map((m) => (
-                    <tr
-                      key={`${m.offset}-${m.timestamp ?? 0}`}
-                      onClick={() => inspect(m)}
-                      className={cn(
-                        "cursor-pointer border-b border-border-subtle hover:bg-surface-raised/60",
-                        inspected === m && "bg-surface-raised",
-                      )}
-                    >
-                      <td className="h-9 truncate px-4 text-text-tertiary tabular-nums">{formatOffset(m.offset)}</td>
-                      <td className="h-9 truncate px-4 text-text-primary">{m.key ?? ""}</td>
-                      <td className="h-9 truncate px-4 text-text-secondary" title="Click to open">{m.value}</td>
-                      <td className="h-9 truncate px-4 text-code-11 text-text-tertiary tabular-nums">{formatClock(m.timestamp)}</td>
-                    </tr>
-                  ))}
+                  {/* Spacer rows, not absolute positioning: see virtual-rows. */}
+                  {peekRows.padTop > 0 && <tr style={{ height: peekRows.padTop }} aria-hidden />}
+                  {peekRows.indices.map((i) => {
+                    const m = messages[i];
+                    return (
+                      <tr
+                        key={`${m.offset}-${m.timestamp ?? 0}`}
+                        onClick={() => inspect(m)}
+                        className={cn(
+                          "cursor-pointer border-b border-border-subtle hover:bg-surface-raised/60",
+                          inspected === m && "bg-surface-raised",
+                        )}
+                      >
+                        <td className="h-9 truncate px-4 text-text-tertiary tabular-nums">{formatOffset(m.offset)}</td>
+                        <td className="h-9 truncate px-4 text-text-primary">{m.key ?? ""}</td>
+                        <td className="h-9 truncate px-4 text-text-secondary" title="Click to open">{m.value}</td>
+                        <td className="h-9 truncate px-4 text-code-11 text-text-tertiary tabular-nums">{formatClock(m.timestamp)}</td>
+                      </tr>
+                    );
+                  })}
+                  {peekRows.padBottom > 0 && <tr style={{ height: peekRows.padBottom }} aria-hidden />}
                 </tbody>
               </table>
             )}

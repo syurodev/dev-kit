@@ -10,6 +10,9 @@ import {
   Lock,
 } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
+import { useVirtualRows } from "@/components/ui/virtual-rows";
+
+const SESSION_ROW_HEIGHT = 42;
 import { Button } from "@/components/ui/button";
 import { ListSkeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
@@ -129,6 +132,10 @@ export function LiveActivityView() {
       s.application.toLowerCase().includes(search.toLowerCase())
   );
 
+  // A busy server can report hundreds of sessions; past 100 the table windows
+  // (frontend performance 6.3). Rows are py-2.5 around a 17px line box, so 42.
+  const sessionRows = useVirtualRows(filtered.length, SESSION_ROW_HEIGHT);
+
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden select-none">
       {/* Header Toolbar */}
@@ -184,7 +191,7 @@ export function LiveActivityView() {
       )}
 
       {/* Main Table / Empty State */}
-      <div className="flex-1 overflow-auto scrollbar-gutter-stable">
+      <div ref={sessionRows.scrollRef} className="flex-1 overflow-auto scrollbar-gutter-stable">
         {engineHasNoSessions ? (
           <EmptyState
             icon={Activity}
@@ -208,7 +215,10 @@ export function LiveActivityView() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border/40 text-text-primary">
-              {filtered.map((s) => {
+              {/* Spacer rows, not absolute positioning: see virtual-rows. */}
+              {sessionRows.padTop > 0 && <tr style={{ height: sessionRows.padTop }} aria-hidden />}
+              {sessionRows.indices.map((i) => {
+                const s = filtered[i];
                 const hasBlockers = s.blockedBy && s.blockedBy.length > 0;
                 return (
                   <tr
@@ -275,6 +285,9 @@ export function LiveActivityView() {
                   </tr>
                 );
               })}
+              {sessionRows.padBottom > 0 && (
+                <tr style={{ height: sessionRows.padBottom }} aria-hidden />
+              )}
             </tbody>
           </table>
         ) : (

@@ -36,6 +36,9 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { cn } from "@/lib/utils";
+import { useVirtualRows } from "@/components/ui/virtual-rows";
+
+const RESULT_ROW_HEIGHT = 36;
 import { copyText } from "../../../bridge/clipboard";
 import { requestVaultUnlock } from "@/workbench/vaultUnlockRequest";
 import { isVaultLockedError } from "../errorStates";
@@ -118,6 +121,10 @@ export function QueryConsole() {
       setConsoleEditorSize: s.setConsoleEditorSize,
     }))
   );
+
+  // Result sets cap at 200 rows today but the cap is a setting; past 100 the
+  // table windows (frontend performance 6.3). Rows are h-9, so 36px each.
+  const resultRows = useVirtualRows(queryResult?.rows.length ?? 0, RESULT_ROW_HEIGHT);
 
   const [elapsed, setElapsed] = useState(0);
   const [activePlan, setActivePlan] = useState<QueryPlan | null>(null);
@@ -452,7 +459,10 @@ export function QueryConsole() {
               </div>
 
               {/* result (743:8): a well card; header on surface/raised. */}
-              <div className="min-h-0 flex-1 overflow-auto scrollbar-gutter-stable rounded-md border border-border-subtle bg-surface-well">
+              <div
+                ref={resultRows.scrollRef}
+                className="min-h-0 flex-1 overflow-auto scrollbar-gutter-stable rounded-md border border-border-subtle bg-surface-well"
+              >
                 <table className="w-full border-collapse text-left text-code-12" aria-label="Query results">
                   <thead className="sticky top-0 z-10 bg-surface-raised">
                     <tr>
@@ -492,7 +502,11 @@ export function QueryConsole() {
                     </tr>
                   </thead>
                   <tbody>
-                    {queryResult.rows.map((row, i) => (
+                    {/* Spacer rows, not absolute positioning: see virtual-rows. */}
+                    {resultRows.padTop > 0 && <tr style={{ height: resultRows.padTop }} aria-hidden />}
+                    {resultRows.indices.map((i) => {
+                      const row = queryResult.rows[i];
+                      return (
                       <tr key={i} className="group transition-colors hover:bg-surface-raised/60">
                         {row.map((cell, j) => {
                           const colName = queryResult.columns[j] || `col_${j}`;
@@ -548,7 +562,11 @@ export function QueryConsole() {
                           );
                         })}
                       </tr>
-                    ))}
+                      );
+                    })}
+                    {resultRows.padBottom > 0 && (
+                      <tr style={{ height: resultRows.padBottom }} aria-hidden />
+                    )}
                   </tbody>
                 </table>
               </div>
