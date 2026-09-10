@@ -82,40 +82,44 @@ const RESULT = (rowCount: number) => ({
   truncated: false,
 });
 
+// One console for the whole suite: these tests are about ordering within a
+// single console, not about isolation between two. Isolation gets its own test
+// at the bottom.
+const C = "test-console";
+
 afterEach(() => {
   pending.length = 0;
-  useDatabaseStore.setState({
-    queryResult: null,
-    runningQuery: false,
-    queryError: "",
-    queryDurationMs: null,
-    queryRunId: 0,
-    queryStartTime: null,
-  });
+  useDatabaseStore.setState({ consoles: {} });
 });
 
 describe("executeQuery, while it is running", () => {
   it("keeps the previous result on screen and flags the run", async () => {
-    useDatabaseStore.setState({ selectedProfileId: "p1", sql: "select 1", queryResult: RESULT(7) });
+    useDatabaseStore.setState((s) => ({
+      selectedProfileId: "p1",
+      consoles: { ...s.consoles, [C]: { ...s.consoleState(C), sql: "select 1", queryResult: RESULT(7) } },
+    }));
 
-    const run = useDatabaseStore.getState().executeQuery();
+    const run = useDatabaseStore.getState().executeQuery(C);
 
     // The old table is still there — the pane does not empty for the length of
     // the statement — and the console knows to dim it.
-    expect(useDatabaseStore.getState().queryResult?.rowCount).toBe(7);
-    expect(useDatabaseStore.getState().runningQuery).toBe(true);
+    expect(useDatabaseStore.getState().consoleState(C).queryResult?.rowCount).toBe(7);
+    expect(useDatabaseStore.getState().consoleState(C).runningQuery).toBe(true);
 
     pending[0].resolve(RESULT(9));
     await run;
-    expect(useDatabaseStore.getState().queryResult?.rowCount).toBe(9);
-    expect(useDatabaseStore.getState().runningQuery).toBe(false);
+    expect(useDatabaseStore.getState().consoleState(C).queryResult?.rowCount).toBe(9);
+    expect(useDatabaseStore.getState().consoleState(C).runningQuery).toBe(false);
   });
 
   it("drops the answer of a run that has been superseded", async () => {
-    useDatabaseStore.setState({ selectedProfileId: "p1", sql: "select 1" });
+    useDatabaseStore.setState((s) => ({
+      selectedProfileId: "p1",
+      consoles: { ...s.consoles, [C]: { ...s.consoleState(C), sql: "select 1" } },
+    }));
 
-    const first = useDatabaseStore.getState().executeQuery();
-    const second = useDatabaseStore.getState().executeQuery();
+    const first = useDatabaseStore.getState().executeQuery(C);
+    const second = useDatabaseStore.getState().executeQuery(C);
     expect(pending).toHaveLength(2);
 
     // The newer statement answers first, then the older one lands late.
@@ -124,35 +128,69 @@ describe("executeQuery, while it is running", () => {
     pending[0].resolve(RESULT(1));
     await first;
 
-    expect(useDatabaseStore.getState().queryResult?.rowCount).toBe(2);
+    expect(useDatabaseStore.getState().consoleState(C).queryResult?.rowCount).toBe(2);
   });
 
   it("a late failure from a superseded run does not raise an error card", async () => {
-    useDatabaseStore.setState({ selectedProfileId: "p1", sql: "select 1" });
+    useDatabaseStore.setState((s) => ({
+      selectedProfileId: "p1",
+      consoles: { ...s.consoles, [C]: { ...s.consoleState(C), sql: "select 1" } },
+    }));
 
-    const first = useDatabaseStore.getState().executeQuery();
-    const second = useDatabaseStore.getState().executeQuery();
+    const first = useDatabaseStore.getState().executeQuery(C);
+    const second = useDatabaseStore.getState().executeQuery(C);
 
     pending[1].resolve(RESULT(3));
     await second;
     pending[0].reject(new Error("connection reset"));
     await first;
 
-    expect(useDatabaseStore.getState().queryError).toBe("");
-    expect(useDatabaseStore.getState().queryResult?.rowCount).toBe(3);
+    expect(useDatabaseStore.getState().consoleState(C).queryError).toBe("");
+    expect(useDatabaseStore.getState().consoleState(C).queryResult?.rowCount).toBe(3);
   });
 
   it("cancel stops the call and leaves the previous result alone", async () => {
-    useDatabaseStore.setState({ selectedProfileId: "p1", sql: "select 1", queryResult: RESULT(4) });
+    useDatabaseStore.setState((s) => ({
+      selectedProfileId: "p1",
+      consoles: { ...s.consoles, [C]: { ...s.consoleState(C), sql: "select 1", queryResult: RESULT(4) } },
+    }));
 
-    const run = useDatabaseStore.getState().executeQuery();
-    useDatabaseStore.getState().cancelQuery();
+    const run = useDatabaseStore.getState().executeQuery(C);
+    useDatabaseStore.getState().cancelQuery(C);
     await run;
 
     expect(pending[0].cancelled).toBe(true);
-    expect(useDatabaseStore.getState().runningQuery).toBe(false);
-    expect(useDatabaseStore.getState().queryError).toBe("");
-    expect(useDatabaseStore.getState().queryResult?.rowCount).toBe(4);
+    expect(useDatabaseStore.getState().consoleState(C).runningQuery).toBe(false);
+    expect(useDatabaseStore.getState().consoleState(C).queryError).toBe("");
+    expect(useDatabaseStore.getState().consoleState(C).queryResult?.rowCount).toBe(4);
+  });
+
+  // The reason run tokens moved per console: two consoles running at once must
+  // not invalidate each other. With one shared token the second console's run
+  // would supersede the first's, and the first would silently drop its answer.
+  it("a run in one console does not supersede a run in another", async () => {
+    useDatabaseStore.setState((s) => ({
+      selectedProfileId: "p1",
+      consoles: {
+        ...s.consoles,
+        a: { ...s.consoleState("a"), sql: "select 1" },
+        b: { ...s.consoleState("b"), sql: "select 2" },
+      },
+    }));
+
+    const runA = useDatabaseStore.getState().executeQuery("a");
+    const runB = useDatabaseStore.getState().executeQuery("b");
+    expect(pending).toHaveLength(2);
+
+    pending[1].resolve(RESULT(2));
+    await runB;
+    pending[0].resolve(RESULT(1));
+    await runA;
+
+    // Both answers land. Neither run was superseded, because neither shares a
+    // token with the other.
+    expect(useDatabaseStore.getState().consoleState("a").queryResult?.rowCount).toBe(1);
+    expect(useDatabaseStore.getState().consoleState("b").queryResult?.rowCount).toBe(2);
   });
 });
 
