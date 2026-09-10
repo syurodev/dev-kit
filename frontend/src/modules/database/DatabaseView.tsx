@@ -8,6 +8,7 @@ import { DatabaseOverlays } from "./DatabaseOverlays";
 import { TLSRefusedState, VaultLockedState } from "./components/DatabaseStates";
 import { isInsecureTLSError, isVaultLockedError } from "./errorStates";
 import { useDatabaseChrome } from "./useDatabaseChrome";
+import { useConsoleLifetime } from "./useConsoleLifetime";
 import { useIsActiveDocument } from "./useIsActiveDocument";
 
 /**
@@ -49,6 +50,7 @@ export function DatabaseView({ params }: { params?: Record<string, unknown> }) {
   }, [schemaError]);
 
   useDatabaseChrome();
+  useConsoleLifetime(consoleId);
 
   const blocking = profileError || queryError;
   const profile = profiles.find((p) => p.id === selectedProfileId);

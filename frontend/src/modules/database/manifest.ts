@@ -17,6 +17,11 @@ export const databaseModule: ModuleManifest = {
   // A tab per document: a console, a table's data, the ERD, and the three
   // read-only views. views[0] is the module's home — what a Dock click opens.
   tabs: true,
+  // The shell's p-4. Every Database view drew its own gutter and they had
+  // drifted — 24px in the console, 12px in the three read-only views — so
+  // switching tabs moved the content sideways. Nothing here draws a
+  // full-bleed divider any more, which is the case the bleed default is for.
+  padded: true,
   views: [
     {
       id: "database.console",

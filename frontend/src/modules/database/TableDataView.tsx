@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useDatabaseStore } from "./databaseStore";
 import { QueryConsole } from "./components/QueryConsole";
+import { consoleIdOfTab, useConsoleLifetime } from "./useConsoleLifetime";
 import { useDatabaseChrome } from "./useDatabaseChrome";
 import { DatabaseOverlays } from "./DatabaseOverlays";
 import { useIsActiveDocument } from "./useIsActiveDocument";
@@ -16,9 +17,12 @@ import { useIsActiveDocument } from "./useIsActiveDocument";
 export function TableDataView({ params }: { params?: Record<string, unknown> }) {
   const schema = typeof params?.schema === "string" ? params.schema : "";
   const table = typeof params?.table === "string" ? params.table : "";
-  const consoleId = `table:${schema}.${table}`;
+  // Derived through the shared rule, not spelled again here: useConsoleLifetime
+  // computes the same id from a TAB, and two copies would drift into a leak.
+  const consoleId = consoleIdOfTab("database.table", { schema, table }) ?? "";
 
   useDatabaseChrome();
+  useConsoleLifetime(consoleId);
   const setSql = useDatabaseStore((s) => s.setSql);
   const executeQuery = useDatabaseStore((s) => s.executeQuery);
   const hasSql = useDatabaseStore((s) => Boolean(s.consoles[consoleId]?.sql));

@@ -83,7 +83,7 @@ export function QueryHistoryView() {
       {/* Header */}
       {/* No heading: the tab strip directly above already names this view, and
           the same bar height across tabs stops the content jumping on switch. */}
-      <div className="px-3 min-h-12 py-2 border-b border-border bg-surface-raised/30 flex flex-wrap items-center justify-between gap-3 shrink-0">
+      <div className="min-h-12 py-2 border-b border-border bg-surface-raised/30 flex flex-wrap items-center justify-between gap-3 shrink-0">
         <div className="flex items-center gap-2">
           <span className="text-body-12 text-text-tertiary">Last 50 · local to this device</span>
         </div>

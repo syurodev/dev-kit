@@ -207,7 +207,7 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
   const busy = slice.runningQuery || explaining || !selectedProfileId;
 
   return (
-    <div className="flex h-full flex-1 flex-col overflow-hidden px-6 pt-3.5 pb-6" onKeyDown={handleKeyDown}>
+    <div className="flex h-full flex-1 flex-col overflow-hidden" onKeyDown={handleKeyDown}>
       {/* Toolbar (742:18, 742:21): the primary Run carries its shortcut at 65%
           inside the button, Export beside it. The plan and save actions
           are DevKit's and sit on the left. */}
