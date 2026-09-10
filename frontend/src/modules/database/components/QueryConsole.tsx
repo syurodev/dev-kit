@@ -15,6 +15,7 @@ import {
   Columns3,
   List,
   KeyRound,
+  Loader2,
 } from "lucide-react";
 import { sql as codemirrorSql, PostgreSQL, MySQL, MariaSQL } from "@codemirror/lang-sql";
 import { Button } from "@/components/ui/button";
@@ -87,6 +88,7 @@ export function QueryConsole() {
     queryStartTime,
     queryError,
     executeQuery,
+    cancelQuery,
     clearQueryError,
     schemaSnapshot,
     setInspectedCell,
@@ -106,6 +108,7 @@ export function QueryConsole() {
       queryStartTime: s.queryStartTime,
       queryError: s.queryError,
       executeQuery: s.executeQuery,
+      cancelQuery: s.cancelQuery,
       clearQueryError: s.clearQueryError,
       schemaSnapshot: s.schemaSnapshot,
       setInspectedCell: s.setInspectedCell,
@@ -252,14 +255,27 @@ export function QueryConsole() {
             Export
           </Button>
         )}
+        {/* The wait belongs in the control that started it (smoothness 5), and
+            Cancel appears beside it rather than replacing it — the Run button
+            keeps its place in the row so nothing else shifts. */}
+        {runningQuery && (
+          <Button variant="outline" size="default" className="bg-surface-raised" onClick={cancelQuery}>
+            <XCircle className="size-3.5" />
+            Cancel
+          </Button>
+        )}
         <Button
           variant="default"
           size="default"
           onClick={() => void executeQuery()}
           disabled={runningQuery || !selectedProfileId}
         >
-          <Play className="size-3.5 fill-current" />
-          Run
+          {runningQuery ? (
+            <Loader2 className="size-3.5 animate-spin" />
+          ) : (
+            <Play className="size-3.5 fill-current" />
+          )}
+          {runningQuery ? "Running…" : "Run"}
           <span className="text-code-11 opacity-65">{shortcut("Enter")}</span>
         </Button>
       </div>
@@ -405,7 +421,16 @@ export function QueryConsole() {
           )}
 
           {queryResult ? (
-            <div className="flex min-h-0 flex-1 flex-col">
+            /* The previous result stays put while the next statement runs and
+               is only dimmed (smoothness 5, "no clearing the old result"). It
+               is also inert: clicking a cell of a table that is about to be
+               replaced opens an inspector on stale data. */
+            <div
+              className={cn(
+                "flex min-h-0 flex-1 flex-col",
+                runningQuery && "pointer-events-none opacity-60 transition-opacity duration-(--motion-base)",
+              )}
+            >
               {/* 742:36–742:39: "200 rows  412 ms" and the cap chip. */}
               <div className="flex h-9 shrink-0 items-center gap-6">
                 <span className="text-body-13-medium text-text-primary">

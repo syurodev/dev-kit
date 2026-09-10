@@ -70,6 +70,7 @@ export function KafkaView() {
   const testConnection = useKafkaStore((s) => s.testConnection);
   const setPeek = useKafkaStore((s) => s.setPeek);
   const peek = useKafkaStore((s) => s.peek);
+  const cancelPeek = useKafkaStore((s) => s.cancelPeek);
   const refreshGroups = useKafkaStore((s) => s.refreshGroups);
   const setPublish = useKafkaStore((s) => s.setPublish);
   const publishMessage = useKafkaStore((s) => s.publishMessage);
@@ -160,9 +161,10 @@ export function KafkaView() {
                 )}
                 <div className="flex items-center gap-2">
                   <Button variant="outline" className="bg-surface-raised" disabled={testing} onClick={() => void testConnection(profile.id)}>
+                    {testing && <Loader2 className="size-3.5 animate-spin" />}
                     {testing ? "Testing…" : "Test connection"}
                   </Button>
-                  <Button onClick={() => void connect(profile.id)}>
+                  <Button onClick={() => void connect(profile.id)} disabled={testing}>
                     <PlugZap className="size-3.5" />
                     Connect {profile.name}
                   </Button>
@@ -216,7 +218,15 @@ export function KafkaView() {
             <Button variant="outline" className="bg-surface-raised" onClick={() => setActiveTab("publish")}>
               Publish
             </Button>
+            {/* Cancel sits beside Peek rather than replacing it, so the row's
+                widths do not change when a peek starts (smoothness 5). */}
+            {peeking && (
+              <Button variant="outline" className="bg-surface-raised" onClick={cancelPeek}>
+                Cancel
+              </Button>
+            )}
             <Button onClick={() => void peek()} disabled={!selectedTopic || peeking}>
+              {peeking && <Loader2 className="size-3.5 animate-spin" />}
               {peeking ? "Peeking…" : "Peek"}
               <span className="text-code-11 opacity-65">{shortcut("Enter")}</span>
             </Button>
@@ -303,9 +313,21 @@ export function KafkaView() {
             <Chip className="text-text-tertiary">a peek never commits an offset</Chip>
           </div>
 
-          <div className={CARD}>
+          <div
+            className={cn(
+              CARD,
+              peeking && "pointer-events-none opacity-60 transition-opacity duration-(--motion-base)",
+            )}
+          >
             {peekError ? (
-              <pre className="px-4 py-3 text-code-12 whitespace-pre-wrap text-status-danger select-text">{peekError}</pre>
+              /* The failure takes the result's place and keeps the card's box,
+                 so nothing around it moves. The rows themselves are still in
+                 the store, so a cancel or a stale answer never destroys them. */
+              <EmptyState icon={TriangleAlert} tone="danger" title="Peek failed" body={peekError}>
+                <Button variant="outline" className="bg-surface-raised" onClick={() => void peek()}>
+                  Retry
+                </Button>
+              </EmptyState>
             ) : !peeked ? (
               <div className="flex h-full flex-col items-center justify-center gap-1.5 p-8 text-center">
                 <span className="text-body-13 text-text-secondary">

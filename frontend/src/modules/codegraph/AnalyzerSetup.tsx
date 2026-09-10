@@ -13,6 +13,7 @@ import {
   type CodeGraphRequirement,
   type CodeGraphToolchainStatus,
 } from "@/bridge/codegraph";
+import { createProgressBuffer } from "@/lib/progressBuffer";
 
 /**
  * What CodeGraph shows when its analyzer has not been built.
@@ -89,17 +90,24 @@ function ToolchainCard({
   // Subscribe for the card's whole life rather than only while building: the
   // first lines arrive before the promise has even been awaited, and a
   // subscription set up inside the click handler races them.
-  useEffect(
-    () =>
-      onCodeGraphAnalyzerBuildOutput((language, line) => {
-        if (language !== status.language) return;
-        // Bounded: a Maven build on a cold cache writes thousands of lines and
-        // only the tail is ever read. The head is in the terminal for anyone
-        // who wants it.
-        setLines((prev) => [...prev, line].slice(-400));
-      }),
-    [status.language],
-  );
+  useEffect(() => {
+    // On a fixed beat, not per line: a Maven build on a cold cache writes
+    // thousands of lines, and one setState each is thousands of renders of
+    // text that scrolls straight past (smoothness 5, "progress has a beat").
+    const buffer = createProgressBuffer<string>((batch) =>
+      // Bounded: only the tail is ever read. The head is in the terminal for
+      // anyone who wants it.
+      setLines((prev) => [...prev, ...batch].slice(-400)),
+    );
+    const off = onCodeGraphAnalyzerBuildOutput((language, line) => {
+      if (language !== status.language) return;
+      buffer.push(line);
+    });
+    return () => {
+      off();
+      buffer.dispose();
+    };
+  }, [status.language]);
 
   // Follow the tail, which is the only part of a build log anyone watches.
   useEffect(() => {
