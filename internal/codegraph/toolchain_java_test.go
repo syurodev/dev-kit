@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -79,4 +80,64 @@ func TestJavaToolchainBuildsForReal(t *testing.T) {
 		t.Fatal("the sample project has classes and methods; an empty index means the jar does not work")
 	}
 	t.Logf("analyzed the sample project: %d nodes, %d edges", len(result.Nodes), len(result.Edges))
+}
+
+// javaHomeRoot is what stops JAVA_HOME being invented for a shim. macOS ships
+// /usr/bin/java as a stub shared by every JDK tool, so <root>/bin/java reads it
+// as /usr — and `JAVA_HOME=/usr /usr/bin/java -version` never returns, which is
+// how one wedged analyzer subprocess used to hang a whole test run for ten
+// minutes and orphan the JVM behind it.
+func TestJavaHomeRootAnswersOnlyForARealJDK(t *testing.T) {
+	root := t.TempDir()
+	bin := filepath.Join(root, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	java := filepath.Join(bin, "java")
+	if err := os.WriteFile(java, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	if got := javaHomeRoot(java); got != "" {
+		t.Fatalf("a bin/java with no JDK beside it must yield no JAVA_HOME, got %q", got)
+	}
+
+	// `release` is the manifest every JDK since 9 ships at its root.
+	if err := os.WriteFile(filepath.Join(root, "release"), []byte("JAVA_VERSION=\"21\"\n"), 0o644); err != nil {
+		t.Fatalf("write release: %v", err)
+	}
+	if got := javaHomeRoot(java); got != root {
+		t.Fatalf("javaHomeRoot = %q, want %q", got, root)
+	}
+}
+
+// A toolchain whose runtime has no install root must set no *_HOME at all. An
+// absent JAVA_HOME leaves the runtime to work it out; a wrong one hangs it.
+func TestEnvironOmitsHomeForARuntimeWithNoRoot(t *testing.T) {
+	toolchain := Toolchain{HomeEnv: map[string]string{"JAVA_HOME": "java"}}
+	shim := Requirement{
+		Program:  "java",
+		Path:     "/usr/bin/java",
+		homeRoot: func(string) string { return "" },
+	}
+
+	for _, entry := range toolchain.environ(map[string]Requirement{"java": shim}) {
+		if strings.HasPrefix(entry, "JAVA_HOME=") {
+			t.Fatalf("a shim must contribute no JAVA_HOME, got %q", entry)
+		}
+	}
+}
+
+// PATH is searched last so a version tie goes to a directory that can serve as
+// JAVA_HOME. Maven needs one; a shim cannot give it.
+func TestJavaCandidatesSearchPathLast(t *testing.T) {
+	candidates := javaCandidates("")
+	if len(candidates) < 2 {
+		t.Skipf("machine has %d java candidate(s); ordering is unobservable", len(candidates))
+	}
+	for i, c := range candidates[:len(candidates)-1] {
+		if c.source == "PATH" {
+			t.Fatalf("PATH candidate at position %d of %d, want last", i, len(candidates))
+		}
+	}
 }

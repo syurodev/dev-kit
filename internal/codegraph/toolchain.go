@@ -80,6 +80,30 @@ type Requirement struct {
 	locate         func(dir string) []candidate
 	versionArgs    []string
 	versionPattern *regexp.Regexp
+	// homeRoot turns the resolved program path into the install root a *_HOME
+	// variable should name, or "" when this particular program has no root of
+	// its own to give.
+	//
+	// Chopping two segments off the binary is the usual answer and stays the
+	// default, but it is only an assumption about layout, and a shim breaks it:
+	// macOS ships /usr/bin/java as a stub that forwards to whichever JDK is
+	// installed, so the assumption yields JAVA_HOME=/usr — not a JDK root, and
+	// one the stub then tries to resolve a JDK from, which spins forever. A
+	// requirement that can be reached through a shim supplies this and returns
+	// "" for one, so no *_HOME is set at all rather than a wrong one.
+	homeRoot func(binPath string) string
+}
+
+// installRoot is the *_HOME value for a resolved program: <root>/bin/<program>
+// -> <root>, unless the requirement knows better.
+func (r Requirement) installRoot() string {
+	if r.Path == "" {
+		return ""
+	}
+	if r.homeRoot != nil {
+		return r.homeRoot(r.Path)
+	}
+	return filepath.Dir(filepath.Dir(r.Path))
 }
 
 // InstallCommand is one way to install a missing program, with the packaging
@@ -592,12 +616,17 @@ func (t Toolchain) environ(byProgram map[string]Requirement) []string {
 
 	for variable, program := range t.HomeEnv {
 		req, ok := byProgram[program]
-		if !ok || req.Path == "" {
+		if !ok {
 			continue
 		}
-		// <root>/bin/<program> -> <root>. Every *_HOME convention points at the
-		// install root, one level above the bin directory.
-		env = append(env, variable+"="+filepath.Dir(filepath.Dir(req.Path)))
+		// Skipped rather than guessed when the program has no install root of
+		// its own: an absent JAVA_HOME leaves the runtime to work it out, while
+		// a wrong one is what hangs it. See Requirement.homeRoot.
+		root := req.installRoot()
+		if root == "" {
+			continue
+		}
+		env = append(env, variable+"="+root)
 	}
 	if len(pathPrefix) > 0 {
 		env = append(env, "PATH="+strings.Join(append(pathPrefix, os.Getenv("PATH")), string(os.PathListSeparator)))

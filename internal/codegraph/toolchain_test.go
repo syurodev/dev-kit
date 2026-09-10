@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestVersionAtLeast(t *testing.T) {
@@ -541,5 +542,46 @@ func TestReadyWhenTheArtifactAndRuntimeAreBothThere(t *testing.T) {
 	}
 	if status := toolchain.status(context.Background()); !status.Ready || !status.HasArtifact {
 		t.Fatalf("artifact plus runtime is ready: %+v", status)
+	}
+}
+
+// An analyzer that never exits must not hang its caller. This is the shape of
+// the real failure it exists for: a JVM handed a bad JAVA_HOME spins forever,
+// and with no bound the parent waited forever too — a wedged subprocess took a
+// whole test run down for ten minutes and orphaned the child behind it.
+func TestAnalyzeGivesUpOnAnAnalyzerThatNeverExits(t *testing.T) {
+	toolchain := writingToolchain(t, "true")
+	// The artifact is the script that runs, so this analyzer's whole behaviour
+	// is to sleep well past any deadline the test would wait for.
+	if err := os.WriteFile(toolchain.Artifact, []byte("sleep 600\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	analyzer := toolchain.Analyzer()
+
+	// A caller's own deadline is honoured as-is; analyzerTimeout only fills in
+	// for a context that has none, and waiting ten minutes to prove that is not
+	// a test anyone would run.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := analyzer.Analyze(ctx, t.TempDir())
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("a sleeping analyzer must fail, not succeed")
+		}
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("the error should name the deadline, got %v", err)
+		}
+	case <-time.After(30 * time.Second):
+		// WaitDelay is what makes this bound hold: killing the process still
+		// leaves the output pipes, and a grandchild holding them open would
+		// otherwise keep CombinedOutput blocked after the kill.
+		t.Fatal("Analyze did not return after its context expired")
 	}
 }

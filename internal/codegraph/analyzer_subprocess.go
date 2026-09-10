@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"time"
 )
 
 // Running a built analyzer as a one-shot subprocess.
@@ -42,7 +43,24 @@ func (unconfiguredAnalyzer) Analyze(context.Context, string) (AnalysisResult, er
 	return AnalysisResult{}, ErrAnalyzerNotConfigured
 }
 
+// analyzerTimeout bounds one analysis when the caller set no deadline of its
+// own, which is every caller today: the bridge and the background re-index both
+// start from context.Background().
+//
+// Generous, because a cold monorepo is minutes of real work — the number is not
+// a performance target, it is the line past which the process is not working
+// any more. Without it a wedged analyzer is unbounded and invisible: a JVM
+// handed a bad JAVA_HOME spins forever, the parent waits forever, and quitting
+// the app orphans the child rather than ending it.
+const analyzerTimeout = 10 * time.Minute
+
 func (a toolchainAnalyzer) Analyze(ctx context.Context, projectPath string) (AnalysisResult, error) {
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, analyzerTimeout)
+		defer cancel()
+	}
+
 	outputFile, err := os.CreateTemp("", "codegraph-index-*.json")
 	if err != nil {
 		return AnalysisResult{}, fmt.Errorf("codegraph: create temp output file: %w", err)
@@ -61,7 +79,15 @@ func (a toolchainAnalyzer) Analyze(ctx context.Context, projectPath string) (Ana
 	// runtime that was discovered may live somewhere PATH has never heard of,
 	// and an analyzer that shells out again needs to find it.
 	cmd.Env = env
+	// CommandContext kills the process on cancellation but then waits on the
+	// output pipes, which a grandchild holding them open can keep open forever.
+	// WaitDelay puts a bound on that second wait, so a cancelled analysis
+	// actually returns.
+	cmd.WaitDelay = 5 * time.Second
 	if out, err := cmd.CombinedOutput(); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return AnalysisResult{}, fmt.Errorf("codegraph: %s analyzer gave up after %s: %w (output: %s)", a.toolchain.Language, analyzerTimeout, ctxErr, out)
+		}
 		return AnalysisResult{}, fmt.Errorf("codegraph: %s analyzer subprocess failed: %w (output: %s)", a.toolchain.Language, err, out)
 	}
 

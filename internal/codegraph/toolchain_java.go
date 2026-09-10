@@ -2,6 +2,7 @@
 package codegraph
 
 import (
+	"os"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -86,6 +87,7 @@ func javaRequirement() Requirement {
 		// special-casing: 1 < 21.
 		versionArgs:    []string{"-version"},
 		versionPattern: regexp.MustCompile(`version "([0-9][0-9._]*)"`),
+		homeRoot:       javaHomeRoot,
 		InstallHint:    "IntelliJ users already have one — File → Project Structure → SDKs, or let the IDE download a JDK into ~/.jdks. DevKit finds it there without any of this.",
 		Install:        javaInstallCommands(),
 	}
@@ -160,13 +162,40 @@ func mavenInstallCommands() []InstallCommand {
 // most common among Java developers — is IntelliJ IDEA and nothing else: it
 // ships its own JetBrains Runtime and downloads project JDKs into ~/.jdks, and
 // neither reaches PATH.
+// javaHomeRoot is the JDK root a java binary belongs to, or "" when it belongs
+// to none.
+//
+// The usual <root>/bin/java holds, and the exception is the one that matters on
+// macOS: /usr/bin/java is a stub shared by every JDK command line tool, so the
+// usual answer is /usr — which is not a JDK, and which the stub then tries to
+// find a JDK inside. `JAVA_HOME=/usr /usr/bin/java -version` never returns.
+//
+// A real root is identified by the files every JDK since 9 has: the `release`
+// manifest, or the server VM the launcher loads. Anything else gets "", and the
+// caller leaves JAVA_HOME unset — the stub resolves a JDK perfectly well on its
+// own when nothing lies to it.
+func javaHomeRoot(binPath string) string {
+	root := filepath.Dir(filepath.Dir(binPath))
+	markers := []string{
+		filepath.Join(root, "release"),
+		filepath.Join(root, "lib", "server", "libjvm.dylib"),
+		filepath.Join(root, "lib", "server", "libjvm.so"),
+		filepath.Join(root, "bin", "server", "jvm.dll"),
+	}
+	for _, marker := range markers {
+		if _, err := os.Stat(marker); err == nil {
+			return root
+		}
+	}
+	return ""
+}
+
 func javaCandidates(_ string) []candidate {
 	exe := programName("java", nativeProgram)
 	home := userHome()
 	var s search
 
 	s.envHome(exe, "JAVA_HOME")
-	s.onPath(exe)
 
 	if home != "" {
 		// Where IntelliJ downloads and manages project JDKs, on every platform.
@@ -209,6 +238,16 @@ func javaCandidates(_ string) []candidate {
 			filepath.Join("/usr", "lib", "jvm", "*", "jre", "bin", exe),
 		)
 	}
+
+	// PATH last, not second. What PATH holds is often a shim rather than a JDK
+	// — /usr/bin/java on macOS, and on Linux a symlink whose <root>/bin/java
+	// reading is /usr just the same — and probe breaks a version tie by taking
+	// the candidate it saw first. Listing the real roots ahead of PATH means the
+	// tie goes to a directory that can actually serve as JAVA_HOME, which is
+	// what Maven needs to build with. A shim still wins outright when it is the
+	// only java, or when it forwards to a genuinely newer one; javaHomeRoot is
+	// what keeps that case safe.
+	s.onPath(exe)
 
 	return s.results()
 }
