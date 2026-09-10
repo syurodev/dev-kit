@@ -16,8 +16,6 @@ import { listEnvTags, type EnvTag } from "../../bridge/environments";
 import { listSSHProfiles, type SSHProfile } from "../../bridge/ssh";
 import { errorMessage, isCancelError } from "../../bridge/errors";
 
-export type DatabaseTab = "console" | "erd" | "activity" | "history" | "saved";
-
 /**
  * A folder is keyed by id, not by its name.
  *
@@ -118,7 +116,6 @@ export const EMPTY_CONSOLE: ConsoleState = Object.freeze({
 export type DatabaseStoreState = {
   profiles: ConnectionProfile[];
   selectedProfileId: string;
-  activeTab: DatabaseTab;
   envTags: EnvTag[];
   sshProfiles: SSHProfile[];
   loadingProfiles: boolean;
@@ -175,7 +172,6 @@ export type DatabaseStoreState = {
   // Actions
   fetchProfiles: () => Promise<void>;
   setSelectedProfileId: (id: string) => void;
-  setActiveTab: (tab: DatabaseTab) => void;
   setSql: (consoleId: string, sql: string) => void;
   setInspectedCell: (cell: { columnName: string; value: string } | null) => void;
   setShowNewConnectionDialog: (show: boolean) => void;
@@ -252,7 +248,6 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     (set, get) => ({
   profiles: [],
   selectedProfileId: "",
-  activeTab: "console",
   envTags: [],
   sshProfiles: [],
   loadingProfiles: false,
@@ -327,7 +322,6 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     }
   },
 
-  setActiveTab: (tab: DatabaseTab) => set({ activeTab: tab }),
   setInspectedCell: (cell) => set({ inspectedCell: cell }),
   setShowNewConnectionDialog: (show) => set({ showNewConnectionDialog: show }),
   setShowConnectionOptionsDialog: (show) => set({ showConnectionOptionsDialog: show }),
