@@ -680,18 +680,6 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
         ? { values: browse.cursors[browse.pageIndex - 1] ?? [], direction: "next" as const }
         : null;
 
-    const query = buildBrowseQuery({
-      schema,
-      table,
-      engine,
-      where: browse.where,
-      orderBy: browse.orderBy,
-      pageKey,
-      cursor,
-      pageSize: BROWSE_PAGE_SIZE,
-      offset: pageKey ? undefined : browse.pageIndex * BROWSE_PAGE_SIZE,
-    });
-
     // A3. The same stale-answer guard executeQuery puts on a console result.
     // Next clicked twice, or a sort applied while a page is in flight, leaves
     // two calls racing; without this the older one can land last and fill the
@@ -702,6 +690,22 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     // page it would return is one nobody is going to look at.
     pendingBrowseQueries.get(key)?.cancel();
     try {
+      // A16: composed inside the try. buildBrowseQuery refuses a cursor whose
+      // arity does not match the key (A15), and a throw from out here reached
+      // nobody — it escaped as an unhandled rejection, leaving the page index
+      // advanced and the previous page's rows on screen, which is the silent
+      // wrongness the refusal existed to prevent.
+      const query = buildBrowseQuery({
+        schema,
+        table,
+        engine,
+        where: browse.where,
+        orderBy: browse.orderBy,
+        pageKey,
+        cursor,
+        pageSize: BROWSE_PAGE_SIZE,
+        offset: pageKey ? undefined : browse.pageIndex * BROWSE_PAGE_SIZE,
+      });
       const call = runQuery(selectedProfileId, query.sql);
       pendingBrowseQueries.set(key, call);
       const result = await call;
