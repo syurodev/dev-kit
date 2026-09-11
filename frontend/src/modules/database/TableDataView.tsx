@@ -7,6 +7,7 @@ import { TableToolbar } from "./components/TableToolbar";
 import { DatabaseOverlays } from "./DatabaseOverlays";
 import { BROWSE_PAGE_SIZE, useDatabaseStore } from "./databaseStore";
 import { useDatabaseChrome } from "./useDatabaseChrome";
+import { useBrowseLifetime } from "./useConsoleLifetime";
 import { useIsActiveDocument } from "./useIsActiveDocument";
 import { openConsoleTab } from "./documents";
 import { buildBrowseQuery } from "./sql/browseQuery";
@@ -26,6 +27,7 @@ export function TableDataView({ params }: { params?: Record<string, unknown> }) 
   const key = `${schema}.${table}`;
 
   useDatabaseChrome();
+  useBrowseLifetime(key);
   const isActive = useIsActiveDocument("database.table", { schema, table });
 
   const {

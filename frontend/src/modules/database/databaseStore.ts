@@ -762,11 +762,15 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
 
   closeBrowse: (key) =>
     set((state) => {
-      if (!(key in state.browse)) {
+      if (!(key in state.browse) && !(key in state.pageKeys)) {
         return state;
       }
-      const { [key]: _closed, ...rest } = state.browse;
-      return { browse: rest };
+      const { [key]: _closed, ...browse } = state.browse;
+      // A17: the key goes with the rows. It is this table's state too, and
+      // leaving it behind both grows the map forever and lets a reopen order
+      // its first page by a key that has since been re-read.
+      const { [key]: _key, ...pageKeys } = state.pageKeys;
+      return { browse, pageKeys };
     }),
 
   setSql: (consoleId, sql) => patchConsole(set, consoleId, { sql }),
