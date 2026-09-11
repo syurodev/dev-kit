@@ -343,10 +343,14 @@ export function testConnection(id: string): Promise<void> {
 /**
  * Cancellable: DBQuery takes a context all the way down to the driver, so
  * stopping the promise stops the statement (see callBridgeCancellable).
+ *
+ * `maxRows` is the caller's row cap, for the table browser's page size. 0 —
+ * the default — is the service's own cap, which is what the console and every
+ * catalogue read want: they have no page to size.
  */
-export function runQuery(id: string, sql: string): CancellableCall<QueryResult> {
+export function runQuery(id: string, sql: string, maxRows = 0): CancellableCall<QueryResult> {
   return callBridgeCancellable(
-    () => AppService.DBQuery(id, sql),
+    () => AppService.DBQuery(id, sql, maxRows),
     (result) => ({
       columns: result.columns ?? [],
       rows: (result.rows ?? []).map((r) => (r ?? []).map((c) => c ?? "")),

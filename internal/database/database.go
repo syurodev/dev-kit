@@ -31,9 +31,16 @@ var ErrInvalidCACertificate = errors.New("CA certificate is not valid PEM")
 // does not actually check, so the combination is refused instead.
 var ErrCACertificateWithoutTLS = errors.New("a CA certificate needs an SSL mode that verifies it (verify-full)")
 
-// DefaultMaxRows caps query results so the UI stays responsive (§12.4).
-// ponytail: fixed cap; make it configurable per query later if needed.
+// DefaultMaxRows caps query results so the UI stays responsive (§12.4). It is
+// what a caller that names no cap of its own gets.
 const DefaultMaxRows = 200
+
+// MaxRowsCeiling is the most any caller may ask for. A page size is a choice
+// made in the UI, and a choice made in the UI must not be able to ask the
+// driver for every row of a hundred-million-row table: the grid virtualises
+// rendering, not memory, and the whole result is marshalled to strings and
+// carried over the bridge before it ever reaches the grid.
+const MaxRowsCeiling = 5000
 
 // EnvLookup is the narrow view of the environments registry the database
 // service needs to validate a profile's env tag. Declared here (the
@@ -455,7 +462,12 @@ func (s *Service) TestConnection(ctx context.Context, id string) error {
 }
 
 // Query runs SQL against the profile's database and returns rows (capped).
-func (s *Service) Query(ctx context.Context, id string, sql string) (QueryResult, error) {
+//
+// maxRows is the caller's cap. Zero or less means the service default, which
+// is what every caller that does not page sends; anything above MaxRowsCeiling
+// is clamped to it rather than refused, because a page size is a preference
+// and refusing one would fail a query over a number the user can only guess at.
+func (s *Service) Query(ctx context.Context, id string, sql string, maxRows int) (QueryResult, error) {
 	target, err := s.target(id)
 	if err != nil {
 		return QueryResult{}, err
@@ -468,6 +480,11 @@ func (s *Service) Query(ctx context.Context, id string, sql string) (QueryResult
 		return QueryResult{}, err
 	}
 
+	limit := s.maxRows
+	if maxRows > 0 {
+		limit = min(maxRows, MaxRowsCeiling)
+	}
+
 	rows, err := pool.Query(ctx, sql)
 	if err != nil {
 		return QueryResult{}, err
@@ -476,7 +493,7 @@ func (s *Service) Query(ctx context.Context, id string, sql string) (QueryResult
 
 	result := QueryResult{Columns: rows.Columns(), Rows: [][]string{}}
 	for rows.Next() {
-		if result.RowCount >= s.maxRows {
+		if result.RowCount >= limit {
 			result.Truncated = true
 			break
 		}

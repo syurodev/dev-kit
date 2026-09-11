@@ -127,7 +127,9 @@ func (s *Server) toolDBQuery(ctx context.Context, _ *sdk.CallToolRequest, in dbQ
 	v, err := s.deps.Caller.Call(ctx, "builtin.database", "db:query", "profile:active", meta("query", map[string]any{
 		"profile_id": recordID(id),
 	}), func(callCtx context.Context) (any, error) {
-		return s.deps.DB.Query(callCtx, id, in.SQL)
+		// 0: the service default. An MCP client reads a result, it does not
+		// page a grid, so there is no page size to honour here.
+		return s.deps.DB.Query(callCtx, id, in.SQL, 0)
 	})
 	if err != nil {
 		return nil, nil, err

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildBrowseQuery } from "./browseQuery";
+import { buildBrowseQuery, buildCountQuery } from "./browseQuery";
 
 const base = {
   schema: "public",
@@ -48,6 +48,27 @@ describe("buildBrowseQuery", () => {
     const { sql, mode } = buildBrowseQuery({ ...base, pageKey: null, offset: 400 });
     expect(mode).toBe("offset");
     expect(sql).toContain("LIMIT 201 OFFSET 400");
+  });
+
+  // A pager that can jump lands on pages this tab has never walked to, so
+  // there is no cursor behind them — and a keyed table used to refuse that
+  // outright. OFFSET is the fallback: the ORDER BY is a total order either
+  // way, so the page is the right one, just paid for the slow way.
+  test("a keyed table jumped to without a trail falls back to offset", () => {
+    const { sql } = buildBrowseQuery({ ...base, cursor: null, offset: 6000 });
+    expect(sql).toContain('ORDER BY "id" ASC');
+    expect(sql).toContain("LIMIT 201 OFFSET 6000");
+  });
+
+  // …and once it has one, the walk goes back to being a walk. A cursor AND an
+  // offset would skip a page's worth of rows past the cursor.
+  test("a cursor means no offset, ever", () => {
+    const { sql } = buildBrowseQuery({
+      ...base,
+      cursor: { values: ["42"], direction: "next" },
+      offset: 6000,
+    });
+    expect(sql).not.toContain("OFFSET");
   });
 
   test("the user's WHERE is combined with the cursor, not replaced by it", () => {
@@ -118,5 +139,32 @@ describe("buildBrowseQuery", () => {
   test("a missing identifier is refused rather than quoted into nothing", () => {
     expect(() => buildBrowseQuery({ ...base, schema: "" })).toThrow();
     expect(() => buildBrowseQuery({ ...base, table: "" })).toThrow();
+  });
+});
+
+describe("buildCountQuery", () => {
+  // What the pager needs that a probe row cannot tell it: how many pages there
+  // are, so Last has somewhere to go.
+  test("counts the table", () => {
+    expect(buildCountQuery({ schema: "public", table: "orders", engine: "postgres", where: "" }))
+      .toBe('SELECT COUNT(*) FROM "public"."orders";');
+  });
+
+  // The count has to answer for the filter the grid is showing, or "of 8,420"
+  // sits over a filtered page and the last page is a page that does not exist.
+  test("counts what the filter matches, not the table", () => {
+    const sql = buildCountQuery({
+      schema: "public",
+      table: "orders",
+      engine: "postgres",
+      where: "status = 'open'",
+    });
+    expect(sql).toContain("WHERE (status = 'open')");
+  });
+
+  test("a missing identifier is refused here too", () => {
+    expect(() =>
+      buildCountQuery({ schema: "", table: "orders", engine: "postgres", where: "" }),
+    ).toThrow();
   });
 });

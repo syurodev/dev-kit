@@ -95,7 +95,13 @@ export function buildBrowseQuery(opts: {
     parts.push(`ORDER BY ${terms.join(", ")}`);
   }
   parts.push(`LIMIT ${pageSize + 1}`);
-  if (!keyed && opts.offset) {
+  // OFFSET is the fallback whenever there is no cursor to walk from — an
+  // unkeyed table, or a keyed one jumped straight to a page it has never
+  // walked to, which has no trail behind it. It is the slow way and it is the
+  // only way: the ORDER BY above is a total order either way, so the page it
+  // returns is the right one. The next page reached from here has a cursor
+  // again and goes back to the keyset walk.
+  if (!cursor && opts.offset) {
     parts.push(`OFFSET ${Math.trunc(opts.offset)}`);
   }
 
@@ -110,4 +116,27 @@ export function buildBrowseQuery(opts: {
 /** A string literal for the statement: the quote doubles, as in both dialects. */
 function quoteLiteral(value: string): string {
   return "'" + value.split("'").join("''") + "'";
+}
+
+/**
+ * `SELECT COUNT(*)`, for the same table and filter the page query browses.
+ *
+ * Deliberately not part of paging: a count is a full scan on a large table and
+ * the pager walks perfectly well without one (the LIMIT n+1 probe row answers
+ * "is there more"). What it buys is the things a probe row cannot know — how
+ * many pages there are, and where the last one is — so it is run once per
+ * filter, on its own, and the pager degrades to "1–200+" until it lands.
+ */
+export function buildCountQuery(opts: {
+  schema: string;
+  table: string;
+  engine: string | undefined;
+  where: string;
+}): string {
+  const q = (name: string) => quoteIdentifier(name, opts.engine);
+  const parts = [`SELECT COUNT(*) FROM ${q(opts.schema)}.${q(opts.table)}`];
+  if (opts.where.trim()) {
+    parts.push(`WHERE (${opts.where.trim()})`);
+  }
+  return parts.join(" ") + ";";
 }

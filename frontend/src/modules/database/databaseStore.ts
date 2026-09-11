@@ -15,7 +15,7 @@ import {
 import { listEnvTags, type EnvTag } from "../../bridge/environments";
 import { listSSHProfiles, type SSHProfile } from "../../bridge/ssh";
 import { errorMessage, isCancelError } from "../../bridge/errors";
-import { buildBrowseQuery } from "./sql/browseQuery";
+import { buildBrowseQuery, buildCountQuery } from "./sql/browseQuery";
 
 /**
  * A folder is keyed by id, not by its name.
@@ -133,6 +133,14 @@ export type BrowseState = {
   pageIndex: number;
   /** Whether the server returned the extra row, i.e. another page exists. */
   hasNext: boolean;
+  /**
+   * Rows matching the filter, from a COUNT(*) run once per filter, or null
+   * while it is unknown. The probe row answers "is there another page" and
+   * nothing more, so this is what a pager needs to name a last page or a page
+   * it has never walked to. Null is a working state, not a failure: the pager
+   * falls back to counting forward from what it has seen.
+   */
+  totalRows: number | null;
   /** Column widths, kept per table because the columns are the table's own. */
   widths: number[];
   /**
@@ -140,6 +148,11 @@ export type BrowseState = {
    * belong to the table, and a position means nothing against another one.
    */
   order: number[];
+  /**
+   * How many columns of the display order stay on screen while the grid
+   * scrolls sideways. Per table for the same reason the order is.
+   */
+  frozen: number;
   /**
    * A3: which load this state belongs to. Bumped when a page is asked for, and
    * checked when one answers — the same guard `executeQuery` puts on a console
@@ -160,8 +173,10 @@ export const EMPTY_BROWSE: BrowseState = Object.freeze({
   cursors: [],
   pageIndex: 0,
   hasNext: false,
+  totalRows: null,
   widths: [],
   order: [],
+  frozen: 0,
   runId: 0,
 }) as BrowseState;
 
@@ -176,6 +191,17 @@ export const EMPTY_BROWSE: BrowseState = Object.freeze({
  * console" composes a statement with it. Three copies of 200 would drift.
  */
 export const BROWSE_PAGE_SIZE = 200;
+
+/**
+ * The page sizes the pager offers.
+ *
+ * Capped at 5,000 because that is the ceiling the service clamps to
+ * (database.MaxRowsCeiling) — offering 50,000 here would quietly hand back
+ * 5,000 and call it a page. There is deliberately no "All": the grid
+ * virtualises rendering, not memory, and every row crosses the bridge as
+ * strings first, so "All" on a large table is a hang with a friendly name.
+ */
+export const BROWSE_PAGE_SIZES = [100, 200, 500, 1000, 5000] as const;
 
 /** What the export modal calls a result nobody gave a better name for. */
 const DEFAULT_EXPORT_FILENAME = "query-result";
@@ -223,11 +249,19 @@ export type DatabaseStoreState = {
 
   /** Every open table tab's browsing state, keyed "schema.table". */
   browse: Record<string, BrowseState>;
+  /**
+   * Rows per page, for every table tab. One value, not one per tab, and
+   * persisted: a page size is a preference about how you like to read a table,
+   * not a property of one of them, and "set as default" is then just picking it.
+   */
+  browsePageSize: number;
+  setBrowsePageSize: (size: number) => void;
   browseState: (key: string) => BrowseState;
   setBrowseWhere: (key: string, where: string) => void;
   setBrowseOrder: (key: string, orderBy: BrowseState["orderBy"]) => void;
   setBrowseWidths: (key: string, widths: number[]) => void;
   setBrowseOrderColumns: (key: string, order: number[]) => void;
+  setBrowseFrozen: (key: string, frozen: number) => void;
   closeBrowse: (key: string) => void;
   /**
    * Turns one page's raw answer into what the grid shows: drops the probe row,
@@ -250,6 +284,16 @@ export type DatabaseStoreState = {
     opts: { schema: string; table: string },
     step: 1 | -1,
   ) => Promise<void>;
+  /** Loads an arbitrary page of a table tab. The pager's first/last and page numbers. */
+  goToBrowsePage: (
+    key: string,
+    opts: { schema: string; table: string },
+    page: number,
+  ) => Promise<void>;
+  /** Counts the rows matching the current filter, once, into `totalRows`. */
+  countBrowseRows: (key: string, opts: { schema: string; table: string }) => Promise<void>;
+  /** The last page's index once the count is in, or null while it is unknown. */
+  lastBrowsePage: (key: string) => number | null;
   /**
    * The columns that page each table, or null where it has none. Read once per
    * table from its indexes, because a keyset walk cannot be built without it
@@ -380,6 +424,13 @@ const pendingQueries = new Map<string, ReturnType<typeof runQuery>>();
  */
 const pendingBrowseQueries = new Map<string, ReturnType<typeof runQuery>>();
 
+/**
+ * Counts in flight, per table tab. Their own map: a count and a page load run
+ * side by side for the same tab, and sharing one slot would have each cancel
+ * the other.
+ */
+const pendingCountQueries = new Map<string, ReturnType<typeof runQuery>>();
+
 export const useDatabaseStore = create<DatabaseStoreState>()(
   persist(
     (set, get) => ({
@@ -406,6 +457,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
 
   consoles: {},
   browse: {},
+  browsePageSize: BROWSE_PAGE_SIZE,
   pageKeys: {},
 
   inspectedCell: null,
@@ -658,11 +710,31 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
 
   browseState: (key) => get().browse[key] ?? EMPTY_BROWSE,
 
+  setBrowsePageSize: (size) =>
+    set((state) => {
+      if (!BROWSE_PAGE_SIZES.includes(size as (typeof BROWSE_PAGE_SIZES)[number])) {
+        return {};
+      }
+      // Every open tab's walk is invalidated, for the reason setBrowseWhere's
+      // is: the cursors are page boundaries, and the boundaries just moved.
+      // The counts survive — how many rows match is not a function of how many
+      // of them fit on a page.
+      const browse = Object.fromEntries(
+        Object.entries(state.browse).map(([key, value]) => [
+          key,
+          { ...value, cursors: [], pageIndex: 0, hasNext: false },
+        ]),
+      );
+      return { browsePageSize: size, browse };
+    }),
+
   // Both of these invalidate the walk: the cursors describe positions in a
   // result the new filter or sort no longer produces, and reusing them would
   // page through rows that are not there.
   setBrowseWhere: (key, where) =>
-    patchBrowse(set, key, { where, cursors: [], pageIndex: 0, hasNext: false }),
+    // The count goes with the cursors: it answered "how many rows match" for a
+    // filter that is no longer the filter.
+    patchBrowse(set, key, { where, cursors: [], pageIndex: 0, hasNext: false, totalRows: null }),
 
   setBrowseOrder: (key, orderBy) =>
     patchBrowse(set, key, { orderBy, cursors: [], pageIndex: 0, hasNext: false }),
@@ -670,6 +742,8 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   setBrowseWidths: (key, widths) => patchBrowse(set, key, { widths }),
 
   setBrowseOrderColumns: (key, order) => patchBrowse(set, key, { order }),
+
+  setBrowseFrozen: (key, frozen) => patchBrowse(set, key, { frozen: Math.max(0, frozen) }),
 
   applyBrowsePage: (key, { result, pageSize, reversed }) => {
     // A1. Two ways to learn there is more: the probe row arrived, or the server
@@ -698,16 +772,21 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     const browse = get().browseState(key);
     const engine = profiles.find((p) => p.id === selectedProfileId)?.engine;
     const pageKey = get().pageKeys[key] ?? null;
+    // The trail only reaches pages this tab has walked to. Jumping straight to
+    // page 30 leaves cursors[29] undefined, and the old `?? []` turned that
+    // into a cursor with no values, which buildBrowseQuery refuses (A15) — the
+    // jump arrived as an error banner. No trail means no cursor, and no cursor
+    // means OFFSET: slower, correct, and it lays the trail for the pages after.
+    const trail = browse.pageIndex > 0 ? browse.cursors[browse.pageIndex - 1] : null;
     const cursor =
-      pageKey && browse.pageIndex > 0
-        ? { values: browse.cursors[browse.pageIndex - 1] ?? [], direction: "next" as const }
-        : null;
+      pageKey && trail ? { values: trail, direction: "next" as const } : null;
 
     // A3. The same stale-answer guard executeQuery puts on a console result.
     // Next clicked twice, or a sort applied while a page is in flight, leaves
     // two calls racing; without this the older one can land last and fill the
     // grid with rows the toolbar no longer describes.
     const runId = browse.runId + 1;
+    const pageSize = get().browsePageSize;
     patchBrowse(set, key, { loading: true, error: "", runId });
     // And the superseded statement is stopped rather than left to finish: the
     // page it would return is one nobody is going to look at.
@@ -726,10 +805,14 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
         orderBy: browse.orderBy,
         pageKey,
         cursor,
-        pageSize: BROWSE_PAGE_SIZE,
-        offset: pageKey ? undefined : browse.pageIndex * BROWSE_PAGE_SIZE,
+        pageSize,
+        offset: cursor ? undefined : browse.pageIndex * pageSize,
       });
-      const call = runQuery(selectedProfileId, query.sql);
+      // The row cap goes with the statement: the service caps at 200 unless
+      // asked otherwise, so a LIMIT 1001 without this comes back as 200 rows
+      // with `truncated` set — a page that silently ignored the page size and
+      // claimed a next page it had not looked for.
+      const call = runQuery(selectedProfileId, query.sql, pageSize + 1);
       pendingBrowseQueries.set(key, call);
       const result = await call;
       if (get().browseState(key).runId !== runId) {
@@ -770,14 +853,29 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     }
   },
 
-  stepBrowsePage: async (key, target, step) => {
+  lastBrowsePage: (key) => {
+    const { totalRows } = get().browseState(key);
+    if (totalRows === null) {
+      return null;
+    }
+    return Math.max(0, Math.ceil(totalRows / get().browsePageSize) - 1);
+  },
+
+  stepBrowsePage: (key, target, step) =>
+    get().goToBrowsePage(key, target, get().browseState(key).pageIndex + step),
+
+  goToBrowsePage: async (key, target, page) => {
     const browse = get().browseState(key);
-    const next = browse.pageIndex + step;
-    if (next < 0 || (step === 1 && !browse.hasNext)) {
+    // How far forward the tab is allowed to go. Counted, that is the last page;
+    // uncounted, the probe row knows about exactly one page past this one and
+    // nothing beyond it, so that is the honest limit.
+    const last = get().lastBrowsePage(key);
+    const forwardLimit = last ?? browse.pageIndex + (browse.hasNext ? 1 : 0);
+    if (page < 0 || page > forwardLimit || page === browse.pageIndex) {
       return;
     }
     const previous = browse.pageIndex;
-    patchBrowse(set, key, { pageIndex: next });
+    patchBrowse(set, key, { pageIndex: page });
     await get().loadBrowsePage(key, target);
     // A21: put the number back if no page arrived. loadBrowsePage clears
     // `error` before it runs, so an error here is this load's own — and a
@@ -785,6 +883,39 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     // load owns the page number now and this one must not touch it.
     if (get().browseState(key).error) {
       patchBrowse(set, key, { pageIndex: previous });
+    }
+  },
+
+  countBrowseRows: async (key, { schema, table }) => {
+    const { selectedProfileId, profiles } = get();
+    const browse = get().browseState(key);
+    // Once per filter. setBrowseWhere nulls it again, which is what makes this
+    // re-run for a filter it has not answered for.
+    if (!selectedProfileId || !schema || !table || browse.totalRows !== null) {
+      return;
+    }
+    const engine = profiles.find((p) => p.id === selectedProfileId)?.engine;
+    pendingCountQueries.get(key)?.cancel();
+    try {
+      const call = runQuery(
+        selectedProfileId,
+        buildCountQuery({ schema, table, engine, where: browse.where }),
+      );
+      pendingCountQueries.set(key, call);
+      const result = await call;
+      const value = Number(result.rows[0]?.[0]);
+      // The filter it counted has to still be the filter, or the number
+      // describes a result nobody is looking at.
+      if (Number.isFinite(value) && get().browseState(key).where === browse.where) {
+        patchBrowse(set, key, { totalRows: value });
+      }
+    } catch {
+      // A count is a convenience, never the reason a table fails to open: the
+      // pager walks by probe row without it and says "1–200+" instead of
+      // "page 1 of 9". An error banner here would be about the pager's
+      // decoration, over rows that loaded fine.
+    } finally {
+      pendingCountQueries.delete(key);
     }
   },
 
@@ -827,6 +958,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       partialize: (state) => ({
         folders: state.folders,
         expandedFolders: state.expandedFolders,
+        browsePageSize: state.browsePageSize,
       }),
     },
   ),

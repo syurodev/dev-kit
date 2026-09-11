@@ -400,8 +400,12 @@ export function DBListTables(id: string, schema: string): $CancellablePromise<da
     return $Call.ByID(764026445, id, schema);
 }
 
-export function DBQuery(id: string, sql: string): $CancellablePromise<database$0.QueryResult> {
-    return $Call.ByID(2555176260, id, sql);
+/**
+ * DBQuery runs one statement. maxRows is the caller's row cap — the table
+ * browser's page size — and zero means the service default.
+ */
+export function DBQuery(id: string, sql: string, maxRows: number): $CancellablePromise<database$0.QueryResult> {
+    return $Call.ByID(2555176260, id, sql, maxRows);
 }
 
 export function DBSaveExportFile(suggestedName: string, content: string): $CancellablePromise<string> {

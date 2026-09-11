@@ -66,7 +66,7 @@ func (f *fakeDB) ListSavedQueries(string) ([]database.SavedQuery, error) {
 	return nil, nil
 }
 
-func (f *fakeDB) Query(context.Context, string, string) (database.QueryResult, error) {
+func (f *fakeDB) Query(context.Context, string, string, int) (database.QueryResult, error) {
 	return f.queryOut, f.queryErr
 }
 

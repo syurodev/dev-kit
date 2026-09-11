@@ -139,7 +139,7 @@ func TestBridgeAuditUsesOnlyOpaqueIDs(t *testing.T) {
 	service := NewAppService(container)
 	const hostileProfileID = "postgres://admin:password@internal-db/devkit"
 	const rawSQL = "SELECT password FROM credentials"
-	_, _ = service.DBQuery(context.Background(), hostileProfileID, rawSQL)
+	_, _ = service.DBQuery(context.Background(), hostileProfileID, rawSQL, 0)
 
 	const hostileCommandID = "rm -rf /private/data"
 	_, _ = service.ExecuteCommand(context.Background(), ExecuteCommandRequest{

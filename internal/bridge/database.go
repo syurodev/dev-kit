@@ -71,13 +71,15 @@ func (s *AppService) DBTestConnection(ctx context.Context, id string) error {
 	return err
 }
 
-func (s *AppService) DBQuery(ctx context.Context, id string, sql string) (database.QueryResult, error) {
+// DBQuery runs one statement. maxRows is the caller's row cap — the table
+// browser's page size — and zero means the service default.
+func (s *AppService) DBQuery(ctx context.Context, id string, sql string, maxRows int) (database.QueryResult, error) {
 	opaqueID := recordID(id)
 	result, err := s.call(ctx, "builtin.database", "db:query", "profile:"+opaqueID, map[string]any{
 		"action":     "query",
 		"profile_id": opaqueID,
 	}, func(callCtx context.Context) (any, error) {
-		return s.container.Database.Query(callCtx, id, sql)
+		return s.container.Database.Query(callCtx, id, sql, maxRows)
 	})
 	if err != nil {
 		return database.QueryResult{}, err

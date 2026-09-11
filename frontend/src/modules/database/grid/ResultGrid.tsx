@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   DndContext,
   PointerSensor,
@@ -14,7 +14,7 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Braces, Columns3, Copy, List } from "lucide-react";
+import { Braces, Columns3, Copy, List, Pin, PinOff, Rows3 } from "lucide-react";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -22,6 +22,13 @@ import {
   ContextMenuLabel,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { useVirtualRows } from "@/components/ui/virtual-rows";
 import { cn } from "@/lib/utils";
 import { copyText } from "@/bridge/clipboard";
@@ -29,8 +36,12 @@ import type { QueryResult } from "@/bridge/database";
 import {
   DEFAULT_COLUMN_WIDTH_PX,
   MIN_COLUMN_WIDTH_PX,
+  frozenOffsets,
+  measureColumns,
+  pinColumn,
   orderedColumns,
   reorderColumn,
+  resizeColumn,
 } from "./gridColumns";
 // A4: moved here from QueryConsole rather than reimplemented. rowAsJSON maps
 // over the ROW and names an empty column col_${i}; an inlined
@@ -40,24 +51,14 @@ import { columnValues, rowAsJSON } from "./rowText";
 const ROW_HEIGHT = 36;
 
 /**
- * The number the gutter shows for a row.
+ * What the pointer was over when the menu opened.
  *
- * `rowIndex` is the row's position in the result; `rowOffset` is how many rows
- * of the same table come before this page. A27: the gutter used to show
- * `rowIndex + 1` alone, so page 2 restarted at 1 while the pager an inch away
- * read "201-400" — the same row called 1 and 201 at once. The offset is what
- * makes the gutter count the table the pager is counting.
- *
- * It stays a function of the ROW's index, never of the render order: the
- * window of virtualised rows starts wherever the scroll is, and a counter over
- * the rendered ones would restart every time you scrolled.
+ * `row: null` is a column header — the menu still knows which column, which is
+ * most of what it offers. Headers used to carry no target at all, so the menu
+ * rendered every item behind `cell` and opened EMPTY on the one place anyone
+ * right-clicks to act on a column.
  */
-export function rowNumber(rowIndex: number, rowOffset: number): number {
-  return rowOffset + rowIndex + 1;
-}
-
-/** Which cell the pointer was over when the menu opened. */
-type Target = { row: number; column: number } | null;
+type Target = { row: number | null; column: number } | null;
 
 /**
  * The result grid, shared by the console and a table's data.
@@ -81,12 +82,13 @@ export function ResultGrid({
   sort,
   onSort,
   onReorder,
-  rowOffset = 0,
+  frozen = 0,
+  onFreeze,
 }: {
   result: QueryResult;
   widths: readonly number[];
   columnOrder: readonly number[];
-  onResize: (index: number, delta: number) => void;
+  onResize: (widths: number[]) => void;
   onInspectCell: (cell: { columnName: string; value: string }) => void;
   /** Server-side sort, when the caller has one. Absent in the console. */
   sort?: { column: number; direction: "asc" | "desc" } | null;
@@ -98,15 +100,24 @@ export function ResultGrid({
    */
   onReorder?: (order: number[]) => void;
   /**
-   * Rows of the same table before this page, added to every gutter number. A
-   * table's pages are one table, and its page 2 starts where the pager says it
-   * does. A console result has nothing before it — its rows are 1..n — so the
-   * console passes nothing and this stays 0.
+   * How many columns of the DISPLAY order stay on screen while the grid
+   * scrolls sideways. A count, not a set — see frozenOffsets.
    */
-  rowOffset?: number;
+  frozen?: number;
+  /**
+   * Absent in the console, whose columns change with every query. Takes the
+   * whole arrangement, because pinning MOVES a column — see pinColumn.
+   */
+  onFreeze?: (next: { order: number[]; frozen: number }) => void;
 }) {
   const rows = useVirtualRows(result.rows.length, ROW_HEIGHT);
   const order = orderedColumns(result.columns, columnOrder);
+  // What the content needs, for every column nobody has dragged. Recomputed
+  // per result, not per render: it walks fifty rows.
+  const measured = useMemo(
+    () => measureColumns(result.columns, result.rows),
+    [result.columns, result.rows],
+  );
   const [target, setTarget] = useState<Target>(null);
 
   // A click is a sort and a drag is a reorder, and they start with the same
@@ -116,12 +127,48 @@ export function ResultGrid({
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
   );
 
-  const widthOf = (index: number) => widths[index] ?? DEFAULT_COLUMN_WIDTH_PX;
+  const widthOf = (index: number) => widths[index] ?? measured[index] ?? DEFAULT_COLUMN_WIDTH_PX;
+  // A drag starts from what is on screen, not from a default: seeding the
+  // untouched columns with 180 made dragging the fourth column snap the first
+  // three to a width nobody chose.
+  const effectiveWidths = result.columns.map((_, index) => widthOf(index));
+  // Frozen columns are sticky at an absolute offset — the widths of the frozen
+  // columns before them. Indexed by DISPLAY position, which is what `order`
+  // walks, not by the column's own index.
+  const offsets = frozenOffsets(order, widthOf, frozen);
+  const frozenStyle = (position: number): CSSProperties | undefined =>
+    offsets[position] === undefined
+      ? undefined
+      : {
+          position: "sticky",
+          left: offsets[position],
+          zIndex: 2,
+          // A pinned cell needs an OPAQUE ground: columns slide under it, and
+          // `bg-surface-well` is rgba(255,255,255,0.06) — a tint meant to sit
+          // on a surface, not to be one. Painted straight onto a pinned cell
+          // it veiled the scrolling columns instead of hiding them, which is
+          // what "the pinned column is transparent" was.
+          //
+          // The tint as a gradient layer over the base reproduces exactly what
+          // the grid body already shows — the pinned run stays the colour it
+          // had, and is opaque.
+          background:
+            "linear-gradient(var(--surface-well), var(--surface-well)), var(--surface-base)",
+        };
+  // Two targets, because they answer different questions. `column` is known
+  // for a header as well as a cell; `cell` needs a row under the pointer.
+  const column =
+    target && result.columns[target.column] !== undefined
+      ? {
+          index: target.column,
+          name: result.columns[target.column] || `col_${target.column}`,
+          position: order.indexOf(target.column),
+        }
+      : null;
   const cell =
-    target && result.rows[target.row]
+    target && target.row !== null && result.rows[target.row]
       ? {
           value: result.rows[target.row][target.column] ?? "",
-          name: result.columns[target.column] || `col_${target.column}`,
           row: result.rows[target.row],
         }
       : null;
@@ -149,10 +196,15 @@ export function ResultGrid({
             ref={rows.scrollRef}
             className="min-h-0 flex-1 overflow-auto scrollbar-gutter-stable rounded-md border border-border-subtle bg-surface-well"
             onContextMenu={(event) => {
-              const el = (event.target as HTMLElement).closest("[data-cell]");
+              const el = (event.target as HTMLElement).closest("[data-cell],[data-column]");
               const raw = el?.getAttribute("data-cell");
-              const [row, column] = raw ? raw.split(":").map(Number) : [NaN, NaN];
-              setTarget(Number.isNaN(row) ? null : { row, column });
+              if (raw) {
+                const [row, column] = raw.split(":").map(Number);
+                setTarget(Number.isNaN(row) ? null : { row, column });
+                return;
+              }
+              const column = Number(el?.getAttribute("data-column"));
+              setTarget(Number.isNaN(column) ? null : { row: null, column });
             }}
           >
             <table
@@ -160,26 +212,29 @@ export function ResultGrid({
               aria-label="Query results"
             >
               <colgroup>
-                {/* The gutter. Its width is the row-number column's, fixed. */}
-                <col style={{ width: 56 }} />
                 {order.map((index) => (
                   <col key={index} style={{ width: widthOf(index) }} />
                 ))}
               </colgroup>
-              <thead className="sticky top-0 z-10 bg-surface-raised">
+              {/* The background lives on the cells, not here. A `position:
+                  sticky` row group moves its CELLS and leaves a background set
+                  on the group behind at the scroll origin, so a header styled
+                  this way is transparent the moment you scroll — and the first
+                  row reads straight through it. */}
+              <thead className="sticky top-0 z-10">
                 <tr>
-                  <th className="h-10 border-r border-b border-border-subtle px-3 text-code-11 text-text-tertiary">
-                    #
-                  </th>
                   <SortableContext items={order} strategy={horizontalListSortingStrategy}>
-                    {order.map((index) => (
+                    {order.map((index, position) => (
                       <HeaderCell
                         key={`${result.columns[index]}-${index}`}
                         label={result.columns[index]}
                         index={index}
                         sorted={sort?.column === index ? sort.direction : null}
+                        frozenAt={offsets[position]}
                         onSort={onSort}
-                        onResize={onResize}
+                        onResize={(column, delta) =>
+                          onResize(resizeColumn(effectiveWidths, column, delta))
+                        }
                       />
                     ))}
                   </SortableContext>
@@ -189,25 +244,26 @@ export function ResultGrid({
                 {rows.padTop > 0 && <tr style={{ height: rows.padTop }} aria-hidden />}
                 {rows.indices.map((rowIndex) => (
                   <tr key={rowIndex} className="group transition-colors hover:bg-surface-raised/60">
-                    {/* The row number is the row's own, not the window's: with
-                        virtualised rows a counter over the rendered ones would
-                        restart every time you scrolled. rowNumber takes the
-                        index, and the page's offset, for that reason. */}
-                    <td className="h-9 border-r border-b border-border-subtle px-3 text-code-11 text-text-tertiary tabular-nums">
-                      {rowNumber(rowIndex, rowOffset)}
-                    </td>
                     {/* Only the header drags. Giving each cell a useSortable would
                         mount one per visible cell — 2,220 on a 74-column table — to
                         animate a column that snaps into place on drop anyway. */}
-                    {order.map((columnIndex) => {
+                    {order.map((columnIndex, position) => {
                       const value = result.rows[rowIndex][columnIndex] ?? "";
                       return (
                         <td
                           key={columnIndex}
                           data-cell={`${rowIndex}:${columnIndex}`}
+                          style={frozenStyle(position)}
                           className={cn(
                             "h-9 cursor-pointer truncate border-r border-b border-border-subtle px-4 select-text last:border-r-0 hover:text-text-primary",
                             columnIndex === order[0] ? "text-text-primary" : "text-text-secondary",
+                            // The row's hover tint has to reach a pinned cell
+                            // too, or half the row lights up — and it has to
+                            // stack ON the ground frozenStyle painted rather
+                            // than replace it, or hovering makes the cell
+                            // see-through again.
+                            offsets[position] !== undefined &&
+                              "group-hover:[background-image:linear-gradient(var(--state-soft),var(--state-soft)),linear-gradient(var(--surface-well),var(--surface-well))]",
                           )}
                           onClick={() =>
                             onInspectCell({
@@ -230,6 +286,28 @@ export function ResultGrid({
                 {rows.padBottom > 0 && <tr style={{ height: rows.padBottom }} aria-hidden />}
               </tbody>
             </table>
+            {/* A result with columns but no rows used to render as the header
+                row over blank space, which reads as a grid still loading. The
+                headers stay — they are the answer to "what would have been
+                here" — and the shared Empty says the rest. */}
+            {result.rows.length === 0 ? (
+              // sticky left-0: this sits inside the horizontal scroller, so
+              // without it the message slides out of view as you scroll a wide
+              // table sideways. Sticky pins it to the scroller's own left edge,
+              // where its container width centres it over what you can see.
+              <Empty className="sticky left-0 p-8">
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">
+                    <Rows3 />
+                  </EmptyMedia>
+                  <EmptyTitle>No rows</EmptyTitle>
+                  <EmptyDescription>
+                    The query ran and matched nothing. Change the filter or the sort and run it
+                    again.
+                  </EmptyDescription>
+                </EmptyHeader>
+              </Empty>
+            ) : null}
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent>
@@ -245,12 +323,16 @@ export function ResultGrid({
                 <Braces />
                 Copy row as JSON
               </ContextMenuItem>
-              <ContextMenuItem onSelect={() => void copyText(cell.name)}>
+            </>
+          ) : null}
+          {column ? (
+            <>
+              <ContextMenuItem onSelect={() => void copyText(column.name)}>
                 <Columns3 />
                 Copy column name
               </ContextMenuItem>
               <ContextMenuItem
-                onSelect={() => void copyText(columnValues(result.rows, target!.column))}
+                onSelect={() => void copyText(columnValues(result.rows, column.index))}
               >
                 <List />
                 Copy {result.rows.length} value{result.rows.length === 1 ? "" : "s"}
@@ -263,8 +345,23 @@ export function ResultGrid({
                   result was capped — this is not the whole column
                 </ContextMenuLabel>
               ) : null}
+              {onFreeze ? (
+                <ContextMenuItem
+                  onSelect={() => onFreeze(pinColumn(order, frozen, column.index))}
+                >
+                  {column.position < frozen ? <PinOff /> : <Pin />}
+                  {column.position < frozen ? `Unpin ${column.name}` : `Pin ${column.name}`}
+                </ContextMenuItem>
+              ) : null}
             </>
-          ) : null}
+          ) : (
+            // Never an empty menu. A popup that opens onto nothing is
+            // indistinguishable from a right-click that did not register, and
+            // that is exactly how this read when headers carried no target.
+            <ContextMenuLabel className="font-normal text-text-tertiary">
+              Right-click a cell or a column header
+            </ContextMenuLabel>
+          )}
         </ContextMenuContent>
       </ContextMenu>
     </DndContext>
@@ -281,12 +378,15 @@ function HeaderCell({
   label,
   index,
   sorted,
+  frozenAt,
   onSort,
   onResize,
 }: {
   label: string;
   index: number;
   sorted: "asc" | "desc" | null;
+  /** Sticky left offset when this column is frozen, undefined when it scrolls. */
+  frozenAt: number | undefined;
   onSort?: (index: number) => void;
   onResize: (index: number, delta: number) => void;
 }) {
@@ -312,10 +412,17 @@ function HeaderCell({
     // relative + transform, never out of flow: a `<th>` taken out of flow takes
     // the table's column widths with it, which is the same reason virtual-rows
     // pads with spacer rows instead of positioning them.
-    position: "relative",
+    //
+    // A frozen column is the exception, and sticky is why it can be: it keeps
+    // its place in the table's layout and only paints elsewhere. It has to
+    // out-stack the scrolling headers beside it, which sit at 0/1.
+    position: frozenAt === undefined ? "relative" : "sticky",
+    left: frozenAt,
+    // Opaque for the same reason the body cells are, on the header's surface.
+    background: frozenAt === undefined ? undefined : "var(--surface-raised)",
     transform: CSS.Translate.toString(transform),
     transition,
-    zIndex: isDragging ? 1 : 0,
+    zIndex: isDragging ? 3 : frozenAt === undefined ? 0 : 2,
     opacity: isDragging ? 0.8 : 1,
   };
 
@@ -323,8 +430,12 @@ function HeaderCell({
     <th
       ref={setNodeRef}
       style={style}
+      // The grid's one context menu reads this to learn which column the
+      // pointer was over. A header carries no row, so it is data-column rather
+      // than data-cell — see Target.
+      data-column={index}
       {...listeners}
-      className="relative h-10 border-r border-b border-border-subtle p-0 text-code-12-medium text-text-secondary last:border-r-0"
+      className="relative h-10 border-r border-b border-border-subtle bg-surface-raised p-0 text-code-12-medium text-text-secondary last:border-r-0"
     >
       <button
         type="button"

@@ -1,8 +1,8 @@
 import { beforeEach, expect, test } from "bun:test";
-import { EMPTY_BROWSE, useDatabaseStore } from "./databaseStore";
+import { BROWSE_PAGE_SIZE, BROWSE_PAGE_SIZES, EMPTY_BROWSE, useDatabaseStore } from "./databaseStore";
 
 beforeEach(() => {
-  useDatabaseStore.setState({ browse: {} });
+  useDatabaseStore.setState({ browse: {}, browsePageSize: BROWSE_PAGE_SIZE });
 });
 
 test("a table never browsed reads as empty, not undefined", () => {
@@ -161,4 +161,88 @@ test("a step whose load fails leaves the page number where it was", async () => 
   );
 
   expect(useDatabaseStore.getState().browseState("public.orders").pageIndex).toBe(1);
+});
+
+// The count is the pager's licence to jump. Without one, the only page it can
+// prove exists ahead is the one the probe row found.
+test("uncounted, the pager may step forward exactly one page", async () => {
+  useDatabaseStore.setState({
+    selectedProfileId: "",
+    browse: { "public.orders": { ...EMPTY_BROWSE, pageIndex: 2, hasNext: true } },
+  });
+  const target = { schema: "public", table: "orders" };
+
+  await useDatabaseStore.getState().goToBrowsePage("public.orders", target, 9);
+  expect(useDatabaseStore.getState().browseState("public.orders").pageIndex).toBe(2);
+
+  await useDatabaseStore.getState().goToBrowsePage("public.orders", target, 3);
+  expect(useDatabaseStore.getState().browseState("public.orders").pageIndex).toBe(3);
+});
+
+test("counted, it may jump to any page up to the last", async () => {
+  useDatabaseStore.setState({
+    selectedProfileId: "",
+    // 8,420 rows at 200 a page is pages 0..42.
+    browse: { "public.orders": { ...EMPTY_BROWSE, pageIndex: 0, totalRows: 8420 } },
+  });
+  const target = { schema: "public", table: "orders" };
+
+  expect(useDatabaseStore.getState().lastBrowsePage("public.orders")).toBe(42);
+
+  await useDatabaseStore.getState().goToBrowsePage("public.orders", target, 42);
+  expect(useDatabaseStore.getState().browseState("public.orders").pageIndex).toBe(42);
+
+  // One past the end is not a page, counted or not.
+  await useDatabaseStore.getState().goToBrowsePage("public.orders", target, 43);
+  expect(useDatabaseStore.getState().browseState("public.orders").pageIndex).toBe(42);
+});
+
+test("a filter change drops the count with the cursors", () => {
+  useDatabaseStore.setState({
+    browse: { "public.orders": { ...EMPTY_BROWSE, totalRows: 8420, cursors: [["10"]] } },
+  });
+
+  useDatabaseStore.getState().setBrowseWhere("public.orders", "status = 'open'");
+
+  const state = useDatabaseStore.getState().browseState("public.orders");
+  expect(state.totalRows).toBeNull();
+  expect(useDatabaseStore.getState().lastBrowsePage("public.orders")).toBeNull();
+});
+
+// A page size is where the page boundaries are, so changing it invalidates
+// every walk in flight for the same reason a new filter does — cursors are
+// boundaries, and the boundaries moved.
+test("a new page size resets every open tab's walk, and keeps their counts", () => {
+  useDatabaseStore.setState({
+    browse: {
+      "public.orders": { ...EMPTY_BROWSE, pageIndex: 7, cursors: [["10"]], hasNext: true, totalRows: 8420 },
+      "public.customers": { ...EMPTY_BROWSE, pageIndex: 2, cursors: [["3"]], hasNext: true },
+    },
+  });
+
+  useDatabaseStore.getState().setBrowsePageSize(1000);
+
+  expect(useDatabaseStore.getState().browsePageSize).toBe(1000);
+  for (const key of ["public.orders", "public.customers"]) {
+    const state = useDatabaseStore.getState().browseState(key);
+    expect(state.pageIndex).toBe(0);
+    expect(state.cursors).toEqual([]);
+    expect(state.hasNext).toBe(false);
+  }
+  // How many rows match is not a function of how many fit on a page.
+  expect(useDatabaseStore.getState().browseState("public.orders").totalRows).toBe(8420);
+  // 8,420 rows at 1,000 a page is pages 0..8, not 0..42.
+  expect(useDatabaseStore.getState().lastBrowsePage("public.orders")).toBe(8);
+});
+
+// The service clamps its own row cap, and a size it does not offer would be
+// silently clamped into something the pager's arithmetic disagreed with.
+test("a page size that is not on offer is refused, not clamped", () => {
+  useDatabaseStore.getState().setBrowsePageSize(50_000);
+  expect(useDatabaseStore.getState().browsePageSize).toBe(BROWSE_PAGE_SIZE);
+
+  for (const size of BROWSE_PAGE_SIZES) {
+    useDatabaseStore.getState().setBrowsePageSize(size);
+    expect(useDatabaseStore.getState().browsePageSize).toBe(size);
+  }
 });

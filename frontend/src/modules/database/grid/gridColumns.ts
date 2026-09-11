@@ -59,3 +59,104 @@ export function resizeColumn(
   next[index] = Math.max(MIN_COLUMN_WIDTH_PX, (next[index] ?? DEFAULT_COLUMN_WIDTH_PX) + delta);
   return next;
 }
+
+/**
+ * The width a column gets before anyone drags it: what its content needs.
+ *
+ * Every column starting at DEFAULT_COLUMN_WIDTH_PX gives an `id` holding "5"
+ * exactly as much room as a timestamp, so a wide table wastes its width on the
+ * narrow columns and scrolls the interesting ones off the right.
+ *
+ * Measured in characters against the grid's monospace cell font rather than
+ * with canvas metrics: the cells are `text-code-12`, so a character is a fixed
+ * advance and the arithmetic is `chars * CHAR_PX + padding`. Only the first
+ * rows are sampled — a page is up to 5,000 rows, the columns are sized once,
+ * and row 4,000 being long is not a reason to make every screen of the table
+ * narrower.
+ */
+const CHAR_PX = 7.3;
+const CELL_PADDING_PX = 32;
+const SAMPLE_ROWS = 50;
+const MAX_MEASURED_WIDTH_PX = 320;
+
+export function measureColumns(
+  columns: readonly string[],
+  rows: readonly (readonly string[])[],
+): number[] {
+  const sample = rows.slice(0, SAMPLE_ROWS);
+  return columns.map((name, index) => {
+    // The header carries a sort caret and is the one cell that must never
+    // truncate to nothing, so it counts like any other value.
+    let longest = name.length;
+    for (const row of sample) {
+      const value = row[index];
+      if (value && value.length > longest) {
+        longest = value.length;
+      }
+    }
+    const wanted = Math.ceil(longest * CHAR_PX) + CELL_PADDING_PX;
+    return Math.min(MAX_MEASURED_WIDTH_PX, Math.max(MIN_COLUMN_WIDTH_PX, wanted));
+  });
+}
+
+/**
+ * Where each frozen column sits while the grid scrolls sideways.
+ *
+ * `frozen` is a count, not a set: freezing means "keep the first n columns of
+ * the display order on screen", the way a spreadsheet freezes panes. A set of
+ * arbitrary columns would have to answer what happens when you drag one of
+ * them out of the frozen run, and nobody wants two answers to that.
+ *
+ * Returns the `left` offset for each frozen column in DISPLAY order — the
+ * widths of everything frozen before it — and nothing for the rest. Sticky
+ * offsets have to be absolute pixels: `left: 0` on all of them stacks every
+ * frozen column on the same edge.
+ */
+export function frozenOffsets(
+  order: readonly number[],
+  widthOf: (index: number) => number,
+  frozen: number,
+): (number | undefined)[] {
+  const offsets: (number | undefined)[] = [];
+  let left = 0;
+  for (const [position, index] of order.entries()) {
+    if (position >= frozen) {
+      offsets.push(undefined);
+      continue;
+    }
+    offsets.push(left);
+    left += widthOf(index);
+  }
+  return offsets;
+}
+
+/**
+ * Pins a column, or unpins one already pinned.
+ *
+ * Pinning MOVES the column: it joins the pinned run at the left edge rather
+ * than dragging every column between it and the edge into the run with it.
+ * "Freeze the first n columns" is the spreadsheet model, and on a 74-column
+ * table where the column you care about sits at position 40 it pins forty
+ * columns you did not ask for.
+ *
+ * Unpinning drops it out of the run and leaves it as the first column outside
+ * it. Its original position is not restored — the order is the user's to drag,
+ * and guessing where a column "came from" is a guess it would have to keep.
+ */
+export function pinColumn(
+  order: readonly number[],
+  frozen: number,
+  columnIndex: number,
+): { order: number[]; frozen: number } {
+  const position = order.indexOf(columnIndex);
+  if (position === -1) {
+    return { order: [...order], frozen };
+  }
+  if (position < frozen) {
+    return { order: reorderColumn(order, position, frozen - 1), frozen: frozen - 1 };
+  }
+  // To the end of the pinned run, not to 0: pins accumulate left to right in
+  // the order they were made, so pinning a second column does not shove the
+  // first one out of the place you just put it.
+  return { order: reorderColumn(order, position, frozen), frozen: frozen + 1 };
+}

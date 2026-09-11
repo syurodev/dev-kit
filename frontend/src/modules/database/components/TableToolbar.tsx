@@ -1,10 +1,32 @@
-import { ChevronLeft, ChevronRight, Download, RefreshCw, SquareArrowOutUpRight } from "lucide-react";
+import type { ReactNode } from "react";
+import type { SchemaNamespace } from "@/bridge/database";
+import {
+  ArrowDownAZ,
+  ArrowUpAZ,
+  ChevronsUpDown,
+  Download,
+  RefreshCw,
+  SquareArrowOutUpRight,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { WhereInput } from "./WhereInput";
 
 /**
- * A table tab's controls: what to filter by, what to order by, and where in the
- * table you are.
+ * A table tab's controls: what to filter by, what to order by, what to do with
+ * the rows, and where you are in them.
+ *
+ * Two rows, split by what they are. The first is the query — the filter you
+ * type and the sort the grid is under, the two things that decide which rows
+ * come back. The second is what you do with the rows that did: the actions on
+ * the left, the pager on the right, where the row had dead space.
  *
  * Two boxes rather than a SQL editor. Opening a table is a request to see its
  * data, and an editor spending most of the height on a statement you did not
@@ -16,30 +38,36 @@ export function TableToolbar({
   where,
   onWhereChange,
   onApply,
-  orderLabel,
-  pageIndex,
+  engine,
+  indexed,
+  schema,
+  table,
+  orderBy,
+  columns,
+  onOrderByChange,
   rowCount,
-  hasNext,
-  keyed,
   loading,
-  onStep,
   onRefresh,
   onExport,
   onOpenInConsole,
-  // A14: destructured, not only typed. The verbatim pattern stopped above and
-  // the row range below referred to a name that did not exist.
-  pageSize,
+  pager,
 }: {
   where: string;
   onWhereChange: (value: string) => void;
   onApply: () => void;
-  orderLabel: string;
-  pageIndex: number;
+  /** Everything the filter box completes against — see WhereInput. */
+  engine: string | undefined;
+  indexed: SchemaNamespace | undefined;
+  schema: string;
+  table: string;
+  /** The sort the grid is under, or null for the table's own order. */
+  orderBy: { column: string; direction: "asc" | "desc" } | null;
+  /** The result's columns, to pick one from. Empty before the first page lands. */
+  columns: readonly string[];
+  onOrderByChange: (next: { column: string; direction: "asc" | "desc" } | null) => void;
+  /** Rows on this page. Only Export reads it — with none there is nothing to write. */
   rowCount: number;
-  hasNext: boolean;
-  keyed: boolean;
   loading: boolean;
-  onStep: (step: 1 | -1) => void;
   onRefresh: () => void;
   /**
    * A28: exports the rows this tab already has. The table tab lost Export when
@@ -50,34 +78,85 @@ export function TableToolbar({
   onExport: () => void;
   onOpenInConsole: () => void;
   /**
-   * A2: rows per page, from the store's BROWSE_PAGE_SIZE rather than a literal
-   * 200 spelled here. The row range is the one thing in this component that
-   * would go on claiming 200 after the page size changed, and it would look
-   * right while being wrong.
+   * The pager, as a slot. Ten pagination props threaded through a toolbar that
+   * reads none of them is prop drilling with extra steps — the toolbar owes
+   * this one a place to sit and nothing else.
    */
-  pageSize: number;
+  pager?: ReactNode;
 }) {
-  const first = pageIndex * pageSize + 1;
-  const last = pageIndex * pageSize + rowCount;
-
   return (
     <div className="flex shrink-0 flex-col gap-2 pb-2">
       <div className="flex items-center gap-2">
         <span className="shrink-0 text-code-11 text-text-tertiary">WHERE</span>
-        <Input
+        <WhereInput
           value={where}
-          onChange={(event) => onWhereChange(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              onApply();
-            }
-          }}
-          placeholder="status = 'open'"
-          aria-label="Filter rows"
-          className="h-(--control-height-md) border-border-subtle bg-surface-well text-code-12"
+          onChange={onWhereChange}
+          onApply={onApply}
+          engine={engine}
+          indexed={indexed}
+          schema={schema}
+          table={table}
+          columns={columns}
         />
-        <span className="shrink-0 text-code-11 text-text-tertiary">{orderLabel}</span>
+        {/* A control, not a label. It sits beside the WHERE box styled like
+            one, so reading as a control and doing nothing was the worst of
+            both: the header cells set a sort, but only for a column you can
+            see, and a 74-column table scrolls most of them off the right. */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={columns.length === 0}
+              className="h-(--control-height-md) shrink-0 gap-1.5 border border-border-subtle bg-surface-well px-3 text-code-12 font-normal text-text-secondary"
+            >
+              {orderBy ? (
+                orderBy.direction === "asc" ? (
+                  <ArrowUpAZ className="text-text-tertiary" />
+                ) : (
+                  <ArrowDownAZ className="text-text-tertiary" />
+                )
+              ) : null}
+              ORDER BY {orderBy ? orderBy.column : "—"}
+              <ChevronsUpDown className="text-text-tertiary" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="max-h-96 overflow-y-auto">
+            <DropdownMenuLabel>Sort by</DropdownMenuLabel>
+            <DropdownMenuItem onSelect={() => onOrderByChange(null)}>
+              No sort — the table&rsquo;s own order
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            {columns.map((column) => {
+              // One row per column, both directions on it: two rows per column
+              // is 148 items on a 74-column table, and the direction is a
+              // property of the sort rather than a sort of its own.
+              const active = orderBy?.column === column;
+              return (
+                <DropdownMenuItem
+                  key={column}
+                  className="justify-between gap-4"
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    onOrderByChange({
+                      column,
+                      direction: active && orderBy.direction === "asc" ? "desc" : "asc",
+                    });
+                  }}
+                >
+                  <span className="truncate">{column}</span>
+                  {active ? (
+                    orderBy.direction === "asc" ? (
+                      <ArrowUpAZ className="text-text-tertiary" />
+                    ) : (
+                      <ArrowDownAZ className="text-text-tertiary" />
+                    )
+                  ) : null}
+                </DropdownMenuItem>
+              );
+            })}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       <div className="flex items-center gap-2">
@@ -96,41 +175,7 @@ export function TableToolbar({
 
         <span className="flex-1" />
 
-        {/* Row numbers, not a total: a COUNT(*) on a large table is a full scan
-            every time you open it, and "of 501+" is the honest shape when the
-            answer is only known one page ahead. */}
-        <span className="text-code-11 text-text-tertiary tabular-nums">
-          {rowCount === 0 ? "no rows" : `${first}–${last}${hasNext ? "+" : ""}`}
-        </span>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          aria-label="Previous page"
-          onClick={() => onStep(-1)}
-          disabled={loading || pageIndex === 0}
-        >
-          <ChevronLeft />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          aria-label="Next page"
-          onClick={() => onStep(1)}
-          disabled={loading || !hasNext}
-        >
-          <ChevronRight />
-        </Button>
-        {!keyed ? (
-          // Worth saying: without a key the walk is by offset, which the server
-          // pays for page by page, and a row inserted meanwhile shifts the
-          // window under you.
-          <span
-            className="text-code-11 text-text-tertiary"
-            title="This table has no primary or unique key, so pages are counted rather than walked. Deep pages are slower, and rows inserted while you page can shift the window."
-          >
-            unkeyed
-          </span>
-        ) : null}
+        {pager}
       </div>
     </div>
   );

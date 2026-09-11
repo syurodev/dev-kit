@@ -190,7 +190,7 @@ func TestQueryPreservesCallerCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err = svc.Query(ctx, summary.ID, "select 1")
+	_, err = svc.Query(ctx, summary.ID, "select 1", 0)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Query error = %v, want context.Canceled", err)
 	}

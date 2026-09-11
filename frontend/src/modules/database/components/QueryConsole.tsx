@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { sql as codemirrorSql, PostgreSQL, MySQL, MariaSQL } from "@codemirror/lang-sql";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { shortcut } from "@/lib/shortcut";
 import { CodeEditor } from "@/components/code-editor/CodeEditor";
 import {
@@ -31,8 +32,8 @@ import { EMPTY_CONSOLE, useDatabaseStore } from "../databaseStore";
 import { getEngineMeta } from "./EngineBadge";
 import { explain, explainAnalyze, type QueryPlan } from "../../../bridge/database";
 import { QueryPlanView } from "./QueryPlanView";
+import { sqlCompletionTheme } from "./sqlCompletionTheme";
 import { ResultGrid } from "../grid/ResultGrid";
-import { resizeColumn } from "../grid/gridColumns";
 
 /**
  * Figma `DB / Console Content` (742:8). A toolbar row with Run ⌘↵ and Export
@@ -129,6 +130,7 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
         defaultSchema,
         upperCaseKeywords: true,
       }),
+      sqlCompletionTheme,
     ];
   }, [profile?.engine, profile?.database, schemaSnapshot?.namespace]);
 
@@ -435,23 +437,21 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
                 result={queryResult}
                 widths={gridWidths}
                 columnOrder={[]}
-                onResize={(index, delta) => setGridWidths((w) => resizeColumn(w, index, delta))}
+                onResize={setGridWidths}
                 onInspectCell={setInspectedCell}
               />
             </div>
           ) : (
-            <div className="flex flex-1 flex-col items-center justify-center rounded-md border border-border-subtle bg-surface-well p-8 text-center text-text-tertiary">
-              <div className="mb-3 flex size-12 items-center justify-center rounded-control border border-border bg-surface-raised">
-                <FileCode2 className="size-6 text-text-secondary" />
-              </div>
-              <h3 className="mb-1 text-title-14 text-text-primary">
-                {selectedProfileId ? "Query console ready" : "No connection selected"}
-              </h3>
-              <p className="max-w-sm text-body-13 text-text-secondary">
-                {selectedProfileId
-                  ? `Type a SQL query above and press Run (or ${shortcut("Enter")}). Autocomplete suggests schemas and tables as you type.`
-                  : "Select a connection profile in the sidebar to start writing queries."}
-              </p>
+            <div className="flex flex-1 flex-col rounded-md border border-border-subtle bg-surface-well">
+              <EmptyState
+                icon={FileCode2}
+                title={selectedProfileId ? "Query console ready" : "No connection selected"}
+                body={
+                  selectedProfileId
+                    ? `Type a SQL query above and press Run (or ${shortcut("Enter")}). Autocomplete suggests schemas and tables as you type.`
+                    : "Select a connection profile in the sidebar to start writing queries."
+                }
+              />
             </div>
           )}
         </ResizablePanel>

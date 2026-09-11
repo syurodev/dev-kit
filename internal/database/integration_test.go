@@ -39,7 +39,7 @@ func TestPostgresIntegration(t *testing.T) {
 		t.Fatalf("TestConnection: %v", err)
 	}
 
-	result, err := svc.Query(ctx, summary.ID, "select 1 as n, 'hi' as greeting")
+	result, err := svc.Query(ctx, summary.ID, "select 1 as n, 'hi' as greeting", 0)
 	if err != nil {
 		t.Fatalf("Query: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestPostgresReadOnlyWarmPoolRejection(t *testing.T) {
 
 	ctx := context.Background()
 	// Warm up pool with a writeable query
-	if _, err := svc.Query(ctx, summary.ID, "create temporary table if not exists test_warm (id int); insert into test_warm values (1);"); err != nil {
+	if _, err := svc.Query(ctx, summary.ID, "create temporary table if not exists test_warm (id int); insert into test_warm values (1);", 0); err != nil {
 		t.Fatalf("Warmup write failed: %v", err)
 	}
 
@@ -86,7 +86,7 @@ func TestPostgresReadOnlyWarmPoolRejection(t *testing.T) {
 	}
 
 	// Subsequent write must be rejected by PostgreSQL in read-only safe-mode
-	_, err = svc.Query(ctx, summary.ID, "insert into test_warm values (2);")
+	_, err = svc.Query(ctx, summary.ID, "insert into test_warm values (2);", 0)
 	if err == nil {
 		t.Fatal("expected write to be rejected on safe-mode read_only profile, but succeeded")
 	}

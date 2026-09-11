@@ -1,11 +1,12 @@
 import { useEffect } from "react";
 import { useShallow } from "zustand/react/shallow";
+import { EMPTY_ARRAY } from "@/lib/stableEmpty";
 import { listColumns, listIndexes } from "@/bridge/database";
 import { ResultGrid } from "./grid/ResultGrid";
-import { resizeColumn } from "./grid/gridColumns";
 import { TableToolbar } from "./components/TableToolbar";
+import { BrowsePager } from "./components/BrowsePager";
 import { DatabaseOverlays } from "./DatabaseOverlays";
-import { BROWSE_PAGE_SIZE, useDatabaseStore } from "./databaseStore";
+import { useDatabaseStore } from "./databaseStore";
 import { useDatabaseChrome } from "./useDatabaseChrome";
 import { browseKeyOfTab, useBrowseLifetime } from "./useConsoleLifetime";
 import { useIsActiveDocument } from "./useIsActiveDocument";
@@ -22,7 +23,11 @@ import { pageKeyFor } from "./tableKey";
  * things a person browsing actually changes. "Open in console" hands the
  * composed statement to a console tab for anything past that.
  */
-export function TableDataView({ params }: { params?: Record<string, unknown> }) {
+export function TableDataView({
+  params,
+}: {
+  params?: Record<string, unknown>;
+}) {
   const schema = typeof params?.schema === "string" ? params.schema : "";
   const table = typeof params?.table === "string" ? params.table : "";
   // A22: through the shared rule, not spelled again here — useBrowseLifetime
@@ -44,9 +49,15 @@ export function TableDataView({ params }: { params?: Record<string, unknown> }) 
     setBrowseOrder,
     setBrowseWidths,
     setBrowseOrderColumns,
+    setBrowseFrozen,
     setPageKey,
     loadBrowsePage,
-    stepBrowsePage,
+    goToBrowsePage,
+    countBrowseRows,
+    lastPage,
+    schemaNamespace,
+    pageSize,
+    setBrowsePageSize,
     setInspectedCell,
     setSql,
     openExportModal,
@@ -64,9 +75,15 @@ export function TableDataView({ params }: { params?: Record<string, unknown> }) 
       setBrowseOrder: s.setBrowseOrder,
       setBrowseWidths: s.setBrowseWidths,
       setBrowseOrderColumns: s.setBrowseOrderColumns,
+      setBrowseFrozen: s.setBrowseFrozen,
       setPageKey: s.setPageKey,
       loadBrowsePage: s.loadBrowsePage,
-      stepBrowsePage: s.stepBrowsePage,
+      goToBrowsePage: s.goToBrowsePage,
+      countBrowseRows: s.countBrowseRows,
+      lastPage: s.lastBrowsePage(key),
+      schemaNamespace: s.schemaSnapshot?.namespace,
+      pageSize: s.browsePageSize,
+      setBrowsePageSize: s.setBrowsePageSize,
       setInspectedCell: s.setInspectedCell,
       setSql: s.setSql,
       openExportModal: s.openExportModal,
@@ -127,7 +144,26 @@ export function TableDataView({ params }: { params?: Record<string, unknown> }) 
     if (!hasRows && keyResolved && selectedProfileId) {
       void loadBrowsePage(key, { schema, table });
     }
-  }, [hasRows, keyResolved, selectedProfileId, key, schema, table, loadBrowsePage]);
+  }, [
+    hasRows,
+    keyResolved,
+    selectedProfileId,
+    key,
+    schema,
+    table,
+    loadBrowsePage,
+  ]);
+
+  // ponytail: one COUNT(*) per table tab and per filter, beside the first page
+  // rather than inside it — the rows are what the tab is for and they are not
+  // held up waiting for a number. It is the price of naming a last page at
+  // all; if it is too slow on a huge table, move it behind the Last button.
+  const where = browse.where;
+  useEffect(() => {
+    if (selectedProfileId && schema && table) {
+      void countBrowseRows(key, { schema, table });
+    }
+  }, [selectedProfileId, schema, table, key, where, countBrowseRows]);
 
   const engine = profiles.find((p) => p.id === selectedProfileId)?.engine;
 
@@ -137,19 +173,40 @@ export function TableDataView({ params }: { params?: Record<string, unknown> }) 
         where={browse.where}
         onWhereChange={(value) => setBrowseWhere(key, value)}
         onApply={() => void loadBrowsePage(key, { schema, table })}
-        orderLabel={
-          browse.orderBy
-            ? `ORDER BY ${browse.orderBy.column} ${browse.orderBy.direction.toUpperCase()}`
-            : "ORDER BY —"
-        }
-        pageIndex={browse.pageIndex}
-        pageSize={BROWSE_PAGE_SIZE}
+        engine={engine}
+        indexed={schemaNamespace}
+        schema={schema}
+        table={table}
+        orderBy={browse.orderBy}
+        columns={browse.rows?.columns ?? EMPTY_ARRAY}
+        onOrderByChange={(next) => {
+          setBrowseOrder(key, next);
+          void loadBrowsePage(key, { schema, table });
+        }}
         rowCount={browse.rows?.rows.length ?? 0}
-        hasNext={browse.hasNext}
-        keyed={pageKey !== null}
         loading={browse.loading}
-        onStep={(step) => void stepBrowsePage(key, { schema, table }, step)}
         onRefresh={() => void loadBrowsePage(key, { schema, table })}
+        pager={
+          browse.rows ? (
+            <BrowsePager
+              pageIndex={browse.pageIndex}
+              pageSize={pageSize}
+              rowCount={browse.rows.rows.length}
+              totalRows={browse.totalRows}
+              lastPage={lastPage}
+              hasNext={browse.hasNext}
+              keyed={pageKey !== null}
+              loading={browse.loading}
+              onGoToPage={(page) =>
+                void goToBrowsePage(key, { schema, table }, page)
+              }
+              onPageSizeChange={(size) => {
+                setBrowsePageSize(size);
+                void loadBrowsePage(key, { schema, table });
+              }}
+            />
+          ) : null
+        }
         // A28: the page already in hand, not a query re-run to fetch it again.
         // The toolbar disables this with no rows, and the guard here is what
         // makes that a courtesy rather than the only thing holding it up.
@@ -170,7 +227,7 @@ export function TableDataView({ params }: { params?: Record<string, unknown> }) 
               orderBy: browse.orderBy,
               pageKey,
               cursor: null,
-              pageSize: BROWSE_PAGE_SIZE,
+              pageSize,
             }).sql,
           );
           openConsoleTab(consoleId, table);
@@ -188,13 +245,17 @@ export function TableDataView({ params }: { params?: Record<string, unknown> }) 
           result={browse.rows}
           widths={browse.widths}
           columnOrder={browse.order}
-          onResize={(index, delta) => setBrowseWidths(key, resizeColumn(browse.widths, index, delta))}
+          onResize={(next) => setBrowseWidths(key, next)}
           onReorder={(next) => setBrowseOrderColumns(key, next)}
+          frozen={browse.frozen}
+          onFreeze={(next) => {
+            // Pinning moves the column as well as pinning it, so both land
+            // together — the order first, or the grid paints one frame with
+            // the new run length over the old arrangement.
+            setBrowseOrderColumns(key, next.order);
+            setBrowseFrozen(key, next.frozen);
+          }}
           onInspectCell={setInspectedCell}
-          // A27: the gutter counts the table, not the page. The pager beside it
-          // is already reading pageIndex * BROWSE_PAGE_SIZE + 1 for its first
-          // row, and two numbers for one row is the bug.
-          rowOffset={browse.pageIndex * BROWSE_PAGE_SIZE}
           sort={
             browse.orderBy
               ? {
@@ -203,13 +264,22 @@ export function TableDataView({ params }: { params?: Record<string, unknown> }) 
                 }
               : null
           }
+          // Three states, not two: asc, desc, and back to the table's own
+          // order. A two-state toggle is a sort you cannot take off — once
+          // any header is clicked the table is sorted by something forever,
+          // and "no ORDER BY" is a real answer the grid could no longer give.
           onSort={(index) => {
             const column = browse.rows!.columns[index];
+            const current =
+              browse.orderBy?.column === column
+                ? browse.orderBy.direction
+                : null;
             const next =
-              browse.orderBy?.column === column && browse.orderBy.direction === "asc"
-                ? ("desc" as const)
-                : ("asc" as const);
-            setBrowseOrder(key, { column, direction: next });
+              current === null ? "asc" : current === "asc" ? "desc" : null;
+            setBrowseOrder(
+              key,
+              next === null ? null : { column, direction: next },
+            );
             void loadBrowsePage(key, { schema, table });
           }}
         />

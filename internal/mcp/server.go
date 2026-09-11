@@ -88,7 +88,7 @@ type DatabaseAPI interface {
 	TestConnection(ctx context.Context, id string) error
 	AgentActiveProfileID() string
 	SetAgentActiveProfile(id string) error
-	Query(ctx context.Context, id, sql string) (database.QueryResult, error)
+	Query(ctx context.Context, id, sql string, maxRows int) (database.QueryResult, error)
 	ListQueryHistory(id string) ([]database.HistoryEntry, error)
 	ListSavedQueries(id string) ([]database.SavedQuery, error)
 	ListForeignKeys(ctx context.Context, id, schema string) ([]database.ForeignKey, error)

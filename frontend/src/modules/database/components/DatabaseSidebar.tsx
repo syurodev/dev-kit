@@ -23,6 +23,12 @@ import {
   Network,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { SidebarHeader, SidebarSearch } from "@/components/ui/sidebar-shell";
 import {
   ContextMenu,
@@ -600,21 +606,24 @@ export function DatabaseSidebar() {
 
       <div className="min-h-0 flex-1 overflow-y-auto scrollbar-gutter-stable pb-2">
         {profiles.length === 0 && !loadingProfiles ? (
-          <div className="px-4 py-6 text-center text-body-12 text-text-tertiary">
-            <p>No connections configured.</p>
-            <Button
-              variant="outline"
-              size="sm"
-              className="mt-2"
-              onClick={() => setShowNewConnectionDialog(true)}
-            >
-              <Plus className="size-3" /> Add profile
-            </Button>
-          </div>
+          <Empty className="px-4 py-6">
+            <EmptyTitle className="text-body-12 text-text-tertiary">
+              No connections configured.
+            </EmptyTitle>
+            <EmptyContent>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowNewConnectionDialog(true)}
+              >
+                <Plus className="size-3" /> Add profile
+              </Button>
+            </EmptyContent>
+          </Empty>
         ) : tree.length === 0 ? (
-          <p className="px-4 py-6 text-center text-body-12 text-text-tertiary">
-            Nothing matches “{needle}”.
-          </p>
+          <Empty className="px-4 py-6">
+            <EmptyDescription>Nothing matches “{needle}”.</EmptyDescription>
+          </Empty>
         ) : (
           <TreeView nodes={tree} />
         )}
