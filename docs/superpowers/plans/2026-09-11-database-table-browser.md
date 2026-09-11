@@ -83,7 +83,19 @@ and why.
    described: what stops the identifier ending early is that every quote in the
    interior is part of a doubled PAIR, not that some byte pair is absent.
 
-10. **A6 — the drag needs an activation distance (Task 10).** dnd-kit's pointer
+10. **A11 — Task 5 said nine tests and listed eight, and the missing one was
+    the composite key (Task 5).** The plan's own step 4 expected "PASS, 9
+    tests" over a file containing eight `test()` calls, so one was intended and
+    lost. The surface none of the eight covered is the one a composite key
+    exercises: a row-value comparison over MORE THAN ONE column, which is the
+    whole reason the statement is built as `(a, b) > (…)` rather than `a > …`.
+    Task 4 tests that a composite primary key is *reported* in its own column
+    order; nothing tested that the *statement* then compares both columns, or
+    that both get a direction in the ORDER BY. A single-column key cannot catch
+    a bug there — `(a) > ('1')` and `a > '1'` behave identically. The ninth test
+    is added, which reconciles the count and closes the gap.
+
+11. **A6 — the drag needs an activation distance (Task 10).** dnd-kit's pointer
    sensor starts a drag on pointerdown by default. The header cell is also the
    sort button and carries the resize handle, so without a distance threshold
    clicking a header would begin a drag instead of sorting, and a resize drag
@@ -991,6 +1003,22 @@ describe("buildBrowseQuery", () => {
       cursor: { values: ["o'brien"], direction: "next" },
     });
     expect(sql).toContain("'o''brien'");
+  });
+
+  // A11. The reason the comparison is written `(a, b) > (…)` rather than
+  // `a > …` is a composite key, and with a single-column key the two forms are
+  // indistinguishable — so nothing above would catch a bug here. Every key
+  // column must appear in the comparison, in key order, on both sides, and
+  // every one must carry a direction in the ORDER BY: a composite key with a
+  // direction on only its first column is not a total order either.
+  test("a composite key compares every column, in key order", () => {
+    const { sql } = buildBrowseQuery({
+      ...base,
+      pageKey: ["tenant_id", "id"],
+      cursor: { values: ["7", "42"], direction: "next" },
+    });
+    expect(sql).toContain('("tenant_id", "id") > (\'7\', \'42\')');
+    expect(sql).toContain('ORDER BY "tenant_id" ASC, "id" ASC');
   });
 });
 ```
