@@ -4,6 +4,7 @@ import { Plus, Wrench, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getModule } from "../../modules/registry";
 import type { TabStatus, WorkbenchTab } from "../../stores/workbenchTabs";
+import { ACTIVE_MIN_WIDTH_PX, computeTabWidths } from "./tabWidths";
 
 function statusDotClass(status: TabStatus): string {
   switch (status) {
@@ -71,18 +72,7 @@ function groupTabs(tabs: WorkbenchTab[]): TabGroup[] {
   return groups;
 }
 
-// Width model: the strip's measured width splits evenly across all tabs,
-// capped so a couple of short titles don't stretch into giant empty pills.
-// More tabs shrink everyone together; once the equal share would push the
-// active tab below its floor, it locks there and only the others keep
-// splitting the rest. Past the inactive floor the strip scrolls instead.
-const MAX_TAB_WIDTH_PX = 200;
-// Equal to the cap on purpose: a floor above it would render the active tab
-// narrower in a roomy strip than in a cramped one — backwards for a "floor".
-const ACTIVE_MIN_WIDTH_PX = MAX_TAB_WIDTH_PX;
-// pl-3 + icon + pr-8 (reserved for close) is 60px at rest; 52px still shows
-// the icon whole.
-const INACTIVE_MIN_WIDTH_PX = 52;
+// The width model lives in ./tabWidths, where it can be tested without a DOM.
 
 type TabGroupRowProps = {
   tabs: WorkbenchTab[];
@@ -466,42 +456,14 @@ export function TabStrip({
 
   const groups = groupTabs(visibleTabs);
   const visualOrder = groups.flatMap((group) => group.tabs);
-  const hasVisibleActive = visualOrder.some((tab) => tab.id === activeTabId);
 
   // The at-rest widths, independent of drag and keyboard browsing: used
   // directly when neither is active, and as the drag-freeze source when one is.
-  const computedWidths = new Map<string, number | undefined>();
-  const equalShare =
-    containerWidth !== undefined && visualOrder.length > 0
-      ? containerWidth / visualOrder.length
-      : undefined;
-  if (equalShare === undefined) {
-    // First paint, before any measurement — "auto" until the share is known.
-    visualOrder.forEach((tab) => computedWidths.set(tab.id, undefined));
-  } else if (!hasVisibleActive || equalShare >= ACTIVE_MIN_WIDTH_PX) {
-    // Room for everyone at the active tab's floor — including when nothing is
-    // active (a hidden home preview), where no tab needs prioritising.
-    const share = Math.min(
-      MAX_TAB_WIDTH_PX,
-      Math.max(equalShare, INACTIVE_MIN_WIDTH_PX),
-    );
-    visualOrder.forEach((tab) => computedWidths.set(tab.id, share));
-  } else if (containerWidth !== undefined) {
-    // Cramped: the active tab locks at its floor and the rest split what is
-    // left, down to their own floor. Past that the strip scrolls.
-    const remaining = containerWidth - ACTIVE_MIN_WIDTH_PX;
-    const inactiveCount = visualOrder.length - 1;
-    const inactiveShare =
-      inactiveCount > 0
-        ? Math.max(INACTIVE_MIN_WIDTH_PX, remaining / inactiveCount)
-        : undefined;
-    visualOrder.forEach((tab) => {
-      computedWidths.set(
-        tab.id,
-        tab.id === activeTabId ? ACTIVE_MIN_WIDTH_PX : inactiveShare,
-      );
-    });
-  }
+  const computedWidths = computeTabWidths({
+    tabIds: visualOrder.map((tab) => tab.id),
+    activeTabId,
+    containerWidth,
+  });
 
   const isDragging = draggingGroupIds.size > 0;
   if (isDragging && dragFreezeWidthsRef.current === null) {
