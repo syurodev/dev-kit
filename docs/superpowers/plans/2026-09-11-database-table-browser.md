@@ -105,7 +105,28 @@ and why.
     per call, or every `browseState` read would be a new reference and every
     selector subscribed to it would re-render forever.
 
-12. **A6 — the drag needs an activation distance (Task 10).** dnd-kit's pointer
+12. **A13 — "a backwards page is fetched DESC and flipped" is not what the
+    plan's own code does (Tasks 5 and 7).** The plan describes Back as a DESC
+    fetch away from the cursor, flipped on arrival, and builds the machinery for
+    it: `BrowseCursor.direction: "prev"`, the `<` comparison, the `reversed`
+    return field and the flip in `applyBrowsePage`. But `loadBrowsePage`
+    hard-codes `direction: "next"`, and `stepBrowsePage(…, -1)` goes back by
+    decrementing `pageIndex` and re-reading `cursors[pageIndex - 1]` — a
+    FORWARD query from an earlier trail entry. So nothing in production ever
+    produces a `prev` cursor, `reversed` is never true, and the flip never runs
+    outside its unit test.
+
+    The code is not wrong — it is better than the narrative. Holding the trail
+    of last-row keys is exactly what makes Back cheap, and once you have the
+    trail a DESC fetch is redundant: page k always starts after
+    `cursors[k-1]`, in either travel direction. The `prev`/`reversed` path is
+    therefore correct, tested, and currently unreachable — kept because a
+    future "jump to the last page" (where there is no trail entry to start
+    from) is the case that needs it. What is corrected here is the plan's
+    description, not the implementation. Task 12's check that "Back returns to
+    exactly the previous page" tests the trail, not the DESC path.
+
+13. **A6 — the drag needs an activation distance (Task 10).** dnd-kit's pointer
    sensor starts a drag on pointerdown by default. The header cell is also the
    sort button and carries the resize handle, so without a distance threshold
    clicking a header would begin a drag instead of sorting, and a resize drag
