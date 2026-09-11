@@ -135,7 +135,14 @@ and why.
     omission would have tempted: reaching for the literal `200` again, which is
     exactly what A2 exported `BROWSE_PAGE_SIZE` to prevent.
 
-14. **A6 — the drag needs an activation distance (Task 10).** dnd-kit's pointer
+14. **A15 — the first Next on a keyed table was a SQL syntax error (new Task
+    8b).** The initial page load raced the index read and won, so the cursor
+    trail never got a page 0 entry and the next page asked for
+    `WHERE ("id") > ()`. Reproduced against MariaDB 10.11 (`ERROR 1064`).
+    Tolerating the empty cursor would be worse — it re-serves page 0 as page 2.
+    Task 8b fixes the ordering and makes the builder refuse a malformed cursor.
+
+15. **A6 — the drag needs an activation distance (Task 10).** dnd-kit's pointer
    sensor starts a drag on pointerdown by default. The header cell is also the
    sort button and carries the resize handle, so without a distance threshold
    clicking a header would begin a drag instead of sorting, and a resize drag
@@ -2025,6 +2032,135 @@ Expected: tsc clean, 0 fail.
 ```bash
 git add frontend/src/modules/database
 git commit -m "feat(database): a table tab shows data, not a statement"
+```
+
+---
+
+### Task 8b: the key must arrive before the first page
+
+**A15. A bug the plan shipped, found by implementing Task 8 and reproduced
+against a real MySQL server.** The first Next click on any keyed table fails
+with a SQL syntax error, deterministically, on that table's first open in an app
+session.
+
+The chain, all of it confirmed in the committed code:
+
+1. `TableDataView` mounts and fires both effects in the same commit: the
+   `listIndexes` read (async) and the `!hasRows` initial load (immediate).
+2. `loadBrowsePage` reads `get().pageKeys[key]` synchronously, so the first
+   page sees `pageKey === null` and is fetched by OFFSET. Page 0 looks right,
+   which is why this is easy to miss.
+3. Recording the cursor trail is guarded by `if (pageKey && …)`, so
+   `cursors[0]` is never written.
+4. `hasNext` is nonetheless true — a 501-row table comes back capped with
+   `truncated` set (A1) — so Next is enabled.
+5. `listIndexes` resolves and `pageKeys[key]` becomes `["id"]`.
+6. Next sets `pageIndex = 1`. Now `pageKey` is truthy and `pageIndex > 0`, so
+   `cursor = { values: browse.cursors[0] ?? [], … }` → `values: []`.
+7. `buildBrowseQuery` emits `WHERE ("id") > ()`. MariaDB 10.11 answers
+   `ERROR 1064 … syntax error`. The user gets an error banner instead of page 2.
+
+The plan's own comment above that effect claims "The key … is read before the
+first page", which the code does not enforce. The intent was right; the code
+contradicts it.
+
+**Do not fix this by tolerating an empty cursor.** Ignoring a value-less cursor
+drops the comparison, and the statement then becomes page 0's own query — so
+Next silently re-serves rows 1-200 as page 2. Verified against a real server:
+`ORDER BY id ASC LIMIT 201` with no condition returns ids 1, 2, 3… That trades a
+loud error for silent duplication, which is exactly the failure this plan calls
+"the worst way for a data browser to be wrong". Fix the ordering instead.
+
+**Files:**
+- Modify: `frontend/src/modules/database/TableDataView.tsx`
+- Modify: `frontend/src/modules/database/sql/browseQuery.ts`
+- Test: `frontend/src/modules/database/sql/browseQuery.test.ts`
+
+- [ ] **Step 1: Write the failing test**
+
+Append to `browseQuery.test.ts`, inside the existing describe block:
+
+```ts
+  // A15. A cursor with no values cannot be compared against. Emitting
+  // `("id") > ()` is a syntax error, and quietly dropping the comparison is
+  // worse — the statement becomes page 0's own query, so the next page serves
+  // the first page's rows again. Neither is acceptable from a data browser, so
+  // the builder refuses instead: loudly, at the one place that can tell.
+  test("a cursor whose values do not match the key is refused, not guessed", () => {
+    expect(() =>
+      buildBrowseQuery({ ...base, cursor: { values: [], direction: "next" } }),
+    ).toThrow();
+    expect(() =>
+      buildBrowseQuery({
+        ...base,
+        pageKey: ["tenant_id", "id"],
+        cursor: { values: ["7"], direction: "next" },
+      }),
+    ).toThrow();
+  });
+```
+
+- [ ] **Step 2: Make the builder refuse**
+
+In `buildBrowseQuery`, inside the `if (keyed && cursor)` branch, before building
+the comparison:
+
+```ts
+    // A15: one value per key column, or there is nothing to compare. Both ways
+    // of carrying on are worse than stopping — an empty row value is a syntax
+    // error, and dropping the comparison re-serves the previous page. The
+    // caller's catch turns this into an error banner, which is the honest
+    // outcome for a bug in the caller.
+    if (cursor.values.length !== pageKey.length) {
+      throw new Error(
+        `browse cursor has ${cursor.values.length} value(s) for a ${pageKey.length}-column key`,
+      );
+    }
+```
+
+- [ ] **Step 3: Fix the ordering, which is the actual bug**
+
+The throw above makes the bug loud; it does not stop it happening. The first
+page must not load until the key is KNOWN — and "known" is not "non-null",
+because `pageKeys[key] ?? null` collapses *not read yet* and *unkeyed* into the
+same value. The presence of the entry is the discriminator.
+
+In `TableDataView.tsx`, add to the `useShallow` selector:
+
+```ts
+      // A15: whether the index read has ANSWERED, which `pageKey` cannot say —
+      // a null means both "no key" and "not asked yet", and loading the first
+      // page during the second one leaves the cursor trail with no page 0 entry.
+      keyResolved: key in s.pageKeys,
+```
+
+destructure `keyResolved` alongside `pageKey`, and gate the initial load on it:
+
+```ts
+  const hasRows = browse.rows !== null;
+  useEffect(() => {
+    if (!hasRows && keyResolved && selectedProfileId && table) {
+      void loadBrowsePage(key, { schema, table });
+    }
+  }, [hasRows, keyResolved, selectedProfileId, key, schema, table, loadBrowsePage]);
+```
+
+This costs the first page one round trip waiting on the index list — which is
+what the plan already said it was paying ("so it is read before the first
+page"). In exchange page 0 is fetched with the key known, its ORDER BY is the
+key's, and `cursors[0]` is recorded, so every later page has a boundary to walk
+from.
+
+- [ ] **Step 4: Verify**
+
+Run: `cd frontend && npx tsc --noEmit && bun test`
+Expected: tsc clean, 0 fail.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add frontend/src/modules/database
+git commit -m "fix(database): read a table's key before its first page"
 ```
 
 ---
