@@ -137,13 +137,35 @@
     --palette-vanilla: #f1fec8;
     --palette-lime: #c6ff34;
 
+    /* Tint sources — the colour an alpha layer is made OF, named so a theme
+       can move it. Three, because they answer three different questions:
+       veil is what a state layer lifts or recesses with, border is what a
+       hairline is tinted with, and specular is the light catching an edge of
+       glass, which is white in both modes and in every theme.
+
+       On color-mix and the fallback in the built CSS: Lightning CSS (inside
+       Tailwind's Vite plugin, whose targets neither build.cssTarget nor a
+       browserslist entry reaches — both were tried and changed nothing) emits
+       `--x: var(--source)` guarded by @supports for every one of these. That
+       fallback has no alpha: a solid candy-blue hairline, a solid white sheet
+       for --state-soft. It is accepted rather than worked around because it
+       is unreachable — it fires only where color-mix is missing (Safari
+       < 16.2), and this file already uses @starting-style in six places,
+       which needs 17.5. An engine that took the fallback would have lost the
+       app's motion long before it lost its borders. The alternative, writing
+       an rgba literal beside each color-mix as a real fallback, puts back
+       exactly the hand-typed channels this pass exists to remove. */
+    --tint-veil: #ffffff;
+    --tint-border: var(--palette-candy-blue);
+    --tint-specular: #ffffff;
+
     /* Semantic Tokens (dark-first; light overrides under [data-theme="light"]) */
     --background-app: var(--palette-onyx);
     --background-canvas: var(--palette-carbon);
     --surface-base: var(--palette-jet-black);
     --surface-raised: var(--palette-cosmic);
-    --surface-glass-floating: rgba(29, 29, 29, 0.72);
-    --surface-glass-modal: rgba(29, 29, 29, 0.85);
+    --surface-glass-floating: color-mix(in srgb, var(--surface-base) 72%, transparent);
+    --surface-glass-modal: color-mix(in srgb, var(--surface-base) 85%, transparent);
     --surface-tinted: var(--palette-wine-ash);
 
     --text-primary: #f0f1eb;
@@ -174,8 +196,8 @@
     --status-permission: var(--status-warning);
     --status-permission-soft: color-mix(in srgb, var(--status-warning) 14%, transparent);
 
-    --border-default: rgba(178, 213, 229, 0.16);
-    --border-subtle: rgba(178, 213, 229, 0.08);
+    --border-default: color-mix(in srgb, var(--tint-border) 16%, transparent);
+    --border-subtle: color-mix(in srgb, var(--tint-border) 8%, transparent);
     --border-focus: var(--palette-candy-blue);
 
     /* Glass materials (Figma "Glass materials" frame). One neutral jet tint
@@ -190,22 +212,29 @@
          the desktop behind the window is already blurred by the native
          NSVisualEffectView backdrop, so docked surfaces need tint alone. */
     --glass-rail-bg: transparent;
-    --glass-panel-bg: rgba(29, 29, 29, 0.55);
-    --glass-float-bg: rgba(29, 29, 29, 0.62);
-    --glass-border: rgba(255, 255, 255, 0.1);
-    --glass-highlight: rgba(255, 255, 255, 0.06);
+    --glass-panel-bg: color-mix(in srgb, var(--surface-base) 55%, transparent);
+    --glass-float-bg: color-mix(in srgb, var(--surface-base) 62%, transparent);
+    --glass-border: color-mix(in srgb, var(--tint-veil) 10%, transparent);
+    --glass-highlight: color-mix(in srgb, var(--tint-specular) 6%, transparent);
     --glass-blur: 40px;
     --glass-saturate: 170%;
 
     /* Contrast-aware state layers (Figma: state/soft, surface/well).
        Dark lifts with white alpha, light recesses with ink alpha — a single
-       white alpha would vanish on light surfaces. */
-    --state-soft: rgba(255, 255, 255, 0.06);
-    --surface-well: rgba(255, 255, 255, 0.06);
-    --feedback-danger-soft: rgba(216, 120, 134, 0.14);
-    --feedback-danger-hover: rgba(216, 120, 134, 0.24);
-    --feedback-danger-pressed: rgba(216, 120, 134, 0.32);
-    --border-danger: rgba(216, 120, 134, 0.4);
+       white alpha would vanish on light surfaces.
+
+       Every one of these is now color-mix off a tint SOURCE rather than an
+       rgba() with the source's channels typed out. The old form hid which
+       colour a layer belonged to: --border-default read rgba(178, 213, 229,
+       .16), which is candy-blue written by hand, so a theme that changed the
+       accent kept candy-blue hairlines. Percentages stay per-mode where they
+       genuinely differ — dark lifts less than light recesses. */
+    --state-soft: color-mix(in srgb, var(--tint-veil) 6%, transparent);
+    --surface-well: color-mix(in srgb, var(--tint-veil) 6%, transparent);
+    --feedback-danger-soft: color-mix(in srgb, var(--status-danger) 14%, transparent);
+    --feedback-danger-hover: color-mix(in srgb, var(--status-danger) 24%, transparent);
+    --feedback-danger-pressed: color-mix(in srgb, var(--status-danger) 32%, transparent);
+    --border-danger: color-mix(in srgb, var(--status-danger) 40%, transparent);
 
     /* Note/folder 9-color palette (Figma "Note Palette" collection).
        Consumed by modules/notes via var(--note-folder-<name>) — these were
@@ -245,8 +274,8 @@
        is pinned to the same neutral the hairlines use rather than invented:
        visible against surface/base and surface/well, invisible against the
        content. */
-    --scrollbar-thumb: rgba(255, 255, 255, 0.16);
-    --scrollbar-thumb-hover: rgba(255, 255, 255, 0.3);
+    --scrollbar-thumb: color-mix(in srgb, var(--tint-veil) 16%, transparent);
+    --scrollbar-thumb-hover: color-mix(in srgb, var(--tint-veil) 30%, transparent);
 
     /* Sidebar / Workbench Frame */
     --sidebar: var(--background-app);
@@ -267,8 +296,12 @@
     --background-canvas: #f4f5f7;
     --surface-base: #ffffff;
     --surface-raised: #f4f5f7;
-    --surface-glass-floating: rgba(255, 255, 255, 0.72);
-    --surface-glass-modal: rgba(255, 255, 255, 0.9);
+    /* --surface-glass-floating is not here: dark already says "surface-base at
+       72%", and --surface-base is overridden below, so the dark declaration
+       re-resolves to white glass on its own. Only the tokens whose PERCENTAGE
+       differs between modes need an override — that is the whole point of
+       naming the source. */
+    --surface-glass-modal: color-mix(in srgb, var(--surface-base) 90%, transparent);
     --surface-tinted: #e8e9ec;
 
     --text-primary: #1d1d1f;
@@ -286,21 +319,30 @@
     --status-recovery: #9c4f8f;
     --status-danger: #b3374a;
 
-    --border-default: rgba(29, 29, 31, 0.12);
-    --border-subtle: rgba(29, 29, 31, 0.06);
+    /* Ink, not the accent: a hairline on white recesses, and candy-blue at 12%
+       on white is a blue smudge. The percentages are higher than dark's for
+       the same reason. */
+    --tint-veil: #1d1d1f;
+    --tint-border: #1d1d1f;
+    --border-default: color-mix(in srgb, var(--tint-border) 12%, transparent);
+    --border-subtle: color-mix(in srgb, var(--tint-border) 6%, transparent);
     --border-focus: #4b8cb8;
 
-    --glass-panel-bg: rgba(255, 255, 255, 0.6);
-    --glass-float-bg: rgba(255, 255, 255, 0.72);
-    --glass-border: rgba(29, 29, 31, 0.08);
-    --glass-highlight: rgba(255, 255, 255, 0.6);
+    --glass-panel-bg: color-mix(in srgb, var(--surface-base) 60%, transparent);
+    /* --glass-float-bg: same 62%... no — light wants 72%, so it stays. */
+    --glass-float-bg: color-mix(in srgb, var(--surface-base) 72%, transparent);
+    --glass-border: color-mix(in srgb, var(--tint-veil) 8%, transparent);
+    --glass-highlight: color-mix(in srgb, var(--tint-specular) 60%, transparent);
 
-    --state-soft: rgba(29, 29, 31, 0.06);
-    --surface-well: rgba(29, 29, 31, 0.04);
-    --feedback-danger-soft: rgba(216, 120, 134, 0.14);
-    --feedback-danger-hover: rgba(216, 120, 134, 0.24);
-    --feedback-danger-pressed: rgba(216, 120, 134, 0.32);
-    --border-danger: rgba(216, 120, 134, 0.4);
+    /* --state-soft is not here: dark already says "tint-veil at 6%", and the
+       tint is what differs between the modes. --surface-well stays because
+       light really does want a shallower well (4% vs 6%). */
+    --surface-well: color-mix(in srgb, var(--tint-veil) 4%, transparent);
+    /* The danger tints are NOT here any more, and that is a fix: they were
+       rgba(216, 120, 134, …) — the DARK --status-danger, typed out — while
+       light's own --status-danger is #b3374a. Light has been drawing salmon
+       feedback under a deep-red status colour. Derived from --status-danger,
+       each mode now gets its own. */
 
     /* Note palette light pairs — same hue, deeper for white surfaces */
     --note-folder-red: #b84a4a;
@@ -313,8 +355,10 @@
     --note-folder-pink: #b04a8f;
     --note-folder-gray: #6e7075;
 
-    --scrollbar-thumb: rgba(0, 0, 0, 0.2);
-    --scrollbar-thumb-hover: rgba(0, 0, 0, 0.34);
+    /* Was rgba(0,0,0,…); now the same ink the state layers use, which moves
+       the thumb by 6/255 and makes it follow a theme. */
+    --scrollbar-thumb: color-mix(in srgb, var(--tint-veil) 20%, transparent);
+    --scrollbar-thumb-hover: color-mix(in srgb, var(--tint-veil) 34%, transparent);
 }
 
 .dark {
