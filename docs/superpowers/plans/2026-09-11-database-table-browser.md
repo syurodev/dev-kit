@@ -142,7 +142,25 @@ and why.
     Tolerating the empty cursor would be worse — it re-serves page 0 as page 2.
     Task 8b fixes the ordering and makes the builder refuse a malformed cursor.
 
-15. **A6 — the drag needs an activation distance (Task 10).** dnd-kit's pointer
+15. **A16 — A15's backstop throws where nothing catches it (new Task 10b).**
+    A15's own comment claimed "the caller's catch turns this into an error
+    banner". It does not: `buildBrowseQuery` is called in `loadBrowsePage`'s
+    PROLOGUE, above the `try`, so the throw escapes into the component's
+    `void …` as an unhandled rejection. Measured state after it fires:
+    `{ error: "", loading: false, pageIndex: 1 }` — no banner, no spinner, the
+    page index already advanced, and the previous page's rows still on screen.
+    "Loud" meant loud in the devtools console, which is not loud to the person
+    using the app. Task 10b moves the construction inside the `try`.
+
+16. **A17 — a closed table frees its rows but keeps its key (Task 11).**
+    `closeBrowse` drops `browse[key]` and leaves `pageKeys[key]` behind, so the
+    map grows by one entry per table ever opened — the same unbounded-growth
+    shape Task 11 exists to prevent, just smaller. It also makes a reopen load
+    page 0 ordered by the PREVIOUS key while `listIndexes` re-reads, because
+    A15's gate sees `key in pageKeys` already true. Freeing it costs a reopen
+    one round trip and is what makes `closeBrowse` mean what its name says.
+
+17. **A6 — the drag needs an activation distance (Task 10).** dnd-kit's pointer
    sensor starts a drag on pointerdown by default. The header cell is also the
    sort button and carries the resize handle, so without a distance threshold
    clicking a header would begin a drag instead of sorting, and a resize drag
@@ -2323,6 +2341,72 @@ git commit -m "feat(database): drag a column into place"
 
 ---
 
+### Task 10b: the backstop has to reach the person using the app
+
+**A16.** Task 8b made `buildBrowseQuery` throw on a cursor that does not match
+the key, and A15's comment claimed the caller's `catch` would turn that into an
+error banner. It does not. `buildBrowseQuery` is called in `loadBrowsePage`'s
+prologue, above the `try`, so the rejection escapes `stepBrowsePage` into the
+component's `void …` and is never handled. Measured state after it fires:
+`{ error: "", loading: false, pageIndex: 1 }` — no banner, no spinner, the page
+index already advanced, and the previous page's rows still on screen. That is
+the silent-wrongness outcome the throw existed to avoid, reached by a different
+route.
+
+**Files:**
+- Modify: `frontend/src/modules/database/databaseStore.ts`
+
+- [ ] **Step 1: Move the construction inside the try**
+
+In `loadBrowsePage`, the `const query = buildBrowseQuery({…})` block currently
+sits above `const runId = …`. Move it so it is the first statement INSIDE the
+`try`, leaving the cursor/pageKey reads and the runId/loading/cancel lines where
+they are. The block ends up as:
+
+```ts
+    const runId = browse.runId + 1;
+    patchBrowse(set, key, { loading: true, error: "", runId });
+    pendingBrowseQueries.get(key)?.cancel();
+    try {
+      // A16: composed inside the try. buildBrowseQuery refuses a cursor whose
+      // arity does not match the key (A15), and a throw from out here reached
+      // nobody — it escaped as an unhandled rejection, leaving the page index
+      // advanced and the previous page's rows on screen, which is the silent
+      // wrongness the refusal existed to prevent.
+      const query = buildBrowseQuery({
+        schema,
+        table,
+        engine,
+        where: browse.where,
+        orderBy: browse.orderBy,
+        pageKey,
+        cursor,
+        pageSize: BROWSE_PAGE_SIZE,
+        offset: pageKey ? undefined : browse.pageIndex * BROWSE_PAGE_SIZE,
+      });
+      const call = runQuery(selectedProfileId, query.sql);
+      …
+```
+
+Keep every existing comment on the lines that move. The `catch` already calls
+`errorMessage(e)` and writes it to `error`, so a refused cursor now shows in the
+banner the document already renders.
+
+- [ ] **Step 2: Verify**
+
+Run: `cd frontend && npx tsc --noEmit && bun test`
+Expected: tsc clean, 0 fail. No test changes — this is a placement fix, and the
+A15 test still covers the refusal itself.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add frontend/src/modules/database/databaseStore.ts
+git commit -m "fix(database): a refused cursor shows in the banner, not the console"
+```
+
+---
+
 ## Task 11: A table tab frees its own state
 
 The previous plan gave a table tab a console, so `consoleIdOfTab` returned one
@@ -2437,6 +2521,29 @@ In `TableDataView.tsx`, add below `useDatabaseChrome()`:
 ```
 
 importing it from `./useConsoleLifetime`.
+
+- [ ] **Step 4b: Free the key with the rows (A17)**
+
+`closeBrowse` currently drops `browse[key]` and leaves `pageKeys[key]` behind.
+That is the same unbounded growth this task exists to stop, one entry per table
+ever opened — and it also makes a reopen load page 0 ordered by the PREVIOUS
+key, because A15's gate reads `key in pageKeys` and finds it already true while
+`listIndexes` is still re-reading. In `databaseStore.ts`:
+
+```ts
+  closeBrowse: (key) =>
+    set((state) => {
+      if (!(key in state.browse) && !(key in state.pageKeys)) {
+        return state;
+      }
+      const { [key]: _closed, ...browse } = state.browse;
+      // A17: the key goes with the rows. It is this table's state too, and
+      // leaving it behind both grows the map forever and lets a reopen order
+      // its first page by a key that has since been re-read.
+      const { [key]: _key, ...pageKeys } = state.pageKeys;
+      return { browse, pageKeys };
+    }),
+```
 
 - [ ] **Step 5: Verify**
 
