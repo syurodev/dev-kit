@@ -75,4 +75,20 @@ describe("buildBrowseQuery", () => {
     });
     expect(sql).toContain("'o''brien'");
   });
+
+  // A11. The reason the comparison is written `(a, b) > (…)` rather than
+  // `a > …` is a composite key, and with a single-column key the two forms are
+  // indistinguishable — so nothing above would catch a bug here. Every key
+  // column must appear in the comparison, in key order, on both sides, and
+  // every one must carry a direction in the ORDER BY: a composite key with a
+  // direction on only its first column is not a total order either.
+  test("a composite key compares every column, in key order", () => {
+    const { sql } = buildBrowseQuery({
+      ...base,
+      pageKey: ["tenant_id", "id"],
+      cursor: { values: ["7", "42"], direction: "next" },
+    });
+    expect(sql).toContain('("tenant_id", "id") > (\'7\', \'42\')');
+    expect(sql).toContain('ORDER BY "tenant_id" ASC, "id" ASC');
+  });
 });
