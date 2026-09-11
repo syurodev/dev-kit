@@ -2,8 +2,7 @@
 import { useEffect, useRef } from "react";
 import { EditorView, basicSetup } from "codemirror";
 import { EditorState, Compartment, type Extension } from "@codemirror/state";
-import { oneDark } from "@codemirror/theme-one-dark";
-import { useTheme } from "@/theme/ThemeProvider";
+import { devkitHighlight } from "./devkitHighlight";
 import { wrapIndent } from "./wrapIndent";
 
 // Settings > Appearance drives these two custom properties (stores/
@@ -42,7 +41,6 @@ export function CodeEditor({ value, onChange, extensions, readOnly, wrap }: Code
   const viewRef = useRef<EditorView | null>(null);
   const languageCompartment = useRef(new Compartment()).current;
   const readOnlyCompartment = useRef(new Compartment()).current;
-  const themeCompartment = useRef(new Compartment()).current;
   const wrapCompartment = useRef(new Compartment()).current;
 
   // onChange is very likely a new function identity on every parent render
@@ -50,8 +48,6 @@ export function CodeEditor({ value, onChange, extensions, readOnly, wrap }: Code
   // closure) just to keep the update listener current.
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
-
-  const { resolvedTheme } = useTheme();
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -63,7 +59,11 @@ export function CodeEditor({ value, onChange, extensions, readOnly, wrap }: Code
           fontTheme,
           languageCompartment.of(extensions ?? []),
           readOnlyCompartment.of(EditorState.readOnly.of(!!readOnly)),
-          themeCompartment.of(resolvedTheme === "dark" ? [oneDark] : []),
+          // Not in a Compartment, and not keyed on the resolved theme: the
+          // highlight style is written in CSS custom properties, so it
+          // re-resolves itself when the palette changes. Reconfiguring it on a
+          // theme switch would be work with no output.
+          devkitHighlight,
           wrapCompartment.of(wrap ? [EditorView.lineWrapping, wrapIndent] : []),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
@@ -105,12 +105,6 @@ export function CodeEditor({ value, onChange, extensions, readOnly, wrap }: Code
       effects: readOnlyCompartment.reconfigure(EditorState.readOnly.of(!!readOnly)),
     });
   }, [readOnly, readOnlyCompartment]);
-
-  useEffect(() => {
-    viewRef.current?.dispatch({
-      effects: themeCompartment.reconfigure(resolvedTheme === "dark" ? [oneDark] : []),
-    });
-  }, [resolvedTheme, themeCompartment]);
 
   useEffect(() => {
     viewRef.current?.dispatch({

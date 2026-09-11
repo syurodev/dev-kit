@@ -87,3 +87,32 @@ describe("the swap does not animate", () => {
     expect(source).toContain("root.dataset.themeFamily !== undefined");
   });
 });
+
+describe("resolving colours for canvas consumers", () => {
+  // xterm and Mermaid are handed colour strings, not CSS. Two rounds of
+  // measuring found two ways that goes wrong, both silent: a color-mix left
+  // unevaluated, and then an evaluated one in `color()` notation, which is a
+  // valid CSS colour and not one xterm parses. Asserted against the source
+  // because the conversion needs a live engine to exercise.
+  // Comments stripped: the file explains in prose why getPropertyValue is the
+  // wrong tool, and an assertion that the name is absent would trip over the
+  // explanation. Third time this exact trap has caught me today.
+  const source = readFileSync(join(import.meta.dir, "themeColors.ts"), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\/\/.*$/gm, "");
+
+  test("a resolved colour is normalised to rgb()", () => {
+    expect(source).toContain("function toRgb");
+    expect(source, "color() notation must be converted, not passed through").toContain(
+      'value.startsWith("color(")',
+    );
+  });
+
+  // getPropertyValue returns a custom property's computed value with var()
+  // substituted but color-mix() intact, which is unusable for exactly the
+  // tokens that became derived. Assigning and reading back is what evaluates.
+  test("colours are resolved by using them, not by reading the property", () => {
+    expect(source).toContain("element.style.color = expression");
+    expect(source).not.toContain("getPropertyValue");
+  });
+});

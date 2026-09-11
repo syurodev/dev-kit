@@ -77,6 +77,7 @@ export const THEME_TOKENS = [
  * than one lifting off black). A theme may override these; most will not.
  */
 export const MIX_TOKENS = [
+  "--feedback-success-soft",
   "--surface-glass-modal",
   "--glass-panel-bg",
   "--glass-float-bg",

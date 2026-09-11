@@ -14,7 +14,9 @@ import {
   syncNow,
   syncStatus,
 } from "../../bridge/sync";
-import { useTheme } from "@/theme/ThemeProvider";
+import { useTheme, type ResolvedTheme } from "@/theme/ThemeProvider";
+import { FAMILIES } from "@/theme/families";
+import type { ThemeFamilyPreference } from "@/bridge/preferences";
 import { useShallow } from "zustand/react/shallow";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -407,8 +409,35 @@ function FontSettingRow({
 
 const THEME_OPTIONS = ["system", "light", "dark"] as const;
 
+/**
+ * A family, painted in its own colours.
+ *
+ * The family's tokens go on the swatch as inline custom properties, so every
+ * utility inside it resolves to that family without anything being applied to
+ * the document. Not the applied stylesheet's selector, which is keyed on
+ * `:root` and matches only <html>; not an iframe either, which would be a
+ * document per swatch to preview five palettes.
+ *
+ * It previews the mode you are actually in, because the tokens it does not set
+ * are inherited — and the ones it sets are exactly what the app would set.
+ */
+function PaletteSwatch({ family, mode }: { family: ThemeFamilyPreference; mode: ResolvedTheme }) {
+  return (
+    <span
+      style={FAMILIES[family][mode] as React.CSSProperties}
+      className="flex h-12 items-end gap-1 rounded-sm border border-border-subtle bg-surface-base p-1.5"
+    >
+      <span className="h-full flex-1 rounded-xs bg-surface-raised" />
+      <span className="h-full w-3 rounded-xs bg-action-primary" />
+      <span className="h-full w-1.5 rounded-xs bg-status-info" />
+      <span className="h-full w-1.5 rounded-xs bg-status-success" />
+      <span className="h-full w-1.5 rounded-xs bg-status-danger" />
+    </span>
+  );
+}
+
 function AppearanceTab() {
-  const { theme, setTheme } = useTheme();
+  const { theme, setTheme, resolvedTheme, family, setFamily } = useTheme();
   const { codeFont, codeSize, terminalFont, terminalSize, setAppearance } = useAppearanceStore(
     useShallow((s) => ({
       codeFont: s.codeFont,
@@ -452,6 +481,46 @@ function AppearanceTab() {
                 )}
               >
                 {option}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-2.5">
+        <GroupLabel>Palette</GroupLabel>
+        {/* Swatches, not a dropdown: a palette is the one setting where the
+            value IS what it looks like, and a list of names makes you pick
+            blind and then go look. Each card paints itself in the family it
+            offers, in the mode currently resolved, by carrying the family's
+            own attributes — the same two the applied stylesheet keys on. */}
+        <div role="radiogroup" aria-label="Palette" className="flex flex-wrap gap-2">
+          {Object.values(FAMILIES).map((definition) => {
+            const active = family === definition.id;
+            return (
+              <button
+                key={definition.id}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                aria-label={definition.label}
+                onClick={() => void setFamily(definition.id)}
+                className={cn(
+                  "flex w-33 flex-col gap-2 rounded-control border p-2 text-left transition-colors",
+                  active
+                    ? "border-border-focus bg-surface-raised"
+                    : "border-border-subtle hover:bg-surface-raised/60",
+                )}
+              >
+                <PaletteSwatch family={definition.id} mode={resolvedTheme} />
+                <span
+                  className={cn(
+                    "px-0.5",
+                    active ? "text-body-12-medium text-text-primary" : "text-body-12 text-text-secondary",
+                  )}
+                >
+                  {definition.label}
+                </span>
               </button>
             );
           })}

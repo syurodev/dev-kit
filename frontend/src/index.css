@@ -231,6 +231,9 @@
        genuinely differ — dark lifts less than light recesses. */
     --state-soft: color-mix(in srgb, var(--tint-veil) 6%, transparent);
     --surface-well: color-mix(in srgb, var(--tint-veil) 6%, transparent);
+    /* The added-line wash in a code block. Derived at the same 14% as its
+       danger twin, so a diff reads as one pair in every theme. */
+    --feedback-success-soft: color-mix(in srgb, var(--status-success) 14%, transparent);
     --feedback-danger-soft: color-mix(in srgb, var(--status-danger) 14%, transparent);
     --feedback-danger-hover: color-mix(in srgb, var(--status-danger) 24%, transparent);
     --feedback-danger-pressed: color-mix(in srgb, var(--status-danger) 32%, transparent);

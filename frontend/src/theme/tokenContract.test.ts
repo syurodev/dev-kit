@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { DEVKIT_FAMILY, FAMILIES } from "./families";
 import { CONTRACT, MIX_TOKENS, THEME_TOKENS, TINT_TOKENS } from "./tokens";
 
 // Comments stripped first: index.css documents tokens in prose that starts
@@ -118,5 +119,48 @@ describe("the contract's own shape", () => {
     const tint = new Set<string>(TINT_TOKENS);
     const mix = new Set<string>(MIX_TOKENS);
     expect(THEME_TOKENS.filter((t) => tint.has(t) || mix.has(t))).toEqual([]);
+  });
+});
+
+describe("the devkit family mirrors the stylesheet", () => {
+  /** One level of `var(--x)`, which is all index.css uses for these. */
+  function effective(token: string, mode: "dark" | "light"): string | undefined {
+    const source = mode === "light" ? light : dark;
+    let value = source.get(token) ?? dark.get(token);
+    for (let hop = 0; hop < 4 && value?.startsWith("var("); hop += 1) {
+      const name = value.slice(4, value.indexOf(")"));
+      value = source.get(name) ?? dark.get(name);
+    }
+    return value;
+  }
+
+  // DEVKIT_FAMILY is a copy of index.css, which it has to be for the Settings
+  // swatch to paint itself — an element the `:root` rule does not match cannot
+  // fall back to values only `:root` declares. A copy is a second place to
+  // change a colour, so this is the price: every value pinned, both ways.
+  for (const mode of ["dark", "light"] as const) {
+    test(`${mode} matches what index.css resolves to`, () => {
+      const drift: string[] = [];
+      for (const [token, value] of Object.entries(DEVKIT_FAMILY[mode])) {
+        const fromCss = effective(token, mode);
+        if (fromCss !== value) {
+          drift.push(`${token}: family has ${value}, index.css resolves ${fromCss}`);
+        }
+      }
+      expect(drift, drift.join("\n")).toEqual([]);
+    });
+  }
+
+  // Every family has to cover the same ground, or switching to one leaves
+  // tokens behind from whichever was applied before it.
+  test("every family declares the same tokens as the base", () => {
+    const expected = Object.keys(DEVKIT_FAMILY.dark).sort();
+    for (const family of Object.values(FAMILIES)) {
+      for (const mode of ["dark", "light"] as const) {
+        const got = Object.keys(family[mode]).sort();
+        const missing = expected.filter((token) => !got.includes(token));
+        expect(missing, `${family.label} ${mode} is missing ${missing.join(", ")}`).toEqual([]);
+      }
+    }
   });
 });

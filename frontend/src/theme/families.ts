@@ -48,17 +48,72 @@ function states(accent: string, mode: "dark" | "light") {
 }
 
 /**
- * The base palette is the absence of an override.
+ * The base palette, spelled out.
  *
- * index.css already declares every token for both modes, so "devkit" is two
- * empty maps rather than a copy of them — a copy would be a second place to
- * change a colour, and the second place is always the one that gets missed.
+ * It was two empty maps until the Settings picker needed it: a swatch renders
+ * a family by setting that family's tokens inline on itself, and "no tokens"
+ * cannot mean "the values in index.css" for an element the `:root` rule does
+ * not match — an empty devkit swatch would have painted itself in whichever
+ * family was active. So the base is data like every other family, which also
+ * deletes the branch that used to treat it as the absence of one.
+ *
+ * These ARE a copy of index.css, and a copy is a second place to change a
+ * colour. tokenContract.test.ts pins every value against the stylesheet, so
+ * the copy cannot drift — that is the price of paying it.
  */
 export const DEVKIT_FAMILY: ThemeFamilyDefinition = {
   id: "devkit",
   label: "DevKit",
-  dark: {},
-  light: {},
+  dark: {
+    "--tint-veil": "#ffffff",
+    "--tint-border": "#b2d5e5",
+    "--background-app": "#020202",
+    "--background-canvas": "#171717",
+    "--surface-base": "#1d1d1d",
+    "--surface-raised": "#23212c",
+    "--surface-tinted": "#32292f",
+    "--text-primary": "#f0f1eb",
+    "--text-secondary": "#c6c8c2",
+    "--text-tertiary": "#8b8e8a",
+    "--icon-secondary": "#c6c8c2",
+    "--action-primary": "#c6ff34",
+    "--action-primary-foreground": "#020202",
+    "--action-primary-hover": "#d2ff64",
+    "--action-primary-pressed": "#add92e",
+    "--brand-text": "#c6ff34",
+    "--status-info": "#b2d5e5",
+    "--status-success": "#99e1d9",
+    "--status-warning": "#f1fec8",
+    "--status-recovery": "#e5bddf",
+    "--status-danger": "#d87886",
+    "--border-focus": "#b2d5e5",
+  },
+  light: {
+    "--tint-veil": "#1d1d1f",
+    "--tint-border": "#1d1d1f",
+    "--background-app": "#e9eaee",
+    "--background-canvas": "#f4f5f7",
+    "--surface-base": "#ffffff",
+    "--surface-raised": "#f4f5f7",
+    "--surface-tinted": "#e8e9ec",
+    "--text-primary": "#1d1d1f",
+    "--text-secondary": "#55565b",
+    "--text-tertiary": "#7c7e85",
+    "--icon-secondary": "#55565b",
+    // Light keeps the lime fill — onyx on lime passes in both modes — and
+    // flips only the accent used as TEXT, which index.css says in a comment.
+    "--action-primary": "#c6ff34",
+    "--action-primary-foreground": "#020202",
+    "--action-primary-hover": "#d2ff64",
+    "--action-primary-pressed": "#add92e",
+    "--brand-text": "#6b8f00",
+    "--status-info": "#0b7ca8",
+    "--status-success": "#1e7a6e",
+    "--status-warning": "#a36b00",
+    "--status-recovery": "#9c4f8f",
+    "--status-danger": "#b3374a",
+    "--border-focus": "#4b8cb8",
+  },
 };
 
 /**

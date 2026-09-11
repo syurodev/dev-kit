@@ -12,6 +12,8 @@ import {
 import { errorMessage } from "@/bridge/errors";
 import { Button } from "@/components/ui/button";
 import { monoFontStack, useAppearanceStore } from "@/stores/appearance";
+import { terminalTheme } from "@/theme/terminalTheme";
+import { onThemeChange } from "@/theme/themeColors";
 
 /**
  * A shell rooted at the open project, in the bottom slot.
@@ -59,7 +61,7 @@ export function TerminalPane() {
       // background; without it the renderer clamps alpha to 1 and the pane
       // reads as an opaque hole cut into the glass (the bug this replaces).
       allowTransparency: true,
-      theme: { background: "rgba(0, 0, 0, 0)" },
+      theme: { background: "rgba(0, 0, 0, 0)", ...(terminalTheme() ?? {}) },
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -77,6 +79,18 @@ export function TerminalPane() {
       term.options.fontFamily = monoFontStack(useAppearanceStore.getState().terminalFont);
       fit.fit();
       if (sessionId) void resizeTerminal(sessionId, term.rows, term.cols);
+    });
+
+    // A canvas cannot read a CSS variable, so unlike every other surface the
+    // terminal has to be told when the palette moves. Watching the attributes
+    // rather than subscribing to React state keeps this inside the effect that
+    // already owns the terminal's lifetime, and it catches an OS-driven mode
+    // flip too, which arrives as an attribute change and nothing else.
+    const offTheme = onThemeChange(() => {
+      const palette = terminalTheme();
+      if (palette) {
+        term.options.theme = { background: "rgba(0, 0, 0, 0)", ...palette };
+      }
     });
 
     // Live font/size changes from Settings > Appearance. Same lifetime as the
@@ -113,6 +127,7 @@ export function TerminalPane() {
       disposed = true;
       observer.disconnect();
       offAppearance();
+      offTheme();
       offOutput?.();
       if (sessionId) void closeTerminal(sessionId);
       // Last: nothing may write into a disposed terminal.
