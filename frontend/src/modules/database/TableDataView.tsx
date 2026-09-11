@@ -180,6 +180,10 @@ export function TableDataView({ params }: { params?: Record<string, unknown> }) 
           onResize={(index, delta) => setBrowseWidths(key, resizeColumn(browse.widths, index, delta))}
           onReorder={(next) => setBrowseOrderColumns(key, next)}
           onInspectCell={setInspectedCell}
+          // A27: the gutter counts the table, not the page. The pager beside it
+          // is already reading pageIndex * BROWSE_PAGE_SIZE + 1 for its first
+          // row, and two numbers for one row is the bug.
+          rowOffset={browse.pageIndex * BROWSE_PAGE_SIZE}
           sort={
             browse.orderBy
               ? {

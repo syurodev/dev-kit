@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { renderToString } from "react-dom/server";
 import type { QueryResult } from "@/bridge/database";
-import { ResultGrid } from "./ResultGrid";
+import { ResultGrid, rowNumber } from "./ResultGrid";
 
 const result: QueryResult = {
   columns: ["id", "name"],
@@ -79,5 +79,43 @@ describe("the column drag", () => {
   it("registers a pointer sensor and no keyboard sensor", () => {
     expect(source).toContain("useSensor(PointerSensor");
     expect(source).not.toMatch(/useSensor\(\s*KeyboardSensor/);
+  });
+});
+
+/** The gutter cell's text, in render order. */
+function gutterNumbers(html: string): string[] {
+  return [...html.matchAll(/tabular-nums">(\d+)</g)].map((m) => m[1]);
+}
+
+describe("the row-number gutter", () => {
+  // A27. The pager reads pageIndex * BROWSE_PAGE_SIZE + 1 for its first row.
+  // A gutter that restarted at 1 on every page called the same row 1 and 201
+  // an inch apart.
+  it("counts the table, not the page", () => {
+    expect(rowNumber(0, 0)).toBe(1);
+    expect(rowNumber(0, 200)).toBe(201);
+    expect(rowNumber(199, 200)).toBe(400);
+    expect(rowNumber(0, 400)).toBe(401);
+  });
+
+  // The console has no page before its result, so its rows really are 1..n.
+  it("numbers an unoffset result from one", () => {
+    expect(gutterNumbers(render())).toEqual(["1", "2"]);
+  });
+
+  it("numbers a later page from where that page starts", () => {
+    expect(gutterNumbers(render({ rowOffset: 200 }))).toEqual(["201", "202"]);
+  });
+
+  // The number is the ROW's, never a counter over the rendered window: a
+  // virtualised table renders indices 120.. first when that is where the
+  // scroll is, and those rows keep the numbers they would have had rendered
+  // whole. Render order is what a counter would have followed.
+  it("gives a virtualised window the numbers of the rows in it", () => {
+    const window = [120, 121, 122];
+    expect(window.map((i) => rowNumber(i, 0))).toEqual([121, 122, 123]);
+    expect(window.map((i) => rowNumber(i, 400))).toEqual([521, 522, 523]);
+    // Scrolled back to the top, the same rows are numbered the same way.
+    expect(rowNumber(0, 400)).toBe(401);
   });
 });

@@ -39,6 +39,23 @@ import { columnValues, rowAsJSON } from "./rowText";
 
 const ROW_HEIGHT = 36;
 
+/**
+ * The number the gutter shows for a row.
+ *
+ * `rowIndex` is the row's position in the result; `rowOffset` is how many rows
+ * of the same table come before this page. A27: the gutter used to show
+ * `rowIndex + 1` alone, so page 2 restarted at 1 while the pager an inch away
+ * read "201-400" — the same row called 1 and 201 at once. The offset is what
+ * makes the gutter count the table the pager is counting.
+ *
+ * It stays a function of the ROW's index, never of the render order: the
+ * window of virtualised rows starts wherever the scroll is, and a counter over
+ * the rendered ones would restart every time you scrolled.
+ */
+export function rowNumber(rowIndex: number, rowOffset: number): number {
+  return rowOffset + rowIndex + 1;
+}
+
 /** Which cell the pointer was over when the menu opened. */
 type Target = { row: number; column: number } | null;
 
@@ -64,6 +81,7 @@ export function ResultGrid({
   sort,
   onSort,
   onReorder,
+  rowOffset = 0,
 }: {
   result: QueryResult;
   widths: readonly number[];
@@ -79,6 +97,13 @@ export function ResultGrid({
    * this one may not have.
    */
   onReorder?: (order: number[]) => void;
+  /**
+   * Rows of the same table before this page, added to every gutter number. A
+   * table's pages are one table, and its page 2 starts where the pager says it
+   * does. A console result has nothing before it — its rows are 1..n — so the
+   * console passes nothing and this stays 0.
+   */
+  rowOffset?: number;
 }) {
   const rows = useVirtualRows(result.rows.length, ROW_HEIGHT);
   const order = orderedColumns(result.columns, columnOrder);
@@ -166,9 +191,10 @@ export function ResultGrid({
                   <tr key={rowIndex} className="group transition-colors hover:bg-surface-raised/60">
                     {/* The row number is the row's own, not the window's: with
                         virtualised rows a counter over the rendered ones would
-                        restart every time you scrolled. */}
+                        restart every time you scrolled. rowNumber takes the
+                        index, and the page's offset, for that reason. */}
                     <td className="h-9 border-r border-b border-border-subtle px-3 text-code-11 text-text-tertiary tabular-nums">
-                      {rowIndex + 1}
+                      {rowNumber(rowIndex, rowOffset)}
                     </td>
                     {/* Only the header drags. Giving each cell a useSortable would
                         mount one per visible cell — 2,220 on a 74-column table — to
