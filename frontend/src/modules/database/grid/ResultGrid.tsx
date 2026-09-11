@@ -265,13 +265,22 @@ function HeaderCell({
   onResize: (index: number, delta: number) => void;
 }) {
   const dragStart = useRef<number | null>(null);
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+  const { listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: index,
   });
 
-  // `attributes` and `listeners` go on the `<th>`, not on the sort button: a
-  // drag handle nested inside a click target is the same fight over the
-  // pointer the resize handle already avoids by being a sibling.
+  // `listeners` go on the `<th>`, not on the sort button: a drag handle nested
+  // inside a click target is the same fight over the pointer the resize handle
+  // already avoids by being a sibling.
+  //
+  // A26: useSortable's `attributes` are deliberately NOT spread. They set
+  // role="button" and tabIndex=0, which override the cell's implicit
+  // columnheader role — costing the grid its column semantics — and nest the
+  // real sort <button> inside a role="button" element, which is invalid ARIA.
+  // What they buy is dnd-kit's KEYBOARD drag, and this grid registers a
+  // PointerSensor and nothing else, so they bought nothing that could happen.
+  // If you add a KeyboardSensor, the attributes come back with it — and the
+  // sort button has to stop being a child of the drag target at the same time.
 
   const style: CSSProperties = {
     // relative + transform, never out of flow: a `<th>` taken out of flow takes
@@ -288,7 +297,6 @@ function HeaderCell({
     <th
       ref={setNodeRef}
       style={style}
-      {...attributes}
       {...listeners}
       className="relative h-10 border-r border-b border-border-subtle p-0 text-code-12-medium text-text-secondary last:border-r-0"
     >
