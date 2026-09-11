@@ -187,7 +187,34 @@ and why.
     affordance is the supported answer. Recorded so it is a known limitation
     rather than an accident.
 
-20. **A6 — the drag needs an activation distance (Task 10).** dnd-kit's pointer
+20. **A21 — a step that failed still advanced the page number (new Task
+    11c).** `stepBrowsePage` bumps `pageIndex` and then loads. If the load
+    fails — a refused cursor, a bad WHERE the user typed, a dropped
+    connection — the index stays advanced, so the toolbar reads "201-400"
+    over the rows of page 1. That is the same lie the A3 runId guard exists to
+    prevent, arrived at from the other direction, and it is reachable by
+    anything that can make a query fail.
+
+21. **A22 — `TableDataView` spells the browse key itself (new Task 11c).**
+    It computes `` `${schema}.${table}` `` inline while `browseKeyOfTab` computes
+    the same thing for the cleanup — the exact duplication
+    `useConsoleLifetime.ts`'s own doc comment warns "would drift into a leak".
+    One formula.
+
+22. **A23 — `tableKey.ts` claims NULL handling it does not do (new Task 11c).**
+    The comment above the non-unique test explains the `null` in terms of
+    NULLABLE unique indexes: "NULLs compare as unknown, so a keyset walk would
+    skip or repeat rows." `pageKeyFor` does not check nullability and CANNOT —
+    `IndexInfo` carries schema, table, name, columns, unique and primary, and no
+    nullability at all. So a unique index on a nullable column IS accepted
+    today, and is a real best-effort case, made worse by `runQuery` mapping
+    `NULL → ""` so a null key value and an empty string are indistinguishable in
+    a cursor. Fixing it properly needs nullability in the Go `IndexInfo`, which
+    this plan forbids touching. Two separate subagents flagged the drift
+    independently. The comment is corrected to state the limitation instead of
+    overstating the guarantee.
+
+23. **A6 — the drag needs an activation distance (Task 10).** dnd-kit's pointer
    sensor starts a drag on pointerdown by default. The header cell is also the
    sort button and carries the resize handle, so without a distance threshold
    clicking a header would begin a drag instead of sorting, and a resize drag
@@ -2582,6 +2609,132 @@ Expected: PASS, tsc clean, 0 fail.
 ```bash
 git add frontend/src/modules/database
 git commit -m "fix(database): a table tab frees its rows, not a console it no longer owns"
+```
+
+---
+
+## Task 11c: three things verification turned up
+
+Each was found by checking a finished task rather than by reading the plan, and
+each is small. They are one task because they are one commit's worth of work,
+but they are independent.
+
+**Files:**
+- Modify: `frontend/src/modules/database/databaseStore.ts`
+- Modify: `frontend/src/modules/database/TableDataView.tsx`
+- Modify: `frontend/src/modules/database/tableKey.ts`
+- Test: `frontend/src/modules/database/browseState.test.ts`
+
+- [ ] **Step 1: A21 — a step that failed is not a step**
+
+`stepBrowsePage` advances `pageIndex` and then loads. When the load fails the
+index stays advanced, so the toolbar numbers a page the grid is not showing —
+"201-400" above the rows of page 1. Anything that can fail a query reaches this:
+a cursor the builder refused, a WHERE the user typed wrong, a dropped
+connection.
+
+Write the test first, appended to `browseState.test.ts`:
+
+```ts
+// A21. A failed step must not renumber the page. loadBrowsePage clears `error`
+// before it runs, so an error afterwards belongs to this load — and a toolbar
+// reading "201-400" over page 1's rows is the same lie the runId guard exists
+// to prevent, reached from the other side.
+test("a step whose load fails leaves the page number where it was", async () => {
+  useDatabaseStore.setState({
+    // No profile selected, so loadBrowsePage returns before clearing anything:
+    // a stand-in for any load that ends without delivering a page.
+    selectedProfileId: "",
+    browse: {
+      "public.orders": { ...EMPTY_BROWSE, pageIndex: 1, hasNext: true, error: "boom" },
+    },
+  });
+
+  await useDatabaseStore.getState().stepBrowsePage(
+    "public.orders",
+    { schema: "public", table: "orders" },
+    1,
+  );
+
+  expect(useDatabaseStore.getState().browseState("public.orders").pageIndex).toBe(1);
+});
+```
+
+Then in `stepBrowsePage`:
+
+```ts
+  stepBrowsePage: async (key, target, step) => {
+    const browse = get().browseState(key);
+    const next = browse.pageIndex + step;
+    if (next < 0 || (step === 1 && !browse.hasNext)) {
+      return;
+    }
+    const previous = browse.pageIndex;
+    patchBrowse(set, key, { pageIndex: next });
+    await get().loadBrowsePage(key, target);
+    // A21: put the number back if no page arrived. loadBrowsePage clears
+    // `error` before it runs, so an error here is this load's own — and a
+    // superseded load leaves `error` empty, which correctly means the newer
+    // load owns the page number now and this one must not touch it.
+    if (get().browseState(key).error) {
+      patchBrowse(set, key, { pageIndex: previous });
+    }
+  },
+```
+
+- [ ] **Step 2: A22 — one formula for the browse key**
+
+`TableDataView` computes `` const key = `${schema}.${table}` `` while
+`browseKeyOfTab` computes the same string for the cleanup. That is the
+duplication `useConsoleLifetime.ts`'s own doc comment warns "would drift into a
+leak". Derive it instead:
+
+```ts
+  // A22: through the shared rule, not spelled again here — useBrowseLifetime
+  // computes the same key from a TAB, and two copies would drift into exactly
+  // the leak that comment warns about.
+  const key = browseKeyOfTab("database.table", { schema, table }) ?? "";
+```
+
+importing `browseKeyOfTab` alongside `useBrowseLifetime`.
+
+- [ ] **Step 3: A23 — say what `pageKeyFor` actually guarantees**
+
+The comment above the non-unique-index test explains the `null` by NULLs: "A
+nullable unique index is not a total order: NULLs compare as unknown, so a
+keyset walk would skip or repeat rows." `pageKeyFor` never checks nullability
+and cannot — `IndexInfo` has no such field. So the comment describes a guarantee
+the code does not make, above a test about a different case entirely.
+
+In `tableKey.test.ts`, replace that comment with:
+
+```ts
+  // A non-unique index is not a total order — it has no reason to be — so a
+  // keyset walk over it would skip and repeat rows at every page boundary.
+```
+
+and in `tableKey.ts`, append to the doc comment on `pageKeyFor`:
+
+```
+ *
+ * A23: uniqueness is the whole of the check, because it is the whole of what
+ * IndexInfo reports. A unique index on a NULLABLE column is therefore accepted
+ * here and is the one case this is best-effort about: SQL compares NULLs as
+ * unknown, and runQuery stringifies NULL to "", so a null key value is
+ * indistinguishable from an empty one in a cursor. Excluding it needs
+ * nullability from the backend's IndexInfo, which this plan does not change.
+```
+
+- [ ] **Step 4: Verify**
+
+Run: `cd frontend && npx tsc --noEmit && bun test`
+Expected: tsc clean, 0 fail.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add frontend/src/modules/database
+git commit -m "fix(database): a failed step keeps its page number, and two honest comments"
 ```
 
 ---
