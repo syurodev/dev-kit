@@ -109,4 +109,14 @@ describe("buildBrowseQuery", () => {
       }),
     ).toThrow();
   });
+
+  // A25. The table document resolves its page key as null when it has no
+  // identifier to look one up with, so the load runs instead of the pane
+  // sitting blank forever. This is what the load then meets: a refusal, caught
+  // by loadBrowsePage and shown in the error banner. A statement built around
+  // `""."".` would have been the silent version of the same fault.
+  test("a missing identifier is refused rather than quoted into nothing", () => {
+    expect(() => buildBrowseQuery({ ...base, schema: "" })).toThrow();
+    expect(() => buildBrowseQuery({ ...base, table: "" })).toThrow();
+  });
 });

@@ -73,7 +73,21 @@ export function TableDataView({ params }: { params?: Record<string, unknown> }) 
   // The key decides whether this table can be walked or has to be counted
   // through, so it is read before the first page.
   useEffect(() => {
-    if (!selectedProfileId || !schema || !table) {
+    if (!selectedProfileId) {
+      // Nothing to ask yet, and nothing loads either: the page effect below is
+      // gated on the same profile, so the key stays unresolved only while the
+      // table could not have been read anyway, and selecting one re-runs this.
+      return;
+    }
+    // A25: an identifier we do not have resolves the key as null rather than
+    // not at all. The page below opens on `key in pageKeys`, so returning
+    // early here left such a table blank forever — no rows, no spinner, no
+    // error, which is the worst of the outcomes available. Null is "unkeyed",
+    // the normal path runs, and buildBrowseQuery refuses the empty identifier
+    // inside loadBrowsePage's try, so the document says so in the error banner
+    // it already renders.
+    if (!schema || !table) {
+      setPageKey(key, null);
       return;
     }
     let cancelled = false;
@@ -103,7 +117,11 @@ export function TableDataView({ params }: { params?: Record<string, unknown> }) 
 
   const hasRows = browse.rows !== null;
   useEffect(() => {
-    if (!hasRows && keyResolved && selectedProfileId && table) {
+    // A25: no `table` check. It was the same silent refusal the key resolution
+    // above had, one effect further on — a table document missing an
+    // identifier would sit blank rather than load and fail. The load is
+    // allowed to run and to report what is wrong with it.
+    if (!hasRows && keyResolved && selectedProfileId) {
       void loadBrowsePage(key, { schema, table });
     }
   }, [hasRows, keyResolved, selectedProfileId, key, schema, table, loadBrowsePage]);
