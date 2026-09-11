@@ -59,7 +59,31 @@ and why.
    return null, so appending the new test leaves the suite asserting both
    answers. The old test is replaced.
 
-6. **A6 — the drag needs an activation distance (Task 10).** dnd-kit's pointer
+6. **A7 — `ResultGrid` must not import `resizeColumn` (Task 2).** `tsconfig`
+   sets `noUnusedLocals`, and the grid never calls it — applying a drag is the
+   caller's, which Step 2 gets right. The verbatim file did not compile.
+
+7. **A8 — the console passes `queryResult`, not `slice.queryResult` (Task 2).**
+   The null guard is on the destructured local, and TS does not carry that
+   narrowing onto a property access of a mutable object — which is what the
+   comment already at that spot in `QueryConsole.tsx` says.
+
+8. **A9 — three ratchet tests outside `src/modules/database` move with this
+   change (Task 2).** The plan claimed 0 fail and staged only
+   `src/modules/database`; the verbatim code gives 3 fails in files the plan
+   never mentions, so the branch would have been left red. See Task 2 Step 3.
+
+9. **A10 — Task 3's fifth test could not pass, whatever the implementation.**
+   Test 4 pins the escape rule to doubling (`a"b` → `"a""b"`). Test 5 then
+   asserted the interior of `x"; DROP TABLE users; --` does not contain the
+   two characters `";` — but doubling turns `x";` into `x"";`, which contains
+   `";` by construction. Doubling adds quotes; it never separates a quote from
+   a following `;`. The two tests contradicted each other and no function could
+   satisfy both. The assertion also did not test what its own comment
+   described: what stops the identifier ending early is that every quote in the
+   interior is part of a doubled PAIR, not that some byte pair is absent.
+
+10. **A6 — the drag needs an activation distance (Task 10).** dnd-kit's pointer
    sensor starts a drag on pointerdown by default. The header cell is also the
    sort button and carries the resize handle, so without a distance threshold
    clicking a header would begin a drag instead of sorting, and a resize drag
@@ -275,12 +299,9 @@ import { useVirtualRows } from "@/components/ui/virtual-rows";
 import { cn } from "@/lib/utils";
 import { copyText } from "@/bridge/clipboard";
 import type { QueryResult } from "@/bridge/database";
-import {
-  DEFAULT_COLUMN_WIDTH_PX,
-  MIN_COLUMN_WIDTH_PX,
-  orderedColumns,
-  resizeColumn,
-} from "./gridColumns";
+// A7: no `resizeColumn` here. `noUnusedLocals` is on and the grid never calls
+// it — applying a drag is the caller's job, which Step 2 gets right.
+import { DEFAULT_COLUMN_WIDTH_PX, MIN_COLUMN_WIDTH_PX, orderedColumns } from "./gridColumns";
 // A4: moved here from QueryConsole rather than reimplemented. rowAsJSON maps
 // over the ROW and names an empty column col_${i}; an inlined
 // Object.fromEntries over `columns` is a different function with its own bugs.
@@ -531,11 +552,14 @@ export { MIN_COLUMN_WIDTH_PX };
 
 - [ ] **Step 2: Point the console at it**
 
-In `QueryConsole.tsx`, replace the whole `<div ref={resultRows.scrollRef}>…</table></div>` block with:
+In `QueryConsole.tsx`, replace the whole `<div ref={resultRows.scrollRef}>…</table></div>` block with the following. **A8: `result` takes the narrowed local
+`queryResult`, not `slice.queryResult`** — the null guard is on the local, and
+TypeScript does not carry that narrowing onto a property access of a mutable
+object, which is exactly what the comment already beside those locals says.
 
 ```tsx
               <ResultGrid
-                result={slice.queryResult}
+                result={queryResult}
                 widths={gridWidths}
                 columnOrder={[]}
                 onResize={(index, delta) => setGridWidths((w) => resizeColumn(w, index, delta))}
@@ -592,6 +616,29 @@ Then move the test with them — `git mv frontend/src/modules/database/component
 
 - [ ] **Step 3: Verify**
 
+**A9: three ratchet tests move with this change, and none is under
+`src/modules/database`.** The plan claimed 0 fail; the code above gives 3
+failures, so staging `src/modules/database` alone would leave the branch red.
+Fix each where it stands rather than weakening it:
+
+- `frontend/src/designSystemConformance.test.ts` — `modules/database.rawPx`
+  drops 15 → 13, because the inline table's two `max-w-[NNNpx]` cell caps are
+  now `<colgroup>` widths the caller owns. That test explicitly demands a stale
+  baseline be lowered, so this is the required direction; update its comment to
+  match the new count.
+- `frontend/src/workbench/layoutStability.test.tsx` — it asserts
+  `scrollbar-gutter-stable` on `QueryConsole.tsx`. The scroller moved into the
+  grid, so repoint the entry to `modules/database/grid/ResultGrid.tsx`; the
+  invariant is unchanged, only its address. (Task 8 makes `TableDataView`
+  render the same grid, so this one entry covers both.)
+- `frontend/src/smoothnessRatchet.test.ts` — its `emptyListState` count sees
+  `useState<number[]>([])` in a module file and says the number must never go
+  up. Raising the baseline is therefore not available, and `gridWidths` is not
+  what that rule is about. Write it with this repo's own idiom instead:
+  `useState<number[]>(EMPTY_ARRAY)` from `@/lib/stableEmpty` — one identity for
+  the whole app, and `resizeColumn` copies rather than mutates, so the frozen
+  array is never written to.
+
 Run: `cd frontend && npx tsc --noEmit && bun test`
 Expected: tsc clean, 0 fail.
 
@@ -604,9 +651,15 @@ Expected: only `grid/rowText.ts`, `grid/rowText.test.ts` and `grid/ResultGrid.ts
 - [ ] **Step 4: Commit**
 
 ```bash
-git add frontend/src/modules/database
+git add frontend/src/modules/database \
+        frontend/src/designSystemConformance.test.ts \
+        frontend/src/workbench/layoutStability.test.tsx \
+        frontend/src/smoothnessRatchet.test.ts
 git commit -m "feat(database): one grid, one context menu, sizable columns"
 ```
+
+(A9: the three ratchet files are part of this change, not incidental — staging
+only `src/modules/database` leaves the suite red.)
 
 ---
 
@@ -652,11 +705,21 @@ describe("quoteIdentifier", () => {
 
   // A name carrying a statement terminator must come out as one identifier,
   // never as two statements.
+  //
+  // A10: what makes that true is that every quote in the interior is part of a
+  // doubled PAIR — an unpaired one would close the identifier where the name
+  // did not intend it to, handing the rest of the name to the parser as SQL.
+  // The original assertion looked for the byte pair `";` instead, which
+  // doubling puts there by construction (`x";` becomes `x"";`), so it
+  // contradicted the doubling test above and nothing could pass both.
   test("a name that looks like SQL stays a name", () => {
     const quoted = quoteIdentifier('x"; DROP TABLE users; --', "postgres");
+    expect(quoted).toBe('"x""; DROP TABLE users; --"');
     expect(quoted.startsWith('"')).toBe(true);
     expect(quoted.endsWith('"')).toBe(true);
-    expect(quoted.slice(1, -1)).not.toContain('";');
+    // Strip the doubled pairs; a quote still standing would be one that ends
+    // the identifier early.
+    expect(quoted.slice(1, -1).split('""').join("")).not.toContain('"');
   });
 
   test("an empty name is refused rather than quoted into nothing", () => {
