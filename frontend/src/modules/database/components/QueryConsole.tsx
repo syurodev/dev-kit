@@ -10,10 +10,6 @@ import {
   Info,
   XCircle,
   Sliders,
-  Copy,
-  Braces,
-  Columns3,
-  List,
   KeyRound,
   Loader2,
 } from "lucide-react";
@@ -26,20 +22,8 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuLabel,
-  ContextMenuSeparator,
-  ContextMenuShortcut,
-  ContextMenuTrigger,
-} from "@/components/ui/context-menu";
 import { cn } from "@/lib/utils";
-import { useVirtualRows } from "@/components/ui/virtual-rows";
-
-const RESULT_ROW_HEIGHT = 36;
-import { copyText } from "../../../bridge/clipboard";
+import { EMPTY_ARRAY } from "@/lib/stableEmpty";
 import { requestVaultUnlock } from "@/workbench/vaultUnlockRequest";
 import { isVaultLockedError } from "../errorStates";
 import { useShallow } from "zustand/react/shallow";
@@ -47,26 +31,8 @@ import { EMPTY_CONSOLE, useDatabaseStore } from "../databaseStore";
 import { getEngineMeta } from "./EngineBadge";
 import { explain, explainAnalyze, type QueryPlan } from "../../../bridge/database";
 import { QueryPlanView } from "./QueryPlanView";
-
-/** One column's values, newline separated — the shape that pastes into an IN
- *  list or a spreadsheet. A row shorter than the header becomes an empty line,
- *  which `join` already does for a hole; no guard needed. */
-export function columnValues(rows: string[][], index: number): string {
-  return rows.map((row) => row[index]).join("\n");
-}
-
-/**
- * A row is a string array beside a separate column list — JSON has to pair them
- * back up. Values arrive already stringified by the bridge, so this is a shape
- * change, not a re-encode.
- */
-export function rowAsJSON(columns: string[], row: string[]): string {
-  return JSON.stringify(
-    Object.fromEntries(row.map((value, i) => [columns[i] || `col_${i}`, value])),
-    null,
-    2,
-  );
-}
+import { ResultGrid } from "../grid/ResultGrid";
+import { resizeColumn } from "../grid/gridColumns";
 
 /**
  * Figma `DB / Console Content` (742:8). A toolbar row with Run ⌘↵ and Export
@@ -117,9 +83,10 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
   // callback — these locals give the narrowing something it can keep.
   const { queryResult, queryStartTime } = slice;
 
-  // Result sets cap at 200 rows today but the cap is a setting; past 100 the
-  // table windows (frontend performance 6.3). Rows are h-9, so 36px each.
-  const resultRows = useVirtualRows(queryResult?.rows.length ?? 0, RESULT_ROW_HEIGHT);
+  // Console widths are per mount, not stored: a console runs a different query
+  // every time, and a width saved against the last result describes columns
+  // this one may not have.
+  const [gridWidths, setGridWidths] = useState<number[]>(EMPTY_ARRAY);
 
   const [elapsed, setElapsed] = useState(0);
   const [activePlan, setActivePlan] = useState<QueryPlan | null>(null);
@@ -464,117 +431,13 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
               </div>
 
               {/* result (743:8): a well card; header on surface/raised. */}
-              <div
-                ref={resultRows.scrollRef}
-                className="min-h-0 flex-1 overflow-auto scrollbar-gutter-stable rounded-md border border-border-subtle bg-surface-well"
-              >
-                <table className="w-full border-collapse text-left text-code-12" aria-label="Query results">
-                  <thead className="sticky top-0 z-10 bg-surface-raised">
-                    <tr>
-                      {/* Keyed by index too: two columns can share a name —
-                          SELECT a.id, b.id — and React would collapse them. */}
-                      {queryResult.columns.map((col, j) => (
-                        <ContextMenu key={`${col}-${j}`}>
-                          <ContextMenuTrigger asChild>
-                            <th className="h-10 max-w-[240px] truncate border-r border-b border-border-subtle px-4 text-code-12-medium text-text-secondary last:border-r-0">
-                              {col}
-                            </th>
-                          </ContextMenuTrigger>
-                          <ContextMenuContent>
-                            <ContextMenuItem onSelect={() => void copyText(col || `col_${j}`)}>
-                              <Columns3 />
-                              Copy column name
-                            </ContextMenuItem>
-                            <ContextMenuItem
-                              onSelect={() => void copyText(columnValues(queryResult.rows, j))}
-                            >
-                              <List />
-                              Copy {queryResult.rows.length} value
-                              {queryResult.rows.length === 1 ? "" : "s"}
-                            </ContextMenuItem>
-                            {/* The count is the honest one — what is loaded, not
-                                what the query would have returned. Saying "copy
-                                the column" over a capped result would hand
-                                someone 200 rows of an unknown total. */}
-                            {queryResult.truncated && (
-                              <ContextMenuLabel className="text-caption-11 font-normal text-status-warning">
-                                result was capped — this is not the whole column
-                              </ContextMenuLabel>
-                            )}
-                          </ContextMenuContent>
-                        </ContextMenu>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {/* Spacer rows, not absolute positioning: see virtual-rows. */}
-                    {resultRows.padTop > 0 && <tr style={{ height: resultRows.padTop }} aria-hidden />}
-                    {resultRows.indices.map((i) => {
-                      const row = queryResult.rows[i];
-                      return (
-                      <tr key={i} className="group transition-colors hover:bg-surface-raised/60">
-                        {row.map((cell, j) => {
-                          const colName = queryResult.columns[j] || `col_${j}`;
-                          return (
-                            <ContextMenu key={j}>
-                              <ContextMenuTrigger asChild>
-                                <td
-                                  className={cn(
-                                    "h-9 max-w-[280px] cursor-pointer truncate border-r border-b border-border-subtle px-4 select-text last:border-r-0 hover:text-text-primary",
-                                    j === 0 ? "text-text-primary" : "text-text-secondary",
-                                  )}
-                                  onClick={() =>
-                                    setInspectedCell({ columnName: colName, value: cell })
-                                  }
-                                  title="Click to inspect cell"
-                                >
-                                  {cell === "" ? (
-                                    <span className="text-code-11 text-status-warning">NULL</span>
-                                  ) : (
-                                    cell
-                                  )}
-                                </td>
-                              </ContextMenuTrigger>
-                              {/* A cell is truncated at 280px, so the value on
-                                  screen is often not the whole value. Copy takes
-                                  the real one. */}
-                              <ContextMenuContent>
-                                <ContextMenuItem onSelect={() => void copyText(cell)}>
-                                  <Copy />
-                                  Copy cell
-                                </ContextMenuItem>
-                                <ContextMenuItem
-                                  onSelect={() => void copyText(rowAsJSON(queryResult.columns, row))}
-                                >
-                                  <Braces />
-                                  Copy row as JSON
-                                </ContextMenuItem>
-                                <ContextMenuItem onSelect={() => void copyText(colName)}>
-                                  <Columns3 />
-                                  Copy column name
-                                </ContextMenuItem>
-                                <ContextMenuSeparator />
-                                <ContextMenuItem
-                                  onSelect={() =>
-                                    setInspectedCell({ columnName: colName, value: cell })
-                                  }
-                                >
-                                  Inspect cell
-                                  <ContextMenuShortcut>Click</ContextMenuShortcut>
-                                </ContextMenuItem>
-                              </ContextMenuContent>
-                            </ContextMenu>
-                          );
-                        })}
-                      </tr>
-                      );
-                    })}
-                    {resultRows.padBottom > 0 && (
-                      <tr style={{ height: resultRows.padBottom }} aria-hidden />
-                    )}
-                  </tbody>
-                </table>
-              </div>
+              <ResultGrid
+                result={queryResult}
+                widths={gridWidths}
+                columnOrder={[]}
+                onResize={(index, delta) => setGridWidths((w) => resizeColumn(w, index, delta))}
+                onInspectCell={setInspectedCell}
+              />
             </div>
           ) : (
             <div className="flex flex-1 flex-col items-center justify-center rounded-md border border-border-subtle bg-surface-well p-8 text-center text-text-tertiary">
