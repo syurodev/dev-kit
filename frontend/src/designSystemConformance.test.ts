@@ -49,7 +49,9 @@ const BASELINE: Record<string, { twText: number; rawPx: number; rawHex: number }
   // light-theme bug, since a hardcoded rgba(255,255,255,0.1) hairline stays
   // white on a white surface — so this row is the one to work down next.
   components: { twText: 1, rawPx: 108, rawHex: 48 },
-  workbench: { twText: 0, rawPx: 35, rawHex: 1 },
+  // 34 since the tab element's stale max-w-[200px] went: computeTabWidths
+  // already caps, and a second cap in CSS is what stranded the + button.
+  workbench: { twText: 0, rawPx: 34, rawHex: 1 },
 };
 
 // Two files carry raw hex on purpose and are not design-system surfaces: a

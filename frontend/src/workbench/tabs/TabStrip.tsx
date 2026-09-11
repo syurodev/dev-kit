@@ -258,7 +258,12 @@ function TabGroupRow({
                 onSelect(tab.id);
               }}
               className={cn(
-                "group relative flex h-8 max-w-[200px] shrink-0 items-center rounded-[6px] border px-3 gap-2 transition-[filter,border-color,background-color] select-none [--wails-draggable:no-drag]",
+                // No max-width here. computeTabWidths already caps at
+                // MAX_TAB_WIDTH_PX and the strip sizes its pill from the same
+                // numbers — a second, stale cap in CSS clamped the tab to 200
+                // inside a 320 slot, so a lone tab truncated its title while
+                // 120px of empty pill pushed the + button away from it.
+                "group relative flex h-8 shrink-0 items-center rounded-[6px] border px-3 gap-2 transition-[filter,border-color,background-color] select-none [--wails-draggable:no-drag]",
                 isActive
                   ? "bg-surface-raised border-border text-text-primary"
                   : tab.preview

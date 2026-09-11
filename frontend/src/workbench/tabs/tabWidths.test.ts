@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   ACTIVE_MIN_WIDTH_PX,
   INACTIVE_MIN_WIDTH_PX,
@@ -87,4 +89,15 @@ describe("tab widths", () => {
     });
     expect(widths.get("t0")).toBeUndefined();
   });
+});
+
+// The cap rose from 200 to 320 and a `max-w-[200px]` on the tab element stayed
+// behind, so the strip sized a 320px slot around a tab CSS would not let past
+// 200 — a lone tab truncated its own title while 120px of empty pill pushed
+// the new-tab button off on its own. One cap, in the arithmetic, is the fix.
+test("the tab element carries no width cap of its own", () => {
+  const source = readFileSync(join(import.meta.dir, "TabStrip.tsx"), "utf8");
+  const clamps = source.match(/max-w-\[\d+px\]/g) ?? [];
+  expect(clamps, `TabStrip caps width in CSS as well as in computeTabWidths: ${clamps}`)
+    .toHaveLength(0);
 });
