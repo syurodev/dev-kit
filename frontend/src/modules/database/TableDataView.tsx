@@ -1,48 +1,170 @@
 import { useEffect } from "react";
-import { useDatabaseStore } from "./databaseStore";
-import { QueryConsole } from "./components/QueryConsole";
-import { consoleIdOfTab, useConsoleLifetime } from "./useConsoleLifetime";
-import { useDatabaseChrome } from "./useDatabaseChrome";
+import { useShallow } from "zustand/react/shallow";
+import { listIndexes } from "@/bridge/database";
+import { ResultGrid } from "./grid/ResultGrid";
+import { resizeColumn } from "./grid/gridColumns";
+import { TableToolbar } from "./components/TableToolbar";
 import { DatabaseOverlays } from "./DatabaseOverlays";
+import { BROWSE_PAGE_SIZE, useDatabaseStore } from "./databaseStore";
+import { useDatabaseChrome } from "./useDatabaseChrome";
 import { useIsActiveDocument } from "./useIsActiveDocument";
+import { openConsoleTab } from "./documents";
+import { buildBrowseQuery } from "./sql/browseQuery";
+import { pageKeyFor } from "./tableKey";
 
 /**
  * One table's data, as its own document.
  *
- * Backed by a console rather than a second grid: the backend's only read path
- * is RunQuery, the result shape is the same, and a table tab is a console whose
- * SQL was written for you. Giving it its own console id is what keeps that SQL
- * — and its result — from colliding with a console you typed in yourself.
+ * No SQL editor. Opening a table is a request to see rows, and the statement
+ * behind them is composed from the filter, the sort and the page — the three
+ * things a person browsing actually changes. "Open in console" hands the
+ * composed statement to a console tab for anything past that.
  */
 export function TableDataView({ params }: { params?: Record<string, unknown> }) {
   const schema = typeof params?.schema === "string" ? params.schema : "";
   const table = typeof params?.table === "string" ? params.table : "";
-  // Derived through the shared rule, not spelled again here: useConsoleLifetime
-  // computes the same id from a TAB, and two copies would drift into a leak.
-  const consoleId = consoleIdOfTab("database.table", { schema, table }) ?? "";
+  const key = `${schema}.${table}`;
 
   useDatabaseChrome();
-  useConsoleLifetime(consoleId);
-  const setSql = useDatabaseStore((s) => s.setSql);
-  const executeQuery = useDatabaseStore((s) => s.executeQuery);
-  const hasSql = useDatabaseStore((s) => Boolean(s.consoles[consoleId]?.sql));
   const isActive = useIsActiveDocument("database.table", { schema, table });
 
-  // Seeded once. Re-seeding on every mount would throw away a WHERE the user
-  // added, and this view remounts whenever its tab leaves the mount window.
+  const {
+    selectedProfileId,
+    profiles,
+    browse,
+    pageKey,
+    setBrowseWhere,
+    setBrowseOrder,
+    setBrowseWidths,
+    setPageKey,
+    loadBrowsePage,
+    stepBrowsePage,
+    setInspectedCell,
+    setSql,
+  } = useDatabaseStore(
+    useShallow((s) => ({
+      selectedProfileId: s.selectedProfileId,
+      profiles: s.profiles,
+      browse: s.browse[key] ?? s.browseState(key),
+      pageKey: s.pageKeys[key] ?? null,
+      setBrowseWhere: s.setBrowseWhere,
+      setBrowseOrder: s.setBrowseOrder,
+      setBrowseWidths: s.setBrowseWidths,
+      setPageKey: s.setPageKey,
+      loadBrowsePage: s.loadBrowsePage,
+      stepBrowsePage: s.stepBrowsePage,
+      setInspectedCell: s.setInspectedCell,
+      setSql: s.setSql,
+    })),
+  );
+
+  // The key decides whether this table can be walked or has to be counted
+  // through, so it is read before the first page.
   useEffect(() => {
-    if (hasSql || !table) {
+    if (!selectedProfileId || !schema || !table) {
       return;
     }
-    setSql(consoleId, `SELECT * FROM ${table} LIMIT 200;`);
-    void executeQuery(consoleId);
-  }, [consoleId, hasSql, table, setSql, executeQuery]);
+    let cancelled = false;
+    void listIndexes(selectedProfileId, schema)
+      .then((indexes) => {
+        if (!cancelled) {
+          setPageKey(key, pageKeyFor(indexes, schema, table));
+        }
+      })
+      .catch(() => {
+        // An index list we could not read is not a reason to refuse the table:
+        // unkeyed is the safe reading, and it pages by offset.
+        if (!cancelled) {
+          setPageKey(key, null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedProfileId, schema, table, key, setPageKey]);
+
+  const hasRows = browse.rows !== null;
+  useEffect(() => {
+    if (!hasRows && selectedProfileId && table) {
+      void loadBrowsePage(key, { schema, table });
+    }
+  }, [hasRows, selectedProfileId, key, schema, table, loadBrowsePage]);
+
+  const engine = profiles.find((p) => p.id === selectedProfileId)?.engine;
 
   return (
-    <>
-      <QueryConsole consoleId={consoleId} />
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      <TableToolbar
+        where={browse.where}
+        onWhereChange={(value) => setBrowseWhere(key, value)}
+        onApply={() => void loadBrowsePage(key, { schema, table })}
+        orderLabel={
+          browse.orderBy
+            ? `ORDER BY ${browse.orderBy.column} ${browse.orderBy.direction.toUpperCase()}`
+            : "ORDER BY —"
+        }
+        pageIndex={browse.pageIndex}
+        pageSize={BROWSE_PAGE_SIZE}
+        rowCount={browse.rows?.rows.length ?? 0}
+        hasNext={browse.hasNext}
+        keyed={pageKey !== null}
+        loading={browse.loading}
+        onStep={(step) => void stepBrowsePage(key, { schema, table }, step)}
+        onRefresh={() => void loadBrowsePage(key, { schema, table })}
+        onOpenInConsole={() => {
+          const consoleId = `console-${key}`;
+          setSql(
+            consoleId,
+            buildBrowseQuery({
+              schema,
+              table,
+              engine,
+              where: browse.where,
+              orderBy: browse.orderBy,
+              pageKey,
+              cursor: null,
+              pageSize: BROWSE_PAGE_SIZE,
+            }).sql,
+          );
+          openConsoleTab(consoleId, table);
+        }}
+      />
+
+      {browse.error ? (
+        <div className="mb-2 shrink-0 rounded-md border border-(--border-danger) bg-(--feedback-danger-soft) p-3 text-body-12 text-status-danger">
+          {browse.error}
+        </div>
+      ) : null}
+
+      {browse.rows ? (
+        <ResultGrid
+          result={browse.rows}
+          widths={browse.widths}
+          columnOrder={[]}
+          onResize={(index, delta) => setBrowseWidths(key, resizeColumn(browse.widths, index, delta))}
+          onInspectCell={setInspectedCell}
+          sort={
+            browse.orderBy
+              ? {
+                  column: browse.rows.columns.indexOf(browse.orderBy.column),
+                  direction: browse.orderBy.direction,
+                }
+              : null
+          }
+          onSort={(index) => {
+            const column = browse.rows!.columns[index];
+            const next =
+              browse.orderBy?.column === column && browse.orderBy.direction === "asc"
+                ? ("desc" as const)
+                : ("asc" as const);
+            setBrowseOrder(key, { column, direction: next });
+            void loadBrowsePage(key, { schema, table });
+          }}
+        />
+      ) : null}
+
       {isActive ? <DatabaseOverlays /> : null}
-    </>
+    </div>
   );
 }
 
