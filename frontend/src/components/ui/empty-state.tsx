@@ -1,5 +1,13 @@
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { cn } from "@/lib/utils";
 
 /**
@@ -9,6 +17,10 @@ import { cn } from "@/lib/utils";
  * Analyzing | Error` (495:20625…) and again for Kafka's Disconnected /
  * Connecting / Error and Tools' Empty: the same shape every module reaches
  * for when a pane has nothing to show yet, so it lives here.
+ *
+ * The stack itself is the shared `Empty` primitive. This wrapper is the
+ * module-facing shape (icon + title + body + tone) drawn on top of it, so
+ * there is one set of empty-state slots in the app rather than two that drift.
  */
 export function EmptyState({
   icon: Icon,
@@ -25,21 +37,23 @@ export function EmptyState({
   children?: ReactNode;
 }) {
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-3.5 p-6 text-center">
-      <span
-        className={cn(
-          "flex size-16 items-center justify-center rounded-full border",
-          tone === "danger"
-            ? "border-(--border-danger) bg-(--feedback-danger-soft)"
-            : "border-glass-border bg-state-soft",
-        )}
-      >
-        <Icon size={26} className={tone === "danger" ? "text-status-danger" : "text-text-secondary"} />
-      </span>
-      <h3 className="text-title-16 text-text-primary">{title}</h3>
-      <p className="max-w-105 text-body-13 text-text-secondary">{body}</p>
-      {children}
-    </div>
+    <Empty className="h-full gap-3.5">
+      <EmptyHeader className="max-w-105 gap-3.5">
+        <EmptyMedia
+          className={cn(
+            "mb-0 size-16 rounded-full border",
+            tone === "danger"
+              ? "border-(--border-danger) bg-(--feedback-danger-soft)"
+              : "border-glass-border bg-state-soft",
+          )}
+        >
+          <Icon size={26} className={tone === "danger" ? "text-status-danger" : "text-text-secondary"} />
+        </EmptyMedia>
+        <EmptyTitle className="text-title-16 text-text-primary">{title}</EmptyTitle>
+        <EmptyDescription className="text-body-13 text-text-secondary">{body}</EmptyDescription>
+      </EmptyHeader>
+      {children ? <EmptyContent className="max-w-105">{children}</EmptyContent> : null}
+    </Empty>
   );
 }
 

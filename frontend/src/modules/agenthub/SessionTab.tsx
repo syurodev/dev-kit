@@ -6,6 +6,7 @@ import {
   type AgentSession,
   type SessionStatus,
 } from "../../bridge/agenthub";
+import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { errorMessage } from "../../bridge/errors";
 
 export type TranscriptLine = {
@@ -130,7 +131,9 @@ export function SessionTab({
 
       <div className="agenthub-transcript" aria-label="agenthub-transcript">
         {lines.length === 0 ? (
-          <p className="agenthub-empty">No messages yet. Send a prompt to start.</p>
+          <Empty className="agenthub-empty">
+            <EmptyDescription>No messages yet. Send a prompt to start.</EmptyDescription>
+          </Empty>
         ) : (
           lines.map((line) => (
             <div

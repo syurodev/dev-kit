@@ -1,3 +1,9 @@
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { cn } from "@/lib/utils";
 import type { AgentSession, PendingPermission } from "@/bridge/agenthub";
 import type { AvailableCommand, TranscriptItem, Usage } from "../types";
@@ -142,18 +148,15 @@ export function AgentRail({
 
       {/* 3. Rail Body */}
       {effectiveState === "Empty" ? (
-        <div
-          data-testid="agent-rail-empty"
-          className="flex flex-1 flex-col items-center justify-center gap-2 px-3 py-3 pr-5 text-center"
-        >
-          <p className="text-body-13-medium text-text-secondary">
-            No agents running
-          </p>
-          <p className="w-58 text-caption-11 text-text-tertiary">
-            Open Agent Hub to start one — it needs a vendor and a working
-            directory.
-          </p>
-        </div>
+        <Empty data-testid="agent-rail-empty" className="gap-2 px-3 py-3 pr-5">
+          <EmptyHeader className="w-58 max-w-full gap-2">
+            <EmptyTitle className="text-text-secondary">No agents running</EmptyTitle>
+            <EmptyDescription className="text-caption-11 text-text-tertiary">
+              Open Agent Hub to start one — it needs a vendor and a working
+              directory.
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
       ) : (
         <div
           data-testid="agent-rail-conversation"

@@ -5,6 +5,7 @@ import { Loader2, PlugZap, RefreshCw, Send, ServerOff, TriangleAlert, Users, Wor
 import { Button } from "@/components/ui/button";
 import { Chip } from "@/components/ui/chip";
 import { CodeEditor } from "@/components/code-editor/CodeEditor";
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { EmptyProgress, EmptyState } from "@/components/ui/empty-state";
 import { useVirtualRows } from "@/components/ui/virtual-rows";
 import { useSidebarContent } from "@/components/ui/sidebar-shell";
@@ -347,14 +348,16 @@ export function KafkaView() {
                 </span>
               </div>
             ) : messages.length === 0 ? (
-              <div className="flex h-full flex-col items-center justify-center gap-1.5 p-8 text-center">
-                <span className="text-body-13 text-text-secondary">
-                  No messages in partition {peekPartition} from that offset
-                </span>
-                <span className="text-code-11 text-text-tertiary">
-                  the partition may be empty, or the offset may sit past its end
-                </span>
-              </div>
+              <Empty className="h-full gap-1.5 p-8">
+                <EmptyHeader className="gap-1.5">
+                  <EmptyTitle className="text-body-13 text-text-secondary">
+                    No messages in partition {peekPartition} from that offset
+                  </EmptyTitle>
+                  <EmptyDescription className="text-code-11 text-text-tertiary">
+                    the partition may be empty, or the offset may sit past its end
+                  </EmptyDescription>
+                </EmptyHeader>
+              </Empty>
             ) : (
               <table className="w-full table-fixed border-collapse text-left text-code-12" aria-label="Peeked messages">
                 <thead className="sticky top-0 z-10 bg-surface-raised">

@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { cn } from "@/lib/utils";
 import { errorMessage } from "../../bridge/errors";
 import {
@@ -496,9 +497,9 @@ export function NotesDashboard({
                 />
               ))}
               {filtered.length === 0 ? (
-                <p className="col-span-full px-1 py-6 text-body-13 text-muted-foreground">
-                  No notes match this view.
-                </p>
+                <Empty className="col-span-full px-1 py-6">
+                  <EmptyDescription>No notes match this view.</EmptyDescription>
+                </Empty>
               ) : null}
             </div>
           </ScrollArea>

@@ -14,6 +14,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { cn } from "@/lib/utils";
 import {
   emptyTrash,
@@ -104,9 +105,11 @@ export function NotesTrash({ onChanged }: { onChanged: () => void }) {
 
       <div className="min-h-0 flex-1 overflow-auto">
         {shown.length === 0 ? (
-          <p className="pt-10 text-center text-body-13 text-text-tertiary">
-            {items.length === 0 ? "Trash is empty." : "Nothing in the trash matches."}
-          </p>
+          <Empty className="pt-10">
+            <EmptyDescription>
+              {items.length === 0 ? "Trash is empty." : "Nothing in the trash matches."}
+            </EmptyDescription>
+          </Empty>
         ) : (
           <ul ref={trashListRef} className="grid grid-cols-[repeat(auto-fill,minmax(348px,1fr))] gap-5 px-6 pb-6">
             {shown.map((note) => {

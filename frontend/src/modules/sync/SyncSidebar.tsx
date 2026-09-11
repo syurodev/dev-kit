@@ -1,4 +1,5 @@
 import { Clock, FileText, KeyRound, Laptop, Server, Trash2 } from "lucide-react";
+import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { cn } from "@/lib/utils";
 import { SIDEBAR_ROW_HEIGHT, SidebarSection } from "@/components/ui/sidebar-shell";
 import type { SyncConflict, SyncStatus } from "../../bridge/sync";
@@ -78,7 +79,11 @@ export function SyncSidebar({
 
       <SidebarSection label="Conflicts" count={conflicts.length} />
       {conflicts.length === 0 ? (
-        <span className="px-3 py-2.5 text-body-13 text-text-tertiary">Nothing to resolve.</span>
+        <Empty className="flex-none px-3 py-2.5">
+          {/* flex-none: the rail lists this as a row under CONFLICTS (Figma
+              783:252), not a panel that swallows the space below it. */}
+          <EmptyDescription>Nothing to resolve.</EmptyDescription>
+        </Empty>
       ) : (
         conflicts.map((c) => {
           const Glyph = glyphFor(c);

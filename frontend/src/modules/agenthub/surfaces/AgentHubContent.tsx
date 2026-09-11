@@ -1,6 +1,13 @@
 import { UpdateKind } from "../../../../bindings/devkit/internal/agenthub/models";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import type { AgentSession } from "@/bridge/agenthub";
 import type { AvailableCommand, TranscriptItem, Usage } from "../types";
 import { TranscriptStream } from "./TranscriptStream";
@@ -169,30 +176,31 @@ export function AgentHubContent({
       ) : null}
 
       {effectiveState === "Empty" ? (
-        <div
-          data-testid="agent-hub-content-empty"
-          className="flex min-h-0 w-full flex-1 flex-col items-center justify-center gap-3 p-5 text-center"
-        >
-          <p className="text-title-16 text-text-secondary">No agent running</p>
-          {/* Figma's note: Empty is the first thing a new user meets, so it
-              explains what a session IS. The old copy said only where to click. */}
-          <p className="w-105 max-w-full text-body-12 text-text-tertiary">
-            Each session gets its own sandbox, its own working directory, and its own
-            connection to DevKit&apos;s tools. Sessions started by an agent appear as
-            children of it.
-          </p>
+        <Empty data-testid="agent-hub-content-empty" className="min-h-0 gap-3 p-5">
+          <EmptyHeader className="w-105 max-w-full gap-3">
+            <EmptyTitle className="text-title-16 text-text-secondary">No agent running</EmptyTitle>
+            {/* Figma's note: Empty is the first thing a new user meets, so it
+                explains what a session IS. The old copy said only where to click. */}
+            <EmptyDescription className="text-text-tertiary">
+              Each session gets its own sandbox, its own working directory, and its own
+              connection to DevKit&apos;s tools. Sessions started by an agent appear as
+              children of it.
+            </EmptyDescription>
+          </EmptyHeader>
           {onNewSession ? (
-            <Button
-              type="button"
-              size="sm"
-              data-testid="empty-new-session-button"
-              onClick={onNewSession}
-              className="h-8 px-4"
-            >
-              New session
-            </Button>
+            <EmptyContent>
+              <Button
+                type="button"
+                size="sm"
+                data-testid="empty-new-session-button"
+                onClick={onNewSession}
+                className="h-8 px-4"
+              >
+                New session
+              </Button>
+            </EmptyContent>
           ) : null}
-        </div>
+        </Empty>
       ) : effectiveState === "Error" ? (
         // Not centred: Figma keeps the transcript that led here above the card,
         // because the failed tool call is the evidence for the error.

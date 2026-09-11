@@ -11,6 +11,12 @@ import {
 } from "@/components/ui/context-menu";
 import { SidebarHeader, SidebarSearch } from "@/components/ui/sidebar-shell";
 import { TreeView, type TreeNodeData } from "@/components/tree-view";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { cn } from "@/lib/utils";
 import { useKafkaStore } from "./kafkaStore";
 
@@ -131,14 +137,18 @@ export function KafkaSidebar() {
 
       <div className="min-h-0 flex-1 overflow-y-auto scrollbar-gutter-stable pb-2">
         {profiles.length === 0 ? (
-          <div className="px-4 py-6 text-center text-body-12 text-text-tertiary">
-            <p>No clusters saved.</p>
-            <Button variant="outline" size="sm" className="mt-2" onClick={() => setShowNewCluster(true)}>
-              <Plus className="size-3" /> Add cluster
-            </Button>
-          </div>
+          <Empty className="px-4 py-6">
+            <EmptyTitle className="text-body-12 text-text-tertiary">No clusters saved.</EmptyTitle>
+            <EmptyContent>
+              <Button variant="outline" size="sm" onClick={() => setShowNewCluster(true)}>
+                <Plus className="size-3" /> Add cluster
+              </Button>
+            </EmptyContent>
+          </Empty>
         ) : nodes.length === 0 ? (
-          <p className="px-4 py-6 text-center text-body-12 text-text-tertiary">Nothing matches “{needle}”.</p>
+          <Empty className="px-4 py-6">
+            <EmptyDescription>Nothing matches “{needle}”.</EmptyDescription>
+          </Empty>
         ) : (
           <TreeView nodes={nodes} />
         )}
