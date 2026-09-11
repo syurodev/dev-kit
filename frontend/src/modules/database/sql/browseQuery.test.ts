@@ -1,0 +1,78 @@
+import { describe, expect, test } from "bun:test";
+import { buildBrowseQuery } from "./browseQuery";
+
+const base = {
+  schema: "public",
+  table: "orders",
+  engine: "postgres",
+  where: "",
+  orderBy: null,
+  pageKey: ["id"],
+  cursor: null,
+  pageSize: 200,
+};
+
+describe("buildBrowseQuery", () => {
+  test("the first page orders by the key and takes one extra row", () => {
+    const { sql, mode } = buildBrowseQuery(base);
+    expect(mode).toBe("keyset");
+    // The extra row is how "is there a next page" is answered without COUNT(*).
+    expect(sql).toContain("LIMIT 201");
+    expect(sql).toContain('ORDER BY "id" ASC');
+    expect(sql).not.toContain("WHERE");
+  });
+
+  test("a cursor becomes a row-value comparison", () => {
+    const { sql } = buildBrowseQuery({ ...base, cursor: { values: ["42"], direction: "next" } });
+    expect(sql).toContain('WHERE ("id") > (\'42\')');
+  });
+
+  // Sorting by a non-unique column cannot page on that column alone: ties
+  // would skip and repeat rows. The key is appended as the tiebreaker.
+  test("a user sort keeps the key as a tiebreaker", () => {
+    const { sql } = buildBrowseQuery({
+      ...base,
+      orderBy: { column: "name", direction: "desc" },
+    });
+    expect(sql).toContain('ORDER BY "name" DESC, "id" ASC');
+  });
+
+  test("paging back reverses the comparison", () => {
+    const { sql } = buildBrowseQuery({ ...base, cursor: { values: ["42"], direction: "prev" } });
+    expect(sql).toContain('WHERE ("id") < (\'42\')');
+    expect(sql).toContain('ORDER BY "id" DESC');
+  });
+
+  // Without a key there is no cursor to build, so the walk is by offset.
+  test("an unkeyed table pages by offset", () => {
+    const { sql, mode } = buildBrowseQuery({ ...base, pageKey: null, offset: 400 });
+    expect(mode).toBe("offset");
+    expect(sql).toContain("LIMIT 201 OFFSET 400");
+  });
+
+  test("the user's WHERE is combined with the cursor, not replaced by it", () => {
+    const { sql } = buildBrowseQuery({
+      ...base,
+      where: "status = 'open'",
+      cursor: { values: ["42"], direction: "next" },
+    });
+    expect(sql).toContain("status = 'open'");
+    expect(sql).toContain('("id") > (\'42\')');
+    expect(sql).toContain(" AND ");
+  });
+
+  test("identifiers are quoted for the engine", () => {
+    const { sql } = buildBrowseQuery({ ...base, engine: "mysql" });
+    expect(sql).toContain("`orders`");
+    expect(sql).toContain("`id`");
+  });
+
+  // A value with a quote in it must not end the literal early.
+  test("a cursor value carrying a quote is escaped", () => {
+    const { sql } = buildBrowseQuery({
+      ...base,
+      cursor: { values: ["o'brien"], direction: "next" },
+    });
+    expect(sql).toContain("'o''brien'");
+  });
+});
