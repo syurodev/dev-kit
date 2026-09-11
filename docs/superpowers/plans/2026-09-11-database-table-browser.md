@@ -126,7 +126,16 @@ and why.
     description, not the implementation. Task 12's check that "Back returns to
     exactly the previous page" tests the trail, not the DESC path.
 
-13. **A6 — the drag needs an activation distance (Task 10).** dnd-kit's pointer
+13. **A14 — `TableToolbar` declared `pageSize` and never destructured it
+    (Task 8).** The verbatim component types `pageSize: number` in its props
+    but its destructuring pattern stops at `onOpenInConsole`, so the two lines
+    that compute the row range referred to a name that does not exist
+    (`TS2304`) and the file did not compile. `pageSize` is added to the
+    pattern; nothing else about the component changes. Worth noting what the
+    omission would have tempted: reaching for the literal `200` again, which is
+    exactly what A2 exported `BROWSE_PAGE_SIZE` to prevent.
+
+14. **A6 — the drag needs an activation distance (Task 10).** dnd-kit's pointer
    sensor starts a drag on pointerdown by default. The header cell is also the
    sort button and carries the resize handle, so without a distance threshold
    clicking a header would begin a drag instead of sorting, and a resize drag
@@ -1728,6 +1737,9 @@ export function TableToolbar({
   onStep,
   onRefresh,
   onOpenInConsole,
+  // A14: destructured, not only typed. The verbatim pattern stopped above and
+  // the row range below referred to a name that did not exist.
+  pageSize,
 }: {
   where: string;
   onWhereChange: (value: string) => void;
