@@ -91,4 +91,22 @@ describe("buildBrowseQuery", () => {
     expect(sql).toContain('("tenant_id", "id") > (\'7\', \'42\')');
     expect(sql).toContain('ORDER BY "tenant_id" ASC, "id" ASC');
   });
+
+  // A15. A cursor with no values cannot be compared against. Emitting
+  // `("id") > ()` is a syntax error, and quietly dropping the comparison is
+  // worse — the statement becomes page 0's own query, so the next page serves
+  // the first page's rows again. Neither is acceptable from a data browser, so
+  // the builder refuses instead: loudly, at the one place that can tell.
+  test("a cursor whose values do not match the key is refused, not guessed", () => {
+    expect(() =>
+      buildBrowseQuery({ ...base, cursor: { values: [], direction: "next" } }),
+    ).toThrow();
+    expect(() =>
+      buildBrowseQuery({
+        ...base,
+        pageKey: ["tenant_id", "id"],
+        cursor: { values: ["7"], direction: "next" },
+      }),
+    ).toThrow();
+  });
 });

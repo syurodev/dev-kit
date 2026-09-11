@@ -58,6 +58,16 @@ export function buildBrowseQuery(opts: {
   const reversed = keyed && cursor?.direction === "prev";
 
   if (keyed && cursor) {
+    // A15: one value per key column, or there is nothing to compare. Both ways
+    // of carrying on are worse than stopping — an empty row value is a syntax
+    // error, and dropping the comparison re-serves the previous page. The
+    // caller's catch turns this into an error banner, which is the honest
+    // outcome for a bug in the caller.
+    if (cursor.values.length !== pageKey.length) {
+      throw new Error(
+        `browse cursor has ${cursor.values.length} value(s) for a ${pageKey.length}-column key`,
+      );
+    }
     const comparison = cursor.direction === "next" ? ">" : "<";
     const columns = pageKey.map(q).join(", ");
     const values = cursor.values.map(quoteLiteral).join(", ");

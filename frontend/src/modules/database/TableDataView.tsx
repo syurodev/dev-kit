@@ -33,6 +33,7 @@ export function TableDataView({ params }: { params?: Record<string, unknown> }) 
     profiles,
     browse,
     pageKey,
+    keyResolved,
     setBrowseWhere,
     setBrowseOrder,
     setBrowseWidths,
@@ -47,6 +48,10 @@ export function TableDataView({ params }: { params?: Record<string, unknown> }) 
       profiles: s.profiles,
       browse: s.browse[key] ?? s.browseState(key),
       pageKey: s.pageKeys[key] ?? null,
+      // A15: whether the index read has ANSWERED, which `pageKey` cannot say —
+      // a null means both "no key" and "not asked yet", and loading the first
+      // page during the second one leaves the cursor trail with no page 0 entry.
+      keyResolved: key in s.pageKeys,
       setBrowseWhere: s.setBrowseWhere,
       setBrowseOrder: s.setBrowseOrder,
       setBrowseWidths: s.setBrowseWidths,
@@ -85,10 +90,10 @@ export function TableDataView({ params }: { params?: Record<string, unknown> }) 
 
   const hasRows = browse.rows !== null;
   useEffect(() => {
-    if (!hasRows && selectedProfileId && table) {
+    if (!hasRows && keyResolved && selectedProfileId && table) {
       void loadBrowsePage(key, { schema, table });
     }
-  }, [hasRows, selectedProfileId, key, schema, table, loadBrowsePage]);
+  }, [hasRows, keyResolved, selectedProfileId, key, schema, table, loadBrowsePage]);
 
   const engine = profiles.find((p) => p.id === selectedProfileId)?.engine;
 
