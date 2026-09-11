@@ -113,6 +113,51 @@ export const EMPTY_CONSOLE: ConsoleState = Object.freeze({
   editorSize: 50,
 }) as ConsoleState;
 
+/**
+ * One table tab's browsing state.
+ *
+ * `cursors` is the key of the LAST row of every page already visited, so page
+ * n starts after cursors[n-1]. Holding the trail rather than one cursor is what
+ * makes the back button work: a keyset walk has no way to compute the previous
+ * page's start from the current one.
+ */
+export type BrowseState = {
+  where: string;
+  orderBy: { column: string; direction: "asc" | "desc" } | null;
+  rows: QueryResult | null;
+  loading: boolean;
+  error: string;
+  /** Last-row keys of pages already seen, one per page boundary crossed. */
+  cursors: string[][];
+  pageIndex: number;
+  /** Whether the server returned the extra row, i.e. another page exists. */
+  hasNext: boolean;
+  /** Column widths, kept per table because the columns are the table's own. */
+  widths: number[];
+  /**
+   * A3: which load this state belongs to. Bumped when a page is asked for, and
+   * checked when one answers — the same guard `executeQuery` puts on a console
+   * result, for the same reason: Next clicked twice, or a sort applied while a
+   * page is in flight, must not be overwritten by the older answer landing
+   * last. A browser silently showing rows the toolbar does not describe is
+   * worse than one that is slow.
+   */
+  runId: number;
+};
+
+export const EMPTY_BROWSE: BrowseState = Object.freeze({
+  where: "",
+  orderBy: null,
+  rows: null,
+  loading: false,
+  error: "",
+  cursors: [],
+  pageIndex: 0,
+  hasNext: false,
+  widths: [],
+  runId: 0,
+}) as BrowseState;
+
 export type DatabaseStoreState = {
   profiles: ConnectionProfile[];
   selectedProfileId: string;
@@ -153,6 +198,14 @@ export type DatabaseStoreState = {
 
   /** Every open console's state, keyed by the tab's console id. */
   consoles: Record<string, ConsoleState>;
+
+  /** Every open table tab's browsing state, keyed "schema.table". */
+  browse: Record<string, BrowseState>;
+  browseState: (key: string) => BrowseState;
+  setBrowseWhere: (key: string, where: string) => void;
+  setBrowseOrder: (key: string, orderBy: BrowseState["orderBy"]) => void;
+  setBrowseWidths: (key: string, widths: number[]) => void;
+  closeBrowse: (key: string) => void;
 
   // Selected cell for CellInspector
   inspectedCell: { columnName: string; value: string } | null;
@@ -235,6 +288,19 @@ function patchConsole(
   }));
 }
 
+function patchBrowse(
+  set: (fn: (state: DatabaseStoreState) => Partial<DatabaseStoreState>) => void,
+  key: string,
+  patch: Partial<BrowseState>,
+): void {
+  set((state) => ({
+    browse: {
+      ...state.browse,
+      [key]: { ...(state.browse[key] ?? EMPTY_BROWSE), ...patch },
+    },
+  }));
+}
+
 /**
  * The in-flight call per console, so Cancel reaches the right one. Outside the
  * store because a CancellableCall is not state — nothing renders from it, and
@@ -268,6 +334,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   tableColumnsError: {},
 
   consoles: {},
+  browse: {},
 
   inspectedCell: null,
 
@@ -508,6 +575,28 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       }
       const { [consoleId]: _closed, ...rest } = state.consoles;
       return { consoles: rest };
+    }),
+
+  browseState: (key) => get().browse[key] ?? EMPTY_BROWSE,
+
+  // Both of these invalidate the walk: the cursors describe positions in a
+  // result the new filter or sort no longer produces, and reusing them would
+  // page through rows that are not there.
+  setBrowseWhere: (key, where) =>
+    patchBrowse(set, key, { where, cursors: [], pageIndex: 0, hasNext: false }),
+
+  setBrowseOrder: (key, orderBy) =>
+    patchBrowse(set, key, { orderBy, cursors: [], pageIndex: 0, hasNext: false }),
+
+  setBrowseWidths: (key, widths) => patchBrowse(set, key, { widths }),
+
+  closeBrowse: (key) =>
+    set((state) => {
+      if (!(key in state.browse)) {
+        return state;
+      }
+      const { [key]: _closed, ...rest } = state.browse;
+      return { browse: rest };
     }),
 
   setSql: (consoleId, sql) => patchConsole(set, consoleId, { sql }),
