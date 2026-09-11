@@ -676,8 +676,23 @@ export function PreferencesGetTheme(): $CancellablePromise<preferences$0.Theme> 
     return $Call.ByID(1151267161);
 }
 
+/**
+ * PreferencesGetThemeFamily reads which palette the UI is painted with.
+ * 
+ * Deliberately no applyTheme call on the write path below, unlike SetTheme:
+ * the native window frame follows the MODE, and a family supplies both modes.
+ * Switching from GitHub to Dracula does not make a light titlebar dark.
+ */
+export function PreferencesGetThemeFamily(): $CancellablePromise<preferences$0.ThemeFamily> {
+    return $Call.ByID(2641332005);
+}
+
 export function PreferencesSetTheme(theme: preferences$0.Theme): $CancellablePromise<void> {
     return $Call.ByID(1801576341, theme);
+}
+
+export function PreferencesSetThemeFamily(family: preferences$0.ThemeFamily): $CancellablePromise<void> {
+    return $Call.ByID(1107014777, family);
 }
 
 export function SSHActiveProfile(): $CancellablePromise<$models.ActiveProfileDTO> {

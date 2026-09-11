@@ -766,6 +766,26 @@
  * later in the cascade, and must stay outside @layer so it also outranks
  * CodeMirror's unlayered styles.
  */
+/* Theme switching.
+ *
+ * Swapping a palette changes background-color, color and border-color on every
+ * element at once — and a great many of them carry `transition-colors`, so the
+ * swap becomes a 150 ms colour animation running on the whole tree. Measured
+ * in Chromium on a 2 000-row list: the rows animate. That is precisely the
+ * paint smoothness §4.2 forbids ("chỉ animate transform/opacity"), and it is
+ * also wrong on its own terms — a theme change is an instant-layer action
+ * (§1), so the frame after the click must already be the new theme.
+ *
+ * The class is on for one frame, which is why `*` is affordable here and why
+ * !important is the right tool: it has to defeat author transitions declared
+ * anywhere, and nothing else can.
+ */
+:root.theme-switching *,
+:root.theme-switching *::before,
+:root.theme-switching *::after {
+  transition: none !important;
+}
+
 .cm-surfaceless .cm-editor,
 .cm-surfaceless .cm-scroller,
 .cm-surfaceless .cm-gutters,

@@ -56,3 +56,39 @@ func (s *AppService) PreferencesSetTheme(theme preferences.Theme) error {
 	})
 	return err
 }
+
+// PreferencesGetThemeFamily reads which palette the UI is painted with.
+//
+// Deliberately no applyTheme call on the write path below, unlike SetTheme:
+// the native window frame follows the MODE, and a family supplies both modes.
+// Switching from GitHub to Dracula does not make a light titlebar dark.
+func (s *AppService) PreferencesGetThemeFamily() (preferences.ThemeFamily, error) {
+	result, err := s.call(context.Background(), "builtin.settings", "preferences:read", "theme_family", map[string]any{
+		"action": "get_theme_family",
+	}, func(context.Context) (any, error) {
+		if s.container.Preferences == nil {
+			return nil, errPreferencesUnavailable
+		}
+		return s.container.Preferences.ThemeFamily()
+	})
+	if err != nil {
+		return "", err
+	}
+	return result.(preferences.ThemeFamily), nil
+}
+
+func (s *AppService) PreferencesSetThemeFamily(family preferences.ThemeFamily) error {
+	_, err := s.call(context.Background(), "builtin.settings", "preferences:write", "theme_family", map[string]any{
+		"action": "set_theme_family",
+		"family": string(family),
+	}, func(context.Context) (any, error) {
+		if s.container.Preferences == nil {
+			return nil, errPreferencesUnavailable
+		}
+		if !preferences.ValidThemeFamily(family) {
+			return nil, preferences.ErrInvalidThemeFamily
+		}
+		return nil, s.container.Preferences.SetThemeFamily(family)
+	})
+	return err
+}

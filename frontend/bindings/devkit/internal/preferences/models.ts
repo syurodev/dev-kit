@@ -13,3 +13,29 @@ export enum Theme {
 
     DefaultTheme = "dark",
 };
+
+/**
+ * ThemeFamily is which palette the UI is painted with. It is deliberately a
+ * second preference rather than more values on Theme: Theme is the MODE, and
+ * the mode is what the native window appearance is set from — a titlebar can
+ * be light or dark and nothing else. A family supplies both modes, so the two
+ * are orthogonal and "Dracula, following the system" is expressible.
+ */
+export enum ThemeFamily {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    /**
+     * ThemeFamilyDevKit is the palette in index.css. It is the absence of an
+     * override rather than a set of values, which is why it is the default.
+     */
+    ThemeFamilyDevKit = "devkit",
+    ThemeFamilyCatppuccin = "catppuccin",
+    ThemeFamilyDracula = "dracula",
+    ThemeFamilyAyu = "ayu",
+    ThemeFamilyGitHub = "github",
+
+    DefaultThemeFamily = "devkit",
+};
