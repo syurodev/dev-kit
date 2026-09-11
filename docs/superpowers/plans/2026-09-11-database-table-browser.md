@@ -214,7 +214,52 @@ and why.
     independently. The comment is corrected to state the limitation instead of
     overstating the guarantee.
 
-23. **A6 — the drag needs an activation distance (Task 10).** dnd-kit's pointer
+23. **A24 — a nullable unique index must not page a table, and excluding it
+    needs no Go change after all (new Task 13).** A23 recorded this as
+    unfixable because `IndexInfo` carries no nullability. That was wrong: the
+    bridge already reports `ColumnInfo.nullable` via `listColumns`, and the
+    store already caches it in `tableColumnsMap`. So the frontend can know. It
+    matters because a unique index over a nullable column is not a total order
+    — SQL compares NULLs as unknown — and `runQuery` stringifies NULL to `""`,
+    so a null key value is indistinguishable from an empty one in a cursor.
+    That is the silent skip-and-repeat this plan exists to avoid. Primary keys
+    are unaffected: they are NOT NULL by definition.
+
+24. **A25 — the key gate can strand a table forever (new Task 14).** A15 gated
+    the first page on `key in pageKeys`, but the effect that writes that entry
+    returns early when `schema` is falsy while the load gate only checks
+    `table`. The two guards disagree, so a table document with a table but no
+    schema would never write the entry, never open the gate, and sit blank with
+    no rows, no spinner and no error — where before A15 it would at least have
+    loaded by OFFSET. Nothing in the app produces that shape today, so this is
+    a latent regression rather than a live bug, but A15 is what made those
+    early-return conditions load-bearing, so A15 owes it a fix.
+
+25. **A26 — the header cell lost its `columnheader` role for a keyboard drag
+    that cannot happen (new Task 15).** A20 recorded the trade as needing a
+    design decision. It does not: spreading dnd-kit's `attributes` onto the
+    `<th>` sets `role="button"` and `tabIndex={0}` to support a KEYBOARD drag,
+    and this grid registers only a `PointerSensor`. So the attributes buy
+    nothing and cost the cell its implicit `columnheader` role while nesting
+    the real sort `<button>` inside a `role="button"` element. Dropping
+    `attributes` and keeping `listeners` restores the semantics and loses no
+    behaviour that exists.
+
+26. **A27 — the gutter numbers the page, the pager numbers the table (new Task
+    15).** The row gutter restarts at 1 on every page while the range beside it
+    reads "201-400+", so the same row is called 1 and 201 an inch apart. The
+    grid cannot know better on its own — the console has no page offset — so
+    the offset is a prop the table document passes and the console does not.
+
+27. **A28 — a table tab cannot export its rows (new Task 15).** Before this
+    plan a table tab WAS a console, so it carried the console toolbar's Export.
+    Task 8 removed the console and the new toolbar never replaced it, so
+    exporting a table's rows now means Open in console, then Run, then Export —
+    re-running the query to get rows already on screen. `ExportModal` only ever
+    needed a `QueryResult`; it reads one through `modalConsoleId` purely by
+    habit. Carrying the result instead of a console id serves both documents.
+
+28. **A6 — the drag needs an activation distance (Task 10).** dnd-kit's pointer
    sensor starts a drag on pointerdown by default. The header cell is also the
    sort button and carries the resize handle, so without a distance threshold
    clicking a header would begin a drag instead of sorting, and a resize drag
