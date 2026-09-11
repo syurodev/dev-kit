@@ -2784,6 +2784,43 @@ git commit -m "fix(database): a failed step keeps its page number, and two hones
 
 ---
 
+## Task 16: the five follow-ups, verified in the app
+
+A24-A28 are implemented and checked against the same running app and live
+MariaDB as Task 12, with one fixture added for the case that had none:
+
+```sql
+CREATE TABLE nullable_key (
+  code VARCHAR(32) NULL, label VARCHAR(64) NOT NULL, UNIQUE KEY by_code (code)
+);  -- 300 rows, 6 of them with code IS NULL
+```
+
+- **A24** — `nullable_key` reports **unkeyed** and pages by OFFSET. Before the
+  fix `pageKeyFor` accepted `by_code`, so a keyset walk would have skipped and
+  repeated rows around those 6 NULLs, silently. `orders` (primary key) shows no
+  unkeyed note, so the rule does not over-reject: the PK branch is untouched.
+- **A25** — not directly observable (the stranding state is unreachable
+  through the UI, which is why it is latent). What the fix leans on is tested:
+  `browseQuery` refuses an empty `schema`/`table` rather than quoting it into
+  nothing, so the path now ends in the document's error banner.
+- **A26** — asserted under the repo's SSR harness: no `<th>` carries
+  `role="button"` or `tabindex`, the sort `<button>` survives, and the resize
+  separator is intact.
+- **A27** — page 2 of `nullable_key` numbers its gutter 201, 202, 203 … beside
+  a pager reading "201-300". Note the range loses its `+` on the last page,
+  which is correct: 300 rows, so page 2 ends the table.
+- **A28** — Export appears on both `orders` and `nullable_key`, defaults the
+  filename to the table name, and reports "the 100 row(s) now on screen" on a
+  page holding exactly rows 201-300 of 300. The count is the page's, and the
+  wording says so.
+
+One thing observed and NOT changed: the export modal does not close on Escape.
+It is a hand-rolled `fixed inset-0` panel rather than a Radix dialog and always
+was; A28 changed where its rows come from, not how it is dismissed. Worth a
+separate fix, but it is pre-existing behaviour and not this change's to alter.
+
+---
+
 ## Task 12: Full verification
 
 - [ ] **Step 1: Frontend**
