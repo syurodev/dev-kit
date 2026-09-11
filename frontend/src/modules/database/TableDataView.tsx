@@ -7,7 +7,7 @@ import { TableToolbar } from "./components/TableToolbar";
 import { DatabaseOverlays } from "./DatabaseOverlays";
 import { BROWSE_PAGE_SIZE, useDatabaseStore } from "./databaseStore";
 import { useDatabaseChrome } from "./useDatabaseChrome";
-import { useBrowseLifetime } from "./useConsoleLifetime";
+import { browseKeyOfTab, useBrowseLifetime } from "./useConsoleLifetime";
 import { useIsActiveDocument } from "./useIsActiveDocument";
 import { openConsoleTab } from "./documents";
 import { buildBrowseQuery } from "./sql/browseQuery";
@@ -24,7 +24,10 @@ import { pageKeyFor } from "./tableKey";
 export function TableDataView({ params }: { params?: Record<string, unknown> }) {
   const schema = typeof params?.schema === "string" ? params.schema : "";
   const table = typeof params?.table === "string" ? params.table : "";
-  const key = `${schema}.${table}`;
+  // A22: through the shared rule, not spelled again here — useBrowseLifetime
+  // computes the same key from a TAB, and two copies would drift into exactly
+  // the leak that comment warns about.
+  const key = browseKeyOfTab("database.table", { schema, table }) ?? "";
 
   useDatabaseChrome();
   useBrowseLifetime(key);

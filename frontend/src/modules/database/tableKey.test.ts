@@ -33,8 +33,8 @@ describe("pageKeyFor", () => {
     expect(pageKeyFor(indexes, "public", "orders")).toEqual(["email"]);
   });
 
-  // A nullable unique index is not a total order: NULLs compare as unknown, so
-  // a keyset walk would skip or repeat rows. Reported as unkeyed instead.
+  // A non-unique index is not a total order — it has no reason to be — so a
+  // keyset walk over it would skip and repeat rows at every page boundary.
   test("a non-unique index is not a key", () => {
     const indexes = [index({ name: "by_status", columns: ["status"], unique: false, primary: false })];
     expect(pageKeyFor(indexes, "public", "orders")).toBeNull();

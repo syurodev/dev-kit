@@ -10,6 +10,13 @@ import type { IndexInfo } from "@/bridge/database";
  * caller pages by OFFSET instead. Returning a non-unique column here would not
  * fail loudly: it would silently skip rows and repeat others at every page
  * boundary, which is the worst way for a data browser to be wrong.
+ *
+ * A23: uniqueness is the whole of the check, because it is the whole of what
+ * IndexInfo reports. A unique index on a NULLABLE column is therefore accepted
+ * here and is the one case this is best-effort about: SQL compares NULLs as
+ * unknown, and runQuery stringifies NULL to "", so a null key value is
+ * indistinguishable from an empty one in a cursor. Excluding it needs
+ * nullability from the backend's IndexInfo, which this plan does not change.
  */
 export function pageKeyFor(
   indexes: readonly IndexInfo[],

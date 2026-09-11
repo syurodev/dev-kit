@@ -753,8 +753,16 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     if (next < 0 || (step === 1 && !browse.hasNext)) {
       return;
     }
+    const previous = browse.pageIndex;
     patchBrowse(set, key, { pageIndex: next });
     await get().loadBrowsePage(key, target);
+    // A21: put the number back if no page arrived. loadBrowsePage clears
+    // `error` before it runs, so an error here is this load's own — and a
+    // superseded load leaves `error` empty, which correctly means the newer
+    // load owns the page number now and this one must not touch it.
+    if (get().browseState(key).error) {
+      patchBrowse(set, key, { pageIndex: previous });
+    }
   },
 
   setPageKey: (key, columns) =>

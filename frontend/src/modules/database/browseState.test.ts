@@ -139,3 +139,26 @@ test("a reversed page is flipped back", () => {
     ["3"],
   ]);
 });
+
+// A21. A failed step must not renumber the page. loadBrowsePage clears `error`
+// before it runs, so an error afterwards belongs to this load — and a toolbar
+// reading "201-400" over page 1's rows is the same lie the runId guard exists
+// to prevent, reached from the other side.
+test("a step whose load fails leaves the page number where it was", async () => {
+  useDatabaseStore.setState({
+    // No profile selected, so loadBrowsePage returns before clearing anything:
+    // a stand-in for any load that ends without delivering a page.
+    selectedProfileId: "",
+    browse: {
+      "public.orders": { ...EMPTY_BROWSE, pageIndex: 1, hasNext: true, error: "boom" },
+    },
+  });
+
+  await useDatabaseStore.getState().stepBrowsePage(
+    "public.orders",
+    { schema: "public", table: "orders" },
+    1,
+  );
+
+  expect(useDatabaseStore.getState().browseState("public.orders").pageIndex).toBe(1);
+});
