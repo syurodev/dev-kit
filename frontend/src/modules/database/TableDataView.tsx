@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { listIndexes } from "@/bridge/database";
+import { listColumns, listIndexes } from "@/bridge/database";
 import { ResultGrid } from "./grid/ResultGrid";
 import { resizeColumn } from "./grid/gridColumns";
 import { TableToolbar } from "./components/TableToolbar";
@@ -77,15 +77,21 @@ export function TableDataView({ params }: { params?: Record<string, unknown> }) 
       return;
     }
     let cancelled = false;
-    void listIndexes(selectedProfileId, schema)
-      .then((indexes) => {
+    // A24: the columns come with the indexes, because a unique index is only a
+    // key when none of its columns is nullable, and nothing else here knows
+    // that — the sidebar's cache is only populated for a table someone expanded.
+    void Promise.all([
+      listIndexes(selectedProfileId, schema),
+      listColumns(selectedProfileId, schema, table),
+    ])
+      .then(([indexes, columns]) => {
         if (!cancelled) {
-          setPageKey(key, pageKeyFor(indexes, schema, table));
+          setPageKey(key, pageKeyFor(indexes, columns, schema, table));
         }
       })
       .catch(() => {
-        // An index list we could not read is not a reason to refuse the table:
-        // unkeyed is the safe reading, and it pages by offset.
+        // A catalogue read we could not complete is not a reason to refuse the
+        // table: unkeyed is the safe reading, and it pages by offset.
         if (!cancelled) {
           setPageKey(key, null);
         }
