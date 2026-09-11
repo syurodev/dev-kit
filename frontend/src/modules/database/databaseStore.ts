@@ -136,6 +136,11 @@ export type BrowseState = {
   /** Column widths, kept per table because the columns are the table's own. */
   widths: number[];
   /**
+   * Display order as column positions. Per table, not per module: the columns
+   * belong to the table, and a position means nothing against another one.
+   */
+  order: number[];
+  /**
    * A3: which load this state belongs to. Bumped when a page is asked for, and
    * checked when one answers — the same guard `executeQuery` puts on a console
    * result, for the same reason: Next clicked twice, or a sort applied while a
@@ -156,6 +161,7 @@ export const EMPTY_BROWSE: BrowseState = Object.freeze({
   pageIndex: 0,
   hasNext: false,
   widths: [],
+  order: [],
   runId: 0,
 }) as BrowseState;
 
@@ -218,6 +224,7 @@ export type DatabaseStoreState = {
   setBrowseWhere: (key: string, where: string) => void;
   setBrowseOrder: (key: string, orderBy: BrowseState["orderBy"]) => void;
   setBrowseWidths: (key: string, widths: number[]) => void;
+  setBrowseOrderColumns: (key: string, order: number[]) => void;
   closeBrowse: (key: string) => void;
   /**
    * Turns one page's raw answer into what the grid shows: drops the probe row,
@@ -638,6 +645,8 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     patchBrowse(set, key, { orderBy, cursors: [], pageIndex: 0, hasNext: false }),
 
   setBrowseWidths: (key, widths) => patchBrowse(set, key, { widths }),
+
+  setBrowseOrderColumns: (key, order) => patchBrowse(set, key, { order }),
 
   applyBrowsePage: (key, { result, pageSize, reversed }) => {
     // A1. Two ways to learn there is more: the probe row arrived, or the server

@@ -1,4 +1,19 @@
+import type { CSSProperties } from "react";
 import { useRef, useState } from "react";
+import {
+  DndContext,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import { restrictToHorizontalAxis } from "@dnd-kit/modifiers";
+import {
+  SortableContext,
+  horizontalListSortingStrategy,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { Braces, Columns3, Copy, List } from "lucide-react";
 import {
   ContextMenu,
@@ -11,7 +26,12 @@ import { useVirtualRows } from "@/components/ui/virtual-rows";
 import { cn } from "@/lib/utils";
 import { copyText } from "@/bridge/clipboard";
 import type { QueryResult } from "@/bridge/database";
-import { DEFAULT_COLUMN_WIDTH_PX, MIN_COLUMN_WIDTH_PX, orderedColumns } from "./gridColumns";
+import {
+  DEFAULT_COLUMN_WIDTH_PX,
+  MIN_COLUMN_WIDTH_PX,
+  orderedColumns,
+  reorderColumn,
+} from "./gridColumns";
 // A4: moved here from QueryConsole rather than reimplemented. rowAsJSON maps
 // over the ROW and names an empty column col_${i}; an inlined
 // Object.fromEntries over `columns` is a different function with its own bugs.
@@ -43,6 +63,7 @@ export function ResultGrid({
   onInspectCell,
   sort,
   onSort,
+  onReorder,
 }: {
   result: QueryResult;
   widths: readonly number[];
@@ -53,15 +74,22 @@ export function ResultGrid({
   sort?: { column: number; direction: "asc" | "desc" } | null;
   onSort?: (column: number) => void;
   /**
-   * Accepts a new column order. Wired in Phase 3; absent in the console, whose
-   * columns change with every query, so an order saved against the last one
-   * describes columns this one may not have.
+   * Accepts a new column order. Absent in the console, whose columns change
+   * with every query, so an order saved against the last one describes columns
+   * this one may not have.
    */
   onReorder?: (order: number[]) => void;
 }) {
   const rows = useVirtualRows(result.rows.length, ROW_HEIGHT);
   const order = orderedColumns(result.columns, columnOrder);
   const [target, setTarget] = useState<Target>(null);
+
+  // A click is a sort and a drag is a reorder, and they start with the same
+  // pointerdown — four pixels is what tells them apart. Without this the sort
+  // never fires and the resize handle reorders instead of resizing.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+  );
 
   const widthOf = (index: number) => widths[index] ?? DEFAULT_COLUMN_WIDTH_PX;
   const cell =
@@ -74,124 +102,146 @@ export function ResultGrid({
       : null;
 
   return (
-    <ContextMenu>
-      <ContextMenuTrigger asChild>
-        <div
-          ref={rows.scrollRef}
-          className="min-h-0 flex-1 overflow-auto scrollbar-gutter-stable rounded-md border border-border-subtle bg-surface-well"
-          onContextMenu={(event) => {
-            const el = (event.target as HTMLElement).closest("[data-cell]");
-            const raw = el?.getAttribute("data-cell");
-            const [row, column] = raw ? raw.split(":").map(Number) : [NaN, NaN];
-            setTarget(Number.isNaN(row) ? null : { row, column });
-          }}
-        >
-          <table
-            className="w-full table-fixed border-collapse text-left text-code-12"
-            aria-label="Query results"
+    // The DndContext sits outside the table, not around the header row: it
+    // renders a live region and a hidden description div, and a `<div>` is not
+    // a `<tr>`. SortableContext renders no DOM of its own, so that one can sit
+    // where the header cells are.
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      modifiers={[restrictToHorizontalAxis]}
+      onDragEnd={(event) => {
+        const { active, over } = event;
+        if (!over || active.id === over.id) return;
+        const from = order.indexOf(Number(active.id));
+        const to = order.indexOf(Number(over.id));
+        onReorder?.(reorderColumn(order, from, to));
+      }}
+    >
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div
+            ref={rows.scrollRef}
+            className="min-h-0 flex-1 overflow-auto scrollbar-gutter-stable rounded-md border border-border-subtle bg-surface-well"
+            onContextMenu={(event) => {
+              const el = (event.target as HTMLElement).closest("[data-cell]");
+              const raw = el?.getAttribute("data-cell");
+              const [row, column] = raw ? raw.split(":").map(Number) : [NaN, NaN];
+              setTarget(Number.isNaN(row) ? null : { row, column });
+            }}
           >
-            <colgroup>
-              {/* The gutter. Its width is the row-number column's, fixed. */}
-              <col style={{ width: 56 }} />
-              {order.map((index) => (
-                <col key={index} style={{ width: widthOf(index) }} />
-              ))}
-            </colgroup>
-            <thead className="sticky top-0 z-10 bg-surface-raised">
-              <tr>
-                <th className="h-10 border-r border-b border-border-subtle px-3 text-code-11 text-text-tertiary">
-                  #
-                </th>
+            <table
+              className="w-full table-fixed border-collapse text-left text-code-12"
+              aria-label="Query results"
+            >
+              <colgroup>
+                {/* The gutter. Its width is the row-number column's, fixed. */}
+                <col style={{ width: 56 }} />
                 {order.map((index) => (
-                  <HeaderCell
-                    key={`${result.columns[index]}-${index}`}
-                    label={result.columns[index]}
-                    index={index}
-                    sorted={sort?.column === index ? sort.direction : null}
-                    onSort={onSort}
-                    onResize={onResize}
-                  />
+                  <col key={index} style={{ width: widthOf(index) }} />
                 ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.padTop > 0 && <tr style={{ height: rows.padTop }} aria-hidden />}
-              {rows.indices.map((rowIndex) => (
-                <tr key={rowIndex} className="group transition-colors hover:bg-surface-raised/60">
-                  {/* The row number is the row's own, not the window's: with
-                      virtualised rows a counter over the rendered ones would
-                      restart every time you scrolled. */}
-                  <td className="h-9 border-r border-b border-border-subtle px-3 text-code-11 text-text-tertiary tabular-nums">
-                    {rowIndex + 1}
-                  </td>
-                  {order.map((columnIndex) => {
-                    const value = result.rows[rowIndex][columnIndex] ?? "";
-                    return (
-                      <td
-                        key={columnIndex}
-                        data-cell={`${rowIndex}:${columnIndex}`}
-                        className={cn(
-                          "h-9 cursor-pointer truncate border-r border-b border-border-subtle px-4 select-text last:border-r-0 hover:text-text-primary",
-                          columnIndex === order[0] ? "text-text-primary" : "text-text-secondary",
-                        )}
-                        onClick={() =>
-                          onInspectCell({
-                            columnName: result.columns[columnIndex] || `col_${columnIndex}`,
-                            value,
-                          })
-                        }
-                        title="Click to inspect cell"
-                      >
-                        {value === "" ? (
-                          <span className="text-code-11 text-status-warning">NULL</span>
-                        ) : (
-                          value
-                        )}
-                      </td>
-                    );
-                  })}
+              </colgroup>
+              <thead className="sticky top-0 z-10 bg-surface-raised">
+                <tr>
+                  <th className="h-10 border-r border-b border-border-subtle px-3 text-code-11 text-text-tertiary">
+                    #
+                  </th>
+                  <SortableContext items={order} strategy={horizontalListSortingStrategy}>
+                    {order.map((index) => (
+                      <HeaderCell
+                        key={`${result.columns[index]}-${index}`}
+                        label={result.columns[index]}
+                        index={index}
+                        sorted={sort?.column === index ? sort.direction : null}
+                        onSort={onSort}
+                        onResize={onResize}
+                      />
+                    ))}
+                  </SortableContext>
                 </tr>
-              ))}
-              {rows.padBottom > 0 && <tr style={{ height: rows.padBottom }} aria-hidden />}
-            </tbody>
-          </table>
-        </div>
-      </ContextMenuTrigger>
-      <ContextMenuContent>
-        {cell ? (
-          <>
-            <ContextMenuItem onSelect={() => void copyText(cell.value)}>
-              <Copy />
-              Copy cell
-            </ContextMenuItem>
-            <ContextMenuItem
-              onSelect={() => void copyText(rowAsJSON(result.columns, cell.row))}
-            >
-              <Braces />
-              Copy row as JSON
-            </ContextMenuItem>
-            <ContextMenuItem onSelect={() => void copyText(cell.name)}>
-              <Columns3 />
-              Copy column name
-            </ContextMenuItem>
-            <ContextMenuItem
-              onSelect={() => void copyText(columnValues(result.rows, target!.column))}
-            >
-              <List />
-              Copy {result.rows.length} value{result.rows.length === 1 ? "" : "s"}
-            </ContextMenuItem>
-            {/* The count is what is loaded, not what the query would have
-                returned. Offering "the column" over a capped result would hand
-                someone 200 rows of an unknown total. */}
-            {result.truncated ? (
-              <ContextMenuLabel className="text-caption-11 font-normal text-status-warning">
-                result was capped — this is not the whole column
-              </ContextMenuLabel>
-            ) : null}
-          </>
-        ) : null}
-      </ContextMenuContent>
-    </ContextMenu>
+              </thead>
+              <tbody>
+                {rows.padTop > 0 && <tr style={{ height: rows.padTop }} aria-hidden />}
+                {rows.indices.map((rowIndex) => (
+                  <tr key={rowIndex} className="group transition-colors hover:bg-surface-raised/60">
+                    {/* The row number is the row's own, not the window's: with
+                        virtualised rows a counter over the rendered ones would
+                        restart every time you scrolled. */}
+                    <td className="h-9 border-r border-b border-border-subtle px-3 text-code-11 text-text-tertiary tabular-nums">
+                      {rowIndex + 1}
+                    </td>
+                    {/* Only the header drags. Giving each cell a useSortable would
+                        mount one per visible cell — 2,220 on a 74-column table — to
+                        animate a column that snaps into place on drop anyway. */}
+                    {order.map((columnIndex) => {
+                      const value = result.rows[rowIndex][columnIndex] ?? "";
+                      return (
+                        <td
+                          key={columnIndex}
+                          data-cell={`${rowIndex}:${columnIndex}`}
+                          className={cn(
+                            "h-9 cursor-pointer truncate border-r border-b border-border-subtle px-4 select-text last:border-r-0 hover:text-text-primary",
+                            columnIndex === order[0] ? "text-text-primary" : "text-text-secondary",
+                          )}
+                          onClick={() =>
+                            onInspectCell({
+                              columnName: result.columns[columnIndex] || `col_${columnIndex}`,
+                              value,
+                            })
+                          }
+                          title="Click to inspect cell"
+                        >
+                          {value === "" ? (
+                            <span className="text-code-11 text-status-warning">NULL</span>
+                          ) : (
+                            value
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+                {rows.padBottom > 0 && <tr style={{ height: rows.padBottom }} aria-hidden />}
+              </tbody>
+            </table>
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          {cell ? (
+            <>
+              <ContextMenuItem onSelect={() => void copyText(cell.value)}>
+                <Copy />
+                Copy cell
+              </ContextMenuItem>
+              <ContextMenuItem
+                onSelect={() => void copyText(rowAsJSON(result.columns, cell.row))}
+              >
+                <Braces />
+                Copy row as JSON
+              </ContextMenuItem>
+              <ContextMenuItem onSelect={() => void copyText(cell.name)}>
+                <Columns3 />
+                Copy column name
+              </ContextMenuItem>
+              <ContextMenuItem
+                onSelect={() => void copyText(columnValues(result.rows, target!.column))}
+              >
+                <List />
+                Copy {result.rows.length} value{result.rows.length === 1 ? "" : "s"}
+              </ContextMenuItem>
+              {/* The count is what is loaded, not what the query would have
+                  returned. Offering "the column" over a capped result would hand
+                  someone 200 rows of an unknown total. */}
+              {result.truncated ? (
+                <ContextMenuLabel className="text-caption-11 font-normal text-status-warning">
+                  result was capped — this is not the whole column
+                </ContextMenuLabel>
+              ) : null}
+            </>
+          ) : null}
+        </ContextMenuContent>
+      </ContextMenu>
+    </DndContext>
   );
 }
 
@@ -215,9 +265,33 @@ function HeaderCell({
   onResize: (index: number, delta: number) => void;
 }) {
   const dragStart = useRef<number | null>(null);
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: index,
+  });
+
+  // `attributes` and `listeners` go on the `<th>`, not on the sort button: a
+  // drag handle nested inside a click target is the same fight over the
+  // pointer the resize handle already avoids by being a sibling.
+
+  const style: CSSProperties = {
+    // relative + transform, never out of flow: a `<th>` taken out of flow takes
+    // the table's column widths with it, which is the same reason virtual-rows
+    // pads with spacer rows instead of positioning them.
+    position: "relative",
+    transform: CSS.Translate.toString(transform),
+    transition,
+    zIndex: isDragging ? 1 : 0,
+    opacity: isDragging ? 0.8 : 1,
+  };
 
   return (
-    <th className="relative h-10 border-r border-b border-border-subtle p-0 text-code-12-medium text-text-secondary last:border-r-0">
+    <th
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      className="relative h-10 border-r border-b border-border-subtle p-0 text-code-12-medium text-text-secondary last:border-r-0"
+    >
       <button
         type="button"
         className="flex h-full w-full items-center gap-1 truncate px-4 text-left disabled:cursor-default"
@@ -238,6 +312,9 @@ function HeaderCell({
         className="absolute inset-y-0 right-0 w-1 cursor-col-resize hover:bg-border-default"
         onPointerDown={(event) => {
           event.preventDefault();
+          // A resize must never reach the drag sensor, which is listening on
+          // the `<th>` this handle sits in.
+          event.stopPropagation();
           dragStart.current = event.clientX;
           event.currentTarget.setPointerCapture(event.pointerId);
         }}

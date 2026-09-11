@@ -37,6 +37,7 @@ export function TableDataView({ params }: { params?: Record<string, unknown> }) 
     setBrowseWhere,
     setBrowseOrder,
     setBrowseWidths,
+    setBrowseOrderColumns,
     setPageKey,
     loadBrowsePage,
     stepBrowsePage,
@@ -55,6 +56,7 @@ export function TableDataView({ params }: { params?: Record<string, unknown> }) 
       setBrowseWhere: s.setBrowseWhere,
       setBrowseOrder: s.setBrowseOrder,
       setBrowseWidths: s.setBrowseWidths,
+      setBrowseOrderColumns: s.setBrowseOrderColumns,
       setPageKey: s.setPageKey,
       loadBrowsePage: s.loadBrowsePage,
       stepBrowsePage: s.stepBrowsePage,
@@ -145,8 +147,9 @@ export function TableDataView({ params }: { params?: Record<string, unknown> }) 
         <ResultGrid
           result={browse.rows}
           widths={browse.widths}
-          columnOrder={[]}
+          columnOrder={browse.order}
           onResize={(index, delta) => setBrowseWidths(key, resizeColumn(browse.widths, index, delta))}
+          onReorder={(next) => setBrowseOrderColumns(key, next)}
           onInspectCell={setInspectedCell}
           sort={
             browse.orderBy
