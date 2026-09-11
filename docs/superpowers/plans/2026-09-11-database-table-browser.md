@@ -95,7 +95,17 @@ and why.
     a bug there — `(a) > ('1')` and `a > '1'` behave identically. The ninth test
     is added, which reconciles the count and closes the gap.
 
-11. **A6 — the drag needs an activation distance (Task 10).** dnd-kit's pointer
+11. **A12 — Task 6's test imported `EMPTY_BROWSE` and never used it (Task 6).**
+    `noUnusedLocals` is on and `tsconfig` type-checks `src`, so the verbatim
+    test file failed to compile (`TS6133`). Dropping the import was one fix, but
+    the task's own Step 2 expects the test to fail partly because
+    "`EMPTY_BROWSE` is not exported", so the import belongs there. The
+    assertion that makes it earn its place is the identity one — a table never
+    browsed must read as the SHARED frozen default, not a fresh object built
+    per call, or every `browseState` read would be a new reference and every
+    selector subscribed to it would re-render forever.
+
+12. **A6 — the drag needs an activation distance (Task 10).** dnd-kit's pointer
    sensor starts a drag on pointerdown by default. The header cell is also the
    sort button and carries the resize handle, so without a distance threshold
    clicking a header would begin a drag instead of sorting, and a resize drag
@@ -1175,6 +1185,10 @@ test("a table never browsed reads as empty, not undefined", () => {
   expect(state.where).toBe("");
   expect(state.rows).toBeNull();
   expect(state.cursors).toEqual([]);
+  // A12: the SHARED frozen default, not a fresh object per call. A new
+  // reference on every read would make any selector subscribed to it
+  // re-render forever.
+  expect(state).toBe(EMPTY_BROWSE);
 });
 
 test("two tables hold their own filter", () => {
