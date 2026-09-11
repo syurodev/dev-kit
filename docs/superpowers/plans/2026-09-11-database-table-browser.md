@@ -160,7 +160,34 @@ and why.
     A15's gate sees `key in pageKeys` already true. Freeing it costs a reopen
     one round trip and is what makes `closeBrowse` mean what its name says.
 
-17. **A6 — the drag needs an activation distance (Task 10).** dnd-kit's pointer
+17. **A18 — `onReorder` was declared but never destructured (Task 10).** The
+    plan has `onDragEnd` call `onReorder?.(…)` but only ever added the prop to
+    the TYPE, never to `ResultGrid`'s parameter destructuring. `TS2304: Cannot
+    find name 'onReorder'`. The same shape of miss as A14.
+
+18. **A19 — `DndContext` cannot wrap a `<tr>`, because it renders DOM (Task
+    10).** The plan says "wrap the header row in `DndContext` + `SortableContext`".
+    `DndContext` mounts an `<Accessibility>` that emits a `display:none` div and
+    a `role="status"` live region; with no `container` prop there is no portal,
+    so those land wherever it sits. Inside `<thead>`/`<tr>` that is invalid DOM
+    nesting and trips React's `validateDOMNesting`. Only `SortableContext` is
+    DOM-free (a bare `Context.Provider`), so it is the one that can sit in the
+    row. `DndContext` moves out to wrap the whole component, where its two divs
+    are siblings of the scroller — one `display:none`, one `position:fixed`, so
+    neither becomes a flex item and layout is unchanged.
+
+19. **A20 — an open a11y question this plan created and did not answer (Task
+    10).** Putting `{...attributes}` on the `<th>`, as A6 and the plan both
+    require, sets `role="button"` and `tabIndex={0}` on it. That overrides the
+    cell's implicit `columnheader` role and nests a real `<button>` (the sort
+    control) inside a `role="button"` element, which is invalid ARIA. The drag
+    needs the listeners there, so this is a genuine trade the plan made
+    silently. It is NOT fixed here, because the fix is a design change rather
+    than a defect repair: dnd-kit's `setActivatorNodeRef` with a dedicated grab
+    affordance is the supported answer. Recorded so it is a known limitation
+    rather than an accident.
+
+20. **A6 — the drag needs an activation distance (Task 10).** dnd-kit's pointer
    sensor starts a drag on pointerdown by default. The header cell is also the
    sort button and carries the resize handle, so without a distance threshold
    clicking a header would begin a drag instead of sorting, and a resize drag
