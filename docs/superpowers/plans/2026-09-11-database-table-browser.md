@@ -2751,7 +2751,54 @@ Expected: clean, 0 fail, budget passes.
 Run: `for os in darwin linux windows; do GOOS=$os GOARCH=amd64 go vet ./internal/database/ ./internal/app/; done`
 Expected: no output. Nothing in this plan changes Go, so this is a regression check only.
 
-- [ ] **Step 3: In the app, with MySQL running**
+- [x] **Step 3: In the app, with MySQL running — DONE, observed**
+
+Run against a real server: MariaDB 10.11 (MySQL protocol) on 127.0.0.1:3306,
+user `devkit`, database `devkit_demo`. Docker Hub blobs are blocked by this
+environment's network policy, so the server came from apt rather than an image.
+Fixture: `orders` (501 rows, PK `id`, a reserved-word column `order`, NULL in
+every 7th `note`), `events` (450 rows, only a NON-unique index), `people` (300
+rows, two unique indexes, no PK).
+
+The app itself was built and run here: GTK 4.14.5 + WebKitGTK 2.52.6 under
+Xvfb, driven with xdotool. What was actually seen, check by check:
+
+- **opening a table shows rows immediately, no SQL editor** — yes. The grid
+  fills the height; the WHERE box and ORDER BY are one thin toolbar row. The
+  console remains a separate tab with its own editor.
+- **the gutter counts the table's rows, not the window's, when you scroll** —
+  yes. Scrolled into the virtualised region the gutter reads 83, 84, 85 … with
+  the header still sticky. Note the numbering is per PAGE, not absolute across
+  pages: page 2 restarts at 1 while the range reads "201-400+". The plan's
+  invariant is about the virtual window, and that holds.
+- **dragging a column edge resizes that column** — yes, though the handle is
+  4px and took a sweep to hit. One nuance worth stating precisely: the
+  neighbours' STORED widths are untouched (that is what resizeColumn's unit
+  test pins), but their RENDERED widths reflow, because the table is
+  `w-full table-fixed` and the browser redistributes the remaining width.
+  "Leaves its neighbours alone" is true of the state, not of the pixels.
+- **clicking a header sorts server-side** — yes, and this is the check that
+  proves it: sorting `name` DESC put `customer-0501` (id 501) in the first row.
+  That row was never among the 200 loaded, so the ordering can only have come
+  from the server. The click also sorted rather than starting a drag, which is
+  A6 working.
+- **Next reaches past 200, Back returns to exactly the previous page** — yes.
+  Next → ids 201…, range "201-400+"; Back → ids 1…, range "1-200+". This is the
+  check that would have failed before A15/Task 8b: the first Next produced
+  `WHERE ("id") > ()` and `ERROR 1064`.
+- **a WHERE that matches nothing shows an empty grid, not an error** — yes.
+  `status = 'nope'` gave headers, no rows, "no rows" in the pager, no banner.
+- **a table with no primary key still pages, and shows the "unkeyed" note** —
+  yes. `events` shows "unkeyed" and pages by OFFSET to payload-201…
+- **right-clicking a cell offers copy actions** — yes: Copy cell, Copy row as
+  JSON, Copy column name, Copy 200 values, plus the "result was capped — this
+  is not the whole column" note. One menu for the grid, not one per cell.
+
+Also observed incidentally: each table tab keeps its own filter (the
+`status = 'nope'` on `orders` did not follow to `events`), and Console, `orders`
+and `events` coexist as three separate tabs.
+
+- [ ] **Step 3 (original text, for reference)**
 
 The reported failures came from a database that was not running — `connection_failed` and an empty grid. Start MySQL before this step, or none of it tests anything.
 
