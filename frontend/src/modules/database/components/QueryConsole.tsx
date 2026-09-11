@@ -218,7 +218,7 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
             variant="outline"
             size="default"
             className="bg-surface-raised"
-            onClick={() => openExportModal(consoleId)}
+            onClick={() => openExportModal(queryResult)}
           >
             <Download className="size-3.5" />
             Export

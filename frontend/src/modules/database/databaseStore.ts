@@ -177,6 +177,9 @@ export const EMPTY_BROWSE: BrowseState = Object.freeze({
  */
 export const BROWSE_PAGE_SIZE = 200;
 
+/** What the export modal calls a result nobody gave a better name for. */
+const DEFAULT_EXPORT_FILENAME = "query-result";
+
 export type DatabaseStoreState = {
   profiles: ConnectionProfile[];
   selectedProfileId: string;
@@ -264,11 +267,24 @@ export type DatabaseStoreState = {
   showExportModal: boolean;
   showSaveQueryModal: boolean;
   /**
-   * The console a modal acts on. Set when a console opens a modal, because
-   * "export this result" is about the console that asked, not about whichever
-   * tab wins a race to render.
+   * The console the save-query modal acts on. Set when a console opens it,
+   * because "save this statement" is about the console that asked, not about
+   * whichever tab wins a race to render.
+   *
+   * A28: export no longer reads this. A console id can only ever name a
+   * console, and a table tab has rows worth exporting but no console and no
+   * statement — so export carries its result (below), while save, which
+   * genuinely needs the SQL, keeps the id.
    */
   modalConsoleId: string;
+  /**
+   * The rows the export modal writes out, captured when it opens. What put
+   * them on screen — a console's query, a table tab's page — is the caller's
+   * business and not the modal's.
+   */
+  exportResult: QueryResult | null;
+  /** The name the export modal starts with, without an extension. */
+  exportFilename: string;
 
   // Actions
   fetchProfiles: () => Promise<void>;
@@ -279,7 +295,7 @@ export type DatabaseStoreState = {
   setShowConnectionOptionsDialog: (show: boolean) => void;
   setShowExportModal: (show: boolean) => void;
   setShowSaveQueryModal: (show: boolean) => void;
-  openExportModal: (consoleId: string) => void;
+  openExportModal: (result: QueryResult, filename?: string) => void;
   openSaveQueryModal: (consoleId: string) => void;
 
   // Folder actions
@@ -399,6 +415,8 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   showExportModal: false,
   showSaveQueryModal: false,
   modalConsoleId: "",
+  exportResult: null,
+  exportFilename: DEFAULT_EXPORT_FILENAME,
 
   fetchProfiles: async () => {
     set({ loadingProfiles: true, profileError: "" });
@@ -450,7 +468,12 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   setShowConnectionOptionsDialog: (show) => set({ showConnectionOptionsDialog: show }),
   setShowExportModal: (show) => set({ showExportModal: show }),
   setShowSaveQueryModal: (show) => set({ showSaveQueryModal: show }),
-  openExportModal: (consoleId) => set({ showExportModal: true, modalConsoleId: consoleId }),
+  openExportModal: (result, filename) =>
+    set({
+      showExportModal: true,
+      exportResult: result,
+      exportFilename: filename?.trim() || DEFAULT_EXPORT_FILENAME,
+    }),
   openSaveQueryModal: (consoleId) => set({ showSaveQueryModal: true, modalConsoleId: consoleId }),
 
   toggleFolder: (folderId: string) => {

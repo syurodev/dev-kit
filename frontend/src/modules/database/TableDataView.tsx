@@ -11,6 +11,7 @@ import { browseKeyOfTab, useBrowseLifetime } from "./useConsoleLifetime";
 import { useIsActiveDocument } from "./useIsActiveDocument";
 import { openConsoleTab } from "./documents";
 import { buildBrowseQuery } from "./sql/browseQuery";
+import { tableExportFilename } from "./export";
 import { pageKeyFor } from "./tableKey";
 
 /**
@@ -48,6 +49,7 @@ export function TableDataView({ params }: { params?: Record<string, unknown> }) 
     stepBrowsePage,
     setInspectedCell,
     setSql,
+    openExportModal,
   } = useDatabaseStore(
     useShallow((s) => ({
       selectedProfileId: s.selectedProfileId,
@@ -67,6 +69,7 @@ export function TableDataView({ params }: { params?: Record<string, unknown> }) 
       stepBrowsePage: s.stepBrowsePage,
       setInspectedCell: s.setInspectedCell,
       setSql: s.setSql,
+      openExportModal: s.openExportModal,
     })),
   );
 
@@ -147,6 +150,14 @@ export function TableDataView({ params }: { params?: Record<string, unknown> }) 
         loading={browse.loading}
         onStep={(step) => void stepBrowsePage(key, { schema, table }, step)}
         onRefresh={() => void loadBrowsePage(key, { schema, table })}
+        // A28: the page already in hand, not a query re-run to fetch it again.
+        // The toolbar disables this with no rows, and the guard here is what
+        // makes that a courtesy rather than the only thing holding it up.
+        onExport={() => {
+          if (browse.rows) {
+            openExportModal(browse.rows, tableExportFilename(table));
+          }
+        }}
         onOpenInConsole={() => {
           const consoleId = `console-${key}`;
           setSql(
