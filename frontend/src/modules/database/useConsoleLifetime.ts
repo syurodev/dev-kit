@@ -5,10 +5,10 @@ import { DEFAULT_CONSOLE_ID, useDatabaseStore } from "./databaseStore";
 /**
  * The console id a Database tab owns.
  *
- * A console tab carries it directly; a table tab is identified by what it
- * shows, so its console id is derived from that. Both live in one function
- * because the cleanup below computes the id from a TAB while each document
- * computes it for itself, and two copies of that rule would drift into a leak.
+ * A console tab carries it directly; no other Database tab owns one. It lives
+ * in one function because the cleanup below computes the id from a TAB while
+ * each document computes it for itself, and two copies of that rule would
+ * drift into a leak.
  */
 export function consoleIdOfTab(
   viewId: string,
@@ -17,10 +17,40 @@ export function consoleIdOfTab(
   if (viewId === "database.console") {
     return typeof params?.consoleId === "string" ? params.consoleId : DEFAULT_CONSOLE_ID;
   }
-  if (viewId === "database.table") {
-    return `table:${String(params?.schema ?? "")}.${String(params?.table ?? "")}`;
-  }
+  // A table tab used to be a console with pre-filled SQL. It is a data grid
+  // now, and owns a BrowseState instead — see browseKeyOfTab.
   return null;
+}
+
+/** The browse state a Database tab owns, or null when it owns none. */
+export function browseKeyOfTab(
+  viewId: string,
+  params?: Record<string, unknown>,
+): string | null {
+  if (viewId !== "database.table") {
+    return null;
+  }
+  return `${String(params?.schema ?? "")}.${String(params?.table ?? "")}`;
+}
+
+/**
+ * Frees a table's browse state once its tab is really gone.
+ *
+ * The same rule as useConsoleLifetime, for the same reason: unmounting is not
+ * closing, and a module WorkbenchViews unmounted has to come back with its
+ * filter, its sort and its page intact.
+ */
+export function useBrowseLifetime(browseKey: string): void {
+  const closeBrowse = useDatabaseStore((s) => s.closeBrowse);
+  useEffect(() => {
+    return () => {
+      const open = moduleTabs(useWorkbenchTabsStore.getState().modules, "database").openTabs;
+      const stillOpen = open.some((tab) => browseKeyOfTab(tab.viewId, tab.params) === browseKey);
+      if (!stillOpen) {
+        closeBrowse(browseKey);
+      }
+    };
+  }, [browseKey, closeBrowse]);
 }
 
 /**

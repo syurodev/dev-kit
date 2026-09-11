@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { escapeCSVCell, serializeCSV, serializeJSON } from "./export";
+import { escapeCSVCell, serializeCSV, serializeJSON, tableExportFilename } from "./export";
 import type { QueryResult } from "../../bridge/database";
 
 describe("Database Query Result Export", () => {
@@ -73,5 +73,39 @@ describe("Database Query Result Export", () => {
     const parsed = JSON.parse(jsonStr);
     expect(parsed.length).toBe(200);
     expect(parsed[199]).toEqual({ id: "200", username: "User 200" });
+  });
+
+  describe("A28: the filename a table tab suggests", () => {
+    it("is the table's own name", () => {
+      expect(tableExportFilename("users")).toBe("users");
+      expect(tableExportFilename("order_items")).toBe("order_items");
+      expect(tableExportFilename("Sales-2026")).toBe("Sales-2026");
+    });
+
+    it("trims the identifier before judging it", () => {
+      expect(tableExportFilename("  users  ")).toBe("users");
+    });
+
+    it("replaces what a filesystem would refuse", () => {
+      // Quoted identifiers really can contain these; a save dialog handed one
+      // either fails or writes somewhere nobody asked for.
+      expect(tableExportFilename("public/users")).toBe("public-users");
+      expect(tableExportFilename("a:b*c?d")).toBe("a-b-c-d");
+      expect(tableExportFilename("my table")).toBe("my-table");
+      // ...but a name that is merely not ASCII is left alone.
+      expect(tableExportFilename("caf\u00e9")).toBe("caf\u00e9");
+    });
+
+    it("never proposes a hidden file or a bare extension", () => {
+      expect(tableExportFilename(".hidden")).toBe("hidden");
+      expect(tableExportFilename("..")).toBe("table-rows");
+      expect(tableExportFilename("")).toBe("table-rows");
+      expect(tableExportFilename("   ")).toBe("table-rows");
+      expect(tableExportFilename("///")).toBe("table-rows");
+    });
+
+    it("leaves no trailing dot for the extension to follow", () => {
+      expect(tableExportFilename("users.")).toBe("users");
+    });
   });
 });

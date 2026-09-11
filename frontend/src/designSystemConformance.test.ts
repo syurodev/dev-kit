@@ -27,10 +27,12 @@ const BASELINE: Record<string, { twText: number; rawPx: number; rawHex: number }
   // Reconciled with Figma 14 on 2026-09-09. The 9px canvas labels became
   // text-label-11-caps — consistency across surfaces beat the literal size.
   "modules/codegraph": { twText: 0, rawPx: 0, rawHex: 0 },
-  // Converted 2026-09-08. 15 rawPx remain and none is a design step: 5 are the
-  // ERD canvas node labels (same carve-out as CodeGraph) and 10 are dialog and
-  // panel widths — content measures the Scale has no bucket for.
-  "modules/database": { twText: 0, rawPx: 15, rawHex: 0 },
+  // Converted 2026-09-08. 13 rawPx remain and none is a design step: 5 are the
+  // ERD canvas node labels (same carve-out as CodeGraph) and 8 are dialog and
+  // panel widths — content measures the Scale has no bucket for. Lowered from
+  // 15 when the console's inline result table became ResultGrid: its two
+  // max-w-[NNNpx] cell caps are now colgroup widths the caller owns.
+  "modules/database": { twText: 0, rawPx: 13, rawHex: 0 },
   "modules/kafka": { twText: 0, rawPx: 0, rawHex: 0 },
   // Reconciled with Figma 13 on 2026-09-09; the 720 writing column is
   // max-w-180 on the spacing scale.

@@ -12,12 +12,271 @@
 
 ---
 
+## Amendments — 2026-09-11, during implementation
+
+The plan was written before the code. Six things it assumed turned out not to
+hold. Each is corrected in place below; this list is the record of what changed
+and why.
+
+1. **A1 — `hasNext` cannot come from the probe row alone (Task 7).** The plan
+   asks for `pageSize + 1` rows so the extra one answers "is there a next
+   page". But `internal/database/database.go` caps every result at
+   `DefaultMaxRows = 200` with no per-query override, so `LIMIT 201` comes
+   back as 200 rows with `truncated: true` — the probe row is eaten by the
+   server before it reaches the store. Left as written, `hasNext` would be
+   `false` on every page, Next would be permanently disabled and the table
+   would never page past row 200. `truncated` is the server saying the same
+   thing the probe row would have, so `hasNext` reads both.
+
+2. **A2 — the page size is a constant, not the literal 200 (Tasks 7-8).**
+   `TableToolbar` computed its row range from a hardcoded `200` and
+   `onOpenInConsole` passed a hardcoded `pageSize: 200`, in a plan whose only
+   page-size constant lives in the store. Two of the three would have gone on
+   claiming 200 after the third changed. `BROWSE_PAGE_SIZE` is exported and
+   passed in.
+
+3. **A3 — a page load needs a stale-answer guard (Tasks 6-7).** `executeQuery`
+   already guards every console result with a `queryRunId`, because a second
+   run started before the first answered must not be overwritten by it.
+   `loadBrowsePage` had no such guard, so clicking Next twice quickly, or
+   sorting while a page was in flight, could land the older answer last and
+   show a page that is not the one the toolbar says. A data browser showing
+   the wrong rows silently is the failure this plan exists to avoid, so
+   `BrowseState` gains a `runId` and the superseded call is cancelled.
+
+4. **A4 — `rowAsJSON` and `columnValues` move, they are not deleted (Task 2).**
+   Task 2 offered to delete them "if nothing else in the file uses them". Two
+   things do: `components/rowAsJSON.test.ts` imports both, and the grid needs
+   exactly what they do. The grid's inlined `Object.fromEntries(result.columns
+   .map(…))` is also not the same function — `rowAsJSON` maps over the ROW and
+   falls back to `col_${i}` for an empty name, which is what its tests pin. So
+   both move to `grid/rowText.ts`, the test moves with them, and the grid calls
+   them instead of reimplementing one of them slightly differently.
+
+5. **A5 — Task 11 replaces a test, it does not only append one.**
+   `useConsoleLifetime.test.ts` already asserts `consoleIdOfTab("database.
+   table", …) === "table:chiro.ba_user"`. Task 11 changes that branch to
+   return null, so appending the new test leaves the suite asserting both
+   answers. The old test is replaced.
+
+6. **A7 — `ResultGrid` must not import `resizeColumn` (Task 2).** `tsconfig`
+   sets `noUnusedLocals`, and the grid never calls it — applying a drag is the
+   caller's, which Step 2 gets right. The verbatim file did not compile.
+
+7. **A8 — the console passes `queryResult`, not `slice.queryResult` (Task 2).**
+   The null guard is on the destructured local, and TS does not carry that
+   narrowing onto a property access of a mutable object — which is what the
+   comment already at that spot in `QueryConsole.tsx` says.
+
+8. **A9 — three ratchet tests outside `src/modules/database` move with this
+   change (Task 2).** The plan claimed 0 fail and staged only
+   `src/modules/database`; the verbatim code gives 3 fails in files the plan
+   never mentions, so the branch would have been left red. See Task 2 Step 3.
+
+9. **A10 — Task 3's fifth test could not pass, whatever the implementation.**
+   Test 4 pins the escape rule to doubling (`a"b` → `"a""b"`). Test 5 then
+   asserted the interior of `x"; DROP TABLE users; --` does not contain the
+   two characters `";` — but doubling turns `x";` into `x"";`, which contains
+   `";` by construction. Doubling adds quotes; it never separates a quote from
+   a following `;`. The two tests contradicted each other and no function could
+   satisfy both. The assertion also did not test what its own comment
+   described: what stops the identifier ending early is that every quote in the
+   interior is part of a doubled PAIR, not that some byte pair is absent.
+
+10. **A11 — Task 5 said nine tests and listed eight, and the missing one was
+    the composite key (Task 5).** The plan's own step 4 expected "PASS, 9
+    tests" over a file containing eight `test()` calls, so one was intended and
+    lost. The surface none of the eight covered is the one a composite key
+    exercises: a row-value comparison over MORE THAN ONE column, which is the
+    whole reason the statement is built as `(a, b) > (…)` rather than `a > …`.
+    Task 4 tests that a composite primary key is *reported* in its own column
+    order; nothing tested that the *statement* then compares both columns, or
+    that both get a direction in the ORDER BY. A single-column key cannot catch
+    a bug there — `(a) > ('1')` and `a > '1'` behave identically. The ninth test
+    is added, which reconciles the count and closes the gap.
+
+11. **A12 — Task 6's test imported `EMPTY_BROWSE` and never used it (Task 6).**
+    `noUnusedLocals` is on and `tsconfig` type-checks `src`, so the verbatim
+    test file failed to compile (`TS6133`). Dropping the import was one fix, but
+    the task's own Step 2 expects the test to fail partly because
+    "`EMPTY_BROWSE` is not exported", so the import belongs there. The
+    assertion that makes it earn its place is the identity one — a table never
+    browsed must read as the SHARED frozen default, not a fresh object built
+    per call, or every `browseState` read would be a new reference and every
+    selector subscribed to it would re-render forever.
+
+12. **A13 — "a backwards page is fetched DESC and flipped" is not what the
+    plan's own code does (Tasks 5 and 7).** The plan describes Back as a DESC
+    fetch away from the cursor, flipped on arrival, and builds the machinery for
+    it: `BrowseCursor.direction: "prev"`, the `<` comparison, the `reversed`
+    return field and the flip in `applyBrowsePage`. But `loadBrowsePage`
+    hard-codes `direction: "next"`, and `stepBrowsePage(…, -1)` goes back by
+    decrementing `pageIndex` and re-reading `cursors[pageIndex - 1]` — a
+    FORWARD query from an earlier trail entry. So nothing in production ever
+    produces a `prev` cursor, `reversed` is never true, and the flip never runs
+    outside its unit test.
+
+    The code is not wrong — it is better than the narrative. Holding the trail
+    of last-row keys is exactly what makes Back cheap, and once you have the
+    trail a DESC fetch is redundant: page k always starts after
+    `cursors[k-1]`, in either travel direction. The `prev`/`reversed` path is
+    therefore correct, tested, and currently unreachable — kept because a
+    future "jump to the last page" (where there is no trail entry to start
+    from) is the case that needs it. What is corrected here is the plan's
+    description, not the implementation. Task 12's check that "Back returns to
+    exactly the previous page" tests the trail, not the DESC path.
+
+13. **A14 — `TableToolbar` declared `pageSize` and never destructured it
+    (Task 8).** The verbatim component types `pageSize: number` in its props
+    but its destructuring pattern stops at `onOpenInConsole`, so the two lines
+    that compute the row range referred to a name that does not exist
+    (`TS2304`) and the file did not compile. `pageSize` is added to the
+    pattern; nothing else about the component changes. Worth noting what the
+    omission would have tempted: reaching for the literal `200` again, which is
+    exactly what A2 exported `BROWSE_PAGE_SIZE` to prevent.
+
+14. **A15 — the first Next on a keyed table was a SQL syntax error (new Task
+    8b).** The initial page load raced the index read and won, so the cursor
+    trail never got a page 0 entry and the next page asked for
+    `WHERE ("id") > ()`. Reproduced against MariaDB 10.11 (`ERROR 1064`).
+    Tolerating the empty cursor would be worse — it re-serves page 0 as page 2.
+    Task 8b fixes the ordering and makes the builder refuse a malformed cursor.
+
+15. **A16 — A15's backstop throws where nothing catches it (new Task 10b).**
+    A15's own comment claimed "the caller's catch turns this into an error
+    banner". It does not: `buildBrowseQuery` is called in `loadBrowsePage`'s
+    PROLOGUE, above the `try`, so the throw escapes into the component's
+    `void …` as an unhandled rejection. Measured state after it fires:
+    `{ error: "", loading: false, pageIndex: 1 }` — no banner, no spinner, the
+    page index already advanced, and the previous page's rows still on screen.
+    "Loud" meant loud in the devtools console, which is not loud to the person
+    using the app. Task 10b moves the construction inside the `try`.
+
+16. **A17 — a closed table frees its rows but keeps its key (Task 11).**
+    `closeBrowse` drops `browse[key]` and leaves `pageKeys[key]` behind, so the
+    map grows by one entry per table ever opened — the same unbounded-growth
+    shape Task 11 exists to prevent, just smaller. It also makes a reopen load
+    page 0 ordered by the PREVIOUS key while `listIndexes` re-reads, because
+    A15's gate sees `key in pageKeys` already true. Freeing it costs a reopen
+    one round trip and is what makes `closeBrowse` mean what its name says.
+
+17. **A18 — `onReorder` was declared but never destructured (Task 10).** The
+    plan has `onDragEnd` call `onReorder?.(…)` but only ever added the prop to
+    the TYPE, never to `ResultGrid`'s parameter destructuring. `TS2304: Cannot
+    find name 'onReorder'`. The same shape of miss as A14.
+
+18. **A19 — `DndContext` cannot wrap a `<tr>`, because it renders DOM (Task
+    10).** The plan says "wrap the header row in `DndContext` + `SortableContext`".
+    `DndContext` mounts an `<Accessibility>` that emits a `display:none` div and
+    a `role="status"` live region; with no `container` prop there is no portal,
+    so those land wherever it sits. Inside `<thead>`/`<tr>` that is invalid DOM
+    nesting and trips React's `validateDOMNesting`. Only `SortableContext` is
+    DOM-free (a bare `Context.Provider`), so it is the one that can sit in the
+    row. `DndContext` moves out to wrap the whole component, where its two divs
+    are siblings of the scroller — one `display:none`, one `position:fixed`, so
+    neither becomes a flex item and layout is unchanged.
+
+19. **A20 — an open a11y question this plan created and did not answer (Task
+    10).** Putting `{...attributes}` on the `<th>`, as A6 and the plan both
+    require, sets `role="button"` and `tabIndex={0}` on it. That overrides the
+    cell's implicit `columnheader` role and nests a real `<button>` (the sort
+    control) inside a `role="button"` element, which is invalid ARIA. The drag
+    needs the listeners there, so this is a genuine trade the plan made
+    silently. It is NOT fixed here, because the fix is a design change rather
+    than a defect repair: dnd-kit's `setActivatorNodeRef` with a dedicated grab
+    affordance is the supported answer. Recorded so it is a known limitation
+    rather than an accident.
+
+20. **A21 — a step that failed still advanced the page number (new Task
+    11c).** `stepBrowsePage` bumps `pageIndex` and then loads. If the load
+    fails — a refused cursor, a bad WHERE the user typed, a dropped
+    connection — the index stays advanced, so the toolbar reads "201-400"
+    over the rows of page 1. That is the same lie the A3 runId guard exists to
+    prevent, arrived at from the other direction, and it is reachable by
+    anything that can make a query fail.
+
+21. **A22 — `TableDataView` spells the browse key itself (new Task 11c).**
+    It computes `` `${schema}.${table}` `` inline while `browseKeyOfTab` computes
+    the same thing for the cleanup — the exact duplication
+    `useConsoleLifetime.ts`'s own doc comment warns "would drift into a leak".
+    One formula.
+
+22. **A23 — `tableKey.ts` claims NULL handling it does not do (new Task 11c).**
+    The comment above the non-unique test explains the `null` in terms of
+    NULLABLE unique indexes: "NULLs compare as unknown, so a keyset walk would
+    skip or repeat rows." `pageKeyFor` does not check nullability and CANNOT —
+    `IndexInfo` carries schema, table, name, columns, unique and primary, and no
+    nullability at all. So a unique index on a nullable column IS accepted
+    today, and is a real best-effort case, made worse by `runQuery` mapping
+    `NULL → ""` so a null key value and an empty string are indistinguishable in
+    a cursor. Fixing it properly needs nullability in the Go `IndexInfo`, which
+    this plan forbids touching. Two separate subagents flagged the drift
+    independently. The comment is corrected to state the limitation instead of
+    overstating the guarantee.
+
+23. **A24 — a nullable unique index must not page a table, and excluding it
+    needs no Go change after all (new Task 13).** A23 recorded this as
+    unfixable because `IndexInfo` carries no nullability. That was wrong: the
+    bridge already reports `ColumnInfo.nullable` via `listColumns`, and the
+    store already caches it in `tableColumnsMap`. So the frontend can know. It
+    matters because a unique index over a nullable column is not a total order
+    — SQL compares NULLs as unknown — and `runQuery` stringifies NULL to `""`,
+    so a null key value is indistinguishable from an empty one in a cursor.
+    That is the silent skip-and-repeat this plan exists to avoid. Primary keys
+    are unaffected: they are NOT NULL by definition.
+
+24. **A25 — the key gate can strand a table forever (new Task 14).** A15 gated
+    the first page on `key in pageKeys`, but the effect that writes that entry
+    returns early when `schema` is falsy while the load gate only checks
+    `table`. The two guards disagree, so a table document with a table but no
+    schema would never write the entry, never open the gate, and sit blank with
+    no rows, no spinner and no error — where before A15 it would at least have
+    loaded by OFFSET. Nothing in the app produces that shape today, so this is
+    a latent regression rather than a live bug, but A15 is what made those
+    early-return conditions load-bearing, so A15 owes it a fix.
+
+25. **A26 — the header cell lost its `columnheader` role for a keyboard drag
+    that cannot happen (new Task 15).** A20 recorded the trade as needing a
+    design decision. It does not: spreading dnd-kit's `attributes` onto the
+    `<th>` sets `role="button"` and `tabIndex={0}` to support a KEYBOARD drag,
+    and this grid registers only a `PointerSensor`. So the attributes buy
+    nothing and cost the cell its implicit `columnheader` role while nesting
+    the real sort `<button>` inside a `role="button"` element. Dropping
+    `attributes` and keeping `listeners` restores the semantics and loses no
+    behaviour that exists.
+
+26. **A27 — the gutter numbers the page, the pager numbers the table (new Task
+    15).** The row gutter restarts at 1 on every page while the range beside it
+    reads "201-400+", so the same row is called 1 and 201 an inch apart. The
+    grid cannot know better on its own — the console has no page offset — so
+    the offset is a prop the table document passes and the console does not.
+
+27. **A28 — a table tab cannot export its rows (new Task 15).** Before this
+    plan a table tab WAS a console, so it carried the console toolbar's Export.
+    Task 8 removed the console and the new toolbar never replaced it, so
+    exporting a table's rows now means Open in console, then Run, then Export —
+    re-running the query to get rows already on screen. `ExportModal` only ever
+    needed a `QueryResult`; it reads one through `modalConsoleId` purely by
+    habit. Carrying the result instead of a console id serves both documents.
+
+28. **A6 — the drag needs an activation distance (Task 10).** dnd-kit's pointer
+   sensor starts a drag on pointerdown by default. The header cell is also the
+   sort button and carries the resize handle, so without a distance threshold
+   clicking a header would begin a drag instead of sorting, and a resize drag
+   would reorder the column. A `PointerSensor` with `activationConstraint:
+   { distance: 4 }` keeps a click a click, and the resize handle stops the
+   event reaching the sensor.
+
+---
+
 ## File Structure
 
 **Created**
 - `frontend/src/modules/database/grid/ResultGrid.tsx` — the shared grid
 - `frontend/src/modules/database/grid/gridColumns.ts` — column order and width state, pure
 - `frontend/src/modules/database/grid/gridColumns.test.ts`
+- `frontend/src/modules/database/grid/rowText.ts` — copy-a-row / copy-a-column text (A4, moved out of `QueryConsole.tsx`)
+- `frontend/src/modules/database/grid/rowText.test.ts` (A4, moved from `components/rowAsJSON.test.ts`)
 - `frontend/src/modules/database/sql/identifier.ts` — engine-correct quoting
 - `frontend/src/modules/database/sql/identifier.test.ts`
 - `frontend/src/modules/database/sql/browseQuery.ts` — the statement a table tab runs
@@ -31,6 +290,9 @@
 - `frontend/src/modules/database/components/QueryConsole.tsx` — renders `ResultGrid`
 - `frontend/src/modules/database/databaseStore.ts` — browse state per table
 - `frontend/package.json` — `@dnd-kit/*`
+
+**Deleted**
+- `frontend/src/modules/database/components/rowAsJSON.test.ts` — moved to `grid/rowText.test.ts` (A4)
 
 ---
 
@@ -213,12 +475,13 @@ import { useVirtualRows } from "@/components/ui/virtual-rows";
 import { cn } from "@/lib/utils";
 import { copyText } from "@/bridge/clipboard";
 import type { QueryResult } from "@/bridge/database";
-import {
-  DEFAULT_COLUMN_WIDTH_PX,
-  MIN_COLUMN_WIDTH_PX,
-  orderedColumns,
-  resizeColumn,
-} from "./gridColumns";
+// A7: no `resizeColumn` here. `noUnusedLocals` is on and the grid never calls
+// it — applying a drag is the caller's job, which Step 2 gets right.
+import { DEFAULT_COLUMN_WIDTH_PX, MIN_COLUMN_WIDTH_PX, orderedColumns } from "./gridColumns";
+// A4: moved here from QueryConsole rather than reimplemented. rowAsJSON maps
+// over the ROW and names an empty column col_${i}; an inlined
+// Object.fromEntries over `columns` is a different function with its own bugs.
+import { columnValues, rowAsJSON } from "./rowText";
 
 const ROW_HEIGHT = 36;
 
@@ -368,9 +631,7 @@ export function ResultGrid({
               Copy cell
             </ContextMenuItem>
             <ContextMenuItem
-              onSelect={() =>
-                void copyText(JSON.stringify(Object.fromEntries(result.columns.map((c, i) => [c, cell.row[i]])), null, 2))
-              }
+              onSelect={() => void copyText(rowAsJSON(result.columns, cell.row))}
             >
               <Braces />
               Copy row as JSON
@@ -380,7 +641,7 @@ export function ResultGrid({
               Copy column name
             </ContextMenuItem>
             <ContextMenuItem
-              onSelect={() => void copyText(result.rows.map((r) => r[target!.column] ?? "").join("\n"))}
+              onSelect={() => void copyText(columnValues(result.rows, target!.column))}
             >
               <List />
               Copy {result.rows.length} value{result.rows.length === 1 ? "" : "s"}
@@ -467,11 +728,14 @@ export { MIN_COLUMN_WIDTH_PX };
 
 - [ ] **Step 2: Point the console at it**
 
-In `QueryConsole.tsx`, replace the whole `<div ref={resultRows.scrollRef}>…</table></div>` block with:
+In `QueryConsole.tsx`, replace the whole `<div ref={resultRows.scrollRef}>…</table></div>` block with the following. **A8: `result` takes the narrowed local
+`queryResult`, not `slice.queryResult`** — the null guard is on the local, and
+TypeScript does not carry that narrowing onto a property access of a mutable
+object, which is exactly what the comment already beside those locals says.
 
 ```tsx
               <ResultGrid
-                result={slice.queryResult}
+                result={queryResult}
                 widths={gridWidths}
                 columnOrder={[]}
                 onResize={(index, delta) => setGridWidths((w) => resizeColumn(w, index, delta))}
@@ -488,9 +752,68 @@ and above the return:
   const [gridWidths, setGridWidths] = useState<number[]>([]);
 ```
 
-Delete the now-unused `useVirtualRows` import, `resultRows`, `RESULT_ROW_HEIGHT`, `columnValues`, `rowAsJSON` and the per-cell `ContextMenu` imports if nothing else in the file uses them — check each with a grep before deleting.
+Delete the now-unused `useVirtualRows` import, `resultRows`, `RESULT_ROW_HEIGHT` and the per-cell `ContextMenu` imports — grep each first; `ContextMenu` is used nowhere else in the file, so `grep -c ContextMenu` reaching 0 is the check in Step 3.
+
+**A4: `columnValues` and `rowAsJSON` move rather than being deleted.** They are
+not unused — `components/rowAsJSON.test.ts` imports both, and the grid above
+calls both. Move them, with their doc comments verbatim, out of
+`QueryConsole.tsx` into a new `frontend/src/modules/database/grid/rowText.ts`:
+
+```ts
+/**
+ * The text behind "copy a row" and "copy a column".
+ *
+ * Lives beside the grid because the grid's context menu is the only thing that
+ * asks for it now; it was in QueryConsole when the menu was.
+ */
+
+/** One column's values, newline separated — the shape that pastes into an IN
+ *  list or a spreadsheet. A row shorter than the header becomes an empty line,
+ *  which `join` already does for a hole; no guard needed. */
+export function columnValues(rows: string[][], index: number): string {
+  return rows.map((row) => row[index]).join("\n");
+}
+
+/**
+ * A row is a string array beside a separate column list — JSON has to pair them
+ * back up. Values arrive already stringified by the bridge, so this is a shape
+ * change, not a re-encode.
+ */
+export function rowAsJSON(columns: string[], row: string[]): string {
+  return JSON.stringify(
+    Object.fromEntries(row.map((value, i) => [columns[i] || `col_${i}`, value])),
+    null,
+    2,
+  );
+}
+```
+
+Then move the test with them — `git mv frontend/src/modules/database/components/rowAsJSON.test.ts frontend/src/modules/database/grid/rowText.test.ts` — and change its import to `from "./rowText"`. Its assertions do not change: they are what pins the two behaviours an inlined version loses.
 
 - [ ] **Step 3: Verify**
+
+**A9: three ratchet tests move with this change, and none is under
+`src/modules/database`.** The plan claimed 0 fail; the code above gives 3
+failures, so staging `src/modules/database` alone would leave the branch red.
+Fix each where it stands rather than weakening it:
+
+- `frontend/src/designSystemConformance.test.ts` — `modules/database.rawPx`
+  drops 15 → 13, because the inline table's two `max-w-[NNNpx]` cell caps are
+  now `<colgroup>` widths the caller owns. That test explicitly demands a stale
+  baseline be lowered, so this is the required direction; update its comment to
+  match the new count.
+- `frontend/src/workbench/layoutStability.test.tsx` — it asserts
+  `scrollbar-gutter-stable` on `QueryConsole.tsx`. The scroller moved into the
+  grid, so repoint the entry to `modules/database/grid/ResultGrid.tsx`; the
+  invariant is unchanged, only its address. (Task 8 makes `TableDataView`
+  render the same grid, so this one entry covers both.)
+- `frontend/src/smoothnessRatchet.test.ts` — its `emptyListState` count sees
+  `useState<number[]>([])` in a module file and says the number must never go
+  up. Raising the baseline is therefore not available, and `gridWidths` is not
+  what that rule is about. Write it with this repo's own idiom instead:
+  `useState<number[]>(EMPTY_ARRAY)` from `@/lib/stableEmpty` — one identity for
+  the whole app, and `resizeColumn` copies rather than mutates, so the frozen
+  array is never written to.
 
 Run: `cd frontend && npx tsc --noEmit && bun test`
 Expected: tsc clean, 0 fail.
@@ -498,12 +821,21 @@ Expected: tsc clean, 0 fail.
 Run: `cd frontend && grep -c ContextMenu src/modules/database/components/QueryConsole.tsx`
 Expected: 0 — every menu in the result moved into the grid.
 
+Run: `cd frontend && grep -rn "rowAsJSON\|columnValues" src/modules/database`
+Expected: only `grid/rowText.ts`, `grid/rowText.test.ts` and `grid/ResultGrid.tsx` — nothing left importing them from `QueryConsole` (A4).
+
 - [ ] **Step 4: Commit**
 
 ```bash
-git add frontend/src/modules/database
+git add frontend/src/modules/database \
+        frontend/src/designSystemConformance.test.ts \
+        frontend/src/workbench/layoutStability.test.tsx \
+        frontend/src/smoothnessRatchet.test.ts
 git commit -m "feat(database): one grid, one context menu, sizable columns"
 ```
+
+(A9: the three ratchet files are part of this change, not incidental — staging
+only `src/modules/database` leaves the suite red.)
 
 ---
 
@@ -549,11 +881,21 @@ describe("quoteIdentifier", () => {
 
   // A name carrying a statement terminator must come out as one identifier,
   // never as two statements.
+  //
+  // A10: what makes that true is that every quote in the interior is part of a
+  // doubled PAIR — an unpaired one would close the identifier where the name
+  // did not intend it to, handing the rest of the name to the parser as SQL.
+  // The original assertion looked for the byte pair `";` instead, which
+  // doubling puts there by construction (`x";` becomes `x"";`), so it
+  // contradicted the doubling test above and nothing could pass both.
   test("a name that looks like SQL stays a name", () => {
     const quoted = quoteIdentifier('x"; DROP TABLE users; --', "postgres");
+    expect(quoted).toBe('"x""; DROP TABLE users; --"');
     expect(quoted.startsWith('"')).toBe(true);
     expect(quoted.endsWith('"')).toBe(true);
-    expect(quoted.slice(1, -1)).not.toContain('";');
+    // Strip the doubled pairs; a quote still standing would be one that ends
+    // the identifier early.
+    expect(quoted.slice(1, -1).split('""').join("")).not.toContain('"');
   });
 
   test("an empty name is refused rather than quoted into nothing", () => {
@@ -826,6 +1168,22 @@ describe("buildBrowseQuery", () => {
     });
     expect(sql).toContain("'o''brien'");
   });
+
+  // A11. The reason the comparison is written `(a, b) > (…)` rather than
+  // `a > …` is a composite key, and with a single-column key the two forms are
+  // indistinguishable — so nothing above would catch a bug here. Every key
+  // column must appear in the comparison, in key order, on both sides, and
+  // every one must carry a direction in the ORDER BY: a composite key with a
+  // direction on only its first column is not a total order either.
+  test("a composite key compares every column, in key order", () => {
+    const { sql } = buildBrowseQuery({
+      ...base,
+      pageKey: ["tenant_id", "id"],
+      cursor: { values: ["7", "42"], direction: "next" },
+    });
+    expect(sql).toContain('("tenant_id", "id") > (\'7\', \'42\')');
+    expect(sql).toContain('ORDER BY "tenant_id" ASC, "id" ASC');
+  });
 });
 ```
 
@@ -981,6 +1339,10 @@ test("a table never browsed reads as empty, not undefined", () => {
   expect(state.where).toBe("");
   expect(state.rows).toBeNull();
   expect(state.cursors).toEqual([]);
+  // A12: the SHARED frozen default, not a fresh object per call. A new
+  // reference on every read would make any selector subscribed to it
+  // re-render forever.
+  expect(state).toBe(EMPTY_BROWSE);
 });
 
 test("two tables hold their own filter", () => {
@@ -1056,6 +1418,15 @@ export type BrowseState = {
   hasNext: boolean;
   /** Column widths, kept per table because the columns are the table's own. */
   widths: number[];
+  /**
+   * A3: which load this state belongs to. Bumped when a page is asked for, and
+   * checked when one answers — the same guard `executeQuery` puts on a console
+   * result, for the same reason: Next clicked twice, or a sort applied while a
+   * page is in flight, must not be overwritten by the older answer landing
+   * last. A browser silently showing rows the toolbar does not describe is
+   * worse than one that is slow.
+   */
+  runId: number;
 };
 
 export const EMPTY_BROWSE: BrowseState = Object.freeze({
@@ -1068,6 +1439,7 @@ export const EMPTY_BROWSE: BrowseState = Object.freeze({
   pageIndex: 0,
   hasNext: false,
   widths: [],
+  runId: 0,
 }) as BrowseState;
 ```
 
@@ -1183,6 +1555,44 @@ test("a short page is the last page", () => {
   expect(useDatabaseStore.getState().browseState("public.orders").hasNext).toBe(false);
 });
 
+// A1. The server caps every result at DefaultMaxRows = 200 (internal/database/
+// database.go) and there is no per-query override, so LIMIT 201 comes back as
+// 200 rows with `truncated` set — the probe row never survives the trip. If
+// hasNext read the row count alone it would be false on every full page and the
+// table could not be paged past row 200 at all. `truncated` is the server
+// saying exactly what the probe row would have said.
+test("a page the server capped still has a next page", () => {
+  const { applyBrowsePage } = useDatabaseStore.getState();
+  const rows = Array.from({ length: 200 }, (_, i) => [String(i)]);
+
+  applyBrowsePage("public.orders", {
+    result: { columns: ["id"], rows, rowCount: 200, truncated: true },
+    pageSize: 200,
+    reversed: false,
+    pageKey: ["id"],
+  });
+
+  const state = useDatabaseStore.getState().browseState("public.orders");
+  expect(state.hasNext).toBe(true);
+  expect(state.rows?.rows).toHaveLength(200);
+});
+
+// Exactly one page of matching rows is not a capped result: the driver ran out
+// before the cap, so `truncated` is false and there is genuinely no next page.
+test("a full page that the server did not cap is the last page", () => {
+  const { applyBrowsePage } = useDatabaseStore.getState();
+  const rows = Array.from({ length: 200 }, (_, i) => [String(i)]);
+
+  applyBrowsePage("public.orders", {
+    result: { columns: ["id"], rows, rowCount: 200, truncated: false },
+    pageSize: 200,
+    reversed: false,
+    pageKey: ["id"],
+  });
+
+  expect(useDatabaseStore.getState().browseState("public.orders").hasNext).toBe(false);
+});
+
 // Paging back asks the server for rows before the cursor in DESC order, so
 // they arrive bottom-first and have to be flipped before display.
 test("a reversed page is flipped back", () => {
@@ -1239,8 +1649,13 @@ Implement `applyBrowsePage`:
 
 ```ts
   applyBrowsePage: (key, { result, pageSize, reversed }) => {
-    const hasNext = result.rows.length > pageSize;
-    const kept = hasNext ? result.rows.slice(0, pageSize) : result.rows;
+    // A1. Two ways to learn there is more: the probe row arrived, or the server
+    // ate it. DBQuery caps at DefaultMaxRows = 200 with no override, so a
+    // LIMIT 201 for a 200-row page comes back as 200 rows with `truncated`
+    // set and the probe row gone. Reading the count alone would leave hasNext
+    // false on every full page and the table unpageable past row 200.
+    const hasNext = result.rows.length > pageSize || result.truncated;
+    const kept = result.rows.length > pageSize ? result.rows.slice(0, pageSize) : result.rows;
     // A backwards page was asked for in DESC order so the server could walk
     // away from the cursor; the rows arrive bottom-first.
     const rows = reversed ? [...kept].reverse() : kept;
@@ -1256,7 +1671,7 @@ Implement `applyBrowsePage`:
 - [ ] **Step 4: Run the test**
 
 Run: `cd frontend && bun test src/modules/database/browseState.test.ts`
-Expected: PASS, 7 tests.
+Expected: PASS, 9 tests.
 
 - [ ] **Step 5: Implement the loader**
 
@@ -1286,9 +1701,22 @@ Expected: PASS, 7 tests.
       offset: pageKey ? undefined : browse.pageIndex * BROWSE_PAGE_SIZE,
     });
 
-    patchBrowse(set, key, { loading: true, error: "" });
+    // A3. The same stale-answer guard executeQuery puts on a console result.
+    // Next clicked twice, or a sort applied while a page is in flight, leaves
+    // two calls racing; without this the older one can land last and fill the
+    // grid with rows the toolbar no longer describes.
+    const runId = browse.runId + 1;
+    patchBrowse(set, key, { loading: true, error: "", runId });
+    // And the superseded statement is stopped rather than left to finish: the
+    // page it would return is one nobody is going to look at.
+    pendingBrowseQueries.get(key)?.cancel();
     try {
-      const result = await runQuery(selectedProfileId, query.sql);
+      const call = runQuery(selectedProfileId, query.sql);
+      pendingBrowseQueries.set(key, call);
+      const result = await call;
+      if (get().browseState(key).runId !== runId) {
+        return;
+      }
       get().applyBrowsePage(key, {
         result,
         pageSize: query.pageSize,
@@ -1306,11 +1734,21 @@ Expected: PASS, 7 tests.
         }
       }
     } catch (e) {
+      // Both branches check the guard first. A cancel usually means a newer
+      // load superseded this one, and clearing `loading` for the old call
+      // would leave the spinner off while the new page is still coming.
+      if (get().browseState(key).runId !== runId) {
+        return;
+      }
       if (isCancelError(e)) {
         patchBrowse(set, key, { loading: false });
         return;
       }
       patchBrowse(set, key, { loading: false, error: errorMessage(e) });
+    } finally {
+      if (get().browseState(key).runId === runId) {
+        pendingBrowseQueries.delete(key);
+      }
     }
   },
 
@@ -1329,12 +1767,27 @@ Beside the other constants, add:
 
 ```ts
 /**
- * Rows per page. Matches the backend's DefaultMaxRows (internal/database/
- * database.go): asking for more would have the server truncate the page and
- * set `truncated`, which the pager would then read as a full page and offer a
- * next one that does not exist.
+ * Rows per page. The backend caps every result at DefaultMaxRows = 200
+ * (internal/database/database.go) with no per-query override, so a page cannot
+ * usefully be larger than this — and the LIMIT 201 this plan sends comes back
+ * as 200 rows with `truncated` set rather than 201 rows. applyBrowsePage reads
+ * `truncated` as the probe row the server ate (A1).
+ *
+ * A2: exported, because the toolbar numbers its rows from it and "Open in
+ * console" composes a statement with it. Three copies of 200 would drift.
  */
-const BROWSE_PAGE_SIZE = 200;
+export const BROWSE_PAGE_SIZE = 200;
+```
+
+and beside `pendingQueries`, its twin (A3):
+
+```ts
+/**
+ * The in-flight page per table tab, so a superseded load can be stopped. Same
+ * reasoning as pendingQueries: a CancellableCall is not state, and holding it
+ * in the store would re-render every open table whenever any one of them paged.
+ */
+const pendingBrowseQueries = new Map<string, ReturnType<typeof runQuery>>();
 ```
 
 And on `DatabaseStoreState`, beside `browse`:
@@ -1408,6 +1861,9 @@ export function TableToolbar({
   onStep,
   onRefresh,
   onOpenInConsole,
+  // A14: destructured, not only typed. The verbatim pattern stopped above and
+  // the row range below referred to a name that did not exist.
+  pageSize,
 }: {
   where: string;
   onWhereChange: (value: string) => void;
@@ -1421,9 +1877,16 @@ export function TableToolbar({
   onStep: (step: 1 | -1) => void;
   onRefresh: () => void;
   onOpenInConsole: () => void;
+  /**
+   * A2: rows per page, from the store's BROWSE_PAGE_SIZE rather than a literal
+   * 200 spelled here. The row range is the one thing in this component that
+   * would go on claiming 200 after the page size changed, and it would look
+   * right while being wrong.
+   */
+  pageSize: number;
 }) {
-  const first = pageIndex * 200 + 1;
-  const last = pageIndex * 200 + rowCount;
+  const first = pageIndex * pageSize + 1;
+  const last = pageIndex * pageSize + rowCount;
 
   return (
     <div className="flex shrink-0 flex-col gap-2 pb-2">
@@ -1510,7 +1973,7 @@ import { ResultGrid } from "./grid/ResultGrid";
 import { resizeColumn } from "./grid/gridColumns";
 import { TableToolbar } from "./components/TableToolbar";
 import { DatabaseOverlays } from "./DatabaseOverlays";
-import { useDatabaseStore } from "./databaseStore";
+import { BROWSE_PAGE_SIZE, useDatabaseStore } from "./databaseStore";
 import { useDatabaseChrome } from "./useDatabaseChrome";
 import { useIsActiveDocument } from "./useIsActiveDocument";
 import { openConsoleTab } from "./documents";
@@ -1609,6 +2072,7 @@ export function TableDataView({ params }: { params?: Record<string, unknown> }) 
             : "ORDER BY —"
         }
         pageIndex={browse.pageIndex}
+        pageSize={BROWSE_PAGE_SIZE}
         rowCount={browse.rows?.rows.length ?? 0}
         hasNext={browse.hasNext}
         keyed={pageKey !== null}
@@ -1627,7 +2091,7 @@ export function TableDataView({ params }: { params?: Record<string, unknown> }) 
               orderBy: browse.orderBy,
               pageKey,
               cursor: null,
-              pageSize: 200,
+              pageSize: BROWSE_PAGE_SIZE,
             }).sql,
           );
           openConsoleTab(consoleId, table);
@@ -1689,6 +2153,135 @@ git commit -m "feat(database): a table tab shows data, not a statement"
 
 ---
 
+### Task 8b: the key must arrive before the first page
+
+**A15. A bug the plan shipped, found by implementing Task 8 and reproduced
+against a real MySQL server.** The first Next click on any keyed table fails
+with a SQL syntax error, deterministically, on that table's first open in an app
+session.
+
+The chain, all of it confirmed in the committed code:
+
+1. `TableDataView` mounts and fires both effects in the same commit: the
+   `listIndexes` read (async) and the `!hasRows` initial load (immediate).
+2. `loadBrowsePage` reads `get().pageKeys[key]` synchronously, so the first
+   page sees `pageKey === null` and is fetched by OFFSET. Page 0 looks right,
+   which is why this is easy to miss.
+3. Recording the cursor trail is guarded by `if (pageKey && …)`, so
+   `cursors[0]` is never written.
+4. `hasNext` is nonetheless true — a 501-row table comes back capped with
+   `truncated` set (A1) — so Next is enabled.
+5. `listIndexes` resolves and `pageKeys[key]` becomes `["id"]`.
+6. Next sets `pageIndex = 1`. Now `pageKey` is truthy and `pageIndex > 0`, so
+   `cursor = { values: browse.cursors[0] ?? [], … }` → `values: []`.
+7. `buildBrowseQuery` emits `WHERE ("id") > ()`. MariaDB 10.11 answers
+   `ERROR 1064 … syntax error`. The user gets an error banner instead of page 2.
+
+The plan's own comment above that effect claims "The key … is read before the
+first page", which the code does not enforce. The intent was right; the code
+contradicts it.
+
+**Do not fix this by tolerating an empty cursor.** Ignoring a value-less cursor
+drops the comparison, and the statement then becomes page 0's own query — so
+Next silently re-serves rows 1-200 as page 2. Verified against a real server:
+`ORDER BY id ASC LIMIT 201` with no condition returns ids 1, 2, 3… That trades a
+loud error for silent duplication, which is exactly the failure this plan calls
+"the worst way for a data browser to be wrong". Fix the ordering instead.
+
+**Files:**
+- Modify: `frontend/src/modules/database/TableDataView.tsx`
+- Modify: `frontend/src/modules/database/sql/browseQuery.ts`
+- Test: `frontend/src/modules/database/sql/browseQuery.test.ts`
+
+- [ ] **Step 1: Write the failing test**
+
+Append to `browseQuery.test.ts`, inside the existing describe block:
+
+```ts
+  // A15. A cursor with no values cannot be compared against. Emitting
+  // `("id") > ()` is a syntax error, and quietly dropping the comparison is
+  // worse — the statement becomes page 0's own query, so the next page serves
+  // the first page's rows again. Neither is acceptable from a data browser, so
+  // the builder refuses instead: loudly, at the one place that can tell.
+  test("a cursor whose values do not match the key is refused, not guessed", () => {
+    expect(() =>
+      buildBrowseQuery({ ...base, cursor: { values: [], direction: "next" } }),
+    ).toThrow();
+    expect(() =>
+      buildBrowseQuery({
+        ...base,
+        pageKey: ["tenant_id", "id"],
+        cursor: { values: ["7"], direction: "next" },
+      }),
+    ).toThrow();
+  });
+```
+
+- [ ] **Step 2: Make the builder refuse**
+
+In `buildBrowseQuery`, inside the `if (keyed && cursor)` branch, before building
+the comparison:
+
+```ts
+    // A15: one value per key column, or there is nothing to compare. Both ways
+    // of carrying on are worse than stopping — an empty row value is a syntax
+    // error, and dropping the comparison re-serves the previous page. The
+    // caller's catch turns this into an error banner, which is the honest
+    // outcome for a bug in the caller.
+    if (cursor.values.length !== pageKey.length) {
+      throw new Error(
+        `browse cursor has ${cursor.values.length} value(s) for a ${pageKey.length}-column key`,
+      );
+    }
+```
+
+- [ ] **Step 3: Fix the ordering, which is the actual bug**
+
+The throw above makes the bug loud; it does not stop it happening. The first
+page must not load until the key is KNOWN — and "known" is not "non-null",
+because `pageKeys[key] ?? null` collapses *not read yet* and *unkeyed* into the
+same value. The presence of the entry is the discriminator.
+
+In `TableDataView.tsx`, add to the `useShallow` selector:
+
+```ts
+      // A15: whether the index read has ANSWERED, which `pageKey` cannot say —
+      // a null means both "no key" and "not asked yet", and loading the first
+      // page during the second one leaves the cursor trail with no page 0 entry.
+      keyResolved: key in s.pageKeys,
+```
+
+destructure `keyResolved` alongside `pageKey`, and gate the initial load on it:
+
+```ts
+  const hasRows = browse.rows !== null;
+  useEffect(() => {
+    if (!hasRows && keyResolved && selectedProfileId && table) {
+      void loadBrowsePage(key, { schema, table });
+    }
+  }, [hasRows, keyResolved, selectedProfileId, key, schema, table, loadBrowsePage]);
+```
+
+This costs the first page one round trip waiting on the index list — which is
+what the plan already said it was paying ("so it is read before the first
+page"). In exchange page 0 is fetched with the key known, its ORDER BY is the
+key's, and `cursors[0]` is recorded, so every later page has a boundary to walk
+from.
+
+- [ ] **Step 4: Verify**
+
+Run: `cd frontend && npx tsc --noEmit && bun test`
+Expected: tsc clean, 0 fail.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add frontend/src/modules/database
+git commit -m "fix(database): read a table's key before its first page"
+```
+
+---
+
 ## Phase 3 — Column reorder
 
 ### Task 9: Install dnd-kit
@@ -1725,10 +2318,30 @@ git commit -m "build(frontend): add dnd-kit for column reordering"
 
 - [ ] **Step 1: Make the header cells sortable**
 
-Wrap the header row in `DndContext` + `SortableContext`, and give `HeaderCell` a `useSortable` with `position: relative` and a `transform`:
+**A6 first: the sensor needs an activation distance.** dnd-kit's `PointerSensor`
+claims the pointer on pointerdown by default. The header cell is also the sort
+button and carries the resize handle, so without a threshold clicking a header
+would start a drag instead of sorting, and dragging the resize handle would
+reorder the column instead of widening it. In `ResultGrid`:
+
+```tsx
+  // A click is a sort and a drag is a reorder, and they start with the same
+  // pointerdown — four pixels is what tells them apart. Without this the sort
+  // never fires and the resize handle reorders instead of resizing.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+  );
+```
+
+and the resize handle's `onPointerDown` gets `event.stopPropagation()` beside
+its existing `event.preventDefault()`, so a resize never reaches the sensor at
+all.
+
+Then wrap the header row in `DndContext` + `SortableContext`, and give `HeaderCell` a `useSortable` with `position: relative` and a `transform`:
 
 ```tsx
       <DndContext
+        sensors={sensors}
         collisionDetection={closestCenter}
         modifiers={[restrictToHorizontalAxis]}
         onDragEnd={(event) => {
@@ -1751,6 +2364,10 @@ and in `HeaderCell`:
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: index,
   });
+
+  // `attributes` and `listeners` go on the `<th>`, not on the sort button: a
+  // drag handle nested inside a click target is the same fight over the
+  // pointer the resize handle already avoids by being a sibling.
 
   const style: CSSProperties = {
     // relative + transform, never out of flow: a `<th>` taken out of flow takes
@@ -1823,6 +2440,72 @@ git commit -m "feat(database): drag a column into place"
 
 ---
 
+### Task 10b: the backstop has to reach the person using the app
+
+**A16.** Task 8b made `buildBrowseQuery` throw on a cursor that does not match
+the key, and A15's comment claimed the caller's `catch` would turn that into an
+error banner. It does not. `buildBrowseQuery` is called in `loadBrowsePage`'s
+prologue, above the `try`, so the rejection escapes `stepBrowsePage` into the
+component's `void …` and is never handled. Measured state after it fires:
+`{ error: "", loading: false, pageIndex: 1 }` — no banner, no spinner, the page
+index already advanced, and the previous page's rows still on screen. That is
+the silent-wrongness outcome the throw existed to avoid, reached by a different
+route.
+
+**Files:**
+- Modify: `frontend/src/modules/database/databaseStore.ts`
+
+- [ ] **Step 1: Move the construction inside the try**
+
+In `loadBrowsePage`, the `const query = buildBrowseQuery({…})` block currently
+sits above `const runId = …`. Move it so it is the first statement INSIDE the
+`try`, leaving the cursor/pageKey reads and the runId/loading/cancel lines where
+they are. The block ends up as:
+
+```ts
+    const runId = browse.runId + 1;
+    patchBrowse(set, key, { loading: true, error: "", runId });
+    pendingBrowseQueries.get(key)?.cancel();
+    try {
+      // A16: composed inside the try. buildBrowseQuery refuses a cursor whose
+      // arity does not match the key (A15), and a throw from out here reached
+      // nobody — it escaped as an unhandled rejection, leaving the page index
+      // advanced and the previous page's rows on screen, which is the silent
+      // wrongness the refusal existed to prevent.
+      const query = buildBrowseQuery({
+        schema,
+        table,
+        engine,
+        where: browse.where,
+        orderBy: browse.orderBy,
+        pageKey,
+        cursor,
+        pageSize: BROWSE_PAGE_SIZE,
+        offset: pageKey ? undefined : browse.pageIndex * BROWSE_PAGE_SIZE,
+      });
+      const call = runQuery(selectedProfileId, query.sql);
+      …
+```
+
+Keep every existing comment on the lines that move. The `catch` already calls
+`errorMessage(e)` and writes it to `error`, so a refused cursor now shows in the
+banner the document already renders.
+
+- [ ] **Step 2: Verify**
+
+Run: `cd frontend && npx tsc --noEmit && bun test`
+Expected: tsc clean, 0 fail. No test changes — this is a placement fix, and the
+A15 test still covers the refusal itself.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add frontend/src/modules/database/databaseStore.ts
+git commit -m "fix(database): a refused cursor shows in the banner, not the console"
+```
+
+---
+
 ## Task 11: A table tab frees its own state
 
 The previous plan gave a table tab a console, so `consoleIdOfTab` returned one
@@ -1838,7 +2521,22 @@ process.
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `frontend/src/modules/database/useConsoleLifetime.test.ts`:
+**A5: replace, do not only append.** The file already asserts the old answer:
+
+```ts
+test("a table tab's console id comes from what it shows", () => {
+  expect(consoleIdOfTab("database.table", { schema: "chiro", table: "ba_user" })).toBe(
+    "table:chiro.ba_user",
+  );
+});
+```
+
+Delete that test and its three-line comment above it. Leaving it in place would
+have the suite assert both answers for the same call, and one of them has to
+fail. The test below replaces it — it covers the same call and says what the
+answer is now.
+
+Then add to `frontend/src/modules/database/useConsoleLifetime.test.ts`:
 
 ```ts
 // A table tab stopped owning a console when it stopped being one. Claiming an
@@ -1923,6 +2621,29 @@ In `TableDataView.tsx`, add below `useDatabaseChrome()`:
 
 importing it from `./useConsoleLifetime`.
 
+- [ ] **Step 4b: Free the key with the rows (A17)**
+
+`closeBrowse` currently drops `browse[key]` and leaves `pageKeys[key]` behind.
+That is the same unbounded growth this task exists to stop, one entry per table
+ever opened — and it also makes a reopen load page 0 ordered by the PREVIOUS
+key, because A15's gate reads `key in pageKeys` and finds it already true while
+`listIndexes` is still re-reading. In `databaseStore.ts`:
+
+```ts
+  closeBrowse: (key) =>
+    set((state) => {
+      if (!(key in state.browse) && !(key in state.pageKeys)) {
+        return state;
+      }
+      const { [key]: _closed, ...browse } = state.browse;
+      // A17: the key goes with the rows. It is this table's state too, and
+      // leaving it behind both grows the map forever and lets a reopen order
+      // its first page by a key that has since been re-read.
+      const { [key]: _key, ...pageKeys } = state.pageKeys;
+      return { browse, pageKeys };
+    }),
+```
+
 - [ ] **Step 5: Verify**
 
 Run: `cd frontend && bun test src/modules/database/useConsoleLifetime.test.ts && npx tsc --noEmit && bun test`
@@ -1934,6 +2655,169 @@ Expected: PASS, tsc clean, 0 fail.
 git add frontend/src/modules/database
 git commit -m "fix(database): a table tab frees its rows, not a console it no longer owns"
 ```
+
+---
+
+## Task 11c: three things verification turned up
+
+Each was found by checking a finished task rather than by reading the plan, and
+each is small. They are one task because they are one commit's worth of work,
+but they are independent.
+
+**Files:**
+- Modify: `frontend/src/modules/database/databaseStore.ts`
+- Modify: `frontend/src/modules/database/TableDataView.tsx`
+- Modify: `frontend/src/modules/database/tableKey.ts`
+- Test: `frontend/src/modules/database/browseState.test.ts`
+
+- [ ] **Step 1: A21 — a step that failed is not a step**
+
+`stepBrowsePage` advances `pageIndex` and then loads. When the load fails the
+index stays advanced, so the toolbar numbers a page the grid is not showing —
+"201-400" above the rows of page 1. Anything that can fail a query reaches this:
+a cursor the builder refused, a WHERE the user typed wrong, a dropped
+connection.
+
+Write the test first, appended to `browseState.test.ts`:
+
+```ts
+// A21. A failed step must not renumber the page. loadBrowsePage clears `error`
+// before it runs, so an error afterwards belongs to this load — and a toolbar
+// reading "201-400" over page 1's rows is the same lie the runId guard exists
+// to prevent, reached from the other side.
+test("a step whose load fails leaves the page number where it was", async () => {
+  useDatabaseStore.setState({
+    // No profile selected, so loadBrowsePage returns before clearing anything:
+    // a stand-in for any load that ends without delivering a page.
+    selectedProfileId: "",
+    browse: {
+      "public.orders": { ...EMPTY_BROWSE, pageIndex: 1, hasNext: true, error: "boom" },
+    },
+  });
+
+  await useDatabaseStore.getState().stepBrowsePage(
+    "public.orders",
+    { schema: "public", table: "orders" },
+    1,
+  );
+
+  expect(useDatabaseStore.getState().browseState("public.orders").pageIndex).toBe(1);
+});
+```
+
+Then in `stepBrowsePage`:
+
+```ts
+  stepBrowsePage: async (key, target, step) => {
+    const browse = get().browseState(key);
+    const next = browse.pageIndex + step;
+    if (next < 0 || (step === 1 && !browse.hasNext)) {
+      return;
+    }
+    const previous = browse.pageIndex;
+    patchBrowse(set, key, { pageIndex: next });
+    await get().loadBrowsePage(key, target);
+    // A21: put the number back if no page arrived. loadBrowsePage clears
+    // `error` before it runs, so an error here is this load's own — and a
+    // superseded load leaves `error` empty, which correctly means the newer
+    // load owns the page number now and this one must not touch it.
+    if (get().browseState(key).error) {
+      patchBrowse(set, key, { pageIndex: previous });
+    }
+  },
+```
+
+- [ ] **Step 2: A22 — one formula for the browse key**
+
+`TableDataView` computes `` const key = `${schema}.${table}` `` while
+`browseKeyOfTab` computes the same string for the cleanup. That is the
+duplication `useConsoleLifetime.ts`'s own doc comment warns "would drift into a
+leak". Derive it instead:
+
+```ts
+  // A22: through the shared rule, not spelled again here — useBrowseLifetime
+  // computes the same key from a TAB, and two copies would drift into exactly
+  // the leak that comment warns about.
+  const key = browseKeyOfTab("database.table", { schema, table }) ?? "";
+```
+
+importing `browseKeyOfTab` alongside `useBrowseLifetime`.
+
+- [ ] **Step 3: A23 — say what `pageKeyFor` actually guarantees**
+
+The comment above the non-unique-index test explains the `null` by NULLs: "A
+nullable unique index is not a total order: NULLs compare as unknown, so a
+keyset walk would skip or repeat rows." `pageKeyFor` never checks nullability
+and cannot — `IndexInfo` has no such field. So the comment describes a guarantee
+the code does not make, above a test about a different case entirely.
+
+In `tableKey.test.ts`, replace that comment with:
+
+```ts
+  // A non-unique index is not a total order — it has no reason to be — so a
+  // keyset walk over it would skip and repeat rows at every page boundary.
+```
+
+and in `tableKey.ts`, append to the doc comment on `pageKeyFor`:
+
+```
+ *
+ * A23: uniqueness is the whole of the check, because it is the whole of what
+ * IndexInfo reports. A unique index on a NULLABLE column is therefore accepted
+ * here and is the one case this is best-effort about: SQL compares NULLs as
+ * unknown, and runQuery stringifies NULL to "", so a null key value is
+ * indistinguishable from an empty one in a cursor. Excluding it needs
+ * nullability from the backend's IndexInfo, which this plan does not change.
+```
+
+- [ ] **Step 4: Verify**
+
+Run: `cd frontend && npx tsc --noEmit && bun test`
+Expected: tsc clean, 0 fail.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add frontend/src/modules/database
+git commit -m "fix(database): a failed step keeps its page number, and two honest comments"
+```
+
+---
+
+## Task 16: the five follow-ups, verified in the app
+
+A24-A28 are implemented and checked against the same running app and live
+MariaDB as Task 12, with one fixture added for the case that had none:
+
+```sql
+CREATE TABLE nullable_key (
+  code VARCHAR(32) NULL, label VARCHAR(64) NOT NULL, UNIQUE KEY by_code (code)
+);  -- 300 rows, 6 of them with code IS NULL
+```
+
+- **A24** — `nullable_key` reports **unkeyed** and pages by OFFSET. Before the
+  fix `pageKeyFor` accepted `by_code`, so a keyset walk would have skipped and
+  repeated rows around those 6 NULLs, silently. `orders` (primary key) shows no
+  unkeyed note, so the rule does not over-reject: the PK branch is untouched.
+- **A25** — not directly observable (the stranding state is unreachable
+  through the UI, which is why it is latent). What the fix leans on is tested:
+  `browseQuery` refuses an empty `schema`/`table` rather than quoting it into
+  nothing, so the path now ends in the document's error banner.
+- **A26** — asserted under the repo's SSR harness: no `<th>` carries
+  `role="button"` or `tabindex`, the sort `<button>` survives, and the resize
+  separator is intact.
+- **A27** — page 2 of `nullable_key` numbers its gutter 201, 202, 203 … beside
+  a pager reading "201-300". Note the range loses its `+` on the last page,
+  which is correct: 300 rows, so page 2 ends the table.
+- **A28** — Export appears on both `orders` and `nullable_key`, defaults the
+  filename to the table name, and reports "the 100 row(s) now on screen" on a
+  page holding exactly rows 201-300 of 300. The count is the page's, and the
+  wording says so.
+
+One thing observed and NOT changed: the export modal does not close on Escape.
+It is a hand-rolled `fixed inset-0` panel rather than a Radix dialog and always
+was; A28 changed where its rows come from, not how it is dismissed. Worth a
+separate fix, but it is pre-existing behaviour and not this change's to alter.
 
 ---
 
@@ -1949,7 +2833,54 @@ Expected: clean, 0 fail, budget passes.
 Run: `for os in darwin linux windows; do GOOS=$os GOARCH=amd64 go vet ./internal/database/ ./internal/app/; done`
 Expected: no output. Nothing in this plan changes Go, so this is a regression check only.
 
-- [ ] **Step 3: In the app, with MySQL running**
+- [x] **Step 3: In the app, with MySQL running — DONE, observed**
+
+Run against a real server: MariaDB 10.11 (MySQL protocol) on 127.0.0.1:3306,
+user `devkit`, database `devkit_demo`. Docker Hub blobs are blocked by this
+environment's network policy, so the server came from apt rather than an image.
+Fixture: `orders` (501 rows, PK `id`, a reserved-word column `order`, NULL in
+every 7th `note`), `events` (450 rows, only a NON-unique index), `people` (300
+rows, two unique indexes, no PK).
+
+The app itself was built and run here: GTK 4.14.5 + WebKitGTK 2.52.6 under
+Xvfb, driven with xdotool. What was actually seen, check by check:
+
+- **opening a table shows rows immediately, no SQL editor** — yes. The grid
+  fills the height; the WHERE box and ORDER BY are one thin toolbar row. The
+  console remains a separate tab with its own editor.
+- **the gutter counts the table's rows, not the window's, when you scroll** —
+  yes. Scrolled into the virtualised region the gutter reads 83, 84, 85 … with
+  the header still sticky. Note the numbering is per PAGE, not absolute across
+  pages: page 2 restarts at 1 while the range reads "201-400+". The plan's
+  invariant is about the virtual window, and that holds.
+- **dragging a column edge resizes that column** — yes, though the handle is
+  4px and took a sweep to hit. One nuance worth stating precisely: the
+  neighbours' STORED widths are untouched (that is what resizeColumn's unit
+  test pins), but their RENDERED widths reflow, because the table is
+  `w-full table-fixed` and the browser redistributes the remaining width.
+  "Leaves its neighbours alone" is true of the state, not of the pixels.
+- **clicking a header sorts server-side** — yes, and this is the check that
+  proves it: sorting `name` DESC put `customer-0501` (id 501) in the first row.
+  That row was never among the 200 loaded, so the ordering can only have come
+  from the server. The click also sorted rather than starting a drag, which is
+  A6 working.
+- **Next reaches past 200, Back returns to exactly the previous page** — yes.
+  Next → ids 201…, range "201-400+"; Back → ids 1…, range "1-200+". This is the
+  check that would have failed before A15/Task 8b: the first Next produced
+  `WHERE ("id") > ()` and `ERROR 1064`.
+- **a WHERE that matches nothing shows an empty grid, not an error** — yes.
+  `status = 'nope'` gave headers, no rows, "no rows" in the pager, no banner.
+- **a table with no primary key still pages, and shows the "unkeyed" note** —
+  yes. `events` shows "unkeyed" and pages by OFFSET to payload-201…
+- **right-clicking a cell offers copy actions** — yes: Copy cell, Copy row as
+  JSON, Copy column name, Copy 200 values, plus the "result was capped — this
+  is not the whole column" note. One menu for the grid, not one per cell.
+
+Also observed incidentally: each table tab keeps its own filter (the
+`status = 'nope'` on `orders` did not follow to `events`), and Console, `orders`
+and `events` coexist as three separate tabs.
+
+- [ ] **Step 3 (original text, for reference)**
 
 The reported failures came from a database that was not running — `connection_failed` and an empty grid. Start MySQL before this step, or none of it tests anything.
 

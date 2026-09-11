@@ -1,29 +1,47 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Download, FileSpreadsheet, FileJson, X, CheckCircle2, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useShallow } from "zustand/react/shallow";
-import { EMPTY_CONSOLE, useDatabaseStore } from "../databaseStore";
+import { useDatabaseStore } from "../databaseStore";
 import { exportQueryResult } from "../export";
 import { errorMessage } from "../../../bridge/errors";
 
+/**
+ * Writes a result out as CSV or JSON.
+ *
+ * A28: the result arrives on the store, not a console id. This modal only ever
+ * needed a QueryResult, and reaching one through `consoles[modalConsoleId]`
+ * meant only a console could export — a table tab, which has its rows right
+ * there, had to re-run them through a console first. Whoever opens the modal
+ * now hands over the rows and a name for them.
+ */
 export function ExportModal() {
-  // Not named `console`: shadowing the global inside a component is a trap.
-  const modalConsoleId = useDatabaseStore((s) => s.modalConsoleId);
-  const slice = useDatabaseStore((s) => s.consoles[modalConsoleId] ?? EMPTY_CONSOLE);
-  const { showExportModal, setShowExportModal } = useDatabaseStore(
+  const { showExportModal, setShowExportModal, queryResult, suggestedFilename } = useDatabaseStore(
     useShallow((s) => ({
       showExportModal: s.showExportModal,
       setShowExportModal: s.setShowExportModal,
+      queryResult: s.exportResult,
+      suggestedFilename: s.exportFilename,
     }))
   );
   const [format, setFormat] = useState<"csv" | "json">("csv");
-  const [filename, setFilename] = useState("query-result");
+  const [filename, setFilename] = useState(suggestedFilename);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
   const [exportedPath, setExportedPath] = useState("");
 
-  const queryResult = slice.queryResult;
+  // The modal is mounted for the life of the module and only hides itself, so
+  // its fields outlive an export. Each opening starts from the name the caller
+  // suggested, and without last time's outcome still sitting under it claiming
+  // a file this export has not written.
+  useEffect(() => {
+    if (showExportModal) {
+      setFilename(suggestedFilename);
+      setError("");
+      setExportedPath("");
+    }
+  }, [showExportModal, suggestedFilename]);
 
   if (!showExportModal || !queryResult) return null;
 
@@ -65,7 +83,9 @@ export function ExportModal() {
         </div>
 
         <p className="text-body-12 text-text-secondary">
-          Export the current {queryResult.rowCount} row(s) into a file using the native file saver.
+          Export the {queryResult.rowCount} row(s) now on screen into a file using the native file
+          saver. Only the rows already loaded are written: from a table tab that is the page you
+          are looking at, not the whole table.
         </p>
 
         {/* Format Selection Cards */}

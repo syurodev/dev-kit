@@ -60,3 +60,28 @@ export async function exportQueryResult(
 
   return saveExportFile(defaultFilename, content);
 }
+
+/**
+ * The filename to suggest when exporting a table tab's page.
+ *
+ * The table's own name, which is what someone browsing it would type anyway,
+ * minus anything a filesystem would refuse. An identifier is not a filename:
+ * both Postgres and MySQL allow a quoted name containing `/`, and a suggested
+ * name carrying one is a save dialog that either fails or writes somewhere
+ * nobody asked for. A name that sanitises away to nothing falls back rather
+ * than proposing the bare extension.
+ */
+export function tableExportFilename(table: string): string {
+  const cleaned = table
+    .trim()
+    // Denied, not allowed: path separators, what Windows reserves, and control
+    // codes. An allowlist of ASCII would turn `caf\u00e9` into `caf`, and a name
+    // mangled past recognition is its own small lie about what was exported.
+    .replace(/[/\\:*?"<>|\u0000-\u001f]+/g, "-")
+    .replace(/\s+/g, "-")
+    // A leading dot hides the file; a trailing one runs into the extension we
+    // append. `..` survives neither, which is the point.
+    .replace(/^[-.]+/, "")
+    .replace(/[-.]+$/, "");
+  return cleaned || "table-rows";
+}

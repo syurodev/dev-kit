@@ -15,6 +15,7 @@ import {
 import { listEnvTags, type EnvTag } from "../../bridge/environments";
 import { listSSHProfiles, type SSHProfile } from "../../bridge/ssh";
 import { errorMessage, isCancelError } from "../../bridge/errors";
+import { buildBrowseQuery } from "./sql/browseQuery";
 
 /**
  * A folder is keyed by id, not by its name.
@@ -113,6 +114,72 @@ export const EMPTY_CONSOLE: ConsoleState = Object.freeze({
   editorSize: 50,
 }) as ConsoleState;
 
+/**
+ * One table tab's browsing state.
+ *
+ * `cursors` is the key of the LAST row of every page already visited, so page
+ * n starts after cursors[n-1]. Holding the trail rather than one cursor is what
+ * makes the back button work: a keyset walk has no way to compute the previous
+ * page's start from the current one.
+ */
+export type BrowseState = {
+  where: string;
+  orderBy: { column: string; direction: "asc" | "desc" } | null;
+  rows: QueryResult | null;
+  loading: boolean;
+  error: string;
+  /** Last-row keys of pages already seen, one per page boundary crossed. */
+  cursors: string[][];
+  pageIndex: number;
+  /** Whether the server returned the extra row, i.e. another page exists. */
+  hasNext: boolean;
+  /** Column widths, kept per table because the columns are the table's own. */
+  widths: number[];
+  /**
+   * Display order as column positions. Per table, not per module: the columns
+   * belong to the table, and a position means nothing against another one.
+   */
+  order: number[];
+  /**
+   * A3: which load this state belongs to. Bumped when a page is asked for, and
+   * checked when one answers — the same guard `executeQuery` puts on a console
+   * result, for the same reason: Next clicked twice, or a sort applied while a
+   * page is in flight, must not be overwritten by the older answer landing
+   * last. A browser silently showing rows the toolbar does not describe is
+   * worse than one that is slow.
+   */
+  runId: number;
+};
+
+export const EMPTY_BROWSE: BrowseState = Object.freeze({
+  where: "",
+  orderBy: null,
+  rows: null,
+  loading: false,
+  error: "",
+  cursors: [],
+  pageIndex: 0,
+  hasNext: false,
+  widths: [],
+  order: [],
+  runId: 0,
+}) as BrowseState;
+
+/**
+ * Rows per page. The backend caps every result at DefaultMaxRows = 200
+ * (internal/database/database.go) with no per-query override, so a page cannot
+ * usefully be larger than this — and the LIMIT 201 this plan sends comes back
+ * as 200 rows with `truncated` set rather than 201 rows. applyBrowsePage reads
+ * `truncated` as the probe row the server ate (A1).
+ *
+ * A2: exported, because the toolbar numbers its rows from it and "Open in
+ * console" composes a statement with it. Three copies of 200 would drift.
+ */
+export const BROWSE_PAGE_SIZE = 200;
+
+/** What the export modal calls a result nobody gave a better name for. */
+const DEFAULT_EXPORT_FILENAME = "query-result";
+
 export type DatabaseStoreState = {
   profiles: ConnectionProfile[];
   selectedProfileId: string;
@@ -154,6 +221,43 @@ export type DatabaseStoreState = {
   /** Every open console's state, keyed by the tab's console id. */
   consoles: Record<string, ConsoleState>;
 
+  /** Every open table tab's browsing state, keyed "schema.table". */
+  browse: Record<string, BrowseState>;
+  browseState: (key: string) => BrowseState;
+  setBrowseWhere: (key: string, where: string) => void;
+  setBrowseOrder: (key: string, orderBy: BrowseState["orderBy"]) => void;
+  setBrowseWidths: (key: string, widths: number[]) => void;
+  setBrowseOrderColumns: (key: string, order: number[]) => void;
+  closeBrowse: (key: string) => void;
+  /**
+   * Turns one page's raw answer into what the grid shows: drops the probe row,
+   * flips a backwards page, and records whether another page exists.
+   */
+  applyBrowsePage: (
+    key: string,
+    page: {
+      result: QueryResult;
+      pageSize: number;
+      reversed: boolean;
+      pageKey: readonly string[] | null;
+    },
+  ) => void;
+  /** Runs the statement for the current page of a table tab. */
+  loadBrowsePage: (key: string, opts: { schema: string; table: string }) => Promise<void>;
+  /** Moves one page forward or back and loads it. */
+  stepBrowsePage: (
+    key: string,
+    opts: { schema: string; table: string },
+    step: 1 | -1,
+  ) => Promise<void>;
+  /**
+   * The columns that page each table, or null where it has none. Read once per
+   * table from its indexes, because a keyset walk cannot be built without it
+   * and an index list is a round trip.
+   */
+  pageKeys: Record<string, string[] | null>;
+  setPageKey: (key: string, columns: string[] | null) => void;
+
   // Selected cell for CellInspector
   inspectedCell: { columnName: string; value: string } | null;
 
@@ -163,11 +267,24 @@ export type DatabaseStoreState = {
   showExportModal: boolean;
   showSaveQueryModal: boolean;
   /**
-   * The console a modal acts on. Set when a console opens a modal, because
-   * "export this result" is about the console that asked, not about whichever
-   * tab wins a race to render.
+   * The console the save-query modal acts on. Set when a console opens it,
+   * because "save this statement" is about the console that asked, not about
+   * whichever tab wins a race to render.
+   *
+   * A28: export no longer reads this. A console id can only ever name a
+   * console, and a table tab has rows worth exporting but no console and no
+   * statement — so export carries its result (below), while save, which
+   * genuinely needs the SQL, keeps the id.
    */
   modalConsoleId: string;
+  /**
+   * The rows the export modal writes out, captured when it opens. What put
+   * them on screen — a console's query, a table tab's page — is the caller's
+   * business and not the modal's.
+   */
+  exportResult: QueryResult | null;
+  /** The name the export modal starts with, without an extension. */
+  exportFilename: string;
 
   // Actions
   fetchProfiles: () => Promise<void>;
@@ -178,7 +295,7 @@ export type DatabaseStoreState = {
   setShowConnectionOptionsDialog: (show: boolean) => void;
   setShowExportModal: (show: boolean) => void;
   setShowSaveQueryModal: (show: boolean) => void;
-  openExportModal: (consoleId: string) => void;
+  openExportModal: (result: QueryResult, filename?: string) => void;
   openSaveQueryModal: (consoleId: string) => void;
 
   // Folder actions
@@ -235,6 +352,19 @@ function patchConsole(
   }));
 }
 
+function patchBrowse(
+  set: (fn: (state: DatabaseStoreState) => Partial<DatabaseStoreState>) => void,
+  key: string,
+  patch: Partial<BrowseState>,
+): void {
+  set((state) => ({
+    browse: {
+      ...state.browse,
+      [key]: { ...(state.browse[key] ?? EMPTY_BROWSE), ...patch },
+    },
+  }));
+}
+
 /**
  * The in-flight call per console, so Cancel reaches the right one. Outside the
  * store because a CancellableCall is not state — nothing renders from it, and
@@ -242,6 +372,13 @@ function patchConsole(
  * starts.
  */
 const pendingQueries = new Map<string, ReturnType<typeof runQuery>>();
+
+/**
+ * The in-flight page per table tab, so a superseded load can be stopped. Same
+ * reasoning as pendingQueries: a CancellableCall is not state, and holding it
+ * in the store would re-render every open table whenever any one of them paged.
+ */
+const pendingBrowseQueries = new Map<string, ReturnType<typeof runQuery>>();
 
 export const useDatabaseStore = create<DatabaseStoreState>()(
   persist(
@@ -268,6 +405,8 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   tableColumnsError: {},
 
   consoles: {},
+  browse: {},
+  pageKeys: {},
 
   inspectedCell: null,
 
@@ -276,6 +415,8 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   showExportModal: false,
   showSaveQueryModal: false,
   modalConsoleId: "",
+  exportResult: null,
+  exportFilename: DEFAULT_EXPORT_FILENAME,
 
   fetchProfiles: async () => {
     set({ loadingProfiles: true, profileError: "" });
@@ -327,7 +468,12 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   setShowConnectionOptionsDialog: (show) => set({ showConnectionOptionsDialog: show }),
   setShowExportModal: (show) => set({ showExportModal: show }),
   setShowSaveQueryModal: (show) => set({ showSaveQueryModal: show }),
-  openExportModal: (consoleId) => set({ showExportModal: true, modalConsoleId: consoleId }),
+  openExportModal: (result, filename) =>
+    set({
+      showExportModal: true,
+      exportResult: result,
+      exportFilename: filename?.trim() || DEFAULT_EXPORT_FILENAME,
+    }),
   openSaveQueryModal: (consoleId) => set({ showSaveQueryModal: true, modalConsoleId: consoleId }),
 
   toggleFolder: (folderId: string) => {
@@ -508,6 +654,154 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       }
       const { [consoleId]: _closed, ...rest } = state.consoles;
       return { consoles: rest };
+    }),
+
+  browseState: (key) => get().browse[key] ?? EMPTY_BROWSE,
+
+  // Both of these invalidate the walk: the cursors describe positions in a
+  // result the new filter or sort no longer produces, and reusing them would
+  // page through rows that are not there.
+  setBrowseWhere: (key, where) =>
+    patchBrowse(set, key, { where, cursors: [], pageIndex: 0, hasNext: false }),
+
+  setBrowseOrder: (key, orderBy) =>
+    patchBrowse(set, key, { orderBy, cursors: [], pageIndex: 0, hasNext: false }),
+
+  setBrowseWidths: (key, widths) => patchBrowse(set, key, { widths }),
+
+  setBrowseOrderColumns: (key, order) => patchBrowse(set, key, { order }),
+
+  applyBrowsePage: (key, { result, pageSize, reversed }) => {
+    // A1. Two ways to learn there is more: the probe row arrived, or the server
+    // ate it. DBQuery caps at DefaultMaxRows = 200 with no override, so a
+    // LIMIT 201 for a 200-row page comes back as 200 rows with `truncated`
+    // set and the probe row gone. Reading the count alone would leave hasNext
+    // false on every full page and the table unpageable past row 200.
+    const hasNext = result.rows.length > pageSize || result.truncated;
+    const kept = result.rows.length > pageSize ? result.rows.slice(0, pageSize) : result.rows;
+    // A backwards page was asked for in DESC order so the server could walk
+    // away from the cursor; the rows arrive bottom-first.
+    const rows = reversed ? [...kept].reverse() : kept;
+    patchBrowse(set, key, {
+      rows: { ...result, rows, rowCount: rows.length },
+      hasNext: reversed ? true : hasNext,
+      loading: false,
+      error: "",
+    });
+  },
+
+  loadBrowsePage: async (key, { schema, table }) => {
+    const { selectedProfileId, profiles } = get();
+    if (!selectedProfileId) {
+      return;
+    }
+    const browse = get().browseState(key);
+    const engine = profiles.find((p) => p.id === selectedProfileId)?.engine;
+    const pageKey = get().pageKeys[key] ?? null;
+    const cursor =
+      pageKey && browse.pageIndex > 0
+        ? { values: browse.cursors[browse.pageIndex - 1] ?? [], direction: "next" as const }
+        : null;
+
+    // A3. The same stale-answer guard executeQuery puts on a console result.
+    // Next clicked twice, or a sort applied while a page is in flight, leaves
+    // two calls racing; without this the older one can land last and fill the
+    // grid with rows the toolbar no longer describes.
+    const runId = browse.runId + 1;
+    patchBrowse(set, key, { loading: true, error: "", runId });
+    // And the superseded statement is stopped rather than left to finish: the
+    // page it would return is one nobody is going to look at.
+    pendingBrowseQueries.get(key)?.cancel();
+    try {
+      // A16: composed inside the try. buildBrowseQuery refuses a cursor whose
+      // arity does not match the key (A15), and a throw from out here reached
+      // nobody — it escaped as an unhandled rejection, leaving the page index
+      // advanced and the previous page's rows on screen, which is the silent
+      // wrongness the refusal existed to prevent.
+      const query = buildBrowseQuery({
+        schema,
+        table,
+        engine,
+        where: browse.where,
+        orderBy: browse.orderBy,
+        pageKey,
+        cursor,
+        pageSize: BROWSE_PAGE_SIZE,
+        offset: pageKey ? undefined : browse.pageIndex * BROWSE_PAGE_SIZE,
+      });
+      const call = runQuery(selectedProfileId, query.sql);
+      pendingBrowseQueries.set(key, call);
+      const result = await call;
+      if (get().browseState(key).runId !== runId) {
+        return;
+      }
+      get().applyBrowsePage(key, {
+        result,
+        pageSize: query.pageSize,
+        reversed: query.reversed,
+        pageKey,
+      });
+      // Remember where this page ended, so the next one can start after it.
+      if (pageKey && result.rows.length > 0) {
+        const last = result.rows[Math.min(result.rows.length, query.pageSize) - 1];
+        const keyIndexes = pageKey.map((column) => result.columns.indexOf(column));
+        if (!keyIndexes.includes(-1)) {
+          const trail = [...get().browseState(key).cursors];
+          trail[get().browseState(key).pageIndex] = keyIndexes.map((i) => last[i]);
+          patchBrowse(set, key, { cursors: trail });
+        }
+      }
+    } catch (e) {
+      // Both branches check the guard first. A cancel usually means a newer
+      // load superseded this one, and clearing `loading` for the old call
+      // would leave the spinner off while the new page is still coming.
+      if (get().browseState(key).runId !== runId) {
+        return;
+      }
+      if (isCancelError(e)) {
+        patchBrowse(set, key, { loading: false });
+        return;
+      }
+      patchBrowse(set, key, { loading: false, error: errorMessage(e) });
+    } finally {
+      if (get().browseState(key).runId === runId) {
+        pendingBrowseQueries.delete(key);
+      }
+    }
+  },
+
+  stepBrowsePage: async (key, target, step) => {
+    const browse = get().browseState(key);
+    const next = browse.pageIndex + step;
+    if (next < 0 || (step === 1 && !browse.hasNext)) {
+      return;
+    }
+    const previous = browse.pageIndex;
+    patchBrowse(set, key, { pageIndex: next });
+    await get().loadBrowsePage(key, target);
+    // A21: put the number back if no page arrived. loadBrowsePage clears
+    // `error` before it runs, so an error here is this load's own — and a
+    // superseded load leaves `error` empty, which correctly means the newer
+    // load owns the page number now and this one must not touch it.
+    if (get().browseState(key).error) {
+      patchBrowse(set, key, { pageIndex: previous });
+    }
+  },
+
+  setPageKey: (key, columns) =>
+    set((state) => ({ pageKeys: { ...state.pageKeys, [key]: columns } })),
+
+  closeBrowse: (key) =>
+    set((state) => {
+      if (!(key in state.browse) && !(key in state.pageKeys)) {
+        return state;
+      }
+      const { [key]: _closed, ...browse } = state.browse;
+      // A17: the key goes with the rows. It is this table's state too, and
+      // leaving it behind both grows the map forever and lets a reopen order
+      // its first page by a key that has since been re-read.
+      const { [key]: _key, ...pageKeys } = state.pageKeys;
+      return { browse, pageKeys };
     }),
 
   setSql: (consoleId, sql) => patchConsole(set, consoleId, { sql }),

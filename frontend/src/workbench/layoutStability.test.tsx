@@ -47,7 +47,8 @@ describe("layout stability", () => {
 
   it("scroll areas that gain and lose a scrollbar reserve the gutter", () => {
     const scrollers: [string, string][] = [
-      ["modules/database/components/QueryConsole.tsx", "result table"],
+      // The console's result scroller moved into the shared grid.
+      ["modules/database/grid/ResultGrid.tsx", "result grid"],
       ["modules/database/components/QueryHistoryView.tsx", "history list"],
       ["modules/database/components/SavedQueriesView.tsx", "saved list"],
       ["modules/database/components/LiveActivityView.tsx", "activity table"],

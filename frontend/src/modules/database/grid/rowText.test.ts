@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { columnValues, rowAsJSON } from "./QueryConsole";
+import { columnValues, rowAsJSON } from "./rowText";
 
 describe("rowAsJSON", () => {
   it("pairs a row back up with its column names", () => {

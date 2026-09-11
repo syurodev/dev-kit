@@ -1,20 +1,24 @@
 import { beforeEach, expect, test } from "bun:test";
 import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
-import { consoleIdOfTab } from "./useConsoleLifetime";
+import { browseKeyOfTab, consoleIdOfTab } from "./useConsoleLifetime";
 import { DEFAULT_CONSOLE_ID } from "./databaseStore";
 
 beforeEach(() => {
   useWorkbenchTabsStore.setState({ activeModuleId: "", modules: {} });
 });
 
-// A table tab's params are {schema, table}, not {consoleId}. A cleanup that
-// looked for params.consoleId would never match a table tab and would free its
-// console the moment the tab left the mount window — losing the SQL the user
-// edited and 200 rows of result.
-test("a table tab's console id comes from what it shows", () => {
-  expect(consoleIdOfTab("database.table", { schema: "chiro", table: "ba_user" })).toBe(
-    "table:chiro.ba_user",
+// A table tab stopped owning a console when it stopped being one. Claiming an
+// id here would have closeConsole free a console a real console tab might be
+// using, and would leave the browse state — a page of rows — behind instead.
+test("a table tab owns browse state, not a console", () => {
+  expect(consoleIdOfTab("database.table", { schema: "chiro", table: "ba_user" })).toBeNull();
+  expect(browseKeyOfTab("database.table", { schema: "chiro", table: "ba_user" })).toBe(
+    "chiro.ba_user",
   );
+});
+
+test("a console tab owns no browse state", () => {
+  expect(browseKeyOfTab("database.console", { consoleId: "c1" })).toBeNull();
 });
 
 test("a console tab carries its id directly, and falls back to the default", () => {
