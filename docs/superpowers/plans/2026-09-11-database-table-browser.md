@@ -12,12 +12,71 @@
 
 ---
 
+## Amendments — 2026-09-11, during implementation
+
+The plan was written before the code. Six things it assumed turned out not to
+hold. Each is corrected in place below; this list is the record of what changed
+and why.
+
+1. **A1 — `hasNext` cannot come from the probe row alone (Task 7).** The plan
+   asks for `pageSize + 1` rows so the extra one answers "is there a next
+   page". But `internal/database/database.go` caps every result at
+   `DefaultMaxRows = 200` with no per-query override, so `LIMIT 201` comes
+   back as 200 rows with `truncated: true` — the probe row is eaten by the
+   server before it reaches the store. Left as written, `hasNext` would be
+   `false` on every page, Next would be permanently disabled and the table
+   would never page past row 200. `truncated` is the server saying the same
+   thing the probe row would have, so `hasNext` reads both.
+
+2. **A2 — the page size is a constant, not the literal 200 (Tasks 7-8).**
+   `TableToolbar` computed its row range from a hardcoded `200` and
+   `onOpenInConsole` passed a hardcoded `pageSize: 200`, in a plan whose only
+   page-size constant lives in the store. Two of the three would have gone on
+   claiming 200 after the third changed. `BROWSE_PAGE_SIZE` is exported and
+   passed in.
+
+3. **A3 — a page load needs a stale-answer guard (Tasks 6-7).** `executeQuery`
+   already guards every console result with a `queryRunId`, because a second
+   run started before the first answered must not be overwritten by it.
+   `loadBrowsePage` had no such guard, so clicking Next twice quickly, or
+   sorting while a page was in flight, could land the older answer last and
+   show a page that is not the one the toolbar says. A data browser showing
+   the wrong rows silently is the failure this plan exists to avoid, so
+   `BrowseState` gains a `runId` and the superseded call is cancelled.
+
+4. **A4 — `rowAsJSON` and `columnValues` move, they are not deleted (Task 2).**
+   Task 2 offered to delete them "if nothing else in the file uses them". Two
+   things do: `components/rowAsJSON.test.ts` imports both, and the grid needs
+   exactly what they do. The grid's inlined `Object.fromEntries(result.columns
+   .map(…))` is also not the same function — `rowAsJSON` maps over the ROW and
+   falls back to `col_${i}` for an empty name, which is what its tests pin. So
+   both move to `grid/rowText.ts`, the test moves with them, and the grid calls
+   them instead of reimplementing one of them slightly differently.
+
+5. **A5 — Task 11 replaces a test, it does not only append one.**
+   `useConsoleLifetime.test.ts` already asserts `consoleIdOfTab("database.
+   table", …) === "table:chiro.ba_user"`. Task 11 changes that branch to
+   return null, so appending the new test leaves the suite asserting both
+   answers. The old test is replaced.
+
+6. **A6 — the drag needs an activation distance (Task 10).** dnd-kit's pointer
+   sensor starts a drag on pointerdown by default. The header cell is also the
+   sort button and carries the resize handle, so without a distance threshold
+   clicking a header would begin a drag instead of sorting, and a resize drag
+   would reorder the column. A `PointerSensor` with `activationConstraint:
+   { distance: 4 }` keeps a click a click, and the resize handle stops the
+   event reaching the sensor.
+
+---
+
 ## File Structure
 
 **Created**
 - `frontend/src/modules/database/grid/ResultGrid.tsx` — the shared grid
 - `frontend/src/modules/database/grid/gridColumns.ts` — column order and width state, pure
 - `frontend/src/modules/database/grid/gridColumns.test.ts`
+- `frontend/src/modules/database/grid/rowText.ts` — copy-a-row / copy-a-column text (A4, moved out of `QueryConsole.tsx`)
+- `frontend/src/modules/database/grid/rowText.test.ts` (A4, moved from `components/rowAsJSON.test.ts`)
 - `frontend/src/modules/database/sql/identifier.ts` — engine-correct quoting
 - `frontend/src/modules/database/sql/identifier.test.ts`
 - `frontend/src/modules/database/sql/browseQuery.ts` — the statement a table tab runs
@@ -31,6 +90,9 @@
 - `frontend/src/modules/database/components/QueryConsole.tsx` — renders `ResultGrid`
 - `frontend/src/modules/database/databaseStore.ts` — browse state per table
 - `frontend/package.json` — `@dnd-kit/*`
+
+**Deleted**
+- `frontend/src/modules/database/components/rowAsJSON.test.ts` — moved to `grid/rowText.test.ts` (A4)
 
 ---
 
@@ -219,6 +281,10 @@ import {
   orderedColumns,
   resizeColumn,
 } from "./gridColumns";
+// A4: moved here from QueryConsole rather than reimplemented. rowAsJSON maps
+// over the ROW and names an empty column col_${i}; an inlined
+// Object.fromEntries over `columns` is a different function with its own bugs.
+import { columnValues, rowAsJSON } from "./rowText";
 
 const ROW_HEIGHT = 36;
 
@@ -368,9 +434,7 @@ export function ResultGrid({
               Copy cell
             </ContextMenuItem>
             <ContextMenuItem
-              onSelect={() =>
-                void copyText(JSON.stringify(Object.fromEntries(result.columns.map((c, i) => [c, cell.row[i]])), null, 2))
-              }
+              onSelect={() => void copyText(rowAsJSON(result.columns, cell.row))}
             >
               <Braces />
               Copy row as JSON
@@ -380,7 +444,7 @@ export function ResultGrid({
               Copy column name
             </ContextMenuItem>
             <ContextMenuItem
-              onSelect={() => void copyText(result.rows.map((r) => r[target!.column] ?? "").join("\n"))}
+              onSelect={() => void copyText(columnValues(result.rows, target!.column))}
             >
               <List />
               Copy {result.rows.length} value{result.rows.length === 1 ? "" : "s"}
@@ -488,7 +552,43 @@ and above the return:
   const [gridWidths, setGridWidths] = useState<number[]>([]);
 ```
 
-Delete the now-unused `useVirtualRows` import, `resultRows`, `RESULT_ROW_HEIGHT`, `columnValues`, `rowAsJSON` and the per-cell `ContextMenu` imports if nothing else in the file uses them — check each with a grep before deleting.
+Delete the now-unused `useVirtualRows` import, `resultRows`, `RESULT_ROW_HEIGHT` and the per-cell `ContextMenu` imports — grep each first; `ContextMenu` is used nowhere else in the file, so `grep -c ContextMenu` reaching 0 is the check in Step 3.
+
+**A4: `columnValues` and `rowAsJSON` move rather than being deleted.** They are
+not unused — `components/rowAsJSON.test.ts` imports both, and the grid above
+calls both. Move them, with their doc comments verbatim, out of
+`QueryConsole.tsx` into a new `frontend/src/modules/database/grid/rowText.ts`:
+
+```ts
+/**
+ * The text behind "copy a row" and "copy a column".
+ *
+ * Lives beside the grid because the grid's context menu is the only thing that
+ * asks for it now; it was in QueryConsole when the menu was.
+ */
+
+/** One column's values, newline separated — the shape that pastes into an IN
+ *  list or a spreadsheet. A row shorter than the header becomes an empty line,
+ *  which `join` already does for a hole; no guard needed. */
+export function columnValues(rows: string[][], index: number): string {
+  return rows.map((row) => row[index]).join("\n");
+}
+
+/**
+ * A row is a string array beside a separate column list — JSON has to pair them
+ * back up. Values arrive already stringified by the bridge, so this is a shape
+ * change, not a re-encode.
+ */
+export function rowAsJSON(columns: string[], row: string[]): string {
+  return JSON.stringify(
+    Object.fromEntries(row.map((value, i) => [columns[i] || `col_${i}`, value])),
+    null,
+    2,
+  );
+}
+```
+
+Then move the test with them — `git mv frontend/src/modules/database/components/rowAsJSON.test.ts frontend/src/modules/database/grid/rowText.test.ts` — and change its import to `from "./rowText"`. Its assertions do not change: they are what pins the two behaviours an inlined version loses.
 
 - [ ] **Step 3: Verify**
 
@@ -497,6 +597,9 @@ Expected: tsc clean, 0 fail.
 
 Run: `cd frontend && grep -c ContextMenu src/modules/database/components/QueryConsole.tsx`
 Expected: 0 — every menu in the result moved into the grid.
+
+Run: `cd frontend && grep -rn "rowAsJSON\|columnValues" src/modules/database`
+Expected: only `grid/rowText.ts`, `grid/rowText.test.ts` and `grid/ResultGrid.tsx` — nothing left importing them from `QueryConsole` (A4).
 
 - [ ] **Step 4: Commit**
 
@@ -1056,6 +1159,15 @@ export type BrowseState = {
   hasNext: boolean;
   /** Column widths, kept per table because the columns are the table's own. */
   widths: number[];
+  /**
+   * A3: which load this state belongs to. Bumped when a page is asked for, and
+   * checked when one answers — the same guard `executeQuery` puts on a console
+   * result, for the same reason: Next clicked twice, or a sort applied while a
+   * page is in flight, must not be overwritten by the older answer landing
+   * last. A browser silently showing rows the toolbar does not describe is
+   * worse than one that is slow.
+   */
+  runId: number;
 };
 
 export const EMPTY_BROWSE: BrowseState = Object.freeze({
@@ -1068,6 +1180,7 @@ export const EMPTY_BROWSE: BrowseState = Object.freeze({
   pageIndex: 0,
   hasNext: false,
   widths: [],
+  runId: 0,
 }) as BrowseState;
 ```
 
@@ -1183,6 +1296,44 @@ test("a short page is the last page", () => {
   expect(useDatabaseStore.getState().browseState("public.orders").hasNext).toBe(false);
 });
 
+// A1. The server caps every result at DefaultMaxRows = 200 (internal/database/
+// database.go) and there is no per-query override, so LIMIT 201 comes back as
+// 200 rows with `truncated` set — the probe row never survives the trip. If
+// hasNext read the row count alone it would be false on every full page and the
+// table could not be paged past row 200 at all. `truncated` is the server
+// saying exactly what the probe row would have said.
+test("a page the server capped still has a next page", () => {
+  const { applyBrowsePage } = useDatabaseStore.getState();
+  const rows = Array.from({ length: 200 }, (_, i) => [String(i)]);
+
+  applyBrowsePage("public.orders", {
+    result: { columns: ["id"], rows, rowCount: 200, truncated: true },
+    pageSize: 200,
+    reversed: false,
+    pageKey: ["id"],
+  });
+
+  const state = useDatabaseStore.getState().browseState("public.orders");
+  expect(state.hasNext).toBe(true);
+  expect(state.rows?.rows).toHaveLength(200);
+});
+
+// Exactly one page of matching rows is not a capped result: the driver ran out
+// before the cap, so `truncated` is false and there is genuinely no next page.
+test("a full page that the server did not cap is the last page", () => {
+  const { applyBrowsePage } = useDatabaseStore.getState();
+  const rows = Array.from({ length: 200 }, (_, i) => [String(i)]);
+
+  applyBrowsePage("public.orders", {
+    result: { columns: ["id"], rows, rowCount: 200, truncated: false },
+    pageSize: 200,
+    reversed: false,
+    pageKey: ["id"],
+  });
+
+  expect(useDatabaseStore.getState().browseState("public.orders").hasNext).toBe(false);
+});
+
 // Paging back asks the server for rows before the cursor in DESC order, so
 // they arrive bottom-first and have to be flipped before display.
 test("a reversed page is flipped back", () => {
@@ -1239,8 +1390,13 @@ Implement `applyBrowsePage`:
 
 ```ts
   applyBrowsePage: (key, { result, pageSize, reversed }) => {
-    const hasNext = result.rows.length > pageSize;
-    const kept = hasNext ? result.rows.slice(0, pageSize) : result.rows;
+    // A1. Two ways to learn there is more: the probe row arrived, or the server
+    // ate it. DBQuery caps at DefaultMaxRows = 200 with no override, so a
+    // LIMIT 201 for a 200-row page comes back as 200 rows with `truncated`
+    // set and the probe row gone. Reading the count alone would leave hasNext
+    // false on every full page and the table unpageable past row 200.
+    const hasNext = result.rows.length > pageSize || result.truncated;
+    const kept = result.rows.length > pageSize ? result.rows.slice(0, pageSize) : result.rows;
     // A backwards page was asked for in DESC order so the server could walk
     // away from the cursor; the rows arrive bottom-first.
     const rows = reversed ? [...kept].reverse() : kept;
@@ -1256,7 +1412,7 @@ Implement `applyBrowsePage`:
 - [ ] **Step 4: Run the test**
 
 Run: `cd frontend && bun test src/modules/database/browseState.test.ts`
-Expected: PASS, 7 tests.
+Expected: PASS, 9 tests.
 
 - [ ] **Step 5: Implement the loader**
 
@@ -1286,9 +1442,22 @@ Expected: PASS, 7 tests.
       offset: pageKey ? undefined : browse.pageIndex * BROWSE_PAGE_SIZE,
     });
 
-    patchBrowse(set, key, { loading: true, error: "" });
+    // A3. The same stale-answer guard executeQuery puts on a console result.
+    // Next clicked twice, or a sort applied while a page is in flight, leaves
+    // two calls racing; without this the older one can land last and fill the
+    // grid with rows the toolbar no longer describes.
+    const runId = browse.runId + 1;
+    patchBrowse(set, key, { loading: true, error: "", runId });
+    // And the superseded statement is stopped rather than left to finish: the
+    // page it would return is one nobody is going to look at.
+    pendingBrowseQueries.get(key)?.cancel();
     try {
-      const result = await runQuery(selectedProfileId, query.sql);
+      const call = runQuery(selectedProfileId, query.sql);
+      pendingBrowseQueries.set(key, call);
+      const result = await call;
+      if (get().browseState(key).runId !== runId) {
+        return;
+      }
       get().applyBrowsePage(key, {
         result,
         pageSize: query.pageSize,
@@ -1306,11 +1475,21 @@ Expected: PASS, 7 tests.
         }
       }
     } catch (e) {
+      // Both branches check the guard first. A cancel usually means a newer
+      // load superseded this one, and clearing `loading` for the old call
+      // would leave the spinner off while the new page is still coming.
+      if (get().browseState(key).runId !== runId) {
+        return;
+      }
       if (isCancelError(e)) {
         patchBrowse(set, key, { loading: false });
         return;
       }
       patchBrowse(set, key, { loading: false, error: errorMessage(e) });
+    } finally {
+      if (get().browseState(key).runId === runId) {
+        pendingBrowseQueries.delete(key);
+      }
     }
   },
 
@@ -1329,12 +1508,27 @@ Beside the other constants, add:
 
 ```ts
 /**
- * Rows per page. Matches the backend's DefaultMaxRows (internal/database/
- * database.go): asking for more would have the server truncate the page and
- * set `truncated`, which the pager would then read as a full page and offer a
- * next one that does not exist.
+ * Rows per page. The backend caps every result at DefaultMaxRows = 200
+ * (internal/database/database.go) with no per-query override, so a page cannot
+ * usefully be larger than this — and the LIMIT 201 this plan sends comes back
+ * as 200 rows with `truncated` set rather than 201 rows. applyBrowsePage reads
+ * `truncated` as the probe row the server ate (A1).
+ *
+ * A2: exported, because the toolbar numbers its rows from it and "Open in
+ * console" composes a statement with it. Three copies of 200 would drift.
  */
-const BROWSE_PAGE_SIZE = 200;
+export const BROWSE_PAGE_SIZE = 200;
+```
+
+and beside `pendingQueries`, its twin (A3):
+
+```ts
+/**
+ * The in-flight page per table tab, so a superseded load can be stopped. Same
+ * reasoning as pendingQueries: a CancellableCall is not state, and holding it
+ * in the store would re-render every open table whenever any one of them paged.
+ */
+const pendingBrowseQueries = new Map<string, ReturnType<typeof runQuery>>();
 ```
 
 And on `DatabaseStoreState`, beside `browse`:
@@ -1421,9 +1615,16 @@ export function TableToolbar({
   onStep: (step: 1 | -1) => void;
   onRefresh: () => void;
   onOpenInConsole: () => void;
+  /**
+   * A2: rows per page, from the store's BROWSE_PAGE_SIZE rather than a literal
+   * 200 spelled here. The row range is the one thing in this component that
+   * would go on claiming 200 after the page size changed, and it would look
+   * right while being wrong.
+   */
+  pageSize: number;
 }) {
-  const first = pageIndex * 200 + 1;
-  const last = pageIndex * 200 + rowCount;
+  const first = pageIndex * pageSize + 1;
+  const last = pageIndex * pageSize + rowCount;
 
   return (
     <div className="flex shrink-0 flex-col gap-2 pb-2">
@@ -1510,7 +1711,7 @@ import { ResultGrid } from "./grid/ResultGrid";
 import { resizeColumn } from "./grid/gridColumns";
 import { TableToolbar } from "./components/TableToolbar";
 import { DatabaseOverlays } from "./DatabaseOverlays";
-import { useDatabaseStore } from "./databaseStore";
+import { BROWSE_PAGE_SIZE, useDatabaseStore } from "./databaseStore";
 import { useDatabaseChrome } from "./useDatabaseChrome";
 import { useIsActiveDocument } from "./useIsActiveDocument";
 import { openConsoleTab } from "./documents";
@@ -1609,6 +1810,7 @@ export function TableDataView({ params }: { params?: Record<string, unknown> }) 
             : "ORDER BY —"
         }
         pageIndex={browse.pageIndex}
+        pageSize={BROWSE_PAGE_SIZE}
         rowCount={browse.rows?.rows.length ?? 0}
         hasNext={browse.hasNext}
         keyed={pageKey !== null}
@@ -1627,7 +1829,7 @@ export function TableDataView({ params }: { params?: Record<string, unknown> }) 
               orderBy: browse.orderBy,
               pageKey,
               cursor: null,
-              pageSize: 200,
+              pageSize: BROWSE_PAGE_SIZE,
             }).sql,
           );
           openConsoleTab(consoleId, table);
@@ -1725,10 +1927,30 @@ git commit -m "build(frontend): add dnd-kit for column reordering"
 
 - [ ] **Step 1: Make the header cells sortable**
 
-Wrap the header row in `DndContext` + `SortableContext`, and give `HeaderCell` a `useSortable` with `position: relative` and a `transform`:
+**A6 first: the sensor needs an activation distance.** dnd-kit's `PointerSensor`
+claims the pointer on pointerdown by default. The header cell is also the sort
+button and carries the resize handle, so without a threshold clicking a header
+would start a drag instead of sorting, and dragging the resize handle would
+reorder the column instead of widening it. In `ResultGrid`:
+
+```tsx
+  // A click is a sort and a drag is a reorder, and they start with the same
+  // pointerdown — four pixels is what tells them apart. Without this the sort
+  // never fires and the resize handle reorders instead of resizing.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+  );
+```
+
+and the resize handle's `onPointerDown` gets `event.stopPropagation()` beside
+its existing `event.preventDefault()`, so a resize never reaches the sensor at
+all.
+
+Then wrap the header row in `DndContext` + `SortableContext`, and give `HeaderCell` a `useSortable` with `position: relative` and a `transform`:
 
 ```tsx
       <DndContext
+        sensors={sensors}
         collisionDetection={closestCenter}
         modifiers={[restrictToHorizontalAxis]}
         onDragEnd={(event) => {
@@ -1751,6 +1973,10 @@ and in `HeaderCell`:
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: index,
   });
+
+  // `attributes` and `listeners` go on the `<th>`, not on the sort button: a
+  // drag handle nested inside a click target is the same fight over the
+  // pointer the resize handle already avoids by being a sibling.
 
   const style: CSSProperties = {
     // relative + transform, never out of flow: a `<th>` taken out of flow takes
@@ -1838,7 +2064,22 @@ process.
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `frontend/src/modules/database/useConsoleLifetime.test.ts`:
+**A5: replace, do not only append.** The file already asserts the old answer:
+
+```ts
+test("a table tab's console id comes from what it shows", () => {
+  expect(consoleIdOfTab("database.table", { schema: "chiro", table: "ba_user" })).toBe(
+    "table:chiro.ba_user",
+  );
+});
+```
+
+Delete that test and its three-line comment above it. Leaving it in place would
+have the suite assert both answers for the same call, and one of them has to
+fail. The test below replaces it — it covers the same call and says what the
+answer is now.
+
+Then add to `frontend/src/modules/database/useConsoleLifetime.test.ts`:
 
 ```ts
 // A table tab stopped owning a console when it stopped being one. Claiming an
