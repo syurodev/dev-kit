@@ -53,3 +53,89 @@ test("changing the sort resets the page for the same reason", () => {
 
   expect(useDatabaseStore.getState().browseState("public.orders").pageIndex).toBe(0);
 });
+
+// The statement asks for pageSize + 1 rows. The extra one answers "is there a
+// next page" without a COUNT(*), and must never reach the grid.
+test("the probe row sets hasNext and is not shown", () => {
+  const { applyBrowsePage } = useDatabaseStore.getState();
+  const rows = Array.from({ length: 201 }, (_, i) => [String(i)]);
+
+  applyBrowsePage("public.orders", {
+    result: { columns: ["id"], rows, rowCount: 201, truncated: false },
+    pageSize: 200,
+    reversed: false,
+    pageKey: ["id"],
+  });
+
+  const state = useDatabaseStore.getState().browseState("public.orders");
+  expect(state.hasNext).toBe(true);
+  expect(state.rows?.rows).toHaveLength(200);
+});
+
+test("a short page is the last page", () => {
+  const { applyBrowsePage } = useDatabaseStore.getState();
+  applyBrowsePage("public.orders", {
+    result: { columns: ["id"], rows: [["1"], ["2"]], rowCount: 2, truncated: false },
+    pageSize: 200,
+    reversed: false,
+    pageKey: ["id"],
+  });
+
+  expect(useDatabaseStore.getState().browseState("public.orders").hasNext).toBe(false);
+});
+
+// A1. The server caps every result at DefaultMaxRows = 200 (internal/database/
+// database.go) and there is no per-query override, so LIMIT 201 comes back as
+// 200 rows with `truncated` set — the probe row never survives the trip. If
+// hasNext read the row count alone it would be false on every full page and the
+// table could not be paged past row 200 at all. `truncated` is the server
+// saying exactly what the probe row would have said.
+test("a page the server capped still has a next page", () => {
+  const { applyBrowsePage } = useDatabaseStore.getState();
+  const rows = Array.from({ length: 200 }, (_, i) => [String(i)]);
+
+  applyBrowsePage("public.orders", {
+    result: { columns: ["id"], rows, rowCount: 200, truncated: true },
+    pageSize: 200,
+    reversed: false,
+    pageKey: ["id"],
+  });
+
+  const state = useDatabaseStore.getState().browseState("public.orders");
+  expect(state.hasNext).toBe(true);
+  expect(state.rows?.rows).toHaveLength(200);
+});
+
+// Exactly one page of matching rows is not a capped result: the driver ran out
+// before the cap, so `truncated` is false and there is genuinely no next page.
+test("a full page that the server did not cap is the last page", () => {
+  const { applyBrowsePage } = useDatabaseStore.getState();
+  const rows = Array.from({ length: 200 }, (_, i) => [String(i)]);
+
+  applyBrowsePage("public.orders", {
+    result: { columns: ["id"], rows, rowCount: 200, truncated: false },
+    pageSize: 200,
+    reversed: false,
+    pageKey: ["id"],
+  });
+
+  expect(useDatabaseStore.getState().browseState("public.orders").hasNext).toBe(false);
+});
+
+// Paging back asks the server for rows before the cursor in DESC order, so
+// they arrive bottom-first and have to be flipped before display.
+test("a reversed page is flipped back", () => {
+  const { applyBrowsePage } = useDatabaseStore.getState();
+  applyBrowsePage("public.orders", {
+    result: { columns: ["id"], rows: [["3"], ["2"], ["1"]], rowCount: 3, truncated: false },
+    pageSize: 200,
+    reversed: true,
+    pageKey: ["id"],
+  });
+
+  expect(useDatabaseStore.getState().browseState("public.orders").rows?.rows).toEqual([
+    ["1"],
+    ["2"],
+    ["3"],
+  ]);
+});
