@@ -1,8 +1,13 @@
 import { useEffect, useMemo } from "react";
 import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { json } from "@codemirror/lang-json";
-import { Loader2, PlugZap, RefreshCw, Send, ServerOff, TriangleAlert, Users, Workflow } from "lucide-react";
+import { Loader2, PlugZap, Plus, RefreshCw, Send, ServerOff, TriangleAlert, Users, Workflow } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  CraftButton,
+  CraftButtonIcon,
+  CraftButtonLabel,
+} from "@/components/ui/craft-button";
 import { Chip } from "@/components/ui/chip";
 import { CodeEditor } from "@/components/code-editor/CodeEditor";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
@@ -180,7 +185,15 @@ export function KafkaView() {
                 </div>
               </>
             ) : (
-              <Button onClick={() => setShowNewCluster(true)}>Add cluster</Button>
+              /* The lone invitation: no cluster saved yet, nothing else on
+                 screen to press. The Connect button above shares its row with
+                 Test connection, so it stays a plain primary. */
+              <CraftButton onClick={() => setShowNewCluster(true)}>
+                <CraftButtonIcon>
+                  <Plus className="size-3" />
+                </CraftButtonIcon>
+                <CraftButtonLabel>Add cluster</CraftButtonLabel>
+              </CraftButton>
             )}
           </EmptyState>
         )}

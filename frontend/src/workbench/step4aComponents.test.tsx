@@ -339,6 +339,12 @@ describe("a module with no tabs", () => {
     expect(html).not.toContain("No view is currently available");
     expect(html).toContain("has nothing open");
     expect(html).toContain("Open console");
+    // The invitation is the craft button: alone on the screen, pressed rarely,
+    // and not an error. Its wash is a child that grows past its own box, so
+    // the pill has to clip — without this it is a plain button in a round hole.
+    expect(html).toContain("rounded-full");
+    expect(html).toContain("overflow-hidden");
+    expect(html).toContain("group-hover/button:scale-[15]");
   });
 
   it("says so plainly when there is no module at all", () => {
