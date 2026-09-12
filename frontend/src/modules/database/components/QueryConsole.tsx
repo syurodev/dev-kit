@@ -178,85 +178,104 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
 
   return (
     <div className="flex h-full flex-1 flex-col overflow-hidden" onKeyDown={handleKeyDown}>
-      {/* Toolbar (742:18, 742:21): the primary Run carries its shortcut at 65%
-          inside the button, Export beside it. The plan and save actions
-          are DevKit's and sit on the left. */}
+      {/* Toolbar (742:18, 742:21): icon-only, the way a toolbar acting on the
+          document below it is icon-only everywhere else in this module. The
+          labels were costing the row 300px to say three words that the icons
+          and their tooltips say — and Explain, Explain analyze and Save are
+          not the point of this view, the editor under them is.
+
+          Run keeps the filled primary and loses only its word: it is told
+          apart by being the one coloured control in the row, not by being the
+          one with text. Its shortcut moves into the tooltip, because a badge
+          inside an icon-only button is not an icon-only button.
+
+          Every one of them is wrapped: an icon with no accessible name is a
+          button a screen reader can only call "button", and ActionTooltip is
+          what sets the name as well as the tip. The two that can be disabled
+          take `wrap`, because a disabled button raises no tooltip on its
+          own. */}
       <div className="flex shrink-0 flex-wrap items-center gap-2 pb-3.5">
         <ActionTooltip label="Explain the query plan without executing">
           <Button
             variant="outline"
-            size="default"
+            size="icon"
             className="bg-surface-raised"
             onClick={() => void handleExplain(false)}
             disabled={busy}
           >
             <FileCode2 className="size-3.5" />
-            Explain
           </Button>
         </ActionTooltip>
-        <ActionTooltip label="Run it in a rolled-back transaction to measure the real time">
+        <ActionTooltip label="Explain analyze — run it in a rolled-back transaction to measure the real time">
           <Button
             variant="outline"
-            size="default"
+            size="icon"
             className="bg-surface-raised"
             onClick={() => void handleExplain(true)}
             disabled={busy}
           >
             <Sliders className="size-3.5" />
-            Explain analyze
           </Button>
         </ActionTooltip>
-        <Button
-          variant="ghost"
-          size="default"
-          onClick={() => openSaveQueryModal(consoleId)}
-          disabled={!slice.sql.trim()}
-        >
-          <BookmarkPlus className="size-3.5" />
-          Save
-        </Button>
+        <ActionTooltip label="Save this query" wrap>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => openSaveQueryModal(consoleId)}
+            disabled={!slice.sql.trim()}
+          >
+            <BookmarkPlus className="size-3.5" />
+          </Button>
+        </ActionTooltip>
 
         <div className="flex-1" />
 
         {queryResult && (
-          <Button
-            variant="outline"
-            size="default"
-            className="bg-surface-raised"
-            onClick={() => openExportModal(queryResult)}
-          >
-            <Download className="size-3.5" />
-            Export
-          </Button>
+          <ActionTooltip label="Export the result">
+            <Button
+              variant="outline"
+              size="icon"
+              className="bg-surface-raised"
+              onClick={() => openExportModal(queryResult)}
+            >
+              <Download className="size-3.5" />
+            </Button>
+          </ActionTooltip>
         )}
         {/* The wait belongs in the control that started it (smoothness 5), and
             Cancel appears beside it rather than replacing it — the Run button
             keeps its place in the row so nothing else shifts. */}
         {slice.runningQuery && (
-          <Button
-            variant="outline"
-            size="default"
-            className="bg-surface-raised"
-            onClick={() => cancelQuery(consoleId)}
-          >
-            <XCircle className="size-3.5" />
-            Cancel
-          </Button>
+          <ActionTooltip label="Cancel the running query">
+            <Button
+              variant="outline"
+              size="icon"
+              className="bg-surface-raised"
+              onClick={() => cancelQuery(consoleId)}
+            >
+              <XCircle className="size-3.5" />
+            </Button>
+          </ActionTooltip>
         )}
-        <Button
-          variant="default"
-          size="default"
-          onClick={() => void executeQuery(consoleId)}
-          disabled={slice.runningQuery || !selectedProfileId}
+        <ActionTooltip
+          label={
+            slice.runningQuery ? "Running…" : `Run the query — ${shortcut("Enter")}`
+          }
+          wrap
         >
-          {slice.runningQuery ? (
-            <Loader2 className="size-3.5 animate-spin" />
-          ) : (
-            <Play className="size-3.5 fill-current" />
-          )}
-          {slice.runningQuery ? "Running…" : "Run"}
-          <span className="text-code-11 opacity-65">{shortcut("Enter")}</span>
-        </Button>
+          <Button
+            variant="default"
+            size="icon"
+            onClick={() => void executeQuery(consoleId)}
+            disabled={slice.runningQuery || !selectedProfileId}
+          >
+            {slice.runningQuery ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <Play className="size-3.5 fill-current" />
+            )}
+          </Button>
+        </ActionTooltip>
       </div>
 
       {/* The editor used to be a hard 220px. A long query and a wide result

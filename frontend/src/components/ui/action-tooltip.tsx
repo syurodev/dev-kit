@@ -20,11 +20,25 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "./tooltip";
 export function ActionTooltip({
   label,
   side = "bottom",
+  wrap = false,
   children,
   ...rest
 }: {
   label: string;
   side?: "top" | "right" | "bottom" | "left";
+  /**
+   * For a control that can be disabled.
+   *
+   * A disabled button fires no pointer events, so a tooltip hung straight on
+   * it never opens — which is when you most want to be told what it is. The
+   * wrapper takes the pointer instead.
+   *
+   * It is a prop rather than a span at the call site because that span is
+   * where the name went to die: aria-label on it labels nothing (a span has no
+   * role) and the button inside went back to being called "button". Four did.
+   * Here the wrapper is the trigger and the name still goes on the control.
+   */
+  wrap?: boolean;
   children: ReactElement<Record<string, unknown>>;
 } & Record<string, unknown>) {
   // Anything handed to THIS component goes on to the child.
@@ -49,7 +63,9 @@ export function ActionTooltip({
 
   return (
     <Tooltip>
-      <TooltipTrigger asChild>{named}</TooltipTrigger>
+      <TooltipTrigger asChild>
+        {wrap ? <span className="flex shrink-0 items-center">{named}</span> : named}
+      </TooltipTrigger>
       <TooltipContent side={side}>{label}</TooltipContent>
     </Tooltip>
   );

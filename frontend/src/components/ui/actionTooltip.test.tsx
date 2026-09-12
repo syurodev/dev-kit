@@ -40,6 +40,26 @@ describe("ActionTooltip", () => {
     expect(html).toContain("Explain");
   });
 
+  /**
+   * A disabled button fires no pointer events, so the tooltip has nothing to
+   * hang on and call sites wrapped the button in a span by hand. aria-label
+   * then landed on the span — which has no role, so it names nothing — and the
+   * control inside it went back to being called "button". Four of them had.
+   */
+  it("names the control, not the wrapper it needs when disabled", () => {
+    const html = render(
+      <ActionTooltip label="Commit" wrap>
+        <Button size="icon" disabled>
+          <svg />
+        </Button>
+      </ActionTooltip>,
+    );
+    // The span must be there (that is the point of `wrap`) and the name must
+    // be past it, on the button.
+    expect(html).toMatch(/<span[^>]*>\s*<button[^>]*aria-label="Commit"/);
+    expect(html).not.toMatch(/<span[^>]*aria-label="Commit"/);
+  });
+
   it("does not override a name the caller chose", () => {
     const html = render(
       <ActionTooltip label="Move to folder">

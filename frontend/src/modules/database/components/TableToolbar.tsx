@@ -100,17 +100,16 @@ function TransactionControls() {
             ? "Commit — keep what has run since the last commit"
             : "Tx is on Auto: every statement commits itself"
         }
+        wrap
       >
-        <span className="flex shrink-0 items-center">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            disabled={idle || !txManual}
-            onClick={() => end("commit")}
-          >
-            <Check />
-          </Button>
-        </span>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          disabled={idle || !txManual}
+          onClick={() => end("commit")}
+        >
+          <Check />
+        </Button>
       </ActionTooltip>
       <ActionTooltip
         label={
@@ -118,17 +117,16 @@ function TransactionControls() {
             ? "Roll back — discard what has run since the last commit"
             : "Tx is on Auto: every statement commits itself"
         }
+        wrap
       >
-        <span className="flex shrink-0 items-center">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            disabled={idle || !txManual}
-            onClick={() => end("rollback")}
-          >
-            <Undo2 />
-          </Button>
-        </span>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          disabled={idle || !txManual}
+          onClick={() => end("rollback")}
+        >
+          <Undo2 />
+        </Button>
       </ActionTooltip>
 
       <DropdownMenu>
