@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import type { CSSProperties, KeyboardEvent } from "react";
 import type { LucideIcon } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import {
@@ -64,12 +64,21 @@ import {
 // Object.fromEntries over `columns` is a different function with its own bugs.
 import { columnValues, rowAsJSON } from "./rowText";
 import { typeGlyph } from "./columnTypes";
+import { HEADER_ROW, nextFocus } from "./gridFocus";
 
 // 28, not 36. A grid is read by scanning down it, and the row that matters is
 // usually the one below the fold — four more of them on a 500px pane is worth
 // more than the airiness. Read by useVirtualRows, so it has to match the `h-7`
 // on the cells or the spacer rows drift out of step with the real ones.
 const ROW_HEIGHT = 28;
+
+// Enough to decide whether a value will be clipped, which is all the tooltip
+// needs to know. The real measurement lives in gridColumns (CHAR_PX); this one
+// runs per visible cell, so it stays arithmetic rather than a DOM read.
+const CHAR_PX_APPROX = 7.3;
+
+/** The header's own height, which the sticky row occupies above the first row. */
+const HEADER_HEIGHT = 28;
 
 /**
  * What the pointer was over when the menu opened.
@@ -167,6 +176,15 @@ export function ResultGrid({
     [result.columns, result.rows],
   );
   const [target, setTarget] = useState<Target>(null);
+  /**
+   * The focused cell, as {row, position}: a row index and a DISPLAY position,
+   * not a column index — arrow keys walk what is on screen, and `order` is
+   * what says which column that is. `row: HEADER_ROW` is the header, which is
+   * how sorting stays reachable without giving 74 header buttons their own tab
+   * stop each (keyboards.md › the Tab table: Tab moves through CONTROLS, and a
+   * grid is one control).
+   */
+  const [focus, setFocus] = useState<{ row: number; position: number } | null>(null);
 
   // A click is a sort and a drag is a reorder, and they start with the same
   // pointerdown — four pixels is what tells them apart. Without this the sort
@@ -205,6 +223,95 @@ export function ResultGrid({
           background:
             "linear-gradient(var(--surface-well), var(--surface-well)), var(--surface-base)",
         };
+  /**
+   * Brings a cell into view, both axes, without animating.
+   *
+   * Rows are a fixed height, so the row's top is arithmetic rather than a DOM
+   * read — which matters because the row being moved to is usually not
+   * rendered yet: the virtualiser only mounts a window, and scrolling is what
+   * makes the target exist. Columns are measured the same way the frozen
+   * offsets are, from the widths the grid already has.
+   */
+  function revealCell(row: number, position: number): void {
+    const scroller = rows.scrollRef.current;
+    if (!scroller) return;
+
+    if (row >= 0) {
+      const top = row * ROW_HEIGHT;
+      // The sticky header covers the first HEADER_HEIGHT of the scrollport, so
+      // a row scrolled flush to the top would be under it.
+      if (top < scroller.scrollTop + HEADER_HEIGHT) {
+        scroller.scrollTop = Math.max(0, top - HEADER_HEIGHT);
+      } else if (top + ROW_HEIGHT > scroller.scrollTop + scroller.clientHeight) {
+        scroller.scrollTop = top + ROW_HEIGHT - scroller.clientHeight;
+      }
+    }
+
+    // A frozen column is on screen by definition — scrolling to it would
+    // scroll the grid back to the left edge for nothing.
+    if (position < frozen) return;
+    let left = ROW_NUMBER_WIDTH_PX;
+    for (let i = 0; i < position; i += 1) left += widthOf(order[i]);
+    const width = widthOf(order[position]);
+    // Everything pinned stays painted over the left edge, so that band is not
+    // free space to scroll a cell into.
+    const pinned = offsets.reduce<number>(
+      (sum, offset, i) => (offset === undefined ? sum : sum + widthOf(order[i])),
+      ROW_NUMBER_WIDTH_PX,
+    );
+    if (left < scroller.scrollLeft + pinned) {
+      scroller.scrollLeft = Math.max(0, left - pinned);
+    } else if (left + width > scroller.scrollLeft + scroller.clientWidth) {
+      scroller.scrollLeft = left + width - scroller.clientWidth;
+    }
+  }
+
+  /**
+   * The grid is one tab stop and the arrows move inside it.
+   *
+   * Before this, Tab walked 74 header buttons in a row and never reached a
+   * cell at all — the body cells are `<td>`s with a click handler, which the
+   * keyboard cannot reach. Full Keyboard Access is the thing this restores
+   * (accessibility.md › Mobility). Where a key LANDS is gridFocus; this is the
+   * part that cannot be pure.
+   */
+  function onGridKeyDown(event: KeyboardEvent<HTMLTableElement>): void {
+    const here = focus ?? { row: 0, position: 0 };
+
+    if (event.key === "Escape") {
+      setFocus(null);
+      event.currentTarget.blur();
+      return;
+    }
+    if (event.key === "Enter" || event.key === " ") {
+      if (here.row === HEADER_ROW) {
+        onSort?.(order[here.position]);
+      } else {
+        const columnIndex = order[here.position];
+        onInspectCell({
+          columnName: result.columns[columnIndex] || `col_${columnIndex}`,
+          value: result.rows[here.row]?.[columnIndex] ?? "",
+        });
+      }
+      event.preventDefault();
+      return;
+    }
+
+    const next = nextFocus(here, event.key, {
+      rows: result.rows.length,
+      columns: order.length,
+      // One row of overlap, so a page turn keeps a line of context.
+      page: Math.max(1, Math.floor((rows.scrollRef.current?.clientHeight ?? 0) / ROW_HEIGHT) - 1),
+      jump: event.metaKey || event.ctrlKey,
+    });
+    // null is a key this grid does not handle: Tab still has to leave, and a
+    // bare character still has to reach the shell.
+    if (!next) return;
+    setFocus(next);
+    revealCell(next.row, next.position);
+    event.preventDefault();
+  }
+
   // Two targets, because they answer different questions. `column` is known
   // for a header as well as a cell; `cell` needs a row under the pointer.
   const column =
@@ -265,8 +372,16 @@ export function ResultGrid({
             }}
           >
             <table
-              className="w-full table-fixed border-collapse text-left text-code-12"
+              className="w-full table-fixed border-collapse text-left text-code-12 outline-none focus-visible:ring-1 focus-visible:ring-status-info"
               aria-label="Query results"
+              // A grid, not a static table: its cells are interactive and one
+              // of them holds the focus at a time.
+              role="grid"
+              tabIndex={0}
+              aria-activedescendant={focus ? "grid-focus" : undefined}
+              onKeyDown={onGridKeyDown}
+              onFocus={() => setFocus((current) => current ?? { row: 0, position: 0 })}
+              onBlur={() => setFocus(null)}
             >
               <colgroup>
                 <col style={{ width: ROW_NUMBER_WIDTH_PX }} />
@@ -297,6 +412,7 @@ export function ResultGrid({
                         sorted={sort?.column === index ? sort.direction : null}
                         frozenAt={offsets[position]}
                         onSort={onSort}
+                        focused={focus?.row === HEADER_ROW && focus.position === position}
                         glyph={
                           keyColumns?.includes(result.columns[index])
                             ? KeyRound
@@ -314,7 +430,20 @@ export function ResultGrid({
               <tbody>
                 {rows.padTop > 0 && <tr style={{ height: rows.padTop }} aria-hidden />}
                 {rows.indices.map((rowIndex) => (
-                  <tr key={rowIndex} className="group transition-colors hover:bg-surface-raised/60">
+                  <tr
+                    key={rowIndex}
+                    className={cn(
+                      "group transition-colors hover:bg-surface-raised/60",
+                      // lists-and-tables.md › Desktop: "Consider using
+                      // alternating row colors in a multicolumn table…
+                      // especially in a wide table." A 74-column table is read
+                      // by tracking one row across a screen and a half, and
+                      // hover only ever helps the row under the pointer.
+                      // Indexed by the ROW, so the banding does not crawl as
+                      // virtualised rows come and go.
+                      rowIndex % 2 === 1 && "bg-state-soft/50",
+                    )}
+                  >
                     {/* The row number, counting through the table rather than
                         through the page. Sticky like the corner above it, and
                         on the same opaque ground the pinned cells use — the
@@ -337,13 +466,21 @@ export function ResultGrid({
                         animate a column that snaps into place on drop anyway. */}
                     {order.map((columnIndex, position) => {
                       const value = result.rows[rowIndex][columnIndex] ?? "";
+                      const isFocused = focus?.row === rowIndex && focus.position === position;
                       return (
                         <td
                           key={columnIndex}
                           data-cell={`${rowIndex}:${columnIndex}`}
+                          // Only the focused cell is named. An id on all 2,220
+                          // is 2,220 attributes written per render for one
+                          // pointer aria-activedescendant needs.
+                          id={isFocused ? "grid-focus" : undefined}
+                          onMouseDown={() => setFocus({ row: rowIndex, position })}
                           style={frozenStyle(position)}
                           className={cn(
                             "h-7 cursor-pointer truncate border-r border-b border-border-subtle px-3 select-text last:border-r-0 hover:text-text-primary",
+                            isFocused &&
+                              "outline outline-1 -outline-offset-1 outline-status-info",
                             columnIndex === order[0] ? "text-text-primary" : "text-text-secondary",
                             // The row's hover tint has to reach a pinned cell
                             // too, or half the row lights up — and it has to
@@ -359,7 +496,11 @@ export function ResultGrid({
                               value,
                             })
                           }
-                          title="Click to inspect cell"
+                          // The full value, and only when the cell is too
+                          // narrow to show it. "Click to inspect cell" on
+                          // every cell meant scanning forty rows raised four
+                          // hundred tooltips saying the same thing.
+                          title={value.length * CHAR_PX_APPROX > widthOf(columnIndex) ? value : undefined}
                         >
                           {value === "" ? (
                             <span className="text-code-11 text-status-warning">NULL</span>
@@ -499,6 +640,7 @@ function HeaderCell({
   onResize,
   glyph: Glyph,
   isKey,
+  focused,
 }: {
   label: string;
   index: number;
@@ -507,6 +649,8 @@ function HeaderCell({
   frozenAt: number | undefined;
   onSort?: (index: number) => void;
   onResize: (index: number, delta: number) => void;
+  /** The grid's keyboard focus is on this header. */
+  focused: boolean;
   /** The datatype bucket, or a key — see typeGlyph. */
   glyph: LucideIcon;
   isKey: boolean;
@@ -560,7 +704,14 @@ function HeaderCell({
     >
       <button
         type="button"
-        className="flex h-full w-full items-center gap-1.5 px-3 text-left disabled:cursor-default"
+        // Out of the tab order on purpose: the grid is one tab stop and the
+        // arrows move within it. Tab used to walk 74 of these in a row without
+        // ever reaching a cell.
+        tabIndex={-1}
+        className={cn(
+          "flex h-full w-full items-center gap-1.5 px-3 text-left disabled:cursor-default",
+          focused && "outline outline-1 -outline-offset-1 outline-status-info",
+        )}
         disabled={!onSort}
         onClick={() => onSort?.(index)}
       >
@@ -578,7 +729,12 @@ function HeaderCell({
           ) : sorted === "desc" ? (
             <ArrowDown className="size-3 text-text-primary" />
           ) : onSort ? (
-            <ChevronsUpDown className="size-3 text-text-tertiary opacity-0 transition-opacity duration-(--motion-fast) group-hover/th:opacity-100" />
+            <ChevronsUpDown
+              className={cn(
+                "size-3 text-text-tertiary transition-opacity duration-(--motion-fast) group-hover/th:opacity-100",
+                focused ? "opacity-100" : "opacity-0",
+              )}
+            />
           ) : null}
         </span>
       </button>

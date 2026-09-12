@@ -85,11 +85,23 @@ function relativeTime(iso: string): string {
 }
 
 const GLYPH = "size-3.5 shrink-0 text-text-tertiary";
+/** --control-height-xs, which is what TreeView gives a row. */
+const ROW_HEIGHT_PX = 24;
 /** Hover-only row actions. Opacity rather than `hidden`, so revealing them
  *  does not resize the row and shove the count sideways. */
 const ACTIONS =
-  "flex items-center gap-0.5 opacity-0 group-hover:opacity-100 has-[:focus-visible]:opacity-100";
-const ACTION = "rounded-sm p-0.5 text-text-tertiary hover:text-text-primary";
+  "flex items-center gap-1 opacity-0 group-hover:opacity-100 has-[:focus-visible]:opacity-100";
+/**
+ * 24×24, not the 16×16 these were.
+ *
+ * accessibility.md › Mobility puts macOS at a 28×28 default and a 20×20
+ * minimum, and a `size-3` glyph in `p-0.5` came to sixteen — under the floor,
+ * on the three controls that act on a connection. 24 is what the row can give
+ * (it is `--control-height-xs` tall); the gap goes with it, because the same
+ * section calls spacing between controls as important as their size.
+ */
+const ACTION =
+  "flex size-6 items-center justify-center rounded-sm text-text-tertiary hover:bg-state-soft hover:text-text-primary";
 
 /**
  * One tree, DataGrip-shaped: folder → connection → schema → table → column.
@@ -313,6 +325,10 @@ export function DatabaseSidebar() {
       id: `schema:${schemaName}`,
       label: schemaName,
       icon: <Database className={GLYPH} />,
+      // Under the connection row. Scrolling to table 140 of 173 used to leave
+      // no answer on screen to "which connection, which schema" — the two
+      // headings a split view would have given, bought here with sticky.
+      sticky: ROW_HEIGHT_PX,
       expandable: true,
       expanded: filtering || (expandedSchemas[schemaName] ?? true),
       onToggle: () => toggleSchemaExpand(schemaName),
@@ -332,6 +348,9 @@ export function DatabaseSidebar() {
       id: `profile:${profile.id}`,
       label: profile.name,
       icon: <EngineMark engine={profile.engine} className="size-3.5" />,
+      // Only the selected connection unfolds, so only it has anything to stay
+      // above. Pinning the others would stack four dead headings at the top.
+      sticky: isSelected ? 0 : undefined,
       // Only the indexed connection can show a schema, so the fold state of
       // the others is not offered as a lie.
       expandable: true,
@@ -346,7 +365,23 @@ export function DatabaseSidebar() {
       }`,
       children: isSelected ? schemaNodes() : undefined,
       loading: isSelected && indexingSchema,
-      emptyLabel: filtering ? "No tables match" : "Not indexed yet — right-click to index",
+      // A label that names a gesture is a label for a control that should have
+      // been drawn (writing.md › "give them a button or link to do so if
+      // possible"). This is the same complaint as "opening data was
+      // double-click only", one level up the tree.
+      emptyLabel: filtering ? (
+        "No tables match"
+      ) : (
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 rounded-sm text-text-secondary underline-offset-2 hover:text-text-primary hover:underline"
+          onClick={() => void refreshSchema(profile.id)}
+          disabled={indexingSchema}
+        >
+          <RefreshCw className="size-3" />
+          Index this schema
+        </button>
+      ),
       trailing: (
         <>
           <div className={ACTIONS}>

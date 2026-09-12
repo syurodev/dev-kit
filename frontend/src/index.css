@@ -170,7 +170,7 @@
 
     --text-primary: #f0f1eb;
     --text-secondary: #c6c8c2;
-    --text-tertiary: #8b8e8a;
+    --text-tertiary: #90938f;
     --icon-secondary: #c6c8c2;
 
     --action-primary: var(--palette-lime);
@@ -309,17 +309,17 @@
 
     --text-primary: #1d1d1f;
     --text-secondary: #55565b;
-    --text-tertiary: #7c7e85;
+    --text-tertiary: #68696f;
     --icon-secondary: #55565b;
 
     /* --action-primary stays lime: button fills keep the brand (onyx text on
        lime passes in both modes). Only text/icon accents flip via the pairs. */
-    --brand-text: #6b8f00;
+    --brand-text: #567300;
 
-    --status-info: #0b7ca8;
-    --status-success: #1e7a6e;
-    --status-warning: #a36b00;
-    --status-recovery: #9c4f8f;
+    --status-info: #0a719a;
+    --status-success: #1d766b;
+    --status-warning: #915f00;
+    --status-recovery: #9b4e8e;
     --status-danger: #b3374a;
 
     /* Ink, not the accent: a hairline on white recesses, and candy-blue at 12%
@@ -847,8 +847,16 @@
     opacity: 0;
     transition-duration: var(--motion-fast);
   }
+  /* Clipped only while the branch is moving. The 0fr collapse needs the grid
+     item clipped to hide anything, but `overflow: hidden` on an ancestor also
+     kills `position: sticky` inside it — and the tree pins a connection and
+     its schema above the tables scrolling under them. A settled branch is
+     exactly as tall as its content, so there is nothing left to clip.
+     data-animating is set for the transition's length by useBranchAnimating. */
   .tree-branch > * {
     min-height: 0;
+  }
+  .tree-branch[data-animating] > * {
     overflow: hidden;
   }
   .tree-row-enter {
@@ -901,6 +909,23 @@
      table (smoothness 4.4). It slides in from the row's own middle rather than
      appearing: scaleY is a compositor property, so this costs no layout, and a
      row that is merely hovered never pays for it. */
+  /* An opaque ground behind a pinned tree row.
+     The sidebar rail is deliberately material-less (--glass-rail-bg is
+     transparent, the native vibrancy carries it), so a `position: sticky` row
+     has nothing under it and the rows it is meant to stay above scroll
+     straight through. Painted on a pseudo-element at z-index -1 rather than as
+     the row's own background, so the selected and hover tints — which are
+     background-COLOURS, and one of them translucent — still paint over it
+     instead of fighting it for the same property. */
+  .tree-row-sticky::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    background-color: var(--background-app);
+  }
+
   .row-accent {
     position: relative;
   }

@@ -37,6 +37,17 @@ export function lazyModuleView(
 export type ModuleCommand = {
   id: string;
   title: string;
+  /**
+   * What choosing it does.
+   *
+   * Optional only because the backend's own view of a module is a list of ids
+   * and parity compares those. A command without one is a name in the palette
+   * that does nothing when picked — which is what every command in the app was
+   * until the menu bar needed somewhere to send its clicks.
+   */
+  run?: () => void;
+  /** Shown beside the title in the palette. The menu bar binds its own. */
+  shortcut?: string;
 };
 
 /**
@@ -398,4 +409,24 @@ export function compareModuleParity(
   }
 
   return issues;
+}
+
+/**
+ * Runs a command by id, wherever it is registered.
+ *
+ * One entry point, because two things dispatch commands and they must not grow
+ * separate tables: the command palette, and the native menu bar (which knows
+ * ids and nothing else — see internal/appmenu). Returns whether anything ran,
+ * so a menu item pointing at an id no module declares is visible in a test
+ * rather than silent at runtime.
+ */
+export function runCommand(id: string): boolean {
+  for (const module of listRegisteredModules()) {
+    const command = module.commands.find((candidate) => candidate.id === id);
+    if (command?.run) {
+      command.run();
+      return true;
+    }
+  }
+  return false;
 }

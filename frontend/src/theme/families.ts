@@ -74,7 +74,7 @@ export const DEVKIT_FAMILY: ThemeFamilyDefinition = {
     "--surface-tinted": "#32292f",
     "--text-primary": "#f0f1eb",
     "--text-secondary": "#c6c8c2",
-    "--text-tertiary": "#8b8e8a",
+    "--text-tertiary": "#90938f",
     "--icon-secondary": "#c6c8c2",
     "--action-primary": "#c6ff34",
     "--action-primary-foreground": "#020202",
@@ -98,7 +98,7 @@ export const DEVKIT_FAMILY: ThemeFamilyDefinition = {
     "--surface-tinted": "#e8e9ec",
     "--text-primary": "#1d1d1f",
     "--text-secondary": "#55565b",
-    "--text-tertiary": "#7c7e85",
+    "--text-tertiary": "#68696f",
     "--icon-secondary": "#55565b",
     // Light keeps the lime fill — onyx on lime passes in both modes — and
     // flips only the accent used as TEXT, which index.css says in a comment.
@@ -106,11 +106,11 @@ export const DEVKIT_FAMILY: ThemeFamilyDefinition = {
     "--action-primary-foreground": "#020202",
     "--action-primary-hover": "#d2ff64",
     "--action-primary-pressed": "#add92e",
-    "--brand-text": "#6b8f00",
-    "--status-info": "#0b7ca8",
-    "--status-success": "#1e7a6e",
-    "--status-warning": "#a36b00",
-    "--status-recovery": "#9c4f8f",
+    "--brand-text": "#567300",
+    "--status-info": "#0a719a",
+    "--status-success": "#1d766b",
+    "--status-warning": "#915f00",
+    "--status-recovery": "#9b4e8e",
     "--status-danger": "#b3374a",
     "--border-focus": "#4b8cb8",
   },
@@ -136,7 +136,7 @@ const CATPPUCCIN: ThemeFamilyDefinition = {
     "--surface-tinted": "#45475a", // surface1
     "--text-primary": "#cdd6f4", // text
     "--text-secondary": "#bac2de", // subtext1
-    "--text-tertiary": "#7f849c", // overlay1
+    "--text-tertiary": "#969aae", // overlay1
     "--icon-secondary": "#a6adc8", // subtext0
     "--action-primary": "#cba6f7", // mauve
     "--action-primary-foreground": "#11111b",
@@ -157,19 +157,19 @@ const CATPPUCCIN: ThemeFamilyDefinition = {
     "--surface-base": "#eff1f5", // base
     "--surface-raised": "#e6e9ef", // mantle
     "--surface-tinted": "#ccd0da", // surface0
-    "--text-primary": "#4c4f69", // text
-    "--text-secondary": "#5c5f77", // subtext1
-    "--text-tertiary": "#86899b", // overlay1, 4% deeper — see the contrast note below
-    "--icon-secondary": "#6c6f85", // subtext0
+    "--text-primary": "#43455c", // text
+    "--text-secondary": "#53556b", // subtext1
+    "--text-tertiary": "#5f6274", // overlay1, 4% deeper — see the contrast note below
+    "--icon-secondary": "#606276", // subtext0
     "--action-primary": "#8839ef", // mauve
     "--action-primary-foreground": "#eff1f5",
     ...states("#8839ef", "light"),
-    "--brand-text": "#8839ef",
-    "--status-info": "#1e66f5", // blue
-    "--status-success": "#3f9d2a", // green
-    "--status-warning": "#c07a19", // yellow
-    "--status-recovery": "#c965af", // pink
-    "--status-danger": "#d20f39", // red
+    "--brand-text": "#802cee",
+    "--status-info": "#0a55ea", // blue
+    "--status-success": "#2d711e", // green
+    "--status-warning": "#8b5812", // yellow
+    "--status-recovery": "#a43988", // pink
+    "--status-danger": "#c60e36", // red
     "--border-focus": "#7287fd", // lavender
   },
 };
@@ -206,7 +206,7 @@ const DRACULA: ThemeFamilyDefinition = {
     "--surface-tinted": "#44475a", // current line
     "--text-primary": "#f8f8f2", // foreground
     "--text-secondary": "#adb5cb", // foreground ↔ comment, halfway
-    "--text-tertiary": "#6272a4", // comment
+    "--text-tertiary": "#95a0c1", // comment
     "--icon-secondary": "#adb5cb",
     "--action-primary": "#bd93f9", // purple
     "--action-primary-foreground": "#282a36",
@@ -216,7 +216,7 @@ const DRACULA: ThemeFamilyDefinition = {
     "--status-success": "#50fa7b", // green
     "--status-warning": "#f1fa8c", // yellow
     "--status-recovery": "#ff79c6", // pink
-    "--status-danger": "#ff5555", // red
+    "--status-danger": "#ff7575", // red
     "--border-focus": "#bd93f9",
   },
   light: {
@@ -237,9 +237,9 @@ const DRACULA: ThemeFamilyDefinition = {
     "--brand-text": "#644ac9",
     "--status-info": "#036a96", // Alucard cyan
     "--status-success": "#14710a", // Alucard green
-    "--status-warning": "#846e15", // Alucard yellow
+    "--status-warning": "#796413", // Alucard yellow
     "--status-recovery": "#a3144d", // Alucard pink
-    "--status-danger": "#cb3a2a", // Alucard red
+    "--status-danger": "#bb3527", // Alucard red
     "--border-focus": "#644ac9",
   },
 };
@@ -267,7 +267,7 @@ const AYU: ThemeFamilyDefinition = {
     "--surface-tinted": "#253340",
     "--text-primary": "#bfbdb6", // common.fg
     "--text-secondary": "#9fa09e",
-    "--text-tertiary": "#5e636e", // ui.fg, lifted 5% to clear 3:1 on the panel
+    "--text-tertiary": "#828894", // ui.fg, lifted 5% to clear 3:1 on the panel
     "--icon-secondary": "#9fa09e",
     "--action-primary": "#e6b450", // common.accent
     "--action-primary-foreground": "#0b0e14",
@@ -288,19 +288,19 @@ const AYU: ThemeFamilyDefinition = {
     "--surface-base": "#f8f9fa", // common.bg
     "--surface-raised": "#f3f4f5",
     "--surface-tinted": "#e7e8ea",
-    "--text-primary": "#5c6166", // common.fg
-    "--text-secondary": "#697076",
-    "--text-tertiary": "#8a9199", // ui.fg
-    "--icon-secondary": "#6b7278",
+    "--text-primary": "#484c50", // common.fg
+    "--text-secondary": "#575c61",
+    "--text-tertiary": "#636971", // ui.fg
+    "--icon-secondary": "#63696f",
     "--action-primary": "#ffaa33", // common.accent
     "--action-primary-foreground": "#1c1f23",
     ...states("#ffaa33", "light"),
-    "--brand-text": "#9e5700", // the accent is a fill; as text it needs depth
-    "--status-info": "#3696da", // entity
-    "--status-success": "#5c8000", // string, deepened for white
+    "--brand-text": "#9d5700", // the accent is a fill; as text it needs depth
+    "--status-info": "#1e6da5", // entity
+    "--status-success": "#527200", // string, deepened for white
     "--status-warning": "#a35200", // func, deepened for white
-    "--status-recovery": "#8a5cd6", // constant
-    "--status-danger": "#e65050", // error
+    "--status-recovery": "#7d4ad2", // constant
+    "--status-danger": "#cd1d1d", // error
     "--border-focus": "#399ee6",
   },
 };
@@ -326,13 +326,13 @@ const GITHUB: ThemeFamilyDefinition = {
     "--surface-tinted": "#21262d",
     "--text-primary": "#e6edf3", // fg.default
     "--text-secondary": "#9198a1", // fg.muted
-    "--text-tertiary": "#6e7681", // fg.subtle
+    "--text-tertiary": "#7f8792", // fg.subtle
     "--icon-secondary": "#9198a1",
     "--action-primary": "#238636", // the Primary button
     "--action-primary-foreground": "#ffffff",
     ...states("#238636", "dark"),
-    "--brand-text": "#2f81f7", // accent.fg — links
-    "--status-info": "#2f81f7",
+    "--brand-text": "#3283f7", // accent.fg — links
+    "--status-info": "#3283f7",
     "--status-success": "#3fb950",
     "--status-warning": "#d29922",
     "--status-recovery": "#a371f7",
@@ -348,18 +348,18 @@ const GITHUB: ThemeFamilyDefinition = {
     "--surface-raised": "#f6f8fa",
     "--surface-tinted": "#eaeef2",
     "--text-primary": "#1f2328", // fg.default
-    "--text-secondary": "#59636e", // fg.muted
-    "--text-tertiary": "#6e7781", // fg.subtle
+    "--text-secondary": "#565f6a", // fg.muted
+    "--text-tertiary": "#646d76", // fg.subtle
     "--icon-secondary": "#59636e",
     "--action-primary": "#1f883d", // the Primary button
     "--action-primary-foreground": "#ffffff",
     ...states("#1f883d", "light"),
-    "--brand-text": "#0969da", // accent.fg — links
-    "--status-info": "#0969da",
-    "--status-success": "#1a7f37",
-    "--status-warning": "#9a6700",
-    "--status-recovery": "#8250df",
-    "--status-danger": "#d1242f",
+    "--brand-text": "#0968d9", // accent.fg — links
+    "--status-info": "#0968d9",
+    "--status-success": "#197c36",
+    "--status-warning": "#936200",
+    "--status-recovery": "#7f4cde",
+    "--status-danger": "#d0242f",
     "--border-focus": "#0969da",
   },
 };

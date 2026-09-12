@@ -1,131 +1,116 @@
-import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { FAMILIES, type ThemePalette } from "./families";
+import { describe, expect, it } from "bun:test";
+import { FAMILIES } from "./families";
 
 /**
- * Contrast, for every family including the base.
+ * Every palette has to be readable on its own surfaces.
  *
- * index.css's palette was tuned by hand and carries notes about it — "lime
- * text on white is illegible, so --brand-text flips". A family authored later
- * has none of that care behind it, so the guarantee has to become a number.
+ * This exists because five families shipped failing it, and not by accident:
+ * Catppuccin's `overlay1`, Dracula's `comment` and Ayu's `ui.fg` are all
+ * EDITOR colours, tuned for code sitting on an editor background. Used as UI
+ * text — an 11px row number, a table count in a rail — they were as low as
+ * 2.5:1. The palettes are followed everywhere they hold up and moved, in their
+ * own hue, exactly as far as it takes to clear the floor.
  *
- * The base is checked too, and that is the point: thresholds that only the new
- * themes must clear are thresholds nobody has validated. Anything the base
- * fails here would be a claim about DevKit's own palette, which it is not this
- * test's place to make — so the levels are set where the shipped design
- * already sits.
+ * accessibility.md › Vision: "Up to 17 pts | All | 4.5:1". Nothing in this app
+ * renders UI text at 17pt, so nothing here is eligible for the 3:1 row.
  */
 
-const css = readFileSync(join(import.meta.dir, "../index.css"), "utf8").replace(
-  /\/\*[\s\S]*?\*\//g,
-  "",
-);
+const lin = (c: number) => {
+  const v = c / 255;
+  return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+};
+const rgb = (h: string): [number, number, number] => {
+  const n = Number.parseInt(h.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+};
+const hex = (r: number, g: number, b: number) =>
+  "#" + [r, g, b].map((v) => Math.round(v).toString(16).padStart(2, "0")).join("");
 
-function block(selector: RegExp): Map<string, string> {
-  const match = css.match(new RegExp(selector.source + String.raw`\s*\{([\s\S]*?)\n\}`));
-  if (!match) throw new Error(`no block for ${selector}`);
-  const out = new Map<string, string>();
-  for (const line of match[1].split("\n")) {
-    const declaration = line.trim();
-    if (!declaration.startsWith("--")) continue;
-    const colon = declaration.indexOf(":");
-    if (colon === -1) continue;
-    out.set(declaration.slice(0, colon).trim(), declaration.slice(colon + 1).split(";")[0].trim());
-  }
-  return out;
+export function luminance(colour: string): number {
+  const [r, g, b] = rgb(colour);
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
 }
 
-const BASE = { dark: block(/\n:root/), light: block(/:root\[data-theme="light"\]/) };
-
-/** One level of `var(--x)` indirection, which is all index.css uses for these. */
-function resolve(token: string, mode: "dark" | "light", palette: ThemePalette): string | null {
-  const fromPalette = palette[token as keyof ThemePalette];
-  let value = fromPalette ?? BASE[mode].get(token) ?? BASE.dark.get(token);
-  for (let hop = 0; hop < 4 && value?.startsWith("var("); hop += 1) {
-    const name = value.slice(4, value.indexOf(")"));
-    value = BASE[mode].get(name) ?? BASE.dark.get(name);
-  }
-  return value && /^#[0-9a-f]{6}$/i.test(value) ? value : null;
+export function contrast(a: string, b: string): number {
+  const x = luminance(a);
+  const y = luminance(b);
+  return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
 }
 
-function channel(value: number): number {
-  const c = value / 255;
-  return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-}
-
-function luminance(hex: string): number {
-  const n = parseInt(hex.slice(1), 16);
-  return (
-    0.2126 * channel((n >> 16) & 255) +
-    0.7152 * channel((n >> 8) & 255) +
-    0.0722 * channel(n & 255)
-  );
-}
-
-/** WCAG 2.1 contrast ratio, 1..21. */
-export function contrast(foreground: string, background: string): number {
-  const [a, b] = [luminance(foreground), luminance(background)].sort((x, y) => y - x);
-  return (a + 0.05) / (b + 0.05);
+/** An alpha layer flattened onto what is behind it, the way the compositor does. */
+function over(top: string, bottom: string, alpha: number): string {
+  const T = rgb(top);
+  const B = rgb(bottom);
+  return hex(...(([0, 1, 2] as const).map((i) => T[i] * alpha + B[i] * (1 - alpha)) as [number, number, number]));
 }
 
 /**
- * What has to be readable against what, and how readable.
+ * Three tiers, not one floor.
  *
- * 4.5 is AA for body text. 3 is AA for large text and for non-text UI, which
- * is what a tertiary hint, a status colour and an accent used on chips and
- * icons actually are — and where index.css's own light --brand-text (#6b8f00
- * on white, 3.6:1) already sits, so demanding 4.5 would fail the design this
- * test exists to protect.
+ * 4.5 everywhere would pass a palette whose primary, secondary and tertiary
+ * all land on 4.6 — legal, and a hierarchy with no hierarchy left in it. Two
+ * of the light palettes did exactly that once their tertiary was lifted.
  */
-const PAIRS: ReadonlyArray<[foreground: string, background: string, min: number]> = [
-  ["--text-primary", "--surface-base", 4.5],
-  ["--text-secondary", "--surface-base", 4.5],
-  ["--text-primary", "--surface-raised", 4.5],
-  ["--text-secondary", "--surface-raised", 4.5],
-  ["--text-tertiary", "--surface-base", 3],
-  ["--icon-secondary", "--surface-base", 3],
-  ["--action-primary-foreground", "--action-primary", 4.5],
-  ["--brand-text", "--surface-base", 3],
-  ["--status-info", "--surface-base", 3],
-  ["--status-success", "--surface-base", 3],
-  ["--status-warning", "--surface-base", 3],
-  ["--status-recovery", "--surface-base", 3],
-  ["--status-danger", "--surface-base", 3],
-];
+const FLOOR: Record<string, number> = {
+  "--text-primary": 7,
+  "--text-secondary": 5.5,
+  "--text-tertiary": 4.5,
+  "--icon-secondary": 4.5,
+  "--brand-text": 4.5,
+  "--status-info": 4.5,
+  "--status-success": 4.5,
+  "--status-warning": 4.5,
+  "--status-recovery": 4.5,
+  "--status-danger": 4.5,
+};
 
-describe.each(Object.values(FAMILIES))("$label", (family) => {
-  for (const mode of ["dark", "light"] as const) {
-    describe(mode, () => {
-      const palette = family[mode];
+/**
+ * Every ground content is drawn on.
+ *
+ * `--background-app` is in the list because the sidebar rail has no material
+ * of its own (`--glass-rail-bg: transparent`) — the tree's labels and counts
+ * sit straight on the window's own fill, and in a light theme that is the
+ * darkest of the four.
+ */
+function groundsOf(palette: Record<string, string>, mode: "dark" | "light") {
+  const base = palette["--surface-base"];
+  return {
+    base,
+    raised: palette["--surface-raised"],
+    // index.css: --surface-well is --tint-veil at 6% in dark, 4% in light.
+    well: over(palette["--tint-veil"], base, mode === "dark" ? 0.06 : 0.04),
+    app: palette["--background-app"],
+  };
+}
 
-      test.each(PAIRS)("%s on %s clears %p:1", (fgToken, bgToken, min) => {
-        const fg = resolve(fgToken, mode, palette);
-        const bg = resolve(bgToken, mode, palette);
-        expect(fg, `${fgToken} did not resolve to a hex`).not.toBeNull();
-        expect(bg, `${bgToken} did not resolve to a hex`).not.toBeNull();
-        const ratio = contrast(fg!, bg!);
-        expect(
-          Number(ratio.toFixed(2)),
-          `${fgToken} ${fg} on ${bgToken} ${bg} is ${ratio.toFixed(2)}:1, want ${min}:1`,
-        ).toBeGreaterThanOrEqual(min);
+describe("every family is readable on its own surfaces", () => {
+  for (const family of Object.values(FAMILIES)) {
+    for (const mode of ["dark", "light"] as const) {
+      const palette = family[mode] as Record<string, string>;
+      const grounds = groundsOf(palette, mode);
+
+      for (const [token, floor] of Object.entries(FLOOR)) {
+        const colour = palette[token];
+        if (!colour?.startsWith("#")) continue;
+        it(`${family.id}/${mode} ${token}`, () => {
+          for (const [name, ground] of Object.entries(grounds)) {
+            const ratio = contrast(colour, ground);
+            expect(
+              ratio,
+              `${colour} on ${name} ${ground} is ${ratio.toFixed(2)}:1, floor ${floor}:1`,
+            ).toBeGreaterThanOrEqual(floor);
+          }
+        });
+      }
+
+      // The tiers have to stay in order as well as above the floor: a palette
+      // whose tertiary out-contrasts its secondary has three names for two
+      // colours.
+      it(`${family.id}/${mode} keeps its text ramp in order`, () => {
+        const on = (token: string) => contrast(palette[token], grounds.app);
+        expect(on("--text-primary")).toBeGreaterThan(on("--text-secondary"));
+        expect(on("--text-secondary")).toBeGreaterThan(on("--text-tertiary"));
       });
-
-      // The app frame recesses behind the content in BOTH modes — index.css
-      // is dark #020202 behind #1d1d1d and light #e9eaee behind #ffffff. The
-      // first version of this test assumed light inverted the ramp and failed
-      // DevKit itself, which is the useful thing about checking the base: an
-      // invariant the shipped design breaks is a wrong invariant.
-      test("the app frame sits behind the content surface", () => {
-        const app = resolve("--background-app", mode, palette);
-        const base = resolve("--surface-base", mode, palette);
-        expect(app, "--background-app did not resolve").not.toBeNull();
-        expect(base, "--surface-base did not resolve").not.toBeNull();
-        expect(
-          luminance(app!),
-          `the frame ${app} is lighter than the surface ${base} it sits behind`,
-        ).toBeLessThanOrEqual(luminance(base!));
-      });
-    });
+    }
   }
 });

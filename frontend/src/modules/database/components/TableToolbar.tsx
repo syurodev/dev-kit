@@ -7,7 +7,6 @@ import {
   Check,
   Download,
   FileCode,
-  Filter,
   RefreshCw,
   SquareArrowOutUpRight,
   Undo2,
@@ -51,17 +50,25 @@ function Rule() {
 }
 
 /**
- * A control that is drawn but not wired up yet.
+ * A control that is drawn but not connected yet.
  *
- * Disabled rather than inert-but-clickable, and the reason is in the tooltip:
- * a button that answers a click with nothing is indistinguishable from one
- * that is broken, which is exactly the report that started this work. The
- * `<span>` carries the title because the Button sets `pointer-events: none`
- * when disabled, and an element the pointer cannot reach has no tooltip.
+ * Still `disabled`, so it stays out of the tab order and assistive technology
+ * announces it as unavailable — but NOT at the Button's default
+ * `disabled:opacity-38`. That put "Tx: Auto" at 2.54:1 in dark and 1.80:1 in
+ * light: a control nobody can read cannot say "coming soon" either, and the
+ * tooltip was the only thing explaining why it is there. `--text-tertiary` is
+ * the app's dimmest text and clears 4.5:1 on every surface of every palette
+ * (themeContrast.test.ts), which is what "dim" should have meant all along.
+ *
+ * The `<span>` carries the title because a disabled Button sets
+ * `pointer-events: none`, and an element the pointer cannot reach has no
+ * tooltip.
  */
+const PENDING = "disabled:opacity-100 disabled:text-text-tertiary";
+
 function Pending({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <span title={`${title} — not wired up yet`} className="flex shrink-0 items-center">
+    <span title={`${title} — coming soon`} className="flex shrink-0 items-center">
       {children}
     </span>
   );
@@ -136,12 +143,12 @@ export function TableToolbar({
             strip is what is being settled, and leaving a hole where these go
             would settle it wrong. */}
         <Pending title="Commit the open transaction">
-          <Button variant="ghost" size="icon-sm" disabled>
+          <Button variant="ghost" size="icon-sm" disabled className={PENDING}>
             <Check />
           </Button>
         </Pending>
         <Pending title="Roll back the open transaction">
-          <Button variant="ghost" size="icon-sm" disabled>
+          <Button variant="ghost" size="icon-sm" disabled className={PENDING}>
             <Undo2 />
           </Button>
         </Pending>
@@ -150,7 +157,7 @@ export function TableToolbar({
             variant="ghost"
             size="sm"
             disabled
-            className="gap-1 px-2 text-code-12 font-normal"
+            className={cn("gap-1 px-2 text-code-12 font-normal", PENDING)}
           >
             <ArrowUpDown />
             Tx: Auto
@@ -161,7 +168,7 @@ export function TableToolbar({
             variant="ghost"
             size="sm"
             disabled
-            className="gap-1 px-2 text-code-12 font-normal"
+            className={cn("gap-1 px-2 text-code-12 font-normal", PENDING)}
           >
             <FileCode />
             DDL
@@ -194,8 +201,12 @@ export function TableToolbar({
       </div>
 
       <div className="flex h-(--control-height-md) items-center gap-2 border-t border-border-subtle">
-        <div className="flex min-w-0 flex-[3] items-center gap-1.5">
-          <Filter aria-hidden className="size-3 shrink-0 text-text-tertiary" />
+        {/* No glyph before the word. A funnel beside "WHERE" and a sort arrow
+            beside "ORDER BY" say a second time what the word already says —
+            they came from DataGrip, whose boxes carry no border and no label.
+            Ours carry the label; 36px of the narrowest row in the header go
+            back to the clause. */}
+        <div className="flex min-w-0 flex-[3] items-center gap-2">
           <span className="shrink-0 text-code-11 tracking-wider text-text-tertiary">WHERE</span>
           <WhereInput
             value={where}
@@ -223,26 +234,21 @@ export function TableToolbar({
               disabled={columns.length === 0}
               className="min-w-0 flex-[2] justify-start gap-1.5 px-1.5 font-normal"
             >
-              {orderBy ? (
-                orderBy.direction === "asc" ? (
-                  <ArrowUpAZ className="text-text-tertiary" />
-                ) : (
-                  <ArrowDownAZ className="text-text-tertiary" />
-                )
-              ) : (
-                <ArrowUpDown className="text-text-tertiary" />
-              )}
               <span className="shrink-0 text-code-11 tracking-wider text-text-tertiary">
                 ORDER BY
               </span>
-              <span
-                className={cn(
-                  "min-w-0 truncate text-code-12",
-                  orderBy ? "text-text-primary" : "text-text-tertiary",
-                )}
-              >
+              <span className="min-w-0 truncate text-code-12 text-text-primary">
                 {orderBy ? orderBy.column : ""}
               </span>
+              {/* The direction arrow stays — after the column name, where it
+                  qualifies something rather than labelling the control. */}
+              {orderBy ? (
+                orderBy.direction === "asc" ? (
+                  <ArrowUpAZ className="shrink-0 text-text-tertiary" />
+                ) : (
+                  <ArrowDownAZ className="shrink-0 text-text-tertiary" />
+                )
+              ) : null}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="max-h-96 overflow-y-auto">

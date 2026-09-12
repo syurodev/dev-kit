@@ -3,6 +3,7 @@ import { ModuleSkeleton } from "./ModuleSkeleton";
 import { Events, Window } from "@wailsio/runtime";
 import { MessageSquare, PanelBottom, PanelLeft, Search, Settings as SettingsIcon } from "lucide-react";
 import { listModules, type ModuleDTO } from "../bridge/commands";
+import { useMenuCommands } from "./menuCommands";
 import { Dock } from "./dock/Dock";
 import { moduleIndexFromEvent } from "./dock/dockActivation";
 import { AgentSessionsSubscriber } from "./AgentSessionsSubscriber";
@@ -558,6 +559,8 @@ export function Workbench() {
       focusModule(activeModuleId);
     }
   }, [availableModules, activeModuleId, activeTabs.openTabs.length]);
+  useMenuCommands();
+
   const commands = availableModules.flatMap((module) => module.commands);
   const hasMetadataWarning = metadataError || parityIssues.length > 0;
 

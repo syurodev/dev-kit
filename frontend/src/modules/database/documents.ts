@@ -1,6 +1,7 @@
 import { Table2, Network, Activity, History, Bookmark, Terminal } from "lucide-react";
 import { getModule } from "@/modules/registry";
-import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
+import { moduleTabs, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
+import { DEFAULT_CONSOLE_ID } from "./databaseStore";
 
 /**
  * Opening a Database document.
@@ -65,4 +66,21 @@ export function openHistoryTab(): void {
 
 export function openSavedTab(): void {
   open("database.saved", "Saved queries", Bookmark, undefined, false);
+}
+
+/**
+ * The console id of the tab in front of you, or "" when the active Database
+ * tab is not a console.
+ *
+ * The menu bar's Run Query needs it: the keystroke inside a console is handled
+ * by that console, but the menu item is fired from outside any of them and has
+ * to ask which one is on screen. Same defaulting rule as consoleIdOfTab — the
+ * module's home tab carries no params and means the first console.
+ */
+export function activeConsoleId(): string {
+  const state = useWorkbenchTabsStore.getState();
+  const tabs = moduleTabs(state.modules, "database");
+  const active = tabs.openTabs.find((tab) => tab.id === tabs.activeTabId);
+  if (!active || active.viewId !== "database.console") return "";
+  return typeof active.params?.consoleId === "string" ? active.params.consoleId : DEFAULT_CONSOLE_ID;
 }
