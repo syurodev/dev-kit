@@ -78,11 +78,10 @@ function Rule() {
 const PENDING = "disabled:opacity-100 disabled:text-text-tertiary";
 
 function TransactionControls() {
-  const { txManual, txOpen, txBusy, selectedProfileId, setTxManual, endTransaction } =
+  const { txManual, txBusy, selectedProfileId, setTxManual, endTransaction } =
     useDatabaseStore(
       useShallow((s) => ({
         txManual: s.txManual,
-        txOpen: s.txOpen,
         txBusy: s.txBusy,
         selectedProfileId: s.selectedProfileId,
         setTxManual: s.setTxManual,
@@ -91,6 +90,11 @@ function TransactionControls() {
     );
 
   const idle = !selectedProfileId || txBusy;
+  // Enabled by the MODE, not by whether a transaction happens to be open right
+  // now. In manual mode one exists only once a statement has run, and the
+  // frontend cannot know that without asking after every query — so Commit and
+  // Roll back are always available and are a no-op when there is nothing to
+  // end, which is the honest version of the same thing.
   const end = (action: "commit" | "rollback") => {
     endTransaction(action).catch((error: unknown) => {
       toast.error(action === "commit" ? "Could not commit" : "Could not roll back", {
@@ -102,13 +106,17 @@ function TransactionControls() {
   return (
     <>
       <ActionTooltip
-        label={txOpen ? "Commit the open transaction" : "Nothing to commit — Tx is on Auto"}
+        label={
+          txManual
+            ? "Commit — keep what has run since the last commit"
+            : "Tx is on Auto: every statement commits itself"
+        }
       >
         <span className="flex shrink-0 items-center">
           <Button
             variant="ghost"
             size="icon-sm"
-            disabled={idle || !txOpen}
+            disabled={idle || !txManual}
             onClick={() => end("commit")}
           >
             <Check />
@@ -116,13 +124,17 @@ function TransactionControls() {
         </span>
       </ActionTooltip>
       <ActionTooltip
-        label={txOpen ? "Roll back the open transaction" : "Nothing to roll back — Tx is on Auto"}
+        label={
+          txManual
+            ? "Roll back — discard what has run since the last commit"
+            : "Tx is on Auto: every statement commits itself"
+        }
       >
         <span className="flex shrink-0 items-center">
           <Button
             variant="ghost"
             size="icon-sm"
-            disabled={idle || !txOpen}
+            disabled={idle || !txManual}
             onClick={() => end("rollback")}
           >
             <Undo2 />
@@ -134,8 +146,8 @@ function TransactionControls() {
         <ActionTooltip
           label={
             txManual
-              ? "Manual commit — statements wait for Commit"
-              : "Auto commit — every statement lands on its own"
+              ? "Manual commit — statements wait for Commit, and a transaction opens only when one runs"
+              : "Auto commit — every statement lands on its own, and nothing is held open"
           }
         >
           <DropdownMenuTrigger asChild>
@@ -143,13 +155,15 @@ function TransactionControls() {
               variant="ghost"
               size="sm"
               disabled={idle}
-              className={cn("gap-1 px-2 text-code-12 font-normal", txOpen && "text-status-warning")}
+              className={cn("gap-1 px-2 text-code-12 font-normal", txManual && "text-status-warning")}
             >
               <ArrowUpDown />
               Tx: {txManual ? "Manual" : "Auto"}
-              {/* An open transaction is holding locks on the user's server.
-                  The dot is the only thing on screen that says so. */}
-              {txOpen ? <span className="size-1.5 rounded-full bg-status-warning" /> : null}
+              {/* Manual means statements are not committed until you say so.
+                  The dot is the only thing on screen that says it, and it
+                  tracks the MODE rather than whether a transaction is open at
+                  this instant — which would go stale after every query. */}
+              {txManual ? <span className="size-1.5 rounded-full bg-status-warning" /> : null}
             </Button>
           </DropdownMenuTrigger>
         </ActionTooltip>

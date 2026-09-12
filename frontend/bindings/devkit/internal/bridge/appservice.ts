@@ -301,19 +301,6 @@ export function DBActiveProfile(): $CancellablePromise<$models.ActiveProfileDTO>
 }
 
 /**
- * DBBeginTx, DBCommitTx, DBRollbackTx and DBTxOpen are manual-commit mode.
- * 
- * Through the same capability and scope as a query, because that is what they
- * are: a transaction is a property of the connection a statement runs on, and
- * anything allowed to run statements on a profile is allowed to decide whether
- * they are committed. The audit entry names the action, so a rollback is
- * visible in the log as itself.
- */
-export function DBBeginTx(id: string): $CancellablePromise<void> {
-    return $Call.ByID(1448273793, id);
-}
-
-/**
  * DBCancelQuery stops one statement. Safe mode does not cover this — a
  * read-only profile can still cancel, because pg_cancel_backend is a SELECT.
  */
@@ -446,6 +433,22 @@ export function DBSetActiveProfile(id: string): $CancellablePromise<void> {
 }
 
 /**
+ * DBSetTxMode, DBCommitTx, DBRollbackTx and DBTxOpen are manual-commit mode.
+ * 
+ * Through the same capability and scope as a query, because that is what they
+ * are: a transaction is a property of the connection a statement runs on, and
+ * anything allowed to run statements on a profile is allowed to decide whether
+ * they are committed. The audit entry names the action, so a rollback is
+ * visible in the log as itself.
+ * DBSetTxMode turns manual commit on or off. Turning it ON opens nothing: the
+ * first statement does, so choosing the mode and then reading nothing holds no
+ * locks on the user's server.
+ */
+export function DBSetTxMode(id: string, manual: boolean): $CancellablePromise<void> {
+    return $Call.ByID(1688333855, id, manual);
+}
+
+/**
  * DBTerminateSession closes a connection and rolls back its transaction.
  */
 export function DBTerminateSession(id: string, pid: string): $CancellablePromise<void> {
@@ -463,6 +466,15 @@ export function DBTestConnection(id: string): $CancellablePromise<void> {
  */
 export function DBTestNewConnection(input: database$0.CreateProfileInput): $CancellablePromise<void> {
     return $Call.ByID(3346566534, input);
+}
+
+/**
+ * DBTxMode is asked on mount: the mode belongs to the connection and outlives
+ * the window that chose it, so a window reopened onto a manual connection has
+ * to show Manual rather than Auto.
+ */
+export function DBTxMode(id: string): $CancellablePromise<boolean> {
+    return $Call.ByID(3192598447, id);
 }
 
 /**

@@ -87,20 +87,24 @@ func (s *AppService) DBQuery(ctx context.Context, id string, sql string, maxRows
 	return result.(database.QueryResult), nil
 }
 
-// DBBeginTx, DBCommitTx, DBRollbackTx and DBTxOpen are manual-commit mode.
+// DBSetTxMode, DBCommitTx, DBRollbackTx and DBTxOpen are manual-commit mode.
 //
 // Through the same capability and scope as a query, because that is what they
 // are: a transaction is a property of the connection a statement runs on, and
 // anything allowed to run statements on a profile is allowed to decide whether
 // they are committed. The audit entry names the action, so a rollback is
 // visible in the log as itself.
-func (s *AppService) DBBeginTx(ctx context.Context, id string) error {
+// DBSetTxMode turns manual commit on or off. Turning it ON opens nothing: the
+// first statement does, so choosing the mode and then reading nothing holds no
+// locks on the user's server.
+func (s *AppService) DBSetTxMode(ctx context.Context, id string, manual bool) error {
 	opaqueID := recordID(id)
 	_, err := s.call(ctx, "builtin.database", "db:query", "profile:"+opaqueID, map[string]any{
-		"action":     "begin_tx",
+		"action":     "set_tx_mode",
 		"profile_id": opaqueID,
+		"manual":     manual,
 	}, func(callCtx context.Context) (any, error) {
-		return nil, s.container.Database.BeginTx(callCtx, id)
+		return nil, s.container.Database.SetTxMode(callCtx, id, manual)
 	})
 	return err
 }
@@ -125,6 +129,23 @@ func (s *AppService) DBRollbackTx(ctx context.Context, id string) error {
 		return nil, s.container.Database.RollbackTx(callCtx, id)
 	})
 	return err
+}
+
+// DBTxMode is asked on mount: the mode belongs to the connection and outlives
+// the window that chose it, so a window reopened onto a manual connection has
+// to show Manual rather than Auto.
+func (s *AppService) DBTxMode(ctx context.Context, id string) (bool, error) {
+	opaqueID := recordID(id)
+	result, err := s.call(ctx, "builtin.database", "db:query", "profile:"+opaqueID, map[string]any{
+		"action":     "tx_mode",
+		"profile_id": opaqueID,
+	}, func(context.Context) (any, error) {
+		return s.container.Database.TxMode(id), nil
+	})
+	if err != nil {
+		return false, err
+	}
+	return result.(bool), nil
 }
 
 // DBTxOpen is asked on mount: a transaction outlives the tab that opened it,

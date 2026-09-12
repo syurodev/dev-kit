@@ -7,10 +7,10 @@ import {
   getSchemaCache,
   indexSchema,
   runQuery,
-  beginTransaction,
+  setTransactionMode,
   commitTransaction,
   rollbackTransaction,
-  transactionOpen,
+  transactionState,
   type ConnectionProfile,
   type QueryResult,
   type SchemaSnapshot,
@@ -820,34 +820,25 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   txBusy: false,
 
   setTxManual: async (manual) => {
-    const { selectedProfileId, txOpen } = get();
+    const { selectedProfileId } = get();
     if (!selectedProfileId) {
       set({ txManual: manual });
       return;
     }
     set({ txBusy: true });
     try {
-      if (manual && !txOpen) {
-        await beginTransaction(selectedProfileId);
-        set({ txManual: true, txOpen: true });
-        return;
-      }
-      if (!manual && txOpen) {
-        // Leaving Manual commits what is open. Rolling back would silently
-        // throw away work the user did inside it; the button beside this one
-        // is how you discard it on purpose.
-        await commitTransaction(selectedProfileId);
-        set({ txManual: false, txOpen: false });
-        return;
-      }
-      set({ txManual: manual });
+      // Turning it on opens nothing — the first statement does. Turning it off
+      // commits whatever is open, because leaving the mode must not discard
+      // work silently; the button beside it is how you discard it on purpose.
+      await setTransactionMode(selectedProfileId, manual);
+      set({ txManual: manual, txOpen: manual ? get().txOpen : false });
     } finally {
       set({ txBusy: false });
     }
   },
 
   endTransaction: async (action) => {
-    const { selectedProfileId, txManual } = get();
+    const { selectedProfileId } = get();
     if (!selectedProfileId) {
       return;
     }
@@ -856,14 +847,9 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       await (action === "commit"
         ? commitTransaction(selectedProfileId)
         : rollbackTransaction(selectedProfileId));
-      // Still in Manual, so the next statement needs a transaction of its own
-      // — ending one is not leaving the mode.
-      if (txManual) {
-        await beginTransaction(selectedProfileId);
-        set({ txOpen: true });
-      } else {
-        set({ txOpen: false });
-      }
+      // Nothing is opened in its place: the mode is still Manual, and the next
+      // statement opens the next transaction when it runs.
+      set({ txOpen: false });
     } finally {
       set({ txBusy: false });
     }
@@ -875,11 +861,8 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       set({ txOpen: false, txManual: false });
       return;
     }
-    const open = await transactionOpen(selectedProfileId);
-    // A transaction found already open means Manual: it cannot have been
-    // opened by anything else, and showing Auto beside an open one would be a
-    // lie about what the next statement does.
-    set({ txOpen: open, txManual: open ? true : get().txManual });
+    const { manual, open } = await transactionState(selectedProfileId);
+    set({ txManual: manual, txOpen: open });
   },
 
   applyBrowseEdit: async (key, { schema, table }, sql) => {

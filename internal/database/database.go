@@ -504,11 +504,17 @@ func (s *Service) Query(ctx context.Context, id string, sql string, maxRows int)
 		limit = min(maxRows, MaxRowsCeiling)
 	}
 
-	// Inside an open transaction when there is one. This is the whole of what
-	// "Tx: Manual" means at the statement level: the same statement, sent down
-	// the pinned connection instead of the pool, so it can be rolled back.
+	// Inside a transaction when the profile commits by hand, opening one here
+	// if this is the first statement since the last commit. That laziness is
+	// the whole reason the mode lives in the service: an open transaction
+	// holds a metadata lock on every table it touches, and choosing "Manual"
+	// and then reading nothing must not hold anything at all.
+	tx, err := s.txs.ensure(ctx, id, pool)
+	if err != nil {
+		return QueryResult{}, err
+	}
 	var rows Rows
-	if tx := s.txs.get(id); tx != nil {
+	if tx != nil {
 		rows, err = tx.Query(ctx, sql)
 	} else {
 		rows, err = pool.Query(ctx, sql)

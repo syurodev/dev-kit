@@ -2,7 +2,7 @@ package database
 
 import (
 	"context"
-	"errors"
+	"sync"
 	"testing"
 )
 
@@ -104,8 +104,8 @@ func TestQueryRunsInsideAnOpenTransaction(t *testing.T) {
 	conn := &recordingConn{transactor: true}
 	id := plant(t, svc, conn)
 
-	if err := svc.BeginTx(context.Background(), id); err != nil {
-		t.Fatalf("BeginTx: %v", err)
+	if err := svc.SetTxMode(context.Background(), id, true); err != nil {
+		t.Fatalf("SetTxMode: %v", err)
 	}
 	if _, err := svc.Query(context.Background(), id, "update t set a = 1", 0); err != nil {
 		t.Fatalf("Query: %v", err)
@@ -134,7 +134,10 @@ func TestCommitAndRollbackEndTheTransaction(t *testing.T) {
 			svc := newService(t)
 			conn := &recordingConn{transactor: true}
 			id := plant(t, svc, conn)
-			if err := svc.BeginTx(context.Background(), id); err != nil {
+			if err := svc.SetTxMode(context.Background(), id, true); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := svc.Query(context.Background(), id, "select 1", 0); err != nil {
 				t.Fatal(err)
 			}
 			tx := conn.activeTx
@@ -147,40 +150,130 @@ func TestCommitAndRollbackEndTheTransaction(t *testing.T) {
 			if svc.TxOpen(id) {
 				t.Fatal("a transaction is still reported open")
 			}
-			// And the next statement is back on the pool.
+			// Still Manual, so the next statement opens a transaction of its
+			// own rather than escaping to the pool — ending one is not
+			// leaving the mode.
 			if _, err := svc.Query(context.Background(), id, "select 2", 0); err != nil {
 				t.Fatal(err)
 			}
-			if len(conn.pooled) != 1 {
-				t.Fatalf("pooled = %v, want the statement after the transaction ended", conn.pooled)
+			if len(conn.pooled) != 0 {
+				t.Fatalf("pooled = %v; a statement escaped manual mode", conn.pooled)
+			}
+			if conn.begun != 2 {
+				t.Fatalf("opened %d transactions, want a second one for the next statement", conn.begun)
 			}
 		})
 	}
 }
 
-// Two Begins would leave the first transaction open on the server with nothing
-// able to reach it — a pinned connection lost for the app's lifetime.
-func TestBeginRefusesASecondTransaction(t *testing.T) {
+// Choosing the mode must not open anything. An idle transaction holds a
+// metadata lock on every table it has touched and pins a read view, so
+// "switch to Manual and go to lunch" would hold that against the user's server
+// having run no statement at all — which is the question that found this.
+func TestManualModeOpensNothingUntilAStatementRuns(t *testing.T) {
 	svc := newService(t)
 	conn := &recordingConn{transactor: true}
 	id := plant(t, svc, conn)
 
-	if err := svc.BeginTx(context.Background(), id); err != nil {
+	if err := svc.SetTxMode(context.Background(), id, true); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.BeginTx(context.Background(), id); !errors.Is(err, ErrTransactionOpen) {
-		t.Fatalf("second BeginTx = %v, want ErrTransactionOpen", err)
+	if conn.begun != 0 {
+		t.Fatalf("opened %d transactions before any statement, want 0", conn.begun)
 	}
-	if conn.begun != 1 {
-		t.Fatalf("opened %d transactions, want 1", conn.begun)
+	if svc.TxOpen(id) {
+		t.Fatal("a transaction is reported open before any statement ran")
+	}
+
+	if _, err := svc.Query(context.Background(), id, "select 1", 0); err != nil {
+		t.Fatal(err)
+	}
+	if conn.begun != 1 || !svc.TxOpen(id) {
+		t.Fatalf("begun = %d, open = %v; the first statement should open one", conn.begun, svc.TxOpen(id))
 	}
 }
 
-func TestCommitWithoutATransactionSaysSo(t *testing.T) {
+// Reading in Auto mode — which is what opening a table to look at it does —
+// must touch no transaction at all.
+func TestAutoModeNeverOpensATransaction(t *testing.T) {
+	svc := newService(t)
+	conn := &recordingConn{transactor: true}
+	id := plant(t, svc, conn)
+
+	for range 3 {
+		if _, err := svc.Query(context.Background(), id, "select * from t limit 200", 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if conn.begun != 0 {
+		t.Fatalf("opened %d transactions in auto mode, want 0", conn.begun)
+	}
+	if len(conn.pooled) != 3 {
+		t.Fatalf("pooled = %v, want all three statements", conn.pooled)
+	}
+}
+
+// Two statements arriving together must not each open one: the loser would be
+// orphaned on a pinned connection for the life of the app.
+func TestConcurrentStatementsShareOneTransaction(t *testing.T) {
+	svc := newService(t)
+	conn := &recordingConn{transactor: true}
+	id := plant(t, svc, conn)
+	if err := svc.SetTxMode(context.Background(), id, true); err != nil {
+		t.Fatal(err)
+	}
+
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _ = svc.Query(context.Background(), id, "select 1", 0)
+		}()
+	}
+	wg.Wait()
+
+	if conn.begun != 1 {
+		t.Fatalf("opened %d transactions, want exactly 1", conn.begun)
+	}
+}
+
+// Leaving Manual commits rather than discarding: throwing away someone's work
+// is what Roll back is for.
+func TestLeavingManualCommitsWhatWasOpen(t *testing.T) {
+	svc := newService(t)
+	conn := &recordingConn{transactor: true}
+	id := plant(t, svc, conn)
+	if err := svc.SetTxMode(context.Background(), id, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Query(context.Background(), id, "update t set a = 1", 0); err != nil {
+		t.Fatal(err)
+	}
+	tx := conn.activeTx
+
+	if err := svc.SetTxMode(context.Background(), id, false); err != nil {
+		t.Fatal(err)
+	}
+	if !tx.committed {
+		t.Fatal("leaving manual mode did not commit what was open")
+	}
+	if svc.TxMode(id) || svc.TxOpen(id) {
+		t.Fatal("still manual, or still open, after leaving the mode")
+	}
+}
+
+// In manual mode a transaction exists only once a statement has run, so
+// "commit" after reading nothing is a request that is already satisfied — not
+// an error to show the user.
+func TestCommitWithNothingOpenIsFine(t *testing.T) {
 	svc := newService(t)
 	id := plant(t, svc, &recordingConn{transactor: true})
-	if err := svc.CommitTx(context.Background(), id); !errors.Is(err, ErrNoTransaction) {
-		t.Fatalf("CommitTx = %v, want ErrNoTransaction", err)
+	if err := svc.CommitTx(context.Background(), id); err != nil {
+		t.Fatalf("CommitTx with nothing open = %v, want nil", err)
+	}
+	if err := svc.RollbackTx(context.Background(), id); err != nil {
+		t.Fatalf("RollbackTx with nothing open = %v, want nil", err)
 	}
 }
 
@@ -190,7 +283,10 @@ func TestClosingTheServiceRollsBackWhatWasOpen(t *testing.T) {
 	svc := newService(t)
 	conn := &recordingConn{transactor: true}
 	id := plant(t, svc, conn)
-	if err := svc.BeginTx(context.Background(), id); err != nil {
+	if err := svc.SetTxMode(context.Background(), id, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Query(context.Background(), id, "update t set a = 1", 0); err != nil {
 		t.Fatal(err)
 	}
 	tx := conn.activeTx

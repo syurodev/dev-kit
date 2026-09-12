@@ -22,28 +22,77 @@ var (
 // alternative — a connection per tab — would multiply locks taken against the
 // user's server by however many tabs they left open.
 type transactions struct {
-	mu   sync.Mutex
+	mu sync.Mutex
+	// open is the transaction a profile is currently inside, if any.
 	open map[string]Tx
+	// manual is whether a profile COMMITS BY HAND. Separate from open,
+	// because the whole point is that being in manual mode costs nothing
+	// until a statement runs: see ensure.
+	manual map[string]bool
 }
 
 func newTransactions() *transactions {
-	return &transactions{open: make(map[string]Tx)}
+	return &transactions{open: make(map[string]Tx), manual: make(map[string]bool)}
+}
+
+func (t *transactions) isManual(profileID string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.manual[profileID]
+}
+
+func (t *transactions) setManual(profileID string, manual bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if manual {
+		t.manual[profileID] = true
+		return
+	}
+	delete(t.manual, profileID)
+}
+
+/*
+ensure returns the transaction a statement should run in, opening one if the
+profile is in manual mode and none is open yet.
+
+Lazily, and that is the point rather than an optimisation. An open transaction
+holds a shared metadata lock on every table it has touched — ACCESS SHARE in
+Postgres, an MDL in MySQL — which blocks ALTER, DROP and TRUNCATE for as long
+as it lives, and on both engines it pins a read view so old row versions cannot
+be cleaned up. Opening one when the MODE changes meant choosing "Manual" and
+walking away held all of that against the user's server having run nothing at
+all.
+
+The lock is held across Begin on purpose: two statements arriving together must
+not each open a transaction, which would leave one of them orphaned on a pinned
+connection for the life of the app. The critical section is a single round trip
+on one user's own connection.
+*/
+func (t *transactions) ensure(ctx context.Context, profileID string, conn Conn) (Tx, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if tx := t.open[profileID]; tx != nil {
+		return tx, nil
+	}
+	if !t.manual[profileID] {
+		return nil, nil
+	}
+	transactor, ok := conn.(Transactor)
+	if !ok {
+		return nil, ErrNoTransactions
+	}
+	tx, err := transactor.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	t.open[profileID] = tx
+	return tx, nil
 }
 
 func (t *transactions) get(profileID string) Tx {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.open[profileID]
-}
-
-func (t *transactions) put(profileID string, tx Tx) error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.open[profileID] != nil {
-		return ErrTransactionOpen
-	}
-	t.open[profileID] = tx
-	return nil
 }
 
 func (t *transactions) take(profileID string) Tx {
@@ -66,51 +115,39 @@ func (t *transactions) takeAll() []Tx {
 	return out
 }
 
-// BeginTx opens a transaction on a profile's connection.
+// SetTxMode turns manual commit on or off for a profile.
 //
-// Explicit, rather than started for you by the first statement after the mode
-// changes. The service then has one thing to know — a transaction is open or it
-// is not — and the policy of when to open one belongs to the UI that offers
-// Auto and Manual.
-func (s *Service) BeginTx(ctx context.Context, id string) error {
-	target, err := s.target(id)
-	if err != nil {
-		return err
+// Turning it OFF commits whatever is open: leaving the mode must not throw
+// away work silently — discarding it is what RollbackTx is for.
+//
+// Turning it ON opens nothing. The first statement does, through ensure, so
+// that choosing the mode and then doing nothing holds no locks.
+func (s *Service) SetTxMode(ctx context.Context, id string, manual bool) error {
+	if manual {
+		s.txs.setManual(id, true)
+		return nil
 	}
-	ctx, cancel := queryContext(ctx)
-	defer cancel()
-
-	conn, err := s.pool(ctx, id, target)
-	if err != nil {
-		return err
-	}
-	transactor, ok := conn.(Transactor)
-	if !ok {
-		return ErrNoTransactions
-	}
-	// Asked BEFORE dialling a transaction, so a second Begin cannot leave one
-	// orphaned on the server while the map keeps the first.
-	if existing := s.txs.get(id); existing != nil {
-		return ErrTransactionOpen
-	}
-	tx, err := transactor.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	if err := s.txs.put(id, tx); err != nil {
-		// Lost a race with another Begin. Give the connection back rather than
-		// holding it for a transaction nothing can reach.
-		_ = tx.Rollback(ctx)
-		return err
+	s.txs.setManual(id, false)
+	if tx := s.txs.take(id); tx != nil {
+		ctx, cancel := queryContext(ctx)
+		defer cancel()
+		return tx.Commit(ctx)
 	}
 	return nil
 }
 
+// TxMode reports whether a profile commits by hand.
+func (s *Service) TxMode(id string) bool { return s.txs.isManual(id) }
+
 // CommitTx ends the open transaction, keeping its work.
+//
+// Nothing open is success, not an error: in manual mode a transaction exists
+// only once a statement has run, so "commit" after reading nothing is a
+// request that is already satisfied.
 func (s *Service) CommitTx(ctx context.Context, id string) error {
 	tx := s.txs.take(id)
 	if tx == nil {
-		return ErrNoTransaction
+		return nil
 	}
 	ctx, cancel := queryContext(ctx)
 	defer cancel()
@@ -121,7 +158,7 @@ func (s *Service) CommitTx(ctx context.Context, id string) error {
 func (s *Service) RollbackTx(ctx context.Context, id string) error {
 	tx := s.txs.take(id)
 	if tx == nil {
-		return ErrNoTransaction
+		return nil
 	}
 	ctx, cancel := queryContext(ctx)
 	defer cancel()
