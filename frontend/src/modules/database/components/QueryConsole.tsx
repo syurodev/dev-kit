@@ -11,7 +11,7 @@ import {
   XCircle,
   Sliders,
   KeyRound,
-  Loader2,
+  Square,
 } from "lucide-react";
 import { sql as codemirrorSql, PostgreSQL, MySQL, MariaSQL } from "@codemirror/lang-sql";
 import { ActionTooltip } from "@/components/ui/action-tooltip";
@@ -245,34 +245,45 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
             </Button>
           </ActionTooltip>
         )}
-        {/* The wait belongs in the control that started it (smoothness 5), and
-            Cancel appears beside it rather than replacing it — the Run button
-            keeps its place in the row so nothing else shifts. */}
-        {slice.runningQuery && (
-          <ActionTooltip label="Cancel the running query">
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={() => cancelQuery(consoleId)}
-            >
-              <XCircle />
-            </Button>
-          </ActionTooltip>
-        )}
+        {/* Run and Stop are one control, because they are one decision: the
+            thing you press to start is the thing you press to take it back,
+            and it is already under the pointer.
+
+            It used to be two — a spinning, disabled Run with a separate ghost
+            Cancel beside it. That worked while the row had labels. Icon-only
+            left the cancel as a bare ⊗, which reads "close" rather than
+            "stop", and left the only coloured control in the row greyed to 38%
+            while the live one was a grey ghost: the dead button looked more
+            important than the working one.
+
+            The spinner is not missed. "It is running" is already said three
+            times below — the execution bar's pulsing clock, the elapsed
+            seconds against the 30s cap, and the editor dimmed to 60% — so a
+            fourth on the button would be the only place left to put a stop
+            glyph, spent on something nobody is asking about by then.
+
+            The cost is a stray double-click landing on Stop. Accepted: the
+            colour and the glyph both change under the pointer, and cancelling
+            is the harmless direction — the query has not committed anything
+            the transaction would not roll back, and re-running is one key. */}
         <ActionTooltip
           label={
-            slice.runningQuery ? "Running…" : `Run the query — ${shortcut("Enter")}`
+            slice.runningQuery
+              ? "Stop — cancel the running query"
+              : `Run the query — ${shortcut("Enter")}`
           }
           wrap
         >
           <Button
-            variant="default"
+            variant={slice.runningQuery ? "danger" : "default"}
             size="icon-sm"
-            onClick={() => void executeQuery(consoleId)}
-            disabled={slice.runningQuery || !selectedProfileId}
+            onClick={() =>
+              slice.runningQuery ? cancelQuery(consoleId) : void executeQuery(consoleId)
+            }
+            disabled={!selectedProfileId}
           >
             {slice.runningQuery ? (
-              <Loader2 className="animate-spin" />
+              <Square className="fill-current" />
             ) : (
               <Play className="fill-current" />
             )}

@@ -46,6 +46,18 @@ const buttonVariants = cva(
         glass: "glass-button relative text-text-primary",
         destructive:
           "bg-(--feedback-danger-soft) text-status-danger border border-(--border-danger) hover:bg-(--feedback-danger-hover) active:bg-(--feedback-danger-pressed)",
+        // The SOLID danger, for a control that has to stay the loudest thing
+        // in its row while it says "this stops something" — `destructive` is
+        // the tinted box, and measured 1.02:1 against the card on a dark theme:
+        // correct for a delete row in a menu, far too quiet for the one live
+        // button in a toolbar.
+        //
+        // The glyph is --surface-base rather than a foreground token of its
+        // own, because --status-danger is already inverted against the theme:
+        // a light rose on dark, a deep red on light. Measured on its own fill
+        // across all ten palettes: 5.26:1 at worst.
+        danger:
+          "bg-status-danger text-surface-base hover:bg-(--status-danger-hover) active:bg-(--status-danger-pressed)",
         link: "text-status-info underline-offset-4 hover:underline",
       },
       size: {

@@ -255,6 +255,13 @@
     --feedback-danger-soft: color-mix(in srgb, var(--status-danger) 14%, transparent);
     --feedback-danger-hover: color-mix(in srgb, var(--status-danger) 24%, transparent);
     --feedback-danger-pressed: color-mix(in srgb, var(--status-danger) 32%, transparent);
+    /* The SOLID danger's press states. The three above are alpha mixes for a
+       tinted box; a filled control has nothing behind it to tint and has to
+       move within its own colour. --tint-veil is white in dark and ink in
+       light, so one declaration lifts on a dark theme and recesses on a light
+       one — the same direction every other state layer in this file takes. */
+    --status-danger-hover: color-mix(in srgb, var(--status-danger) 88%, var(--tint-veil));
+    --status-danger-pressed: color-mix(in srgb, var(--status-danger) 78%, var(--tint-veil));
     --border-danger: color-mix(in srgb, var(--status-danger) 40%, transparent);
 
     /* Note/folder 9-color palette (Figma "Note Palette" collection).

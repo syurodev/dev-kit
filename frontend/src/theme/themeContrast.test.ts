@@ -145,3 +145,40 @@ describe("the selected mark is visible on the surface it outlines", () => {
     }
   }
 });
+
+/**
+ * The solid danger button — Stop, while a query runs.
+ *
+ * Two floors, because it is two things at once. Its glyph is text-sized
+ * (4.5:1), and the fill itself is the boundary of a control, which
+ * accessibility.md › Vision puts at 3:1 — the tinted `destructive` measured
+ * 1.02:1 against a dark card, which is why this variant exists at all.
+ *
+ * The glyph is --surface-base rather than a foreground of its own, and that
+ * works because --status-danger is already inverted against the theme: a light
+ * rose on dark, a deep red on light.
+ */
+describe("the solid danger button is legible on every theme", () => {
+  for (const family of Object.values(FAMILIES)) {
+    for (const mode of ["dark", "light"] as const) {
+      const palette = family[mode] as Record<string, string>;
+      it(`${family.id}/${mode}`, () => {
+        const fill = palette["--status-danger"];
+        const glyph = palette["--surface-base"];
+        const glyphRatio = contrast(glyph, fill);
+        expect(
+          glyphRatio,
+          `glyph ${glyph} on ${fill} is ${glyphRatio.toFixed(2)}:1, floor 4.5:1`,
+        ).toBeGreaterThanOrEqual(4.5);
+
+        for (const [name, ground] of Object.entries(groundsOf(palette, mode))) {
+          const fillRatio = contrast(fill, ground);
+          expect(
+            fillRatio,
+            `fill ${fill} on ${name} ${ground} is ${fillRatio.toFixed(2)}:1, floor 3:1`,
+          ).toBeGreaterThanOrEqual(3);
+        }
+      });
+    }
+  }
+});
