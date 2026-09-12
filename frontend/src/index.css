@@ -979,6 +979,23 @@
   font-weight: 700;
 }
 
+/* React Flow's canvas chrome, in this app's colours.
+ *
+ * Through the library's own variables rather than by overriding its rules.
+ * Its stylesheet reads these, so whichever of the two files the bundler puts
+ * last, the answer is the same — an override loses that race half the time,
+ * which is how three white buttons stayed white after one was written.
+ *
+ * On .react-flow rather than :root, so it is scoped to the canvases and does
+ * not sit in the global sheet waiting to surprise something. */
+.react-flow {
+  --xy-controls-button-background-color: var(--surface-raised);
+  --xy-controls-button-background-color-hover: var(--state-soft);
+  --xy-controls-button-color: var(--text-secondary);
+  --xy-controls-button-color-hover: var(--text-primary);
+  --xy-controls-button-border-color: var(--border-subtle);
+}
+
 /* How long a statement took, at the end of its line
    (modules/database/sql/statementGutter.ts).
  *
