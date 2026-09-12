@@ -244,6 +244,25 @@
        accent kept candy-blue hairlines. Percentages stay per-mode where they
        genuinely differ — dark lifts less than light recesses. */
     --state-soft: color-mix(in srgb, var(--tint-veil) 6%, transparent);
+
+    /* A segmented control: the track it sits in and the chip that marks the
+       selected one. Two tokens rather than one, because the two modes want
+       opposite directions and a single value cannot be both — dark recesses
+       the track below the page and lifts the chip out of it, light does the
+       reverse and returns the chip to white. Written as alphas so the pair
+       works on whatever surface the control is dropped onto.
+
+       This was black/25 and white/10 in the component. On a light surface
+       those composite to a grey track with the chip six values away from it,
+       which is a segmented control with no visible selection — and on an
+       icon-only strip, no visible selection is no way to tell which list you
+       are looking at. */
+    /* Figma's own value for the track (318:385), kept: black at 25%, which
+       recesses whatever it is dropped on. A tint of the page colour would
+       vanish the moment the control sat on a surface of that colour, which
+       is exactly where the rail put it. */
+    --segment-track: color-mix(in srgb, #000000 25%, transparent);
+    --segment-chip: color-mix(in srgb, var(--tint-veil) 10%, transparent);
     --surface-well: color-mix(in srgb, var(--tint-veil) 6%, transparent);
     /* The added-line wash in a code block. Derived at the same 14% as its
        danger twin, so a diff reads as one pair in every theme. */
@@ -371,6 +390,10 @@
        tint is what differs between the modes. --surface-well stays because
        light really does want a shallower well (4% vs 6%). */
     --surface-well: color-mix(in srgb, var(--tint-veil) 4%, transparent);
+    /* Ink recesses the track, and the chip comes all the way back to the
+       page. The dark pair lifts instead; see the note where they are set. */
+    --segment-track: color-mix(in srgb, var(--tint-veil) 7%, transparent);
+    --segment-chip: var(--surface-base);
     /* The danger tints are NOT here any more, and that is a fix: they were
        rgba(216, 120, 134, …) — the DARK --status-danger, typed out — while
        light's own --status-danger is #b3374a. Light has been drawing salmon

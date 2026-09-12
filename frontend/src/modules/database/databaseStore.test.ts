@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { useDatabaseStore } from "./databaseStore";
+import { consoleFiles } from "./consoleFiles";
 
 beforeEach(() => {
   useDatabaseStore.setState({ consoles: {} });
@@ -133,5 +134,27 @@ describe("consoles that outlive the window", () => {
     useDatabaseStore.getState().setSql("c2", "SELECT 1");
     useDatabaseStore.getState().closeConsole("c2");
     expect(useDatabaseStore.getState().consoles.c2).toBeUndefined();
+  });
+
+  /*
+   * Closing a tab used to delete the file, which was defensible only while
+   * nothing could list them: a console nobody can ever find again is a leak,
+   * not a document. The Consoles rail is what changed it, and this is the
+   * line that says so — closing releases, only deleting deletes.
+   */
+  test("closing keeps the file; deleting is its own act", () => {
+    const calls: string[] = [];
+    const release = consoleFiles.release;
+    const forget = consoleFiles.forget;
+    consoleFiles.release = (id: string) => calls.push(`release:${id}`);
+    consoleFiles.forget = (id: string) => calls.push(`forget:${id}`);
+    try {
+      useDatabaseStore.getState().closeConsole("c3");
+      useDatabaseStore.getState().deleteConsoleFile("c3");
+    } finally {
+      consoleFiles.release = release;
+      consoleFiles.forget = forget;
+    }
+    expect(calls).toEqual(["release:c3", "forget:c3"]);
   });
 });

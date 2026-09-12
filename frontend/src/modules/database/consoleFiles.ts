@@ -8,10 +8,12 @@ import { deleteConsole, saveConsole, type StoredConsole } from "../../bridge/dat
  * sentence of SQL is one write, short enough that nothing is lost to a crash
  * you would blame the app for.
  *
- * The one rule that is not about performance: closing a console CANCELS its
- * pending write. Without that, closing a tab deletes the file and the debounce
- * that was already in flight writes it straight back — a console you closed,
- * returning after the next relaunch.
+ * Closing a tab and deleting a console are different things, and the
+ * difference is the whole reason the Consoles rail can exist. Closing
+ * RELEASES: whatever was queued is written, and the file stays for the rail
+ * to list. Deleting FORGETS: the queued write is cancelled first, because
+ * without that the debounce already in flight writes the file straight back
+ * after the unlink and a console you deleted returns on the next launch.
  */
 export type ConsoleFile = Omit<StoredConsole, "updatedAt">;
 
@@ -49,7 +51,21 @@ export function createConsoleFiles(io: ConsoleIO, delayMs = 600) {
       );
     },
 
-    /** The tab is gone: cancel whatever was queued, then remove the file. */
+    /**
+     * The tab is gone, the console is not: write what was queued and let go.
+     *
+     * The last thing typed is usually inside the debounce window — you type,
+     * you look at it, you close the tab — so a release that only cancelled
+     * would lose exactly the edit the user made last.
+     */
+    release(id: string) {
+      const existing = timers.get(id);
+      if (!existing) return;
+      clearTimeout(existing);
+      write(id);
+    },
+
+    /** Deleted on purpose: cancel the queued write, then remove the file. */
     forget(id: string) {
       const existing = timers.get(id);
       if (existing) clearTimeout(existing);

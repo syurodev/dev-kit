@@ -116,6 +116,9 @@ export type ConsoleState = {
   originDatabase: string;
 };
 
+/** Which of the rail's three lists is showing. */
+export type SidebarPane = "connections" | "consoles" | "saved";
+
 /** The console a module opens with, and the one every legacy caller means. */
 export const DEFAULT_CONSOLE_ID = "console-1";
 
@@ -265,6 +268,12 @@ export type DatabaseStoreState = {
 
   /** Every open console's state, keyed by the tab's console id. */
   consoles: Record<string, ConsoleState>;
+  /**
+   * Which list the rail is showing. Remembered, because a rail that snaps
+   * back to Connections on every launch makes the other two feel like modes
+   * you are visiting rather than places the app keeps things.
+   */
+  sidebarPane: SidebarPane;
 
   /** Every open table tab's browsing state, keyed "schema.table". */
   browse: Record<string, BrowseState>;
@@ -424,6 +433,11 @@ export type DatabaseStoreState = {
   consoleState: (consoleId: string) => ConsoleState;
   /** Drops a console's slice when its tab closes, and the file with it. */
   closeConsole: (consoleId: string) => void;
+  /** Removes a console's file for good. The tab, if one is open, keeps its
+   * text — this deletes the document, and a console you are looking at is
+   * not a document you meant to lose mid-sentence. */
+  deleteConsoleFile: (consoleId: string) => void;
+  setSidebarPane: (pane: SidebarPane) => void;
   /** Reads the console files back from disk into consoles nobody has typed in
    * yet. Called once when the module's rail mounts. The loader is a parameter
    * so the rule below — never land on top of typed text — can be tested
@@ -552,6 +566,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   tableColumnsError: {},
 
   consoles: {},
+  sidebarPane: "connections",
   browse: {},
   browsePageSize: BROWSE_PAGE_SIZE,
   pageKeys: {},
@@ -812,12 +827,18 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
 
   consoleState: (consoleId) => get().consoles[consoleId] ?? EMPTY_CONSOLE,
 
-  // Closing a console is closing it: the slice goes and so does the file.
-  // consoleFiles.forget cancels whatever write was still queued first —
-  // otherwise the debounce in flight writes the file back after the delete,
-  // and the console you closed returns after the next relaunch.
+  /*
+   * Closing a console closes the TAB. The file stays.
+   *
+   * It used to delete, and that was defensible only while nothing could list
+   * the files: a console nobody could ever find again is a leak, not a
+   * document. The Consoles rail is what changed it — closing a tab is now
+   * how you tidy the strip, and deleting is a thing you do to a console you
+   * can see. Whatever was queued is written on the way out, because the last
+   * edit is usually still inside the debounce window when a tab is closed.
+   */
   closeConsole: (consoleId) => {
-    consoleFiles.forget(consoleId);
+    consoleFiles.release(consoleId);
     set((state) => {
       if (!(consoleId in state.consoles)) {
         return state;
@@ -835,6 +856,10 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
    * typing in — because a file from the last session arrived late — would be
    * the worst possible way to lose a query.
    */
+  deleteConsoleFile: (consoleId) => consoleFiles.forget(consoleId),
+
+  setSidebarPane: (pane) => set({ sidebarPane: pane }),
+
   hydrateConsoles: async (load = listConsoles) => {
     let stored;
     try {
@@ -1214,6 +1239,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
         folders: state.folders,
         expandedFolders: state.expandedFolders,
         browsePageSize: state.browsePageSize,
+        sidebarPane: state.sidebarPane,
       }),
     },
   ),

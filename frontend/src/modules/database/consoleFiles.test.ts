@@ -53,11 +53,11 @@ describe("when a console reaches the disk", () => {
   });
 
   /**
-   * The bug this exists to prevent: closing a tab deletes the file, and the
-   * debounce that was already in flight writes it straight back. A console
-   * you closed comes back after the next relaunch.
+   * The bug this exists to prevent: the delete lands, and the debounce that
+   * was already in flight writes the file straight back. A console you
+   * deleted returns after the next relaunch.
    */
-  test("closing cancels the write that was already queued", async () => {
+  test("deleting cancels the write that was already queued", async () => {
     const { saved, removed, io } = recorder();
     const files = createConsoleFiles(io, 1);
 
@@ -66,7 +66,7 @@ describe("when a console reaches the disk", () => {
     await settle();
 
     expect(removed).toEqual(["c1"]);
-    expect(saved, "a closed console wrote itself back").toHaveLength(0);
+    expect(saved, "a deleted console wrote itself back").toHaveLength(0);
   });
 
   test("a disk that refuses does not reject into the window", async () => {
@@ -84,6 +84,32 @@ describe("when a console reaches the disk", () => {
     // Reaching here without an unhandled rejection is the assertion; the
     // console keeps working with nowhere to be written.
     expect(true).toBe(true);
+  });
+
+  /*
+   * Closing a tab is not deleting a console — that is the whole reason the
+   * Consoles rail can list anything. And the last thing typed is usually
+   * still inside the debounce window when a tab is closed, so a release that
+   * only cancelled would lose exactly the edit the user made last.
+   */
+  test("closing writes what was queued and keeps the file", async () => {
+    const { saved, removed, io } = recorder();
+    const files = createConsoleFiles(io, 10_000);
+
+    files.schedule(file("c1", "SELECT the last thing I typed"));
+    files.release("c1");
+    await settle();
+
+    expect(saved.map((c) => c.sql)).toEqual(["SELECT the last thing I typed"]);
+    expect(removed, "closing a tab deleted the console").toHaveLength(0);
+  });
+
+  test("releasing a console with nothing queued writes nothing", async () => {
+    const { saved, io } = recorder();
+    const files = createConsoleFiles(io, 1);
+    files.release("never-typed-in");
+    await settle();
+    expect(saved).toHaveLength(0);
   });
 
   test("flush writes what is queued without waiting the window out", () => {

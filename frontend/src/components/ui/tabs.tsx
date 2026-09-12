@@ -80,7 +80,13 @@ const tabsListVariants = cva(
   {
     variants: {
       variant: {
-        default: "h-8 rounded-md bg-black/25 p-1 gap-1",
+        // A recessed track and, on it, a chip the colour of the page. Both
+        // sides used to be raw alphas — black/25 under white/10 — which is a
+        // dark-only idea: composited on a light surface the track went grey
+        // and the chip landed 6 values away from it, so the selected tab was
+        // invisible in light mode. Tokens flip per mode; 25% of black does
+        // not.
+        default: "h-8 rounded-md bg-(--segment-track) p-1 gap-1",
         line: "gap-1 bg-transparent p-0 rounded-none",
       },
     },
@@ -144,7 +150,7 @@ function TabsTrigger({
           transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
           className={cn(
             "absolute rounded-sm",
-            "group-data-[variant=default]/tabs-list:inset-0 group-data-[variant=default]/tabs-list:border group-data-[variant=default]/tabs-list:border-white/8 group-data-[variant=default]/tabs-list:bg-white/10",
+            "group-data-[variant=default]/tabs-list:inset-0 group-data-[variant=default]/tabs-list:border group-data-[variant=default]/tabs-list:border-border-default group-data-[variant=default]/tabs-list:bg-(--segment-chip)",
             "group-data-[variant=line]/tabs-list:inset-x-0 group-data-[variant=line]/tabs-list:bottom-0 group-data-[variant=line]/tabs-list:h-0.5 group-data-[variant=line]/tabs-list:bg-text-primary",
           )}
         />
