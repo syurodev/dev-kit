@@ -184,47 +184,51 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
           and their tooltips say — and Explain, Explain analyze and Save are
           not the point of this view, the editor under them is.
 
-          Run keeps the filled primary and loses only its word: it is told
-          apart by being the one coloured control in the row, not by being the
-          one with text. Its shortcut moves into the tooltip, because a badge
-          inside an icon-only button is not an icon-only button.
+          Same controls as the table tab's strip, because it is the same kind
+          of row: ghost at icon-sm, no fill of its own, 2px apart. Outline
+          buttons on a raised fill made the console's row read as a different
+          component from the table's — two toolbars in one module, doing the
+          same job, telling you they were unrelated.
+
+          Run is the one exception and keeps the filled primary: it is the
+          point of this view, and the table's strip has nothing like it. Its
+          shortcut moves into the tooltip, because a badge inside an icon-only
+          button is not an icon-only button.
 
           Every one of them is wrapped: an icon with no accessible name is a
           button a screen reader can only call "button", and ActionTooltip is
           what sets the name as well as the tip. The two that can be disabled
           take `wrap`, because a disabled button raises no tooltip on its
           own. */}
-      <div className="flex shrink-0 flex-wrap items-center gap-2 pb-3.5">
+      <div className="mb-2 flex h-(--control-height-md) shrink-0 items-center gap-0.5">
         <ActionTooltip label="Explain the query plan without executing">
           <Button
-            variant="outline"
-            size="icon"
-            className="bg-surface-raised"
+            variant="ghost"
+            size="icon-sm"
             onClick={() => void handleExplain(false)}
             disabled={busy}
           >
-            <FileCode2 className="size-3.5" />
+            <FileCode2 />
           </Button>
         </ActionTooltip>
         <ActionTooltip label="Explain analyze — run it in a rolled-back transaction to measure the real time">
           <Button
-            variant="outline"
-            size="icon"
-            className="bg-surface-raised"
+            variant="ghost"
+            size="icon-sm"
             onClick={() => void handleExplain(true)}
             disabled={busy}
           >
-            <Sliders className="size-3.5" />
+            <Sliders />
           </Button>
         </ActionTooltip>
         <ActionTooltip label="Save this query" wrap>
           <Button
             variant="ghost"
-            size="icon"
+            size="icon-sm"
             onClick={() => openSaveQueryModal(consoleId)}
             disabled={!slice.sql.trim()}
           >
-            <BookmarkPlus className="size-3.5" />
+            <BookmarkPlus />
           </Button>
         </ActionTooltip>
 
@@ -233,12 +237,11 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
         {queryResult && (
           <ActionTooltip label="Export the result">
             <Button
-              variant="outline"
-              size="icon"
-              className="bg-surface-raised"
+              variant="ghost"
+              size="icon-sm"
               onClick={() => openExportModal(queryResult)}
             >
-              <Download className="size-3.5" />
+              <Download />
             </Button>
           </ActionTooltip>
         )}
@@ -248,12 +251,11 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
         {slice.runningQuery && (
           <ActionTooltip label="Cancel the running query">
             <Button
-              variant="outline"
-              size="icon"
-              className="bg-surface-raised"
+              variant="ghost"
+              size="icon-sm"
               onClick={() => cancelQuery(consoleId)}
             >
-              <XCircle className="size-3.5" />
+              <XCircle />
             </Button>
           </ActionTooltip>
         )}
@@ -265,14 +267,14 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
         >
           <Button
             variant="default"
-            size="icon"
+            size="icon-sm"
             onClick={() => void executeQuery(consoleId)}
             disabled={slice.runningQuery || !selectedProfileId}
           >
             {slice.runningQuery ? (
-              <Loader2 className="size-3.5 animate-spin" />
+              <Loader2 className="animate-spin" />
             ) : (
-              <Play className="size-3.5 fill-current" />
+              <Play className="fill-current" />
             )}
           </Button>
         </ActionTooltip>
