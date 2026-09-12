@@ -5,6 +5,7 @@ import {
   ChevronsRight,
   ChevronsUpDown,
 } from "lucide-react";
+import { ActionTooltip } from "@/components/ui/action-tooltip";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -175,12 +176,11 @@ export function BrowsePager({
         // about how this pager moves, and the cost lands when you use it.
         <>
           <span className="mx-0.5 h-4 w-px bg-border-subtle" aria-hidden />
-          <span
-            className="flex h-(--control-height-sm) items-center rounded-full bg-state-soft px-2 text-code-11 text-text-tertiary"
-            title="This table has no primary or unique key, so pages are counted rather than walked. Deep pages are slower, and rows inserted while you page can shift the window."
-          >
-            unkeyed
-          </span>
+          <ActionTooltip label="No primary or unique key, so pages are counted rather than walked. Deep pages are slower, and rows inserted while you page can shift the window.">
+            <span className="flex h-(--control-height-sm) items-center rounded-full bg-state-soft px-2 text-code-11 text-text-tertiary">
+              unkeyed
+            </span>
+          </ActionTooltip>
         </>
       ) : null}
     </div>

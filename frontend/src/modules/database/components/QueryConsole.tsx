@@ -14,6 +14,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { sql as codemirrorSql, PostgreSQL, MySQL, MariaSQL } from "@codemirror/lang-sql";
+import { ActionTooltip } from "@/components/ui/action-tooltip";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { shortcut } from "@/lib/shortcut";
@@ -181,28 +182,30 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
           inside the button, Export beside it. The plan and save actions
           are DevKit's and sit on the left. */}
       <div className="flex shrink-0 flex-wrap items-center gap-2 pb-3.5">
-        <Button
-          variant="outline"
-          size="default"
-          className="bg-surface-raised"
-          onClick={() => void handleExplain(false)}
-          disabled={busy}
-          title="Explain query plan without executing"
-        >
-          <FileCode2 className="size-3.5" />
-          Explain
-        </Button>
-        <Button
-          variant="outline"
-          size="default"
-          className="bg-surface-raised"
-          onClick={() => void handleExplain(true)}
-          disabled={busy}
-          title="Execute statement in rolled-back transaction to measure actual time"
-        >
-          <Sliders className="size-3.5" />
-          Explain analyze
-        </Button>
+        <ActionTooltip label="Explain the query plan without executing">
+          <Button
+            variant="outline"
+            size="default"
+            className="bg-surface-raised"
+            onClick={() => void handleExplain(false)}
+            disabled={busy}
+          >
+            <FileCode2 className="size-3.5" />
+            Explain
+          </Button>
+        </ActionTooltip>
+        <ActionTooltip label="Run it in a rolled-back transaction to measure the real time">
+          <Button
+            variant="outline"
+            size="default"
+            className="bg-surface-raised"
+            onClick={() => void handleExplain(true)}
+            disabled={busy}
+          >
+            <Sliders className="size-3.5" />
+            Explain analyze
+          </Button>
+        </ActionTooltip>
         <Button
           variant="ghost"
           size="default"

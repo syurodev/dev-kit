@@ -22,6 +22,7 @@ import {
   History,
   Network,
 } from "lucide-react";
+import { ActionTooltip } from "@/components/ui/action-tooltip";
 import { Button } from "@/components/ui/button";
 import {
   Empty,
@@ -402,31 +403,31 @@ export function DatabaseSidebar() {
         <>
           <div className={ACTIONS}>
             {isSelected && (
-              <button
-                type="button"
-                className={ACTION}
-                title={indexed ? `Re-index schema — last indexed ${indexed}` : "Index schema"}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void refreshSchema(profile.id);
-                }}
+              <ActionTooltip
+                label={indexed ? `Re-index schema — last indexed ${indexed}` : "Index schema"}
               >
-                <RefreshCw className={cn("size-3", indexingSchema && "animate-spin")} />
-              </button>
+                <button
+                  type="button"
+                  className={ACTION}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void refreshSchema(profile.id);
+                  }}
+                >
+                  <RefreshCw className={cn("size-3", indexingSchema && "animate-spin")} />
+                </button>
+              </ActionTooltip>
             )}
             {/* Figma drew the folder dialog but not the way a profile gets into
                 one. A menu is the smallest thing that works and reads: the list
                 is short, and it says where the profile is now. */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  className={ACTION}
-                  onClick={(e) => e.stopPropagation()}
-                  title="Move to folder"
-                >
-                  <FolderInput className="size-3" />
-                </button>
+                <ActionTooltip label="Move to folder">
+                  <button type="button" className={ACTION} onClick={(e) => e.stopPropagation()}>
+                    <FolderInput className="size-3" />
+                  </button>
+                </ActionTooltip>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
                 <DropdownMenuItem
@@ -448,28 +449,33 @@ export function DatabaseSidebar() {
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
-            <button
-              type="button"
-              className={ACTION}
-              title="Connection options"
-              onClick={(e) => {
-                e.stopPropagation();
-                setSelectedProfileId(profile.id);
-                setShowConnectionOptionsDialog(true);
-              }}
-            >
-              <Settings2 className="size-3" />
-            </button>
+            <ActionTooltip label="Connection options">
+              <button
+                type="button"
+                className={ACTION}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedProfileId(profile.id);
+                  setShowConnectionOptionsDialog(true);
+                }}
+              >
+                <Settings2 className="size-3" />
+              </button>
+            </ActionTooltip>
           </div>
           {profile.readOnly && (
-            <span title="Safe-mode (read-only) active">
-              <Shield className="size-3 shrink-0 text-text-tertiary" />
-            </span>
+            <ActionTooltip label="Safe mode (read-only) is on">
+              <span>
+                <Shield className="size-3 shrink-0 text-text-tertiary" />
+              </span>
+            </ActionTooltip>
           )}
           {profile.sshProfileId && (
-            <span title="SSH tunnel enabled">
-              <Radio className="size-3 shrink-0 text-text-tertiary" />
-            </span>
+            <ActionTooltip label="SSH tunnel enabled">
+              <span>
+                <Radio className="size-3 shrink-0 text-text-tertiary" />
+              </span>
+            </ActionTooltip>
           )}
           {profile.env ? (
             <Chip
@@ -628,31 +634,26 @@ export function DatabaseSidebar() {
           onClear={() => setFilterQuery("")}
           placeholder="Search connections & tables…"
         />
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          onClick={() => void fetchProfiles()}
-          disabled={loadingProfiles}
-          title="Refresh connections"
-        >
-          <RefreshCw className={cn("size-3", loadingProfiles && "animate-spin")} />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          onClick={newFolder}
-          title="New folder"
-        >
-          <FolderPlus className="size-3" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          onClick={() => setShowNewConnectionDialog(true)}
-          title="New connection"
-        >
-          <Plus className="size-3" />
-        </Button>
+        <ActionTooltip label="Refresh connections">
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={() => void fetchProfiles()}
+            disabled={loadingProfiles}
+          >
+            <RefreshCw className={cn("size-3", loadingProfiles && "animate-spin")} />
+          </Button>
+        </ActionTooltip>
+        <ActionTooltip label="New folder">
+          <Button variant="ghost" size="icon-xs" onClick={newFolder}>
+            <FolderPlus className="size-3" />
+          </Button>
+        </ActionTooltip>
+        <ActionTooltip label="New connection">
+          <Button variant="ghost" size="icon-xs" onClick={() => setShowNewConnectionDialog(true)}>
+            <Plus className="size-3" />
+          </Button>
+        </ActionTooltip>
       </SidebarHeader>
 
       {/* Searching a 173-table list and being shown a shorter one with no idea

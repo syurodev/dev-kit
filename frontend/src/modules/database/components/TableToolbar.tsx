@@ -21,6 +21,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { ActionTooltip } from "@/components/ui/action-tooltip";
 import { WhereInput } from "./WhereInput";
 
 /**
@@ -60,17 +61,17 @@ function Rule() {
  * the app's dimmest text and clears 4.5:1 on every surface of every palette
  * (themeContrast.test.ts), which is what "dim" should have meant all along.
  *
- * The `<span>` carries the title because a disabled Button sets
- * `pointer-events: none`, and an element the pointer cannot reach has no
- * tooltip.
+ * The `<span>` is the tooltip's trigger, not the Button: a disabled Button
+ * sets `pointer-events: none`, and an element the pointer cannot reach raises
+ * no tooltip — native or otherwise.
  */
 const PENDING = "disabled:opacity-100 disabled:text-text-tertiary";
 
-function Pending({ title, children }: { title: string; children: ReactNode }) {
+function Pending({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <span title={`${title} — coming soon`} className="flex shrink-0 items-center">
-      {children}
-    </span>
+    <ActionTooltip label={`${label} — coming soon`}>
+      <span className="flex shrink-0 items-center">{children}</span>
+    </ActionTooltip>
   );
 }
 
@@ -127,32 +128,28 @@ export function TableToolbar({
   return (
     <div className="flex shrink-0 flex-col pb-2">
       <div className="flex h-(--control-height-md) items-center gap-0.5">
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={onRefresh}
-          disabled={loading}
-          title="Reload this page of rows"
-        >
-          <RefreshCw className={loading ? "animate-spin" : undefined} />
-        </Button>
+        <ActionTooltip label="Reload this page of rows">
+          <Button variant="ghost" size="icon-sm" onClick={onRefresh} disabled={loading}>
+            <RefreshCw className={loading ? "animate-spin" : undefined} />
+          </Button>
+        </ActionTooltip>
 
         <Rule />
 
         {/* Transaction control. Drawn now, wired up later — the shape of the
             strip is what is being settled, and leaving a hole where these go
             would settle it wrong. */}
-        <Pending title="Commit the open transaction">
+        <Pending label="Commit the open transaction">
           <Button variant="ghost" size="icon-sm" disabled className={PENDING}>
             <Check />
           </Button>
         </Pending>
-        <Pending title="Roll back the open transaction">
+        <Pending label="Roll back the open transaction">
           <Button variant="ghost" size="icon-sm" disabled className={PENDING}>
             <Undo2 />
           </Button>
         </Pending>
-        <Pending title="Transaction mode">
+        <Pending label="Transaction mode">
           <Button
             variant="ghost"
             size="sm"
@@ -163,7 +160,7 @@ export function TableToolbar({
             Tx: Auto
           </Button>
         </Pending>
-        <Pending title="Show this table's DDL">
+        <Pending label="Show this table's DDL">
           <Button
             variant="ghost"
             size="sm"
@@ -177,23 +174,16 @@ export function TableToolbar({
 
         <Rule />
 
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={onExport}
-          disabled={rowCount === 0}
-          title="Export the rows on this page"
-        >
-          <Download />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={onOpenInConsole}
-          title="Open this query in a console"
-        >
-          <SquareArrowOutUpRight />
-        </Button>
+        <ActionTooltip label="Export the rows on this page">
+          <Button variant="ghost" size="icon-sm" onClick={onExport} disabled={rowCount === 0}>
+            <Download />
+          </Button>
+        </ActionTooltip>
+        <ActionTooltip label="Open this query in a console">
+          <Button variant="ghost" size="icon-sm" onClick={onOpenInConsole}>
+            <SquareArrowOutUpRight />
+          </Button>
+        </ActionTooltip>
 
         <span className="flex-1" />
 

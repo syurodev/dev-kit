@@ -1,0 +1,78 @@
+import { describe, expect, it } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { renderToString } from "react-dom/server";
+import { ActionTooltip } from "./action-tooltip";
+import { TooltipProvider } from "./tooltip";
+import { Button } from "./button";
+
+const render = (node: React.ReactElement) =>
+  renderToString(<TooltipProvider>{node}</TooltipProvider>);
+
+/**
+ * A `title` attribute is two things at once: the tooltip, and the accessible
+ * NAME of an icon-only button. A Radix tooltip is only the first — it sets
+ * aria-describedby, which describes a control that already has a name. Moving
+ * a toolbar from one to the other without this leaves a row of buttons a
+ * screen reader can only call "button".
+ */
+describe("ActionTooltip", () => {
+  it("names an icon-only button with its tooltip", () => {
+    const html = render(
+      <ActionTooltip label="Reload this page of rows">
+        <Button size="icon-sm">
+          <svg />
+        </Button>
+      </ActionTooltip>,
+    );
+    expect(html).toContain('aria-label="Reload this page of rows"');
+  });
+
+  // A button with visible text names itself. Overriding that with aria-label
+  // would make the screen reader say something the user cannot see.
+  it("leaves a button that names itself alone", () => {
+    const html = render(
+      <ActionTooltip label="Explain the query plan without executing">
+        <Button>Explain</Button>
+      </ActionTooltip>,
+    );
+    expect(html).not.toContain("aria-label");
+    expect(html).toContain("Explain");
+  });
+
+  it("does not override a name the caller chose", () => {
+    const html = render(
+      <ActionTooltip label="Move to folder">
+        <button type="button" aria-label="Move this connection">
+          <svg />
+        </button>
+      </ActionTooltip>,
+    );
+    expect(html).toContain('aria-label="Move this connection"');
+    expect(html).not.toContain('aria-label="Move to folder"');
+  });
+});
+
+/**
+ * The native tooltip and the app's are visibly different — a grey OS box after
+ * a second and a half, against the app's glass one after 100ms — so a toolbar
+ * that mixes them looks like two toolbars.
+ *
+ * The exceptions are deliberate and not buttons: a grid cell's `title` is the
+ * full value behind a clipped one (2,220 Radix roots is the cost the grid's
+ * single context menu exists to avoid), and a tree row's is its qualified
+ * name.
+ */
+describe("the module's chrome uses one tooltip", () => {
+  const read = (file: string) =>
+    readFileSync(join(import.meta.dir, "../../modules/database", file), "utf8");
+
+  it.each([
+    "components/TableToolbar.tsx",
+    "components/DatabaseSidebar.tsx",
+    "components/QueryConsole.tsx",
+    "components/BrowsePager.tsx",
+  ])("%s raises no native tooltip", (file) => {
+    expect(read(file), "title= is the OS tooltip, not the app's").not.toMatch(/\stitle="/);
+  });
+});
