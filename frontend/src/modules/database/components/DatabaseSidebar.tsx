@@ -15,6 +15,7 @@ import {
   FolderPlus,
   FolderInput,
   Crosshair,
+  FileCode,
   Trash2,
   TriangleAlert,
   Activity,
@@ -152,6 +153,7 @@ export function DatabaseSidebar() {
     tableColumnsError,
     setShowNewConnectionDialog,
     setShowConnectionOptionsDialog,
+    openDDL,
   } = useDatabaseStore(
     useShallow((s) => ({
       profiles: s.profiles,
@@ -184,6 +186,7 @@ export function DatabaseSidebar() {
       tableColumnsError: s.tableColumnsError,
       setShowNewConnectionDialog: s.setShowNewConnectionDialog,
       setShowConnectionOptionsDialog: s.setShowConnectionOptionsDialog,
+      openDDL: s.openDDL,
     }))
   );
 
@@ -324,6 +327,10 @@ export function DatabaseSidebar() {
               >
                 <Crosshair />
                 Focus in ERD
+              </ContextMenuItem>
+              <ContextMenuItem onSelect={() => openDDL(schemaName, tableName)}>
+                <FileCode />
+                Show DDL
               </ContextMenuItem>
               <ContextMenuItem onSelect={() => void copyText(tableName)}>
                 <Copy />

@@ -3,9 +3,10 @@ import { ConnectionOptionsDialog } from "./components/ConnectionOptionsDialog";
 import { ExportModal } from "./components/ExportModal";
 import { SaveQueryModal } from "./components/SaveQueryModal";
 import { CellInspector } from "./components/CellInspector";
+import { TableDDLDialog } from "./components/TableDDLDialog";
 
 /**
- * The module's five overlays, rendered by whichever document is active.
+ * The module's six overlays, rendered by whichever document is active.
  *
  * Every one of them is a hand-rolled `fixed inset-0` panel over a `bg-black/60`
  * backdrop, and all five are driven by booleans on the shared store. Rendered
@@ -22,6 +23,7 @@ export function DatabaseOverlays() {
       <ExportModal />
       <SaveQueryModal />
       <CellInspector />
+      <TableDDLDialog />
     </>
   );
 }

@@ -298,6 +298,11 @@ export type DatabaseStoreState = {
    * to Manual opens one immediately, so the very next statement is inside it
    * rather than the first one silently landing outside.
    */
+  /** The table whose definition is on screen, or null. */
+  ddlTarget: { schema: string; table: string } | null;
+  openDDL: (schema: string, table: string) => void;
+  closeDDL: () => void;
+
   txManual: boolean;
   txOpen: boolean;
   txBusy: boolean;
@@ -814,6 +819,10 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       error: "",
     });
   },
+
+  ddlTarget: null,
+  openDDL: (schema, table) => set({ ddlTarget: { schema, table } }),
+  closeDDL: () => set({ ddlTarget: null }),
 
   txManual: false,
   txOpen: false,

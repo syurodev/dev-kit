@@ -397,6 +397,18 @@ export function transactionState(id: string): Promise<{ manual: boolean; open: b
   }));
 }
 
+/**
+ * The statement that defines a table, as the engine itself reports it.
+ *
+ * MySQL and MariaDB answer with SHOW CREATE TABLE. Postgres keeps no such
+ * text — its DDL would have to be rebuilt from the catalogues — so it refuses
+ * rather than handing back a reconstruction nobody has checked, which is the
+ * one people paste into a migration.
+ */
+export function tableDDL(id: string, schema: string, table: string): Promise<string> {
+  return callBridge(() => AppService.DBTableDDL(id, schema, table));
+}
+
 export function saveExportFile(suggestedName: string, content: string): Promise<string> {
   return callBridge(() => AppService.DBSaveExportFile(suggestedName, content) as Promise<string>);
 }

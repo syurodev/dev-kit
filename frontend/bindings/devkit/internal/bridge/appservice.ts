@@ -449,6 +449,16 @@ export function DBSetTxMode(id: string, manual: boolean): $CancellablePromise<vo
 }
 
 /**
+ * DBTableDDL returns the statement that defines a table.
+ * 
+ * Through db:query and the profile scope, like every other catalogue read: it
+ * is the server being asked about its own schema.
+ */
+export function DBTableDDL(id: string, schema: string, table: string): $CancellablePromise<string> {
+    return $Call.ByID(2364618144, id, schema, table);
+}
+
+/**
  * DBTerminateSession closes a connection and rolls back its transaction.
  */
 export function DBTerminateSession(id: string, pid: string): $CancellablePromise<void> {

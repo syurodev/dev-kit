@@ -68,15 +68,6 @@ function Rule() {
  * same as leaving the mode; leaving the mode COMMITS what is open, since
  * discarding someone's work is what the button beside it is for.
  */
-/**
- * A control that is drawn but not connected yet — DDL is the last of them.
- *
- * Disabled, so it stays out of the tab order and is announced as unavailable,
- * but NOT at the Button's `disabled:opacity-38`: that put it at 1.80:1 in
- * light, and a control nobody can read cannot say "coming soon" either.
- */
-const PENDING = "disabled:opacity-100 disabled:text-text-tertiary";
-
 function TransactionControls() {
   const { txManual, txBusy, selectedProfileId, setTxManual, endTransaction } =
     useDatabaseStore(
@@ -213,6 +204,7 @@ export function TableToolbar({
   onRefresh,
   onExport,
   onOpenInConsole,
+  onShowDDL,
   pager,
 }: {
   where: string;
@@ -240,6 +232,7 @@ export function TableToolbar({
    */
   onExport: () => void;
   onOpenInConsole: () => void;
+  onShowDDL: () => void;
   /**
    * The pager, as a slot. Ten pagination props threaded through a toolbar that
    * reads none of them is prop drilling with extra steps — the toolbar owes
@@ -260,18 +253,16 @@ export function TableToolbar({
 
         <TransactionControls />
 
-        <ActionTooltip label="Show this table's DDL — coming soon">
-          <span className="flex shrink-0 items-center">
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled
-              className={cn("gap-1 px-2 text-code-12 font-normal", PENDING)}
-            >
-              <FileCode />
-              DDL
-            </Button>
-          </span>
+        <ActionTooltip label="Show this table's definition">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onShowDDL}
+            className="gap-1 px-2 text-code-12 font-normal"
+          >
+            <FileCode />
+            DDL
+          </Button>
         </ActionTooltip>
 
         <Rule />

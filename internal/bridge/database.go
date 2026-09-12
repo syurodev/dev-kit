@@ -164,6 +164,26 @@ func (s *AppService) DBTxOpen(ctx context.Context, id string) (bool, error) {
 	return result.(bool), nil
 }
 
+// DBTableDDL returns the statement that defines a table.
+//
+// Through db:query and the profile scope, like every other catalogue read: it
+// is the server being asked about its own schema.
+func (s *AppService) DBTableDDL(ctx context.Context, id, schema, table string) (string, error) {
+	opaqueID := recordID(id)
+	result, err := s.call(ctx, "builtin.database", "db:query", "profile:"+opaqueID, map[string]any{
+		"action":     "table_ddl",
+		"profile_id": opaqueID,
+		"schema":     schema,
+		"table":      table,
+	}, func(callCtx context.Context) (any, error) {
+		return s.container.Database.TableDDL(callCtx, id, schema, table)
+	})
+	if err != nil {
+		return "", err
+	}
+	return result.(string), nil
+}
+
 func (s *AppService) DBUpdateProfileOptions(id string, opts database.UpdateProfileOptionsInput) (database.ProfileSummary, error) {
 	opaqueID := recordID(id)
 	result, err := s.call(context.Background(), "builtin.database", "db:query", "profile:"+opaqueID, map[string]any{

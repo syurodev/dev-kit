@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -191,6 +192,66 @@ func (t *mysqlTx) Rollback(ctx context.Context) error {
 	defer t.pinned.Close()
 	_ = ctx
 	return t.tx.Rollback()
+}
+
+// quoteMySQLIdentifier wraps a name in backticks, doubling any it contains.
+//
+// Every name here comes from the catalogue the server itself reported, so this
+// is not guarding against a hostile user — it is guarding against ordinary
+// names the grammar cannot take bare: a reserved word, a space, a hyphen. The
+// doubling rule also means a name containing a backtick cannot close the
+// identifier early, which is the one case where an ordinary name would
+// otherwise become a second statement.
+func quoteMySQLIdentifier(name string) string {
+	return "`" + strings.ReplaceAll(name, "`", "``") + "`"
+}
+
+// TableDDL asks the server for the statement it would use to recreate the
+// table.
+//
+// SHOW CREATE TABLE, not a reconstruction: MySQL keeps the definition and
+// gives it back whole, with the engine, the charset, the collation, the
+// AUTO_INCREMENT and every constraint exactly as the server holds them. Any
+// version assembled here from information_schema would be a second opinion
+// about the same table, and the one people paste into a migration.
+//
+// The identifier is quoted rather than bound: SHOW CREATE TABLE takes a name,
+// not a parameter, and quoteMySQLIdentifier is what makes a name with a
+// backtick or a reserved word safe.
+func (c *mysqlConn) TableDDL(ctx context.Context, schema, table string) (string, error) {
+	target := quoteMySQLIdentifier(schema) + "." + quoteMySQLIdentifier(table)
+	rows, err := c.db.QueryContext(ctx, "SHOW CREATE TABLE "+target)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = rows.Close() }()
+
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return "", err
+		}
+		return "", fmt.Errorf("no definition for %s", target)
+	}
+	// Two columns for a table (Table, Create Table) and four for a view
+	// (View, Create View, character_set_client, collation_connection). Scanning
+	// by position into the second either way, because the column NAMES differ
+	// between the two and the statement is always the second.
+	columns, err := rows.Columns()
+	if err != nil {
+		return "", err
+	}
+	cells := make([]any, len(columns))
+	values := make([]sql.NullString, len(columns))
+	for i := range cells {
+		cells[i] = &values[i]
+	}
+	if err := rows.Scan(cells...); err != nil {
+		return "", err
+	}
+	if len(values) < 2 {
+		return "", fmt.Errorf("unexpected SHOW CREATE TABLE shape for %s", target)
+	}
+	return values[1].String, rows.Err()
 }
 
 func (c *mysqlConn) ListSchemas(ctx context.Context) ([]string, error) {

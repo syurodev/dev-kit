@@ -72,6 +72,7 @@ export function TableDataView({
     setInspectedCell,
     setSql,
     openExportModal,
+    openDDL,
   } = useDatabaseStore(
     useShallow((s) => ({
       selectedProfileId: s.selectedProfileId,
@@ -99,6 +100,7 @@ export function TableDataView({
       setInspectedCell: s.setInspectedCell,
       setSql: s.setSql,
       openExportModal: s.openExportModal,
+      openDDL: s.openDDL,
     })),
   );
 
@@ -240,6 +242,7 @@ export function TableDataView({
             openExportModal(browse.rows, tableExportFilename(table));
           }
         }}
+        onShowDDL={() => openDDL(schema, table)}
         onOpenInConsole={() => {
           const consoleId = `console-${key}`;
           setSql(
