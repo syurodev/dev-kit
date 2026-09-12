@@ -855,6 +855,17 @@
      data-animating is set for the transition's length by useBranchAnimating. */
   .tree-branch > * {
     min-height: 0;
+    /* The other half of the pair, and the one that was missing.
+       This is a GRID item, so its automatic minimum size is min-content — and
+       min-content for a row of `white-space: nowrap` labels is the longest
+       table name in the branch, untruncated. The group could not shrink to the
+       rail: measured at 399px inside a 269px scrollport, so every nested row
+       was 130px wider than the rail and a selected one had its right border
+       and its corner outside the visible area. The root-level rows never did,
+       which is why only the nested selection looked amputated.
+       With this the rows fit the rail and the labels ellipsise, which is the
+       trade asked for: the box whole, the text cut. */
+    min-width: 0;
   }
   .tree-branch[data-animating] > * {
     overflow: hidden;

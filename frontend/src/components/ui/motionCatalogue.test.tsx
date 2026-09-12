@@ -57,6 +57,18 @@ describe("motion defined in index.css", () => {
     expect(block).toMatch(/transition:[^;]*opacity[^;]*scale/s);
   });
 
+  // Not motion, but it lives in the same block and breaks the same way: a
+  // grid item defaults to a min-content minimum, so a branch of nowrap labels
+  // refuses to shrink to the rail and every nested row is drawn wider than the
+  // scrollport — with a selected row's border and corner outside it.
+  it("a tree branch can shrink to its rail on both axes", () => {
+    const block = CSS.match(/\.tree-branch > \*\s*\{[\s\S]*?\n {2}\}/)![0];
+    expect(block).toContain("min-height: 0");
+    expect(block, "a branch that cannot shrink cuts the selected row's box").toContain(
+      "min-width: 0",
+    );
+  });
+
   it("every motion added here is switched off by prefers-reduced-motion", () => {
     const reduced = CSS.match(/@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?\n\}/)![0];
     for (const cls of ["module-enter", "row-accent", "value-blink"]) {
