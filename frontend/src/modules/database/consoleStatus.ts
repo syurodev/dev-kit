@@ -42,8 +42,12 @@ function seconds(value: number): string {
  *
  * The stopwatch above stays in seconds. It only ever renders from 0.1s
  * upward, so the two never disagree on screen about the same moment.
+ *
+ * Exported because the editor prints the same number beside each statement
+ * it ran. One formatter, or the pill and the line disagree about what 1000
+ * milliseconds is called.
  */
-function took(ms: number): string {
+export function formatDuration(ms: number): string {
   return ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`;
 }
 
@@ -58,7 +62,7 @@ export function consoleStatus(input: ConsoleStatusInput): ConsoleStatus {
   if (input.durationMs === undefined && !input.error) {
     return { kind: "idle" };
   }
-  const time = took(input.durationMs ?? 0);
+  const time = formatDuration(input.durationMs ?? 0);
 
   if (input.error) {
     // The first line, because a driver puts the sentence first and the

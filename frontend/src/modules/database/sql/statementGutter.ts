@@ -1,6 +1,15 @@
-import { GutterMarker, lineNumberMarkers } from "@codemirror/view";
+import {
+  Decoration,
+  EditorView,
+  GutterMarker,
+  WidgetType,
+  lineNumberMarkers,
+  type DecorationSet,
+} from "@codemirror/view";
 import { RangeSet, StateField, type EditorState } from "@codemirror/state";
 import { statementMarkers, type StatementOutcome } from "./statementMarkers";
+import { formatDuration } from "../consoleStatus";
+import type { StatementRun } from "../databaseStore";
 import type { SqlDialect } from "./statements";
 
 /**
@@ -33,24 +42,80 @@ const MARKERS = {
   error: new OutcomeMarker("error"),
 } as const;
 
+/**
+ * How long the statement took, at the end of its line.
+ *
+ * A console with five statements in it raises one question a pill cannot
+ * answer: which of them is the slow one. The number sits where the eye
+ * already is — past the end of the statement, in the tertiary colour, out
+ * of the way of the SQL.
+ */
+class TimingWidget extends WidgetType {
+  constructor(private readonly label: string) {
+    super();
+  }
+
+  // Without this every redraw replaces every widget, and a widget replaced
+  // mid-selection takes the selection with it.
+  override eq(other: TimingWidget) {
+    return other.label === this.label;
+  }
+
+  override toDOM() {
+    const timing = document.createElement("span");
+    timing.className = "cm-statement-timing";
+    timing.textContent = this.label;
+    // It is not part of the statement. A screen reader reading the line
+    // should read the SQL, and a copy of the line should paste as SQL.
+    timing.setAttribute("aria-hidden", "true");
+    return timing;
+  }
+
+  override ignoreEvent() {
+    return true;
+  }
+}
+
+type Marks = { lines: RangeSet<GutterMarker>; timings: DecorationSet };
+
 export function statementStatusGutter(
-  outcomes: Readonly<Record<string, StatementOutcome>>,
+  runs: Readonly<Record<string, StatementRun>>,
   dialect: SqlDialect,
 ) {
-  const build = (state: EditorState) => {
-    const marks = statementMarkers(state.doc.toString(), dialect, outcomes);
-    if (marks.size === 0) return RangeSet.empty;
-    return RangeSet.of(
-      [...marks].map(([line, outcome]) => MARKERS[outcome].range(state.doc.line(line).from)),
-      // The map is built in document order already; sorting is cheap
-      // insurance against that changing and is what RangeSet.of expects.
-      true,
-    );
+  const build = (state: EditorState): Marks => {
+    const marks = statementMarkers(state.doc.toString(), dialect, runs);
+    if (marks.size === 0) {
+      return { lines: RangeSet.empty, timings: Decoration.none };
+    }
+    const entries = [...marks];
+    return {
+      lines: RangeSet.of(
+        entries.map(([line, run]) => MARKERS[run.outcome].range(state.doc.line(line).from)),
+        // The map is built in document order already; sorting is cheap
+        // insurance against that changing and is what RangeSet.of expects.
+        true,
+      ),
+      timings: Decoration.set(
+        entries.map(([line, run]) => {
+          const end = state.doc.line(line).to;
+          return Decoration.widget({
+            widget: new TimingWidget(formatDuration(run.durationMs)),
+            // After the line's own text, and after anything else that
+            // claims the same position.
+            side: 1,
+          }).range(end);
+        }),
+        true,
+      ),
+    };
   };
 
-  return StateField.define<RangeSet<GutterMarker>>({
+  return StateField.define<Marks>({
     create: build,
     update: (current, transaction) => (transaction.docChanged ? build(transaction.state) : current),
-    provide: (field) => lineNumberMarkers.from(field),
+    provide: (field) => [
+      lineNumberMarkers.from(field, (marks) => marks.lines),
+      EditorView.decorations.from(field, (marks) => marks.timings),
+    ],
   });
 }

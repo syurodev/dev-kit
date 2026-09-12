@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { statementMarkers } from "./statementMarkers";
 import { dialectOf } from "./statements";
+import type { StatementRun } from "../databaseStore";
+
+const ok: StatementRun = { outcome: "ok", durationMs: 12 };
+const failed: StatementRun = { outcome: "error", durationMs: 3 };
 
 const pg = dialectOf("postgres");
 
@@ -12,10 +16,10 @@ const pg = dialectOf("postgres");
 describe("which line is marked", () => {
   test("the line the statement starts on", () => {
     const sql = "SELECT 1;\nSELECT 2;\nSELECT 3";
-    const marks = statementMarkers(sql, pg, { "SELECT 1": "ok", "SELECT 3": "error" });
+    const marks = statementMarkers(sql, pg, { "SELECT 1": ok, "SELECT 3": failed });
     expect([...marks]).toEqual([
-      [1, "ok"],
-      [3, "error"],
+      [1, ok],
+      [3, failed],
     ]);
   });
 
@@ -23,9 +27,9 @@ describe("which line is marked", () => {
   test("past the note the statement opens with", () => {
     const sql = "-- takings\n-- by day\nSELECT sum(total) FROM orders";
     const marks = statementMarkers(sql, pg, {
-      "-- takings\n-- by day\nSELECT sum(total) FROM orders": "ok",
+      "-- takings\n-- by day\nSELECT sum(total) FROM orders": ok,
     });
-    expect([...marks]).toEqual([[3, "ok"]]);
+    expect([...marks]).toEqual([[3, ok]]);
   });
 
   /*
@@ -34,13 +38,13 @@ describe("which line is marked", () => {
    * statement is still the one that ran.
    */
   test("an insertion above moves the mark with the statement", () => {
-    const outcomes = { "SELECT 2": "ok" } as const;
-    expect([...statementMarkers("SELECT 1;\nSELECT 2", pg, outcomes)]).toEqual([[2, "ok"]]);
-    expect([...statementMarkers("\n\nSELECT 1;\nSELECT 2", pg, outcomes)]).toEqual([[4, "ok"]]);
+    const outcomes = { "SELECT 2": ok };
+    expect([...statementMarkers("SELECT 1;\nSELECT 2", pg, outcomes)]).toEqual([[2, ok]]);
+    expect([...statementMarkers("\n\nSELECT 1;\nSELECT 2", pg, outcomes)]).toEqual([[4, ok]]);
   });
 
   test("editing the statement drops its mark, because it is a different statement now", () => {
-    const marks = statementMarkers("SELECT 2 + 1", pg, { "SELECT 2": "ok" });
+    const marks = statementMarkers("SELECT 2 + 1", pg, { "SELECT 2": ok });
     expect(marks.size).toBe(0);
   });
 
@@ -51,10 +55,10 @@ describe("which line is marked", () => {
   // Two identical statements share one answer, which is the honest reading:
   // running either of them tells you the same thing.
   test("the same statement twice is marked twice", () => {
-    const marks = statementMarkers("SELECT 1;\nSELECT 1", pg, { "SELECT 1": "error" });
+    const marks = statementMarkers("SELECT 1;\nSELECT 1", pg, { "SELECT 1": failed });
     expect([...marks]).toEqual([
-      [1, "error"],
-      [2, "error"],
+      [1, failed],
+      [2, failed],
     ]);
   });
 });

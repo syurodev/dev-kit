@@ -959,6 +959,20 @@
   font-weight: 700;
 }
 
+/* How long a statement took, at the end of its line
+   (modules/database/sql/statementGutter.ts).
+ *
+ * A console with five statements raises one question the pill cannot
+ * answer: which of them is the slow one. Tertiary and a size down, past the
+ * end of the SQL — present when looked for, out of the way when not. */
+.cm-surfaceless .cm-statement-timing {
+  margin-left: 1.5ch;
+  color: var(--text-tertiary);
+  font-size: 0.85em;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+
 /* Hanging indent for wrapped rows.
  *
  * CodeMirror wraps to column zero, so a continuation lands further left than

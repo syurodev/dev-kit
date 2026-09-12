@@ -1,7 +1,8 @@
 import { splitStatements, type SqlDialect } from "./statements";
+import type { StatementRun } from "../databaseStore";
 
 /** What happened to a statement the last time it was run. */
-export type StatementOutcome = "ok" | "error";
+export type StatementOutcome = StatementRun["outcome"];
 
 /**
  * Which line gets which mark.
@@ -12,15 +13,19 @@ export type StatementOutcome = "ok" | "error";
  * Change the statement itself and its mark goes, which is right — the answer
  * you have is about something you no longer have.
  *
+ * The whole run comes back, not just its outcome: the line number is
+ * coloured by one half and the duration printed at the end of the line by
+ * the other, and both want the same lookup.
+ *
  * Pure, and separate from the gutter that draws it, because this is the part
  * with a rule in it. The gutter is twelve lines of CodeMirror.
  */
 export function statementMarkers(
   sql: string,
   dialect: SqlDialect,
-  outcomes: Readonly<Record<string, StatementOutcome>>,
-): Map<number, StatementOutcome> {
-  const marks = new Map<number, StatementOutcome>();
+  outcomes: Readonly<Record<string, StatementRun>>,
+): Map<number, StatementRun> {
+  const marks = new Map<number, StatementRun>();
   if (Object.keys(outcomes).length === 0) return marks;
 
   for (const statement of splitStatements(sql, dialect)) {

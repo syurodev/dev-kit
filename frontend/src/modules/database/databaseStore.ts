@@ -92,6 +92,15 @@ export function migrateFoldersToIds<T extends LegacyFolderState>(
  * console that asked for it, and a slow query landing after you switched tabs
  * has to find its way back to the tab that ran it.
  */
+/**
+ * What one statement did, the last time it ran.
+ *
+ * The duration rides along because the editor prints it beside the
+ * statement: with five statements in a console, "which one takes a second"
+ * is a question only a number next to each of them answers.
+ */
+export type StatementRun = { outcome: "ok" | "error"; durationMs: number };
+
 /** One grid, and the statement that produced it. */
 export type ResultTab = {
   /** Names the tab, and says which of four grids you are looking at. */
@@ -132,7 +141,7 @@ export type ConsoleState = {
   originProfileId: string;
   originDatabase: string;
   /**
-   * How each statement went, keyed by the statement's own text.
+   * How each statement went and how long it took, keyed by its own text.
    *
    * By text and not by position, which is what makes the marks in the gutter
    * survive an edit: insert a line above and every offset moves, but the
@@ -140,7 +149,7 @@ export type ConsoleState = {
    * mark goes with it, because the answer you have is about something you no
    * longer have.
    */
-  statementRuns: Record<string, "ok" | "error">;
+  statementRuns: Record<string, StatementRun>;
   /** The statement the last run actually sent, which is not the whole console
    * once a script has more than one. */
   lastStatement: string;
@@ -870,6 +879,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       // A single run is its own scope: its result replaces whatever was
       // there. Only a script appends, and it cleared the list before it
       // started — so the tabs on screen are always one run's worth.
+      const elapsed = Date.now() - (get().consoleState(consoleId).queryStartTime ?? Date.now());
       const previous = options?.append ? get().consoleState(consoleId).results : [];
       const results = [...previous, { statement: sql, result }];
       patchConsole(set, consoleId, {
@@ -878,9 +888,12 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
         // afterwards.
         activeResult: results.length - 1,
         runningQuery: false,
-        queryDurationMs: Date.now() - (get().consoleState(consoleId).queryStartTime ?? Date.now()),
+        queryDurationMs: elapsed,
         queryStatus: `${result.rowCount} row${result.rowCount === 1 ? "" : "s"}`,
-        statementRuns: { ...get().consoleState(consoleId).statementRuns, [sql]: "ok" },
+        statementRuns: {
+          ...get().consoleState(consoleId).statementRuns,
+          [sql]: { outcome: "ok", durationMs: elapsed },
+        },
       });
       return "ok";
     } catch (e) {
@@ -893,15 +906,19 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       if (get().consoleState(consoleId).queryRunId !== runId) {
         return "superseded";
       }
+      const elapsed = Date.now() - (get().consoleState(consoleId).queryStartTime ?? Date.now());
       patchConsole(set, consoleId, {
         queryError: errorMessage(e),
         runningQuery: false,
-        statementRuns: { ...get().consoleState(consoleId).statementRuns, [sql]: "error" },
+        statementRuns: {
+          ...get().consoleState(consoleId).statementRuns,
+          [sql]: { outcome: "error", durationMs: elapsed },
+        },
         // How long it took to fail is worth as much as how long it took to
         // succeed — a statement rejected in 3ms is a typo, one that fails at
         // 28s hit the cap. It was only recorded on the success path, which is
         // also what made a failure look like nothing had run at all.
-        queryDurationMs: Date.now() - (get().consoleState(consoleId).queryStartTime ?? Date.now()),
+        queryDurationMs: elapsed,
       });
       return "error";
     } finally {

@@ -583,7 +583,7 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
                   The cap chip stays because nothing else says it: a result
                   cut at the row ceiling looks exactly like a complete one.
                 */}
-                <div className="flex h-8 shrink-0 items-center gap-2">
+                <div className="mb-2 flex h-8 shrink-0 items-center gap-2">
                   {/*
                     One tab per grid the run produced, including when there
                     is one of them. A script's SELECTs each have an answer;
@@ -602,7 +602,12 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
                       onValueChange={(value) => setActiveResult(consoleId, Number(value))}
                       className="min-w-0"
                     >
-                      <TabsList className="max-w-full overflow-x-auto">
+                      {/* The well the editor above it sits in, not the
+                          strip's own default track. That default is black at
+                          25% — right on the rail, where it is an inset in a
+                          transparent surface, and a foreign dark band here on
+                          a card where every other recess is --surface-well. */}
+                      <TabsList className="max-w-full overflow-x-auto bg-surface-well">
                         {slice.results.map((tab, index) => (
                           <TabsTrigger
                             key={`${index}-${tab.statement}`}

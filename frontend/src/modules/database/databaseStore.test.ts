@@ -291,7 +291,7 @@ describe("running the whole script", () => {
       consoles: {
         c2: {
           ...useDatabaseStore.getState().consoleState("c2"),
-          statementRuns: { "SELECT stale": "ok" },
+          statementRuns: { "SELECT stale": { outcome: "ok", durationMs: 4 } },
         },
       },
     });
