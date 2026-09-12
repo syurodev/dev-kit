@@ -34,12 +34,25 @@ describe("the native menu and the module commands describe the same actions", ()
     }
   });
 
-  // The other direction is deliberately NOT required: a command may live in
-  // the palette without earning a place in the menu bar. This only pins that
-  // the palette is not the one left empty.
   it("every declared command can run", () => {
     for (const command of databaseModule.commands) {
       expect(typeof command.run, `"${command.id}" has no handler`).toBe("function");
     }
+  });
+
+  /**
+   * Both directions, because the Go list is also what internal/app reports as
+   * the module's commands — and the shell compares THAT against this manifest
+   * on every launch. A command here and not there is the "Module metadata is
+   * unavailable or out of sync" banner, which is how this was found.
+   *
+   * It is also the rule the menu bar is for: designing-for-macos asks for all
+   * of an app's commands to be reachable from it, so a command that is in the
+   * palette and not the menu is a gap rather than a preference.
+   */
+  it("names exactly the same set as the manifest, both ways", () => {
+    expect(menuIDs().slice().sort()).toEqual(
+      databaseModule.commands.map((command) => command.id).sort(),
+    );
   });
 });

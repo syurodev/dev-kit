@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"devkit/internal/appmenu"
 	"devkit/internal/commands"
 	"devkit/internal/modules"
 	"devkit/internal/tools"
@@ -33,11 +34,14 @@ func RegisterBuiltins(container *Container) error {
 			Capabilities: []string{"notes:read", "notes:write"},
 		},
 		{
-			ID:           "database",
-			Title:        "Database",
-			Version:      "1.0.0",
-			APIVersion:   modules.CurrentAPIVersion,
-			Commands:     []string{"database.query"},
+			ID:         "database",
+			Title:      "Database",
+			Version:    "1.0.0",
+			APIVersion: modules.CurrentAPIVersion,
+			// The same list the menu bar is built from, so a command cannot
+			// exist in one and not the other — which is what "Module metadata
+			// is unavailable or out of sync" meant the first time.
+			Commands:     appmenu.ModuleCommandIDs("database"),
 			Views:        []string{"database.console", "database.table", "database.erd", "database.activity", "database.history", "database.saved"},
 			Capabilities: []string{"db:query"},
 		},

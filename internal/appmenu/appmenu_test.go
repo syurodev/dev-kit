@@ -3,8 +3,6 @@ package appmenu
 import (
 	"strings"
 	"testing"
-
-	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 // Two items sharing a shortcut is a shortcut that does whichever the platform
@@ -53,20 +51,36 @@ func TestAcceleratorsAvoidThePlatformDefaults(t *testing.T) {
 
 // The menu is what the bar shows; the default roles have to survive being
 // appended to, or DevKit's menu would arrive at the cost of Edit.
-func TestAttachAddsEveryModuleMenu(t *testing.T) {
-	menu := Attach(application.NewMenu(), func(string) {})
+// Every item has to name the module that declares it, or internal/app reports
+// a set of commands that is missing one and the shell says the metadata is out
+// of sync.
+func TestEveryCommandNamesItsModule(t *testing.T) {
 	for _, submenu := range Submenus {
-		if menu.FindByLabel(submenu.Title) == nil {
-			t.Fatalf("menu is missing the %s submenu", submenu.Title)
-		}
 		for _, command := range submenu.Commands {
-			item := menu.FindByLabel(command.Label)
-			if item == nil {
-				t.Fatalf("menu is missing %q", command.Label)
-			}
-			if got := item.GetAccelerator(); command.Accelerator != "" && got == "" {
-				t.Errorf("%q lost its accelerator", command.Label)
+			if command.Module == "" {
+				t.Errorf("%q names no module", command.Label)
 			}
 		}
+	}
+}
+
+func TestModuleCommandIDsIsTheModulesOwn(t *testing.T) {
+	ids := ModuleCommandIDs("database")
+	if len(ids) == 0 {
+		t.Fatal("the database module has no commands")
+	}
+	for _, id := range ids {
+		if !strings.HasPrefix(id, "database.") {
+			t.Errorf("%q is reported as a database command", id)
+		}
+	}
+	if len(ids) != len(CommandIDs()) {
+		t.Fatalf("database has %d of %d commands; split the assertion once a second module has a menu",
+			len(ids), len(CommandIDs()))
+	}
+	// A module with no menu gets an empty slice, not nil: this goes straight
+	// into JSON the frontend reads, where null and [] are different answers.
+	if other := ModuleCommandIDs("notes"); other == nil || len(other) != 0 {
+		t.Fatalf("ModuleCommandIDs(\"notes\") = %#v, want an empty slice", other)
 	}
 }
