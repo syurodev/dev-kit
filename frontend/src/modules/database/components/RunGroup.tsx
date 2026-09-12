@@ -109,41 +109,66 @@ function useElapsed(running: boolean, startedAt?: number | null): number {
 }
 
 /**
- * How wide the body wants to be, measured from its own content.
+ * How big a piece of content wants to be.
  *
- * Animated as a NUMBER rather than through framer's `layout`, and the
+ * Animated as NUMBERS rather than through framer's `layout`, and the
  * difference matters here: `layout` animates size with a transform, which
  * scales the type inside — a control whose whole job is to be read would
- * squash its own text on every tick. A real width leaves the content alone
- * and moves the window onto it.
+ * squash its own text on every tick. Real width and height leave the content
+ * alone and move the window onto it.
  *
  * Measured after every commit, because a render is what changes this content.
  * A ResizeObserver alone was not enough: it delivers on the rendering steps,
- * and when those are throttled the body keeps an older width and clips its own
- * status. The observer stays for the widths React is not told about — a font
- * finishing its load, the appearance setting changing the code size.
+ * and when those are throttled the box keeps an older size and clips itself.
+ * The observer stays for the sizes React is not told about — a font finishing
+ * its load, the appearance setting changing the code size.
  */
-function useContentWidth(): [React.RefObject<HTMLDivElement | null>, number | undefined] {
+function useMeasured(): [React.RefObject<HTMLDivElement | null>, { width: number; height: number }] {
   const ref = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState<number>();
+  const [size, setSize] = useState({ width: 0, height: 0 });
 
-  useLayoutEffect(() => {
+  const sync = () => {
     const el = ref.current;
-    if (el) setWidth((current) => (current === el.offsetWidth ? current : el.offsetWidth));
-  });
+    if (!el) return;
+    setSize((current) =>
+      current.width === el.offsetWidth && current.height === el.offsetHeight
+        ? current
+        : { width: el.offsetWidth, height: el.offsetHeight },
+    );
+  };
+
+  useLayoutEffect(sync);
 
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const observer = new ResizeObserver(() => {
-      setWidth((current) => (current === el.offsetWidth ? current : el.offsetWidth));
-    });
+    const observer = new ResizeObserver(sync);
     observer.observe(el);
     return () => observer.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return [ref, width];
+  return [ref, size];
 }
+
+/**
+ * The tallest the opened message may get before it scrolls instead.
+ *
+ * It opens over the editor, so it is borrowing space rather than taking it.
+ * Past this an engine's answer is not more readable for being taller — it is
+ * just covering more of the query it is about.
+ */
+const MAX_DETAIL_HEIGHT = 220;
+
+/** The header row: one control tall, always. */
+const HEADER_HEIGHT = 28;
+
+/**
+ * The narrowest the body may be while open. A first line truncated to 260px
+ * is a fine summary; the same width is a bad column to read six lines of a
+ * stack trace in.
+ */
+const MIN_DETAIL_WIDTH = 420;
 
 /**
  * Closes on the next click that lands outside this control.
@@ -204,17 +229,49 @@ export function RunGroup({
   const shown = status.kind !== "idle";
   const expandable = status.kind === "error";
 
-  const [content, width] = useContentWidth();
-  const [open, setOpen] = useState(false);
+  const [header, headerSize] = useMeasured();
+  const [detail, detailSize] = useMeasured();
+  // Open from the FIRST render when there is already an error, not opened by
+  // an effect afterwards: an effect runs after paint, so a restored tab drew
+  // its error collapsed for one frame and then jumped.
+  const [open, setOpen] = useState(() => outcome.kind === "error");
   const root = useRef<HTMLDivElement>(null);
 
-  // A new run answers the previous one, so whatever was expanded about it is
-  // no longer the thing on screen.
+  // A new run answers the previous one, so whatever was open about the last
+  // one is no longer the thing on screen.
   useEffect(() => {
     if (running) setOpen(false);
   }, [running]);
 
+  /*
+   * An error opens itself.
+   *
+   * Reading it was the point of running the statement, so making that a
+   * second click was charging for something nobody would decline. Keyed on
+   * startedAt as well as the kind, because the same typo run twice is two
+   * errors and the second must open again — and because neither changes when
+   * you close it, closing sticks.
+   */
+  useEffect(() => {
+    if (status.kind === "error") setOpen(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status.kind, startedAt]);
+
   useCloseOnOutsideClick(open, () => setOpen(false), root);
+
+  const expanded = expandable && open;
+  // The width the body has WHEN OPEN, computed without reference to the width
+  // it currently has. The message is measured at this width rather than at
+  // whatever the animation is passing through, because the two depend on each
+  // other: a narrower body wraps the text taller, a taller measurement is
+  // what the body animates to. Measured mid-animation it settled on a height
+  // for a width it no longer had — 216px of body around 120px of message.
+  const openWidth = Math.max(headerSize.width, MIN_DETAIL_WIDTH);
+  // Clamped rather than unbounded: past MAX_DETAIL_HEIGHT the message scrolls
+  // inside itself instead of covering more of the query it is about.
+  const detailHeight = Math.min(detailSize.height, MAX_DETAIL_HEIGHT);
+  const height = HEADER_HEIGHT + (expanded ? detailHeight : 0);
+  const width = expanded ? openWidth : headerSize.width;
 
   const reading = (
     <>
@@ -227,23 +284,34 @@ export function RunGroup({
   );
 
   return (
-    <div ref={root} className="relative flex shrink-0 items-center">
+    /*
+     * The wrapper keeps the toolbar's layout: one control's height, the
+     * header's width, and it never changes. Everything that grows is
+     * absolutely positioned inside it, so opening an error borrows space over
+     * the editor instead of pushing the query you just wrote down the screen.
+     */
+    <div
+      ref={root}
+      className="relative h-(--control-height-sm) shrink-0"
+      style={{ width: headerSize.width || undefined }}
+    >
       <motion.div
         className={cn(
           BODY,
           toneOf(status),
+          "absolute top-0 right-0 z-30 flex-col items-stretch",
           "transition-colors duration-(--motion-slow) ease-in-out motion-reduce:transition-none",
         )}
-        // No entrance. The body is already the end's width on the first frame
-        // and only ever changes size from there.
+        // No entrance. The body is already the end's size on the first frame
+        // and only ever changes from there.
         initial={false}
-        animate={{ width }}
+        animate={{ width, height }}
         transition={SPRING}
       >
-        {/* Sized to its content and pinned to the right, so narrowing the body
-            clips the outcome off the LEFT and leaves the end where it was.
-            Nothing in here moves; only the window onto it changes. */}
-        <div ref={content} className="absolute top-0 right-0 flex w-max items-center">
+        {/* Sized to its content and pinned to the right, so a body narrower
+            than this clips the outcome off the LEFT and leaves the end where
+            it was. Nothing in here moves; only the window onto it changes. */}
+        <div ref={header} className="absolute top-0 right-0 flex w-max items-center">
           {shown &&
             /* A button only when there is something behind it. An outcome you
                cannot open is a reading, not a control, and a <button> that
@@ -254,7 +322,9 @@ export function RunGroup({
               <button
                 type="button"
                 aria-expanded={open}
-                aria-label={`${status.message} — show the full error`}
+                aria-label={
+                  open ? "Hide the full error" : `${status.message} — show the full error`
+                }
                 onClick={() => setOpen((value) => !value)}
                 className={cn(SEGMENT, "cursor-pointer outline-none")}
               >
@@ -277,10 +347,10 @@ export function RunGroup({
               // `wrap` puts a content-sized span between it and the row, so
               // 100% resolved against 14px of icon and left the end half the
               // body's height.
-              // --state-soft, not a hand-mixed black/white alpha: it is the
-              // app's state layer and is already defined per mode — ink where
-              // light recesses, white where dark lifts — so the hover darkens
-              // a light theme's fill and lightens a dark one's.
+              //
+              // --state-soft for the hover, not a hand-mixed black/white
+              // alpha: it is the app's state layer and is defined per mode —
+              // ink where light recesses, white where dark lifts.
               className="w-(--control-height-sm) shrink-0 gap-0 rounded-none bg-transparent p-0 hover:bg-state-soft focus-visible:ring-0"
               onClick={running ? onStop : onRun}
               disabled={!canRun && !running}
@@ -289,53 +359,61 @@ export function RunGroup({
             </Button>
           </ActionTooltip>
         </div>
-      </motion.div>
 
-      {status.kind === "error" && open && (
-        <ErrorPanel detail={status.detail} onClose={() => setOpen(false)} />
-      )}
+        {/* The rest of the message, in the same body. It sits under the header
+            and is measured at its natural height so the body can animate to
+            it; when it is taller than the cap it scrolls inside itself. */}
+        {status.kind === "error" && (
+          <div
+            // Width pinned to what the body will have when open, never to what
+            // it has now. inert while closed, because the Copy button inside
+            // is clipped out of sight but would still be a tab stop.
+            className="absolute right-0 overflow-hidden"
+            style={{ top: HEADER_HEIGHT, width: openWidth, height: detailHeight }}
+            inert={!expanded}
+          >
+            {/* Its own ground, not more of the red. The tone belongs to the
+                status; the engine's text is content, and it reads better —
+                and at a contrast the palette already floors — on the surface
+                every other panel in the app uses. */}
+            <div
+              ref={detail}
+              className="flex flex-col gap-1 bg-surface-base px-2 pt-1.5 pb-1.5 text-text-primary"
+            >
+              <pre
+                className="overflow-auto rounded-sm bg-surface-well p-2 text-left text-code-11 whitespace-pre-wrap select-text"
+                style={{ maxHeight: MAX_DETAIL_HEIGHT - 48 }}
+              >
+                {status.detail}
+              </pre>
+              <CopyDetail detail={status.detail} />
+            </div>
+          </div>
+        )}
+      </motion.div>
     </div>
   );
 }
 
 /**
- * The rest of the error.
- *
- * Absolute, and anchored to the group's right edge: the toolbar sits directly
- * above the editor, and a panel that took part in the layout would push the
- * whole console down every time a statement failed — the one moment you want
- * the query you just wrote to stay where you left it.
+ * Copy, inside the message rather than beside it.
  */
-function ErrorPanel({ detail, onClose }: { detail: string; onClose: () => void }) {
+function CopyDetail({ detail }: { detail: string }) {
   const [copied, setCopied] = useState(false);
   return (
-    <div
-      className="absolute top-full right-0 z-30 mt-1.5 flex max-h-64 w-120 flex-col gap-2 rounded-md border border-(--border-danger) bg-surface-base p-3 shadow-lg"
+    <button
+      type="button"
+      onClick={() => {
+        void copyText(detail);
+        setCopied(true);
+        // The label is the feedback, and it has to go back to offering the
+        // action or the next copy has nothing to say.
+        setTimeout(() => setCopied(false), 1500);
+      }}
+      className="flex h-(--control-height-xs) shrink-0 cursor-pointer items-center gap-1.5 self-end rounded-sm px-1.5 text-code-11 text-text-secondary outline-none hover:bg-state-soft hover:text-text-primary focus-visible:ring-1 focus-visible:ring-status-info"
     >
-      <div className="flex shrink-0 items-center justify-between gap-2">
-        <span className="text-caption-11 text-text-tertiary">What the engine said</span>
-        <ActionTooltip label={copied ? "Copied" : "Copy the whole message"}>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => {
-              void copyText(detail);
-              setCopied(true);
-              // The label is the feedback, and it has to go back to offering
-              // the action or the next copy has nothing to say.
-              setTimeout(() => setCopied(false), 1500);
-            }}
-          >
-            {copied ? <Check /> : <Copy />}
-          </Button>
-        </ActionTooltip>
-      </div>
-      <pre className="min-h-0 flex-1 overflow-auto rounded border border-border bg-surface-well p-2 text-left text-code-11 whitespace-pre-wrap text-text-primary select-text">
-        {detail}
-      </pre>
-      <Button variant="ghost" size="xs" className="self-end" onClick={onClose}>
-        Close
-      </Button>
-    </div>
+      {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
+      {copied ? "Copied" : "Copy"}
+    </button>
   );
 }

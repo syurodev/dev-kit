@@ -35,8 +35,9 @@ describe("what the status segment is", () => {
       message: "boom",
       detail: "boom\nand the rest",
     });
-    expect(html).toContain('aria-expanded="false"');
-    expect(html).toContain("show the full error");
+    // Open on arrival, so the control it offers is "hide", not "show".
+    expect(html).toContain('aria-expanded="true"');
+    expect(html).toContain("Hide the full error");
   });
 
 });
@@ -95,6 +96,45 @@ describe("one body", () => {
     expect(source).toContain('addEventListener("click"');
     expect(source, "capture-phase mousedown can eat the press that follows it")
       .not.toContain('addEventListener("mousedown"');
+  });
+
+  /**
+   * An error opens itself, and it opens INSIDE the body.
+   *
+   * Reading the message was the point of running the statement, so a second
+   * click to see it was charging for something nobody would decline. And it
+   * is the same control getting taller rather than a popup arriving beside
+   * it — one thing on screen, which is also why the message can sit on its
+   * own ground without becoming a second object.
+   */
+  it("opens an error without being asked", () => {
+    const html = render(
+      { kind: "error", time: "0.0s", message: "boom", detail: "boom\nand the rest" },
+      false,
+    );
+    expect(html).toContain('aria-expanded="true"');
+    expect(html).toContain("and the rest");
+  });
+
+  it("keeps the message inside the control, not in a panel beside it", () => {
+    const html = render(
+      { kind: "error", time: "0.0s", message: "boom", detail: "boom\nand the rest" },
+      false,
+    );
+    // The body is the only positioned box; the message is within it, so the
+    // whole of the control ends after one closing tag of the body.
+    const body = html.indexOf("z-30");
+    expect(body).toBeGreaterThan(-1);
+    expect(html.indexOf("and the rest")).toBeGreaterThan(body);
+  });
+
+  it("leaves the toolbar's own footprint one control tall", () => {
+    const html = render(
+      { kind: "error", time: "0.0s", message: "boom", detail: "boom\nand the rest" },
+      false,
+    );
+    // The wrapper keeps the row's height whatever the body does above it.
+    expect(html).toContain('class="relative h-(--control-height-sm) shrink-0"');
   });
 
   it("shows nothing but Run before anything has been run", () => {
