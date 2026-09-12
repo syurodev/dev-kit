@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
-import { AlertCircle, Check, Clock, Copy, Play, Square, TriangleAlert } from "lucide-react";
+import { AlertCircle, Check, Clock, Copy, TriangleAlert } from "lucide-react";
+import { MorphIcon } from "morphicons/react";
+import { Play as playIcon, Square as squareIcon } from "lucide";
 import { Button } from "@/components/ui/button";
 import { ActionTooltip } from "@/components/ui/action-tooltip";
 import { cn } from "@/lib/utils";
@@ -433,7 +435,28 @@ export function RunGroup({
               onClick={running ? onStop : onRun}
               disabled={!canRun && !running}
             >
-              {running ? <Square className="fill-current" /> : <Play className="fill-current" />}
+              {/*
+                Play and Stop are the same gesture in two states, so the
+                glyph moves between them rather than being replaced. A swap
+                asks the eye to notice that something changed; a morph shows
+                it changing, which is the difference between "did I press
+                that" and knowing you did.
+
+                The icon DATA, not the component: morphicons interpolates
+                geometry, and lucide-react exports rendered components. The
+                two packages are the same icons at the same version and both
+                tree-shake, so this costs two shapes, not a second icon set.
+
+                reducedMotion="user" because the default is "never" — it
+                would animate straight through a system setting that asked
+                it not to. The rest of this control already reads that
+                setting; this is the same answer.
+              */}
+              <MorphIcon
+                icon={running ? squareIcon : playIcon}
+                reducedMotion="user"
+                className="fill-current"
+              />
             </Button>
           </ActionTooltip>
         </div>
