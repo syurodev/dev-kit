@@ -35,12 +35,15 @@ import { WhereInput } from "./WhereInput";
  * Two rows, in DataGrip's order. The first is a dense strip of icons with the
  * pager at its right — every one of them acts on the tab. The second is the
  * query: the filter you type and the sort the grid is under, split across the
- * full width with a rule between them.
+ * full width.
  *
- * Neither box on the second row is drawn until you touch it. A border around
- * each makes them read as two widgets bolted to a toolbar; without one they
- * read as the single line of query they are, which is the whole of what makes
- * DataGrip's header look half the size of ours at the same height.
+ * No rules anywhere in here. Six lines were separating things that a gap
+ * already separates, and a rule is the strongest divider in the toolbar's
+ * vocabulary — spending it on "these two icons are a different kind of icon"
+ * leaves nothing louder for a division that matters. The second row instead
+ * carries a tint under each of its two fields, which says the same thing the
+ * rule between them was saying and says it by drawing the fields themselves:
+ * a ground means you can type or pick here, and the strip above has none.
  *
  * Two boxes rather than a SQL editor. Opening a table is a request to see its
  * data, and an editor spending most of the height on a statement you did not
@@ -48,11 +51,6 @@ import { WhereInput } from "./WhereInput";
  * browsing are the filter and the sort. Anything beyond them opens in a
  * console, which is what the last button is for.
  */
-
-/** A vertical rule between groups of the icon strip. */
-function Rule() {
-  return <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-border-subtle" />;
-}
 
 /**
  * Commit, Roll back, and the Auto/Manual switch.
@@ -247,8 +245,6 @@ export function TableToolbar({
           </Button>
         </ActionTooltip>
 
-        <Rule />
-
         <TransactionControls />
 
         <ActionTooltip label="Show this table's definition">
@@ -262,8 +258,6 @@ export function TableToolbar({
             DDL
           </Button>
         </ActionTooltip>
-
-        <Rule />
 
         <ActionTooltip label="Export the rows on this page">
           <Button variant="ghost" size="icon-sm" onClick={onExport} disabled={rowCount === 0}>
@@ -281,13 +275,13 @@ export function TableToolbar({
         {pager}
       </div>
 
-      <div className="flex h-(--control-height-md) items-center gap-2 border-t border-border-subtle">
+      <div className="flex h-(--control-height-md) items-center gap-2">
         {/* No glyph before the word. A funnel beside "WHERE" and a sort arrow
             beside "ORDER BY" say a second time what the word already says —
             they came from DataGrip, whose boxes carry no border and no label.
             Ours carry the label; 36px of the narrowest row in the header go
             back to the clause. */}
-        <div className="flex min-w-0 flex-[3] items-center gap-2">
+        <div className="flex h-(--control-height-sm) min-w-0 flex-[3] items-center rounded-md bg-surface-well pl-2">
           <span className="shrink-0 text-code-11 tracking-wider text-text-tertiary">WHERE</span>
           <WhereInput
             value={where}
@@ -301,8 +295,6 @@ export function TableToolbar({
           />
         </div>
 
-        <span aria-hidden className="h-4 w-px shrink-0 bg-border-subtle" />
-
         {/* A control, not a label. It sits beside the WHERE box styled like
             one, so reading as a control and doing nothing was the worst of
             both: the header cells set a sort, but only for a column you can
@@ -313,7 +305,7 @@ export function TableToolbar({
               variant="ghost"
               size="sm"
               disabled={columns.length === 0}
-              className="min-w-0 flex-[2] justify-start gap-1.5 px-1.5 font-normal"
+              className="min-w-0 flex-[2] justify-start gap-2 bg-surface-well px-2 font-normal"
             >
               <span className="shrink-0 text-code-11 tracking-wider text-text-tertiary">
                 ORDER BY

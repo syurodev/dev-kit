@@ -199,11 +199,11 @@ export function WhereInput({
   );
 
   return (
-    // Undrawn at rest. A border here makes the filter read as a widget bolted
-    // onto the toolbar rather than as the line of query it is — and the row it
-    // sits in is already separated from the strip above by a rule. The tint on
-    // hover and the border on focus are what say it takes typing.
-    <div className="flex h-(--control-height-sm) min-w-0 flex-1 items-center rounded-md border border-transparent bg-transparent px-2 text-code-12 hover:bg-surface-well focus-within:border-status-info focus-within:bg-surface-well">
+    // No ground of its own: the toolbar tints the whole field, label included,
+    // so a second tint here would only draw a box around the half of the field
+    // that is not the word WHERE. A border still marks focus, because the
+    // ground is on whether this is a field, not on whether it has the caret.
+    <div className="flex h-(--control-height-sm) min-w-0 flex-1 items-center rounded-md border border-transparent px-2 text-code-12 focus-within:border-status-info">
       <CodeEditor value={value} onChange={onChange} extensions={extensions} />
     </div>
   );
