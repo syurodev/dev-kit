@@ -23,6 +23,7 @@ import {
   Bookmark,
   History,
   Network,
+  Terminal,
 } from "lucide-react";
 import { ActionTooltip } from "@/components/ui/action-tooltip";
 import { Button } from "@/components/ui/button";
@@ -62,6 +63,7 @@ import {
   openActivityTab,
   openErdTab,
   openHistoryTab,
+  openNewConsoleTab,
   openSavedTab,
   openTableTab,
 } from "../documents";
@@ -316,6 +318,12 @@ export function DatabaseSidebar() {
                 Open data
                 <ContextMenuShortcut>Double-click</ContextMenuShortcut>
               </ContextMenuItem>
+              {/* No profile to select here: a table row only exists under the
+                  connection that is already open. */}
+              <ContextMenuItem onSelect={() => openNewConsoleTab()}>
+                <Terminal />
+                Open query console
+              </ContextMenuItem>
               <ContextMenuItem
                 onSelect={() => {
                   setSelectedSchema(schemaName);
@@ -364,6 +372,36 @@ export function DatabaseSidebar() {
       children: tableNodes(schemaName),
       emptyLabel: "No tables",
       meta: Object.keys(namespace[schemaName] ?? {}).length,
+      // The schema row had no right-click menu at all: the level between a
+      // connection with nine actions and a table with five offered none, so
+      // the gesture that works everywhere else in the tree died here.
+      //
+      // Three items, and each is the schema's version of one the table row
+      // already carries — a menu that invents its own vocabulary one level up
+      // is a second menu to learn.
+      wrap: (row) => (
+        <ContextMenu key={`schema:${schemaName}`}>
+          <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
+          <ContextMenuContent>
+            <ContextMenuItem onSelect={() => openNewConsoleTab()}>
+              <Terminal />
+              Open query console
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={() => void copyText(schemaName)}>
+              <Copy />
+              Copy schema name
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              onSelect={() => void refreshSchema(selectedProfileId)}
+              disabled={indexingSchema}
+            >
+              <RefreshCw />
+              Re-index schema
+            </ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
+      ),
     }));
   }
 
@@ -429,6 +467,20 @@ export function DatabaseSidebar() {
           ),
       },
       { kind: "separator" },
+      {
+        kind: "item",
+        icon: <Terminal />,
+        label: "Open query console",
+        // Selecting first, because a console runs against the SELECTED
+        // connection and nothing else: opened from a row that is not the
+        // current one, an empty console pointed at the previous database is
+        // the one outcome nobody wants. Guarded, because setSelectedProfileId
+        // throws away the result grid.
+        onSelect: () => {
+          if (!isSelected) setSelectedProfileId(profile.id);
+          openNewConsoleTab();
+        },
+      },
       { kind: "item", icon: <Network />, label: "ERD diagram", onSelect: () => openErdTab() },
       { kind: "item", icon: <Activity />, label: "Live activity", onSelect: () => openActivityTab() },
       { kind: "item", icon: <History />, label: "Query history", onSelect: () => openHistoryTab() },
