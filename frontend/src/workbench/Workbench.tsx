@@ -221,7 +221,15 @@ const WorkbenchViews = memo(
           className={cn(
             "flex min-h-0 flex-1 flex-col",
             activeModule?.padded
-              ? "overflow-auto p-4"
+              ? // Half the gutter at the top when a tab strip is above, because
+                // the strip already ends in 8px of its own. The full 16 made 18
+                // between the tab and the first control that acts on it, and a
+                // toolbar that far from its tab reads as a band of its own
+                // rather than as that document's controls. Without a strip the
+                // section touches the card's edge and owes the full gutter.
+                activeModule.tabs
+                ? "overflow-auto px-4 pb-4 pt-2"
+                : "overflow-auto p-4"
               : "overflow-hidden p-0",
           )}
         >
