@@ -33,31 +33,30 @@ import type { ConsoleStatus } from "../consoleStatus";
  */
 
 /**
- * The blur, and the source radius that survives it.
+ * The blur, and when it is allowed to exist.
  *
- * Two shapes weld while their gap is under about 2σ, which made the gap and σ
- * a pair to solve — and solving it that way was wrong. The pill's blurred mass
- * depends on how WIDE it is, so a bridge tuned for "0.0s ERROR: relation …"
- * broke for "9.9s": the shipped σ5 across 6px left two separate blobs with a
- * wart each, pointing at a neck that was not there.
+ * The joint was solved twice the wrong way round. Tuned across a 6px gap it
+ * welded for a long pill and broke for "9.9s", because how far a shape's
+ * blurred alpha reaches depends on how much of it there is — two blobs with a
+ * nub each, pointing at a neck that was not there. Moved to touching it welded
+ * at every width, but a capsule end meets a flat edge at ONE POINT, and a
+ * metaball welded at a point is a cusp: the notch that was left.
  *
- * Touching removes the variable. At gap 0 the alpha is continuous across the
- * contact, so they are welded at any width and the waist is the filter's own
- * fillet — the same shape every time.
+ * Both were attempts to keep a neck standing still. It should not stand still.
+ * The two bodies rest APART — crisp, unfiltered, the button the same square as
+ * the five controls beside it — and the goo exists only while the pill is
+ * moving. That is 180ms of stretching neck that thins and snaps, which is what
+ * taffy does, and it is also the only window in which the filter's corner
+ * inflation is on screen.
  *
- * What is left is that blur-and-threshold INFLATES a corner: a 28px square at
- * σ5 comes back all but circular, which is what read as the button being bent
- * out of shape. σ2 with the source radius dropped one step lands the drawn
- * corner back on --radius-md, so the button matches the five controls beside
- * it while still growing a waist.
+ * It also makes the break correct rather than a defect: the pill starts UNDER
+ * the button, so the early frames are overlapped and weld at any width, and
+ * the neck parts because the pill pulled away.
  */
-const GOO_BLUR = 2;
+const GOO_BLUR = 4;
 
-/** Touching. Not a gap to be bridged — see above. */
-const GOO_GAP = "gap-0";
-
-/** One step under --radius-md, so the filter returns it AT --radius-md. */
-const RUN_SOURCE_RADIUS = "rounded-sm";
+/** Where they come to rest: far enough apart to be two things. */
+const GOO_GAP = "gap-1.5";
 
 /**
  * alpha' = 26a − 13, so the silhouette is everything the blur left above 50%.
@@ -136,6 +135,30 @@ function useElapsed(running: boolean, startedAt?: number | null): number {
   return elapsed;
 }
 
+/**
+ * True while the pill is on its way in or out.
+ *
+ * transitionend is the honest end of the motion — a duration copied into JS is
+ * a second place for --motion-base to live — but it never fires when the
+ * transition is off, which is exactly what prefers-reduced-motion does. Hence
+ * the fallback: someone who asked for no motion gets no goo either, which is
+ * the right answer for them anyway.
+ */
+function useMoving(shown: boolean): [boolean, () => void] {
+  const [moving, setMoving] = useState(false);
+  const settled = useRef(true);
+  useEffect(() => {
+    if (settled.current) {
+      settled.current = false;
+      return;
+    }
+    setMoving(true);
+    const fallback = setTimeout(() => setMoving(false), 500);
+    return () => clearTimeout(fallback);
+  }, [shown]);
+  return [moving, () => setMoving(false)];
+}
+
 type Layer = "shape" | "glyph";
 
 /** Which control the keyboard is on, so the unfiltered layer can say so. */
@@ -192,6 +215,7 @@ function Layer({
   onFocusChange,
   onPress,
   onToggle,
+  onSettled,
   runLabel,
 }: {
   layer: Layer;
@@ -203,6 +227,7 @@ function Layer({
   onFocusChange: (target: FocusTarget) => void;
   onPress: () => void;
   onToggle: () => void;
+  onSettled: () => void;
   runLabel: string;
 }) {
   const shape = layer === "shape";
@@ -257,6 +282,7 @@ function Layer({
           // drawn by it leaving.
           shown ? "grid-cols-[1fr] translate-x-0" : "grid-cols-[0fr] translate-x-7",
         )}
+        onTransitionEnd={shape ? onSettled : undefined}
       >
         <div className="min-w-0 overflow-hidden">
           {/* A button only when there is something behind it. An outcome you
@@ -298,10 +324,8 @@ function Layer({
           {...focusProps(shape, "run", onFocusChange)}
           className={cn(
             RUN_BOX,
-            // The shape is drawn a step tighter so the filter hands it back at
-            // the radius its neighbours wear; the glyph layer is not filtered
-            // and takes the real one.
-            shape ? `${RUN_SOURCE_RADIUS} [&_svg]:opacity-0 focus-visible:ring-0` : "rounded-md bg-transparent",
+            "rounded-md",
+            shape ? "[&_svg]:opacity-0 focus-visible:ring-0" : "bg-transparent",
             !shape && focus === "run" && RING,
           )}
           onClick={shape ? onPress : undefined}
@@ -339,9 +363,9 @@ export function RunGroup({
   const status: ConsoleStatus = running
     ? { kind: "running", time: `${elapsed.toFixed(1)}s` }
     : outcome;
-  const shown = status.kind !== "idle";
   const [open, setOpen] = useState(false);
   const [focus, setFocus] = useState<FocusTarget>(null);
+  const [moving, settle] = useMoving(status.kind !== "idle");
   const panel = useRef<HTMLDivElement>(null);
 
   // A new run answers the previous one, so whatever was expanded about it is
@@ -368,6 +392,7 @@ export function RunGroup({
     canRun,
     focus,
     onFocusChange: setFocus,
+    onSettled: settle,
     onPress: running ? onStop : onRun,
     onToggle: () => setOpen((value) => !value),
     runLabel,
@@ -384,16 +409,14 @@ export function RunGroup({
         </defs>
       </svg>
 
-      {/* Only while there is a second body to be liquid WITH. A 28px square
-          under this filter comes back a circle — the blur rounds a corner
-          faster than it bridges a gap — so leaving it on at rest would make
-          Run the one round control in a row of square ones, permanently, to
-          animate something that is not happening.
+      {/* Only while something is actually moving. The filter inflates a
+          corner, so a 28px square left under it permanently is the one round
+          control in a row of square ones — paid, at rest, to animate nothing.
 
           The filter is inline rather than a class because its id is
           per-instance: two consoles side by side would otherwise both point at
           whichever `<defs>` the document happened to parse first. */}
-      <div style={shown ? { filter: `url(#${filterId})` } : undefined}>
+      <div style={moving ? { filter: `url(#${filterId})` } : undefined}>
         <Layer layer="shape" {...shared} />
       </div>
       <Layer layer="glyph" {...shared} />

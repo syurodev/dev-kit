@@ -73,14 +73,24 @@ describe("what the pill is", () => {
   });
 });
 
+/**
+ * The filter exists, and it is never on while nothing is moving.
+ *
+ * It inflates a corner — a 28px square under it is the one round control in a
+ * row of square ones — so it is paid for exactly the 180ms in which something
+ * is on its way in or out. A static render, at rest or settled, must carry
+ * none of it; if someone puts it back on permanently, this is what says so.
+ */
 describe("the filter", () => {
-  // A 28px square under this blur comes back a circle, so at rest — when
-  // there is no second body to be liquid with — it must not be applied.
-  it("is off while there is nothing to split into", () => {
-    expect(render({ kind: "idle" })).not.toContain("filter:url(");
+  it("is declared, so there is something to turn on", () => {
+    expect(render({ kind: "running", time: "0.4s" }, true)).toContain("feGaussianBlur");
   });
 
-  it("is on once there is", () => {
-    expect(render({ kind: "running", time: "0.4s" }, true)).toContain("filter:url(");
+  it.each([
+    ["idle", { kind: "idle" } as ConsoleStatus, false],
+    ["running and settled", { kind: "running", time: "0.4s" } as ConsoleStatus, true],
+    ["done", { kind: "success", time: "0.2s", message: "1 row" } as ConsoleStatus, false],
+  ])("is off while %s", (_name, status, running) => {
+    expect(render(status, running)).not.toContain("filter:url(");
   });
 });
