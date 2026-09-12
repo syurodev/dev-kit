@@ -1,4 +1,6 @@
 import { describe, expect, it } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { renderToString } from "react-dom/server";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { RunGroup } from "./RunGroup";
@@ -79,6 +81,20 @@ describe("one body", () => {
     expect(html).toContain("h-(--control-height-sm)");
     const button = html.slice(html.indexOf("<button"), html.indexOf("</button>"));
     expect(button, "h-full here resolves against the tooltip wrapper").not.toContain("h-full");
+  });
+
+  /**
+   * The outside-click listener used to be `mousedown` in the CAPTURE phase.
+   * Closing is setState, React re-renders between mousedown and mouseup, and
+   * a browser only fires `click` when both landed on the same element — so
+   * the press that closed the panel could be the press that was swallowed.
+   * Bubble-phase `click` runs after the press has already been delivered.
+   */
+  it("closes the error panel after a click, never before it", () => {
+    const source = readFileSync(join(import.meta.dir, "RunGroup.tsx"), "utf8");
+    expect(source).toContain('addEventListener("click"');
+    expect(source, "capture-phase mousedown can eat the press that follows it")
+      .not.toContain('addEventListener("mousedown"');
   });
 
   it("shows nothing but Run before anything has been run", () => {
