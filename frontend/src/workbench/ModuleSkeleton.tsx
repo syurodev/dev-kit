@@ -1,19 +1,36 @@
-import { useContext, useEffect, useRef } from "react";
+import { useContext, useEffect, useRef, type ReactNode } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   SidebarModuleIdContext,
   useSidebarContent,
 } from "@/components/ui/sidebar-shell";
 import { useSidebarContentStore } from "@/stores/sidebarContent";
+import { getModule, type ModuleManifest } from "@/modules/registry";
+
+/**
+ * Whether a module already has a rail on screen, from either source.
+ *
+ * Two, now. A document registers one while it is mounted, and a module
+ * declares one on its manifest that is there whenever the module is. Missing
+ * the second is how the first document opened in a module tore down the real
+ * rail and put it back: nothing was REGISTERED, so the skeleton decided the
+ * column was empty and took it over.
+ */
+export function railAlreadyShown(
+  registered: ReactNode | undefined,
+  moduleRail: ModuleManifest["sidebar"],
+): boolean {
+  return registered !== undefined || moduleRail !== undefined;
+}
 
 /**
  * Whether this skeleton should draw a rail, decided once when it appears.
  *
  * A cold module has no rail yet, and a blank column beside a loading module is
- * the case this skeleton's rail exists for. A warm one already has the real
- * rail — registered by a sibling document that is still on screen — and that
- * rail has nothing to do with which chunk is loading. Replacing it made
- * opening a second kind of document look like the whole module reloading.
+ * the case this skeleton's rail exists for. A module that already has one —
+ * from a sibling document still on screen, or from its own manifest — has a
+ * rail that has nothing to do with which chunk is loading. Replacing it made
+ * opening a document look like the whole module reloading.
  *
  * Decided from a ref rather than re-read: registering changes the very value
  * the decision reads, so reacting to it would deregister, re-register, and
@@ -22,9 +39,10 @@ import { useSidebarContentStore } from "@/stores/sidebarContent";
 function useShouldDrawRail(): boolean {
   const moduleId = useContext(SidebarModuleIdContext);
   const existing = useSidebarContentStore.getState().content[moduleId ?? ""];
+  const moduleRail = getModule(moduleId ?? "")?.sidebar;
   const decided = useRef<boolean | null>(null);
   if (decided.current === null) {
-    decided.current = existing === undefined;
+    decided.current = !railAlreadyShown(existing, moduleRail);
   }
   return decided.current;
 }
