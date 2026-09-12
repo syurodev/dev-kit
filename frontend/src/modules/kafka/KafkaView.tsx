@@ -379,7 +379,7 @@ export function KafkaView() {
                         onClick={() => inspect(m)}
                         data-accent={inspected === m ? "on" : undefined}
                         className={cn(
-                          "row-accent cursor-pointer border-b border-border-subtle hover:bg-surface-raised/60",
+                          "row-accent cursor-pointer border-b border-border-subtle hover:bg-state-soft",
                           inspected === m && "bg-surface-raised",
                         )}
                       >

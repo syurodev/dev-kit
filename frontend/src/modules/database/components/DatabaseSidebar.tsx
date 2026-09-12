@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Plus,
   RefreshCw,
@@ -9,12 +9,14 @@ import {
   Key,
   Shield,
   Radio,
+  MoreHorizontal,
   Settings2,
   Pencil,
   Copy,
   FolderPlus,
   FolderInput,
   Crosshair,
+  FileCode,
   Trash2,
   TriangleAlert,
   Activity,
@@ -22,6 +24,7 @@ import {
   History,
   Network,
 } from "lucide-react";
+import { ActionTooltip } from "@/components/ui/action-tooltip";
 import { Button } from "@/components/ui/button";
 import {
   Empty,
@@ -36,15 +39,10 @@ import {
   ContextMenuItem,
   ContextMenuSeparator,
   ContextMenuShortcut,
-  ContextMenuSub,
-  ContextMenuSubContent,
-  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import {
   DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { TreeView, type TreeNodeData } from "@/components/tree-view";
@@ -53,6 +51,8 @@ import { useShallow } from "zustand/react/shallow";
 import { useDatabaseStore } from "../databaseStore";
 import { countTables, filterNamespace, matchesProfile } from "../databaseTree";
 import { FolderIcon } from "../folderIcons";
+import { DatabaseModuleOverlays } from "../DatabaseModuleOverlays";
+import { RowContextMenuContent, RowDropdownMenuContent, type RowAction } from "./rowActions";
 import { EditFolderDialog } from "./EditFolderDialog";
 import { DeleteProfileDialog } from "./DeleteProfileDialog";
 import { Chip, EngineMark } from "./EngineBadge";
@@ -85,11 +85,23 @@ function relativeTime(iso: string): string {
 }
 
 const GLYPH = "size-3.5 shrink-0 text-text-tertiary";
+/** --control-height-xs, which is what TreeView gives a row. */
+const ROW_HEIGHT_PX = 24;
 /** Hover-only row actions. Opacity rather than `hidden`, so revealing them
  *  does not resize the row and shove the count sideways. */
 const ACTIONS =
-  "flex items-center gap-0.5 opacity-0 group-hover:opacity-100 has-[:focus-visible]:opacity-100";
-const ACTION = "rounded-sm p-0.5 text-text-tertiary hover:text-text-primary";
+  "flex items-center gap-1 opacity-0 group-hover:opacity-100 has-[:focus-visible]:opacity-100";
+/**
+ * 24×24, not the 16×16 these were.
+ *
+ * accessibility.md › Mobility puts macOS at a 28×28 default and a 20×20
+ * minimum, and a `size-3` glyph in `p-0.5` came to sixteen — under the floor,
+ * on the three controls that act on a connection. 24 is what the row can give
+ * (it is `--control-height-xs` tall); the gap goes with it, because the same
+ * section calls spacing between controls as important as their size.
+ */
+const ACTION =
+  "flex size-6 items-center justify-center rounded-sm text-text-tertiary hover:bg-state-soft hover:text-text-primary";
 
 /**
  * One tree, DataGrip-shaped: folder → connection → schema → table → column.
@@ -114,6 +126,7 @@ export function DatabaseSidebar() {
     setSelectedProfileId,
     loadingProfiles,
     fetchProfiles,
+    refreshTxState,
     folders,
     expandedFolders,
     toggleFolder,
@@ -138,6 +151,7 @@ export function DatabaseSidebar() {
     tableColumnsError,
     setShowNewConnectionDialog,
     setShowConnectionOptionsDialog,
+    openDDL,
   } = useDatabaseStore(
     useShallow((s) => ({
       profiles: s.profiles,
@@ -145,6 +159,7 @@ export function DatabaseSidebar() {
       setSelectedProfileId: s.setSelectedProfileId,
       loadingProfiles: s.loadingProfiles,
       fetchProfiles: s.fetchProfiles,
+      refreshTxState: s.refreshTxState,
       folders: s.folders,
       expandedFolders: s.expandedFolders,
       toggleFolder: s.toggleFolder,
@@ -169,12 +184,42 @@ export function DatabaseSidebar() {
       tableColumnsError: s.tableColumnsError,
       setShowNewConnectionDialog: s.setShowNewConnectionDialog,
       setShowConnectionOptionsDialog: s.setShowConnectionOptionsDialog,
+      openDDL: s.openDDL,
     }))
   );
+
+  // The rail loads what the rail shows.
+  //
+  // This used to live in DatabaseView's mount effect, which worked only
+  // because a console was always open: with tabs remembered instead of
+  // invented, a module can be on screen with no document at all, and the rail
+  // sat on "No connections configured." until you opened one. A list that
+  // needs a document open to be fetched is a list that belongs to the
+  // document, and this one does not.
+  //
+  // Exactly one caller now, not one per document: the rail mounts once for the
+  // module — SidebarSurface keeps it mounted even while collapsed — so moving
+  // the call here removes a fetch rather than adding one.
+  useEffect(() => {
+    void fetchProfiles();
+    // And whether the selected connection is already inside a transaction: one
+    // outlives the window that opened it, so arriving can mean arriving inside
+    // one, and showing "Auto" beside it would be a lie about what the next
+    // statement does.
+    void refreshTxState();
+  }, [fetchProfiles, refreshTxState]);
 
   const [filterQuery, setFilterQuery] = useState("");
   const [editingFolderId, setEditingFolderId] = useState("");
   const [deletingProfileId, setDeletingProfileId] = useState("");
+
+  // Creating and naming are one gesture: the folder appears immediately (so
+  // Cancel still leaves you the folder you asked for) and its dialog opens on
+  // top, with "Folder 3" selected and ready to be typed over.
+  function newFolder() {
+    const id = createFolder(`Folder ${folders.length + 1}`);
+    if (id) setEditingFolderId(id);
+  }
 
   const needle = filterQuery.trim();
   // While searching, everything above a match is forced open — a hit four
@@ -281,6 +326,10 @@ export function DatabaseSidebar() {
                 <Crosshair />
                 Focus in ERD
               </ContextMenuItem>
+              <ContextMenuItem onSelect={() => openDDL(schemaName, tableName)}>
+                <FileCode />
+                Show DDL
+              </ContextMenuItem>
               <ContextMenuItem onSelect={() => void copyText(tableName)}>
                 <Copy />
                 Copy table name
@@ -305,6 +354,10 @@ export function DatabaseSidebar() {
       id: `schema:${schemaName}`,
       label: schemaName,
       icon: <Database className={GLYPH} />,
+      // Under the connection row. Scrolling to table 140 of 173 used to leave
+      // no answer on screen to "which connection, which schema" — the two
+      // headings a split view would have given, bought here with sticky.
+      sticky: ROW_HEIGHT_PX,
       expandable: true,
       expanded: filtering || (expandedSchemas[schemaName] ?? true),
       onToggle: () => toggleSchemaExpand(schemaName),
@@ -312,6 +365,83 @@ export function DatabaseSidebar() {
       emptyLabel: "No tables",
       meta: Object.keys(namespace[schemaName] ?? {}).length,
     }));
+  }
+
+  /**
+   * Everything you can do to a connection, in one place.
+   *
+   * Read by both the row's button and its right-click menu — see rowActions.
+   * Re-indexing leads because it is the one that goes stale; deleting trails
+   * behind a divider because it is the one that cannot be undone.
+   */
+  function profileActions(
+    profile: ConnectionProfile,
+    folderId: string,
+    isSelected: boolean,
+  ): RowAction[] {
+    return [
+      {
+        kind: "item",
+        icon: <RefreshCw />,
+        label: isSelected ? "Re-index schema" : "Open this connection first",
+        onSelect: () => void refreshSchema(profile.id),
+        disabled: indexingSchema || !isSelected,
+      },
+      {
+        kind: "submenu",
+        icon: <FolderInput />,
+        label: "Move to folder",
+        items: [
+          {
+            kind: "item",
+            icon: <Folder />,
+            label: "Ungrouped",
+            onSelect: () => assignProfileToFolder(profile.id, ""),
+            disabled: !folderId,
+          },
+          ...folders.map(
+            (f): RowAction => ({
+              kind: "item",
+              icon: <FolderIcon name={f.icon} className="size-4" />,
+              label: f.name,
+              onSelect: () => assignProfileToFolder(profile.id, f.id),
+              disabled: f.id === folderId,
+            }),
+          ),
+        ],
+      },
+      {
+        kind: "item",
+        icon: <Settings2 />,
+        label: "Connection options",
+        onSelect: () => {
+          setSelectedProfileId(profile.id);
+          setShowConnectionOptionsDialog(true);
+        },
+      },
+      {
+        kind: "item",
+        icon: <Copy />,
+        label: "Copy connection target",
+        onSelect: () =>
+          void copyText(
+            `${profile.username}@${profile.host}:${profile.port}/${profile.database}`,
+          ),
+      },
+      { kind: "separator" },
+      { kind: "item", icon: <Network />, label: "ERD diagram", onSelect: () => openErdTab() },
+      { kind: "item", icon: <Activity />, label: "Live activity", onSelect: () => openActivityTab() },
+      { kind: "item", icon: <History />, label: "Query history", onSelect: () => openHistoryTab() },
+      { kind: "item", icon: <Bookmark />, label: "Saved queries", onSelect: () => openSavedTab() },
+      { kind: "separator" },
+      {
+        kind: "item",
+        icon: <Trash2 />,
+        label: "Delete connection",
+        onSelect: () => setDeletingProfileId(profile.id),
+        destructive: true,
+      },
+    ];
   }
 
   function profileNode(profile: ConnectionProfile, folderId: string): TreeNodeData {
@@ -324,6 +454,9 @@ export function DatabaseSidebar() {
       id: `profile:${profile.id}`,
       label: profile.name,
       icon: <EngineMark engine={profile.engine} className="size-3.5" />,
+      // Only the selected connection unfolds, so only it has anything to stay
+      // above. Pinning the others would stack four dead headings at the top.
+      sticky: isSelected ? 0 : undefined,
       // Only the indexed connection can show a schema, so the fold state of
       // the others is not offered as a lie.
       expandable: true,
@@ -338,79 +471,53 @@ export function DatabaseSidebar() {
       }`,
       children: isSelected ? schemaNodes() : undefined,
       loading: isSelected && indexingSchema,
-      emptyLabel: filtering ? "No tables match" : "Not indexed yet — right-click to index",
+      // A label that names a gesture is a label for a control that should have
+      // been drawn (writing.md › "give them a button or link to do so if
+      // possible"). This is the same complaint as "opening data was
+      // double-click only", one level up the tree.
+      emptyLabel: filtering ? (
+        "No tables match"
+      ) : (
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 rounded-sm text-text-secondary underline-offset-2 hover:text-text-primary hover:underline"
+          onClick={() => void refreshSchema(profile.id)}
+          disabled={indexingSchema}
+        >
+          <RefreshCw className="size-3" />
+          Index this schema
+        </button>
+      ),
       trailing: (
         <>
+          {/* One button, not three. The three reached three of the nine things
+              the right-click menu offers, so which actions existed depended on
+              how you asked; this opens the same list. */}
           <div className={ACTIONS}>
-            {isSelected && (
-              <button
-                type="button"
-                className={ACTION}
-                title={indexed ? `Re-index schema — last indexed ${indexed}` : "Index schema"}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void refreshSchema(profile.id);
-                }}
-              >
-                <RefreshCw className={cn("size-3", indexingSchema && "animate-spin")} />
-              </button>
-            )}
-            {/* Figma drew the folder dialog but not the way a profile gets into
-                one. A menu is the smallest thing that works and reads: the list
-                is short, and it says where the profile is now. */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  className={ACTION}
-                  onClick={(e) => e.stopPropagation()}
-                  title="Move to folder"
-                >
-                  <FolderInput className="size-3" />
-                </button>
+                <ActionTooltip label={`Actions for ${profile.name}`}>
+                  <button type="button" className={ACTION} onClick={(e) => e.stopPropagation()}>
+                    <MoreHorizontal className="size-3" />
+                  </button>
+                </ActionTooltip>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-                <DropdownMenuItem
-                  onSelect={() => assignProfileToFolder(profile.id, "")}
-                  disabled={!folderId}
-                >
-                  <Folder />
-                  Ungrouped
-                </DropdownMenuItem>
-                {folders.map((f) => (
-                  <DropdownMenuItem
-                    key={f.id}
-                    onSelect={() => assignProfileToFolder(profile.id, f.id)}
-                    disabled={f.id === folderId}
-                  >
-                    <FolderIcon name={f.icon} className="size-4" />
-                    {f.name}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
+              <RowDropdownMenuContent actions={profileActions(profile, folderId, isSelected)} />
             </DropdownMenu>
-            <button
-              type="button"
-              className={ACTION}
-              title="Connection options"
-              onClick={(e) => {
-                e.stopPropagation();
-                setSelectedProfileId(profile.id);
-                setShowConnectionOptionsDialog(true);
-              }}
-            >
-              <Settings2 className="size-3" />
-            </button>
           </div>
           {profile.readOnly && (
-            <span title="Safe-mode (read-only) active">
-              <Shield className="size-3 shrink-0 text-text-tertiary" />
-            </span>
+            <ActionTooltip label="Safe mode (read-only) is on">
+              <span>
+                <Shield className="size-3 shrink-0 text-text-tertiary" />
+              </span>
+            </ActionTooltip>
           )}
           {profile.sshProfileId && (
-            <span title="SSH tunnel enabled">
-              <Radio className="size-3 shrink-0 text-text-tertiary" />
-            </span>
+            <ActionTooltip label="SSH tunnel enabled">
+              <span>
+                <Radio className="size-3 shrink-0 text-text-tertiary" />
+              </span>
+            </ActionTooltip>
           )}
           {profile.env ? (
             <Chip
@@ -425,81 +532,7 @@ export function DatabaseSidebar() {
       wrap: (row) => (
         <ContextMenu key={`profile:${profile.id}`}>
           <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
-          <ContextMenuContent>
-            <ContextMenuItem
-              onSelect={() => void refreshSchema(profile.id)}
-              disabled={indexingSchema || !isSelected}
-            >
-              <RefreshCw />
-              {isSelected ? "Re-index schema" : "Open this connection first"}
-            </ContextMenuItem>
-            <ContextMenuSub>
-              <ContextMenuSubTrigger>
-                <FolderInput />
-                Move to folder
-              </ContextMenuSubTrigger>
-              <ContextMenuSubContent>
-                <ContextMenuItem
-                  onSelect={() => assignProfileToFolder(profile.id, "")}
-                  disabled={!folderId}
-                >
-                  <Folder />
-                  Ungrouped
-                </ContextMenuItem>
-                {folders.map((f) => (
-                  <ContextMenuItem
-                    key={f.id}
-                    onSelect={() => assignProfileToFolder(profile.id, f.id)}
-                    disabled={f.id === folderId}
-                  >
-                    <FolderIcon name={f.icon} className="size-4" />
-                    {f.name}
-                  </ContextMenuItem>
-                ))}
-              </ContextMenuSubContent>
-            </ContextMenuSub>
-            <ContextMenuItem
-              onSelect={() => {
-                setSelectedProfileId(profile.id);
-                setShowConnectionOptionsDialog(true);
-              }}
-            >
-              <Settings2 />
-              Connection options
-            </ContextMenuItem>
-            <ContextMenuItem
-              onSelect={() =>
-                void copyText(
-                  `${profile.username}@${profile.host}:${profile.port}/${profile.database}`,
-                )
-              }
-            >
-              <Copy />
-              Copy connection target
-            </ContextMenuItem>
-            <ContextMenuSeparator />
-            <ContextMenuItem onSelect={() => openErdTab()}>
-              <Network />
-              ERD diagram
-            </ContextMenuItem>
-            <ContextMenuItem onSelect={() => openActivityTab()}>
-              <Activity />
-              Live activity
-            </ContextMenuItem>
-            <ContextMenuItem onSelect={() => openHistoryTab()}>
-              <History />
-              Query history
-            </ContextMenuItem>
-            <ContextMenuItem onSelect={() => openSavedTab()}>
-              <Bookmark />
-              Saved queries
-            </ContextMenuItem>
-            <ContextMenuSeparator />
-            <ContextMenuItem variant="destructive" onSelect={() => setDeletingProfileId(profile.id)}>
-              <Trash2 />
-              Delete connection
-            </ContextMenuItem>
-          </ContextMenuContent>
+          <RowContextMenuContent actions={profileActions(profile, folderId, isSelected)} />
         </ContextMenu>
       ),
     };
@@ -533,7 +566,7 @@ export function DatabaseSidebar() {
               <Pencil />
               Edit folder
             </ContextMenuItem>
-            <ContextMenuItem onSelect={() => createFolder(`Folder ${folders.length + 1}`)}>
+            <ContextMenuItem onSelect={() => newFolder()}>
               <FolderPlus />
               New folder
             </ContextMenuItem>
@@ -569,31 +602,21 @@ export function DatabaseSidebar() {
           onClear={() => setFilterQuery("")}
           placeholder="Search connections & tables…"
         />
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          onClick={() => void fetchProfiles()}
-          disabled={loadingProfiles}
-          title="Refresh connections"
-        >
-          <RefreshCw className={cn("size-3", loadingProfiles && "animate-spin")} />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          onClick={() => createFolder(`Folder ${folders.length + 1}`)}
-          title="New folder"
-        >
-          <FolderPlus className="size-3" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          onClick={() => setShowNewConnectionDialog(true)}
-          title="New connection"
-        >
-          <Plus className="size-3" />
-        </Button>
+        {/* No "refresh connections" here. Refreshing is something you do to a
+            CONNECTION — re-index its schema — and that lives on the row it
+            belongs to. The list itself is read when the rail mounts and again
+            after anything that changes it, so a button for it was a control
+            for a state that cannot go stale on its own. */}
+        <ActionTooltip label="New folder">
+          <Button variant="ghost" size="icon-xs" onClick={newFolder}>
+            <FolderPlus className="size-3" />
+          </Button>
+        </ActionTooltip>
+        <ActionTooltip label="New connection">
+          <Button variant="ghost" size="icon-xs" onClick={() => setShowNewConnectionDialog(true)}>
+            <Plus className="size-3" />
+          </Button>
+        </ActionTooltip>
       </SidebarHeader>
 
       {/* Searching a 173-table list and being shown a shorter one with no idea
@@ -604,7 +627,7 @@ export function DatabaseSidebar() {
         </span>
       ) : null}
 
-      <div className="min-h-0 flex-1 overflow-y-auto scrollbar-gutter-stable pb-2">
+      <div className="min-h-0 flex-1 overflow-y-auto scrollbar-gutter-symmetric pb-2">
         {profiles.length === 0 && !loadingProfiles ? (
           <Empty className="px-4 py-6">
             <EmptyTitle className="text-body-12 text-text-tertiary">
@@ -639,6 +662,11 @@ export function DatabaseSidebar() {
           void fetchProfiles();
         }}
       />
+
+      {/* The connection dialogs live here because this is the one component
+          that mounts once for the module and stays mounted with no document
+          open — see DatabaseModuleOverlays. */}
+      <DatabaseModuleOverlays />
 
       <EditFolderDialog
         folder={folders.find((f) => f.id === editingFolderId) ?? null}

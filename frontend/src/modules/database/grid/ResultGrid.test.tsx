@@ -34,6 +34,15 @@ function headerTags(html: string): string[] {
   return html.match(/<th(?=[\s>])[^>]*>/g) ?? [];
 }
 
+/**
+ * The `<th>`s that stand for a column. The gutter's corner cell is a `<th>`
+ * too and answers to none of the rules below — it has no column to sort, to
+ * drag or to act on.
+ */
+function columnHeaderTags(html: string): string[] {
+  return headerTags(html).filter((th) => th.includes("data-column="));
+}
+
 describe("the header row's semantics", () => {
   // A26. useSortable's `attributes` set role="button" and tabIndex=0. On a
   // `<th>` that replaces the implicit columnheader role — the whole grid loses
@@ -42,10 +51,10 @@ describe("the header row's semantics", () => {
   // keyboard drag, which this grid has no sensor for.
   it("leaves a column header a columnheader, not a button", () => {
     const html = render({ onSort: () => {}, onReorder: () => {} });
-    // One per column. There is no gutter header: the row-number column went
-    // when the pager learned to name the page itself.
-    expect(headerTags(html)).toHaveLength(2);
-    for (const th of headerTags(html)) {
+    // One per column, plus the gutter's corner.
+    expect(columnHeaderTags(html)).toHaveLength(2);
+    expect(headerTags(html)).toHaveLength(3);
+    for (const th of columnHeaderTags(html)) {
       expect(th, `${th} overrides the cell's columnheader role`).not.toContain('role="button"');
       expect(th, `${th} puts the header itself in the tab order`).not.toContain("tabindex");
     }
@@ -69,7 +78,7 @@ describe("a result with no rows", () => {
     const html = render({ result: { ...result, rows: [], rowCount: 0 } });
     expect(html).toContain('data-slot="empty"');
     expect(html).toContain("No rows");
-    expect(headerTags(html)).toHaveLength(2);
+    expect(columnHeaderTags(html)).toHaveLength(2);
   });
 
   // It lives inside the grid's horizontal scroller, so a wide table scrolled
@@ -91,7 +100,8 @@ describe("the context menu's target", () => {
   // that did not register look exactly the same.
   it("marks a column header as a target of its own", () => {
     const html = render();
-    for (const th of headerTags(html)) {
+    expect(columnHeaderTags(html)).toHaveLength(2);
+    for (const th of columnHeaderTags(html)) {
       expect(th, `${th} cannot be right-clicked to act on its column`).toContain("data-column=");
     }
   });
@@ -100,10 +110,10 @@ describe("the context menu's target", () => {
     expect(render()).toContain('data-cell="0:0"');
   });
 
-  // Both selectors, or the header target is unreachable.
-  it("looks for either when the menu opens", () => {
+  // All three selectors, or one of the targets is unreachable.
+  it("looks for every target when the menu opens", () => {
     const source = readFileSync(join(import.meta.dir, "ResultGrid.tsx"), "utf8");
-    expect(source).toContain('closest("[data-cell],[data-column]")');
+    expect(source).toContain('"[data-cell],[data-column],[data-row]"');
   });
 });
 
@@ -122,13 +132,16 @@ describe("frozen columns", () => {
 
   // Header and body both, at cumulative offsets: `left: 0` on all of them
   // stacks every frozen column on the same edge.
+  // Header and body both, at cumulative offsets measured FROM the gutter: the
+  // row numbers are sticky at 0, so a frozen run starting there would paint
+  // underneath them. The two bare "0"s are the gutter's own cells.
   it("pins the first n columns where the ones before them end", () => {
     const html = render({ result: wide, widths: [80, 200, 200], frozen: 2 });
-    expect(stickyLefts(html)).toEqual(["0", "80px", "0", "80px"]);
+    expect(stickyLefts(html)).toEqual(["0", "44px", "124px", "0", "44px", "124px"]);
   });
 
-  it("pins nothing by default", () => {
-    expect(stickyLefts(render({ result: wide }))).toEqual([]);
+  it("pins nothing but the gutter by default", () => {
+    expect(stickyLefts(render({ result: wide }))).toEqual(["0", "0"]);
   });
 
   // A frozen cell has columns sliding under it, so a transparent one shows
@@ -191,13 +204,86 @@ describe("the column drag", () => {
   });
 });
 
-describe("the row-number gutter, now gone", () => {
-  // It numbered rows from the page offset, which only ever restated what the
-  // pager already said an inch away. Its width was 56px of every table.
-  it("leaves the first column as the table's own", () => {
+describe("the row-number gutter", () => {
+  it("numbers the rows and marks each one as a target", () => {
     const html = render();
-    expect(html).not.toContain(">#<");
-    expect(html).toContain("<col");
-    expect(html.indexOf("id")).toBeLessThan(html.indexOf("ada"));
+    expect(html).toContain('data-row="0"');
+    expect(html).toContain('data-row="1"');
+  });
+
+  // The number is the row's place in the TABLE. Numbering from 1 on every page
+  // makes "row 3" mean three different rows depending on where the pager is.
+  it("counts from the page offset, not from the page", () => {
+    // Read out of the gutter cells themselves: "1" also appears as a VALUE in
+    // the id column, so matching it anywhere in the html proves nothing.
+    const numbers = (html: string) =>
+      [...html.matchAll(/data-row="\d+"[^>]*>(\d+)</g)].map((m) => m[1]);
+
+    expect(numbers(render())).toEqual(["1", "2"]);
+    expect(numbers(render({ rowOffset: 400 }))).toEqual(["401", "402"]);
+  });
+
+  // It is sticky at the left edge with columns sliding under it, so the same
+  // rule the pinned cells live by applies: the ground has to be opaque.
+  it("grounds the numbers on an opaque colour", () => {
+    const gutter = render().slice(render().indexOf("data-row="));
+    expect(gutter).toContain("var(--surface-base)");
+  });
+});
+
+describe("the column header's glyphs", () => {
+  // The type is what says whether a value can be compared, sorted or quoted,
+  // and the grid had it in hand and drew nothing with it.
+  it("draws a key on the key columns and a datatype on the rest", () => {
+    const html = render({
+      columnTypes: { id: "integer", name: "text" },
+      keyColumns: ["id"],
+    });
+    expect(html).toContain("lucide-key-round");
+    expect(html).toContain("lucide-type");
+    // The key REPLACES the type glyph rather than joining it: two glyphs in a
+    // 64px column leave no room for the name.
+    expect(html).not.toContain("lucide-hash");
+  });
+
+  // A console result has no catalogue behind it — its columns can be
+  // expressions — so it passes neither prop and must still render.
+  it("claims nothing when the caller knows no types", () => {
+    const html = render();
+    expect(html).toContain("lucide-columns-3");
+    expect(html).not.toContain("lucide-key-round");
+  });
+});
+
+/**
+ * Editing is the table tab's alone.
+ *
+ * A console result can be a join, an aggregate or an expression: there is no
+ * single table behind it, and no key that names one of its rows. The grid is
+ * shared, so the gate is which caller hands it `onEditCells` — asserted here
+ * because a render cannot show it (React writes no handlers into HTML, so an
+ * SSR check for one passes whatever the truth is).
+ *
+ * The SQL and every refusal are covered by sql/updateCell.test.ts; the
+ * rectangle by grid/gridFocus.test.ts.
+ */
+describe("who may edit", () => {
+  const read = (file: string) => readFileSync(join(import.meta.dir, "..", file), "utf8");
+
+  it("is the table tab, and not the console", () => {
+    expect(read("TableDataView.tsx")).toContain("onEditCells");
+    expect(
+      read("components/QueryConsole.tsx"),
+      "a console result has no single table to write back to",
+    ).not.toContain("onEditCells");
+  });
+
+  // The refusal is computed once from the connection and the table, not per
+  // cell: without it a table with no key would build an UPDATE that matches
+  // every row that happens to look the same.
+  it("asks updateRefusal before it offers", () => {
+    const body = read("TableDataView.tsx");
+    expect(body).toContain("updateRefusal(");
+    expect(body).toContain("editRefusal={editRefusal}");
   });
 });

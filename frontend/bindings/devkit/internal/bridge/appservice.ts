@@ -308,6 +308,10 @@ export function DBCancelQuery(id: string, pid: string): $CancellablePromise<void
     return $Call.ByID(652064838, id, pid);
 }
 
+export function DBCommitTx(id: string): $CancellablePromise<void> {
+    return $Call.ByID(2136861641, id);
+}
+
 export function DBCreateProfile(input: database$0.CreateProfileInput): $CancellablePromise<database$0.ProfileSummary> {
     return $Call.ByID(3479862833, input);
 }
@@ -408,6 +412,10 @@ export function DBQuery(id: string, sql: string, maxRows: number): $CancellableP
     return $Call.ByID(2555176260, id, sql, maxRows);
 }
 
+export function DBRollbackTx(id: string): $CancellablePromise<void> {
+    return $Call.ByID(9079048, id);
+}
+
 export function DBSaveExportFile(suggestedName: string, content: string): $CancellablePromise<string> {
     return $Call.ByID(2407386373, suggestedName, content);
 }
@@ -422,6 +430,32 @@ export function DBSaveQuery(id: string, name: string, sql: string): $Cancellable
 
 export function DBSetActiveProfile(id: string): $CancellablePromise<void> {
     return $Call.ByID(646248503, id);
+}
+
+/**
+ * DBSetTxMode, DBCommitTx, DBRollbackTx and DBTxOpen are manual-commit mode.
+ * 
+ * Through the same capability and scope as a query, because that is what they
+ * are: a transaction is a property of the connection a statement runs on, and
+ * anything allowed to run statements on a profile is allowed to decide whether
+ * they are committed. The audit entry names the action, so a rollback is
+ * visible in the log as itself.
+ * DBSetTxMode turns manual commit on or off. Turning it ON opens nothing: the
+ * first statement does, so choosing the mode and then reading nothing holds no
+ * locks on the user's server.
+ */
+export function DBSetTxMode(id: string, manual: boolean): $CancellablePromise<void> {
+    return $Call.ByID(1688333855, id, manual);
+}
+
+/**
+ * DBTableDDL returns the statement that defines a table.
+ * 
+ * Through db:query and the profile scope, like every other catalogue read: it
+ * is the server being asked about its own schema.
+ */
+export function DBTableDDL(id: string, schema: string, table: string): $CancellablePromise<string> {
+    return $Call.ByID(2364618144, id, schema, table);
 }
 
 /**
@@ -442,6 +476,23 @@ export function DBTestConnection(id: string): $CancellablePromise<void> {
  */
 export function DBTestNewConnection(input: database$0.CreateProfileInput): $CancellablePromise<void> {
     return $Call.ByID(3346566534, input);
+}
+
+/**
+ * DBTxMode is asked on mount: the mode belongs to the connection and outlives
+ * the window that chose it, so a window reopened onto a manual connection has
+ * to show Manual rather than Auto.
+ */
+export function DBTxMode(id: string): $CancellablePromise<boolean> {
+    return $Call.ByID(3192598447, id);
+}
+
+/**
+ * DBTxOpen is asked on mount: a transaction outlives the tab that opened it,
+ * and a window reopened onto one has to show that rather than a clean slate.
+ */
+export function DBTxOpen(id: string): $CancellablePromise<boolean> {
+    return $Call.ByID(1086156812, id);
 }
 
 export function DBUpdateProfileOptions(id: string, opts: database$0.UpdateProfileOptionsInput): $CancellablePromise<database$0.ProfileSummary> {

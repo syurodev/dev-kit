@@ -3,6 +3,8 @@ import { ModuleSkeleton } from "./ModuleSkeleton";
 import { Events, Window } from "@wailsio/runtime";
 import { MessageSquare, PanelBottom, PanelLeft, Search, Settings as SettingsIcon } from "lucide-react";
 import { listModules, type ModuleDTO } from "../bridge/commands";
+import { useMenuCommands } from "./menuCommands";
+import { ModuleEmptyState } from "./ModuleEmptyState";
 import { Dock } from "./dock/Dock";
 import { moduleIndexFromEvent } from "./dock/dockActivation";
 import { AgentSessionsSubscriber } from "./AgentSessionsSubscriber";
@@ -220,17 +222,32 @@ const WorkbenchViews = memo(
           className={cn(
             "flex min-h-0 flex-1 flex-col",
             activeModule?.padded
-              ? "overflow-auto p-4"
+              ? // Half the gutter at the top when a tab strip is above, because
+                // the strip already ends in 8px of its own. The full 16 made 18
+                // between the tab and the first control that acts on it, and a
+                // toolbar that far from its tab reads as a band of its own
+                // rather than as that document's controls. Without a strip the
+                // section touches the card's edge and owes the full gutter.
+                activeModule.tabs
+                ? "overflow-auto px-4 pb-4 pt-2"
+                : "overflow-auto p-4"
               : "overflow-hidden p-0",
           )}
         >
-          {openTabs.length === 0 ? (
-            <p role="status" className="text-body-13 text-text-tertiary">
-              {availableModules.length === 0
-                ? "No modules are currently available."
-                : "No view is currently available."}
-            </p>
-          ) : (
+          {/* `openTabs` is EVERY module's tabs — the views layer keeps recently
+              left modules mounted. So "is anything open" has to be asked about
+              the module on screen, not about the list: with a Notes tab open
+              and no Database one, the old check fell through to the map, which
+              rendered nothing for Database at all. A blank card.
+
+              "No view is currently available" was also a status line for a
+              state that is not a problem: nothing is open because nothing was
+              left open. writing.md asks a blank screen to say what to do next
+              and to give a control for doing it. */}
+          {!openTabs.some((tab) => tab.moduleId === activeModule?.id) ? (
+            <ModuleEmptyState module={activeModule} />
+          ) : null}
+          {openTabs.length === 0 ? null : (
             openTabs.map((tab) => {
               // Tabs outside the active module's grace/cap window aren't
               // mounted at all — see useMountedModuleIds above. Their tab
@@ -517,22 +534,14 @@ export function Workbench() {
     focusModuleInStore(moduleId);
     // Sticky (module-tabs.mdx): a module that already has a tab active comes
     // back to exactly that tab — its tabs are its own and were never touched
-    // by whatever happened in other modules meanwhile. Only a module with
-    // nothing open gets its home view, and that opens as the module's preview
-    // tab: casually visiting via the Dock (without pinning anything inside)
-    // shouldn't leave a permanent tab behind. Picking a specific item (Notes:
-    // a note) replaces that same preview slot in place via openTab; a
-    // module's own view can promote it to permanent later (Notes does, on
-    // first edit, via pinTab).
-    if (moduleTabs(useWorkbenchTabsStore.getState().modules, moduleId).activeTabId) {
-      return;
-    }
-    openTab({
-      moduleId: module.id,
-      viewId: view.id,
-      title: module.title,
-      preview: true,
-    });
+    // by whatever happened in other modules meanwhile. Tabs are stored now, so
+    // that also holds across a relaunch.
+    //
+    // A module with NOTHING open opens nothing. It used to get its home view
+    // as a preview tab, which was a guess standing in for the memory the
+    // workbench did not have: visiting Database always produced a blank
+    // console whether or not anyone wanted one. The empty state below offers
+    // it instead, which is the same click without the assumption.
   }
 
   // Mirrors for the mount-once keydown listener above, which must not close
@@ -551,13 +560,11 @@ export function Workbench() {
       return;
     }
     // Closing a module's last tab empties its partition. The module stays on
-    // screen and gets its home view back (module-tabs.mdx: "đã đóng hết →
-    // về view home mặc định"), rather than the app jumping to whichever
-    // module happens to be first in the list.
-    if (activeTabs.openTabs.length === 0) {
-      focusModule(activeModuleId);
-    }
-  }, [availableModules, activeModuleId, activeTabs.openTabs.length]);
+    // screen — with the empty state, not a view conjured back — rather than
+    // the app jumping to whichever module happens to be first in the list.
+  }, [availableModules, activeModuleId]);
+  useMenuCommands();
+
   const commands = availableModules.flatMap((module) => module.commands);
   const hasMetadataWarning = metadataError || parityIssues.length > 0;
 

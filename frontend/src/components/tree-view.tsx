@@ -34,10 +34,25 @@ export type TreeNodeData = {
   children?: TreeNodeData[];
   /** Drawn under an expanded node while its children are on their way. */
   loading?: boolean;
-  /** Drawn under an expanded node that turned out to have nothing in it. */
-  emptyLabel?: string;
+  /**
+   * Drawn under an expanded node that turned out to have nothing in it. A
+   * node, not a string: "nothing here" is often one click away from being
+   * something, and the fix belongs in the slot that says it is empty.
+   */
+  emptyLabel?: ReactNode;
   selected?: boolean;
   onSelect?: () => void;
+  /**
+   * Pins this row to the top of the scroller while its children scroll under
+   * it, at this offset in px.
+   *
+   * A number rather than a boolean because the offset is the caller's: the
+   * database rail pins a connection at 0 and its schema at 24 beneath it, and
+   * a folder above them is not pinned at all. Deriving it from the tree level
+   * would pin the tables too, which on five levels is 120px of stuck header on
+   * a 280px rail.
+   */
+  sticky?: number;
   /** Double-click. The tables use it to write a SELECT into the console. */
   onActivate?: () => void;
   title?: string;
@@ -65,6 +80,29 @@ function indent(level: number): number {
 // ponytail: mirrors --motion-fast in index.css; a token read would need a
 // getComputedStyle per branch for a number that changes once a year.
 const CLOSE_MS = 120;
+/** --motion-base, the open direction. */
+const OPEN_MS = 180;
+
+/**
+ * True while a branch is mid-transition, either direction.
+ *
+ * It exists to take `overflow: hidden` OFF a branch that has finished moving.
+ * The collapse is a `grid-template-rows: 1fr → 0fr` and the grid item has to
+ * be clipped for that to hide anything — but an ancestor with `overflow:
+ * hidden` also kills `position: sticky` for everything inside it, and the tree
+ * pins a connection and its schema so they stay on screen while 173 tables
+ * scroll under them. A settled branch is exactly as tall as its content, so
+ * clipping it buys nothing and costs that.
+ */
+function useBranchAnimating(open: boolean): boolean {
+  const [animating, setAnimating] = useState(true);
+  useEffect(() => {
+    setAnimating(true);
+    const t = setTimeout(() => setAnimating(false), OPEN_MS);
+    return () => clearTimeout(t);
+  }, [open]);
+  return animating;
+}
 
 /**
  * True while `open`, and for CLOSE_MS after it turns false — the window the
@@ -111,6 +149,7 @@ function TreeRows({ nodes, level }: { nodes: TreeNodeData[]; level: number }) {
 function TreeRow({ node, level, index }: { node: TreeNodeData; level: number; index: number }) {
   const open = !!node.expandable && !!node.expanded;
   const branchMounted = useLingering(open);
+  const branchAnimating = useBranchAnimating(open);
 
   const row = (
     <div
@@ -119,16 +158,38 @@ function TreeRow({ node, level, index }: { node: TreeNodeData; level: number; in
       aria-expanded={node.expandable ? open : undefined}
       aria-selected={node.selected || undefined}
       title={node.title}
-      data-accent={node.selected ? "on" : undefined}
+      // The rail has no material of its own, so a pinned row would be
+      // transparent and the tables would scroll through it. tree-row-sticky
+      // paints an opaque ground BEHIND the row's own background, which leaves
+      // the selected and hover tints to paint over it as usual.
+      style={
+        node.sticky === undefined
+          ? ({ paddingLeft: indent(level), "--i": index } as CSSProperties)
+          : ({
+              paddingLeft: indent(level),
+              "--i": index,
+              position: "sticky",
+              top: node.sticky,
+              zIndex: 2,
+            } as CSSProperties)
+      }
       className={cn(
         // The tree tier (--control-height-xs): depth costs vertical room here,
         // so a row is denser than the flat lists in other rails.
-        "group tree-row-enter row-accent flex h-(--control-height-xs) items-center gap-1 rounded-md pr-1.5",
+        // The border is on every row, transparent until selected: a border that
+        // appears would move the label 1px and shove the whole subtree down.
+        "group tree-row-enter flex h-(--control-height-xs) items-center gap-1 rounded-md border pr-1.5",
         node.selected
-          ? "bg-surface-raised text-text-primary"
-          : "text-text-secondary hover:bg-surface-raised/60 hover:text-text-primary",
+          ? "border-action-primary/45 bg-surface-raised text-text-primary"
+          // The state layer, not a translucent surface. --surface-raised at 60%
+          // lifts clearly off a near-black rail and is all but invisible on a
+          // light one (1.06:1 against --background-app, against dark's 1.14);
+          // --state-soft is defined per mode for exactly this — white alpha
+          // where dark lifts, ink alpha where light recesses — and lands at
+          // 1.08–1.18 in every palette either way.
+          : "border-transparent text-text-secondary hover:bg-state-soft hover:text-text-primary",
+        node.sticky !== undefined && "tree-row-sticky",
       )}
-      style={{ paddingLeft: indent(level), "--i": index } as CSSProperties}
     >
       {/* One button for the whole row, chevron included: a separate chevron
           target would be a button inside a button. Clicking a row both selects
@@ -168,7 +229,12 @@ function TreeRow({ node, level, index }: { node: TreeNodeData; level: number; in
       {branchMounted && (
         // Stays mounted through the collapse (see useLingering); inert so a
         // closing branch cannot keep focus or be tabbed into meanwhile.
-        <div className="tree-branch" data-closing={open ? undefined : ""} inert={!open}>
+        <div
+          className="tree-branch"
+          data-closing={open ? undefined : ""}
+          data-animating={branchAnimating ? "" : undefined}
+          inert={!open}
+        >
           <div role="group">
             {node.children?.length ? (
               <TreeRows nodes={node.children} level={level + 1} />

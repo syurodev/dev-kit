@@ -57,8 +57,12 @@ describe("layout stability", () => {
       ["modules/database/components/DatabaseSidebar.tsx", "rail"],
     ];
     for (const [file, what] of scrollers) {
+      // Either spelling reserves the gutter. A RAIL takes the symmetric one:
+      // `stable` alone reserves on the scrolling edge only, so its full-bleed
+      // rows stop 11px short of the right inset and a selected row's box sits
+      // off-centre. A scroller inside a bordered card has no such edge to hug.
       expect(read(file), `${what} (${file}) must not reflow when rows cross the scroll threshold`)
-        .toContain("scrollbar-gutter-stable");
+        .toMatch(/scrollbar-gutter-(stable|symmetric)/);
     }
   });
 

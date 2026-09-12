@@ -1,11 +1,11 @@
-import { NewConnectionDialog } from "./components/NewConnectionDialog";
-import { ConnectionOptionsDialog } from "./components/ConnectionOptionsDialog";
 import { ExportModal } from "./components/ExportModal";
 import { SaveQueryModal } from "./components/SaveQueryModal";
 import { CellInspector } from "./components/CellInspector";
 
 /**
- * The module's five overlays, rendered by whichever document is active.
+ * The overlays that belong to a DOCUMENT — its rows, its SQL, one of its cells.
+ * The three that belong to the connection are in DatabaseModuleOverlays,
+ * rendered by the rail, because they have to work with no document open.
  *
  * Every one of them is a hand-rolled `fixed inset-0` panel over a `bg-black/60`
  * backdrop, and all five are driven by booleans on the shared store. Rendered
@@ -17,8 +17,6 @@ import { CellInspector } from "./components/CellInspector";
 export function DatabaseOverlays() {
   return (
     <>
-      <NewConnectionDialog />
-      <ConnectionOptionsDialog />
       <ExportModal />
       <SaveQueryModal />
       <CellInspector />

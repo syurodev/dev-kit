@@ -1,4 +1,5 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
 import { EMPTY_ARRAY } from "@/lib/stableEmpty";
 import { listColumns, listIndexes } from "@/bridge/database";
@@ -12,6 +13,9 @@ import { browseKeyOfTab, useBrowseLifetime } from "./useConsoleLifetime";
 import { useIsActiveDocument } from "./useIsActiveDocument";
 import { openConsoleTab } from "./documents";
 import { buildBrowseQuery } from "./sql/browseQuery";
+import { quoteIdentifier, quoteLiteral } from "./sql/identifier";
+import { buildUpdate, updateRefusal } from "./sql/updateCell";
+import { errorMessage, isCancelError } from "@/bridge/errors";
 import { tableExportFilename } from "./export";
 import { pageKeyFor } from "./tableKey";
 
@@ -35,6 +39,12 @@ export function TableDataView({
   // the leak that comment warns about.
   const key = browseKeyOfTab("database.table", { schema, table }) ?? "";
 
+  // The catalogue read below already returns every column's type — it is read
+  // for the key. Kept rather than discarded: it is what the header glyphs are
+  // drawn from, and asking for it again would be a second round trip for bytes
+  // already in hand.
+  const [columnTypes, setColumnTypes] = useState<Record<string, string>>({});
+
   useDatabaseChrome();
   useBrowseLifetime(key);
   const isActive = useIsActiveDocument("database.table", { schema, table });
@@ -52,6 +62,7 @@ export function TableDataView({
     setBrowseFrozen,
     setPageKey,
     loadBrowsePage,
+    applyBrowseEdit,
     goToBrowsePage,
     countBrowseRows,
     lastPage,
@@ -61,6 +72,7 @@ export function TableDataView({
     setInspectedCell,
     setSql,
     openExportModal,
+    openDDL,
   } = useDatabaseStore(
     useShallow((s) => ({
       selectedProfileId: s.selectedProfileId,
@@ -78,6 +90,7 @@ export function TableDataView({
       setBrowseFrozen: s.setBrowseFrozen,
       setPageKey: s.setPageKey,
       loadBrowsePage: s.loadBrowsePage,
+      applyBrowseEdit: s.applyBrowseEdit,
       goToBrowsePage: s.goToBrowsePage,
       countBrowseRows: s.countBrowseRows,
       lastPage: s.lastBrowsePage(key),
@@ -87,6 +100,7 @@ export function TableDataView({
       setInspectedCell: s.setInspectedCell,
       setSql: s.setSql,
       openExportModal: s.openExportModal,
+      openDDL: s.openDDL,
     })),
   );
 
@@ -121,13 +135,17 @@ export function TableDataView({
       .then(([indexes, columns]) => {
         if (!cancelled) {
           setPageKey(key, pageKeyFor(indexes, columns, schema, table));
+          setColumnTypes(Object.fromEntries(columns.map((c) => [c.name, c.dataType])));
         }
       })
       .catch(() => {
         // A catalogue read we could not complete is not a reason to refuse the
-        // table: unkeyed is the safe reading, and it pages by offset.
+        // table: unkeyed is the safe reading, and it pages by offset. The
+        // header simply draws the neutral glyph, which is what an unknown type
+        // means anyway.
         if (!cancelled) {
           setPageKey(key, null);
+          setColumnTypes({});
         }
       });
     return () => {
@@ -165,7 +183,16 @@ export function TableDataView({
     }
   }, [selectedProfileId, schema, table, key, where, countBrowseRows]);
 
-  const engine = profiles.find((p) => p.id === selectedProfileId)?.engine;
+  const profile = profiles.find((p) => p.id === selectedProfileId);
+  const engine = profile?.engine;
+  // Asked once, here, rather than at each cell: the answer is a property of
+  // the connection and the table, not of which cell was double-clicked.
+  const editRefusal = updateRefusal({
+    keyColumns: pageKey,
+    readOnly: Boolean(profile?.readOnly),
+    schema,
+    table,
+  });
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
@@ -215,6 +242,7 @@ export function TableDataView({
             openExportModal(browse.rows, tableExportFilename(table));
           }
         }}
+        onShowDDL={() => openDDL(schema, table)}
         onOpenInConsole={() => {
           const consoleId = `console-${key}`;
           setSql(
@@ -256,6 +284,62 @@ export function TableDataView({
             setBrowseFrozen(key, next.frozen);
           }}
           onInspectCell={setInspectedCell}
+          columnTypes={columnTypes}
+          keyColumns={pageKey ?? undefined}
+          // Rows are numbered through the table, not through the page.
+          rowOffset={browse.pageIndex * pageSize}
+          // The grid hands up a column and a value; the engine's quoting rules
+          // live here, with the rest of the SQL this tab composes.
+          onFilterByValue={({ column, value, negate }) => {
+            const lhs = quoteIdentifier(column, engine);
+            // An empty cell is NULL, and NULL never equals anything — `= ''`
+            // would match the empty string instead and quietly return nothing.
+            const clause =
+              value === ""
+                ? `${lhs} IS ${negate ? "NOT " : ""}NULL`
+                : `${lhs} ${negate ? "<>" : "="} ${quoteLiteral(value, engine)}`;
+            const next = browse.where.trim() ? `${browse.where.trim()} AND ${clause}` : clause;
+            setBrowseWhere(key, next);
+            void loadBrowsePage(key, { schema, table });
+          }}
+          // Editing is the table tab's alone: a console result can be a join
+          // or an expression, and there is no single table behind it to write
+          // to. Even here it is refused without a key — see updateRefusal.
+          editRefusal={editRefusal}
+          onEditCells={({ rows: rowIndices, columns: columnIndices, value }) => {
+            if (editRefusal || !browse.rows || !pageKey) {
+              return;
+            }
+            const columns = browse.rows.columns;
+            const sql = buildUpdate({
+              schema,
+              table,
+              engine,
+              keyColumns: pageKey,
+              // The row's OWN key values, read out of the page in hand. The
+              // grid names cells by position; only this side knows which
+              // columns identify a row.
+              rows: rowIndices.map((rowIndex) => ({
+                values: pageKey.map((key) => {
+                  const at = columns.indexOf(key);
+                  const cell = at === -1 ? "" : (browse.rows!.rows[rowIndex][at] ?? "");
+                  return cell === "" ? null : cell;
+                }),
+              })),
+              columns: columnIndices.map((index) => columns[index]),
+              value,
+            });
+            const cells = rowIndices.length * columnIndices.length;
+            applyBrowseEdit(key, { schema, table }, sql)
+              .then(() => toast.success(cells === 1 ? "Cell updated" : `${cells} cells updated`))
+              .catch((error: unknown) => {
+                if (isCancelError(error)) return;
+                // A toast, not the tab's error banner: the banner is about the
+                // rows on screen, and they are still exactly what the server
+                // last sent.
+                toast.error("Could not apply the edit", { description: errorMessage(error) });
+              });
+          }}
           sort={
             browse.orderBy
               ? {

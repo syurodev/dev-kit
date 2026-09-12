@@ -15,6 +15,7 @@ import (
 
 	"devkit/internal/agenthub"
 	"devkit/internal/app"
+	"devkit/internal/appmenu"
 	"devkit/internal/audit"
 	"devkit/internal/auth"
 	"devkit/internal/bridge"
@@ -468,6 +469,36 @@ func main() {
 		OnShutdown: mcpCancel,
 	})
 	openBrowser = wailsApp.Browser.OpenURL
+
+	// The platform's default menus, plus DevKit's own.
+	//
+	// Both halves matter. designing-for-macos: "Use the menu bar to give people
+	// easy access to all the commands they need to do things in your app" —
+	// before this the bar held only what Wails installs when an app sets no
+	// menu, so every action DevKit has lived in a context menu or a hover
+	// button, out of reach of ⌃F2, VoiceOver and anyone looking for a keyboard
+	// shortcut. Choosing an item emits its id; the frontend decides what
+	// running it means (see menuCommands.ts).
+	// Built here rather than in appmenu, which stays free of the Wails
+	// application package: internal/app reads the same list for its module
+	// metadata, and that package has to cross-compile without a window toolkit.
+	applicationMenu := application.DefaultApplicationMenu()
+	for _, submenu := range appmenu.Submenus {
+		target := applicationMenu.AddSubmenu(submenu.Title)
+		for _, command := range submenu.Commands {
+			if command.Separator {
+				target.AddSeparator()
+			}
+			id := command.ID
+			item := target.Add(command.Label).OnClick(func(*application.Context) {
+				wailsApp.Event.Emit(appmenu.EventName, id)
+			})
+			if command.Accelerator != "" {
+				item.SetAccelerator(command.Accelerator)
+			}
+		}
+	}
+	wailsApp.Menu.SetApplicationMenu(applicationMenu)
 
 	// A fully transparent window background is what actually lets a native
 	// backdrop show through — an opaque colour paints over it regardless of

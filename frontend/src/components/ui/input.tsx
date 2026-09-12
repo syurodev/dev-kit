@@ -48,7 +48,14 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
     const errorMessage = typeof error === "string" ? error : undefined
 
     const inputElement = (
-      <div className={cn("relative flex w-full items-center", label || helperText ? "w-full" : "max-w-[360px]")}>
+      // No width cap when the caller supplies its own label: it has taken over
+      // the layout, and a field that refuses to be wider than 360 than its
+      // container is a component overruling the page. The 360 in Figma is the
+      // control's DEFAULT size, not a maximum — a connection dialog's grid asks
+      // for full width and got a field stopping halfway across the row.
+      // The labelled path keeps the cap, because there the component owns the
+      // whole block and the spec is describing it.
+      <div className="relative flex w-full items-center">
         <input
           ref={ref}
           type={resolvedType}

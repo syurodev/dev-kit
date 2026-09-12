@@ -4,7 +4,12 @@ import { Plus, Wrench, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getModule } from "../../modules/registry";
 import type { TabStatus, WorkbenchTab } from "../../stores/workbenchTabs";
-import { ACTIVE_MIN_WIDTH_PX, computeTabWidths } from "./tabWidths";
+import {
+  ACTIVE_MIN_WIDTH_PX,
+  TAB_GAP_PX,
+  computeTabWidths,
+  pillWidth,
+} from "./tabWidths";
 
 function statusDotClass(status: TabStatus): string {
   switch (status) {
@@ -194,7 +199,10 @@ function TabGroupRow({
       axis="x"
       values={visualTabs}
       onReorder={handleVisualReorder}
-      className="flex shrink-0 items-center gap-1.5"
+      className="flex shrink-0 items-center"
+      // Not a gap- class: computeTabWidths divides the row by this exact
+      // number, and the two drifted apart once already.
+      style={{ gap: TAB_GAP_PX }}
     >
       <AnimatePresence initial={false}>
         {visualTabs.map((tab) => {
@@ -488,20 +496,12 @@ export function TabStrip({
   } else if (isDragging && dragFreezeWidthsRef.current) {
     widths = dragFreezeWidthsRef.current;
   }
-  // The pill's width, computed from data we already have rather than sized by
-  // its children's live flex layout: Reorder's drag changes how the dragged
-  // item participates in that flow, which shifted the pill's measured width
-  // (and so its centring) even though no tab's width had changed. Gaps are 4px
-  // between every tab, group boundaries included — the outer and inner gaps
-  // always sum to visualOrder.length - 1.
+  // One gap between every tab, group boundaries included — so the outer and
+  // inner gaps always sum to visualOrder.length - 1, which is what pillWidth
+  // counts. A group boundary that spaced wider than a tab boundary would break
+  // that sum, which is how the pill came to be narrower than the tabs it held.
   const tabWidthValues = visualOrder.map((tab) => widths.get(tab.id));
-  const pillWidthPx = tabWidthValues.every((value) => typeof value === "number")
-    ? tabWidthValues.reduce(
-        (sum: number, value) => sum + (value as number),
-        0,
-      ) +
-      Math.max(0, visualOrder.length - 1) * 4
-    : undefined;
+  const pillWidthPx = pillWidth(tabWidthValues);
 
   return (
     // Outer: always the strip's full measured width (ref={scrollRef} lives
@@ -522,9 +522,10 @@ export function TabStrip({
       className="flex h-12 min-w-0 w-full items-center justify-start p-2 gap-2 [--wails-draggable:no-drag]"
     >
       <div
-        // 449:325: gap-2 between tab items
-        className="scrollbar-hide flex max-w-full items-center gap-2 overflow-x-auto"
-        style={pillWidthPx !== undefined ? { width: pillWidthPx } : undefined}
+        // 449:325: 8px between tab items — TAB_GAP_PX, the same number the
+        // group rows above use and the same one the width model divides by.
+        className="scrollbar-hide flex max-w-full items-center overflow-x-auto"
+        style={{ gap: TAB_GAP_PX, width: pillWidthPx }}
       >
         <AnimatePresence initial={false}>
           {groups.map((group) => (

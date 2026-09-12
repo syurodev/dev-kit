@@ -523,7 +523,7 @@ function AppearanceTab() {
                   "flex w-33 flex-col gap-2 rounded-control border p-2 text-left transition-colors",
                   active
                     ? "border-border-focus bg-surface-raised"
-                    : "border-border-subtle hover:bg-surface-raised/60",
+                    : "border-border-subtle hover:bg-state-soft",
                 )}
               >
                 <PaletteSwatch family={definition.id} mode={resolvedTheme} />

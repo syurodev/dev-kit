@@ -13,7 +13,22 @@ export type ModuleView = {
   component: ModuleViewComponent | LazyExoticComponent<ModuleViewComponent>;
   /** Starts fetching a lazy view before React needs to render it. */
   preload?: () => Promise<void>;
+  /**
+   * The glyph a tab of this view carries.
+   *
+   * Here rather than passed at the call site, because a tab outlives the call:
+   * open tabs are restored from storage on launch, and an icon is a function —
+   * it cannot be written to disk and come back. A view id can, and this is
+   * what turns it back into a glyph.
+   */
+  icon?: LucideIcon;
 };
+
+/** The glyph for a view's tab, falling back to the module's own. */
+export function viewIcon(moduleId: string, viewId: string): LucideIcon | undefined {
+  const module = getModule(moduleId);
+  return module?.views.find((view) => view.id === viewId)?.icon ?? module?.icon;
+}
 
 type LazyViewModule = { default: ModuleViewComponent };
 
@@ -37,6 +52,17 @@ export function lazyModuleView(
 export type ModuleCommand = {
   id: string;
   title: string;
+  /**
+   * What choosing it does.
+   *
+   * Optional only because the backend's own view of a module is a list of ids
+   * and parity compares those. A command without one is a name in the palette
+   * that does nothing when picked — which is what every command in the app was
+   * until the menu bar needed somewhere to send its clicks.
+   */
+  run?: () => void;
+  /** Shown beside the title in the palette. The menu bar binds its own. */
+  shortcut?: string;
 };
 
 /**
@@ -90,6 +116,24 @@ export type ModuleManifest = {
    * parity ignores it.
    */
   newTab?: () => void;
+  /**
+   * The module's rail, as the MODULE's, not a document's.
+   *
+   * Documents may still register one through useSidebarContent — a rail that
+   * changes with what is open needs that. This is the floor underneath it: the
+   * rail a module has whenever it is the module on screen, including when
+   * nothing is open in it.
+   *
+   * It had to exist the moment tabs stopped being invented on launch. Database
+   * registered its rail from each of its documents, so a module with no
+   * document open had no rail at all — the same failure useDatabaseChrome's
+   * comment describes one level down ("closing that one emptied the rail"),
+   * one level up.
+   *
+   * Lazy, like a view: the manifest stays eager and tiny, and `lazy()` does not
+   * run the import until something renders it.
+   */
+  sidebar?: ModuleViewComponent | LazyExoticComponent<ModuleViewComponent>;
 };
 
 export type ModuleMetadata = {
@@ -398,4 +442,24 @@ export function compareModuleParity(
   }
 
   return issues;
+}
+
+/**
+ * Runs a command by id, wherever it is registered.
+ *
+ * One entry point, because two things dispatch commands and they must not grow
+ * separate tables: the command palette, and the native menu bar (which knows
+ * ids and nothing else — see internal/appmenu). Returns whether anything ran,
+ * so a menu item pointing at an id no module declares is visible in a test
+ * rather than silent at runtime.
+ */
+export function runCommand(id: string): boolean {
+  for (const module of listRegisteredModules()) {
+    const command = module.commands.find((candidate) => candidate.id === id);
+    if (command?.run) {
+      command.run();
+      return true;
+    }
+  }
+  return false;
 }

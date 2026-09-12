@@ -360,6 +360,55 @@ export function runQuery(id: string, sql: string, maxRows = 0): CancellableCall<
   );
 }
 
+/**
+ * Manual-commit mode.
+ *
+ * A transaction belongs to the CONNECTION, not to a tab: DevKit keeps one
+ * connection per profile, so a console and a table tab pointed at the same
+ * profile are inside the same transaction. That is what every database tool
+ * does, and the alternative — a connection per tab — would multiply the locks
+ * taken against the server by however many tabs are open.
+ *
+ * Choosing the mode opens nothing; the first statement does. An idle
+ * transaction holds a metadata lock on every table it has touched and stops
+ * old row versions being cleaned up, so browsing in Auto — the default — takes
+ * nothing at all.
+ */
+export function setTransactionMode(id: string, manual: boolean): Promise<void> {
+  return callBridge(() => AppService.DBSetTxMode(id, manual));
+}
+
+export function commitTransaction(id: string): Promise<void> {
+  return callBridge(() => AppService.DBCommitTx(id));
+}
+
+export function rollbackTransaction(id: string): Promise<void> {
+  return callBridge(() => AppService.DBRollbackTx(id));
+}
+
+/**
+ * The mode and whether a transaction is open — asked on mount, since both
+ * belong to the connection and outlive the window that chose them.
+ */
+export function transactionState(id: string): Promise<{ manual: boolean; open: boolean }> {
+  return callBridge(async () => ({
+    manual: await AppService.DBTxMode(id),
+    open: await AppService.DBTxOpen(id),
+  }));
+}
+
+/**
+ * The statement that defines a table.
+ *
+ * MySQL and MariaDB answer with SHOW CREATE TABLE — their own words. Postgres
+ * keeps no such text, so its definition is rebuilt from the catalogues, with
+ * the hard parts (a check expression, a foreign key's ON DELETE, a partial
+ * index's WHERE) printed by the server rather than reassembled.
+ */
+export function tableDDL(id: string, schema: string, table: string): Promise<string> {
+  return callBridge(() => AppService.DBTableDDL(id, schema, table));
+}
+
 export function saveExportFile(suggestedName: string, content: string): Promise<string> {
   return callBridge(() => AppService.DBSaveExportFile(suggestedName, content) as Promise<string>);
 }

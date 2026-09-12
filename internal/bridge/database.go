@@ -87,6 +87,103 @@ func (s *AppService) DBQuery(ctx context.Context, id string, sql string, maxRows
 	return result.(database.QueryResult), nil
 }
 
+// DBSetTxMode, DBCommitTx, DBRollbackTx and DBTxOpen are manual-commit mode.
+//
+// Through the same capability and scope as a query, because that is what they
+// are: a transaction is a property of the connection a statement runs on, and
+// anything allowed to run statements on a profile is allowed to decide whether
+// they are committed. The audit entry names the action, so a rollback is
+// visible in the log as itself.
+// DBSetTxMode turns manual commit on or off. Turning it ON opens nothing: the
+// first statement does, so choosing the mode and then reading nothing holds no
+// locks on the user's server.
+func (s *AppService) DBSetTxMode(ctx context.Context, id string, manual bool) error {
+	opaqueID := recordID(id)
+	_, err := s.call(ctx, "builtin.database", "db:query", "profile:"+opaqueID, map[string]any{
+		"action":     "set_tx_mode",
+		"profile_id": opaqueID,
+		"manual":     manual,
+	}, func(callCtx context.Context) (any, error) {
+		return nil, s.container.Database.SetTxMode(callCtx, id, manual)
+	})
+	return err
+}
+
+func (s *AppService) DBCommitTx(ctx context.Context, id string) error {
+	opaqueID := recordID(id)
+	_, err := s.call(ctx, "builtin.database", "db:query", "profile:"+opaqueID, map[string]any{
+		"action":     "commit_tx",
+		"profile_id": opaqueID,
+	}, func(callCtx context.Context) (any, error) {
+		return nil, s.container.Database.CommitTx(callCtx, id)
+	})
+	return err
+}
+
+func (s *AppService) DBRollbackTx(ctx context.Context, id string) error {
+	opaqueID := recordID(id)
+	_, err := s.call(ctx, "builtin.database", "db:query", "profile:"+opaqueID, map[string]any{
+		"action":     "rollback_tx",
+		"profile_id": opaqueID,
+	}, func(callCtx context.Context) (any, error) {
+		return nil, s.container.Database.RollbackTx(callCtx, id)
+	})
+	return err
+}
+
+// DBTxMode is asked on mount: the mode belongs to the connection and outlives
+// the window that chose it, so a window reopened onto a manual connection has
+// to show Manual rather than Auto.
+func (s *AppService) DBTxMode(ctx context.Context, id string) (bool, error) {
+	opaqueID := recordID(id)
+	result, err := s.call(ctx, "builtin.database", "db:query", "profile:"+opaqueID, map[string]any{
+		"action":     "tx_mode",
+		"profile_id": opaqueID,
+	}, func(context.Context) (any, error) {
+		return s.container.Database.TxMode(id), nil
+	})
+	if err != nil {
+		return false, err
+	}
+	return result.(bool), nil
+}
+
+// DBTxOpen is asked on mount: a transaction outlives the tab that opened it,
+// and a window reopened onto one has to show that rather than a clean slate.
+func (s *AppService) DBTxOpen(ctx context.Context, id string) (bool, error) {
+	opaqueID := recordID(id)
+	result, err := s.call(ctx, "builtin.database", "db:query", "profile:"+opaqueID, map[string]any{
+		"action":     "tx_open",
+		"profile_id": opaqueID,
+	}, func(context.Context) (any, error) {
+		return s.container.Database.TxOpen(id), nil
+	})
+	if err != nil {
+		return false, err
+	}
+	return result.(bool), nil
+}
+
+// DBTableDDL returns the statement that defines a table.
+//
+// Through db:query and the profile scope, like every other catalogue read: it
+// is the server being asked about its own schema.
+func (s *AppService) DBTableDDL(ctx context.Context, id, schema, table string) (string, error) {
+	opaqueID := recordID(id)
+	result, err := s.call(ctx, "builtin.database", "db:query", "profile:"+opaqueID, map[string]any{
+		"action":     "table_ddl",
+		"profile_id": opaqueID,
+		"schema":     schema,
+		"table":      table,
+	}, func(callCtx context.Context) (any, error) {
+		return s.container.Database.TableDDL(callCtx, id, schema, table)
+	})
+	if err != nil {
+		return "", err
+	}
+	return result.(string), nil
+}
+
 func (s *AppService) DBUpdateProfileOptions(id string, opts database.UpdateProfileOptionsInput) (database.ProfileSummary, error) {
 	opaqueID := recordID(id)
 	result, err := s.call(context.Background(), "builtin.database", "db:query", "profile:"+opaqueID, map[string]any{

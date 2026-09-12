@@ -1,6 +1,6 @@
-import { Table2, Network, Activity, History, Bookmark, Terminal } from "lucide-react";
-import { getModule } from "@/modules/registry";
-import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
+import { getModule, viewIcon } from "@/modules/registry";
+import { moduleTabs, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
+import { DEFAULT_CONSOLE_ID } from "./databaseStore";
 
 /**
  * Opening a Database document.
@@ -11,7 +11,7 @@ import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
  * a second click on something else replaces it, so browsing the rail does not
  * leave a trail of tabs behind.
  */
-function open(viewId: string, title: string, icon: typeof Table2, params?: Record<string, unknown>, preview = true) {
+function open(viewId: string, title: string, params?: Record<string, unknown>, preview = true) {
   // Start the chunk before React needs it: the tab appears in the same frame
   // either way, but the view lands sooner.
   const preload = getModule("database")?.views.find((v) => v.id === viewId)?.preload;
@@ -26,15 +26,25 @@ function open(viewId: string, title: string, icon: typeof Table2, params?: Recor
       })
       .catch(() => undefined);
   }
-  useWorkbenchTabsStore.getState().openTab({ moduleId: "database", viewId, title, icon, params, preview });
+  // The glyph comes from the manifest, not the call site: a restored tab has
+  // only its view id to go on, and both paths have to reach the same icon or
+  // the strip changes after a relaunch.
+  useWorkbenchTabsStore.getState().openTab({
+    moduleId: "database",
+    viewId,
+    title,
+    icon: viewIcon("database", viewId),
+    params,
+    preview,
+  });
 }
 
 export function openTableTab(schema: string, table: string, preview = false): void {
-  open("database.table", table, Table2, { schema, table }, preview);
+  open("database.table", table, { schema, table }, preview);
 }
 
 export function openConsoleTab(consoleId: string, title = "Console"): void {
-  open("database.console", title, Terminal, { consoleId }, false);
+  open("database.console", title, { consoleId }, false);
 }
 
 /**
@@ -52,17 +62,34 @@ export function openNewConsoleTab(): void {
 }
 
 export function openErdTab(): void {
-  open("database.erd", "ERD diagram", Network, undefined, false);
+  open("database.erd", "ERD diagram", undefined, false);
 }
 
 export function openActivityTab(): void {
-  open("database.activity", "Live activity", Activity, undefined, false);
+  open("database.activity", "Live activity", undefined, false);
 }
 
 export function openHistoryTab(): void {
-  open("database.history", "Query history", History, undefined, false);
+  open("database.history", "Query history", undefined, false);
 }
 
 export function openSavedTab(): void {
-  open("database.saved", "Saved queries", Bookmark, undefined, false);
+  open("database.saved", "Saved queries", undefined, false);
+}
+
+/**
+ * The console id of the tab in front of you, or "" when the active Database
+ * tab is not a console.
+ *
+ * The menu bar's Run Query needs it: the keystroke inside a console is handled
+ * by that console, but the menu item is fired from outside any of them and has
+ * to ask which one is on screen. Same defaulting rule as consoleIdOfTab — the
+ * module's home tab carries no params and means the first console.
+ */
+export function activeConsoleId(): string {
+  const state = useWorkbenchTabsStore.getState();
+  const tabs = moduleTabs(state.modules, "database");
+  const active = tabs.openTabs.find((tab) => tab.id === tabs.activeTabId);
+  if (!active || active.viewId !== "database.console") return "";
+  return typeof active.params?.consoleId === "string" ? active.params.consoleId : DEFAULT_CONSOLE_ID;
 }

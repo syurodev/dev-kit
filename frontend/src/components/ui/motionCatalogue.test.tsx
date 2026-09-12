@@ -28,17 +28,17 @@ describe("motion catalogue", () => {
     expect(usesMotionToken(html)).toBe(true);
   });
 
-  it("a selected tree row carries the accent, an unselected one does not", () => {
+  it("a selected tree row is outlined, an unselected one holds the same box", () => {
     const selected = renderToString(
       <TreeView nodes={[{ id: "a", label: "public", selected: true }]} />,
     );
     const plain = renderToString(<TreeView nodes={[{ id: "a", label: "public" }]} />);
-    expect(selected).toContain("row-accent");
-    expect(selected).toContain('data-accent="on"');
-    // The class is always there — only the state flips, so the bar animates in
-    // rather than the element appearing.
-    expect(plain).toContain("row-accent");
-    expect(plain).not.toContain('data-accent="on"');
+    expect(selected).toContain("border-action-primary/45");
+    // Both carry a border — only its colour flips, so selecting a row cannot
+    // move its label or shove the subtree below it down a pixel.
+    expect(selected).not.toContain("border-transparent");
+    expect(plain).toContain("border-transparent");
+    expect(plain).not.toContain("border-action-primary");
   });
 });
 
@@ -55,6 +55,18 @@ describe("motion defined in index.css", () => {
     expect(block).toContain("var(--motion-fast)");
     // 4.2: compositor properties only — no width/left animation.
     expect(block).toMatch(/transition:[^;]*opacity[^;]*scale/s);
+  });
+
+  // Not motion, but it lives in the same block and breaks the same way: a
+  // grid item defaults to a min-content minimum, so a branch of nowrap labels
+  // refuses to shrink to the rail and every nested row is drawn wider than the
+  // scrollport — with a selected row's border and corner outside it.
+  it("a tree branch can shrink to its rail on both axes", () => {
+    const block = CSS.match(/\.tree-branch > \*\s*\{[\s\S]*?\n {2}\}/)![0];
+    expect(block).toContain("min-height: 0");
+    expect(block, "a branch that cannot shrink cuts the selected row's box").toContain(
+      "min-width: 0",
+    );
   });
 
   it("every motion added here is switched off by prefers-reduced-motion", () => {

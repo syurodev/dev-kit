@@ -7,6 +7,11 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { Wrench } from "lucide-react";
 import type { WorkbenchTab } from "../stores/workbenchTabs";
 import { Titlebar } from "@/components/ui/titlebar";
+import { ModuleEmptyState } from "./ModuleEmptyState";
+import { databaseModule } from "@/modules/database/manifest";
+import { notesModule } from "@/modules/notes/manifest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 describe("Step 4a Shell Chrome Reconciliation", () => {
   describe("Titlebar (Figma 732:2170)", () => {
@@ -307,3 +312,71 @@ describe("Step 4a Shell Chrome Reconciliation", () => {
   });
 });
 
+
+/**
+ * A module with nothing open.
+ *
+ * It used to report "No view is currently available." — a fault message for a
+ * state that is not a fault — because the workbench always conjured the home
+ * view instead of remembering what was left open. Tabs are stored now, so
+ * "nothing" is a real answer and has to say what to do about it.
+ */
+describe("a module with no tabs", () => {
+  it("offers the way in rather than reporting a fault", () => {
+    const html = renderToString(<ModuleEmptyState module={databaseModule} />);
+    expect(html).not.toContain("No view is currently available");
+    expect(html).toContain("has nothing open");
+    expect(html).toContain("Open console");
+  });
+
+  it("says so plainly when there is no module at all", () => {
+    const html = renderToString(<ModuleEmptyState module={undefined} />);
+    expect(html).toContain("No modules are available");
+  });
+});
+
+/**
+ * A rail that only exists while a document does.
+ *
+ * Every module registered its rail from its views, which held exactly as long
+ * as the workbench always had one open. It stopped holding the moment tabs
+ * became something remembered rather than invented: a module left with nothing
+ * open had no rail at all — the reported "where is the sidebar". A module that
+ * can be emptied has to own its rail.
+ */
+describe("a module that can be left with nothing open", () => {
+  it("declares its own rail, not only its views'", () => {
+    for (const module of [databaseModule, notesModule]) {
+      expect(module.tabs, `${module.id} is in this list because it has tabs`).toBe(true);
+      expect(
+        module.sidebar,
+        `${module.id} can be left with no document open, and its rail would go with it`,
+      ).toBeDefined();
+    }
+  });
+});
+
+/**
+ * A rail's data has to come from the rail.
+ *
+ * DatabaseView fetched the connection list on mount, which held only while a
+ * console was always open. With tabs remembered rather than invented, a module
+ * can be on screen with no document at all — and the rail sat on "No
+ * connections configured." until one was opened. The rail mounts once for the
+ * module (SidebarSurface keeps it mounted even collapsed), so the fetch is
+ * there and nowhere else.
+ */
+describe("the connection rail's own data", () => {
+  const read = (file: string) =>
+    readFileSync(join(import.meta.dir, "..", file), "utf8");
+
+  it("is fetched by the rail, not by a document", () => {
+    expect(read("modules/database/components/DatabaseSidebar.tsx")).toContain(
+      "void fetchProfiles();",
+    );
+    expect(
+      read("modules/database/DatabaseView.tsx"),
+      "a document fetching it means an empty rail whenever no document is open",
+    ).not.toContain("fetchProfiles");
+  });
+});

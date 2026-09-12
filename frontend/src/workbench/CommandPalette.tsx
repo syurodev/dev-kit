@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/command";
 import { Search } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { runCommand } from "@/modules/registry";
 
 type CommandPaletteProps = {
   open: boolean;
@@ -32,7 +33,17 @@ export function CommandPalette({ open, commands, onClose }: CommandPaletteProps)
         <CommandEmpty>No commands are currently available.</CommandEmpty>
         <CommandGroup heading="COMMANDS">
           {commands.map((command) => (
-            <CommandItem key={command.id} value={command.title} onSelect={onClose}>
+            <CommandItem
+              key={command.id}
+              value={command.title}
+              // It ran nothing at all before: every item closed the palette and
+              // that was the whole of it, so the palette listed the app's
+              // commands without being able to perform one.
+              onSelect={() => {
+                runCommand(command.id);
+                onClose();
+              }}
+            >
               {command.title}
               {command.shortcut ? (
                 <CommandShortcut>{command.shortcut}</CommandShortcut>

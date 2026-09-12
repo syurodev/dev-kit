@@ -12,6 +12,8 @@ import {
 } from "./select"
 import { Tabs, TabsList, TabsTrigger, TabsContent, TabsCount } from "./tabs"
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "./tooltip"
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 describe("Step 2 Form Controls Reconciliation", () => {
   describe("Input (Figma 28:62)", () => {
@@ -236,3 +238,32 @@ describe("Step 2 Form Controls Reconciliation", () => {
     })
   })
 })
+
+/**
+ * A menu whose items are wider than the menu clips them.
+ *
+ * DropdownMenuContent used to pin itself to the trigger's width — select
+ * behaviour on an action menu — so a menu off an icon button came out at the
+ * 128px floor while its items declared 200, and every label was cut. The floor
+ * and the item minimum have to agree, in both menus.
+ */
+describe("menu widths", () => {
+  // Comments stripped before matching. The comment above the fix names the
+  // very binding being forbidden, and a plain substring search reads its own
+  // explanation as the thing it is looking for — which it did.
+  const read = (file: string) =>
+    readFileSync(join(import.meta.dir, file), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/\/\/.*$/gm, "");
+
+  it.each([
+    ["dropdown-menu.tsx", "radix-dropdown-menu-trigger-width"],
+    ["context-menu.tsx", "radix-context-menu-trigger-width"],
+  ])("%s does not size an action menu to its trigger", (file, binding) => {
+    expect(read(file), `${file} pins its content to ${binding}`).not.toContain(`w-(--${binding})`);
+  });
+
+  // The floor is deliberately NOT asserted against the item minimum: a floor
+  // is not a cap, and with no width imposed the items grow the box themselves.
+  // Pinning the two numbers together would have been a rule about nothing.
+});

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useMemo, useRef, type ReactNode } from "react";
 import { useSidebarContent } from "@/components/ui/sidebar-shell";
 import { useWorkbenchTabsStore } from "../../stores/workbenchTabs";
 import { getModule } from "../registry";
@@ -8,16 +8,18 @@ import { useNotesRefreshStore } from "../../stores/notesRefresh";
 import { deleteNote } from "../../bridge/notes";
 
 /**
- * Registers the Notes rail from whichever view is mounted.
+ * The Notes rail, as a node.
  *
- * Called by both the dashboard and the editor: the rail belongs to the module,
- * not to one of its views, and registering from only one of them leaves it
- * empty as soon as the other is on screen.
+ * Split from the registration below so the module can draw the same rail with
+ * NO view mounted. Views used to be the only source, which held while the
+ * workbench always had one open; it stopped holding when tabs became something
+ * remembered rather than invented, and closing the last note left the rail
+ * blank. NotesModuleSidebar is the floor, the views still register over it.
  *
  * `onNavigate` lets the editor send the user back to the dashboard when they
  * pick a scope or a folder action — the dialogs live there.
  */
-export function useNotesSidebar(onNavigate?: () => void) {
+export function useNotesSidebarContent(onNavigate?: () => void): ReactNode {
   const scope = useNotesSidebarStore((s) => s.scope);
   const folders = useNotesSidebarStore((s) => s.folders);
   const notes = useNotesSidebarStore((s) => s.notes);
@@ -126,5 +128,20 @@ export function useNotesSidebar(onNavigate?: () => void) {
     ],
   );
 
-  useSidebarContent(content);
+  return content;
+}
+
+/**
+ * Registers the rail from whichever view is mounted.
+ *
+ * Called by both the dashboard and the editor: registering from only one of
+ * them leaves it empty as soon as the other is on screen.
+ */
+export function useNotesSidebar(onNavigate?: () => void) {
+  useSidebarContent(useNotesSidebarContent(onNavigate));
+}
+
+/** The module's own rail, for ModuleManifest.sidebar — see ModuleSidebar. */
+export function NotesModuleSidebar() {
+  return useNotesSidebarContent();
 }

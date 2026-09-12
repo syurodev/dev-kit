@@ -11,6 +11,7 @@ import {
 } from "@/workbench/panelLayout";
 import { usePanelWidthsStore } from "@/stores/panelWidths";
 import { useSidebarContentStore } from "@/stores/sidebarContent";
+import { ModuleSidebar } from "./module-sidebar";
 import { useSidebarOpenStore } from "@/stores/sidebarShell";
 import { ShellResizeHandle } from "@/components/ui/resize-handle";
 
@@ -265,9 +266,12 @@ export function SidebarSurface({ activeModuleId }: { activeModuleId: string | nu
   const splitPanelOpen = usePanelWidthsStore((s) => s.splitPanelOpen);
   const windowWidth = useWindowWidth();
 
-  const content = useSidebarContentStore((s) =>
+  const registered = useSidebarContentStore((s) =>
     activeModuleId ? s.content[activeModuleId] : undefined,
   );
+  // A document's rail wins where there is one; the module's own is the floor.
+  const content =
+    registered ?? (activeModuleId ? <ModuleSidebar moduleId={activeModuleId} /> : undefined);
 
   const max = maxPanelWidth({
     windowWidth,

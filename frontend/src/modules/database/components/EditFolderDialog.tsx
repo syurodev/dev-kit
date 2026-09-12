@@ -54,6 +54,10 @@ export function EditFolderDialog({
             onChange={(e) => setName(e.target.value)}
             placeholder="Production"
             autoFocus
+            // A folder arrives here named "Folder 3"; selecting it means the
+            // first keystroke replaces the placeholder rather than appending
+            // to it.
+            onFocus={(e) => e.target.select()}
           />
         </div>
 

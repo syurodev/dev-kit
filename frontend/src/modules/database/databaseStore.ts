@@ -7,6 +7,10 @@ import {
   getSchemaCache,
   indexSchema,
   runQuery,
+  setTransactionMode,
+  commitTransaction,
+  rollbackTransaction,
+  transactionState,
   type ConnectionProfile,
   type QueryResult,
   type SchemaSnapshot,
@@ -278,6 +282,39 @@ export type DatabaseStoreState = {
   ) => void;
   /** Runs the statement for the current page of a table tab. */
   loadBrowsePage: (key: string, opts: { schema: string; table: string }) => Promise<void>;
+  /**
+   * Runs one UPDATE for a grid edit and reloads the page it changed.
+   *
+   * Reloads rather than patching the rows in memory: a column with a trigger,
+   * a default or a check constraint may not hold what was sent, and a grid
+   * showing what we MEANT to write is worse than one that waits a round trip
+   * for what is actually there.
+   */
+  /**
+   * Auto or Manual commit, and whether a transaction is open right now.
+   *
+   * Per profile, because that is what a transaction is attached to. The mode
+   * is the UI's policy — the backend knows only "open or not" — and switching
+   * to Manual opens one immediately, so the very next statement is inside it
+   * rather than the first one silently landing outside.
+   */
+  /** The table whose definition is on screen, or null. */
+  ddlTarget: { schema: string; table: string } | null;
+  openDDL: (schema: string, table: string) => void;
+  closeDDL: () => void;
+
+  txManual: boolean;
+  txOpen: boolean;
+  txBusy: boolean;
+  setTxManual: (manual: boolean) => Promise<void>;
+  endTransaction: (action: "commit" | "rollback") => Promise<void>;
+  refreshTxState: () => Promise<void>;
+
+  applyBrowseEdit: (
+    key: string,
+    opts: { schema: string; table: string },
+    sql: string,
+  ) => Promise<void>;
   /** Moves one page forward or back and loads it. */
   stepBrowsePage: (
     key: string,
@@ -345,7 +382,8 @@ export type DatabaseStoreState = {
   // Folder actions
   toggleFolder: (folderId: string) => void;
   toggleProfileExpand: (profileId: string) => void;
-  createFolder: (name: string) => void;
+  /** The id of the folder created, or "" when the name was blank. */
+  createFolder: (name: string) => string;
   updateFolder: (id: string, patch: { name?: string; icon?: string }) => void;
   deleteFolder: (id: string) => void;
   setConsoleEditorSize: (consoleId: string, size: number) => void;
@@ -373,10 +411,40 @@ export type DatabaseStoreState = {
   closeConsole: (consoleId: string) => void;
 };
 
-const DEFAULT_FOLDERS: DatabaseFolder[] = [
-  { id: "production", name: "Production", icon: "server", profileIds: [] },
-  { id: "development", name: "Development", icon: "laptop", profileIds: [] },
-];
+/**
+ * The two folders the sidebar used to ship with — Production and Development,
+ * seeded empty. A grouping nobody asked for is two rows of chrome and a
+ * suggestion about how to organise connections the app has no business making,
+ * so they are gone; this removes the ones already stored.
+ *
+ * Matched by NAME, which took two attempts. v2 matched the ids DEFAULT_FOLDERS
+ * gave them — "production", "development" — and on a store old enough to have
+ * been through migrateFoldersToIds those ids no longer exist: that migration
+ * rekeyed every folder onto a generated uuid, years before anything thought to
+ * mark which ones DevKit had created. So the seeded pair survived, wearing
+ * uuids and the migration's default "folder" icon, and the v2 pass ran over
+ * them without a match.
+ *
+ * Only while EMPTY, which is the whole safety of it. A seeded folder somebody
+ * filled is theirs now and deleting it would scatter the connections inside
+ * back to Ungrouped. What an empty one holds is nothing.
+ *
+ * The residual cost, written down rather than hidden: someone who made their
+ * own empty folder called exactly "Production" or "Development" loses it once,
+ * at this version, and can make it again. There is no record that separates it
+ * from the seed — that is what shipping a seed without marking it costs, and
+ * it is a smaller cost than the two rows never going away.
+ */
+const SEEDED_FOLDER_NAMES = new Set(["Production", "Development"]);
+const SEEDED_FOLDER_IDS = new Set(["production", "development"]);
+
+export function dropSeededFolders(folders: DatabaseFolder[]): DatabaseFolder[] {
+  return folders.filter(
+    (folder) =>
+      folder.profileIds.length > 0 ||
+      !(SEEDED_FOLDER_IDS.has(folder.id) || SEEDED_FOLDER_NAMES.has(folder.name)),
+  );
+}
 
 /**
  * Merges a patch into one console, creating it from EMPTY_CONSOLE if this is
@@ -441,7 +509,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   loadingProfiles: false,
   profileError: "",
 
-  folders: DEFAULT_FOLDERS,
+  folders: [],
   expandedFolders: { production: true, development: true },
   expandedProfiles: {},
 
@@ -489,8 +557,16 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   },
 
   setSelectedProfileId: (id: string) => {
+    // Asked, not assumed: a transaction outlives the window that opened it, so
+    // arriving at a profile can mean arriving inside one.
+    queueMicrotask(() => void get().refreshTxState());
     set({
       selectedProfileId: id,
+      // A transaction belongs to the connection you just left, not the one you
+      // arrived at. Cleared here and asked again below, rather than carried
+      // across and shown against the wrong profile.
+      txOpen: false,
+      txManual: false,
       tableColumnsMap: {},
       tableColumnsError: {},
       // A focused table belongs to the database it was picked from.
@@ -538,15 +614,16 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     set({ expandedProfiles: { ...current, [profileId]: !current[profileId] } });
   },
 
+  // Returns the new id so the caller can open the folder for naming straight
+  // away — "Folder 3" is a placeholder, not a decision.
   createFolder: (name: string) => {
     const trimmed = name.trim();
-    if (!trimmed) return;
+    if (!trimmed) return "";
+    const id = newFolderId();
     set({
-      folders: [
-        ...get().folders,
-        { id: newFolderId(), name: trimmed, icon: "folder", profileIds: [] },
-      ],
+      folders: [...get().folders, { id, name: trimmed, icon: "folder", profileIds: [] }],
     });
+    return id;
   },
 
   updateFolder: (id: string, patch: { name?: string; icon?: string }) => {
@@ -764,6 +841,73 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     });
   },
 
+  ddlTarget: null,
+  openDDL: (schema, table) => set({ ddlTarget: { schema, table } }),
+  closeDDL: () => set({ ddlTarget: null }),
+
+  txManual: false,
+  txOpen: false,
+  txBusy: false,
+
+  setTxManual: async (manual) => {
+    const { selectedProfileId } = get();
+    if (!selectedProfileId) {
+      set({ txManual: manual });
+      return;
+    }
+    set({ txBusy: true });
+    try {
+      // Turning it on opens nothing — the first statement does. Turning it off
+      // commits whatever is open, because leaving the mode must not discard
+      // work silently; the button beside it is how you discard it on purpose.
+      await setTransactionMode(selectedProfileId, manual);
+      set({ txManual: manual, txOpen: manual ? get().txOpen : false });
+    } finally {
+      set({ txBusy: false });
+    }
+  },
+
+  endTransaction: async (action) => {
+    const { selectedProfileId } = get();
+    if (!selectedProfileId) {
+      return;
+    }
+    set({ txBusy: true });
+    try {
+      await (action === "commit"
+        ? commitTransaction(selectedProfileId)
+        : rollbackTransaction(selectedProfileId));
+      // Nothing is opened in its place: the mode is still Manual, and the next
+      // statement opens the next transaction when it runs.
+      set({ txOpen: false });
+    } finally {
+      set({ txBusy: false });
+    }
+  },
+
+  refreshTxState: async () => {
+    const { selectedProfileId } = get();
+    if (!selectedProfileId) {
+      set({ txOpen: false, txManual: false });
+      return;
+    }
+    const { manual, open } = await transactionState(selectedProfileId);
+    set({ txManual: manual, txOpen: open });
+  },
+
+  applyBrowseEdit: async (key, { schema, table }, sql) => {
+    const { selectedProfileId } = get();
+    if (!selectedProfileId) {
+      return;
+    }
+    // Throws on to the caller rather than raising a toast here. A store that
+    // imports the toaster puts it in every graph the store is in — and this
+    // one is reachable from the eager manifest, so sonner became 32 KiB of the
+    // shell's startup for a message only the table tab ever shows.
+    await runQuery(selectedProfileId, sql);
+    await get().loadBrowsePage(key, { schema, table });
+  },
+
   loadBrowsePage: async (key, { schema, table }) => {
     const { selectedProfileId, profiles } = get();
     if (!selectedProfileId) {
@@ -950,8 +1094,21 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     {
       name: "database.folders",
       storage: uiStateStorage,
-      version: 1,
-      migrate: (persisted) => migrateFoldersToIds(persisted as never),
+      // 3, not 2: the v2 pass ran and matched nothing on any store old enough
+      // to have been rekeyed onto uuids, and a migration that has already run
+      // never runs again. See dropSeededFolders.
+      version: 3,
+      migrate: (persisted) => {
+        const migrated = migrateFoldersToIds(persisted as never);
+        const folders = dropSeededFolders(migrated.folders);
+        // The fold state is keyed by folder id, so a dropped folder would
+        // leave its entry behind forever.
+        const kept = new Set(folders.map((folder) => folder.id));
+        const expandedFolders = Object.fromEntries(
+          Object.entries(migrated.expandedFolders ?? {}).filter(([id]) => kept.has(id)),
+        );
+        return { ...migrated, folders, expandedFolders };
+      },
       // Only the cosmetic grouping persists. Profiles, schema and results all
       // come from the bridge; caching them here would let a stale copy outlive
       // the thing it describes.

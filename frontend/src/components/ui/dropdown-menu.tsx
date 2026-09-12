@@ -29,6 +29,21 @@ function DropdownMenuTrigger({
   )
 }
 
+/*
+The content is NOT pinned to the trigger's width.
+
+`w-(--radix-dropdown-menu-trigger-width)` is select behaviour — a listbox that
+lines up under the field it belongs to. Every menu in this app is an action
+menu, and most of them hang off an icon button: the connection row's actions
+came out 128px wide (the old min-w-32 floor) while DropdownMenuItem declares
+`min-w-[200px]`, so the items overflowed and `overflow-x-hidden` cut them —
+"Re-index schen", "Delete connecti". ContextMenuContent never had the binding,
+which is why the same list read fine on right-click and clipped on the button.
+
+The floor stays at 32. A floor is not a cap: with no width imposed, the items'
+own 200px minimum grows the box, which is exactly how the context menu has
+always ended up the right size.
+*/
 function DropdownMenuContent({
   className,
   align = "start",
@@ -41,7 +56,7 @@ function DropdownMenuContent({
         data-slot="dropdown-menu-content"
         sideOffset={sideOffset}
         align={align}
-        className={cn("z-50 max-h-(--radix-dropdown-menu-content-available-height) w-(--radix-dropdown-menu-trigger-width) min-w-32 origin-(--radix-dropdown-menu-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-lg glass-float p-1 text-popover-foreground duration-(--motion-base) data-[state=closed]:duration-(--motion-fast) data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:overflow-hidden data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95", className )}
+        className={cn("z-50 max-h-(--radix-dropdown-menu-content-available-height) min-w-32 origin-(--radix-dropdown-menu-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-lg glass-float p-1 text-popover-foreground duration-(--motion-base) data-[state=closed]:duration-(--motion-fast) data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:overflow-hidden data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95", className )}
         {...props}
       />
     </DropdownMenuPrimitive.Portal>

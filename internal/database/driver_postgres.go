@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -86,6 +87,192 @@ func (c *postgresConn) Query(ctx context.Context, sql string, args ...any) (Rows
 		columns[i] = f.Name
 	}
 	return &postgresRows{rows: rows, columns: columns}, nil
+}
+
+// Begin takes a connection out of the pool and keeps it for the transaction.
+//
+// pgx's pool.Begin does the acquiring itself and gives the connection back on
+// Commit or Rollback — the same pinning mysqlConn.Begin has to arrange by
+// hand, for the same reason: a bare BEGIN would open a transaction on whatever
+// connection served it and leave the next statement somewhere else.
+func (c *postgresConn) Begin(ctx context.Context) (Tx, error) {
+	tx, err := c.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &postgresTx{tx: tx}, nil
+}
+
+type postgresTx struct{ tx pgx.Tx }
+
+func (t *postgresTx) Query(ctx context.Context, sql string, args ...any) (Rows, error) {
+	rows, err := t.tx.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, err
+	}
+	fields := rows.FieldDescriptions()
+	columns := make([]string, len(fields))
+	for i, f := range fields {
+		columns[i] = f.Name
+	}
+	return &postgresRows{rows: rows, columns: columns}, nil
+}
+
+func (t *postgresTx) Commit(ctx context.Context) error   { return t.tx.Commit(ctx) }
+func (t *postgresTx) Rollback(ctx context.Context) error { return t.tx.Rollback(ctx) }
+
+/*
+TableDDL rebuilds a table's definition from the catalogues.
+
+Rebuilt, because Postgres does not keep the statement that made the table —
+unlike MySQL, which hands back its own SHOW CREATE TABLE. Three reads: the
+columns, the constraints, and the indexes that are not already a constraint's.
+The parts that are genuinely hard — a check expression, a foreign key's ON
+DELETE, a partial index's WHERE — are not reassembled here at all:
+pg_get_constraintdef and pg_get_indexdef are the server's own printers, and
+anything this file wrote instead would be a second opinion about the same
+object.
+
+Constraints are folded INTO the CREATE TABLE rather than trailed after it as
+ALTERs the way pg_dump does. pg_dump is ordering a restore; this is answering
+"what is this table", and one block reads as one table.
+
+Identifiers are quoted by format('%I.%I', ...) on the server, so a schema or a
+table called "order" or holding a double quote is the server's problem to spell
+and not this file's to get wrong.
+*/
+func (c *postgresConn) TableDDL(ctx context.Context, schema, table string) (string, error) {
+	// The quoted name, and the same expression cast to the catalogue's own
+	// identifier type. The cast is not optional: attrelid, conrelid and indrelid
+	// are oids, and comparing one with text is an error rather than a coercion.
+	const quoted = `format('%I.%I', $1::text, $2::text)`
+	const target = quoted + `::regclass`
+
+	var name string
+	if err := c.pool.QueryRow(ctx, `SELECT `+quoted, schema, table).Scan(&name); err != nil {
+		return "", err
+	}
+
+	type column struct {
+		name, dataType, deflt string
+		notNull               bool
+		identity, generated   string
+	}
+	rows, err := c.pool.Query(ctx, `
+		SELECT quote_ident(a.attname), format_type(a.atttypid, a.atttypmod), a.attnotnull,
+		       coalesce(pg_get_expr(d.adbin, d.adrelid), ''), a.attidentity, a.attgenerated
+		FROM pg_attribute a
+		LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+		WHERE a.attrelid = `+target+`
+		  AND a.attnum > 0 AND NOT a.attisdropped
+		ORDER BY a.attnum`, schema, table)
+	if err != nil {
+		return "", err
+	}
+	var columns []column
+	for rows.Next() {
+		var col column
+		if err := rows.Scan(&col.name, &col.dataType, &col.notNull, &col.deflt,
+			&col.identity, &col.generated); err != nil {
+			rows.Close()
+			return "", err
+		}
+		columns = append(columns, col)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	if len(columns) == 0 {
+		return "", fmt.Errorf("no table %s", name)
+	}
+
+	// PRIMARY KEY, then UNIQUE, then FOREIGN KEY, then CHECK: the order someone
+	// reads them in, rather than the order the catalogue happens to hold them.
+	constraintRows, err := c.pool.Query(ctx, `
+		SELECT quote_ident(conname), pg_get_constraintdef(oid)
+		FROM pg_constraint
+		WHERE conrelid = `+target+`
+		ORDER BY CASE contype WHEN 'p' THEN 0 WHEN 'u' THEN 1 WHEN 'f' THEN 2 ELSE 3 END, conname`,
+		schema, table)
+	if err != nil {
+		return "", err
+	}
+	var constraints []string
+	for constraintRows.Next() {
+		var conname, def string
+		if err := constraintRows.Scan(&conname, &def); err != nil {
+			constraintRows.Close()
+			return "", err
+		}
+		constraints = append(constraints, "CONSTRAINT "+conname+" "+def)
+	}
+	constraintRows.Close()
+	if err := constraintRows.Err(); err != nil {
+		return "", err
+	}
+
+	// Only the indexes that are not already a constraint's: a PRIMARY KEY and a
+	// UNIQUE each own an index, and printing both would define them twice.
+	indexRows, err := c.pool.Query(ctx, `
+		SELECT pg_get_indexdef(i.indexrelid)
+		FROM pg_index i
+		WHERE i.indrelid = `+target+`
+		  AND NOT EXISTS (SELECT 1 FROM pg_constraint c WHERE c.conindid = i.indexrelid)
+		ORDER BY 1`, schema, table)
+	if err != nil {
+		return "", err
+	}
+	var indexes []string
+	for indexRows.Next() {
+		var def string
+		if err := indexRows.Scan(&def); err != nil {
+			indexRows.Close()
+			return "", err
+		}
+		indexes = append(indexes, def+";")
+	}
+	indexRows.Close()
+	if err := indexRows.Err(); err != nil {
+		return "", err
+	}
+
+	parts := make([]string, 0, len(columns)+len(constraints))
+	for _, col := range columns {
+		line := col.name + " " + col.dataType
+		switch {
+		case col.generated == "s":
+			// The expression lives in the default slot but is not a default:
+			// emitting DEFAULT here would be a column that can be written to.
+			line += " GENERATED ALWAYS AS (" + col.deflt + ") STORED"
+		case col.identity == "a":
+			line += " GENERATED ALWAYS AS IDENTITY"
+		case col.identity == "d":
+			line += " GENERATED BY DEFAULT AS IDENTITY"
+		case col.deflt != "":
+			line += " DEFAULT " + col.deflt
+		}
+		if col.notNull {
+			line += " NOT NULL"
+		}
+		parts = append(parts, line)
+	}
+	parts = append(parts, constraints...)
+
+	var out strings.Builder
+	out.WriteString("CREATE TABLE " + name + " (\n")
+	for i, part := range parts {
+		out.WriteString("    " + part)
+		if i < len(parts)-1 {
+			out.WriteString(",")
+		}
+		out.WriteString("\n")
+	}
+	out.WriteString(");")
+	for _, index := range indexes {
+		out.WriteString("\n\n" + index)
+	}
+	return out.String(), nil
 }
 
 func (c *postgresConn) ListSchemas(ctx context.Context) ([]string, error) {

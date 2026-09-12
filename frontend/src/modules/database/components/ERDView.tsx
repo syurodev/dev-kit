@@ -115,7 +115,7 @@ function TableNode({ data }: { data: TableNodeData }) {
       <button
         type="button"
         onClick={data.onToggle}
-        className="w-full px-3 py-2 bg-surface-base border-b border-border flex items-center justify-between gap-2 hover:bg-surface-raised/60 text-left"
+        className="w-full px-3 py-2 bg-surface-base border-b border-border flex items-center justify-between gap-2 hover:bg-state-soft text-left"
       >
         <div className="flex items-center gap-1.5 truncate">
           {data.expanded ? (

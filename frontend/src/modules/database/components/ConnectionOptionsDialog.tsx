@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Settings2, Shield, Radio, ShieldAlert, X, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { useShallow } from "zustand/react/shallow";
 import { useDatabaseStore } from "../databaseStore";
 import { updateProfileOptions } from "../../../bridge/database";
@@ -106,17 +107,21 @@ export function ConnectionOptionsDialog() {
                   Controls Capability Gateway confirmation prompts and agent tool safety.
                 </p>
               </div>
-              <select
+              {/* The ground stays on the wrapper: NativeSelect is transparent
+                  by design, and these two sit on a raised panel rather than on
+                  the dialog, so without it they would read as part of the card
+                  they are in. */}
+              <NativeSelect
                 value={env}
                 onChange={(e) => setEnv(e.target.value)}
-                className="h-8 px-2.5 rounded-lg border border-border bg-surface-base text-body-13 text-text-primary outline-none focus:border-action-primary min-w-[120px]"
+                className="min-w-[120px] rounded-control bg-surface-base"
               >
                 {envTags.map((tag) => (
-                  <option key={tag.id} value={tag.name}>
+                  <NativeSelectOption key={tag.id} value={tag.name}>
                     {tag.name}
-                  </option>
+                  </NativeSelectOption>
                 ))}
-              </select>
+              </NativeSelect>
             </div>
 
             {isProd && (
@@ -155,18 +160,18 @@ export function ConnectionOptionsDialog() {
                   Routes traffic through an encrypted SSH tunnel profile.
                 </p>
               </div>
-              <select
+              <NativeSelect
                 value={sshProfileId}
                 onChange={(e) => setSshProfileId(e.target.value)}
-                className="h-8 px-2.5 rounded-lg border border-border bg-surface-base text-body-13 text-text-primary outline-none focus:border-action-primary min-w-[150px]"
+                className="min-w-[150px] rounded-control bg-surface-base"
               >
-                <option value="">Direct (No Tunnel)</option>
+                <NativeSelectOption value="">Direct (No Tunnel)</NativeSelectOption>
                 {sshProfiles.map((ssh) => (
-                  <option key={ssh.id} value={ssh.id}>
+                  <NativeSelectOption key={ssh.id} value={ssh.id}>
                     {ssh.name} ({ssh.username}@{ssh.host})
-                  </option>
+                  </NativeSelectOption>
                 ))}
-              </select>
+              </NativeSelect>
             </div>
 
             {sshProfileId && (

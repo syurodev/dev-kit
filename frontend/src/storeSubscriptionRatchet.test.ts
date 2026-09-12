@@ -49,3 +49,25 @@ describe("store subscription ratchet", () => {
     ).toBeLessThanOrEqual(BASELINE);
   });
 });
+
+/**
+ * A store that a module's eager manifest can reach is in the shell's startup
+ * graph, and so is everything it imports.
+ *
+ * databaseStore is reachable from modules/database/manifest.ts, which the
+ * workbench imports to register the module. Importing the toaster there put
+ * sonner in the initial preload — 32 KiB of startup, measured, for a message
+ * only the table tab ever shows. A store raises no UI; it throws, and the view
+ * that asked decides what to say.
+ */
+describe("stores stay out of the view layer", () => {
+  test("databaseStore imports no toaster", () => {
+    const body = readFileSync(
+      join(import.meta.dir, "modules/database/databaseStore.ts"),
+      "utf8",
+    );
+    expect(body, "a toast here costs every graph this store is in").not.toContain(
+      'from "sonner"',
+    );
+  });
+});
