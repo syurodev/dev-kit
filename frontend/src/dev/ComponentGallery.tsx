@@ -28,7 +28,6 @@ import {
 } from "@/components/ui/sidebar-shell";
 
 import { Button } from "@/components/ui/button";
-import { IconButton } from "@/components/ui/icon-button";
 import { Tag } from "@/components/ui/tag";
 import { TagInput } from "@/components/ui/tag-input";
 import { Input } from "@/components/ui/input";
@@ -153,17 +152,17 @@ export default function ComponentGallery() {
           </div>
         </Spec>
 
-        <Spec node="27:85" label="Icon Button — Tone Neutral / Primary, 32×32 r=8, Size=MD only">
+        <Spec node="27:85" label="Icon Button — Button at size=icon. Neutral is variant=secondary, Primary is variant=primary">
           <div className="flex flex-wrap items-center gap-3">
-            <IconButton tone="neutral" aria-label="Neutral icon button">
+            <Button variant="secondary" size="icon" aria-label="Neutral icon button">
               <Plus className="size-4" />
-            </IconButton>
-            <IconButton tone="primary" aria-label="Primary icon button">
+            </Button>
+            <Button variant="primary" size="icon" aria-label="Primary icon button">
               <Plus className="size-4" />
-            </IconButton>
-            <IconButton tone="primary" disabled aria-label="Disabled primary">
+            </Button>
+            <Button variant="primary" size="icon" disabled aria-label="Disabled primary">
               <Plus className="size-4" />
-            </IconButton>
+            </Button>
           </div>
         </Spec>
       </Section>
@@ -470,13 +469,14 @@ export default function ComponentGallery() {
           <div className="flex flex-wrap items-center gap-4">
             <div className="flex flex-col gap-1 items-center">
               <span className="text-caption-11 text-text-tertiary">Default</span>
-              <button
+              <Button
                 id="measure-titlebar-action-default"
                 type="button"
-                className="size-7 shrink-0 rounded-[8px] flex items-center justify-center text-text-secondary hover:bg-state-soft hover:text-text-primary transition-colors cursor-pointer"
+                variant="titlebar"
+                size="icon-sm"
               >
                 <Search id="measure-titlebar-action-icon" className="size-4" />
-              </button>
+              </Button>
             </div>
             <div className="flex flex-col gap-1 items-center">
               <span className="text-caption-11 text-text-tertiary">Hover (Simulated)</span>

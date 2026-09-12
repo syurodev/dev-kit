@@ -3,6 +3,7 @@ import { renderToString } from "react-dom/server";
 import { TabStrip } from "./tabs/TabStrip";
 import { CollapsedDock } from "./dock/CollapsedDock";
 import { DockItem } from "./dock/DockItem";
+import { Button } from "@/components/ui/button";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Wrench } from "lucide-react";
 import type { WorkbenchTab } from "../stores/workbenchTabs";
@@ -89,13 +90,23 @@ describe("Step 4a Shell Chrome Reconciliation", () => {
     });
   });
 
+  /**
+   * This used to declare the class string and then assert that the string it
+   * had just written contained the words it had just written — green whatever
+   * the title bar actually rendered, which is how nine call sites drifted into
+   * copies of it. It renders the real control now.
+   */
   describe("Titlebar Action (Figma 674:47115)", () => {
-    it("verifies action button specifications: 28x28, radius 8, 16px icon, state-soft hover", () => {
-      const actionClass =
-        "size-7 shrink-0 rounded-[8px] hover:bg-state-soft hover:text-text-primary [--wails-draggable:no-drag]";
-      expect(actionClass).toContain("size-7"); // 28px
-      expect(actionClass).toContain("rounded-[8px]"); // radius 8
-      expect(actionClass).toContain("hover:bg-state-soft");
+    it("is Button's titlebar variant: 28x28, radius 8, state-soft hover, no-drag", () => {
+      const html = renderToString(
+        <Button variant="titlebar" size="icon-sm" aria-label="Commands" />,
+      );
+      expect(html).toContain("size-(--control-height-sm)"); // 28px
+      expect(html).toContain("rounded-md"); // --radius-md is 8px
+      expect(html).toContain("hover:bg-state-soft");
+      // A control in the drag region that hands its mousedown to the window
+      // move is a control you cannot click.
+      expect(html).toContain("[--wails-draggable:no-drag]");
     });
   });
 
@@ -141,10 +152,11 @@ describe("Step 4a Shell Chrome Reconciliation", () => {
       expect(html).toContain("h-12");
       expect(html).toContain("p-2");
       expect(html).toContain("gap-2");
-      // New-tab button: 28x28 (size-7), radius 8 (rounded-[8px]), 13px plus (size-[13px])
+      // New-tab button: the titlebar variant at icon-sm — 28x28, radius 8 —
+      // with a 13px plus of its own.
       expect(html).toContain('aria-label="New tab"');
-      expect(html).toContain("size-7");
-      expect(html).toContain("rounded-[8px]");
+      expect(html).toContain("size-(--control-height-sm)");
+      expect(html).toContain("rounded-md");
       expect(html).toContain("size-[13px]");
       // Trailing spacer: flex-1 h-2
       expect(html).toContain("flex-1 h-2");

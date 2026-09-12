@@ -614,13 +614,13 @@ export function Workbench() {
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
-                variant="ghost"
-                size="icon-xs"
+                variant="titlebar"
+                size="icon-sm"
                 aria-label="Toggle sidebar"
                 aria-pressed={sidebarOpen}
                 className={cn(
                   sidebarOpen && "bg-accent text-foreground",
-                  "mx-1 size-7 shrink-0 rounded-[8px] hover:bg-state-soft hover:text-text-primary [--wails-draggable:no-drag]",
+                  "mx-1",
                 )}
                 onClick={() => setSidebarOpen(!sidebarOpen)}
               >
@@ -642,13 +642,12 @@ export function Workbench() {
                 <Tooltip key={action.id}>
                   <TooltipTrigger asChild>
                     <Button
-                      variant="ghost"
-                      size="icon-xs"
+                      variant="titlebar"
+                      size="icon-sm"
                       aria-label={action.label}
                       aria-pressed={action.isActive}
                       className={cn(
                         action.isActive && "bg-accent text-foreground",
-                        "size-7 shrink-0 rounded-[8px] hover:bg-state-soft hover:text-text-primary [--wails-draggable:no-drag]",
                       )}
                       onClick={action.onClick}
                     >
@@ -671,10 +670,9 @@ export function Workbench() {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
-                    variant="ghost"
-                    size="icon-xs"
+                    variant="titlebar"
+                    size="icon-sm"
                     aria-label="Commands"
-                    className="size-7 shrink-0 rounded-[8px] hover:bg-state-soft hover:text-text-primary [--wails-draggable:no-drag]"
                     onClick={() => setPaletteOpen(true)}
                   >
                     <Search className="size-4" />
@@ -687,10 +685,9 @@ export function Workbench() {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
-                    variant="ghost"
-                    size="icon-xs"
+                    variant="titlebar"
+                    size="icon-sm"
                     aria-label="Settings"
-                    className="size-7 shrink-0 rounded-[8px] hover:bg-state-soft hover:text-text-primary [--wails-draggable:no-drag]"
                     onClick={() => setSettingsOpen(true)}
                   >
                     <SettingsIcon className="size-4" />
@@ -713,13 +710,12 @@ export function Workbench() {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
-                    variant="ghost"
-                    size="icon-xs"
+                    variant="titlebar"
+                    size="icon-sm"
                     aria-label="Toggle bottom panel"
                     aria-pressed={bottomOpen}
                     className={cn(
                       bottomOpen && "bg-accent text-foreground",
-                      "size-7 shrink-0 rounded-[8px] hover:bg-state-soft hover:text-text-primary [--wails-draggable:no-drag]",
                     )}
                     onClick={() => setBottomOpen(!bottomOpen)}
                   >
@@ -735,13 +731,12 @@ export function Workbench() {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
-                    variant="ghost"
-                    size="icon-xs"
+                    variant="titlebar"
+                    size="icon-sm"
                     aria-label="Toggle agent conversation"
                     aria-pressed={chatOpen}
                     className={cn(
                       chatOpen && "bg-accent text-foreground",
-                      "size-7 shrink-0 rounded-[8px] hover:bg-state-soft hover:text-text-primary [--wails-draggable:no-drag]",
                     )}
                     onClick={() => setChatOpen(!chatOpen)}
                   >

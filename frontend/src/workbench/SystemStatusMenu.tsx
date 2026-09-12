@@ -6,6 +6,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { vaultStatus, type VaultState } from "../bridge/vault";
 import { syncConflicts } from "../bridge/sync";
@@ -92,13 +93,14 @@ export function SystemStatusMenu({
         <TooltipTrigger asChild>
           <DropdownMenuTrigger asChild>
             {severity === "neutral" ? (
-              <button
+              <Button
                 type="button"
+                variant="titlebar"
+                size="icon-sm"
                 aria-label={statusLabel(status)}
-                className="size-7 shrink-0 rounded-[8px] flex items-center justify-center text-text-secondary hover:bg-state-soft hover:text-text-primary transition-colors cursor-pointer [--wails-draggable:no-drag]"
               >
                 <Activity className="size-4" />
-              </button>
+              </Button>
             ) : severity === "attention" ? (
               <button
                 type="button"

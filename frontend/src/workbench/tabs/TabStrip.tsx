@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { AnimatePresence, Reorder, motion } from "framer-motion";
 import { Plus, Wrench, X } from "lucide-react";
@@ -572,14 +573,15 @@ export function TabStrip({
         </AnimatePresence>
       </div>
       {/* New-tab button: 28x28, radius 8, plus glyph 13px (Figma 449:325) */}
-      <button
+      <Button
         type="button"
+        variant="titlebar"
+        size="icon-sm"
         aria-label="New tab"
         onClick={onNewTab}
-        className="size-7 shrink-0 rounded-[8px] flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-state-soft transition-colors cursor-pointer"
       >
         <Plus className="size-[13px]" />
-      </button>
+      </Button>
       {/* Trailing spacer: a flex-grow 8px-high frame after new-tab (Figma 449:325) */}
       <div className="flex-1 h-2 self-center" aria-hidden="true" />
     </div>

@@ -23,6 +23,17 @@ const buttonVariants = cva(
           "border border-border bg-transparent text-text-primary hover:bg-surface-raised hover:border-status-info active:bg-surface-base",
         ghost:
           "bg-transparent text-text-secondary hover:bg-surface-raised hover:text-text-primary active:bg-surface-base",
+        // A ghost for chrome that has no material of its own — the title bar
+        // and the tab strip share the window's fill rather than painting one,
+        // so ghost's `hover:bg-surface-raised` puts a solid card colour on a
+        // translucent bar. --state-soft is the state layer, defined per mode
+        // for exactly this (white where dark lifts, ink where light recesses).
+        //
+        // no-drag comes with it: a control sitting in the title bar's drag
+        // region that hands its mousedown to the window move is a control you
+        // cannot click, and every call site had to remember that by hand.
+        titlebar:
+          "bg-transparent text-text-secondary hover:bg-state-soft hover:text-text-primary active:bg-state-soft cursor-pointer [--wails-draggable:no-drag]",
         destructive:
           "bg-(--feedback-danger-soft) text-status-danger border border-(--border-danger) hover:bg-(--feedback-danger-hover) active:bg-(--feedback-danger-pressed)",
         link: "text-status-info underline-offset-4 hover:underline",
@@ -74,5 +85,4 @@ function Button({
 }
 
 export { Button, buttonVariants }
-export { IconButton, iconButtonVariants, type IconButtonProps } from "./icon-button"
 
