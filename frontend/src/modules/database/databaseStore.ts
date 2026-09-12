@@ -494,6 +494,8 @@ export type DatabaseStoreState = {
   setQueryError: (consoleId: string, message: string) => void;
   /** Brings one of a script's grids to the front. */
   setActiveResult: (consoleId: string, index: number) => void;
+  /** Drops one grid. The rest of the run's tabs stay. */
+  closeResult: (consoleId: string, index: number) => void;
   /** Reads a console, defaulting to EMPTY_CONSOLE so callers never branch. */
   consoleState: (consoleId: string) => ConsoleState;
   /** Drops a console's slice when its tab closes, and the file with it. */
@@ -937,6 +939,23 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   },
 
   setActiveResult: (consoleId, index) => patchConsole(set, consoleId, { activeResult: index }),
+
+  /*
+   * Closing a tab leaves you looking at the same place, not back at the
+   * first one: close something to the left of the tab you are reading and
+   * the index has to come down with it, close the one you are reading and
+   * its neighbour takes the slot. Clamped, because the last tab has no
+   * neighbour to the right.
+   */
+  closeResult: (consoleId, index) => {
+    const console = get().consoleState(consoleId);
+    const results = console.results.filter((_, position) => position !== index);
+    const shifted = console.activeResult > index ? console.activeResult - 1 : console.activeResult;
+    patchConsole(set, consoleId, {
+      results,
+      activeResult: Math.max(0, Math.min(shifted, results.length - 1)),
+    });
+  },
 
   consoleState: (consoleId) => get().consoles[consoleId] ?? EMPTY_CONSOLE,
 

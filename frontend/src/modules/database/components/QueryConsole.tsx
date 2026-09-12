@@ -71,6 +71,7 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
     clearQueryResult,
     runScript,
     setActiveResult,
+    closeResult,
     schemaSnapshot,
     setInspectedCell,
     openExportModal,
@@ -84,6 +85,7 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
       clearQueryResult: s.clearQueryResult,
       runScript: s.runScript,
       setActiveResult: s.setActiveResult,
+      closeResult: s.closeResult,
       schemaSnapshot: s.schemaSnapshot,
       setInspectedCell: s.setInspectedCell,
       openExportModal: s.openExportModal,
@@ -583,22 +585,24 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
                 */}
                 <div className="flex h-8 shrink-0 items-center gap-2">
                   {/*
-                    One tab per grid the run produced, and only when a run
-                    produced more than one. A script's SELECTs each have an
-                    answer; without these the reader watches three of them go
-                    past and keeps the last.
+                    One tab per grid the run produced, including when there
+                    is one of them. A script's SELECTs each have an answer;
+                    without these the reader watches three go past and keeps
+                    the last. And the single tab is not noise — it names the
+                    statement the rows came from, which in a console holding
+                    five of them is the question the grid raises.
 
                     Named after the table the statement touches, because with
                     four tabs open "ba_account" is what the eye is looking
                     for — every one of them starts "SELECT * FROM".
                   */}
-                  {slice.results.length > 1 && (
+                  {slice.results.length > 0 && (
                     <Tabs
                       value={String(slice.activeResult)}
                       onValueChange={(value) => setActiveResult(consoleId, Number(value))}
                       className="min-w-0"
                     >
-                      <TabsList variant="line" className="max-w-full overflow-x-auto">
+                      <TabsList className="max-w-full overflow-x-auto">
                         {slice.results.map((tab, index) => (
                           <TabsTrigger
                             key={`${index}-${tab.statement}`}
@@ -607,6 +611,29 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
                           >
                             {statementName(tab.statement)}
                             <TabsCount>{tab.result.rowCount}</TabsCount>
+                            {/* A span, not a button: this sits inside the
+                                trigger's own button and nesting one in the
+                                other is markup no browser agrees on. Named
+                                and keyboard-reachable all the same. */}
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              aria-label={`Close ${statementName(tab.statement)}`}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                closeResult(consoleId, index);
+                              }}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter" || event.key === " ") {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  closeResult(consoleId, index);
+                                }
+                              }}
+                              className="flex size-3.5 shrink-0 items-center justify-center rounded-sm text-text-tertiary transition-colors hover:bg-state-soft hover:text-text-primary focus-visible:ring-1 focus-visible:ring-status-info focus-visible:outline-none"
+                            >
+                              <X className="size-3" />
+                            </span>
                           </TabsTrigger>
                         ))}
                       </TabsList>
