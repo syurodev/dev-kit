@@ -196,3 +196,33 @@ func TestPostgresSyntaxErrorIsAStatementError(t *testing.T) {
 		t.Fatalf("the engine's sentence did not survive: %q", statement.Error())
 	}
 }
+
+// The exact statement from the report: MySQL rejects an unknown column, and
+// the console has to end up holding that sentence rather than four words
+// about a connection that is perfectly fine.
+func TestMySQLUnknownColumnReachesTheConsole(t *testing.T) {
+	if os.Getenv("DEVKIT_MYSQL_TEST") != "1" {
+		t.Skip("set DEVKIT_MYSQL_TEST=1 to run the MySQL statement-error test")
+	}
+	conn := dialMySQL(t)
+	defer conn.Close()
+
+	rows, err := conn.Query(context.Background(), "SELECT hello")
+	if err == nil {
+		for rows.Next() {
+		}
+		err = rows.Err()
+		rows.Close()
+	}
+	if err == nil {
+		t.Fatal("the engine accepted a column that does not exist")
+	}
+
+	var statement *StatementError
+	if !errors.As(NewStatementError(err), &statement) {
+		t.Fatal("not marked as a statement error")
+	}
+	if !strings.Contains(statement.Error(), "Unknown column 'hello'") {
+		t.Fatalf("the engine's sentence did not survive: %q", statement.Error())
+	}
+}

@@ -764,7 +764,15 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       if (get().consoleState(consoleId).queryRunId !== runId) {
         return;
       }
-      patchConsole(set, consoleId, { queryError: errorMessage(e), runningQuery: false });
+      patchConsole(set, consoleId, {
+        queryError: errorMessage(e),
+        runningQuery: false,
+        // How long it took to fail is worth as much as how long it took to
+        // succeed — a statement rejected in 3ms is a typo, one that fails at
+        // 28s hit the cap. It was only recorded on the success path, which is
+        // also what made a failure look like nothing had run at all.
+        queryDurationMs: Date.now() - (get().consoleState(consoleId).queryStartTime ?? Date.now()),
+      });
     } finally {
       pendingQueries.delete(consoleId);
     }

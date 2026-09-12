@@ -40,10 +40,14 @@ export function consoleStatus(input: ConsoleStatusInput): ConsoleStatus {
   if (input.running) {
     return { kind: "running", time: seconds(input.elapsedSec) };
   }
-  if (input.durationMs === undefined) {
+  // Idle means nothing has run. A duration alone used to decide that, and the
+  // store only records one when a statement SUCCEEDS — so a failure left the
+  // engine's sentence sitting in the store while the pill showed an empty
+  // toolbar. An error is by itself proof that something ran.
+  if (input.durationMs === undefined && !input.error) {
     return { kind: "idle" };
   }
-  const time = seconds(input.durationMs / 1000);
+  const time = seconds((input.durationMs ?? 0) / 1000);
 
   if (input.error) {
     // The first line, because a driver puts the sentence first and the

@@ -56,6 +56,29 @@ describe("consoleStatus", () => {
     });
   });
 
+  /**
+   * The bug this pair came from: idle was decided by "is there a duration",
+   * and the store only recorded one when a statement SUCCEEDED. So a failure
+   * left the message in the store and the pill said nothing at all — the
+   * backend had the engine's sentence, the frontend showed a blank toolbar.
+   *
+   * An error is by itself proof that something ran.
+   */
+  test("an error shows even when nothing timed it", () => {
+    const status = consoleStatus({
+      running: false,
+      elapsedSec: 0,
+      error: "Error 1054 (42S22): Unknown column 'hello' in 'SELECT'",
+      sql: "SELECT hello",
+    });
+    expect(status.kind).toBe("error");
+    expect(status.kind === "error" && status.message).toContain("Unknown column 'hello'");
+  });
+
+  test("and still says nothing when truly nothing has run", () => {
+    expect(consoleStatus({ running: false, elapsedSec: 0, sql: "SELECT 1" }).kind).toBe("idle");
+  });
+
   // A statement that changed every row it could reach succeeded, and saying so
   // and nothing else is how you find out tomorrow.
   test("a write with no WHERE succeeded and is still worth saying out loud", () => {
