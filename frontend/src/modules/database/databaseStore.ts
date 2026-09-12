@@ -415,14 +415,35 @@ export type DatabaseStoreState = {
  * The two folders the sidebar used to ship with — Production and Development,
  * seeded empty. A grouping nobody asked for is two rows of chrome and a
  * suggestion about how to organise connections the app has no business making,
- * so v2 drops them.
+ * so they are gone; this removes the ones already stored.
  *
- * Only while still empty: a seeded folder somebody actually filled is theirs
- * now, and deleting it would scatter the connections inside back to Ungrouped.
+ * Matched by NAME, which took two attempts. v2 matched the ids DEFAULT_FOLDERS
+ * gave them — "production", "development" — and on a store old enough to have
+ * been through migrateFoldersToIds those ids no longer exist: that migration
+ * rekeyed every folder onto a generated uuid, years before anything thought to
+ * mark which ones DevKit had created. So the seeded pair survived, wearing
+ * uuids and the migration's default "folder" icon, and the v2 pass ran over
+ * them without a match.
+ *
+ * Only while EMPTY, which is the whole safety of it. A seeded folder somebody
+ * filled is theirs now and deleting it would scatter the connections inside
+ * back to Ungrouped. What an empty one holds is nothing.
+ *
+ * The residual cost, written down rather than hidden: someone who made their
+ * own empty folder called exactly "Production" or "Development" loses it once,
+ * at this version, and can make it again. There is no record that separates it
+ * from the seed — that is what shipping a seed without marking it costs, and
+ * it is a smaller cost than the two rows never going away.
  */
+const SEEDED_FOLDER_NAMES = new Set(["Production", "Development"]);
+const SEEDED_FOLDER_IDS = new Set(["production", "development"]);
+
 export function dropSeededFolders(folders: DatabaseFolder[]): DatabaseFolder[] {
-  const seeded = new Set(["production", "development"]);
-  return folders.filter((f) => !(seeded.has(f.id) && f.profileIds.length === 0));
+  return folders.filter(
+    (folder) =>
+      folder.profileIds.length > 0 ||
+      !(SEEDED_FOLDER_IDS.has(folder.id) || SEEDED_FOLDER_NAMES.has(folder.name)),
+  );
 }
 
 /**
@@ -1073,10 +1094,20 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     {
       name: "database.folders",
       storage: uiStateStorage,
-      version: 2,
+      // 3, not 2: the v2 pass ran and matched nothing on any store old enough
+      // to have been rekeyed onto uuids, and a migration that has already run
+      // never runs again. See dropSeededFolders.
+      version: 3,
       migrate: (persisted) => {
         const migrated = migrateFoldersToIds(persisted as never);
-        return { ...migrated, folders: dropSeededFolders(migrated.folders) };
+        const folders = dropSeededFolders(migrated.folders);
+        // The fold state is keyed by folder id, so a dropped folder would
+        // leave its entry behind forever.
+        const kept = new Set(folders.map((folder) => folder.id));
+        const expandedFolders = Object.fromEntries(
+          Object.entries(migrated.expandedFolders ?? {}).filter(([id]) => kept.has(id)),
+        );
+        return { ...migrated, folders, expandedFolders };
       },
       // Only the cosmetic grouping persists. Profiles, schema and results all
       // come from the bridge; caching them here would let a stale copy outlive
