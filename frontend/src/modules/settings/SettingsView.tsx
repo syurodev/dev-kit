@@ -14,6 +14,7 @@ import {
   syncNow,
   syncStatus,
 } from "../../bridge/sync";
+import { toast } from "sonner";
 import { useTheme, type ResolvedTheme } from "@/theme/ThemeProvider";
 import { FAMILIES } from "@/theme/families";
 import type { ThemeFamilyPreference } from "@/bridge/preferences";
@@ -472,7 +473,11 @@ function AppearanceTab() {
                 type="button"
                 role="radio"
                 aria-checked={active}
-                onClick={() => void setTheme(option)}
+                onClick={() => {
+                  setTheme(option).catch((error: unknown) => {
+                    toast.error(`Could not save the theme: ${errorMessage(error)}`);
+                  });
+                }}
                 className={cn(
                   "h-8 rounded-sm border px-4.5 capitalize transition-colors",
                   active
@@ -504,7 +509,16 @@ function AppearanceTab() {
                 role="radio"
                 aria-checked={active}
                 aria-label={definition.label}
-                onClick={() => void setFamily(definition.id)}
+                onClick={() => {
+                  // Not `void`: setFamily applies the palette optimistically
+                  // and puts the old one back if the save rejects, so a
+                  // swallowed rejection shows up as the palette silently
+                  // snapping back — which is exactly how a missing capability
+                  // grant was reported, with nothing anywhere saying why.
+                  setFamily(definition.id).catch((error: unknown) => {
+                    toast.error(`Could not save the palette: ${errorMessage(error)}`);
+                  });
+                }}
                 className={cn(
                   "flex w-33 flex-col gap-2 rounded-control border p-2 text-left transition-colors",
                   active

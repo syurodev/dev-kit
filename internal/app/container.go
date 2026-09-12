@@ -235,6 +235,13 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.mcpinstall", Capability: "mcp:install", Scope: "agent:codex"},
 		{SubjectID: "builtin.settings", Capability: "preferences:read", Scope: "theme"},
 		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "theme"},
+		// The palette is a scope of its own rather than more room inside
+		// "theme", matching how the sync and mcp grants above are split one per
+		// operation. A scope that is not listed here is denied, and the denial
+		// reaches the UI as the palette snapping back — setFamily applies
+		// optimistically and reverts when the save rejects.
+		{SubjectID: "builtin.settings", Capability: "preferences:read", Scope: "theme_family"},
+		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "theme_family"},
 		{SubjectID: "builtin.uistate", Capability: "ui:read", Scope: "key:*"},
 		{SubjectID: "builtin.uistate", Capability: "ui:write", Scope: "key:*"},
 	}...))
