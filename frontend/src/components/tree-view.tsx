@@ -119,14 +119,15 @@ function TreeRow({ node, level, index }: { node: TreeNodeData; level: number; in
       aria-expanded={node.expandable ? open : undefined}
       aria-selected={node.selected || undefined}
       title={node.title}
-      data-accent={node.selected ? "on" : undefined}
       className={cn(
         // The tree tier (--control-height-xs): depth costs vertical room here,
         // so a row is denser than the flat lists in other rails.
-        "group tree-row-enter row-accent flex h-(--control-height-xs) items-center gap-1 rounded-md pr-1.5",
+        // The border is on every row, transparent until selected: a border that
+        // appears would move the label 1px and shove the whole subtree down.
+        "group tree-row-enter flex h-(--control-height-xs) items-center gap-1 rounded-md border pr-1.5",
         node.selected
-          ? "bg-surface-raised text-text-primary"
-          : "text-text-secondary hover:bg-surface-raised/60 hover:text-text-primary",
+          ? "border-action-primary/45 bg-surface-raised text-text-primary"
+          : "border-transparent text-text-secondary hover:bg-surface-raised/60 hover:text-text-primary",
       )}
       style={{ paddingLeft: indent(level), "--i": index } as CSSProperties}
     >

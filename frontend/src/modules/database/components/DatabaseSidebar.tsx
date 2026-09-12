@@ -176,6 +176,14 @@ export function DatabaseSidebar() {
   const [editingFolderId, setEditingFolderId] = useState("");
   const [deletingProfileId, setDeletingProfileId] = useState("");
 
+  // Creating and naming are one gesture: the folder appears immediately (so
+  // Cancel still leaves you the folder you asked for) and its dialog opens on
+  // top, with "Folder 3" selected and ready to be typed over.
+  function newFolder() {
+    const id = createFolder(`Folder ${folders.length + 1}`);
+    if (id) setEditingFolderId(id);
+  }
+
   const needle = filterQuery.trim();
   // While searching, everything above a match is forced open — a hit four
   // levels down that stays folded is the same as no hit at all. Tables are the
@@ -533,7 +541,7 @@ export function DatabaseSidebar() {
               <Pencil />
               Edit folder
             </ContextMenuItem>
-            <ContextMenuItem onSelect={() => createFolder(`Folder ${folders.length + 1}`)}>
+            <ContextMenuItem onSelect={() => newFolder()}>
               <FolderPlus />
               New folder
             </ContextMenuItem>
@@ -581,7 +589,7 @@ export function DatabaseSidebar() {
         <Button
           variant="ghost"
           size="icon-xs"
-          onClick={() => createFolder(`Folder ${folders.length + 1}`)}
+          onClick={newFolder}
           title="New folder"
         >
           <FolderPlus className="size-3" />

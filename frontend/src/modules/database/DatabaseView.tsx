@@ -33,7 +33,12 @@ export function DatabaseView({ params }: { params?: Record<string, unknown> }) {
       })),
     );
   const queryError = useDatabaseStore((s) => s.consoles[consoleId]?.queryError ?? "");
-  const isActive = useIsActiveDocument("database.console", { consoleId });
+  // The tab's own params, not the normalised consoleId: the module's home tab
+  // is opened by the Workbench with no params at all, so asking for
+  // `consoleId=console-1` names a tab that does not exist and the overlays
+  // never mount — which is what made Connection options do nothing on a fresh
+  // module visit, from the menu and the row button alike.
+  const isActive = useIsActiveDocument("database.console", params);
 
   useEffect(() => {
     void fetchProfiles();

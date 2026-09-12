@@ -345,7 +345,8 @@ export type DatabaseStoreState = {
   // Folder actions
   toggleFolder: (folderId: string) => void;
   toggleProfileExpand: (profileId: string) => void;
-  createFolder: (name: string) => void;
+  /** The id of the folder created, or "" when the name was blank. */
+  createFolder: (name: string) => string;
   updateFolder: (id: string, patch: { name?: string; icon?: string }) => void;
   deleteFolder: (id: string) => void;
   setConsoleEditorSize: (consoleId: string, size: number) => void;
@@ -373,10 +374,19 @@ export type DatabaseStoreState = {
   closeConsole: (consoleId: string) => void;
 };
 
-const DEFAULT_FOLDERS: DatabaseFolder[] = [
-  { id: "production", name: "Production", icon: "server", profileIds: [] },
-  { id: "development", name: "Development", icon: "laptop", profileIds: [] },
-];
+/**
+ * The two folders the sidebar used to ship with — Production and Development,
+ * seeded empty. A grouping nobody asked for is two rows of chrome and a
+ * suggestion about how to organise connections the app has no business making,
+ * so v2 drops them.
+ *
+ * Only while still empty: a seeded folder somebody actually filled is theirs
+ * now, and deleting it would scatter the connections inside back to Ungrouped.
+ */
+export function dropSeededFolders(folders: DatabaseFolder[]): DatabaseFolder[] {
+  const seeded = new Set(["production", "development"]);
+  return folders.filter((f) => !(seeded.has(f.id) && f.profileIds.length === 0));
+}
 
 /**
  * Merges a patch into one console, creating it from EMPTY_CONSOLE if this is
@@ -441,7 +451,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   loadingProfiles: false,
   profileError: "",
 
-  folders: DEFAULT_FOLDERS,
+  folders: [],
   expandedFolders: { production: true, development: true },
   expandedProfiles: {},
 
@@ -538,15 +548,16 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     set({ expandedProfiles: { ...current, [profileId]: !current[profileId] } });
   },
 
+  // Returns the new id so the caller can open the folder for naming straight
+  // away — "Folder 3" is a placeholder, not a decision.
   createFolder: (name: string) => {
     const trimmed = name.trim();
-    if (!trimmed) return;
+    if (!trimmed) return "";
+    const id = newFolderId();
     set({
-      folders: [
-        ...get().folders,
-        { id: newFolderId(), name: trimmed, icon: "folder", profileIds: [] },
-      ],
+      folders: [...get().folders, { id, name: trimmed, icon: "folder", profileIds: [] }],
     });
+    return id;
   },
 
   updateFolder: (id: string, patch: { name?: string; icon?: string }) => {
@@ -950,8 +961,11 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     {
       name: "database.folders",
       storage: uiStateStorage,
-      version: 1,
-      migrate: (persisted) => migrateFoldersToIds(persisted as never),
+      version: 2,
+      migrate: (persisted) => {
+        const migrated = migrateFoldersToIds(persisted as never);
+        return { ...migrated, folders: dropSeededFolders(migrated.folders) };
+      },
       // Only the cosmetic grouping persists. Profiles, schema and results all
       // come from the bridge; caching them here would let a stale copy outlive
       // the thing it describes.

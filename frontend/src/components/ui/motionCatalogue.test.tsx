@@ -28,17 +28,17 @@ describe("motion catalogue", () => {
     expect(usesMotionToken(html)).toBe(true);
   });
 
-  it("a selected tree row carries the accent, an unselected one does not", () => {
+  it("a selected tree row is outlined, an unselected one holds the same box", () => {
     const selected = renderToString(
       <TreeView nodes={[{ id: "a", label: "public", selected: true }]} />,
     );
     const plain = renderToString(<TreeView nodes={[{ id: "a", label: "public" }]} />);
-    expect(selected).toContain("row-accent");
-    expect(selected).toContain('data-accent="on"');
-    // The class is always there — only the state flips, so the bar animates in
-    // rather than the element appearing.
-    expect(plain).toContain("row-accent");
-    expect(plain).not.toContain('data-accent="on"');
+    expect(selected).toContain("border-action-primary/45");
+    // Both carry a border — only its colour flips, so selecting a row cannot
+    // move its label or shove the subtree below it down a pixel.
+    expect(selected).not.toContain("border-transparent");
+    expect(plain).toContain("border-transparent");
+    expect(plain).not.toContain("border-action-primary");
   });
 });
 

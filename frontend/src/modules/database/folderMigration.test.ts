@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { migrateFoldersToIds } from "./databaseStore";
+import { dropSeededFolders, migrateFoldersToIds } from "./databaseStore";
 
 function ids() {
   let n = 0;
@@ -48,5 +48,24 @@ describe("migrateFoldersToIds", () => {
     const out = migrateFoldersToIds({}, ids());
     expect(out.folders).toEqual([]);
     expect(out.expandedFolders).toEqual({});
+  });
+});
+
+describe("dropSeededFolders", () => {
+  it("removes the empty Production and Development the app used to ship with", () => {
+    expect(
+      dropSeededFolders([
+        { id: "production", name: "Production", icon: "server", profileIds: [] },
+        { id: "development", name: "Development", icon: "laptop", profileIds: [] },
+        { id: "mine", name: "Mine", icon: "folder", profileIds: [] },
+      ]),
+    ).toEqual([{ id: "mine", name: "Mine", icon: "folder", profileIds: [] }]);
+  });
+
+  // A seeded folder someone filled is no longer a default — dropping it would
+  // scatter the connections inside back to Ungrouped without saying so.
+  it("keeps a seeded folder that has connections in it", () => {
+    const used = [{ id: "production", name: "Production", icon: "server", profileIds: ["p1"] }];
+    expect(dropSeededFolders(used)).toEqual(used);
   });
 });
