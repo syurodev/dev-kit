@@ -270,6 +270,19 @@
        ring uses, so a rectangle of selected cells and the one cell inside it
        that holds the focus read as one gesture rather than two colours. */
     --feedback-selected: color-mix(in srgb, var(--status-info) 18%, transparent);
+    /* Selected TEXT: the same wash, at the strength each mode can carry.
+       A tint moves the ground the syntax sits on, so every token's contrast
+       is spent on it.
+
+       Measured on the editor's own ground here at 18%: keywords 12.04:1 →
+       7.71, operators 8.44 → 5.40, literals 13.40 → 8.58 — all clear of the
+       4.5:1 floor. COMMENTS are not: 4.58:1 → 2.93, and no visible band can
+       save them. A comment is dim on purpose, which leaves it half a point
+       of headroom, and the arithmetic says a band light enough to keep it at
+       4.5 would be 0.0013 of luminance away from the ground — a selection
+       nobody can see. Every editor with dim comments makes the same trade;
+       this one at least knows the number. */
+    --editor-selection: var(--feedback-selected);
     --feedback-success-soft: color-mix(in srgb, var(--status-success) 14%, transparent);
     --feedback-danger-soft: color-mix(in srgb, var(--status-danger) 14%, transparent);
     --feedback-danger-hover: color-mix(in srgb, var(--status-danger) 24%, transparent);
@@ -394,6 +407,13 @@
        page. The dark pair lifts instead; see the note where they are set. */
     --segment-track: color-mix(in srgb, var(--tint-veil) 7%, transparent);
     --segment-chip: var(--surface-base);
+    /* 8%, not the 18% dark gets. Measured on the editor's own ground: the
+       SQL keyword is 5.05:1 there, so a tint of 12% takes it to 4.29 and
+       18% to 3.93 — under the floor, in the control where selecting is how
+       you choose what to run. 8% leaves 4.53:1 and is the most band this
+       palette can carry. A darker light-mode keyword would buy more; that
+       is a palette change, not a selection one. */
+    --editor-selection: color-mix(in srgb, var(--status-info) 8%, transparent);
     /* The danger tints are NOT here any more, and that is a fix: they were
        rgba(216, 120, 134, …) — the DARK --status-danger, typed out — while
        light's own --status-danger is #b3374a. Light has been drawing salmon
