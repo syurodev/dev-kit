@@ -33,12 +33,15 @@ describe("motion catalogue", () => {
       <TreeView nodes={[{ id: "a", label: "public", selected: true }]} />,
     );
     const plain = renderToString(<TreeView nodes={[{ id: "a", label: "public" }]} />);
-    expect(selected).toContain("border-action-primary/45");
+    // themeContrast.test.ts floors this mark at 3:1 and only --status-info
+    // clears it in every palette — the brand colour fell to 1.05:1 on devkit
+    // light, where an outlined row and a plain one were the same picture.
+    expect(selected).toContain("border-status-info");
     // Both carry a border — only its colour flips, so selecting a row cannot
     // move its label or shove the subtree below it down a pixel.
     expect(selected).not.toContain("border-transparent");
     expect(plain).toContain("border-transparent");
-    expect(plain).not.toContain("border-action-primary");
+    expect(plain).not.toContain("border-status-info");
   });
 });
 

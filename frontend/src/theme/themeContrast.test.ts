@@ -114,3 +114,34 @@ describe("every family is readable on its own surfaces", () => {
     }
   }
 });
+
+/**
+ * The mark that says "this one is selected": the hairline on the active tab and
+ * on the selected row of a tree.
+ *
+ * accessibility.md › Vision puts non-text interface elements at 3:1. The mark
+ * used to be `--action-primary` at 45%, and a brand colour is free to be pale —
+ * on devkit light that came to 1.08:1 against the fill it outlines, so the
+ * active tab and the tab beside it were the same object with different words
+ * on them. `--status-info` is already the app's "this is the focused thing"
+ * (`--feedback-selected` is mixed from it, and the filter box borders with it)
+ * and it is floored against every surface above, so it is the one token that
+ * holds in all ten palettes — at full opacity: at 70% the worst family lands
+ * on 2.92:1.
+ */
+describe("the selected mark is visible on the surface it outlines", () => {
+  for (const family of Object.values(FAMILIES)) {
+    for (const mode of ["dark", "light"] as const) {
+      const palette = family[mode] as Record<string, string>;
+      it(`${family.id}/${mode}`, () => {
+        const fill = palette["--surface-raised"];
+        const mark = palette["--status-info"];
+        const ratio = contrast(mark, fill);
+        expect(
+          ratio,
+          `${mark} on ${fill} is ${ratio.toFixed(2)}:1, floor 3:1`,
+        ).toBeGreaterThanOrEqual(3);
+      });
+    }
+  }
+});
