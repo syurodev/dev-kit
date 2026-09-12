@@ -1,17 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  Play,
   FileCode2,
   BookmarkPlus,
   Download,
-  Clock,
-  AlertCircle,
   ShieldAlert,
   Info,
   XCircle,
   Sliders,
   KeyRound,
-  Square,
 } from "lucide-react";
 import { sql as codemirrorSql, PostgreSQL, MySQL, MariaSQL } from "@codemirror/lang-sql";
 import { ActionTooltip } from "@/components/ui/action-tooltip";
@@ -25,6 +21,8 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { cn } from "@/lib/utils";
+import { consoleStatus } from "../consoleStatus";
+import { RunGroup } from "./RunGroup";
 import { EMPTY_ARRAY } from "@/lib/stableEmpty";
 import { requestVaultUnlock } from "@/workbench/vaultUnlockRequest";
 import { isVaultLockedError } from "../errorStates";
@@ -176,6 +174,17 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
 
   const busy = slice.runningQuery || explaining || !selectedProfileId;
 
+  // One line about the statement that just ran, for the pill beside Run. The
+  // wording and the ranking live in consoleStatus so they can be tested.
+  const status = consoleStatus({
+    running: slice.runningQuery,
+    elapsedSec: elapsed,
+    durationMs: slice.queryDurationMs ?? undefined,
+    error: slice.queryError || undefined,
+    rowCount: queryResult?.rowCount,
+    sql: slice.sql,
+  });
+
   return (
     <div className="flex h-full flex-1 flex-col overflow-hidden" onKeyDown={handleKeyDown}>
       {/* Toolbar (742:18, 742:21): icon-only, the way a toolbar acting on the
@@ -245,81 +254,22 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
             </Button>
           </ActionTooltip>
         )}
-        {/* Run and Stop are one control, because they are one decision: the
-            thing you press to start is the thing you press to take it back,
-            and it is already under the pointer.
-
-            It used to be two — a spinning, disabled Run with a separate ghost
-            Cancel beside it. That worked while the row had labels. Icon-only
-            left the cancel as a bare ⊗, which reads "close" rather than
-            "stop", and left the only coloured control in the row greyed to 38%
-            while the live one was a grey ghost: the dead button looked more
-            important than the working one.
-
-            The spinner is not missed. "It is running" is already said three
-            times below — the execution bar's pulsing clock, the elapsed
-            seconds against the 30s cap, and the editor dimmed to 60% — so a
-            fourth on the button would be the only place left to put a stop
-            glyph, spent on something nobody is asking about by then.
-
-            The cost is a stray double-click landing on Stop. Accepted: the
-            colour and the glyph both change under the pointer, and cancelling
-            is the harmless direction — the query has not committed anything
-            the transaction would not roll back, and re-running is one key. */}
-        <ActionTooltip
-          label={
+        {/* Run, and what came back, in one body — see RunGroup. The clock
+            used to live in a bar between the editor and the result; it is in
+            the pill now, which is the control that started it, and the bar
+            that said the same thing in a band of its own is gone. */}
+        <RunGroup
+          status={status}
+          running={slice.runningQuery}
+          canRun={Boolean(selectedProfileId)}
+          onRun={() => void executeQuery(consoleId)}
+          onStop={() => cancelQuery(consoleId)}
+          runLabel={
             slice.runningQuery
               ? "Stop — cancel the running query"
               : `Run the query — ${shortcut("Enter")}`
           }
-          wrap
-        >
-          <Button
-            variant={slice.runningQuery ? "danger" : "default"}
-            // `xs` rather than `icon-sm` in both states, and the width is set
-            // here. icon-sm's `size-*` sets width and height together, and
-            // tailwind-merge does not treat a later `w-auto` as conflicting
-            // with it — both would survive into the class list and the winner
-            // would be whichever the stylesheet happened to emit last. Taking
-            // the height from `xs` and stating the width leaves nothing to
-            // chance: exactly 28 square at rest, content-sized while running.
-            size="xs"
-            className={cn(
-              "gap-0",
-              slice.runningQuery ? "w-auto px-2" : "w-(--control-height-sm) p-0",
-            )}
-            onClick={() =>
-              slice.runningQuery ? cancelQuery(consoleId) : void executeQuery(consoleId)
-            }
-            disabled={!selectedProfileId}
-          >
-            {slice.runningQuery ? (
-              <Square className="fill-current" />
-            ) : (
-              <Play className="fill-current" />
-            )}
-            {/* The elapsed time grows out of the button rather than appearing
-                in it. A width cannot transition to `auto`, so the column does:
-                0fr to 1fr is a real animation to the content's own size, and
-                the button — which is only as wide as its content — follows it
-                frame by frame. No Motion, no measuring.
-
-                tabular-nums because this redraws ten times a second: with
-                proportional digits a 1 is narrower than a 4 and the button
-                would twitch on every tick rather than only when the count
-                gains a digit. */}
-            <span
-              className={cn(
-                "grid transition-[grid-template-columns] duration-(--motion-base) ease-(--ease-out-strong) motion-reduce:transition-none",
-                slice.runningQuery ? "grid-cols-[1fr]" : "grid-cols-[0fr]",
-              )}
-            >
-              <span className="overflow-hidden pl-1.5 text-code-11 tabular-nums">
-                {elapsed.toFixed(1)}s
-              </span>
-            </span>
-          </Button>
-        </ActionTooltip>
+        />
       </div>
 
       {/* The editor used to be a hard 220px. A long query and a wide result
@@ -377,26 +327,6 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
             </div>
           )}
 
-          {/* 30s Execution Timer Bar (Screen 14) */}
-          {slice.runningQuery && (
-            <div className="mb-2 flex shrink-0 items-center justify-between rounded-md border border-border-subtle bg-surface-raised px-4 py-2.5 text-body-12">
-              <div className="flex max-w-md flex-1 items-center gap-3">
-                <div className="flex items-center gap-1.5 text-body-13-medium text-text-primary">
-                  <Clock className="size-4 animate-pulse text-action-primary" />
-                  <span>Executing statement…</span>
-                  <span className="text-code-12 text-action-primary">{elapsed.toFixed(1)}s</span>
-                </div>
-                <div className="h-1.5 flex-1 overflow-hidden rounded-full border border-border">
-                  <div
-                    className="h-full bg-action-primary transition-all duration-100 ease-out"
-                    style={{ width: `${Math.min(100, (elapsed / 30) * 100)}%` }}
-                  />
-                </div>
-                <span className="text-caption-11 text-text-tertiary">30s cap</span>
-              </div>
-            </div>
-          )}
-
           {/* Safe-Mode Rejected Banner (Screen 18) */}
           {isReadOnlyRejection && (
             <div className="mb-2 flex shrink-0 items-start gap-2.5 rounded-md border border-(--border-danger) bg-(--feedback-danger-soft) p-3 text-body-12 text-status-danger">
@@ -448,24 +378,13 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
           )}
 
           {/* Generic Error Banner (Screen 13) */}
-          {slice.queryError && !isReadOnlyRejection && !isVaultLockedError(slice.queryError) && (
-            <div className="mb-2 flex shrink-0 items-start gap-2.5 rounded-md border border-(--border-danger) bg-(--feedback-danger-soft) p-3 text-body-12 text-status-danger">
-              <AlertCircle className="mt-0.5 size-4 shrink-0" />
-              <div className="flex-1 space-y-1">
-                <div className="text-body-13-medium">Query execution error</div>
-                <div className="rounded border border-border bg-surface-base p-2 text-code-11 whitespace-pre-wrap text-text-primary">
-                  {slice.queryError}
-                </div>
-              </div>
-              <button
-                type="button"
-                className="p-1 text-text-tertiary hover:text-text-primary"
-                onClick={() => clearQueryError(consoleId)}
-              >
-                <XCircle className="size-4" />
-              </button>
-            </div>
-          )}
+          {/* No generic error banner. The pill beside Run carries the first
+              line, and one click opens the rest over the editor with a copy
+              button — which is the same information without a block that
+              pushed the query you just wrote further down the screen every
+              time it failed. The two banners above stay: each explains a
+              policy and names the way out, which is more than an error text
+              has to give. */}
 
           {queryResult ? (
             /* The previous result stays put while the next statement runs and

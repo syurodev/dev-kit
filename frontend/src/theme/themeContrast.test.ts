@@ -158,6 +158,41 @@ describe("the selected mark is visible on the surface it outlines", () => {
  * works because --status-danger is already inverted against the theme: a light
  * rose on dark, a deep red on light.
  */
+/**
+ * The status pill beside Run, which is a filled tone in three colours.
+ *
+ * Same shape of contract as the danger button below, and the same reason for
+ * --surface-base as the type: these tokens are already inverted against the
+ * theme, light on a dark palette and dark on a light one, so the surface they
+ * are NOT on is the legible foreground. The fill also has to stand off the
+ * card, which is the 3:1 non-text floor — a pill at 1.1:1 was the first
+ * attempt, on --surface-raised, and it read as a smudge.
+ */
+describe("the status pill is legible on every theme", () => {
+  for (const family of Object.values(FAMILIES)) {
+    for (const mode of ["dark", "light"] as const) {
+      const palette = family[mode] as Record<string, string>;
+      for (const token of ["--status-success", "--status-warning", "--status-danger"]) {
+        it(`${family.id}/${mode} ${token}`, () => {
+          const fill = palette[token];
+          const glyph = palette["--surface-base"];
+          const onFill = contrast(glyph, fill);
+          expect(
+            onFill,
+            `glyph ${glyph} on ${fill} is ${onFill.toFixed(2)}:1, floor 4.5:1`,
+          ).toBeGreaterThanOrEqual(4.5);
+
+          const onCard = contrast(fill, palette["--surface-base"]);
+          expect(
+            onCard,
+            `fill ${fill} on the card is ${onCard.toFixed(2)}:1, floor 3:1`,
+          ).toBeGreaterThanOrEqual(3);
+        });
+      }
+    }
+  }
+});
+
 describe("the solid danger button is legible on every theme", () => {
   for (const family of Object.values(FAMILIES)) {
     for (const mode of ["dark", "light"] as const) {
