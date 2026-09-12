@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import {
   FileCode2,
+  FilePlay,
   BookmarkPlus,
   Download,
   ShieldAlert,
@@ -67,6 +68,7 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
     selectedSchema,
     clearQueryError,
     clearQueryResult,
+    runScript,
     schemaSnapshot,
     setInspectedCell,
     openExportModal,
@@ -78,6 +80,7 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
       selectedSchema: s.selectedSchema,
       clearQueryError: s.clearQueryError,
       clearQueryResult: s.clearQueryResult,
+      runScript: s.runScript,
       schemaSnapshot: s.schemaSnapshot,
       setInspectedCell: s.setInspectedCell,
       openExportModal: s.openExportModal,
@@ -140,17 +143,30 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
   // is a different thing with the same job title.
   const splitDialect = useMemo(() => dialectOf(profile?.engine), [profile?.engine]);
 
+  const statements = useMemo(
+    () => splitStatements(slice.sql, splitDialect),
+    [slice.sql, splitDialect],
+  );
+
   const runStatement = () => {
-    const statements = splitStatements(slice.sql, splitDialect);
     const statement = statementAt(statements, caretRef.current);
     if (!statement) return;
     void executeQuery(consoleId, statement.text);
+  };
+
+  const runWholeScript = () => {
+    void runScript(
+      consoleId,
+      statements.map((statement) => statement.text),
+    );
   };
 
   // Read by the editor's own ⌘↵ binding, which is built once and must not be
   // rebuilt every time the callback identity changes.
   const runRef = useRef<() => void>(() => {});
   runRef.current = runStatement;
+  const runScriptRef = useRef<() => void>(() => {});
+  runScriptRef.current = runWholeScript;
 
   // CodeMirror 6 SQL Dialect & Autocomplete Extension (F2, F3)
   const sqlExtension = useMemo(() => {
@@ -196,10 +212,17 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
               return true;
             },
           },
+          {
+            key: "Mod-Shift-Enter",
+            run: () => {
+              runScriptRef.current();
+              return true;
+            },
+          },
         ]),
       ),
     ];
-  }, [profile?.engine, profile?.database, schemaSnapshot?.namespace, runRef, splitDialect, slice.statementRuns]);
+  }, [profile?.engine, profile?.database, schemaSnapshot?.namespace, runRef, runScriptRef, splitDialect, slice.statementRuns]);
 
   // Check for engine placeholder mismatch for MySQL / MariaDB (Screen 21)
   const hasPlaceholderMismatch = useMemo(() => {
@@ -345,6 +368,27 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
             </Button>
           </ActionTooltip>
         )}
+        {/* Run the lot, and only when there is a lot: one statement has no
+            script distinct from itself, and a button that does exactly what
+            the button beside it does is a button to think about. It stops at
+            the first statement that fails, so the line numbers read as far
+            as it got. */}
+        {statements.length > 1 && (
+          <ActionTooltip
+            label={`Run all ${statements.length} statements, stopping at the first error — ${shortcut("Enter", { shift: true })}`}
+            wrap
+          >
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={runWholeScript}
+              disabled={busy || !selectedProfileId}
+            >
+              <FilePlay />
+            </Button>
+          </ActionTooltip>
+        )}
+
         {/* Run, and what came back, in one body — see RunGroup. The clock
             used to live in a bar between the editor and the result; it is in
             the pill now, which is the control that started it, and the bar

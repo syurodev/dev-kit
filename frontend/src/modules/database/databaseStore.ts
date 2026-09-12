@@ -129,6 +129,16 @@ export type ConsoleState = {
   lastStatement: string;
 };
 
+/**
+ * How one statement's run ended.
+ *
+ * A script stops on anything that is not "ok", and the three ways that
+ * happens are not the same thing: an engine error is the user's to read, a
+ * cancel is the user's own decision, and "superseded" means a newer run in
+ * this console has already replaced the answer this one was going to give.
+ */
+export type RunVerdict = "ok" | "error" | "cancelled" | "superseded" | "skipped";
+
 /** Which of the rail's three lists is showing. */
 export type SidebarPane = "connections" | "consoles" | "saved";
 
@@ -439,7 +449,10 @@ export type DatabaseStoreState = {
   // Query actions
   /** Runs one statement. Without one, the whole console — which is what a
    * single-statement console means anyway. */
-  executeQuery: (consoleId: string, statement?: string) => Promise<void>;
+  executeQuery: (consoleId: string, statement?: string) => Promise<RunVerdict>;
+  /** Runs a script top to bottom, stopping at the first statement that does
+   * not come back clean. */
+  runScript: (consoleId: string, statements: readonly string[]) => Promise<void>;
   cancelQuery: (consoleId: string) => void;
   clearQueryResult: (consoleId: string) => void;
   clearQueryError: (consoleId: string) => void;
@@ -789,7 +802,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     const console = get().consoleState(consoleId);
     const sql = (statement ?? console.sql).trim();
     if (!selectedProfileId || !sql) {
-      return;
+      return "skipped";
     }
 
     const runId = console.queryRunId + 1;
@@ -808,7 +821,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       const result = await call;
       // A newer run in THIS console has already started; its answer wins.
       if (get().consoleState(consoleId).queryRunId !== runId) {
-        return;
+        return "superseded";
       }
       patchConsole(set, consoleId, {
         queryResult: result,
@@ -817,15 +830,16 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
         queryStatus: `${result.rowCount} row${result.rowCount === 1 ? "" : "s"}`,
         statementRuns: { ...get().consoleState(consoleId).statementRuns, [sql]: "ok" },
       });
+      return "ok";
     } catch (e) {
       if (isCancelError(e)) {
         // A cancel is something the user asked for; it leaves the previous
         // result alone.
         patchConsole(set, consoleId, { runningQuery: false });
-        return;
+        return "cancelled";
       }
       if (get().consoleState(consoleId).queryRunId !== runId) {
-        return;
+        return "superseded";
       }
       patchConsole(set, consoleId, {
         queryError: errorMessage(e),
@@ -837,8 +851,34 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
         // also what made a failure look like nothing had run at all.
         queryDurationMs: Date.now() - (get().consoleState(consoleId).queryStartTime ?? Date.now()),
       });
+      return "error";
     } finally {
       pendingQueries.delete(consoleId);
+    }
+  },
+
+  /*
+   * Top to bottom, stopping at the first statement that does not come back
+   * clean — including a cancel, which is the user saying stop and not the
+   * user saying skip this one.
+   *
+   * The marks are cleared first. A script that stops at the second statement
+   * must not leave the last three wearing ticks from the run before: the
+   * question the marks answer is "what happened this time", and the honest
+   * answer for a statement that never ran is nothing at all.
+   *
+   * The statements arrive split. The caller has the dialect, because it has
+   * the connection; the store has the sequencing, because it has the run.
+   */
+  runScript: async (consoleId, statements) => {
+    if (statements.length === 0) {
+      return;
+    }
+    patchConsole(set, consoleId, { statementRuns: {} });
+    for (const statement of statements) {
+      if ((await get().executeQuery(consoleId, statement)) !== "ok") {
+        return;
+      }
     }
   },
 

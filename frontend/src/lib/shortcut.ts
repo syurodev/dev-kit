@@ -20,8 +20,8 @@ export function modKey(): string {
  * "Ctrl+Enter" elsewhere. Named keys become glyphs only where the platform
  * conventionally uses them.
  */
-export function shortcut(key: string): string {
-  if (!isMac()) return `Ctrl+${key}`;
+export function shortcut(key: string, options?: { shift?: boolean }): string {
+  if (!isMac()) return `Ctrl+${options?.shift ? "Shift+" : ""}${key}`;
   const glyphs: Record<string, string> = {
     Enter: "↵",
     Backspace: "⌫",
@@ -29,5 +29,8 @@ export function shortcut(key: string): string {
     Shift: "⇧",
     Alt: "⌥",
   };
-  return `⌘${glyphs[key] ?? key}`;
+  // ⇧ before ⌘: Apple orders modifiers Control, Option, Shift, Command, and
+  // a label that writes them the other way round reads as a different
+  // shortcut to anyone who knows the convention.
+  return `${options?.shift ? "⇧" : ""}⌘${glyphs[key] ?? key}`;
 }

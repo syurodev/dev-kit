@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, test } from "bun:test";
-import { useDatabaseStore } from "./databaseStore";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { useDatabaseStore, type RunVerdict } from "./databaseStore";
 import { consoleFiles } from "./consoleFiles";
 
 beforeEach(() => {
@@ -207,5 +207,94 @@ describe("one statement at a time", () => {
     await useDatabaseStore.getState().executeQuery("c2");
 
     expect(useDatabaseStore.getState().consoleState("c2").lastStatement).toBe("SELECT 9");
+  });
+});
+
+/**
+ * A script, top to bottom, stopping at the first statement that fails.
+ *
+ * The bridge is absent in a test, so the first statement never comes back
+ * clean — which is the case worth pinning: the run stops there and the
+ * statements below it are left alone. A script that pressed on would run
+ * the DELETE that the failed SELECT above it was supposed to justify.
+ */
+describe("running the whole script", () => {
+  const realExecuteQuery = useDatabaseStore.getState().executeQuery;
+  afterEach(() => useDatabaseStore.setState({ executeQuery: realExecuteQuery }));
+
+  beforeEach(() => {
+    useDatabaseStore.setState({
+      consoles: {},
+      profiles: [
+        { id: "p1", name: "prod", host: "", port: 0, database: "shop", username: "", sslMode: "", env: "", readOnly: false },
+      ],
+      selectedProfileId: "p1",
+    });
+  });
+
+  /*
+   * Stubbed rather than run: what is being pinned is the SEQUENCING — where
+   * the loop stops — and whether a real bridge answers in this process
+   * depends on what the rest of the suite has done to it.
+   */
+  const withVerdicts = (verdict: (sql: string) => RunVerdict) => {
+    const calls: string[] = [];
+    useDatabaseStore.setState({
+      executeQuery: async (_id: string, sql?: string) => {
+        calls.push(sql ?? "");
+        return verdict(sql ?? "");
+      },
+    });
+    return calls;
+  };
+
+  test("it stops at the first statement that fails", async () => {
+    const calls = withVerdicts((sql) => (sql === "SELECT 2" ? "error" : "ok"));
+
+    await useDatabaseStore.getState().runScript("c1", ["SELECT 1", "SELECT 2", "SELECT 3"]);
+
+    expect(calls, "the statement after the failure ran anyway").toEqual(["SELECT 1", "SELECT 2"]);
+  });
+
+  // Stop is the user saying stop, not the user saying skip this one.
+  test("a cancel ends the script, it does not step over it", async () => {
+    const calls = withVerdicts((sql) => (sql === "SELECT 1" ? "cancelled" : "ok"));
+
+    await useDatabaseStore.getState().runScript("c1", ["SELECT 1", "SELECT 2"]);
+
+    expect(calls).toEqual(["SELECT 1"]);
+  });
+
+  test("and otherwise runs every one, in order", async () => {
+    const calls = withVerdicts(() => "ok");
+
+    await useDatabaseStore.getState().runScript("c1", ["SELECT 1", "SELECT 2", "SELECT 3"]);
+
+    expect(calls).toEqual(["SELECT 1", "SELECT 2", "SELECT 3"]);
+  });
+
+  /*
+   * The marks answer "what happened this time". A script that stops at the
+   * second statement must not leave the third wearing a tick from the run
+   * before — the honest answer for a statement that never ran is nothing.
+   */
+  test("last time's marks do not survive into this run", async () => {
+    useDatabaseStore.setState({
+      consoles: {
+        c2: {
+          ...useDatabaseStore.getState().consoleState("c2"),
+          statementRuns: { "SELECT stale": "ok" },
+        },
+      },
+    });
+
+    await useDatabaseStore.getState().runScript("c2", ["SELECT 1"]);
+
+    expect(useDatabaseStore.getState().consoleState("c2").statementRuns["SELECT stale"]).toBeUndefined();
+  });
+
+  test("an empty console is not a script", async () => {
+    await useDatabaseStore.getState().runScript("c3", []);
+    expect(useDatabaseStore.getState().consoles.c3).toBeUndefined();
   });
 });
