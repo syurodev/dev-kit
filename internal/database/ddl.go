@@ -13,12 +13,13 @@ var ErrEngineHasNoDDL = errors.New("this engine cannot show a table's definition
 
 // DDLReader is optional on Conn, like SessionInspector and QueryPlanner.
 //
-// Optional because the engines differ by more than a dialect here. MySQL and
-// SQLite each keep the statement that made the table and hand it back whole —
-// SHOW CREATE TABLE, sqlite_master.sql. Postgres keeps no such text: its DDL
-// has to be REBUILT from the catalogues, column by column, constraint by
-// constraint, and a reconstruction that is subtly wrong is worse than an
-// honest "not yet" — it is a statement someone will paste into a migration.
+// Optional because the engines differ by more than a dialect here, and the two
+// implementations share almost nothing. MySQL keeps the statement that made
+// the table and hands it back whole — SHOW CREATE TABLE, one round trip.
+// Postgres keeps no such text: its definition is REBUILT from the catalogues,
+// column by column and constraint by constraint. An engine that can do
+// neither is refused by name rather than served a guess, because a definition
+// that is subtly wrong is the one someone pastes into a migration.
 type DDLReader interface {
 	TableDDL(ctx context.Context, schema, table string) (string, error)
 }

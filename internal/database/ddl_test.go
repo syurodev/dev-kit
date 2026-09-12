@@ -23,8 +23,8 @@ func TestQuoteMySQLIdentifier(t *testing.T) {
 	}
 }
 
-// A driver that cannot show DDL says so, rather than the caller getting a
-// reconstruction nobody checked. Postgres is that driver today.
+// A driver that does not implement DDLReader says so by name. Both shipped
+// drivers do; this is the path an engine added later takes before it does.
 func TestDDLIsRefusedForAnEngineThatCannotShowIt(t *testing.T) {
 	svc := newService(t)
 	id := plant(t, svc, &recordingConn{transactor: true})

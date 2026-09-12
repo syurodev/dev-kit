@@ -27,9 +27,10 @@ import { useDatabaseStore } from "../databaseStore";
  * on, and the last statement anyone wants to run by accident is the one that
  * creates the table they are looking at.
  *
- * Read-only, and not reformatted. What comes back is what the server would use
- * to recreate the table, down to the engine clause and the collation, and it
- * ends up pasted into a migration.
+ * Read-only, and not reformatted. On MySQL it is the server's own SHOW CREATE
+ * TABLE, down to the engine clause and the collation; on Postgres it is rebuilt
+ * from the catalogues with the server printing every expression. Either way it
+ * ends up pasted into a migration, which is why nothing here rewrites it.
  */
 export function TableDDLDialog() {
   const { target, close, profileId, engine } = useDatabaseStore(

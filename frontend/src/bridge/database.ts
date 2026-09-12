@@ -398,12 +398,12 @@ export function transactionState(id: string): Promise<{ manual: boolean; open: b
 }
 
 /**
- * The statement that defines a table, as the engine itself reports it.
+ * The statement that defines a table.
  *
- * MySQL and MariaDB answer with SHOW CREATE TABLE. Postgres keeps no such
- * text — its DDL would have to be rebuilt from the catalogues — so it refuses
- * rather than handing back a reconstruction nobody has checked, which is the
- * one people paste into a migration.
+ * MySQL and MariaDB answer with SHOW CREATE TABLE — their own words. Postgres
+ * keeps no such text, so its definition is rebuilt from the catalogues, with
+ * the hard parts (a check expression, a foreign key's ON DELETE, a partial
+ * index's WHERE) printed by the server rather than reassembled.
  */
 export function tableDDL(id: string, schema: string, table: string): Promise<string> {
   return callBridge(() => AppService.DBTableDDL(id, schema, table));
