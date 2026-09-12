@@ -11,7 +11,7 @@ import { useDatabaseStore } from "./databaseStore";
 import { useDatabaseChrome } from "./useDatabaseChrome";
 import { browseKeyOfTab, useBrowseLifetime } from "./useConsoleLifetime";
 import { useIsActiveDocument } from "./useIsActiveDocument";
-import { openConsoleTab } from "./documents";
+import { consoleIdFor, openConsoleTab } from "./documents";
 import { buildBrowseQuery } from "./sql/browseQuery";
 import { quoteIdentifier, quoteLiteral } from "./sql/identifier";
 import { buildUpdate, updateRefusal } from "./sql/updateCell";
@@ -244,7 +244,7 @@ export function TableDataView({
         }}
         onShowDDL={() => openDDL(schema, table)}
         onOpenInConsole={() => {
-          const consoleId = `console-${key}`;
+          const consoleId = consoleIdFor(key);
           setSql(
             consoleId,
             buildBrowseQuery({

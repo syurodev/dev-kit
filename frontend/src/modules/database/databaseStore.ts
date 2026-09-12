@@ -16,6 +16,8 @@ import {
   type SchemaSnapshot,
   type ColumnInfo,
 } from "../../bridge/database";
+import { listConsoles, type StoredConsole } from "../../bridge/database";
+import { consoleFiles } from "./consoleFiles";
 import { listEnvTags, type EnvTag } from "../../bridge/environments";
 import { listSSHProfiles, type SSHProfile } from "../../bridge/ssh";
 import { errorMessage, isCancelError } from "../../bridge/errors";
@@ -101,6 +103,17 @@ export type ConsoleState = {
   queryRunId: number;
   /** Percent of the console's height given to the editor. */
   editorSize: number;
+  /**
+   * The connection and database the console's FILE says it belongs to — read
+   * back from the header the store writes, and rewritten on every save.
+   *
+   * Separate from the selected connection because the two can disagree, and
+   * the disagreement is the interesting state: a console restored from disk
+   * against a different connection than the one now selected is a console
+   * whose next Run goes somewhere its text was not written for.
+   */
+  originProfileId: string;
+  originDatabase: string;
 };
 
 /** The console a module opens with, and the one every legacy caller means. */
@@ -116,6 +129,8 @@ export const EMPTY_CONSOLE: ConsoleState = Object.freeze({
   queryDurationMs: null,
   queryRunId: 0,
   editorSize: 50,
+  originProfileId: "",
+  originDatabase: "",
 }) as ConsoleState;
 
 /**
@@ -407,8 +422,13 @@ export type DatabaseStoreState = {
   setQueryError: (consoleId: string, message: string) => void;
   /** Reads a console, defaulting to EMPTY_CONSOLE so callers never branch. */
   consoleState: (consoleId: string) => ConsoleState;
-  /** Drops a console's slice when its tab closes. */
+  /** Drops a console's slice when its tab closes, and the file with it. */
   closeConsole: (consoleId: string) => void;
+  /** Reads the console files back from disk into consoles nobody has typed in
+   * yet. Called once when the module's rail mounts. The loader is a parameter
+   * so the rule below — never land on top of typed text — can be tested
+   * without a bridge. */
+  hydrateConsoles: (load?: () => Promise<StoredConsole[]>) => Promise<void>;
 };
 
 /**
@@ -451,6 +471,14 @@ export function dropSeededFolders(folders: DatabaseFolder[]): DatabaseFolder[] {
  * the first thing that touched it. Every console writer goes through here so a
  * missing slice is never a branch at the call site.
  */
+/** The selected connection's record, or undefined before one is picked. */
+function profileOf(
+  state: { profiles: ConnectionProfile[] },
+  id: string,
+): ConnectionProfile | undefined {
+  return state.profiles.find((profile) => profile.id === id);
+}
+
 function patchConsole(
   set: (fn: (state: DatabaseStoreState) => Partial<DatabaseStoreState>) => void,
   consoleId: string,
@@ -784,14 +812,54 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
 
   consoleState: (consoleId) => get().consoles[consoleId] ?? EMPTY_CONSOLE,
 
-  closeConsole: (consoleId) =>
+  // Closing a console is closing it: the slice goes and so does the file.
+  // consoleFiles.forget cancels whatever write was still queued first —
+  // otherwise the debounce in flight writes the file back after the delete,
+  // and the console you closed returns after the next relaunch.
+  closeConsole: (consoleId) => {
+    consoleFiles.forget(consoleId);
     set((state) => {
       if (!(consoleId in state.consoles)) {
         return state;
       }
       const { [consoleId]: _closed, ...rest } = state.consoles;
       return { consoles: rest };
-    }),
+    });
+  },
+
+  /*
+   * The consoles from disk, into the slices nobody has typed in yet.
+   *
+   * Untouched slices only. Hydration is a bridge call and the window renders
+   * long before it lands; overwriting a console the user has already started
+   * typing in — because a file from the last session arrived late — would be
+   * the worst possible way to lose a query.
+   */
+  hydrateConsoles: async (load = listConsoles) => {
+    let stored;
+    try {
+      stored = await load();
+    } catch {
+      // A console that cannot be read is a console that starts empty. There
+      // is no banner for this: the user did not ask for it and cannot act on
+      // it, and the backend has logged the cause.
+      return;
+    }
+    set((state) => {
+      const consoles = { ...state.consoles };
+      for (const file of stored) {
+        const current = consoles[file.id];
+        if (current && current.sql !== "") continue;
+        consoles[file.id] = {
+          ...(current ?? EMPTY_CONSOLE),
+          sql: file.sql,
+          originProfileId: file.profileId,
+          originDatabase: file.database,
+        };
+      }
+      return { consoles };
+    });
+  },
 
   browseState: (key) => get().browse[key] ?? EMPTY_BROWSE,
 
@@ -1087,7 +1155,29 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       return { browse, pageKeys };
     }),
 
-  setSql: (consoleId, sql) => patchConsole(set, consoleId, { sql }),
+  /*
+   * Every edit goes through here, so this is where the file is kept up to
+   * date. Debounced in consoleFiles — one write per pause, not per keystroke.
+   *
+   * The connection is stamped at write time rather than at creation: a
+   * console belongs to whatever it was last pointed at, and that is also what
+   * makes the file self-describing when you open it outside the app.
+   */
+  setSql: (consoleId, sql) => {
+    const { selectedProfileId, selectedSchema } = get();
+    const database = selectedSchema || profileOf(get(), selectedProfileId)?.database || "";
+    patchConsole(set, consoleId, {
+      sql,
+      originProfileId: selectedProfileId,
+      originDatabase: database,
+    });
+    consoleFiles.schedule({
+      id: consoleId,
+      profileId: selectedProfileId,
+      database,
+      sql,
+    });
+  },
 
   setConsoleEditorSize: (consoleId, size) =>
     patchConsole(set, consoleId, { editorSize: size }),

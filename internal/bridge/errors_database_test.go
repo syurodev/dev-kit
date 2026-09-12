@@ -2,6 +2,7 @@ package bridge
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -58,6 +59,35 @@ func TestConnectionTroubleStaysRedacted(t *testing.T) {
 	err := publicError("builtin.database", errors.New("dial tcp 10.0.0.4:5432: password=hunter2"))
 
 	if err == nil || err.Message != "Connection failed." {
+		t.Fatalf("public error = %v", err)
+	}
+}
+
+/*
+A console is a file, and a file failing is not a connection failing.
+
+The catch-all below these cases answers "Connection failed." for everything
+on this subject, which sent the reader to the database they were about to
+blame for a full disk. The path itself stays out of the message — it names
+the user's home directory.
+*/
+func TestConsoleStorageFailureIsNotReportedAsAConnection(t *testing.T) {
+	err := publicError("builtin.database", fmt.Errorf("%w: open /Users/someone/DevKit/consoles/c1.sql: permission denied", database.ErrConsoleStore))
+
+	if err == nil {
+		t.Fatal("publicError returned nil")
+	}
+	if err.Message == "Connection failed." {
+		t.Fatal("a file that could not be written was reported as a failed connection")
+	}
+	if strings.Contains(err.Message, "/Users/") {
+		t.Fatalf("the message carries a path: %q", err.Message)
+	}
+}
+
+func TestConsolesWithNowhereToGoSayThat(t *testing.T) {
+	err := publicError("builtin.database", database.ErrConsoleStoreUnavailable)
+	if err == nil || err.Message == "Connection failed." {
 		t.Fatalf("public error = %v", err)
 	}
 }

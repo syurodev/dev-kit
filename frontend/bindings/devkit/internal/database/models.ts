@@ -11,6 +11,17 @@ export interface ColumnInfo {
     "position": number;
 }
 
+/**
+ * Console is one scratch console: its text and where that text belongs.
+ */
+export interface Console {
+    "id": string;
+    "profile_id": string;
+    "database": string;
+    "sql": string;
+    "updated_at": string;
+}
+
 export interface CreateProfileInput {
     "engine": string;
     "name": string;

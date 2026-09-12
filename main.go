@@ -111,6 +111,11 @@ func main() {
 	// vault_items, which sync has no path to.
 	container.Database.SetQueryLog(database.NewSQLQueryHistory(db), container.Vault)
 	container.Database.SetSchemaCache(database.NewSQLSchemaCache(db))
+	// Query consoles are files, DataGrip-style: one .sql per console, in the
+	// app's own directory, with the connection it belongs to on the first
+	// line. Not vault items — those are the saved queries, which are named,
+	// deliberate and synced, and are untouched by this.
+	container.Database.SetConsoleStore(database.NewConsoleStore(filepath.Join(dataDir, "consoles")))
 	// Backlinks need a real table; without one the service still runs and
 	// simply reports no links, which is what keeps the in-memory container in
 	// tests working unchanged.

@@ -25,6 +25,7 @@ import {
 import { cn } from "@/lib/utils";
 import { consoleStatus } from "../consoleStatus";
 import { RunGroup } from "./RunGroup";
+import { ConsoleBinding } from "./ConsoleBinding";
 import { EMPTY_ARRAY } from "@/lib/stableEmpty";
 import { requestVaultUnlock } from "@/workbench/vaultUnlockRequest";
 import { isVaultLockedError } from "../errorStates";
@@ -61,6 +62,7 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
   const {
     profiles,
     selectedProfileId,
+    selectedSchema,
     clearQueryError,
     schemaSnapshot,
     setInspectedCell,
@@ -70,6 +72,7 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
     useShallow((s) => ({
       profiles: s.profiles,
       selectedProfileId: s.selectedProfileId,
+      selectedSchema: s.selectedSchema,
       clearQueryError: s.clearQueryError,
       schemaSnapshot: s.schemaSnapshot,
       setInspectedCell: s.setInspectedCell,
@@ -84,6 +87,21 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
   // so a null-check on `slice.queryResult` wouldn't survive into a `.map`
   // callback — these locals give the narrowing something it can keep.
   const { queryResult, queryStartTime } = slice;
+
+  /*
+   * The connection the FILE was written for, and only when it is not the one
+   * selected now. Restoring a session is where the two part company: the tabs
+   * come back with their text and the module opens on whichever connection is
+   * first, which need not be the one the text was written against.
+   *
+   * A connection that has since been deleted is named as one rather than by
+   * its id — the id is an opaque record key and means nothing to the reader.
+   */
+  const writtenFor =
+    slice.originProfileId && slice.originProfileId !== selectedProfileId
+      ? (profiles.find((p) => p.id === slice.originProfileId)?.name ??
+        "a connection that no longer exists")
+      : undefined;
 
   // Console widths are per mount, not stored: a console runs a different query
   // every time, and a width saved against the last result describes columns
@@ -264,6 +282,16 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
             <BookmarkPlus />
           </Button>
         </ActionTooltip>
+
+        {/* Which connection this console's statements go to. In the toolbar
+            rather than a status bar, because the button it describes is at
+            the other end of this same row. */}
+        <ConsoleBinding
+          connection={profile?.name ?? ""}
+          database={selectedSchema || profile?.database || ""}
+          engine={profile?.engine}
+          writtenFor={writtenFor}
+        />
 
         <div className="flex-1" />
 

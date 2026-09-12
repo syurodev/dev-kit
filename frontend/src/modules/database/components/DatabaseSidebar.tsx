@@ -128,6 +128,7 @@ export function DatabaseSidebar() {
     setSelectedProfileId,
     loadingProfiles,
     fetchProfiles,
+    hydrateConsoles,
     refreshTxState,
     folders,
     expandedFolders,
@@ -161,6 +162,7 @@ export function DatabaseSidebar() {
       setSelectedProfileId: s.setSelectedProfileId,
       loadingProfiles: s.loadingProfiles,
       fetchProfiles: s.fetchProfiles,
+      hydrateConsoles: s.hydrateConsoles,
       refreshTxState: s.refreshTxState,
       folders: s.folders,
       expandedFolders: s.expandedFolders,
@@ -204,12 +206,16 @@ export function DatabaseSidebar() {
   // the call here removes a fetch rather than adding one.
   useEffect(() => {
     void fetchProfiles();
+    // And the console files, for the same reason and in the same place: the
+    // rail mounts once for the module, so this is one read rather than one
+    // per console tab the window restored.
+    void hydrateConsoles();
     // And whether the selected connection is already inside a transaction: one
     // outlives the window that opened it, so arriving can mean arriving inside
     // one, and showing "Auto" beside it would be a lie about what the next
     // statement does.
     void refreshTxState();
-  }, [fetchProfiles, refreshTxState]);
+  }, [fetchProfiles, hydrateConsoles, refreshTxState]);
 
   const [filterQuery, setFilterQuery] = useState("");
   const [editingFolderId, setEditingFolderId] = useState("");

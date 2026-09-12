@@ -137,20 +137,28 @@ describe("one body", () => {
    * markup says — the control is supposed to be getting taller, not opening
    * something.
    */
-  it("prints the message once, not clipped above itself", () => {
+  it("reads the message once, wherever the copies are", () => {
     const html = render({
       kind: "error",
       time: "0.0s",
       message: "Unknown column 'hello'",
       detail: "Unknown column 'hello' in 'SELECT'",
     });
-    // The ghost that measures the closed width is the only other copy, and
-    // it is hidden from everyone.
-    const copies = html.split("Unknown column &#x27;hello&#x27;").length - 1;
-    expect(copies, "the summary and the message are the same sentence").toBe(2);
-    const ghost = html.indexOf("aria-hidden");
-    expect(ghost).toBeGreaterThan(-1);
-    expect(html.indexOf("Unknown column &#x27;hello&#x27;")).toBeGreaterThan(ghost);
+    // Three copies exist and two are hidden: the ghost that measures the
+    // closed width, and the summary itself — still mounted at zero opacity
+    // so it has something to animate out of, and aria-hidden so it is not
+    // read out twice.
+    expect(
+      html,
+      "the summary is still read out beside the message it duplicates",
+    ).toContain(
+      '<span class="max-w-64 truncate" aria-hidden="true" style="opacity:0;transform:translateY(10px)">',
+    );
+    expect(html).toContain('aria-hidden="true" class="pointer-events-none invisible');
+    // And it starts there rather than animating there, or a restored error
+    // would flash its summary out of a row it was never in.
+    expect(html, "initial={false} is what puts it there on the first frame")
+      .not.toContain('<span class="max-w-64 truncate" aria-hidden="true">');
   });
 
   it("gives the message no ground of its own", () => {

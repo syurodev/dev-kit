@@ -186,6 +186,11 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.database", Capability: "db:query", Scope: "query:*"},
 		// Cancel and terminate act on a server session, not on a profile.
 		{SubjectID: "builtin.database", Capability: "db:query", Scope: "session:*"},
+		// A console's text is a file in the app's own directory, and reading
+		// them is reading what was typed in every window left open — not the
+		// same permission as being allowed to ask a database a question.
+		{SubjectID: "builtin.database", Capability: "db:console", Scope: "console:list"},
+		{SubjectID: "builtin.database", Capability: "db:console", Scope: "console:*"},
 		{SubjectID: "builtin.ssh", Capability: "ssh:connect", Scope: "profile:list"},
 		{SubjectID: "builtin.ssh", Capability: "ssh:connect", Scope: "profile:new"},
 		{SubjectID: "builtin.ssh", Capability: "ssh:connect", Scope: "profile:active"},

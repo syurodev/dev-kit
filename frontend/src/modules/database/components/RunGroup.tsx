@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { AlertCircle, Check, Clock, Copy, Play, Square, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ActionTooltip } from "@/components/ui/action-tooltip";
@@ -50,6 +50,27 @@ const SEGMENT =
  * bends toward the new number.
  */
 const SPRING = { type: "spring", stiffness: 504, damping: 19.5, mass: 1 } as const;
+
+/**
+ * The summary leaves downwards and the message arrives from where it was.
+ *
+ * Opening swaps one line of text for another at a different place on screen,
+ * and a swap with no motion between them reads as two unrelated things, which
+ * is the complaint this answers: it should be the same text carrying on down
+ * the control. So the summary drifts down out of the row as the message rises
+ * into place from the row's own line — one direction, shared, which is what
+ * makes the eye follow it as one movement instead of tracking two.
+ *
+ * Opacity on a short tween rather than on the spring: a spring overshoots,
+ * and an overshoot in opacity is a flicker.
+ */
+const TEXT_MOTION = { ...SPRING, opacity: { duration: 0.12 } } as const;
+
+/** How far the summary drifts on its way out. Enough to read as leaving. */
+const SUMMARY_DRIFT = 10;
+
+/** What every one of those becomes under prefers-reduced-motion. */
+const INSTANT = { duration: 0 } as const;
 
 /**
  * Every state is a filled tone, and the running one is the Stop end's own.
@@ -222,6 +243,11 @@ export function RunGroup({
   onStop: () => void;
   runLabel: string;
 }) {
+  // Everything in here moves: the body's width and height, and the text
+  // between its two places. One switch turns all of it into a cut, because a
+  // person who has asked their system for less motion did not mean "less in
+  // the parts I remembered to ask about".
+  const motionOff = useReducedMotion() ?? false;
   const elapsed = useElapsed(running, startedAt);
   const status: ConsoleStatus = running
     ? { kind: "running", time: `${elapsed.toFixed(1)}s` }
@@ -281,13 +307,31 @@ export function RunGroup({
    * is what made the open state read as two objects instead of one taller
    * one. What stays is the icon and the clock, which the message is not.
    */
-  const reading = (summary: boolean) => (
+  const hasSummary = status.kind !== "idle" && status.kind !== "running";
+  const reading = (live = false) => (
     <>
       <StatusIcon status={status} />
       <span className="tabular-nums">{status.kind === "idle" ? "" : status.time}</span>
-      {summary && status.kind !== "idle" && status.kind !== "running" && (
-        <span className="max-w-64 truncate">{status.message}</span>
-      )}
+      {hasSummary &&
+        (live ? (
+          // Still mounted while open, at zero opacity: it holds the row's
+          // width steady, and something that has unmounted cannot animate its
+          // way out.
+          <motion.span
+            className="max-w-64 truncate"
+            // No entrance: a console restored with an error is already open,
+            // and animating the summary out of a row it was never in is a
+            // flash on arrival.
+            initial={false}
+            animate={{ opacity: expanded ? 0 : 1, y: expanded ? SUMMARY_DRIFT : 0 }}
+            transition={motionOff ? INSTANT : TEXT_MOTION}
+            aria-hidden={expanded}
+          >
+            {status.message}
+          </motion.span>
+        ) : (
+          <span className="max-w-64 truncate">{status.message}</span>
+        ))}
     </>
   );
 
@@ -314,7 +358,7 @@ export function RunGroup({
         // and only ever changes from there.
         initial={false}
         animate={{ width, height }}
-        transition={SPRING}
+        transition={motionOff ? INSTANT : SPRING}
       >
         {/*
           The closed row, measured and never seen.
@@ -331,7 +375,7 @@ export function RunGroup({
           aria-hidden
           className="pointer-events-none invisible absolute top-0 right-0 flex w-max items-center"
         >
-          {shown && <div className={SEGMENT}>{reading(true)}</div>}
+          {shown && <div className={SEGMENT}>{reading()}</div>}
           <div className="size-(--control-height-sm)" />
         </div>
 
@@ -362,11 +406,11 @@ export function RunGroup({
                 onClick={() => setOpen((value) => !value)}
                 className={cn(SEGMENT, "cursor-pointer outline-none", expanded && "grow")}
               >
-                {reading(!expanded)}
+                {reading(true)}
               </button>
             ) : (
               <div role="status" className={SEGMENT}>
-                {reading(true)}
+                {reading()}
               </div>
             ))}
           <ActionTooltip label={runLabel} wrap>
@@ -411,7 +455,18 @@ export function RunGroup({
             {/* No ground of its own. A second surface inside the control is
                 a second object, and pl-2.5 is SEGMENT's own left padding —
                 the message starts under the clock, at the same margin. */}
-            <div ref={detail} className="flex flex-col gap-0.5 pr-1.5 pb-1.5 pl-2.5">
+            {/* It rises into place from the row above — the line the summary
+                is leaving — so the two read as one piece of text moving down
+                the control rather than two that swapped. Transform only:
+                offsetHeight is what the body animates to, and a transform
+                does not change it. */}
+            <motion.div
+              ref={detail}
+              className="flex flex-col gap-0.5 pr-1.5 pb-1.5 pl-2.5"
+              initial={false}
+              animate={{ y: expanded ? 0 : -HEADER_HEIGHT, opacity: expanded ? 1 : 0 }}
+              transition={motionOff ? INSTANT : TEXT_MOTION}
+            >
               <pre
                 className="overflow-auto text-left text-code-11 whitespace-pre-wrap select-text"
                 style={{ maxHeight: MAX_DETAIL_HEIGHT - 40 }}
@@ -419,7 +474,7 @@ export function RunGroup({
                 {status.detail}
               </pre>
               <CopyDetail detail={status.detail} />
-            </div>
+            </motion.div>
           </div>
         )}
       </motion.div>

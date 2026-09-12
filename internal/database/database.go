@@ -160,6 +160,7 @@ type Service struct {
 	history       QueryHistoryRepository
 	sealer        Sealer
 	schemaCache   SchemaCacheRepository
+	consoles      *ConsoleStore
 	txs           *transactions
 }
 

@@ -43,6 +43,23 @@ export function openTableTab(schema: string, table: string, preview = false): vo
   open("database.table", table, { schema, table }, preview);
 }
 
+/**
+ * A console id, from something that identifies the console.
+ *
+ * The id is also the name of the file the console is written to, so it has to
+ * survive being one: a table called `orders/2024` or a schema with a dot in
+ * it would otherwise produce a path, and the store rejects those rather than
+ * cleaning them. Deterministic, so reopening the same table finds the same
+ * console rather than starting a second one beside it.
+ */
+export function consoleIdFor(seed: string): string {
+  const slug = seed
+    .replace(/[^A-Za-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+  return `console-${slug || "untitled"}`;
+}
+
 export function openConsoleTab(consoleId: string, title = "Console"): void {
   open("database.console", title, { consoleId }, false);
 }

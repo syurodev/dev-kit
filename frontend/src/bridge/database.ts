@@ -562,3 +562,53 @@ export function explainAnalyze(id: string, sql: string): Promise<QueryPlan> {
     return toQueryPlan(plan);
   });
 }
+
+/**
+ * A query console's text as it is kept on disk — DataGrip's model: one .sql
+ * per console, written as you type, with the connection it belongs to on the
+ * first line of the file.
+ *
+ * Not the same thing as a SavedQuery, and it must not become one. A saved
+ * query is named, deliberate, and a synced vault item; a console is the
+ * scratch pad you left open and expect to find again.
+ */
+export type StoredConsole = {
+  id: string;
+  profileId: string;
+  /** The schema or database it was last pointed at. */
+  database: string;
+  sql: string;
+  updatedAt: string;
+};
+
+export function listConsoles(): Promise<StoredConsole[]> {
+  return callBridge(async () => {
+    const list = await AppService.DBListConsoles();
+    return (list ?? []).map((c) => ({
+      id: c.id,
+      profileId: c.profile_id,
+      database: c.database,
+      sql: c.sql,
+      updatedAt: c.updated_at,
+    }));
+  });
+}
+
+export function saveConsole(console: Omit<StoredConsole, "updatedAt">): Promise<void> {
+  return callBridge(
+    () =>
+      AppService.DBSaveConsole({
+        id: console.id,
+        profile_id: console.profileId,
+        database: console.database,
+        sql: console.sql,
+        // Stamped by the backend at the moment it writes. Sending one from
+        // here would date the file by a clock the file does not trust.
+        updated_at: "",
+      }) as Promise<void>,
+  );
+}
+
+export function deleteConsole(id: string): Promise<void> {
+  return callBridge(() => AppService.DBDeleteConsole(id) as Promise<void>);
+}

@@ -3,6 +3,7 @@
 
 export type {
     ColumnInfo,
+    Console,
     CreateProfileInput,
     ForeignKey,
     HistoryEntry,

@@ -64,3 +64,74 @@ describe("run tokens", () => {
     expect(useDatabaseStore.getState().consoleState("b").queryRunId).toBe(0);
   });
 });
+
+/**
+ * A console's text is a file now — written as you type, read back on the
+ * next launch. What the store has to get right is the two moments where that
+ * can lose work.
+ */
+describe("consoles that outlive the window", () => {
+  beforeEach(() => {
+    useDatabaseStore.setState({
+      consoles: {},
+      profiles: [
+        { id: "p1", name: "prod", host: "", port: 0, database: "shop", username: "", sslMode: "", env: "", readOnly: false },
+      ],
+      selectedProfileId: "p1",
+      selectedSchema: "public",
+    });
+  });
+
+  test("typing stamps the console with where it would run", () => {
+    useDatabaseStore.getState().setSql("c1", "SELECT 1");
+    const console = useDatabaseStore.getState().consoleState("c1");
+    expect(console.originProfileId).toBe("p1");
+    expect(console.originDatabase).toBe("public");
+  });
+
+  /*
+   * Hydration is a bridge call, and the window renders long before it lands.
+   * A file from the last session arriving on top of a query the user has
+   * already started typing is the worst way this feature could fail, so an
+   * untouched slice is the only one it fills.
+   */
+  const onDisk = (id: string, sql: string) => ({
+    id,
+    profileId: "p2",
+    database: "analytics",
+    sql,
+    updatedAt: "2026-09-12T00:00:00Z",
+  });
+
+  test("a file never lands on top of something already typed", async () => {
+    useDatabaseStore.getState().setSql("c1", "SELECT typed");
+
+    await useDatabaseStore.getState().hydrateConsoles(async () => [onDisk("c1", "SELECT from disk")]);
+
+    expect(useDatabaseStore.getState().consoleState("c1").sql).toBe("SELECT typed");
+  });
+
+  test("a file fills a console nobody has touched, and says where it came from", async () => {
+    await useDatabaseStore.getState().hydrateConsoles(async () => [onDisk("c9", "SELECT restored")]);
+
+    const console = useDatabaseStore.getState().consoleState("c9");
+    expect(console.sql).toBe("SELECT restored");
+    expect(console.originProfileId).toBe("p2");
+    expect(console.originDatabase).toBe("analytics");
+  });
+
+  // There is no banner for this and there should not be: the user did not ask
+  // for the read and cannot act on its failure.
+  test("consoles that cannot be read leave the window alone", async () => {
+    await useDatabaseStore.getState().hydrateConsoles(async () => {
+      throw new Error("read-only file system");
+    });
+    expect(useDatabaseStore.getState().consoles).toEqual({});
+  });
+
+  test("closing a console drops its slice", () => {
+    useDatabaseStore.getState().setSql("c2", "SELECT 1");
+    useDatabaseStore.getState().closeConsole("c2");
+    expect(useDatabaseStore.getState().consoles.c2).toBeUndefined();
+  });
+});

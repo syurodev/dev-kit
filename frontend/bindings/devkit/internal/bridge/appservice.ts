@@ -316,6 +316,10 @@ export function DBCreateProfile(input: database$0.CreateProfileInput): $Cancella
     return $Call.ByID(3479862833, input);
 }
 
+export function DBDeleteConsole(id: string): $CancellablePromise<void> {
+    return $Call.ByID(4186181056, id);
+}
+
 export function DBDeleteProfile(id: string): $CancellablePromise<void> {
     return $Call.ByID(369902404, id);
 }
@@ -361,6 +365,18 @@ export function DBListActivity(id: string): $CancellablePromise<database$0.Sessi
 
 export function DBListColumns(id: string, schema: string, table: string): $CancellablePromise<database$0.ColumnInfo[] | null> {
     return $Call.ByID(2451086547, id, schema, table);
+}
+
+/**
+ * Query consoles: the scratch text, not the saved query.
+ * 
+ * Their own capability rather than another scope under db:query. Reading a
+ * console is reading what the user typed in every window they left open, which
+ * is a different permission from being allowed to ask a database a question —
+ * and the files are in the app's own directory, so no profile scopes them.
+ */
+export function DBListConsoles(): $CancellablePromise<database$0.Console[] | null> {
+    return $Call.ByID(402383590);
 }
 
 export function DBListForeignKeys(id: string, schema: string): $CancellablePromise<database$0.ForeignKey[] | null> {
@@ -414,6 +430,14 @@ export function DBQuery(id: string, sql: string, maxRows: number): $CancellableP
 
 export function DBRollbackTx(id: string): $CancellablePromise<void> {
     return $Call.ByID(9079048, id);
+}
+
+/**
+ * DBSaveConsole writes one console's text. Called on a debounce as the user
+ * types, so it is the one bridge call here that runs without being asked for.
+ */
+export function DBSaveConsole(console: database$0.Console): $CancellablePromise<void> {
+    return $Call.ByID(2390604210, console);
 }
 
 export function DBSaveExportFile(suggestedName: string, content: string): $CancellablePromise<string> {

@@ -245,6 +245,16 @@ func publicError(subject string, err error) *apperrors.AppError {
 	if subject == "builtin.database" && errors.As(err, &statement) {
 		return apperrors.Wrap(codeQueryFailed, statement.Error(), true, err)
 	}
+	// A console is a file in the app's own directory. Failing to write one is
+	// not a connection failing, and saying so sends the reader to the database
+	// they were about to blame. The path stays out of the message; the cause
+	// is in the wrapped error, which is logged.
+	if subject == "builtin.database" && errors.Is(err, database.ErrConsoleStore) {
+		return apperrors.Wrap(codeValidationFailed, "The query console could not be written to disk.", true, err)
+	}
+	if subject == "builtin.database" && errors.Is(err, database.ErrConsoleStoreUnavailable) {
+		return apperrors.Wrap(codeValidationFailed, "Query consoles are not being stored in this build.", true, err)
+	}
 	if subject == "builtin.database" || subject == "builtin.ssh" || subject == "builtin.kafka" {
 		return apperrors.New(codeConnectionFailed, "Connection failed.", true)
 	}

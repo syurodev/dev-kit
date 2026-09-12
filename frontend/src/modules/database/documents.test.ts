@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { moduleTabs, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
-import { openNewConsoleTab, openTableTab } from "./documents";
+import { consoleIdFor, openNewConsoleTab, openTableTab } from "./documents";
 
 beforeEach(() => {
   useWorkbenchTabsStore.setState({ activeModuleId: "", modules: {} });
@@ -40,4 +40,34 @@ test("the + button opens a console each time", () => {
   openNewConsoleTab();
   const tabs = moduleTabs(useWorkbenchTabsStore.getState().modules, "database");
   expect(tabs.openTabs).toHaveLength(2);
+});
+
+/**
+ * A console id is also the name of the file the console is written to.
+ *
+ * The store rejects an id that is not a plain file name rather than cleaning
+ * it, so an id built from a table called `orders/2024` would silently stop
+ * persisting. Deterministic too: reopening the same table has to find the
+ * same console, not start a second one beside it.
+ */
+describe("console ids that have to survive being file names", () => {
+  test.each([
+    ["public.users", "console-public-users"],
+    ["saved-7f3a", "console-saved-7f3a"],
+    ["../../devkit", "console-devkit"],
+    ["orders/2024", "console-orders-2024"],
+    ["a b\tc", "console-a-b-c"],
+  ])("%s", (seed, expected) => {
+    expect(consoleIdFor(seed)).toBe(expected);
+  });
+
+  test("the same table always gets the same console", () => {
+    expect(consoleIdFor("public.users")).toBe(consoleIdFor("public.users"));
+  });
+
+  test("what comes out is a plain file name, whatever went in", () => {
+    for (const seed of ["../..", "/", "  ", "..\\..\\windows", "🙂"]) {
+      expect(consoleIdFor(seed)).toMatch(/^[A-Za-z0-9_-]{1,64}$/);
+    }
+  });
 });

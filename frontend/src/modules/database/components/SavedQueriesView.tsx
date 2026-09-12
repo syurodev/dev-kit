@@ -26,7 +26,7 @@ import {
 } from "../../../bridge/database";
 import { errorMessage } from "../../../bridge/errors";
 import { isVaultLockedError } from "../errorStates";
-import { openConsoleTab } from "../documents";
+import { consoleIdFor, openConsoleTab } from "../documents";
 import { useIsActiveDocument } from "../useIsActiveDocument";
 import { useDatabaseChrome } from "../useDatabaseChrome";
 
@@ -89,7 +89,7 @@ export function SavedQueriesView() {
   function handleOpenInConsole(entry: SavedQuery) {
     // Namespaced by view: a history entry and a saved query can otherwise
     // share an id and collide on the same console.
-    const consoleId = `console-saved-${entry.id}`;
+    const consoleId = consoleIdFor(`saved-${entry.id}`);
     setSql(consoleId, entry.sql);
     openConsoleTab(consoleId, entry.name ?? "Console");
   }

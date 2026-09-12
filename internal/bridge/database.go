@@ -473,3 +473,45 @@ func (s *AppService) DBExplainAnalyze(ctx context.Context, id, sql string) (data
 	}
 	return result.(database.QueryPlan), nil
 }
+
+/*
+Query consoles: the scratch text, not the saved query.
+
+Their own capability rather than another scope under db:query. Reading a
+console is reading what the user typed in every window they left open, which
+is a different permission from being allowed to ask a database a question —
+and the files are in the app's own directory, so no profile scopes them.
+*/
+func (s *AppService) DBListConsoles() ([]database.Console, error) {
+	result, err := s.call(context.Background(), "builtin.database", "db:console", "console:list", map[string]any{
+		"action": "list_consoles",
+	}, func(context.Context) (any, error) {
+		return s.container.Database.ListConsoles()
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]database.Console), nil
+}
+
+// DBSaveConsole writes one console's text. Called on a debounce as the user
+// types, so it is the one bridge call here that runs without being asked for.
+func (s *AppService) DBSaveConsole(console database.Console) error {
+	_, err := s.call(context.Background(), "builtin.database", "db:console", "console:"+recordID(console.ID), map[string]any{
+		"action":     "save_console",
+		"console_id": recordID(console.ID),
+	}, func(context.Context) (any, error) {
+		return nil, s.container.Database.SaveConsole(console)
+	})
+	return err
+}
+
+func (s *AppService) DBDeleteConsole(id string) error {
+	_, err := s.call(context.Background(), "builtin.database", "db:console", "console:"+recordID(id), map[string]any{
+		"action":     "delete_console",
+		"console_id": recordID(id),
+	}, func(context.Context) (any, error) {
+		return nil, s.container.Database.DeleteConsole(id)
+	})
+	return err
+}
