@@ -360,6 +360,32 @@ export function runQuery(id: string, sql: string, maxRows = 0): CancellableCall<
   );
 }
 
+/**
+ * Manual-commit mode.
+ *
+ * A transaction belongs to the CONNECTION, not to a tab: DevKit keeps one
+ * connection per profile, so a console and a table tab pointed at the same
+ * profile are inside the same transaction. That is what every database tool
+ * does, and the alternative — a connection per tab — would multiply the locks
+ * taken against the server by however many tabs are open.
+ */
+export function beginTransaction(id: string): Promise<void> {
+  return callBridge(() => AppService.DBBeginTx(id));
+}
+
+export function commitTransaction(id: string): Promise<void> {
+  return callBridge(() => AppService.DBCommitTx(id));
+}
+
+export function rollbackTransaction(id: string): Promise<void> {
+  return callBridge(() => AppService.DBRollbackTx(id));
+}
+
+/** Whether a transaction is open — asked on mount, since one outlives its tab. */
+export function transactionOpen(id: string): Promise<boolean> {
+  return callBridge(() => AppService.DBTxOpen(id));
+}
+
 export function saveExportFile(suggestedName: string, content: string): Promise<string> {
   return callBridge(() => AppService.DBSaveExportFile(suggestedName, content) as Promise<string>);
 }

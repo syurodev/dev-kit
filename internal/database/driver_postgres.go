@@ -88,6 +88,38 @@ func (c *postgresConn) Query(ctx context.Context, sql string, args ...any) (Rows
 	return &postgresRows{rows: rows, columns: columns}, nil
 }
 
+// Begin takes a connection out of the pool and keeps it for the transaction.
+//
+// pgx's pool.Begin does the acquiring itself and gives the connection back on
+// Commit or Rollback — the same pinning mysqlConn.Begin has to arrange by
+// hand, for the same reason: a bare BEGIN would open a transaction on whatever
+// connection served it and leave the next statement somewhere else.
+func (c *postgresConn) Begin(ctx context.Context) (Tx, error) {
+	tx, err := c.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &postgresTx{tx: tx}, nil
+}
+
+type postgresTx struct{ tx pgx.Tx }
+
+func (t *postgresTx) Query(ctx context.Context, sql string, args ...any) (Rows, error) {
+	rows, err := t.tx.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, err
+	}
+	fields := rows.FieldDescriptions()
+	columns := make([]string, len(fields))
+	for i, f := range fields {
+		columns[i] = f.Name
+	}
+	return &postgresRows{rows: rows, columns: columns}, nil
+}
+
+func (t *postgresTx) Commit(ctx context.Context) error   { return t.tx.Commit(ctx) }
+func (t *postgresTx) Rollback(ctx context.Context) error { return t.tx.Rollback(ctx) }
+
 func (c *postgresConn) ListSchemas(ctx context.Context) ([]string, error) {
 	rows, err := c.pool.Query(ctx, `
 		SELECT nspname FROM pg_namespace

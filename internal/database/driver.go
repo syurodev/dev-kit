@@ -101,6 +101,28 @@ type Conn interface {
 	Close()
 }
 
+// Tx is one open transaction, pinned to a single physical connection.
+//
+// Pinning is the whole point and the reason this is not just "run BEGIN".
+// Both drivers hand out a POOL behind Conn — database/sql with four
+// connections, pgxpool with its own — so a bare BEGIN opens a transaction on
+// whichever connection served it and the next statement is very likely to run
+// somewhere else: outside the transaction, while the transaction sits open
+// holding a connection until something rolls it back. A Tx owns its connection
+// and gives it back on Commit or Rollback.
+type Tx interface {
+	Query(ctx context.Context, sql string, args ...any) (Rows, error)
+	Commit(ctx context.Context) error
+	Rollback(ctx context.Context) error
+}
+
+// Transactor is optional on Conn, like SessionInspector and QueryPlanner: a
+// driver that cannot pin a connection simply does not implement it, and manual
+// commit is refused for that engine rather than faked.
+type Transactor interface {
+	Begin(ctx context.Context) (Tx, error)
+}
+
 // Driver opens connections for one engine family.
 type Driver interface {
 	Dial(ctx context.Context, cfg ConnConfig) (Conn, error)

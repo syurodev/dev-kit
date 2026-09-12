@@ -142,6 +142,57 @@ func (c *mysqlConn) Query(ctx context.Context, query string, args ...any) (Rows,
 	return &mysqlRows{rows: rows, columns: columns}, nil
 }
 
+// Begin pins one of the pool's four connections for the transaction's life.
+//
+// db.Conn takes a connection OUT of the pool and hands it back only on Close,
+// which is what makes every statement inside the transaction land on the same
+// session. Without it BEGIN would be a statement like any other, run wherever
+// the pool felt like.
+func (c *mysqlConn) Begin(ctx context.Context) (Tx, error) {
+	pinned, err := c.db.Conn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	tx, err := pinned.BeginTx(ctx, nil)
+	if err != nil {
+		_ = pinned.Close()
+		return nil, err
+	}
+	return &mysqlTx{pinned: pinned, tx: tx}, nil
+}
+
+type mysqlTx struct {
+	pinned *sql.Conn
+	tx     *sql.Tx
+}
+
+func (t *mysqlTx) Query(ctx context.Context, query string, args ...any) (Rows, error) {
+	rows, err := t.tx.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	columns, err := rows.Columns()
+	if err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	return &mysqlRows{rows: rows, columns: columns}, nil
+}
+
+func (t *mysqlTx) Commit(ctx context.Context) error {
+	// The pinned connection goes back to the pool either way, or four commits
+	// would exhaust it.
+	defer t.pinned.Close()
+	_ = ctx
+	return t.tx.Commit()
+}
+
+func (t *mysqlTx) Rollback(ctx context.Context) error {
+	defer t.pinned.Close()
+	_ = ctx
+	return t.tx.Rollback()
+}
+
 func (c *mysqlConn) ListSchemas(ctx context.Context) ([]string, error) {
 	rows, err := c.db.QueryContext(ctx, `
 		SELECT schema_name FROM information_schema.schemata

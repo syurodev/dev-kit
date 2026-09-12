@@ -301,11 +301,28 @@ export function DBActiveProfile(): $CancellablePromise<$models.ActiveProfileDTO>
 }
 
 /**
+ * DBBeginTx, DBCommitTx, DBRollbackTx and DBTxOpen are manual-commit mode.
+ * 
+ * Through the same capability and scope as a query, because that is what they
+ * are: a transaction is a property of the connection a statement runs on, and
+ * anything allowed to run statements on a profile is allowed to decide whether
+ * they are committed. The audit entry names the action, so a rollback is
+ * visible in the log as itself.
+ */
+export function DBBeginTx(id: string): $CancellablePromise<void> {
+    return $Call.ByID(1448273793, id);
+}
+
+/**
  * DBCancelQuery stops one statement. Safe mode does not cover this — a
  * read-only profile can still cancel, because pg_cancel_backend is a SELECT.
  */
 export function DBCancelQuery(id: string, pid: string): $CancellablePromise<void> {
     return $Call.ByID(652064838, id, pid);
+}
+
+export function DBCommitTx(id: string): $CancellablePromise<void> {
+    return $Call.ByID(2136861641, id);
 }
 
 export function DBCreateProfile(input: database$0.CreateProfileInput): $CancellablePromise<database$0.ProfileSummary> {
@@ -408,6 +425,10 @@ export function DBQuery(id: string, sql: string, maxRows: number): $CancellableP
     return $Call.ByID(2555176260, id, sql, maxRows);
 }
 
+export function DBRollbackTx(id: string): $CancellablePromise<void> {
+    return $Call.ByID(9079048, id);
+}
+
 export function DBSaveExportFile(suggestedName: string, content: string): $CancellablePromise<string> {
     return $Call.ByID(2407386373, suggestedName, content);
 }
@@ -442,6 +463,14 @@ export function DBTestConnection(id: string): $CancellablePromise<void> {
  */
 export function DBTestNewConnection(input: database$0.CreateProfileInput): $CancellablePromise<void> {
     return $Call.ByID(3346566534, input);
+}
+
+/**
+ * DBTxOpen is asked on mount: a transaction outlives the tab that opened it,
+ * and a window reopened onto one has to show that rather than a clean slate.
+ */
+export function DBTxOpen(id: string): $CancellablePromise<boolean> {
+    return $Call.ByID(1086156812, id);
 }
 
 export function DBUpdateProfileOptions(id: string, opts: database$0.UpdateProfileOptionsInput): $CancellablePromise<database$0.ProfileSummary> {

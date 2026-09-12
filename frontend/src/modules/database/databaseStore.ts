@@ -7,6 +7,10 @@ import {
   getSchemaCache,
   indexSchema,
   runQuery,
+  beginTransaction,
+  commitTransaction,
+  rollbackTransaction,
+  transactionOpen,
   type ConnectionProfile,
   type QueryResult,
   type SchemaSnapshot,
@@ -286,6 +290,21 @@ export type DatabaseStoreState = {
    * showing what we MEANT to write is worse than one that waits a round trip
    * for what is actually there.
    */
+  /**
+   * Auto or Manual commit, and whether a transaction is open right now.
+   *
+   * Per profile, because that is what a transaction is attached to. The mode
+   * is the UI's policy — the backend knows only "open or not" — and switching
+   * to Manual opens one immediately, so the very next statement is inside it
+   * rather than the first one silently landing outside.
+   */
+  txManual: boolean;
+  txOpen: boolean;
+  txBusy: boolean;
+  setTxManual: (manual: boolean) => Promise<void>;
+  endTransaction: (action: "commit" | "rollback") => Promise<void>;
+  refreshTxState: () => Promise<void>;
+
   applyBrowseEdit: (
     key: string,
     opts: { schema: string; table: string },
@@ -512,8 +531,16 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   },
 
   setSelectedProfileId: (id: string) => {
+    // Asked, not assumed: a transaction outlives the window that opened it, so
+    // arriving at a profile can mean arriving inside one.
+    queueMicrotask(() => void get().refreshTxState());
     set({
       selectedProfileId: id,
+      // A transaction belongs to the connection you just left, not the one you
+      // arrived at. Cleared here and asked again below, rather than carried
+      // across and shown against the wrong profile.
+      txOpen: false,
+      txManual: false,
       tableColumnsMap: {},
       tableColumnsError: {},
       // A focused table belongs to the database it was picked from.
@@ -786,6 +813,73 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       loading: false,
       error: "",
     });
+  },
+
+  txManual: false,
+  txOpen: false,
+  txBusy: false,
+
+  setTxManual: async (manual) => {
+    const { selectedProfileId, txOpen } = get();
+    if (!selectedProfileId) {
+      set({ txManual: manual });
+      return;
+    }
+    set({ txBusy: true });
+    try {
+      if (manual && !txOpen) {
+        await beginTransaction(selectedProfileId);
+        set({ txManual: true, txOpen: true });
+        return;
+      }
+      if (!manual && txOpen) {
+        // Leaving Manual commits what is open. Rolling back would silently
+        // throw away work the user did inside it; the button beside this one
+        // is how you discard it on purpose.
+        await commitTransaction(selectedProfileId);
+        set({ txManual: false, txOpen: false });
+        return;
+      }
+      set({ txManual: manual });
+    } finally {
+      set({ txBusy: false });
+    }
+  },
+
+  endTransaction: async (action) => {
+    const { selectedProfileId, txManual } = get();
+    if (!selectedProfileId) {
+      return;
+    }
+    set({ txBusy: true });
+    try {
+      await (action === "commit"
+        ? commitTransaction(selectedProfileId)
+        : rollbackTransaction(selectedProfileId));
+      // Still in Manual, so the next statement needs a transaction of its own
+      // — ending one is not leaving the mode.
+      if (txManual) {
+        await beginTransaction(selectedProfileId);
+        set({ txOpen: true });
+      } else {
+        set({ txOpen: false });
+      }
+    } finally {
+      set({ txBusy: false });
+    }
+  },
+
+  refreshTxState: async () => {
+    const { selectedProfileId } = get();
+    if (!selectedProfileId) {
+      set({ txOpen: false, txManual: false });
+      return;
+    }
+    const open = await transactionOpen(selectedProfileId);
+    // A transaction found already open means Manual: it cannot have been
+    // opened by anything else, and showing Auto beside an open one would be a
+    // lie about what the next statement does.
+    set({ txOpen: open, txManual: open ? true : get().txManual });
   },
 
   applyBrowseEdit: async (key, { schema, table }, sql) => {

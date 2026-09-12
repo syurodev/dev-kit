@@ -21,7 +21,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
+import { useShallow } from "zustand/react/shallow";
+import { errorMessage } from "@/bridge/errors";
 import { ActionTooltip } from "@/components/ui/action-tooltip";
+import { useDatabaseStore } from "../databaseStore";
 import { WhereInput } from "./WhereInput";
 
 /**
@@ -51,27 +55,131 @@ function Rule() {
 }
 
 /**
- * A control that is drawn but not connected yet.
+ * Commit, Roll back, and the Auto/Manual switch.
  *
- * Still `disabled`, so it stays out of the tab order and assistive technology
- * announces it as unavailable — but NOT at the Button's default
- * `disabled:opacity-38`. That put "Tx: Auto" at 2.54:1 in dark and 1.80:1 in
- * light: a control nobody can read cannot say "coming soon" either, and the
- * tooltip was the only thing explaining why it is there. `--text-tertiary` is
- * the app's dimmest text and clears 4.5:1 on every surface of every palette
- * (themeContrast.test.ts), which is what "dim" should have meant all along.
+ * The transaction is the CONNECTION's, not this tab's: DevKit keeps one
+ * connection per profile, so a console and a table tab on the same profile are
+ * inside the same transaction — which is what every database tool does, and
+ * why this row is disabled rather than hidden when there is no connection.
  *
- * The `<span>` is the tooltip's trigger, not the Button: a disabled Button
- * sets `pointer-events: none`, and an element the pointer cannot reach raises
- * no tooltip — native or otherwise.
+ * Manual opens a transaction as soon as it is chosen, so the next statement is
+ * inside one rather than the first silently landing outside. Commit and Roll
+ * back end that transaction and open the next, because ending one is not the
+ * same as leaving the mode; leaving the mode COMMITS what is open, since
+ * discarding someone's work is what the button beside it is for.
+ */
+/**
+ * A control that is drawn but not connected yet — DDL is the last of them.
+ *
+ * Disabled, so it stays out of the tab order and is announced as unavailable,
+ * but NOT at the Button's `disabled:opacity-38`: that put it at 1.80:1 in
+ * light, and a control nobody can read cannot say "coming soon" either.
  */
 const PENDING = "disabled:opacity-100 disabled:text-text-tertiary";
 
-function Pending({ label, children }: { label: string; children: ReactNode }) {
+function TransactionControls() {
+  const { txManual, txOpen, txBusy, selectedProfileId, setTxManual, endTransaction } =
+    useDatabaseStore(
+      useShallow((s) => ({
+        txManual: s.txManual,
+        txOpen: s.txOpen,
+        txBusy: s.txBusy,
+        selectedProfileId: s.selectedProfileId,
+        setTxManual: s.setTxManual,
+        endTransaction: s.endTransaction,
+      })),
+    );
+
+  const idle = !selectedProfileId || txBusy;
+  const end = (action: "commit" | "rollback") => {
+    endTransaction(action).catch((error: unknown) => {
+      toast.error(action === "commit" ? "Could not commit" : "Could not roll back", {
+        description: errorMessage(error),
+      });
+    });
+  };
+
   return (
-    <ActionTooltip label={`${label} — coming soon`}>
-      <span className="flex shrink-0 items-center">{children}</span>
-    </ActionTooltip>
+    <>
+      <ActionTooltip
+        label={txOpen ? "Commit the open transaction" : "Nothing to commit — Tx is on Auto"}
+      >
+        <span className="flex shrink-0 items-center">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            disabled={idle || !txOpen}
+            onClick={() => end("commit")}
+          >
+            <Check />
+          </Button>
+        </span>
+      </ActionTooltip>
+      <ActionTooltip
+        label={txOpen ? "Roll back the open transaction" : "Nothing to roll back — Tx is on Auto"}
+      >
+        <span className="flex shrink-0 items-center">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            disabled={idle || !txOpen}
+            onClick={() => end("rollback")}
+          >
+            <Undo2 />
+          </Button>
+        </span>
+      </ActionTooltip>
+
+      <DropdownMenu>
+        <ActionTooltip
+          label={
+            txManual
+              ? "Manual commit — statements wait for Commit"
+              : "Auto commit — every statement lands on its own"
+          }
+        >
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={idle}
+              className={cn("gap-1 px-2 text-code-12 font-normal", txOpen && "text-status-warning")}
+            >
+              <ArrowUpDown />
+              Tx: {txManual ? "Manual" : "Auto"}
+              {/* An open transaction is holding locks on the user's server.
+                  The dot is the only thing on screen that says so. */}
+              {txOpen ? <span className="size-1.5 rounded-full bg-status-warning" /> : null}
+            </Button>
+          </DropdownMenuTrigger>
+        </ActionTooltip>
+        {/* Wide enough for the two lines: at the menu's own width they wrapped
+            mid-word and the explanation was cut. */}
+        <DropdownMenuContent align="start" className="w-64">
+          <DropdownMenuLabel>Transaction mode</DropdownMenuLabel>
+          <DropdownMenuItem
+            onSelect={() => {
+              setTxManual(false).catch((error: unknown) =>
+                toast.error("Could not commit what was open", {
+                  description: errorMessage(error),
+                }),
+              );
+            }}
+          >
+            Auto — commit every statement
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={() => {
+              setTxManual(true).catch((error: unknown) =>
+                toast.error("Could not open a transaction", { description: errorMessage(error) }),
+              );
+            }}
+          >
+            Manual — commit when I say
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </>
   );
 }
 
@@ -136,41 +244,21 @@ export function TableToolbar({
 
         <Rule />
 
-        {/* Transaction control. Drawn now, wired up later — the shape of the
-            strip is what is being settled, and leaving a hole where these go
-            would settle it wrong. */}
-        <Pending label="Commit the open transaction">
-          <Button variant="ghost" size="icon-sm" disabled className={PENDING}>
-            <Check />
-          </Button>
-        </Pending>
-        <Pending label="Roll back the open transaction">
-          <Button variant="ghost" size="icon-sm" disabled className={PENDING}>
-            <Undo2 />
-          </Button>
-        </Pending>
-        <Pending label="Transaction mode">
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled
-            className={cn("gap-1 px-2 text-code-12 font-normal", PENDING)}
-          >
-            <ArrowUpDown />
-            Tx: Auto
-          </Button>
-        </Pending>
-        <Pending label="Show this table's DDL">
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled
-            className={cn("gap-1 px-2 text-code-12 font-normal", PENDING)}
-          >
-            <FileCode />
-            DDL
-          </Button>
-        </Pending>
+        <TransactionControls />
+
+        <ActionTooltip label="Show this table's DDL — coming soon">
+          <span className="flex shrink-0 items-center">
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled
+              className={cn("gap-1 px-2 text-code-12 font-normal", PENDING)}
+            >
+              <FileCode />
+              DDL
+            </Button>
+          </span>
+        </ActionTooltip>
 
         <Rule />
 

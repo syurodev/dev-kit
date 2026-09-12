@@ -127,6 +127,7 @@ export function DatabaseSidebar() {
     setSelectedProfileId,
     loadingProfiles,
     fetchProfiles,
+    refreshTxState,
     folders,
     expandedFolders,
     toggleFolder,
@@ -158,6 +159,7 @@ export function DatabaseSidebar() {
       setSelectedProfileId: s.setSelectedProfileId,
       loadingProfiles: s.loadingProfiles,
       fetchProfiles: s.fetchProfiles,
+      refreshTxState: s.refreshTxState,
       folders: s.folders,
       expandedFolders: s.expandedFolders,
       toggleFolder: s.toggleFolder,
@@ -199,7 +201,12 @@ export function DatabaseSidebar() {
   // the call here removes a fetch rather than adding one.
   useEffect(() => {
     void fetchProfiles();
-  }, [fetchProfiles]);
+    // And whether the selected connection is already inside a transaction: one
+    // outlives the window that opened it, so arriving can mean arriving inside
+    // one, and showing "Auto" beside it would be a lie about what the next
+    // statement does.
+    void refreshTxState();
+  }, [fetchProfiles, refreshTxState]);
 
   const [filterQuery, setFilterQuery] = useState("");
   const [editingFolderId, setEditingFolderId] = useState("");

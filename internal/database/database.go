@@ -160,10 +160,17 @@ type Service struct {
 	history       QueryHistoryRepository
 	sealer        Sealer
 	schemaCache   SchemaCacheRepository
+	txs           *transactions
 }
 
 func NewService(store Store, envs EnvLookup) *Service {
-	return &Service{store: store, envs: envs, pools: NewPoolManager(), maxRows: DefaultMaxRows}
+	return &Service{
+		store:   store,
+		envs:    envs,
+		pools:   NewPoolManager(),
+		maxRows: DefaultMaxRows,
+		txs:     newTransactions(),
+	}
 }
 
 // normalizeCreateInput applies the same rules to a profile whether it is about
@@ -359,6 +366,9 @@ func (s *Service) UpdateProfileOptions(id string, opts UpdateProfileOptionsInput
 	}
 
 	if poolChanged {
+		// The transaction goes with the connection it was pinned to: keeping
+		// it would leave a Tx holding a session on a Conn nobody can reach.
+		s.rollbackTx(id)
 		s.pools.Remove(id)
 	}
 
@@ -369,6 +379,7 @@ func (s *Service) DeleteProfile(id string) error {
 	if err := s.store.Delete(id); err != nil {
 		return err
 	}
+	s.rollbackTx(id)
 	s.pools.Remove(id)
 	// History and the schema index live outside vault_items, so they ride no
 	// vault-item cascade.
@@ -443,7 +454,15 @@ func (s *Service) connect(ctx context.Context, id string) (Conn, error) {
 func (s *Service) SetTunnel(t Tunnel) { s.pools.SetTunnel(t) }
 
 // Close releases all PostgreSQL pools during application shutdown.
-func (s *Service) Close() { s.pools.Close() }
+// Close ends every open transaction before dropping the connections they are
+// pinned to. Rolling back rather than committing: work nobody confirmed is
+// work nobody asked to keep.
+func (s *Service) Close() {
+	for _, tx := range s.txs.takeAll() {
+		_ = tx.Rollback(context.Background())
+	}
+	s.pools.Close()
+}
 
 // TestConnection decrypts the password, connects, and pings the database.
 func (s *Service) TestConnection(ctx context.Context, id string) error {
@@ -485,7 +504,15 @@ func (s *Service) Query(ctx context.Context, id string, sql string, maxRows int)
 		limit = min(maxRows, MaxRowsCeiling)
 	}
 
-	rows, err := pool.Query(ctx, sql)
+	// Inside an open transaction when there is one. This is the whole of what
+	// "Tx: Manual" means at the statement level: the same statement, sent down
+	// the pinned connection instead of the pool, so it can be rolled back.
+	var rows Rows
+	if tx := s.txs.get(id); tx != nil {
+		rows, err = tx.Query(ctx, sql)
+	} else {
+		rows, err = pool.Query(ctx, sql)
+	}
 	if err != nil {
 		return QueryResult{}, err
 	}
