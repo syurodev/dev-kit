@@ -153,7 +153,9 @@ function useMoving(shown: boolean): [boolean, () => void] {
       return;
     }
     setMoving(true);
-    const fallback = setTimeout(() => setMoving(false), 500);
+    // Past the 500ms spring, so it only ever catches the case transitionend
+    // cannot: a transition that was never allowed to run.
+    const fallback = setTimeout(() => setMoving(false), 800);
     return () => clearTimeout(fallback);
   }, [shown]);
   return [moving, () => setMoving(false)];
@@ -272,7 +274,15 @@ function Layer({
           shapes, so the neck is drawn by the same tween. */}
       <div
         className={cn(
-          "grid min-w-0 transition-[grid-template-columns,translate] duration-(--motion-base) ease-(--ease-out-strong) motion-reduce:transition-none",
+          "grid min-w-0 transition-[grid-template-columns,translate] motion-reduce:transition-none",
+          // The spring, and the app already had one: --ease-house-spring is a
+          // sampled polyline that peaks at 1.22, so the pill is flung past
+          // where it lands and recoils. A stock ease over 180ms was the whole
+          // reason this read as "a thing appeared" rather than "a thing was
+          // pulled out of another thing" — 500ms is what the Dock pairs the
+          // same spring with, and it is also how long the neck gets to exist.
+          "motion-safe:duration-500 motion-safe:ease-house-spring",
+          "duration-(--motion-fast) ease-(--ease-out-strong)",
           // Width AND a slide, together. Width alone made the pill materialise
           // beside the button: at nothing-wide its blurred mass is too small to
           // reach across the gap, so the first frames were a detached dot that
