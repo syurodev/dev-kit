@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { useDatabaseStore, type RunVerdict } from "./databaseStore";
+import { useDatabaseStore, visibleResult, type RunVerdict } from "./databaseStore";
 import { consoleFiles } from "./consoleFiles";
 
 beforeEach(() => {
@@ -10,7 +10,7 @@ describe("console slices", () => {
   test("a console that was never opened reads as empty, not undefined", () => {
     const console = useDatabaseStore.getState().consoleState("never-opened");
     expect(console.sql).toBe("");
-    expect(console.queryResult).toBeNull();
+    expect(visibleResult(console)).toBeNull();
     expect(console.runningQuery).toBe(false);
   });
 
@@ -37,11 +37,19 @@ describe("console slices", () => {
     useDatabaseStore.setState((s) => ({
       consoles: {
         ...s.consoles,
-        a: { ...s.consoleState("a"), queryResult: { columns: ["n"], rows: [["1"]], rowCount: 1, truncated: false } },
+        a: {
+          ...s.consoleState("a"),
+          results: [
+            {
+              statement: "SELECT n",
+              result: { columns: ["n"], rows: [["1"]], rowCount: 1, truncated: false },
+            },
+          ],
+        },
       },
     }));
-    expect(useDatabaseStore.getState().consoleState("b").queryResult).toBeNull();
-    expect(useDatabaseStore.getState().consoleState("a").queryResult?.rowCount).toBe(1);
+    expect(visibleResult(useDatabaseStore.getState().consoleState("b"))).toBeNull();
+    expect(visibleResult(useDatabaseStore.getState().consoleState("a"))?.rowCount).toBe(1);
   });
 });
 
@@ -293,8 +301,72 @@ describe("running the whole script", () => {
     expect(useDatabaseStore.getState().consoleState("c2").statementRuns["SELECT stale"]).toBeUndefined();
   });
 
+  /*
+   * The tabs are one run's worth. A script that produced four grids, then a
+   * single ⌘↵ that produces one, must not leave the three old ones sitting
+   * there with rows from a question asked ten minutes ago.
+   */
+  test("last run's grids are gone before this one starts", async () => {
+    withVerdicts(() => "ok");
+    useDatabaseStore.setState({
+      consoles: {
+        c4: {
+          ...useDatabaseStore.getState().consoleState("c4"),
+          results: [
+            {
+              statement: "SELECT stale",
+              result: { columns: [], rows: [], rowCount: 3, truncated: false },
+            },
+          ],
+          activeResult: 0,
+        },
+      },
+    });
+
+    await useDatabaseStore.getState().runScript("c4", ["SELECT 1"]);
+
+    expect(useDatabaseStore.getState().consoleState("c4").results).toEqual([]);
+  });
+
   test("an empty console is not a script", async () => {
     await useDatabaseStore.getState().runScript("c3", []);
     expect(useDatabaseStore.getState().consoles.c3).toBeUndefined();
+  });
+});
+
+/**
+ * Which grid is on screen, when a script produced several.
+ *
+ * A function and not a field: a field would be the same fact written twice,
+ * and the two would disagree the first time one was updated without the
+ * other.
+ */
+describe("the grid on screen", () => {
+  const grid = (rowCount: number) => ({ columns: ["n"], rows: [], rowCount, truncated: false });
+  const console = (results: { statement: string; result: ReturnType<typeof grid> }[], active: number) => ({
+    ...useDatabaseStore.getState().consoleState("anything"),
+    results,
+    activeResult: active,
+  });
+
+  test("is the active one", () => {
+    const state = console(
+      [
+        { statement: "SELECT 1", result: grid(1) },
+        { statement: "SELECT 2", result: grid(2) },
+      ],
+      1,
+    );
+    expect(visibleResult(state)?.rowCount).toBe(2);
+  });
+
+  test("is nothing when the run produced nothing", () => {
+    expect(visibleResult(console([], 0))).toBeNull();
+  });
+
+  // A script that fails on its third statement leaves the index pointing at
+  // a tab that is no longer there when the next run replaces the list.
+  test("is nothing when the index has outrun the list", () => {
+    expect(visibleResult(console([{ statement: "SELECT 1", result: grid(1) }], 4))).toBeNull();
   });
 });

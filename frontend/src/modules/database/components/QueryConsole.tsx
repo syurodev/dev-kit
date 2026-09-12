@@ -25,15 +25,16 @@ import {
 } from "@/components/ui/resizable";
 import { cn } from "@/lib/utils";
 import { consoleStatus } from "../consoleStatus";
-import { dialectOf, splitStatements, statementAt } from "../sql/statements";
+import { dialectOf, splitStatements, statementAt, statementName } from "../sql/statements";
 import { statementStatusGutter } from "../sql/statementGutter";
 import { RunGroup } from "./RunGroup";
 import { ConsoleBinding } from "./ConsoleBinding";
+import { Tabs, TabsCount, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EMPTY_ARRAY } from "@/lib/stableEmpty";
 import { requestVaultUnlock } from "@/workbench/vaultUnlockRequest";
 import { isVaultLockedError } from "../errorStates";
 import { useShallow } from "zustand/react/shallow";
-import { EMPTY_CONSOLE, useDatabaseStore } from "../databaseStore";
+import { EMPTY_CONSOLE, useDatabaseStore, visibleResult } from "../databaseStore";
 import { getEngineMeta } from "./EngineBadge";
 import { explain, explainAnalyze, type QueryPlan } from "../../../bridge/database";
 import { QueryPlanView } from "./QueryPlanView";
@@ -69,6 +70,7 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
     clearQueryError,
     clearQueryResult,
     runScript,
+    setActiveResult,
     schemaSnapshot,
     setInspectedCell,
     openExportModal,
@@ -81,6 +83,7 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
       clearQueryError: s.clearQueryError,
       clearQueryResult: s.clearQueryResult,
       runScript: s.runScript,
+      setActiveResult: s.setActiveResult,
       schemaSnapshot: s.schemaSnapshot,
       setInspectedCell: s.setInspectedCell,
       openExportModal: s.openExportModal,
@@ -93,7 +96,8 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
   // across a closure boundary but not a property access on a mutable object,
   // so a null-check on `slice.queryResult` wouldn't survive into a `.map`
   // callback — these locals give the narrowing something it can keep.
-  const { queryResult, queryStartTime } = slice;
+  const { queryStartTime } = slice;
+  const queryResult = visibleResult(slice);
 
   /*
    * The connection the FILE was written for, and only when it is not the one
@@ -578,6 +582,36 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
                   cut at the row ceiling looks exactly like a complete one.
                 */}
                 <div className="flex h-8 shrink-0 items-center gap-2">
+                  {/*
+                    One tab per grid the run produced, and only when a run
+                    produced more than one. A script's SELECTs each have an
+                    answer; without these the reader watches three of them go
+                    past and keeps the last.
+
+                    Named after the table the statement touches, because with
+                    four tabs open "ba_account" is what the eye is looking
+                    for — every one of them starts "SELECT * FROM".
+                  */}
+                  {slice.results.length > 1 && (
+                    <Tabs
+                      value={String(slice.activeResult)}
+                      onValueChange={(value) => setActiveResult(consoleId, Number(value))}
+                      className="min-w-0"
+                    >
+                      <TabsList variant="line" className="max-w-full overflow-x-auto">
+                        {slice.results.map((tab, index) => (
+                          <TabsTrigger
+                            key={`${index}-${tab.statement}`}
+                            value={String(index)}
+                            title={tab.statement}
+                          >
+                            {statementName(tab.statement)}
+                            <TabsCount>{tab.result.rowCount}</TabsCount>
+                          </TabsTrigger>
+                        ))}
+                      </TabsList>
+                    </Tabs>
+                  )}
                   {queryResult.truncated && (
                     <span className="flex h-7 items-center rounded-md border border-border-subtle bg-surface-raised px-3 text-code-11 text-text-tertiary">
                       row cap reached — add LIMIT/OFFSET to page further

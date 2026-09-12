@@ -92,9 +92,26 @@ export function migrateFoldersToIds<T extends LegacyFolderState>(
  * console that asked for it, and a slow query landing after you switched tabs
  * has to find its way back to the tab that ran it.
  */
+/** One grid, and the statement that produced it. */
+export type ResultTab = {
+  /** Names the tab, and says which of four grids you are looking at. */
+  statement: string;
+  result: QueryResult;
+};
+
 export type ConsoleState = {
   sql: string;
-  queryResult: QueryResult | null;
+  /**
+   * Every grid the last run produced, in the order the statements ran.
+   *
+   * A list rather than one result, because a script is several statements
+   * and each SELECT in it has an answer. "The last run" is the whole scope:
+   * one statement replaces the list with its own result, a script fills it.
+   * Nothing accumulates across runs, so there is never a tab whose rows came
+   * from a question asked ten minutes ago.
+   */
+  results: ResultTab[];
+  activeResult: number;
   runningQuery: boolean;
   queryStartTime: number | null;
   queryError: string;
@@ -142,12 +159,24 @@ export type RunVerdict = "ok" | "error" | "cancelled" | "superseded" | "skipped"
 /** Which of the rail's three lists is showing. */
 export type SidebarPane = "connections" | "consoles" | "saved";
 
+/**
+ * The grid on screen: the active one of the last run's results.
+ *
+ * A function rather than a field, because a field would be the same fact
+ * written twice and the two would disagree the first time one of them was
+ * updated without the other.
+ */
+export function visibleResult(console: ConsoleState): QueryResult | null {
+  return console.results[console.activeResult]?.result ?? null;
+}
+
 /** The console a module opens with, and the one every legacy caller means. */
 export const DEFAULT_CONSOLE_ID = "console-1";
 
 export const EMPTY_CONSOLE: ConsoleState = Object.freeze({
   sql: "",
-  queryResult: null,
+  results: [],
+  activeResult: 0,
   runningQuery: false,
   queryStartTime: null,
   queryError: "",
@@ -449,7 +478,11 @@ export type DatabaseStoreState = {
   // Query actions
   /** Runs one statement. Without one, the whole console — which is what a
    * single-statement console means anyway. */
-  executeQuery: (consoleId: string, statement?: string) => Promise<RunVerdict>;
+  executeQuery: (
+    consoleId: string,
+    statement?: string,
+    options?: { append?: boolean },
+  ) => Promise<RunVerdict>;
   /** Runs a script top to bottom, stopping at the first statement that does
    * not come back clean. */
   runScript: (consoleId: string, statements: readonly string[]) => Promise<void>;
@@ -459,6 +492,8 @@ export type DatabaseStoreState = {
   /** Reports a failure into one console — Explain and friends, which run
    * outside executeQuery but land in the same error slot. */
   setQueryError: (consoleId: string, message: string) => void;
+  /** Brings one of a script's grids to the front. */
+  setActiveResult: (consoleId: string, index: number) => void;
   /** Reads a console, defaulting to EMPTY_CONSOLE so callers never branch. */
   consoleState: (consoleId: string) => ConsoleState;
   /** Drops a console's slice when its tab closes, and the file with it. */
@@ -655,7 +690,14 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       consoles: Object.fromEntries(
         Object.entries(state.consoles).map(([id, console]) => [
           id,
-          { ...console, queryResult: null, queryError: "", queryStatus: "", queryDurationMs: null },
+          {
+            ...console,
+            results: [],
+            activeResult: 0,
+            queryError: "",
+            queryStatus: "",
+            queryDurationMs: null,
+          },
         ]),
       ),
     }));
@@ -797,7 +839,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   setSelectedSchema: (schema: string) => set({ selectedSchema: schema }),
   setSelectedTable: (table: string) => set({ selectedTable: table }),
 
-  executeQuery: async (consoleId, statement) => {
+  executeQuery: async (consoleId, statement, options) => {
     const { selectedProfileId } = get();
     const console = get().consoleState(consoleId);
     const sql = (statement ?? console.sql).trim();
@@ -823,8 +865,16 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       if (get().consoleState(consoleId).queryRunId !== runId) {
         return "superseded";
       }
+      // A single run is its own scope: its result replaces whatever was
+      // there. Only a script appends, and it cleared the list before it
+      // started — so the tabs on screen are always one run's worth.
+      const previous = options?.append ? get().consoleState(consoleId).results : [];
+      const results = [...previous, { statement: sql, result }];
       patchConsole(set, consoleId, {
-        queryResult: result,
+        results,
+        // The newest, so a script is watched arriving rather than reviewed
+        // afterwards.
+        activeResult: results.length - 1,
         runningQuery: false,
         queryDurationMs: Date.now() - (get().consoleState(consoleId).queryStartTime ?? Date.now()),
         queryStatus: `${result.rowCount} row${result.rowCount === 1 ? "" : "s"}`,
@@ -874,9 +924,9 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     if (statements.length === 0) {
       return;
     }
-    patchConsole(set, consoleId, { statementRuns: {} });
+    patchConsole(set, consoleId, { statementRuns: {}, results: [], activeResult: 0 });
     for (const statement of statements) {
-      if ((await get().executeQuery(consoleId, statement)) !== "ok") {
+      if ((await get().executeQuery(consoleId, statement, { append: true })) !== "ok") {
         return;
       }
     }
@@ -885,6 +935,8 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   cancelQuery: (consoleId) => {
     pendingQueries.get(consoleId)?.cancel();
   },
+
+  setActiveResult: (consoleId, index) => patchConsole(set, consoleId, { activeResult: index }),
 
   consoleState: (consoleId) => get().consoles[consoleId] ?? EMPTY_CONSOLE,
 
@@ -1269,7 +1321,12 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     patchConsole(set, consoleId, { editorSize: size }),
 
   clearQueryResult: (consoleId) =>
-    patchConsole(set, consoleId, { queryResult: null, queryStatus: "", queryDurationMs: null }),
+    patchConsole(set, consoleId, {
+      results: [],
+      activeResult: 0,
+      queryStatus: "",
+      queryDurationMs: null,
+    }),
 
   clearQueryError: (consoleId) => patchConsole(set, consoleId, { queryError: "" }),
 

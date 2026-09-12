@@ -210,3 +210,25 @@ function endOfDollarQuoted(text: string, from: number): number | null {
   const close = text.indexOf(tag, from + tag.length);
   return close === -1 ? text.length : close + tag.length;
 }
+
+/**
+ * A short name for a statement, for the tab its result arrives in.
+ *
+ * The table it touches, because that is what the reader is looking for when
+ * a script has produced four grids: "ba_account" finds its tab, "SELECT *
+ * FROM…" does not — every tab starts that way. Falls back to the head of
+ * the statement when there is no obvious target, which covers SELECT 1 and
+ * the things nobody names a tab after anyway.
+ */
+export function statementName(statement: string): string {
+  const bare = statement.replace(/--[^\n]*/g, " ").replace(/\/\*[\s\S]*?\*\//g, " ");
+  const target = /\b(?:from|into|update|table)\s+[`"[]?([\w.]+)/i.exec(bare);
+  if (target) {
+    // The object, not its schema: a tab is 15 characters wide and
+    // "public." is the same seven on every one of them.
+    const name = target[1].split(".").pop() ?? target[1];
+    if (name) return name;
+  }
+  const head = bare.trim().replace(/\s+/g, " ");
+  return head.length > 20 ? `${head.slice(0, 20)}…` : head;
+}

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { dialectOf, splitStatements, statementAt } from "./statements";
+import { dialectOf, splitStatements, statementAt, statementName } from "./statements";
 
 const pg = dialectOf("postgres");
 const mysql = dialectOf("mysql");
@@ -139,5 +139,34 @@ describe("the statement the caret is in", () => {
 
   test("an empty console has nothing to run", () => {
     expect(statementAt(splitStatements("  ", pg), 1)).toBeUndefined();
+  });
+});
+
+/**
+ * What a result tab is called.
+ *
+ * The table it touches: with four grids open, "ba_account" finds its tab
+ * and "SELECT * FROM…" does not, because every tab starts that way.
+ */
+describe("naming a statement", () => {
+  test.each([
+    ["SELECT * FROM ba_account", "ba_account"],
+    ["select id from public.orders where x = 1", "orders"],
+    ["INSERT INTO audit (note) VALUES ('x')", "audit"],
+    ["UPDATE employees SET active = 0", "employees"],
+    ["SELECT * FROM `ba_user`", "ba_user"],
+    ["CREATE TABLE sessions (id int)", "sessions"],
+  ])("%s → %s", (sql, expected) => {
+    expect(statementName(sql)).toBe(expected);
+  });
+
+  test("a statement with no target keeps its own head", () => {
+    expect(statementName("SELECT 1")).toBe("SELECT 1");
+    expect(statementName("SELECT now(), version(), current_user, 42")).toBe("SELECT now(), versio…");
+  });
+
+  // The name comes from the SQL, not from a comment that happens to say FROM.
+  test("a comment cannot name the tab", () => {
+    expect(statementName("-- from the old report\nSELECT * FROM orders")).toBe("orders");
   });
 });
