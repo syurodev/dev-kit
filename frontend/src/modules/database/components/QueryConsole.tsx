@@ -276,7 +276,18 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
         >
           <Button
             variant={slice.runningQuery ? "danger" : "default"}
-            size="icon-sm"
+            // `xs` rather than `icon-sm` in both states, and the width is set
+            // here. icon-sm's `size-*` sets width and height together, and
+            // tailwind-merge does not treat a later `w-auto` as conflicting
+            // with it — both would survive into the class list and the winner
+            // would be whichever the stylesheet happened to emit last. Taking
+            // the height from `xs` and stating the width leaves nothing to
+            // chance: exactly 28 square at rest, content-sized while running.
+            size="xs"
+            className={cn(
+              "gap-0",
+              slice.runningQuery ? "w-auto px-2" : "w-(--control-height-sm) p-0",
+            )}
             onClick={() =>
               slice.runningQuery ? cancelQuery(consoleId) : void executeQuery(consoleId)
             }
@@ -287,6 +298,26 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
             ) : (
               <Play className="fill-current" />
             )}
+            {/* The elapsed time grows out of the button rather than appearing
+                in it. A width cannot transition to `auto`, so the column does:
+                0fr to 1fr is a real animation to the content's own size, and
+                the button — which is only as wide as its content — follows it
+                frame by frame. No Motion, no measuring.
+
+                tabular-nums because this redraws ten times a second: with
+                proportional digits a 1 is narrower than a 4 and the button
+                would twitch on every tick rather than only when the count
+                gains a digit. */}
+            <span
+              className={cn(
+                "grid transition-[grid-template-columns] duration-(--motion-base) ease-(--ease-out-strong) motion-reduce:transition-none",
+                slice.runningQuery ? "grid-cols-[1fr]" : "grid-cols-[0fr]",
+              )}
+            >
+              <span className="overflow-hidden pl-1.5 text-code-11 tabular-nums">
+                {elapsed.toFixed(1)}s
+              </span>
+            </span>
           </Button>
         </ActionTooltip>
       </div>

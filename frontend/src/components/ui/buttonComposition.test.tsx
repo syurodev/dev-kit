@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { renderToString } from "react-dom/server";
 import { Button } from "./button";
+import { cn } from "@/lib/utils";
 import { CraftButton, CraftButtonIcon, CraftButtonLabel } from "./craft-button";
 
 /**
@@ -39,6 +40,30 @@ describe("glass is a variant", () => {
     const large = renderToString(<Button variant="glass" size="lg" />);
     expect(small).toContain("h-(--control-height-sm)");
     expect(large).toContain("h-(--control-height-xl)");
+  });
+});
+
+/**
+ * The trap under any icon button that has to change width.
+ *
+ * `size="icon-sm"` emits `size-(--control-height-sm)`, which sets width AND
+ * height. tailwind-merge does not treat a later `w-auto` as conflicting with
+ * it, so both survive into the class list and the winner is whichever rule the
+ * stylesheet happens to emit last — not the one written last. Taking the
+ * height from a text size and stating the width is what makes it decidable.
+ */
+describe("a width put beside an icon size", () => {
+  it("does not win, which is why the Run button does not use one", () => {
+    const merged = cn("size-(--control-height-sm) rounded-md p-0", "w-auto px-2");
+    expect(merged).toContain("size-(--control-height-sm)");
+    expect(merged).toContain("w-auto");
+  });
+
+  it("is decidable when the height comes from a text size", () => {
+    const merged = cn("h-(--control-height-sm) gap-1.5 rounded-md px-2.5", "w-auto gap-0 px-2");
+    expect(merged).not.toContain("px-2.5");
+    expect(merged).not.toContain("gap-1.5");
+    expect(merged).toContain("w-auto");
   });
 });
 
