@@ -4,12 +4,13 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { RunGroup } from "./RunGroup";
 import type { ConsoleStatus } from "../consoleStatus";
 
-const render = (status: ConsoleStatus, running = false) =>
+const render = (outcome: ConsoleStatus, running = false) =>
   renderToString(
     <TooltipProvider>
       <RunGroup
-        status={status}
+        outcome={outcome}
         running={running}
+        startedAt={running ? Date.now() : null}
         canRun
         onRun={() => {}}
         onStop={() => {}}

@@ -33,20 +33,31 @@ import type { ConsoleStatus } from "../consoleStatus";
  */
 
 /**
- * The filter's reach. Two shapes weld while their gap is under about 2σ, so σ
- * and the gap are one setting, and the arithmetic is worth writing down: a
- * Gaussian leaves 0.5·erfc(d/σ√2) of the alpha at distance d from an edge, two
- * shapes contribute one each, and the pair welds where that sum crosses the
- * 0.5 threshold — which puts the boundary at σ ≈ d/0.675, d being HALF the
- * gap. Both ends were tried against that: σ6 across 4px is twice what it takes
- * and fused them into one lozenge with no waist, σ5 across 8px is under it and
- * broke the bridge outright. σ5 across 6px needs 4.45 and has 5: welded, by
- * the least it can be.
+ * The blur, and the source radius that survives it.
+ *
+ * Two shapes weld while their gap is under about 2σ, which made the gap and σ
+ * a pair to solve — and solving it that way was wrong. The pill's blurred mass
+ * depends on how WIDE it is, so a bridge tuned for "0.0s ERROR: relation …"
+ * broke for "9.9s": the shipped σ5 across 6px left two separate blobs with a
+ * wart each, pointing at a neck that was not there.
+ *
+ * Touching removes the variable. At gap 0 the alpha is continuous across the
+ * contact, so they are welded at any width and the waist is the filter's own
+ * fillet — the same shape every time.
+ *
+ * What is left is that blur-and-threshold INFLATES a corner: a 28px square at
+ * σ5 comes back all but circular, which is what read as the button being bent
+ * out of shape. σ2 with the source radius dropped one step lands the drawn
+ * corner back on --radius-md, so the button matches the five controls beside
+ * it while still growing a waist.
  */
-const GOO_BLUR = 5;
+const GOO_BLUR = 2;
 
-/** The gap the neck spans. Paired with GOO_BLUR; neither moves alone. */
-const GOO_GAP = "gap-1.5";
+/** Touching. Not a gap to be bridged — see above. */
+const GOO_GAP = "gap-0";
+
+/** One step under --radius-md, so the filter returns it AT --radius-md. */
+const RUN_SOURCE_RADIUS = "rounded-sm";
 
 /**
  * alpha' = 26a − 13, so the silhouette is everything the blur left above 50%.
@@ -64,8 +75,7 @@ const GOO_THRESHOLD = "1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 26 -13";
  */
 const PILL_BOX =
   "flex h-(--control-height-sm) w-full min-w-0 items-center overflow-hidden rounded-full text-code-11";
-const RUN_BOX =
-  "h-(--control-height-sm) w-(--control-height-sm) shrink-0 rounded-md p-0 gap-0";
+const RUN_BOX = "h-(--control-height-sm) w-(--control-height-sm) shrink-0 p-0 gap-0";
 
 /**
  * Every state is a filled tone, and the running one is the Stop button's own.
@@ -100,6 +110,30 @@ function StatusIcon({ status }: { status: ConsoleStatus }) {
     default:
       return <Clock className="size-3 shrink-0" />;
   }
+}
+
+/**
+ * The running clock, owned by the only thing that shows it.
+ *
+ * It ticks ten times a second, so where it lives decides what re-renders ten
+ * times a second. It used to live in QueryConsole, which owns the editor and
+ * the result grid: a table of rows nobody had asked to change was re-rendered
+ * all the way through every run, and the split animation happened to start at
+ * the same instant the ticking did.
+ */
+function useElapsed(running: boolean, startedAt?: number | null): number {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!running || !startedAt) {
+      setElapsed(0);
+      return;
+    }
+    const tick = () => setElapsed((Date.now() - startedAt) / 1000);
+    tick();
+    const interval = setInterval(tick, 100);
+    return () => clearInterval(interval);
+  }, [running, startedAt]);
+  return elapsed;
 }
 
 type Layer = "shape" | "glyph";
@@ -218,9 +252,10 @@ function Layer({
           // beside the button: at nothing-wide its blurred mass is too small to
           // reach across the gap, so the first frames were a detached dot that
           // joined up later — the opposite of being pulled out of something.
-          // Starting a button's width to the right puts it UNDER Run at zero,
-          // and the neck is drawn by it leaving.
-          shown ? "grid-cols-[1fr] translate-x-0" : "grid-cols-[0fr] translate-x-9",
+          // Starting exactly the button's width to the right (28px, which is
+          // --control-height-sm) puts it UNDER Run at zero, and the waist is
+          // drawn by it leaving.
+          shown ? "grid-cols-[1fr] translate-x-0" : "grid-cols-[0fr] translate-x-7",
         )}
       >
         <div className="min-w-0 overflow-hidden">
@@ -263,7 +298,10 @@ function Layer({
           {...focusProps(shape, "run", onFocusChange)}
           className={cn(
             RUN_BOX,
-            shape ? "[&_svg]:opacity-0 focus-visible:ring-0" : "bg-transparent",
+            // The shape is drawn a step tighter so the filter hands it back at
+            // the radius its neighbours wear; the glyph layer is not filtered
+            // and takes the real one.
+            shape ? `${RUN_SOURCE_RADIUS} [&_svg]:opacity-0 focus-visible:ring-0` : "rounded-md bg-transparent",
             !shape && focus === "run" && RING,
           )}
           onClick={shape ? onPress : undefined}
@@ -277,15 +315,19 @@ function Layer({
 }
 
 export function RunGroup({
-  status,
+  outcome,
   running,
+  startedAt,
   canRun,
   onRun,
   onStop,
   runLabel,
 }: {
-  status: ConsoleStatus;
+  /** What the last finished statement came to. Idle until one has. */
+  outcome: ConsoleStatus;
   running: boolean;
+  /** When the current run started, for the clock this component owns. */
+  startedAt?: number | null;
   /** False with no connection: Run has nothing to run against. */
   canRun: boolean;
   onRun: () => void;
@@ -293,6 +335,10 @@ export function RunGroup({
   runLabel: string;
 }) {
   const filterId = useId();
+  const elapsed = useElapsed(running, startedAt);
+  const status: ConsoleStatus = running
+    ? { kind: "running", time: `${elapsed.toFixed(1)}s` }
+    : outcome;
   const shown = status.kind !== "idle";
   const [open, setOpen] = useState(false);
   const [focus, setFocus] = useState<FocusTarget>(null);

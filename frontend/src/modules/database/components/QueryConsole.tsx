@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   FileCode2,
   BookmarkPlus,
@@ -88,26 +88,17 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
   // this one may not have.
   const [gridWidths, setGridWidths] = useState<number[]>(EMPTY_ARRAY);
 
-  const [elapsed, setElapsed] = useState(0);
   const [activePlan, setActivePlan] = useState<QueryPlan | null>(null);
   const [explaining, setExplaining] = useState(false);
 
   const profile = profiles.find((p) => p.id === selectedProfileId);
   const engineMeta = getEngineMeta(profile?.engine);
 
-  // 30s Execution timer (Screen 14)
-  useEffect(() => {
-    if (!slice.runningQuery || !queryStartTime) {
-      setElapsed(0);
-      return;
-    }
-    const interval = setInterval(() => {
-      const now = Date.now();
-      const diffSec = (now - queryStartTime) / 1000;
-      setElapsed(diffSec);
-    }, 100);
-    return () => clearInterval(interval);
-  }, [slice.runningQuery, queryStartTime]);
+  /* The 30s execution clock lives in RunGroup now. It ticked ten times a
+     second HERE, and this component owns the editor and the result grid — so
+     every tick re-rendered a table of rows nobody had asked to change, all the
+     way through the run, which is what the split animation was competing
+     with. The pill is the only thing that moves; it keeps its own interval. */
 
   // CodeMirror 6 SQL Dialect & Autocomplete Extension (F2, F3)
   const sqlExtension = useMemo(() => {
@@ -176,9 +167,9 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
 
   // One line about the statement that just ran, for the pill beside Run. The
   // wording and the ranking live in consoleStatus so they can be tested.
-  const status = consoleStatus({
-    running: slice.runningQuery,
-    elapsedSec: elapsed,
+  const outcome = consoleStatus({
+    running: false,
+    elapsedSec: 0,
     durationMs: slice.queryDurationMs ?? undefined,
     error: slice.queryError || undefined,
     rowCount: queryResult?.rowCount,
@@ -259,8 +250,9 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
             the pill now, which is the control that started it, and the bar
             that said the same thing in a band of its own is gone. */}
         <RunGroup
-          status={status}
+          outcome={outcome}
           running={slice.runningQuery}
+          startedAt={queryStartTime}
           canRun={Boolean(selectedProfileId)}
           onRun={() => void executeQuery(consoleId)}
           onStop={() => cancelQuery(consoleId)}
