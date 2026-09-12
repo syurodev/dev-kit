@@ -273,11 +273,19 @@ export function RunGroup({
   const height = HEADER_HEIGHT + (expanded ? detailHeight : 0);
   const width = expanded ? openWidth : headerSize.width;
 
-  const reading = (
+  /*
+   * The reading, with or without its summary line.
+   *
+   * Open, the summary goes: the whole message is about to be printed two
+   * pixels below it, and the same sentence twice — once clipped, once not —
+   * is what made the open state read as two objects instead of one taller
+   * one. What stays is the icon and the clock, which the message is not.
+   */
+  const reading = (summary: boolean) => (
     <>
       <StatusIcon status={status} />
       <span className="tabular-nums">{status.kind === "idle" ? "" : status.time}</span>
-      {status.kind !== "idle" && status.kind !== "running" && (
+      {summary && status.kind !== "idle" && status.kind !== "running" && (
         <span className="max-w-64 truncate">{status.message}</span>
       )}
     </>
@@ -308,10 +316,36 @@ export function RunGroup({
         animate={{ width, height }}
         transition={SPRING}
       >
+        {/*
+          The closed row, measured and never seen.
+
+          The visible row changes shape when it opens — it spans the body so
+          the clock sits over the first character of the message rather than
+          out at the right-hand end — and a row that spans the body cannot
+          also report how wide the body is when it doesn't. This ghost is the
+          one answer to that question: what this control occupies in the
+          toolbar, and what the body shrinks back to when the error closes.
+        */}
+        <div
+          ref={header}
+          aria-hidden
+          className="pointer-events-none invisible absolute top-0 right-0 flex w-max items-center"
+        >
+          {shown && <div className={SEGMENT}>{reading(true)}</div>}
+          <div className="size-(--control-height-sm)" />
+        </div>
+
         {/* Sized to its content and pinned to the right, so a body narrower
             than this clips the outcome off the LEFT and leaves the end where
-            it was. Nothing in here moves; only the window onto it changes. */}
-        <div ref={header} className="absolute top-0 right-0 flex w-max items-center">
+            it was. Nothing in here moves; only the window onto it changes.
+            Open, it spans the body instead, which puts the clock at the
+            message's own left margin and Run out at the end. */}
+        <div
+          className={cn(
+            "absolute top-0 right-0 flex items-center",
+            expanded ? "left-0" : "w-max",
+          )}
+        >
           {shown &&
             /* A button only when there is something behind it. An outcome you
                cannot open is a reading, not a control, and a <button> that
@@ -326,13 +360,13 @@ export function RunGroup({
                   open ? "Hide the full error" : `${status.message} — show the full error`
                 }
                 onClick={() => setOpen((value) => !value)}
-                className={cn(SEGMENT, "cursor-pointer outline-none")}
+                className={cn(SEGMENT, "cursor-pointer outline-none", expanded && "grow")}
               >
-                {reading}
+                {reading(!expanded)}
               </button>
             ) : (
               <div role="status" className={SEGMENT}>
-                {reading}
+                {reading(true)}
               </div>
             ))}
           <ActionTooltip label={runLabel} wrap>
@@ -360,9 +394,11 @@ export function RunGroup({
           </ActionTooltip>
         </div>
 
-        {/* The rest of the message, in the same body. It sits under the header
-            and is measured at its natural height so the body can animate to
-            it; when it is taller than the cap it scrolls inside itself. */}
+        {/* The message, in the same body and on the same ground. It sits
+            under the clock at the clock's own left margin, so the control
+            opening is one block of text getting longer rather than a panel
+            arriving under a bar. Measured at its natural height so the body
+            can animate to it; past the cap it scrolls inside itself. */}
         {status.kind === "error" && (
           <div
             // Width pinned to what the body will have when open, never to what
@@ -372,17 +408,13 @@ export function RunGroup({
             style={{ top: HEADER_HEIGHT, width: openWidth, height: detailHeight }}
             inert={!expanded}
           >
-            {/* Its own ground, not more of the red. The tone belongs to the
-                status; the engine's text is content, and it reads better —
-                and at a contrast the palette already floors — on the surface
-                every other panel in the app uses. */}
-            <div
-              ref={detail}
-              className="flex flex-col gap-1 bg-surface-base px-2 pt-1.5 pb-1.5 text-text-primary"
-            >
+            {/* No ground of its own. A second surface inside the control is
+                a second object, and pl-2.5 is SEGMENT's own left padding —
+                the message starts under the clock, at the same margin. */}
+            <div ref={detail} className="flex flex-col gap-0.5 pr-1.5 pb-1.5 pl-2.5">
               <pre
-                className="overflow-auto rounded-sm bg-surface-well p-2 text-left text-code-11 whitespace-pre-wrap select-text"
-                style={{ maxHeight: MAX_DETAIL_HEIGHT - 48 }}
+                className="overflow-auto text-left text-code-11 whitespace-pre-wrap select-text"
+                style={{ maxHeight: MAX_DETAIL_HEIGHT - 40 }}
               >
                 {status.detail}
               </pre>
@@ -397,6 +429,10 @@ export function RunGroup({
 
 /**
  * Copy, inside the message rather than beside it.
+ *
+ * It takes the body's own text colour rather than a secondary grey: the
+ * ground here is the status tone, and a grey mixed for --surface-base is not
+ * a colour anyone measured against red.
  */
 function CopyDetail({ detail }: { detail: string }) {
   const [copied, setCopied] = useState(false);
@@ -410,7 +446,7 @@ function CopyDetail({ detail }: { detail: string }) {
         // action or the next copy has nothing to say.
         setTimeout(() => setCopied(false), 1500);
       }}
-      className="flex h-(--control-height-xs) shrink-0 cursor-pointer items-center gap-1.5 self-end rounded-sm px-1.5 text-code-11 text-text-secondary outline-none hover:bg-state-soft hover:text-text-primary focus-visible:ring-1 focus-visible:ring-status-info"
+      className="flex h-(--control-height-xs) shrink-0 cursor-pointer items-center gap-1.5 self-end rounded-sm px-1.5 text-code-11 outline-none hover:bg-state-soft focus-visible:ring-1 focus-visible:ring-current"
     >
       {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
       {copied ? "Copied" : "Copy"}

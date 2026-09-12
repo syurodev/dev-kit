@@ -128,6 +128,43 @@ describe("one body", () => {
     expect(html.indexOf("and the rest")).toBeGreaterThan(body);
   });
 
+  /**
+   * Open, it is one block of text on one ground.
+   *
+   * The first version printed the summary in a tinted bar and the same
+   * sentence again in a panel underneath it, on the app's ordinary surface.
+   * Two grounds and two copies of one sentence is two objects, whatever the
+   * markup says — the control is supposed to be getting taller, not opening
+   * something.
+   */
+  it("prints the message once, not clipped above itself", () => {
+    const html = render({
+      kind: "error",
+      time: "0.0s",
+      message: "Unknown column 'hello'",
+      detail: "Unknown column 'hello' in 'SELECT'",
+    });
+    // The ghost that measures the closed width is the only other copy, and
+    // it is hidden from everyone.
+    const copies = html.split("Unknown column &#x27;hello&#x27;").length - 1;
+    expect(copies, "the summary and the message are the same sentence").toBe(2);
+    const ghost = html.indexOf("aria-hidden");
+    expect(ghost).toBeGreaterThan(-1);
+    expect(html.indexOf("Unknown column &#x27;hello&#x27;")).toBeGreaterThan(ghost);
+  });
+
+  it("gives the message no ground of its own", () => {
+    const html = render({
+      kind: "error",
+      time: "0.0s",
+      message: "boom",
+      detail: "boom\nand the rest",
+    });
+    expect(html, "a second surface inside the control is a second object")
+      .not.toContain("bg-surface-well");
+    expect(html).not.toContain("bg-surface-base");
+  });
+
   it("leaves the toolbar's own footprint one control tall", () => {
     const html = render(
       { kind: "error", time: "0.0s", message: "boom", detail: "boom\nand the rest" },
