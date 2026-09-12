@@ -114,6 +114,19 @@ export type ConsoleState = {
    */
   originProfileId: string;
   originDatabase: string;
+  /**
+   * How each statement went, keyed by the statement's own text.
+   *
+   * By text and not by position, which is what makes the marks in the gutter
+   * survive an edit: insert a line above and every offset moves, but the
+   * statement you ran is still that statement. Change the statement and its
+   * mark goes with it, because the answer you have is about something you no
+   * longer have.
+   */
+  statementRuns: Record<string, "ok" | "error">;
+  /** The statement the last run actually sent, which is not the whole console
+   * once a script has more than one. */
+  lastStatement: string;
 };
 
 /** Which of the rail's three lists is showing. */
@@ -134,6 +147,8 @@ export const EMPTY_CONSOLE: ConsoleState = Object.freeze({
   editorSize: 50,
   originProfileId: "",
   originDatabase: "",
+  statementRuns: {},
+  lastStatement: "",
 }) as ConsoleState;
 
 /**
@@ -422,7 +437,9 @@ export type DatabaseStoreState = {
   setSelectedTable: (table: string) => void;
 
   // Query actions
-  executeQuery: (consoleId: string) => Promise<void>;
+  /** Runs one statement. Without one, the whole console — which is what a
+   * single-statement console means anyway. */
+  executeQuery: (consoleId: string, statement?: string) => Promise<void>;
   cancelQuery: (consoleId: string) => void;
   clearQueryResult: (consoleId: string) => void;
   clearQueryError: (consoleId: string) => void;
@@ -767,10 +784,11 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   setSelectedSchema: (schema: string) => set({ selectedSchema: schema }),
   setSelectedTable: (table: string) => set({ selectedTable: table }),
 
-  executeQuery: async (consoleId) => {
+  executeQuery: async (consoleId, statement) => {
     const { selectedProfileId } = get();
     const console = get().consoleState(consoleId);
-    if (!selectedProfileId || !console.sql.trim()) {
+    const sql = (statement ?? console.sql).trim();
+    if (!selectedProfileId || !sql) {
       return;
     }
 
@@ -781,10 +799,11 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       queryError: "",
       queryStatus: "",
       queryStartTime: Date.now(),
+      lastStatement: sql,
     });
 
     try {
-      const call = runQuery(selectedProfileId, console.sql);
+      const call = runQuery(selectedProfileId, sql);
       pendingQueries.set(consoleId, call);
       const result = await call;
       // A newer run in THIS console has already started; its answer wins.
@@ -796,6 +815,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
         runningQuery: false,
         queryDurationMs: Date.now() - (get().consoleState(consoleId).queryStartTime ?? Date.now()),
         queryStatus: `${result.rowCount} row${result.rowCount === 1 ? "" : "s"}`,
+        statementRuns: { ...get().consoleState(consoleId).statementRuns, [sql]: "ok" },
       });
     } catch (e) {
       if (isCancelError(e)) {
@@ -810,6 +830,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       patchConsole(set, consoleId, {
         queryError: errorMessage(e),
         runningQuery: false,
+        statementRuns: { ...get().consoleState(consoleId).statementRuns, [sql]: "error" },
         // How long it took to fail is worth as much as how long it took to
         // succeed — a statement rejected in 3ms is a typo, one that fails at
         // 28s hit the cap. It was only recorded on the success path, which is

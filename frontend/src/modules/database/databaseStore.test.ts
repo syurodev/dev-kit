@@ -158,3 +158,54 @@ describe("consoles that outlive the window", () => {
     expect(calls).toEqual(["release:c3", "forget:c3"]);
   });
 });
+
+/**
+ * Running one statement out of a script, and remembering how it went.
+ *
+ * The whole text was going to the driver until now, which is not a thing
+ * either driver will run: pgx prepares, so two statements come back as
+ * "cannot insert multiple commands into a prepared statement", and MySQL
+ * refuses unless the DSN opts into multi-statements — the flag that turns
+ * every injection into a stacked one.
+ *
+ * What is pinned here is the FILING — which statement the outcome is
+ * recorded against. Not the outcome itself: whether a run answers in this
+ * process depends on what the rest of the suite has done to the bridge, and
+ * a test that reads "error" today and "ok" tomorrow is a test of the suite's
+ * ordering rather than of this code.
+ */
+describe("one statement at a time", () => {
+  beforeEach(() => {
+    useDatabaseStore.setState({
+      consoles: {},
+      profiles: [
+        { id: "p1", name: "prod", host: "", port: 0, database: "shop", username: "", sslMode: "", env: "", readOnly: false },
+      ],
+      selectedProfileId: "p1",
+    });
+  });
+
+  test("the outcome is filed under the statement that ran, not the console", async () => {
+    await useDatabaseStore.getState().executeQuery("c1", "SELECT 2");
+
+    const console = useDatabaseStore.getState().consoleState("c1");
+    expect(Object.keys(console.statementRuns)).toEqual(["SELECT 2"]);
+    expect(console.lastStatement, "what the pill is talking about").toBe("SELECT 2");
+  });
+
+  test("a second statement adds a mark, it does not replace the first", async () => {
+    await useDatabaseStore.getState().executeQuery("c1", "SELECT 1");
+    await useDatabaseStore.getState().executeQuery("c1", "SELECT 2");
+
+    expect(Object.keys(useDatabaseStore.getState().consoleState("c1").statementRuns).sort()).toEqual(
+      ["SELECT 1", "SELECT 2"],
+    );
+  });
+
+  test("no statement means the whole console, which is what one statement is", async () => {
+    useDatabaseStore.getState().setSql("c2", "SELECT 9");
+    await useDatabaseStore.getState().executeQuery("c2");
+
+    expect(useDatabaseStore.getState().consoleState("c2").lastStatement).toBe("SELECT 9");
+  });
+});

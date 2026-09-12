@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { shortcut } from "@/lib/shortcut";
 import { CodeEditor } from "@/components/code-editor/CodeEditor";
 import { Prec } from "@codemirror/state";
-import { keymap } from "@codemirror/view";
+import { EditorView, keymap } from "@codemirror/view";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -24,6 +24,8 @@ import {
 } from "@/components/ui/resizable";
 import { cn } from "@/lib/utils";
 import { consoleStatus } from "../consoleStatus";
+import { dialectOf, splitStatements, statementAt } from "../sql/statements";
+import { statementStatusGutter } from "../sql/statementGutter";
 import { RunGroup } from "./RunGroup";
 import { ConsoleBinding } from "./ConsoleBinding";
 import { EMPTY_ARRAY } from "@/lib/stableEmpty";
@@ -122,10 +124,33 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
      way through the run, which is what the split animation was competing
      with. The pill is the only thing that moves; it keeps its own interval. */
 
+  /*
+   * Where the caret is, without a render per keystroke.
+   *
+   * Run means "run the statement the caret is in" — DataGrip's rule, and the
+   * only one that makes a console with several statements work at all: the
+   * whole text is not something either driver will accept, pgx because it
+   * prepares, MySQL because multi-statement is a DSN flag nobody should set.
+   *
+   * A ref rather than state because nothing on screen depends on the caret
+   * moving; the two things that read it are pressed, not rendered.
+   */
+  const caretRef = useRef(0);
+  // Named apart from the CodeMirror SQLDialect inside the memo below, which
+  // is a different thing with the same job title.
+  const splitDialect = useMemo(() => dialectOf(profile?.engine), [profile?.engine]);
+
+  const runStatement = () => {
+    const statements = splitStatements(slice.sql, splitDialect);
+    const statement = statementAt(statements, caretRef.current);
+    if (!statement) return;
+    void executeQuery(consoleId, statement.text);
+  };
+
   // Read by the editor's own ⌘↵ binding, which is built once and must not be
   // rebuilt every time the callback identity changes.
   const runRef = useRef<() => void>(() => {});
-  runRef.current = () => void executeQuery(consoleId);
+  runRef.current = runStatement;
 
   // CodeMirror 6 SQL Dialect & Autocomplete Extension (F2, F3)
   const sqlExtension = useMemo(() => {
@@ -148,6 +173,16 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
         upperCaseKeywords: true,
       }),
       sqlCompletionTheme,
+      // A tick or a cross beside each statement that has run. Rebuilt only
+      // when an outcome changes — the split inside it is memoised per
+      // document, so typing costs one split per keystroke, not one per
+      // visible line.
+      statementStatusGutter(slice.statementRuns, splitDialect),
+      // The caret, into a ref. selectionSet fires for every cursor move and
+      // for none of them does anything on screen change.
+      EditorView.updateListener.of((update) => {
+        caretRef.current = update.state.selection.main.head;
+      }),
       // Highest precedence, because basicSetup's default keymap already owns
       // Mod-Enter (insertBlankLine) and whoever gets there first wins.
       // Returning true consumes the key, which is also what stops the console
@@ -164,7 +199,7 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
         ]),
       ),
     ];
-  }, [profile?.engine, profile?.database, schemaSnapshot?.namespace, runRef]);
+  }, [profile?.engine, profile?.database, schemaSnapshot?.namespace, runRef, splitDialect, slice.statementRuns]);
 
   // Check for engine placeholder mismatch for MySQL / MariaDB (Screen 21)
   const hasPlaceholderMismatch = useMemo(() => {
@@ -226,7 +261,9 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
     durationMs: slice.queryDurationMs ?? undefined,
     error: slice.queryError || undefined,
     rowCount: queryResult?.rowCount,
-    sql: slice.sql,
+    // What RAN, not what is in the console: a SELECT run from a script that
+    // also holds an UPDATE must not be warned about the UPDATE.
+    sql: slice.lastStatement || slice.sql,
   });
 
   return (
@@ -317,7 +354,7 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
           running={slice.runningQuery}
           startedAt={queryStartTime}
           canRun={Boolean(selectedProfileId)}
-          onRun={() => void executeQuery(consoleId)}
+          onRun={runStatement}
           onStop={() => cancelQuery(consoleId)}
           runLabel={
             slice.runningQuery

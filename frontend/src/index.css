@@ -938,6 +938,34 @@
   height: 100%;
 }
 
+/* The per-statement outcome gutter (modules/database/sql/statementGutter.ts).
+ *
+ * One character wide and reserved from the start: a gutter that appeared the
+ * moment the first statement finished would shift every line of the script
+ * sideways while the reader was in it.
+ *
+ * The colours are the status tokens, so they follow the palette and the mode
+ * like every other success and failure in the app. Not colour alone: a tick
+ * and a cross are different shapes, and each carries a title. */
+.cm-statement-gutter {
+  min-width: 1.25em;
+}
+
+.cm-statement-mark {
+  display: block;
+  text-align: center;
+  font-size: 0.85em;
+  line-height: inherit;
+}
+
+.cm-statement-mark[data-outcome="ok"] {
+  color: var(--status-success);
+}
+
+.cm-statement-mark[data-outcome="error"] {
+  color: var(--status-danger);
+}
+
 /* Hanging indent for wrapped rows.
  *
  * CodeMirror wraps to column zero, so a continuation lands further left than
