@@ -2,8 +2,10 @@ package database
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -162,4 +164,35 @@ func dialMySQL(t *testing.T) Conn {
 		t.Fatalf("Dial mysql: %v", err)
 	}
 	return conn
+}
+
+// A statement the engine refuses must come back marked, or the bridge will
+// redact it to "Connection failed." and the console will blame the connection
+// for a typo. Live, because the whole point is what a real driver returns.
+func TestPostgresSyntaxErrorIsAStatementError(t *testing.T) {
+	if os.Getenv("DEVKIT_PG_TEST") != "1" {
+		t.Skip("set DEVKIT_PG_TEST=1 to run the PostgreSQL statement-error test")
+	}
+	conn := dialPostgres(t)
+	defer conn.Close()
+
+	rows, err := conn.Query(context.Background(), `SELECT * FROM definitely_not_a_table`)
+	if err == nil {
+		for rows.Next() {
+		}
+		err = rows.Err()
+		rows.Close()
+	}
+	if err == nil {
+		t.Fatal("the engine accepted a table that does not exist")
+	}
+
+	marked := NewStatementError(err)
+	var statement *StatementError
+	if !errors.As(marked, &statement) {
+		t.Fatalf("not marked as a statement error: %v", marked)
+	}
+	if !strings.Contains(statement.Error(), "definitely_not_a_table") {
+		t.Fatalf("the engine's sentence did not survive: %q", statement.Error())
+	}
 }

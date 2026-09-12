@@ -8,6 +8,7 @@ import (
 	"devkit/internal/agenthub"
 	"devkit/internal/apperrors"
 	"devkit/internal/cloudconfig"
+	"devkit/internal/database"
 	"devkit/internal/codegraph"
 	"devkit/internal/environments"
 	"devkit/internal/interaction"
@@ -31,6 +32,10 @@ const (
 	// "try again", and offering a retry on a folder that will never analyze is
 	// a button that cannot work.
 	codeUnsupportedProject = "unsupported_project"
+	// A statement the engine refused. Not connection_failed: the connection is
+	// fine, and the frontend tells the two apart to decide whether to offer a
+	// reconnect or just show what the engine said.
+	codeQueryFailed = "query_failed"
 )
 
 var safeValidationMessages = map[string]struct{}{
@@ -226,6 +231,19 @@ func publicError(subject string, err error) *apperrors.AppError {
 			errors.Is(err, install.ErrProxyNotFound):
 			return apperrors.New(codeValidationFailed, err.Error(), true)
 		}
+	}
+	// The engine's own answer to the SQL the user typed, passed through whole.
+	// Everything else on this subject stays redacted below: connecting happens
+	// with a DSN in hand, so a dial or an auth failure can carry a host, a
+	// username, and — if a driver echoes what it was given — a password. A
+	// statement's error carries none of that, and it is the single most useful
+	// sentence the console can show: "relation \"user\" does not exist" and
+	// its HINT, the SQLSTATE a banner keys on, the constraint that was
+	// violated. Redacting it to "Connection failed." was not redaction, it was
+	// a wrong answer — the connection was fine.
+	var statement *database.StatementError
+	if subject == "builtin.database" && errors.As(err, &statement) {
+		return apperrors.Wrap(codeQueryFailed, statement.Error(), true, err)
 	}
 	if subject == "builtin.database" || subject == "builtin.ssh" || subject == "builtin.kafka" {
 		return apperrors.New(codeConnectionFailed, "Connection failed.", true)
