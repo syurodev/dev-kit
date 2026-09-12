@@ -28,6 +28,11 @@ import {
 } from "@/components/ui/sidebar-shell";
 
 import { Button } from "@/components/ui/button";
+import {
+  CraftButton,
+  CraftButtonIcon,
+  CraftButtonLabel,
+} from "@/components/ui/craft-button";
 import { Tag } from "@/components/ui/tag";
 import { TagInput } from "@/components/ui/tag-input";
 import { Input } from "@/components/ui/input";
@@ -149,6 +154,29 @@ export default function ComponentGallery() {
             <Button size="lg" variant="secondary">
               Secondary LG
             </Button>
+          </div>
+        </Spec>
+
+        <Spec node="—" label="Glass — a variant: material only, height and radius from size">
+          <div className="flex flex-wrap items-center gap-3">
+            <Button variant="glass" size="sm">
+              Small
+            </Button>
+            <Button variant="glass">Continue</Button>
+            <Button variant="glass" size="lg">
+              Large
+            </Button>
+          </div>
+        </Spec>
+
+        <Spec node="—" label="Craft — a component: the icon's wash fills the pill and the label follows">
+          <div className="flex flex-wrap items-center gap-3">
+            <CraftButton>
+              <CraftButtonIcon>
+                <Plus className="size-3" />
+              </CraftButtonIcon>
+              <CraftButtonLabel>New connection</CraftButtonLabel>
+            </CraftButton>
           </div>
         </Spec>
 

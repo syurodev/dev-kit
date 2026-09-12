@@ -34,6 +34,16 @@ const buttonVariants = cva(
         // cannot click, and every call site had to remember that by hand.
         titlebar:
           "bg-transparent text-text-secondary hover:bg-state-soft hover:text-text-primary active:bg-state-soft cursor-pointer [--wails-draggable:no-drag]",
+        // The float tier as a control: see .glass-button in index.css, which
+        // holds the wash, the travelling ring and the reduced-transparency and
+        // reduced-motion answers. Only what a variant may own is here.
+        //
+        // `relative` because the ring is an absolutely-positioned ::before, and
+        // text-text-primary rather than white: white is right on the dark
+        // photograph this pattern comes from and wrong on five of this app's
+        // ten palettes, where the glass lands light. --text-primary is the one
+        // floored against every ground in themeContrast.test.ts.
+        glass: "glass-button relative text-text-primary",
         destructive:
           "bg-(--feedback-danger-soft) text-status-danger border border-(--border-danger) hover:bg-(--feedback-danger-hover) active:bg-(--feedback-danger-pressed)",
         link: "text-status-info underline-offset-4 hover:underline",
