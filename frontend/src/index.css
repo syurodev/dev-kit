@@ -938,32 +938,25 @@
   height: 100%;
 }
 
-/* The per-statement outcome gutter (modules/database/sql/statementGutter.ts).
+/* How a statement went, in the colour of its line number
+   (modules/database/sql/statementGutter.ts).
  *
- * One character wide and reserved from the start: a gutter that appeared the
- * moment the first statement finished would shift every line of the script
- * sideways while the reader was in it.
+ * It was a tick and a cross in a gutter of their own — a second column of
+ * chrome for one character of information. The line number is already
+ * there, already aligned with the statement, already the thing the eye uses
+ * to find a line.
  *
- * The colours are the status tokens, so they follow the palette and the mode
- * like every other success and failure in the app. Not colour alone: a tick
- * and a cross are different shapes, and each carries a title. */
-.cm-statement-gutter {
-  min-width: 1.25em;
-}
-
-.cm-statement-mark {
-  display: block;
-  text-align: center;
-  font-size: 0.85em;
-  line-height: inherit;
-}
-
-.cm-statement-mark[data-outcome="ok"] {
+ * A failure is also BOLD. Red and green are the pair deuteranopia collapses,
+ * and "which of these five failed" is exactly the question colour alone
+ * would leave unanswerable. The status tokens, so both follow the palette
+ * and the mode. */
+.cm-surfaceless .cm-statement-ok {
   color: var(--status-success);
 }
 
-.cm-statement-mark[data-outcome="error"] {
+.cm-surfaceless .cm-statement-error {
   color: var(--status-danger);
+  font-weight: 700;
 }
 
 /* Hanging indent for wrapped rows.
