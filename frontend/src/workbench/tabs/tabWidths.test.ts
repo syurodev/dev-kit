@@ -3,9 +3,12 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   ACTIVE_MIN_WIDTH_PX,
+  CHROME_PX,
   INACTIVE_MIN_WIDTH_PX,
   MAX_TAB_WIDTH_PX,
+  TAB_GAP_PX,
   computeTabWidths,
+  pillWidth,
 } from "./tabWidths";
 
 const ids = (n: number) => Array.from({ length: n }, (_, i) => `t${i}`);
@@ -26,7 +29,7 @@ describe("tab widths", () => {
     // p-2 either side, the + button, and the gap on both sides of it. It must
     // come to exactly the measured width, or the strip either overflows or
     // leaves a hole like the one this test came from.
-    const spent = share * 3 + 2 * 4 + 16 + 8 + 28 + 8;
+    const spent = share * 3 + 2 * TAB_GAP_PX + CHROME_PX;
     expect(Math.round(spent)).toBe(889);
   });
 
@@ -70,7 +73,7 @@ describe("tab widths", () => {
   test("the roomy and cramped branches meet without a jump", () => {
     // Chosen so equalShare lands exactly on the active floor.
     const n = 4;
-    const container = ACTIVE_MIN_WIDTH_PX * n + (n - 1) * 4 + 16 + 8 + 28 + 8;
+    const container = ACTIVE_MIN_WIDTH_PX * n + (n - 1) * TAB_GAP_PX + CHROME_PX;
     const widths = computeTabWidths({
       tabIds: ids(n),
       activeTabId: "t0",
@@ -79,6 +82,32 @@ describe("tab widths", () => {
     for (const id of ids(n)) {
       expect(widths.get(id)).toBe(ACTIVE_MIN_WIDTH_PX);
     }
+  });
+
+  // The bug this pair came from: the model counted 4px between tabs while the
+  // rows drew 6 inside a group and 8 between groups. Both errors landed in the
+  // same place — the pill was sized from the model's sum and then had to hold
+  // tabs laid out with the DOM's, so it clipped the last tab's right edge by
+  // the difference. The fix is one number; these say the number is used.
+  test("the pill holds exactly the tabs and the gaps between them", () => {
+    expect(pillWidth([100, 100, 100])).toBe(300 + 2 * TAB_GAP_PX);
+    expect(pillWidth([100])).toBe(100);
+    expect(pillWidth([])).toBe(0);
+  });
+
+  test("the pill and the chrome fill the strip they were measured from", () => {
+    const containerWidth = 889;
+    const widths = computeTabWidths({
+      tabIds: ids(3),
+      activeTabId: "t0",
+      containerWidth,
+    });
+    const pill = pillWidth(ids(3).map((id) => widths.get(id)))!;
+    expect(Math.round(pill + CHROME_PX)).toBe(containerWidth);
+  });
+
+  test("a pill with an unmeasured tab has no width of its own", () => {
+    expect(pillWidth([100, undefined])).toBeUndefined();
   });
 
   test("before the first measurement every tab is auto", () => {

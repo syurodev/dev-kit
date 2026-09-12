@@ -34,19 +34,52 @@ export const ACTIVE_MIN_WIDTH_PX = 200;
  */
 export const INACTIVE_MIN_WIDTH_PX = 52;
 
-/** Gap between two tabs, matching the row's own `gap` (4px). */
-const TAB_GAP_PX = 4;
+/**
+ * Gap between two tabs — the ONE number, read by the arithmetic here and by the
+ * rows themselves.
+ *
+ * It used to say 4 and be a lie twice over: the DOM put 6px between tabs inside
+ * a group and 8px between groups. So every tab was sized as if it had 2 to 4px
+ * more room than it really had, the pill was sized from the same wrong sum, and
+ * the last tab was clipped by the difference — a 2px slice off its right border
+ * with two tabs open, 4px when they came from different modules. A gap that
+ * lives in a class and again in a constant will drift again; this one is
+ * applied to the rows from here.
+ */
+export const TAB_GAP_PX = 8;
 
 /**
- * What the strip's measured box spends on something other than tabs: its own
- * `p-2` either side, the + button, and the `gap-2` on BOTH sides of it — the
- * row is [tabs] gap [+] gap [spacer], so there are two.
+ * What the strip's box spends on something other than tabs: its own `p-2`
+ * either side, the + button, and the `gap-2` on BOTH sides of it — the row is
+ * [tabs] gap [+] gap [spacer], so there are two.
  *
  * Dividing the whole measured width among tabs — which is what the strip did —
  * over-counts by this much. It went unnoticed only because the 200px cap
- * swallowed the error on every row that had room.
+ * swallowed the error on every row that had room. Exported so the test can
+ * state the invariant (tabs + gaps + chrome === the measured width) without
+ * respelling the sum.
  */
-const CHROME_PX = 16 + 8 + 28 + 8;
+export const CHROME_PX = 16 + 8 + 28 + 8;
+
+/**
+ * The pill's width: what the tabs and their gaps come to.
+ *
+ * Computed rather than left to the children's flex layout, because Reorder's
+ * drag changes how the dragged item participates in that flow. Undefined until
+ * every tab has a measured width — "auto" covers the first paint.
+ */
+export function pillWidth(
+  tabWidths: readonly (number | undefined)[],
+): number | undefined {
+  if (!tabWidths.every((value) => typeof value === "number")) {
+    return undefined;
+  }
+  const tabs = tabWidths as readonly number[];
+  return (
+    tabs.reduce((sum, value) => sum + value, 0) +
+    Math.max(0, tabs.length - 1) * TAB_GAP_PX
+  );
+}
 
 export type TabWidths = {
   /** Width per tab id; undefined means "auto", before the first measurement. */
