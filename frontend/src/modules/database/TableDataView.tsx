@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { EMPTY_ARRAY } from "@/lib/stableEmpty";
 import { listColumns, listIndexes } from "@/bridge/database";
@@ -12,6 +12,7 @@ import { browseKeyOfTab, useBrowseLifetime } from "./useConsoleLifetime";
 import { useIsActiveDocument } from "./useIsActiveDocument";
 import { openConsoleTab } from "./documents";
 import { buildBrowseQuery } from "./sql/browseQuery";
+import { quoteIdentifier, quoteLiteral } from "./sql/identifier";
 import { tableExportFilename } from "./export";
 import { pageKeyFor } from "./tableKey";
 
@@ -34,6 +35,12 @@ export function TableDataView({
   // computes the same key from a TAB, and two copies would drift into exactly
   // the leak that comment warns about.
   const key = browseKeyOfTab("database.table", { schema, table }) ?? "";
+
+  // The catalogue read below already returns every column's type — it is read
+  // for the key. Kept rather than discarded: it is what the header glyphs are
+  // drawn from, and asking for it again would be a second round trip for bytes
+  // already in hand.
+  const [columnTypes, setColumnTypes] = useState<Record<string, string>>({});
 
   useDatabaseChrome();
   useBrowseLifetime(key);
@@ -121,13 +128,17 @@ export function TableDataView({
       .then(([indexes, columns]) => {
         if (!cancelled) {
           setPageKey(key, pageKeyFor(indexes, columns, schema, table));
+          setColumnTypes(Object.fromEntries(columns.map((c) => [c.name, c.dataType])));
         }
       })
       .catch(() => {
         // A catalogue read we could not complete is not a reason to refuse the
-        // table: unkeyed is the safe reading, and it pages by offset.
+        // table: unkeyed is the safe reading, and it pages by offset. The
+        // header simply draws the neutral glyph, which is what an unknown type
+        // means anyway.
         if (!cancelled) {
           setPageKey(key, null);
+          setColumnTypes({});
         }
       });
     return () => {
@@ -256,6 +267,24 @@ export function TableDataView({
             setBrowseFrozen(key, next.frozen);
           }}
           onInspectCell={setInspectedCell}
+          columnTypes={columnTypes}
+          keyColumns={pageKey ?? undefined}
+          // Rows are numbered through the table, not through the page.
+          rowOffset={browse.pageIndex * pageSize}
+          // The grid hands up a column and a value; the engine's quoting rules
+          // live here, with the rest of the SQL this tab composes.
+          onFilterByValue={({ column, value, negate }) => {
+            const lhs = quoteIdentifier(column, engine);
+            // An empty cell is NULL, and NULL never equals anything — `= ''`
+            // would match the empty string instead and quietly return nothing.
+            const clause =
+              value === ""
+                ? `${lhs} IS ${negate ? "NOT " : ""}NULL`
+                : `${lhs} ${negate ? "<>" : "="} ${quoteLiteral(value, engine)}`;
+            const next = browse.where.trim() ? `${browse.where.trim()} AND ${clause}` : clause;
+            setBrowseWhere(key, next);
+            void loadBrowsePage(key, { schema, table });
+          }}
           sort={
             browse.orderBy
               ? {

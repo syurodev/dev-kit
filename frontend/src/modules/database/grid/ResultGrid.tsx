@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import type { LucideIcon } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import {
   DndContext,
@@ -14,7 +15,21 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Braces, Columns3, Copy, List, Pin, PinOff, Rows3 } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  Braces,
+  ChevronsUpDown,
+  Columns3,
+  Copy,
+  Filter,
+  FilterX,
+  KeyRound,
+  List,
+  Pin,
+  PinOff,
+  Rows3,
+} from "lucide-react";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -36,6 +51,7 @@ import type { QueryResult } from "@/bridge/database";
 import {
   DEFAULT_COLUMN_WIDTH_PX,
   MIN_COLUMN_WIDTH_PX,
+  ROW_NUMBER_WIDTH_PX,
   frozenOffsets,
   measureColumns,
   pinColumn,
@@ -47,8 +63,13 @@ import {
 // over the ROW and names an empty column col_${i}; an inlined
 // Object.fromEntries over `columns` is a different function with its own bugs.
 import { columnValues, rowAsJSON } from "./rowText";
+import { typeGlyph } from "./columnTypes";
 
-const ROW_HEIGHT = 36;
+// 28, not 36. A grid is read by scanning down it, and the row that matters is
+// usually the one below the fold — four more of them on a 500px pane is worth
+// more than the airiness. Read by useVirtualRows, so it has to match the `h-7`
+// on the cells or the spacer rows drift out of step with the real ones.
+const ROW_HEIGHT = 28;
 
 /**
  * What the pointer was over when the menu opened.
@@ -57,6 +78,10 @@ const ROW_HEIGHT = 36;
  * most of what it offers. Headers used to carry no target at all, so the menu
  * rendered every item behind `cell` and opened EMPTY on the one place anyone
  * right-clicks to act on a column.
+ *
+ * The row-number gutter resolves to the row's FIRST displayed column, so
+ * right-clicking a row number offers the row rather than the "right-click a
+ * cell" hint — which reads exactly like a right-click that did not register.
  */
 type Target = { row: number | null; column: number } | null;
 
@@ -84,6 +109,10 @@ export function ResultGrid({
   onReorder,
   frozen = 0,
   onFreeze,
+  columnTypes,
+  keyColumns,
+  rowOffset = 0,
+  onFilterByValue,
 }: {
   result: QueryResult;
   widths: readonly number[];
@@ -109,6 +138,25 @@ export function ResultGrid({
    * whole arrangement, because pinning MOVES a column — see pinColumn.
    */
   onFreeze?: (next: { order: number[]; frozen: number }) => void;
+  /**
+   * Column name → datatype, for the header glyphs. Absent in the console,
+   * whose columns can be expressions: a catalogue type for `count(*)` does not
+   * exist, and the neutral glyph is the honest answer rather than a guess.
+   */
+  columnTypes?: Readonly<Record<string, string>>;
+  /** The columns of the table's key, drawn with a key glyph instead of a type. */
+  keyColumns?: readonly string[];
+  /**
+   * The number of the first row on this page. The gutter counts through the
+   * table, not through the page — "row 3" of page 8 is not row 3.
+   */
+  rowOffset?: number;
+  /**
+   * Offered in the cell menu as "Filter by this value". The grid hands up the
+   * column and the value and nothing else: quoting them into SQL needs the
+   * engine, which is the caller's to know.
+   */
+  onFilterByValue?: (filter: { column: string; value: string; negate: boolean }) => void;
 }) {
   const rows = useVirtualRows(result.rows.length, ROW_HEIGHT);
   const order = orderedColumns(result.columns, columnOrder);
@@ -135,7 +183,9 @@ export function ResultGrid({
   // Frozen columns are sticky at an absolute offset — the widths of the frozen
   // columns before them. Indexed by DISPLAY position, which is what `order`
   // walks, not by the column's own index.
-  const offsets = frozenOffsets(order, widthOf, frozen);
+  // From the gutter's right edge: the row numbers are sticky at 0, so a frozen
+  // column starting there would paint underneath them.
+  const offsets = frozenOffsets(order, widthOf, frozen, ROW_NUMBER_WIDTH_PX);
   const frozenStyle = (position: number): CSSProperties | undefined =>
     offsets[position] === undefined
       ? undefined
@@ -196,11 +246,18 @@ export function ResultGrid({
             ref={rows.scrollRef}
             className="min-h-0 flex-1 overflow-auto scrollbar-gutter-stable rounded-md border border-border-subtle bg-surface-well"
             onContextMenu={(event) => {
-              const el = (event.target as HTMLElement).closest("[data-cell],[data-column]");
+              const el = (event.target as HTMLElement).closest(
+                "[data-cell],[data-column],[data-row]",
+              );
               const raw = el?.getAttribute("data-cell");
               if (raw) {
                 const [row, column] = raw.split(":").map(Number);
                 setTarget(Number.isNaN(row) ? null : { row, column });
+                return;
+              }
+              const gutter = Number(el?.getAttribute("data-row"));
+              if (!Number.isNaN(gutter) && el?.hasAttribute("data-row")) {
+                setTarget({ row: gutter, column: order[0] ?? 0 });
                 return;
               }
               const column = Number(el?.getAttribute("data-column"));
@@ -212,6 +269,7 @@ export function ResultGrid({
               aria-label="Query results"
             >
               <colgroup>
+                <col style={{ width: ROW_NUMBER_WIDTH_PX }} />
                 {order.map((index) => (
                   <col key={index} style={{ width: widthOf(index) }} />
                 ))}
@@ -223,6 +281,13 @@ export function ResultGrid({
                   row reads straight through it. */}
               <thead className="sticky top-0 z-10">
                 <tr>
+                  {/* The corner. Sticky on both axes and above the frozen
+                      columns, which slide under it. */}
+                  <th
+                    aria-label="Row"
+                    style={{ position: "sticky", left: 0, zIndex: 3 }}
+                    className="h-7 border-r border-b border-border-subtle bg-surface-raised p-0"
+                  />
                   <SortableContext items={order} strategy={horizontalListSortingStrategy}>
                     {order.map((index, position) => (
                       <HeaderCell
@@ -232,6 +297,12 @@ export function ResultGrid({
                         sorted={sort?.column === index ? sort.direction : null}
                         frozenAt={offsets[position]}
                         onSort={onSort}
+                        glyph={
+                          keyColumns?.includes(result.columns[index])
+                            ? KeyRound
+                            : typeGlyph(columnTypes?.[result.columns[index]])
+                        }
+                        isKey={!!keyColumns?.includes(result.columns[index])}
                         onResize={(column, delta) =>
                           onResize(resizeColumn(effectiveWidths, column, delta))
                         }
@@ -244,6 +315,23 @@ export function ResultGrid({
                 {rows.padTop > 0 && <tr style={{ height: rows.padTop }} aria-hidden />}
                 {rows.indices.map((rowIndex) => (
                   <tr key={rowIndex} className="group transition-colors hover:bg-surface-raised/60">
+                    {/* The row number, counting through the table rather than
+                        through the page. Sticky like the corner above it, and
+                        on the same opaque ground the pinned cells use — the
+                        scrolling columns pass beneath it. */}
+                    <td
+                      data-row={rowIndex}
+                      style={{
+                        position: "sticky",
+                        left: 0,
+                        zIndex: 3,
+                        background:
+                          "linear-gradient(var(--surface-well), var(--surface-well)), var(--surface-base)",
+                      }}
+                      className="h-7 border-r border-b border-border-subtle px-2 text-right tabular-nums text-code-11 text-text-tertiary select-none group-hover:[background-image:linear-gradient(var(--state-soft),var(--state-soft)),linear-gradient(var(--surface-well),var(--surface-well))]"
+                    >
+                      {rowOffset + rowIndex + 1}
+                    </td>
                     {/* Only the header drags. Giving each cell a useSortable would
                         mount one per visible cell — 2,220 on a 74-column table — to
                         animate a column that snaps into place on drop anyway. */}
@@ -255,7 +343,7 @@ export function ResultGrid({
                           data-cell={`${rowIndex}:${columnIndex}`}
                           style={frozenStyle(position)}
                           className={cn(
-                            "h-9 cursor-pointer truncate border-r border-b border-border-subtle px-4 select-text last:border-r-0 hover:text-text-primary",
+                            "h-7 cursor-pointer truncate border-r border-b border-border-subtle px-3 select-text last:border-r-0 hover:text-text-primary",
                             columnIndex === order[0] ? "text-text-primary" : "text-text-secondary",
                             // The row's hover tint has to reach a pinned cell
                             // too, or half the row lights up — and it has to
@@ -323,6 +411,34 @@ export function ResultGrid({
                 <Braces />
                 Copy row as JSON
               </ContextMenuItem>
+              {onFilterByValue && column ? (
+                <>
+                  <ContextMenuItem
+                    onSelect={() =>
+                      onFilterByValue({
+                        column: column.name,
+                        value: cell.value,
+                        negate: false,
+                      })
+                    }
+                  >
+                    <Filter />
+                    Filter by this value
+                  </ContextMenuItem>
+                  <ContextMenuItem
+                    onSelect={() =>
+                      onFilterByValue({
+                        column: column.name,
+                        value: cell.value,
+                        negate: true,
+                      })
+                    }
+                  >
+                    <FilterX />
+                    Exclude this value
+                  </ContextMenuItem>
+                </>
+              ) : null}
             </>
           ) : null}
           {column ? (
@@ -381,6 +497,8 @@ function HeaderCell({
   frozenAt,
   onSort,
   onResize,
+  glyph: Glyph,
+  isKey,
 }: {
   label: string;
   index: number;
@@ -389,6 +507,9 @@ function HeaderCell({
   frozenAt: number | undefined;
   onSort?: (index: number) => void;
   onResize: (index: number, delta: number) => void;
+  /** The datatype bucket, or a key — see typeGlyph. */
+  glyph: LucideIcon;
+  isKey: boolean;
 }) {
   const dragStart = useRef<number | null>(null);
   const { listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -435,20 +556,31 @@ function HeaderCell({
       // than data-cell — see Target.
       data-column={index}
       {...listeners}
-      className="relative h-10 border-r border-b border-border-subtle bg-surface-raised p-0 text-code-12-medium text-text-secondary last:border-r-0"
+      className="group/th relative h-7 border-r border-b border-border-subtle bg-surface-raised p-0 text-code-12-medium text-text-secondary last:border-r-0"
     >
       <button
         type="button"
-        className="flex h-full w-full items-center gap-1 truncate px-4 text-left disabled:cursor-default"
+        className="flex h-full w-full items-center gap-1.5 px-3 text-left disabled:cursor-default"
         disabled={!onSort}
         onClick={() => onSort?.(index)}
       >
-        <span className="truncate">{label}</span>
-        {sorted ? (
-          <span aria-hidden className="shrink-0 text-text-tertiary">
-            {sorted === "asc" ? "▲" : "▼"}
-          </span>
-        ) : null}
+        <Glyph
+          className={cn("size-3 shrink-0", isKey ? "text-status-info" : "text-text-tertiary")}
+          aria-hidden
+        />
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+        {/* The slot is always here, whether or not anything is in it. Revealing
+            the caret on hover by inserting it would re-flow the label under the
+            pointer — and measureColumns has already paid for the width. */}
+        <span aria-hidden className="flex size-3 shrink-0 items-center justify-center">
+          {sorted === "asc" ? (
+            <ArrowUp className="size-3 text-text-primary" />
+          ) : sorted === "desc" ? (
+            <ArrowDown className="size-3 text-text-primary" />
+          ) : onSort ? (
+            <ChevronsUpDown className="size-3 text-text-tertiary opacity-0 transition-opacity duration-(--motion-fast) group-hover/th:opacity-100" />
+          ) : null}
+        </span>
       </button>
       <span
         role="separator"

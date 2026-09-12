@@ -24,3 +24,25 @@ function quoteCharFor(engine: string | undefined): string {
   const normalised = (engine ?? "postgres").toLowerCase();
   return normalised === "mysql" || normalised === "mariadb" ? "`" : '"';
 }
+
+/**
+ * Quoting a VALUE into a statement.
+ *
+ * Written for the grid's "Filter by this value": the value comes back from the
+ * server as text and is put straight into a WHERE clause, so a name holding an
+ * apostrophe — O'Brien, and every other ordinary one — would end the literal
+ * early and leave the rest of it as SQL.
+ *
+ * MySQL and MariaDB also treat backslash as an escape inside a string unless
+ * NO_BACKSLASH_ESCAPES is set, so a value ending in one would swallow the
+ * closing quote there. Postgres does not, and doubling backslashes for it
+ * would change the value, so the two engines are quoted differently.
+ */
+export function quoteLiteral(value: string, engine: string | undefined): string {
+  const normalised = (engine ?? "postgres").toLowerCase();
+  const escaped =
+    normalised === "mysql" || normalised === "mariadb"
+      ? value.split("\\").join("\\\\")
+      : value;
+  return "'" + escaped.split("'").join("''") + "'";
+}

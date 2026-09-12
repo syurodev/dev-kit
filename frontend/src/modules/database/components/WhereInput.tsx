@@ -199,7 +199,11 @@ export function WhereInput({
   );
 
   return (
-    <div className="flex h-(--control-height-md) min-w-0 flex-1 items-center rounded-md border border-border-subtle bg-surface-well px-3 text-code-12 focus-within:border-status-info">
+    // Undrawn at rest. A border here makes the filter read as a widget bolted
+    // onto the toolbar rather than as the line of query it is — and the row it
+    // sits in is already separated from the strip above by a rule. The tint on
+    // hover and the border on focus are what say it takes typing.
+    <div className="flex h-(--control-height-sm) min-w-0 flex-1 items-center rounded-md border border-transparent bg-transparent px-2 text-code-12 hover:bg-surface-well focus-within:border-status-info focus-within:bg-surface-well">
       <CodeEditor value={value} onChange={onChange} extensions={extensions} />
     </div>
   );

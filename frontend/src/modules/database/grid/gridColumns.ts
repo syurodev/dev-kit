@@ -10,10 +10,11 @@
 export const DEFAULT_COLUMN_WIDTH_PX = 180;
 
 /**
- * The narrowest a column may be dragged: enough for the sort caret and a
- * character or two, so a column dragged to nothing can still be dragged back.
+ * The narrowest a column may be dragged: its header chrome — the datatype
+ * glyph, the sort slot and the padding between them — plus a character or two,
+ * so a column dragged to nothing can still be found and dragged back.
  */
-export const MIN_COLUMN_WIDTH_PX = 48;
+export const MIN_COLUMN_WIDTH_PX = 64;
 
 /**
  * The display order for `columns`, or the natural order when the saved one
@@ -75,9 +76,35 @@ export function resizeColumn(
  * narrower.
  */
 const CHAR_PX = 7.3;
-const CELL_PADDING_PX = 32;
+const CELL_PADDING_PX = 24;
 const SAMPLE_ROWS = 50;
 const MAX_MEASURED_WIDTH_PX = 320;
+
+/**
+ * What the header spends on things that are not the name: a datatype glyph
+ * before it and a sort slot after it, both 12px, with a 6px gap either side —
+ * 36, plus 4 of slack.
+ *
+ * The slack is not padding-by-feel. The name sits in a `flex-1` span, so it
+ * gets what is left after the chrome to a fraction of a pixel, and CHAR_PX is
+ * an estimate of the font's advance: measured against Geist Mono, "id" wants
+ * 14.4px and an exact allowance handed it 14. Every two-letter column in the
+ * app rendered as "i…".
+ *
+ * Charged to the header alone. Sizing every column as if its VALUES needed
+ * this room would widen a 74-column table by 32px a column for chrome that is
+ * only ever drawn once, at the top.
+ */
+const HEADER_CHROME_PX = 40;
+
+/**
+ * The row-number gutter, in px. Fixed rather than measured: it is sticky at
+ * the left edge, so the frozen columns beside it are positioned FROM it, and a
+ * width that changed with the page would move them mid-scroll.
+ *
+ * Six digits — a page of 5,000 rows starting at row 995,000 still fits.
+ */
+export const ROW_NUMBER_WIDTH_PX = 56;
 
 export function measureColumns(
   columns: readonly string[],
@@ -85,16 +112,20 @@ export function measureColumns(
 ): number[] {
   const sample = rows.slice(0, SAMPLE_ROWS);
   return columns.map((name, index) => {
-    // The header carries a sort caret and is the one cell that must never
-    // truncate to nothing, so it counts like any other value.
-    let longest = name.length;
+    // The header is the one cell that must never truncate to nothing, so it is
+    // measured alongside the values — but with its own chrome added, not the
+    // values'.
+    let longest = 0;
     for (const row of sample) {
       const value = row[index];
       if (value && value.length > longest) {
         longest = value.length;
       }
     }
-    const wanted = Math.ceil(longest * CHAR_PX) + CELL_PADDING_PX;
+    const wanted = Math.max(
+      Math.ceil(name.length * CHAR_PX) + CELL_PADDING_PX + HEADER_CHROME_PX,
+      Math.ceil(longest * CHAR_PX) + CELL_PADDING_PX,
+    );
     return Math.min(MAX_MEASURED_WIDTH_PX, Math.max(MIN_COLUMN_WIDTH_PX, wanted));
   });
 }
@@ -116,9 +147,11 @@ export function frozenOffsets(
   order: readonly number[],
   widthOf: (index: number) => number,
   frozen: number,
+  /** Where the frozen run starts — the row-number gutter is sticky before it. */
+  base = 0,
 ): (number | undefined)[] {
   const offsets: (number | undefined)[] = [];
-  let left = 0;
+  let left = base;
   for (const [position, index] of order.entries()) {
     if (position >= frozen) {
       offsets.push(undefined);

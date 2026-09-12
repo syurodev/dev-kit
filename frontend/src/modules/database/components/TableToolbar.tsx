@@ -3,10 +3,14 @@ import type { SchemaNamespace } from "@/bridge/database";
 import {
   ArrowDownAZ,
   ArrowUpAZ,
-  ChevronsUpDown,
+  ArrowUpDown,
+  Check,
   Download,
+  FileCode,
+  Filter,
   RefreshCw,
   SquareArrowOutUpRight,
+  Undo2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,16 +21,22 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
 import { WhereInput } from "./WhereInput";
 
 /**
- * A table tab's controls: what to filter by, what to order by, what to do with
- * the rows, and where you are in them.
+ * A table tab's controls: what to do with the rows, then what decides which
+ * rows they are.
  *
- * Two rows, split by what they are. The first is the query — the filter you
- * type and the sort the grid is under, the two things that decide which rows
- * come back. The second is what you do with the rows that did: the actions on
- * the left, the pager on the right, where the row had dead space.
+ * Two rows, in DataGrip's order. The first is a dense strip of icons with the
+ * pager at its right — every one of them acts on the tab. The second is the
+ * query: the filter you type and the sort the grid is under, split across the
+ * full width with a rule between them.
+ *
+ * Neither box on the second row is drawn until you touch it. A border around
+ * each makes them read as two widgets bolted to a toolbar; without one they
+ * read as the single line of query they are, which is the whole of what makes
+ * DataGrip's header look half the size of ours at the same height.
  *
  * Two boxes rather than a SQL editor. Opening a table is a request to see its
  * data, and an editor spending most of the height on a statement you did not
@@ -34,6 +44,29 @@ import { WhereInput } from "./WhereInput";
  * browsing are the filter and the sort. Anything beyond them opens in a
  * console, which is what the last button is for.
  */
+
+/** A vertical rule between groups of the icon strip. */
+function Rule() {
+  return <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-border-subtle" />;
+}
+
+/**
+ * A control that is drawn but not wired up yet.
+ *
+ * Disabled rather than inert-but-clickable, and the reason is in the tooltip:
+ * a button that answers a click with nothing is indistinguishable from one
+ * that is broken, which is exactly the report that started this work. The
+ * `<span>` carries the title because the Button sets `pointer-events: none`
+ * when disabled, and an element the pointer cannot reach has no tooltip.
+ */
+function Pending({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <span title={`${title} — not wired up yet`} className="flex shrink-0 items-center">
+      {children}
+    </span>
+  );
+}
+
 export function TableToolbar({
   where,
   onWhereChange,
@@ -85,19 +118,99 @@ export function TableToolbar({
   pager?: ReactNode;
 }) {
   return (
-    <div className="flex shrink-0 flex-col gap-2 pb-2">
-      <div className="flex items-center gap-2">
-        <span className="shrink-0 text-code-11 text-text-tertiary">WHERE</span>
-        <WhereInput
-          value={where}
-          onChange={onWhereChange}
-          onApply={onApply}
-          engine={engine}
-          indexed={indexed}
-          schema={schema}
-          table={table}
-          columns={columns}
-        />
+    <div className="flex shrink-0 flex-col pb-2">
+      <div className="flex h-(--control-height-md) items-center gap-0.5">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={onRefresh}
+          disabled={loading}
+          title="Reload this page of rows"
+        >
+          <RefreshCw className={loading ? "animate-spin" : undefined} />
+        </Button>
+
+        <Rule />
+
+        {/* Transaction control. Drawn now, wired up later — the shape of the
+            strip is what is being settled, and leaving a hole where these go
+            would settle it wrong. */}
+        <Pending title="Commit the open transaction">
+          <Button variant="ghost" size="icon-sm" disabled>
+            <Check />
+          </Button>
+        </Pending>
+        <Pending title="Roll back the open transaction">
+          <Button variant="ghost" size="icon-sm" disabled>
+            <Undo2 />
+          </Button>
+        </Pending>
+        <Pending title="Transaction mode">
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled
+            className="gap-1 px-2 text-code-12 font-normal"
+          >
+            <ArrowUpDown />
+            Tx: Auto
+          </Button>
+        </Pending>
+        <Pending title="Show this table's DDL">
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled
+            className="gap-1 px-2 text-code-12 font-normal"
+          >
+            <FileCode />
+            DDL
+          </Button>
+        </Pending>
+
+        <Rule />
+
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={onExport}
+          disabled={rowCount === 0}
+          title="Export the rows on this page"
+        >
+          <Download />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={onOpenInConsole}
+          title="Open this query in a console"
+        >
+          <SquareArrowOutUpRight />
+        </Button>
+
+        <span className="flex-1" />
+
+        {pager}
+      </div>
+
+      <div className="flex h-(--control-height-md) items-center gap-2 border-t border-border-subtle">
+        <div className="flex min-w-0 flex-[3] items-center gap-1.5">
+          <Filter aria-hidden className="size-3 shrink-0 text-text-tertiary" />
+          <span className="shrink-0 text-code-11 tracking-wider text-text-tertiary">WHERE</span>
+          <WhereInput
+            value={where}
+            onChange={onWhereChange}
+            onApply={onApply}
+            engine={engine}
+            indexed={indexed}
+            schema={schema}
+            table={table}
+            columns={columns}
+          />
+        </div>
+
+        <span aria-hidden className="h-4 w-px shrink-0 bg-border-subtle" />
+
         {/* A control, not a label. It sits beside the WHERE box styled like
             one, so reading as a control and doing nothing was the worst of
             both: the header cells set a sort, but only for a column you can
@@ -108,7 +221,7 @@ export function TableToolbar({
               variant="ghost"
               size="sm"
               disabled={columns.length === 0}
-              className="h-(--control-height-md) shrink-0 gap-1.5 border border-border-subtle bg-surface-well px-3 text-code-12 font-normal text-text-secondary"
+              className="min-w-0 flex-[2] justify-start gap-1.5 px-1.5 font-normal"
             >
               {orderBy ? (
                 orderBy.direction === "asc" ? (
@@ -116,9 +229,20 @@ export function TableToolbar({
                 ) : (
                   <ArrowDownAZ className="text-text-tertiary" />
                 )
-              ) : null}
-              ORDER BY {orderBy ? orderBy.column : "—"}
-              <ChevronsUpDown className="text-text-tertiary" />
+              ) : (
+                <ArrowUpDown className="text-text-tertiary" />
+              )}
+              <span className="shrink-0 text-code-11 tracking-wider text-text-tertiary">
+                ORDER BY
+              </span>
+              <span
+                className={cn(
+                  "min-w-0 truncate text-code-12",
+                  orderBy ? "text-text-primary" : "text-text-tertiary",
+                )}
+              >
+                {orderBy ? orderBy.column : ""}
+              </span>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="max-h-96 overflow-y-auto">
@@ -157,25 +281,6 @@ export function TableToolbar({
             })}
           </DropdownMenuContent>
         </DropdownMenu>
-      </div>
-
-      <div className="flex items-center gap-2">
-        <Button variant="ghost" size="xs" onClick={onRefresh} disabled={loading}>
-          <RefreshCw className={loading ? "animate-spin" : undefined} />
-          Refresh
-        </Button>
-        <Button variant="ghost" size="xs" onClick={onExport} disabled={rowCount === 0}>
-          <Download />
-          Export
-        </Button>
-        <Button variant="ghost" size="xs" onClick={onOpenInConsole}>
-          <SquareArrowOutUpRight />
-          Open in console
-        </Button>
-
-        <span className="flex-1" />
-
-        {pager}
       </div>
     </div>
   );

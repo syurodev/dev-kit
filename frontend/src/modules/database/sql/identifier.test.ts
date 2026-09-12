@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { quoteIdentifier } from "./identifier";
+import { quoteIdentifier, quoteLiteral } from "./identifier";
 
 describe("quoteIdentifier", () => {
   test("MySQL uses backticks, Postgres double quotes", () => {
@@ -44,5 +44,29 @@ describe("quoteIdentifier", () => {
 
   test("an empty name is refused rather than quoted into nothing", () => {
     expect(() => quoteIdentifier("", "postgres")).toThrow();
+  });
+});
+
+describe("quoteLiteral", () => {
+  test("an ordinary value is wrapped, nothing else", () => {
+    expect(quoteLiteral("open", "postgres")).toBe("'open'");
+  });
+
+  // The everyday one, not an exotic one: this is what "Filter by this value"
+  // on a customer named O'Brien produces.
+  test("an apostrophe cannot end the literal early", () => {
+    expect(quoteLiteral("O'Brien", "postgres")).toBe("'O''Brien'");
+  });
+
+  // Postgres reads a backslash as a backslash; MySQL reads it as an escape
+  // unless NO_BACKSLASH_ESCAPES is set, so a trailing one would eat the
+  // closing quote there and only there.
+  test("a backslash is doubled for MySQL and left alone for Postgres", () => {
+    expect(quoteLiteral("C:\\", "mysql")).toBe("'C:\\\\'");
+    expect(quoteLiteral("C:\\", "postgres")).toBe("'C:\\'");
+  });
+
+  test("an empty value is an empty string, not a bare pair of quotes round nothing", () => {
+    expect(quoteLiteral("", "postgres")).toBe("''");
   });
 });
