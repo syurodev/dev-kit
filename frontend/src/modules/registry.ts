@@ -116,6 +116,24 @@ export type ModuleManifest = {
    * parity ignores it.
    */
   newTab?: () => void;
+  /**
+   * The module's rail, as the MODULE's, not a document's.
+   *
+   * Documents may still register one through useSidebarContent — a rail that
+   * changes with what is open needs that. This is the floor underneath it: the
+   * rail a module has whenever it is the module on screen, including when
+   * nothing is open in it.
+   *
+   * It had to exist the moment tabs stopped being invented on launch. Database
+   * registered its rail from each of its documents, so a module with no
+   * document open had no rail at all — the same failure useDatabaseChrome's
+   * comment describes one level down ("closing that one emptied the rail"),
+   * one level up.
+   *
+   * Lazy, like a view: the manifest stays eager and tiny, and `lazy()` does not
+   * run the import until something renders it.
+   */
+  sidebar?: ModuleViewComponent | LazyExoticComponent<ModuleViewComponent>;
 };
 
 export type ModuleMetadata = {

@@ -1,7 +1,5 @@
-import { createElement, useEffect, useMemo } from "react";
-import { useSidebarContent } from "@/components/ui/sidebar-shell";
+import { useEffect } from "react";
 import { getModule } from "@/modules/registry";
-import { DatabaseSidebar } from "./components/DatabaseSidebar";
 import { useDatabaseModuleActions } from "./useDatabaseModuleActions";
 
 /**
@@ -28,20 +26,18 @@ function useWarmDocumentChunks(): void {
 }
 
 /**
- * The module's chrome: the connection rail and the title-bar actions.
+ * The module's chrome: the title-bar actions, and the document chunks.
  *
- * Every Database document calls this, not just the console. The rail and those
- * actions belong to the CONNECTION, so they have to be there whichever document
- * is on screen — and once the module became several documents, registering them
- * from one of them meant closing that one emptied the rail. A table tab with no
- * console open would have had no rail and no re-index button.
- *
- * Registering from several documents at once is safe by construction: the
- * sidebar store keys content by module id and the action store updates an
- * action in place by its own id, so N callers leave exactly one of each.
+ * The rail is NOT here any more. It was, registered by every Database document
+ * because it belongs to the connection rather than to any one of them — and
+ * that held right up to the case where no document is open at all, which is
+ * now an ordinary state: the workbench remembers what was open instead of
+ * inventing a console, and a first launch opens nothing. A rail registered by
+ * documents is a rail that disappears with the last of them. It is the
+ * manifest's `sidebar` now, which the shell draws for whichever module is on
+ * screen.
  */
 export function useDatabaseChrome(): void {
-  useSidebarContent(useMemo(() => createElement(DatabaseSidebar), []));
   useDatabaseModuleActions();
   useWarmDocumentChunks();
 }

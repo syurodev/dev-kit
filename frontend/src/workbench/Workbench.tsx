@@ -234,13 +234,20 @@ const WorkbenchViews = memo(
               : "overflow-hidden p-0",
           )}
         >
-          {openTabs.length === 0 ? (
-            // "No view is currently available" was a status line for a state
-            // that is not a problem: nothing is open because nothing was left
-            // open. writing.md asks a blank screen to say what to do next and
-            // give a control to do it with, so it does.
+          {/* `openTabs` is EVERY module's tabs — the views layer keeps recently
+              left modules mounted. So "is anything open" has to be asked about
+              the module on screen, not about the list: with a Notes tab open
+              and no Database one, the old check fell through to the map, which
+              rendered nothing for Database at all. A blank card.
+
+              "No view is currently available" was also a status line for a
+              state that is not a problem: nothing is open because nothing was
+              left open. writing.md asks a blank screen to say what to do next
+              and to give a control for doing it. */}
+          {!openTabs.some((tab) => tab.moduleId === activeModule?.id) ? (
             <ModuleEmptyState module={activeModule} />
-          ) : (
+          ) : null}
+          {openTabs.length === 0 ? null : (
             openTabs.map((tab) => {
               // Tabs outside the active module's grace/cap window aren't
               // mounted at all — see useMountedModuleIds above. Their tab

@@ -1,3 +1,4 @@
+import { lazy } from "react";
 import { FileText } from "lucide-react";
 import { lazyModuleView, type ModuleManifest } from "../registry";
 
@@ -10,6 +11,13 @@ export const notesModule: ModuleManifest = {
   // A tab per note (NotesView opens one per card, NoteEditor pins it on the
   // first edit) — the one module today with several items open at once.
   tabs: true,
+  // The rail is the module's; its views register over it. Without this a Notes
+  // window with every note closed has no rail at all.
+  sidebar: lazy(() =>
+    import("./useNotesSidebar").then(({ NotesModuleSidebar }) => ({
+      default: NotesModuleSidebar,
+    })),
+  ),
   capabilities: ["notes:read", "notes:write"],
   commands: [
     {

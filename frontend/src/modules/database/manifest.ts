@@ -1,4 +1,5 @@
 import { Activity, Bookmark, Database, History, Network, Table2, Terminal } from "lucide-react";
+import { lazy } from "react";
 import { lazyModuleView, type ModuleManifest } from "../registry";
 import {
   activeConsoleId,
@@ -66,6 +67,14 @@ export const databaseModule: ModuleManifest = {
   // The strip's + button. Several consoles at once is the point of the tab
   // strip here, and this is the only affordance that offers one.
   newTab: openNewConsoleTab,
+  // The connection rail belongs to the module, not to whichever document is
+  // open — a table tab and no console still needs it, and so does a module
+  // with nothing open at all.
+  sidebar: lazy(() =>
+    import("./components/DatabaseSidebar").then(({ DatabaseSidebar }) => ({
+      default: DatabaseSidebar,
+    })),
+  ),
   views: [
     {
       id: "database.console",

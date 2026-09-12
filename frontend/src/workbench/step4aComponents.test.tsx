@@ -9,6 +9,7 @@ import type { WorkbenchTab } from "../stores/workbenchTabs";
 import { Titlebar } from "@/components/ui/titlebar";
 import { ModuleEmptyState } from "./ModuleEmptyState";
 import { databaseModule } from "@/modules/database/manifest";
+import { notesModule } from "@/modules/notes/manifest";
 
 describe("Step 4a Shell Chrome Reconciliation", () => {
   describe("Titlebar (Figma 732:2170)", () => {
@@ -329,5 +330,26 @@ describe("a module with no tabs", () => {
   it("says so plainly when there is no module at all", () => {
     const html = renderToString(<ModuleEmptyState module={undefined} />);
     expect(html).toContain("No modules are available");
+  });
+});
+
+/**
+ * A rail that only exists while a document does.
+ *
+ * Every module registered its rail from its views, which held exactly as long
+ * as the workbench always had one open. It stopped holding the moment tabs
+ * became something remembered rather than invented: a module left with nothing
+ * open had no rail at all — the reported "where is the sidebar". A module that
+ * can be emptied has to own its rail.
+ */
+describe("a module that can be left with nothing open", () => {
+  it("declares its own rail, not only its views'", () => {
+    for (const module of [databaseModule, notesModule]) {
+      expect(module.tabs, `${module.id} is in this list because it has tabs`).toBe(true);
+      expect(
+        module.sidebar,
+        `${module.id} can be left with no document open, and its rail would go with it`,
+      ).toBeDefined();
+    }
   });
 });
