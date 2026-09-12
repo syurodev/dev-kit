@@ -24,16 +24,27 @@ export type ConsoleStatusInput = {
   sql: string;
 };
 
-/**
- * Seconds, one decimal, in both states.
- *
- * The result header prints raw milliseconds and may keep doing so — it is
- * talking about the result. This is the same number the pill was already
- * counting up in, and changing its unit at the moment it stops makes the
- * reader re-read it to check nothing moved.
- */
+/** The running stopwatch: seconds, one decimal, ticking ten times a second. */
 function seconds(value: number): string {
   return `${value.toFixed(1)}s`;
+}
+
+/**
+ * What the run took, once it is over.
+ *
+ * Milliseconds under a second, seconds above. The pill used to say "0.0s"
+ * for everything faster than 50ms while the result header beside it said
+ * "32 ms" — the same event, two units, and the one with the useful number
+ * was the one that has since been removed. This is now the only place the
+ * duration appears, so it has to carry the precision the header did: the
+ * difference between 2ms and 900ms is the difference between an index and a
+ * table scan, and "0.0s" says neither.
+ *
+ * The stopwatch above stays in seconds. It only ever renders from 0.1s
+ * upward, so the two never disagree on screen about the same moment.
+ */
+function took(ms: number): string {
+  return ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`;
 }
 
 export function consoleStatus(input: ConsoleStatusInput): ConsoleStatus {
@@ -47,7 +58,7 @@ export function consoleStatus(input: ConsoleStatusInput): ConsoleStatus {
   if (input.durationMs === undefined && !input.error) {
     return { kind: "idle" };
   }
-  const time = seconds((input.durationMs ?? 0) / 1000);
+  const time = took(input.durationMs ?? 0);
 
   if (input.error) {
     // The first line, because a driver puts the sentence first and the

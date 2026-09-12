@@ -21,10 +21,9 @@ describe("consoleStatus", () => {
     });
   });
 
-  // Seconds, not the raw milliseconds the result header prints, and for one
-  // reason: the number was already on screen counting in seconds. Changing its
-  // unit at the moment it stops makes the reader re-read it.
-  test("the duration keeps the unit it was counting in", () => {
+  // Over a second it stays in the unit the stopwatch was counting in, so a
+  // long run does not change units at the moment it stops.
+  test("a run over a second keeps the stopwatch's unit", () => {
     const status = consoleStatus({
       running: false,
       elapsedSec: 0,
@@ -33,6 +32,31 @@ describe("consoleStatus", () => {
       sql: "SELECT SLEEP(20)",
     });
     expect(status).toEqual({ kind: "success", time: "20.0s", message: "1 row" });
+  });
+
+  /*
+   * Under a second, milliseconds — because this is the only place the
+   * duration appears now. The result header beside it used to print "32 ms"
+   * while the pill said "0.0s" about the same run, and the half that was
+   * removed was the half with the useful number: 2ms and 900ms are an index
+   * and a table scan, and "0.0s" says neither.
+   */
+  test.each([
+    [0, "0ms"],
+    [32, "32ms"],
+    [999, "999ms"],
+    [1000, "1.0s"],
+    [1499, "1.5s"],
+    [20012, "20.0s"],
+  ])("%dms reads as %s", (durationMs, expected) => {
+    const status = consoleStatus({
+      running: false,
+      elapsedSec: 0,
+      durationMs,
+      rowCount: 1,
+      sql: "SELECT 1",
+    });
+    expect(status.kind === "success" && status.time).toBe(expected);
   });
 
   test("rows are counted in the plural people actually use", () => {
@@ -50,7 +74,7 @@ describe("consoleStatus", () => {
     });
     expect(status).toEqual({
       kind: "error",
-      time: "0.0s",
+      time: "31ms",
       message: 'ERROR: relation "user" does not exist',
       detail: 'ERROR: relation "user" does not exist\nLINE 1: SELECT * FROM user\n                      ^',
     });
@@ -89,7 +113,7 @@ describe("consoleStatus", () => {
       rowCount: 0,
       sql: "UPDATE employees SET active = 0",
     });
-    expect(status).toEqual({ kind: "warning", time: "0.1s", message: "UPDATE with no WHERE" });
+    expect(status).toEqual({ kind: "warning", time: "90ms", message: "UPDATE with no WHERE" });
   });
 
   test("an error outranks the warning, because it is what happened", () => {

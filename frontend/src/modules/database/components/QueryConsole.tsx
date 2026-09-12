@@ -8,11 +8,11 @@ import {
   XCircle,
   Sliders,
   KeyRound,
+  X,
 } from "lucide-react";
 import { sql as codemirrorSql, PostgreSQL, MySQL, MariaSQL } from "@codemirror/lang-sql";
 import { ActionTooltip } from "@/components/ui/action-tooltip";
 import { Button } from "@/components/ui/button";
-import { EmptyState } from "@/components/ui/empty-state";
 import { shortcut } from "@/lib/shortcut";
 import { CodeEditor } from "@/components/code-editor/CodeEditor";
 import { Prec } from "@codemirror/state";
@@ -64,6 +64,7 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
     selectedProfileId,
     selectedSchema,
     clearQueryError,
+    clearQueryResult,
     schemaSnapshot,
     setInspectedCell,
     openExportModal,
@@ -74,6 +75,7 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
       selectedProfileId: s.selectedProfileId,
       selectedSchema: s.selectedSchema,
       clearQueryError: s.clearQueryError,
+      clearQueryResult: s.clearQueryResult,
       schemaSnapshot: s.schemaSnapshot,
       setInspectedCell: s.setInspectedCell,
       openExportModal: s.openExportModal,
@@ -325,6 +327,95 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
         />
       </div>
 
+      {/* The notices, above the split rather than inside the result panel.
+          Two of the three explain why a statement produced NOTHING — a
+          rejected write, a placeholder the dialect will not take — and the
+          result panel is gone in exactly that case now. A banner that only
+          renders when there is a result cannot explain the absence of one. */}
+        {/* DevKit Advice for MySQL placeholder mismatch (Screen 21) */}
+        {hasPlaceholderMismatch && (
+          <div className="mb-2 flex shrink-0 items-center justify-between gap-3 rounded-md border border-status-warning/30 bg-status-warning/10 px-4 py-2 text-body-12 text-status-warning">
+            <div className="flex items-center gap-2">
+              <Info className="size-4 shrink-0" />
+              <span>
+                <strong className="font-semibold">DevKit advice:</strong> this connection uses the{" "}
+                {engineMeta.name} dialect, which takes{" "}
+                <code className="rounded bg-status-warning/20 px-1 py-0.5 font-mono">?</code>{" "}
+                for parameter placeholders rather than{" "}
+                <code className="rounded bg-status-warning/20 px-1 py-0.5 font-mono">$1</code>.
+              </span>
+            </div>
+            <Button
+              variant="ghost"
+              size="xs"
+              className="text-status-warning hover:bg-status-warning/20"
+              onClick={() => setSql(consoleId, slice.sql.replace(/\$\d+/g, "?"))}
+            >
+              Auto-fix placeholders
+            </Button>
+          </div>
+        )}
+
+        {/* Safe-Mode Rejected Banner (Screen 18) */}
+        {isReadOnlyRejection && (
+          <div className="mb-2 flex shrink-0 items-start gap-2.5 rounded-md border border-(--border-danger) bg-(--feedback-danger-soft) p-3 text-body-12 text-status-danger">
+            <ShieldAlert className="mt-0.5 size-4 shrink-0" />
+            <div className="flex-1 space-y-1">
+              <div className="flex items-center gap-2 text-body-13-medium">
+                <span>Operation rejected by the database engine (safe-mode policy)</span>
+                <span className="rounded bg-status-danger/20 px-1 py-0.5 text-code-11">
+                  SQLSTATE 25006
+                </span>
+              </div>
+              <p className="text-caption-11 text-text-secondary">
+                This connection is operating in <strong>safe-mode (read-only)</strong>. Mutating
+                queries (INSERT, UPDATE, DELETE, DDL) are blocked by the database session. You can
+                change this in Connection options.
+              </p>
+              <div className="mt-1 rounded border border-border bg-surface-base p-1.5 text-code-11 text-text-tertiary">
+                {slice.queryError}
+              </div>
+            </div>
+            <button
+              type="button"
+              className="p-1 text-text-tertiary hover:text-text-primary"
+              onClick={() => clearQueryError(consoleId)}
+            >
+              <XCircle className="size-4" />
+            </button>
+          </div>
+        )}
+
+        {/* Vault locked mid-session (Screen 26). Deliberately a banner, not a
+            replacement: the rows on screen came out of the database before the
+            vault shut and are already in memory. Clearing them would destroy
+            work the lock has no claim on. */}
+        {isVaultLockedError(slice.queryError) && (
+          <div className="mb-2 flex shrink-0 items-center justify-between gap-3 rounded-md border border-status-warning/30 bg-status-warning/10 px-4 py-2.5 text-body-12">
+            <div className="flex items-center gap-2 text-status-warning">
+              <KeyRound className="size-4 shrink-0" />
+              <span>
+                <strong className="font-semibold">The vault locked while you were working.</strong>{" "}
+                This result stays on screen — it is already in memory. Running another query, or
+                opening history, needs the vault key again.
+              </span>
+            </div>
+            <Button size="sm" className="shrink-0" onClick={requestVaultUnlock}>
+              Unlock vault
+            </Button>
+          </div>
+        )}
+
+        {/* Generic Error Banner (Screen 13) */}
+        {/* No generic error banner. The pill beside Run carries the first
+            line, and one click opens the rest over the editor with a copy
+            button — which is the same information without a block that
+            pushed the query you just wrote further down the screen every
+            time it failed. The two banners above stay: each explains a
+            policy and names the way out, which is more than an error text
+            has to give. */}
+
+
       {/* The editor used to be a hard 220px. A long query and a wide result
           set want different splits, so the split is dragged, remembered, and
           keyboard-resizable — the handle is a real separator, not a bare div. */}
@@ -353,146 +444,88 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
           </div>
         </ResizablePanel>
 
-        <ResizableHandle withHandle />
+        {/*
+          The result is a slot, and a slot with nothing in it is not drawn.
 
-        <ResizablePanel id="results" minSize="20" className="flex min-h-0 flex-col overflow-hidden">
-          {/* DevKit Advice for MySQL placeholder mismatch (Screen 21) */}
-          {hasPlaceholderMismatch && (
-            <div className="mb-2 flex shrink-0 items-center justify-between gap-3 rounded-md border border-status-warning/30 bg-status-warning/10 px-4 py-2 text-body-12 text-status-warning">
-              <div className="flex items-center gap-2">
-                <Info className="size-4 shrink-0" />
-                <span>
-                  <strong className="font-semibold">DevKit advice:</strong> this connection uses the{" "}
-                  {engineMeta.name} dialect, which takes{" "}
-                  <code className="rounded bg-status-warning/20 px-1 py-0.5 font-mono">?</code>{" "}
-                  for parameter placeholders rather than{" "}
-                  <code className="rounded bg-status-warning/20 px-1 py-0.5 font-mono">$1</code>.
-                </span>
-              </div>
-              <Button
-                variant="ghost"
-                size="xs"
-                className="text-status-warning hover:bg-status-warning/20"
-                onClick={() => setSql(consoleId, slice.sql.replace(/\$\d+/g, "?"))}
-              >
-                Auto-fix placeholders
-              </Button>
-            </div>
-          )}
+          It used to be an empty card telling you to type a query, under an
+          editor you were already typing in — a permanent third of the
+          console spent on instructions nobody needed twice. Gone, and the
+          handle with it, so an unrun console is all editor.
+        */}
+        {queryResult ? (
+          <>
+            {/* The window gutter's own 8 — the band the shell leaves between
+                its surfaces and the window edge — so the editor and the
+                result read as two cards on one rhythm.
 
-          {/* Safe-Mode Rejected Banner (Screen 18) */}
-          {isReadOnlyRejection && (
-            <div className="mb-2 flex shrink-0 items-start gap-2.5 rounded-md border border-(--border-danger) bg-(--feedback-danger-soft) p-3 text-body-12 text-status-danger">
-              <ShieldAlert className="mt-0.5 size-4 shrink-0" />
-              <div className="flex-1 space-y-1">
-                <div className="flex items-center gap-2 text-body-13-medium">
-                  <span>Operation rejected by the database engine (safe-mode policy)</span>
-                  <span className="rounded bg-status-danger/20 px-1 py-0.5 text-code-11">
-                    SQLSTATE 25006
-                  </span>
-                </div>
-                <p className="text-caption-11 text-text-secondary">
-                  This connection is operating in <strong>safe-mode (read-only)</strong>. Mutating
-                  queries (INSERT, UPDATE, DELETE, DDL) are blocked by the database session. You can
-                  change this in Connection options.
-                </p>
-                <div className="mt-1 rounded border border-border bg-surface-base p-1.5 text-code-11 text-text-tertiary">
-                  {slice.queryError}
-                </div>
-              </div>
-              <button
-                type="button"
-                className="p-1 text-text-tertiary hover:text-text-primary"
-                onClick={() => clearQueryError(consoleId)}
-              >
-                <XCircle className="size-4" />
-              </button>
-            </div>
-          )}
+                The separator itself is collapsed to nothing and its hairline
+                dropped: at 8px apart, with a border on each card, a line
+                between them is a third edge in a 9px band. What is left is
+                the grip and the 4px hit area, both of which are drawn
+                outside the box. */}
+            <ResizableHandle
+              withHandle
+              className="my-1 bg-transparent aria-[orientation=horizontal]:h-0"
+            />
 
-          {/* Vault locked mid-session (Screen 26). Deliberately a banner, not a
-              replacement: the rows on screen came out of the database before the
-              vault shut and are already in memory. Clearing them would destroy
-              work the lock has no claim on. */}
-          {isVaultLockedError(slice.queryError) && (
-            <div className="mb-2 flex shrink-0 items-center justify-between gap-3 rounded-md border border-status-warning/30 bg-status-warning/10 px-4 py-2.5 text-body-12">
-              <div className="flex items-center gap-2 text-status-warning">
-                <KeyRound className="size-4 shrink-0" />
-                <span>
-                  <strong className="font-semibold">The vault locked while you were working.</strong>{" "}
-                  This result stays on screen — it is already in memory. Running another query, or
-                  opening history, needs the vault key again.
-                </span>
-              </div>
-              <Button size="sm" className="shrink-0" onClick={requestVaultUnlock}>
-                Unlock vault
-              </Button>
-            </div>
-          )}
-
-          {/* Generic Error Banner (Screen 13) */}
-          {/* No generic error banner. The pill beside Run carries the first
-              line, and one click opens the rest over the editor with a copy
-              button — which is the same information without a block that
-              pushed the query you just wrote further down the screen every
-              time it failed. The two banners above stay: each explains a
-              policy and names the way out, which is more than an error text
-              has to give. */}
-
-          {queryResult ? (
-            /* The previous result stays put while the next statement runs and
-               is only dimmed (smoothness 5, "no clearing the old result"). It
-               is also inert: clicking a cell of a table that is about to be
-               replaced opens an inspector on stale data. */
-            <div
-              className={cn(
-                "flex min-h-0 flex-1 flex-col",
-                slice.runningQuery && "pointer-events-none opacity-60 transition-opacity duration-(--motion-base)",
-              )}
+            <ResizablePanel
+              id="results"
+              minSize="20"
+              className="flex min-h-0 flex-col overflow-hidden"
             >
-              {/* 742:36–742:39: "200 rows  412 ms" and the cap chip. */}
-              <div className="flex h-9 shrink-0 items-center gap-6">
-                <span className="text-body-13-medium text-text-primary">
-                  <span className="tabular-nums">{queryResult.rowCount}</span>{" "}
-                  {queryResult.rowCount === 1 ? "row" : "rows"}
-                </span>
-                {slice.queryDurationMs != null && (
-                  <span className="text-body-13-medium text-text-primary tabular-nums">{slice.queryDurationMs} ms</span>
+              {/* The previous result stays put while the next statement runs
+                  and is only dimmed (smoothness 5, "no clearing the old
+                  result"). It is also inert: clicking a cell of a table that
+                  is about to be replaced opens an inspector on stale data. */}
+              <div
+                className={cn(
+                  "flex min-h-0 flex-1 flex-col",
+                  slice.runningQuery &&
+                    "pointer-events-none opacity-60 transition-opacity duration-(--motion-base)",
                 )}
-                <span className="text-caption-11 text-text-tertiary">
-                  <span className="tabular-nums">{queryResult.columns.length}</span> columns
-                </span>
-                <span className="flex-1" />
-                {queryResult.truncated && (
-                  <span className="flex h-7 items-center rounded-md border border-border-subtle bg-surface-raised px-3 text-code-11 text-text-tertiary">
-                    row cap reached — add LIMIT/OFFSET to page further
-                  </span>
-                )}
-              </div>
+              >
+                {/*
+                  What the header says now: the cap, and the way out.
 
-              {/* result (743:8): a well card; header on surface/raised. */}
-              <ResultGrid
-                result={queryResult}
-                widths={gridWidths}
-                columnOrder={[]}
-                onResize={setGridWidths}
-                onInspectCell={setInspectedCell}
-              />
-            </div>
-          ) : (
-            <div className="flex flex-1 flex-col rounded-md border border-border-subtle bg-surface-well">
-              <EmptyState
-                icon={FileCode2}
-                title={selectedProfileId ? "Query console ready" : "No connection selected"}
-                body={
-                  selectedProfileId
-                    ? `Type a SQL query above and press Run (or ${shortcut("Enter")}). Autocomplete suggests schemas and tables as you type.`
-                    : "Select a connection profile in the sidebar to start writing queries."
-                }
-              />
-            </div>
-          )}
-        </ResizablePanel>
+                  "26 rows", the duration and the column count all left. Every
+                  one of them is in the pill beside Run, six inches up and to
+                  the right, and printing a number twice makes the reader
+                  check whether the two agree — which is how the "0.0s" next
+                  to "32 ms" was found.
+
+                  The cap chip stays because nothing else says it: a result
+                  cut at the row ceiling looks exactly like a complete one.
+                */}
+                <div className="flex h-8 shrink-0 items-center gap-2">
+                  {queryResult.truncated && (
+                    <span className="flex h-7 items-center rounded-md border border-border-subtle bg-surface-raised px-3 text-code-11 text-text-tertiary">
+                      row cap reached — add LIMIT/OFFSET to page further
+                    </span>
+                  )}
+                  <span className="flex-1" />
+                  <ActionTooltip label="Close the result">
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => clearQueryResult(consoleId)}
+                    >
+                      <X />
+                    </Button>
+                  </ActionTooltip>
+                </div>
+
+                {/* result (743:8): a well card; header on surface/raised. */}
+                <ResultGrid
+                  result={queryResult}
+                  widths={gridWidths}
+                  columnOrder={[]}
+                  onResize={setGridWidths}
+                  onInspectCell={setInspectedCell}
+                />
+              </div>
+            </ResizablePanel>
+          </>
+        ) : null}
       </ResizablePanelGroup>
 
       {/* Plan Viewer Modal (Screen 22) */}
