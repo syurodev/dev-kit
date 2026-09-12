@@ -495,14 +495,29 @@ func (s *AppService) DBListConsoles() ([]database.Console, error) {
 	return result.([]database.Console), nil
 }
 
-// DBSaveConsole writes one console's text. Called on a debounce as the user
-// types, so it is the one bridge call here that runs without being asked for.
-func (s *AppService) DBSaveConsole(console database.Console) error {
-	_, err := s.call(context.Background(), "builtin.database", "db:console", "console:"+recordID(console.ID), map[string]any{
+/*
+DBSaveConsole writes one console's text. Called on a debounce as the user
+types, so it is the one bridge call here that runs without being asked for.
+
+Four strings rather than the Console struct, and the reason is the struct's
+UpdatedAt. Wails parses each argument out of JSON before the method runs, so
+a time.Time in the signature makes a timestamp REQUIRED of the caller — and
+the window has no business having one. It sent "", every call failed in the
+binding layer before reaching any code here ("cannot parse \"\" as
+\"2006\""), and nothing was ever written. The stamp belongs to the writer:
+the store puts it on at the moment the bytes land.
+*/
+func (s *AppService) DBSaveConsole(id, profileID, databaseName, sql string) error {
+	_, err := s.call(context.Background(), "builtin.database", "db:console", "console:"+recordID(id), map[string]any{
 		"action":     "save_console",
-		"console_id": recordID(console.ID),
+		"console_id": recordID(id),
 	}, func(context.Context) (any, error) {
-		return nil, s.container.Database.SaveConsole(console)
+		return nil, s.container.Database.SaveConsole(database.Console{
+			ID:        id,
+			ProfileID: profileID,
+			Database:  databaseName,
+			SQL:       sql,
+		})
 	})
 	return err
 }

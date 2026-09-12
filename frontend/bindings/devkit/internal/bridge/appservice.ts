@@ -449,9 +449,17 @@ export function DBRollbackTx(id: string): $CancellablePromise<void> {
 /**
  * DBSaveConsole writes one console's text. Called on a debounce as the user
  * types, so it is the one bridge call here that runs without being asked for.
+ * 
+ * Four strings rather than the Console struct, and the reason is the struct's
+ * UpdatedAt. Wails parses each argument out of JSON before the method runs, so
+ * a time.Time in the signature makes a timestamp REQUIRED of the caller — and
+ * the window has no business having one. It sent "", every call failed in the
+ * binding layer before reaching any code here ("cannot parse \"\" as
+ * \"2006\""), and nothing was ever written. The stamp belongs to the writer:
+ * the store puts it on at the moment the bytes land.
  */
-export function DBSaveConsole(console: database$0.Console): $CancellablePromise<void> {
-    return $Call.ByID(2390604210, console);
+export function DBSaveConsole(id: string, profileID: string, databaseName: string, sql: string): $CancellablePromise<void> {
+    return $Call.ByID(2390604210, id, profileID, databaseName, sql);
 }
 
 export function DBSaveExportFile(suggestedName: string, content: string): $CancellablePromise<string> {

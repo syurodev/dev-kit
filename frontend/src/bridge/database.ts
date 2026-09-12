@@ -594,18 +594,22 @@ export function listConsoles(): Promise<StoredConsole[]> {
   });
 }
 
+/**
+ * Four arguments rather than the Console object, because the object carries
+ * an `updated_at` the window does not have. Wails parses every argument
+ * before the method runs, so a time in the signature made a timestamp
+ * mandatory here; sending "" failed in the binding layer and nothing was
+ * ever written. The stamp belongs to whoever writes the bytes.
+ */
 export function saveConsole(console: Omit<StoredConsole, "updatedAt">): Promise<void> {
   return callBridge(
     () =>
-      AppService.DBSaveConsole({
-        id: console.id,
-        profile_id: console.profileId,
-        database: console.database,
-        sql: console.sql,
-        // Stamped by the backend at the moment it writes. Sending one from
-        // here would date the file by a clock the file does not trust.
-        updated_at: "",
-      }) as Promise<void>,
+      AppService.DBSaveConsole(
+        console.id,
+        console.profileId,
+        console.database,
+        console.sql,
+      ) as Promise<void>,
   );
 }
 
