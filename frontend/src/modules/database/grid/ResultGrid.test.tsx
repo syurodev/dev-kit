@@ -137,7 +137,7 @@ describe("frozen columns", () => {
   // underneath them. The two bare "0"s are the gutter's own cells.
   it("pins the first n columns where the ones before them end", () => {
     const html = render({ result: wide, widths: [80, 200, 200], frozen: 2 });
-    expect(stickyLefts(html)).toEqual(["0", "56px", "136px", "0", "56px", "136px"]);
+    expect(stickyLefts(html)).toEqual(["0", "44px", "124px", "0", "44px", "124px"]);
   });
 
   it("pins nothing but the gutter by default", () => {
@@ -252,5 +252,38 @@ describe("the column header's glyphs", () => {
     const html = render();
     expect(html).toContain("lucide-columns-3");
     expect(html).not.toContain("lucide-key-round");
+  });
+});
+
+/**
+ * Editing is the table tab's alone.
+ *
+ * A console result can be a join, an aggregate or an expression: there is no
+ * single table behind it, and no key that names one of its rows. The grid is
+ * shared, so the gate is which caller hands it `onEditCells` — asserted here
+ * because a render cannot show it (React writes no handlers into HTML, so an
+ * SSR check for one passes whatever the truth is).
+ *
+ * The SQL and every refusal are covered by sql/updateCell.test.ts; the
+ * rectangle by grid/gridFocus.test.ts.
+ */
+describe("who may edit", () => {
+  const read = (file: string) => readFileSync(join(import.meta.dir, "..", file), "utf8");
+
+  it("is the table tab, and not the console", () => {
+    expect(read("TableDataView.tsx")).toContain("onEditCells");
+    expect(
+      read("components/QueryConsole.tsx"),
+      "a console result has no single table to write back to",
+    ).not.toContain("onEditCells");
+  });
+
+  // The refusal is computed once from the connection and the table, not per
+  // cell: without it a table with no key would build an UPDATE that matches
+  // every row that happens to look the same.
+  it("asks updateRefusal before it offers", () => {
+    const body = read("TableDataView.tsx");
+    expect(body).toContain("updateRefusal(");
+    expect(body).toContain("editRefusal={editRefusal}");
   });
 });

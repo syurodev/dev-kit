@@ -1,5 +1,13 @@
 import { describe, expect, it } from "bun:test";
-import { HEADER_ROW, nextFocus, type GridBounds } from "./gridFocus";
+import {
+  HEADER_ROW,
+  inRange,
+  nextFocus,
+  nextSelection,
+  rangeSize,
+  selectedRange,
+  type GridBounds,
+} from "./gridFocus";
 
 const bounds: GridBounds = { rows: 200, columns: 10, page: 20, jump: false };
 const at = (row: number, position: number) => ({ row, position });
@@ -50,5 +58,57 @@ describe("nextFocus", () => {
   it("survives a result with no rows", () => {
     const empty = { ...bounds, rows: 0 };
     expect(nextFocus(at(HEADER_ROW, 0), "ArrowDown", empty)).toEqual(at(HEADER_ROW, 0));
+  });
+});
+
+describe("the selected rectangle", () => {
+  it("is the same whichever corner it was dragged from", () => {
+    const forwards = selectedRange({ anchor: at(2, 1), focus: at(5, 3) });
+    const backwards = selectedRange({ anchor: at(5, 3), focus: at(2, 1) });
+    expect(forwards).toEqual({ top: 2, bottom: 5, left: 1, right: 3 });
+    expect(backwards).toEqual(forwards);
+  });
+
+  it("counts the cells a bulk edit would change", () => {
+    expect(rangeSize(selectedRange({ anchor: at(0, 0), focus: at(0, 0) }))).toBe(1);
+    expect(rangeSize(selectedRange({ anchor: at(2, 1), focus: at(5, 3) }))).toBe(12);
+  });
+
+  it("knows what is inside it", () => {
+    const range = selectedRange({ anchor: at(2, 1), focus: at(5, 3) });
+    expect(inRange(range, 3, 2)).toBe(true);
+    expect(inRange(range, 2, 1)).toBe(true);
+    expect(inRange(range, 1, 2)).toBe(false);
+    expect(inRange(range, 3, 4)).toBe(false);
+  });
+});
+
+describe("nextSelection", () => {
+  const sel = (r: number, p: number) => ({ anchor: at(r, p), focus: at(r, p) });
+
+  it("moves both corners without Shift", () => {
+    expect(nextSelection(sel(3, 2), "ArrowDown", bounds, false)).toEqual({
+      anchor: at(4, 2),
+      focus: at(4, 2),
+    });
+  });
+
+  it("grows from the anchor with Shift", () => {
+    const grown = nextSelection(sel(3, 2), "ArrowDown", bounds, true)!;
+    expect(grown.anchor).toEqual(at(3, 2));
+    expect(grown.focus).toEqual(at(4, 2));
+    expect(rangeSize(selectedRange(grown))).toBe(2);
+  });
+
+  // A rectangle whose corner is the header row would offer to edit the column
+  // names, which is not what a bulk edit means.
+  it("collapses when it reaches the header", () => {
+    const atHeader = nextSelection(sel(0, 2), "ArrowUp", bounds, true)!;
+    expect(atHeader.anchor).toEqual(at(HEADER_ROW, 2));
+    expect(atHeader.focus).toEqual(at(HEADER_ROW, 2));
+  });
+
+  it("passes a key it does not handle straight through", () => {
+    expect(nextSelection(sel(1, 1), "Tab", bounds, true)).toBeNull();
   });
 });

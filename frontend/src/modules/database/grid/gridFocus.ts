@@ -55,3 +55,58 @@ function clamp(focus: GridFocus, bounds: GridBounds): GridFocus {
     position: Math.max(0, Math.min(bounds.columns - 1, focus.position)),
   };
 }
+
+/**
+ * A rectangle of cells: where the selection started, and where it is now.
+ *
+ * Two points rather than a set. A set would have to be rebuilt on every arrow
+ * press over a 5,000-row page, and it cannot answer "extend from where" —
+ * which is the whole of what Shift does.
+ */
+export type GridSelection = { anchor: GridFocus; focus: GridFocus };
+
+export type GridRange = { top: number; bottom: number; left: number; right: number };
+
+/** The rectangle the two corners describe, inclusive, in either drag order. */
+export function selectedRange(selection: GridSelection): GridRange {
+  return {
+    top: Math.min(selection.anchor.row, selection.focus.row),
+    bottom: Math.max(selection.anchor.row, selection.focus.row),
+    left: Math.min(selection.anchor.position, selection.focus.position),
+    right: Math.max(selection.anchor.position, selection.focus.position),
+  };
+}
+
+export function inRange(range: GridRange, row: number, position: number): boolean {
+  return row >= range.top && row <= range.bottom && position >= range.left && position <= range.right;
+}
+
+/** How many cells the selection covers — what a bulk edit is about to change. */
+export function rangeSize(range: GridRange): number {
+  return (range.bottom - range.top + 1) * (range.right - range.left + 1);
+}
+
+/**
+ * Where a key takes the selection.
+ *
+ * `extend` is Shift: the anchor stays and the focus moves, which is what grows
+ * a rectangle. Without it both move together, which is what collapses one.
+ * Null means the grid does not handle the key — see nextFocus.
+ */
+export function nextSelection(
+  selection: GridSelection,
+  key: string,
+  bounds: GridBounds,
+  extend: boolean,
+): GridSelection | null {
+  const focus = nextFocus(selection.focus, key, bounds);
+  if (!focus) {
+    return null;
+  }
+  // The header is a row of headers, not a corner of a rectangle of data: a
+  // selection that reached it would offer to edit the column names.
+  if (focus.row === HEADER_ROW) {
+    return { anchor: focus, focus };
+  }
+  return { anchor: extend && selection.anchor.row !== HEADER_ROW ? selection.anchor : focus, focus };
+}

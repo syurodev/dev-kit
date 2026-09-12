@@ -102,9 +102,12 @@ const HEADER_CHROME_PX = 40;
  * the left edge, so the frozen columns beside it are positioned FROM it, and a
  * width that changed with the page would move them mid-scroll.
  *
- * Six digits — a page of 5,000 rows starting at row 995,000 still fits.
+ * 44 with 12px of padding leaves 32 for digits — five at the grid's monospace
+ * 11px, which covers a page starting at row 99,999. Past that the number
+ * overflows its own column rather than the table growing a wider gutter on
+ * every table for the one that needed it.
  */
-export const ROW_NUMBER_WIDTH_PX = 56;
+export const ROW_NUMBER_WIDTH_PX = 44;
 
 export function measureColumns(
   columns: readonly string[],

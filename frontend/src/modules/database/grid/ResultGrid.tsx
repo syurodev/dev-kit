@@ -22,6 +22,7 @@ import {
   ChevronsUpDown,
   Columns3,
   Copy,
+  Eraser,
   Filter,
   FilterX,
   KeyRound,
@@ -35,6 +36,7 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuLabel,
+  ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import {
@@ -46,6 +48,7 @@ import {
 } from "@/components/ui/empty";
 import { useVirtualRows } from "@/components/ui/virtual-rows";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 import { copyText } from "@/bridge/clipboard";
 import type { QueryResult } from "@/bridge/database";
 import {
@@ -64,7 +67,14 @@ import {
 // Object.fromEntries over `columns` is a different function with its own bugs.
 import { columnValues, rowAsJSON } from "./rowText";
 import { typeGlyph } from "./columnTypes";
-import { HEADER_ROW, nextFocus } from "./gridFocus";
+import {
+  HEADER_ROW,
+  inRange,
+  nextSelection,
+  rangeSize,
+  selectedRange,
+  type GridSelection,
+} from "./gridFocus";
 
 // 28, not 36. A grid is read by scanning down it, and the row that matters is
 // usually the one below the fold — four more of them on a 500px pane is worth
@@ -122,6 +132,8 @@ export function ResultGrid({
   keyColumns,
   rowOffset = 0,
   onFilterByValue,
+  onEditCells,
+  editRefusal = "",
 }: {
   result: QueryResult;
   widths: readonly number[];
@@ -166,6 +178,16 @@ export function ResultGrid({
    * engine, which is the caller's to know.
    */
   onFilterByValue?: (filter: { column: string; value: string; negate: boolean }) => void;
+  /**
+   * Commits an edit. Absent means the grid is a reader — the console's result
+   * can be a join or an expression, and there is no single table to write to.
+   *
+   * Row and column INDICES, not values: the caller owns the key columns and
+   * the statement, and the grid owns only which cells the user picked.
+   */
+  onEditCells?: (edit: { rows: number[]; columns: number[]; value: string | null }) => void;
+  /** Why editing is refused, shown where the attempt is made. "" means it is not. */
+  editRefusal?: string;
 }) {
   const rows = useVirtualRows(result.rows.length, ROW_HEIGHT);
   const order = orderedColumns(result.columns, columnOrder);
@@ -184,7 +206,13 @@ export function ResultGrid({
    * stop each (keyboards.md › the Tab table: Tab moves through CONTROLS, and a
    * grid is one control).
    */
-  const [focus, setFocus] = useState<{ row: number; position: number } | null>(null);
+  const [selection, setSelection] = useState<GridSelection | null>(null);
+  /** The cell being typed into, and what has been typed. */
+  const [editing, setEditing] = useState<{ row: number; position: number; draft: string } | null>(
+    null,
+  );
+  const focus = selection?.focus ?? null;
+  const range = selection ? selectedRange(selection) : null;
 
   // A click is a sort and a drag is a reorder, and they start with the same
   // pointerdown — four pixels is what tells them apart. Without this the sort
@@ -275,40 +303,83 @@ export function ResultGrid({
    * (accessibility.md › Mobility). Where a key LANDS is gridFocus; this is the
    * part that cannot be pure.
    */
-  function onGridKeyDown(event: KeyboardEvent<HTMLTableElement>): void {
-    const here = focus ?? { row: 0, position: 0 };
+  /** Puts the cell under the keyboard into edit mode, or says why not. */
+  function beginEdit(row: number, position: number): void {
+    if (!onEditCells || row < 0) return;
+    if (editRefusal) {
+      toast.error("This result cannot be edited", { description: editRefusal });
+      return;
+    }
+    setEditing({ row, position, draft: result.rows[row]?.[order[position]] ?? "" });
+  }
 
+  /**
+   * Applies the draft to every cell of the selection.
+   *
+   * The whole rectangle, not the one cell being typed into: that is what makes
+   * this a bulk edit, and it is the DataGrip gesture — pick a run of rows, type
+   * once. The caller turns the indices into one statement.
+   */
+  function commitEdit(value: string | null): void {
+    const target = range ?? (editing ? { top: editing.row, bottom: editing.row, left: editing.position, right: editing.position } : null);
+    setEditing(null);
+    if (!onEditCells || !target || target.top < 0) return;
+    const rows: number[] = [];
+    for (let row = target.top; row <= target.bottom; row += 1) rows.push(row);
+    const columns: number[] = [];
+    for (let position = target.left; position <= target.right; position += 1) {
+      columns.push(order[position]);
+    }
+    onEditCells({ rows, columns, value });
+  }
+
+  function onGridKeyDown(event: KeyboardEvent<HTMLTableElement>): void {
+    const here = selection ?? { anchor: { row: 0, position: 0 }, focus: { row: 0, position: 0 } };
+
+    if (editing) {
+      // While typing, the grid's own keys belong to the input — except the two
+      // that end the edit, which the input cannot handle alone because the
+      // commit spans cells it does not know about.
+      return;
+    }
     if (event.key === "Escape") {
-      setFocus(null);
+      setSelection(null);
       event.currentTarget.blur();
       return;
     }
     if (event.key === "Enter" || event.key === " ") {
-      if (here.row === HEADER_ROW) {
-        onSort?.(order[here.position]);
+      if (here.focus.row === HEADER_ROW) {
+        onSort?.(order[here.focus.position]);
+      } else if (onEditCells) {
+        beginEdit(here.focus.row, here.focus.position);
       } else {
-        const columnIndex = order[here.position];
+        const columnIndex = order[here.focus.position];
         onInspectCell({
           columnName: result.columns[columnIndex] || `col_${columnIndex}`,
-          value: result.rows[here.row]?.[columnIndex] ?? "",
+          value: result.rows[here.focus.row]?.[columnIndex] ?? "",
         });
       }
       event.preventDefault();
       return;
     }
 
-    const next = nextFocus(here, event.key, {
-      rows: result.rows.length,
-      columns: order.length,
-      // One row of overlap, so a page turn keeps a line of context.
-      page: Math.max(1, Math.floor((rows.scrollRef.current?.clientHeight ?? 0) / ROW_HEIGHT) - 1),
-      jump: event.metaKey || event.ctrlKey,
-    });
+    const next = nextSelection(
+      here,
+      event.key,
+      {
+        rows: result.rows.length,
+        columns: order.length,
+        // One row of overlap, so a page turn keeps a line of context.
+        page: Math.max(1, Math.floor((rows.scrollRef.current?.clientHeight ?? 0) / ROW_HEIGHT) - 1),
+        jump: event.metaKey || event.ctrlKey,
+      },
+      event.shiftKey,
+    );
     // null is a key this grid does not handle: Tab still has to leave, and a
     // bare character still has to reach the shell.
     if (!next) return;
-    setFocus(next);
-    revealCell(next.row, next.position);
+    setSelection(next);
+    revealCell(next.focus.row, next.focus.position);
     event.preventDefault();
   }
 
@@ -380,8 +451,12 @@ export function ResultGrid({
               tabIndex={0}
               aria-activedescendant={focus ? "grid-focus" : undefined}
               onKeyDown={onGridKeyDown}
-              onFocus={() => setFocus((current) => current ?? { row: 0, position: 0 })}
-              onBlur={() => setFocus(null)}
+              onFocus={() =>
+                setSelection(
+                  (current) =>
+                    current ?? { anchor: { row: 0, position: 0 }, focus: { row: 0, position: 0 } },
+                )
+              }
             >
               <colgroup>
                 <col style={{ width: ROW_NUMBER_WIDTH_PX }} />
@@ -469,6 +544,9 @@ export function ResultGrid({
                     {order.map((columnIndex, position) => {
                       const value = result.rows[rowIndex][columnIndex] ?? "";
                       const isFocused = focus?.row === rowIndex && focus.position === position;
+                      const isSelected = range ? inRange(range, rowIndex, position) : false;
+                      const isEditing =
+                        editing?.row === rowIndex && editing.position === position;
                       return (
                         <td
                           key={columnIndex}
@@ -477,10 +555,42 @@ export function ResultGrid({
                           // is 2,220 attributes written per render for one
                           // pointer aria-activedescendant needs.
                           id={isFocused ? "grid-focus" : undefined}
-                          onMouseDown={() => setFocus({ row: rowIndex, position })}
+                          aria-selected={isSelected || undefined}
+                          // Shift extends from wherever the selection started,
+                          // the same as Shift+arrow. mousedown, not click, so
+                          // the browser's own text selection does not start
+                          // inside a drag the grid is about to own.
+                          onMouseDown={(event) => {
+                            if (event.shiftKey) {
+                              // Cells keep `select-text` so a value can be
+                              // copied out of one by hand — but a Shift-click
+                              // is the grid extending its rectangle, and left
+                              // to itself the browser ALSO dragged a text
+                              // selection across every cell between, painting
+                              // the range twice in two different colours.
+                              event.preventDefault();
+                              window.getSelection()?.removeAllRanges();
+                            }
+                            setSelection((current) => ({
+                              anchor:
+                                event.shiftKey && current
+                                  ? current.anchor
+                                  : { row: rowIndex, position },
+                              focus: { row: rowIndex, position },
+                            }));
+                          }}
+                          onDoubleClick={() =>
+                            onEditCells
+                              ? beginEdit(rowIndex, position)
+                              : onInspectCell({
+                                  columnName: result.columns[columnIndex] || `col_${columnIndex}`,
+                                  value,
+                                })
+                          }
                           style={frozenStyle(position)}
                           className={cn(
                             "h-7 cursor-pointer truncate border-r border-b border-border-subtle px-3 select-text last:border-r-0 hover:text-text-primary",
+                            isSelected && !isFocused && "bg-(--feedback-selected)",
                             isFocused &&
                               "outline outline-1 -outline-offset-1 outline-status-info",
                             columnIndex === order[0] ? "text-text-primary" : "text-text-secondary",
@@ -492,19 +602,23 @@ export function ResultGrid({
                             offsets[position] !== undefined &&
                               "group-hover:[background-image:linear-gradient(var(--state-soft),var(--state-soft)),linear-gradient(var(--surface-well),var(--surface-well))]",
                           )}
-                          onClick={() =>
-                            onInspectCell({
-                              columnName: result.columns[columnIndex] || `col_${columnIndex}`,
-                              value,
-                            })
-                          }
                           // The full value, and only when the cell is too
                           // narrow to show it. "Click to inspect cell" on
                           // every cell meant scanning forty rows raised four
                           // hundred tooltips saying the same thing.
                           title={value.length * CHAR_PX_APPROX > widthOf(columnIndex) ? value : undefined}
                         >
-                          {value === "" ? (
+                          {isEditing ? (
+                            <CellEditor
+                              draft={editing.draft}
+                              cells={range ? rangeSize(range) : 1}
+                              onChange={(draft) =>
+                                setEditing((current) => (current ? { ...current, draft } : current))
+                              }
+                              onCommit={commitEdit}
+                              onCancel={() => setEditing(null)}
+                            />
+                          ) : value === "" ? (
                             <span className="text-code-11 text-status-warning">NULL</span>
                           ) : (
                             value
@@ -603,6 +717,19 @@ export function ResultGrid({
                 <ContextMenuLabel className="text-caption-11 font-normal text-status-warning">
                   result was capped — this is not the whole column
                 </ContextMenuLabel>
+              ) : null}
+              {onEditCells && cell ? (
+                <>
+                  <ContextMenuSeparator />
+                  {/* A value, not the four letters — typing NULL into a cell
+                      sets the string, which is why it needs an item of its
+                      own. It follows the SELECTION, like any other edit. */}
+                  <ContextMenuItem onSelect={() => commitEdit(null)}>
+                    <Eraser />
+                    Set {range && rangeSize(range) > 1 ? `${rangeSize(range)} cells` : "cell"} to
+                    NULL
+                  </ContextMenuItem>
+                </>
               ) : null}
               {onFreeze ? (
                 <ContextMenuItem
@@ -770,3 +897,69 @@ function HeaderCell({
 }
 
 export { MIN_COLUMN_WIDTH_PX };
+
+/**
+ * The input that replaces a cell while it is being typed into.
+ *
+ * Its own component so the grid does not re-render 2,220 cells on every
+ * keystroke: the draft lives here until it is committed, and only this cell
+ * subscribes to it.
+ *
+ * Enter commits and Escape cancels, both handled here and stopped from
+ * bubbling — the grid's own keydown would otherwise move the selection out
+ * from under the edit. The cell count is shown when a bulk edit is about to
+ * change more than the one cell being typed into, because it is the only
+ * warning that a keystroke is about to touch forty rows.
+ */
+function CellEditor({
+  draft,
+  cells,
+  onChange,
+  onCommit,
+  onCancel,
+}: {
+  draft: string;
+  cells: number;
+  onChange: (draft: string) => void;
+  onCommit: (value: string | null) => void;
+  onCancel: () => void;
+}) {
+  return (
+    <span className="flex h-full items-center gap-1">
+      <input
+        autoFocus
+        // Selected on open, so the first keystroke REPLACES the value the way
+        // it does in a spreadsheet. With the caret merely at the end, typing
+        // "closed" over "open" produced "openclosed".
+        onFocus={(event) => event.target.select()}
+        value={draft}
+        onChange={(event) => onChange(event.target.value)}
+        onBlur={() => onCancel()}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            onCommit(draft);
+          } else if (event.key === "Escape") {
+            onCancel();
+          } else {
+            // Everything else belongs to the input. Without this the grid's
+            // arrows would move the selection while the caret tried to move.
+            event.stopPropagation();
+            return;
+          }
+          event.preventDefault();
+          event.stopPropagation();
+        }}
+        className="h-6 w-full min-w-0 rounded-sm border border-status-info bg-surface-base px-1 text-code-12 text-text-primary outline-none"
+      />
+      {cells > 1 ? (
+        // Inside the cell, not floating above it: the cell is `truncate`, so
+        // an absolutely positioned badge was clipped by its own overflow and
+        // the one warning that a keystroke is about to change forty rows never
+        // appeared at all.
+        <span className="shrink-0 rounded-sm bg-status-info px-1 text-code-11 text-surface-base">
+          {cells}
+        </span>
+      ) : null}
+    </span>
+  );
+}

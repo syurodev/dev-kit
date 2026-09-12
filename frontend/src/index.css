@@ -233,6 +233,10 @@
     --surface-well: color-mix(in srgb, var(--tint-veil) 6%, transparent);
     /* The added-line wash in a code block. Derived at the same 14% as its
        danger twin, so a diff reads as one pair in every theme. */
+    /* The tint on a selected grid cell. Derived from the same accent the focus
+       ring uses, so a rectangle of selected cells and the one cell inside it
+       that holds the focus read as one gesture rather than two colours. */
+    --feedback-selected: color-mix(in srgb, var(--status-info) 18%, transparent);
     --feedback-success-soft: color-mix(in srgb, var(--status-success) 14%, transparent);
     --feedback-danger-soft: color-mix(in srgb, var(--status-danger) 14%, transparent);
     --feedback-danger-hover: color-mix(in srgb, var(--status-danger) 24%, transparent);

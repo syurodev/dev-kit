@@ -278,6 +278,19 @@ export type DatabaseStoreState = {
   ) => void;
   /** Runs the statement for the current page of a table tab. */
   loadBrowsePage: (key: string, opts: { schema: string; table: string }) => Promise<void>;
+  /**
+   * Runs one UPDATE for a grid edit and reloads the page it changed.
+   *
+   * Reloads rather than patching the rows in memory: a column with a trigger,
+   * a default or a check constraint may not hold what was sent, and a grid
+   * showing what we MEANT to write is worse than one that waits a round trip
+   * for what is actually there.
+   */
+  applyBrowseEdit: (
+    key: string,
+    opts: { schema: string; table: string },
+    sql: string,
+  ) => Promise<void>;
   /** Moves one page forward or back and loads it. */
   stepBrowsePage: (
     key: string,
@@ -773,6 +786,19 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       loading: false,
       error: "",
     });
+  },
+
+  applyBrowseEdit: async (key, { schema, table }, sql) => {
+    const { selectedProfileId } = get();
+    if (!selectedProfileId) {
+      return;
+    }
+    // Throws on to the caller rather than raising a toast here. A store that
+    // imports the toaster puts it in every graph the store is in — and this
+    // one is reachable from the eager manifest, so sonner became 32 KiB of the
+    // shell's startup for a message only the table tab ever shows.
+    await runQuery(selectedProfileId, sql);
+    await get().loadBrowsePage(key, { schema, table });
   },
 
   loadBrowsePage: async (key, { schema, table }) => {

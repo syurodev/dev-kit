@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
 import { EMPTY_ARRAY } from "@/lib/stableEmpty";
 import { listColumns, listIndexes } from "@/bridge/database";
@@ -13,6 +14,8 @@ import { useIsActiveDocument } from "./useIsActiveDocument";
 import { openConsoleTab } from "./documents";
 import { buildBrowseQuery } from "./sql/browseQuery";
 import { quoteIdentifier, quoteLiteral } from "./sql/identifier";
+import { buildUpdate, updateRefusal } from "./sql/updateCell";
+import { errorMessage, isCancelError } from "@/bridge/errors";
 import { tableExportFilename } from "./export";
 import { pageKeyFor } from "./tableKey";
 
@@ -59,6 +62,7 @@ export function TableDataView({
     setBrowseFrozen,
     setPageKey,
     loadBrowsePage,
+    applyBrowseEdit,
     goToBrowsePage,
     countBrowseRows,
     lastPage,
@@ -85,6 +89,7 @@ export function TableDataView({
       setBrowseFrozen: s.setBrowseFrozen,
       setPageKey: s.setPageKey,
       loadBrowsePage: s.loadBrowsePage,
+      applyBrowseEdit: s.applyBrowseEdit,
       goToBrowsePage: s.goToBrowsePage,
       countBrowseRows: s.countBrowseRows,
       lastPage: s.lastBrowsePage(key),
@@ -176,7 +181,16 @@ export function TableDataView({
     }
   }, [selectedProfileId, schema, table, key, where, countBrowseRows]);
 
-  const engine = profiles.find((p) => p.id === selectedProfileId)?.engine;
+  const profile = profiles.find((p) => p.id === selectedProfileId);
+  const engine = profile?.engine;
+  // Asked once, here, rather than at each cell: the answer is a property of
+  // the connection and the table, not of which cell was double-clicked.
+  const editRefusal = updateRefusal({
+    keyColumns: pageKey,
+    readOnly: Boolean(profile?.readOnly),
+    schema,
+    table,
+  });
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
@@ -284,6 +298,44 @@ export function TableDataView({
             const next = browse.where.trim() ? `${browse.where.trim()} AND ${clause}` : clause;
             setBrowseWhere(key, next);
             void loadBrowsePage(key, { schema, table });
+          }}
+          // Editing is the table tab's alone: a console result can be a join
+          // or an expression, and there is no single table behind it to write
+          // to. Even here it is refused without a key — see updateRefusal.
+          editRefusal={editRefusal}
+          onEditCells={({ rows: rowIndices, columns: columnIndices, value }) => {
+            if (editRefusal || !browse.rows || !pageKey) {
+              return;
+            }
+            const columns = browse.rows.columns;
+            const sql = buildUpdate({
+              schema,
+              table,
+              engine,
+              keyColumns: pageKey,
+              // The row's OWN key values, read out of the page in hand. The
+              // grid names cells by position; only this side knows which
+              // columns identify a row.
+              rows: rowIndices.map((rowIndex) => ({
+                values: pageKey.map((key) => {
+                  const at = columns.indexOf(key);
+                  const cell = at === -1 ? "" : (browse.rows!.rows[rowIndex][at] ?? "");
+                  return cell === "" ? null : cell;
+                }),
+              })),
+              columns: columnIndices.map((index) => columns[index]),
+              value,
+            });
+            const cells = rowIndices.length * columnIndices.length;
+            applyBrowseEdit(key, { schema, table }, sql)
+              .then(() => toast.success(cells === 1 ? "Cell updated" : `${cells} cells updated`))
+              .catch((error: unknown) => {
+                if (isCancelError(error)) return;
+                // A toast, not the tab's error banner: the banner is about the
+                // rows on screen, and they are still exactly what the server
+                // last sent.
+                toast.error("Could not apply the edit", { description: errorMessage(error) });
+              });
           }}
           sort={
             browse.orderBy
