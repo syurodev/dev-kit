@@ -69,6 +69,18 @@ describe("one body", () => {
     expect(html).toContain("focus-visible:ring-0");
   });
 
+  /**
+   * ActionTooltip's `wrap` puts a content-sized span between the button and
+   * the row, so `h-full` on the button resolved against 14px of icon and left
+   * Run half the body's height — a notch at the right end, and the reason the
+   * whole thing stopped reading as one shape. The height comes from `size`.
+   */
+  it("takes Run's height from its size, not from the wrapper it sits in", () => {
+    expect(html).toContain("h-(--control-height-sm)");
+    const button = html.slice(html.indexOf("<button"), html.indexOf("</button>"));
+    expect(button, "h-full here resolves against the tooltip wrapper").not.toContain("h-full");
+  });
+
   it("shows nothing but Run before anything has been run", () => {
     const idle = render({ kind: "idle" });
     expect(idle).not.toContain('role="status"');

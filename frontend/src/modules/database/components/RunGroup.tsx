@@ -108,15 +108,31 @@ function useElapsed(running: boolean, startedAt?: number | null): number {
 function useContentWidth(): [React.RefObject<HTMLDivElement | null>, number | undefined] {
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState<number>();
+
+  // Measured after every commit, because a render is what changes this
+  // content: the clock gains a digit, the outcome replaces the clock. React
+  // is the notifier, so the number is right in the same frame the text is.
+  //
+  // A ResizeObserver alone was not: it delivers on the rendering steps, and
+  // when those are throttled the body keeps an older width and clips its own
+  // status — seen, 92px of body around 99px of content.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (el) setWidth((current) => (current === el.offsetWidth ? current : el.offsetWidth));
+  });
+
+  // And an observer as well, for the widths React is not told about: a font
+  // finishing its load, the appearance settings changing the code size.
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const measure = () => setWidth(el.offsetWidth);
-    measure();
-    const observer = new ResizeObserver(measure);
+    const observer = new ResizeObserver(() => {
+      setWidth((current) => (current === el.offsetWidth ? current : el.offsetWidth));
+    });
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
+
   return [ref, width];
 }
 
@@ -220,7 +236,13 @@ export function RunGroup({
               // The body carries the radius and the focus ring; the segment
               // inside it carries neither, or they would be drawn twice and
               // the ring would be clipped by the body's own overflow.
-              className="h-full w-(--control-height-sm) shrink-0 gap-0 rounded-none p-0 duration-(--motion-slow) ease-in-out focus-visible:ring-0"
+              //
+              // The height comes from `size` and NOT from h-full. ActionTooltip's
+              // `wrap` puts a span between this button and the row, and that span
+              // is content-sized: h-full resolved against 14px of icon and left
+              // the button half the body's height, which is the notch that
+              // appeared at the right end in dark mode.
+              className="w-(--control-height-sm) shrink-0 gap-0 rounded-none p-0 duration-(--motion-slow) ease-in-out focus-visible:ring-0"
               onClick={running ? onStop : onRun}
               disabled={!canRun && !running}
             >
