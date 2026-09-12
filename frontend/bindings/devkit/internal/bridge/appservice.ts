@@ -308,8 +308,22 @@ export function DBCancelQuery(id: string, pid: string): $CancellablePromise<void
     return $Call.ByID(652064838, id, pid);
 }
 
+/**
+ * DBChooseConsoleDirectory opens the native folder picker, starting in the
+ * folder they are in now. Cancelling returns "" and is not an error — the
+ * settings panel stays as it was, and an error there would read as a failure
+ * the user caused by changing their mind.
+ */
+export function DBChooseConsoleDirectory(): $CancellablePromise<string> {
+    return $Call.ByID(2112834229);
+}
+
 export function DBCommitTx(id: string): $CancellablePromise<void> {
     return $Call.ByID(2136861641, id);
+}
+
+export function DBConsoleDirectory(): $CancellablePromise<$models.ConsoleDirectory> {
+    return $Call.ByID(3758236692);
 }
 
 export function DBCreateProfile(input: database$0.CreateProfileInput): $CancellablePromise<database$0.ProfileSummary> {
@@ -454,6 +468,22 @@ export function DBSaveQuery(id: string, name: string, sql: string): $Cancellable
 
 export function DBSetActiveProfile(id: string): $CancellablePromise<void> {
     return $Call.ByID(646248503, id);
+}
+
+/**
+ * DBSetConsoleDirectory moves the consoles and remembers where they went.
+ * 
+ * The move happens first and the row is written only if it worked, so the
+ * setting the window shows on the next launch is the folder the files are
+ * actually in. Failing to remember is not failing to move: the consoles are
+ * where the user asked for, and saying otherwise would send them looking for
+ * files that are not there. It is logged and the call succeeds.
+ * 
+ * An empty path is "use the default" — one call for both, because the window's
+ * two buttons are the same decision with different arguments.
+ */
+export function DBSetConsoleDirectory(path: string): $CancellablePromise<$models.ConsoleDirectory> {
+    return $Call.ByID(1259808484, path);
 }
 
 /**

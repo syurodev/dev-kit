@@ -32,6 +32,7 @@ import {
 import { SecurityNotice } from "@/components/ui/security-notice";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { McpInstallPanel } from "./McpInstallPanel";
+import { ConsoleStorageSetting } from "./ConsoleStorageSetting";
 import {
   Select,
   SelectContent,
@@ -52,6 +53,7 @@ import {
   SlidersHorizontal,
   Laptop,
   LockKeyhole,
+  Database,
   Trash2,
   X,
   RefreshCw,
@@ -59,7 +61,7 @@ import {
 import { cn } from "@/lib/utils";
 import { EMPTY_ARRAY } from "@/lib/stableEmpty";
 
-type SettingsTab = "account" | "appearance" | "sync" | "environments";
+type SettingsTab = "account" | "appearance" | "sync" | "environments" | "database";
 
 export interface SettingsModalProps {
   open: boolean;
@@ -157,6 +159,12 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
                 label="Environments"
                 onClick={() => setActiveTab("environments")}
               />
+              <NavItem
+                active={activeTab === "database"}
+                icon={Database}
+                label="Database"
+                onClick={() => setActiveTab("database")}
+              />
             </div>
 
             {/* Content Panel Area */}
@@ -165,6 +173,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
               {activeTab === "appearance" && <AppearanceTab />}
               {activeTab === "sync" && <SyncDevicesTab />}
               {activeTab === "environments" && <EnvironmentsTab />}
+              {activeTab === "database" && <DatabaseTab />}
             </div>
           </div>
         </div>
@@ -211,6 +220,22 @@ function NavItem({
 
 /** Every section opens the same way (765:2000–2003): Heading/24 (Figma draws
  * 22 SemiBold, snapped up to the scale), 6px, Body/13 tertiary, 28px. */
+/**
+ * The column every tab's content sits in: 656 wide, which is the Figma
+ * shell's 940 less the 220 nav and the 32 gutters.
+ *
+ * Declared once because it was declared five times, and five copies of a
+ * measurement is five chances for one of them to be 640 after somebody
+ * nudges a tab.
+ */
+function TabColumn({ gap = 6, children }: { gap?: 6 | 7; children: React.ReactNode }) {
+  return (
+    <div className={cn("flex w-full max-w-[656px] flex-col", gap === 7 ? "gap-7" : "gap-6")}>
+      {children}
+    </div>
+  );
+}
+
 function SectionHeader({ title, description }: { title: string; description: string }) {
   return (
     <div className="flex flex-col gap-1.5">
@@ -267,7 +292,7 @@ function AccountTab() {
   }
 
   return (
-    <div className="flex w-full max-w-[656px] flex-col gap-7">
+    <TabColumn gap={7}>
       <SectionHeader
         title="Account"
         description="Identity used for sync. Managed by your identity provider — not stored locally."
@@ -320,7 +345,7 @@ function AccountTab() {
         title="Your password never leaves your browser"
         description="DevKit signs you in through your system browser using PKCE. The password is never sent to or stored by DevKit."
       />
-    </div>
+    </TabColumn>
   );
 }
 
@@ -450,7 +475,7 @@ function AppearanceTab() {
   );
 
   return (
-    <div className="flex w-full max-w-[656px] flex-col gap-7">
+    <TabColumn gap={7}>
       <SectionHeader
         title="Appearance"
         description="Theme follows your explicit choice, or the OS when set to System."
@@ -567,7 +592,7 @@ function AppearanceTab() {
           {`const vault = unlock(masterKey); // ${codeSize}px preview`}
         </p>
       </div>
-    </div>
+    </TabColumn>
   );
 }
 
@@ -633,7 +658,7 @@ function SyncDevicesTab() {
   }
 
   return (
-    <div className="flex w-full max-w-[656px] flex-col gap-7">
+    <TabColumn gap={7}>
       <div className="flex items-start justify-between gap-4">
         <SectionHeader
           title="Sync & Devices"
@@ -671,7 +696,25 @@ function SyncDevicesTab() {
         title="A revoked device is blocked immediately"
         description="It is denylisted right away and must sign in again before it can push or pull."
       />
-    </div>
+    </TabColumn>
+  );
+}
+
+// ----------------------------------------------------------------------
+// Database Tab — where the module keeps what it writes to disk
+// ----------------------------------------------------------------------
+function DatabaseTab() {
+  return (
+    <TabColumn>
+      <SectionHeader
+        title="Database"
+        description="Where the Database module keeps the files it writes. Connections and saved queries are not files — they live in the vault and sync."
+      />
+      <div className="flex flex-col gap-2.5">
+        <GroupLabel>QUERY CONSOLES</GroupLabel>
+        <ConsoleStorageSetting />
+      </div>
+    </TabColumn>
   );
 }
 
@@ -723,7 +766,7 @@ function EnvironmentsTab() {
   }
 
   return (
-    <div className="flex w-full max-w-[656px] flex-col gap-6">
+    <TabColumn>
       <SectionHeader
         title="Environments"
         description="Env tags required by SSH, Database and Kafka profiles. prod is locked and always requires confirmation."
@@ -827,6 +870,6 @@ function EnvironmentsTab() {
       <div className="border-t border-border-subtle pt-4">
         <McpInstallPanel />
       </div>
-    </div>
+    </TabColumn>
   );
 }

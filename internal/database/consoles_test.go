@@ -164,3 +164,95 @@ func TestConsoleSaveReplacesInPlace(t *testing.T) {
 		t.Errorf("SQL = %q", list[0].SQL)
 	}
 }
+
+/*
+Changing the folder takes the consoles with it.
+
+Leaving them behind is the version that generates the bug report: the
+setting changes, the next launch reads an empty folder, and every console
+the user had is gone as far as the window is concerned.
+*/
+func TestConsolesFollowTheFolderTheyAreMovedTo(t *testing.T) {
+	home, elsewhere := t.TempDir(), filepath.Join(t.TempDir(), "sql")
+	store := NewConsoleStore(home)
+	if err := store.Save(Console{ID: "c1", ProfileID: "p1", SQL: "SELECT 1"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.SetDir(elsewhere); err != nil {
+		t.Fatalf("SetDir: %v", err)
+	}
+
+	if store.Dir() != elsewhere {
+		t.Fatalf("Dir = %q", store.Dir())
+	}
+	list, err := store.List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(list) != 1 || list[0].SQL != "SELECT 1" || list[0].ProfileID != "p1" {
+		t.Fatalf("the console did not come along: %+v", list)
+	}
+	if left, _ := os.ReadDir(home); len(left) != 0 {
+		t.Fatalf("a copy was left behind: %v", left)
+	}
+}
+
+// Nothing here is worth overwriting somebody's file for.
+func TestMovingNeverOverwritesAFileAlreadyThere(t *testing.T) {
+	home, elsewhere := t.TempDir(), t.TempDir()
+	store := NewConsoleStore(home)
+	if err := store.Save(Console{ID: "c1", SQL: "SELECT moving"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(elsewhere, "c1.sql"), []byte("SELECT theirs"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.SetDir(elsewhere); err != nil {
+		t.Fatalf("SetDir: %v", err)
+	}
+
+	kept, _ := os.ReadFile(filepath.Join(elsewhere, "c1.sql"))
+	if string(kept) != "SELECT theirs" {
+		t.Errorf("the file that was already there was overwritten: %q", kept)
+	}
+	// And the one that could not move is still where it was, not deleted.
+	if _, err := os.Stat(filepath.Join(home, "c1.sql")); err != nil {
+		t.Errorf("the console that did not move was removed anyway: %v", err)
+	}
+}
+
+// The setting only changes if the move did, so the folder shown is always
+// the folder the consoles are in.
+func TestAFolderThatCannotBeUsedLeavesTheSettingAlone(t *testing.T) {
+	home := t.TempDir()
+	store := NewConsoleStore(home)
+	file := filepath.Join(t.TempDir(), "not-a-folder")
+	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, dir := range []string{"relative/path", file} {
+		if err := store.SetDir(dir); err == nil {
+			t.Errorf("SetDir(%q) was allowed", dir)
+		}
+		if store.Dir() != home {
+			t.Fatalf("the setting moved anyway: %q", store.Dir())
+		}
+	}
+}
+
+func TestEmptyMeansBackToTheDefault(t *testing.T) {
+	home, elsewhere := t.TempDir(), t.TempDir()
+	store := NewConsoleStore(home)
+	if err := store.SetDir(elsewhere); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetDir(""); err != nil {
+		t.Fatalf("SetDir(\"\"): %v", err)
+	}
+	if store.Dir() != home {
+		t.Fatalf("Dir = %q, want the default %q", store.Dir(), home)
+	}
+}

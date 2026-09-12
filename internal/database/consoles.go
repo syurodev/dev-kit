@@ -61,6 +61,12 @@ var ErrConsoleStoreUnavailable = errors.New("query consoles are not stored")
 // a statement error used to get, about a connection that is fine.
 var ErrConsoleStore = errors.New("query console storage failed")
 
+// ErrConsoleDirRejected is a folder the store will not use, with a reason
+// the user can act on. Separate from ErrConsoleStore because it is not a
+// failure of the disk — it is an answer to something the user just chose,
+// and it belongs in the dialog they chose it in.
+var ErrConsoleDirRejected = errors.New("that folder cannot hold the consoles")
+
 const consoleHeader = "-- devkit-console "
 
 // A console id is a file name, so it is checked as one. Anything with a
@@ -71,13 +77,112 @@ var consoleID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
 type ConsoleStore struct {
 	dir string
+	// Where they go when nobody has chosen: beside the database, under the
+	// app's own directory. Kept so "Use the default" is a real option rather
+	// than a path the window has to remember and retype.
+	defaultDir string
 	// Save and Delete both rename into the same directory, and List reads it.
 	// One process, but several UI calls in flight at once.
 	mu sync.Mutex
 }
 
-func NewConsoleStore(dir string) *ConsoleStore {
-	return &ConsoleStore{dir: dir}
+func NewConsoleStore(defaultDir string) *ConsoleStore {
+	return &ConsoleStore{dir: defaultDir, defaultDir: defaultDir}
+}
+
+func (s *ConsoleStore) Dir() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.dir
+}
+
+func (s *ConsoleStore) DefaultDir() string { return s.defaultDir }
+
+/*
+SetDir points the consoles somewhere else, and takes them with it.
+
+Leaving them behind is the version that generates the bug report: the
+setting changes, the next launch reads an empty folder, and every console
+the user had is gone as far as the window is concerned — still on disk,
+in a place they now have to remember.
+
+The files are COPIED and then unlinked rather than renamed. A rename cannot
+cross a filesystem, and crossing one is most of the point of this setting:
+the reason to move consoles is to put them in a synced folder, a project
+directory, an external disk. Copy-then-unlink also fails safe — the source
+is only removed once its copy is on disk.
+
+A name that already exists at the destination is left alone, and its source
+left alone with it. Nothing here is worth overwriting somebody's file for,
+and a console that did not move is recoverable; one that was overwritten is
+not.
+*/
+func (s *ConsoleStore) SetDir(dir string) error {
+	if dir == "" {
+		dir = s.defaultDir
+	}
+	if !filepath.IsAbs(dir) {
+		// Relative to what? The app's working directory is not a place the
+		// user can see, and it is not the same on every launch.
+		return fmt.Errorf("%w: the folder must be an absolute path", ErrConsoleDirRejected)
+	}
+	dir = filepath.Clean(dir)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if dir == s.dir {
+		return nil
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%w: that is a file, not a folder", ErrConsoleDirRejected)
+	}
+	// Before the switch, not after: a move that fails leaves the setting
+	// where it was, so the user is looking at the folder their consoles are
+	// actually in.
+	if err := moveConsoles(s.dir, dir); err != nil {
+		return err
+	}
+	s.dir = dir
+	return nil
+}
+
+func moveConsoles(from, to string) error {
+	entries, err := os.ReadDir(from)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".sql") {
+			continue
+		}
+		source := filepath.Join(from, name)
+		target := filepath.Join(to, name)
+		if _, err := os.Stat(target); err == nil {
+			continue
+		}
+		text, err := os.ReadFile(source)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(target, text, 0o600); err != nil {
+			return err
+		}
+		if err := os.Remove(source); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type consoleMeta struct {
@@ -258,6 +363,32 @@ func (s *Service) DeleteConsole(id string) error {
 		return ErrConsoleStoreUnavailable
 	}
 	return markConsoleError(store.Delete(id))
+}
+
+// ConsoleDirectory is where consoles are kept, and where they would be kept
+// if the setting were cleared.
+func (s *Service) ConsoleDirectory() (current string, fallback string, err error) {
+	store := s.consoleStore()
+	if store == nil {
+		return "", "", ErrConsoleStoreUnavailable
+	}
+	return store.Dir(), store.DefaultDir(), nil
+}
+
+// SetConsoleDirectory moves the consoles to dir, or back to the default when
+// dir is empty.
+func (s *Service) SetConsoleDirectory(dir string) error {
+	store := s.consoleStore()
+	if store == nil {
+		return ErrConsoleStoreUnavailable
+	}
+	if err := store.SetDir(dir); err != nil {
+		if errors.Is(err, ErrConsoleDirRejected) {
+			return err
+		}
+		return markConsoleError(err)
+	}
+	return nil
 }
 
 func markConsoleError(err error) error {

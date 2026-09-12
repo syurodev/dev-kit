@@ -3,6 +3,7 @@ package bridge
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -241,5 +242,70 @@ func TestDBSaveExportFileUserCancelled(t *testing.T) {
 	}
 	if writtenPath != "" {
 		t.Fatalf("expected empty path on cancel, got %q", writtenPath)
+	}
+}
+
+/*
+Where the consoles are kept, and remembering it.
+
+Two things worth pinning. The ui_state row is written only when the move
+worked — the setting the window shows on the next launch has to be the
+folder the files are actually in. And "use the default" is stored as the
+empty string rather than as the default path, so a default that changes
+between versions is still followed.
+*/
+func TestConsoleFolderIsRememberedOnlyWhenItMoved(t *testing.T) {
+	service := newTestService(t)
+	home := t.TempDir()
+	service.container.Database.SetConsoleStore(database.NewConsoleStore(home))
+
+	chosen := filepath.Join(t.TempDir(), "sql")
+	got, err := service.DBSetConsoleDirectory(chosen)
+	if err != nil {
+		t.Fatalf("DBSetConsoleDirectory: %v", err)
+	}
+	if got.Path != chosen || !got.Custom {
+		t.Fatalf("directory = %+v", got)
+	}
+	stored, found, _ := service.container.UIState.Get(ConsoleDirKey)
+	if !found || stored != chosen {
+		t.Fatalf("stored = %q found = %v", stored, found)
+	}
+
+	// A folder it cannot use changes neither the store nor the row.
+	if _, err := service.DBSetConsoleDirectory("not/absolute"); err == nil {
+		t.Fatal("a relative path was accepted")
+	}
+	stored, _, _ = service.container.UIState.Get(ConsoleDirKey)
+	if stored != chosen {
+		t.Fatalf("a rejected folder was remembered: %q", stored)
+	}
+
+	// Back to the default: the row is cleared rather than pinned to today's
+	// default path.
+	back, err := service.DBSetConsoleDirectory("")
+	if err != nil {
+		t.Fatalf("reset: %v", err)
+	}
+	if back.Path != home || back.Custom {
+		t.Fatalf("reset gave %+v", back)
+	}
+	if stored, _, _ := service.container.UIState.Get(ConsoleDirKey); stored != "" {
+		t.Fatalf("the default was stored as a path: %q", stored)
+	}
+}
+
+// Cancelling the picker is not an error: the panel stays as it was.
+func TestChoosingAConsoleFolderCanBeCancelled(t *testing.T) {
+	service := newTestService(t)
+	service.container.Database.SetConsoleStore(database.NewConsoleStore(t.TempDir()))
+	service.openDirDialog = func(_, _ string) (string, error) { return "", nil }
+
+	path, err := service.DBChooseConsoleDirectory()
+	if err != nil {
+		t.Fatalf("DBChooseConsoleDirectory: %v", err)
+	}
+	if path != "" {
+		t.Fatalf("path = %q", path)
 	}
 }

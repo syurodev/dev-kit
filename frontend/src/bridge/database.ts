@@ -612,3 +612,32 @@ export function saveConsole(console: Omit<StoredConsole, "updatedAt">): Promise<
 export function deleteConsole(id: string): Promise<void> {
   return callBridge(() => AppService.DBDeleteConsole(id) as Promise<void>);
 }
+
+/** Where the console files are kept, and where they would go by default. */
+export type ConsoleDirectory = {
+  path: string;
+  /** The folder they return to when the setting is cleared. */
+  fallback: string;
+  /** Whether `path` is a choice somebody made. */
+  custom: boolean;
+};
+
+const asDirectory = (d: { path: string; default: string; custom: boolean }): ConsoleDirectory => ({
+  path: d.path,
+  fallback: d.default,
+  custom: d.custom,
+});
+
+export function consoleDirectory(): Promise<ConsoleDirectory> {
+  return callBridge(async () => asDirectory(await AppService.DBConsoleDirectory()));
+}
+
+/** Moves the console files. An empty path means "back to the default". */
+export function setConsoleDirectory(path: string): Promise<ConsoleDirectory> {
+  return callBridge(async () => asDirectory(await AppService.DBSetConsoleDirectory(path)));
+}
+
+/** The native folder picker. "" when the user cancelled, which is not an error. */
+export function chooseConsoleDirectory(): Promise<string> {
+  return callBridge(() => AppService.DBChooseConsoleDirectory() as Promise<string>);
+}

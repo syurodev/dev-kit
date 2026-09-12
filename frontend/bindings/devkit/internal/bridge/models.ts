@@ -16,6 +16,25 @@ export interface AuthStatusDTO {
     "expires_at"?: string;
 }
 
+/**
+ * ConsoleDirectory is the folder the consoles are in, and the one they would
+ * return to. Both, because "Use the default" has to be offerable without the
+ * window knowing what the default is.
+ */
+export interface ConsoleDirectory {
+    "path": string;
+
+    /**
+     * Default is where they go when nothing is chosen.
+     */
+    "default": string;
+
+    /**
+     * Custom is whether Path is a choice somebody made.
+     */
+    "custom": boolean;
+}
+
 export interface ExecuteCommandRequest {
     "id": string;
     "payload": { [_ in string]?: any } | null;
