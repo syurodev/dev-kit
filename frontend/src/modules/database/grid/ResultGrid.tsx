@@ -433,7 +433,7 @@ export function ResultGrid({
                   <tr
                     key={rowIndex}
                     className={cn(
-                      "group transition-colors hover:bg-surface-raised/60",
+                      "group transition-colors hover:bg-state-soft",
                       // lists-and-tables.md › Desktop: "Consider using
                       // alternating row colors in a multicolumn table…
                       // especially in a wide table." A 74-column table is read
@@ -441,7 +441,9 @@ export function ResultGrid({
                       // hover only ever helps the row under the pointer.
                       // Indexed by the ROW, so the banding does not crawl as
                       // virtualised rows come and go.
-                      rowIndex % 2 === 1 && "bg-state-soft/50",
+                      // 40%, so hovering an odd row is still a visible step up
+                      // to the full state layer rather than a repeat of it.
+                      rowIndex % 2 === 1 && "bg-state-soft/40",
                     )}
                   >
                     {/* The row number, counting through the table rather than

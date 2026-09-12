@@ -230,7 +230,7 @@ export function LiveActivityView() {
                 return (
                   <tr
                     key={s.pid}
-                    className={`hover:bg-surface-raised/60 transition-colors ${
+                    className={`hover:bg-state-soft transition-colors ${
                       hasBlockers ? "bg-amber-500/5" : ""
                     }`}
                   >

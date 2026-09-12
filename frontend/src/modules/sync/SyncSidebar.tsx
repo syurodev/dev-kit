@@ -97,7 +97,7 @@ export function SyncSidebar({
                 ROW,
                 selected
                   ? "border-border-subtle bg-surface-raised"
-                  : "border-transparent hover:bg-surface-raised/60",
+                  : "border-transparent hover:bg-state-soft",
               )}
             >
               <Glyph className="size-4 shrink-0 text-text-secondary" />

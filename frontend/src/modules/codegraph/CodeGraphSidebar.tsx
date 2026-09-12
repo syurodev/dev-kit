@@ -187,7 +187,7 @@ export function CodeGraphSidebar(props: CodeGraphSidebarProps) {
                       SIDEBAR_ROW_HEIGHT.list,
                       selected
                         ? "border-border-subtle bg-surface-raised"
-                        : "border-transparent hover:bg-surface-raised/60",
+                        : "border-transparent hover:bg-state-soft",
                     )}
                     onClick={() => onSelectEndpoint(ep)}
                   >
@@ -232,7 +232,7 @@ export function CodeGraphSidebar(props: CodeGraphSidebarProps) {
             <li key={n.planNodeId}>
               <button
                 className={cn(
-                  "flex w-full flex-col justify-center gap-0.5 rounded-md px-3 text-left hover:bg-surface-raised/60",
+                  "flex w-full flex-col justify-center gap-0.5 rounded-md px-3 text-left hover:bg-state-soft",
                   SIDEBAR_ROW_HEIGHT.card,
                 )}
                 onClick={() => onSelectPlanNode(n.planNodeId)}

@@ -81,7 +81,7 @@ export function FileTree({ entries, selectedPath, onSelectFile }: FileTreeProps)
                 "absolute top-0 left-0 flex w-full items-center gap-1.5 rounded-md border pr-2 text-left",
                 selected
                   ? "border-border-subtle bg-surface-raised"
-                  : "border-transparent hover:bg-surface-raised/60",
+                  : "border-transparent hover:bg-state-soft",
               )}
               style={{
                 height: item.size,

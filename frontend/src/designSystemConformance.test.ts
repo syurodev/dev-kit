@@ -63,10 +63,15 @@ const BASELINE: Record<string, { twText: number; rawPx: number; rawHex: number }
 const HEX_EXEMPT = [
   "components/ui/font-color-toolbar-button.tsx",
   "components/ui/code-block-node-static.tsx",
-  // Vendor brand marks. A logo's colour is the vendor's, not the theme's —
-  // binding it to a semantic token would recolour someone else's trademark.
-  "modules/database/icons/engineMarks.tsx",
 ];
+// engineMarks.tsx was the third entry, exempted as "vendor brand marks — a
+// logo's colour is the vendor's, not the theme's". The file's own header said
+// otherwise on the line above the fills: they are "the palette values the
+// design chose, not the vendors' own brand colours", and they were
+// candy-blue, vanilla, orchid and the secondary text colour. So the guard was
+// switched off over a premise that was never true, and four dark-mode hexes
+// sat behind it until a light theme made the connection icon disappear.
+// Exempt a file from this only for colour that is genuinely DATA.
 
 const TAILWIND_TEXT = /\btext-(xs|sm|base|lg|xl|2xl|3xl|4xl)\b/g;
 const ARBITRARY_PX = /\[[0-9.]+px\]/g;

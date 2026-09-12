@@ -181,7 +181,13 @@ function TreeRow({ node, level, index }: { node: TreeNodeData; level: number; in
         "group tree-row-enter flex h-(--control-height-xs) items-center gap-1 rounded-md border pr-1.5",
         node.selected
           ? "border-action-primary/45 bg-surface-raised text-text-primary"
-          : "border-transparent text-text-secondary hover:bg-surface-raised/60 hover:text-text-primary",
+          // The state layer, not a translucent surface. --surface-raised at 60%
+          // lifts clearly off a near-black rail and is all but invisible on a
+          // light one (1.06:1 against --background-app, against dark's 1.14);
+          // --state-soft is defined per mode for exactly this — white alpha
+          // where dark lifts, ink alpha where light recesses — and lands at
+          // 1.08–1.18 in every palette either way.
+          : "border-transparent text-text-secondary hover:bg-state-soft hover:text-text-primary",
         node.sticky !== undefined && "tree-row-sticky",
       )}
     >

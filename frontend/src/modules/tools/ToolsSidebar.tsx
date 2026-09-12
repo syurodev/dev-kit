@@ -85,7 +85,7 @@ function ToolRow({
         SIDEBAR_ROW_HEIGHT.list,
         active
           ? "bg-surface-raised text-text-primary"
-          : "text-text-secondary hover:bg-surface-raised/60 hover:text-text-primary",
+          : "text-text-secondary hover:bg-state-soft hover:text-text-primary",
       )}
     >
       <Icon
