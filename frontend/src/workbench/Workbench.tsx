@@ -4,6 +4,7 @@ import { Events, Window } from "@wailsio/runtime";
 import { MessageSquare, PanelBottom, PanelLeft, Search, Settings as SettingsIcon } from "lucide-react";
 import { listModules, type ModuleDTO } from "../bridge/commands";
 import { useMenuCommands } from "./menuCommands";
+import { ModuleEmptyState } from "./ModuleEmptyState";
 import { Dock } from "./dock/Dock";
 import { moduleIndexFromEvent } from "./dock/dockActivation";
 import { AgentSessionsSubscriber } from "./AgentSessionsSubscriber";
@@ -234,11 +235,11 @@ const WorkbenchViews = memo(
           )}
         >
           {openTabs.length === 0 ? (
-            <p role="status" className="text-body-13 text-text-tertiary">
-              {availableModules.length === 0
-                ? "No modules are currently available."
-                : "No view is currently available."}
-            </p>
+            // "No view is currently available" was a status line for a state
+            // that is not a problem: nothing is open because nothing was left
+            // open. writing.md asks a blank screen to say what to do next and
+            // give a control to do it with, so it does.
+            <ModuleEmptyState module={activeModule} />
           ) : (
             openTabs.map((tab) => {
               // Tabs outside the active module's grace/cap window aren't
@@ -526,22 +527,14 @@ export function Workbench() {
     focusModuleInStore(moduleId);
     // Sticky (module-tabs.mdx): a module that already has a tab active comes
     // back to exactly that tab — its tabs are its own and were never touched
-    // by whatever happened in other modules meanwhile. Only a module with
-    // nothing open gets its home view, and that opens as the module's preview
-    // tab: casually visiting via the Dock (without pinning anything inside)
-    // shouldn't leave a permanent tab behind. Picking a specific item (Notes:
-    // a note) replaces that same preview slot in place via openTab; a
-    // module's own view can promote it to permanent later (Notes does, on
-    // first edit, via pinTab).
-    if (moduleTabs(useWorkbenchTabsStore.getState().modules, moduleId).activeTabId) {
-      return;
-    }
-    openTab({
-      moduleId: module.id,
-      viewId: view.id,
-      title: module.title,
-      preview: true,
-    });
+    // by whatever happened in other modules meanwhile. Tabs are stored now, so
+    // that also holds across a relaunch.
+    //
+    // A module with NOTHING open opens nothing. It used to get its home view
+    // as a preview tab, which was a guess standing in for the memory the
+    // workbench did not have: visiting Database always produced a blank
+    // console whether or not anyone wanted one. The empty state below offers
+    // it instead, which is the same click without the assumption.
   }
 
   // Mirrors for the mount-once keydown listener above, which must not close
@@ -560,13 +553,9 @@ export function Workbench() {
       return;
     }
     // Closing a module's last tab empties its partition. The module stays on
-    // screen and gets its home view back (module-tabs.mdx: "đã đóng hết →
-    // về view home mặc định"), rather than the app jumping to whichever
-    // module happens to be first in the list.
-    if (activeTabs.openTabs.length === 0) {
-      focusModule(activeModuleId);
-    }
-  }, [availableModules, activeModuleId, activeTabs.openTabs.length]);
+    // screen — with the empty state, not a view conjured back — rather than
+    // the app jumping to whichever module happens to be first in the list.
+  }, [availableModules, activeModuleId]);
   useMenuCommands();
 
   const commands = availableModules.flatMap((module) => module.commands);

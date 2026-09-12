@@ -1,5 +1,8 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 import type { LucideIcon } from "lucide-react";
+import { uiStateStorage } from "@/bridge/uistate";
+import { viewIcon } from "@/modules/registry";
 
 export type TabStatus = "idle" | "running" | "success" | "error";
 
@@ -134,7 +137,56 @@ function updateModule(
   };
 }
 
-export const useWorkbenchTabsStore = create<WorkbenchTabsState>((set) => ({
+/**
+ * An icon is a function, and a function does not survive storage.
+ *
+ * So it is not stored: a restored tab carries its view id, and viewIcon turns
+ * that back into the same glyph the call site would have passed — which is
+ * why documents.ts stopped passing one of its own.
+ */
+export function restoreIcons(
+  modules: Record<string, ModuleTabs>,
+  // Injected so a test can resolve glyphs without registering a module: the
+  // registry is global and process-wide, and registering the same module
+  // twice is an error the app relies on.
+  resolve: (moduleId: string, viewId: string) => LucideIcon | undefined = viewIcon,
+): Record<string, ModuleTabs> {
+  const out: Record<string, ModuleTabs> = {};
+  for (const [moduleId, tabs] of Object.entries(modules ?? {})) {
+    out[moduleId] = {
+      ...EMPTY_MODULE_TABS,
+      ...tabs,
+      openTabs: (tabs.openTabs ?? []).map((tab) => ({
+        ...tab,
+        icon: resolve(tab.moduleId, tab.viewId),
+        // Status is about a run that ended with the process it belonged to.
+        status: undefined,
+      })),
+    };
+  }
+  return out;
+}
+
+/** What goes to storage: no functions, and no state that died with the app. */
+export function persistedTabs(state: Pick<WorkbenchTabsState, "activeModuleId" | "modules">) {
+  return {
+    activeModuleId: state.activeModuleId,
+    modules: Object.fromEntries(
+      Object.entries(state.modules).map(([moduleId, tabs]) => [
+        moduleId,
+        {
+          activeTabId: tabs.activeTabId,
+          tabMru: tabs.tabMru,
+          openTabs: tabs.openTabs.map(({ icon: _icon, status: _status, ...tab }) => tab),
+        },
+      ]),
+    ),
+  };
+}
+
+export const useWorkbenchTabsStore = create<WorkbenchTabsState>()(
+  persist(
+    (set) => ({
   activeModuleId: "",
   modules: {},
 
@@ -297,7 +349,34 @@ export const useWorkbenchTabsStore = create<WorkbenchTabsState>((set) => ({
         return { ...m, openTabs };
       });
     }),
-}));
+    }),
+    {
+      name: "workbench.tabs",
+      storage: uiStateStorage,
+      version: 1,
+      /**
+       * What was open, and where you were. A workbench that forgets its tabs
+       * asks you to find your way back to eight documents every launch, and
+       * the module that "opens with a blank console" was only ever hiding
+       * that: there was nothing to restore, so something had to be invented.
+       *
+       * Icons are dropped rather than serialised — see restoreIcons.
+       */
+      // A lambda, not the bare reference: passing `persistedTabs` directly makes
+      // zustand infer the STORE's state from its narrower parameter type, and
+      // every action in the file then fails to typecheck against it.
+      partialize: (state) => persistedTabs(state),
+      merge: (persisted, current) => {
+        const saved = (persisted ?? {}) as Partial<WorkbenchTabsState>;
+        return {
+          ...current,
+          activeModuleId: saved.activeModuleId ?? current.activeModuleId,
+          modules: restoreIcons(saved.modules ?? {}),
+        };
+      },
+    },
+  ),
+);
 
 /** Every open tab across every module, in module-insertion order. For the
  * views layer, which keeps recently-left modules mounted; the strip and the

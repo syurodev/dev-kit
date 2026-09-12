@@ -1,4 +1,4 @@
-import { Database } from "lucide-react";
+import { Activity, Bookmark, Database, History, Network, Table2, Terminal } from "lucide-react";
 import { lazyModuleView, type ModuleManifest } from "../registry";
 import {
   activeConsoleId,
@@ -69,6 +69,7 @@ export const databaseModule: ModuleManifest = {
   views: [
     {
       id: "database.console",
+      icon: Terminal,
       title: "Console",
       ...lazyModuleView(() =>
         import("./DatabaseView").then(({ DatabaseView }) => ({ default: DatabaseView })),
@@ -76,6 +77,7 @@ export const databaseModule: ModuleManifest = {
     },
     {
       id: "database.table",
+      icon: Table2,
       title: "Table",
       ...lazyModuleView(() =>
         import("./TableDataView").then(({ TableDataView }) => ({ default: TableDataView })),
@@ -83,6 +85,7 @@ export const databaseModule: ModuleManifest = {
     },
     {
       id: "database.erd",
+      icon: Network,
       title: "ERD diagram",
       ...lazyModuleView(() =>
         import("./components/ERDView").then(({ ERDView }) => ({ default: ERDView })),
@@ -90,6 +93,7 @@ export const databaseModule: ModuleManifest = {
     },
     {
       id: "database.activity",
+      icon: Activity,
       title: "Live activity",
       ...lazyModuleView(() =>
         import("./components/LiveActivityView").then(({ LiveActivityView }) => ({ default: LiveActivityView })),
@@ -97,6 +101,7 @@ export const databaseModule: ModuleManifest = {
     },
     {
       id: "database.history",
+      icon: History,
       title: "Query history",
       ...lazyModuleView(() =>
         import("./components/QueryHistoryView").then(({ QueryHistoryView }) => ({ default: QueryHistoryView })),
@@ -104,6 +109,7 @@ export const databaseModule: ModuleManifest = {
     },
     {
       id: "database.saved",
+      icon: Bookmark,
       title: "Saved queries",
       ...lazyModuleView(() =>
         import("./components/SavedQueriesView").then(({ SavedQueriesView }) => ({ default: SavedQueriesView })),

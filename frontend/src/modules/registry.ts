@@ -13,7 +13,22 @@ export type ModuleView = {
   component: ModuleViewComponent | LazyExoticComponent<ModuleViewComponent>;
   /** Starts fetching a lazy view before React needs to render it. */
   preload?: () => Promise<void>;
+  /**
+   * The glyph a tab of this view carries.
+   *
+   * Here rather than passed at the call site, because a tab outlives the call:
+   * open tabs are restored from storage on launch, and an icon is a function —
+   * it cannot be written to disk and come back. A view id can, and this is
+   * what turns it back into a glyph.
+   */
+  icon?: LucideIcon;
 };
+
+/** The glyph for a view's tab, falling back to the module's own. */
+export function viewIcon(moduleId: string, viewId: string): LucideIcon | undefined {
+  const module = getModule(moduleId);
+  return module?.views.find((view) => view.id === viewId)?.icon ?? module?.icon;
+}
 
 type LazyViewModule = { default: ModuleViewComponent };
 

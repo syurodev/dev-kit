@@ -928,6 +928,19 @@
      the row's own background, so the selected and hover tints — which are
      background-COLOURS, and one of them translucent — still paint over it
      instead of fighting it for the same property. */
+  /* A gutter on both edges, not just the trailing one.
+     `scrollbar-gutter: stable` reserves its space on the scrolling edge only,
+     so a rail's rows start flush against its left inset and stop 11px short of
+     the right one — measured — and a selected row's box reads as off-centre.
+     `both-edges` reserves the same on each side, and where the platform
+     reserves nothing (macOS overlay scrollbars) it costs nothing: the row is
+     symmetric either way, which is the whole point.
+     For rails, where a row is full-bleed. A scroller inside a bordered card
+     keeps the plain `stable` — its rows do not run to the card's edge. */
+  .scrollbar-gutter-symmetric {
+    scrollbar-gutter: stable both-edges;
+  }
+
   .tree-row-sticky::after {
     content: "";
     position: absolute;
