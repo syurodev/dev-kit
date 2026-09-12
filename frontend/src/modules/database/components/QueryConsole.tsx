@@ -1,7 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import {
   FileCode2,
-  FilePlay,
   BookmarkPlus,
   Download,
   ShieldAlert,
@@ -144,7 +143,7 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
    * A ref rather than state because nothing on screen depends on the caret
    * moving; the two things that read it are pressed, not rendered.
    */
-  const caretRef = useRef(0);
+  const selectionRef = useRef({ from: 0, to: 0 });
   // Named apart from the CodeMirror SQLDialect inside the memo below, which
   // is a different thing with the same job title.
   const splitDialect = useMemo(() => dialectOf(profile?.engine), [profile?.engine]);
@@ -154,25 +153,45 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
     [slice.sql, splitDialect],
   );
 
-  const runStatement = () => {
-    const statement = statementAt(statements, caretRef.current);
-    if (!statement) return;
-    void executeQuery(consoleId, statement.text);
-  };
+  const caretHead = useRef(0);
 
-  const runWholeScript = () => {
+  /*
+   * One button, and DataGrip's rule behind it: what is selected, or the
+   * whole console.
+   *
+   * The second button is gone. A console with one statement — which is most
+   * of them — had two controls that did the same thing, and the one that
+   * appeared and disappeared as you typed a semicolon was the worse of the
+   * two to reason about.
+   *
+   * Selecting is how you run one statement out of five, and it is a
+   * gesture, not a shortcut to remember. The caret rule is still there on
+   * ⇧⌘↵ for when the statement is long and selecting it is work.
+   */
+  const runFromEditor = () => {
+    const { from, to } = selectionRef.current;
+    const source = from === to ? slice.sql : slice.sql.slice(Math.min(from, to), Math.max(from, to));
+    const selected = from === to ? statements : splitStatements(source, splitDialect);
+    if (selected.length === 0) return;
     void runScript(
       consoleId,
-      statements.map((statement) => statement.text),
+      selected.map((statement) => statement.text),
     );
+  };
+
+  /** Just the one the caret is in, leaving the other marks alone. */
+  const runStatement = () => {
+    const statement = statementAt(statements, caretHead.current);
+    if (!statement) return;
+    void executeQuery(consoleId, statement.text);
   };
 
   // Read by the editor's own ⌘↵ binding, which is built once and must not be
   // rebuilt every time the callback identity changes.
   const runRef = useRef<() => void>(() => {});
-  runRef.current = runStatement;
-  const runScriptRef = useRef<() => void>(() => {});
-  runScriptRef.current = runWholeScript;
+  runRef.current = runFromEditor;
+  const runStatementRef = useRef<() => void>(() => {});
+  runStatementRef.current = runStatement;
 
   // CodeMirror 6 SQL Dialect & Autocomplete Extension (F2, F3)
   const sqlExtension = useMemo(() => {
@@ -203,7 +222,9 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
       // The caret, into a ref. selectionSet fires for every cursor move and
       // for none of them does anything on screen change.
       EditorView.updateListener.of((update) => {
-        caretRef.current = update.state.selection.main.head;
+        const { from, to, head } = update.state.selection.main;
+        selectionRef.current = { from, to };
+        caretHead.current = head;
       }),
       // Highest precedence, because basicSetup's default keymap already owns
       // Mod-Enter (insertBlankLine) and whoever gets there first wins.
@@ -221,14 +242,14 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
           {
             key: "Mod-Shift-Enter",
             run: () => {
-              runScriptRef.current();
+              runStatementRef.current();
               return true;
             },
           },
         ]),
       ),
     ];
-  }, [profile?.engine, profile?.database, schemaSnapshot?.namespace, runRef, runScriptRef, splitDialect, slice.statementRuns]);
+  }, [profile?.engine, profile?.database, schemaSnapshot?.namespace, runRef, runStatementRef, splitDialect, slice.statementRuns]);
 
   // Check for engine placeholder mismatch for MySQL / MariaDB (Screen 21)
   const hasPlaceholderMismatch = useMemo(() => {
@@ -374,27 +395,6 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
             </Button>
           </ActionTooltip>
         )}
-        {/* Run the lot, and only when there is a lot: one statement has no
-            script distinct from itself, and a button that does exactly what
-            the button beside it does is a button to think about. It stops at
-            the first statement that fails, so the line numbers read as far
-            as it got. */}
-        {statements.length > 1 && (
-          <ActionTooltip
-            label={`Run all ${statements.length} statements, stopping at the first error — ${shortcut("Enter", { shift: true })}`}
-            wrap
-          >
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={runWholeScript}
-              disabled={busy || !selectedProfileId}
-            >
-              <FilePlay />
-            </Button>
-          </ActionTooltip>
-        )}
-
         {/* Run, and what came back, in one body — see RunGroup. The clock
             used to live in a bar between the editor and the result; it is in
             the pill now, which is the control that started it, and the bar
@@ -404,12 +404,14 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
           running={slice.runningQuery}
           startedAt={queryStartTime}
           canRun={Boolean(selectedProfileId)}
-          onRun={runStatement}
+          onRun={runFromEditor}
           onStop={() => cancelQuery(consoleId)}
           runLabel={
             slice.runningQuery
               ? "Stop — cancel the running query"
-              : `Run the query — ${shortcut("Enter")}`
+              : statements.length > 1
+                ? `Run all ${statements.length} statements, or just what you select — ${shortcut("Enter")}`
+                : `Run the query — ${shortcut("Enter")}`
           }
         />
       </div>
