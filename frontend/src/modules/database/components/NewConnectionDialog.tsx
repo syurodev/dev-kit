@@ -2,6 +2,9 @@ import { useState } from "react";
 import { Database, X, AlertTriangle, Radio, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
+import { viewIcon } from "@/modules/registry";
+import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
 import { useShallow } from "zustand/react/shallow";
 import { useDatabaseStore } from "../databaseStore";
 import { createProfile, testNewConnection } from "../../../bridge/database";
@@ -18,6 +21,16 @@ const SSL_MODE_HINT: Record<string, string> = {
 function verifiesCertificate(sslMode: string): boolean {
   return sslMode === "verify-full" || sslMode === "verify-ca";
 }
+
+/**
+ * One height for every field label, icon or not.
+ *
+ * The SSH label carries a glyph and the SSL one beside it does not, so the two
+ * labels were different heights and the two selects under them sat six pixels
+ * apart. A fixed row for the label means a label can gain an icon without
+ * moving the field below it.
+ */
+const FIELD_LABEL = "flex h-4 items-center gap-1 font-medium text-text-primary";
 
 export function NewConnectionDialog() {
   const {
@@ -44,6 +57,7 @@ export function NewConnectionDialog() {
   const [port, setPort] = useState(5432);
   const [database, setDatabase] = useState("");
   const [username, setUsername] = useState("postgres");
+  const openTab = useWorkbenchTabsStore((state) => state.openTab);
   const [password, setPassword] = useState("");
   const [sslMode, setSslMode] = useState("disable");
   const [caCert, setCaCert] = useState("");
@@ -163,7 +177,7 @@ export function NewConnectionDialog() {
         <div className="grid grid-cols-2 gap-3 text-body-12">
           {/* Connection Name */}
           <div className="col-span-2 space-y-1">
-            <label className="font-medium text-text-primary">Connection Name</label>
+            <label className={FIELD_LABEL}>Connection Name</label>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -175,37 +189,37 @@ export function NewConnectionDialog() {
 
           {/* Engine Selector */}
           <div className="space-y-1">
-            <label className="font-medium text-text-primary">Database Engine</label>
-            <select
+            <label className={FIELD_LABEL}>Database Engine</label>
+            <NativeSelect
+              className="w-full"
               value={engine}
               onChange={(e) => handleEngineChange(e.target.value as any)}
-              className="w-full h-8 px-2.5 rounded-lg border border-border bg-surface-raised text-body-13 text-text-primary outline-none focus:border-action-primary"
-            >
+              >
               <option value="postgres">PostgreSQL</option>
               <option value="mysql">MySQL</option>
               <option value="mariadb">MariaDB</option>
-            </select>
+            </NativeSelect>
           </div>
 
           {/* Environment Tag */}
           <div className="space-y-1">
-            <label className="font-medium text-text-primary">Environment Tag</label>
-            <select
+            <label className={FIELD_LABEL}>Environment Tag</label>
+            <NativeSelect
+              className="w-full"
               value={env}
               onChange={(e) => setEnv(e.target.value)}
-              className="w-full h-8 px-2.5 rounded-lg border border-border bg-surface-raised text-body-13 text-text-primary outline-none focus:border-action-primary"
-            >
+              >
               {envTags.map((tag) => (
                 <option key={tag.id} value={tag.name}>
                   {tag.name} {tag.name === "prod" ? "(Locked/Always-ask)" : ""}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           </div>
 
           {/* Host */}
           <div className="space-y-1">
-            <label className="font-medium text-text-primary">Host / Server</label>
+            <label className={FIELD_LABEL}>Host / Server</label>
             <Input
               value={host}
               onChange={(e) => setHost(e.target.value)}
@@ -216,7 +230,7 @@ export function NewConnectionDialog() {
 
           {/* Port */}
           <div className="space-y-1">
-            <label className="font-medium text-text-primary">Port</label>
+            <label className={FIELD_LABEL}>Port</label>
             <Input
               type="number"
               value={port}
@@ -227,7 +241,7 @@ export function NewConnectionDialog() {
 
           {/* Database */}
           <div className="space-y-1">
-            <label className="font-medium text-text-primary">Database Name</label>
+            <label className={FIELD_LABEL}>Database Name</label>
             <Input
               value={database}
               onChange={(e) => setDatabase(e.target.value)}
@@ -238,7 +252,7 @@ export function NewConnectionDialog() {
 
           {/* Username */}
           <div className="space-y-1">
-            <label className="font-medium text-text-primary">Username</label>
+            <label className={FIELD_LABEL}>Username</label>
             <Input
               value={username}
               onChange={(e) => setUsername(e.target.value)}
@@ -249,7 +263,7 @@ export function NewConnectionDialog() {
 
           {/* Password */}
           <div className="col-span-2 space-y-1">
-            <label className="font-medium text-text-primary">Password</label>
+            <label className={FIELD_LABEL}>Password</label>
             <Input
               type="password"
               value={password}
@@ -261,16 +275,16 @@ export function NewConnectionDialog() {
 
           {/* SSL Mode */}
           <div className="space-y-1">
-            <label className="font-medium text-text-primary">SSL Mode</label>
-            <select
+            <label className={FIELD_LABEL}>SSL Mode</label>
+            <NativeSelect
+              className="w-full"
               value={sslMode}
               onChange={(e) => setSslMode(e.target.value)}
-              className="w-full h-8 px-2.5 rounded-lg border border-border bg-surface-raised text-body-13 text-text-primary outline-none focus:border-action-primary"
-            >
+              >
               <option value="disable">disable (loopback dev only)</option>
               <option value="require">require</option>
               <option value="verify-full">verify-full (recommended)</option>
-            </select>
+            </NativeSelect>
             {/* Each mode makes a different promise, and the difference between
                 the middle one and the last one is the whole point of the CA
                 field below — so say it here rather than leaving it to be
@@ -280,25 +294,45 @@ export function NewConnectionDialog() {
 
           {/* Optional SSH Tunnel */}
           <div className="space-y-1">
-            <label className="font-medium text-text-primary flex items-center gap-1">
-              <Radio className="w-3 h-3 text-status-info" />
+            <label className={FIELD_LABEL}>
+              <Radio className="size-3 text-status-info" />
               <span>SSH Tunnel Profile</span>
             </label>
-            <select
+            <NativeSelect
+              className="w-full"
               value={sshProfileId}
               onChange={(e) => setSshProfileId(e.target.value)}
-              className="w-full h-8 px-2.5 rounded-lg border border-border bg-surface-raised text-body-13 text-text-primary outline-none focus:border-action-primary"
-            >
+              >
               <option value="">Direct Connection (No Tunnel)</option>
               {sshProfiles.map((ssh) => (
                 <option key={ssh.id} value={ssh.id}>
                   {ssh.name} ({ssh.username}@{ssh.host})
                 </option>
               ))}
-            </select>
+            </NativeSelect>
             {sshProfiles.length === 0 && (
               <p className="text-caption-11 text-text-tertiary">
-                No SSH profiles yet — add one in the SSH module to reach a database behind a bastion.
+                No SSH profiles yet.{" "}
+                {/* The sentence used to name a place and leave you to find it.
+                    writing.md asks a blank state to give the control, so it
+                    does — and closing this dialog on the way is deliberate:
+                    the profile has to exist before this field can offer it. */}
+                <button
+                  type="button"
+                  className="text-brand-text underline underline-offset-2 hover:text-text-primary"
+                  onClick={() => {
+                    setShowNewConnectionDialog(false);
+                    openTab({
+                      moduleId: "ssh",
+                      viewId: "ssh.connections",
+                      title: "SSH",
+                      icon: viewIcon("ssh", "ssh.connections"),
+                    });
+                  }}
+                >
+                  Add one in SSH
+                </button>{" "}
+                to reach a database behind a bastion.
               </p>
             )}
           </div>

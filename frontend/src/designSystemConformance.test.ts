@@ -56,7 +56,7 @@ const BASELINE: Record<string, { twText: number; rawPx: number; rawHex: number }
   // one className — two GitHub palettes behind a `dark:` prefix — and they are
   // tokens now, so a code block follows the theme family. What remains is
   // documentation: comments naming the Figma token a class maps to.
-  components: { twText: 0, rawPx: 103, rawHex: 1 },
+  components: { twText: 0, rawPx: 102, rawHex: 1 },
   // 34 since the tab element's stale max-w-[200px] went: computeTabWidths
   // already caps, and a second cap in CSS is what stranded the + button.
   workbench: { twText: 0, rawPx: 33, rawHex: 1 },
