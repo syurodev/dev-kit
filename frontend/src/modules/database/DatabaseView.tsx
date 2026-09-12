@@ -22,10 +22,9 @@ import { useIsActiveDocument } from "./useIsActiveDocument";
 export function DatabaseView({ params }: { params?: Record<string, unknown> }) {
   const consoleId = typeof params?.consoleId === "string" ? params.consoleId : DEFAULT_CONSOLE_ID;
 
-  const { fetchProfiles, profileError, profiles, selectedProfileId, setShowConnectionOptionsDialog } =
+  const { profileError, profiles, selectedProfileId, setShowConnectionOptionsDialog } =
     useDatabaseStore(
       useShallow((s) => ({
-        fetchProfiles: s.fetchProfiles,
         profileError: s.profileError,
         profiles: s.profiles,
         selectedProfileId: s.selectedProfileId,
@@ -39,10 +38,6 @@ export function DatabaseView({ params }: { params?: Record<string, unknown> }) {
   // never mount — which is what made Connection options do nothing on a fresh
   // module visit, from the menu and the row button alike.
   const isActive = useIsActiveDocument("database.console", params);
-
-  useEffect(() => {
-    void fetchProfiles();
-  }, [fetchProfiles]);
 
   // Carried over from Task 3: re-indexing is a title-bar action on the
   // connection, so its failure is transient and belongs in a toast rather than

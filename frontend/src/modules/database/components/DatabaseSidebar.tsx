@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Plus,
   RefreshCw,
@@ -183,6 +183,22 @@ export function DatabaseSidebar() {
       setShowConnectionOptionsDialog: s.setShowConnectionOptionsDialog,
     }))
   );
+
+  // The rail loads what the rail shows.
+  //
+  // This used to live in DatabaseView's mount effect, which worked only
+  // because a console was always open: with tabs remembered instead of
+  // invented, a module can be on screen with no document at all, and the rail
+  // sat on "No connections configured." until you opened one. A list that
+  // needs a document open to be fetched is a list that belongs to the
+  // document, and this one does not.
+  //
+  // Exactly one caller now, not one per document: the rail mounts once for the
+  // module — SidebarSurface keeps it mounted even while collapsed — so moving
+  // the call here removes a fetch rather than adding one.
+  useEffect(() => {
+    void fetchProfiles();
+  }, [fetchProfiles]);
 
   const [filterQuery, setFilterQuery] = useState("");
   const [editingFolderId, setEditingFolderId] = useState("");
