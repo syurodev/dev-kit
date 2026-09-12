@@ -9,6 +9,7 @@ import {
   Key,
   Shield,
   Radio,
+  MoreHorizontal,
   Settings2,
   Pencil,
   Copy,
@@ -38,15 +39,10 @@ import {
   ContextMenuItem,
   ContextMenuSeparator,
   ContextMenuShortcut,
-  ContextMenuSub,
-  ContextMenuSubContent,
-  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import {
   DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { TreeView, type TreeNodeData } from "@/components/tree-view";
@@ -55,6 +51,8 @@ import { useShallow } from "zustand/react/shallow";
 import { useDatabaseStore } from "../databaseStore";
 import { countTables, filterNamespace, matchesProfile } from "../databaseTree";
 import { FolderIcon } from "../folderIcons";
+import { DatabaseModuleOverlays } from "../DatabaseModuleOverlays";
+import { RowContextMenuContent, RowDropdownMenuContent, type RowAction } from "./rowActions";
 import { EditFolderDialog } from "./EditFolderDialog";
 import { DeleteProfileDialog } from "./DeleteProfileDialog";
 import { Chip, EngineMark } from "./EngineBadge";
@@ -369,6 +367,83 @@ export function DatabaseSidebar() {
     }));
   }
 
+  /**
+   * Everything you can do to a connection, in one place.
+   *
+   * Read by both the row's button and its right-click menu — see rowActions.
+   * Re-indexing leads because it is the one that goes stale; deleting trails
+   * behind a divider because it is the one that cannot be undone.
+   */
+  function profileActions(
+    profile: ConnectionProfile,
+    folderId: string,
+    isSelected: boolean,
+  ): RowAction[] {
+    return [
+      {
+        kind: "item",
+        icon: <RefreshCw />,
+        label: isSelected ? "Re-index schema" : "Open this connection first",
+        onSelect: () => void refreshSchema(profile.id),
+        disabled: indexingSchema || !isSelected,
+      },
+      {
+        kind: "submenu",
+        icon: <FolderInput />,
+        label: "Move to folder",
+        items: [
+          {
+            kind: "item",
+            icon: <Folder />,
+            label: "Ungrouped",
+            onSelect: () => assignProfileToFolder(profile.id, ""),
+            disabled: !folderId,
+          },
+          ...folders.map(
+            (f): RowAction => ({
+              kind: "item",
+              icon: <FolderIcon name={f.icon} className="size-4" />,
+              label: f.name,
+              onSelect: () => assignProfileToFolder(profile.id, f.id),
+              disabled: f.id === folderId,
+            }),
+          ),
+        ],
+      },
+      {
+        kind: "item",
+        icon: <Settings2 />,
+        label: "Connection options",
+        onSelect: () => {
+          setSelectedProfileId(profile.id);
+          setShowConnectionOptionsDialog(true);
+        },
+      },
+      {
+        kind: "item",
+        icon: <Copy />,
+        label: "Copy connection target",
+        onSelect: () =>
+          void copyText(
+            `${profile.username}@${profile.host}:${profile.port}/${profile.database}`,
+          ),
+      },
+      { kind: "separator" },
+      { kind: "item", icon: <Network />, label: "ERD diagram", onSelect: () => openErdTab() },
+      { kind: "item", icon: <Activity />, label: "Live activity", onSelect: () => openActivityTab() },
+      { kind: "item", icon: <History />, label: "Query history", onSelect: () => openHistoryTab() },
+      { kind: "item", icon: <Bookmark />, label: "Saved queries", onSelect: () => openSavedTab() },
+      { kind: "separator" },
+      {
+        kind: "item",
+        icon: <Trash2 />,
+        label: "Delete connection",
+        onSelect: () => setDeletingProfileId(profile.id),
+        destructive: true,
+      },
+    ];
+  }
+
   function profileNode(profile: ConnectionProfile, folderId: string): TreeNodeData {
     const isSelected = profile.id === selectedProfileId;
     const env = (profile.env || "").toLowerCase();
@@ -415,67 +490,20 @@ export function DatabaseSidebar() {
       ),
       trailing: (
         <>
+          {/* One button, not three. The three reached three of the nine things
+              the right-click menu offers, so which actions existed depended on
+              how you asked; this opens the same list. */}
           <div className={ACTIONS}>
-            {isSelected && (
-              <ActionTooltip
-                label={indexed ? `Re-index schema — last indexed ${indexed}` : "Index schema"}
-              >
-                <button
-                  type="button"
-                  className={ACTION}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void refreshSchema(profile.id);
-                  }}
-                >
-                  <RefreshCw className={cn("size-3", indexingSchema && "animate-spin")} />
-                </button>
-              </ActionTooltip>
-            )}
-            {/* Figma drew the folder dialog but not the way a profile gets into
-                one. A menu is the smallest thing that works and reads: the list
-                is short, and it says where the profile is now. */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <ActionTooltip label="Move to folder">
+                <ActionTooltip label={`Actions for ${profile.name}`}>
                   <button type="button" className={ACTION} onClick={(e) => e.stopPropagation()}>
-                    <FolderInput className="size-3" />
+                    <MoreHorizontal className="size-3" />
                   </button>
                 </ActionTooltip>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-                <DropdownMenuItem
-                  onSelect={() => assignProfileToFolder(profile.id, "")}
-                  disabled={!folderId}
-                >
-                  <Folder />
-                  Ungrouped
-                </DropdownMenuItem>
-                {folders.map((f) => (
-                  <DropdownMenuItem
-                    key={f.id}
-                    onSelect={() => assignProfileToFolder(profile.id, f.id)}
-                    disabled={f.id === folderId}
-                  >
-                    <FolderIcon name={f.icon} className="size-4" />
-                    {f.name}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
+              <RowDropdownMenuContent actions={profileActions(profile, folderId, isSelected)} />
             </DropdownMenu>
-            <ActionTooltip label="Connection options">
-              <button
-                type="button"
-                className={ACTION}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSelectedProfileId(profile.id);
-                  setShowConnectionOptionsDialog(true);
-                }}
-              >
-                <Settings2 className="size-3" />
-              </button>
-            </ActionTooltip>
           </div>
           {profile.readOnly && (
             <ActionTooltip label="Safe mode (read-only) is on">
@@ -504,81 +532,7 @@ export function DatabaseSidebar() {
       wrap: (row) => (
         <ContextMenu key={`profile:${profile.id}`}>
           <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
-          <ContextMenuContent>
-            <ContextMenuItem
-              onSelect={() => void refreshSchema(profile.id)}
-              disabled={indexingSchema || !isSelected}
-            >
-              <RefreshCw />
-              {isSelected ? "Re-index schema" : "Open this connection first"}
-            </ContextMenuItem>
-            <ContextMenuSub>
-              <ContextMenuSubTrigger>
-                <FolderInput />
-                Move to folder
-              </ContextMenuSubTrigger>
-              <ContextMenuSubContent>
-                <ContextMenuItem
-                  onSelect={() => assignProfileToFolder(profile.id, "")}
-                  disabled={!folderId}
-                >
-                  <Folder />
-                  Ungrouped
-                </ContextMenuItem>
-                {folders.map((f) => (
-                  <ContextMenuItem
-                    key={f.id}
-                    onSelect={() => assignProfileToFolder(profile.id, f.id)}
-                    disabled={f.id === folderId}
-                  >
-                    <FolderIcon name={f.icon} className="size-4" />
-                    {f.name}
-                  </ContextMenuItem>
-                ))}
-              </ContextMenuSubContent>
-            </ContextMenuSub>
-            <ContextMenuItem
-              onSelect={() => {
-                setSelectedProfileId(profile.id);
-                setShowConnectionOptionsDialog(true);
-              }}
-            >
-              <Settings2 />
-              Connection options
-            </ContextMenuItem>
-            <ContextMenuItem
-              onSelect={() =>
-                void copyText(
-                  `${profile.username}@${profile.host}:${profile.port}/${profile.database}`,
-                )
-              }
-            >
-              <Copy />
-              Copy connection target
-            </ContextMenuItem>
-            <ContextMenuSeparator />
-            <ContextMenuItem onSelect={() => openErdTab()}>
-              <Network />
-              ERD diagram
-            </ContextMenuItem>
-            <ContextMenuItem onSelect={() => openActivityTab()}>
-              <Activity />
-              Live activity
-            </ContextMenuItem>
-            <ContextMenuItem onSelect={() => openHistoryTab()}>
-              <History />
-              Query history
-            </ContextMenuItem>
-            <ContextMenuItem onSelect={() => openSavedTab()}>
-              <Bookmark />
-              Saved queries
-            </ContextMenuItem>
-            <ContextMenuSeparator />
-            <ContextMenuItem variant="destructive" onSelect={() => setDeletingProfileId(profile.id)}>
-              <Trash2 />
-              Delete connection
-            </ContextMenuItem>
-          </ContextMenuContent>
+          <RowContextMenuContent actions={profileActions(profile, folderId, isSelected)} />
         </ContextMenu>
       ),
     };
@@ -648,16 +602,11 @@ export function DatabaseSidebar() {
           onClear={() => setFilterQuery("")}
           placeholder="Search connections & tables…"
         />
-        <ActionTooltip label="Refresh connections">
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            onClick={() => void fetchProfiles()}
-            disabled={loadingProfiles}
-          >
-            <RefreshCw className={cn("size-3", loadingProfiles && "animate-spin")} />
-          </Button>
-        </ActionTooltip>
+        {/* No "refresh connections" here. Refreshing is something you do to a
+            CONNECTION — re-index its schema — and that lives on the row it
+            belongs to. The list itself is read when the rail mounts and again
+            after anything that changes it, so a button for it was a control
+            for a state that cannot go stale on its own. */}
         <ActionTooltip label="New folder">
           <Button variant="ghost" size="icon-xs" onClick={newFolder}>
             <FolderPlus className="size-3" />
@@ -713,6 +662,11 @@ export function DatabaseSidebar() {
           void fetchProfiles();
         }}
       />
+
+      {/* The connection dialogs live here because this is the one component
+          that mounts once for the module and stays mounted with no document
+          open — see DatabaseModuleOverlays. */}
+      <DatabaseModuleOverlays />
 
       <EditFolderDialog
         folder={folders.find((f) => f.id === editingFolderId) ?? null}

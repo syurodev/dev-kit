@@ -44,6 +44,10 @@ const BASELINE: Record<string, { twText: number; rawPx: number; rawHex: number }
   "modules/ssh": { twText: 0, rawPx: 0, rawHex: 0 },
   "modules/sync": { twText: 0, rawPx: 0, rawHex: 0 },
   "modules/tools": { twText: 0, rawPx: 0, rawHex: 0 },
+  // Re-measured once comments stopped counting (see strip): rawHex 23 → 1, so
+  // twenty-two of the "raw hexes" in the shared UI were notes ABOUT hexes. The
+  // figure had been measuring its own documentation, which is the same mistake
+  // in a different place.
   // components/ (the shared UI) joined the table 2026-09-09 at its measured
   // debt. It is where the hand-written glass materials live — including a
   // light-theme bug, since a hardcoded rgba(255,255,255,0.1) hairline stays
@@ -52,10 +56,10 @@ const BASELINE: Record<string, { twText: number; rawPx: number; rawHex: number }
   // one className — two GitHub palettes behind a `dark:` prefix — and they are
   // tokens now, so a code block follows the theme family. What remains is
   // documentation: comments naming the Figma token a class maps to.
-  components: { twText: 1, rawPx: 108, rawHex: 23 },
+  components: { twText: 0, rawPx: 103, rawHex: 1 },
   // 34 since the tab element's stale max-w-[200px] went: computeTabWidths
   // already caps, and a second cap in CSS is what stranded the + button.
-  workbench: { twText: 0, rawPx: 34, rawHex: 1 },
+  workbench: { twText: 0, rawPx: 33, rawHex: 1 },
 };
 
 // Two files carry raw hex on purpose and are not design-system surfaces: a
@@ -93,6 +97,20 @@ function tsxFiles(dir: string): string[] {
   return out;
 }
 
+/**
+ * Comments are not chrome.
+ *
+ * Every metric here is a substring search over source, and a comment
+ * explaining why a raw value was removed contains the raw value. This has
+ * caught its own explanation five separate times — a hex quoted in the note
+ * saying the hexes are gone, `min-w-[200px]` in the note about a menu that no
+ * longer hard-codes one. Stripping them first is the fix; naming the thing you
+ * removed is how a comment earns its place.
+ */
+function strip(body: string): string {
+  return body.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+}
+
 function count(pattern: RegExp, body: string): number {
   return body.match(new RegExp(pattern.source, "g"))?.length ?? 0;
 }
@@ -103,7 +121,7 @@ function measure(surface: string) {
   let rawPx = 0;
   let rawHex = 0;
   for (const file of tsxFiles(dir)) {
-    const body = readFileSync(file, "utf8");
+    const body = strip(readFileSync(file, "utf8"));
     twText += count(TAILWIND_TEXT, body);
     rawPx += count(ARBITRARY_PX, body);
     const relative = file.slice(ROOT.length + 1);

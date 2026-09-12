@@ -21,19 +21,31 @@ export function ActionTooltip({
   label,
   side = "bottom",
   children,
+  ...rest
 }: {
   label: string;
   side?: "top" | "right" | "bottom" | "left";
-  children: ReactElement<{ "aria-label"?: string; children?: unknown }>;
-}) {
-  const named =
-    isValidElement(children) &&
-    children.props["aria-label"] === undefined &&
-    // A button with visible text is already named by it; adding aria-label
-    // would override what the user can see with what they cannot.
-    typeof children.props.children !== "string"
-      ? cloneElement(children, { "aria-label": label })
-      : children;
+  children: ReactElement<Record<string, unknown>>;
+} & Record<string, unknown>) {
+  // Anything handed to THIS component goes on to the child.
+  //
+  // Because it is put inside other `asChild` triggers: a DropdownMenuTrigger
+  // with asChild hands its onClick and its ref to its immediate child, and
+  // when that child is this wrapper, a wrapper that swallows them leaves a
+  // button that looks right and opens nothing — which is exactly what the
+  // connection row's menu did until this line existed. Forwarding makes the
+  // wrapper transparent, so it composes in either order.
+  const named = isValidElement(children)
+    ? cloneElement(children, {
+        ...rest,
+        // A button with visible text is already named by it; adding aria-label
+        // would override what the user can see with what they cannot.
+        ...(children.props["aria-label"] === undefined &&
+        typeof children.props.children !== "string"
+          ? { "aria-label": label }
+          : {}),
+      })
+    : children;
 
   return (
     <Tooltip>

@@ -158,9 +158,7 @@ function TransactionControls() {
             </Button>
           </DropdownMenuTrigger>
         </ActionTooltip>
-        {/* Wide enough for the two lines: at the menu's own width they wrapped
-            mid-word and the explanation was cut. */}
-        <DropdownMenuContent align="start" className="w-64">
+        <DropdownMenuContent align="start">
           <DropdownMenuLabel>Transaction mode</DropdownMenuLabel>
           <DropdownMenuItem
             onSelect={() => {
