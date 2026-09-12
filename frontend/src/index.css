@@ -905,6 +905,16 @@
   outline: none;
 }
 
+/* The editor fills its pane, so clicking under the last line lands on it.
+   CodeMirror sizes .cm-editor to its CONTENT: a two-line query left the rest
+   of the well as dead space that swallowed the click and focused nothing, and
+   the only way in was to hit a row exactly. Full height gives the scroller the
+   empty space, and CodeMirror already puts the cursor on the nearest line when
+   the click is past the end of the document. */
+.cm-surfaceless .cm-editor {
+  height: 100%;
+}
+
 /* Hanging indent for wrapped rows.
  *
  * CodeMirror wraps to column zero, so a continuation lands further left than

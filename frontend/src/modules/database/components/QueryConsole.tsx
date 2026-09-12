@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   FileCode2,
   BookmarkPlus,
@@ -15,6 +15,8 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { shortcut } from "@/lib/shortcut";
 import { CodeEditor } from "@/components/code-editor/CodeEditor";
+import { Prec } from "@codemirror/state";
+import { keymap } from "@codemirror/view";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -100,6 +102,11 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
      way through the run, which is what the split animation was competing
      with. The pill is the only thing that moves; it keeps its own interval. */
 
+  // Read by the editor's own ⌘↵ binding, which is built once and must not be
+  // rebuilt every time the callback identity changes.
+  const runRef = useRef<() => void>(() => {});
+  runRef.current = () => void executeQuery(consoleId);
+
   // CodeMirror 6 SQL Dialect & Autocomplete Extension (F2, F3)
   const sqlExtension = useMemo(() => {
     const engine = (profile?.engine || "postgres").toLowerCase();
@@ -121,8 +128,23 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
         upperCaseKeywords: true,
       }),
       sqlCompletionTheme,
+      // Highest precedence, because basicSetup's default keymap already owns
+      // Mod-Enter (insertBlankLine) and whoever gets there first wins.
+      // Returning true consumes the key, which is also what stops the console
+      // wrapper's handler from running the statement a second time.
+      Prec.highest(
+        keymap.of([
+          {
+            key: "Mod-Enter",
+            run: () => {
+              runRef.current();
+              return true;
+            },
+          },
+        ]),
+      ),
     ];
-  }, [profile?.engine, profile?.database, schemaSnapshot?.namespace]);
+  }, [profile?.engine, profile?.database, schemaSnapshot?.namespace, runRef]);
 
   // Check for engine placeholder mismatch for MySQL / MariaDB (Screen 21)
   const hasPlaceholderMismatch = useMemo(() => {
@@ -156,7 +178,18 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
   }
 
   // Keyboard shortcut Ctrl+Enter / Cmd+Enter to run query
+  /**
+   * ⌘↵ from anywhere in the console that is not the editor.
+   *
+   * The editor binds it itself, at the highest precedence, because CodeMirror
+   * has to be the one to CONSUME it: basicSetup's default keymap maps
+   * Mod-Enter to insertBlankLine, and that runs on the content element long
+   * before a keydown reaches this ancestor — so the statement ran AND a blank
+   * line was inserted. Bailing on an event the editor already handled is what
+   * stops the two from both firing.
+   */
   function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.defaultPrevented) return;
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
       void executeQuery(consoleId);
