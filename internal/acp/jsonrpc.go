@@ -38,6 +38,21 @@ type RPCError struct {
 	Data    json.RawMessage `json:"data,omitempty"`
 }
 
+// Error keeps Data. The agent puts the reason there as often as in Message —
+// claude-agent-acp answers an expired login with "Internal error" and
+// {"errorKind":"authentication_failed"} — and an error that dropped it said
+// only "Internal error" to everyone downstream.
+func (e *RPCError) Error() string {
+	if len(e.Data) == 0 {
+		return fmt.Sprintf("acp: rpc error %d: %s", e.Code, e.Message)
+	}
+	data := string(e.Data)
+	if len(data) > 300 {
+		data = data[:300] + "…"
+	}
+	return fmt.Sprintf("acp: rpc error %d: %s (data %s)", e.Code, e.Message, data)
+}
+
 // Message is a decoded JSON-RPC 2.0 message (request, response, or notification).
 // ID is nil when absent (notifications); otherwise the raw JSON bytes of the id.
 type Message struct {

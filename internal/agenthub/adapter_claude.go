@@ -699,6 +699,23 @@ func (a *ClaudeAdapter) Probe(ctx context.Context, rt agentruntime.Resolved) err
 	}
 }
 
+// rpcErrorKind is the errorKind claude-agent-acp puts in a JSON-RPC error's
+// data, or "". It is how an expired login is told apart from a crash: both
+// arrive as -32603 "Internal error".
+func rpcErrorKind(err error) string {
+	var rpcErr *acp.RPCError
+	if !errors.As(err, &rpcErr) || len(rpcErr.Data) == 0 {
+		return ""
+	}
+	var data struct {
+		ErrorKind string `json:"errorKind"`
+	}
+	if json.Unmarshal(rpcErr.Data, &data) != nil {
+		return ""
+	}
+	return data.ErrorKind
+}
+
 // logStderrTail writes the end of a dead agent's stderr to the log. The reason
 // that reaches the error is one line; the lines around it are usually what
 // explains it — a stack, the path that could not be opened.
@@ -906,7 +923,23 @@ func (r *claudeRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock) (
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return PromptOutcome{}, ErrCancelled
 		}
-		return PromptOutcome{}, fmt.Errorf("%w: session/prompt: %v", ErrProcessFailed, err)
+		// A prompt is where the SDK actually starts Claude Code, so an agent that
+		// dies here is the common failure after a clean handshake. Its stderr is
+		// the only record of why.
+		reason := ""
+		select {
+		case <-r.serveDone:
+			if r.proc != nil {
+				reason = stderrReason(r.proc)
+				logStderrTail("claude session/prompt", r.proc)
+			}
+		default:
+		}
+		log.Printf("agenthub: claude session/prompt (session %s): %v%s", sid, err, reason)
+		if rpcErrorKind(err) == "authentication_failed" {
+			return PromptOutcome{}, fmt.Errorf("%w: %v", ErrAgentAuthRequired, err)
+		}
+		return PromptOutcome{}, fmt.Errorf("%w: session/prompt: %v%s", ErrProcessFailed, err, reason)
 	}
 	return PromptOutcome{StopReason: res.StopReason, Meta: res.Meta}, nil
 }

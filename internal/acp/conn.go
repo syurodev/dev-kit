@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"sync"
 	"sync/atomic"
@@ -166,7 +165,9 @@ func (c *Conn) Call(ctx context.Context, method string, params any, result any) 
 		return ctx.Err()
 	case msg := <-ch:
 		if msg.Error != nil {
-			return fmt.Errorf("acp: rpc error %d: %s", msg.Error.Code, msg.Error.Message)
+			// The error itself, so callers can errors.As it and read Data.
+			rpcErr := *msg.Error
+			return &rpcErr
 		}
 		if result == nil {
 			return nil

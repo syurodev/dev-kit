@@ -617,6 +617,9 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 			finalStatus = SessionStatusIdle
 			promptErr = ErrCancelled
 		}
+		if finalStatus == SessionStatusError {
+			log.Printf("agenthub: invoke %s session %s: %v", sess.AgentType, in.SessionID, promptErr)
+		}
 		_ = s.setSessionStatus(recordCtx, in.SessionID, finalStatus)
 		return InvokeResult{Status: statusForInvokeErr(promptErr)}, promptErr
 	}

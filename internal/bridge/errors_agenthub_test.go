@@ -31,6 +31,7 @@ func TestPublicErrorMapsAgentHubSentinels(t *testing.T) {
 		{agenthub.ErrPermissionDenied, "permission_denied: Permission denied."},
 		{agenthub.ErrCancelled, "operation_cancelled: Operation cancelled."},
 		{agenthub.ErrProcessFailed, "connection_failed: Agent process failed."},
+		{agenthub.ErrAgentAuthRequired, "agent_auth_required: Claude isn't signed in, or the sign-in expired. Run `claude` in a terminal to sign in again, or set ANTHROPIC_API_KEY."},
 		{agenthub.ErrSandboxUnavailable, "connection_failed: Agent sandbox is unavailable."},
 		{agenthub.ErrUnavailable, "internal_error: Agent Hub is not available."},
 	}

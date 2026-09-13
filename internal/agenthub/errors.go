@@ -19,6 +19,10 @@ var (
 	ErrInvalidCwd              = errors.New("agenthub.invalidCwd")
 	ErrCallerMismatch          = errors.New("agenthub.callerMismatch")
 	ErrProxyNotFound           = errors.New("agenthub.proxyNotFound")
+	// ErrAgentAuthRequired is an agent with no working sign-in: an expired or
+	// missing Claude login, or no API key. DevKit never signs anyone in; the
+	// user does that in Claude Code itself.
+	ErrAgentAuthRequired = errors.New("agenthub.authRequired")
 	// ErrAgentNotInstalled is an adapter with no runtime DevKit installed and
 	// no DEVKIT_CLAUDE_ACP_COMMAND override. Never a reason to try PATH or npx.
 	ErrAgentNotInstalled = errors.New("agenthub.notInstalled")
