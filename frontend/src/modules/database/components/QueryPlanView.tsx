@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { motion, useReducedMotion } from "framer-motion";
 import { copyText } from "../../../bridge/clipboard";
 import {
   Sliders,
@@ -27,6 +28,27 @@ export function QueryPlanView({
 }) {
   const [activeTab, setActiveTab] = useState<"diagram" | "visual" | "raw">("diagram");
   const [copied, setCopied] = useState(false);
+
+  /*
+   * The body's height, animated between tabs.
+   *
+   * Each tab is as tall as it wants (the diagram a fixed 60vh, the others
+   * their content up to the same cap), and switching used to snap the whole
+   * modal to the new size in one frame. The inner box keeps its natural
+   * height; the outer one moves to it.
+   */
+  const motionOff = useReducedMotion() ?? false;
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const [bodyHeight, setBodyHeight] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const el = bodyRef.current;
+    if (!el) return;
+    const sync = () => setBodyHeight(el.offsetHeight);
+    sync();
+    const observer = new ResizeObserver(sync);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   // Flatten nodes for calculating max self time and statistics
   const flattenedNodes: PlanNode[] = [];
@@ -160,21 +182,22 @@ export function QueryPlanView({
         {/* Content Area. The diagram takes the whole box and scrolls itself
             — a canvas inside an overflow-y-auto would scroll twice and pan
             never. */}
+        <motion.div
+          className="shrink-0 overflow-hidden bg-surface-base"
+          initial={false}
+          animate={{ height: bodyHeight ?? "auto" }}
+          transition={motionOff ? { duration: 0 } : { duration: 0.22, ease: "easeInOut" }}
+        >
         <div
+          ref={bodyRef}
           className={cn(
-            "bg-surface-base",
             // A concrete height, because React Flow measures its parent and
-            // this modal is sized by its content: flex-1 inside a box with
-            // no height of its own resolves to nothing, and a canvas of
-            // nothing draws nothing. 60vh inside a max-h-[90vh] modal
-            // leaves the header and the metrics bar their rows.
-            // flex-1 belongs to the OTHER branch: in a column whose height
-            // is a max rather than a number, `flex: 1 1 0%` resolves to
-            // zero and takes the height with it — which is what a canvas
-            // drew when it had one.
+            // this modal is sized by its content: a canvas inside a box with
+            // no height of its own draws nothing. The other tabs share the
+            // same cap so the modal never grows past the diagram's size.
             activeTab === "diagram"
-              ? "flex h-[60vh] shrink-0 overflow-hidden"
-              : "flex-1 overflow-y-auto p-4",
+              ? "flex h-[60vh] overflow-hidden"
+              : "max-h-[60vh] overflow-y-auto p-4",
           )}
         >
           {activeTab === "diagram" ? (
@@ -213,6 +236,7 @@ export function QueryPlanView({
             </div>
           )}
         </div>
+        </motion.div>
 
         {/* Footer */}
         <div className="px-4 py-2.5 border-t border-border bg-surface-raised/40 flex items-center justify-between text-body-12 text-text-tertiary">

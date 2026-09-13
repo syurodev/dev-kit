@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { planGraph } from "./planGraph";
-import { layoutTree } from "./treeLayout";
+import { planGraph, planStepKind, type PlanStepKind } from "./planGraph";
 import type { PlanNode, QueryPlan } from "../../../bridge/database";
 
 const node = (over: Partial<PlanNode> = {}): PlanNode => ({
@@ -103,43 +102,22 @@ describe("a plan as a diagram", () => {
   });
 });
 
-/**
- * Depth decides the row, and a parent sits over its children. Written here
- * rather than pulled in: dagre is 932K for a tree whose depths are already
- * computed.
- */
-describe("laying the tree out", () => {
-  const OPTIONS = { nodeWidth: 100, nodeHeight: 40, columnGap: 20, rowGap: 30 };
-  const at = (places: Map<string, { x: number; y: number }>, id: string) => places.get(id);
-
-  test("children share a row, and the parent is centred over them", () => {
-    const graph = planGraph(plan([node({ children: [node(), node()] })]));
-    const places = layoutTree(graph.nodes, OPTIONS);
-
-    const [root, left, right] = graph.nodes.map((n) => at(places, n.id)!);
-    expect(left.y).toBe(right.y);
-    expect(root.y).toBeLessThan(left.y);
-    expect(root.x).toBe((left.x + right.x) / 2);
-  });
-
-  test("a chain goes straight down", () => {
-    const graph = planGraph(plan([node({ children: [node({ children: [node()] })] })]));
-    const places = layoutTree(graph.nodes, OPTIONS);
-    const xs = graph.nodes.map((n) => at(places, n.id)!.x);
-    expect(new Set(xs).size).toBe(1);
-  });
-
-  // Two statements explained together stand side by side rather than on top
-  // of one another.
-  test("two roots do not overlap", () => {
-    const graph = planGraph(plan([node(), node()]));
-    const places = layoutTree(graph.nodes, OPTIONS);
-    const [first, second] = graph.nodes.map((n) => at(places, n.id)!);
-    expect(second.x).toBeGreaterThan(first.x);
-    expect(second.y).toBe(first.y);
-  });
-
-  test("nothing in, nothing out", () => {
-    expect(layoutTree([], OPTIONS).size).toBe(0);
+// The card's caps label and icon, the way a code graph card names its layer.
+describe("what kind of step", () => {
+  test.each([
+    ["Seq Scan", "scan"],
+    ["Index Only Scan", "scan"],
+    ["table", "scan"],
+    ["Hash Join", "join"],
+    ["Nested Loop", "join"],
+    ["nested_loop", "join"],
+    ["HashAggregate", "aggregate"],
+    ["grouping_operation", "aggregate"],
+    ["Sort", "sort"],
+    ["ordering_operation", "sort"],
+    ["Hash", "other"],
+    ["Limit", "other"],
+  ] as [string, PlanStepKind][])("%s is %s", (operation, kind) => {
+    expect(planStepKind(operation)).toBe(kind);
   });
 });

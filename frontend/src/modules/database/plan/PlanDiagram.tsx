@@ -1,40 +1,29 @@
-import { useEffect, useMemo } from "react";
+import { useCallback, useMemo } from "react";
+import { Handle, Position, type NodeProps } from "@xyflow/react";
 import {
-  Background,
-  BackgroundVariant,
-  Controls,
-  Handle,
-  Position,
-  ReactFlow,
-  ReactFlowProvider,
-  useReactFlow,
-  type Edge,
-  type Node,
-  type NodeProps,
-} from "@xyflow/react";
-// Every consumer of this library imports its stylesheet — ERDView and the
-// codegraph canvas each do. Without it here the plan modal is a heap of
-// absolutely-unpositioned divs whenever the ERD has not been opened first,
-// which is most of the time. Bundlers de-duplicate it.
-import "@xyflow/react/dist/style.css";
-import { Flame, TriangleAlert } from "lucide-react";
+  ArrowDownUp,
+  Box,
+  Flame,
+  GitMerge,
+  Sigma,
+  Table2,
+  TriangleAlert,
+  type LucideIcon,
+} from "lucide-react";
+import { FlowCanvas } from "@/modules/codegraph/graph/FlowCanvas";
+import { ICON_BADGE } from "@/modules/codegraph/graph/tokens";
+import type { CodeGraphEdge, CodeGraphNode } from "@/bridge/codegraph";
 import { cn } from "@/lib/utils";
 import type { GraphNode, GraphSpec } from "./graphSpec";
-import { layoutTree } from "./treeLayout";
+import { planStepKind, type PlanStepKind } from "./planGraph";
 
 /**
- * The plan, drawn.
+ * The plan, drawn on the code graph's canvas.
  *
- * The only file here that knows React Flow exists. What to draw is decided
- * in planGraph and where to put it in treeLayout, both pure and both tested;
- * this turns a GraphSpec into nodes and edges and gets out of the way. That
- * separation is not tidiness — a second producer for this canvas is planned
- * in Go, and it can only exist if the canvas takes data rather than a
- * library's types.
+ * FlowCanvas whole — its ranking, placement, elbow connectors, dot grid and
+ * fit toolbar — so a query plan and a call graph read as one language. What
+ * is ours is the card and the adapter from GraphSpec to the canvas's shape.
  */
-
-const NODE_WIDTH = 208;
-const NODE_HEIGHT = 74;
 
 /**
  * When a row estimate is wrong enough to say so.
@@ -45,10 +34,23 @@ const NODE_HEIGHT = 74;
  */
 const ROWS_OFF_LOUDLY = 10;
 
-type PlanNodeData = { node: GraphNode; analyzed: boolean };
+/** The code graph's layer hues, by the same logic: storage is warning, flow is info. */
+const STEPS: Record<PlanStepKind, { cssVar: string; icon: LucideIcon; label: string }> = {
+  scan: { cssVar: "--status-warning", icon: Table2, label: "SCAN" },
+  join: { cssVar: "--status-info", icon: GitMerge, label: "JOIN" },
+  sort: { cssVar: "--status-success", icon: ArrowDownUp, label: "SORT" },
+  aggregate: { cssVar: "--status-success", icon: Sigma, label: "AGGREGATE" },
+  other: { cssVar: "--text-tertiary", icon: Box, label: "STEP" },
+};
 
-function PlanCard({ data }: NodeProps<Node<PlanNodeData>>) {
+type PlanCardData = { node: GraphNode; analyzed: boolean };
+
+/** ApiNode's geometry, with the plan's numbers in the detail well's place. */
+function PlanCard({ data }: NodeProps & { data: PlanCardData }) {
   const { node, analyzed } = data;
+  const step = STEPS[planStepKind(node.label)];
+  const Icon = step.icon;
+  const accent = `var(${step.cssVar})`;
   const metrics = node.metrics;
   const share = metrics?.shareOfTime ?? 0;
   const misestimated = (metrics?.rowsOffBy ?? 0) >= ROWS_OFF_LOUDLY;
@@ -56,42 +58,46 @@ function PlanCard({ data }: NodeProps<Node<PlanNodeData>>) {
   return (
     <div
       className={cn(
-        "flex w-52 flex-col gap-1 rounded-md border bg-surface-raised px-3 py-2",
+        "flex w-67 flex-col gap-2.5 rounded-lg border bg-surface-raised p-3",
         node.hottest ? "border-status-danger" : "border-border-subtle",
       )}
-      style={{ height: NODE_HEIGHT }}
     >
-      <Handle type="target" position={Position.Top} className="!size-1 !border-0 !bg-border" />
+      <Handle id="top" type="target" position={Position.Top} className="!opacity-0" />
+      <Handle id="left" type="target" position={Position.Left} className="!opacity-0" />
+      <Handle id="bottom" type="source" position={Position.Bottom} className="!opacity-0" />
 
-      <div className="flex items-center gap-1.5">
-        {node.hottest && <Flame className="size-3 shrink-0 text-status-danger" />}
-        <span className="truncate text-code-12-medium text-text-primary" title={node.label}>
-          {node.label}
+      <div className="flex items-center gap-2.5">
+        <span className={ICON_BADGE}>
+          <Icon size={16} strokeWidth={2} style={{ color: accent }} />
         </span>
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="text-label-11-caps" style={{ color: accent }}>
+            {step.label}
+          </span>
+          <span title={node.label} className="truncate text-title-14 text-text-primary">
+            {node.label}
+          </span>
+        </span>
+        {node.hottest && <Flame className="size-4 shrink-0 text-status-danger" />}
       </div>
 
       {node.detail ? (
-        <span className="truncate text-code-11 text-text-tertiary" title={node.detail}>
+        <span
+          title={node.detail}
+          className="truncate rounded-md bg-state-soft px-2.5 py-1.75 text-code-11 text-text-secondary"
+        >
           {node.detail}
         </span>
       ) : null}
 
-      {/*
-        The bar is the share of the plan's own time, which is the one number
-        that ranks the nodes against each other. Not a colour scale: a
-        gradient from green to red asks the reader to hold a key in their
-        head, and a length is read without one.
-      */}
+      {/* The bar is the share of the plan's own time — a length is read
+          without a key, a colour scale is not. */}
       {analyzed && metrics ? (
-        <div className="mt-auto flex items-center gap-2">
-          <div className="h-1 flex-1 overflow-hidden rounded-full bg-surface-well">
+        <div className="flex items-center gap-2">
+          <div className="h-1 flex-1 overflow-hidden rounded-full bg-state-soft">
             <div
-              className={cn(
-                "h-full rounded-full",
-                node.hottest ? "bg-status-danger" : "bg-status-info",
-              )}
-              // Sub-pixel shares still get a hairline: a node that took 0.2%
-              // of the time took some, and an empty track says it took none.
+              className={cn("h-full rounded-full", node.hottest ? "bg-status-danger" : "bg-status-info")}
+              // A node that took 0.2% of the time took some; an empty track says none.
               style={{ width: `${Math.max(share * 100, share > 0 ? 2 : 0)}%` }}
             />
           </div>
@@ -104,19 +110,17 @@ function PlanCard({ data }: NodeProps<Node<PlanNodeData>>) {
       {misestimated && metrics ? (
         <span
           className="flex items-center gap-1 text-code-11 text-status-warning"
-          title={`Planned for ${format(metrics.estimatedRows)} rows, found ${format(metrics.actualRows)}`}
+          title={`Planned for ${metrics.estimatedRows.toLocaleString()} rows, found ${metrics.actualRows.toLocaleString()}`}
         >
           <TriangleAlert className="size-3 shrink-0" />
           {`rows off by ${Math.round(metrics.rowsOffBy ?? 0)}×`}
         </span>
       ) : null}
-
-      <Handle type="source" position={Position.Bottom} className="!size-1 !border-0 !bg-border" />
     </div>
   );
 }
 
-const nodeTypes = { plan: PlanCard };
+const nodeTypes = { queryPlan: PlanCard };
 
 function formatMillis(ms: number): string {
   if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`;
@@ -124,43 +128,54 @@ function formatMillis(ms: number): string {
   return `${ms.toFixed(2)}ms`;
 }
 
-function format(rows: number): string {
-  return rows.toLocaleString();
-}
+/** The canvas ranks from one root; a plan with several tops gets one above them. */
+const SHARED_ROOT = "plan-root";
 
-/** fitView needs measured nodes, so it waits for the first ones to arrive. */
-function FitOnGraph({ count }: { count: number }) {
-  const { fitView } = useReactFlow();
-  useEffect(() => {
-    if (count === 0) return;
-    void fitView({ duration: 200, maxZoom: 1 });
-  }, [count, fitView]);
-  return null;
+function toCanvasNode(node: GraphNode): CodeGraphNode {
+  return {
+    id: node.id,
+    label: node.label,
+    kind: node.kind,
+    layer: "",
+    filePath: "",
+    line: 0,
+    endLine: 0,
+    summary: node.detail,
+  };
 }
 
 export function PlanDiagram({ graph }: { graph: GraphSpec }) {
-  const { nodes, edges } = useMemo(() => {
-    const places = layoutTree(graph.nodes, {
-      nodeWidth: NODE_WIDTH,
-      nodeHeight: NODE_HEIGHT,
-      columnGap: 28,
-      rowGap: 36,
-    });
+  const canvas = useMemo(() => {
+    const byId = new Map(graph.nodes.map((node) => [node.id, node]));
+    const nodes = graph.nodes.map(toCanvasNode);
+    const edges: CodeGraphEdge[] = graph.edges.map((e) => ({ from: e.source, to: e.target, kind: "call" }));
+    const roots = graph.nodes.filter((node) => node.parentId === null);
+    if (roots.length <= 1) return { rootId: roots[0]?.id ?? "", nodes, edges, byId };
+
+    const top: GraphNode = {
+      id: SHARED_ROOT,
+      label: "Query",
+      detail: `${roots.length} top-level steps`,
+      kind: "operation",
+      depth: -1,
+      parentId: null,
+      metrics: null,
+      hottest: false,
+    };
+    byId.set(SHARED_ROOT, top);
     return {
-      nodes: graph.nodes.map<Node<PlanNodeData>>((node) => ({
-        id: node.id,
-        type: "plan",
-        position: places.get(node.id) ?? { x: 0, y: 0 },
-        data: { node, analyzed: graph.analyzed },
-      })),
-      edges: graph.edges.map<Edge>((edge) => ({
-        id: edge.id,
-        source: edge.source,
-        target: edge.target,
-        type: "smoothstep",
-      })),
+      rootId: SHARED_ROOT,
+      nodes: [toCanvasNode(top), ...nodes],
+      edges: [...roots.map((r) => ({ from: SHARED_ROOT, to: r.id, kind: "call" })), ...edges],
+      byId,
     };
   }, [graph]);
+
+  // Stable, because FlowCanvas memoises its nodes on it.
+  const buildData = useCallback(
+    (n: CodeGraphNode): PlanCardData => ({ node: canvas.byId.get(n.id)!, analyzed: graph.analyzed }),
+    [canvas, graph.analyzed],
+  );
 
   if (graph.nodes.length === 0) {
     return (
@@ -171,29 +186,14 @@ export function PlanDiagram({ graph }: { graph: GraphSpec }) {
   }
 
   return (
-    <ReactFlowProvider>
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        nodeTypes={nodeTypes}
-        // Read, not edited: the nodes are an answer, and dragging one would
-        // suggest the arrangement means something the reader chose.
-        nodesDraggable={false}
-        nodesConnectable={false}
-        elementsSelectable={false}
-        proOptions={{ hideAttribution: true }}
-        minZoom={0.2}
-      >
-        <Background variant={BackgroundVariant.Dots} gap={16} size={1} className="opacity-40" />
-        {/* The same treatment ERDView gives them: React Flow ships a light
-            control bar, and unstyled it is three white boxes on a dark
-            canvas. */}
-        <Controls
-          showInteractive={false}
-          className="border-border bg-surface-raised fill-current text-text-primary"
-        />
-        <FitOnGraph count={nodes.length} />
-      </ReactFlow>
-    </ReactFlowProvider>
+    <FlowCanvas
+      rootId={canvas.rootId}
+      nodes={canvas.nodes}
+      edges={canvas.edges}
+      nodeType="queryPlan"
+      nodeTypes={nodeTypes}
+      legend={false}
+      buildData={buildData}
+    />
   );
 }

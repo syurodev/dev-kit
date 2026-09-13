@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Bookmark, X } from "lucide-react";
+import { sql as codemirrorSql, PostgreSQL, MySQL, MariaSQL } from "@codemirror/lang-sql";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CodeEditor } from "@/components/code-editor/CodeEditor";
 import { useShallow } from "zustand/react/shallow";
 import { EMPTY_CONSOLE, useDatabaseStore } from "../databaseStore";
 import { saveQuery } from "../../../bridge/database";
@@ -25,10 +27,21 @@ export function SaveQueryModal() {
     }))
   );
   const sql = slice.sql;
+  const engine = useDatabaseStore(
+    (s) => s.profiles.find((p) => p.id === s.selectedProfileId)?.engine,
+  );
 
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  // The console's own editor and dialect, read-only: the preview should look
+  // like the statement being named, not like a log of it.
+  const sqlExtensions = useMemo(() => {
+    const kind = (engine || "postgres").toLowerCase();
+    const dialect = kind === "mysql" ? MySQL : kind === "mariadb" ? MariaSQL : PostgreSQL;
+    return [codemirrorSql({ dialect, upperCaseKeywords: true })];
+  }, [engine]);
 
   if (!showSaveQueryModal) return null;
 
@@ -50,7 +63,7 @@ export function SaveQueryModal() {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-      <div className="bg-surface-base border border-border rounded-xl shadow-xl w-full max-w-md p-5 flex flex-col gap-4 animate-in fade-in zoom-in-95 duration-(--motion-base)">
+      <div className="bg-surface-base border border-border rounded-xl shadow-xl w-full max-w-2xl p-5 flex flex-col gap-4 animate-in fade-in zoom-in-95 duration-(--motion-base)">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Bookmark className="w-4 h-4 text-action-primary" />
@@ -83,9 +96,9 @@ export function SaveQueryModal() {
 
         <div className="space-y-1">
           <label className="text-caption-11-medium text-text-tertiary">SQL Preview</label>
-          <pre className="text-code-11 text-text-secondary bg-surface-raised p-2 rounded border border-border max-h-32 overflow-y-auto whitespace-pre-wrap">
-            {sql}
-          </pre>
+          <div className="h-72 overflow-hidden rounded-md border border-border bg-surface-raised">
+            <CodeEditor value={sql} onChange={() => {}} extensions={sqlExtensions} readOnly wrap />
+          </div>
         </div>
 
         {error && (

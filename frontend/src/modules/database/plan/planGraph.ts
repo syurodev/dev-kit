@@ -71,6 +71,22 @@ export function planGraph(plan: QueryPlan | null | undefined): GraphSpec {
   };
 }
 
+export type PlanStepKind = "scan" | "join" | "sort" | "aggregate" | "other";
+
+/**
+ * What kind of step an operation name is, across Postgres ("Hash Join",
+ * "Index Only Scan"), MySQL ("nested_loop", "ordering_operation") and MariaDB.
+ * Order matters: "HashAggregate" is an aggregate before it is anything else.
+ */
+export function planStepKind(operation: string): PlanStepKind {
+  const op = operation.toLowerCase();
+  if (/join|loop/.test(op)) return "join";
+  if (/aggregate|group|distinct|unique/.test(op)) return "aggregate";
+  if (/sort|order/.test(op)) return "sort";
+  if (/scan|table|index|seek|lookup|\bref\b|\ball\b/.test(op)) return "scan";
+  return "other";
+}
+
 function rawMetrics(node: PlanNode): GraphMetrics {
   return {
     selfMillis: node.selfMillis ?? 0,
