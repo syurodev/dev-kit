@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { PlanNode, QueryPlan } from "../../../bridge/database";
 import { cn } from "@/lib/utils";
 import { planGraph } from "../plan/planGraph";
@@ -102,41 +103,15 @@ export function QueryPlanView({
           </div>
 
           <div className="flex items-center gap-2">
-            <div className="flex items-center bg-surface-base border border-border rounded-md p-0.5 text-body-12">
-              <button
-                type="button"
-                className={`px-2.5 py-1 rounded transition-colors ${
-                  activeTab === "diagram"
-                    ? "bg-surface-raised text-text-primary font-medium shadow-2xs"
-                    : "text-text-tertiary hover:text-text-primary"
-                }`}
-                onClick={() => setActiveTab("diagram")}
-              >
-                Diagram
-              </button>
-              <button
-                type="button"
-                className={`px-2.5 py-1 rounded transition-colors ${
-                  activeTab === "visual"
-                    ? "bg-surface-raised text-text-primary font-medium shadow-2xs"
-                    : "text-text-tertiary hover:text-text-primary"
-                }`}
-                onClick={() => setActiveTab("visual")}
-              >
-                Visual Flame Graph
-              </button>
-              <button
-                type="button"
-                className={`px-2.5 py-1 rounded transition-colors ${
-                  activeTab === "raw"
-                    ? "bg-surface-raised text-text-primary font-medium shadow-2xs"
-                    : "text-text-tertiary hover:text-text-primary"
-                }`}
-                onClick={() => setActiveTab("raw")}
-              >
-                Raw Output
-              </button>
-            </div>
+            {/* The app's Tabs, list only: the body below keeps its own
+                height animation, which TabsContent's slide would fight. */}
+            <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)}>
+              <TabsList>
+                <TabsTrigger value="diagram">Diagram</TabsTrigger>
+                <TabsTrigger value="visual">Visual Flame Graph</TabsTrigger>
+                <TabsTrigger value="raw">Raw Output</TabsTrigger>
+              </TabsList>
+            </Tabs>
 
             <Button
               variant="ghost"
