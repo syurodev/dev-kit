@@ -633,14 +633,24 @@ export function Workbench() {
             </TooltipTrigger>
             <TooltipContent side="bottom">Toggle sidebar</TooltipContent>
           </Tooltip>
-          <ModuleSwitcher
-            activeModuleId={activeModule?.id ?? ""}
-            modules={switcherModules}
-            onSelectModule={focusModule}
-          />
-          {moduleActions.length > 0 ? (
-            <span className="mx-1 h-4 w-px shrink-0 bg-border" aria-hidden />
-          ) : null}
+          {/* Its own zone, centred on the WINDOW rather than between its
+              neighbours: the two side clusters differ in width per module and
+              per platform, and a switcher that drifted with them would not stay
+              where the hand learned it is. Out of flow, so it cannot be pushed.
+              Room is not a concern at the 1080px minimum window: ~216 in the
+              middle leaves ~430 a side, and neither cluster reaches 320.
+              paddingTop inherits the bar's optical offset so the icons sit on
+              the same line as the ones in flow. */}
+          <div
+            className="absolute inset-y-0 left-1/2 flex -translate-x-1/2 items-center"
+            style={{ paddingTop: "inherit" }}
+          >
+            <ModuleSwitcher
+              activeModuleId={activeModule?.id ?? ""}
+              modules={switcherModules}
+              onSelectModule={focusModule}
+            />
+          </div>
           {/* Two zones, not three. The workspace pill that used to hold the
               centre is gone: it named a workspace this app has no concept of,
               and carried an env chip for a value that belongs to a connection

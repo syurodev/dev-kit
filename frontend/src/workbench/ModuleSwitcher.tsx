@@ -112,7 +112,7 @@ function ModuleButton({
   return (
     <HoverCard open={peekOpen} onOpenChange={setPeekOpen} openDelay={250} closeDelay={120}>
       <HoverCardTrigger asChild>{button}</HoverCardTrigger>
-      <HoverCardContent side="bottom" align="start" className="flex w-64 flex-col p-1">
+      <HoverCardContent side="bottom" align="center" className="flex w-64 flex-col p-1">
         <div className="flex items-center justify-between px-2 py-1 text-caption-11-medium text-text-tertiary">
           {label}
         </div>
