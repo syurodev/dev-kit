@@ -14,6 +14,7 @@ import { SystemStatusMenu } from "./SystemStatusMenu";
 import { TabStrip } from "./tabs/TabStrip";
 import { TabSwitcher } from "./TabSwitcher";
 import { InteractionHost } from "./InteractionHost";
+import { onSettingsRequested } from "./settingsRequest";
 import {
   compareModuleParity,
   CURRENT_MODULE_API_VERSION,
@@ -332,6 +333,14 @@ export function Workbench() {
   // Which section Settings opens on. Only "Configure Tabs…" asks for one; it
   // is cleared on close so the title-bar button still opens where it always did.
   const [settingsTab, setSettingsTab] = useState<SettingsTab | undefined>(undefined);
+  useEffect(
+    () =>
+      onSettingsRequested((tab) => {
+        setSettingsTab(tab);
+        setSettingsOpen(true);
+      }),
+    [],
+  );
   const [isFullscreen, setIsFullscreen] = useState(false);
   const sidebarOpen = useSidebarOpenStore((s) => s.open);
   const setSidebarOpen = useSidebarOpenStore((s) => s.setOpen);

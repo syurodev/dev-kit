@@ -29,6 +29,11 @@ export type AgentNewSessionProps = {
   /** A directory already open elsewhere in DevKit, offered as one click. */
   suggestedCwd?: string;
   suggestedLabel?: string;
+  /**
+   * What stands in for the directory fields when the chosen vendor cannot
+   * start — Claude not installed, or missing Node. null means no blocker.
+   */
+  renderBlocker?: (vendor: string) => React.ReactNode;
   className?: string;
 };
 
@@ -64,10 +69,12 @@ export function AgentNewSession({
   onBrowse,
   suggestedCwd,
   suggestedLabel = "Code Graph",
+  renderBlocker,
   className,
 }: AgentNewSessionProps) {
   const [vendor, setVendor] = useState(defaultVendor);
   const [cwd, setCwd] = useState(defaultCwd);
+  const blocker = renderBlocker?.(vendor) ?? null;
 
   const handleBrowse = async () => {
     if (!onBrowse) return;
@@ -135,6 +142,7 @@ export function AgentNewSession({
           </div>
         </div>
 
+        {blocker ?? (<>
         <div className="flex w-full flex-col gap-2">
           <label
             htmlFor="new-session-cwd"
@@ -205,6 +213,7 @@ export function AgentNewSession({
             </span>
           </div>
         ) : null}
+        </>)}
 
         {error ? (
           <div
@@ -235,7 +244,7 @@ export function AgentNewSession({
           <Button
             type="button"
             size="sm"
-            disabled={busy || !cwd.trim()}
+            disabled={busy || Boolean(blocker) || !cwd.trim()}
             data-testid="new-session-create"
             onClick={() => void onCreate({ vendor, cwd: cwd.trim() })}
             className="h-8 px-3"

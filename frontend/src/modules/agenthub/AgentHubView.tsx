@@ -1,4 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  CLAUDE_AGENT,
+  agentRuntimeStatus,
+  isAgentNotInstalledError,
+  isRuntimeRequirementError,
+  runtimeBlocked,
+} from "../../bridge/agentRuntime";
+import { agentRuntimeQueryKey } from "../settings/AgentRuntimeSetting";
+import { requestSettings } from "../../workbench/settingsRequest";
+import { ClaudeAgentSetup } from "./ClaudeAgentSetup";
+import type { SessionErrorCause } from "./surfaces";
 import {
   agentHubCancel,
   agentHubChooseDirectory,
@@ -63,6 +75,16 @@ export function AgentHubView() {
   // only the humanised half, so the card was saying "Agent process failed."
   // — true, and no more actionable than the red dot the note complains about.
   const [errorReason, setErrorReason] = useState("");
+  // Not installed / missing Node are not crashes; the card offers Settings.
+  const [errorCause, setErrorCause] = useState<SessionErrorCause | undefined>(undefined);
+  const queryClient = useQueryClient();
+  // Asked before Create, not after it fails: the dialog swaps its form for the
+  // install panel as soon as Claude is the vendor and cannot start.
+  const claudeRuntime = useQuery({
+    queryKey: agentRuntimeQueryKey(CLAUDE_AGENT),
+    queryFn: () => agentRuntimeStatus(CLAUDE_AGENT),
+    enabled: newSessionOpen,
+  });
   // The folder Code Graph has open, offered as one click in the new-session
   // dialog. Read when the dialog opens rather than on mount: Code Graph may
   // have opened a project since, and a stale path is worse than no suggestion.
@@ -148,6 +170,7 @@ export function AgentHubView() {
     setBusy(true);
     setError("");
     setErrorReason("");
+    setErrorCause(undefined);
     setSandboxHint("");
     try {
       const session = await agentHubCreateSession({
@@ -161,6 +184,13 @@ export function AgentHubView() {
       setNewSessionOpen(false);
       setNewSessionParent(null);
     } catch (e) {
+      if (isAgentNotInstalledError(e) || isRuntimeRequirementError(e)) {
+        // The status changed under the dialog (removed, Node uninstalled):
+        // re-read it and the install panel takes the form's place.
+        void queryClient.invalidateQueries({ queryKey: agentRuntimeQueryKey(CLAUDE_AGENT) });
+        // The panel already says "not installed"; a requirement's reason stays.
+        if (isAgentNotInstalledError(e)) return;
+      }
       reportError(e);
       if (params.vendor === "claude" && isSandboxUnavailableError(e)) {
         setSandboxHint(sandboxUnavailableMessage());
@@ -174,6 +204,13 @@ export function AgentHubView() {
     const app = toAppError(e);
     setError(app.message);
     setErrorReason(app.code === "unknown" ? app.message : `${app.code} — ${app.message}`);
+    setErrorCause(
+      isAgentNotInstalledError(app)
+        ? "notInstalled"
+        : isRuntimeRequirementError(app)
+          ? "requirement"
+          : undefined,
+    );
   }
 
   async function handleBrowseContext() {
@@ -387,8 +424,10 @@ export function AgentHubView() {
             onCloseSession={() => void handleCloseSession()}
             streaming={busy || activeSession?.status === "running"}
             errorMessage={errorReason || error}
+            errorCause={errorCause}
             onRetrySession={() => void handleSend()}
             onNewSession={() => setNewSessionOpen(true)}
+            onOpenSettings={() => requestSettings("agents")}
             attachments={activeSession ? attachments[activeSession.id] ?? [] : []}
             onBrowseContext={() => void handleBrowseContext()}
             onRemoveAttachment={handleRemoveAttachment}
@@ -406,10 +445,21 @@ export function AgentHubView() {
           if (!next) {
             setError("");
             setErrorReason("");
+            setErrorCause(undefined);
             setSandboxHint("");
             setNewSessionParent(null);
           }
         }}
+        renderBlocker={(vendor) =>
+          vendor === "claude" && claudeRuntime.data && runtimeBlocked(claudeRuntime.data) ? (
+            <ClaudeAgentSetup
+              onOpenSettings={() => {
+                setNewSessionOpen(false);
+                requestSettings("agents");
+              }}
+            />
+          ) : null
+        }
         vendors={vendors}
         busy={busy}
         error={error || sandboxHint}

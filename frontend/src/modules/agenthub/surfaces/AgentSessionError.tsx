@@ -1,7 +1,35 @@
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
-export type SessionErrorCause = "crashed" | "denied";
+/**
+ * notInstalled and requirement are not crashes: the agent never started, and
+ * the way out is Settings → Agents, not a restart that fails the same way.
+ */
+export type SessionErrorCause = "crashed" | "denied" | "notInstalled" | "requirement";
+
+const COPY: Record<SessionErrorCause, { title: string; retry: string; reason: string }> = {
+  crashed: {
+    title: "stopped",
+    retry: "Restart",
+    reason: "agenthub.processFailed — the agent exited before the turn finished.",
+  },
+  denied: {
+    title: "turn failed",
+    retry: "Retry turn",
+    reason:
+      "agenthub.permissionDenied — the permission request went unanswered, so the gate failed closed.",
+  },
+  notInstalled: {
+    title: "can't start",
+    retry: "Retry",
+    reason: "agent_not_installed — Claude Agent is not installed. Install it in Settings → Agents.",
+  },
+  requirement: {
+    title: "can't start",
+    retry: "Retry",
+    reason: "runtime_requirement — something the agent needs is missing from this machine.",
+  },
+};
 
 export type AgentSessionErrorProps = {
   cause?: SessionErrorCause;
@@ -13,6 +41,8 @@ export type AgentSessionErrorProps = {
   reason?: string;
   onClose?: () => void;
   onRetry?: () => void;
+  /** Replaces Retry for notInstalled/requirement: the fix is in Settings → Agents. */
+  onOpenSettings?: () => void;
   className?: string;
   id?: string;
 };
@@ -40,16 +70,15 @@ export function AgentSessionError({
   reason,
   onClose,
   onRetry,
+  onOpenSettings,
   className,
   id,
 }: AgentSessionErrorProps) {
-  const crashed = cause === "crashed";
-
-  const title = `${agentName} ${crashed ? "stopped" : "turn failed"}`;
-  const retryLabel = crashed ? "Restart" : "Retry turn";
-  const defaultReason = crashed
-    ? "agenthub.processFailed — the agent exited before the turn finished."
-    : "agenthub.permissionDenied — the permission request went unanswered, so the gate failed closed.";
+  const copy = COPY[cause];
+  const title = `${agentName} ${copy.title}`;
+  const retryLabel = copy.retry;
+  const defaultReason = copy.reason;
+  const setupCause = cause === "notInstalled" || cause === "requirement";
 
   return (
     <div
@@ -104,7 +133,17 @@ export function AgentSessionError({
             Close session
           </Button>
         ) : null}
-        {onRetry ? (
+        {setupCause && onOpenSettings ? (
+          <Button
+            type="button"
+            size="sm"
+            data-testid="session-error-open-settings"
+            onClick={onOpenSettings}
+            className="h-8"
+          >
+            Open agent settings
+          </Button>
+        ) : onRetry ? (
           <Button
             type="button"
             size="sm"

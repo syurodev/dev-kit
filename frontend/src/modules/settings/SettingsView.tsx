@@ -33,6 +33,7 @@ import { SecurityNotice } from "@/components/ui/security-notice";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { McpInstallPanel } from "./McpInstallPanel";
 import { ConsoleStorageSetting } from "./ConsoleStorageSetting";
+import { AgentRuntimeSetting } from "./AgentRuntimeSetting";
 import {
   Select,
   SelectContent,
@@ -55,6 +56,7 @@ import {
   Laptop,
   LockKeyhole,
   Database,
+  Bot,
   Trash2,
   X,
   RefreshCw,
@@ -62,7 +64,7 @@ import {
 import { cn } from "@/lib/utils";
 import { EMPTY_ARRAY } from "@/lib/stableEmpty";
 
-export type SettingsTab = "account" | "appearance" | "sync" | "environments" | "database";
+export type SettingsTab = "account" | "appearance" | "sync" | "environments" | "database" | "agents";
 
 export interface SettingsModalProps {
   open: boolean;
@@ -164,6 +166,12 @@ export function SettingsModal({ open, onClose, initialTab }: SettingsModalProps)
                 label="Database"
                 onClick={() => setActiveTab("database")}
               />
+              <NavItem
+                active={activeTab === "agents"}
+                icon={Bot}
+                label="Agents"
+                onClick={() => setActiveTab("agents")}
+              />
             </div>
 
             {/* Content Panel Area */}
@@ -173,6 +181,7 @@ export function SettingsModal({ open, onClose, initialTab }: SettingsModalProps)
               {activeTab === "sync" && <SyncDevicesTab />}
               {activeTab === "environments" && <EnvironmentsTab />}
               {activeTab === "database" && <DatabaseTab />}
+              {activeTab === "agents" && <AgentsTab />}
             </div>
           </div>
           </div>
@@ -757,6 +766,21 @@ function DatabaseTab() {
       <div className="flex flex-col gap-2.5">
         <GroupLabel>QUERY CONSOLES</GroupLabel>
         <ConsoleStorageSetting />
+      </div>
+    </TabColumn>
+  );
+}
+
+function AgentsTab() {
+  return (
+    <TabColumn>
+      <SectionHeader
+        title="Agents"
+        description="The agents Agent Hub runs. DevKit installs each into its own folder — never on your PATH — at a version it has tested."
+      />
+      <div className="flex flex-col gap-2.5">
+        <GroupLabel>CLAUDE AGENT</GroupLabel>
+        <AgentRuntimeSetting />
       </div>
     </TabColumn>
   );

@@ -35,6 +35,8 @@ export type AgentHubContentProps = {
   onRetrySession?: () => void;
   onCloseSession?: () => void;
   onNewSession?: () => void;
+  /** Opens Settings → Agents, for errors whose fix is an install. */
+  onOpenSettings?: () => void;
   /** Files the user attached to the turn being composed. */
   attachments?: string[];
   onBrowseContext?: () => void;
@@ -95,6 +97,7 @@ export function AgentHubContent({
   onRetrySession,
   onCloseSession,
   onNewSession,
+  onOpenSettings,
   attachments = [],
   onBrowseContext,
   onRemoveAttachment,
@@ -217,6 +220,7 @@ export function AgentHubContent({
               agentName={displayTitle || "Agent"}
               reason={errorMessage}
               onRetry={onRetrySession}
+              onOpenSettings={onOpenSettings}
               onClose={onCloseSession}
               className="w-full max-w-none"
             />

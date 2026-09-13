@@ -222,6 +222,21 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       expect(html).toContain("Retry turn");
     });
 
+    it("sends a missing install to Settings instead of offering a retry that fails the same way", () => {
+      const html = renderToString(
+        <AgentSessionError
+          cause="notInstalled"
+          agentName="Claude"
+          onRetry={() => {}}
+          onOpenSettings={() => {}}
+        />,
+      );
+      expect(html).toContain("Claude can&#x27;t start");
+      expect(html).toContain("agent_not_installed");
+      expect(html).toContain("Open agent settings");
+      expect(html).not.toContain('data-testid="session-error-retry"');
+    });
+
     it("uses the shared Button rather than a hand-rolled one", () => {
       const html = renderToString(
         <AgentSessionError agentName="a" onRetry={() => {}} onClose={() => {}} />,
