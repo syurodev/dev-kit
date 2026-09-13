@@ -180,6 +180,38 @@ function useMountedModuleIds(
 }
 
 /**
+ * One tab's view, memoised on the tab object.
+ *
+ * WorkbenchViews re-renders on every switch, and it used to create each tab's
+ * view element inline, so every mounted tab of every mounted module re-rendered
+ * with it — measured in the app at 50–90ms of "views" per module switch, for
+ * tabs that stayed hidden. React Compiler did not cache elements built inside
+ * the map. The store keeps a tab's object identity until that tab changes, so
+ * a switch now re-renders only the wrappers whose class flips, not the views.
+ */
+const TabBody = memo(function TabBody({ tab }: { tab: WorkbenchTab }) {
+  const view = getModule(tab.moduleId)?.views.find((candidate) => candidate.id === tab.viewId);
+  if (!view) {
+    return null;
+  }
+  const TabView = view.component;
+  return (
+    // Provider outside Suspense so the skeleton can register a rail under
+    // this module's id while the chunk loads.
+    <SidebarModuleIdContext.Provider value={tab.moduleId}>
+      <Suspense fallback={<ModuleSkeleton />}>
+        {/* module-enter mounts with the chunk, so its @starting-style fires at
+            the skeleton→content swap and nowhere else. It is the flex box the
+            `contents` wrapper gave the module before. */}
+        <div className="module-enter">
+          <TabView params={tab.params} />
+        </div>
+      </Suspense>
+    </SidebarModuleIdContext.Provider>
+  );
+});
+
+/**
  * Heavy module trees are deliberately isolated from tab-strip ordering.
  * Tab dragging changes only TabStrip-local state and commits to the store once
  * on drop, so this subtree stays completely outside the high-frequency path.
@@ -264,14 +296,6 @@ const WorkbenchViews = memo(
               if (!mountedModuleIds.has(tab.moduleId)) {
                 return null;
               }
-              const module = getModule(tab.moduleId);
-              const view = module?.views.find(
-                (candidate) => candidate.id === tab.viewId,
-              );
-              if (!view) {
-                return null;
-              }
-              const TabView = view.component;
               // Keep same-module inactive tabs mounted so in-progress edits
               // and scroll position survive switching between tabs of one
               // module, while `contents` preserves the active view's flex
@@ -281,19 +305,7 @@ const WorkbenchViews = memo(
                   key={tab.id}
                   className={tab.id === activeTabId ? "contents" : "hidden"}
                 >
-                  {/* Provider outside Suspense so the skeleton can register
-                      a rail under this module's id while the chunk loads. */}
-                  <SidebarModuleIdContext.Provider value={tab.moduleId}>
-                    <Suspense fallback={<ModuleSkeleton />}>
-                      {/* module-enter mounts with the chunk, so its
-                          @starting-style fires at the skeleton→content swap
-                          and nowhere else. It is the flex box the `contents`
-                          wrapper gave the module before. */}
-                      <div className="module-enter">
-                        <TabView params={tab.params} />
-                      </div>
-                    </Suspense>
-                  </SidebarModuleIdContext.Provider>
+                  <TabBody tab={tab} />
                 </div>
               );
             })
