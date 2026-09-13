@@ -55,7 +55,7 @@ export const databaseModule: ModuleManifest = {
     },
     { id: "database.query.explain", title: "Explain", run: () => runDocumentCommand("explain") },
     {
-      id: "database.query.explainAnalyze",
+      id: "database.query.explain-analyze",
       title: "Explain analyze",
       run: () => runDocumentCommand("explainAnalyze"),
     },
@@ -83,7 +83,7 @@ export const databaseModule: ModuleManifest = {
     { id: "database.table.reload", title: "Reload page", run: () => runDocumentCommand("reload") },
     { id: "database.table.ddl", title: "Show DDL", run: () => runDocumentCommand("showDDL") },
     {
-      id: "database.table.openInConsole",
+      id: "database.table.open-in-console",
       title: "Open in console",
       run: () => runDocumentCommand("openInConsole"),
     },
