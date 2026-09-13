@@ -23,6 +23,12 @@ import { ShellResizeHandle } from "@/components/ui/resize-handle";
 export const SidebarModuleIdContext = React.createContext<string | null>(null);
 
 /**
+ * SidebarSurface re-renders whenever any module registers a rail; a background
+ * module's own rail must not re-render with it. Its only prop is a string.
+ */
+const MemoModuleSidebar = React.memo(ModuleSidebar);
+
+/**
  * Layout effect, not effect — the rail must be in the same paint as the body
  * that registered it (smoothness 2.5). A passive effect writes the store after
  * the commit and React flushes passive work in a separate task, leaving the
@@ -282,12 +288,17 @@ export function SidebarSurface({ activeModuleId }: { activeModuleId: string | nu
   const splitPanelOpen = usePanelWidthsStore((s) => s.splitPanelOpen);
   const windowWidth = useWindowWidth();
 
-  const registered = useSidebarContentStore((s) =>
-    activeModuleId ? s.content[activeModuleId] : undefined,
-  );
-  // A document's rail wins where there is one; the module's own is the floor.
-  const content =
-    registered ?? (activeModuleId ? <ModuleSidebar moduleId={activeModuleId} /> : undefined);
+  const registered = useSidebarContentStore((s) => s.content);
+  // Every module visited this session keeps its rail mounted, hidden while
+  // another is on screen (sidebar.mdx, "Ẩn chứ không huỷ sau lần mở đầu").
+  // Only the active module's rail used to render, so switching back to one
+  // rebuilt it from nothing: Database's is a non-virtualised tree plus five IPC
+  // calls on mount, measured at ~300ms of React commit for a 900-row schema on
+  // every single switch. The cost now is memory per visited module, on purpose.
+  const [visited, setVisited] = React.useState<string[]>([]);
+  if (activeModuleId && !visited.includes(activeModuleId)) {
+    setVisited([...visited, activeModuleId]);
+  }
 
   const max = maxPanelWidth({
     windowWidth,
@@ -341,7 +352,15 @@ export function SidebarSurface({ activeModuleId }: { activeModuleId: string | nu
             why the fill was already right; the radius and the missing pad were
             not. The 8px pad is what makes a 280 rail hold 264 of content. */}
         <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden p-2 glass-rail">
-          {content}
+          {visited.map((moduleId) => (
+            // `contents` keeps the rail a direct flex child of the column, as
+            // it was before it had a wrapper; `hidden` takes a background one
+            // out of layout, focus and the accessibility tree.
+            <div key={moduleId} className={moduleId === activeModuleId ? "contents" : "hidden"}>
+              {/* A document's rail wins where there is one; the module's own is the floor. */}
+              {registered[moduleId] ?? <MemoModuleSidebar moduleId={moduleId} />}
+            </div>
+          ))}
         </div>
         {open ? (
           <ShellResizeHandle
