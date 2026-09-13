@@ -1,5 +1,25 @@
 import { lazy, type ComponentType, type LazyExoticComponent } from "react";
 import type { LucideIcon } from "lucide-react";
+import type { WorkbenchTab } from "../stores/workbenchTabs";
+
+/**
+ * One entry a module adds to its tabs' right-click menu. The shell draws them
+ * below its own Close and Pin items, with the menu's icon / label / shortcut
+ * columns.
+ */
+export type TabAction =
+  | {
+      type: "item";
+      id: string;
+      label: string;
+      icon?: LucideIcon;
+      /** A label such as "⌘D"; lib/shortcut makes it per platform. */
+      shortcut?: string;
+      disabled?: boolean;
+      run: () => void;
+    }
+  | { type: "submenu"; id: string; label: string; icon?: LucideIcon; items: TabAction[] }
+  | { type: "separator"; id: string };
 
 export const CURRENT_MODULE_API_VERSION = "1";
 
@@ -116,6 +136,16 @@ export type ModuleManifest = {
    * parity ignores it.
    */
   newTab?: () => void;
+  /**
+   * What a tab of this module adds to its right-click menu.
+   *
+   * The shell knows a tab's id and view and nothing about what it holds; only
+   * Database knows a `database.console` tab is a file with SQL in it. Called
+   * when the menu opens, so it can read the module's current state.
+   *
+   * Presentational and frontend-only: module parity ignores it.
+   */
+  tabActions?: (tab: WorkbenchTab) => TabAction[];
   /**
    * The module's rail, as the MODULE's, not a document's.
    *

@@ -5,7 +5,6 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
-  ContextMenuShortcut,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import {
@@ -194,26 +193,23 @@ export function NotesSidebar({
               </ContextMenuTrigger>
               <ContextMenuContent>
                 <ContextMenuItem
+                  icon={<FilePlus />}
+                  shortcut="⌘N"
                   onSelect={() => {
                     if (scope !== `folder:${id}`) onScopeChange(`folder:${id}`);
                     onNewNote();
                   }}
                 >
-                  <FilePlus />
                   New note here
-                  <ContextMenuShortcut>⌘N</ContextMenuShortcut>
                 </ContextMenuItem>
-                <ContextMenuItem onSelect={() => onRenameFolder(folder)}>
-                  <Type />
+                <ContextMenuItem icon={<Type />} onSelect={() => onRenameFolder(folder)}>
                   Rename
                 </ContextMenuItem>
-                <ContextMenuItem onSelect={() => onEditFolderTags(folder)}>
-                  <Tag />
+                <ContextMenuItem icon={<Tag />} onSelect={() => onEditFolderTags(folder)}>
                   Edit tags
                 </ContextMenuItem>
                 <ContextMenuSeparator />
-                <ContextMenuItem variant="destructive" onSelect={() => onDeleteFolder(folder)}>
-                  <Trash2 />
+                <ContextMenuItem icon={<Trash2 />} variant="destructive" onSelect={() => onDeleteFolder(folder)}>
                   Delete folder
                 </ContextMenuItem>
               </ContextMenuContent>
@@ -305,15 +301,12 @@ function NoteRows({
               first has no picker outside the editor's meta panel and the
               second lives in the editor, so both open the note instead. */}
           <ContextMenuContent>
-            <ContextMenuItem onSelect={() => onOpenNoteInTab(note)}>
-              <ExternalLink />
+            <ContextMenuItem icon={<ExternalLink />} onSelect={() => onOpenNoteInTab(note)}>
               Open in new tab
             </ContextMenuItem>
             <ContextMenuSeparator />
-            <ContextMenuItem variant="destructive" onSelect={() => onTrashNote(note)}>
-              <Trash2 />
+            <ContextMenuItem icon={<Trash2 />} shortcut="⌫" variant="destructive" onSelect={() => onTrashNote(note)}>
               Move to trash
-              <ContextMenuShortcut>⌫</ContextMenuShortcut>
             </ContextMenuItem>
           </ContextMenuContent>
         </ContextMenu>

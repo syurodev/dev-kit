@@ -10,6 +10,7 @@ import {
   openSavedTab,
 } from "./documents";
 import { useDatabaseStore } from "./databaseStore";
+import { databaseTabActions } from "./tabActions";
 
 export const databaseModule: ModuleManifest = {
   id: "database",
@@ -67,6 +68,8 @@ export const databaseModule: ModuleManifest = {
   // The strip's + button. Several consoles at once is the point of the tab
   // strip here, and this is the only affordance that offers one.
   newTab: openNewConsoleTab,
+  // What a table or console tab adds to its right-click menu.
+  tabActions: databaseTabActions,
   // The connection rail belongs to the module, not to whichever document is
   // open — a table tab and no console still needs it, and so does a module
   // with nothing open at all.

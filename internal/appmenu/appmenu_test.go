@@ -64,6 +64,24 @@ func TestEveryCommandNamesItsModule(t *testing.T) {
 	}
 }
 
+// Close Tab and the moved Close Window are bound in main.go, outside Submenus,
+// so the uniqueness check above cannot see them. No module command may take
+// either key.
+func TestCloseTabKeysAreFree(t *testing.T) {
+	for _, submenu := range Submenus {
+		for _, command := range submenu.Commands {
+			for _, taken := range []string{CloseTabAccelerator, CloseWindowAccelerator} {
+				if strings.EqualFold(command.Accelerator, taken) {
+					t.Errorf("%q binds %s, which Close Tab / Close Window use", command.Label, taken)
+				}
+			}
+			if command.ID == CloseTabID {
+				t.Errorf("%q reuses the shell's Close Tab id", command.Label)
+			}
+		}
+	}
+}
+
 func TestModuleCommandIDsIsTheModulesOwn(t *testing.T) {
 	ids := ModuleCommandIDs("database")
 	if len(ids) == 0 {

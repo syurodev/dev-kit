@@ -85,9 +85,14 @@ export function closeConsoleTab(consoleId: string): void {
  * reachable, a repeated counter value is not.
  */
 let consoleSerial = 0;
-export function openNewConsoleTab(): void {
+/** A console id no open console has — for a new console, or a copy of one. */
+export function newConsoleId(): string {
   consoleSerial += 1;
-  openConsoleTab(`console-${consoleSerial}-${Math.random().toString(36).slice(2, 8)}`);
+  return `console-${consoleSerial}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export function openNewConsoleTab(): void {
+  openConsoleTab(newConsoleId());
 }
 
 /**

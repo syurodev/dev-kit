@@ -2,6 +2,7 @@ import * as React from "react"
 import { ContextMenu as ContextMenuPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
+import { Kbd } from "@/components/ui/kbd"
 import { ChevronRightIcon, CheckIcon } from "lucide-react"
 
 function ContextMenu({
@@ -73,57 +74,101 @@ function ContextMenuContent({
   )
 }
 
+/**
+ * Every row of a menu is the same three columns: an icon, the label, and a
+ * shortcut.
+ *
+ * The icon column is there whether or not the row has an icon. A row without
+ * one keeps the slot empty, so every label in the menu starts on the same
+ * vertical line — the way IntelliJ's and VS Code's menus read, and the thing
+ * a menu of mixed rows got wrong when the icon was just the first child of a
+ * flex row. The last column is the shortcut, or a submenu's chevron.
+ */
+const ROW = cn(
+  "relative grid h-7 w-full min-w-[200px] cursor-pointer grid-cols-[var(--icon-14)_minmax(0,1fr)_auto] items-center gap-x-2 rounded-[6px] px-2 text-body-13 outline-none select-none transition-colors",
+  "bg-transparent text-text-primary",
+  "focus:bg-state-soft hover:bg-state-soft data-open:bg-state-soft",
+  "data-disabled:pointer-events-none data-disabled:opacity-50",
+  "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5"
+)
+
+function MenuRow({
+  icon,
+  trailing,
+  children,
+}: {
+  icon?: React.ReactNode
+  trailing?: React.ReactNode
+  children: React.ReactNode
+}) {
+  return (
+    <>
+      <span data-slot="context-menu-icon" aria-hidden className="flex size-(--icon-14) items-center justify-center">
+        {icon}
+      </span>
+      <span className="min-w-0 truncate">{children}</span>
+      <span className="flex items-center justify-end">{trailing}</span>
+    </>
+  )
+}
+
+/** A shortcut, set in the app's key cap, clear of the label. */
+function Shortcut({ keys }: { keys?: string }) {
+  return keys ? <Kbd className="ml-4">{keys}</Kbd> : null
+}
+
 function ContextMenuItem({
   className,
-  inset,
   variant = "default",
+  icon,
+  shortcut,
+  children,
   ...props
 }: React.ComponentProps<typeof ContextMenuPrimitive.Item> & {
-  inset?: boolean
   variant?: "default" | "destructive"
+  /** Optional. The column stays reserved either way. */
+  icon?: React.ReactNode
+  /** Optional, e.g. "⌘W" — see lib/shortcut for a per-platform label. */
+  shortcut?: string
 }) {
   return (
     <ContextMenuPrimitive.Item
       data-slot="context-menu-item"
-      data-inset={inset}
       data-variant={variant}
       className={cn(
-        "group/context-menu-item relative flex w-full min-w-[200px] h-7 cursor-pointer items-center gap-2 rounded-[6px] px-2 py-1 text-body-13 outline-none select-none transition-colors",
-        "bg-transparent text-text-primary",
-        "focus:bg-state-soft hover:bg-state-soft",
+        ROW,
+        "group/context-menu-item",
         "data-[variant=destructive]:bg-transparent data-[variant=destructive]:text-status-danger",
         "data-[variant=destructive]:focus:bg-[var(--feedback-danger-soft)] data-[variant=destructive]:hover:bg-[var(--feedback-danger-soft)] data-[variant=destructive]:focus:text-status-danger data-[variant=destructive]:hover:text-status-danger",
-        "data-disabled:pointer-events-none data-disabled:opacity-50",
-        "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
         "data-[variant=destructive]:*:[svg]:text-status-danger",
-        inset && "pl-7",
         className
       )}
       {...props}
-    />
+    >
+      <MenuRow icon={icon} trailing={<Shortcut keys={shortcut} />}>
+        {children}
+      </MenuRow>
+    </ContextMenuPrimitive.Item>
   )
 }
 
 function ContextMenuSubTrigger({
   className,
-  inset,
+  icon,
   children,
   ...props
 }: React.ComponentProps<typeof ContextMenuPrimitive.SubTrigger> & {
-  inset?: boolean
+  icon?: React.ReactNode
 }) {
   return (
     <ContextMenuPrimitive.SubTrigger
       data-slot="context-menu-sub-trigger"
-      data-inset={inset}
-      className={cn(
-        "flex cursor-default items-center gap-1.5 rounded-md px-1.5 py-1 text-body-13 outline-hidden select-none focus:bg-foreground/10 focus:text-accent-foreground data-inset:pl-7 data-open:bg-foreground/10 data-open:text-accent-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
-        className
-      )}
+      className={cn(ROW, className)}
       {...props}
     >
-      {children}
-      <ChevronRightIcon className="ml-auto" />
+      <MenuRow icon={icon} trailing={<ChevronRightIcon className="text-text-tertiary" />}>
+        {children}
+      </MenuRow>
     </ContextMenuPrimitive.SubTrigger>
   )
 }
@@ -148,33 +193,33 @@ function ContextMenuSubContent({
   )
 }
 
+/** The check sits in the icon column, so a toggled row lines up with the rest. */
 function ContextMenuCheckboxItem({
   className,
   children,
   checked,
-  inset,
+  shortcut,
   ...props
 }: React.ComponentProps<typeof ContextMenuPrimitive.CheckboxItem> & {
-  inset?: boolean
+  shortcut?: string
 }) {
   return (
     <ContextMenuPrimitive.CheckboxItem
       data-slot="context-menu-checkbox-item"
-      data-inset={inset}
-      className={cn(
-        "relative flex cursor-default items-center gap-1.5 rounded-md py-1 pr-8 pl-1.5 text-body-13 outline-hidden select-none focus:bg-foreground/10 focus:text-accent-foreground data-inset:pl-7 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
-        className
-      )}
+      className={cn(ROW, className)}
       checked={checked}
       {...props}
     >
-      <span className="pointer-events-none absolute right-2">
-        <ContextMenuPrimitive.ItemIndicator>
-          <CheckIcon
-          />
-        </ContextMenuPrimitive.ItemIndicator>
-      </span>
-      {children}
+      <MenuRow
+        icon={
+          <ContextMenuPrimitive.ItemIndicator>
+            <CheckIcon />
+          </ContextMenuPrimitive.ItemIndicator>
+        }
+        trailing={<Shortcut keys={shortcut} />}
+      >
+        {children}
+      </MenuRow>
     </ContextMenuPrimitive.CheckboxItem>
   )
 }
@@ -182,49 +227,49 @@ function ContextMenuCheckboxItem({
 function ContextMenuRadioItem({
   className,
   children,
-  inset,
+  shortcut,
   ...props
 }: React.ComponentProps<typeof ContextMenuPrimitive.RadioItem> & {
-  inset?: boolean
+  shortcut?: string
 }) {
   return (
     <ContextMenuPrimitive.RadioItem
       data-slot="context-menu-radio-item"
-      data-inset={inset}
-      className={cn(
-        "relative flex cursor-default items-center gap-1.5 rounded-md py-1 pr-8 pl-1.5 text-body-13 outline-hidden select-none focus:bg-foreground/10 focus:text-accent-foreground data-inset:pl-7 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
-        className
-      )}
+      className={cn(ROW, className)}
       {...props}
     >
-      <span className="pointer-events-none absolute right-2">
-        <ContextMenuPrimitive.ItemIndicator>
-          <CheckIcon
-          />
-        </ContextMenuPrimitive.ItemIndicator>
-      </span>
-      {children}
+      <MenuRow
+        icon={
+          <ContextMenuPrimitive.ItemIndicator>
+            <CheckIcon />
+          </ContextMenuPrimitive.ItemIndicator>
+        }
+        trailing={<Shortcut keys={shortcut} />}
+      >
+        {children}
+      </MenuRow>
     </ContextMenuPrimitive.RadioItem>
   )
 }
 
+/** A label starts where the rows' labels start: past the icon column. */
 function ContextMenuLabel({
   className,
-  inset,
+  children,
   ...props
-}: React.ComponentProps<typeof ContextMenuPrimitive.Label> & {
-  inset?: boolean
-}) {
+}: React.ComponentProps<typeof ContextMenuPrimitive.Label>) {
   return (
     <ContextMenuPrimitive.Label
       data-slot="context-menu-label"
-      data-inset={inset}
       className={cn(
-        "px-1.5 py-1 text-caption-11-medium text-muted-foreground data-inset:pl-7",
+        "grid grid-cols-[var(--icon-14)_minmax(0,1fr)] gap-x-2 px-2 py-1 text-caption-11-medium text-muted-foreground",
         className
       )}
       {...props}
-    />
+    >
+      <span aria-hidden />
+      <span className="min-w-0 truncate">{children}</span>
+    </ContextMenuPrimitive.Label>
   )
 }
 
@@ -241,22 +286,6 @@ function ContextMenuSeparator({
   )
 }
 
-function ContextMenuShortcut({
-  className,
-  ...props
-}: React.ComponentProps<"span">) {
-  return (
-    <span
-      data-slot="context-menu-shortcut"
-      className={cn(
-        "ml-auto text-code-11 text-text-tertiary",
-        className
-      )}
-      {...props}
-    />
-  )
-}
-
 export {
   ContextMenu,
   ContextMenuTrigger,
@@ -266,7 +295,6 @@ export {
   ContextMenuRadioItem,
   ContextMenuLabel,
   ContextMenuSeparator,
-  ContextMenuShortcut,
   ContextMenuGroup,
   ContextMenuPortal,
   ContextMenuSub,

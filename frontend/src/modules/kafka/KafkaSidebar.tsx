@@ -96,23 +96,19 @@ export function KafkaSidebar() {
             <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
             <ContextMenuContent>
               {isConnected ? (
-                <ContextMenuItem onSelect={() => void disconnect()}>
-                  <Plug />
+                <ContextMenuItem icon={<Plug />} onSelect={() => void disconnect()}>
                   Disconnect
                 </ContextMenuItem>
               ) : (
-                <ContextMenuItem onSelect={() => void connect(p.id)}>
-                  <PlugZap />
+                <ContextMenuItem icon={<PlugZap />} onSelect={() => void connect(p.id)}>
                   Connect
                 </ContextMenuItem>
               )}
-              <ContextMenuItem onSelect={() => void testConnection(p.id)} disabled={testing}>
-                <Zap />
+              <ContextMenuItem icon={<Zap />} onSelect={() => void testConnection(p.id)} disabled={testing}>
                 Test connection
               </ContextMenuItem>
               <ContextMenuSeparator />
-              <ContextMenuItem variant="destructive" onSelect={() => void deleteProfile(p.id)}>
-                <Trash2 />
+              <ContextMenuItem icon={<Trash2 />} variant="destructive" onSelect={() => void deleteProfile(p.id)}>
                 Delete cluster
               </ContextMenuItem>
             </ContextMenuContent>

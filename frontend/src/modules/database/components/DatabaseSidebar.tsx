@@ -39,7 +39,6 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
-  ContextMenuShortcut,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import {
@@ -337,40 +336,36 @@ export function DatabaseSidebar() {
                 visible affordance at all. The menu names it and keeps the
                 shortcut. */}
             <ContextMenuContent>
-              <ContextMenuItem onSelect={() => openTableTab(schemaName, tableName, false)}>
+              <ContextMenuItem shortcut="Double-click" onSelect={() => openTableTab(schemaName, tableName, false)}>
                 Open data
-                <ContextMenuShortcut>Double-click</ContextMenuShortcut>
               </ContextMenuItem>
               {/* No profile to select here: a table row only exists under the
                   connection that is already open. */}
-              <ContextMenuItem onSelect={() => openNewConsoleTab()}>
-                <Terminal />
+              <ContextMenuItem icon={<Terminal />} onSelect={() => openNewConsoleTab()}>
                 Open query console
               </ContextMenuItem>
               <ContextMenuItem
+                icon={<Crosshair />}
                 onSelect={() => {
                   setSelectedSchema(schemaName);
                   setSelectedTable(tableName);
                   openErdTab();
                 }}
               >
-                <Crosshair />
                 Focus in ERD
               </ContextMenuItem>
-              <ContextMenuItem onSelect={() => openDDL(schemaName, tableName)}>
-                <FileCode />
+              <ContextMenuItem icon={<FileCode />} onSelect={() => openDDL(schemaName, tableName)}>
                 Show DDL
               </ContextMenuItem>
-              <ContextMenuItem onSelect={() => void copyText(tableName)}>
-                <Copy />
+              <ContextMenuItem icon={<Copy />} onSelect={() => void copyText(tableName)}>
                 Copy table name
               </ContextMenuItem>
               <ContextMenuSeparator />
               <ContextMenuItem
+                icon={<RefreshCw />}
                 onSelect={() => void refreshSchema(selectedProfileId)}
                 disabled={indexingSchema}
               >
-                <RefreshCw />
                 Re-index schema
               </ContextMenuItem>
             </ContextMenuContent>
@@ -406,20 +401,18 @@ export function DatabaseSidebar() {
         <ContextMenu key={`schema:${schemaName}`}>
           <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
           <ContextMenuContent>
-            <ContextMenuItem onSelect={() => openNewConsoleTab()}>
-              <Terminal />
+            <ContextMenuItem icon={<Terminal />} onSelect={() => openNewConsoleTab()}>
               Open query console
             </ContextMenuItem>
-            <ContextMenuItem onSelect={() => void copyText(schemaName)}>
-              <Copy />
+            <ContextMenuItem icon={<Copy />} onSelect={() => void copyText(schemaName)}>
               Copy schema name
             </ContextMenuItem>
             <ContextMenuSeparator />
             <ContextMenuItem
+              icon={<RefreshCw />}
               onSelect={() => void refreshSchema(selectedProfileId)}
               disabled={indexingSchema}
             >
-              <RefreshCw />
               Re-index schema
             </ContextMenuItem>
           </ContextMenuContent>
@@ -637,17 +630,14 @@ export function DatabaseSidebar() {
         <ContextMenu key={`folder:${folder.id}`}>
           <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
           <ContextMenuContent>
-            <ContextMenuItem onSelect={() => setEditingFolderId(folder.id)}>
-              <Pencil />
+            <ContextMenuItem icon={<Pencil />} onSelect={() => setEditingFolderId(folder.id)}>
               Edit folder
             </ContextMenuItem>
-            <ContextMenuItem onSelect={() => newFolder()}>
-              <FolderPlus />
+            <ContextMenuItem icon={<FolderPlus />} onSelect={() => newFolder()}>
               New folder
             </ContextMenuItem>
             <ContextMenuSeparator />
-            <ContextMenuItem variant="destructive" onSelect={() => deleteFolder(folder.id)}>
-              <Trash2 />
+            <ContextMenuItem icon={<Trash2 />} variant="destructive" onSelect={() => deleteFolder(folder.id)}>
               Delete folder
             </ContextMenuItem>
           </ContextMenuContent>

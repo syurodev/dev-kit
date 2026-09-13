@@ -209,15 +209,16 @@ export function AgentSidebarTree({
                   <ContextMenuSeparator />
 
                   {onTogglePin ? (
-                    <ContextMenuItem onSelect={() => onTogglePin(session.id)}>
-                      {pinnedIds.includes(session.id) ? <PinOff /> : <Pin />}
+                    <ContextMenuItem
+                      icon={pinnedIds.includes(session.id) ? <PinOff /> : <Pin />}
+                      onSelect={() => onTogglePin(session.id)}
+                    >
                       {pinnedIds.includes(session.id) ? "Unpin" : "Pin to top"}
                     </ContextMenuItem>
                   ) : null}
 
                   {onNewChildSession ? (
-                    <ContextMenuItem onSelect={() => onNewChildSession(session)}>
-                      <Plus />
+                    <ContextMenuItem icon={<Plus />} onSelect={() => onNewChildSession(session)}>
                       New child session
                     </ContextMenuItem>
                   ) : null}
@@ -225,12 +226,10 @@ export function AgentSidebarTree({
                   {onCopy ? (
                     <>
                       <ContextMenuSeparator />
-                      <ContextMenuItem onSelect={() => onCopy(session.projectPath)}>
-                        <FolderOpen />
+                      <ContextMenuItem icon={<FolderOpen />} onSelect={() => onCopy(session.projectPath)}>
                         Copy working directory
                       </ContextMenuItem>
-                      <ContextMenuItem onSelect={() => onCopy(session.id)}>
-                        <Copy />
+                      <ContextMenuItem icon={<Copy />} onSelect={() => onCopy(session.id)}>
                         Copy session ID
                       </ContextMenuItem>
                     </>
@@ -247,32 +246,32 @@ export function AgentSidebarTree({
                       between visits is a menu you have to read every time. */}
                   {onCancelTurn ? (
                     <ContextMenuItem
+                      icon={<Ban />}
                       disabled={session.status !== "running"}
                       onSelect={() => onCancelTurn(session)}
                     >
-                      <Ban />
                       Cancel turn
                     </ContextMenuItem>
                   ) : null}
 
                   {onCloseSession ? (
                     <ContextMenuItem
+                      icon={<Square />}
                       disabled={session.status === "closed"}
                       onSelect={() => onCloseSession(session)}
                     >
-                      <Square />
                       Close session
                     </ContextMenuItem>
                   ) : null}
 
                   {onDeleteSession ? (
                     <ContextMenuItem
+                      icon={<Trash2 />}
                       variant="destructive"
                       onSelect={() =>
                         onDeleteSession(session, descendantCounts[session.id] ?? 0)
                       }
                     >
-                      <Trash2 />
                       {/* Says what will actually go. Deleting a parent takes
                           its subtree, and finding that out afterwards is the
                           one thing this action cannot undo. */}

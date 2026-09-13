@@ -5,9 +5,13 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { cn } from "@/lib/utils";
+import { shortcut } from "@/lib/shortcut";
 import {
   DndContext,
   PointerSensor,
@@ -22,7 +26,7 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Plus, Wrench, X } from "lucide-react";
+import { Pin, PinOff, Plus, Settings2, Wrench, X } from "lucide-react";
 import {
   useEffect,
   useLayoutEffect,
@@ -32,7 +36,9 @@ import {
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import { getModule } from "../../modules/registry";
+import { useShallow } from "zustand/react/shallow";
+import { getModule, type TabAction } from "../../modules/registry";
+import { useTabSettingsStore } from "../../stores/tabSettings";
 import type { TabStatus, WorkbenchTab } from "../../stores/workbenchTabs";
 import { beforeIdAfterMove, revealScrollLeft } from "./tabStripModel";
 
@@ -43,8 +49,8 @@ import { beforeIdAfterMove, revealScrollLeft } from "./tabStripModel";
  * the whole row and closing one slid another under the pointer.
  *
  * - Widths are CSS: every tab asks for the max and they share the room
- *   equally down to a min (VS Code's `fixed` sizing). Nothing is measured to
- *   lay out.
+ *   equally down to a min (VS Code's `fixed` sizing, both set in Settings).
+ *   Nothing is measured to lay out.
  * - Closing with the mouse locks every tab at the width it has, until the
  *   pointer leaves the strip — the next close button stays under the cursor.
  * - The active tab is scrolled into view by the smallest amount, except right
@@ -53,6 +59,7 @@ import { beforeIdAfterMove, revealScrollLeft } from "./tabStripModel";
  *   End move between tabs with a roving tabindex.
  * - Dragging is the result grid's column drag: dnd-kit sortable, the dragged
  *   tab follows the pointer and the others slide aside.
+ * - Pinned tabs sit at the left and the group closes pass over them.
  */
 
 function statusDotClass(status: TabStatus): string {
@@ -77,6 +84,10 @@ type TabStripProps = {
   onNewTab?: () => void;
   /** Keep a preview tab open (the store's pinTab). Offered in the tab's menu. */
   onPin?: (id: string) => void;
+  /** Pin or unpin (the store's togglePinTab). */
+  onTogglePin?: (id: string) => void;
+  /** Settings ▸ Appearance, where tab widths are set. */
+  onConfigureTabs?: () => void;
   /** True while ⌘⇧E/Ctrl⇧E is held (Workbench.tsx): every tab goes full
    * width and ArrowLeft/Right + Enter/Escape navigate the strip. */
   keyboardBrowsing: boolean;
@@ -98,18 +109,65 @@ function isHiddenHomePreview(tab: WorkbenchTab): boolean {
 
 /** Gap between two tabs. */
 const TAB_GAP_PX = 8;
-/** The narrowest a tab gets before the strip scrolls: icon, a few letters, close. */
-const TAB_MIN_WIDTH_PX = 80;
-/** The widest: short titles do not stretch into mostly-empty pills. */
-const TAB_MAX_WIDTH_PX = 320;
 /** ⌘⇧E browsing widens every tab so the label being chosen can be read. */
 const BROWSING_MIN_WIDTH_PX = 200;
+
+/**
+ * A module's own entries, drawn as the menu opens.
+ *
+ * A component rather than a list built with the tab: Radix mounts menu
+ * content only while it is open, so this reads the module's state at that
+ * moment — a console's "Copy SQL" is about the SQL in it now.
+ */
+function ModuleTabActions({ tab }: { tab: WorkbenchTab }) {
+  const actions = getModule(tab.moduleId)?.tabActions?.(tab) ?? [];
+  if (actions.length === 0) return null;
+  return (
+    <>
+      <ContextMenuSeparator />
+      <TabActionItems actions={actions} />
+    </>
+  );
+}
+
+function TabActionItems({ actions }: { actions: TabAction[] }) {
+  return (
+    <>
+      {actions.map((action) => {
+        if (action.type === "separator") return <ContextMenuSeparator key={action.id} />;
+        const Icon = action.icon;
+        if (action.type === "submenu") {
+          return (
+            <ContextMenuSub key={action.id}>
+              <ContextMenuSubTrigger icon={Icon ? <Icon /> : undefined}>{action.label}</ContextMenuSubTrigger>
+              <ContextMenuSubContent>
+                <TabActionItems actions={action.items} />
+              </ContextMenuSubContent>
+            </ContextMenuSub>
+          );
+        }
+        return (
+          <ContextMenuItem
+            key={action.id}
+            icon={Icon ? <Icon /> : undefined}
+            shortcut={action.shortcut}
+            disabled={action.disabled}
+            onSelect={action.run}
+          >
+            {action.label}
+          </ContextMenuItem>
+        );
+      })}
+    </>
+  );
+}
 
 type TabItemProps = {
   tab: WorkbenchTab;
   isActive: boolean;
   lockedWidth: number | undefined;
   minWidth: number;
+  maxWidth: number;
   showFocusRing: boolean;
   draggable: boolean;
   registerNode: (id: string, node: HTMLDivElement | null) => void;
@@ -119,10 +177,13 @@ type TabItemProps = {
   onKeyDown: (event: ReactKeyboardEvent, id: string) => void;
   /** The tab menu's groups, worked out by the strip, which knows the order. */
   others: string[];
+  toTheLeft: string[];
   toTheRight: string[];
   all: string[];
   onCloseMany: (ids: string[]) => void;
   onPin?: (id: string) => void;
+  onTogglePin?: (id: string) => void;
+  onConfigureTabs?: () => void;
 };
 
 function TabItem({
@@ -130,6 +191,7 @@ function TabItem({
   isActive,
   lockedWidth,
   minWidth,
+  maxWidth,
   showFocusRing,
   draggable,
   registerNode,
@@ -138,10 +200,13 @@ function TabItem({
   onCloseWithPointer,
   onKeyDown,
   others,
+  toTheLeft,
   toTheRight,
   all,
   onCloseMany,
   onPin,
+  onTogglePin,
+  onConfigureTabs,
 }: TabItemProps) {
   // `attributes` are not spread, for the grid's reason: they would replace
   // role="tab" and the roving tabindex with role="button" and tabIndex 0.
@@ -150,13 +215,14 @@ function TabItem({
     disabled: !draggable,
   });
   const ModuleIcon = tab.icon ?? getModule(tab.moduleId)?.icon ?? Wrench;
+  const pinned = Boolean(tab.pinned);
 
   const style: CSSProperties = {
     // Every tab asks for the max and they all give way equally down to the
     // min, past which the strip scrolls.
-    flex: `0 1 ${TAB_MAX_WIDTH_PX}px`,
+    flex: `0 1 ${maxWidth}px`,
     minWidth: lockedWidth ?? minWidth,
-    maxWidth: lockedWidth ?? TAB_MAX_WIDTH_PX,
+    maxWidth: lockedWidth ?? maxWidth,
     // The grid column's drag: follow the pointer, lift above the neighbours
     // sliding aside under it.
     transform: CSS.Translate.toString(transform),
@@ -186,6 +252,7 @@ function TabItem({
       aria-selected={isActive}
       tabIndex={isActive ? 0 : -1}
       data-tab-id={tab.id}
+      data-pinned={pinned || undefined}
       style={style}
       {...listeners}
       onMouseDown={(event) => {
@@ -237,8 +304,24 @@ function TabItem({
           <span className={cn("size-1.5 shrink-0 rounded-full", statusDotClass(tab.status))} />
         ) : null}
       </span>
-      {/* Close button: 12px, shown on Active and Inactive, NOT on Preview */}
-      {!tab.preview && (
+      {/* A pinned tab shows its pin where the close button goes, and the pin
+          unpins (VS Code). Otherwise: 12px close, not on Preview. */}
+      {pinned && onTogglePin ? (
+        <span
+          role="button"
+          tabIndex={-1}
+          data-tab-close
+          aria-label={`Unpin ${tab.title}`}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            onTogglePin(tab.id);
+          }}
+          className="z-10 flex size-3 shrink-0 items-center justify-center rounded text-text-secondary hover:text-text-primary transition-colors focus:outline-none [--wails-draggable:no-drag] cursor-pointer"
+        >
+          <Pin className="size-3" />
+        </span>
+      ) : !tab.preview ? (
         <span
           role="button"
           tabIndex={-1}
@@ -261,25 +344,49 @@ function TabItem({
         >
           <X className="size-3" />
         </span>
-      )}
+      ) : null}
     </div>
     </ContextMenuTrigger>
     </TooltipTrigger>
     <TooltipContent side="bottom">{tab.title}</TooltipContent>
-    {/* VS Code's tab menu, the parts DevKit's tabs have. */}
+    {/* VS Code's tab menu: the closes, pinning, then whatever the module
+        adds, then the strip's own settings. The group closes pass over
+        pinned tabs, which is what pinning is for. */}
     <ContextMenuContent>
-      <ContextMenuItem onSelect={() => onClose(tab.id)}>Close</ContextMenuItem>
+      <ContextMenuItem shortcut={shortcut("W")} onSelect={() => onClose(tab.id)}>
+        Close
+      </ContextMenuItem>
       <ContextMenuItem disabled={others.length === 0} onSelect={() => onCloseMany(others)}>
-        Close Others
+        Close Other Tabs
+      </ContextMenuItem>
+      <ContextMenuItem disabled={toTheLeft.length === 0} onSelect={() => onCloseMany(toTheLeft)}>
+        Close Tabs to the Left
       </ContextMenuItem>
       <ContextMenuItem disabled={toTheRight.length === 0} onSelect={() => onCloseMany(toTheRight)}>
-        Close to the Right
+        Close Tabs to the Right
       </ContextMenuItem>
-      <ContextMenuItem onSelect={() => onCloseMany(all)}>Close All</ContextMenuItem>
+      <ContextMenuItem disabled={all.length === 0} onSelect={() => onCloseMany(all)}>
+        Close All Tabs
+      </ContextMenuItem>
+      {onTogglePin || (tab.preview && onPin) ? <ContextMenuSeparator /> : null}
+      {onTogglePin ? (
+        <ContextMenuItem
+          icon={pinned ? <PinOff /> : <Pin />}
+          onSelect={() => onTogglePin(tab.id)}
+        >
+          {pinned ? "Unpin Tab" : "Pin Tab"}
+        </ContextMenuItem>
+      ) : null}
       {tab.preview && onPin ? (
+        <ContextMenuItem onSelect={() => onPin(tab.id)}>Keep Open</ContextMenuItem>
+      ) : null}
+      <ModuleTabActions tab={tab} />
+      {onConfigureTabs ? (
         <>
           <ContextMenuSeparator />
-          <ContextMenuItem onSelect={() => onPin(tab.id)}>Keep Open</ContextMenuItem>
+          <ContextMenuItem icon={<Settings2 />} onSelect={onConfigureTabs}>
+            Configure Tabs…
+          </ContextMenuItem>
         </>
       ) : null}
     </ContextMenuContent>
@@ -296,6 +403,8 @@ export function TabStrip({
   onReorder,
   onNewTab,
   onPin,
+  onTogglePin,
+  onConfigureTabs,
   keyboardBrowsing,
   onExitBrowsing,
 }: TabStripProps) {
@@ -304,6 +413,9 @@ export function TabStrip({
     [tabs],
   );
   const ids = useMemo(() => visibleTabs.map((tab) => tab.id), [visibleTabs]);
+  const { minWidth: tabMinWidth, maxWidth: tabMaxWidth } = useTabSettingsStore(
+    useShallow((s) => ({ minWidth: s.minWidth, maxWidth: s.maxWidth })),
+  );
 
   const rowRef = useRef<HTMLDivElement>(null);
   const tabNodes = useRef(new Map<string, HTMLDivElement>());
@@ -420,7 +532,14 @@ export function TabStrip({
     tabNodes.current.get(target)?.focus();
   }
 
-  const minWidth = keyboardBrowsing ? BROWSING_MIN_WIDTH_PX : TAB_MIN_WIDTH_PX;
+  // Browsing widens the floor, but never past the max — a floor above the
+  // ceiling is resolved by CSS in the floor's favour, and the setting says
+  // otherwise.
+  const minWidth = keyboardBrowsing
+    ? Math.max(tabMinWidth, Math.min(BROWSING_MIN_WIDTH_PX, tabMaxWidth))
+    : tabMinWidth;
+  // What the group closes may take: everything but the pinned.
+  const closable = visibleTabs.filter((tab) => !tab.pinned).map((tab) => tab.id);
 
   return (
     <div
@@ -456,24 +575,18 @@ export function TabStrip({
             // beside empty space.
             style={{
               gap: TAB_GAP_PX,
-              width: visibleTabs.length * TAB_MAX_WIDTH_PX + Math.max(0, visibleTabs.length - 1) * TAB_GAP_PX,
+              width: visibleTabs.length * tabMaxWidth + Math.max(0, visibleTabs.length - 1) * TAB_GAP_PX,
             }}
             onMouseLeave={() => setLockedWidths(null)}
           >
             {visibleTabs.map((tab, index) => (
               <TabItem
-                others={ids.filter((id) => id !== tab.id)}
-                toTheRight={ids.slice(index + 1)}
-                all={ids}
-                // One store close per tab: the same path the close button
-                // takes, so a group close can never disagree with a single one.
-                onCloseMany={(list) => list.forEach((id) => onClose(id))}
-                onPin={onPin}
                 key={tab.id}
                 tab={tab}
                 isActive={tab.id === activeTabId}
                 lockedWidth={lockedWidths?.get(tab.id)}
                 minWidth={minWidth}
+                maxWidth={tabMaxWidth}
                 showFocusRing={keyboardBrowsing && tab.id === keyboardFocusedTabId}
                 draggable={!keyboardBrowsing}
                 registerNode={registerNode}
@@ -481,6 +594,16 @@ export function TabStrip({
                 onClose={onClose}
                 onCloseWithPointer={closeWithPointer}
                 onKeyDown={handleTabKeyDown}
+                others={closable.filter((id) => id !== tab.id)}
+                toTheLeft={visibleTabs.slice(0, index).filter((t) => !t.pinned).map((t) => t.id)}
+                toTheRight={visibleTabs.slice(index + 1).filter((t) => !t.pinned).map((t) => t.id)}
+                all={closable}
+                // One store close per tab: the same path the close button
+                // takes, so a group close can never disagree with a single one.
+                onCloseMany={(list) => list.forEach((id) => onClose(id))}
+                onPin={onPin}
+                onTogglePin={onTogglePin}
+                onConfigureTabs={onConfigureTabs}
               />
             ))}
           </div>
