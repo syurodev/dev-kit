@@ -15,6 +15,7 @@ import {
   type QueryResult,
   type SchemaSnapshot,
   type ColumnInfo,
+  closeSession,
 } from "../../bridge/database";
 import { listConsoles, type StoredConsole } from "../../bridge/database";
 import { consoleFiles } from "./consoleFiles";
@@ -695,6 +696,11 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       // held, its work uncommitted — and the toolbar you arrive at describes
       // the other connection. Recorded for the sidebar to say it once.
       const leaving = profileOf(get(), get().selectedProfileId);
+      // #48: the consoles' connections on the profile being left are given
+      // back; a run on the new one opens its own.
+      if (get().selectedProfileId) {
+        void closeSession(get().selectedProfileId).catch(() => undefined);
+      }
       if (get().txOpen && leaving) {
         set({ strandedTransaction: leaving.name });
       }
@@ -944,7 +950,8 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
 
     let call: ReturnType<typeof runQuery> | undefined;
     try {
-      call = runQuery(selectedProfileId, sql);
+      // The console is the session: its statements share one connection (#48).
+      call = runQuery(selectedProfileId, sql, 0, consoleId);
       pendingQueries.set(consoleId, call);
       const result = await call;
       // The connection changed under this run (setSelectedProfileId moves the
@@ -1075,6 +1082,11 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
    */
   closeConsole: (consoleId) => {
     consoleFiles.release(consoleId);
+    // #48: its connection goes back with it.
+    const { selectedProfileId } = get();
+    if (selectedProfileId) {
+      void closeSession(selectedProfileId, consoleId).catch(() => undefined);
+    }
     set((state) => {
       if (!(consoleId in state.consoles)) {
         return state;

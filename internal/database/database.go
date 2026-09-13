@@ -171,15 +171,17 @@ type Service struct {
 	schemaCache   SchemaCacheRepository
 	consoles      *ConsoleStore
 	txs           *transactions
+	sessions      *sessions
 }
 
 func NewService(store Store, envs EnvLookup) *Service {
 	return &Service{
-		store:   store,
-		envs:    envs,
-		pools:   NewPoolManager(),
-		maxRows: DefaultMaxRows,
-		txs:     newTransactions(),
+		store:    store,
+		envs:     envs,
+		pools:    NewPoolManager(),
+		maxRows:  DefaultMaxRows,
+		txs:      newTransactions(),
+		sessions: newSessions(),
 	}
 }
 
@@ -379,7 +381,7 @@ func (s *Service) UpdateProfileOptions(id string, opts UpdateProfileOptionsInput
 		// The transaction goes with the connection it was pinned to: keeping
 		// it would leave a Tx holding a session on a Conn nobody can reach.
 		s.rollbackTx(id)
-		s.pools.Remove(id)
+		s.closeConnection(id)
 	}
 
 	return summaryFromRecord(updatedRecord)
@@ -390,7 +392,7 @@ func (s *Service) DeleteProfile(id string) error {
 		return err
 	}
 	s.rollbackTx(id)
-	s.pools.Remove(id)
+	s.closeConnection(id)
 	// History and the schema index live outside vault_items, so they ride no
 	// vault-item cascade.
 	if repo, _ := s.queryLog(); repo != nil {
@@ -475,6 +477,7 @@ func (s *Service) Close() {
 		_ = tx.Rollback(ctx)
 		cancel()
 	}
+	s.sessions.close(func(sessionKey) bool { return true })
 	s.pools.Close()
 }
 
@@ -504,7 +507,14 @@ func (s *Service) TestConnection(ctx context.Context, id string) error {
 // is clamped to it rather than refused, because a page size is a preference
 // and refusing one would fail a query over a number the user can only guess at.
 func (s *Service) Query(ctx context.Context, id string, sql string, maxRows int) (QueryResult, error) {
-	result, err := s.query(ctx, id, sql, maxRows)
+	return s.QueryInSession(ctx, id, "", sql, maxRows)
+}
+
+// QueryInSession runs sql on the session kept for sessionID — a console — so
+// what one statement leaves on its connection is there for the next (#48). An
+// empty sessionID runs on the pool, as a table tab's page does.
+func (s *Service) QueryInSession(ctx context.Context, id, sessionID, sql string, maxRows int) (QueryResult, error) {
+	result, err := s.query(ctx, id, sessionID, sql, maxRows)
 	s.dropIfDisconnected(ctx, id, err)
 	return result, err
 }
@@ -518,7 +528,7 @@ short would go on to be an UPDATE's key or a value written back (#46).
 */
 const maxResultBytes = 64 << 20
 
-func (s *Service) query(ctx context.Context, id string, sql string, maxRows int) (QueryResult, error) {
+func (s *Service) query(ctx context.Context, id, sessionID, sql string, maxRows int) (QueryResult, error) {
 	target, err := s.target(id)
 	if err != nil {
 		return QueryResult{}, err
@@ -549,11 +559,25 @@ func (s *Service) query(ctx context.Context, id string, sql string, maxRows int)
 	if err != nil {
 		return QueryResult{}, err
 	}
+	// A manual transaction wins over the console's session: it is the
+	// profile's one connection for as long as it is open, whichever console
+	// runs the statement.
 	var rows Rows
 	if tx != nil {
 		rows, err = tx.Query(ctx, sql)
 	} else {
-		rows, err = pool.Query(ctx, sql)
+		opener, _ := pool.(SessionOpener)
+		key := sessionKey{profileID: id, sessionID: sessionID}
+		entry, openErr := s.sessions.acquire(ctx, key, opener)
+		if openErr != nil {
+			return QueryResult{}, openErr
+		}
+		if entry != nil {
+			defer s.sessions.release(key, entry)
+			rows, err = entry.session.Query(ctx, sql)
+		} else {
+			rows, err = pool.Query(ctx, sql)
+		}
 	}
 	// Marked from here down: everything below is the engine answering the SQL
 	// the caller typed, and the bridge redacts a database error unless it is
@@ -621,7 +645,7 @@ func (s *Service) dropIfDisconnected(ctx context.Context, id string, err error) 
 	if err == nil || ctx.Err() != nil || answeredByServer(err) || s.txs.get(id) != nil {
 		return
 	}
-	s.pools.Remove(id)
+	s.closeConnection(id)
 }
 
 type connectionTarget struct {

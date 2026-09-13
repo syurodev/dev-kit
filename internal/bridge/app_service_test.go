@@ -140,7 +140,7 @@ func TestAppServiceAuditsAllowedAndDeniedSensitiveCallsWithoutSerializingInputs(
 
 	const hostileProfileID = "postgres://admin:password@internal-db/devkit"
 	const rawSQL = "SELECT password FROM credentials; DROP TABLE audit_events"
-	if _, err := service.DBQuery(context.Background(), hostileProfileID, rawSQL, 0); err == nil {
+	if _, err := service.DBQuery(context.Background(), hostileProfileID, rawSQL, 0, ""); err == nil {
 		t.Fatal("denied DBQuery returned nil error")
 	}
 

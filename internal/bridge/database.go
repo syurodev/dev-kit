@@ -74,18 +74,37 @@ func (s *AppService) DBTestConnection(ctx context.Context, id string) error {
 
 // DBQuery runs one statement. maxRows is the caller's row cap — the table
 // browser's page size — and zero means the service default.
-func (s *AppService) DBQuery(ctx context.Context, id string, sql string, maxRows int) (database.QueryResult, error) {
+//
+// sessionID names the console the statement comes from, so it runs on that
+// console's own connection and what it SETs is there for the next run (#48).
+// Empty for a table tab's page, which has no session to keep.
+func (s *AppService) DBQuery(ctx context.Context, id string, sql string, maxRows int, sessionID string) (database.QueryResult, error) {
 	opaqueID := recordID(id)
 	result, err := s.call(ctx, "builtin.database", "db:query", "profile:"+opaqueID, map[string]any{
 		"action":     "query",
 		"profile_id": opaqueID,
 	}, func(callCtx context.Context) (any, error) {
-		return s.container.Database.Query(callCtx, id, sql, maxRows)
+		return s.container.Database.QueryInSession(callCtx, id, sessionID, sql, maxRows)
 	})
 	if err != nil {
 		return database.QueryResult{}, err
 	}
 	return result.(database.QueryResult), nil
+}
+
+// DBCloseSession gives back a console's connection — the console closed — or,
+// with an empty sessionID, every console connection of the profile, when the
+// UI switches to another one.
+func (s *AppService) DBCloseSession(ctx context.Context, id string, sessionID string) error {
+	opaqueID := recordID(id)
+	_, err := s.call(ctx, "builtin.database", "db:query", "profile:"+opaqueID, map[string]any{
+		"action":     "close_session",
+		"profile_id": opaqueID,
+	}, func(context.Context) (any, error) {
+		s.container.Database.CloseSession(id, sessionID)
+		return nil, nil
+	})
+	return err
 }
 
 // DBSetTxMode, DBCommitTx, DBRollbackTx and DBTxOpen are manual-commit mode.

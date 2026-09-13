@@ -12,6 +12,7 @@ mock.module("@/bridge/database", () => ({
   rollbackTransaction: async (id: string) => void calls.push(`rollback:${id}`),
   transactionState: async () => backend,
   listProfiles: async () => [],
+  closeSession: async () => {},
   listColumns: async () => [],
   getSchemaCache: async () => ({ namespace: {} }),
   indexSchema: async () => ({ namespace: {} }),

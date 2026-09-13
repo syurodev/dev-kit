@@ -43,7 +43,9 @@ func (postgresDriver) Dial(ctx context.Context, cfg ConnConfig) (Conn, error) {
 	// role can turn it off, and then a backslash in a cell became an escape in
 	// the edit or filter built from it (#45). Set at startup, not by a SET.
 	poolConfig.ConnConfig.RuntimeParams["standard_conforming_strings"] = "on"
-	poolConfig.MaxConns = 4
+	// Six, not four: a console keeps one for its session (#48), and up to three
+	// of them must still leave room for table tabs and the catalogue.
+	poolConfig.MaxConns = 6
 	poolConfig.MinConns = 0
 	poolConfig.MaxConnLifetime = 30 * time.Minute
 
@@ -178,6 +180,82 @@ func (c *postgresConn) queryReadOnly(ctx context.Context, sql string, args ...an
 		// Rolled back, not committed: nothing in it can have written.
 		end: func() { _ = tx.Rollback(ctx) },
 	}, nil
+}
+
+// OpenSession takes a connection out of the pool for one console (#48).
+func (c *postgresConn) OpenSession(ctx context.Context) (Session, error) {
+	conn, err := c.pool.Acquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &postgresSession{conn: conn, readOnly: c.readOnly}, nil
+}
+
+type postgresSession struct {
+	conn     *pgxpool.Conn
+	readOnly bool
+}
+
+/*
+Query runs on the session's own connection.
+
+The statement is not given the caller's cancellation. pgx answers a cancelled
+context by hanging up, and hanging up ends the session — its search_path, its
+temporary tables — along with the statement. A cancel request stops only the
+statement, and the connection carries on.
+
+A read-only profile still runs each statement in a READ ONLY transaction (#43),
+so what it SETs is rolled back with it. The guard wins over the session there.
+
+ponytail: without the caller's context a statement on a connection whose network
+has gone waits for TCP to notice; Stop still answers the console at once, and
+the session is dropped as broken when the statement finally fails.
+*/
+func (s *postgresSession) Query(ctx context.Context, sql string, args ...any) (Rows, error) {
+	stop := context.AfterFunc(ctx, s.interrupt)
+	run := context.WithoutCancel(ctx)
+	args = append([]any{textResults}, args...)
+	if s.readOnly {
+		tx, err := s.conn.BeginTx(run, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+		if err != nil {
+			stop()
+			return nil, err
+		}
+		rows, err := tx.Query(run, sql, args...)
+		if err != nil {
+			_ = tx.Rollback(run)
+			stop()
+			return nil, err
+		}
+		return &postgresRows{rows: rows, columns: columnNames(rows), end: func() {
+			_ = tx.Rollback(run)
+			stop()
+		}}, nil
+	}
+	rows, err := s.conn.Query(run, sql, args...)
+	if err != nil {
+		stop()
+		return nil, err
+	}
+	return &postgresRows{rows: rows, columns: columnNames(rows), end: func() { stop() }}, nil
+}
+
+func (s *postgresSession) interrupt() {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = s.conn.Conn().PgConn().CancelRequest(ctx)
+}
+
+func (s *postgresSession) Broken() bool { return s.conn.Conn().IsClosed() }
+
+// Close destroys the connection rather than giving it back. Released to the
+// pool, it came back to the next console — or to a table tab — still carrying
+// this one's temporary tables and SETs.
+func (s *postgresSession) Close() {
+	conn := s.conn.Hijack()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = conn.Close(ctx)
 }
 
 func columnNames(rows pgx.Rows) []string {

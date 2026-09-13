@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"database/sql"
+	"database/sql/driver"
 	"fmt"
 	"net"
 	"strconv"
@@ -32,7 +33,8 @@ func (d mysqlDriver) Dial(ctx context.Context, cfg ConnConfig) (Conn, error) {
 		releaseMySQLTLS(tlsName)
 		return nil, err
 	}
-	db.SetMaxOpenConns(4)
+	// Six, not four: see postgresDriver.Dial — a console keeps one (#48).
+	db.SetMaxOpenConns(6)
 	db.SetMaxIdleConns(0)
 	db.SetConnMaxLifetime(30 * time.Minute)
 	return &mysqlConn{db: db, tlsName: tlsName, engine: d.engine}, nil
@@ -226,6 +228,65 @@ func rowCount(ctx context.Context, queryRow func(context.Context, string, ...any
 	return n
 }
 
+// OpenSession pins one connection for one console (#48).
+func (c *mysqlConn) OpenSession(ctx context.Context) (Session, error) {
+	pinned, err := c.db.Conn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	id, err := connectionID(ctx, pinned)
+	if err != nil {
+		_ = pinned.Close()
+		return nil, err
+	}
+	return &mysqlSession{pinned: pinned, kill: c.killQuery(id)}, nil
+}
+
+type mysqlSession struct {
+	pinned *sql.Conn
+	kill   func()
+}
+
+// Query runs on the pinned connection, stopped by KILL QUERY rather than by the
+// driver closing the socket, which would end the session too. See
+// postgresSession.Query.
+func (s *mysqlSession) Query(ctx context.Context, query string, args ...any) (Rows, error) {
+	stop := context.AfterFunc(ctx, s.kill)
+	run := context.WithoutCancel(ctx)
+	rows, err := s.pinned.QueryContext(run, query, args...)
+	if err != nil {
+		stop()
+		return nil, err
+	}
+	columns, err := rows.Columns()
+	if err != nil {
+		_ = rows.Close()
+		stop()
+		return nil, err
+	}
+	return &mysqlRows{
+		rows:      rows,
+		columns:   columns,
+		release:   func() { stop() },
+		countRows: func() int64 { return rowCount(run, s.pinned.QueryRowContext) },
+	}, nil
+}
+
+// Broken asks the driver whether the connection is still usable, without a
+// round trip.
+func (s *mysqlSession) Broken() bool {
+	return s.pinned.Raw(func(dc any) error {
+		if v, ok := dc.(driver.Validator); ok && !v.IsValid() {
+			return driver.ErrBadConn
+		}
+		return nil
+	}) != nil
+}
+
+// Close gives the connection back, and with no idle connections kept (Dial) the
+// pool closes it: nothing this session SET reaches another console.
+func (s *mysqlSession) Close() { _ = s.pinned.Close() }
+
 func connectionID(ctx context.Context, conn *sql.Conn) (int64, error) {
 	var id int64
 	err := conn.QueryRowContext(ctx, "SELECT CONNECTION_ID()").Scan(&id)
@@ -235,8 +296,9 @@ func connectionID(ctx context.Context, conn *sql.Conn) (int64, error) {
 // killQuery stops whatever the server connection id is running, from a
 // connection of its own, bounded because it runs after the user stopped waiting.
 //
-// ponytail: borrows from the profile's pool of four; with all four busy the KILL
-// waits out its 5s. A connection kept aside for it is the upgrade if that bites.
+// ponytail: borrows from the profile's pool; with every connection busy the
+// KILL waits out its 5s. A connection kept aside for it is the upgrade if that
+// bites.
 func (c *mysqlConn) killQuery(id int64) func() {
 	return func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
