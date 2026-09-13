@@ -31,7 +31,10 @@ func TestPublicErrorMapsAgentHubSentinels(t *testing.T) {
 		{agenthub.ErrPermissionDenied, "permission_denied: Permission denied."},
 		{agenthub.ErrCancelled, "operation_cancelled: Operation cancelled."},
 		{agenthub.ErrProcessFailed, "connection_failed: Agent process failed."},
-		{agenthub.ErrAgentAuthRequired, "agent_auth_required: Claude isn't signed in, or the sign-in expired. Run `claude` in a terminal to sign in again, or set ANTHROPIC_API_KEY."},
+		{agenthub.ErrAgentAuthRequired, "agent_auth_required: Claude isn't signed in, or the sign-in expired. Sign in to Claude, or set ANTHROPIC_API_KEY."},
+		{fmt.Errorf("%w: session/new: acp: rpc error -32000: Authentication required", agenthub.ErrAgentAuthRequired),
+			"agent_auth_required: Claude isn't signed in, or the sign-in expired. Sign in to Claude, or set ANTHROPIC_API_KEY."},
+		{agenthub.ErrAuthMethodUnknown, "validation_failed: That sign-in method isn't offered by this agent."},
 		{agenthub.ErrSandboxUnavailable, "connection_failed: Agent sandbox is unavailable."},
 		{agenthub.ErrUnavailable, "internal_error: Agent Hub is not available."},
 	}

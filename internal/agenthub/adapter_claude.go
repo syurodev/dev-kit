@@ -67,6 +67,13 @@ var (
 // ClaudeAdapter is a VendorAdapter that speaks ACP to Claude inside a sandbox.
 type ClaudeAdapter struct {
 	opts ClaudeOptions
+
+	// The last AuthMethods probe, keyed by the launch it ran: sign-in lists
+	// the methods and then starts one, and a second node start in between buys
+	// nothing. A new install or version changes the key.
+	authMu      sync.Mutex
+	authKey     string
+	authMethods []AuthMethod
 }
 
 // NewClaudeAdapter returns a Claude ACP adapter. Production Open always uses
@@ -291,6 +298,15 @@ func devkitClientCapabilities() map[string]any {
 		// renders them in the parent transcript rather than as their own
 		// session; nesting is a UI question, losing the text was a wire one.
 		"subagents": map[string]any{},
+		// Terminal sign-in: DevKit runs the agent's own login command in a
+		// terminal tab (AuthMethods → AgentHubStartSignIn), so it is served now.
+		// Without it claude-agent-acp 0.74.0 offers no authMethods at all, and a
+		// signed-out user had no way in but typing a command DevKit had to
+		// describe. `auth.terminal` is the ACP field the adapter reads;
+		// _meta["terminal-auth"] is the older gate that also makes it attach the
+		// full command line to each method (resolveAuthMethods decides whether
+		// to trust that).
+		"auth": map[string]any{"terminal": true},
 		// The structured subagent events sit behind a second gate: an
 		// extension declared under _meta.jetbrains.air, which claude-agent-acp
 		// honours. Declaring `subagents` alone forwards a subagent's text but
@@ -304,6 +320,7 @@ func devkitClientCapabilities() map[string]any {
 		// updates get modelled is a separate question from whether we are
 		// allowed to see them.
 		"_meta": map[string]any{
+			"terminal-auth": true,
 			"jetbrains": map[string]any{
 				"air": map[string]any{
 					"version":      1,
@@ -545,6 +562,11 @@ func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, resume string) 
 	// Reports what actually went wrong: a cancelled handshake reads as a
 	// context error, which says nothing about the process having exited.
 	handshakeErr := func(stage string, err error) error {
+		// A signed-out agent answers session/new or session/load with an error
+		// and stays alive; that is a sign-in to offer, not a crash.
+		if isAuthRequired(err) {
+			return fmt.Errorf("%w: %s: %v", ErrAgentAuthRequired, stage, err)
+		}
 		select {
 		case <-rt.serveDone:
 			reason := stderrReason(proc)
@@ -633,24 +655,78 @@ const probeTimeout = 20 * time.Second
 //
 // No session is created, so neither credentials nor a model are exercised.
 func (a *ClaudeAdapter) Probe(ctx context.Context, rt agentruntime.Resolved) error {
+	_, err := a.initialize(ctx, runtimeLaunch(rt))
+	return err
+}
+
+// AuthMethods lists the terminal sign-ins the agent DevKit would launch offers,
+// with the command each would run. It needs no session and no login: the
+// methods come from initialize, under the same jail as Probe.
+func (a *ClaudeAdapter) AuthMethods(ctx context.Context) ([]AuthMethod, error) {
+	l, err := a.resolveCommand()
+	if err != nil {
+		return nil, err
+	}
+	return a.authMethodsFor(ctx, l)
+}
+
+// SignInCommand resolves one method to the process to start, with the env a
+// login needs. The method is looked up again rather than taken from the
+// caller, so the UI can only ever name an id, never a command.
+func (a *ClaudeAdapter) SignInCommand(ctx context.Context, methodID string) (SignInCommand, error) {
+	l, err := a.resolveCommand()
+	if err != nil {
+		return SignInCommand{}, err
+	}
+	methods, err := a.authMethodsFor(ctx, l)
+	if err != nil {
+		return SignInCommand{}, err
+	}
+	for _, m := range methods {
+		if m.ID == methodID {
+			return SignInCommand{Path: m.Command, Args: m.Args, Env: signInEnv(l.env), Label: m.Label}, nil
+		}
+	}
+	return SignInCommand{}, ErrAuthMethodUnknown
+}
+
+func (a *ClaudeAdapter) authMethodsFor(ctx context.Context, l launch) ([]AuthMethod, error) {
+	key := l.path + "\x00" + strings.Join(l.args, "\x00")
+	// Held across the probe on purpose: two callers asking at once should
+	// start one node, not two.
+	a.authMu.Lock()
+	defer a.authMu.Unlock()
+	if a.authKey == key && a.authMethods != nil {
+		return a.authMethods, nil
+	}
+	res, err := a.initialize(ctx, l)
+	if err != nil {
+		return nil, err
+	}
+	a.authKey, a.authMethods = key, resolveAuthMethods(res.AuthMethods, l)
+	return a.authMethods, nil
+}
+
+// initialize starts l under the probe jail, sends ACP initialize and stops it.
+func (a *ClaudeAdapter) initialize(ctx context.Context, l launch) (acp.InitializeResult, error) {
 	workDir, err := os.MkdirTemp("", "devkit-agent-probe-")
 	if err != nil {
-		return fmt.Errorf("%w: probe directory: %v", ErrProcessFailed, err)
+		return acp.InitializeResult{}, fmt.Errorf("%w: probe directory: %v", ErrProcessFailed, err)
 	}
 	defer os.RemoveAll(workDir)
 	if resolved, err := filepath.EvalSymlinks(workDir); err == nil {
 		workDir = resolved
 	}
 
-	pol, cmd := sandboxFor(workDir, runtimeLaunch(rt), OpenSpec{})
+	pol, cmd := sandboxFor(workDir, l, OpenSpec{})
 	proc, err := a.runner().StartPiped(ctx, pol, cmd)
 	if err != nil {
-		return mapSandboxErr(err)
+		return acp.InitializeResult{}, mapSandboxErr(err)
 	}
 	stdin, stdout := proc.StdinWriter(), proc.StdoutReader()
 	if stdin == nil || stdout == nil {
 		_ = proc.Kill()
-		return fmt.Errorf("%w: StartPiped missing stdio pipes", ErrProcessFailed)
+		return acp.InitializeResult{}, fmt.Errorf("%w: StartPiped missing stdio pipes", ErrProcessFailed)
 	}
 
 	conn := acp.NewConn(&stdioPipe{r: stdout, w: stdin}, &claudeConnHandler{rt: &claudeRuntime{}})
@@ -686,17 +762,32 @@ func (a *ClaudeAdapter) Probe(ctx context.Context, rt agentruntime.Resolved) err
 		ClientInfo:         map[string]any{"name": "devkit", "version": "0.0.0"},
 	}, &res)
 	if err == nil {
-		return nil
+		return res, nil
 	}
 	if ctx.Err() != nil {
-		return ctx.Err()
+		return acp.InitializeResult{}, ctx.Err()
 	}
 	select {
 	case <-serveDone:
-		return fmt.Errorf("%w: the agent exited before answering initialize%s", ErrProcessFailed, stderrReason(proc))
+		return acp.InitializeResult{}, fmt.Errorf("%w: the agent exited before answering initialize%s", ErrProcessFailed, stderrReason(proc))
 	default:
-		return fmt.Errorf("%w: initialize: %v", ErrProcessFailed, err)
+		return acp.InitializeResult{}, fmt.Errorf("%w: initialize: %v", ErrProcessFailed, err)
 	}
+}
+
+// acpAuthRequiredCode is RequestError.authRequired() in the ACP SDK: what a
+// signed-out agent answers session/new, session/load or session/prompt with.
+const acpAuthRequiredCode = -32000
+
+// isAuthRequired reports an agent error that means "sign in": ACP's
+// authRequired code, or claude-agent-acp's -32603 with errorKind
+// authentication_failed for a login that expired and could not refresh.
+func isAuthRequired(err error) bool {
+	var rpcErr *acp.RPCError
+	if !errors.As(err, &rpcErr) {
+		return false
+	}
+	return rpcErr.Code == acpAuthRequiredCode || rpcErrorKind(err) == "authentication_failed"
 }
 
 // rpcErrorKind is the errorKind claude-agent-acp puts in a JSON-RPC error's
@@ -936,7 +1027,7 @@ func (r *claudeRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock) (
 		default:
 		}
 		log.Printf("agenthub: claude session/prompt (session %s): %v%s", sid, err, reason)
-		if rpcErrorKind(err) == "authentication_failed" {
+		if isAuthRequired(err) {
 			return PromptOutcome{}, fmt.Errorf("%w: %v", ErrAgentAuthRequired, err)
 		}
 		return PromptOutcome{}, fmt.Errorf("%w: session/prompt: %v%s", ErrProcessFailed, err, reason)

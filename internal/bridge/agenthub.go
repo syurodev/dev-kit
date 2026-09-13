@@ -4,12 +4,81 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
 	"strings"
 
 	"devkit/internal/agenthub"
+	"devkit/internal/terminal"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
+
+// AgentHubAuthMethods lists the sign-ins an agent offers ("claude"), each with
+// the command DevKit would run for it. No session is needed: the list comes
+// from a sandboxed initialize, so it works for a user who has never signed in.
+func (s *AppService) AgentHubAuthMethods(ctx context.Context, agent string) ([]agenthub.AuthMethod, error) {
+	id := agentRuntimeID(agent)
+	result, err := s.call(ctx, "builtin.agenthub", "agenthub:read", "auth:"+id, map[string]any{
+		"action": "auth_methods",
+		"agent":  id,
+	}, func(callCtx context.Context) (any, error) {
+		svc, err := s.agentHubService()
+		if err != nil {
+			return nil, err
+		}
+		return svc.AuthMethods(callCtx, agenthub.AgentType(agent))
+	})
+	if err != nil {
+		return nil, err
+	}
+	if methods, _ := result.([]agenthub.AuthMethod); methods != nil {
+		return methods, nil
+	}
+	return []agenthub.AuthMethod{}, nil
+}
+
+// AgentHubStartSignIn runs one of an agent's sign-in methods in a new terminal
+// session and returns its id, for the Terminal module's tab to attach to. The
+// process's exit code arrives as a terminal:exit event.
+//
+// Only a method id crosses the bridge, never a command: the backend resolves it
+// against what the agent offered (AuthMethods), so the UI cannot be used to run
+// anything else. The login runs outside the sandbox, like the user typing it —
+// it needs a browser, a localhost callback, the keychain and ~/.claude.
+func (s *AppService) AgentHubStartSignIn(ctx context.Context, agent, methodID string, rows, cols int) (string, error) {
+	id := agentRuntimeID(agent)
+	result, err := s.call(ctx, "builtin.agenthub", "agenthub:execute", "auth:"+id, map[string]any{
+		"action": "start_sign_in",
+		"agent":  id,
+		"method": agentRuntimeID(methodID),
+	}, func(callCtx context.Context) (any, error) {
+		svc, err := s.agentHubService()
+		if err != nil {
+			return nil, err
+		}
+		if s.container.Terminal == nil {
+			return nil, errAgentHubUnavailable
+		}
+		cmd, err := svc.SignInCommand(callCtx, agenthub.AgentType(agent), methodID)
+		if err != nil {
+			return nil, err
+		}
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("%w: sign-in: home directory: %v", agenthub.ErrProcessFailed, err)
+		}
+		pty, err := terminal.NewLocalCommandPTY(cmd.Path, cmd.Args, cmd.Env, home, rows, cols)
+		if err != nil {
+			return nil, fmt.Errorf("%w: sign-in: start %s: %v", agenthub.ErrProcessFailed, cmd.Label, err)
+		}
+		return s.container.Terminal.Register("builtin.agenthub", pty), nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return result.(string), nil
+}
 
 var errAgentHubUnavailable = errors.New("agenthub is not available")
 

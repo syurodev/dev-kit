@@ -560,4 +560,19 @@ func TestClientCapabilitiesDeclareOnlyWhatDevKitServes(t *testing.T) {
 			t.Fatalf("declared %q, which ClientHandler does not implement", unserved)
 		}
 	}
+
+	// Terminal sign-in IS served now: DevKit runs the method's command itself in
+	// a terminal tab (AuthMethods → AgentHubStartSignIn), so nothing about it
+	// reaches ClientHandler. Without the declaration claude-agent-acp 0.74.0
+	// returns no authMethods and a signed-out user has no button to press.
+	// Both gates: auth.terminal is the ACP field, _meta["terminal-auth"] the one
+	// that makes the adapter attach the full command line.
+	auth, _ := caps["auth"].(map[string]any)
+	if auth["terminal"] != true {
+		t.Fatalf("auth.terminal not declared: %v", caps["auth"])
+	}
+	meta, _ := caps["_meta"].(map[string]any)
+	if meta["terminal-auth"] != true {
+		t.Fatalf(`_meta["terminal-auth"] not declared: %v`, caps["_meta"])
+	}
 }

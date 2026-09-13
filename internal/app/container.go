@@ -233,6 +233,12 @@ func NewContainerWithStores(
 		// switching or removing an adapter version. Scoped per agent id.
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "runtime:*"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "runtime:*"},
+		// Sign-in: listing an agent's login methods, and running one in a
+		// terminal the user sees. The terminal grant is what lets that tab be
+		// typed into, resized and closed, the same grant CodeGraph's shells have.
+		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "auth:*"},
+		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "auth:*"},
+		{SubjectID: "builtin.agenthub", Capability: "terminal:io", Scope: "session:*"},
 		{SubjectID: "builtin.vault", Capability: "vault:manage", Scope: "vault"},
 		{SubjectID: "builtin.search", Capability: "vault:search", Scope: "item:search"},
 		{SubjectID: "builtin.sync", Capability: "sync:manage", Scope: "sync:status"},

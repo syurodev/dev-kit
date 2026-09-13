@@ -37,7 +37,15 @@ type Registry struct {
 	mu       sync.Mutex
 	sessions map[string]*session
 	onOutput func(sessionID string, chunk []byte)
+	// OnExit reports a session's exit code when its process ends, for PTYs that
+	// can tell (a local process: Wait() int). Set during startup wiring, before
+	// the first Register. Driven by the process, not by the read loop: a child
+	// that leaves the terminal open behind it must not hide the exit.
+	OnExit func(sessionID string, code int)
 }
+
+// exitWaiter is a PTY that can report its process's exit code.
+type exitWaiter interface{ Wait() int }
 
 func NewRegistry(onOutput func(sessionID string, chunk []byte)) *Registry {
 	return &Registry{sessions: make(map[string]*session), onOutput: onOutput}
@@ -54,6 +62,9 @@ func (r *Registry) Register(owner string, pty PTY) string {
 	r.sessions[id] = &session{pty: pty, owner: owner}
 	r.mu.Unlock()
 	go r.readLoop(id, pty)
+	if waiter, ok := pty.(exitWaiter); ok && r.OnExit != nil {
+		go func() { r.OnExit(id, waiter.Wait()) }()
+	}
 	return id
 }
 

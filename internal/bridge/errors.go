@@ -224,7 +224,9 @@ func publicError(subject string, err error) *apperrors.AppError {
 		case errors.Is(err, agenthub.ErrAgentAuthRequired):
 			// Pointed at Claude Code's own sign-in, never a form of ours: third-party
 			// apps may not offer a Claude login.
-			return apperrors.New(codeAgentAuthRequired, "Claude isn't signed in, or the sign-in expired. Run `claude` in a terminal to sign in again, or set ANTHROPIC_API_KEY.", true)
+			return apperrors.New(codeAgentAuthRequired, "Claude isn't signed in, or the sign-in expired. Sign in to Claude, or set ANTHROPIC_API_KEY.", true)
+		case errors.Is(err, agenthub.ErrAuthMethodUnknown):
+			return apperrors.New(codeValidationFailed, "That sign-in method isn't offered by this agent.", true)
 		case errors.Is(err, agenthub.ErrProcessFailed):
 			return apperrors.New(codeConnectionFailed, "Agent process failed.", true)
 		case errors.Is(err, agenthub.ErrNotDescendant):

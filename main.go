@@ -374,6 +374,14 @@ func main() {
 			"chunk":     base64.StdEncoding.EncodeToString(chunk),
 		})
 	})
+	// Agent Hub's sign-in waits on this: exit 0 means the login finished and
+	// the failed action can be retried.
+	terminalRegistry.OnExit = func(sessionID string, code int) {
+		emitAppEvent("terminal:exit", map[string]any{
+			"sessionId": sessionID,
+			"code":      code,
+		})
+	}
 	container.Terminal = terminalRegistry
 	// A finished re-index used to tell the frontend nothing, so endpoint lists
 	// and plan statuses silently went stale — see codegraph.mdx on the diff

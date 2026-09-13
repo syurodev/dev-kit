@@ -16,7 +16,23 @@ type InitializeResult struct {
 	ProtocolVersion   int             `json:"protocolVersion"`
 	AgentCapabilities map[string]any  `json:"agentCapabilities,omitempty"`
 	AgentInfo         map[string]any  `json:"agentInfo,omitempty"`
+	AuthMethods       []AuthMethod    `json:"authMethods,omitempty"`
 	Meta              json.RawMessage `json:"_meta,omitempty"`
+}
+
+// AuthMethod is one way the agent says a user can sign in (schema: AuthMethod).
+// A "terminal" method is not run through authenticate: the client runs the
+// agent's own command with Args appended, in a terminal the user can see.
+// _meta["terminal-auth"] may carry that full command line instead, and stays
+// raw here because what to trust in it is the adapter's decision, not the
+// wire type's.
+type AuthMethod struct {
+	ID          string          `json:"id"`
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	Type        string          `json:"type,omitempty"`
+	Args        []string        `json:"args,omitempty"`
+	Meta        json.RawMessage `json:"_meta,omitempty"`
 }
 
 // SessionNewRequest is the params object for session/new

@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -65,6 +66,49 @@ func TestLocalPTYCloseKillsProcess(t *testing.T) {
 	// already-closed file and Process.Kill on an already-dead process both
 	// return an error, not a panic; NewLocalPTY's Close must tolerate that.
 	_ = pty.Close()
+}
+
+// A command, not a shell: it runs with exactly the env it is given, its output
+// reaches onOutput, and its exit code reaches OnExit — which is how Agent Hub's
+// sign-in learns the login finished.
+func TestLocalCommandPTYReportsOutputAndExitCode(t *testing.T) {
+	var mu sync.Mutex
+	var output strings.Builder
+	reg := NewRegistry(func(_ string, chunk []byte) {
+		mu.Lock()
+		output.Write(chunk)
+		mu.Unlock()
+	})
+	exited := make(chan [2]any, 1)
+	reg.OnExit = func(id string, code int) { exited <- [2]any{id, code} }
+
+	pty, err := NewLocalCommandPTY("/bin/sh", []string{"-c", `echo "mark=$SIGNIN_MARK"; exit 3`},
+		[]string{"SIGNIN_MARK=from-env", "PATH=/usr/bin:/bin"}, t.TempDir(), 24, 80)
+	if err != nil {
+		t.Fatalf("NewLocalCommandPTY: %v", err)
+	}
+	defer pty.Close()
+	id := reg.Register("builtin.agenthub", pty)
+
+	select {
+	case got := <-exited:
+		if got[0] != id || got[1] != 3 {
+			t.Fatalf("OnExit(%v, %v), want (%s, 3)", got[0], got[1], id)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("OnExit never fired")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		seen := strings.Contains(output.String(), "mark=from-env")
+		mu.Unlock()
+		if seen {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("output never showed the env value, got %q", output.String())
 }
 
 func TestLocalPTYCloseReapsZombieProcess(t *testing.T) {
