@@ -1,5 +1,12 @@
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { cn } from "@/lib/utils";
 import {
   DndContext,
@@ -68,6 +75,8 @@ type TabStripProps = {
   onClose: (id: string) => void;
   onReorder: (fromId: string, beforeId: string | null) => void;
   onNewTab?: () => void;
+  /** Keep a preview tab open (the store's pinTab). Offered in the tab's menu. */
+  onPin?: (id: string) => void;
   /** True while ⌘⇧E/Ctrl⇧E is held (Workbench.tsx): every tab goes full
    * width and ArrowLeft/Right + Enter/Escape navigate the strip. */
   keyboardBrowsing: boolean;
@@ -108,6 +117,12 @@ type TabItemProps = {
   onClose: (id: string) => void;
   onCloseWithPointer: (id: string) => void;
   onKeyDown: (event: ReactKeyboardEvent, id: string) => void;
+  /** The tab menu's groups, worked out by the strip, which knows the order. */
+  others: string[];
+  toTheRight: string[];
+  all: string[];
+  onCloseMany: (ids: string[]) => void;
+  onPin?: (id: string) => void;
 };
 
 function TabItem({
@@ -122,6 +137,11 @@ function TabItem({
   onClose,
   onCloseWithPointer,
   onKeyDown,
+  others,
+  toTheRight,
+  all,
+  onCloseMany,
+  onPin,
 }: TabItemProps) {
   // `attributes` are not spread, for the grid's reason: they would replace
   // role="tab" and the roving tabindex with role="button" and tabIndex 0.
@@ -149,8 +169,14 @@ function TabItem({
     // The app's tooltip, not the OS one a `title` draws. Held shut while the
     // tab is being dragged: the tab moves under the pointer, and a hover that
     // "arrives" mid-drag would open it over the neighbours.
+    //
+    // Roots first, triggers after: a Radix Root is a provider with no element,
+    // so it cannot be an asChild target — the two triggers nest directly and
+    // both land on the tab.
     <Tooltip {...(isDragging ? { open: false } : {})}>
+    <ContextMenu>
     <TooltipTrigger asChild>
+    <ContextMenuTrigger asChild>
     <div
       ref={(node) => {
         setNodeRef(node);
@@ -237,8 +263,27 @@ function TabItem({
         </span>
       )}
     </div>
+    </ContextMenuTrigger>
     </TooltipTrigger>
     <TooltipContent side="bottom">{tab.title}</TooltipContent>
+    {/* VS Code's tab menu, the parts DevKit's tabs have. */}
+    <ContextMenuContent>
+      <ContextMenuItem onSelect={() => onClose(tab.id)}>Close</ContextMenuItem>
+      <ContextMenuItem disabled={others.length === 0} onSelect={() => onCloseMany(others)}>
+        Close Others
+      </ContextMenuItem>
+      <ContextMenuItem disabled={toTheRight.length === 0} onSelect={() => onCloseMany(toTheRight)}>
+        Close to the Right
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={() => onCloseMany(all)}>Close All</ContextMenuItem>
+      {tab.preview && onPin ? (
+        <>
+          <ContextMenuSeparator />
+          <ContextMenuItem onSelect={() => onPin(tab.id)}>Keep Open</ContextMenuItem>
+        </>
+      ) : null}
+    </ContextMenuContent>
+    </ContextMenu>
     </Tooltip>
   );
 }
@@ -250,6 +295,7 @@ export function TabStrip({
   onClose,
   onReorder,
   onNewTab,
+  onPin,
   keyboardBrowsing,
   onExitBrowsing,
 }: TabStripProps) {
@@ -414,8 +460,15 @@ export function TabStrip({
             }}
             onMouseLeave={() => setLockedWidths(null)}
           >
-            {visibleTabs.map((tab) => (
+            {visibleTabs.map((tab, index) => (
               <TabItem
+                others={ids.filter((id) => id !== tab.id)}
+                toTheRight={ids.slice(index + 1)}
+                all={ids}
+                // One store close per tab: the same path the close button
+                // takes, so a group close can never disagree with a single one.
+                onCloseMany={(list) => list.forEach((id) => onClose(id))}
+                onPin={onPin}
                 key={tab.id}
                 tab={tab}
                 isActive={tab.id === activeTabId}

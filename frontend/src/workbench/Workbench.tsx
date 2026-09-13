@@ -333,6 +333,7 @@ export function Workbench() {
   const setActiveTab = useWorkbenchTabsStore((state) => state.setActiveTab);
   const closeTab = useWorkbenchTabsStore((state) => state.closeTab);
   const reorderTab = useWorkbenchTabsStore((state) => state.reorderTab);
+  const pinTab = useWorkbenchTabsStore((state) => state.pinTab);
 
   useEffect(() => {
     // Accept either ⌘ or Ctrl rather than branching on navigator.platform:
@@ -762,6 +763,7 @@ export function Workbench() {
           onSelect={setActiveTab}
           onClose={closeTab}
           onReorder={reorderTab}
+          onPin={pinTab}
           onNewTab={activeModule?.newTab}
           keyboardBrowsing={switcher === "browsing"}
           onExitBrowsing={() => setSwitcher("closed")}
