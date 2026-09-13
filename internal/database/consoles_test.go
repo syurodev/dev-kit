@@ -3,6 +3,7 @@ package database
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -254,5 +255,64 @@ func TestEmptyMeansBackToTheDefault(t *testing.T) {
 	}
 	if store.Dir() != home {
 		t.Fatalf("Dir = %q, want the default %q", store.Dir(), home)
+	}
+}
+
+// #50. A console folder can be a project's folder, and its own .sql files are
+// not consoles.
+func TestMovingTakesOnlyConsoles(t *testing.T) {
+	home, elsewhere := t.TempDir(), t.TempDir()
+	store := NewConsoleStore(home)
+	if err := store.Save(Console{ID: "c1", SQL: "SELECT 1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "migrations.sql"), []byte("CREATE TABLE t ()"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.SetDir(elsewhere); err != nil {
+		t.Fatalf("SetDir: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, "migrations.sql")); err != nil {
+		t.Errorf("a file that is not a console was moved: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(elsewhere, "migrations.sql")); err == nil {
+		t.Error("a file that is not a console arrived in the new folder")
+	}
+	if _, err := os.Stat(filepath.Join(elsewhere, "c1.sql")); err != nil {
+		t.Errorf("the console did not move: %v", err)
+	}
+}
+
+// #50. A move that fails partway leaves every console where the setting says
+// they are.
+func TestAFailedMoveLeavesEveryConsoleWhereItWas(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs a file its owner cannot read")
+	}
+	home, elsewhere := t.TempDir(), t.TempDir()
+	store := NewConsoleStore(home)
+	for _, id := range []string{"c1", "c2"} {
+		if err := store.Save(Console{ID: id, SQL: "SELECT " + id}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	unreadable := filepath.Join(home, "c2.sql")
+	if err := os.Chmod(unreadable, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(unreadable, 0o600) })
+
+	if err := store.SetDir(elsewhere); err == nil {
+		t.Fatal("SetDir succeeded with a console it could not read")
+	}
+	if store.Dir() != home {
+		t.Fatalf("Dir = %q after a failed move", store.Dir())
+	}
+	if _, err := os.Stat(filepath.Join(home, "c1.sql")); err != nil {
+		t.Errorf("c1 left the folder the setting still names: %v", err)
+	}
+	if left, _ := os.ReadDir(elsewhere); len(left) != 0 {
+		t.Errorf("a half-finished move left copies behind: %v", left)
 	}
 }

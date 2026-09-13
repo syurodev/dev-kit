@@ -485,6 +485,7 @@ func main() {
 			ApplicationShouldTerminateAfterLastWindowClosed: true,
 		},
 		OnShutdown: mcpCancel,
+		ShouldQuit: quitAfterFlush(),
 	})
 	openBrowser = wailsApp.Browser.OpenURL
 

@@ -1,4 +1,5 @@
 import { deleteConsole, saveConsole, type StoredConsole } from "../../bridge/database";
+import { onBeforeQuit } from "../../bridge/lifecycle";
 
 /**
  * When a console's text reaches the disk.
@@ -85,3 +86,7 @@ export function createConsoleFiles(io: ConsoleIO, delayMs = 600) {
 }
 
 export const consoleFiles = createConsoleFiles({ save: saveConsole, remove: deleteConsole });
+
+// #50: flush() existed and nothing called it, so the last 600ms of typing
+// before a quit were lost.
+onBeforeQuit(() => consoleFiles.flush());

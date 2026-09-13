@@ -1,6 +1,8 @@
 import { AppService } from "../../bindings/devkit/internal/bridge";
 import { callBridge } from "./client";
 import type { PersistStorage, StorageValue } from "zustand/middleware";
+import { createDebouncedWriter } from "@/lib/debouncedWriter";
+import { onBeforeQuit } from "./lifecycle";
 
 export function getUIState(key: string): Promise<string> {
   return callBridge(() => AppService.UIStateGet(key));
@@ -10,16 +12,13 @@ export function setUIState(key: string, value: string): Promise<void> {
   return callBridge(() => AppService.UIStateSet(key, value));
 }
 
-function debounce<Args extends unknown[]>(
-  fn: (...args: Args) => void,
-  delayMs: number,
-): (...args: Args) => void {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  return (...args: Args) => {
-    clearTimeout(timer);
-    timer = setTimeout(() => fn(...args), delayMs);
-  };
-}
+// Per key: see createDebouncedWriter (#50). Stringified when written, not when
+// scheduled, so a resize drag costs one JSON.stringify per pause.
+const uiStateWriter = createDebouncedWriter<unknown>(
+  (key, value) => void setUIState(key, JSON.stringify(value)),
+  400,
+);
+onBeforeQuit(() => uiStateWriter.flush());
 
 /**
  * One implementation of Zustand's PersistStorage interface, shared by every
@@ -34,9 +33,7 @@ export const uiStateStorage: PersistStorage<unknown> = {
     if (!raw) return null;
     return JSON.parse(raw) as StorageValue<unknown>;
   },
-  setItem: debounce((key: string, value: StorageValue<unknown>) => {
-    void setUIState(key, JSON.stringify(value));
-  }, 400),
+  setItem: (key, value) => uiStateWriter.schedule(key, value),
   removeItem: (key) => {
     void setUIState(key, "");
   },
