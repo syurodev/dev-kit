@@ -1,5 +1,5 @@
 import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
-import { perfLog, takeCommitMs } from "./perfLog";
+import { perfLog, takeCommits } from "./perfLog";
 
 /**
  * The measurement the whole smoothness doc asks to come first (section 9): how
@@ -12,7 +12,8 @@ import { perfLog, takeCommitMs } from "./perfLog";
  * of that time comes from the Workbench's Profiler. Lines go through perfLog,
  * so they print in the `wails3 dev` terminal:
  *
- *   [perf] switch notes › Meeting notes → database › orders.sql: 132ms to paint, 12ms React
+ *   [perf] switch notes › Meeting notes → database › orders.sql: 132ms to paint,
+ *     12ms React (views 7, rail 3, tabs 1, titlebar 1)
  *
  * "To paint" is the first paint. A module visited for the first time paints its
  * skeleton then, and ModuleSkeleton logs how long the real view took after it.
@@ -43,7 +44,7 @@ export function installPerfTrace(): () => void {
     active = next;
 
     const start = performance.now();
-    takeCommitMs();
+    takeCommits();
     // A newer switch before this one painted supersedes it: its number would
     // be the sum of both.
     const token = ++pending;
@@ -57,8 +58,10 @@ export function installPerfTrace(): () => void {
         } catch {
           // Older engines without the options form; the log line still goes out.
         }
+        const react = takeCommits();
         perfLog(
-          `[perf] switch ${from} → ${next}: ${Math.round(end - start)}ms to paint, ${Math.round(takeCommitMs())}ms React`,
+          `[perf] switch ${from} → ${next}: ${Math.round(end - start)}ms to paint, ` +
+            `${Math.round(react.total)}ms React${react.zones ? ` (${react.zones})` : ""}`,
         );
       }),
     );

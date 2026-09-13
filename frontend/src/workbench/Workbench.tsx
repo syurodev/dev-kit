@@ -1,5 +1,5 @@
 import { lazy, memo, Profiler, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { recordCommit } from "@/lib/perfLog";
+import { recordCommit, WORKBENCH_PROFILER } from "@/lib/perfLog";
 import { ModuleSkeleton } from "./ModuleSkeleton";
 import { Events, Window } from "@wailsio/runtime";
 import { MessageSquare, PanelBottom, PanelLeft, Search, Settings as SettingsIcon } from "lucide-react";
@@ -73,7 +73,10 @@ const HEADER_ONLY_MODULE_IDS = new Set(["settings", "sync"]);
 // Bounds how many modules' tab content stays mounted in WorkbenchViews:
 // the active module plus up to MAX_MOUNTED_MODULES - 1 more that were
 // active within the last MODULE_GRACE_MS. See useMountedModuleIds below.
-const MODULE_GRACE_MS = 2 * 60 * 1000;
+// 45 minutes, up from 2: a developer stays in one module for a long stretch,
+// and two minutes in a console meant coming back to Database rebuilt every tab
+// it had open at once. MAX_MOUNTED_MODULES still bounds the memory.
+const MODULE_GRACE_MS = 45 * 60 * 1000;
 const MAX_MOUNTED_MODULES = 3;
 
 
@@ -577,8 +580,9 @@ export function Workbench() {
   const hasMetadataWarning = metadataError || parityIssues.length > 0;
 
   return (
-    // Feeds perfTrace's "ms React". Profiler is inert in production builds.
-    <Profiler id="workbench" onRender={recordCommit}>
+    // Feeds perfTrace's "ms React"; the zones inside it (titlebar, rail, tabs,
+    // views) break that number down. Profiler is inert in production builds.
+    <Profiler id={WORKBENCH_PROFILER} onRender={recordCommit}>
     <AppShell
       fullscreen={isFullscreen}
       activeModuleId={activeModule?.id ?? null}
@@ -608,7 +612,7 @@ export function Workbench() {
         </>
       }
       titlebar={
-        <>
+        <Profiler id="titlebar" onRender={recordCommit}>
           {/* Sidebar toggle sits immediately after the traffic lights and
               deliberately OUTSIDE the three zones below — it is not a status
               item, a module action, or an app action, so it does not belong to
@@ -772,7 +776,7 @@ export function Workbench() {
               </Tooltip>
             </div>
           </div>
-        </>
+        </Profiler>
       }
     >
       {/* The strip belongs to the module on screen and shows only its tabs.
@@ -781,6 +785,7 @@ export function Workbench() {
           48px would sit under the 40px title bar as a second empty band —
           which is exactly what read as "the title bar is too tall". */}
       {activeModule?.tabs ? (
+        <Profiler id="tabs" onRender={recordCommit}>
         <TabStrip
           tabs={activeTabs.openTabs}
           activeTabId={activeTabs.activeTabId}
@@ -797,7 +802,9 @@ export function Workbench() {
           keyboardBrowsing={switcher === "browsing"}
           onExitBrowsing={() => setSwitcher("closed")}
         />
+        </Profiler>
       ) : null}
+      <Profiler id="views" onRender={recordCommit}>
       <WorkbenchViews
         availableModules={availableModules}
         hasMetadataWarning={hasMetadataWarning}
@@ -805,6 +812,7 @@ export function Workbench() {
         activeModuleId={activeModule?.id ?? ""}
         activeTabId={activeTabs.activeTabId}
       />
+      </Profiler>
     </AppShell>
     </Profiler>
   );

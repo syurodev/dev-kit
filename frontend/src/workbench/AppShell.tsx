@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { Profiler, type ReactNode } from "react";
+import { recordCommit } from "@/lib/perfLog";
 
 import { Titlebar } from "@/components/ui/titlebar";
 import { SidebarSurface } from "@/components/ui/sidebar-shell";
@@ -90,7 +91,10 @@ export function AppShell({
             cost the shell its structure — flush surfaces are the walls of the
             window, and these are cards. */}
         <div className="mx-2 mb-2 flex min-h-0 flex-1">
-          <SidebarSurface activeModuleId={activeModuleId} />
+          {/* A perf zone (lib/perfTrace). Inert in production builds. */}
+          <Profiler id="rail" onRender={recordCommit}>
+            <SidebarSurface activeModuleId={activeModuleId} />
+          </Profiler>
 
           {/* The bottom slot stacks under the module content ONLY — the sidebar
               and the split panel keep their full height either side of it, so
