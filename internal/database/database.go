@@ -459,8 +459,12 @@ func (s *Service) SetTunnel(t Tunnel) { s.pools.SetTunnel(t) }
 // pinned to. Rolling back rather than committing: work nobody confirmed is
 // work nobody asked to keep.
 func (s *Service) Close() {
+	// Bounded: on the way out, with the network possibly gone, an unbounded
+	// rollback is a quit that never finishes (#42).
 	for _, tx := range s.txs.takeAll() {
-		_ = tx.Rollback(context.Background())
+		ctx, cancel := context.WithTimeout(context.Background(), rollbackTimeout)
+		_ = tx.Rollback(ctx)
+		cancel()
 	}
 	s.pools.Close()
 }

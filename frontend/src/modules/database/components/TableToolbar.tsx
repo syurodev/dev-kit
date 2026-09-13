@@ -67,10 +67,11 @@ import { WhereInput } from "./WhereInput";
  * discarding someone's work is what the button beside it is for.
  */
 function TransactionControls() {
-  const { txManual, txBusy, selectedProfileId, setTxManual, endTransaction } =
+  const { txManual, txOpen, txBusy, selectedProfileId, setTxManual, endTransaction } =
     useDatabaseStore(
       useShallow((s) => ({
         txManual: s.txManual,
+        txOpen: s.txOpen,
         txBusy: s.txBusy,
         selectedProfileId: s.selectedProfileId,
         setTxManual: s.setTxManual,
@@ -132,7 +133,9 @@ function TransactionControls() {
       <DropdownMenu>
         <ActionTooltip
           label={
-            txManual
+            txManual && txOpen
+              ? "Manual commit — a transaction is open: Commit or Roll back to release it"
+              : txManual
               ? "Manual commit — statements wait for Commit, and a transaction opens only when one runs"
               : "Auto commit — every statement lands on its own, and nothing is held open"
           }
@@ -146,11 +149,16 @@ function TransactionControls() {
             >
               <ArrowUpDown />
               Tx: {txManual ? "Manual" : "Auto"}
-              {/* Manual means statements are not committed until you say so.
-                  The dot is the only thing on screen that says it, and it
-                  tracks the MODE rather than whether a transaction is open at
-                  this instant — which would go stale after every query. */}
-              {txManual ? <span className="size-1.5 rounded-full bg-status-warning" /> : null}
+              {/* The dot is an OPEN transaction: uncommitted work and held
+                  locks. The store asks the service after every statement in
+                  manual mode, so it no longer goes stale (#42) — Manual with
+                  no dot is the mode holding nothing. */}
+              {txManual && txOpen ? (
+                <span
+                  className="size-1.5 rounded-full bg-status-warning"
+                  aria-label="Transaction open"
+                />
+              ) : null}
             </Button>
           </DropdownMenuTrigger>
         </ActionTooltip>

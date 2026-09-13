@@ -112,41 +112,49 @@ describe("executeQuery, while it is running", () => {
     expect(useDatabaseStore.getState().consoleState(C).runningQuery).toBe(false);
   });
 
-  it("drops the answer of a run that has been superseded", async () => {
+  // #41. A second Run while one is in flight is refused, not raced: the
+  // console has one slot for the call Stop reaches, and two runs shared it.
+  it("refuses a second run while one is in flight, and Stop still reaches the first", async () => {
     useDatabaseStore.setState((s) => ({
       selectedProfileId: "p1",
       consoles: { ...s.consoles, [C]: { ...s.consoleState(C), sql: "select 1" } },
     }));
 
     const first = useDatabaseStore.getState().executeQuery(C);
-    const second = useDatabaseStore.getState().executeQuery(C);
-    expect(pending).toHaveLength(2);
+    expect(await useDatabaseStore.getState().executeQuery(C)).toBe("skipped");
+    expect(pending).toHaveLength(1);
 
-    // The newer statement answers first, then the older one lands late.
-    pending[1].resolve(RESULT(2));
-    await second;
-    pending[0].resolve(RESULT(1));
-    await first;
-
-    expect(visibleResult(useDatabaseStore.getState().consoleState(C))?.rowCount).toBe(2);
+    useDatabaseStore.getState().cancelQuery(C);
+    expect(await first).toBe("cancelled");
+    expect(pending[0].cancelled).toBe(true);
+    expect(useDatabaseStore.getState().consoleState(C).runningQuery).toBe(false);
   });
 
-  it("a late failure from a superseded run does not raise an error card", async () => {
+  // #41. What supersedes a run now is the connection changing under it: the
+  // call is cancelled, and nothing it says lands under the new connection.
+  it("a connection switch cancels the run and drops what it would have said", async () => {
     useDatabaseStore.setState((s) => ({
       selectedProfileId: "p1",
       consoles: { ...s.consoles, [C]: { ...s.consoleState(C), sql: "select 1" } },
     }));
 
-    const first = useDatabaseStore.getState().executeQuery(C);
-    const second = useDatabaseStore.getState().executeQuery(C);
+    const run = useDatabaseStore.getState().executeQuery(C);
+    useDatabaseStore.getState().setSelectedProfileId("p2");
+    pending[0].resolve(RESULT(1));
+    await run;
 
-    pending[1].resolve(RESULT(3));
-    await second;
-    pending[0].reject(new Error("connection reset"));
-    await first;
+    const state = useDatabaseStore.getState().consoleState(C);
+    expect(pending[0].cancelled).toBe(true);
+    expect(state.runningQuery).toBe(false);
+    expect(state.queryError).toBe("");
+    expect(state.results).toEqual([]);
 
-    expect(useDatabaseStore.getState().consoleState(C).queryError).toBe("");
-    expect(visibleResult(useDatabaseStore.getState().consoleState(C))?.rowCount).toBe(3);
+    // And the console is free to run against the new connection at once.
+    const next = useDatabaseStore.getState().executeQuery(C);
+    expect(pending).toHaveLength(2);
+    pending[1].resolve(RESULT(5));
+    await next;
+    expect(visibleResult(useDatabaseStore.getState().consoleState(C))?.rowCount).toBe(5);
   });
 
   it("cancel stops the call and leaves the previous result alone", async () => {
