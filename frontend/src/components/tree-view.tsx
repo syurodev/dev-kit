@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { ChevronRight } from "lucide-react";
 import { observeElementRect, useVirtualizer } from "@tanstack/react-virtual";
@@ -74,32 +74,30 @@ export type TreeNodeData = {
 export const TREE_ROW_HEIGHT = 24;
 
 /**
- * 14 a level: a guide needs room for its elbow between the parent's chevron
- * and the child's. The guides carry depth, which is what keeps five levels
- * readable in a 280px rail — measured in the gallery at 158px of name left at
- * a table, 118 at the 240 floor.
+ * 16 a level. A guide needs room for its elbow between the parent's chevron
+ * and the child's, and at 16 that elbow is 10px wide — enough for the full
+ * ELBOW_RADIUS on every row, where 14 left a row with a chevron capped at 6.
+ * The guides carry depth, which is what keeps five levels readable in a rail.
  */
-const INDENT = 14;
+const INDENT = 16;
 const INSET = 4;
 const CHEVRON = 12;
 const PAD_TOP = 4;
 const PAD_BOTTOM = 8;
 const FADE = 16;
+/** The narrowest right-edge strip the fades leave alone, for an overlay scrollbar's thumb. */
+const SCROLLBAR_STRIP = 10;
 /**
  * --border-default measured 1.02–1.30 against the rail across the palettes, a
  * guide nobody sees. Tertiary text at 35% measured 1.55–1.93: a line in every
  * palette, well under the labels.
+ *
+ * Mixed into the rail's ground rather than into transparent: an elbow overlaps
+ * the line it leaves, and two translucent borders on one pixel draw it twice
+ * as dark. Opaque, the overlap does not show.
  */
-//
-// Mixed into the rail's ground rather than into transparent: an elbow overlaps
-// the line it leaves, and two translucent borders on one pixel draw it twice
-// as dark. Opaque, the overlap does not show.
 const GUIDE = "1px solid color-mix(in srgb, var(--text-tertiary) 35%, var(--background-app))";
-/**
- * Elbow corner radius. CSS caps a corner at its box, so a row with a chevron —
- * whose elbow is only INDENT − 8 = 6px wide — draws at 6; a leaf's runs through
- * the empty chevron slot and gets the full 8.
- */
+/** Elbow corner radius. CSS caps a corner at its box; every elbow is at least 10px wide. */
 const ELBOW_RADIUS = 8;
 
 /** Where a row at `level` starts its chevron. */
@@ -154,6 +152,8 @@ export function flattenTree(nodes: TreeNodeData[]): FlatRow[] {
   return rows;
 }
 
+export type Pin = { index: number; top: number };
+
 /**
  * Which rows are pinned, and where, with the scroller `offset` px into the list.
  *
@@ -162,15 +162,19 @@ export function flattenTree(nodes: TreeNodeData[]): FlatRow[] {
  * once it has scrolled above that line, and is pushed up by the end of its own
  * subtree, so the next connection or schema slides it out rather than landing
  * on top of it.
+ *
+ * `candidates` is the rows that pin at all — worked out once per tree, so a
+ * scroll event looks at a handful of rows instead of every table.
  */
 export function pinnedRows(
   rows: FlatRow[],
   offset: number,
   rowHeight: number,
-): Array<{ index: number; top: number }> {
-  const pins: Array<{ index: number; top: number }> = [];
+  candidates?: number[],
+): Pin[] {
+  const pins: Pin[] = [];
   if (offset <= 0) return pins;
-  for (let i = 0; i < rows.length; i++) {
+  for (const i of candidates ?? rows.map((_, index) => index)) {
     const pin = rows[i].node.sticky;
     if (pin === undefined || rows[i].placeholder) continue;
     const y = i * rowHeight - offset;
@@ -179,6 +183,11 @@ export function pinnedRows(
     if (top > -rowHeight) pins.push({ index: i, top });
   }
   return pins;
+}
+
+/** The scroller's edge fades, starting under the pinned rows. */
+function fadeMask(pinBottom: number, fadeTop: boolean, fadeBottom: boolean): string {
+  return `linear-gradient(to bottom, #000 0, #000 ${pinBottom}px, ${fadeTop ? "transparent" : "#000"} ${pinBottom}px, #000 ${pinBottom + FADE}px, #000 calc(100% - ${FADE}px), ${fadeBottom ? "transparent" : "#000"} 100%)`;
 }
 
 /**
@@ -194,7 +203,7 @@ function Guides({ row }: { row: FlatRow }) {
   const { level, lasts, open, node, placeholder } = row;
   const half = TREE_ROW_HEIGHT / 2;
   // A row with a chevron takes the elbow to the chevron. A leaf has an empty
-  // chevron slot, and stopping there left its elbow 14px short of the icon —
+  // chevron slot, and stopping there left its elbow short of the icon —
   // shallow next to the rows above it. It runs through the slot instead.
   const reachesIcon = placeholder || !node.expandable;
   const lines: ReactNode[] = [];
@@ -202,10 +211,9 @@ function Guides({ row }: { row: FlatRow }) {
     const continues = !lasts[depth + 1];
     if (depth === level - 1) {
       // A continuing branch is one straight line the full height of the row,
-      // with the elbow laid over it. It used to be the elbow's own border down
-      // to the middle and a second line from the middle on — but the elbow's
-      // rounded corner spends its last ELBOW_RADIUS px curving away, so every
-      // row left that much of a gap in the line below its elbow.
+      // with the elbow laid over it. As the elbow's own border to the middle
+      // and a second line from there, the elbow's rounded corner spent its
+      // last few px curving away and every row left that much of a gap.
       if (continues) {
         lines.push(
           <span key={`line-${depth}`} style={{ position: "absolute", left: lineX(depth), top: 0, bottom: 0, borderLeft: GUIDE }} />,
@@ -240,7 +248,12 @@ function Guides({ row }: { row: FlatRow }) {
   return <span aria-hidden>{lines}</span>;
 }
 
-function Row({ row, copy = false }: { row: FlatRow; copy?: boolean }) {
+/**
+ * Memoised on the row, which flattenTree keeps stable for as long as the nodes
+ * are: a scroll that brings a row into the window mounts it, and every row
+ * already there renders nothing.
+ */
+const Row = memo(function Row({ row, copy = false }: { row: FlatRow; copy?: boolean }) {
   const { node, level, open } = row;
   const hasCount = node.count !== undefined;
   const hasActions = node.actions != null;
@@ -343,9 +356,9 @@ function Row({ row, copy = false }: { row: FlatRow; copy?: boolean }) {
   );
 
   return node.wrap ? <>{node.wrap(line)}</> : line;
-}
+});
 
-function Placeholder({ row }: { row: FlatRow }) {
+const Placeholder = memo(function Placeholder({ row }: { row: FlatRow }) {
   return (
     <div className="relative" style={{ height: TREE_ROW_HEIGHT }}>
       <Guides row={row} />
@@ -357,7 +370,7 @@ function Placeholder({ row }: { row: FlatRow }) {
       </span>
     </div>
   );
-}
+});
 
 /**
  * The tree, windowed, in a scroller of its own — give it a height with
@@ -367,13 +380,20 @@ function Placeholder({ row }: { row: FlatRow }) {
  * what keeps a 900-table connection cheap to bring back on screen: the rail
  * used to lay out every row each time, 96–134ms against 5–6ms windowed.
  *
- * No motion but the chevron's turn. Owning the scroller is what the edge fades
- * need — a mask on it — and the pins and the window both read its offset.
+ * Scrolling renders as little as it can. The fades are written to the
+ * scroller's style directly, and the pins are state only when they change —
+ * which is the push-up at a schema boundary and nothing else. Scrolling used
+ * to set state on every event and re-render every visible row with it:
+ * 8.3–8.7ms of main thread a step, p95 15ms, in the harness.
  */
 export function TreeView({ nodes, className }: { nodes: TreeNodeData[]; className?: string }) {
-  const rows = flattenTree(nodes);
+  const rows = useMemo(() => flattenTree(nodes), [nodes]);
+  const pinnable = useMemo(
+    () => rows.flatMap((row, i) => (row.node.sticky !== undefined && !row.placeholder ? [i] : [])),
+    [rows],
+  );
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [view, setView] = useState({ offset: 0, top: false, bottom: false });
+  const [pins, setPins] = useState<Pin[]>([]);
 
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -397,53 +417,81 @@ export function TreeView({ nodes, className }: { nodes: TreeNodeData[]; classNam
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const read = () => ({
-      offset: el.scrollTop - PAD_TOP,
-      top: el.scrollTop > 0,
-      bottom: el.scrollTop + el.clientHeight < el.scrollHeight - 1,
-    });
-    setView(read());
-    // Its own listener, not the virtualizer's offset: the virtualizer
-    // re-renders only when the window changes, which left the pins a row late.
-    // flushSync, so pins and fades move in the frame the rows do.
-    const onScroll = () => flushSync(() => setView(read()));
+    let lastPins = "";
+    let lastMask = "";
+    // The mask is on the scroller, and the scroller's box holds its scrollbar:
+    // one gradient faded the thumb along with the rows. A second, solid layer
+    // covers a strip at the right edge — the gutter where there is one, and at
+    // least SCROLLBAR_STRIP for an overlay scrollbar that takes no gutter.
+    // Measured on resize only; a rect read per scroll event forces layout.
+    let strip = SCROLLBAR_STRIP;
+    const measureStrip = () => {
+      const tree = el.firstElementChild as HTMLElement | null;
+      const gutter = tree ? el.getBoundingClientRect().right - tree.getBoundingClientRect().right : 0;
+      strip = Math.max(Math.round(gutter), SCROLLBAR_STRIP);
+      el.style.setProperty("mask-size", `calc(100% - ${strip}px) 100%, ${strip}px 100%`);
+      el.style.setProperty("-webkit-mask-size", `calc(100% - ${strip}px) 100%, ${strip}px 100%`);
+    };
+    el.style.setProperty("mask-position", "left top, right top");
+    el.style.setProperty("-webkit-mask-position", "left top, right top");
+    el.style.setProperty("mask-repeat", "no-repeat");
+    el.style.setProperty("-webkit-mask-repeat", "no-repeat");
+    measureStrip();
+    const update = (sync: boolean) => {
+      const next = pinnedRows(rows, el.scrollTop - PAD_TOP, TREE_ROW_HEIGHT, pinnable);
+      const pinBottom = next.reduce((bottom, pin) => Math.max(bottom, pin.top + TREE_ROW_HEIGHT), 0);
+      const mask = `${fadeMask(
+        pinBottom,
+        el.scrollTop > 0,
+        el.scrollTop + el.clientHeight < el.scrollHeight - 1,
+      )}, linear-gradient(#000, #000)`;
+      if (mask !== lastMask) {
+        lastMask = mask;
+        el.style.setProperty("mask-image", mask);
+        el.style.setProperty("-webkit-mask-image", mask);
+      }
+      const key = next.map((pin) => `${pin.index}:${pin.top}`).join(",");
+      if (key !== lastPins) {
+        lastPins = key;
+        // flushSync so a pin moves in the frame its rows do.
+        if (sync) flushSync(() => setPins(next));
+        else setPins(next);
+      }
+    };
+    update(false);
+    const onScroll = () => update(true);
     el.addEventListener("scroll", onScroll, { passive: true });
-    const observer = new ResizeObserver(() => setView(read()));
+    const observer = new ResizeObserver(() => {
+      measureStrip();
+      update(false);
+    });
     observer.observe(el);
     return () => {
       el.removeEventListener("scroll", onScroll);
       observer.disconnect();
     };
-  }, [rows.length]);
-
-  const pins = pinnedRows(rows, view.offset, TREE_ROW_HEIGHT);
-  const pinBottom = pins.reduce((bottom, pin) => Math.max(bottom, pin.top + TREE_ROW_HEIGHT), 0);
-  // The fades start under the pins: what is pinned stays solid, and what
-  // scrolls beneath it dissolves into it instead of being cut at its edge.
-  const mask = `linear-gradient(to bottom, #000 0, #000 ${pinBottom}px, ${view.top ? "transparent" : "#000"} ${pinBottom}px, #000 ${pinBottom + FADE}px, #000 calc(100% - ${FADE}px), ${view.bottom ? "transparent" : "#000"} 100%)`;
+  }, [rows, pinnable]);
 
   return (
-    <div
-      ref={scrollRef}
-      className={cn("min-h-0 overflow-y-auto", className)}
-      style={{ maskImage: mask, WebkitMaskImage: mask }}
-    >
+    <div ref={scrollRef} className={cn("min-h-0 overflow-y-auto", className)}>
       <div role="tree" style={{ position: "relative", height: virtualizer.getTotalSize() }}>
         {/* Pinned rows on a zero-height host stuck to the scroller's top.
             Copies for the eye and the pointer; the windowed rows are what
             assistive tech and the tab order see. Deepest first, so a schema
             being pushed out slides under its connection. */}
         <div style={{ position: "sticky", top: 0, height: 0, zIndex: 2 }}>
-          {[...pins].reverse().map(({ index, top }) => (
-            <div
-              key={rows[index].key}
-              aria-hidden
-              className="bg-(--background-app)"
-              style={{ position: "absolute", top, left: 0, right: 0 }}
-            >
-              <Row row={rows[index]} copy />
-            </div>
-          ))}
+          {[...pins].reverse().map(({ index, top }) =>
+            rows[index] ? (
+              <div
+                key={rows[index].key}
+                aria-hidden
+                className="bg-(--background-app)"
+                style={{ position: "absolute", top, left: 0, right: 0 }}
+              >
+                <Row row={rows[index]} copy />
+              </div>
+            ) : null,
+          )}
         </div>
         {virtualizer.getVirtualItems().map((item) => {
           const row = rows[item.index];
