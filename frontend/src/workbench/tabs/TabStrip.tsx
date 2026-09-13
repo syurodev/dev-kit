@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
   DndContext,
@@ -145,6 +146,11 @@ function TabItem({
   };
 
   return (
+    // The app's tooltip, not the OS one a `title` draws. Held shut while the
+    // tab is being dragged: the tab moves under the pointer, and a hover that
+    // "arrives" mid-drag would open it over the neighbours.
+    <Tooltip {...(isDragging ? { open: false } : {})}>
+    <TooltipTrigger asChild>
     <div
       ref={(node) => {
         setNodeRef(node);
@@ -153,7 +159,6 @@ function TabItem({
       role="tab"
       aria-selected={isActive}
       tabIndex={isActive ? 0 : -1}
-      title={tab.title}
       data-tab-id={tab.id}
       style={style}
       {...listeners}
@@ -232,6 +237,9 @@ function TabItem({
         </span>
       )}
     </div>
+    </TooltipTrigger>
+    <TooltipContent side="bottom">{tab.title}</TooltipContent>
+    </Tooltip>
   );
 }
 

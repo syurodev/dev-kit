@@ -95,4 +95,11 @@ describe("the module's chrome uses one tooltip", () => {
   ])("%s raises no native tooltip", (file) => {
     expect(read(file), "title= is the OS tooltip, not the app's").not.toMatch(/\stitle="/);
   });
+
+  // A truncated tab's full title is the tooltip people read most, so it is
+  // the app's — the tab strip once drew the grey OS box instead.
+  it("the tab strip raises no native tooltip", () => {
+    const strip = readFileSync(join(import.meta.dir, "../../workbench/tabs/TabStrip.tsx"), "utf8");
+    expect(strip).not.toMatch(/\stitle=\{/);
+  });
 });
