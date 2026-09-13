@@ -106,6 +106,10 @@ func ValidateRecordSchema(itemType string, metadata json.RawMessage, payload *cr
 			SSHProfileID  string            `json:"ssh_profile_id"`
 			Engine        string            `json:"engine"`
 			DriverOptions map[string]string `json:"driver_options"`
+			// The metadata carries it whenever a profile has a CA bundle, and
+			// unknown fields are refused: without it such a profile failed
+			// validation on every write and every sync (#45).
+			CACert string `json:"ca_cert"`
 		}
 		if decodeMetadataObject(metadata, &value) != nil || value.Name == "" || value.Host == "" || value.Port == 0 || value.SSLMode == "" || value.Env == "" {
 			return ErrInvalidRecordSchema

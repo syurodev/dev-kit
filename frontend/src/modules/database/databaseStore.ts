@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { CellValue } from "./sql/updateCell";
 import { persist } from "zustand/middleware";
 import { uiStateStorage } from "../../bridge/uistate";
 import {
@@ -15,6 +16,8 @@ import {
   type QueryResult,
   type SchemaSnapshot,
   type ColumnInfo,
+  closeSession,
+  applyEdits,
 } from "../../bridge/database";
 import { listConsoles, type StoredConsole } from "../../bridge/database";
 import { consoleFiles } from "./consoleFiles";
@@ -239,6 +242,12 @@ export type BrowseState = {
    */
   frozen: number;
   /**
+   * #52: changes waiting for review, by page position "row:column". Only an
+   * environment that asks for review stages; everywhere else an edit is
+   * written at once. Positions on this page, so a new page clears them.
+   */
+  staged: Record<string, CellValue>;
+  /**
    * A3: which load this state belongs to. Bumped when a page is asked for, and
    * checked when one answers — the same guard `executeQuery` puts on a console
    * result, for the same reason: Next clicked twice, or a sort applied while a
@@ -262,6 +271,7 @@ export const EMPTY_BROWSE: BrowseState = Object.freeze({
   widths: [],
   order: [],
   frozen: 0,
+  staged: {},
   runId: 0,
 }) as BrowseState;
 
@@ -358,6 +368,15 @@ export type DatabaseStoreState = {
    * Turns one page's raw answer into what the grid shows: drops the probe row,
    * flips a backwards page, and records whether another page exists.
    */
+  /** #52: stages grid edits for review instead of writing them. */
+  stageBrowseEdits: (key: string, cells: { row: number; column: number; value: CellValue }[]) => void;
+  revertBrowseEdits: (key: string) => void;
+  /** Writes the reviewed statements, then reloads the page. Throws on failure. */
+  applyStagedEdits: (
+    key: string,
+    target: { schema: string; table: string },
+    statements: readonly string[],
+  ) => Promise<void>;
   applyBrowsePage: (
     key: string,
     page: {
@@ -433,7 +452,7 @@ export type DatabaseStoreState = {
   setPageKey: (key: string, columns: string[] | null) => void;
 
   // Selected cell for CellInspector
-  inspectedCell: { columnName: string; value: string } | null;
+  inspectedCell: { columnName: string; value: string | null } | null;
 
   // Modals & Dialogs
   showNewConnectionDialog: boolean;
@@ -464,7 +483,7 @@ export type DatabaseStoreState = {
   fetchProfiles: () => Promise<void>;
   setSelectedProfileId: (id: string) => void;
   setSql: (consoleId: string, sql: string) => void;
-  setInspectedCell: (cell: { columnName: string; value: string } | null) => void;
+  setInspectedCell: (cell: { columnName: string; value: string | null } | null) => void;
   setShowNewConnectionDialog: (show: boolean) => void;
   setShowConnectionOptionsDialog: (show: boolean) => void;
   setShowExportModal: (show: boolean) => void;
@@ -695,6 +714,11 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       // held, its work uncommitted — and the toolbar you arrive at describes
       // the other connection. Recorded for the sidebar to say it once.
       const leaving = profileOf(get(), get().selectedProfileId);
+      // #48: the consoles' connections on the profile being left are given
+      // back; a run on the new one opens its own.
+      if (get().selectedProfileId) {
+        void closeSession(get().selectedProfileId).catch(() => undefined);
+      }
       if (get().txOpen && leaving) {
         set({ strandedTransaction: leaving.name });
       }
@@ -711,6 +735,13 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       pendingBrowseQueries.clear();
       pendingCountQueries.clear();
       set((state) => ({
+        // #49: the tree, and the schema new consoles are stamped with, were the
+        // old connection's until the new snapshot arrived — or for good, when
+        // the new one has no schema of that name.
+        schemaSnapshot: null,
+        indexingSchema: false,
+        schemaError: "",
+        selectedSchema: "",
         pageKeys: {},
         browse: Object.fromEntries(
           Object.entries(state.browse).map(([key, browse]) => [
@@ -842,12 +873,15 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   loadSchemaSnapshot: async (profileId: string) => {
     try {
       const snap = await getSchemaCache(profileId);
+      // #49: switching A→B quickly let A's snapshot land after B's.
+      if (get().selectedProfileId !== profileId) return;
       set({ schemaSnapshot: snap });
       const schemas = Object.keys(snap.namespace || {});
       if (schemas.length > 0 && !get().selectedSchema) {
         set({ selectedSchema: schemas[0] });
       }
     } catch {
+      if (get().selectedProfileId !== profileId) return;
       // If cache read fails, try indexing once
       void get().refreshSchema(profileId);
     }
@@ -857,12 +891,14 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     set({ indexingSchema: true, schemaError: "" });
     try {
       const snap = await indexSchema(profileId);
+      if (get().selectedProfileId !== profileId) return;
       set({ schemaSnapshot: snap, indexingSchema: false });
       const schemas = Object.keys(snap.namespace || {});
       if (schemas.length > 0 && !get().selectedSchema) {
         set({ selectedSchema: schemas[0] });
       }
     } catch (e) {
+      if (get().selectedProfileId !== profileId) return;
       set({ indexingSchema: false, schemaError: errorMessage(e) });
     }
   },
@@ -932,7 +968,8 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
 
     let call: ReturnType<typeof runQuery> | undefined;
     try {
-      call = runQuery(selectedProfileId, sql);
+      // The console is the session: its statements share one connection (#48).
+      call = runQuery(selectedProfileId, sql, 0, consoleId);
       pendingQueries.set(consoleId, call);
       const result = await call;
       // The connection changed under this run (setSelectedProfileId moves the
@@ -1063,6 +1100,11 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
    */
   closeConsole: (consoleId) => {
     consoleFiles.release(consoleId);
+    // #48: its connection goes back with it.
+    const { selectedProfileId } = get();
+    if (selectedProfileId) {
+      void closeSession(selectedProfileId, consoleId).catch(() => undefined);
+    }
     set((state) => {
       if (!(consoleId in state.consoles)) {
         return state;
@@ -1163,7 +1205,39 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       hasNext: reversed ? true : hasNext,
       loading: false,
       error: "",
+      // The staged positions were on the page these rows replace.
+      staged: {},
     });
+  },
+
+  stageBrowseEdits: (key, cells) => {
+    const browse = get().browseState(key);
+    const staged = { ...browse.staged };
+    for (const { row, column, value } of cells) {
+      const position = `${row}:${column}`;
+      // Changed back to what the server has: nothing left to write.
+      if ((browse.rows?.rows[row]?.[column] ?? null) === value) {
+        delete staged[position];
+      } else {
+        staged[position] = value;
+      }
+    }
+    patchBrowse(set, key, { staged });
+  },
+
+  revertBrowseEdits: (key) => patchBrowse(set, key, { staged: {} }),
+
+  applyStagedEdits: async (key, target, statements) => {
+    const { selectedProfileId } = get();
+    if (!selectedProfileId || statements.length === 0) {
+      return;
+    }
+    await applyEdits(selectedProfileId, statements);
+    patchBrowse(set, key, { staged: {} });
+    if (get().txManual) {
+      void get().refreshTxState();
+    }
+    await get().loadBrowsePage(key, target);
   },
 
   ddlTarget: null,
@@ -1250,11 +1324,17 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     // imports the toaster puts it in every graph the store is in — and this
     // one is reachable from the eager manifest, so sonner became 32 KiB of the
     // shell's startup for a message only the table tab ever shows.
-    await runQuery(selectedProfileId, sql);
+    const result = await runQuery(selectedProfileId, sql);
     if (get().txManual) {
       void get().refreshTxState();
     }
     await get().loadBrowsePage(key, { schema, table });
+    // #47: an UPDATE that matched no row still said "Cell updated". The row
+    // changed or went away after the page loaded; the reload above shows what
+    // is there now, and this says why the edit is not in it.
+    if (result.rowsAffected === 0) {
+      throw new Error("No row was updated: it changed or was deleted after the page loaded.");
+    }
   },
 
   loadBrowsePage: async (key, { schema, table }) => {
@@ -1323,7 +1403,9 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
         const keyIndexes = pageKey.map((column) => result.columns.indexOf(column));
         if (!keyIndexes.includes(-1)) {
           const trail = [...get().browseState(key).cursors];
-          trail[get().browseState(key).pageIndex] = keyIndexes.map((i) => last[i]);
+          // A page key is NOT NULL by construction (pageKeyFor), so the ""
+          // is for the type, not a case that happens.
+          trail[get().browseState(key).pageIndex] = keyIndexes.map((i) => last[i] ?? "");
           patchBrowse(set, key, { cursors: trail });
         }
       }
@@ -1404,6 +1486,8 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       if (
         Number.isFinite(value) &&
         get().selectedProfileId === selectedProfileId &&
+        // #49: a count landing after its tab closed brought the tab's state back.
+        key in get().browse &&
         get().browseState(key).where === browse.where
       ) {
         patchBrowse(set, key, { totalRows: value });
@@ -1424,7 +1508,13 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   setPageKey: (key, columns) =>
     set((state) => ({ pageKeys: { ...state.pageKeys, [key]: columns } })),
 
-  closeBrowse: (key) =>
+  closeBrowse: (key) => {
+    // #49: its loads go with it. Left running, they answer into a tab that is
+    // no longer there.
+    pendingBrowseQueries.get(key)?.cancel();
+    pendingBrowseQueries.delete(key);
+    pendingCountQueries.get(key)?.cancel();
+    pendingCountQueries.delete(key);
     set((state) => {
       if (!(key in state.browse) && !(key in state.pageKeys)) {
         return state;
@@ -1435,7 +1525,8 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       // its first page by a key that has since been re-read.
       const { [key]: _key, ...pageKeys } = state.pageKeys;
       return { browse, pageKeys };
-    }),
+    });
+  },
 
   /*
    * Every edit goes through here, so this is where the file is kept up to

@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { ApplyEditsDialog } from "./components/ApplyEditsDialog";
 import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
 import { EMPTY_ARRAY } from "@/lib/stableEmpty";
@@ -12,9 +14,10 @@ import { useDatabaseChrome } from "./useDatabaseChrome";
 import { browseKeyOfTab, useBrowseLifetime } from "./useConsoleLifetime";
 import { useIsActiveDocument } from "./useIsActiveDocument";
 import { consoleIdFor, openConsoleTab } from "./documents";
+import { tableDocument, useDocumentCommands } from "./documentCommands";
 import { buildBrowseQuery } from "./sql/browseQuery";
 import { quoteIdentifier, quoteLiteral } from "./sql/identifier";
-import { buildUpdate, updateRefusal } from "./sql/updateCell";
+import { buildStagedUpdates, buildUpdate, updateRefusal } from "./sql/updateCell";
 import { errorMessage, isCancelError } from "@/bridge/errors";
 import { tableExportFilename } from "./export";
 import { pageKeyFor } from "./tableKey";
@@ -73,6 +76,11 @@ export function TableDataView({
     setSql,
     openExportModal,
     openDDL,
+    envTags,
+    txManual,
+    stageBrowseEdits,
+    revertBrowseEdits,
+    applyStagedEdits,
   } = useDatabaseStore(
     useShallow((s) => ({
       selectedProfileId: s.selectedProfileId,
@@ -101,8 +109,14 @@ export function TableDataView({
       setSql: s.setSql,
       openExportModal: s.openExportModal,
       openDDL: s.openDDL,
+      envTags: s.envTags,
+      txManual: s.txManual,
+      stageBrowseEdits: s.stageBrowseEdits,
+      revertBrowseEdits: s.revertBrowseEdits,
+      applyStagedEdits: s.applyStagedEdits,
     })),
   );
+  const [reviewing, setReviewing] = useState(false);
 
   // The key decides whether this table can be walked or has to be counted
   // through, so it is read before the first page.
@@ -185,6 +199,12 @@ export function TableDataView({
 
   const profile = profiles.find((p) => p.id === selectedProfileId);
   const engine = profile?.engine;
+  // #52: an environment that asks for review — prod, by default — stages a
+  // grid edit instead of writing it.
+  const reviewEdits = Boolean(
+    envTags.find((tag) => tag.name === profile?.env)?.requiresConfirmation,
+  );
+  const stagedCount = Object.keys(browse.staged).length;
   // Asked once, here, rather than at each cell: the answer is a property of
   // the connection and the table, not of which cell was double-clicked.
   const editRefusal = updateRefusal({
@@ -194,12 +214,81 @@ export function TableDataView({
     table,
   });
 
+  // #52: another page, filter or sort puts different rows under the staged
+  // cells, which are positions on this page. Apply or revert first.
+  const blockedByPending = (): boolean => {
+    if (stagedCount === 0) return false;
+    toast.warning(`${stagedCount} change${stagedCount === 1 ? "" : "s"} not applied`, {
+      description: "Apply or revert them before moving to other rows.",
+    });
+    return true;
+  };
+  const stagedStatements = (): string[] =>
+    pageKey && browse.rows
+      ? buildStagedUpdates({
+          schema,
+          table,
+          engine,
+          keyColumns: pageKey,
+          columns: browse.rows.columns,
+          rows: browse.rows.rows,
+          staged: browse.staged,
+        })
+      : [];
+  // The page as it reads once the staged changes are applied.
+  const shownRows =
+    stagedCount > 0 && browse.rows
+      ? {
+          ...browse.rows,
+          rows: browse.rows.rows.map((row, r) =>
+            row.map((cell, c) => {
+              const position = `${r}:${c}`;
+              return position in browse.staged ? browse.staged[position] : cell;
+            }),
+          ),
+        }
+      : browse.rows;
+
+  const exportPage = () => {
+    if (browse.rows) {
+      openExportModal(browse.rows, tableExportFilename(table));
+    }
+  };
+  const openInConsole = () => {
+    const consoleId = consoleIdFor(key);
+    setSql(
+      consoleId,
+      buildBrowseQuery({
+        schema,
+        table,
+        engine,
+        where: browse.where,
+        orderBy: browse.orderBy,
+        pageKey,
+        cursor: null,
+        pageSize,
+      }).sql,
+    );
+    openConsoleTab(consoleId, table);
+  };
+  // #51: the toolbar's actions, for the menu bar as well.
+  useDocumentCommands(tableDocument(key), {
+    export: exportPage,
+    reload: () => {
+      if (!blockedByPending()) void loadBrowsePage(key, { schema, table });
+    },
+    showDDL: () => openDDL(schema, table),
+    openInConsole,
+  });
+
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <TableToolbar
         where={browse.where}
         onWhereChange={(value) => setBrowseWhere(key, value)}
-        onApply={() => void loadBrowsePage(key, { schema, table })}
+        onApply={() => {
+          if (!blockedByPending()) void loadBrowsePage(key, { schema, table });
+        }}
         engine={engine}
         indexed={schemaNamespace}
         schema={schema}
@@ -207,12 +296,15 @@ export function TableDataView({
         orderBy={browse.orderBy}
         columns={browse.rows?.columns ?? EMPTY_ARRAY}
         onOrderByChange={(next) => {
+          if (blockedByPending()) return;
           setBrowseOrder(key, next);
           void loadBrowsePage(key, { schema, table });
         }}
         rowCount={browse.rows?.rows.length ?? 0}
         loading={browse.loading}
-        onRefresh={() => void loadBrowsePage(key, { schema, table })}
+        onRefresh={() => {
+          if (!blockedByPending()) void loadBrowsePage(key, { schema, table });
+        }}
         pager={
           browse.rows ? (
             <BrowsePager
@@ -224,10 +316,11 @@ export function TableDataView({
               hasNext={browse.hasNext}
               keyed={pageKey !== null}
               loading={browse.loading}
-              onGoToPage={(page) =>
-                void goToBrowsePage(key, { schema, table }, page)
-              }
+              onGoToPage={(page) => {
+                if (!blockedByPending()) void goToBrowsePage(key, { schema, table }, page);
+              }}
               onPageSizeChange={(size) => {
+                if (blockedByPending()) return;
                 setBrowsePageSize(size);
                 void loadBrowsePage(key, { schema, table });
               }}
@@ -237,29 +330,9 @@ export function TableDataView({
         // A28: the page already in hand, not a query re-run to fetch it again.
         // The toolbar disables this with no rows, and the guard here is what
         // makes that a courtesy rather than the only thing holding it up.
-        onExport={() => {
-          if (browse.rows) {
-            openExportModal(browse.rows, tableExportFilename(table));
-          }
-        }}
+        onExport={exportPage}
         onShowDDL={() => openDDL(schema, table)}
-        onOpenInConsole={() => {
-          const consoleId = consoleIdFor(key);
-          setSql(
-            consoleId,
-            buildBrowseQuery({
-              schema,
-              table,
-              engine,
-              where: browse.where,
-              orderBy: browse.orderBy,
-              pageKey,
-              cursor: null,
-              pageSize,
-            }).sql,
-          );
-          openConsoleTab(consoleId, table);
-        }}
+        onOpenInConsole={openInConsole}
       />
 
       {browse.error ? (
@@ -268,9 +341,25 @@ export function TableDataView({
         </div>
       ) : null}
 
+      {stagedCount > 0 ? (
+        <div className="mb-2 flex shrink-0 items-center gap-2 rounded-md border border-status-warning/40 bg-status-warning/10 px-3 py-1 text-body-12 text-text-primary">
+          <span className="min-w-0 flex-1 truncate">
+            {stagedCount} change{stagedCount === 1 ? "" : "s"} not applied — {profile?.env} asks
+            for a review before anything is written.
+          </span>
+          <Button variant="ghost" size="sm" onClick={() => revertBrowseEdits(key)}>
+            Revert
+          </Button>
+          <Button size="sm" onClick={() => setReviewing(true)}>
+            Review and apply…
+          </Button>
+        </div>
+      ) : null}
+
       {browse.rows ? (
         <ResultGrid
-          result={browse.rows}
+          result={shownRows!}
+          changedCells={stagedCount > 0 ? new Set(Object.keys(browse.staged)) : undefined}
           widths={browse.widths}
           columnOrder={browse.order}
           onResize={(next) => setBrowseWidths(key, next)}
@@ -291,11 +380,13 @@ export function TableDataView({
           // The grid hands up a column and a value; the engine's quoting rules
           // live here, with the rest of the SQL this tab composes.
           onFilterByValue={({ column, value, negate }) => {
+            if (blockedByPending()) return;
             const lhs = quoteIdentifier(column, engine);
-            // An empty cell is NULL, and NULL never equals anything — `= ''`
-            // would match the empty string instead and quietly return nothing.
+            // NULL never equals anything, so a NULL cell filters with IS NULL.
+            // An empty string is a value like any other (#47): it used to be
+            // taken for NULL, and a NULL arrived as the text "NULL".
             const clause =
-              value === ""
+              value === null
                 ? `${lhs} IS ${negate ? "NOT " : ""}NULL`
                 : `${lhs} ${negate ? "<>" : "="} ${quoteLiteral(value, engine)}`;
             const next = browse.where.trim() ? `${browse.where.trim()} AND ${clause}` : clause;
@@ -310,6 +401,13 @@ export function TableDataView({
             if (editRefusal || !browse.rows || !pageKey) {
               return;
             }
+            if (reviewEdits) {
+              stageBrowseEdits(
+                key,
+                rowIndices.flatMap((row) => columnIndices.map((column) => ({ row, column, value }))),
+              );
+              return;
+            }
             const columns = browse.rows.columns;
             const sql = buildUpdate({
               schema,
@@ -322,8 +420,7 @@ export function TableDataView({
               rows: rowIndices.map((rowIndex) => ({
                 values: pageKey.map((key) => {
                   const at = columns.indexOf(key);
-                  const cell = at === -1 ? "" : (browse.rows!.rows[rowIndex][at] ?? "");
-                  return cell === "" ? null : cell;
+                  return at === -1 ? null : (browse.rows!.rows[rowIndex][at] ?? null);
                 }),
               })),
               columns: columnIndices.map((index) => columns[index]),
@@ -353,6 +450,7 @@ export function TableDataView({
           // any header is clicked the table is sorted by something forever,
           // and "no ORDER BY" is a real answer the grid could no longer give.
           onSort={(index) => {
+            if (blockedByPending()) return;
             const column = browse.rows!.columns[index];
             const current =
               browse.orderBy?.column === column
@@ -368,6 +466,28 @@ export function TableDataView({
           }}
         />
       ) : null}
+
+      <ApplyEditsDialog
+        open={reviewing && stagedCount > 0}
+        env={profile?.env ?? ""}
+        engine={engine}
+        manual={txManual}
+        statements={reviewing ? stagedStatements() : EMPTY_ARRAY}
+        onCancel={() => setReviewing(false)}
+        onApply={async () => {
+          const statements = stagedStatements();
+          try {
+            await applyStagedEdits(key, { schema, table }, statements);
+            setReviewing(false);
+            toast.success(
+              statements.length === 1 ? "1 change applied" : `${statements.length} changes applied`,
+            );
+          } catch (error) {
+            if (isCancelError(error)) return;
+            toast.error("Could not apply the changes", { description: errorMessage(error) });
+          }
+        }}
+      />
 
       {isActive ? <DatabaseOverlays /> : null}
     </div>

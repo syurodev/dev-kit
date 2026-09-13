@@ -1,3 +1,4 @@
+import { runDocumentCommand } from "./documentCommands";
 import { Activity, Bookmark, Database, History, Network, Table2, Terminal } from "lucide-react";
 import { lazy } from "react";
 import { lazyModuleView, type ModuleManifest } from "../registry";
@@ -42,6 +43,49 @@ export const databaseModule: ModuleManifest = {
         const consoleId = activeConsoleId();
         if (consoleId) void state.executeQuery(consoleId);
       },
+    },
+    {
+      id: "database.query.cancel",
+      title: "Cancel query",
+      shortcut: "⌘.",
+      run: () => {
+        const consoleId = activeConsoleId();
+        if (consoleId) useDatabaseStore.getState().cancelQuery(consoleId);
+      },
+    },
+    { id: "database.query.explain", title: "Explain", run: () => runDocumentCommand("explain") },
+    {
+      id: "database.query.explain-analyze",
+      title: "Explain analyze",
+      run: () => runDocumentCommand("explainAnalyze"),
+    },
+    {
+      id: "database.query.save",
+      title: "Save query…",
+      run: () => {
+        const consoleId = activeConsoleId();
+        const state = useDatabaseStore.getState();
+        if (consoleId && state.consoleState(consoleId).sql.trim()) state.openSaveQueryModal(consoleId);
+      },
+    },
+    { id: "database.export", title: "Export…", run: () => runDocumentCommand("export") },
+    {
+      id: "database.result.close",
+      title: "Close result",
+      run: () => {
+        const consoleId = activeConsoleId();
+        if (!consoleId) return;
+        const state = useDatabaseStore.getState();
+        const slice = state.consoleState(consoleId);
+        if (slice.results.length > 0) state.closeResult(consoleId, slice.activeResult);
+      },
+    },
+    { id: "database.table.reload", title: "Reload page", run: () => runDocumentCommand("reload") },
+    { id: "database.table.ddl", title: "Show DDL", run: () => runDocumentCommand("showDDL") },
+    {
+      id: "database.table.open-in-console",
+      title: "Open in console",
+      run: () => runDocumentCommand("openInConsole"),
     },
     {
       id: "database.schema.reindex",

@@ -34,6 +34,7 @@ import { requestVaultUnlock } from "@/workbench/vaultUnlockRequest";
 import { isVaultLockedError } from "../errorStates";
 import { useShallow } from "zustand/react/shallow";
 import { EMPTY_CONSOLE, useDatabaseStore, visibleResult } from "../databaseStore";
+import { consoleDocument, useDocumentCommands } from "../documentCommands";
 import { getEngineMeta } from "./EngineBadge";
 import { explain, explainAnalyze, type QueryPlan } from "../../../bridge/database";
 import { QueryPlanView } from "./QueryPlanView";
@@ -249,10 +250,22 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
               return true;
             },
           },
+          {
+            // #51: Esc cancels the running statement, as ⌘. does from the
+            // menu. With nothing running it stays the editor's — closing a
+            // completion list, collapsing a selection.
+            key: "Escape",
+            run: () => {
+              const state = useDatabaseStore.getState();
+              if (!state.consoleState(consoleId).runningQuery) return false;
+              state.cancelQuery(consoleId);
+              return true;
+            },
+          },
         ]),
       ),
     ];
-  }, [profile?.engine, profile?.database, schemaSnapshot?.namespace, runRef, runStatementRef, splitDialect, slice.statementRuns]);
+  }, [profile?.engine, profile?.database, schemaSnapshot?.namespace, runRef, runStatementRef, splitDialect, slice.statementRuns, consoleId]);
 
   // Check for engine placeholder mismatch for MySQL / MariaDB (Screen 21)
   const hasPlaceholderMismatch = useMemo(() => {
@@ -334,6 +347,20 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
   }
 
   const busy = slice.runningQuery || explaining || !selectedProfileId;
+
+  // #51: what the menu bar can ask of this console. Explain needs the selection
+  // and the caret, which only this component holds.
+  useDocumentCommands(consoleDocument(consoleId), {
+    explain: () => {
+      if (!busy) void handleExplain(false);
+    },
+    explainAnalyze: () => {
+      if (!busy) void handleExplain(true);
+    },
+    export: () => {
+      if (queryResult) openExportModal(queryResult);
+    },
+  });
 
   // One line about the statement that just ran, for the pill beside Run. The
   // wording and the ranking live in consoleStatus so they can be tested.

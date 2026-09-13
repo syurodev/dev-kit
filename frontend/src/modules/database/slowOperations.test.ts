@@ -68,6 +68,7 @@ mock.module("../../bridge/database", () => ({
     return d.promise;
   },
   listProfiles: async () => [],
+  closeSession: async () => {},
   listColumns: async () => [],
   getSchemaCache: async () => null,
   indexSchema: async () => null,

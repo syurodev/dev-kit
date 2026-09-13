@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { errorMessage } from "@/bridge/errors";
 import {
   Plus,
   RefreshCw,
@@ -799,8 +800,21 @@ export function DatabaseSidebar() {
         onClose={() => setDeletingProfileId("")}
         onConfirm={async () => {
           const id = deletingProfileId;
+          try {
+            await deleteProfile(id);
+          } catch (error) {
+            // #49: the dialog stays open and says why. It used to close first,
+            // and a failed delete became an unhandled rejection nobody saw.
+            toast.error("Could not delete the connection", { description: errorMessage(error) });
+            return;
+          }
           setDeletingProfileId("");
-          await deleteProfile(id);
+          // #49: a deleted profile left selected made every later call fail
+          // with "not found". Nothing selected, and fetchProfiles picks the
+          // first one left.
+          if (useDatabaseStore.getState().selectedProfileId === id) {
+            setSelectedProfileId("");
+          }
           void fetchProfiles();
         }}
       />

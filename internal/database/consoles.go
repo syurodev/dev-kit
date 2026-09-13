@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -153,6 +154,16 @@ func (s *ConsoleStore) SetDir(dir string) error {
 	return nil
 }
 
+/*
+moveConsoles copies the consoles in from to to, and removes the originals only
+once every copy has landed (#50).
+
+Copy-then-remove one file at a time meant a failure halfway left some consoles
+in the new folder while the setting — which SetDir only changes on success —
+still named the old one. And only consoles: the folder may be a project's own,
+and a migrations.sql sitting in it is not the app's to move. A console is a file
+this app wrote, which is to say one that starts with its header.
+*/
 func moveConsoles(from, to string) error {
 	entries, err := os.ReadDir(from)
 	if errors.Is(err, os.ErrNotExist) {
@@ -160,6 +171,12 @@ func moveConsoles(from, to string) error {
 	}
 	if err != nil {
 		return err
+	}
+	var sources, copies []string
+	undo := func() {
+		for _, copied := range copies {
+			_ = os.Remove(copied)
+		}
 	}
 	for _, entry := range entries {
 		name := entry.Name()
@@ -173,11 +190,21 @@ func moveConsoles(from, to string) error {
 		}
 		text, err := os.ReadFile(source)
 		if err != nil {
+			undo()
 			return err
+		}
+		if !strings.HasPrefix(string(text), consoleHeader) {
+			continue
 		}
 		if err := os.WriteFile(target, text, 0o600); err != nil {
+			_ = os.Remove(target)
+			undo()
 			return err
 		}
+		sources = append(sources, source)
+		copies = append(copies, target)
+	}
+	for _, source := range sources {
 		if err := os.Remove(source); err != nil {
 			return err
 		}
@@ -239,10 +266,29 @@ func (s *ConsoleStore) Save(console Console) error {
 		temp.Close()
 		return err
 	}
+	// On the disk before the rename (#50): the rename can be recorded before
+	// the data it points at, and a crash in between leaves an empty file where
+	// the only copy of the console was.
+	if err := temp.Sync(); err != nil {
+		temp.Close()
+		return err
+	}
 	if err := temp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(temp.Name(), path)
+	return replaceFile(temp.Name(), path)
+}
+
+// replaceFile renames from over to, retrying on Windows (#50). There a rename
+// over a file another program holds open — an editor showing the console, a
+// virus scanner reading it — fails, and usually works a moment later.
+func replaceFile(from, to string) error {
+	err := os.Rename(from, to)
+	for delay := 20 * time.Millisecond; err != nil && runtime.GOOS == "windows" && delay <= 320*time.Millisecond; delay *= 2 {
+		time.Sleep(delay)
+		err = os.Rename(from, to)
+	}
+	return err
 }
 
 // List returns every console on disk, newest first.

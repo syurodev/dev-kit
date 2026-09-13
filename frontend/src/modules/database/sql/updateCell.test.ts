@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildUpdate, updateRefusal } from "./updateCell";
+import { buildUpdate, updateRefusal, buildStagedUpdates } from "./updateCell";
 
 const base = {
   schema: "chiro",
@@ -117,3 +117,26 @@ describe("buildUpdate", () => {
     expect(() => buildUpdate({ ...base, rows: [{ values: ["1"] }], columns: [], value: "x" })).toThrow();
   });
 });
+
+// #52. Staged cells become one statement each, keyed by the row as it loaded,
+// and a change to the key itself runs after the row's other changes.
+test("staged changes become statements, key changes last in their row", () => {
+  const statements = buildStagedUpdates({
+    schema: "public",
+    table: "users",
+    engine: "postgres",
+    keyColumns: ["id"],
+    columns: ["id", "name", "email"],
+    rows: [
+      ["1", "ann", null],
+      ["2", "bob", "b@x"],
+    ],
+    staged: { "0:0": "7", "0:1": "anna", "1:2": null },
+  });
+  expect(statements).toEqual([
+    `UPDATE "public"."users" SET "name" = 'anna' WHERE "id" = '1'`,
+    `UPDATE "public"."users" SET "id" = '7' WHERE "id" = '1'`,
+    `UPDATE "public"."users" SET "email" = NULL WHERE "id" = '2'`,
+  ]);
+});
+

@@ -301,6 +301,14 @@ export function DBActiveProfile(): $CancellablePromise<$models.ActiveProfileDTO>
 }
 
 /**
+ * DBApplyEdits writes a table tab's reviewed changes in one transaction: all of
+ * them, or none (#52).
+ */
+export function DBApplyEdits(id: string, statements: string[] | null): $CancellablePromise<void> {
+    return $Call.ByID(4070223897, id, statements);
+}
+
+/**
  * DBCancelQuery stops one statement. Safe mode does not cover this — a
  * read-only profile can still cancel, because pg_cancel_backend is a SELECT.
  */
@@ -316,6 +324,15 @@ export function DBCancelQuery(id: string, pid: string): $CancellablePromise<void
  */
 export function DBChooseConsoleDirectory(): $CancellablePromise<string> {
     return $Call.ByID(2112834229);
+}
+
+/**
+ * DBCloseSession gives back a console's connection — the console closed — or,
+ * with an empty sessionID, every console connection of the profile, when the
+ * UI switches to another one.
+ */
+export function DBCloseSession(id: string, sessionID: string): $CancellablePromise<void> {
+    return $Call.ByID(1712522688, id, sessionID);
 }
 
 export function DBCommitTx(id: string): $CancellablePromise<void> {
@@ -437,9 +454,13 @@ export function DBListTables(id: string, schema: string): $CancellablePromise<da
 /**
  * DBQuery runs one statement. maxRows is the caller's row cap — the table
  * browser's page size — and zero means the service default.
+ * 
+ * sessionID names the console the statement comes from, so it runs on that
+ * console's own connection and what it SETs is there for the next run (#48).
+ * Empty for a table tab's page, which has no session to keep.
  */
-export function DBQuery(id: string, sql: string, maxRows: number): $CancellablePromise<database$0.QueryResult> {
-    return $Call.ByID(2555176260, id, sql, maxRows);
+export function DBQuery(id: string, sql: string, maxRows: number, sessionID: string): $CancellablePromise<database$0.QueryResult> {
+    return $Call.ByID(2555176260, id, sql, maxRows, sessionID);
 }
 
 export function DBRollbackTx(id: string): $CancellablePromise<void> {

@@ -111,7 +111,7 @@ export const ROW_NUMBER_WIDTH_PX = 44;
 
 export function measureColumns(
   columns: readonly string[],
-  rows: readonly (readonly string[])[],
+  rows: readonly (readonly (string | null)[])[],
 ): number[] {
   const sample = rows.slice(0, SAMPLE_ROWS);
   return columns.map((name, index) => {

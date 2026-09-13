@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { numericColumns } from "./numericColumns";
 
-const columns = (rows: string[][], count = rows[0]?.length ?? 0) => numericColumns(rows, count);
+const columns = (rows: (string | null)[][], count = rows[0]?.length ?? 0) => numericColumns(rows, count);
 
 /**
  * Right alignment is for finding the odd value: digits line up by place, so
@@ -30,11 +30,11 @@ describe("which columns hold numbers", () => {
   // Empty is NULL in this grid. A column of numbers with holes is still a
   // column of numbers.
   test("nulls do not disqualify a column", () => {
-    expect(columns([["1"], [""], ["3"]])).toEqual([true]);
+    expect(columns([["1"], [null], ["3"]])).toEqual([true]);
   });
 
   test("a column of nothing but nulls is not a column of numbers", () => {
-    expect(columns([[""], [""], [""]])).toEqual([false]);
+    expect(columns([[null], [null], [null]])).toEqual([false]);
   });
 
   /*

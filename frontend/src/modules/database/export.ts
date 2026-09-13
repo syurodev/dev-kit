@@ -30,14 +30,15 @@ export function serializeCSV(result: QueryResult): string {
 }
 
 /**
- * Serializes QueryResult into a JSON string where every column value is strictly
- * preserved as a string (e.g. {"id": "42"}), reflecting QueryResult's string[][] representation.
+ * Serializes QueryResult into a JSON string where every value is kept as the
+ * string it arrived as (e.g. {"id": "42"}), and SQL NULL is null (#47) rather
+ * than an empty string nobody could tell from a real one.
  */
 export function serializeJSON(result: QueryResult): string {
   const data = result.rows.map((row) => {
-    const record: Record<string, string> = {};
+    const record: Record<string, string | null> = {};
     result.columns.forEach((col, idx) => {
-      record[col] = row[idx] ?? "";
+      record[col] = row[idx] ?? null;
     });
     return record;
   });

@@ -191,3 +191,73 @@ func TestGuardMySQLReadOnlySurvivesSET(t *testing.T) {
 		t.Fatalf("v = %s: a read-only profile wrote", got[0])
 	}
 }
+
+// rowsAffected runs one statement and reads what it changed (#47).
+func rowsAffected(t *testing.T, conn Conn, sql string) int64 {
+	t.Helper()
+	rows, err := conn.Query(context.Background(), sql)
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	for rows.Next() {
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("drain: %v", err)
+	}
+	rows.Close()
+	return rows.RowsAffected()
+}
+
+// #47. An edit that matches no row has to be able to say so. Postgres reads it
+// from the command tag; MySQL has to ask ROW_COUNT() on the same session.
+func TestGuardPostgresRowsAffected(t *testing.T) {
+	if os.Getenv("DEVKIT_PG_TEST") != "1" {
+		t.Skip("set DEVKIT_PG_TEST=1 to run the PostgreSQL guard tests")
+	}
+	conn := dialPostgres(t)
+	t.Cleanup(conn.Close)
+	guardTable(t, conn, "devkit_guard_affected",
+		"CREATE TABLE devkit_guard_affected (id int PRIMARY KEY, v int NOT NULL)",
+		"INSERT INTO devkit_guard_affected VALUES (1, 0)")
+
+	if n := rowsAffected(t, conn, "UPDATE devkit_guard_affected SET v = 1 WHERE id = 1"); n != 1 {
+		t.Errorf("UPDATE of one row affected %d", n)
+	}
+	if n := rowsAffected(t, conn, "UPDATE devkit_guard_affected SET v = 2 WHERE id = 999"); n != 0 {
+		t.Errorf("UPDATE of no row affected %d", n)
+	}
+}
+
+func TestGuardMySQLRowsAffected(t *testing.T) {
+	if os.Getenv("DEVKIT_MYSQL_TEST") != "1" {
+		t.Skip("set DEVKIT_MYSQL_TEST=1 to run the MySQL guard tests")
+	}
+	conn := dialMySQL(t)
+	t.Cleanup(conn.Close)
+	guardTable(t, conn, "devkit_guard_affected",
+		"CREATE TABLE devkit_guard_affected (id int PRIMARY KEY, v int NOT NULL) ENGINE=InnoDB",
+		"INSERT INTO devkit_guard_affected (id, v) VALUES (1, 0)")
+
+	if n := rowsAffected(t, conn, "UPDATE devkit_guard_affected SET v = 1 WHERE id = 1"); n != 1 {
+		t.Errorf("UPDATE of one row affected %d", n)
+	}
+	if n := rowsAffected(t, conn, "UPDATE devkit_guard_affected SET v = 2 WHERE id = 999"); n != 0 {
+		t.Errorf("UPDATE of no row affected %d", n)
+	}
+	// Inside a transaction the count is asked on the transaction's own session.
+	tx, err := conn.(Transactor).Begin(context.Background())
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	rows, err := tx.Query(context.Background(), "UPDATE devkit_guard_affected SET v = 3 WHERE id = 1")
+	if err != nil {
+		t.Fatalf("tx Query: %v", err)
+	}
+	for rows.Next() {
+	}
+	rows.Close()
+	if n := rows.RowsAffected(); n != 1 {
+		t.Errorf("UPDATE in a transaction affected %d", n)
+	}
+}

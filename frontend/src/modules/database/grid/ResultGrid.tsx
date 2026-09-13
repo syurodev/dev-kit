@@ -134,13 +134,14 @@ export function ResultGrid({
   rowOffset = 0,
   onFilterByValue,
   onEditCells,
+  changedCells,
   editRefusal = "",
 }: {
   result: QueryResult;
   widths: readonly number[];
   columnOrder: readonly number[];
   onResize: (widths: number[]) => void;
-  onInspectCell: (cell: { columnName: string; value: string }) => void;
+  onInspectCell: (cell: { columnName: string; value: string | null }) => void;
   /** Server-side sort, when the caller has one. Absent in the console. */
   sort?: { column: number; direction: "asc" | "desc" } | null;
   onSort?: (column: number) => void;
@@ -178,7 +179,8 @@ export function ResultGrid({
    * column and the value and nothing else: quoting them into SQL needs the
    * engine, which is the caller's to know.
    */
-  onFilterByValue?: (filter: { column: string; value: string; negate: boolean }) => void;
+  /** `value` is null for a NULL cell, which filters with IS NULL (#47). */
+  onFilterByValue?: (filter: { column: string; value: string | null; negate: boolean }) => void;
   /**
    * Commits an edit. Absent means the grid is a reader — the console's result
    * can be a join or an expression, and there is no single table to write to.
@@ -187,6 +189,8 @@ export function ResultGrid({
    * the statement, and the grid owns only which cells the user picked.
    */
   onEditCells?: (edit: { rows: number[]; columns: number[]; value: string | null }) => void;
+  /** #52: cells holding a staged change, as "row:column", drawn as changed. */
+  changedCells?: ReadonlySet<string>;
   /** Why editing is refused, shown where the attempt is made. "" means it is not. */
   editRefusal?: string;
 }) {
@@ -365,7 +369,7 @@ export function ResultGrid({
         const columnIndex = order[here.focus.position];
         onInspectCell({
           columnName: result.columns[columnIndex] || `col_${columnIndex}`,
-          value: result.rows[here.focus.row]?.[columnIndex] ?? "",
+          value: result.rows[here.focus.row]?.[columnIndex] ?? null,
         });
       }
       event.preventDefault();
@@ -405,7 +409,7 @@ export function ResultGrid({
   const cell =
     target && target.row !== null && result.rows[target.row]
       ? {
-          value: result.rows[target.row][target.column] ?? "",
+          value: result.rows[target.row][target.column] ?? null,
           row: result.rows[target.row],
         }
       : null;
@@ -551,7 +555,7 @@ export function ResultGrid({
                         mount one per visible cell — 2,220 on a 74-column table — to
                         animate a column that snaps into place on drop anyway. */}
                     {order.map((columnIndex, position) => {
-                      const value = result.rows[rowIndex][columnIndex] ?? "";
+                      const value = result.rows[rowIndex][columnIndex] ?? null;
                       const isFocused = focus?.row === rowIndex && focus.position === position;
                       const isSelected = range ? inRange(range, rowIndex, position) : false;
                       const isEditing =
@@ -599,6 +603,7 @@ export function ResultGrid({
                           style={frozenStyle(position)}
                           className={cn(
                             "h-7 cursor-pointer truncate border-r border-b border-border-subtle px-3 select-text last:border-r-0 hover:text-text-primary",
+                            changedCells?.has(`${rowIndex}:${columnIndex}`) && "bg-status-warning/10",
                             // A number goes right, and in figures of one
                             // width: that is what makes a column of ids
                             // scannable — the four-digit one is visibly
@@ -621,7 +626,7 @@ export function ResultGrid({
                           // narrow to show it. "Click to inspect cell" on
                           // every cell meant scanning forty rows raised four
                           // hundred tooltips saying the same thing.
-                          title={value.length * CHAR_PX_APPROX > widthOf(columnIndex) ? value : undefined}
+                          title={value !== null && value.length * CHAR_PX_APPROX > widthOf(columnIndex) ? value : undefined}
                         >
                           {isEditing ? (
                             <CellEditor
@@ -633,7 +638,7 @@ export function ResultGrid({
                               onCommit={commitEdit}
                               onCancel={() => setEditing(null)}
                             />
-                          ) : value === "" ? (
+                          ) : value === null ? (
                             /* The absence of a value, dressed as an absence.
                                It was NULL in the warning colour — four
                                saturated letters repeated down a column of
@@ -678,7 +683,7 @@ export function ResultGrid({
         <ContextMenuContent>
           {cell ? (
             <>
-              <ContextMenuItem icon={<Copy />} onSelect={() => void copyText(cell.value)}>
+              <ContextMenuItem icon={<Copy />} onSelect={() => void copyText(cell.value ?? "")}>
                 Copy cell
               </ContextMenuItem>
               <ContextMenuItem

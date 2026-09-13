@@ -20,7 +20,7 @@ func TestPostgresDriverBoundsThePoolAndAppliesSafeMode(t *testing.T) {
 	}
 	t.Cleanup(open.Close)
 	config := open.(*postgresConn).pool.Config()
-	if config.MaxConns != 4 || config.MinConns != 0 || config.MaxConnLifetime != 30*time.Minute {
+	if config.MaxConns != 6 || config.MinConns != 0 || config.MaxConnLifetime != 30*time.Minute {
 		t.Fatalf("pool bounds = %d/%d/%s", config.MaxConns, config.MinConns, config.MaxConnLifetime)
 	}
 	if config.AfterConnect != nil {

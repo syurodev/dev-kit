@@ -4,9 +4,9 @@ import (
 	"context"
 	"crypto/tls"
 	"database/sql"
+	"database/sql/driver"
 	"fmt"
 	"net"
-	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -33,7 +33,8 @@ func (d mysqlDriver) Dial(ctx context.Context, cfg ConnConfig) (Conn, error) {
 		releaseMySQLTLS(tlsName)
 		return nil, err
 	}
-	db.SetMaxOpenConns(4)
+	// Six, not four: see postgresDriver.Dial — a console keeps one (#48).
+	db.SetMaxOpenConns(6)
 	db.SetMaxIdleConns(0)
 	db.SetConnMaxLifetime(30 * time.Minute)
 	return &mysqlConn{db: db, tlsName: tlsName, engine: d.engine}, nil
@@ -42,33 +43,40 @@ func (d mysqlDriver) Dial(ctx context.Context, cfg ConnConfig) (Conn, error) {
 // mysqlDSN builds the connection string and registers a TLS config when one is
 // needed. Split out from Dial so the parameters can be asserted without a
 // server.
+//
+// Through the driver's own Config (#45): a DSN put together with Sprintf left
+// the username, password and database name unescaped, so a "/" or "?" in any
+// of them changed what the rest of the string meant.
 func mysqlDSN(cfg ConnConfig) (dsn string, tlsName string, err error) {
-	params := url.Values{}
-	// Times come back as strings like every other value; the alternative is
-	// driver-specific time handling that the shared Rows shape cannot express.
-	params.Set("parseTime", "false")
-
+	if err := checkDriverOptions(mysqlOptions, cfg.Options); err != nil {
+		return "", "", err
+	}
 	tlsName, err = registerMySQLTLS(cfg)
 	if err != nil {
 		return "", "", err
 	}
-	if tlsName != "" {
-		params.Set("tls", tlsName)
+	config := mysqldriver.NewConfig()
+	config.User = cfg.Username
+	config.Passwd = cfg.Password
+	config.Net = "tcp"
+	config.Addr = net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port))
+	config.DBName = cfg.Database
+	config.TLSConfig = tlsName
+	// Times come back as strings like every other value; the alternative is
+	// driver-specific time handling that the shared Rows shape cannot express.
+	config.ParseTime = false
+	config.Params = map[string]string{}
+	// Options first, so none of them can stand in for what follows.
+	for key, value := range cfg.Options {
+		config.Params[key] = value
 	}
 	if cfg.ReadOnly {
 		// go-sql-driver treats unknown parameters as session system variables,
 		// so this issues SET transaction_read_only=1 on every new connection —
 		// the same per-connection guarantee pgx gets from AfterConnect.
-		params.Set("transaction_read_only", "1")
+		config.Params["transaction_read_only"] = "1"
 	}
-	for key, value := range cfg.Options {
-		params.Set(key, value)
-	}
-
-	return fmt.Sprintf("%s:%s@tcp(%s)/%s?%s",
-		cfg.Username, cfg.Password,
-		net.JoinHostPort(cfg.Host, fmt.Sprintf("%d", cfg.Port)),
-		cfg.Database, params.Encode()), tlsName, nil
+	return config.FormatDSN(), tlsName, nil
 }
 
 // registerMySQLTLS maps sslmode onto the driver's TLS handling. Unlike pgx,
@@ -194,6 +202,7 @@ func (c *mysqlConn) Query(ctx context.Context, query string, args ...any) (Rows,
 		stop()
 		_ = pinned.Close()
 	}
+	countRows := func() int64 { return rowCount(ctx, pinned.QueryRowContext) }
 	rows, err := pinned.QueryContext(ctx, query, args...)
 	if err != nil {
 		release()
@@ -205,8 +214,78 @@ func (c *mysqlConn) Query(ctx context.Context, query string, args ...any) (Rows,
 		release()
 		return nil, err
 	}
-	return &mysqlRows{rows: rows, columns: columns, release: release}, nil
+	return &mysqlRows{rows: rows, columns: columns, release: release, countRows: countRows}, nil
 }
+
+// rowCount asks the session how many rows its last statement changed. MySQL
+// has no command tag, and database/sql's Rows keeps the OK packet's count to
+// itself, so it is asked for — on the same session, before it is let go.
+func rowCount(ctx context.Context, queryRow func(context.Context, string, ...any) *sql.Row) int64 {
+	var n int64
+	if err := queryRow(ctx, "SELECT ROW_COUNT()").Scan(&n); err != nil {
+		return -1
+	}
+	return n
+}
+
+// OpenSession pins one connection for one console (#48).
+func (c *mysqlConn) OpenSession(ctx context.Context) (Session, error) {
+	pinned, err := c.db.Conn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	id, err := connectionID(ctx, pinned)
+	if err != nil {
+		_ = pinned.Close()
+		return nil, err
+	}
+	return &mysqlSession{pinned: pinned, kill: c.killQuery(id)}, nil
+}
+
+type mysqlSession struct {
+	pinned *sql.Conn
+	kill   func()
+}
+
+// Query runs on the pinned connection, stopped by KILL QUERY rather than by the
+// driver closing the socket, which would end the session too. See
+// postgresSession.Query.
+func (s *mysqlSession) Query(ctx context.Context, query string, args ...any) (Rows, error) {
+	stop := context.AfterFunc(ctx, s.kill)
+	run := context.WithoutCancel(ctx)
+	rows, err := s.pinned.QueryContext(run, query, args...)
+	if err != nil {
+		stop()
+		return nil, err
+	}
+	columns, err := rows.Columns()
+	if err != nil {
+		_ = rows.Close()
+		stop()
+		return nil, err
+	}
+	return &mysqlRows{
+		rows:      rows,
+		columns:   columns,
+		release:   func() { stop() },
+		countRows: func() int64 { return rowCount(run, s.pinned.QueryRowContext) },
+	}, nil
+}
+
+// Broken asks the driver whether the connection is still usable, without a
+// round trip.
+func (s *mysqlSession) Broken() bool {
+	return s.pinned.Raw(func(dc any) error {
+		if v, ok := dc.(driver.Validator); ok && !v.IsValid() {
+			return driver.ErrBadConn
+		}
+		return nil
+	}) != nil
+}
+
+// Close gives the connection back, and with no idle connections kept (Dial) the
+// pool closes it: nothing this session SET reaches another console.
+func (s *mysqlSession) Close() { _ = s.pinned.Close() }
 
 func connectionID(ctx context.Context, conn *sql.Conn) (int64, error) {
 	var id int64
@@ -217,8 +296,9 @@ func connectionID(ctx context.Context, conn *sql.Conn) (int64, error) {
 // killQuery stops whatever the server connection id is running, from a
 // connection of its own, bounded because it runs after the user stopped waiting.
 //
-// ponytail: borrows from the profile's pool of four; with all four busy the KILL
-// waits out its 5s. A connection kept aside for it is the upgrade if that bites.
+// ponytail: borrows from the profile's pool; with every connection busy the
+// KILL waits out its 5s. A connection kept aside for it is the upgrade if that
+// bites.
 func (c *mysqlConn) killQuery(id int64) func() {
 	return func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -273,7 +353,12 @@ func (t *mysqlTx) Query(ctx context.Context, query string, args ...any) (Rows, e
 		stop()
 		return nil, err
 	}
-	return &mysqlRows{rows: rows, columns: columns, release: func() { stop() }}, nil
+	return &mysqlRows{
+		rows:      rows,
+		columns:   columns,
+		release:   func() { stop() },
+		countRows: func() int64 { return rowCount(ctx, t.tx.QueryRowContext) },
+	}, nil
 }
 
 func (t *mysqlTx) Commit(ctx context.Context) error {
@@ -418,6 +503,10 @@ type mysqlRows struct {
 	// release runs once the rows are closed: the cancel watch is dropped, and
 	// an auto-commit statement's pinned connection goes back to the pool.
 	release func()
+	// countRows reads ROW_COUNT() on the statement's session; asked only for a
+	// statement that returned no columns, since a SELECT's answer is -1.
+	countRows func() int64
+	affected  int64
 }
 
 func (r *mysqlRows) Columns() []string { return r.columns }
@@ -425,14 +514,21 @@ func (r *mysqlRows) Next() bool        { return r.rows.Next() }
 func (r *mysqlRows) Err() error        { return r.rows.Err() }
 
 func (r *mysqlRows) Close() {
-	_ = r.rows.Close()
-	if r.release != nil {
-		r.release()
-		r.release = nil
+	if r.release == nil {
+		return
 	}
+	_ = r.rows.Close()
+	r.affected = -1
+	if len(r.columns) == 0 && r.countRows != nil {
+		r.affected = r.countRows()
+	}
+	r.release()
+	r.release = nil
 }
 
-func (r *mysqlRows) Values() ([]string, error) {
+func (r *mysqlRows) RowsAffected() int64 { return r.affected }
+
+func (r *mysqlRows) Values() ([]*string, error) {
 	raw := make([]any, len(r.columns))
 	pointers := make([]any, len(r.columns))
 	for i := range raw {
@@ -441,9 +537,13 @@ func (r *mysqlRows) Values() ([]string, error) {
 	if err := r.rows.Scan(pointers...); err != nil {
 		return nil, err
 	}
-	out := make([]string, len(raw))
+	out := make([]*string, len(raw))
 	for i, v := range raw {
-		out[i] = stringify(v)
+		if v == nil {
+			continue
+		}
+		text := stringify(v)
+		out[i] = &text
 	}
 	return out, nil
 }

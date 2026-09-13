@@ -32,7 +32,7 @@ const BASELINE: Record<string, { twText: number; rawPx: number; rawHex: number }
   // panel widths — content measures the Scale has no bucket for. Lowered from
   // 15 when the console's inline result table became ResultGrid: its two
   // max-w-[NNNpx] cell caps are now colgroup widths the caller owns.
-  "modules/database": { twText: 0, rawPx: 13, rawHex: 0 },
+  "modules/database": { twText: 0, rawPx: 8, rawHex: 0 },
   "modules/kafka": { twText: 0, rawPx: 0, rawHex: 0 },
   // Reconciled with Figma 13 on 2026-09-09; the 720 writing column is
   // max-w-180 on the spacing scale.

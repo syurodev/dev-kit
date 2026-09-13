@@ -47,7 +47,7 @@ func TestPostgresIntegration(t *testing.T) {
 	if len(result.Columns) != 2 || result.Columns[0] != "n" || result.Columns[1] != "greeting" {
 		t.Fatalf("columns = %v", result.Columns)
 	}
-	if result.RowCount != 1 || result.Rows[0][0] != "1" || result.Rows[0][1] != "hi" {
+	if result.RowCount != 1 || *result.Rows[0][0] != "1" || *result.Rows[0][1] != "hi" {
 		t.Fatalf("rows = %v", result.Rows)
 	}
 }

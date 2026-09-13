@@ -60,9 +60,12 @@ export type UpdateProfileOptionsInput = {
 
 export type QueryResult = {
   columns: string[];
-  rows: string[][];
+  /** Each cell as text, null for SQL NULL (#47) — never the four letters. */
+  rows: (string | null)[][];
   rowCount: number;
   truncated: boolean;
+  /** What an UPDATE, INSERT or DELETE changed; -1 when the driver cannot say. */
+  rowsAffected?: number;
 };
 
 export type TableInfo = {
@@ -348,14 +351,38 @@ export function testConnection(id: string): Promise<void> {
  * the default — is the service's own cap, which is what the console and every
  * catalogue read want: they have no page to size.
  */
-export function runQuery(id: string, sql: string, maxRows = 0): CancellableCall<QueryResult> {
+/** Writes a table tab's reviewed changes in one transaction, all or none (#52). */
+export function applyEdits(id: string, statements: readonly string[]): Promise<void> {
+  return callBridge(() => AppService.DBApplyEdits(id, [...statements]));
+}
+
+/**
+ * Gives back a console's connection (#48) — or, with no sessionId, every
+ * console connection the profile holds.
+ */
+export function closeSession(id: string, sessionId = ""): Promise<void> {
+  return callBridge(() => AppService.DBCloseSession(id, sessionId));
+}
+
+/**
+ * `sessionId` is the console the statement comes from: it runs on that
+ * console's own connection, so what it SETs is there for the next run (#48).
+ * Empty for a table tab's page.
+ */
+export function runQuery(
+  id: string,
+  sql: string,
+  maxRows = 0,
+  sessionId = "",
+): CancellableCall<QueryResult> {
   return callBridgeCancellable(
-    () => AppService.DBQuery(id, sql, maxRows),
+    () => AppService.DBQuery(id, sql, maxRows, sessionId),
     (result) => ({
       columns: result.columns ?? [],
-      rows: (result.rows ?? []).map((r) => (r ?? []).map((c) => c ?? "")),
+      rows: (result.rows ?? []).map((r) => (r ?? []).map((c) => c ?? null)),
       rowCount: result.row_count,
       truncated: result.truncated,
+      rowsAffected: result.rows_affected,
     }),
   );
 }
