@@ -72,11 +72,14 @@ export interface SettingsModalProps {
 }
 
 /**
- * Figma `Settings Shell` (762:1759): 940×620 on the float glass tier —
- * glass/float-bg, glass/border, radius 14, blur 20, a 24/64/-12 shadow at
- * 55%. A 56px header with the title and a 32px close, a hairline under it,
- * a 220px nav with a hairline on its right, and the section content 32 in
- * from both.
+ * Figma `Settings Shell` (762:1759): 940×620. A 56px header with the title and
+ * a 32px close, a hairline under it, a 220px nav with a hairline on its right,
+ * and the section content 32 in from both.
+ *
+ * On Dialog, like every other modal: the modal glass tier, the shared scrim,
+ * open and close animation, focus trapping and return, Esc and click-outside.
+ * It used to draw all of that itself, on the float tier — the most translucent
+ * fill in the app, under the largest surface in it.
  */
 export function SettingsModal({ open, onClose, initialTab }: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? "account");
@@ -87,40 +90,27 @@ export function SettingsModal({ open, onClose, initialTab }: SettingsModalProps)
     if (open && initialTab) setActiveTab(initialTab);
   }, [open, initialTab]);
 
-  // Handle ESC key press to close modal
-  useEffect(() => {
-    if (!open) return;
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        onClose();
-      }
-    }
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [open, onClose]);
-
-  if (!open) return null;
-
   return (
     <TooltipProvider>
-      {/* Blurred Scrim Backdrop Overlay */}
-      <div
-        data-slot="settings-scrim"
-        onClick={(e) => {
-          if (e.target === e.currentTarget) {
-            onClose();
-          }
-        }}
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[12px] select-none animate-in fade-in duration-(--motion-base)"
-      >
-        <div
-          data-slot="settings-modal"
-          onClick={(e) => e.stopPropagation()}
-          className="flex h-[620px] w-full max-w-[940px] flex-col overflow-hidden rounded-lg border border-glass-border bg-glass-float text-text-primary shadow-[0px_24px_64px_-12px_rgba(0,0,0,0.55)] backdrop-blur-[20px] animate-in zoom-in-95 duration-(--motion-base)"
+      <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+        <DialogContent
+          showCloseButton={false}
+          aria-describedby={undefined}
+          // Focus the panel, not its first control: that is the close button,
+          // and focusing it opens its tooltip the moment Settings appears.
+          onOpenAutoFocus={(event) => {
+            event.preventDefault();
+            (event.currentTarget as HTMLElement | null)?.focus();
+          }}
+          className="flex w-full max-w-[calc(100%-2rem)] flex-col gap-0 overflow-hidden p-0 text-text-primary select-none sm:max-w-[940px]"
         >
+          {/* The height lives here, not on DialogContent: the dialog's body
+              is h-fit, so the nav and the scrolling content need a box of
+              their own to fill. */}
+          <div className="flex h-[min(620px,calc(100vh-2rem))] flex-col">
           {/* Modal Header · 56px */}
           <div className="flex h-14 w-full shrink-0 items-center justify-between border-b border-border-subtle pr-3 pl-6">
-            <span className="text-title-16 text-text-primary">Settings</span>
+            <DialogTitle className="text-text-primary">Settings</DialogTitle>
 
             <Tooltip>
               <TooltipTrigger asChild>
@@ -185,8 +175,9 @@ export function SettingsModal({ open, onClose, initialTab }: SettingsModalProps)
               {activeTab === "database" && <DatabaseTab />}
             </div>
           </div>
-        </div>
-      </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </TooltipProvider>
   );
 }
