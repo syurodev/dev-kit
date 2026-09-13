@@ -260,9 +260,8 @@ function PureColorPicker({
       </ToolbarMenuGroup>
       {color && (
         <ToolbarMenuGroup>
-          <DropdownMenuItem className="p-2" onClick={clearColor}>
-            <EraserIcon />
-            <span>Clear</span>
+          <DropdownMenuItem icon={<EraserIcon />} onClick={clearColor}>
+            Clear
           </DropdownMenuItem>
         </ToolbarMenuGroup>
       )}
@@ -400,6 +399,7 @@ function ColorCustom({
           value={value}
         >
           <DropdownMenuItem
+            bare
             className={cn(
               buttonVariants({
                 size: 'icon',
@@ -476,6 +476,7 @@ function ColorDropdownMenuItem({
 } & DropdownMenuItemProps) {
   const content = (
     <DropdownMenuItem
+      bare
       className={cn(
         buttonVariants({
           size: 'icon',

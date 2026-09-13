@@ -56,7 +56,7 @@ const BASELINE: Record<string, { twText: number; rawPx: number; rawHex: number }
   // one className — two GitHub palettes behind a `dark:` prefix — and they are
   // tokens now, so a code block follows the theme family. What remains is
   // documentation: comments naming the Figma token a class maps to.
-  components: { twText: 0, rawPx: 102, rawHex: 1 },
+  components: { twText: 0, rawPx: 100, rawHex: 1 },
   // 33 → 24: nine `rounded-[8px]` went with the nine copies of the title
   // bar's action button, which is Button's `titlebar` variant now. --radius-md
   // is that 8px, so the scale had the number the whole time.

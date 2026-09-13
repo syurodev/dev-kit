@@ -2,7 +2,14 @@ import * as React from "react"
 import { ContextMenu as ContextMenuPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
-import { Kbd } from "@/components/ui/kbd"
+import {
+  MENU_LABEL,
+  MENU_ROW,
+  MENU_ROW_DESTRUCTIVE,
+  MenuLabelText,
+  MenuRow,
+  MenuTrailing,
+} from "@/components/ui/menu-row"
 import { ChevronRightIcon, CheckIcon } from "lucide-react"
 
 function ContextMenu({
@@ -74,49 +81,7 @@ function ContextMenuContent({
   )
 }
 
-/**
- * Every row of a menu is the same three columns: an icon, the label, and a
- * shortcut.
- *
- * The icon column is there whether or not the row has an icon. A row without
- * one keeps the slot empty, so every label in the menu starts on the same
- * vertical line — the way IntelliJ's and VS Code's menus read, and the thing
- * a menu of mixed rows got wrong when the icon was just the first child of a
- * flex row. The last column is the shortcut, or a submenu's chevron.
- */
-const ROW = cn(
-  "relative grid h-7 w-full min-w-[200px] cursor-pointer grid-cols-[var(--icon-14)_minmax(0,1fr)_auto] items-center gap-x-2 rounded-[6px] px-2 text-body-13 outline-none select-none transition-colors",
-  "bg-transparent text-text-primary",
-  "focus:bg-state-soft hover:bg-state-soft data-open:bg-state-soft",
-  "data-disabled:pointer-events-none data-disabled:opacity-50",
-  "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5"
-)
-
-function MenuRow({
-  icon,
-  trailing,
-  children,
-}: {
-  icon?: React.ReactNode
-  trailing?: React.ReactNode
-  children: React.ReactNode
-}) {
-  return (
-    <>
-      <span data-slot="context-menu-icon" aria-hidden className="flex size-(--icon-14) items-center justify-center">
-        {icon}
-      </span>
-      <span className="min-w-0 truncate">{children}</span>
-      <span className="flex items-center justify-end">{trailing}</span>
-    </>
-  )
-}
-
-/** A shortcut, set in the app's key cap, clear of the label. */
-function Shortcut({ keys }: { keys?: string }) {
-  return keys ? <Kbd className="ml-4">{keys}</Kbd> : null
-}
-
+/** A row: icon · label · shortcut — see components/ui/menu-row. */
 function ContextMenuItem({
   className,
   variant = "default",
@@ -135,17 +100,10 @@ function ContextMenuItem({
     <ContextMenuPrimitive.Item
       data-slot="context-menu-item"
       data-variant={variant}
-      className={cn(
-        ROW,
-        "group/context-menu-item",
-        "data-[variant=destructive]:bg-transparent data-[variant=destructive]:text-status-danger",
-        "data-[variant=destructive]:focus:bg-[var(--feedback-danger-soft)] data-[variant=destructive]:hover:bg-[var(--feedback-danger-soft)] data-[variant=destructive]:focus:text-status-danger data-[variant=destructive]:hover:text-status-danger",
-        "data-[variant=destructive]:*:[svg]:text-status-danger",
-        className
-      )}
+      className={cn(MENU_ROW, "group/context-menu-item", MENU_ROW_DESTRUCTIVE, className)}
       {...props}
     >
-      <MenuRow icon={icon} trailing={<Shortcut keys={shortcut} />}>
+      <MenuRow icon={icon} trailing={<MenuTrailing shortcut={shortcut} />}>
         {children}
       </MenuRow>
     </ContextMenuPrimitive.Item>
@@ -163,7 +121,7 @@ function ContextMenuSubTrigger({
   return (
     <ContextMenuPrimitive.SubTrigger
       data-slot="context-menu-sub-trigger"
-      className={cn(ROW, className)}
+      className={cn(MENU_ROW, className)}
       {...props}
     >
       <MenuRow icon={icon} trailing={<ChevronRightIcon className="text-text-tertiary" />}>
@@ -206,7 +164,7 @@ function ContextMenuCheckboxItem({
   return (
     <ContextMenuPrimitive.CheckboxItem
       data-slot="context-menu-checkbox-item"
-      className={cn(ROW, className)}
+      className={cn(MENU_ROW, className)}
       checked={checked}
       {...props}
     >
@@ -216,7 +174,7 @@ function ContextMenuCheckboxItem({
             <CheckIcon />
           </ContextMenuPrimitive.ItemIndicator>
         }
-        trailing={<Shortcut keys={shortcut} />}
+        trailing={<MenuTrailing shortcut={shortcut} />}
       >
         {children}
       </MenuRow>
@@ -235,7 +193,7 @@ function ContextMenuRadioItem({
   return (
     <ContextMenuPrimitive.RadioItem
       data-slot="context-menu-radio-item"
-      className={cn(ROW, className)}
+      className={cn(MENU_ROW, className)}
       {...props}
     >
       <MenuRow
@@ -244,7 +202,7 @@ function ContextMenuRadioItem({
             <CheckIcon />
           </ContextMenuPrimitive.ItemIndicator>
         }
-        trailing={<Shortcut keys={shortcut} />}
+        trailing={<MenuTrailing shortcut={shortcut} />}
       >
         {children}
       </MenuRow>
@@ -252,7 +210,6 @@ function ContextMenuRadioItem({
   )
 }
 
-/** A label starts where the rows' labels start: past the icon column. */
 function ContextMenuLabel({
   className,
   children,
@@ -261,14 +218,10 @@ function ContextMenuLabel({
   return (
     <ContextMenuPrimitive.Label
       data-slot="context-menu-label"
-      className={cn(
-        "grid grid-cols-[var(--icon-14)_minmax(0,1fr)] gap-x-2 px-2 py-1 text-caption-11-medium text-muted-foreground",
-        className
-      )}
+      className={cn(MENU_LABEL, "text-caption-11-medium text-muted-foreground", className)}
       {...props}
     >
-      <span aria-hidden />
-      <span className="min-w-0 truncate">{children}</span>
+      <MenuLabelText>{children}</MenuLabelText>
     </ContextMenuPrimitive.Label>
   )
 }

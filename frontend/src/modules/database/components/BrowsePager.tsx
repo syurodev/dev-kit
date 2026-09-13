@@ -132,11 +132,9 @@ export function BrowsePager({
                       key={size}
                       value={String(size)}
                       className="tabular-nums"
+                      detail={size === BROWSE_PAGE_SIZE ? "Default" : undefined}
                     >
                       {size.toLocaleString()}
-                      {size === BROWSE_PAGE_SIZE ? (
-                        <span className="ml-1 text-text-tertiary">Default</span>
-                      ) : null}
                     </DropdownMenuRadioItem>
                   ))}
                 </DropdownMenuRadioGroup>

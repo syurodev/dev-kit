@@ -58,9 +58,11 @@ export function TableToolbarButton(props: DropdownMenuProps) {
       >
         <DropdownMenuGroup>
           <DropdownMenuSub>
-            <DropdownMenuSubTrigger className="gap-2 data-[disabled]:pointer-events-none data-[disabled]:opacity-50">
-              <Grid3x3Icon className="size-4" />
-              <span>Table</span>
+            <DropdownMenuSubTrigger
+              icon={<Grid3x3Icon />}
+              className="data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
+            >
+              Table
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent className="m-0 p-0">
               <TablePicker />
@@ -69,11 +71,10 @@ export function TableToolbarButton(props: DropdownMenuProps) {
 
           <DropdownMenuSub>
             <DropdownMenuSubTrigger
-              className="gap-2 data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
+              className="data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
               disabled={!tableSelected}
             >
-              <div className="size-4" />
-              <span>Cell</span>
+              Cell
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent>
               <DropdownMenuItem
@@ -83,8 +84,8 @@ export function TableToolbarButton(props: DropdownMenuProps) {
                   tf.table.merge();
                   editor.tf.focus();
                 }}
+                icon={<Combine />}
               >
-                <Combine />
                 Merge cells
               </DropdownMenuItem>
               <DropdownMenuItem
@@ -94,8 +95,8 @@ export function TableToolbarButton(props: DropdownMenuProps) {
                   tf.table.split();
                   editor.tf.focus();
                 }}
+                icon={<Ungroup />}
               >
-                <Ungroup />
                 Split cell
               </DropdownMenuItem>
             </DropdownMenuSubContent>
@@ -103,11 +104,10 @@ export function TableToolbarButton(props: DropdownMenuProps) {
 
           <DropdownMenuSub>
             <DropdownMenuSubTrigger
-              className="gap-2 data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
+              className="data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
               disabled={!tableSelected}
             >
-              <div className="size-4" />
-              <span>Row</span>
+              Row
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent>
               <DropdownMenuItem
@@ -117,8 +117,8 @@ export function TableToolbarButton(props: DropdownMenuProps) {
                   tf.insert.tableRow({ before: true });
                   editor.tf.focus();
                 }}
+                icon={<ArrowUp />}
               >
-                <ArrowUp />
                 Insert row before
               </DropdownMenuItem>
               <DropdownMenuItem
@@ -128,8 +128,8 @@ export function TableToolbarButton(props: DropdownMenuProps) {
                   tf.insert.tableRow();
                   editor.tf.focus();
                 }}
+                icon={<ArrowDown />}
               >
-                <ArrowDown />
                 Insert row after
               </DropdownMenuItem>
               <DropdownMenuItem
@@ -139,8 +139,8 @@ export function TableToolbarButton(props: DropdownMenuProps) {
                   tf.remove.tableRow();
                   editor.tf.focus();
                 }}
+                icon={<XIcon />}
               >
-                <XIcon />
                 Delete row
               </DropdownMenuItem>
             </DropdownMenuSubContent>
@@ -148,11 +148,10 @@ export function TableToolbarButton(props: DropdownMenuProps) {
 
           <DropdownMenuSub>
             <DropdownMenuSubTrigger
-              className="gap-2 data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
+              className="data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
               disabled={!tableSelected}
             >
-              <div className="size-4" />
-              <span>Column</span>
+              Column
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent>
               <DropdownMenuItem
@@ -162,8 +161,8 @@ export function TableToolbarButton(props: DropdownMenuProps) {
                   tf.insert.tableColumn({ before: true });
                   editor.tf.focus();
                 }}
+                icon={<ArrowLeft />}
               >
-                <ArrowLeft />
                 Insert column before
               </DropdownMenuItem>
               <DropdownMenuItem
@@ -173,8 +172,8 @@ export function TableToolbarButton(props: DropdownMenuProps) {
                   tf.insert.tableColumn();
                   editor.tf.focus();
                 }}
+                icon={<ArrowRight />}
               >
-                <ArrowRight />
                 Insert column after
               </DropdownMenuItem>
               <DropdownMenuItem
@@ -184,8 +183,8 @@ export function TableToolbarButton(props: DropdownMenuProps) {
                   tf.remove.tableColumn();
                   editor.tf.focus();
                 }}
+                icon={<XIcon />}
               >
-                <XIcon />
                 Delete column
               </DropdownMenuItem>
             </DropdownMenuSubContent>
@@ -198,8 +197,8 @@ export function TableToolbarButton(props: DropdownMenuProps) {
               tf.remove.table();
               editor.tf.focus();
             }}
+            icon={<Trash2Icon />}
           >
-            <Trash2Icon />
             Delete table
           </DropdownMenuItem>
         </DropdownMenuGroup>

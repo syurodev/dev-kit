@@ -345,7 +345,7 @@ describe("Step 4b Shell Overlays & Composition Reconciliation", () => {
   });
 
   describe("Shell / Menu Item (Figma 816:2423)", () => {
-    it("verifies box: 200x28, r6, px-2 py-1, gap-2, glyph 14px", () => {
+    it("verifies box: 200x28, r6, px-2, three columns with a reserved 14px glyph slot", () => {
       const html = renderToString(
         <ShellMenuItemSpec
           tone="default"
@@ -357,10 +357,14 @@ describe("Step 4b Shell Overlays & Composition Reconciliation", () => {
       expect(html).toContain("w-[200px]");
       expect(html).toContain("h-7"); // 28px
       expect(html).toContain("rounded-[6px]");
-      expect(html).toContain("px-2 py-1");
-      expect(html).toContain("gap-2");
+      expect(html).toContain("px-2");
+      expect(html).toContain("gap-x-2");
       expect(html).toContain("text-body-13");
-      expect(html).toContain("text-code-11 text-text-tertiary"); // shortcut
+      // icon · label · shortcut, and the icon slot is there with no icon.
+      expect(html).toContain("grid-cols-[var(--icon-14)_minmax(0,1fr)_auto]");
+      expect(html).toContain('data-slot="menu-icon"');
+      // The shortcut is a key cap.
+      expect(html).toContain('data-slot="kbd"');
     });
 
     it("verifies Default tone: rest is transparent text-primary, hover is state-soft", () => {

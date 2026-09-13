@@ -92,12 +92,10 @@ export function AgentMenu({
           <DropdownMenuItem
             data-testid="agent-menu-browse"
             onSelect={onBrowseContext}
-            className="h-8 gap-2 rounded-sm p-2"
+            className="h-8 rounded-sm"
+            icon={<FolderOpen className="size-3 shrink-0" aria-hidden="true" />}
           >
-            <FolderOpen className="size-3 shrink-0" aria-hidden="true" />
-            <span className="min-w-0 flex-1 truncate text-body-12 text-text-primary">
-              Browse files…
-            </span>
+            <span className="text-body-12 text-text-primary">Browse files…</span>
           </DropdownMenuItem>
         ) : null}
 
@@ -107,17 +105,17 @@ export function AgentMenu({
                 key={command.name}
                 data-testid="agent-menu-command"
                 onSelect={() => onSelectCommand?.(command.name)}
-                className="h-8 gap-2 rounded-sm p-2"
+                className="h-8 rounded-sm"
+                icon={<CommandIcon className="size-3 shrink-0" aria-hidden="true" />}
+                detail={
+                  command.description ? (
+                    <span className="text-caption-11">{command.description}</span>
+                  ) : undefined
+                }
               >
-                <CommandIcon className="size-3 shrink-0" aria-hidden="true" />
-                <span className="min-w-0 flex-1 truncate text-code-12 text-text-primary">
+                <span className="text-code-12 text-text-primary">
                   {command.name.startsWith("/") ? command.name : `/${command.name}`}
                 </span>
-                {command.description ? (
-                  <span className="shrink-0 truncate text-caption-11 text-text-tertiary">
-                    {command.description}
-                  </span>
-                ) : null}
               </DropdownMenuItem>
             ))
           : contextFiles.map((file) => {
@@ -127,17 +125,17 @@ export function AgentMenu({
                   key={file.path}
                   data-testid="agent-menu-context"
                   onSelect={() => onSelectContext?.(file.path)}
-                  className="h-8 gap-2 rounded-sm p-2"
+                  className="h-8 rounded-sm"
+                  icon={<Glyph className="size-3 shrink-0" aria-hidden="true" />}
+                  detail={
+                    file.description ? (
+                      <span className="text-caption-11">{file.description}</span>
+                    ) : undefined
+                  }
                 >
-                  <Glyph className="size-3 shrink-0" aria-hidden="true" />
-                  <span className="min-w-0 flex-1 truncate text-code-12 text-text-primary">
+                  <span className="text-code-12 text-text-primary">
                     {file.name ?? file.path}
                   </span>
-                  {file.description ? (
-                    <span className="shrink-0 truncate text-caption-11 text-text-tertiary">
-                      {file.description}
-                    </span>
-                  ) : null}
                 </DropdownMenuItem>
               );
             })}

@@ -1041,29 +1041,25 @@ function TableBordersDropdownMenuContent(
           checked={hasTopBorder}
           onCheckedChange={getOnSelectTableBorder('top')}
         >
-          <BorderTopIcon />
-          <div>Top Border</div>
+          <span className="inline-flex items-center gap-2"><BorderTopIcon />Top Border</span>
         </DropdownMenuCheckboxItem>
         <DropdownMenuCheckboxItem
           checked={hasRightBorder}
           onCheckedChange={getOnSelectTableBorder('right')}
         >
-          <BorderRightIcon />
-          <div>Right Border</div>
+          <span className="inline-flex items-center gap-2"><BorderRightIcon />Right Border</span>
         </DropdownMenuCheckboxItem>
         <DropdownMenuCheckboxItem
           checked={hasBottomBorder}
           onCheckedChange={getOnSelectTableBorder('bottom')}
         >
-          <BorderBottomIcon />
-          <div>Bottom Border</div>
+          <span className="inline-flex items-center gap-2"><BorderBottomIcon />Bottom Border</span>
         </DropdownMenuCheckboxItem>
         <DropdownMenuCheckboxItem
           checked={hasLeftBorder}
           onCheckedChange={getOnSelectTableBorder('left')}
         >
-          <BorderLeftIcon />
-          <div>Left Border</div>
+          <span className="inline-flex items-center gap-2"><BorderLeftIcon />Left Border</span>
         </DropdownMenuCheckboxItem>
       </DropdownMenuGroup>
 
@@ -1072,15 +1068,13 @@ function TableBordersDropdownMenuContent(
           checked={hasNoBorders}
           onCheckedChange={getOnSelectTableBorder('none')}
         >
-          <BorderNoneIcon />
-          <div>No Border</div>
+          <span className="inline-flex items-center gap-2"><BorderNoneIcon />No Border</span>
         </DropdownMenuCheckboxItem>
         <DropdownMenuCheckboxItem
           checked={hasOuterBorders}
           onCheckedChange={getOnSelectTableBorder('outer')}
         >
-          <BorderAllIcon />
-          <div>Outside Borders</div>
+          <span className="inline-flex items-center gap-2"><BorderAllIcon />Outside Borders</span>
         </DropdownMenuCheckboxItem>
       </DropdownMenuGroup>
     </DropdownMenuContent>
@@ -1133,9 +1127,8 @@ function ColorDropdownMenu({
           />
         </ToolbarMenuGroup>
         <DropdownMenuGroup>
-          <DropdownMenuItem className="p-2" onClick={onClearColor}>
-            <EraserIcon />
-            <span>Clear</span>
+          <DropdownMenuItem icon={<EraserIcon />} onClick={onClearColor}>
+            Clear
           </DropdownMenuItem>
         </DropdownMenuGroup>
       </DropdownMenuContent>
