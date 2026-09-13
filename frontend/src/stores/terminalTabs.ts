@@ -4,7 +4,14 @@ export type TerminalTab = {
   /** Client-side identity, assigned before the PTY exists. */
   key: string;
   title: string;
+  /** Starts this tab's process; a shell at the open project when absent. */
+  start?: (rows: number, cols: number) => Promise<string>;
+  /** The process's exit code, once; -1 when the tab closed first. */
+  onExit?: (code: number) => void;
 };
+
+/** A tab that runs one command instead of a shell, e.g. Agent Hub's sign-in. */
+export type TerminalCommandTab = Pick<TerminalTab, "title" | "start" | "onExit">;
 
 /**
  * Which tab should take over when `closing` goes away.
@@ -32,7 +39,7 @@ type TerminalTabsState = {
   activeKey: string;
   /** Monotonic, so a reused index never gives two shells the same title. */
   nextId: number;
-  openTab: () => void;
+  openTab: (command?: TerminalCommandTab) => void;
   closeTab: (key: string) => void;
   setActive: (key: string) => void;
 };
@@ -48,9 +55,9 @@ export const useTerminalTabsStore = create<TerminalTabsState>((set) => ({
   tabs: [],
   activeKey: "",
   nextId: 1,
-  openTab: () =>
+  openTab: (command) =>
     set((s) => {
-      const tab = { key: `t${s.nextId}`, title: `Terminal ${s.nextId}` };
+      const tab: TerminalTab = { title: `Terminal ${s.nextId}`, ...command, key: `t${s.nextId}` };
       return { tabs: [...s.tabs, tab], activeKey: tab.key, nextId: s.nextId + 1 };
     }),
   closeTab: (key) =>

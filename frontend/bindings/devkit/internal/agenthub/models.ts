@@ -35,6 +35,25 @@ export enum AgentType {
 };
 
 /**
+ * AuthMethod is a sign-in the agent offers, resolved to what DevKit would run
+ * for it. DevKit never signs anyone in itself: every method is the agent's own
+ * login command, run unmodified in a terminal the user watches, so sign-in
+ * completes through Anthropic's flow and no credential passes through DevKit.
+ */
+export interface AuthMethod {
+    "id": string;
+    "name": string;
+    "description": string;
+
+    /**
+     * Label is the agent's name for the terminal, e.g. "Claude Login".
+     */
+    "label": string;
+    "command": string;
+    "args": string[] | null;
+}
+
+/**
  * CreateInput is the request to open a new agent session.
  */
 export interface CreateInput {

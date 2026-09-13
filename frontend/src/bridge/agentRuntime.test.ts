@@ -2,7 +2,10 @@ import { describe, expect, test } from "bun:test";
 import {
   formatBytes,
   hintCommands,
+  isAgentAuthRequiredError,
   isAgentNotInstalledError,
+  signInLabel,
+  signInOutcome,
   isRuntimeRequirementError,
   runtimeBlocked,
   runtimeStatusLine,
@@ -89,3 +92,27 @@ test("versions compare by number, not by text", () => {
   expect(compareVersions("0.74", "0.74.0")).toBe(0);
 });
 
+describe("sign-in", () => {
+  test("known methods get plain labels, new ones their own name", () => {
+    expect(signInLabel({ id: "claude-ai-login", name: "Claude Subscription" })).toBe(
+      "Sign in with Claude subscription",
+    );
+    expect(signInLabel({ id: "console-login", name: "Anthropic Console" })).toBe(
+      "Sign in with Anthropic Console",
+    );
+    expect(signInLabel({ id: "sso-login", name: "Company SSO" })).toBe("Sign in with Company SSO");
+  });
+
+  test("only exit 0 is signed in, and so only exit 0 retries", () => {
+    expect(signInOutcome(0)).toEqual({ signedIn: true, message: "Signed in." });
+    expect(signInOutcome(1)).toEqual({ signedIn: false, message: "Sign-in exited with code 1." });
+    expect(signInOutcome(-1).signedIn).toBe(false);
+    expect(signInOutcome(-1).message).toBe("Sign-in stopped before it finished.");
+  });
+
+  test("auth required is recognised by its code", () => {
+    const coded = (code: string) => new AppError({ code, message: "Claude isn't signed in.", recoverable: true });
+    expect(isAgentAuthRequiredError(coded("agent_auth_required"))).toBe(true);
+    expect(isAgentAuthRequiredError(coded("connection_failed"))).toBe(false);
+  });
+});

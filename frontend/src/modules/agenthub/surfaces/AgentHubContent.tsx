@@ -37,6 +37,8 @@ export type AgentHubContentProps = {
   onNewSession?: () => void;
   /** Opens Settings → Agents, for errors whose fix is an install. */
   onOpenSettings?: () => void;
+  /** Shown inside the error card, under the reason — e.g. the sign-in buttons. */
+  errorDetail?: React.ReactNode;
   /** Files the user attached to the turn being composed. */
   attachments?: string[];
   onBrowseContext?: () => void;
@@ -98,6 +100,7 @@ export function AgentHubContent({
   onCloseSession,
   onNewSession,
   onOpenSettings,
+  errorDetail,
   attachments = [],
   onBrowseContext,
   onRemoveAttachment,
@@ -223,7 +226,9 @@ export function AgentHubContent({
               onOpenSettings={onOpenSettings}
               onClose={onCloseSession}
               className="w-full max-w-none"
-            />
+            >
+              {errorDetail}
+            </AgentSessionError>
           </div>
         </div>
       ) : (

@@ -43,6 +43,15 @@ import * as json$0 from "../../../encoding/json/models.js";
 // @ts-ignore: Unused imports
 import * as $models from "./models.js";
 
+/**
+ * AgentHubAuthMethods lists the sign-ins an agent offers ("claude"), each with
+ * the command DevKit would run for it. No session is needed: the list comes
+ * from a sandboxed initialize, so it works for a user who has never signed in.
+ */
+export function AgentHubAuthMethods(agent: string): $CancellablePromise<agenthub$0.AuthMethod[] | null> {
+    return $Call.ByID(593532954, agent);
+}
+
 export function AgentHubCancel(id: string): $CancellablePromise<void> {
     return $Call.ByID(952653156, id);
 }
@@ -124,6 +133,20 @@ export function AgentHubPendingPermissions(): $CancellablePromise<agenthub$0.Pen
  */
 export function AgentHubResolvePermission(id: string, outcome: json$0.RawMessage): $CancellablePromise<void> {
     return $Call.ByID(953872769, id, outcome);
+}
+
+/**
+ * AgentHubStartSignIn runs one of an agent's sign-in methods in a new terminal
+ * session and returns its id, for the Terminal module's tab to attach to. The
+ * process's exit code arrives as a terminal:exit event.
+ * 
+ * Only a method id crosses the bridge, never a command: the backend resolves it
+ * against what the agent offered (AuthMethods), so the UI cannot be used to run
+ * anything else. The login runs outside the sandbox, like the user typing it —
+ * it needs a browser, a localhost callback, the keychain and ~/.claude.
+ */
+export function AgentHubStartSignIn(agent: string, methodID: string, rows: number, cols: number): $CancellablePromise<string> {
+    return $Call.ByID(2026788472, agent, methodID, rows, cols);
 }
 
 /**

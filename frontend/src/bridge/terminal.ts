@@ -3,6 +3,7 @@ import { callBridge } from "./client";
 import { AppService } from "../../bindings/devkit/internal/bridge";
 
 const OUTPUT_EVENT = "terminal:output";
+const EXIT_EVENT = "terminal:exit";
 
 /**
  * Go's []byte crosses the bridge as base64 in BOTH directions — the generated
@@ -26,6 +27,9 @@ function fromBase64(b64: string): Uint8Array {
   return out;
 }
 
+/** Starts a terminal session sized rows × cols and resolves to its id. */
+export type TerminalStart = (rows: number, cols: number) => Promise<string>;
+
 /** Starts a shell rooted at the active CodeGraph project. Returns its session id. */
 export async function startCodeGraphTerminal(rows: number, cols: number): Promise<string> {
   return callBridge(() => AppService.CodeGraphStartTerminal(rows, cols));
@@ -44,14 +48,51 @@ export async function closeTerminal(sessionId: string): Promise<void> {
   return callBridge(() => AppService.TerminalClose(sessionId));
 }
 
-/** Subscribes to one session's output. Returns an unsubscribe function. */
-export function onTerminalOutput(
-  sessionId: string,
-  handler: (chunk: Uint8Array) => void,
-): () => void {
-  return Events.On(OUTPUT_EVENT, (ev) => {
+/**
+ * Starts a session and hands over its output and exit code from the first byte.
+ *
+ * Subscribing once `start` resolved — what this replaced — dropped whatever the
+ * process wrote, or its exit, before the bridge reply arrived. A login prints
+ * its URL straight away, and a command that fails at once exits before anyone
+ * knows its id. So both events are listened to first and held until it is.
+ */
+export async function attachTerminal(
+  start: () => Promise<string>,
+  onOutput: (chunk: Uint8Array) => void,
+  onExit?: (code: number) => void,
+): Promise<{ sessionId: string; detach: () => void }> {
+  let sessionId = "";
+  const held: Array<[id: string, deliver: () => void]> = [];
+  const route = (id: string | undefined, deliver: () => void) => {
+    if (!id) return;
+    if (!sessionId) held.push([id, deliver]);
+    else if (id === sessionId) deliver();
+  };
+
+  const offOutput = Events.On(OUTPUT_EVENT, (ev) => {
     const data = ev?.data as { sessionId?: string; chunk?: string } | undefined;
-    if (!data || data.sessionId !== sessionId || typeof data.chunk !== "string") return;
-    handler(fromBase64(data.chunk));
+    const chunk = data?.chunk;
+    if (typeof chunk !== "string") return;
+    route(data?.sessionId, () => onOutput(fromBase64(chunk)));
   });
+  const offExit = Events.On(EXIT_EVENT, (ev) => {
+    const data = ev?.data as { sessionId?: string; code?: number } | undefined;
+    const code = typeof data?.code === "number" ? data.code : -1;
+    route(data?.sessionId, () => onExit?.(code));
+  });
+  const detach = () => {
+    offOutput();
+    offExit();
+  };
+
+  try {
+    sessionId = await start();
+  } catch (e) {
+    detach();
+    throw e;
+  }
+  for (const [id, deliver] of held.splice(0)) {
+    if (id === sessionId) deliver();
+  }
+  return { sessionId, detach };
 }

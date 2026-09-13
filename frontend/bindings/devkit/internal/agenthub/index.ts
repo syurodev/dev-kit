@@ -9,6 +9,7 @@ export {
 
 export type {
     AgentSession,
+    AuthMethod,
     CreateInput,
     InvokeInput,
     InvokeResult,

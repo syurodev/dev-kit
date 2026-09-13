@@ -81,7 +81,7 @@ export function TerminalWorkspace({ moduleContent }: { moduleContent?: React.Rea
             size="icon-sm"
             variant="titlebar"
             aria-label="New terminal"
-            onClick={openTab}
+            onClick={() => openTab()}
           >
             <Plus className="size-[13px]" />
           </Button>
@@ -97,14 +97,14 @@ export function TerminalWorkspace({ moduleContent }: { moduleContent?: React.Rea
         {tabs.map((t) => (
           <div key={t.key} className={cn("absolute inset-0", value !== t.key && "hidden")}>
             <Suspense fallback={null}>
-              <TerminalPane />
+              <TerminalPane start={t.start} onExit={t.onExit} />
             </Suspense>
           </div>
         ))}
         {tabs.length === 0 && !showModule && (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-body-13 text-text-tertiary">
             <p>No terminal open.</p>
-            <Button size="sm" variant="secondary" className="h-7 px-2 text-label-12" onClick={openTab}>
+            <Button size="sm" variant="secondary" className="h-7 px-2 text-label-12" onClick={() => openTab()}>
               New terminal
             </Button>
           </div>

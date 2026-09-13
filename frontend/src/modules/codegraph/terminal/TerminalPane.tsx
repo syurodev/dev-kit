@@ -3,11 +3,12 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import {
+  attachTerminal,
   closeTerminal,
-  onTerminalOutput,
   resizeTerminal,
   startCodeGraphTerminal,
   writeTerminal,
+  type TerminalStart,
 } from "@/bridge/terminal";
 import { errorMessage } from "@/bridge/errors";
 import { Button } from "@/components/ui/button";
@@ -31,7 +32,15 @@ import { onThemeChange } from "@/theme/themeColors";
 // a canvas, where var() does not resolve at all. The result is glyphs from one
 // font sitting in cells sized for another.
 
-export function TerminalPane() {
+export function TerminalPane({
+  start = startCodeGraphTerminal,
+  onExit,
+}: {
+  /** What this tab runs; a shell at the open project by default. */
+  start?: TerminalStart;
+  /** The process's exit code, once — -1 when the tab closed before it exited. */
+  onExit?: (code: number) => void;
+} = {}) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const [error, setError] = useState("");
   // Bumping this re-runs the whole effect, which is the only correct way to
@@ -45,8 +54,9 @@ export function TerminalPane() {
     if (!host) return;
 
     let disposed = false;
+    let exited = false;
     let sessionId = "";
-    let offOutput: (() => void) | undefined;
+    let detach: (() => void) | undefined;
 
     setError("");
     const prefs = useAppearanceStore.getState();
@@ -104,13 +114,28 @@ export function TerminalPane() {
 
     void (async () => {
       try {
-        const id = await startCodeGraphTerminal(term.rows, term.cols);
+        const attached = await attachTerminal(
+          () => start(term.rows, term.cols),
+          (chunk) => {
+            if (!disposed) term.write(chunk);
+          },
+          (code) => {
+            exited = true;
+            if (disposed) return;
+            // Said in the pane as well: otherwise a finished command's tab just
+            // stops, and looks the same as one still waiting for input.
+            term.write(`\r\n[Process exited with code ${code}]\r\n`);
+            onExit?.(code);
+          },
+        );
+        const id = attached.sessionId;
         if (disposed) {
-          void closeTerminal(id);
+          attached.detach();
+          void closeTerminal(id).catch(() => {});
           return;
         }
         sessionId = id;
-        offOutput = onTerminalOutput(id, (chunk) => term.write(chunk));
+        detach = attached.detach;
         term.onData((data) => void writeTerminal(id, data));
       } catch (e) {
         if (!disposed) setError(errorMessage(e));
@@ -128,8 +153,12 @@ export function TerminalPane() {
       observer.disconnect();
       offAppearance();
       offTheme();
-      offOutput?.();
-      if (sessionId) void closeTerminal(sessionId);
+      detach?.();
+      if (sessionId) {
+        // Already gone when the process exited on its own; nothing to close.
+        void closeTerminal(sessionId).catch(() => {});
+        if (!exited) onExit?.(-1);
+      }
       // Last: nothing may write into a disposed terminal.
       term.dispose();
     };

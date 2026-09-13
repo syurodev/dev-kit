@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CLAUDE_AGENT,
   agentRuntimeStatus,
+  isAgentAuthRequiredError,
   isAgentNotInstalledError,
   isRuntimeRequirementError,
   runtimeBlocked,
@@ -10,6 +11,7 @@ import {
 import { agentRuntimeQueryKey } from "../settings/AgentRuntimeSetting";
 import { requestSettings } from "../../workbench/settingsRequest";
 import { ClaudeAgentSetup } from "./ClaudeAgentSetup";
+import { ClaudeSignIn, useClaudeSignIn } from "./ClaudeSignIn";
 import type { SessionErrorCause } from "./surfaces";
 import {
   agentHubCancel,
@@ -51,6 +53,11 @@ import {
 
 const DEFAULT_VENDORS: AgentVendor[] = ["mock", "claude"];
 
+type CreateParams = { vendor: string; cwd: string; title?: string };
+type TurnInput = { sessionId: string; text: string; attachments: string[] };
+/** The action that failed on sign-in, retried once a login exits 0. */
+type AuthRetry = { kind: "create"; params: CreateParams } | ({ kind: "turn" } & TurnInput);
+
 export function AgentHubView() {
   const [showGallery, setShowGallery] = useState(() => {
     if (typeof window !== "undefined") {
@@ -77,6 +84,20 @@ export function AgentHubView() {
   const [errorReason, setErrorReason] = useState("");
   // Not installed / missing Node are not crashes; the card offers Settings.
   const [errorCause, setErrorCause] = useState<SessionErrorCause | undefined>(undefined);
+  // What to do again once Claude is signed in. A failed create keeps its
+  // params here while the dialog steps aside for the terminal.
+  const [authRetry, setAuthRetry] = useState<AuthRetry | null>(null);
+  // The last turn sent, so Retry resends it: the composer is cleared on send.
+  const lastTurn = useRef<TurnInput | null>(null);
+  const signIn = useClaudeSignIn((outcome) => {
+    if (authRetry?.kind === "create") {
+      // Back in front either way: with the new session, or with the outcome.
+      setNewSessionOpen(true);
+      if (outcome.signedIn) void handleCreateSession(authRetry.params);
+    } else if (authRetry?.kind === "turn" && outcome.signedIn) {
+      void handleSend(authRetry);
+    }
+  });
   const queryClient = useQueryClient();
   // Asked before Create, not after it fails: the dialog swaps its form for the
   // install panel as soon as Claude is the vendor and cannot start.
@@ -162,16 +183,13 @@ export function AgentHubView() {
     };
   }, []);
 
-  async function handleCreateSession(params: {
-    vendor: string;
-    cwd: string;
-    title?: string;
-  }) {
+  async function handleCreateSession(params: CreateParams) {
     setBusy(true);
     setError("");
     setErrorReason("");
     setErrorCause(undefined);
     setSandboxHint("");
+    setAuthRetry(null);
     try {
       const session = await agentHubCreateSession({
         agentType: params.vendor,
@@ -191,6 +209,11 @@ export function AgentHubView() {
         // The panel already says "not installed"; a requirement's reason stays.
         if (isAgentNotInstalledError(e)) return;
       }
+      // The sign-in panel takes the form's place and says why.
+      if (params.vendor === "claude" && isAgentAuthRequiredError(e)) {
+        setAuthRetry({ kind: "create", params });
+        return;
+      }
       reportError(e);
       if (params.vendor === "claude" && isSandboxUnavailableError(e)) {
         setSandboxHint(sandboxUnavailableMessage());
@@ -209,7 +232,9 @@ export function AgentHubView() {
         ? "notInstalled"
         : isRuntimeRequirementError(app)
           ? "requirement"
-          : undefined,
+          : isAgentAuthRequiredError(app)
+            ? "authRequired"
+            : undefined,
     );
   }
 
@@ -238,30 +263,36 @@ export function AgentHubView() {
     }));
   }
 
-  async function handleSend() {
-    if (!activeSession || busy) return;
-    const attached = attachments[activeSession.id] ?? [];
+  /** Sends the composer's prompt, or `retry` — a turn that already failed once. */
+  async function handleSend(retry?: TurnInput) {
+    const session = retry ? sessions.find((s) => s.id === retry.sessionId) : activeSession;
+    if (!session || busy) return;
+    const attached = retry ? retry.attachments : attachments[session.id] ?? [];
+    const text = retry ? retry.text : activePrompt.trim();
     // A prompt with attachments and no words is a turn: "look at these".
-    if (!activePrompt.trim() && attached.length === 0) return;
-    const text = activePrompt.trim();
-    setPrompt(activeSession.id, "");
+    if (!text && attached.length === 0) return;
+    if (!retry) setPrompt(session.id, "");
+    const turn = { sessionId: session.id, text, attachments: attached };
+    lastTurn.current = turn;
     setBusy(true);
     setError("");
+    setAuthRetry(null);
     try {
-      upsertSession({ ...activeSession, status: "running" });
+      upsertSession({ ...session, status: "running" });
       await agentHubInvoke({
-        sessionId: activeSession.id,
+        sessionId: session.id,
         prompt: text,
         attachments: attached,
       });
       // Cleared only once the turn was accepted: a failed send should leave the
       // files where the user put them rather than make them pick again.
-      setAttachments((prev) => ({ ...prev, [activeSession.id]: [] }));
-      upsertSession(await agentHubGetStatus(activeSession.id));
+      setAttachments((prev) => ({ ...prev, [session.id]: [] }));
+      upsertSession(await agentHubGetStatus(session.id));
     } catch (e) {
       reportError(e);
+      if (isAgentAuthRequiredError(e)) setAuthRetry({ kind: "turn", ...turn });
       try {
-        upsertSession(await agentHubGetStatus(activeSession.id));
+        upsertSession(await agentHubGetStatus(session.id));
       } catch {}
     } finally {
       setBusy(false);
@@ -425,9 +456,20 @@ export function AgentHubView() {
             streaming={busy || activeSession?.status === "running"}
             errorMessage={errorReason || error}
             errorCause={errorCause}
-            onRetrySession={() => void handleSend()}
+            onRetrySession={() =>
+              void handleSend(
+                lastTurn.current?.sessionId === activeSession?.id
+                  ? (lastTurn.current ?? undefined)
+                  : undefined,
+              )
+            }
             onNewSession={() => setNewSessionOpen(true)}
             onOpenSettings={() => requestSettings("agents")}
+            errorDetail={
+              errorCause === "authRequired" && activeSession?.agentType === "claude" ? (
+                <ClaudeSignIn signIn={signIn} />
+              ) : undefined
+            }
             attachments={activeSession ? attachments[activeSession.id] ?? [] : []}
             onBrowseContext={() => void handleBrowseContext()}
             onRemoveAttachment={handleRemoveAttachment}
@@ -448,16 +490,32 @@ export function AgentHubView() {
             setErrorCause(undefined);
             setSandboxHint("");
             setNewSessionParent(null);
+            setAuthRetry(null);
           }
         }}
         renderBlocker={(vendor) =>
-          vendor === "claude" && claudeRuntime.data && runtimeBlocked(claudeRuntime.data) ? (
+          vendor !== "claude" ? null : claudeRuntime.data && runtimeBlocked(claudeRuntime.data) ? (
             <ClaudeAgentSetup
               onOpenSettings={() => {
                 setNewSessionOpen(false);
                 requestSettings("agents");
               }}
             />
+          ) : authRetry?.kind === "create" ? (
+            <div
+              data-testid="claude-sign-in-panel"
+              className="flex w-full flex-col gap-3 rounded-sm bg-(--state-soft) p-4"
+            >
+              <p className="text-body-13-medium text-text-primary">Claude isn&apos;t signed in</p>
+              <p className="text-caption-11 text-text-tertiary">
+                Sign in in the terminal that opens. The session is created as soon as the login
+                finishes.
+              </p>
+              {/* The dialog steps aside while the login runs: a modal would sit
+                  over the terminal the user has to watch. It comes back when the
+                  login exits. */}
+              <ClaudeSignIn signIn={signIn} onStart={() => setNewSessionOpen(false)} />
+            </div>
           ) : null
         }
         vendors={vendors}

@@ -51,6 +51,7 @@ import {
   type Requirement,
   compareVersions,
 } from "@/bridge/agentRuntime";
+import { ClaudeSignInSection } from "@/modules/agenthub/ClaudeSignIn";
 
 export const agentRuntimeQueryKey = (agent: string) => ["agentRuntime", agent] as const;
 
@@ -275,11 +276,12 @@ export function AgentRuntimeSetting() {
         </RadioGroup>
       </div>
 
-      <p className="text-body-12 text-text-tertiary">
-        Sign in by running <code className="text-code-11">claude</code> in a terminal, or set{" "}
-        <code className="text-code-11">ANTHROPIC_API_KEY</code>. DevKit never asks for your Claude
-        password.
-      </p>
+      {current ? (
+        <div className="flex flex-col gap-2.5">
+          <SubLabel>SIGN IN</SubLabel>
+          <ClaudeSignInSection />
+        </div>
+      ) : null}
 
       <AlertDialog open={confirmLatest} onOpenChange={setConfirmLatest}>
         <AlertDialogContent>

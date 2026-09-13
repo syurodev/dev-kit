@@ -5,10 +5,11 @@ import type {
   Requirement,
   Status,
 } from "../../bindings/devkit/internal/agentruntime/models";
+import type { AuthMethod } from "../../bindings/devkit/internal/agenthub/models";
 import { callBridge, callBridgeCancellable, type CancellableCall } from "./client";
 import { toAppError } from "./errors";
 
-export type { InstalledRuntime, Requirement };
+export type { AuthMethod, InstalledRuntime, Requirement };
 
 /** Status with `requirements` never null — Go's nil slice arrives as null. */
 export type AgentRuntimeStatus = Omit<Status, "requirements"> & { requirements: Requirement[] };
@@ -71,6 +72,57 @@ export function isAgentNotInstalledError(error: unknown): boolean {
 
 export function isRuntimeRequirementError(error: unknown): boolean {
   return toAppError(error).code === "runtime_requirement";
+}
+
+/** Sign-in is per agent type ("claude"), not per runtime id. */
+export const CLAUDE_VENDOR = "claude";
+
+/**
+ * The sign-ins an agent offers. Each is the agent's own login command; DevKit
+ * never shows a credential field of its own.
+ */
+export function agentHubAuthMethods(agent: string): Promise<AuthMethod[]> {
+  return callBridge(async () => (await AppService.AgentHubAuthMethods(agent)) ?? []);
+}
+
+/**
+ * Starts one sign-in in a terminal session and resolves to its id. Only the
+ * method id is sent; the backend decides what that runs.
+ */
+export function agentHubStartSignIn(
+  agent: string,
+  methodId: string,
+  rows: number,
+  cols: number,
+): Promise<string> {
+  return callBridge(() => AppService.AgentHubStartSignIn(agent, methodId, rows, cols));
+}
+
+export function isAgentAuthRequiredError(error: unknown): boolean {
+  return toAppError(error).code === "agent_auth_required";
+}
+
+const SIGN_IN_LABELS: Record<string, string> = {
+  "claude-ai-login": "Sign in with Claude subscription",
+  "console-login": "Sign in with Anthropic Console",
+  "claude-login": "Sign in with Claude",
+};
+
+/** The button for a method: known ids get plain words, anything new its own name. */
+export function signInLabel(method: Pick<AuthMethod, "id" | "name">): string {
+  return SIGN_IN_LABELS[method.id] ?? `Sign in with ${method.name || method.id}`;
+}
+
+export type SignInOutcome = { signedIn: boolean; message: string };
+
+/**
+ * What a sign-in's exit code means. Only 0 retries the failed action; -1 is a
+ * tab closed (or a process killed) before the login finished.
+ */
+export function signInOutcome(code: number): SignInOutcome {
+  if (code === 0) return { signedIn: true, message: "Signed in." };
+  if (code < 0) return { signedIn: false, message: "Sign-in stopped before it finished." };
+  return { signedIn: false, message: `Sign-in exited with code ${code}.` };
 }
 
 /** Nothing to run yet, or the machine lost what the runtime needs. */

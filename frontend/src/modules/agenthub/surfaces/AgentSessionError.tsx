@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
  * notInstalled and requirement are not crashes: the agent never started, and
  * the way out is Settings → Agents, not a restart that fails the same way.
  */
-export type SessionErrorCause = "crashed" | "denied" | "notInstalled" | "requirement";
+export type SessionErrorCause = "crashed" | "denied" | "notInstalled" | "requirement" | "authRequired";
 
 const COPY: Record<SessionErrorCause, { title: string; retry: string; reason: string }> = {
   crashed: {
@@ -29,6 +29,11 @@ const COPY: Record<SessionErrorCause, { title: string; retry: string; reason: st
     retry: "Retry",
     reason: "runtime_requirement — something the agent needs is missing from this machine.",
   },
+  authRequired: {
+    title: "isn't signed in",
+    retry: "Retry turn",
+    reason: "agent_auth_required — Claude isn't signed in, or the sign-in expired.",
+  },
 };
 
 export type AgentSessionErrorProps = {
@@ -43,6 +48,8 @@ export type AgentSessionErrorProps = {
   onRetry?: () => void;
   /** Replaces Retry for notInstalled/requirement: the fix is in Settings → Agents. */
   onOpenSettings?: () => void;
+  /** The way out when it is more than one button — authRequired's sign-in. */
+  children?: React.ReactNode;
   className?: string;
   id?: string;
 };
@@ -71,6 +78,7 @@ export function AgentSessionError({
   onClose,
   onRetry,
   onOpenSettings,
+  children,
   className,
   id,
 }: AgentSessionErrorProps) {
@@ -115,6 +123,8 @@ export function AgentSessionError({
       >
         {reason ?? defaultReason}
       </p>
+
+      {children}
 
       <div className="flex w-full items-center gap-2">
         <span className="min-w-0 flex-1" />
