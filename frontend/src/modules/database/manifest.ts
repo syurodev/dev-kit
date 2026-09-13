@@ -52,7 +52,7 @@ export const databaseModule: ModuleManifest = {
         if (state.selectedProfileId) void state.refreshSchema(state.selectedProfileId);
       },
     },
-    { id: "database.erd", title: "ERD diagram", shortcut: "⇧⌘E", run: openErdTab },
+    { id: "database.erd", title: "ERD diagram", shortcut: "⇧⌘D", run: openErdTab },
     { id: "database.activity", title: "Live activity", shortcut: "⇧⌘A", run: openActivityTab },
     { id: "database.history", title: "Query history", shortcut: "⇧⌘Y", run: openHistoryTab },
     { id: "database.saved", title: "Saved queries", shortcut: "⇧⌘B", run: openSavedTab },

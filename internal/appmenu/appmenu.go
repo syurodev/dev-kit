@@ -52,6 +52,12 @@ type Command struct {
 	Module string
 }
 
+// TabSwitcherAccelerator is the workbench's tab switcher (Workbench.tsx), held
+// in the webview rather than the menu. A native accelerator is handled before
+// the webview sees the key, so a menu item on the same chord swallows it: ERD
+// Diagram sat on ⇧⌘E and the switcher never opened from the keyboard (#44).
+const TabSwitcherAccelerator = "CmdOrCtrl+Shift+E"
+
 // DatabaseCommands is the Database menu.
 //
 // Every accelerator here is chosen against the platform defaults the roles
@@ -62,7 +68,7 @@ var DatabaseCommands = []Command{
 	{Module: "database", Label: "New Connection…", ID: "database.connection.new", Accelerator: "CmdOrCtrl+Shift+N"},
 	{Module: "database", Label: "Run Query", ID: "database.query", Accelerator: "CmdOrCtrl+Return", Separator: true},
 	{Module: "database", Label: "Re-index Schema", ID: "database.schema.reindex", Accelerator: "CmdOrCtrl+Shift+R"},
-	{Module: "database", Label: "ERD Diagram", ID: "database.erd", Accelerator: "CmdOrCtrl+Shift+E", Separator: true},
+	{Module: "database", Label: "ERD Diagram", ID: "database.erd", Accelerator: "CmdOrCtrl+Shift+D", Separator: true},
 	{Module: "database", Label: "Live Activity", ID: "database.activity", Accelerator: "CmdOrCtrl+Shift+A"},
 	{Module: "database", Label: "Query History", ID: "database.history", Accelerator: "CmdOrCtrl+Shift+Y"},
 	{Module: "database", Label: "Saved Queries", ID: "database.saved", Accelerator: "CmdOrCtrl+Shift+B"},

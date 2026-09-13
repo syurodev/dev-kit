@@ -64,6 +64,18 @@ func TestEveryCommandNamesItsModule(t *testing.T) {
 	}
 }
 
+// The tab switcher lives in the webview, so a menu item on its chord would take
+// the key before the switcher ever saw it.
+func TestTabSwitcherKeyIsFree(t *testing.T) {
+	for _, submenu := range Submenus {
+		for _, command := range submenu.Commands {
+			if strings.EqualFold(command.Accelerator, TabSwitcherAccelerator) {
+				t.Errorf("%q binds %s, which opens the tab switcher", command.Label, TabSwitcherAccelerator)
+			}
+		}
+	}
+}
+
 // Close Tab and the moved Close Window are bound in main.go, outside Submenus,
 // so the uniqueness check above cannot see them. No module command may take
 // either key.
