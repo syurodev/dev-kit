@@ -6,6 +6,7 @@ import (
 	"errors"
 
 	"devkit/internal/agenthub"
+	"devkit/internal/agentruntime"
 	"devkit/internal/apperrors"
 	"devkit/internal/cloudconfig"
 	"devkit/internal/codegraph"
@@ -36,6 +37,11 @@ const (
 	// fine, and the frontend tells the two apart to decide whether to offer a
 	// reconnect or just show what the engine said.
 	codeQueryFailed = "query_failed"
+	// The three states of an agent runtime the UI answers with an action of
+	// its own: offer the install, show what Node is missing, show the log.
+	codeAgentNotInstalled  = "agent_not_installed"
+	codeRuntimeRequirement = "runtime_requirement"
+	codeInstallFailed      = "install_failed"
 )
 
 var safeValidationMessages = map[string]struct{}{
@@ -155,6 +161,46 @@ func publicError(subject string, err error) *apperrors.AppError {
 		}
 	}
 	if subject == "builtin.agenthub" {
+		// Runtime errors first: a session that cannot start because Node is
+		// missing also carries ErrProcessFailed, and "Agent process failed."
+		// would hide the one thing the user can fix.
+		var runtimeErr *agentruntime.Error
+		reason := ""
+		if errors.As(err, &runtimeErr) {
+			reason = runtimeErr.Reason
+		}
+		switch {
+		case errors.Is(err, errAgentRuntimesUnavailable):
+			return apperrors.New(codeInternalError, "Agent runtimes are not available.", true)
+		case errors.Is(err, agenthub.ErrAgentNotInstalled):
+			return apperrors.New(codeAgentNotInstalled, "Claude Agent is not installed. Install it in Settings → Agents.", true)
+		case errors.Is(err, agentruntime.ErrNotInstalled):
+			return apperrors.New(codeValidationFailed, "That agent version is not installed.", true)
+		case errors.Is(err, agentruntime.ErrRequirementNotMet):
+			message := "A requirement for the agent is not met."
+			if reason != "" {
+				message = "A requirement for the agent is not met: " + reason
+			}
+			return apperrors.New(codeRuntimeRequirement, message, true)
+		case errors.Is(err, agentruntime.ErrInstallFailed):
+			message := "Installing the agent failed."
+			if reason != "" {
+				message = "Installing the agent failed: " + reason
+			}
+			return apperrors.New(codeInstallFailed, message, true)
+		case errors.Is(err, agentruntime.ErrInstallAlreadyRunning):
+			return apperrors.New(codeValidationFailed, "An install is already running for this agent.", true)
+		case errors.Is(err, agentruntime.ErrVersionInUse):
+			return apperrors.New(codeValidationFailed, "That version is in use. Switch to another version before removing it.", true)
+		case errors.Is(err, agentruntime.ErrUnknownAgent):
+			return apperrors.New(codeValidationFailed, "Unknown agent.", true)
+		case errors.Is(err, agentruntime.ErrInvalidInput):
+			message := "Invalid agent runtime option."
+			if reason != "" {
+				message = "Invalid agent runtime option: " + reason
+			}
+			return apperrors.New(codeValidationFailed, message, true)
+		}
 		switch {
 		case errors.Is(err, errAgentHubUnavailable), errors.Is(err, agenthub.ErrUnavailable):
 			return apperrors.New(codeInternalError, "Agent Hub is not available.", true)

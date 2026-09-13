@@ -10,6 +10,9 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 import * as agenthub$0 from "../agenthub/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as agentruntime$0 from "../agentruntime/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as codegraph$0 from "../codegraph/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -130,6 +133,55 @@ export function AgentHubResolvePermission(id: string, outcome: json$0.RawMessage
  */
 export function AgentHubTranscript(id: string): $CancellablePromise<agenthub$0.TranscriptEntry[] | null> {
     return $Call.ByID(3296505716, id);
+}
+
+/**
+ * AgentRuntimeActivate switches to an installed version — a rollback when it
+ * is the previous one. Sessions already running keep their process.
+ */
+export function AgentRuntimeActivate(agent: string, version: string): $CancellablePromise<agentruntime$0.Status> {
+    return $Call.ByID(2801799012, agent, version);
+}
+
+/**
+ * AgentRuntimeCheckLatest refreshes the ACP registry cache. Offline is not an
+ * error; the status keeps the cached latest, or none.
+ */
+export function AgentRuntimeCheckLatest(agent: string): $CancellablePromise<agentruntime$0.Status> {
+    return $Call.ByID(1348003272, agent);
+}
+
+/**
+ * AgentRuntimeInstall installs a version (DevKit's tested one when version is
+ * empty) and activates it. npm's output arrives as agenthub:runtimeInstallOutput
+ * events while this runs; the promise settles when the install is done, and
+ * cancelling it kills npm and discards the staged tree.
+ */
+export function AgentRuntimeInstall(agent: string, version: string): $CancellablePromise<agentruntime$0.Status> {
+    return $Call.ByID(70329628, agent, version);
+}
+
+/**
+ * AgentRuntimeRemove deletes an installed version other than the current one.
+ */
+export function AgentRuntimeRemove(agent: string, version: string): $CancellablePromise<agentruntime$0.Status> {
+    return $Call.ByID(1294828521, agent, version);
+}
+
+/**
+ * AgentRuntimeSetClaudeBinary chooses the Claude Code the Claude agent runs:
+ * "bundled" with the adapter (default) or "machine", the user's own install.
+ */
+export function AgentRuntimeSetClaudeBinary(source: string): $CancellablePromise<agentruntime$0.Status> {
+    return $Call.ByID(3317171908, source);
+}
+
+/**
+ * AgentRuntimeStatus reports an agent's installs, requirements and Claude
+ * binary choice. No network: the latest version comes from the cached registry.
+ */
+export function AgentRuntimeStatus(agent: string): $CancellablePromise<agentruntime$0.Status> {
+    return $Call.ByID(3949624987, agent);
 }
 
 /**
