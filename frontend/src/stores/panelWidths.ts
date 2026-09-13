@@ -27,8 +27,7 @@ type PanelWidthsState = {
  * Shared because the two panels' resize clamps depend on each other's live
  * width and open state (the sidebar's ceiling shrinks while the split panel is
  * open wide, and vice versa) — see docs/superpowers/specs/2026-08-20-app-
- * shell-sidebar-design.md § Resize. Zustand, not Context: same reasoning as
- * workbench/dock/dock-store.ts — two sibling components need read/write access
+ * shell-sidebar-design.md § Resize. Zustand, not Context: two sibling components need read/write access
  * without every consumer re-rendering on every drag frame.
  */
 export const usePanelWidthsStore = create<PanelWidthsState>((set) => ({

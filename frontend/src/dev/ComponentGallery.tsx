@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, type ReactNode } from "react";
 import {
   Activity,
-  Database as DatabaseIcon,
   FileText,
   MessageSquare,
   PanelBottom,
@@ -654,58 +653,6 @@ export default function ComponentGallery() {
           </div>
         </Spec>
 
-        <Spec node="208:438" label="Dock — 2 States: Collapsed (12×3 lines) & Expanded (32×32 r=18, active surface-base, inactive transparent)">
-          <div className="flex flex-col gap-6 items-start">
-            {/* Collapsed */}
-            <div className="flex flex-col gap-2">
-              <span className="text-caption-11 text-text-tertiary">Collapsed State (blur 20, 0.07 inset highlight, 12×3 lines)</span>
-              <div
-                id="measure-dock-collapsed"
-                className="relative box-content bg-glass-float backdrop-blur-[20px] border border-glass-border shadow-[inset_0px_1px_0px_0px_rgba(255,255,255,0.07),0_8px_16px_0_rgba(0,0,0,0.35)] rounded-[7.5px]"
-              >
-                <div className="flex items-center gap-1 px-2 py-1">
-                  <span id="measure-dock-collapsed-line-active" className="h-[3px] w-3 rounded-full bg-action-primary" />
-                  <span id="measure-dock-collapsed-line-inactive" className="h-[3px] w-3 rounded-full bg-text-tertiary" />
-                  <span className="h-[3px] w-3 rounded-full bg-text-tertiary" />
-                  <span className="h-[3px] w-3 rounded-full bg-text-tertiary" />
-                  <span className="h-[3px] w-3 rounded-full bg-text-tertiary" />
-                  <span className="h-[3px] w-3 rounded-full bg-text-tertiary" />
-                </div>
-              </div>
-            </div>
-
-            {/* Expanded */}
-            <div className="flex flex-col gap-2">
-              <span className="text-caption-11 text-text-tertiary">Expanded State (p-2, rounded-[18px], active surface-base, inactive transparent)</span>
-              <div
-                id="measure-dock-expanded"
-                className="relative box-content bg-glass-float backdrop-blur-[20px] border border-glass-border shadow-[inset_0px_1px_0px_0px_rgba(255,255,255,0.07),0_8px_16px_0_rgba(0,0,0,0.35)] rounded-[18px]"
-              >
-                <div className="flex items-center gap-1 p-2">
-                  <div
-                    id="measure-dock-expanded-item-active"
-                    className="relative flex size-8 shrink-0 items-center justify-center rounded-[18px] bg-surface-base text-text-primary"
-                  >
-                    <Wrench className="size-4" />
-                  </div>
-                  <div
-                    id="measure-dock-expanded-item-inactive"
-                    className="relative flex size-8 shrink-0 items-center justify-center rounded-[18px] bg-transparent text-text-secondary hover:text-text-primary"
-                  >
-                    <FileText className="size-4" />
-                  </div>
-                  <div className="relative flex size-8 shrink-0 items-center justify-center rounded-[18px] bg-transparent text-text-secondary hover:text-text-primary">
-                    <DatabaseIcon className="size-4" />
-                  </div>
-                  <div className="relative flex size-8 shrink-0 items-center justify-center rounded-[18px] bg-transparent text-text-secondary hover:text-text-primary">
-                    <Terminal className="size-4" />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </Spec>
-
         <Step4aMeasurementsInspector />
       </Section>
 
@@ -811,16 +758,6 @@ export default function ComponentGallery() {
                   {/* scroll ruler indicator */}
                   <div className="absolute top-1 right-0.5 h-[calc(100%-8px)] w-1 rounded-full bg-text-tertiary/20" title="scroll-ruler 8×836" />
                 </div>
-              </div>
-
-              {/* Dock: 666,879 108×11 -> scaled 54×5.5, centred at x=360, 5px above bottom */}
-              <div
-                id="measure-shell-diagram-dock"
-                style={{ width: 54, height: 6, bottom: 5, left: "calc(50% - 27px)" }}
-                className="absolute flex items-center justify-center rounded-full bg-surface-raised border border-border-subtle"
-                title="dock 108×11 (centred, 10px above bottom)"
-              >
-                <span className="h-0.5 w-8 rounded-full bg-action-primary" />
               </div>
             </div>
           </div>
@@ -1281,12 +1218,6 @@ function Step4aMeasurementsInspector() {
       "measure-tab-pill-preview",
       "measure-tab-pill-focused",
       "measure-tab-pill-focus-ring",
-      "measure-dock-collapsed",
-      "measure-dock-collapsed-line-active",
-      "measure-dock-collapsed-line-inactive",
-      "measure-dock-expanded",
-      "measure-dock-expanded-item-active",
-      "measure-dock-expanded-item-inactive",
     ];
 
     const results: Record<string, Record<string, string | number>> = {};

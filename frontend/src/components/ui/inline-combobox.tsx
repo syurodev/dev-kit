@@ -303,7 +303,7 @@ const InlineComboboxContent: typeof ComboboxPopover = ({
     <Portal>
       <ComboboxPopover
         className={cn(
-          'z-500 max-h-[288px] w-[300px] overflow-y-auto rounded-md border border-border bg-popover text-popover-foreground shadow-md',
+          'z-500 max-h-[288px] w-[300px] overflow-y-auto rounded-md glass-float text-popover-foreground',
           className
         )}
         onKeyDownCapture={handleKeyDown}

@@ -1,11 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import { renderToString } from "react-dom/server";
 import { TabStrip } from "./tabs/TabStrip";
-import { CollapsedDock } from "./dock/CollapsedDock";
-import { DockItem } from "./dock/DockItem";
+import { ModuleSwitcher } from "./ModuleSwitcher";
 import { Button } from "@/components/ui/button";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { Wrench } from "lucide-react";
 import type { WorkbenchTab } from "../stores/workbenchTabs";
 import { Titlebar } from "@/components/ui/titlebar";
 import { ModuleEmptyState } from "./ModuleEmptyState";
@@ -284,52 +282,28 @@ describe("Step 4a Shell Chrome Reconciliation", () => {
     });
   });
 
-  describe("Dock (Figma 208:438)", () => {
-    it("renders CollapsedDock with px-2 py-1, action-primary for active and text-tertiary for others", () => {
+  describe("ModuleSwitcher", () => {
+    it("draws a no-drag title-bar button per module and marks the current one", () => {
+      // No registerModule here: the registry is shared across test files and
+      // throws on a second registration. Icons, peeks and badges come from it,
+      // and store-driven badges read Zustand's initial state under SSR anyway.
       const html = renderToString(
-        <CollapsedDock count={6} activeIndex={0} />,
-      );
-
-      expect(html).toContain("px-2 py-1");
-      expect(html).toContain("bg-action-primary");
-      expect(html).toContain("bg-text-tertiary");
-      expect(html).toContain("w-3"); // 12px
-      expect(html).toContain("h-[3px]");
-    });
-
-    it("renders DockItem with 32x32 size, radius 18, 16px icon, active surface-base and inactive transparent", () => {
-      const activeHtml = renderToString(
         <TooltipProvider>
-          <DockItem
-            item={{
-              id: "notes",
-              title: "Notes",
-              icon: Wrench,
-              isActive: true,
-              onClick: () => {},
-            }}
+          <ModuleSwitcher
+            activeModuleId="database"
+            modules={[
+              { id: "database", title: "Database" },
+              { id: "agenthub", title: "Agent Hub" },
+              { id: "notes", title: "Notes", unavailable: true },
+            ]}
+            onSelectModule={() => {}}
           />
         </TooltipProvider>,
       );
-      expect(activeHtml).toContain("size-8"); // 32px
-      expect(activeHtml).toContain("rounded-[18px]");
-      expect(activeHtml).toContain("bg-surface-base");
-
-      const inactiveHtml = renderToString(
-        <TooltipProvider>
-          <DockItem
-            item={{
-              id: "notes",
-              title: "Notes",
-              icon: Wrench,
-              isActive: false,
-              onClick: () => {},
-            }}
-          />
-        </TooltipProvider>,
-      );
-      expect(inactiveHtml).toContain("bg-transparent");
-      expect(inactiveHtml).toContain("text-text-secondary");
+      expect(html.match(/\[--wails-draggable:no-drag\]/g)?.length).toBe(3);
+      expect(html.match(/aria-current="page"/g)?.length).toBe(1);
+      expect(html).toContain('aria-label="Database"');
+      expect(html).toMatch(/<button[^>]*disabled[^>]*aria-label="Notes"/);
     });
   });
 });

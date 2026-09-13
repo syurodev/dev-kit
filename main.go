@@ -634,7 +634,9 @@ func main() {
 		Frameless:        framelessWindow,
 		BackgroundType:   backgroundType,
 		BackgroundColour: backgroundColour,
-		URL:              "/",
+		// "/" everywhere but a WebKitGTK window compositing on the CPU, which
+		// carries a flag the frontend reads to flatten its glass.
+		URL: webviewStartURL(),
 	}
 	if frame, ok := loadWindowFrame(container.UIState); ok {
 		// X and Y are ignored unless InitialPosition opts out of the default,

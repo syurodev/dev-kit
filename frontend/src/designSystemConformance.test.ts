@@ -59,8 +59,9 @@ const BASELINE: Record<string, { twText: number; rawPx: number; rawHex: number }
   components: { twText: 0, rawPx: 100, rawHex: 1 },
   // 33 → 24: nine `rounded-[8px]` went with the nine copies of the title
   // bar's action button, which is Button's `titlebar` variant now. --radius-md
-  // is that 8px, so the scale had the number the whole time.
-  workbench: { twText: 0, rawPx: 24, rawHex: 1 },
+  // is that 8px, so the scale had the number the whole time. 24 → 19: the
+  // dock went, and modules switch from title-bar Buttons.
+  workbench: { twText: 0, rawPx: 19, rawHex: 1 },
 };
 
 // Two files carry raw hex on purpose and are not design-system surfaces: a

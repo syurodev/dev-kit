@@ -140,8 +140,9 @@ const BASELINE = {
   // 48 → 44 with the glass button already in it: four of the old 48 were
   // `backdrop-filter: none` opt-outs that the exclusion above never actually
   // excluded. 44 → 42: the plan inspector and Save Query drew their own
-  // blurred overlay and now use Dialog's.
-  blurSurfaces: 42,
+  // blurred overlay and now use Dialog's. 42 → 39: the dock and its two
+  // gallery specs went; modules switch from the title bar.
+  blurSurfaces: 39,
   untokenisedAnimateIn: 3,
   unstableQueryDefaults: 0,
 };

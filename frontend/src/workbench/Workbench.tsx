@@ -5,8 +5,8 @@ import { MessageSquare, PanelBottom, PanelLeft, Search, Settings as SettingsIcon
 import { listModules, type ModuleDTO } from "../bridge/commands";
 import { useMenuCommands } from "./menuCommands";
 import { ModuleEmptyState } from "./ModuleEmptyState";
-import { Dock } from "./dock/Dock";
-import { moduleIndexFromEvent } from "./dock/dockActivation";
+import { ModuleSwitcher } from "./ModuleSwitcher";
+import { moduleIndexFromEvent } from "./moduleShortcuts";
 import { AgentSessionsSubscriber } from "./AgentSessionsSubscriber";
 import { CommandPalette } from "./CommandPalette";
 import { SystemStatusMenu } from "./SystemStatusMenu";
@@ -66,7 +66,7 @@ const LazyAgentPermissionToastHost = lazy(() =>
 // Settings absorbs Sync as a tab (SettingsView) — both stay registered
 // modules (backend still reports "sync", so removing its registration
 // would trip the metadata-parity check), they just don't get their own
-// dock icon anymore.
+// switcher button anymore.
 const HEADER_ONLY_MODULE_IDS = new Set(["settings", "sync"]);
 
 // Bounds how many modules' tab content stays mounted in WorkbenchViews:
@@ -363,13 +363,13 @@ export function Workbench() {
     let browsingStartedAt = 0;
 
     function handleKeyDown(event: KeyboardEvent) {
-      // ⌘1–⌘9 select the nth dock module. Read through refs because this
+      // ⌘1–⌘9 select the nth switcher module. Read through refs because this
       // listener is registered once (empty deps) and must never see a
       // stale module list — same reason stores/moduleActions.ts reads
       // onClick through a ref inside its long-lived registration.
       const moduleIndex = moduleIndexFromEvent(event);
       if (moduleIndex !== null) {
-        const target = dockModulesRef.current[moduleIndex];
+        const target = switcherModulesRef.current[moduleIndex];
         if (target && !target.unavailable) {
           event.preventDefault();
           focusModuleRef.current(target.id);
@@ -520,7 +520,7 @@ export function Workbench() {
       })),
     [modules, unavailableModuleIds],
   );
-  const dockModules = useMemo(
+  const switcherModules = useMemo(
     () => activityModules.filter((module) => !HEADER_ONLY_MODULE_IDS.has(module.id)),
     [activityModules],
   );
@@ -553,8 +553,8 @@ export function Workbench() {
 
   // Mirrors for the mount-once keydown listener above, which must not close
   // over the first render's values. Declared here, after both definitions.
-  const dockModulesRef = useRef(dockModules);
-  dockModulesRef.current = dockModules;
+  const switcherModulesRef = useRef(switcherModules);
+  switcherModulesRef.current = switcherModules;
   const focusModuleRef = useRef(focusModule);
   focusModuleRef.current = focusModule;
 
@@ -579,13 +579,6 @@ export function Workbench() {
     <AppShell
       fullscreen={isFullscreen}
       activeModuleId={activeModule?.id ?? null}
-      dock={
-        <Dock
-          activeModuleId={activeModule?.id ?? ""}
-          modules={dockModules}
-          onSelectModule={focusModule}
-        />
-      }
       overlays={
         <>
           <AgentSessionsSubscriber />
@@ -640,6 +633,24 @@ export function Workbench() {
             </TooltipTrigger>
             <TooltipContent side="bottom">Toggle sidebar</TooltipContent>
           </Tooltip>
+          {/* Its own zone, centred on the WINDOW rather than between its
+              neighbours: the two side clusters differ in width per module and
+              per platform, and a switcher that drifted with them would not stay
+              where the hand learned it is. Out of flow, so it cannot be pushed.
+              Room is not a concern at the 1080px minimum window: ~216 in the
+              middle leaves ~430 a side, and neither cluster reaches 320.
+              paddingTop inherits the bar's optical offset so the icons sit on
+              the same line as the ones in flow. */}
+          <div
+            className="absolute inset-y-0 left-1/2 flex -translate-x-1/2 items-center"
+            style={{ paddingTop: "inherit" }}
+          >
+            <ModuleSwitcher
+              activeModuleId={activeModule?.id ?? ""}
+              modules={switcherModules}
+              onSelectModule={focusModule}
+            />
+          </div>
           {/* Two zones, not three. The workspace pill that used to hold the
               centre is gone: it named a workspace this app has no concept of,
               and carried an env chip for a value that belongs to a connection

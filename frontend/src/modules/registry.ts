@@ -21,6 +21,8 @@ export type TabAction =
   | { type: "submenu"; id: string; label: string; icon?: LucideIcon; items: TabAction[] }
   | { type: "separator"; id: string };
 
+export type ModulePeekProps = { focusModule: () => void };
+
 export const CURRENT_MODULE_API_VERSION = "1";
 
 export type ModuleViewComponent = ComponentType<{
@@ -95,7 +97,7 @@ export type ModuleManifest = {
   title: string;
   version: string;
   apiVersion: string;
-  /** Identifies the module in the Dock and on its tabs — each module owns its own icon. */
+  /** Identifies the module in the title bar and on its tabs — each module owns its own icon. */
   icon: LucideIcon;
   commands: ModuleCommand[];
   views: ModuleView[];
@@ -146,6 +148,23 @@ export type ModuleManifest = {
    * Presentational and frontend-only: module parity ignores it.
    */
   tabActions?: (tab: WorkbenchTab) => TabAction[];
+  /**
+   * What hovering the module's title-bar button shows, under its name.
+   *
+   * A module with `tabs` gets its open tabs without asking; set this to show
+   * something else — Agent Hub lists its sessions. Call `focusModule` before
+   * navigating: it switches to the module and closes the card.
+   *
+   * Presentational and frontend-only: module parity ignores it.
+   */
+  peek?: ComponentType<ModulePeekProps>;
+  /**
+   * Drawn over the module's title-bar button: something that happened while
+   * you were elsewhere. Positioned absolutely inside the button.
+   *
+   * Presentational and frontend-only: module parity ignores it.
+   */
+  badge?: ComponentType;
   /**
    * The module's rail, as the MODULE's, not a document's.
    *
