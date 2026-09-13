@@ -1,12 +1,16 @@
 import { beforeEach, describe, expect, it, mock } from "bun:test";
 
 const calls: string[] = [];
+let failMode = false;
+let backend = { manual: false, open: false };
 mock.module("@/bridge/database", () => ({
-  setTransactionMode: async (id: string, manual: boolean) =>
-    void calls.push(`mode:${id}:${manual}`),
+  setTransactionMode: async (id: string, manual: boolean) => {
+    calls.push(`mode:${id}:${manual}`);
+    if (failMode) throw new Error("commit failed");
+  },
   commitTransaction: async (id: string) => void calls.push(`commit:${id}`),
   rollbackTransaction: async (id: string) => void calls.push(`rollback:${id}`),
-  transactionState: async () => ({ manual: false, open: false }),
+  transactionState: async () => backend,
   listProfiles: async () => [],
   listColumns: async () => [],
   getSchemaCache: async () => ({ namespace: {} }),
@@ -18,6 +22,8 @@ const { useDatabaseStore } = await import("./databaseStore");
 
 beforeEach(() => {
   calls.length = 0;
+  failMode = false;
+  backend = { manual: false, open: false };
   useDatabaseStore.setState({
     selectedProfileId: "p1",
     txManual: false,
@@ -58,6 +64,29 @@ describe("transaction mode", () => {
     await useDatabaseStore.getState().endTransaction(action);
     expect(calls).toEqual([`${action}:p1`]);
     expect(useDatabaseStore.getState()).toMatchObject({ txManual: true, txOpen: false });
+  });
+
+  // #42. Leaving Manual flips the service to Auto before it commits, so a
+  // commit that fails has changed the mode anyway. Keeping "Manual" on screen
+  // then was a toolbar saying statements wait for Commit while each one landed.
+  it("asks the service after a failed switch instead of assuming the mode held", async () => {
+    useDatabaseStore.setState({ txManual: true, txOpen: true });
+    failMode = true;
+    await expect(useDatabaseStore.getState().setTxManual(false)).rejects.toThrow("commit failed");
+    expect(useDatabaseStore.getState()).toMatchObject({ txManual: false, txOpen: false, txBusy: false });
+  });
+
+  // #42. Leaving a connection with a transaction open leaves its locks held,
+  // and the toolbar you arrive at describes the other connection.
+  it("remembers the connection left with a transaction open, for the sidebar to say", () => {
+    useDatabaseStore.setState({
+      profiles: [{ id: "p1", name: "prod" }] as never,
+      txManual: true,
+      txOpen: true,
+      strandedTransaction: "",
+    });
+    useDatabaseStore.getState().setSelectedProfileId("p2");
+    expect(useDatabaseStore.getState().strandedTransaction).toBe("prod");
   });
 
   it("does nothing with no connection selected", async () => {

@@ -393,6 +393,12 @@ export type DatabaseStoreState = {
   txManual: boolean;
   txOpen: boolean;
   txBusy: boolean;
+  /**
+   * The name of a connection just left with a transaction still open on it,
+   * for the sidebar to say so once; "" otherwise. Set by setSelectedProfileId,
+   * cleared by whoever shows it (#42).
+   */
+  strandedTransaction: string;
   setTxManual: (manual: boolean) => Promise<void>;
   endTransaction: (action: "commit" | "rollback") => Promise<void>;
   refreshTxState: () => Promise<void>;
@@ -683,10 +689,25 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     // flight are stopped, and runId moves on so one that already answered is
     // dropped by the guard in loadBrowsePage. The filter and sort stay, as a
     // console's SQL does: they are what you asked for, not what the server said.
-    if (get().selectedProfileId !== id) {
-      for (const call of [...pendingBrowseQueries.values(), ...pendingCountQueries.values()]) {
+    const switching = get().selectedProfileId !== id;
+    if (switching) {
+      // #42: a transaction stays open on the connection you leave — its locks
+      // held, its work uncommitted — and the toolbar you arrive at describes
+      // the other connection. Recorded for the sidebar to say it once.
+      const leaving = profileOf(get(), get().selectedProfileId);
+      if (get().txOpen && leaving) {
+        set({ strandedTransaction: leaving.name });
+      }
+      // #41: a console's run too — its answer would land under the connection
+      // you switched to.
+      for (const call of [
+        ...pendingQueries.values(),
+        ...pendingBrowseQueries.values(),
+        ...pendingCountQueries.values(),
+      ]) {
         call.cancel();
       }
+      pendingQueries.clear();
       pendingBrowseQueries.clear();
       pendingCountQueries.clear();
       set((state) => ({
@@ -724,22 +745,28 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     });
     // Every console's result came from the connection you just left, so none of
     // them describe anything any more. The SQL stays: the same query against a
-    // different database is usually why you switched.
-    set((state) => ({
-      consoles: Object.fromEntries(
-        Object.entries(state.consoles).map(([id, console]) => [
-          id,
-          {
-            ...console,
-            results: [],
-            activeResult: 0,
-            queryError: "",
-            queryStatus: "",
-            queryDurationMs: null,
-          },
-        ]),
-      ),
-    }));
+    // different database is usually why you switched. The run id moves on so a
+    // run already answering is dropped, and the running flag goes with the
+    // cancelled call.
+    if (switching) {
+      set((state) => ({
+        consoles: Object.fromEntries(
+          Object.entries(state.consoles).map(([id, console]) => [
+            id,
+            {
+              ...console,
+              results: [],
+              activeResult: 0,
+              queryError: "",
+              queryStatus: "",
+              queryDurationMs: null,
+              queryRunId: console.queryRunId + 1,
+              runningQuery: false,
+            },
+          ]),
+        ),
+      }));
+    }
     if (id) {
       void get().loadSchemaSnapshot(id);
     }
@@ -885,6 +912,13 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     if (!selectedProfileId || !sql) {
       return "skipped";
     }
+    // #41: one run at a time per console. A second Run — the menu's ⌘↵ has no
+    // button to disable — took the first one's slot in pendingQueries, and the
+    // first run's cleanup then deleted the second's: Stop reached nothing, and
+    // both statements ran. Stop, then Run, is how a statement is replaced.
+    if (console.runningQuery) {
+      return "skipped";
+    }
 
     const runId = console.queryRunId + 1;
     patchConsole(set, consoleId, {
@@ -896,11 +930,13 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       lastStatement: sql,
     });
 
+    let call: ReturnType<typeof runQuery> | undefined;
     try {
-      const call = runQuery(selectedProfileId, sql);
+      call = runQuery(selectedProfileId, sql);
       pendingQueries.set(consoleId, call);
       const result = await call;
-      // A newer run in THIS console has already started; its answer wins.
+      // The connection changed under this run (setSelectedProfileId moves the
+      // run id on), so its answer no longer describes the console.
       if (get().consoleState(consoleId).queryRunId !== runId) {
         return "superseded";
       }
@@ -927,8 +963,11 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     } catch (e) {
       if (isCancelError(e)) {
         // A cancel is something the user asked for; it leaves the previous
-        // result alone.
-        patchConsole(set, consoleId, { runningQuery: false });
+        // result alone. A run cancelled because the connection changed has
+        // already had its flag cleared by the switch.
+        if (get().consoleState(consoleId).queryRunId === runId) {
+          patchConsole(set, consoleId, { runningQuery: false });
+        }
         return "cancelled";
       }
       if (get().consoleState(consoleId).queryRunId !== runId) {
@@ -950,7 +989,15 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       });
       return "error";
     } finally {
-      pendingQueries.delete(consoleId);
+      // Only its own slot (#41).
+      if (pendingQueries.get(consoleId) === call) {
+        pendingQueries.delete(consoleId);
+      }
+      // In manual mode a statement is what opens the transaction, and the
+      // toolbar shows whether one is open (#42).
+      if (get().txManual) {
+        void get().refreshTxState();
+      }
     }
   },
 
@@ -1126,6 +1173,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   txManual: false,
   txOpen: false,
   txBusy: false,
+  strandedTransaction: "",
 
   setTxManual: async (manual) => {
     const { selectedProfileId } = get();
@@ -1140,6 +1188,13 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       // work silently; the button beside it is how you discard it on purpose.
       await setTransactionMode(selectedProfileId, manual);
       set({ txManual: manual, txOpen: manual ? get().txOpen : false });
+    } catch (e) {
+      // #42: leaving Manual switches the service to Auto BEFORE it commits, so
+      // a commit that fails has changed the mode anyway. Asked, rather than
+      // keeping Manual on screen over a connection that now commits every
+      // statement.
+      await get().refreshTxState();
+      throw e;
     } finally {
       set({ txBusy: false });
     }
@@ -1158,6 +1213,11 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       // Nothing is opened in its place: the mode is still Manual, and the next
       // statement opens the next transaction when it runs.
       set({ txOpen: false });
+    } catch (e) {
+      // The service takes the transaction before ending it, so a failed
+      // COMMIT has still ended it there.
+      await get().refreshTxState();
+      throw e;
     } finally {
       set({ txBusy: false });
     }
@@ -1169,8 +1229,16 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       set({ txOpen: false, txManual: false });
       return;
     }
-    const { manual, open } = await transactionState(selectedProfileId);
-    set({ txManual: manual, txOpen: open });
+    try {
+      const { manual, open } = await transactionState(selectedProfileId);
+      // The connection it asked about has to still be the one on screen.
+      if (get().selectedProfileId === selectedProfileId) {
+        set({ txManual: manual, txOpen: open });
+      }
+    } catch {
+      // Every caller fires and forgets. A failed read leaves the last answer up
+      // instead of escaping as an unhandled rejection (#42).
+    }
   },
 
   applyBrowseEdit: async (key, { schema, table }, sql) => {
@@ -1183,6 +1251,9 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     // one is reachable from the eager manifest, so sonner became 32 KiB of the
     // shell's startup for a message only the table tab ever shows.
     await runQuery(selectedProfileId, sql);
+    if (get().txManual) {
+      void get().refreshTxState();
+    }
     await get().loadBrowsePage(key, { schema, table });
   },
 

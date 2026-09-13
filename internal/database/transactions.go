@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 )
 
 // ErrTransactionOpen and ErrNoTransaction are the two mistakes the UI can make.
@@ -178,6 +179,12 @@ func (s *Service) TxOpen(id string) bool {
 // that are tearing the connection down anyway.
 func (s *Service) rollbackTx(id string) {
 	if tx := s.txs.take(id); tx != nil {
-		_ = tx.Rollback(context.Background())
+		ctx, cancel := context.WithTimeout(context.Background(), rollbackTimeout)
+		defer cancel()
+		_ = tx.Rollback(ctx)
 	}
 }
+
+// rollbackTimeout bounds the rollbacks nobody is waiting on: shutdown, and a
+// profile being edited or deleted.
+const rollbackTimeout = 5 * time.Second

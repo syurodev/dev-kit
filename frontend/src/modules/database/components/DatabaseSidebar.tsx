@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import {
   Plus,
   RefreshCw,
@@ -130,6 +131,18 @@ const PANES: { value: SidebarPane; label: string; Icon: typeof Database }[] = [
 ];
 
 export function DatabaseSidebar() {
+  // #42: said once, where the switch happened. The toolbar on screen now
+  // describes the connection you arrived at, and nothing else would mention
+  // the transaction still holding its locks on the one you left.
+  const strandedTransaction = useDatabaseStore((s) => s.strandedTransaction);
+  useEffect(() => {
+    if (!strandedTransaction) return;
+    toast.warning(`${strandedTransaction} still has an open transaction`, {
+      description: "Its locks stay held. Switch back to commit or roll it back.",
+    });
+    useDatabaseStore.setState({ strandedTransaction: "" });
+  }, [strandedTransaction]);
+
   const {
     profiles,
     selectedProfileId,
