@@ -266,14 +266,39 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
     slice.queryError.includes("25006") ||
     slice.queryError.toLowerCase().includes("transaction is read-only");
 
+  /*
+   * The statement Explain is about: the first one in the selection, or the
+   * one the caret is in.
+   *
+   * It was the whole console. Run learned "what you selected" and Explain
+   * kept sending slice.sql, so selecting line 1 of two and pressing Explain
+   * sent both — and EXPLAIN takes one statement by definition, so the engine
+   * choked on the second one you had deliberately not selected.
+   *
+   * One, not "the selection": a plan is of a statement. A selection spanning
+   * three explains the first, which is the one it starts in.
+   */
+  const explainTarget = () => {
+    const { from, to } = selectionRef.current;
+    if (from !== to) {
+      const selected = splitStatements(
+        slice.sql.slice(Math.min(from, to), Math.max(from, to)),
+        splitDialect,
+      );
+      return selected[0]?.text;
+    }
+    return statementAt(statements, caretHead.current)?.text;
+  };
+
   async function handleExplain(analyze: boolean) {
-    if (!selectedProfileId || !slice.sql.trim()) return;
+    const target = explainTarget();
+    if (!selectedProfileId || !target) return;
     setExplaining(true);
     clearQueryError(consoleId);
     try {
       const plan = analyze
-        ? await explainAnalyze(selectedProfileId, slice.sql)
-        : await explain(selectedProfileId, slice.sql);
+        ? await explainAnalyze(selectedProfileId, target)
+        : await explain(selectedProfileId, target);
       setActivePlan(plan);
     } catch (e: any) {
       setQueryError(consoleId, e.message || String(e));
@@ -297,7 +322,10 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
     if (e.defaultPrevented) return;
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
-      void executeQuery(consoleId);
+      // The same rule the editor's own binding and the Run button use. This
+      // path still ran the whole text regardless of the selection, so ⌘↵
+      // meant two different things depending on where focus happened to be.
+      runFromEditor();
     }
   }
 

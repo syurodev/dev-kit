@@ -75,3 +75,29 @@ func TestParseMySQLPlanRejectsNonJSON(t *testing.T) {
 		t.Fatal("MySQL's text tree must not parse as a plan")
 	}
 }
+
+/*
+Which engine a server is, from what it says about itself.
+
+The profile's engine is a dropdown, and "MySQL" is the natural pick for a
+MariaDB server — same port, same driver, same answers to everything until
+ANALYZE. A MariaDB server saved as MySQL was sent EXPLAIN ANALYZE and came
+back with error 1064. VERSION() names MariaDB in its own text; MySQL's never
+does.
+*/
+func TestMariaDBIsReadFromTheServersOwnVersion(t *testing.T) {
+	for _, version := range []string{
+		"10.11.6-MariaDB",
+		"11.4.2-MariaDB-ubu2404",
+		"5.5.5-10.6.12-MariaDB-log",
+	} {
+		if !isMariaDBVersion(version) {
+			t.Errorf("%q is MariaDB", version)
+		}
+	}
+	for _, version := range []string{"8.0.36", "8.4.0-commercial", "5.7.44-log", ""} {
+		if isMariaDBVersion(version) {
+			t.Errorf("%q is not MariaDB", version)
+		}
+	}
+}

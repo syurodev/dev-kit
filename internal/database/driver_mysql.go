@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/url"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -118,9 +119,46 @@ func releaseMySQLTLS(name string) {
 type mysqlConn struct {
 	db      *sql.DB
 	tlsName string
-	// Which of the two engines this is. They share every Conn method, and
-	// diverge only at ANALYZE — see inspector_mysql_plan.go.
+	// Which of the two engines the PROFILE says this is. They share every
+	// Conn method, and diverge only at ANALYZE — see inspector_mysql_plan.go.
+	// A label someone chose, not a fact: read isMariaDB for anything that
+	// changes what is sent.
 	engine string
+
+	flavourOnce sync.Once
+	mariaDB     bool
+}
+
+/*
+isMariaDB asks the server, once, rather than trusting the profile.
+
+The profile's engine is a dropdown someone picked, and "MySQL" is the obvious
+pick for a MariaDB server: same port, same driver, same protocol, the same
+answers to everything this app asked of it until ANALYZE. Then the two
+engines want different words for the same question, and a label that was
+harmless becomes a syntax error — `EXPLAIN ANALYZE` sent to MariaDB, which
+only knows `ANALYZE FORMAT=JSON`.
+
+VERSION() says which it is in its own text. Asked once per connection, and
+if asking fails the profile's label is the answer — a guess we already had
+beats refusing to explain at all.
+*/
+func (c *mysqlConn) isMariaDB(ctx context.Context) bool {
+	c.flavourOnce.Do(func() {
+		var version string
+		if err := c.db.QueryRowContext(ctx, "SELECT VERSION()").Scan(&version); err != nil {
+			c.mariaDB = c.engine == EngineMariaDB
+			return
+		}
+		c.mariaDB = isMariaDBVersion(version)
+	})
+	return c.mariaDB
+}
+
+// isMariaDBVersion reads a VERSION() string. MariaDB always names itself —
+// "10.11.6-MariaDB", "11.4.2-MariaDB-ubu2404" — and MySQL never does.
+func isMariaDBVersion(version string) bool {
+	return strings.Contains(strings.ToLower(version), "mariadb")
 }
 
 func (c *mysqlConn) Ping(ctx context.Context) error { return c.db.PingContext(ctx) }
