@@ -48,11 +48,6 @@ const MAX_BOTTOM_HEIGHT = 600;
  * That is a deliberate departure from the Figma App Shell's Bottom=Open
  * variant, which draws the bottom surface spanning the full window width and
  * cutting across the sidebar. The vertical extent is unchanged.
- *
- * The dock floats over this surface on purpose (Dock.tsx is `fixed bottom-2`,
- * and Figma places the pill inside the bottom surface's bounds), so there is no
- * bottom padding here to make room for it. It centres on the *window*, not this
- * column, so with the sidebar open the pill is off this surface's own centre.
  */
 export function BottomSlotSurface({ activeModuleId }: { activeModuleId: string | null }) {
   const open = useBottomSlotStore((s) => s.open);

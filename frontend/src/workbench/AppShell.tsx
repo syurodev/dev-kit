@@ -27,7 +27,9 @@ import { AgentCompanionSlot } from "./AgentCompanionSlot";
  *   content-surface fills, opaque, radius 10 .shell-surface, index.css
  *   panel           320 + 8 sash             split-panel.tsx / panelWidths
  *   bottom          under content only       bottom-slot.tsx
- *   dock            108x11, centred          dock/Dock.tsx
+ *
+ * Figma still draws a dock at 666,879. It is gone: modules switch from the
+ * title bar (ModuleSwitcher.tsx).
  */
 
 export interface AppShellProps {
@@ -37,8 +39,6 @@ export interface AppShellProps {
   activeModuleId: string | null;
   /** Contents of the title bar. The bar itself is not the caller's to draw. */
   titlebar: ReactNode;
-  /** The module switcher. Floats over content; it is not in the row. */
-  dock: ReactNode;
   /**
    * Palettes, modals, hosts and subscribers. They render inside the frame so
    * they can position against it, but they take part in no layout.
@@ -52,7 +52,6 @@ export function AppShell({
   fullscreen = false,
   activeModuleId,
   titlebar,
-  dock,
   overlays,
   children,
 }: AppShellProps) {
@@ -118,7 +117,6 @@ export function AppShell({
           <SplitPanelSlot />
         </div>
 
-        {dock}
         {overlays}
       </div>
     </SplitPanelProvider>

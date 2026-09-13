@@ -1,5 +1,6 @@
 import { Bot } from "lucide-react";
 import { lazyModuleView, type ModuleManifest } from "../registry";
+import { AgentHubBadge, AgentHubPeek } from "./AgentHubSwitcher";
 
 export const agenthubModule: ModuleManifest = {
   id: "agenthub",
@@ -16,6 +17,8 @@ export const agenthubModule: ModuleManifest = {
   // dead border around the module. The card clips at radius/10 and this module
   // draws its own inner surfaces, which is exactly what bleed requires.
   capabilities: ["agenthub:read", "agenthub:execute"],
+  peek: AgentHubPeek,
+  badge: AgentHubBadge,
   commands: [
     { id: "agenthub.create", title: "New agent session" },
     { id: "agenthub.invoke", title: "Send prompt" },
