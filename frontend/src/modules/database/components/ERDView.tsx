@@ -128,7 +128,7 @@ function TableNode({ data }: { data: TableNodeData }) {
         </div>
         {data.isJunction && (
           <span
-            className="text-[9px] font-sans text-status-info bg-status-info/10 px-1.5 py-0.5 rounded shrink-0"
+            className="text-caption-11 text-status-info border border-status-info/40 px-1.5 rounded shrink-0"
             title="Primary key is exactly this table's reference columns — it joins two tables many-to-many"
           >
             N–N
@@ -166,9 +166,9 @@ function TableNode({ data }: { data: TableNodeData }) {
 
               <div className="flex items-center gap-1.5 truncate">
                 {isPK ? (
-                  <Key className="w-3 h-3 text-amber-400 shrink-0" />
+                  <Key className="w-3 h-3 text-status-warning shrink-0" />
                 ) : isDeclaredFK ? (
-                  <LinkIcon className="w-3 h-3 text-sky-400 shrink-0" />
+                  <LinkIcon className="w-3 h-3 text-status-info shrink-0" />
                 ) : isInferredFK ? (
                   <LinkIcon className="w-3 h-3 text-text-tertiary shrink-0" />
                 ) : (
@@ -177,9 +177,9 @@ function TableNode({ data }: { data: TableNodeData }) {
                 <span
                   className={`truncate ${
                     isPK
-                      ? "text-amber-400 font-semibold"
+                      ? "text-status-warning font-semibold"
                       : isDeclaredFK
-                      ? "text-sky-400 font-medium"
+                      ? "text-status-info font-medium"
                       : "text-text-primary"
                   }`}
                 >
@@ -188,15 +188,15 @@ function TableNode({ data }: { data: TableNodeData }) {
               </div>
 
               <div className="flex items-center gap-1 shrink-0">
-                <span className="text-[9px] text-text-tertiary">
+                <span className="text-code-11 text-text-tertiary">
                   {data.columnTypes[col] ?? ""}
                 </span>
                 {isPK ? (
-                  <span className="text-[9px] text-amber-400 bg-amber-400/10 px-1 rounded">PK</span>
+                  <span className="text-caption-11 text-status-warning border border-status-warning/40 px-1 rounded">PK</span>
                 ) : isDeclaredFK ? (
-                  <span className="text-[9px] text-sky-400 bg-sky-400/10 px-1 rounded">FK</span>
+                  <span className="text-caption-11 text-status-info border border-status-info/40 px-1 rounded">FK</span>
                 ) : isInferredFK ? (
-                  <span className="text-[9px] text-text-tertiary bg-surface-base px-1 rounded">
+                  <span className="text-caption-11 text-text-tertiary bg-surface-base px-1 rounded">
                     inf
                   </span>
                 ) : null}

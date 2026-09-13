@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -76,8 +78,18 @@ type postgresConn struct{ pool *pgxpool.Pool }
 func (c *postgresConn) Ping(ctx context.Context) error { return c.pool.Ping(ctx) }
 func (c *postgresConn) Close()                         { c.pool.Close() }
 
+// textResults asks the server for every result column in text format.
+//
+// Rows hands back strings, and the text format IS Postgres's own string for a
+// value — the one psql prints and the one it parses back. Decoding binary into
+// Go values and printing those with %v gave `[18 0 0 …]` for a uuid and
+// `{12345 -2 false finite true}` for a numeric: garbage on screen, and a
+// garbage literal in every cursor, edit and filter built from the cell (#37).
+// Still the extended protocol, so one statement per call as before.
+var textResults = pgx.QueryResultFormats{pgx.TextFormatCode}
+
 func (c *postgresConn) Query(ctx context.Context, sql string, args ...any) (Rows, error) {
-	rows, err := c.pool.Query(ctx, sql, args...)
+	rows, err := c.pool.Query(ctx, sql, append([]any{textResults}, args...)...)
 	if err != nil {
 		return nil, err
 	}
@@ -106,7 +118,7 @@ func (c *postgresConn) Begin(ctx context.Context) (Tx, error) {
 type postgresTx struct{ tx pgx.Tx }
 
 func (t *postgresTx) Query(ctx context.Context, sql string, args ...any) (Rows, error) {
-	rows, err := t.tx.Query(ctx, sql, args...)
+	rows, err := t.tx.Query(ctx, sql, append([]any{textResults}, args...)...)
 	if err != nil {
 		return nil, err
 	}
@@ -347,14 +359,23 @@ func (r *postgresRows) Next() bool        { return r.rows.Next() }
 func (r *postgresRows) Err() error        { return r.rows.Err() }
 func (r *postgresRows) Close()            { r.rows.Close() }
 
+// Values reads the text the server sent (see textResults) as it is. The raw
+// buffers are reused on the next row, so each is copied into its string.
 func (r *postgresRows) Values() ([]string, error) {
-	values, err := r.rows.Values()
-	if err != nil {
-		return nil, err
-	}
-	out := make([]string, len(values))
-	for i, v := range values {
-		out[i] = stringify(v)
+	raw := r.rows.RawValues()
+	fields := r.rows.FieldDescriptions()
+	out := make([]string, len(raw))
+	for i, v := range raw {
+		switch {
+		case v == nil:
+			out[i] = stringify(nil)
+		// The one type whose text form is terser than people read it: t/f. Both
+		// spellings parse back as a boolean literal.
+		case fields[i].DataTypeOID == pgtype.BoolOID:
+			out[i] = strconv.FormatBool(string(v) == "t")
+		default:
+			out[i] = string(v)
+		}
 	}
 	return out, nil
 }

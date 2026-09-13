@@ -1,4 +1,4 @@
-import { quoteIdentifier } from "./identifier";
+import { quoteIdentifier, quoteLiteral } from "./identifier";
 
 export type BrowseCursor = {
   /** The key values of the row this page starts after (or before). */
@@ -70,7 +70,7 @@ export function buildBrowseQuery(opts: {
     }
     const comparison = cursor.direction === "next" ? ">" : "<";
     const columns = pageKey.map(q).join(", ");
-    const values = cursor.values.map(quoteLiteral).join(", ");
+    const values = cursor.values.map((value) => quoteLiteral(value, engine)).join(", ");
     conditions.push(`(${columns}) ${comparison} (${values})`);
   }
 
@@ -111,11 +111,6 @@ export function buildBrowseQuery(opts: {
     pageSize,
     reversed,
   };
-}
-
-/** A string literal for the statement: the quote doubles, as in both dialects. */
-function quoteLiteral(value: string): string {
-  return "'" + value.split("'").join("''") + "'";
 }
 
 /**
