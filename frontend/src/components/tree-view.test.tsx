@@ -72,7 +72,7 @@ describe("TreeView", () => {
     expect(html).toContain('aria-level="2"');
   });
 
-  it("wraps children in an animating branch and numbers rows for the stagger", () => {
+  it("opens a branch with no motion but the chevron's turn", () => {
     const html = renderToString(
       <TreeView
         nodes={[
@@ -89,12 +89,14 @@ describe("TreeView", () => {
         ]}
       />,
     );
-    // The CSS in index.css keys off exactly these: the branch class for the
-    // 0fr→1fr track, role=group as the clipped grid item, --i for the delay.
-    expect(html).toContain('class="tree-branch"');
-    expect(html).toContain('role="group"');
-    expect(html).toContain("--i:1");
-    expect(html).not.toContain("data-closing");
+    // The branch used to grow open and its rows slide in. Both went, so the
+    // nested tree and the windowed one open a node the same way.
+    // min-w-0: a branch of nowrap labels must still shrink to the rail, or a
+    // selected nested row draws its border outside the scrollport.
+    expect(html).toContain('role="group" class="min-w-0"');
+    expect(html).not.toContain("tree-branch");
+    expect(html).not.toContain("tree-row-enter");
+    expect(html).toContain("rotate-90");
   });
 
   it("gives a leaf no chevron", () => {

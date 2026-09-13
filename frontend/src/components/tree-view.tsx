@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { ChevronRight } from "lucide-react";
 import { observeElementRect, useVirtualizer } from "@tanstack/react-virtual";
@@ -86,56 +86,17 @@ function indent(level: number): number {
   return ROW_INSET + level * ROW_INDENT;
 }
 
-// ponytail: mirrors --motion-fast in index.css; a token read would need a
-// getComputedStyle per branch for a number that changes once a year.
-const CLOSE_MS = 120;
-/** --motion-base, the open direction. */
-const OPEN_MS = 180;
-
 const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 /**
- * True while a branch is mid-transition, either direction.
+ * A tree up to the virtualization threshold renders whole, nested, with CSS
+ * sticky. Past it, as a flat window of rows.
  *
- * It exists to take `overflow: hidden` OFF a branch that has finished moving.
- * The collapse is a `grid-template-rows: 1fr → 0fr` and the grid item has to
- * be clipped for that to hide anything — but an ancestor with `overflow:
- * hidden` also kills `position: sticky` for everything inside it, and the tree
- * pins a connection and its schema so they stay on screen while 173 tables
- * scroll under them. A settled branch is exactly as tall as its content, so
- * clipping it buys nothing and costs that.
- */
-function useBranchAnimating(open: boolean): boolean {
-  const [animating, setAnimating] = useState(true);
-  useEffect(() => {
-    setAnimating(true);
-    const t = setTimeout(() => setAnimating(false), OPEN_MS);
-    return () => clearTimeout(t);
-  }, [open]);
-  return animating;
-}
-
-/**
- * True while `open`, and for CLOSE_MS after it turns false — the window the
- * collapse transition needs the children still in the DOM. Opening is the
- * cheap direction: mount, and CSS @starting-style takes it from there.
- */
-function useLingering(open: boolean): boolean {
-  const [lingering, setLingering] = useState(open);
-  useEffect(() => {
-    if (open) {
-      setLingering(true);
-      return;
-    }
-    const t = setTimeout(() => setLingering(false), CLOSE_MS);
-    return () => clearTimeout(t);
-  }, [open]);
-  return open || lingering;
-}
-
-/**
- * A tree up to the virtualization threshold renders whole, nested, with its
- * branch animation and CSS sticky. Past it, as a flat window of rows.
+ * No motion but the chevron's turn. A branch used to grow open and its rows
+ * slide in; the windowed tree could not do either, and a tree crossing the
+ * threshold remounted in the other rendering, which replayed every row's
+ * entrance at once. Opening a node is instant in both, so the two renderings
+ * look the same and crossing between them shows nothing.
  *
  * The threshold counts the rows that are showing, so a database rail with a
  * few schemas open is windowed and the same rail with them closed is not.
@@ -288,7 +249,7 @@ function VirtualTree({ rows, className }: { rows: FlatRow[]; className?: string 
               {row.placeholder ? (
                 <BranchPlaceholder node={row.node} level={row.level} />
               ) : (
-                <TreeRowLine node={row.node} level={row.level} index={row.index} />
+                <TreeRowLine node={row.node} level={row.level} />
               )}
             </div>
           );
@@ -341,7 +302,7 @@ function PinnedRows({
           className="bg-(--background-app)"
           style={{ position: "absolute", top, left: 0, right: 0 }}
         >
-          <TreeRowLine node={rows[index].node} level={rows[index].level} index={0} copy />
+          <TreeRowLine node={rows[index].node} level={rows[index].level} copy />
         </div>
       ))}
     </div>
@@ -351,31 +312,24 @@ function PinnedRows({
 function TreeRows({ nodes, level }: { nodes: TreeNodeData[]; level: number }) {
   return (
     <>
-      {nodes.map((node, i) => (
-        <TreeRow key={node.id} node={node} level={level} index={i} />
+      {nodes.map((node) => (
+        <TreeRow key={node.id} node={node} level={level} />
       ))}
     </>
   );
 }
 
 /**
- * The row itself, shared by both renderings.
- *
- * `animated` gives it the entry animation, which only the nested tree wants: a
- * windowed row mounts every time it scrolls into view. `copy` is a pinned row's
+ * The row itself, shared by both renderings. `copy` is a pinned row's
  * duplicate, kept out of the tab order.
  */
 function TreeRowLine({
   node,
   level,
-  index,
-  animated = false,
   copy = false,
 }: {
   node: TreeNodeData;
   level: number;
-  index: number;
-  animated?: boolean;
   copy?: boolean;
 }) {
   const open = !!node.expandable && !!node.expanded;
@@ -386,14 +340,13 @@ function TreeRowLine({
       aria-expanded={!copy && node.expandable ? open : undefined}
       aria-selected={(!copy && node.selected) || undefined}
       title={node.title}
-      style={{ paddingLeft: indent(level), "--i": index } as CSSProperties}
+      style={{ paddingLeft: indent(level) }}
       className={cn(
         // The tree tier (--control-height-xs): depth costs vertical room here,
         // so a row is denser than the flat lists in other rails.
         // The border is on every row, transparent until selected: a border that
         // appears would move the label 1px and shove the whole subtree down.
         "group flex h-(--control-height-xs) items-center gap-1 rounded-md border pr-1.5",
-        animated && "tree-row-enter",
         node.selected
           // --status-info, not the brand colour: a brand is free to be pale,
           // and --action-primary at 45% measured 1.05:1 against this very fill
@@ -457,12 +410,9 @@ function BranchPlaceholder({ node, level }: { node: TreeNodeData; level: number 
   );
 }
 
-function TreeRow({ node, level, index }: { node: TreeNodeData; level: number; index: number }) {
+function TreeRow({ node, level }: { node: TreeNodeData; level: number }) {
   const open = !!node.expandable && !!node.expanded;
-  const branchMounted = useLingering(open);
-  const branchAnimating = useBranchAnimating(open);
-
-  const wrapped = <TreeRowLine node={node} level={level} index={index} animated />;
+  const wrapped = <TreeRowLine node={node} level={level} />;
 
   return (
     <>
@@ -484,22 +434,15 @@ function TreeRow({ node, level, index }: { node: TreeNodeData; level: number; in
           {wrapped}
         </div>
       )}
-      {branchMounted && (
-        // Stays mounted through the collapse (see useLingering); inert so a
-        // closing branch cannot keep focus or be tabbed into meanwhile.
-        <div
-          className="tree-branch"
-          data-closing={open ? undefined : ""}
-          data-animating={branchAnimating ? "" : undefined}
-          inert={!open}
-        >
-          <div role="group">
-            {node.children?.length ? (
-              <TreeRows nodes={node.children} level={level + 1} />
-            ) : (
-              <BranchPlaceholder node={node} level={level + 1} />
-            )}
-          </div>
+      {open && (
+        // min-w-0 so a branch shrinks to the rail and its labels ellipsise,
+        // rather than growing to the longest table name.
+        <div role="group" className="min-w-0">
+          {node.children?.length ? (
+            <TreeRows nodes={node.children} level={level + 1} />
+          ) : (
+            <BranchPlaceholder node={node} level={level + 1} />
+          )}
         </div>
       )}
     </>
