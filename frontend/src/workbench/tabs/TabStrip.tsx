@@ -278,16 +278,16 @@ function TabGroupRow({
                 // same thing and a second vocabulary for "this is the one" is
                 // a vocabulary to learn twice. The fill alone cannot carry it:
                 // --surface-raised over a --state-soft neighbour measured
-                // 1.03:1 in Dracula light and under 1.1 in five more palettes,
-                // which is a difference you can be told about but not see. So
-                // the neighbours give up their fill entirely — an inactive tab
-                // is drawn by its label and nothing else, and the tint comes
-                // back under the pointer.
+                // 1.03:1 in Dracula light and under 1.1 in five more palettes.
+                // The hairline does — floored at 3:1 in themeContrast.test —
+                // so an inactive tab keeps a quiet --state-soft ground and
+                // reads as a tab rather than a floating label, and rises to
+                // the active tab's fill under the pointer.
                 isActive
                   ? "bg-surface-raised border-status-info text-text-primary"
                   : tab.preview
-                    ? "border-border-subtle border-dashed text-body-12 text-text-secondary hover:bg-state-soft hover:text-text-primary"
-                    : "border-transparent text-label-12 text-text-secondary hover:bg-state-soft hover:text-text-primary",
+                    ? "bg-state-soft border-border-subtle border-dashed text-body-12 text-text-secondary hover:bg-surface-raised hover:text-text-primary"
+                    : "bg-state-soft border-transparent text-label-12 text-text-secondary hover:bg-surface-raised hover:text-text-primary",
               )}
             >
               {/* Focus ring: separate layer at radius 8, not the pill's radius 6 (Figma 448:343 exception) */}
