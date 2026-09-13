@@ -1,6 +1,9 @@
-import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 import { ChevronRight } from "lucide-react";
+import { observeElementRect, useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "@/lib/utils";
+import { shouldVirtualize } from "@/components/ui/virtual-rows";
 
 /**
  * One row of the tree.
@@ -73,6 +76,12 @@ export type TreeNodeData = {
 const ROW_INDENT = 10;
 const ROW_INSET = 4;
 
+/**
+ * --control-height-xs, the row height below. Rows are fixed-height, which is
+ * what lets a long tree be windowed by arithmetic instead of by measuring.
+ */
+export const TREE_ROW_HEIGHT = 24;
+
 function indent(level: number): number {
   return ROW_INSET + level * ROW_INDENT;
 }
@@ -82,6 +91,8 @@ function indent(level: number): number {
 const CLOSE_MS = 120;
 /** --motion-base, the open direction. */
 const OPEN_MS = 180;
+
+const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 /**
  * True while a branch is mid-transition, either direction.
@@ -122,6 +133,15 @@ function useLingering(open: boolean): boolean {
   return open || lingering;
 }
 
+/**
+ * A tree up to the virtualization threshold renders whole, nested, with its
+ * branch animation and CSS sticky. Past it, as a flat window of rows.
+ *
+ * The threshold counts the rows that are showing, so a database rail with a
+ * few schemas open is windowed and the same rail with them closed is not.
+ * Windowing is what keeps a 900-table connection cheap to show: the rail used
+ * to lay out every row each time it came back on screen.
+ */
 export function TreeView({
   nodes,
   className,
@@ -129,9 +149,201 @@ export function TreeView({
   nodes: TreeNodeData[];
   className?: string;
 }) {
+  const rows = flattenTree(nodes);
+  if (shouldVirtualize(rows.length)) {
+    return <VirtualTree rows={rows} className={className} />;
+  }
   return (
     <div role="tree" className={cn("flex flex-col", className)}>
       <TreeRows nodes={nodes} level={0} />
+    </div>
+  );
+}
+
+/** A row of the flattened tree: the rows that are showing, in order. */
+export type FlatRow = {
+  /** The id path from the root: ids need only be unique among siblings. */
+  key: string;
+  node: TreeNodeData;
+  level: number;
+  /** Position among its siblings. */
+  index: number;
+  /** One past the last row of this node's subtree — itself included. */
+  end: number;
+  /** The loading or empty line under an expanded node with no children. */
+  placeholder?: boolean;
+};
+
+export function flattenTree(nodes: TreeNodeData[]): FlatRow[] {
+  const rows: FlatRow[] = [];
+  const walk = (list: TreeNodeData[], level: number, parentKey: string) => {
+    list.forEach((node, index) => {
+      const key = `${parentKey}/${node.id}`;
+      const at = rows.length;
+      rows.push({ key, node, level, index, end: at + 1 });
+      if (node.expandable && node.expanded) {
+        if (node.children?.length) {
+          walk(node.children, level + 1, key);
+        } else {
+          rows.push({ key: `${key}/…`, node, level: level + 1, index: 0, end: rows.length + 1, placeholder: true });
+        }
+      }
+      rows[at].end = rows.length;
+    });
+  };
+  walk(nodes, 0, "");
+  return rows;
+}
+
+/**
+ * Which rows are pinned, and where, with the scroller `offset` px into the list.
+ *
+ * What CSS sticky would do, done by hand because a windowed list has already
+ * unmounted the row that should be stuck: a row shows at its `sticky` offset
+ * once it has scrolled above that line, and is pushed up by the end of its own
+ * subtree, so the next connection or schema slides it out rather than landing
+ * on top of it.
+ */
+export function pinnedRows(
+  rows: FlatRow[],
+  offset: number,
+  rowHeight: number,
+): Array<{ index: number; top: number }> {
+  const pins: Array<{ index: number; top: number }> = [];
+  if (offset <= 0) return pins;
+  for (let i = 0; i < rows.length; i++) {
+    const pin = rows[i].node.sticky;
+    if (pin === undefined || rows[i].placeholder) continue;
+    const y = i * rowHeight - offset;
+    if (y >= pin) continue;
+    const top = Math.min(pin, rows[i].end * rowHeight - offset - rowHeight);
+    if (top > -rowHeight) pins.push({ index: i, top });
+  }
+  return pins;
+}
+
+function scrollParent(element: HTMLElement): HTMLElement | null {
+  for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+    const { overflowY } = getComputedStyle(parent);
+    if (overflowY === "auto" || overflowY === "scroll") return parent;
+  }
+  return null;
+}
+
+function VirtualTree({ rows, className }: { rows: FlatRow[]; className?: string }) {
+  const listRef = useRef<HTMLDivElement>(null);
+  const [scroller, setScroller] = useState<HTMLElement | null>(null);
+  // Where the list starts inside the scroller: the rail has headers and the
+  // tree has its own top padding above the first row.
+  const [margin, setMargin] = useState(0);
+
+  useIsomorphicLayoutEffect(() => {
+    const list = listRef.current;
+    // Hidden with its module: nothing to measure, and zeros would be wrong.
+    if (!list || list.getClientRects().length === 0) return;
+    const element = scroller?.contains(list) ? scroller : scrollParent(list);
+    if (element !== scroller) setScroller(element);
+    if (!element) return;
+    const next = Math.round(
+      list.getBoundingClientRect().top - element.getBoundingClientRect().top + element.scrollTop,
+    );
+    if (next !== margin) setMargin(next);
+  });
+
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scroller,
+    getItemKey: (i) => rows[i].key,
+    estimateSize: () => TREE_ROW_HEIGHT,
+    overscan: 12,
+    scrollMargin: margin,
+    // Rows before the scroller is known: a window's worth, not an empty rail.
+    initialRect: { width: 0, height: typeof window === "undefined" ? 800 : window.innerHeight },
+    // A module's rail stays mounted while hidden (SidebarSurface). Hidden, the
+    // scroller measures 0 tall; kept, that would render no rows and the rail
+    // would come back empty for a frame. The last real size stands instead.
+    observeElementRect: (instance, cb) =>
+      observeElementRect(instance, (rect) => {
+        if (rect.height > 0) cb(rect);
+      }),
+  });
+
+  return (
+    <div role="tree" className={cn("flex flex-col", className)}>
+      <div ref={listRef} style={{ position: "relative", height: virtualizer.getTotalSize() }}>
+        <PinnedRows rows={rows} scroller={scroller} margin={margin} />
+        {virtualizer.getVirtualItems().map((item) => {
+          const row = rows[item.index];
+          return (
+            <div
+              key={item.key}
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                right: 0,
+                transform: `translateY(${item.start - margin}px)`,
+              }}
+            >
+              {row.placeholder ? (
+                <BranchPlaceholder node={row.node} level={row.level} />
+              ) : (
+                <TreeRowLine node={row.node} level={row.level} index={row.index} />
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The pinned rows, on a zero-height host stuck to the scroller's top.
+ *
+ * Its own scroll listener rather than the virtualizer's offset: the virtualizer
+ * re-renders only when the window of rows changes, so a scroll of a few pixels
+ * left the pins where the last window put them — measured a row late at the
+ * point one schema pushes out the next. flushSync, so the pins move in the same
+ * frame as the rows; it renders two or three rows, not the window.
+ *
+ * Copies of real rows for the eye and the pointer; the windowed rows are what
+ * assistive tech and the tab order see.
+ */
+function PinnedRows({
+  rows,
+  scroller,
+  margin,
+}: {
+  rows: FlatRow[];
+  scroller: HTMLElement | null;
+  margin: number;
+}) {
+  const [offset, setOffset] = useState(0);
+
+  useEffect(() => {
+    if (!scroller) return;
+    setOffset(scroller.scrollTop - margin);
+    const onScroll = () => flushSync(() => setOffset(scroller.scrollTop - margin));
+    scroller.addEventListener("scroll", onScroll, { passive: true });
+    return () => scroller.removeEventListener("scroll", onScroll);
+  }, [scroller, margin]);
+
+  const pins = pinnedRows(rows, offset, TREE_ROW_HEIGHT);
+  return (
+    <div style={{ position: "sticky", top: 0, height: 0, zIndex: 2 }}>
+      {/* Deepest first, so a schema being pushed out slides under its
+          connection instead of over it. */}
+      {[...pins].reverse().map(({ index, top }) => (
+        <div
+          key={rows[index].key}
+          aria-hidden
+          className="bg-(--background-app)"
+          style={{ position: "absolute", top, left: 0, right: 0 }}
+        >
+          <TreeRowLine node={rows[index].node} level={rows[index].level} index={0} copy />
+        </div>
+      ))}
     </div>
   );
 }
@@ -146,17 +358,33 @@ function TreeRows({ nodes, level }: { nodes: TreeNodeData[]; level: number }) {
   );
 }
 
-function TreeRow({ node, level, index }: { node: TreeNodeData; level: number; index: number }) {
+/**
+ * The row itself, shared by both renderings.
+ *
+ * `animated` gives it the entry animation, which only the nested tree wants: a
+ * windowed row mounts every time it scrolls into view. `copy` is a pinned row's
+ * duplicate, kept out of the tab order.
+ */
+function TreeRowLine({
+  node,
+  level,
+  index,
+  animated = false,
+  copy = false,
+}: {
+  node: TreeNodeData;
+  level: number;
+  index: number;
+  animated?: boolean;
+  copy?: boolean;
+}) {
   const open = !!node.expandable && !!node.expanded;
-  const branchMounted = useLingering(open);
-  const branchAnimating = useBranchAnimating(open);
-
   const row = (
     <div
-      role="treeitem"
-      aria-level={level + 1}
-      aria-expanded={node.expandable ? open : undefined}
-      aria-selected={node.selected || undefined}
+      role={copy ? undefined : "treeitem"}
+      aria-level={copy ? undefined : level + 1}
+      aria-expanded={!copy && node.expandable ? open : undefined}
+      aria-selected={(!copy && node.selected) || undefined}
       title={node.title}
       style={{ paddingLeft: indent(level), "--i": index } as CSSProperties}
       className={cn(
@@ -164,7 +392,8 @@ function TreeRow({ node, level, index }: { node: TreeNodeData; level: number; in
         // so a row is denser than the flat lists in other rails.
         // The border is on every row, transparent until selected: a border that
         // appears would move the label 1px and shove the whole subtree down.
-        "group tree-row-enter flex h-(--control-height-xs) items-center gap-1 rounded-md border pr-1.5",
+        "group flex h-(--control-height-xs) items-center gap-1 rounded-md border pr-1.5",
+        animated && "tree-row-enter",
         node.selected
           // --status-info, not the brand colour: a brand is free to be pale,
           // and --action-primary at 45% measured 1.05:1 against this very fill
@@ -185,6 +414,7 @@ function TreeRow({ node, level, index }: { node: TreeNodeData; level: number; in
           it and opens it, which is what a single-click tree does anyway. */}
       <button
         type="button"
+        tabIndex={copy ? -1 : undefined}
         className="flex min-w-0 flex-1 items-center gap-1 text-left"
         onClick={() => {
           node.onSelect?.();
@@ -212,7 +442,27 @@ function TreeRow({ node, level, index }: { node: TreeNodeData; level: number; in
     </div>
   );
 
-  const wrapped = node.wrap ? node.wrap(row) : row;
+  return node.wrap ? node.wrap(row) : row;
+}
+
+/** The loading or empty line under an expanded node with no children. */
+function BranchPlaceholder({ node, level }: { node: TreeNodeData; level: number }) {
+  return (
+    <span
+      className="flex h-(--control-height-xs) items-center pr-1.5 text-code-11 text-text-tertiary"
+      style={{ paddingLeft: indent(level) + 16 }}
+    >
+      {node.loading ? "Loading…" : node.emptyLabel}
+    </span>
+  );
+}
+
+function TreeRow({ node, level, index }: { node: TreeNodeData; level: number; index: number }) {
+  const open = !!node.expandable && !!node.expanded;
+  const branchMounted = useLingering(open);
+  const branchAnimating = useBranchAnimating(open);
+
+  const wrapped = <TreeRowLine node={node} level={level} index={index} animated />;
 
   return (
     <>
@@ -247,12 +497,7 @@ function TreeRow({ node, level, index }: { node: TreeNodeData; level: number; in
             {node.children?.length ? (
               <TreeRows nodes={node.children} level={level + 1} />
             ) : (
-              <span
-                className="flex h-(--control-height-xs) items-center pr-1.5 text-code-11 text-text-tertiary"
-                style={{ paddingLeft: indent(level + 1) + 16 }}
-              >
-                {node.loading ? "Loading…" : node.emptyLabel}
-              </span>
+              <BranchPlaceholder node={node} level={level + 1} />
             )}
           </div>
         </div>

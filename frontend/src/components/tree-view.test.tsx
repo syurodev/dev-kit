@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { renderToString } from "react-dom/server";
-import { TreeView, type TreeNodeData } from "./tree-view";
+import { TreeView, flattenTree, pinnedRows, type TreeNodeData } from "./tree-view";
 
 /** Counts chevrons — one per expandable row, whatever its state. */
 function chevrons(html: string): number {
@@ -100,5 +100,83 @@ describe("TreeView", () => {
   it("gives a leaf no chevron", () => {
     const html = renderToString(<TreeView nodes={[{ id: "c", label: "id" }]} />);
     expect(chevrons(html)).toBe(0);
+  });
+});
+
+/** A connection pinned at 0 with two schemas pinned at 24, each holding tables. */
+function database(tablesPerSchema: number): TreeNodeData[] {
+  const schema = (name: string): TreeNodeData => ({
+    id: name,
+    label: name,
+    sticky: 24,
+    expandable: true,
+    expanded: true,
+    children: Array.from({ length: tablesPerSchema }, (_, i) => ({ id: `t${i}`, label: `${name}_${i}` })),
+  });
+  return [
+    { id: "pg", label: "pg", sticky: 0, expandable: true, expanded: true, children: [schema("public"), schema("crm")] },
+  ];
+}
+
+describe("flattenTree", () => {
+  it("lists what is showing, with subtree ends and a line under an empty opened node", () => {
+    const rows = flattenTree([
+      { id: "a", label: "a", expandable: true, expanded: true, children: [{ id: "b", label: "b" }] },
+      { id: "c", label: "c", expandable: true, expanded: true, loading: true },
+      { id: "d", label: "d", expandable: true, children: [{ id: "hidden", label: "x" }] },
+    ]);
+    expect(rows.map((row) => [row.key, row.level, row.end, !!row.placeholder])).toEqual([
+      ["/a", 0, 2, false],
+      ["/a/b", 1, 2, false],
+      ["/c", 0, 4, false],
+      ["/c/…", 1, 4, true],
+      ["/d", 0, 5, false],
+    ]);
+  });
+
+  it("keys by path, so the same id under two parents stays two rows", () => {
+    const keys = flattenTree(database(2)).map((row) => row.key);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+});
+
+describe("pinnedRows", () => {
+  const rows = flattenTree(database(10)); // pg, public, 10 tables, crm, 10 tables
+  const H = 24;
+
+  it("pins nothing before the list has scrolled", () => {
+    expect(pinnedRows(rows, 0, H)).toEqual([]);
+  });
+
+  it("pins the connection and the schema being scrolled through", () => {
+    // 5 rows down: pg and public have gone above their lines.
+    expect(pinnedRows(rows, 5 * H, H)).toEqual([
+      { index: 0, top: 0 },
+      { index: 1, top: 24 },
+    ]);
+  });
+
+  it("slides a schema out as the next one arrives, and pins that one instead", () => {
+    // public's subtree ends at row 12, where crm sits; 10.5 rows down crm is
+    // at 36, half a row below the schema line, pushing public up by half a row.
+    expect(pinnedRows(rows, 10.5 * H, H)).toEqual([
+      { index: 0, top: 0 },
+      { index: 1, top: 12 },
+    ]);
+    expect(pinnedRows(rows, 13 * H, H)).toEqual([
+      { index: 0, top: 0 },
+      { index: 12, top: 24 },
+    ]);
+  });
+});
+
+describe("a tree past the virtualization threshold", () => {
+  it("renders a window of its rows rather than all of them", () => {
+    const html = renderToString(<TreeView nodes={database(300)} />);
+    const rendered = html.split('role="treeitem"').length - 1;
+    expect(rendered).toBeGreaterThan(0);
+    expect(rendered).toBeLessThan(100);
+    // Flat, so no animated branches to key off.
+    expect(html).not.toContain("tree-branch");
   });
 });
