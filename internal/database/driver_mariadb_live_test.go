@@ -224,8 +224,16 @@ func TestMariaDBExplainAnalyzeRollsBackItsStatement(t *testing.T) {
 	}
 	defer conn.Close()
 
+	/*
+		Rows of orders, counted by walking them.
+
+		This used to walk the rows of `SELECT COUNT(*) FROM orders` — which is
+		always exactly one row, whatever the table holds — so before and after
+		were both 1 and the test could not fail. An INSERT that survived rollback
+		passed. Walking the ids counts the table instead of counting the count.
+	*/
 	count := func() int {
-		rows, err := conn.Query(ctx, "SELECT COUNT(*) FROM orders")
+		rows, err := conn.Query(ctx, "SELECT id FROM orders")
 		if err != nil {
 			t.Fatalf("count: %v", err)
 		}
