@@ -1,12 +1,12 @@
 import { useMemo, useRef, useState } from "react";
 import {
-  FileCode2,
+  Gauge,
   BookmarkPlus,
   Download,
   ShieldAlert,
   Info,
   XCircle,
-  Sliders,
+  Timer,
   KeyRound,
   X,
 } from "lucide-react";
@@ -40,6 +40,7 @@ import { explain, explainAnalyze, type QueryPlan } from "../../../bridge/databas
 import { QueryPlanView } from "./QueryPlanView";
 import { sqlCompletionTheme } from "./sqlCompletionTheme";
 import { ResultGrid } from "../grid/ResultGrid";
+import { TransactionControls } from "./TableToolbar";
 
 /**
  * Figma `DB / Console Content` (742:8). A toolbar row with Run ⌘↵ and Export
@@ -407,7 +408,7 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
             onClick={() => void handleExplain(false)}
             disabled={busy}
           >
-            <FileCode2 />
+            <Gauge />
           </Button>
         </ActionTooltip>
         <ActionTooltip label="Explain analyze — run it in a rolled-back transaction to measure the real time">
@@ -417,7 +418,7 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
             onClick={() => void handleExplain(true)}
             disabled={busy}
           >
-            <Sliders />
+            <Timer />
           </Button>
         </ActionTooltip>
         <ActionTooltip label="Save this query" wrap>
@@ -431,6 +432,11 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
           </Button>
         </ActionTooltip>
 
+        {/* The same transaction controls as the table tab: a transaction is
+            the connection's, and the console is where statements that need
+            one are typed. */}
+        <TransactionControls />
+
         {/* Which connection this console's statements go to. In the toolbar
             rather than a status bar, because the button it describes is at
             the other end of this same row. */}
@@ -443,17 +449,18 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
 
         <div className="flex-1" />
 
-        {queryResult && (
-          <ActionTooltip label="Export the result">
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={() => openExportModal(queryResult)}
-            >
-              <Download />
-            </Button>
-          </ActionTooltip>
-        )}
+        {/* Always there, disabled with no result, so Run does not shift
+            sideways the moment a result arrives. */}
+        <ActionTooltip label="Export the result" wrap>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            disabled={!queryResult}
+            onClick={() => queryResult && openExportModal(queryResult)}
+          >
+            <Download />
+          </Button>
+        </ActionTooltip>
         {/* Run, and what came back, in one body — see RunGroup. The clock
             used to live in a bar between the editor and the result; it is in
             the pill now, which is the control that started it, and the bar
