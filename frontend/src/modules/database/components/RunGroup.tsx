@@ -81,6 +81,10 @@ const INSTANT = { duration: 0 } as const;
  * the fill is on the BODY, not on a segment: one colour across the whole
  * control is what makes the opening read as this thing growing rather than as
  * something arriving beside it.
+ *
+ * Idle is the theme's primary action, the fill Button's default variant
+ * paints. It used to share running's danger through the `default` branch, so
+ * every palette showed a red Run before anything had run.
  */
 function toneOf(status: ConsoleStatus): string {
   switch (status.kind) {
@@ -90,8 +94,10 @@ function toneOf(status: ConsoleStatus): string {
       return "bg-status-warning text-surface-base";
     case "success":
       return "bg-status-success text-surface-base";
-    default:
+    case "running":
       return "bg-status-danger text-surface-base";
+    default:
+      return "bg-action-primary text-action-primary-foreground";
   }
 }
 

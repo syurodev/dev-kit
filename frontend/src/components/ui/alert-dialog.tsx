@@ -51,9 +51,7 @@ function AlertDialogContent({
   size?: "default" | "sm"
   portal?: boolean
 }) {
-  const content = (
-    <>
-      <AlertDialogOverlay />
+  const panel = (
       <AlertDialogPrimitive.Content
         data-slot="alert-dialog-content"
         data-size={size}
@@ -63,11 +61,24 @@ function AlertDialogContent({
         )}
         {...props}
       />
-    </>
   )
 
-  if (!portal) return content
-  return <AlertDialogPortal>{content}</AlertDialogPortal>
+  if (!portal) {
+    return (
+      <>
+        <AlertDialogOverlay />
+        {panel}
+      </>
+    )
+  }
+  // Two children, not one fragment — see DialogContent: the portal's Presence
+  // needs an element to read the exit animation from, or it unmounts at once.
+  return (
+    <AlertDialogPortal>
+      <AlertDialogOverlay />
+      {panel}
+    </AlertDialogPortal>
+  )
 }
 
 function AlertDialogHeader({

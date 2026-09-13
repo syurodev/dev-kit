@@ -336,7 +336,6 @@ export function TableToolbar({
               return (
                 <DropdownMenuItem
                   key={column}
-                  className="justify-between gap-4"
                   onSelect={(event) => {
                     event.preventDefault();
                     onOrderByChange({
@@ -344,15 +343,17 @@ export function TableToolbar({
                       direction: active && orderBy.direction === "asc" ? "desc" : "asc",
                     });
                   }}
+                  detail={
+                    active ? (
+                      orderBy.direction === "asc" ? (
+                        <ArrowUpAZ className="text-text-tertiary" />
+                      ) : (
+                        <ArrowDownAZ className="text-text-tertiary" />
+                      )
+                    ) : undefined
+                  }
                 >
-                  <span className="truncate">{column}</span>
-                  {active ? (
-                    orderBy.direction === "asc" ? (
-                      <ArrowUpAZ className="text-text-tertiary" />
-                    ) : (
-                      <ArrowDownAZ className="text-text-tertiary" />
-                    )
-                  ) : null}
+                  {column}
                 </DropdownMenuItem>
               );
             })}

@@ -21,6 +21,20 @@ package appmenu
 // EventName is the event a menu selection emits. The payload is the Command ID.
 const EventName = "devkit:command"
 
+// Close Tab takes ⌘W, and Close Window moves to ⇧⌘W, as in every editor with
+// tabs. The platform's default roles bind ⌘W to Close Window (File on macOS,
+// Window elsewhere), and a native accelerator fires before the page sees the
+// key, so main.go makes the swap in the menu itself.
+//
+// Not in Submenus: tabs belong to the shell, not to a module, so this is no
+// module's command and no module's metadata reports it.
+const (
+	CloseTabID             = "workbench.tab.close"
+	CloseTabLabel          = "Close Tab"
+	CloseTabAccelerator    = "CmdOrCtrl+W"
+	CloseWindowAccelerator = "CmdOrCtrl+Shift+W"
+)
+
 // A Command is one menu item the frontend knows how to run.
 type Command struct {
 	// Label as it appears in the menu. Title-style capitalisation, and an

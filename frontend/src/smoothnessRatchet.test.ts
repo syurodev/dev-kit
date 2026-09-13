@@ -139,8 +139,9 @@ const BASELINE = {
   unvirtualizedTables: 2,
   // 48 → 44 with the glass button already in it: four of the old 48 were
   // `backdrop-filter: none` opt-outs that the exclusion above never actually
-  // excluded.
-  blurSurfaces: 44,
+  // excluded. 44 → 42: the plan inspector and Save Query drew their own
+  // blurred overlay and now use Dialog's.
+  blurSurfaces: 42,
   untokenisedAnimateIn: 3,
   unstableQueryDefaults: 0,
 };

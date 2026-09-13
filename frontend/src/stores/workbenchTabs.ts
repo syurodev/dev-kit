@@ -15,6 +15,11 @@ export type WorkbenchTab = {
   status?: TabStatus;
   icon?: LucideIcon;
   preview?: boolean;
+  /**
+   * Pinned: kept at the left of the strip, and passed over by the group
+   * closes (Close Others, to the Left/Right, All) — VS Code's sticky tab.
+   */
+  pinned?: boolean;
 };
 
 export type OpenTabInput = {
@@ -98,7 +103,14 @@ export type WorkbenchTabsState = {
   setTabStatus: (id: string, status: TabStatus) => void;
   pinTab: (id: string) => void;
   reorderTab: (fromId: string, beforeId: string | null) => void;
+  /** Pins or unpins, moving the tab to the edge of the pinned run. */
+  togglePinTab: (id: string) => void;
 };
+
+/** Pinned tabs first, each group in its own order. */
+function pinnedFirst(tabs: WorkbenchTab[]): WorkbenchTab[] {
+  return [...tabs.filter((tab) => tab.pinned), ...tabs.filter((tab) => !tab.pinned)];
+}
 
 export function moduleTabs(
   modules: Record<string, ModuleTabs>,
@@ -335,20 +347,41 @@ export const useWorkbenchTabsStore = create<WorkbenchTabsState>()(
         if (fromIndex === -1) {
           return m;
         }
-        const openTabs = m.openTabs.slice();
-        const [moved] = openTabs.splice(fromIndex, 1);
-        const insertAt = beforeId ? openTabs.findIndex((tab) => tab.id === beforeId) : -1;
+        const moving = m.openTabs.slice();
+        const [moved] = moving.splice(fromIndex, 1);
+        const insertAt = beforeId ? moving.findIndex((tab) => tab.id === beforeId) : -1;
         if (insertAt === -1) {
-          openTabs.push(moved);
+          moving.push(moved);
         } else {
-          openTabs.splice(insertAt, 0, moved);
+          moving.splice(insertAt, 0, moved);
         }
+        // A drag cannot carry a tab across the pinned run's edge: pinning is
+        // what moves a tab there, not where it was dropped.
+        const openTabs = pinnedFirst(moving);
         if (openTabs.every((tab, index) => tab === m.openTabs[index])) {
           return m;
         }
         return { ...m, openTabs };
       });
     }),
+
+  togglePinTab: (id) =>
+    set((state) =>
+      updateModule(state, moduleOfTab(id), (m) => {
+        const tab = m.openTabs.find((candidate) => candidate.id === id);
+        if (!tab) {
+          return m;
+        }
+        // A pinned tab is kept, so it stops being the preview slot too.
+        const toggled: WorkbenchTab = { ...tab, pinned: !tab.pinned, preview: false };
+        const rest = m.openTabs.filter((candidate) => candidate.id !== id);
+        // The edge of the pinned run either way: the last pinned when pinning,
+        // the first unpinned when unpinning — the nearest place it belongs.
+        const edge = rest.filter((candidate) => candidate.pinned).length;
+        rest.splice(edge, 0, toggled);
+        return { ...m, openTabs: rest };
+      }),
+    ),
     }),
     {
       name: "workbench.tabs",

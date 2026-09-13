@@ -501,6 +501,26 @@ func main() {
 	// application package: internal/app reads the same list for its module
 	// metadata, and that package has to cross-compile without a window toolkit.
 	applicationMenu := application.DefaultApplicationMenu()
+	// ⌘W closes the tab in front of you and ⇧⌘W the window — see appmenu's
+	// CloseTab. Close Tab goes into whichever menu the platform put Close
+	// Window in, directly above it.
+	if closeWindow := applicationMenu.FindByRole(application.CloseWindow); closeWindow != nil {
+		closeWindow.SetAccelerator(appmenu.CloseWindowAccelerator)
+		for i := 0; applicationMenu.ItemAt(i) != nil; i++ {
+			submenu := applicationMenu.ItemAt(i).GetSubmenu()
+			if submenu == nil || submenu.FindByRole(application.CloseWindow) == nil {
+				continue
+			}
+			closeTab := application.NewMenu()
+			closeTab.Add(appmenu.CloseTabLabel).
+				SetAccelerator(appmenu.CloseTabAccelerator).
+				OnClick(func(*application.Context) {
+					wailsApp.Event.Emit(appmenu.EventName, appmenu.CloseTabID)
+				})
+			submenu.Prepend(closeTab)
+			break
+		}
+	}
 	for _, submenu := range appmenu.Submenus {
 		target := applicationMenu.AddSubmenu(submenu.Title)
 		for _, command := range submenu.Commands {

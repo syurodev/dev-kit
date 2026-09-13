@@ -18,6 +18,7 @@ import { copyText } from "@/bridge/clipboard";
 import { errorMessage } from "@/bridge/errors";
 import { tableDDL } from "@/bridge/database";
 import { useDatabaseStore } from "../databaseStore";
+import { useLastPresent } from "@/lib/useLastPresent";
 
 /**
  * A table's definition, as the engine itself reports it.
@@ -42,6 +43,8 @@ export function TableDDLDialog() {
     })),
   );
 
+  // The title keeps its table through the close animation.
+  const shownTarget = useLastPresent(target);
   const [ddl, setDDL] = useState("");
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
@@ -78,7 +81,7 @@ export function TableDDLDialog() {
       <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>
-            {target ? `${target.schema}.${target.table}` : "Table definition"}
+            {shownTarget ? `${shownTarget.schema}.${shownTarget.table}` : "Table definition"}
           </DialogTitle>
           <DialogDescription>
             What the server would use to recreate this table, in its own words.

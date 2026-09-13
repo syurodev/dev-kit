@@ -31,6 +31,8 @@ import { syncModule } from "../modules/sync/manifest";
 import { settingsModule } from "../modules/settings/manifest";
 import { codegraphModule } from "../modules/codegraph/manifest";
 
+import type { SettingsTab } from "@/modules/settings/SettingsView";
+
 const SettingsModal = lazy(() =>
   import("../modules/settings/SettingsView").then((module) => ({
     default: module.SettingsModal,
@@ -311,6 +313,9 @@ export function Workbench() {
   // holding the key down or pressing it again while already browsing.
   const [switcher, setSwitcher] = useState<"closed" | "browsing" | "popup">("closed");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Which section Settings opens on. Only "Configure Tabs…" asks for one; it
+  // is cleared on close so the title-bar button still opens where it always did.
+  const [settingsTab, setSettingsTab] = useState<SettingsTab | undefined>(undefined);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const sidebarOpen = useSidebarOpenStore((s) => s.open);
   const setSidebarOpen = useSidebarOpenStore((s) => s.setOpen);
@@ -333,6 +338,8 @@ export function Workbench() {
   const setActiveTab = useWorkbenchTabsStore((state) => state.setActiveTab);
   const closeTab = useWorkbenchTabsStore((state) => state.closeTab);
   const reorderTab = useWorkbenchTabsStore((state) => state.reorderTab);
+  const pinTab = useWorkbenchTabsStore((state) => state.pinTab);
+  const togglePinTab = useWorkbenchTabsStore((state) => state.togglePinTab);
 
   useEffect(() => {
     // Accept either ⌘ or Ctrl rather than branching on navigator.platform:
@@ -590,7 +597,11 @@ export function Workbench() {
           <Suspense fallback={null}>
             <SettingsModal
               open={settingsOpen}
-              onClose={() => setSettingsOpen(false)}
+              initialTab={settingsTab}
+              onClose={() => {
+                setSettingsOpen(false);
+                setSettingsTab(undefined);
+              }}
             />
           </Suspense>
           <TabSwitcher open={switcher === "popup"} onClose={() => setSwitcher("closed")} />
@@ -762,6 +773,12 @@ export function Workbench() {
           onSelect={setActiveTab}
           onClose={closeTab}
           onReorder={reorderTab}
+          onPin={pinTab}
+          onTogglePin={togglePinTab}
+          onConfigureTabs={() => {
+            setSettingsTab("appearance");
+            setSettingsOpen(true);
+          }}
           onNewTab={activeModule?.newTab}
           keyboardBrowsing={switcher === "browsing"}
           onExitBrowsing={() => setSwitcher("closed")}

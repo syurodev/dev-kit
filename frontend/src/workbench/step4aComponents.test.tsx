@@ -137,6 +137,7 @@ describe("Step 4a Shell Chrome Reconciliation", () => {
       ];
 
       const html = renderToString(
+        <TooltipProvider>
         <TabStrip
           tabs={sampleTabs}
           activeTabId="notes:1"
@@ -145,7 +146,8 @@ describe("Step 4a Shell Chrome Reconciliation", () => {
           onReorder={() => {}}
           keyboardBrowsing={false}
           onExitBrowsing={() => {}}
-        />,
+        />
+        </TooltipProvider>,
       );
 
       // Strip container is 48px (h-12), p-2, gap-2
@@ -191,6 +193,7 @@ describe("Step 4a Shell Chrome Reconciliation", () => {
 
     it("renders Active pill with h-8, radius 6, surface-raised bg, text-primary, 6px status dot and close button", () => {
       const html = renderToString(
+        <TooltipProvider>
         <TabStrip
           tabs={tabs}
           activeTabId="active-tab"
@@ -199,7 +202,8 @@ describe("Step 4a Shell Chrome Reconciliation", () => {
           onReorder={() => {}}
           keyboardBrowsing={false}
           onExitBrowsing={() => {}}
-        />,
+        />
+        </TooltipProvider>,
       );
 
       // 200x32, radius 6, px-3, gap-2
@@ -219,6 +223,7 @@ describe("Step 4a Shell Chrome Reconciliation", () => {
 
     it("renders Inactive pill with state-soft bg, subtle border, secondary text, close button, no status dot", () => {
       const html = renderToString(
+        <TooltipProvider>
         <TabStrip
           tabs={tabs}
           activeTabId="active-tab"
@@ -227,7 +232,8 @@ describe("Step 4a Shell Chrome Reconciliation", () => {
           onReorder={() => {}}
           keyboardBrowsing={false}
           onExitBrowsing={() => {}}
-        />,
+        />
+        </TooltipProvider>,
       );
 
       expect(html).toContain("bg-state-soft");
@@ -237,6 +243,7 @@ describe("Step 4a Shell Chrome Reconciliation", () => {
 
     it("renders Preview pill with dashed border, body-12 regular font, no close button and no dot", () => {
       const html = renderToString(
+        <TooltipProvider>
         <TabStrip
           tabs={tabs}
           activeTabId="active-tab"
@@ -245,7 +252,8 @@ describe("Step 4a Shell Chrome Reconciliation", () => {
           onReorder={() => {}}
           keyboardBrowsing={false}
           onExitBrowsing={() => {}}
-        />,
+        />
+        </TooltipProvider>,
       );
 
       expect(html).toContain("border-dashed");
@@ -256,6 +264,7 @@ describe("Step 4a Shell Chrome Reconciliation", () => {
 
     it("renders separate radius 8 focus ring layer when keyboard focused", () => {
       const html = renderToString(
+        <TooltipProvider>
         <TabStrip
           tabs={tabs}
           activeTabId="active-tab"
@@ -264,7 +273,8 @@ describe("Step 4a Shell Chrome Reconciliation", () => {
           onReorder={() => {}}
           keyboardBrowsing={true}
           onExitBrowsing={() => {}}
-        />,
+        />
+        </TooltipProvider>,
       );
 
       // Separate layer at radius 8, drawn outside pill (-inset-[2px]), border-2

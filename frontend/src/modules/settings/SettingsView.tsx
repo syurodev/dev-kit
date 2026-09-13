@@ -46,6 +46,7 @@ import {
   useAppearanceStore,
   type MonoFont,
 } from "@/stores/appearance";
+import { TAB_WIDTH_LIMITS, useTabSettingsStore } from "@/stores/tabSettings";
 import {
   User,
   Sun,
@@ -61,11 +62,13 @@ import {
 import { cn } from "@/lib/utils";
 import { EMPTY_ARRAY } from "@/lib/stableEmpty";
 
-type SettingsTab = "account" | "appearance" | "sync" | "environments" | "database";
+export type SettingsTab = "account" | "appearance" | "sync" | "environments" | "database";
 
 export interface SettingsModalProps {
   open: boolean;
   onClose: () => void;
+  /** The section to land on each time it opens — "Configure Tabs…" asks for Appearance. */
+  initialTab?: SettingsTab;
 }
 
 /**
@@ -75,8 +78,14 @@ export interface SettingsModalProps {
  * a 220px nav with a hairline on its right, and the section content 32 in
  * from both.
  */
-export function SettingsModal({ open, onClose }: SettingsModalProps) {
-  const [activeTab, setActiveTab] = useState<SettingsTab>("account");
+export function SettingsModal({ open, onClose, initialTab }: SettingsModalProps) {
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? "account");
+
+  // On every opening, not only the first: the modal stays mounted while
+  // closed, so a useState initial value would be read once and never again.
+  useEffect(() => {
+    if (open && initialTab) setActiveTab(initialTab);
+  }, [open, initialTab]);
 
   // Handle ESC key press to close modal
   useEffect(() => {
@@ -358,18 +367,27 @@ function AccountTab() {
 function SizeStepper({
   value,
   onChange,
+  min = 10,
+  max = 24,
+  step: increment = 1,
+  label,
 }: {
   value: number;
   onChange: (size: number) => void;
+  min?: number;
+  max?: number;
+  step?: number;
+  /** Names what the two buttons change, when a section has more than one stepper. */
+  label?: string;
 }) {
   function step(delta: number) {
-    onChange(Math.min(24, Math.max(10, value + delta)));
+    onChange(Math.min(max, Math.max(min, value + delta * increment)));
   }
   return (
     <div className="flex h-9 w-26 overflow-hidden rounded-md border border-border bg-surface-raised">
       <button
         type="button"
-        aria-label="Smaller"
+        aria-label={label ? `${label}: smaller` : "Smaller"}
         onClick={() => step(-1)}
         className="w-8 text-body-13 text-text-secondary hover:bg-state-soft hover:text-text-primary"
       >
@@ -380,7 +398,7 @@ function SizeStepper({
       </span>
       <button
         type="button"
-        aria-label="Larger"
+        aria-label={label ? `${label}: larger` : "Larger"}
         onClick={() => step(1)}
         className="w-8 text-body-13 text-text-secondary hover:bg-state-soft hover:text-text-primary"
       >
@@ -472,6 +490,9 @@ function AppearanceTab() {
       terminalSize: s.terminalSize,
       setAppearance: s.setAppearance,
     }))
+  );
+  const { tabMinWidth, tabMaxWidth, setTabWidths } = useTabSettingsStore(
+    useShallow((s) => ({ tabMinWidth: s.minWidth, tabMaxWidth: s.maxWidth, setTabWidths: s.setTabWidths })),
   );
 
   return (
@@ -590,6 +611,38 @@ function AppearanceTab() {
           style={{ fontFamily: monoFontStack(codeFont), fontSize: codeSize }}
         >
           {`const vault = unlock(masterKey); // ${codeSize}px preview`}
+        </p>
+      </div>
+
+      {/* Where the tab strip's "Configure Tabs…" lands. */}
+      <div className="flex flex-col gap-2.5">
+        <GroupLabel>Tabs</GroupLabel>
+        <div className="flex items-end gap-4">
+          <div className="flex flex-col gap-1.5">
+            <span className="text-label-12 text-text-secondary">Minimum width</span>
+            <SizeStepper
+              value={tabMinWidth}
+              min={TAB_WIDTH_LIMITS.min}
+              max={TAB_WIDTH_LIMITS.max}
+              step={10}
+              label="Minimum tab width"
+              onChange={(minWidth) => setTabWidths({ minWidth })}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <span className="text-label-12 text-text-secondary">Maximum width</span>
+            <SizeStepper
+              value={tabMaxWidth}
+              min={TAB_WIDTH_LIMITS.min}
+              max={TAB_WIDTH_LIMITS.max}
+              step={10}
+              label="Maximum tab width"
+              onChange={(maxWidth) => setTabWidths({ maxWidth })}
+            />
+          </div>
+        </div>
+        <p className="text-body-12 text-text-tertiary">
+          Tabs share the strip equally between these widths. Past the minimum, the strip scrolls.
         </p>
       </div>
     </TabColumn>

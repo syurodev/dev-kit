@@ -9,6 +9,7 @@ import {
   useReactFlow,
   type Edge,
   type Node,
+  type NodeTypes,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { ApiNode } from "./ApiNode";
@@ -42,14 +43,14 @@ const edgeTypes = { connector: ConnectorEdge };
  * margin, with a little clearance. It is the taller of the two corners, and
  * the plan canvas stacks a second card on top of it.
  */
-function fitPadding(planLegend: boolean | undefined) {
+function fitPadding(planLegend: boolean | undefined, legend: boolean) {
   // `as const` so the values keep their literal types: React Flow's Padding is
   // a template literal (`${number}px`), and a widened `string` does not match.
   return {
     top: "24px",
     left: "24px",
     right: "24px",
-    bottom: planLegend ? "184px" : "136px",
+    bottom: !legend ? "24px" : planLegend ? "184px" : "136px",
   } as const;
 }
 
@@ -65,7 +66,15 @@ export type FlowCanvasProps = {
    * whole file — ranking, placement, connectors — and differs only in the card
    * it draws and the data that card needs.
    */
-  nodeType?: keyof typeof nodeTypes;
+  nodeType?: string;
+  /**
+   * Card components for a canvas drawn outside codegraph — the database
+   * module's query plan uses this whole file with its own card. Pass a
+   * module-level constant: React Flow remounts every node on a new object.
+   */
+  nodeTypes?: NodeTypes;
+  /** The layer legend. Off where the cards are not controllers and services. */
+  legend?: boolean;
   /** Builds the node's `data`. Defaults to the API-node shape. */
   buildData?: (node: CodeGraphNode) => Record<string, unknown>;
   /** Per-edge label text, for plan conditions. */
@@ -104,6 +113,8 @@ function Canvas({
   onSelect,
   inspector,
   nodeType = "apiNode",
+  nodeTypes: types = nodeTypes,
+  legend = true,
   buildData,
   edgeLabel,
   selectedNodeId,
@@ -184,8 +195,8 @@ function Canvas({
   useEffect(() => setPlaced(false), [initialNodes, flowEdges]);
 
   const fitOptions = useMemo(
-    () => ({ padding: fitPadding(planLegend), duration: 200 }),
-    [planLegend],
+    () => ({ padding: fitPadding(planLegend, legend), duration: 200 }),
+    [planLegend, legend],
   );
 
   useEffect(() => {
@@ -228,7 +239,7 @@ function Canvas({
         <ReactFlow
           defaultNodes={initialNodes}
           defaultEdges={flowEdges}
-          nodeTypes={nodeTypes}
+          nodeTypes={types}
           edgeTypes={edgeTypes}
           // Read-only view: positions come from the layout, and nobody authors
           // edges by hand, so both editing affordances are off.
@@ -239,9 +250,11 @@ function Canvas({
           proOptions={{ hideAttribution: false }}
         >
           <Background gap={24} size={2} color="color-mix(in srgb, var(--text-primary) 8%, transparent)" />
-          <Panel position="bottom-left">
-            <LayerLegend plan={planLegend} />
-          </Panel>
+          {legend && (
+            <Panel position="bottom-left">
+              <LayerLegend plan={planLegend} />
+            </Panel>
+          )}
           {hint && (
             // Lifted clear of React Flow's attribution, which is itself a
             // bottom-right panel: at the default margin the two overlapped by

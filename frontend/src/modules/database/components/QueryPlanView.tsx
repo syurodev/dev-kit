@@ -13,6 +13,8 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import type { PlanNode, QueryPlan } from "../../../bridge/database";
 import { cn } from "@/lib/utils";
 import { planGraph } from "../plan/planGraph";
@@ -20,9 +22,11 @@ import { PlanDiagram } from "../plan/PlanDiagram";
 
 export function QueryPlanView({
   plan,
+  open,
   onClose,
 }: {
   plan: QueryPlan;
+  open: boolean;
   onClose: () => void;
 }) {
   const [activeTab, setActiveTab] = useState<"diagram" | "visual" | "raw">("diagram");
@@ -61,13 +65,19 @@ export function QueryPlanView({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-      <div className="bg-surface-base border border-border rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-(--motion-base)">
+    // The app's Dialog: overlay, Escape, focus trap, and the height animation
+    // between tabs, which DialogContent now does for every dialog.
+    <Dialog open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
+      <DialogContent
+        showCloseButton={false}
+        aria-describedby={undefined}
+        className="flex max-h-[90vh] flex-col gap-0 overflow-hidden rounded-xl border border-border bg-surface-base p-0 shadow-2xl ring-0 sm:max-w-4xl"
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-surface-raised/50">
           <div className="flex items-center gap-2.5">
             <Sliders className="w-4 h-4 text-action-primary" />
-            <h2 className="text-title-14 text-text-primary">Query Plan Inspector</h2>
+            <DialogTitle className="text-title-14 text-text-primary">Query Plan Inspector</DialogTitle>
             {plan.analyzed ? (
               <Badge variant="outline" className="text-caption-11 text-status-success border-status-success/30 bg-status-success/10">
                 EXPLAIN ANALYZE · Executed & Rolled Back
@@ -80,41 +90,15 @@ export function QueryPlanView({
           </div>
 
           <div className="flex items-center gap-2">
-            <div className="flex items-center bg-surface-base border border-border rounded-md p-0.5 text-body-12">
-              <button
-                type="button"
-                className={`px-2.5 py-1 rounded transition-colors ${
-                  activeTab === "diagram"
-                    ? "bg-surface-raised text-text-primary font-medium shadow-2xs"
-                    : "text-text-tertiary hover:text-text-primary"
-                }`}
-                onClick={() => setActiveTab("diagram")}
-              >
-                Diagram
-              </button>
-              <button
-                type="button"
-                className={`px-2.5 py-1 rounded transition-colors ${
-                  activeTab === "visual"
-                    ? "bg-surface-raised text-text-primary font-medium shadow-2xs"
-                    : "text-text-tertiary hover:text-text-primary"
-                }`}
-                onClick={() => setActiveTab("visual")}
-              >
-                Visual Flame Graph
-              </button>
-              <button
-                type="button"
-                className={`px-2.5 py-1 rounded transition-colors ${
-                  activeTab === "raw"
-                    ? "bg-surface-raised text-text-primary font-medium shadow-2xs"
-                    : "text-text-tertiary hover:text-text-primary"
-                }`}
-                onClick={() => setActiveTab("raw")}
-              >
-                Raw Output
-              </button>
-            </div>
+            {/* The app's Tabs, list only: the dialog animates its height
+                between tabs, which TabsContent's slide would fight. */}
+            <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)}>
+              <TabsList>
+                <TabsTrigger value="diagram">Diagram</TabsTrigger>
+                <TabsTrigger value="visual">Visual Flame Graph</TabsTrigger>
+                <TabsTrigger value="raw">Raw Output</TabsTrigger>
+              </TabsList>
+            </Tabs>
 
             <Button
               variant="ghost"
@@ -162,19 +146,14 @@ export function QueryPlanView({
             never. */}
         <div
           className={cn(
-            "bg-surface-base",
+            "shrink-0",
             // A concrete height, because React Flow measures its parent and
-            // this modal is sized by its content: flex-1 inside a box with
-            // no height of its own resolves to nothing, and a canvas of
-            // nothing draws nothing. 60vh inside a max-h-[90vh] modal
-            // leaves the header and the metrics bar their rows.
-            // flex-1 belongs to the OTHER branch: in a column whose height
-            // is a max rather than a number, `flex: 1 1 0%` resolves to
-            // zero and takes the height with it — which is what a canvas
-            // drew when it had one.
+            // this modal is sized by its content: a canvas inside a box with
+            // no height of its own draws nothing. The other tabs share the
+            // same cap so the modal never grows past the diagram's size.
             activeTab === "diagram"
-              ? "flex h-[60vh] shrink-0 overflow-hidden"
-              : "flex-1 overflow-y-auto p-4",
+              ? "flex h-[60vh] overflow-hidden"
+              : "max-h-[60vh] overflow-y-auto p-4",
           )}
         >
           {activeTab === "diagram" ? (
@@ -221,8 +200,8 @@ export function QueryPlanView({
             Done
           </Button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

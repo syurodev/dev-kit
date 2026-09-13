@@ -66,11 +66,9 @@ export function BulletedListToolbarButton() {
                   listStyleType: ListStyleType.Disc,
                 })
               }
+              icon={<div className="size-2 rounded-full border border-current bg-current" />}
             >
-              <div className="flex items-center gap-2">
-                <div className="size-2 rounded-full border border-current bg-current" />
-                Default
-              </div>
+              Default
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() =>
@@ -78,11 +76,9 @@ export function BulletedListToolbarButton() {
                   listStyleType: ListStyleType.Circle,
                 })
               }
+              icon={<div className="size-2 rounded-full border border-current" />}
             >
-              <div className="flex items-center gap-2">
-                <div className="size-2 rounded-full border border-current" />
-                Circle
-              </div>
+              Circle
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() =>
@@ -90,11 +86,9 @@ export function BulletedListToolbarButton() {
                   listStyleType: ListStyleType.Square,
                 })
               }
+              icon={<div className="size-2 border border-current bg-current" />}
             >
-              <div className="flex items-center gap-2">
-                <div className="size-2 border border-current bg-current" />
-                Square
-              </div>
+              Square
             </DropdownMenuItem>
           </DropdownMenuGroup>
         </DropdownMenuContent>

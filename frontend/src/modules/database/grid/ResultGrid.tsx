@@ -678,19 +678,19 @@ export function ResultGrid({
         <ContextMenuContent>
           {cell ? (
             <>
-              <ContextMenuItem onSelect={() => void copyText(cell.value)}>
-                <Copy />
+              <ContextMenuItem icon={<Copy />} onSelect={() => void copyText(cell.value)}>
                 Copy cell
               </ContextMenuItem>
               <ContextMenuItem
+                icon={<Braces />}
                 onSelect={() => void copyText(rowAsJSON(result.columns, cell.row))}
               >
-                <Braces />
                 Copy row as JSON
               </ContextMenuItem>
               {onFilterByValue && column ? (
                 <>
                   <ContextMenuItem
+                    icon={<Filter />}
                     onSelect={() =>
                       onFilterByValue({
                         column: column.name,
@@ -699,10 +699,10 @@ export function ResultGrid({
                       })
                     }
                   >
-                    <Filter />
                     Filter by this value
                   </ContextMenuItem>
                   <ContextMenuItem
+                    icon={<FilterX />}
                     onSelect={() =>
                       onFilterByValue({
                         column: column.name,
@@ -711,7 +711,6 @@ export function ResultGrid({
                       })
                     }
                   >
-                    <FilterX />
                     Exclude this value
                   </ContextMenuItem>
                 </>
@@ -720,14 +719,13 @@ export function ResultGrid({
           ) : null}
           {column ? (
             <>
-              <ContextMenuItem onSelect={() => void copyText(column.name)}>
-                <Columns3 />
+              <ContextMenuItem icon={<Columns3 />} onSelect={() => void copyText(column.name)}>
                 Copy column name
               </ContextMenuItem>
               <ContextMenuItem
+                icon={<List />}
                 onSelect={() => void copyText(columnValues(result.rows, column.index))}
               >
-                <List />
                 Copy {result.rows.length} value{result.rows.length === 1 ? "" : "s"}
               </ContextMenuItem>
               {/* The count is what is loaded, not what the query would have
@@ -744,8 +742,7 @@ export function ResultGrid({
                   {/* A value, not the four letters — typing NULL into a cell
                       sets the string, which is why it needs an item of its
                       own. It follows the SELECTION, like any other edit. */}
-                  <ContextMenuItem onSelect={() => commitEdit(null)}>
-                    <Eraser />
+                  <ContextMenuItem icon={<Eraser />} onSelect={() => commitEdit(null)}>
                     Set {range && rangeSize(range) > 1 ? `${rangeSize(range)} cells` : "cell"} to
                     NULL
                   </ContextMenuItem>
@@ -753,9 +750,9 @@ export function ResultGrid({
               ) : null}
               {onFreeze ? (
                 <ContextMenuItem
+                  icon={column.position < frozen ? <PinOff /> : <Pin />}
                   onSelect={() => onFreeze(pinColumn(order, frozen, column.index))}
                 >
-                  {column.position < frozen ? <PinOff /> : <Pin />}
                   {column.position < frozen ? `Unpin ${column.name}` : `Pin ${column.name}`}
                 </ContextMenuItem>
               ) : null}

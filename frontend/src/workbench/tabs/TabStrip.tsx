@@ -1,16 +1,66 @@
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
-import { AnimatePresence, Reorder, motion } from "framer-motion";
-import { Plus, Wrench, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { getModule } from "../../modules/registry";
-import type { TabStatus, WorkbenchTab } from "../../stores/workbenchTabs";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
-  ACTIVE_MIN_WIDTH_PX,
-  TAB_GAP_PX,
-  computeTabWidths,
-  pillWidth,
-} from "./tabWidths";
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import { cn } from "@/lib/utils";
+import { shortcut } from "@/lib/shortcut";
+import {
+  DndContext,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import { restrictToHorizontalAxis } from "@dnd-kit/modifiers";
+import {
+  SortableContext,
+  horizontalListSortingStrategy,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { Pin, PinOff, Plus, Settings2, Wrench, X } from "lucide-react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
+import { useShallow } from "zustand/react/shallow";
+import { getModule, type TabAction } from "../../modules/registry";
+import { useTabSettingsStore } from "../../stores/tabSettings";
+import type { TabStatus, WorkbenchTab } from "../../stores/workbenchTabs";
+import { beforeIdAfterMove, revealScrollLeft } from "./tabStripModel";
+
+/**
+ * The workbench tab strip, built the way VS Code's multi-editor tabs control
+ * is, because the previous one was a history of patches over one design: JS
+ * computed every tab's width and framer animated it, so switching tabs resized
+ * the whole row and closing one slid another under the pointer.
+ *
+ * - Widths are CSS: every tab asks for the max and they share the room
+ *   equally down to a min (VS Code's `fixed` sizing, both set in Settings).
+ *   Nothing is measured to lay out.
+ * - Closing with the mouse locks every tab at the width it has, until the
+ *   pointer leaves the strip — the next close button stays under the cursor.
+ * - The active tab is scrolled into view by the smallest amount, except right
+ *   after a close. A vertical wheel scrolls the strip sideways.
+ * - A tab activates on mousedown; middle-click closes; arrow keys, Home and
+ *   End move between tabs with a roving tabindex.
+ * - Dragging is the result grid's column drag: dnd-kit sortable, the dragged
+ *   tab follows the pointer and the others slide aside.
+ * - Pinned tabs sit at the left and the group closes pass over them.
+ */
 
 function statusDotClass(status: TabStatus): string {
   switch (status) {
@@ -32,6 +82,12 @@ type TabStripProps = {
   onClose: (id: string) => void;
   onReorder: (fromId: string, beforeId: string | null) => void;
   onNewTab?: () => void;
+  /** Keep a preview tab open (the store's pinTab). Offered in the tab's menu. */
+  onPin?: (id: string) => void;
+  /** Pin or unpin (the store's togglePinTab). */
+  onTogglePin?: (id: string) => void;
+  /** Settings ▸ Appearance, where tab widths are set. */
+  onConfigureTabs?: () => void;
   /** True while ⌘⇧E/Ctrl⇧E is held (Workbench.tsx): every tab goes full
    * width and ArrowLeft/Right + Enter/Escape navigate the strip. */
   keyboardBrowsing: boolean;
@@ -40,18 +96,10 @@ type TabStripProps = {
   onExitBrowsing: () => void;
 };
 
-type TabGroup = {
-  moduleId: string;
-  tabs: WorkbenchTab[];
-};
-
 /**
  * A module's home view opened as the shared preview tab (a Dock click with no
  * item picked yet — Workbench.tsx's focusModule) gets no strip entry: it is
  * not a distinct piece of content, just "you're looking at this module".
- * Rendering it meant every Dock click tore down a whole tab group and mounted
- * a new one, which is what read as jerky. Picking an item opens a different
- * viewId in the same preview slot and shows up normally.
  */
 function isHiddenHomePreview(tab: WorkbenchTab): boolean {
   return Boolean(
@@ -59,295 +107,291 @@ function isHiddenHomePreview(tab: WorkbenchTab): boolean {
   );
 }
 
+/** Gap between two tabs. */
+const TAB_GAP_PX = 8;
+/** ⌘⇧E browsing widens every tab so the label being chosen can be read. */
+const BROWSING_MIN_WIDTH_PX = 200;
+
 /**
- * Groups tabs by moduleId. A group sits where its first tab first appeared —
- * not where the active module is — and keeps its tabs in relative order.
+ * A module's own entries, drawn as the menu opens.
+ *
+ * A component rather than a list built with the tab: Radix mounts menu
+ * content only while it is open, so this reads the module's state at that
+ * moment — a console's "Copy SQL" is about the SQL in it now.
  */
-function groupTabs(tabs: WorkbenchTab[]): TabGroup[] {
-  const groups: TabGroup[] = [];
-  const byModule = new Map<string, TabGroup>();
-  for (const tab of tabs) {
-    let group = byModule.get(tab.moduleId);
-    if (!group) {
-      group = { moduleId: tab.moduleId, tabs: [] };
-      byModule.set(tab.moduleId, group);
-      groups.push(group);
-    }
-    group.tabs.push(tab);
-  }
-  return groups;
+function ModuleTabActions({ tab }: { tab: WorkbenchTab }) {
+  const actions = getModule(tab.moduleId)?.tabActions?.(tab) ?? [];
+  if (actions.length === 0) return null;
+  return (
+    <>
+      <ContextMenuSeparator />
+      <TabActionItems actions={actions} />
+    </>
+  );
 }
 
-// The width model lives in ./tabWidths, where it can be tested without a DOM.
+function TabActionItems({ actions }: { actions: TabAction[] }) {
+  return (
+    <>
+      {actions.map((action) => {
+        if (action.type === "separator") return <ContextMenuSeparator key={action.id} />;
+        const Icon = action.icon;
+        if (action.type === "submenu") {
+          return (
+            <ContextMenuSub key={action.id}>
+              <ContextMenuSubTrigger icon={Icon ? <Icon /> : undefined}>{action.label}</ContextMenuSubTrigger>
+              <ContextMenuSubContent>
+                <TabActionItems actions={action.items} />
+              </ContextMenuSubContent>
+            </ContextMenuSub>
+          );
+        }
+        return (
+          <ContextMenuItem
+            key={action.id}
+            icon={Icon ? <Icon /> : undefined}
+            shortcut={action.shortcut}
+            disabled={action.disabled}
+            onSelect={action.run}
+          >
+            {action.label}
+          </ContextMenuItem>
+        );
+      })}
+    </>
+  );
+}
 
-type TabGroupRowProps = {
-  tabs: WorkbenchTab[];
-  activeTabId: string;
-  widths: Map<string, number | undefined>;
-  keyboardFocusedTabId: string | null;
+type TabItemProps = {
+  tab: WorkbenchTab;
+  isActive: boolean;
+  lockedWidth: number | undefined;
+  minWidth: number;
+  maxWidth: number;
+  showFocusRing: boolean;
+  draggable: boolean;
+  registerNode: (id: string, node: HTMLDivElement | null) => void;
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
-  onReorder: (fromId: string, beforeId: string | null) => void;
-  onDraggingChange: (dragging: boolean) => void;
+  onCloseWithPointer: (id: string) => void;
+  onKeyDown: (event: ReactKeyboardEvent, id: string) => void;
+  /** The tab menu's groups, worked out by the strip, which knows the order. */
+  others: string[];
+  toTheLeft: string[];
+  toTheRight: string[];
+  all: string[];
+  onCloseMany: (ids: string[]) => void;
+  onPin?: (id: string) => void;
+  onTogglePin?: (id: string) => void;
+  onConfigureTabs?: () => void;
 };
 
-/**
- * One module's tabs as a self-contained Reorder.Group. Dragging reorders
- * within the group only, so a tab can never leave its module's colour cluster.
- *
- * Inside a draggable shell region the row opts out with no-drag: Wails detects
- * drag targets on a capture-phase mousedown, before Motion's pointer gesture,
- * and once it starts the native window move the OS owns the pointer and React
- * cannot recover the tab drag.
- *
- * There is no `layout` prop — position snaps rather than FLIPs, which is what
- * finally settled a drop-stutter. Width is still animated via `animate`, and
- * the close button sits in permanently reserved absolute space so only the
- * deliberate equal-share recompute ever changes a measured width.
- */
-function TabGroupRow({
-  tabs,
-  activeTabId,
-  widths,
-  keyboardFocusedTabId,
+function TabItem({
+  tab,
+  isActive,
+  lockedWidth,
+  minWidth,
+  maxWidth,
+  showFocusRing,
+  draggable,
+  registerNode,
   onSelect,
   onClose,
-  onReorder,
-  onDraggingChange,
-}: TabGroupRowProps) {
-  const activeDragId = useRef<string | null>(null);
-  const dragOriginBeforeId = useRef<string | null>(null);
-  const [visualTabs, setVisualTabs] = useState(tabs);
-  const [draggingTabId, setDraggingTabId] = useState<string | null>(null);
-  const visualTabsRef = useRef(tabs);
-  // A Reorder.Item is also a button, so WebKit fires a click after the
-  // pointerup ending a drag. Consuming it stops a reorder from also activating
-  // an inactive tab and hydrating a heavy editor on drop.
-  const suppressActivationForId = useRef<string | null>(null);
-  const suppressionClearTimer = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
+  onCloseWithPointer,
+  onKeyDown,
+  others,
+  toTheLeft,
+  toTheRight,
+  all,
+  onCloseMany,
+  onPin,
+  onTogglePin,
+  onConfigureTabs,
+}: TabItemProps) {
+  // `attributes` are not spread, for the grid's reason: they would replace
+  // role="tab" and the roving tabindex with role="button" and tabIndex 0.
+  const { listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: tab.id,
+    disabled: !draggable,
+  });
+  const ModuleIcon = tab.icon ?? getModule(tab.moduleId)?.icon ?? Wrench;
+  const pinned = Boolean(tab.pinned);
 
-  useEffect(() => {
-    // Store order is committed only once on drop. External open/close/status
-    // changes still flow into the group immediately while no gesture is active.
-    if (activeDragId.current === null) {
-      visualTabsRef.current = tabs;
-      setVisualTabs(tabs);
-    }
-  }, [tabs]);
-
-  function handleVisualReorder(nextTabs: WorkbenchTab[]) {
-    if (activeDragId.current === null) {
-      return;
-    }
-    visualTabsRef.current = nextTabs;
-    setVisualTabs(nextTabs);
-  }
-
-  function handleDragStart(draggedId: string) {
-    activeDragId.current = draggedId;
-    suppressActivationForId.current = draggedId;
-    if (suppressionClearTimer.current) {
-      clearTimeout(suppressionClearTimer.current);
-      suppressionClearTimer.current = null;
-    }
-    setDraggingTabId(draggedId);
-    onDraggingChange(true);
-    const index = visualTabsRef.current.findIndex(
-      (tab) => tab.id === draggedId,
-    );
-    dragOriginBeforeId.current = visualTabsRef.current[index + 1]?.id ?? null;
-  }
-
-  function handleDragEnd() {
-    const draggedId = activeDragId.current;
-    setDraggingTabId(null);
-    onDraggingChange(false);
-    if (draggedId !== null) {
-      const index = visualTabsRef.current.findIndex(
-        (tab) => tab.id === draggedId,
-      );
-      const beforeId = visualTabsRef.current[index + 1]?.id ?? null;
-      // No commit when the gesture never crossed a neighbour: a jiggle would
-      // otherwise produce a new but identical openTabs array. WorkbenchViews
-      // ignores pure order changes as a second guard on the mounted tree.
-      if (beforeId !== dragOriginBeforeId.current) {
-        onReorder(draggedId, beforeId);
-      }
-    }
-    activeDragId.current = null;
-    // The native click follows mouseup in the same turn; clearing on the next
-    // task keeps a missing click (dropping outside) from suppressing a real one.
-    suppressionClearTimer.current = setTimeout(() => {
-      suppressActivationForId.current = null;
-      suppressionClearTimer.current = null;
-    }, 0);
-  }
-
-  useEffect(
-    () => () => {
-      if (suppressionClearTimer.current) {
-        clearTimeout(suppressionClearTimer.current);
-      }
-    },
-    [],
-  );
+  const style: CSSProperties = {
+    // Every tab asks for the max and they all give way equally down to the
+    // min, past which the strip scrolls.
+    flex: `0 1 ${maxWidth}px`,
+    minWidth: lockedWidth ?? minWidth,
+    maxWidth: lockedWidth ?? maxWidth,
+    // The grid column's drag: follow the pointer, lift above the neighbours
+    // sliding aside under it.
+    transform: CSS.Translate.toString(transform),
+    transition,
+    zIndex: isDragging ? 3 : undefined,
+    opacity: isDragging ? 0.8 : undefined,
+  };
 
   return (
-    <Reorder.Group
-      as="div"
-      axis="x"
-      values={visualTabs}
-      onReorder={handleVisualReorder}
-      className="flex shrink-0 items-center"
-      // Not a gap- class: computeTabWidths divides the row by this exact
-      // number, and the two drifted apart once already.
-      style={{ gap: TAB_GAP_PX }}
+    // The app's tooltip, not the OS one a `title` draws. Held shut while the
+    // tab is being dragged: the tab moves under the pointer, and a hover that
+    // "arrives" mid-drag would open it over the neighbours.
+    //
+    // Roots first, triggers after: a Radix Root is a provider with no element,
+    // so it cannot be an asChild target — the two triggers nest directly and
+    // both land on the tab.
+    <Tooltip {...(isDragging ? { open: false } : {})}>
+    <ContextMenu>
+    <TooltipTrigger asChild>
+    <ContextMenuTrigger asChild>
+    <div
+      ref={(node) => {
+        setNodeRef(node);
+        registerNode(tab.id, node);
+      }}
+      role="tab"
+      aria-selected={isActive}
+      tabIndex={isActive ? 0 : -1}
+      data-tab-id={tab.id}
+      data-pinned={pinned || undefined}
+      style={style}
+      {...listeners}
+      onMouseDown={(event) => {
+        // Middle button: no autoscroll cursor; auxclick closes.
+        if (event.button === 1) {
+          event.preventDefault();
+          return;
+        }
+        // Ctrl-click on macOS is a context menu, not a selection.
+        if (event.button !== 0 || event.ctrlKey) return;
+        if ((event.target as HTMLElement).closest("[data-tab-close]")) return;
+        onSelect(tab.id);
+      }}
+      onAuxClick={(event) => {
+        if (event.button === 1 && !tab.preview) onCloseWithPointer(tab.id);
+      }}
+      onKeyDown={(event) => onKeyDown(event, tab.id)}
+      className={cn(
+        "group relative flex h-8 items-center rounded-[6px] border px-3 gap-2 outline-none transition-[border-color,background-color] select-none [--wails-draggable:no-drag] focus-visible:border-status-info",
+        // The same two marks the selected row in a tree carries — a
+        // --status-info hairline and a fill. The hairline carries it (floored
+        // at 3:1 in themeContrast.test); an inactive tab keeps a quiet
+        // --state-soft ground and rises under the pointer.
+        isActive
+          ? "bg-surface-raised border-status-info text-text-primary"
+          : tab.preview
+            ? "bg-state-soft border-border-subtle border-dashed text-body-12 text-text-secondary hover:bg-surface-raised hover:text-text-primary"
+            : "bg-state-soft border-transparent text-label-12 text-text-secondary hover:bg-surface-raised hover:text-text-primary",
+      )}
     >
-      <AnimatePresence initial={false}>
-        {visualTabs.map((tab) => {
-          const isActive = tab.id === activeTabId;
-          const widthPx = widths.get(tab.id);
-          return (
-            <Reorder.Item
-              as="button"
-              value={tab}
-              key={tab.id}
-              // Momentum would keep the item drifting on release while the
-              // layout system pulls it back to its slot — two motions competing
-              // at drop, which read as the stutter.
-              dragMomentum={false}
-              // Scaling a text-heavy tab makes WebKit re-rasterise label and
-              // icon while Motion projects every sibling. Stacking order is
-              // enough feedback and keeps the work to translation.
-              whileDrag={{ zIndex: 10 }}
-              // opacity/scale belong here, not just width: they are what drives
-              // the AnimatePresence enter, and without them a new tab would sit
-              // at its `initial` values forever. widthPx is a real number once
-              // the container has been measured; "auto" covers the first paint.
-              animate={{ opacity: 1, scale: 1, width: widthPx ?? "auto" }}
-              // One duration and easing for all four properties. Mismatched
-              // speeds made the FLIP footprint land long before the tab had
-              // finished growing into it — one motion read as two.
-              transition={{
-                layout: { duration: 0.22, ease: "easeOut" },
-                width: { duration: 0.22, ease: "easeOut" },
-                opacity: { duration: 0.22, ease: "easeOut" },
-                scale: { duration: 0.22, ease: "easeOut" },
-              }}
-              style={{
-                // Siblings pass under the captured pointer as Motion projects
-                // them. Excluding them from hit-testing stops WKWebView holding
-                // hover chains for elements no longer under the cursor.
-                pointerEvents:
-                  draggingTabId !== null && draggingTabId !== tab.id
-                    ? "none"
-                    : "auto",
-              }}
-              onDragStart={() => handleDragStart(tab.id)}
-              onDragEnd={handleDragEnd}
-              // Width belongs here too: without it a new tab's footprint is
-              // full-size on the first frame, so neighbours jump aside before
-              // the tab exists to fill the gap. Same in reverse on close.
-              initial={{ opacity: 0, scale: 0.95, width: 0 }}
-              exit={{ opacity: 0, scale: 0.95, width: 0 }}
-              type="button"
-              data-tab-id={tab.id}
-              onClick={(event) => {
-                if (suppressActivationForId.current === tab.id) {
-                  event.preventDefault();
-                  suppressActivationForId.current = null;
-                  if (suppressionClearTimer.current) {
-                    clearTimeout(suppressionClearTimer.current);
-                    suppressionClearTimer.current = null;
-                  }
-                  return;
-                }
-                onSelect(tab.id);
-              }}
-              className={cn(
-                // No max-width here. computeTabWidths already caps at
-                // MAX_TAB_WIDTH_PX and the strip sizes its pill from the same
-                // numbers — a second, stale cap in CSS clamped the tab to 200
-                // inside a 320 slot, so a lone tab truncated its title while
-                // 120px of empty pill pushed the + button away from it.
-                "group relative flex h-8 shrink-0 items-center rounded-[6px] border px-3 gap-2 transition-[filter,border-color,background-color] select-none [--wails-draggable:no-drag]",
-                // The same two marks the selected row in a tree carries — a
-                // --status-info hairline and a fill — because they mean the
-                // same thing and a second vocabulary for "this is the one" is
-                // a vocabulary to learn twice. The fill alone cannot carry it:
-                // --surface-raised over a --state-soft neighbour measured
-                // 1.03:1 in Dracula light and under 1.1 in five more palettes,
-                // which is a difference you can be told about but not see. So
-                // the neighbours give up their fill entirely — an inactive tab
-                // is drawn by its label and nothing else, and the tint comes
-                // back under the pointer.
-                isActive
-                  ? "bg-surface-raised border-status-info text-text-primary"
-                  : tab.preview
-                    ? "border-border-subtle border-dashed text-body-12 text-text-secondary hover:bg-state-soft hover:text-text-primary"
-                    : "border-transparent text-label-12 text-text-secondary hover:bg-state-soft hover:text-text-primary",
-              )}
-            >
-              {/* Focus ring: separate layer at radius 8, not the pill's radius 6 (Figma 448:343 exception) */}
-              {tab.id === keyboardFocusedTabId && (
-                <span
-                  className="pointer-events-none absolute -inset-[2px] rounded-[8px] border-2 border-[var(--border-focus,#b2d5e5)]"
-                  aria-hidden="true"
-                />
-              )}
-              <span className="relative z-10 flex min-w-0 flex-1 items-center gap-2">
-                {(() => {
-                  const ModuleIcon =
-                    tab.icon ?? getModule(tab.moduleId)?.icon ?? Wrench;
-                  return <ModuleIcon className="size-3.5 shrink-0 opacity-85" />;
-                })()}
-                <span
-                  className={cn(
-                    "truncate flex-1 min-w-0",
-                    tab.preview ? "text-body-12 font-normal text-text-secondary" : "text-label-12",
-                  )}
-                >
-                  {tab.title}
-                </span>
-                {/* Active state status dot: 6px */}
-                {isActive && tab.status && tab.status !== "idle" ? (
-                  <span
-                    className={cn(
-                      "size-1.5 shrink-0 rounded-full",
-                      statusDotClass(tab.status),
-                    )}
-                  />
-                ) : null}
-              </span>
-              {/* Close button: 12px, shown on Active and Inactive, NOT on Preview */}
-              {!tab.preview && (
-                <span
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`Close ${tab.title}`}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onClose(tab.id);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      onClose(tab.id);
-                    }
-                  }}
-                  className="z-10 flex size-3 shrink-0 items-center justify-center rounded text-text-secondary hover:text-text-primary transition-colors focus:outline-none [--wails-draggable:no-drag] cursor-pointer"
-                >
-                  <X className="size-3" />
-                </span>
-              )}
-            </Reorder.Item>
-          );
-        })}
-      </AnimatePresence>
-    </Reorder.Group>
+      {/* Focus ring: separate layer at radius 8, not the pill's radius 6 (Figma 448:343 exception) */}
+      {showFocusRing && (
+        <span
+          className="pointer-events-none absolute -inset-[2px] rounded-[8px] border-2 border-[var(--border-focus,#b2d5e5)]"
+          aria-hidden="true"
+        />
+      )}
+      <span className="pointer-events-none relative z-10 flex min-w-0 flex-1 items-center gap-2">
+        <ModuleIcon className="size-3.5 shrink-0 opacity-85" />
+        <span
+          className={cn(
+            "truncate flex-1 min-w-0",
+            tab.preview ? "text-body-12 font-normal text-text-secondary" : "text-label-12",
+          )}
+        >
+          {tab.title}
+        </span>
+        {isActive && tab.status && tab.status !== "idle" ? (
+          <span className={cn("size-1.5 shrink-0 rounded-full", statusDotClass(tab.status))} />
+        ) : null}
+      </span>
+      {/* A pinned tab shows its pin where the close button goes, and the pin
+          unpins (VS Code). Otherwise: 12px close, not on Preview. */}
+      {pinned && onTogglePin ? (
+        <span
+          role="button"
+          tabIndex={-1}
+          data-tab-close
+          aria-label={`Unpin ${tab.title}`}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            onTogglePin(tab.id);
+          }}
+          className="z-10 flex size-3 shrink-0 items-center justify-center rounded text-text-secondary hover:text-text-primary transition-colors focus:outline-none [--wails-draggable:no-drag] cursor-pointer"
+        >
+          <Pin className="size-3" />
+        </span>
+      ) : !tab.preview ? (
+        <span
+          role="button"
+          tabIndex={-1}
+          data-tab-close
+          aria-label={`Close ${tab.title}`}
+          // A press on the close button is a close, never the start of a drag.
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            onCloseWithPointer(tab.id);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              event.stopPropagation();
+              onClose(tab.id);
+            }
+          }}
+          className="z-10 flex size-3 shrink-0 items-center justify-center rounded text-text-secondary hover:text-text-primary transition-colors focus:outline-none [--wails-draggable:no-drag] cursor-pointer"
+        >
+          <X className="size-3" />
+        </span>
+      ) : null}
+    </div>
+    </ContextMenuTrigger>
+    </TooltipTrigger>
+    <TooltipContent side="bottom">{tab.title}</TooltipContent>
+    {/* VS Code's tab menu: the closes, pinning, then whatever the module
+        adds, then the strip's own settings. The group closes pass over
+        pinned tabs, which is what pinning is for. */}
+    <ContextMenuContent>
+      <ContextMenuItem shortcut={shortcut("W")} onSelect={() => onClose(tab.id)}>
+        Close
+      </ContextMenuItem>
+      <ContextMenuItem disabled={others.length === 0} onSelect={() => onCloseMany(others)}>
+        Close Other Tabs
+      </ContextMenuItem>
+      <ContextMenuItem disabled={toTheLeft.length === 0} onSelect={() => onCloseMany(toTheLeft)}>
+        Close Tabs to the Left
+      </ContextMenuItem>
+      <ContextMenuItem disabled={toTheRight.length === 0} onSelect={() => onCloseMany(toTheRight)}>
+        Close Tabs to the Right
+      </ContextMenuItem>
+      <ContextMenuItem disabled={all.length === 0} onSelect={() => onCloseMany(all)}>
+        Close All Tabs
+      </ContextMenuItem>
+      {onTogglePin || (tab.preview && onPin) ? <ContextMenuSeparator /> : null}
+      {onTogglePin ? (
+        <ContextMenuItem
+          icon={pinned ? <PinOff /> : <Pin />}
+          onSelect={() => onTogglePin(tab.id)}
+        >
+          {pinned ? "Unpin Tab" : "Pin Tab"}
+        </ContextMenuItem>
+      ) : null}
+      {tab.preview && onPin ? (
+        <ContextMenuItem onSelect={() => onPin(tab.id)}>Keep Open</ContextMenuItem>
+      ) : null}
+      <ModuleTabActions tab={tab} />
+      {onConfigureTabs ? (
+        <>
+          <ContextMenuSeparator />
+          <ContextMenuItem icon={<Settings2 />} onSelect={onConfigureTabs}>
+            Configure Tabs…
+          </ContextMenuItem>
+        </>
+      ) : null}
+    </ContextMenuContent>
+    </ContextMenu>
+    </Tooltip>
   );
 }
 
@@ -358,35 +402,41 @@ export function TabStrip({
   onClose,
   onReorder,
   onNewTab,
+  onPin,
+  onTogglePin,
+  onConfigureTabs,
   keyboardBrowsing,
   onExitBrowsing,
 }: TabStripProps) {
-  const [keyboardFocusedTabId, setKeyboardFocusedTabId] = useState<
-    string | null
-  >(keyboardBrowsing ? activeTabId : null);
-  // Kept current so the seed effect below reads the latest activeTabId without
-  // taking it as a dependency — that would re-seed mid-browse and fight the
-  // user's arrow keys.
-  const activeTabIdRef = useRef(activeTabId);
-  activeTabIdRef.current = activeTabId;
-  // Memoised because both effects below depend on it: a new array identity
-  // every render would re-run and re-set state forever.
   const visibleTabs = useMemo(
     () => tabs.filter((tab) => !isHiddenHomePreview(tab)),
     [tabs],
   );
+  const ids = useMemo(() => visibleTabs.map((tab) => tab.id), [visibleTabs]);
+  const { minWidth: tabMinWidth, maxWidth: tabMaxWidth } = useTabSettingsStore(
+    useShallow((s) => ({ minWidth: s.minWidth, maxWidth: s.maxWidth })),
+  );
+
+  const rowRef = useRef<HTMLDivElement>(null);
+  const tabNodes = useRef(new Map<string, HTMLDivElement>());
+  const registerNode = (id: string, node: HTMLDivElement | null) => {
+    if (node) tabNodes.current.set(id, node);
+    else tabNodes.current.delete(id);
+  };
+
+  // ⌘⇧E browsing: a focus ring walks the strip, Enter picks.
+  const [keyboardFocusedTabId, setKeyboardFocusedTabId] = useState<string | null>(
+    keyboardBrowsing ? activeTabId : null,
+  );
+  const activeTabIdRef = useRef(activeTabId);
+  activeTabIdRef.current = activeTabId;
 
   useEffect(() => {
-    if (keyboardBrowsing) {
-      setKeyboardFocusedTabId(activeTabIdRef.current);
-    }
+    if (keyboardBrowsing) setKeyboardFocusedTabId(activeTabIdRef.current);
   }, [keyboardBrowsing]);
 
   useEffect(() => {
-    if (!keyboardBrowsing) {
-      return;
-    }
-
+    if (!keyboardBrowsing) return;
     function handleBrowseKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -395,191 +445,172 @@ export function TabStrip({
       }
       if (event.key === "Enter") {
         event.preventDefault();
-        if (keyboardFocusedTabId) {
-          onSelect(keyboardFocusedTabId);
-        }
+        if (keyboardFocusedTabId) onSelect(keyboardFocusedTabId);
         onExitBrowsing();
         return;
       }
-      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
-        return;
-      }
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
       event.preventDefault();
-      const order = groupTabs(visibleTabs).flatMap((group) => group.tabs);
-      const currentIndex = order.findIndex(
-        (tab) => tab.id === keyboardFocusedTabId,
-      );
-      if (currentIndex === -1) {
-        return;
-      }
-      const delta = event.key === "ArrowLeft" ? -1 : 1;
-      const nextIndex = Math.min(
-        Math.max(currentIndex + delta, 0),
-        order.length - 1,
-      );
-      setKeyboardFocusedTabId(order[nextIndex]?.id ?? null);
+      const current = ids.indexOf(keyboardFocusedTabId ?? "");
+      if (current === -1) return;
+      const next = Math.min(Math.max(current + (event.key === "ArrowLeft" ? -1 : 1), 0), ids.length - 1);
+      setKeyboardFocusedTabId(ids[next] ?? null);
     }
-
     window.addEventListener("keydown", handleBrowseKeyDown);
     return () => window.removeEventListener("keydown", handleBrowseKeyDown);
-  }, [
-    keyboardBrowsing,
-    visibleTabs,
-    keyboardFocusedTabId,
-    onSelect,
-    onExitBrowsing,
-  ]);
-  // Keyed by moduleId, not a boolean, so two groups reporting out of order
-  // cannot clobber each other.
-  const [draggingGroupIds, setDraggingGroupIds] = useState<Set<string>>(
-    new Set(),
-  );
-  // Widths snapshotted when a drag starts and reused for the gesture — see the
-  // isDragging block below.
-  const dragFreezeWidthsRef = useRef<Map<string, number | undefined> | null>(
-    null,
-  );
-  const scrollRef = useRef<HTMLDivElement>(null);
-  // The strip's box, not its content — what the equal-share model divides.
-  // scrollRef is `w-full`, so its clientWidth is the column's width whether or
-  // not the content overflows: no feedback loop with the tab widths it feeds.
-  // Only the grid column resizes it, so a plain ResizeObserver suffices.
-  const [containerWidth, setContainerWidth] = useState<number | undefined>(
-    undefined,
-  );
+  }, [keyboardBrowsing, ids, keyboardFocusedTabId, onSelect, onExitBrowsing]);
 
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) {
+  /*
+   * Widths frozen by a mouse close (VS Code's beforeCloseEditor +
+   * --tab-sizing-current-width). Measured before the store drops the tab, so
+   * the ones that remain keep their size and slide left by one slot: the next
+   * close button lands under the pointer instead of wherever the equal share
+   * would put it. Released when the pointer leaves the strip.
+   */
+  const [lockedWidths, setLockedWidths] = useState<Map<string, number> | null>(null);
+  const skipNextReveal = useRef(false);
+
+  function closeWithPointer(id: string) {
+    skipNextReveal.current = true;
+    if (ids.length > 1 && !keyboardBrowsing) {
+      setLockedWidths(
+        new Map(ids.map((tabId) => [tabId, tabNodes.current.get(tabId)?.getBoundingClientRect().width ?? 0])),
+      );
+    }
+    onClose(id);
+  }
+
+  // Reveal the active tab after the DOM has it, before paint.
+  useLayoutEffect(() => {
+    if (skipNextReveal.current) {
+      skipNextReveal.current = false;
       return;
     }
+    const row = rowRef.current;
+    const tab = tabNodes.current.get(activeTabId);
+    if (!row || !tab) return;
+    const next = revealScrollLeft({
+      scrollLeft: row.scrollLeft,
+      viewportWidth: row.clientWidth,
+      tabLeft: tab.offsetLeft,
+      tabWidth: tab.offsetWidth,
+    });
+    if (next !== row.scrollLeft) row.scrollLeft = next;
+  }, [activeTabId, ids.length]);
 
-    function measure() {
-      if (el) {
-        setContainerWidth(el.clientWidth);
-      }
+  // A vertical wheel scrolls the strip sideways (VS Code's scrollYToX).
+  // Non-passive, because it has to stop the page scrolling instead.
+  useEffect(() => {
+    const row = rowRef.current;
+    if (!row) return;
+    function onWheel(event: WheelEvent) {
+      if (!row || event.deltaX !== 0 || event.deltaY === 0) return;
+      if (row.scrollWidth <= row.clientWidth) return;
+      event.preventDefault();
+      row.scrollLeft += event.deltaY;
     }
-
-    measure();
-    const resizeObserver = new ResizeObserver(measure);
-    resizeObserver.observe(el);
-    return () => resizeObserver.disconnect();
+    row.addEventListener("wheel", onWheel, { passive: false });
+    return () => row.removeEventListener("wheel", onWheel);
   }, []);
 
-  function handleGroupDraggingChange(moduleId: string, dragging: boolean) {
-    setDraggingGroupIds((prev) => {
-      const next = new Set(prev);
-      if (dragging) {
-        next.add(moduleId);
-      } else {
-        next.delete(moduleId);
-      }
-      return next;
-    });
+  // The grid's sensor: a press that moves 4px is a drag, anything less is
+  // the mousedown that already activated the tab.
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+
+  function handleTabKeyDown(event: ReactKeyboardEvent, id: string) {
+    if (keyboardBrowsing) return;
+    const index = ids.indexOf(id);
+    let target: string | undefined;
+    if (event.key === "ArrowLeft") target = ids[index - 1];
+    else if (event.key === "ArrowRight") target = ids[index + 1];
+    else if (event.key === "Home") target = ids[0];
+    else if (event.key === "End") target = ids[ids.length - 1];
+    else if (event.key === "Enter" || event.key === " ") target = id;
+    if (target === undefined) return;
+    event.preventDefault();
+    onSelect(target);
+    tabNodes.current.get(target)?.focus();
   }
 
-  const groups = groupTabs(visibleTabs);
-  const visualOrder = groups.flatMap((group) => group.tabs);
-
-  // The at-rest widths, independent of drag and keyboard browsing: used
-  // directly when neither is active, and as the drag-freeze source when one is.
-  const computedWidths = computeTabWidths({
-    tabIds: visualOrder.map((tab) => tab.id),
-    activeTabId,
-    containerWidth,
-  });
-
-  const isDragging = draggingGroupIds.size > 0;
-  if (isDragging && dragFreezeWidthsRef.current === null) {
-    // computedWidths still holds the pre-drag values this frame — only the drag
-    // flag changed. Holding that snapshot for the gesture is what stops a drag
-    // that crosses a sibling and returns from jumping widths on the way.
-    dragFreezeWidthsRef.current = new Map(computedWidths);
-  } else if (!isDragging && dragFreezeWidthsRef.current !== null) {
-    dragFreezeWidthsRef.current = null;
-  }
-
-  let widths = computedWidths;
-  if (keyboardBrowsing) {
-    // ⌘⇧E widens every tab equally for readability while arrow-navigating — an
-    // intentional change, not something to freeze against.
-    widths = new Map(visualOrder.map((tab) => [tab.id, ACTIVE_MIN_WIDTH_PX]));
-  } else if (isDragging && dragFreezeWidthsRef.current) {
-    widths = dragFreezeWidthsRef.current;
-  }
-  // One gap between every tab, group boundaries included — so the outer and
-  // inner gaps always sum to visualOrder.length - 1, which is what pillWidth
-  // counts. A group boundary that spaced wider than a tab boundary would break
-  // that sum, which is how the pill came to be narrower than the tabs it held.
-  const tabWidthValues = visualOrder.map((tab) => widths.get(tab.id));
-  const pillWidthPx = pillWidth(tabWidthValues);
+  // Browsing widens the floor, but never past the max — a floor above the
+  // ceiling is resolved by CSS in the floor's favour, and the setting says
+  // otherwise.
+  const minWidth = keyboardBrowsing
+    ? Math.max(tabMinWidth, Math.min(BROWSING_MIN_WIDTH_PX, tabMaxWidth))
+    : tabMinWidth;
+  // What the group closes may take: everything but the pinned.
+  const closable = visibleTabs.filter((tab) => !tab.pinned).map((tab) => tab.id);
 
   return (
-    // Outer: always the strip's full measured width (ref={scrollRef} lives
-    // here, not on the inner pill) — that's what the equal-share math above
-    // needs to divide, and it has to stay decoupled from how wide the
-    // rendered pill actually ends up (now that widths are capped at
-    // MAX_TAB_WIDTH_PX, a couple of short tabs render *narrower* than the
-    // container again, so measuring the pill itself would create a feedback
-    // loop: its width shrinks, `containerWidth` reads too small, tabs get
-    // sized as if there's less room than there really is). The pill starts at
-    // the left edge: tabs are read left to right and a new one should appear
-    // where the eye already is, rather than shifting every existing tab
-    // sideways to keep the group centred. Inner: the actual visible, content-sized
-    // (max-w-full, not w-full) scrollable pill — grows only as wide as its
-    // tabs need, scrolling past that once they don't fit.
     <div
-      ref={scrollRef}
       className="flex h-12 min-w-0 w-full items-center justify-start p-2 gap-2 [--wails-draggable:no-drag]"
+      // Double-click on the strip's own empty space opens a tab, as in VS Code.
+      onDoubleClick={(event) => {
+        if (event.target === event.currentTarget) onNewTab?.();
+      }}
     >
-      <div
-        // 449:325: 8px between tab items — TAB_GAP_PX, the same number the
-        // group rows above use and the same one the width model divides by.
-        className="scrollbar-hide flex max-w-full items-center overflow-x-auto"
-        style={{ gap: TAB_GAP_PX, width: pillWidthPx }}
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        modifiers={[restrictToHorizontalAxis]}
+        onDragEnd={({ active, over }) => {
+          if (!over) return;
+          const beforeId = beforeIdAfterMove(ids, String(active.id), String(over.id));
+          if (beforeId !== undefined) onReorder(String(active.id), beforeId);
+        }}
       >
-        <AnimatePresence initial={false}>
-          {groups.map((group) => (
-            <motion.div
-              key={group.moduleId}
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              // Same 0.22s easeOut as the tabs themselves: a group and its tabs
-              // appearing together must land at the same moment.
-              transition={{
-                layout: { duration: 0.22, ease: "easeOut" },
-                opacity: { duration: 0.22, ease: "easeOut" },
-                scale: { duration: 0.22, ease: "easeOut" },
-              }}
-              className="flex shrink-0 items-center"
-            >
-              <TabGroupRow
-                tabs={group.tabs}
-                activeTabId={activeTabId}
-                widths={widths}
-                keyboardFocusedTabId={
-                  keyboardBrowsing ? keyboardFocusedTabId : null
-                }
+        <SortableContext items={ids} strategy={horizontalListSortingStrategy}>
+          <div
+            ref={rowRef}
+            role="tablist"
+            aria-orientation="horizontal"
+            // Content-sized so + follows the last tab, min-w-0 so it gives way
+            // to the window and scrolls past that, relative so a tab's
+            // offsetLeft is measured from here.
+            className="scrollbar-hide relative flex min-w-0 shrink items-center overflow-x-auto"
+            // Asks for every tab at its max; the strip hands back what fits
+            // and the tabs share it equally. Arithmetic from the count, not a
+            // measurement: a flex row's natural width is its labels', so
+            // without this the row shrank to their average and truncated
+            // beside empty space.
+            style={{
+              gap: TAB_GAP_PX,
+              width: visibleTabs.length * tabMaxWidth + Math.max(0, visibleTabs.length - 1) * TAB_GAP_PX,
+            }}
+            onMouseLeave={() => setLockedWidths(null)}
+          >
+            {visibleTabs.map((tab, index) => (
+              <TabItem
+                key={tab.id}
+                tab={tab}
+                isActive={tab.id === activeTabId}
+                lockedWidth={lockedWidths?.get(tab.id)}
+                minWidth={minWidth}
+                maxWidth={tabMaxWidth}
+                showFocusRing={keyboardBrowsing && tab.id === keyboardFocusedTabId}
+                draggable={!keyboardBrowsing}
+                registerNode={registerNode}
                 onSelect={onSelect}
                 onClose={onClose}
-                onReorder={onReorder}
-                onDraggingChange={(dragging) =>
-                  handleGroupDraggingChange(group.moduleId, dragging)
-                }
+                onCloseWithPointer={closeWithPointer}
+                onKeyDown={handleTabKeyDown}
+                others={closable.filter((id) => id !== tab.id)}
+                toTheLeft={visibleTabs.slice(0, index).filter((t) => !t.pinned).map((t) => t.id)}
+                toTheRight={visibleTabs.slice(index + 1).filter((t) => !t.pinned).map((t) => t.id)}
+                all={closable}
+                // One store close per tab: the same path the close button
+                // takes, so a group close can never disagree with a single one.
+                onCloseMany={(list) => list.forEach((id) => onClose(id))}
+                onPin={onPin}
+                onTogglePin={onTogglePin}
+                onConfigureTabs={onConfigureTabs}
               />
-            </motion.div>
-          ))}
-        </AnimatePresence>
-      </div>
+            ))}
+          </div>
+        </SortableContext>
+      </DndContext>
       {/* New-tab button: 28x28, radius 8, plus glyph 13px (Figma 449:325) */}
-      <Button
-        type="button"
-        variant="titlebar"
-        size="icon-sm"
-        aria-label="New tab"
-        onClick={onNewTab}
-      >
+      <Button type="button" variant="titlebar" size="icon-sm" aria-label="New tab" onClick={onNewTab}>
         <Plus className="size-[13px]" />
       </Button>
       {/* Trailing spacer: a flex-grow 8px-high frame after new-tab (Figma 449:325) */}

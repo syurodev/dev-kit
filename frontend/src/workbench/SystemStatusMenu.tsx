@@ -161,34 +161,38 @@ export function SystemStatusMenu({
         <DropdownMenuItem
           disabled={vault !== "locked"}
           onSelect={() => requestVaultUnlock()}
+          icon={
+            vault === "locked" ? (
+              <Lock className="text-status-danger" />
+            ) : (
+              <LockOpen className="text-text-tertiary" />
+            )
+          }
+          detail={vault === "locked" ? "locked" : vault === "unlocked" ? "unlocked" : "—"}
         >
-          {vault === "locked" ? (
-            <Lock className="text-status-danger" />
-          ) : (
-            <LockOpen className="text-text-tertiary" />
-          )}
           Vault
-          <span className="ml-auto text-text-tertiary">
-            {vault === "locked" ? "locked" : vault === "unlocked" ? "unlocked" : "—"}
-          </span>
         </DropdownMenuItem>
 
-        <DropdownMenuItem disabled={conflicts === 0} onSelect={onResolveConflicts}>
-          <CloudCheck className={conflicts > 0 ? "text-status-danger" : "text-text-tertiary"} />
-          Sync
-          <span className="ml-auto text-text-tertiary">
-            {conflicts > 0
+        <DropdownMenuItem
+          disabled={conflicts === 0}
+          onSelect={onResolveConflicts}
+          icon={<CloudCheck className={conflicts > 0 ? "text-status-danger" : "text-text-tertiary"} />}
+          detail={
+            conflicts > 0
               ? `${conflicts} conflict${conflicts === 1 ? "" : "s"}`
-              : "in sync"}
-          </span>
+              : "in sync"
+          }
+        >
+          Sync
         </DropdownMenuItem>
 
-        <DropdownMenuItem disabled={agentsRunning === 0} onSelect={onOpenAgents}>
-          <Bot className={agentsRunning > 0 ? "text-action-primary" : "text-text-tertiary"} />
+        <DropdownMenuItem
+          disabled={agentsRunning === 0}
+          onSelect={onOpenAgents}
+          icon={<Bot className={agentsRunning > 0 ? "text-action-primary" : "text-text-tertiary"} />}
+          detail={agentsRunning > 0 ? `${agentsRunning} running` : "idle"}
+        >
           Agent
-          <span className="ml-auto text-text-tertiary">
-            {agentsRunning > 0 ? `${agentsRunning} running` : "idle"}
-          </span>
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
