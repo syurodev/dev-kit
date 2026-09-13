@@ -78,10 +78,10 @@ describe("ActionTooltip", () => {
  * a second and a half, against the app's glass one after 100ms — so a toolbar
  * that mixes them looks like two toolbars.
  *
- * The exceptions are deliberate and not buttons: a grid cell's `title` is the
+ * The exception is deliberate and not a button: a grid cell's `title` is the
  * full value behind a clipped one (2,220 Radix roots is the cost the grid's
- * single context menu exists to avoid), and a tree row's is its qualified
- * name.
+ * single context menu exists to avoid). A tree row's qualified name used to be
+ * one too; the tree is windowed now, so its rows carry the app's tooltip.
  */
 describe("the module's chrome uses one tooltip", () => {
   const read = (file: string) =>

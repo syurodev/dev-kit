@@ -1,4 +1,5 @@
-import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, memo, Profiler, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { recordCommit, WORKBENCH_PROFILER } from "@/lib/perfLog";
 import { ModuleSkeleton } from "./ModuleSkeleton";
 import { Events, Window } from "@wailsio/runtime";
 import { MessageSquare, PanelBottom, PanelLeft, Search, Settings as SettingsIcon } from "lucide-react";
@@ -72,7 +73,10 @@ const HEADER_ONLY_MODULE_IDS = new Set(["settings", "sync"]);
 // Bounds how many modules' tab content stays mounted in WorkbenchViews:
 // the active module plus up to MAX_MOUNTED_MODULES - 1 more that were
 // active within the last MODULE_GRACE_MS. See useMountedModuleIds below.
-const MODULE_GRACE_MS = 2 * 60 * 1000;
+// 45 minutes, up from 2: a developer stays in one module for a long stretch,
+// and two minutes in a console meant coming back to Database rebuilt every tab
+// it had open at once. MAX_MOUNTED_MODULES still bounds the memory.
+const MODULE_GRACE_MS = 45 * 60 * 1000;
 const MAX_MOUNTED_MODULES = 3;
 
 
@@ -176,6 +180,38 @@ function useMountedModuleIds(
 }
 
 /**
+ * One tab's view, memoised on the tab object.
+ *
+ * WorkbenchViews re-renders on every switch, and it used to create each tab's
+ * view element inline, so every mounted tab of every mounted module re-rendered
+ * with it — measured in the app at 50–90ms of "views" per module switch, for
+ * tabs that stayed hidden. React Compiler did not cache elements built inside
+ * the map. The store keeps a tab's object identity until that tab changes, so
+ * a switch now re-renders only the wrappers whose class flips, not the views.
+ */
+const TabBody = memo(function TabBody({ tab }: { tab: WorkbenchTab }) {
+  const view = getModule(tab.moduleId)?.views.find((candidate) => candidate.id === tab.viewId);
+  if (!view) {
+    return null;
+  }
+  const TabView = view.component;
+  return (
+    // Provider outside Suspense so the skeleton can register a rail under
+    // this module's id while the chunk loads.
+    <SidebarModuleIdContext.Provider value={tab.moduleId}>
+      <Suspense fallback={<ModuleSkeleton />}>
+        {/* module-enter mounts with the chunk, so its @starting-style fires at
+            the skeleton→content swap and nowhere else. It is the flex box the
+            `contents` wrapper gave the module before. */}
+        <div className="module-enter">
+          <TabView params={tab.params} />
+        </div>
+      </Suspense>
+    </SidebarModuleIdContext.Provider>
+  );
+});
+
+/**
  * Heavy module trees are deliberately isolated from tab-strip ordering.
  * Tab dragging changes only TabStrip-local state and commits to the store once
  * on drop, so this subtree stays completely outside the high-frequency path.
@@ -260,14 +296,6 @@ const WorkbenchViews = memo(
               if (!mountedModuleIds.has(tab.moduleId)) {
                 return null;
               }
-              const module = getModule(tab.moduleId);
-              const view = module?.views.find(
-                (candidate) => candidate.id === tab.viewId,
-              );
-              if (!view) {
-                return null;
-              }
-              const TabView = view.component;
               // Keep same-module inactive tabs mounted so in-progress edits
               // and scroll position survive switching between tabs of one
               // module, while `contents` preserves the active view's flex
@@ -277,19 +305,7 @@ const WorkbenchViews = memo(
                   key={tab.id}
                   className={tab.id === activeTabId ? "contents" : "hidden"}
                 >
-                  {/* Provider outside Suspense so the skeleton can register
-                      a rail under this module's id while the chunk loads. */}
-                  <SidebarModuleIdContext.Provider value={tab.moduleId}>
-                    <Suspense fallback={<ModuleSkeleton />}>
-                      {/* module-enter mounts with the chunk, so its
-                          @starting-style fires at the skeleton→content swap
-                          and nowhere else. It is the flex box the `contents`
-                          wrapper gave the module before. */}
-                      <div className="module-enter">
-                        <TabView params={tab.params} />
-                      </div>
-                    </Suspense>
-                  </SidebarModuleIdContext.Provider>
+                  <TabBody tab={tab} />
                 </div>
               );
             })
@@ -576,6 +592,9 @@ export function Workbench() {
   const hasMetadataWarning = metadataError || parityIssues.length > 0;
 
   return (
+    // Feeds perfTrace's "ms React"; the zones inside it (titlebar, rail, tabs,
+    // views) break that number down. Profiler is inert in production builds.
+    <Profiler id={WORKBENCH_PROFILER} onRender={recordCommit}>
     <AppShell
       fullscreen={isFullscreen}
       activeModuleId={activeModule?.id ?? null}
@@ -605,7 +624,7 @@ export function Workbench() {
         </>
       }
       titlebar={
-        <>
+        <Profiler id="titlebar" onRender={recordCommit}>
           {/* Sidebar toggle sits immediately after the traffic lights and
               deliberately OUTSIDE the three zones below — it is not a status
               item, a module action, or an app action, so it does not belong to
@@ -769,7 +788,7 @@ export function Workbench() {
               </Tooltip>
             </div>
           </div>
-        </>
+        </Profiler>
       }
     >
       {/* The strip belongs to the module on screen and shows only its tabs.
@@ -778,6 +797,7 @@ export function Workbench() {
           48px would sit under the 40px title bar as a second empty band —
           which is exactly what read as "the title bar is too tall". */}
       {activeModule?.tabs ? (
+        <Profiler id="tabs" onRender={recordCommit}>
         <TabStrip
           tabs={activeTabs.openTabs}
           activeTabId={activeTabs.activeTabId}
@@ -794,7 +814,9 @@ export function Workbench() {
           keyboardBrowsing={switcher === "browsing"}
           onExitBrowsing={() => setSwitcher("closed")}
         />
+        </Profiler>
       ) : null}
+      <Profiler id="views" onRender={recordCommit}>
       <WorkbenchViews
         availableModules={availableModules}
         hasMetadataWarning={hasMetadataWarning}
@@ -802,6 +824,8 @@ export function Workbench() {
         activeModuleId={activeModule?.id ?? ""}
         activeTabId={activeTabs.activeTabId}
       />
+      </Profiler>
     </AppShell>
+    </Profiler>
   );
 }

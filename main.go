@@ -694,9 +694,32 @@ func main() {
 		}()
 	})
 
+	// The frontend's performance lines (lib/perfLog.ts), printed where a dev is
+	// already looking. The frontend only sends them in dev or with
+	// localStorage.devkitPerf set; the cap keeps a page from flooding the log.
+	wailsApp.Event.On(perfEventName, func(event *application.CustomEvent) {
+		log.Print(perfLogLine(event.Data))
+	})
+
 	if err := wailsApp.Run(); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// perfEventName matches PERF_EVENT in frontend/src/lib/perfLog.ts.
+const perfEventName = "devkit:perf"
+
+func perfLogLine(data any) string {
+	const maxLen = 300
+	line, ok := data.(string)
+	if !ok {
+		return "[perf] event without a string payload"
+	}
+	// By rune: the lines carry → and ›, and a byte cut can split one.
+	if runes := []rune(line); len(runes) > maxLen {
+		line = string(runes[:maxLen]) + "…"
+	}
+	return line
 }
 
 // emitAppEvent forwards a backend callback to the Wails/server event bus once

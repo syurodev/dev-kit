@@ -91,10 +91,6 @@ function relativeTime(iso: string): string {
 const GLYPH = "size-3.5 shrink-0 text-text-tertiary";
 /** --control-height-xs, which is what TreeView gives a row. */
 const ROW_HEIGHT_PX = 24;
-/** Hover-only row actions. Opacity rather than `hidden`, so revealing them
- *  does not resize the row and shove the count sideways. */
-const ACTIONS =
-  "flex items-center gap-1 opacity-0 group-hover:opacity-100 has-[:focus-visible]:opacity-100";
 /**
  * 24×24, not the 16×16 these were.
  *
@@ -325,7 +321,7 @@ export function DatabaseSidebar() {
         onActivate: () => openTableTab(schemaName, tableName, false),
         children: columnNodes(schemaName, tableName),
         emptyLabel: tableColumnsError[key] ?? "No columns",
-        meta: columnNames.length || undefined,
+        count: columnNames.length || undefined,
         trailing: focused ? (
           <Crosshair className="size-3 shrink-0 text-status-info" aria-label="Focused in the ERD" />
         ) : null,
@@ -389,7 +385,7 @@ export function DatabaseSidebar() {
       onToggle: () => toggleSchemaExpand(schemaName),
       children: tableNodes(schemaName),
       emptyLabel: "No tables",
-      meta: Object.keys(namespace[schemaName] ?? {}).length,
+      count: Object.keys(namespace[schemaName] ?? {}).length,
       // The schema row had no right-click menu at all: the level between a
       // connection with nine actions and a table with five offered none, so
       // the gesture that works everywhere else in the tree died here.
@@ -556,23 +552,23 @@ export function DatabaseSidebar() {
           Index this schema
         </button>
       ),
+      // One button, not three. The three reached three of the nine things the
+      // right-click menu offers, so which actions existed depended on how you
+      // asked; this opens the same list. Hover-only: the tree shows it.
+      actions: (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <ActionTooltip label={`Actions for ${profile.name}`}>
+              <button type="button" className={ACTION} onClick={(e) => e.stopPropagation()}>
+                <MoreHorizontal className="size-3" />
+              </button>
+            </ActionTooltip>
+          </DropdownMenuTrigger>
+          <RowDropdownMenuContent actions={profileActions(profile, folderId, isSelected)} />
+        </DropdownMenu>
+      ),
       trailing: (
         <>
-          {/* One button, not three. The three reached three of the nine things
-              the right-click menu offers, so which actions existed depended on
-              how you asked; this opens the same list. */}
-          <div className={ACTIONS}>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <ActionTooltip label={`Actions for ${profile.name}`}>
-                  <button type="button" className={ACTION} onClick={(e) => e.stopPropagation()}>
-                    <MoreHorizontal className="size-3" />
-                  </button>
-                </ActionTooltip>
-              </DropdownMenuTrigger>
-              <RowDropdownMenuContent actions={profileActions(profile, folderId, isSelected)} />
-            </DropdownMenu>
-          </div>
           {profile.readOnly && (
             <ActionTooltip label="Safe mode (read-only) is on">
               <span>
@@ -625,7 +621,7 @@ export function DatabaseSidebar() {
       onToggle: () => toggleFolder(folder.id),
       children: visible.map((p) => profileNode(p, folder.id)),
       emptyLabel: "No connections match",
-      meta: inFolder.length,
+      count: inFolder.length,
       wrap: (row) => (
         <ContextMenu key={`folder:${folder.id}`}>
           <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
@@ -742,14 +738,10 @@ export function DatabaseSidebar() {
         </span>
       ) : null}
 
-      {/* pt-1 against SidebarHeader's pb-1: 8px under the search field, the
-          same 8 the other two panes leave under the strip. The first row
-          carries a selected border, and 4px put it against the box.
-          On the tree, not on this scroller: a scroller's padding moves where
-          `sticky; top: 0` sticks, and tables scrolled through the 4px above
-          the pinned connection. */}
-      <div className="min-h-0 flex-1 overflow-y-auto scrollbar-gutter-symmetric pb-2">
-        {profiles.length === 0 && !loadingProfiles ? (
+      {/* The tree is its own scroller, with its own 4px above the first row
+          and 8 below the last. The empty states are not in it. */}
+      {profiles.length === 0 && !loadingProfiles ? (
+        <div className="min-h-0 flex-1">
           <Empty className="px-4 py-6">
             <EmptyTitle className="text-body-12 text-text-tertiary">
               No connections configured.
@@ -764,14 +756,16 @@ export function DatabaseSidebar() {
               </Button>
             </EmptyContent>
           </Empty>
-        ) : tree.length === 0 ? (
+        </div>
+      ) : tree.length === 0 ? (
+        <div className="min-h-0 flex-1">
           <Empty className="px-4 py-6">
             <EmptyDescription>Nothing matches “{needle}”.</EmptyDescription>
           </Empty>
-        ) : (
-          <TreeView nodes={tree} className="pt-1" />
-        )}
-      </div>
+        </div>
+      ) : (
+        <TreeView nodes={tree} className="flex-1 scrollbar-gutter-symmetric" />
+      )}
         </TabsContent>
 
         <TabsContent value="consoles" className="flex min-h-0 flex-col">
