@@ -3,7 +3,7 @@
  *
  * Positions, not names: a result can repeat a column name — `SELECT a.id,
  * b.id` — and a map keyed by name would collapse the two. Kept pure so the
- * arithmetic can be tested without a DOM, the way tabs/tabWidths is.
+ * arithmetic can be tested without a DOM, the way tabs/tabStripModel is.
  */
 
 /** What a column is given before anyone drags it. */
