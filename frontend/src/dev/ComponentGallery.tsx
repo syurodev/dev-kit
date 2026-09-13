@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, type ReactNode } from "react";
+import { TreeNextSection } from "./TreeNextGallery";
 import {
   Activity,
   FileText,
@@ -1038,6 +1039,8 @@ export default function ComponentGallery() {
 
         <Step4bMeasurementsInspector />
       </Section>
+
+      <TreeNextSection />
     </div>
   );
 }
