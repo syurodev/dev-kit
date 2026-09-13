@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"time"
 
 	"devkit/internal/interaction"
 
@@ -112,6 +113,9 @@ func (s *Server) toolDBActiveProfile(ctx context.Context, _ *sdk.CallToolRequest
 	return nil, structured(v), nil
 }
 
+// agentQueryTimeout bounds a statement an agent runs through db.query.
+const agentQueryTimeout = 5 * time.Minute
+
 type dbQueryInput struct {
 	SQL string `json:"sql"`
 }
@@ -127,6 +131,10 @@ func (s *Server) toolDBQuery(ctx context.Context, _ *sdk.CallToolRequest, in dbQ
 	v, err := s.deps.Caller.Call(ctx, "builtin.database", "db:query", "profile:active", meta("query", map[string]any{
 		"profile_id": recordID(id),
 	}), func(callCtx context.Context) (any, error) {
+		// Bounded here, not in the service (#46): the console's statements have
+		// no deadline because Stop ends them, and an agent has no Stop.
+		callCtx, cancel := context.WithTimeout(callCtx, agentQueryTimeout)
+		defer cancel()
 		// 0: the service default. An MCP client reads a result, it does not
 		// page a grid, so there is no page size to honour here.
 		return s.deps.DB.Query(callCtx, id, in.SQL, 0)

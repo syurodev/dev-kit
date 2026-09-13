@@ -2,8 +2,12 @@ package database
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
+
+	mysqldriver "github.com/go-sql-driver/mysql"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 const queryTimeout = 30 * time.Second
@@ -18,10 +22,29 @@ type PoolManager struct {
 	// forwards maps a profile to the forward opened for it, so the tunnel dies
 	// with the connection rather than outliving it.
 	forwards map[string]string
+	// opening serialises opening and dropping a connection per PROFILE (#46).
+	// One lock for all of them meant one SSH host that did not answer held
+	// every other profile's first query behind it.
+	opening map[string]*sync.Mutex
 }
 
 func NewPoolManager() *PoolManager {
-	return &PoolManager{conns: make(map[string]Conn), forwards: make(map[string]string)}
+	return &PoolManager{
+		conns:    make(map[string]Conn),
+		forwards: make(map[string]string),
+		opening:  make(map[string]*sync.Mutex),
+	}
+}
+
+func (m *PoolManager) profileLock(profileID string) *sync.Mutex {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	lock := m.opening[profileID]
+	if lock == nil {
+		lock = &sync.Mutex{}
+		m.opening[profileID] = lock
+	}
+	return lock
 }
 
 // SetTunnel wires port forwarding. Without it a profile that asks for a tunnel
@@ -41,9 +64,15 @@ type connectionSpec struct {
 }
 
 func (m *PoolManager) Get(ctx context.Context, spec connectionSpec) (Conn, error) {
+	lock := m.profileLock(spec.profileID)
+	lock.Lock()
+	defer lock.Unlock()
+
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	if conn := m.conns[spec.profileID]; conn != nil {
+	conn := m.conns[spec.profileID]
+	tunnels := m.tunnels
+	m.mu.Unlock()
+	if conn != nil {
 		return conn, nil
 	}
 
@@ -51,14 +80,19 @@ func (m *PoolManager) Get(ctx context.Context, spec connectionSpec) (Conn, error
 	if err != nil {
 		return nil, err
 	}
+	// Bounded here, for every caller: opening a tunnel or a connection had no
+	// deadline unless the caller happened to set one, and ListSchemas and
+	// IndexSchema did not (#46).
+	ctx, cancel := context.WithTimeout(ctx, queryTimeout)
+	defer cancel()
 
 	cfg := spec.cfg
 	var forwardID string
 	if spec.tunnel != nil {
-		if m.tunnels == nil {
+		if tunnels == nil {
 			return nil, ErrSSHProfileMissing
 		}
-		handle, err := m.tunnels.Open(ctx, *spec.tunnel)
+		handle, err := tunnels.Open(ctx, *spec.tunnel)
 		if err != nil {
 			return nil, err
 		}
@@ -70,21 +104,29 @@ func (m *PoolManager) Get(ctx context.Context, spec connectionSpec) (Conn, error
 		cfg.Port = handle.LocalPort
 	}
 
-	conn, err := driver.Dial(ctx, cfg)
+	conn, err = driver.Dial(ctx, cfg)
 	if err != nil {
 		if forwardID != "" {
-			_ = m.tunnels.Close(forwardID)
+			_ = tunnels.Close(forwardID)
 		}
 		return nil, err
 	}
+	m.mu.Lock()
 	m.conns[spec.profileID] = conn
 	if forwardID != "" {
 		m.forwards[spec.profileID] = forwardID
 	}
+	m.mu.Unlock()
 	return conn, nil
 }
 
+// Remove waits for an open in progress for the same profile, so a connection
+// dialled for a profile being deleted is not cached after the delete.
 func (m *PoolManager) Remove(profileID string) {
+	lock := m.profileLock(profileID)
+	lock.Lock()
+	defer lock.Unlock()
+
 	m.mu.Lock()
 	conn := m.conns[profileID]
 	delete(m.conns, profileID)
@@ -120,6 +162,14 @@ func (m *PoolManager) Close() {
 
 func queryContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(ctx, queryTimeout)
+}
+
+// answeredByServer is whether an error is the database's own reply, which
+// means the connection under it is working.
+func answeredByServer(err error) bool {
+	var pgErr *pgconn.PgError
+	var myErr *mysqldriver.MySQLError
+	return errors.As(err, &pgErr) || errors.As(err, &myErr)
 }
 
 // openProbeTunnel and closeProbeTunnel serve connection tests for a profile

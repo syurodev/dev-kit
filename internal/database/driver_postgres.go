@@ -23,17 +23,26 @@ func (postgresDriver) Dial(ctx context.Context, cfg ConnConfig) (Conn, error) {
 		Host:   net.JoinHostPort(cfg.Host, fmt.Sprintf("%d", cfg.Port)),
 		Path:   cfg.Database,
 	}
+	if err := checkDriverOptions(postgresOptions, cfg.Options); err != nil {
+		return nil, err
+	}
 	query := u.Query()
-	query.Set("sslmode", cfg.SSLMode)
+	// Options first, so none of them can stand in for sslmode (#45).
 	for key, value := range cfg.Options {
 		query.Set(key, value)
 	}
+	query.Set("sslmode", cfg.SSLMode)
 	u.RawQuery = query.Encode()
 
 	poolConfig, err := pgxpool.ParseConfig(u.String())
 	if err != nil {
 		return nil, err
 	}
+	// Every literal the app builds doubles quotes and leaves backslashes alone,
+	// which is only right while this is on. It is the default, but a server or
+	// role can turn it off, and then a backslash in a cell became an escape in
+	// the edit or filter built from it (#45). Set at startup, not by a SET.
+	poolConfig.ConnConfig.RuntimeParams["standard_conforming_strings"] = "on"
 	poolConfig.MaxConns = 4
 	poolConfig.MinConns = 0
 	poolConfig.MaxConnLifetime = 30 * time.Minute

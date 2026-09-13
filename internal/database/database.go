@@ -21,6 +21,10 @@ const (
 
 var ErrInsecureTLSForRemoteHost = errors.New("insecure TLS is only allowed for loopback database hosts")
 
+// ErrUnknownSSLMode is an SSL mode outside disable, require, verify-ca and
+// verify-full — including the ones that fall back to plaintext.
+var ErrUnknownSSLMode = errors.New("SSL mode must be disable, require, verify-ca or verify-full")
+
 // ErrInvalidCACertificate means the supplied CA bundle held no usable
 // certificate. Reported rather than ignored: a bundle that silently does
 // nothing leaves a connection that reads as verified and is not.
@@ -475,6 +479,7 @@ func (s *Service) TestConnection(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
+	parent := ctx
 	ctx, cancel := queryContext(ctx)
 	defer cancel()
 
@@ -482,7 +487,9 @@ func (s *Service) TestConnection(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	return pool.Ping(ctx)
+	err = pool.Ping(ctx)
+	s.dropIfDisconnected(parent, id, err)
+	return err
 }
 
 // Query runs SQL against the profile's database and returns rows (capped).
@@ -492,11 +499,30 @@ func (s *Service) TestConnection(ctx context.Context, id string) error {
 // is clamped to it rather than refused, because a page size is a preference
 // and refusing one would fail a query over a number the user can only guess at.
 func (s *Service) Query(ctx context.Context, id string, sql string, maxRows int) (QueryResult, error) {
+	result, err := s.query(ctx, id, sql, maxRows)
+	s.dropIfDisconnected(ctx, id, err)
+	return result, err
+}
+
+/*
+maxResultBytes caps a result by what it holds, not only by how many rows.
+
+5,000 rows of multi-megabyte text or bytea were all held here and sent over the
+bridge. The cap cuts at a row boundary rather than inside a cell: a cell cut
+short would go on to be an UPDATE's key or a value written back (#46).
+*/
+const maxResultBytes = 64 << 20
+
+func (s *Service) query(ctx context.Context, id string, sql string, maxRows int) (QueryResult, error) {
 	target, err := s.target(id)
 	if err != nil {
 		return QueryResult{}, err
 	}
-	ctx, cancel := queryContext(ctx)
+	// No deadline of its own (#46). A statement was cut off at 30s — a COMMIT,
+	// a CREATE INDEX, a report — while Stop, which now reaches the server, is
+	// how a person ends one. Opening the connection is still bounded, in the
+	// pool, and an agent's call is bounded by the MCP tool.
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	pool, err := s.pool(ctx, id, target)
@@ -533,8 +559,9 @@ func (s *Service) Query(ctx context.Context, id string, sql string, maxRows int)
 	defer rows.Close()
 
 	result := QueryResult{Columns: rows.Columns(), Rows: [][]string{}}
+	size := 0
 	for rows.Next() {
-		if result.RowCount >= limit {
+		if result.RowCount >= limit || size >= maxResultBytes {
 			result.Truncated = true
 			break
 		}
@@ -544,8 +571,18 @@ func (s *Service) Query(ctx context.Context, id string, sql string, maxRows int)
 		if err != nil {
 			return QueryResult{}, NewStatementError(err)
 		}
+		for _, cell := range row {
+			size += len(cell)
+		}
 		result.Rows = append(result.Rows, row)
 		result.RowCount++
+	}
+	// Stopped, not drained (#46). Closing rows reads the rest of the result to
+	// the end in both drivers, so a SELECT * over a large table kept the server
+	// and the network busy for rows nobody would see. Not inside a transaction:
+	// cancelling there takes the connection, and the transaction with it.
+	if result.Truncated && tx == nil {
+		cancel()
 	}
 	// Where a statement that started fine ends badly — a division by zero on
 	// row 900, a cast that only the tenth value fails. pgx reports those on
@@ -556,6 +593,24 @@ func (s *Service) Query(ctx context.Context, id string, sql string, maxRows int)
 	s.recordHistory(id, sql)
 	s.refreshSchemaAfterDDL(id, sql)
 	return result, nil
+}
+
+/*
+dropIfDisconnected discards a profile's cached connection after an error the
+server did not send (#46).
+
+pgxpool and database/sql replace a broken connection on their own, but not the
+SSH forward under it, and not a pool whose every dial fails: a connection that
+could not log in stayed cached, tunnel included, until the profile was edited.
+An error the server answered with — a syntax error, a denied login — says the
+connection works. A cancelled call says nothing about it. And a connection
+holding a transaction is never dropped from under it here.
+*/
+func (s *Service) dropIfDisconnected(ctx context.Context, id string, err error) {
+	if err == nil || ctx.Err() != nil || answeredByServer(err) || s.txs.get(id) != nil {
+		return
+	}
+	s.pools.Remove(id)
 }
 
 type connectionTarget struct {
@@ -612,17 +667,29 @@ func (s *Service) pool(ctx context.Context, id string, target connectionTarget) 
 	return s.pools.Get(ctx, spec)
 }
 
+// normalizeSSLMode accepts the modes whose answer is a yes or a no.
+//
+// An allowlist (#45): only "disable" used to be refused for a remote host, and
+// "prefer" and "allow" — which the UI never offers but a synced profile or the
+// bridge can still send — try TLS and quietly carry on in plaintext when it is
+// refused, which is the downgrade an attacker on the path asks for.
 func normalizeSSLMode(host, sslMode string) (string, error) {
-	if sslMode == "" {
+	switch sslMode {
+	case "":
 		if isLoopbackHost(host) {
 			return "disable", nil
 		}
 		return "verify-full", nil
+	case "disable":
+		if !isLoopbackHost(host) {
+			return "", ErrInsecureTLSForRemoteHost
+		}
+		return sslMode, nil
+	case "require", "verify-ca", "verify-full":
+		return sslMode, nil
+	default:
+		return "", ErrUnknownSSLMode
 	}
-	if sslMode == "disable" && !isLoopbackHost(host) {
-		return "", ErrInsecureTLSForRemoteHost
-	}
-	return sslMode, nil
 }
 
 func isLoopbackHost(host string) bool {

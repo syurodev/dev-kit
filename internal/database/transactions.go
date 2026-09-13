@@ -130,7 +130,7 @@ func (s *Service) SetTxMode(ctx context.Context, id string, manual bool) error {
 	}
 	s.txs.setManual(id, false)
 	if tx := s.txs.take(id); tx != nil {
-		ctx, cancel := queryContext(ctx)
+		ctx, cancel := context.WithTimeout(ctx, commitTimeout)
 		defer cancel()
 		return tx.Commit(ctx)
 	}
@@ -150,7 +150,7 @@ func (s *Service) CommitTx(ctx context.Context, id string) error {
 	if tx == nil {
 		return nil
 	}
-	ctx, cancel := queryContext(ctx)
+	ctx, cancel := context.WithTimeout(ctx, commitTimeout)
 	defer cancel()
 	return tx.Commit(ctx)
 }
@@ -161,7 +161,7 @@ func (s *Service) RollbackTx(ctx context.Context, id string) error {
 	if tx == nil {
 		return nil
 	}
-	ctx, cancel := queryContext(ctx)
+	ctx, cancel := context.WithTimeout(ctx, commitTimeout)
 	defer cancel()
 	return tx.Rollback(ctx)
 }
@@ -188,3 +188,8 @@ func (s *Service) rollbackTx(id string) {
 // rollbackTimeout bounds the rollbacks nobody is waiting on: shutdown, and a
 // profile being edited or deleted.
 const rollbackTimeout = 5 * time.Second
+
+// commitTimeout bounds Commit, Roll back and leaving Manual. Their own bound,
+// not a statement's 30s (#46): committing a large transaction is legitimately
+// slow, and these are buttons with no Stop beside them.
+const commitTimeout = 5 * time.Minute

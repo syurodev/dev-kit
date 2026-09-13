@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"fmt"
 	"net"
-	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -42,33 +41,40 @@ func (d mysqlDriver) Dial(ctx context.Context, cfg ConnConfig) (Conn, error) {
 // mysqlDSN builds the connection string and registers a TLS config when one is
 // needed. Split out from Dial so the parameters can be asserted without a
 // server.
+//
+// Through the driver's own Config (#45): a DSN put together with Sprintf left
+// the username, password and database name unescaped, so a "/" or "?" in any
+// of them changed what the rest of the string meant.
 func mysqlDSN(cfg ConnConfig) (dsn string, tlsName string, err error) {
-	params := url.Values{}
-	// Times come back as strings like every other value; the alternative is
-	// driver-specific time handling that the shared Rows shape cannot express.
-	params.Set("parseTime", "false")
-
+	if err := checkDriverOptions(mysqlOptions, cfg.Options); err != nil {
+		return "", "", err
+	}
 	tlsName, err = registerMySQLTLS(cfg)
 	if err != nil {
 		return "", "", err
 	}
-	if tlsName != "" {
-		params.Set("tls", tlsName)
+	config := mysqldriver.NewConfig()
+	config.User = cfg.Username
+	config.Passwd = cfg.Password
+	config.Net = "tcp"
+	config.Addr = net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port))
+	config.DBName = cfg.Database
+	config.TLSConfig = tlsName
+	// Times come back as strings like every other value; the alternative is
+	// driver-specific time handling that the shared Rows shape cannot express.
+	config.ParseTime = false
+	config.Params = map[string]string{}
+	// Options first, so none of them can stand in for what follows.
+	for key, value := range cfg.Options {
+		config.Params[key] = value
 	}
 	if cfg.ReadOnly {
 		// go-sql-driver treats unknown parameters as session system variables,
 		// so this issues SET transaction_read_only=1 on every new connection —
 		// the same per-connection guarantee pgx gets from AfterConnect.
-		params.Set("transaction_read_only", "1")
+		config.Params["transaction_read_only"] = "1"
 	}
-	for key, value := range cfg.Options {
-		params.Set(key, value)
-	}
-
-	return fmt.Sprintf("%s:%s@tcp(%s)/%s?%s",
-		cfg.Username, cfg.Password,
-		net.JoinHostPort(cfg.Host, fmt.Sprintf("%d", cfg.Port)),
-		cfg.Database, params.Encode()), tlsName, nil
+	return config.FormatDSN(), tlsName, nil
 }
 
 // registerMySQLTLS maps sslmode onto the driver's TLS handling. Unlike pgx,
