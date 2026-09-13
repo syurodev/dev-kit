@@ -261,18 +261,52 @@ function Guides({ row }: { row: FlatRow }) {
 /**
  * The app's tooltip on a row's main button, not the browser's `title`: the
  * native one is a different font, a different surface and a second-long delay
- * nobody chose. On the button rather than the row, so a row's own actions —
- * which carry their own tooltips — never open two at once. To the right, clear
- * of the rows it would otherwise cover.
+ * nobody chose — and the OS draws it, so no stylesheet can change that. On the
+ * button rather than the row, so a row's own actions — which carry their own
+ * tooltips — never open two at once.
+ *
+ * Where the pointer is when it opens, just below it, the way a native title
+ * lands — not at the button's edge wherever the pointer happened to be. Placed
+ * once and then still. Pointer moves only write a ref; the one layout read is
+ * the trigger's rect, at the moment it opens. Opened from the keyboard, with no
+ * pointer to go by, it sits to the right of the row.
  */
+const POINTER_GAP = 18;
+
 function RowTooltip({ title, children }: { title?: string; children: ReactNode }) {
+  const pointer = useRef<{ x: number; y: number; el: Element | null }>({ x: 0, y: 0, el: null });
+  const [at, setAt] = useState<{ x: number; y: number } | null>(null);
   if (!title) return <>{children}</>;
   return (
-    <Tooltip delayDuration={TOOLTIP_DELAY}>
-      <TooltipTrigger asChild>{children}</TooltipTrigger>
-      <TooltipContent side="right" align="start">
-        {title}
-      </TooltipContent>
+    <Tooltip
+      delayDuration={TOOLTIP_DELAY}
+      onOpenChange={(open) => {
+        if (!open) return;
+        const { x, y, el } = pointer.current;
+        const rect = el?.getBoundingClientRect();
+        setAt(rect && x >= rect.left && x <= rect.right ? { x: x - rect.left, y: y - rect.bottom } : null);
+      }}
+    >
+      <TooltipTrigger
+        asChild
+        onPointerMove={(event) => {
+          pointer.current = { x: event.clientX, y: event.clientY, el: event.currentTarget };
+        }}
+        onPointerLeave={() => {
+          pointer.current.el = null;
+        }}
+      >
+        {children}
+      </TooltipTrigger>
+      {at ? (
+        <TooltipContent side="bottom" align="start" alignOffset={at.x} sideOffset={at.y + POINTER_GAP}>
+          {title}
+        </TooltipContent>
+      ) : (
+        <TooltipContent side="right" align="start">
+          {title}
+        </TooltipContent>
+      )}
     </Tooltip>
   );
 }

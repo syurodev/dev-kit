@@ -83,7 +83,13 @@ function useDatabaseNodes(): TreeNodeData[] {
   const tables: TreeNodeData[] = [
     ...LONG_TABLES,
     ...Array.from({ length: 56 }, (_, i) => `table_${String(i).padStart(2, "0")}`),
-  ].map((name) => ({ ...n(`orders.public.${name}`), label: name, icon: <Table2 className={GLYPH} />, expandable: true }));
+  ].map((name) => ({
+    ...n(`orders.public.${name}`),
+    label: name,
+    title: `public.${name}`,
+    icon: <Table2 className={GLYPH} />,
+    expandable: true,
+  }));
   tables.splice(1, 0, {
     ...n("orders.public.customers"),
     label: "customers",
