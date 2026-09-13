@@ -691,6 +691,35 @@
   backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
 }
 
+/* Glass with nothing painting behind it.
+
+   Every glass tier is a translucent fill that is only legible because a blur
+   sits behind it. WebKitGTK compositing on the CPU parses backdrop-filter and
+   draws nothing, so the fill is all that renders and a menu becomes a window
+   onto the text it covers. @supports cannot see that (it asks whether the
+   declaration parses), so the native side says so: webviewStartURL in
+   native_webview_linux.go adds ?software-compositing and main.tsx turns it into
+   this class. It is not a Linux class — a Linux machine with a GPU keeps glass.
+
+   Tokens rather than the glass classes, so surfaces that pair a glass token
+   with a backdrop-blur utility (Select, the new-session dialog, toasts) flatten
+   too. Each opaque value is a theme token, so light and dark both hold. Placed
+   after every theme block: :root[data-theme] ties on specificity and the later
+   rule wins. */
+:root.no-backdrop-blur {
+  --surface-glass-floating: var(--surface-raised);
+  --surface-glass-modal: var(--surface-raised);
+  --glass-float-bg: var(--surface-raised);
+  --glass-panel-bg: var(--surface-base);
+}
+
+:root.no-backdrop-blur .glass-float,
+:root.no-backdrop-blur .glass-button,
+:root.no-backdrop-blur .glass-modal {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
 /* The one switch that turns glass off, and it belongs to the user rather than
    to a guess about their platform. It has to reach every tier that blurs: the
    modal one was left out while a Linux class was flattening the tiers anyway,

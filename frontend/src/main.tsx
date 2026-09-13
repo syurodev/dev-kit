@@ -17,6 +17,13 @@ if ('_wails' in window) {
   installNativeZoomGuard(window)
 }
 
+// Set by the native side when WebKitGTK composites on the CPU and will not paint
+// backdrop-filter (webviewStartURL, native_webview_linux.go). Before the first
+// render, so no glass surface is ever drawn see-through. See index.css.
+if (new URLSearchParams(window.location.search).has('software-compositing')) {
+  document.documentElement.classList.add('no-backdrop-blur')
+}
+
 // Dev-only instrumentation (smoothness 9). Dynamic, so the chunk never lands
 // in the bundle the performance budget measures; the localStorage switch is
 // what makes it reachable in a production build when a "it feels janky"

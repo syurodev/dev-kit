@@ -66,6 +66,17 @@ func configureWebviewEnv() {
 	)
 }
 
+// webviewStartURL tells the frontend, before its first paint, when WebKitGTK is
+// compositing on the CPU and will not draw backdrop-filter. index.css then makes
+// the glass tiers opaque (:root.no-backdrop-blur). Called after
+// configureWebviewEnv, so it sees the renderer that was actually chosen.
+func webviewStartURL() string {
+	if gpu.SoftwareCompositing(os.LookupEnv) {
+		return "/?" + gpu.SoftwareCompositingQuery
+	}
+	return "/"
+}
+
 // GTK draws its own decoration — a title bar carrying the window name and the
 // minimise/maximise/close cluster on the RIGHT — above whatever the webview
 // paints. DevKit's own 40px title bar then lands under it, so the window wears
