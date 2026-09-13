@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -160,6 +161,7 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 	if s.MCPEndpoints != nil {
 		ep, err := s.MCPEndpoints.Open(id)
 		if err != nil {
+			log.Printf("agenthub: %s session: open MCP endpoint: %v", in.AgentType, err)
 			return AgentSession{}, err
 		}
 		closeEndpoint = ep.Close
@@ -170,6 +172,8 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 
 	rt, err := adapter.Open(ctx, spec)
 	if err != nil {
+		// The bridge redacts this to one sentence; the log keeps the cause.
+		log.Printf("agenthub: open %s session in %s: %v", in.AgentType, cwd, err)
 		closeEndpoint()
 		return AgentSession{}, err
 	}
@@ -769,6 +773,7 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (Session
 
 	rt, err := loader.Load(ctx, spec, sess.ACPSessionID)
 	if err != nil {
+		log.Printf("agenthub: resume %s session %s: %v", sess.AgentType, sess.ID, err)
 		closeEndpoint()
 		return nil, err
 	}

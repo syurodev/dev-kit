@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -460,6 +461,12 @@ func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, resume string) 
 	if err != nil {
 		return nil, err
 	}
+	// What the jail is about to run, for the log: a session that fails to open
+	// says only "Agent process failed" to the UI, and without this there is no
+	// way to tell a wrong node from a missing grant. Paths only — the env
+	// carries API keys and is never logged.
+	log.Printf("agenthub: claude: starting %s %s in %s (read-only %v, sockets %v, resume %q)",
+		cmd.Path, strings.Join(cmd.Args, " "), pol.WorkDir, pol.ReadOnlyPaths, pol.AllowUnixSockets, resume)
 
 	// The sandbox process outlives the caller's request: sessions opened over
 	// MCP derive ctx from the client connection, and a client disconnect would
@@ -540,7 +547,9 @@ func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, resume string) 
 	handshakeErr := func(stage string, err error) error {
 		select {
 		case <-rt.serveDone:
-			return fmt.Errorf("%w: %s: agent process exited during handshake", ErrProcessFailed, stage)
+			reason := stderrReason(proc)
+			logStderrTail("claude "+stage, proc)
+			return fmt.Errorf("%w: %s: agent process exited during handshake%s", ErrProcessFailed, stage, reason)
 		default:
 			return fmt.Errorf("%w: %s: %v", ErrProcessFailed, stage, err)
 		}
@@ -552,8 +561,9 @@ func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, resume string) 
 		ClientCapabilities: devkitClientCapabilities(),
 		ClientInfo:         map[string]any{"name": "devkit", "version": "0.0.0"},
 	}, &initRes); err != nil {
+		herr := handshakeErr("initialize", err)
 		cleanup()
-		return nil, handshakeErr("initialize", err)
+		return nil, herr
 	}
 
 	// Non-nil even with no endpoints: mcpServers is a required field.
@@ -574,8 +584,12 @@ func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, resume string) 
 			McpServers: mcpServers,
 			Meta:       meta,
 		}, &loadRes); err != nil {
+			// Judged before cleanup: cleanup kills the process, after which every
+			// failure read as "exited during handshake" — including an error the
+			// agent answered with while it was still running.
+			herr := handshakeErr("session/load", err)
 			cleanup()
-			return nil, handshakeErr("session/load", err)
+			return nil, herr
 		}
 		// The id is ours to begin with, so a vendor that echoes a different one
 		// has resumed something else; better to fail than to attach a session
@@ -595,8 +609,9 @@ func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, resume string) 
 		McpServers: mcpServers,
 		Meta:       meta,
 	}, &newRes); err != nil {
+		herr := handshakeErr("session/new", err)
 		cleanup()
-		return nil, handshakeErr("session/new", err)
+		return nil, herr
 	}
 	if newRes.SessionID == "" {
 		cleanup()
@@ -682,6 +697,22 @@ func (a *ClaudeAdapter) Probe(ctx context.Context, rt agentruntime.Resolved) err
 	default:
 		return fmt.Errorf("%w: initialize: %v", ErrProcessFailed, err)
 	}
+}
+
+// logStderrTail writes the end of a dead agent's stderr to the log. The reason
+// that reaches the error is one line; the lines around it are usually what
+// explains it — a stack, the path that could not be opened.
+func logStderrTail(stage string, proc *sandbox.Proc) {
+	_, stderr := proc.Output()
+	tail := strings.TrimSpace(string(stderr))
+	if tail == "" {
+		log.Printf("agenthub: %s: agent exited with nothing on stderr", stage)
+		return
+	}
+	if len(tail) > 2000 {
+		tail = "…" + tail[len(tail)-2000:]
+	}
+	log.Printf("agenthub: %s: agent stderr:\n%s", stage, tail)
 }
 
 // stderrReason is the line of a dead agent's stderr that says why, or "".
