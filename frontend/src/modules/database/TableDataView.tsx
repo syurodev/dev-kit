@@ -12,6 +12,7 @@ import { useDatabaseChrome } from "./useDatabaseChrome";
 import { browseKeyOfTab, useBrowseLifetime } from "./useConsoleLifetime";
 import { useIsActiveDocument } from "./useIsActiveDocument";
 import { consoleIdFor, openConsoleTab } from "./documents";
+import { tableDocument, useDocumentCommands } from "./documentCommands";
 import { buildBrowseQuery } from "./sql/browseQuery";
 import { quoteIdentifier, quoteLiteral } from "./sql/identifier";
 import { buildUpdate, updateRefusal } from "./sql/updateCell";
@@ -194,6 +195,36 @@ export function TableDataView({
     table,
   });
 
+  const exportPage = () => {
+    if (browse.rows) {
+      openExportModal(browse.rows, tableExportFilename(table));
+    }
+  };
+  const openInConsole = () => {
+    const consoleId = consoleIdFor(key);
+    setSql(
+      consoleId,
+      buildBrowseQuery({
+        schema,
+        table,
+        engine,
+        where: browse.where,
+        orderBy: browse.orderBy,
+        pageKey,
+        cursor: null,
+        pageSize,
+      }).sql,
+    );
+    openConsoleTab(consoleId, table);
+  };
+  // #51: the toolbar's actions, for the menu bar as well.
+  useDocumentCommands(tableDocument(key), {
+    export: exportPage,
+    reload: () => void loadBrowsePage(key, { schema, table }),
+    showDDL: () => openDDL(schema, table),
+    openInConsole,
+  });
+
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <TableToolbar
@@ -237,29 +268,9 @@ export function TableDataView({
         // A28: the page already in hand, not a query re-run to fetch it again.
         // The toolbar disables this with no rows, and the guard here is what
         // makes that a courtesy rather than the only thing holding it up.
-        onExport={() => {
-          if (browse.rows) {
-            openExportModal(browse.rows, tableExportFilename(table));
-          }
-        }}
+        onExport={exportPage}
         onShowDDL={() => openDDL(schema, table)}
-        onOpenInConsole={() => {
-          const consoleId = consoleIdFor(key);
-          setSql(
-            consoleId,
-            buildBrowseQuery({
-              schema,
-              table,
-              engine,
-              where: browse.where,
-              orderBy: browse.orderBy,
-              pageKey,
-              cursor: null,
-              pageSize,
-            }).sql,
-          );
-          openConsoleTab(consoleId, table);
-        }}
+        onOpenInConsole={openInConsole}
       />
 
       {browse.error ? (
