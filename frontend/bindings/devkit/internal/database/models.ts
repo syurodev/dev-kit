@@ -159,9 +159,20 @@ export interface QueryPlan {
 
 export interface QueryResult {
     "columns": string[] | null;
-    "rows": (string[] | null)[] | null;
+
+    /**
+     * Rows holds each cell as text, null for SQL NULL (#47).
+     */
+    "rows": ((string | null)[] | null)[] | null;
     "row_count": number;
     "truncated": boolean;
+
+    /**
+     * RowsAffected is what an UPDATE, INSERT or DELETE changed; -1 when the
+     * driver cannot say. An edit that matched nothing reads 0 here, which is
+     * how it stops reporting success (#47).
+     */
+    "rows_affected": number;
 }
 
 /**

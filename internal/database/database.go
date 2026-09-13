@@ -113,10 +113,15 @@ type UpdateProfileOptionsInput struct {
 }
 
 type QueryResult struct {
-	Columns   []string   `json:"columns"`
-	Rows      [][]string `json:"rows"`
-	RowCount  int        `json:"row_count"`
-	Truncated bool       `json:"truncated"`
+	Columns []string `json:"columns"`
+	// Rows holds each cell as text, null for SQL NULL (#47).
+	Rows      [][]*string `json:"rows"`
+	RowCount  int         `json:"row_count"`
+	Truncated bool        `json:"truncated"`
+	// RowsAffected is what an UPDATE, INSERT or DELETE changed; -1 when the
+	// driver cannot say. An edit that matched nothing reads 0 here, which is
+	// how it stops reporting success (#47).
+	RowsAffected int64 `json:"rows_affected"`
 }
 
 // Store is the shared vault-item substrate the database service needs.
@@ -558,7 +563,7 @@ func (s *Service) query(ctx context.Context, id string, sql string, maxRows int)
 	}
 	defer rows.Close()
 
-	result := QueryResult{Columns: rows.Columns(), Rows: [][]string{}}
+	result := QueryResult{Columns: rows.Columns(), Rows: [][]*string{}}
 	size := 0
 	for rows.Next() {
 		if result.RowCount >= limit || size >= maxResultBytes {
@@ -572,7 +577,9 @@ func (s *Service) query(ctx context.Context, id string, sql string, maxRows int)
 			return QueryResult{}, NewStatementError(err)
 		}
 		for _, cell := range row {
-			size += len(cell)
+			if cell != nil {
+				size += len(*cell)
+			}
 		}
 		result.Rows = append(result.Rows, row)
 		result.RowCount++
@@ -590,6 +597,10 @@ func (s *Service) query(ctx context.Context, id string, sql string, maxRows int)
 	if err := rows.Err(); err != nil && !result.Truncated {
 		return QueryResult{}, NewStatementError(err)
 	}
+	// Closed here rather than by the defer, because the count is only known
+	// once the statement has finished. Close is safe to call twice.
+	rows.Close()
+	result.RowsAffected = rows.RowsAffected()
 	s.recordHistory(id, sql)
 	s.refreshSchemaAfterDDL(id, sql)
 	return result, nil
@@ -700,10 +711,9 @@ func isLoopbackHost(host string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
+// stringify is a driver value as text. SQL NULL is the caller's to handle: it
+// is not a string, and "NULL" is (#47).
 func stringify(value any) string {
-	if value == nil {
-		return "NULL"
-	}
 	switch typed := value.(type) {
 	case []byte:
 		return string(typed)

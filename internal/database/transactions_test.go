@@ -61,11 +61,12 @@ func (t *recordingTx) Rollback(context.Context) error { t.rolledBack = true; ret
 
 type emptyRows struct{}
 
-func (emptyRows) Columns() []string         { return []string{"?column?"} }
-func (emptyRows) Next() bool                { return false }
-func (emptyRows) Values() ([]string, error) { return nil, nil }
-func (emptyRows) Err() error                { return nil }
-func (emptyRows) Close()                    {}
+func (emptyRows) Columns() []string          { return []string{"?column?"} }
+func (emptyRows) Next() bool                 { return false }
+func (emptyRows) Values() ([]*string, error) { return nil, nil }
+func (emptyRows) RowsAffected() int64        { return 0 }
+func (emptyRows) Err() error                 { return nil }
+func (emptyRows) Close()                     {}
 
 // Plants a live connection for a profile, which is what lets these tests reach
 // Query and BeginTx without dialling anything. Same package, so the pool's map

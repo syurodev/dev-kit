@@ -17,7 +17,9 @@ export function CellInspector() {
 
   if (!inspectedCell) return null;
 
-  const rawValue = inspectedCell.value;
+  // SQL NULL has no text to show, copy or parse (#47).
+  const isNull = inspectedCell.value === null;
+  const rawValue = inspectedCell.value ?? "";
   let formattedJson: string | null = null;
   let isJson = false;
 
@@ -55,7 +57,7 @@ export function CellInspector() {
               {inspectedCell.columnName}
             </span>
             <span className="text-caption-11 text-text-tertiary">
-              ({rawValue.length} chars {isJson ? "· JSON" : ""})
+              ({isNull ? "NULL" : `${rawValue.length} chars`} {isJson ? "· JSON" : ""})
             </span>
           </div>
 

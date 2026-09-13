@@ -8,8 +8,8 @@
 /** One column's values, newline separated — the shape that pastes into an IN
  *  list or a spreadsheet. A row shorter than the header becomes an empty line,
  *  which `join` already does for a hole; no guard needed. */
-export function columnValues(rows: string[][], index: number): string {
-  return rows.map((row) => row[index]).join("\n");
+export function columnValues(rows: (string | null)[][], index: number): string {
+  return rows.map((row) => row[index] ?? "").join("\n");
 }
 
 /**
@@ -17,7 +17,7 @@ export function columnValues(rows: string[][], index: number): string {
  * back up. Values arrive already stringified by the bridge, so this is a shape
  * change, not a re-encode.
  */
-export function rowAsJSON(columns: string[], row: string[]): string {
+export function rowAsJSON(columns: string[], row: (string | null)[]): string {
   return JSON.stringify(
     Object.fromEntries(row.map((value, i) => [columns[i] || `col_${i}`, value])),
     null,

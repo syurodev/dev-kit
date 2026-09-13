@@ -85,9 +85,17 @@ func drainOne(t *testing.T, rows Rows) []string {
 	if !rows.Next() {
 		t.Fatalf("no row: %v", rows.Err())
 	}
-	values, err := rows.Values()
+	cells, err := rows.Values()
 	if err != nil {
 		t.Fatalf("Values: %v", err)
+	}
+	// NULL spelled out, so a want list can say which cells should be one.
+	values := make([]string, len(cells))
+	for i, cell := range cells {
+		values[i] = "NULL"
+		if cell != nil {
+			values[i] = *cell
+		}
 	}
 	for rows.Next() {
 	}

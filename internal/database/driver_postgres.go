@@ -445,24 +445,30 @@ func (r *postgresRows) Close() {
 
 // Values reads the text the server sent (see textResults) as it is. The raw
 // buffers are reused on the next row, so each is copied into its string.
-func (r *postgresRows) Values() ([]string, error) {
+func (r *postgresRows) Values() ([]*string, error) {
 	raw := r.rows.RawValues()
 	fields := r.rows.FieldDescriptions()
-	out := make([]string, len(raw))
+	out := make([]*string, len(raw))
 	for i, v := range raw {
+		var text string
 		switch {
 		case v == nil:
-			out[i] = stringify(nil)
+			continue
 		// The one type whose text form is terser than people read it: t/f. Both
 		// spellings parse back as a boolean literal.
 		case fields[i].DataTypeOID == pgtype.BoolOID:
-			out[i] = strconv.FormatBool(string(v) == "t")
+			text = strconv.FormatBool(string(v) == "t")
 		default:
-			out[i] = string(v)
+			text = string(v)
 		}
+		out[i] = &text
 	}
 	return out, nil
 }
+
+// RowsAffected is the command tag's count: rows changed for a write, rows read
+// for a SELECT.
+func (r *postgresRows) RowsAffected() int64 { return r.rows.CommandTag().RowsAffected() }
 
 func (c *postgresConn) ListForeignKeys(ctx context.Context, schema string) ([]ForeignKey, error) {
 	rows, err := c.pool.Query(ctx, `

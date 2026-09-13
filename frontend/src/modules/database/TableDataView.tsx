@@ -303,10 +303,11 @@ export function TableDataView({
           // live here, with the rest of the SQL this tab composes.
           onFilterByValue={({ column, value, negate }) => {
             const lhs = quoteIdentifier(column, engine);
-            // An empty cell is NULL, and NULL never equals anything — `= ''`
-            // would match the empty string instead and quietly return nothing.
+            // NULL never equals anything, so a NULL cell filters with IS NULL.
+            // An empty string is a value like any other (#47): it used to be
+            // taken for NULL, and a NULL arrived as the text "NULL".
             const clause =
-              value === ""
+              value === null
                 ? `${lhs} IS ${negate ? "NOT " : ""}NULL`
                 : `${lhs} ${negate ? "<>" : "="} ${quoteLiteral(value, engine)}`;
             const next = browse.where.trim() ? `${browse.where.trim()} AND ${clause}` : clause;
@@ -333,8 +334,7 @@ export function TableDataView({
               rows: rowIndices.map((rowIndex) => ({
                 values: pageKey.map((key) => {
                   const at = columns.indexOf(key);
-                  const cell = at === -1 ? "" : (browse.rows!.rows[rowIndex][at] ?? "");
-                  return cell === "" ? null : cell;
+                  return at === -1 ? null : (browse.rows!.rows[rowIndex][at] ?? null);
                 }),
               })),
               columns: columnIndices.map((index) => columns[index]),

@@ -60,9 +60,12 @@ export type UpdateProfileOptionsInput = {
 
 export type QueryResult = {
   columns: string[];
-  rows: string[][];
+  /** Each cell as text, null for SQL NULL (#47) — never the four letters. */
+  rows: (string | null)[][];
   rowCount: number;
   truncated: boolean;
+  /** What an UPDATE, INSERT or DELETE changed; -1 when the driver cannot say. */
+  rowsAffected?: number;
 };
 
 export type TableInfo = {
@@ -353,9 +356,10 @@ export function runQuery(id: string, sql: string, maxRows = 0): CancellableCall<
     () => AppService.DBQuery(id, sql, maxRows),
     (result) => ({
       columns: result.columns ?? [],
-      rows: (result.rows ?? []).map((r) => (r ?? []).map((c) => c ?? "")),
+      rows: (result.rows ?? []).map((r) => (r ?? []).map((c) => c ?? null)),
       rowCount: result.row_count,
       truncated: result.truncated,
+      rowsAffected: result.rows_affected,
     }),
   );
 }

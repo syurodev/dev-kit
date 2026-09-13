@@ -200,6 +200,7 @@ func (c *mysqlConn) Query(ctx context.Context, query string, args ...any) (Rows,
 		stop()
 		_ = pinned.Close()
 	}
+	countRows := func() int64 { return rowCount(ctx, pinned.QueryRowContext) }
 	rows, err := pinned.QueryContext(ctx, query, args...)
 	if err != nil {
 		release()
@@ -211,7 +212,18 @@ func (c *mysqlConn) Query(ctx context.Context, query string, args ...any) (Rows,
 		release()
 		return nil, err
 	}
-	return &mysqlRows{rows: rows, columns: columns, release: release}, nil
+	return &mysqlRows{rows: rows, columns: columns, release: release, countRows: countRows}, nil
+}
+
+// rowCount asks the session how many rows its last statement changed. MySQL
+// has no command tag, and database/sql's Rows keeps the OK packet's count to
+// itself, so it is asked for — on the same session, before it is let go.
+func rowCount(ctx context.Context, queryRow func(context.Context, string, ...any) *sql.Row) int64 {
+	var n int64
+	if err := queryRow(ctx, "SELECT ROW_COUNT()").Scan(&n); err != nil {
+		return -1
+	}
+	return n
 }
 
 func connectionID(ctx context.Context, conn *sql.Conn) (int64, error) {
@@ -279,7 +291,12 @@ func (t *mysqlTx) Query(ctx context.Context, query string, args ...any) (Rows, e
 		stop()
 		return nil, err
 	}
-	return &mysqlRows{rows: rows, columns: columns, release: func() { stop() }}, nil
+	return &mysqlRows{
+		rows:      rows,
+		columns:   columns,
+		release:   func() { stop() },
+		countRows: func() int64 { return rowCount(ctx, t.tx.QueryRowContext) },
+	}, nil
 }
 
 func (t *mysqlTx) Commit(ctx context.Context) error {
@@ -424,6 +441,10 @@ type mysqlRows struct {
 	// release runs once the rows are closed: the cancel watch is dropped, and
 	// an auto-commit statement's pinned connection goes back to the pool.
 	release func()
+	// countRows reads ROW_COUNT() on the statement's session; asked only for a
+	// statement that returned no columns, since a SELECT's answer is -1.
+	countRows func() int64
+	affected  int64
 }
 
 func (r *mysqlRows) Columns() []string { return r.columns }
@@ -431,14 +452,21 @@ func (r *mysqlRows) Next() bool        { return r.rows.Next() }
 func (r *mysqlRows) Err() error        { return r.rows.Err() }
 
 func (r *mysqlRows) Close() {
-	_ = r.rows.Close()
-	if r.release != nil {
-		r.release()
-		r.release = nil
+	if r.release == nil {
+		return
 	}
+	_ = r.rows.Close()
+	r.affected = -1
+	if len(r.columns) == 0 && r.countRows != nil {
+		r.affected = r.countRows()
+	}
+	r.release()
+	r.release = nil
 }
 
-func (r *mysqlRows) Values() ([]string, error) {
+func (r *mysqlRows) RowsAffected() int64 { return r.affected }
+
+func (r *mysqlRows) Values() ([]*string, error) {
 	raw := make([]any, len(r.columns))
 	pointers := make([]any, len(r.columns))
 	for i := range raw {
@@ -447,9 +475,13 @@ func (r *mysqlRows) Values() ([]string, error) {
 	if err := r.rows.Scan(pointers...); err != nil {
 		return nil, err
 	}
-	out := make([]string, len(raw))
+	out := make([]*string, len(raw))
 	for i, v := range raw {
-		out[i] = stringify(v)
+		if v == nil {
+			continue
+		}
+		text := stringify(v)
+		out[i] = &text
 	}
 	return out, nil
 }

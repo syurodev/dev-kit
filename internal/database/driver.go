@@ -79,9 +79,14 @@ type ColumnInfo struct {
 type Rows interface {
 	Columns() []string
 	Next() bool
-	Values() ([]string, error)
+	// Values is the row as text, nil for SQL NULL (#47). A NULL used to come
+	// back as the four letters, the same as a string that holds them.
+	Values() ([]*string, error)
 	Err() error
 	Close()
+	// RowsAffected is how many rows the statement changed, read once the rows
+	// are closed; -1 when the driver cannot say.
+	RowsAffected() int64
 }
 
 // Conn is the whole engine surface the service is allowed to use. Anything not

@@ -433,7 +433,7 @@ export type DatabaseStoreState = {
   setPageKey: (key: string, columns: string[] | null) => void;
 
   // Selected cell for CellInspector
-  inspectedCell: { columnName: string; value: string } | null;
+  inspectedCell: { columnName: string; value: string | null } | null;
 
   // Modals & Dialogs
   showNewConnectionDialog: boolean;
@@ -464,7 +464,7 @@ export type DatabaseStoreState = {
   fetchProfiles: () => Promise<void>;
   setSelectedProfileId: (id: string) => void;
   setSql: (consoleId: string, sql: string) => void;
-  setInspectedCell: (cell: { columnName: string; value: string } | null) => void;
+  setInspectedCell: (cell: { columnName: string; value: string | null } | null) => void;
   setShowNewConnectionDialog: (show: boolean) => void;
   setShowConnectionOptionsDialog: (show: boolean) => void;
   setShowExportModal: (show: boolean) => void;
@@ -1262,11 +1262,17 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     // imports the toaster puts it in every graph the store is in — and this
     // one is reachable from the eager manifest, so sonner became 32 KiB of the
     // shell's startup for a message only the table tab ever shows.
-    await runQuery(selectedProfileId, sql);
+    const result = await runQuery(selectedProfileId, sql);
     if (get().txManual) {
       void get().refreshTxState();
     }
     await get().loadBrowsePage(key, { schema, table });
+    // #47: an UPDATE that matched no row still said "Cell updated". The row
+    // changed or went away after the page loaded; the reload above shows what
+    // is there now, and this says why the edit is not in it.
+    if (result.rowsAffected === 0) {
+      throw new Error("No row was updated: it changed or was deleted after the page loaded.");
+    }
   },
 
   loadBrowsePage: async (key, { schema, table }) => {
@@ -1335,7 +1341,9 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
         const keyIndexes = pageKey.map((column) => result.columns.indexOf(column));
         if (!keyIndexes.includes(-1)) {
           const trail = [...get().browseState(key).cursors];
-          trail[get().browseState(key).pageIndex] = keyIndexes.map((i) => last[i]);
+          // A page key is NOT NULL by construction (pageKeyFor), so the ""
+          // is for the type, not a case that happens.
+          trail[get().browseState(key).pageIndex] = keyIndexes.map((i) => last[i] ?? "");
           patchBrowse(set, key, { cursors: trail });
         }
       }

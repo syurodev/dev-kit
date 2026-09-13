@@ -76,8 +76,8 @@ func TestResultIsCappedByWhatItHolds(t *testing.T) {
 		t.Fatalf("rows = %d, truncated = %v; want 64 whole rows", result.RowCount, result.Truncated)
 	}
 	for i, row := range result.Rows {
-		if len(row[0]) != 1048576 {
-			t.Fatalf("row %d holds %d bytes: a cell was cut", i, len(row[0]))
+		if len(*row[0]) != 1048576 {
+			t.Fatalf("row %d holds %d bytes: a cell was cut", i, len(*row[0]))
 		}
 	}
 }

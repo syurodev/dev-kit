@@ -21,7 +21,10 @@
 /** Enough rows to be sure without walking a 10,000-row result. */
 const SAMPLE = 200;
 
-export function numericColumns(rows: readonly (readonly string[])[], columnCount: number): boolean[] {
+export function numericColumns(
+  rows: readonly (readonly (string | null)[])[],
+  columnCount: number,
+): boolean[] {
   const numeric = new Array<boolean>(columnCount).fill(false);
   const seen = new Array<boolean>(columnCount).fill(false);
 
@@ -29,10 +32,9 @@ export function numericColumns(rows: readonly (readonly string[])[], columnCount
   for (let index = 0; index < columnCount; index += 1) {
     let allNumbers = true;
     for (let row = 0; row < limit && allNumbers; row += 1) {
-      const value = rows[row]?.[index] ?? "";
-      // Empty is NULL here — see the grid's own cell rendering. A column of
-      // numbers with holes in it is still a column of numbers.
-      if (value === "") continue;
+      const value = rows[row]?.[index];
+      // A column of numbers with NULLs in it is still a column of numbers.
+      if (value == null) continue;
       seen[index] = true;
       if (!isNumeric(value)) allNumbers = false;
     }

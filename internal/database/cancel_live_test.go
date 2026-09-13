@@ -118,8 +118,8 @@ func assertNoneRunning(t *testing.T, probe Conn, countSQL string) {
 				rows.Close()
 				t.Fatalf("probe values: %v", err)
 			}
-			if len(values) > 0 {
-				last = values[0]
+			if len(values) > 0 && values[0] != nil {
+				last = *values[0]
 			}
 		}
 		rows.Close()
