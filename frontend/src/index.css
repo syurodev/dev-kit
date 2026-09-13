@@ -1125,14 +1125,6 @@
      table (smoothness 4.4). It slides in from the row's own middle rather than
      appearing: scaleY is a compositor property, so this costs no layout, and a
      row that is merely hovered never pays for it. */
-  /* An opaque ground behind a pinned tree row.
-     The sidebar rail is deliberately material-less (--glass-rail-bg is
-     transparent, the native vibrancy carries it), so a `position: sticky` row
-     has nothing under it and the rows it is meant to stay above scroll
-     straight through. Painted on a pseudo-element at z-index -1 rather than as
-     the row's own background, so the selected and hover tints — which are
-     background-COLOURS, and one of them translucent — still paint over it
-     instead of fighting it for the same property. */
   /* A gutter on both edges, not just the trailing one.
      `scrollbar-gutter: stable` reserves its space on the scrolling edge only,
      so a rail's rows start flush against its left inset and stop 11px short of
@@ -1144,15 +1136,6 @@
      keeps the plain `stable` — its rows do not run to the card's edge. */
   .scrollbar-gutter-symmetric {
     scrollbar-gutter: stable both-edges;
-  }
-
-  .tree-row-sticky::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    z-index: -1;
-    border-radius: inherit;
-    background-color: var(--background-app);
   }
 
   .row-accent {

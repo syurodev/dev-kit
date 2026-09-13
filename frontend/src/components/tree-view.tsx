@@ -158,21 +158,7 @@ function TreeRow({ node, level, index }: { node: TreeNodeData; level: number; in
       aria-expanded={node.expandable ? open : undefined}
       aria-selected={node.selected || undefined}
       title={node.title}
-      // The rail has no material of its own, so a pinned row would be
-      // transparent and the tables would scroll through it. tree-row-sticky
-      // paints an opaque ground BEHIND the row's own background, which leaves
-      // the selected and hover tints to paint over it as usual.
-      style={
-        node.sticky === undefined
-          ? ({ paddingLeft: indent(level), "--i": index } as CSSProperties)
-          : ({
-              paddingLeft: indent(level),
-              "--i": index,
-              position: "sticky",
-              top: node.sticky,
-              zIndex: 2,
-            } as CSSProperties)
-      }
+      style={{ paddingLeft: indent(level), "--i": index } as CSSProperties}
       className={cn(
         // The tree tier (--control-height-xs): depth costs vertical room here,
         // so a row is denser than the flat lists in other rails.
@@ -192,7 +178,6 @@ function TreeRow({ node, level, index }: { node: TreeNodeData; level: number; in
           // where dark lifts, ink alpha where light recesses — and lands at
           // 1.08–1.18 in every palette either way.
           : "border-transparent text-text-secondary hover:bg-state-soft hover:text-text-primary",
-        node.sticky !== undefined && "tree-row-sticky",
       )}
     >
       {/* One button for the whole row, chevron included: a separate chevron
@@ -227,9 +212,28 @@ function TreeRow({ node, level, index }: { node: TreeNodeData; level: number; in
     </div>
   );
 
+  const wrapped = node.wrap ? node.wrap(row) : row;
+
   return (
     <>
-      {node.wrap ? node.wrap(row) : row}
+      {node.sticky === undefined ? (
+        wrapped
+      ) : (
+        /*
+         * A pinned row sits on a square, opaque ground of its own.
+         *
+         * The rail has no material, so a bare sticky row lets the tables
+         * scroll through it. The ground used to be the row's ::after, and it
+         * leaked three ways: it inherited the row's radius (text in the
+         * corners), stopped at the padding box (a 1px ring through the
+         * transparent border), and at z-index -1 inside the row's stacking
+         * context it painted OVER the selected tint. A wrapper is square,
+         * covers the border box, and paints under everything the row draws.
+         */
+        <div className="bg-(--background-app)" style={{ position: "sticky", top: node.sticky, zIndex: 2 }}>
+          {wrapped}
+        </div>
+      )}
       {branchMounted && (
         // Stays mounted through the collapse (see useLingering); inert so a
         // closing branch cannot keep focus or be tabbed into meanwhile.

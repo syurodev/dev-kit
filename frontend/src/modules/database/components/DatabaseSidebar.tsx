@@ -754,8 +754,11 @@ export function DatabaseSidebar() {
 
       {/* pt-1 against SidebarHeader's pb-1: 8px under the search field, the
           same 8 the other two panes leave under the strip. The first row
-          carries a selected border, and 4px put it against the box. */}
-      <div className="min-h-0 flex-1 overflow-y-auto scrollbar-gutter-symmetric pt-1 pb-2">
+          carries a selected border, and 4px put it against the box.
+          On the tree, not on this scroller: a scroller's padding moves where
+          `sticky; top: 0` sticks, and tables scrolled through the 4px above
+          the pinned connection. */}
+      <div className="min-h-0 flex-1 overflow-y-auto scrollbar-gutter-symmetric pb-2">
         {profiles.length === 0 && !loadingProfiles ? (
           <Empty className="px-4 py-6">
             <EmptyTitle className="text-body-12 text-text-tertiary">
@@ -776,7 +779,7 @@ export function DatabaseSidebar() {
             <EmptyDescription>Nothing matches “{needle}”.</EmptyDescription>
           </Empty>
         ) : (
-          <TreeView nodes={tree} />
+          <TreeView nodes={tree} className="pt-1" />
         )}
       </div>
         </TabsContent>
