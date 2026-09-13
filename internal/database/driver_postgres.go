@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -361,11 +363,17 @@ func (r *postgresRows) Close()            { r.rows.Close() }
 // buffers are reused on the next row, so each is copied into its string.
 func (r *postgresRows) Values() ([]string, error) {
 	raw := r.rows.RawValues()
+	fields := r.rows.FieldDescriptions()
 	out := make([]string, len(raw))
 	for i, v := range raw {
-		if v == nil {
+		switch {
+		case v == nil:
 			out[i] = stringify(nil)
-		} else {
+		// The one type whose text form is terser than people read it: t/f. Both
+		// spellings parse back as a boolean literal.
+		case fields[i].DataTypeOID == pgtype.BoolOID:
+			out[i] = strconv.FormatBool(string(v) == "t")
+		default:
 			out[i] = string(v)
 		}
 	}

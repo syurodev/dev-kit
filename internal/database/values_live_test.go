@@ -32,7 +32,8 @@ func TestPostgresValuesAreTheServersText(t *testing.T) {
 		"2024-01-02 03:04:05.123456",
 		"2024-01-02",
 		"1 day 02:00:00",
-		"t",
+		"true",
+		"false",
 		"{1,2}",
 		`\x78`,
 		"NULL",
@@ -46,6 +47,7 @@ func TestPostgresValuesAreTheServersText(t *testing.T) {
 		'2024-01-02'::date,
 		'1 day 2 hours'::interval,
 		true,
+		false,
 		ARRAY[1, 2],
 		'x'::bytea,
 		NULL`)
