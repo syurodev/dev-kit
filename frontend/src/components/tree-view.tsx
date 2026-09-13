@@ -3,6 +3,7 @@ import { flushSync } from "react-dom";
 import { ChevronRight } from "lucide-react";
 import { observeElementRect, useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "@/lib/utils";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 /**
  * One row of the tree.
@@ -98,10 +99,14 @@ const SCROLLBAR_STRIP = 10;
  */
 const GUIDE = "1px solid color-mix(in srgb, var(--text-tertiary) 35%, var(--background-app))";
 /**
- * Elbow corner radius. CSS caps a corner at its box, and the narrowest elbow —
- * into a chevron, INDENT − 8 — is exactly this wide.
+ * Elbow corner radius, well under the elbow's size so the corner has a straight
+ * run on both sides of it. At 8 in an 8px-wide elbow the whole thing was one arc
+ * and read as a diagonal slash rather than a rounded corner.
  */
-const ELBOW_RADIUS = 8;
+const ELBOW_RADIUS = 6;
+/** How long a pointer rests on a row before its tooltip opens. Longer than a
+ *  button's: moving down a list should not light a tooltip on every row. */
+const TOOLTIP_DELAY = 600;
 
 /** Where a row at `level` starts its chevron. */
 const contentX = (level: number) => INSET + level * INDENT;
@@ -229,7 +234,9 @@ function Guides({ row }: { row: FlatRow }) {
             position: "absolute",
             left: lineX(depth),
             top: 0,
-            width: contentX(level) - lineX(depth) - 2 + (reachesIcon ? CHEVRON + 2 : 0),
+            // To the chevron slot's edge: the glyph sits inset in its slot, so
+            // this still clears the arrow, and the extra 2px is the straight run.
+            width: contentX(level) - lineX(depth) + (reachesIcon ? CHEVRON : 0),
             height: half,
             borderLeft: GUIDE,
             borderBottom: GUIDE,
@@ -252,6 +259,25 @@ function Guides({ row }: { row: FlatRow }) {
 }
 
 /**
+ * The app's tooltip on a row's main button, not the browser's `title`: the
+ * native one is a different font, a different surface and a second-long delay
+ * nobody chose. On the button rather than the row, so a row's own actions —
+ * which carry their own tooltips — never open two at once. To the right, clear
+ * of the rows it would otherwise cover.
+ */
+function RowTooltip({ title, children }: { title?: string; children: ReactNode }) {
+  if (!title) return <>{children}</>;
+  return (
+    <Tooltip delayDuration={TOOLTIP_DELAY}>
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipContent side="right" align="start">
+        {title}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+/**
  * Memoised on the row, which flattenTree keeps stable for as long as the nodes
  * are: a scroll that brings a row into the window mounts it, and every row
  * already there renders nothing.
@@ -267,7 +293,6 @@ const Row = memo(function Row({ row, copy = false }: { row: FlatRow; copy?: bool
       aria-level={copy ? undefined : level + 1}
       aria-expanded={!copy && node.expandable ? open : undefined}
       aria-selected={(!copy && node.selected) || undefined}
-      title={node.title}
       data-level={level}
       className="group/row relative"
       style={{ height: TREE_ROW_HEIGHT }}
@@ -294,6 +319,7 @@ const Row = memo(function Row({ row, copy = false }: { row: FlatRow; copy?: bool
         {/* One button for the whole row, chevron included: a separate chevron
             target would be a button inside a button. Clicking a row both
             selects it and opens it, which is what a single-click tree does. */}
+        <RowTooltip title={node.title}>
         <button
           type="button"
           tabIndex={copy ? -1 : undefined}
@@ -322,6 +348,7 @@ const Row = memo(function Row({ row, copy = false }: { row: FlatRow; copy?: bool
             </span>
           ) : null}
         </button>
+        </RowTooltip>
         {hasCount || hasActions ? (
           <span className="relative flex shrink-0 items-center justify-end">
             {hasCount ? (
