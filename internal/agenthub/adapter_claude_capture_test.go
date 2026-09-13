@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"sync"
@@ -45,26 +44,21 @@ func capturePrompt() string {
 //
 //	DEVKIT_CLAUDE_CAPTURE=1 go test ./internal/agenthub/ -run TestClaudeACPCapture -v -timeout 15m
 //
-// DEVKIT_CLAUDE_ACP_BIN may point at an absolute claude-code-acp binary;
-// otherwise npx is used. DEVKIT_CLAUDE_CAPTURE_OUT overrides the output path.
+// DEVKIT_CLAUDE_ACP_BIN must point at an absolute claude-agent-acp binary.
+// DEVKIT_CLAUDE_CAPTURE_OUT overrides the output path.
 func TestClaudeACPCapture(t *testing.T) {
 	if os.Getenv("DEVKIT_CLAUDE_CAPTURE") != "1" {
 		t.Skip("set DEVKIT_CLAUDE_CAPTURE=1 to record a live Claude session")
 	}
 
-	opts := agenthub.ClaudeOptions{}
-	if bin := os.Getenv("DEVKIT_CLAUDE_ACP_BIN"); bin != "" {
-		if !filepath.IsAbs(bin) {
-			t.Fatalf("DEVKIT_CLAUDE_ACP_BIN must be absolute, got %q", bin)
-		}
-		opts.Command = bin
-	} else {
-		if _, err := exec.LookPath("npx"); err != nil {
-			t.Skip("npx not on PATH and DEVKIT_CLAUDE_ACP_BIN unset")
-		}
-		opts.AllowNpx = true
-		opts.Command = "npx"
+	bin := os.Getenv("DEVKIT_CLAUDE_ACP_BIN")
+	if bin == "" {
+		t.Skip("DEVKIT_CLAUDE_ACP_BIN unset; point it at an absolute claude-agent-acp")
 	}
+	if !filepath.IsAbs(bin) {
+		t.Fatalf("DEVKIT_CLAUDE_ACP_BIN must be absolute, got %q", bin)
+	}
+	opts := agenthub.ClaudeOptions{Command: bin}
 
 	// A project with something to read, edit and run. The prompt below asks for
 	// all three because each is a different tool-call kind, and `diff` /

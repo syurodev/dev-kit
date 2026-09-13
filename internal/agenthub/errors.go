@@ -19,4 +19,7 @@ var (
 	ErrInvalidCwd              = errors.New("agenthub.invalidCwd")
 	ErrCallerMismatch          = errors.New("agenthub.callerMismatch")
 	ErrProxyNotFound           = errors.New("agenthub.proxyNotFound")
+	// ErrAgentNotInstalled is an adapter with no runtime DevKit installed and
+	// no DEVKIT_CLAUDE_ACP_COMMAND override. Never a reason to try PATH or npx.
+	ErrAgentNotInstalled = errors.New("agenthub.notInstalled")
 )

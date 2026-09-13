@@ -175,29 +175,23 @@ func repoRoot(t *testing.T) string {
 	}
 }
 
-// claudeIntegrationOptions resolves the agent the same way main.go does:
-// an installed claude-agent-acp first, npx only as a last resort.
+// claudeIntegrationOptions takes the agent from DEVKIT_CLAUDE_ACP_BIN and
+// nowhere else — the same rule main.go applies to DEVKIT_CLAUDE_ACP_COMMAND.
 //
-// The old default here was npx, which cannot work — main.go has the
-// measurement: "npx needs a writable ~/.npm and the whole npm lib tree,
-// neither of which exists inside the jail (npx dies on EPERM before it
-// downloads anything)". So running this suite with DEVKIT_CLAUDE_ACP=1 and no
-// DEVKIT_CLAUDE_ACP_BIN failed on a handshake that never had a chance, which
-// reads as a broken adapter rather than a missing binary.
+// PATH and npx are gone from the app, so a test that still looked there would
+// be measuring a launch path no user has. npx never worked inside the jail
+// anyway (it needs a writable ~/.npm; measured EPERM before any download).
 func claudeIntegrationOptions(t *testing.T) agenthub.ClaudeOptions {
 	t.Helper()
-	if bin := os.Getenv("DEVKIT_CLAUDE_ACP_BIN"); bin != "" {
-		if !filepath.IsAbs(bin) {
-			t.Fatalf("DEVKIT_CLAUDE_ACP_BIN must be absolute, got %q", bin)
-		}
-		return agenthub.ClaudeOptions{Command: bin}
+	bin := os.Getenv("DEVKIT_CLAUDE_ACP_BIN")
+	if bin == "" {
+		skipOrFail(t, "DEVKIT_CLAUDE_ACP_BIN unset; point it at an absolute claude-agent-acp")
+		return agenthub.ClaudeOptions{}
 	}
-	if abs, err := exec.LookPath("claude-agent-acp"); err == nil {
-		return agenthub.ClaudeOptions{Command: abs}
+	if !filepath.IsAbs(bin) {
+		t.Fatalf("DEVKIT_CLAUDE_ACP_BIN must be absolute, got %q", bin)
 	}
-	skipOrFail(t, "claude-agent-acp not on PATH and DEVKIT_CLAUDE_ACP_BIN unset; "+
-		"install it with: npm i -g @agentclientprotocol/claude-agent-acp")
-	return agenthub.ClaudeOptions{}
+	return agenthub.ClaudeOptions{Command: bin}
 }
 
 // skipOrFail skips locally and fails under DEVKIT_CLAUDE_ACP_REQUIRED=1.

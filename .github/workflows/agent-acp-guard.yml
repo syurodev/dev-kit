@@ -69,7 +69,11 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y bubblewrap
 
       - name: Install claude-agent-acp
-        run: npm i -g @agentclientprotocol/claude-agent-acp
+        # The tests no longer look on PATH; DEVKIT_CLAUDE_ACP_BIN is the only
+        # way they find the agent.
+        run: |
+          npm i -g @agentclientprotocol/claude-agent-acp
+          echo "DEVKIT_CLAUDE_ACP_BIN=$(npm prefix -g)/bin/claude-agent-acp" >> "$GITHUB_ENV"
 
       - name: Record the version under test
         # Printed unconditionally: when this job goes red, the first question is

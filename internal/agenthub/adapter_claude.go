@@ -7,13 +7,14 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"os/user"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"devkit/internal/acp"
+	"devkit/internal/agentruntime"
 	"devkit/internal/sandbox"
 )
 
@@ -31,14 +32,17 @@ const handshakeTimeout = 60 * time.Second
 
 // ClaudeOptions configures the Claude ACP vendor adapter.
 type ClaudeOptions struct {
-	// Command is the agent binary. Prefer an absolute path resolved before the jail.
-	// Non-absolute commands are rejected unless AllowNpx is set.
+	// Command is an absolute agent binary that overrides the managed runtime —
+	// DEVKIT_CLAUDE_ACP_COMMAND, for development and CI. Non-absolute commands
+	// are rejected.
 	Command string
 	// Args are appended after Command (without the binary path).
 	Args []string
-	// AllowNpx enables the npx -y @agentclientprotocol/claude-agent-acp fallback.
-	// Requires resolving npx to an absolute path; still sandboxed via StartPiped.
-	AllowNpx bool
+	// Runtime resolves the adapter DevKit installed (agentruntime.Manager).
+	// Called on every Open and Load rather than once at startup, so an
+	// install, update or rollback applies to the next session without a
+	// restart. Nil with no Command means the agent is not installed.
+	Runtime func() (agentruntime.Resolved, error)
 	// Runner overrides sandbox.DefaultRunner(); nil uses the platform default.
 	Runner SandboxRunner
 	// OnUnknownMethod reports an agent→client ACP method this build does not
@@ -98,59 +102,87 @@ func (a *ClaudeAdapter) buildSandbox(spec OpenSpec) (sandbox.Policy, sandbox.Cmd
 		return sandbox.Policy{}, sandbox.Cmd{}, fmt.Errorf("%w: project path", ErrProcessFailed)
 	}
 
-	path, args, roPaths, err := a.resolveCommand()
+	l, err := a.resolveCommand()
 	if err != nil {
 		return sandbox.Policy{}, sandbox.Cmd{}, err
 	}
-	roPaths = uniqueAbsPaths(append(roPaths, spec.ReadOnlyPaths...)...)
+	pol, cmd := sandboxFor(workDir, l, spec)
+	return pol, cmd, nil
+}
 
+// launch is a resolved agent command and what the jail needs for it to run.
+type launch struct {
+	path string
+	args []string
+	ro   []string
+	// env is merged over claudeEnvAllowlist; a key here wins.
+	env map[string]string
+}
+
+// sandboxFor is the one place the Claude jail policy is written, shared by
+// Open, Load and Probe so an install is verified under the policy its sessions
+// will actually get.
+func sandboxFor(workDir string, l launch, spec OpenSpec) (sandbox.Policy, sandbox.Cmd) {
 	env := claudeEnvAllowlist()
+	for key, value := range l.env {
+		env[key] = value
+	}
 	pol := sandbox.Policy{
 		WorkDir:        workDir,
 		Network:        sandbox.NetworkHost,
 		Env:            env,
-		ReadOnlyPaths:  roPaths,
+		ReadOnlyPaths:  uniqueAbsPaths(append(append([]string(nil), l.ro...), spec.ReadOnlyPaths...)...),
 		ReadWritePaths: claudeCredentialPaths(env["HOME"]),
 		// Subscription login keeps the OAuth token in the macOS keychain
 		// (service "Claude Code-credentials-*"), not in ~/.claude.json.
 		AllowKeychain:    true,
 		AllowUnixSockets: append([]string(nil), spec.AllowUnixSockets...),
 	}
-	cmd := sandbox.Cmd{
-		Path: path,
-		Args: args,
-	}
-	return pol, cmd, nil
+	return pol, sandbox.Cmd{Path: l.path, Args: l.args}
 }
 
-func (a *ClaudeAdapter) resolveCommand() (path string, args []string, ro []string, err error) {
-	cmd := a.opts.Command
-	args = append([]string(nil), a.opts.Args...)
-
-	if a.opts.AllowNpx {
-		if cmd == "" || cmd == "npx" || !filepath.IsAbs(cmd) && filepath.Base(cmd) == "npx" {
-			npx, lookErr := exec.LookPath("npx")
-			if lookErr != nil {
-				return "", nil, nil, fmt.Errorf("%w: npx not found for AllowNpx", ErrProcessFailed)
-			}
-			path = npx
-			if len(args) == 0 {
-				args = []string{"-y", "@agentclientprotocol/claude-agent-acp"}
-			}
-			ro = uniqueAbsPaths(append([]string{path}, nodeModulesRoot(path)...)...)
-			return path, args, ro, nil
+// resolveCommand picks what to run: the Command override, else the installed
+// runtime, else ErrAgentNotInstalled.
+//
+// There is no PATH lookup and no npx any more. npx cannot work inside the
+// jail — it needs a writable ~/.npm and the whole npm lib tree (measured: it
+// died on EPERM before downloading anything) — and a global install was
+// whatever version the machine happened to carry, invisible anyway to an app
+// opened from the Dock.
+func (a *ClaudeAdapter) resolveCommand() (launch, error) {
+	if cmd := a.opts.Command; cmd != "" {
+		if !filepath.IsAbs(cmd) {
+			return launch{}, fmt.Errorf("%w: command must be absolute", ErrProcessFailed)
 		}
+		path := filepath.Clean(cmd)
+		return launch{
+			path: path,
+			args: append([]string(nil), a.opts.Args...),
+			ro:   uniqueAbsPaths(append([]string{path}, nodeModulesRoot(path)...)...),
+		}, nil
 	}
+	if a.opts.Runtime == nil {
+		return launch{}, ErrAgentNotInstalled
+	}
+	rt, err := a.opts.Runtime()
+	if errors.Is(err, agentruntime.ErrNotInstalled) {
+		return launch{}, fmt.Errorf("%w: %w", ErrAgentNotInstalled, err)
+	}
+	if err != nil {
+		// Both sentinels stay reachable: the bridge names a missing Node
+		// before it falls back to "agent process failed".
+		return launch{}, fmt.Errorf("%w: %w", ErrProcessFailed, err)
+	}
+	return runtimeLaunch(rt), nil
+}
 
-	if cmd == "" {
-		return "", nil, nil, fmt.Errorf("%w: ClaudeOptions.Command required (absolute binary)", ErrProcessFailed)
+func runtimeLaunch(rt agentruntime.Resolved) launch {
+	return launch{
+		path: rt.Command,
+		args: append([]string(nil), rt.Args...),
+		ro:   uniqueAbsPaths(append([]string{rt.Command}, rt.ReadOnlyPaths...)...),
+		env:  rt.Env,
 	}
-	if !filepath.IsAbs(cmd) {
-		return "", nil, nil, fmt.Errorf("%w: command must be absolute (or enable AllowNpx)", ErrProcessFailed)
-	}
-	path = filepath.Clean(cmd)
-	ro = uniqueAbsPaths(append([]string{path}, nodeModulesRoot(path)...)...)
-	return path, args, ro, nil
 }
 
 // nodeModulesRoot returns the node_modules tree the command lives in, if any.
@@ -198,7 +230,8 @@ func uniqueAbsPaths(paths ...string) []string {
 
 // claudeEnvAllowlist copies API key vars (and a minimal PATH) from the host
 // env into the jail. bwrap uses --clearenv, so without PATH absolute Command
-// still works but AllowNpx / relative lookups fail. Values must never be logged.
+// still works but a #!/usr/bin/env node shebang does not; a managed runtime
+// replaces PATH with node's directory first. Values must never be logged.
 func claudeEnvAllowlist() map[string]string {
 	env := make(map[string]string)
 	for _, key := range []string{"ANTHROPIC_API_KEY", "CLAUDE_API_KEY"} {
@@ -571,6 +604,116 @@ func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, resume string) 
 	}
 	rt.acpSessionID = newRes.SessionID
 	return rt, nil
+}
+
+// probeTimeout bounds Probe's initialize. Shorter than handshakeTimeout:
+// nothing downloads here, the adapter only has to start and answer.
+const probeTimeout = 20 * time.Second
+
+// Probe starts an installed runtime under the jail a real session gets, sends
+// ACP initialize and stops it. It is agentruntime.Manager.Verify: the proof
+// that node, the entry and the read grants are enough, before a version is
+// activated. A static look at the files cannot say that — a missing grant
+// looks exactly like a present file until the jail refuses to open it.
+//
+// No session is created, so neither credentials nor a model are exercised.
+func (a *ClaudeAdapter) Probe(ctx context.Context, rt agentruntime.Resolved) error {
+	workDir, err := os.MkdirTemp("", "devkit-agent-probe-")
+	if err != nil {
+		return fmt.Errorf("%w: probe directory: %v", ErrProcessFailed, err)
+	}
+	defer os.RemoveAll(workDir)
+	if resolved, err := filepath.EvalSymlinks(workDir); err == nil {
+		workDir = resolved
+	}
+
+	pol, cmd := sandboxFor(workDir, runtimeLaunch(rt), OpenSpec{})
+	proc, err := a.runner().StartPiped(ctx, pol, cmd)
+	if err != nil {
+		return mapSandboxErr(err)
+	}
+	stdin, stdout := proc.StdinWriter(), proc.StdoutReader()
+	if stdin == nil || stdout == nil {
+		_ = proc.Kill()
+		return fmt.Errorf("%w: StartPiped missing stdio pipes", ErrProcessFailed)
+	}
+
+	conn := acp.NewConn(&stdioPipe{r: stdout, w: stdin}, &claudeConnHandler{rt: &claudeRuntime{}})
+	serveCtx, cancelServe := context.WithCancel(context.Background())
+	serveDone := make(chan struct{})
+	go func() {
+		defer close(serveDone)
+		_ = conn.Serve(serveCtx)
+	}()
+	defer func() {
+		cancelServe()
+		_ = conn.Close()
+		_ = proc.Kill()
+		<-serveDone
+	}()
+
+	// Same shape as open's handshake: the process exiting ends the wait at
+	// once, the timeout is only for one that runs and never answers.
+	callCtx, cancelCall := context.WithTimeout(ctx, probeTimeout)
+	defer cancelCall()
+	go func() {
+		select {
+		case <-serveDone:
+			cancelCall()
+		case <-callCtx.Done():
+		}
+	}()
+
+	var res acp.InitializeResult
+	err = conn.Call(callCtx, "initialize", acp.InitializeRequest{
+		ProtocolVersion:    1,
+		ClientCapabilities: devkitClientCapabilities(),
+		ClientInfo:         map[string]any{"name": "devkit", "version": "0.0.0"},
+	}, &res)
+	if err == nil {
+		return nil
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	select {
+	case <-serveDone:
+		return fmt.Errorf("%w: the agent exited before answering initialize%s", ErrProcessFailed, stderrReason(proc))
+	default:
+		return fmt.Errorf("%w: initialize: %v", ErrProcessFailed, err)
+	}
+}
+
+// stderrReason is the line of a dead agent's stderr that says why, or "".
+// Node ends an uncaught exception with a "Node.js v24…" banner, so the last
+// line naming an error is wanted, not the last line.
+func stderrReason(proc *sandbox.Proc) string {
+	_ = proc.Kill()
+	waited := make(chan struct{})
+	go func() {
+		_ = proc.Wait()
+		close(waited)
+	}()
+	select {
+	case <-waited:
+	case <-time.After(2 * time.Second):
+		return "" // the buffer is still being written; reading it would race
+	}
+	_, stderr := proc.Output()
+	var reason string
+	for _, line := range strings.Split(string(stderr), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.Contains(line, "Error") || strings.Contains(line, "error") {
+			reason = line
+		}
+	}
+	if reason == "" {
+		return ""
+	}
+	if len(reason) > 200 {
+		reason = reason[:200]
+	}
+	return ": " + reason
 }
 
 type claudeMetaRoot struct {

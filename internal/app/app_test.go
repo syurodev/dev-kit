@@ -57,6 +57,8 @@ func TestNewContainerGrantsAgentHubScopes(t *testing.T) {
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "session:new"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "session:abc"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "permission:complete"},
+		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "runtime:claude-acp"},
+		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "runtime:claude-acp"},
 	} {
 		decision := container.Permissions.Check(permissions.Request{
 			SubjectID: grant.SubjectID, Capability: grant.Capability, Scope: grant.Scope,

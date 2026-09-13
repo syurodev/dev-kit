@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"devkit/internal/agenthub"
+	"devkit/internal/agentruntime"
 	"devkit/internal/audit"
 	"devkit/internal/auth"
 	"devkit/internal/capabilities"
@@ -100,6 +101,9 @@ type Container struct {
 	// AgentHubPermissions completes UI permission prompts for AgentHub.
 	// Nil when AgentHub is unset.
 	AgentHubPermissions *agenthub.PermissionWaiter
+	// AgentRuntimes installs and resolves the ACP adapters Agent Hub runs.
+	// Nil in ephemeral tests; main roots it at <dataDir>/runtimes.
+	AgentRuntimes *agentruntime.Manager
 
 	// auth and syncBlocked are mutable after startup: the cloudconfig refresh
 	// goroutine rewrites them while bridge call handlers read them, so every
@@ -225,6 +229,10 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "session:new"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "session:*"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "permission:complete"},
+		// Agent runtimes: reading status and the registry, and installing,
+		// switching or removing an adapter version. Scoped per agent id.
+		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "runtime:*"},
+		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "runtime:*"},
 		{SubjectID: "builtin.vault", Capability: "vault:manage", Scope: "vault"},
 		{SubjectID: "builtin.search", Capability: "vault:search", Scope: "item:search"},
 		{SubjectID: "builtin.sync", Capability: "sync:manage", Scope: "sync:status"},

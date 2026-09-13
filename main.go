@@ -7,13 +7,13 @@ import (
 	"encoding/json"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sync"
 	"time"
 
 	"devkit/internal/agenthub"
+	"devkit/internal/agentruntime"
 	"devkit/internal/app"
 	"devkit/internal/appmenu"
 	"devkit/internal/audit"
@@ -242,9 +242,6 @@ func main() {
 	// so agenthub never imports internal/storage (migrations stay in storage).
 	agentReg := agenthub.NewRegistry()
 	agentReg.Register(agenthub.NewMockAdapter())
-	// Prefer an installed claude-agent-acp over `npx -y`: npx needs a writable
-	// ~/.npm and the whole npm lib tree, neither of which exists inside the
-	// jail (measured — npx dies on EPERM before it downloads anything).
 	// See ClaudeOptions.OnUnknownMethod: this is the measurement that decides
 	// whether fs/* and terminal/* are worth implementing. NFR-1 says the
 	// Capability Gateway mediates the agent's file access there; today it
@@ -254,15 +251,41 @@ func main() {
 		log.Printf("agenthub: agent called unimplemented ACP method %q (refused): %s",
 			method, truncateForLog(params, 300))
 	}
-	claudeOpts := agenthub.ClaudeOptions{AllowNpx: true, OnUnknownMethod: reportUnknownMethod}
-	if acp, lookErr := exec.LookPath("claude-agent-acp"); lookErr == nil {
-		if abs, absErr := filepath.Abs(acp); absErr == nil {
-			claudeOpts = agenthub.ClaudeOptions{Command: abs, OnUnknownMethod: reportUnknownMethod}
-		}
-	} else {
-		log.Printf("agenthub: claude-agent-acp not on PATH, falling back to npx (likely to fail inside the sandbox); install it with: npm i -g @agentclientprotocol/claude-agent-acp")
+	// The Claude adapter is DevKit's to install (Settings → Agents), pinned and
+	// run with an absolute node and entry the jail is told about. It is
+	// resolved per session, not here, so an install needs no restart. PATH and
+	// npx are never consulted: an app opened from the Dock cannot see an nvm
+	// install, and npx dies on EPERM inside the jail.
+	runtimes := agentruntime.New(filepath.Join(dataDir, "runtimes"))
+	runtimes.OnOutput = func(agent, line string) {
+		emitAppEvent("agenthub:runtimeInstallOutput", map[string]any{
+			"agent": agent,
+			"line":  line,
+		})
 	}
-	agentReg.Register(agenthub.NewClaudeAdapter(claudeOpts))
+	// Before any session can start on a version it would delete.
+	if err := runtimes.GCOnStartup(); err != nil {
+		log.Printf("agenthub: runtime cleanup: %v", err)
+	}
+	claudeOpts := agenthub.ClaudeOptions{
+		OnUnknownMethod: reportUnknownMethod,
+		Runtime: func() (agentruntime.Resolved, error) {
+			return runtimes.Resolve(agentruntime.ClaudeACP)
+		},
+	}
+	// Development and CI only: an absolute adapter that bypasses the
+	// managed runtime entirely.
+	if override := os.Getenv("DEVKIT_CLAUDE_ACP_COMMAND"); override != "" {
+		if filepath.IsAbs(override) {
+			claudeOpts.Command = override
+		} else {
+			log.Printf("agenthub: DEVKIT_CLAUDE_ACP_COMMAND must be absolute, ignoring %q", override)
+		}
+	}
+	claudeAdapter := agenthub.NewClaudeAdapter(claudeOpts)
+	runtimes.Verify = claudeAdapter.Probe
+	agentReg.Register(claudeAdapter)
+	container.AgentRuntimes = runtimes
 	agentWaiter := agenthub.NewPermissionWaiter(func(p agenthub.PendingPermission) {
 		payload := map[string]any{
 			"id":        p.ID,

@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"devkit/internal/agentruntime"
 	"devkit/internal/sandbox"
 )
 
@@ -101,13 +102,98 @@ func TestClaudeNormalizeUsage(t *testing.T) {
 	}
 }
 
-func TestClaudeRequiresAbsoluteOrAllowNpx(t *testing.T) {
-	a := NewClaudeAdapter(ClaudeOptions{
-		Command: "npx", // relative; AllowNpx false
-	})
+func TestClaudeRequiresAbsoluteCommand(t *testing.T) {
+	a := NewClaudeAdapter(ClaudeOptions{Command: "npx"})
+	if _, _, err := a.buildSandbox(OpenSpec{Cwd: t.TempDir()}); !errors.Is(err, ErrProcessFailed) {
+		t.Fatalf("relative command: %v", err)
+	}
+}
+
+// With neither an override nor a runtime there is nothing to run, and the
+// answer is "not installed" — never a PATH lookup or npx.
+func TestClaudeWithNothingToRunIsNotInstalled(t *testing.T) {
+	_, _, err := NewClaudeAdapter(ClaudeOptions{}).buildSandbox(OpenSpec{Cwd: t.TempDir()})
+	if !errors.Is(err, ErrAgentNotInstalled) {
+		t.Fatalf("err = %v, want ErrAgentNotInstalled", err)
+	}
+}
+
+func TestClaudeRuntimeNotInstalled(t *testing.T) {
+	a := NewClaudeAdapter(ClaudeOptions{Runtime: func() (agentruntime.Resolved, error) {
+		return agentruntime.Resolved{}, agentruntime.ErrNotInstalled
+	}})
 	_, _, err := a.buildSandbox(OpenSpec{Cwd: t.TempDir()})
-	if err == nil {
-		t.Fatal("expected error for non-absolute command without AllowNpx")
+	if !errors.Is(err, ErrAgentNotInstalled) || !errors.Is(err, agentruntime.ErrNotInstalled) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestClaudeRuntimeRequirementKeepsItsSentinel(t *testing.T) {
+	a := NewClaudeAdapter(ClaudeOptions{Runtime: func() (agentruntime.Resolved, error) {
+		return agentruntime.Resolved{}, agentruntime.ErrRequirementNotMet
+	}})
+	_, _, err := a.buildSandbox(OpenSpec{Cwd: t.TempDir()})
+	if !errors.Is(err, agentruntime.ErrRequirementNotMet) || errors.Is(err, ErrAgentNotInstalled) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestClaudeRuntimeResolvedLaunch(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "sk-test-not-logged")
+	versionDir, nodePrefix, proxy := t.TempDir(), t.TempDir(), filepath.Join(t.TempDir(), "devkit-mcp")
+	node := filepath.Join(nodePrefix, "bin", "node")
+	entry := filepath.Join(versionDir, "node_modules", "x", "dist", "index.js")
+	a := NewClaudeAdapter(ClaudeOptions{Runtime: func() (agentruntime.Resolved, error) {
+		return agentruntime.Resolved{
+			Command:       node,
+			Args:          []string{entry},
+			ReadOnlyPaths: []string{versionDir, nodePrefix},
+			Env: map[string]string{
+				"PATH":                   filepath.Dir(node) + string(os.PathListSeparator) + "/usr/bin",
+				"CLAUDE_CODE_EXECUTABLE": "/machine/claude",
+			},
+			Version: "0.74.0",
+		}, nil
+	}})
+
+	pol, cmd, err := a.buildSandbox(OpenSpec{Cwd: t.TempDir(), ReadOnlyPaths: []string{proxy}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cmd.Path != node || len(cmd.Args) != 1 || cmd.Args[0] != entry {
+		t.Fatalf("cmd = %+v, want node running the entry", cmd)
+	}
+	for _, want := range []string{versionDir, nodePrefix, proxy} {
+		var found bool
+		for _, p := range pol.ReadOnlyPaths {
+			found = found || p == want
+		}
+		if !found {
+			t.Fatalf("ReadOnlyPaths %v missing %s", pol.ReadOnlyPaths, want)
+		}
+	}
+	if !strings.HasPrefix(pol.Env["PATH"], filepath.Dir(node)) {
+		t.Fatalf("PATH = %q, want the runtime's, node first", pol.Env["PATH"])
+	}
+	if pol.Env["CLAUDE_CODE_EXECUTABLE"] != "/machine/claude" || pol.Env["ANTHROPIC_API_KEY"] != "sk-test-not-logged" {
+		t.Fatal("runtime env must merge over the allowlist, not replace it")
+	}
+	if pol.Network != sandbox.NetworkHost || !pol.AllowKeychain {
+		t.Fatalf("runtime launch lost the jail's settings: %+v", pol)
+	}
+}
+
+func TestClaudeCommandOverridesRuntime(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "claude-agent-acp")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	a := NewClaudeAdapter(ClaudeOptions{Command: bin, Runtime: func() (agentruntime.Resolved, error) {
+		t.Fatal("Runtime consulted despite DEVKIT_CLAUDE_ACP_COMMAND")
+		return agentruntime.Resolved{}, nil
+	}})
+	if _, cmd, err := a.buildSandbox(OpenSpec{Cwd: t.TempDir()}); err != nil || cmd.Path != bin {
+		t.Fatalf("cmd = %+v, err = %v", cmd, err)
 	}
 }
 
