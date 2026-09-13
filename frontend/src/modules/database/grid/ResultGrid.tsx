@@ -134,6 +134,7 @@ export function ResultGrid({
   rowOffset = 0,
   onFilterByValue,
   onEditCells,
+  changedCells,
   editRefusal = "",
 }: {
   result: QueryResult;
@@ -188,6 +189,8 @@ export function ResultGrid({
    * the statement, and the grid owns only which cells the user picked.
    */
   onEditCells?: (edit: { rows: number[]; columns: number[]; value: string | null }) => void;
+  /** #52: cells holding a staged change, as "row:column", drawn as changed. */
+  changedCells?: ReadonlySet<string>;
   /** Why editing is refused, shown where the attempt is made. "" means it is not. */
   editRefusal?: string;
 }) {
@@ -600,6 +603,7 @@ export function ResultGrid({
                           style={frozenStyle(position)}
                           className={cn(
                             "h-7 cursor-pointer truncate border-r border-b border-border-subtle px-3 select-text last:border-r-0 hover:text-text-primary",
+                            changedCells?.has(`${rowIndex}:${columnIndex}`) && "bg-status-warning/10",
                             // A number goes right, and in figures of one
                             // width: that is what makes a column of ids
                             // scannable — the four-digit one is visibly

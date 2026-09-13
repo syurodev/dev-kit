@@ -93,3 +93,47 @@ export function buildUpdate(request: UpdateRequest): string {
 
   return `UPDATE ${q(schema)}.${q(table)} SET ${assignments} WHERE ${predicate}`;
 }
+
+/**
+ * The staged changes of a table tab as statements, one per cell (#52).
+ *
+ * Staged cells are positions on the page — "row:column" — and each is named by
+ * its row's key as the page loaded it. A change to a key column goes last in its
+ * row: run first, it would move the row out from under every other change to
+ * that row, and each of those would match nothing.
+ */
+export function buildStagedUpdates(request: {
+  schema: string;
+  table: string;
+  engine: string | undefined;
+  keyColumns: readonly string[];
+  columns: readonly string[];
+  rows: readonly (readonly (string | null)[])[];
+  staged: Readonly<Record<string, CellValue>>;
+}): string[] {
+  const { schema, table, engine, keyColumns, columns, rows, staged } = request;
+  const cells = Object.entries(staged).map(([position, value]) => {
+    const [row, column] = position.split(":").map(Number);
+    return { row, column, value, isKey: keyColumns.includes(columns[column]) };
+  });
+  cells.sort((a, b) => a.row - b.row || Number(a.isKey) - Number(b.isKey) || a.column - b.column);
+  return cells.map(({ row, column, value }) =>
+    buildUpdate({
+      schema,
+      table,
+      engine,
+      keyColumns,
+      rows: [
+        {
+          values: keyColumns.map((key) => {
+            const at = columns.indexOf(key);
+            return at === -1 ? null : (rows[row]?.[at] ?? null);
+          }),
+        },
+      ],
+      columns: [columns[column]],
+      value,
+    }),
+  );
+}
+

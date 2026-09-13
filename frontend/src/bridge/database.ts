@@ -351,6 +351,11 @@ export function testConnection(id: string): Promise<void> {
  * the default — is the service's own cap, which is what the console and every
  * catalogue read want: they have no page to size.
  */
+/** Writes a table tab's reviewed changes in one transaction, all or none (#52). */
+export function applyEdits(id: string, statements: readonly string[]): Promise<void> {
+  return callBridge(() => AppService.DBApplyEdits(id, [...statements]));
+}
+
 /**
  * Gives back a console's connection (#48) — or, with no sessionId, every
  * console connection the profile holds.

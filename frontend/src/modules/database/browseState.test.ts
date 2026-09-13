@@ -297,3 +297,43 @@ test("a page size that is not on offer is refused, not clamped", () => {
     expect(useDatabaseStore.getState().browsePageSize).toBe(size);
   }
 });
+
+// #52. A staged change is a position on this page, and a change back to what
+// the server has is no change at all.
+test("staging keeps changes by position and drops one changed back", () => {
+  useDatabaseStore.setState({
+    browse: {
+      "public.orders": {
+        ...EMPTY_BROWSE,
+        rows: { columns: ["id", "status"], rows: [["1", "open"]], rowCount: 1, truncated: false },
+      },
+    },
+  });
+  const { stageBrowseEdits } = useDatabaseStore.getState();
+
+  stageBrowseEdits("public.orders", [{ row: 0, column: 1, value: "closed" }]);
+  expect(useDatabaseStore.getState().browseState("public.orders").staged).toEqual({ "0:1": "closed" });
+
+  stageBrowseEdits("public.orders", [{ row: 0, column: 1, value: "open" }]);
+  expect(useDatabaseStore.getState().browseState("public.orders").staged).toEqual({});
+});
+
+test("a new page, or Revert, clears what was staged", () => {
+  useDatabaseStore.setState({
+    browse: { "public.orders": { ...EMPTY_BROWSE, staged: { "0:1": "closed" } } },
+  });
+  useDatabaseStore.getState().revertBrowseEdits("public.orders");
+  expect(useDatabaseStore.getState().browseState("public.orders").staged).toEqual({});
+
+  useDatabaseStore.setState({
+    browse: { "public.orders": { ...EMPTY_BROWSE, staged: { "0:1": "closed" } } },
+  });
+  useDatabaseStore.getState().applyBrowsePage("public.orders", {
+    result: { columns: ["id"], rows: [["2"]], rowCount: 1, truncated: false },
+    pageSize: 200,
+    reversed: false,
+    pageKey: ["id"],
+  });
+  expect(useDatabaseStore.getState().browseState("public.orders").staged).toEqual({});
+});
+

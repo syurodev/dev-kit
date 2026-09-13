@@ -301,6 +301,14 @@ export function DBActiveProfile(): $CancellablePromise<$models.ActiveProfileDTO>
 }
 
 /**
+ * DBApplyEdits writes a table tab's reviewed changes in one transaction: all of
+ * them, or none (#52).
+ */
+export function DBApplyEdits(id: string, statements: string[] | null): $CancellablePromise<void> {
+    return $Call.ByID(4070223897, id, statements);
+}
+
+/**
  * DBCancelQuery stops one statement. Safe mode does not cover this — a
  * read-only profile can still cancel, because pg_cancel_backend is a SELECT.
  */

@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { CellValue } from "./sql/updateCell";
 import { persist } from "zustand/middleware";
 import { uiStateStorage } from "../../bridge/uistate";
 import {
@@ -16,6 +17,7 @@ import {
   type SchemaSnapshot,
   type ColumnInfo,
   closeSession,
+  applyEdits,
 } from "../../bridge/database";
 import { listConsoles, type StoredConsole } from "../../bridge/database";
 import { consoleFiles } from "./consoleFiles";
@@ -240,6 +242,12 @@ export type BrowseState = {
    */
   frozen: number;
   /**
+   * #52: changes waiting for review, by page position "row:column". Only an
+   * environment that asks for review stages; everywhere else an edit is
+   * written at once. Positions on this page, so a new page clears them.
+   */
+  staged: Record<string, CellValue>;
+  /**
    * A3: which load this state belongs to. Bumped when a page is asked for, and
    * checked when one answers — the same guard `executeQuery` puts on a console
    * result, for the same reason: Next clicked twice, or a sort applied while a
@@ -263,6 +271,7 @@ export const EMPTY_BROWSE: BrowseState = Object.freeze({
   widths: [],
   order: [],
   frozen: 0,
+  staged: {},
   runId: 0,
 }) as BrowseState;
 
@@ -359,6 +368,15 @@ export type DatabaseStoreState = {
    * Turns one page's raw answer into what the grid shows: drops the probe row,
    * flips a backwards page, and records whether another page exists.
    */
+  /** #52: stages grid edits for review instead of writing them. */
+  stageBrowseEdits: (key: string, cells: { row: number; column: number; value: CellValue }[]) => void;
+  revertBrowseEdits: (key: string) => void;
+  /** Writes the reviewed statements, then reloads the page. Throws on failure. */
+  applyStagedEdits: (
+    key: string,
+    target: { schema: string; table: string },
+    statements: readonly string[],
+  ) => Promise<void>;
   applyBrowsePage: (
     key: string,
     page: {
@@ -1187,7 +1205,39 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       hasNext: reversed ? true : hasNext,
       loading: false,
       error: "",
+      // The staged positions were on the page these rows replace.
+      staged: {},
     });
+  },
+
+  stageBrowseEdits: (key, cells) => {
+    const browse = get().browseState(key);
+    const staged = { ...browse.staged };
+    for (const { row, column, value } of cells) {
+      const position = `${row}:${column}`;
+      // Changed back to what the server has: nothing left to write.
+      if ((browse.rows?.rows[row]?.[column] ?? null) === value) {
+        delete staged[position];
+      } else {
+        staged[position] = value;
+      }
+    }
+    patchBrowse(set, key, { staged });
+  },
+
+  revertBrowseEdits: (key) => patchBrowse(set, key, { staged: {} }),
+
+  applyStagedEdits: async (key, target, statements) => {
+    const { selectedProfileId } = get();
+    if (!selectedProfileId || statements.length === 0) {
+      return;
+    }
+    await applyEdits(selectedProfileId, statements);
+    patchBrowse(set, key, { staged: {} });
+    if (get().txManual) {
+      void get().refreshTxState();
+    }
+    await get().loadBrowsePage(key, target);
   },
 
   ddlTarget: null,

@@ -92,6 +92,19 @@ func (s *AppService) DBQuery(ctx context.Context, id string, sql string, maxRows
 	return result.(database.QueryResult), nil
 }
 
+// DBApplyEdits writes a table tab's reviewed changes in one transaction: all of
+// them, or none (#52).
+func (s *AppService) DBApplyEdits(ctx context.Context, id string, statements []string) error {
+	opaqueID := recordID(id)
+	_, err := s.call(ctx, "builtin.database", "db:query", "profile:"+opaqueID, map[string]any{
+		"action":     "apply_edits",
+		"profile_id": opaqueID,
+	}, func(callCtx context.Context) (any, error) {
+		return nil, s.container.Database.ApplyEdits(callCtx, id, statements)
+	})
+	return err
+}
+
 // DBCloseSession gives back a console's connection — the console closed — or,
 // with an empty sessionID, every console connection of the profile, when the
 // UI switches to another one.
