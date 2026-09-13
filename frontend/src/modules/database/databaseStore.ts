@@ -676,6 +676,34 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   },
 
   setSelectedProfileId: (id: string) => {
+    // #38: a table tab's rows, cursors and key all came from the connection
+    // being left. Kept, the grid went on showing them under the new one, and an
+    // edit built `UPDATE … WHERE id = <the old row's key>` and ran it on the new
+    // database — overwriting whichever row there shared the key. Loads still in
+    // flight are stopped, and runId moves on so one that already answered is
+    // dropped by the guard in loadBrowsePage. The filter and sort stay, as a
+    // console's SQL does: they are what you asked for, not what the server said.
+    if (get().selectedProfileId !== id) {
+      for (const call of [...pendingBrowseQueries.values(), ...pendingCountQueries.values()]) {
+        call.cancel();
+      }
+      pendingBrowseQueries.clear();
+      pendingCountQueries.clear();
+      set((state) => ({
+        pageKeys: {},
+        browse: Object.fromEntries(
+          Object.entries(state.browse).map(([key, browse]) => [
+            key,
+            {
+              ...EMPTY_BROWSE,
+              where: browse.where,
+              orderBy: browse.orderBy,
+              runId: browse.runId + 1,
+            },
+          ]),
+        ),
+      }));
+    }
     // Asked, not assumed: a transaction outlives the window that opened it, so
     // arriving at a profile can mean arriving inside one.
     queueMicrotask(() => void get().refreshTxState());
@@ -1290,17 +1318,23 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     }
     const engine = profiles.find((p) => p.id === selectedProfileId)?.engine;
     pendingCountQueries.get(key)?.cancel();
+    let call: ReturnType<typeof runQuery> | undefined;
     try {
-      const call = runQuery(
+      call = runQuery(
         selectedProfileId,
         buildCountQuery({ schema, table, engine, where: browse.where }),
       );
       pendingCountQueries.set(key, call);
       const result = await call;
       const value = Number(result.rows[0]?.[0]);
-      // The filter it counted has to still be the filter, or the number
-      // describes a result nobody is looking at.
-      if (Number.isFinite(value) && get().browseState(key).where === browse.where) {
+      // The filter it counted has to still be the filter, and the connection it
+      // counted on still the connection (#38), or the number describes a result
+      // nobody is looking at.
+      if (
+        Number.isFinite(value) &&
+        get().selectedProfileId === selectedProfileId &&
+        get().browseState(key).where === browse.where
+      ) {
         patchBrowse(set, key, { totalRows: value });
       }
     } catch {
@@ -1309,7 +1343,10 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       // "page 1 of 9". An error banner here would be about the pager's
       // decoration, over rows that loaded fine.
     } finally {
-      pendingCountQueries.delete(key);
+      // Only its own entry: a newer count for this tab may have taken the slot.
+      if (pendingCountQueries.get(key) === call) {
+        pendingCountQueries.delete(key);
+      }
     }
   },
 

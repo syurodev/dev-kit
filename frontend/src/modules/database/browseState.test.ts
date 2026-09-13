@@ -235,6 +235,57 @@ test("a new page size resets every open tab's walk, and keeps their counts", () 
   expect(useDatabaseStore.getState().lastBrowsePage("public.orders")).toBe(8);
 });
 
+// #38. Rows from the connection you left, under the one you picked, are rows an
+// edit writes against the wrong database. The filter and sort are yours and
+// stay; everything the server said goes, and runId moves past any load that
+// is still on its way back.
+test("switching connection drops every tab's rows, key and walk", () => {
+  useDatabaseStore.setState({
+    selectedProfileId: "prod",
+    pageKeys: { "public.orders": ["id"] },
+    browse: {
+      "public.orders": {
+        ...EMPTY_BROWSE,
+        where: "status = 'open'",
+        orderBy: { column: "id", direction: "desc" },
+        rows: { columns: ["id"], rows: [["1"]], rowCount: 1, truncated: false },
+        cursors: [["1"]],
+        pageIndex: 1,
+        totalRows: 5,
+        widths: [120],
+        runId: 3,
+      },
+    },
+  });
+
+  useDatabaseStore.getState().setSelectedProfileId("dev");
+
+  const state = useDatabaseStore.getState().browseState("public.orders");
+  expect(state.rows).toBeNull();
+  expect(state.cursors).toEqual([]);
+  expect(state.pageIndex).toBe(0);
+  expect(state.totalRows).toBeNull();
+  expect(state.widths).toEqual([]);
+  expect(state.where).toBe("status = 'open'");
+  expect(state.orderBy).toEqual({ column: "id", direction: "desc" });
+  expect(state.runId).toBe(4);
+  expect(useDatabaseStore.getState().pageKeys).toEqual({});
+});
+
+test("picking the connection already selected keeps the tabs", () => {
+  const rows = { columns: ["id"], rows: [["1"]], rowCount: 1, truncated: false };
+  useDatabaseStore.setState({
+    selectedProfileId: "prod",
+    pageKeys: { "public.orders": ["id"] },
+    browse: { "public.orders": { ...EMPTY_BROWSE, rows } },
+  });
+
+  useDatabaseStore.getState().setSelectedProfileId("prod");
+
+  expect(useDatabaseStore.getState().browseState("public.orders").rows).toEqual(rows);
+  expect(useDatabaseStore.getState().pageKeys).toEqual({ "public.orders": ["id"] });
+});
+
 // The service clamps its own row cap, and a size it does not offer would be
 // silently clamped into something the pager's arithmetic disagreed with.
 test("a page size that is not on offer is refused, not clamped", () => {
