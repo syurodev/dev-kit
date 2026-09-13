@@ -68,9 +68,17 @@ export const useAppearanceStore = create<AppearanceState>()(
 // Mirror the code-font prefs into CSS custom properties on <html>, so every
 // CodeMirror instance follows live without remounting (its theme reads the
 // vars). xterm cannot use vars — TerminalPane subscribes to the store instead.
+//
+// The face also becomes the app's monospace (--font-mono, index.css). Only
+// CodeMirror used to follow it: the result grid, a tree's column types, key
+// caps and every other text-code-* surface stayed on Geist Mono whatever the
+// setting said. The size stays CodeMirror's alone — those surfaces keep their
+// type scale.
 function applyCssVars(state: AppearanceState) {
   const root = document.documentElement;
-  root.style.setProperty("--code-font-family", monoFontStack(state.codeFont));
+  const stack = monoFontStack(state.codeFont);
+  root.style.setProperty("--code-font-family", stack);
+  root.style.setProperty("--font-mono-choice", stack);
   root.style.setProperty("--code-font-size", `${state.codeSize}px`);
 }
 if (typeof document !== "undefined") {

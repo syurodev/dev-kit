@@ -21,7 +21,11 @@
 @theme inline {
     --font-heading: var(--font-sans);
     --font-sans: 'Geist Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    --font-mono: 'Geist Mono Variable', monospace;
+    /* Settings › Code font writes --font-mono-choice (stores/appearance.ts).
+       A var() rather than the list itself: this theme is inline, so the
+       font-mono utility copies the value in, and only a var() survives that
+       copy to change at runtime. */
+    --font-mono: var(--font-mono-choice, 'Geist Mono Variable', monospace);
 
     /* The house spring, shared with the liquid-taffy sibling project: ζ=0.434,
        ω=22.46 — 22% overshoot, ring, settle. Sampled straight from that
