@@ -66,7 +66,7 @@ import { WhereInput } from "./WhereInput";
  * same as leaving the mode; leaving the mode COMMITS what is open, since
  * discarding someone's work is what the button beside it is for.
  */
-function TransactionControls() {
+export function TransactionControls() {
   const { txManual, txOpen, txBusy, selectedProfileId, setTxManual, endTransaction } =
     useDatabaseStore(
       useShallow((s) => ({

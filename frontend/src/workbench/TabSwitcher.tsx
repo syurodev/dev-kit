@@ -91,8 +91,12 @@ export function TabSwitcher({ open, onClose }: TabSwitcherProps) {
                 }}
               >
                 <ModuleIcon className="size-3.5 shrink-0 opacity-70" />
-                <span className="truncate">{tab.title}</span>
-                <span className="ml-auto shrink-0 text-caption-11 text-text-tertiary">
+                {/* The title takes the free space, so every module name lines
+                    up on the right. Both used to be pushed by ml-auto — this
+                    one and CommandItem's check — and split the space between
+                    them, leaving the name wherever the title ended. */}
+                <span className="min-w-0 flex-1 truncate">{tab.title}</span>
+                <span className="shrink-0 text-caption-11 text-text-tertiary">
                   {moduleTitle}
                 </span>
               </CommandItem>
