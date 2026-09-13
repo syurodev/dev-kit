@@ -156,7 +156,7 @@ func signInEnv(launchEnv map[string]string) []string {
 	env := make([]string, 0, len(os.Environ())+len(launchEnv))
 	for _, kv := range os.Environ() {
 		key, _, _ := strings.Cut(kv, "=")
-		if strings.HasPrefix(strings.ToUpper(key), "DEVKIT_") {
+		if strings.HasPrefix(strings.ToUpper(key), "DEVKIT_") || nestedClaudeMarker(key) {
 			continue
 		}
 		if _, overridden := lookupFold(launchEnv, key); overridden {
@@ -168,6 +168,22 @@ func signInEnv(launchEnv map[string]string) []string {
 		env = append(env, key+"="+value)
 	}
 	return env
+}
+
+// nestedClaudeMarker is a variable Claude Code sets in the processes it starts.
+// DevKit is often launched from a terminal inside a Claude Code session, and a
+// login that inherits these believes it is running nested in that session.
+// Only the markers: CLAUDE_CODE_USE_BEDROCK and friends are the user's own
+// configuration and pass through.
+//
+// ponytail: a fixed list of the markers known today; widen it if a new one
+// makes a login misbehave.
+func nestedClaudeMarker(key string) bool {
+	switch strings.ToUpper(key) {
+	case "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT":
+		return true
+	}
+	return false
 }
 
 // lookupFold is a case-insensitive map lookup: Windows spells it Path.

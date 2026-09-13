@@ -265,3 +265,23 @@ func TestSignInEnvKeepsTheUsersEnvAndDropsDevKitsOwn(t *testing.T) {
 		t.Fatalf("PATH must be the launch PATH, once: %q", paths)
 	}
 }
+
+// A DevKit started from a terminal inside Claude Code carries its markers; a
+// login that inherited them would think it runs nested in that session. The
+// user's own Claude Code configuration still passes through.
+func TestSignInEnvDropsNestedClaudeMarkers(t *testing.T) {
+	t.Setenv("CLAUDECODE", "1")
+	t.Setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
+	t.Setenv("CLAUDE_CODE_USE_BEDROCK", "1")
+	seen := map[string]bool{}
+	for _, kv := range signInEnv(map[string]string{"PATH": "/opt/node/bin:/usr/bin"}) {
+		key, _, _ := strings.Cut(kv, "=")
+		seen[key] = true
+	}
+	if seen["CLAUDECODE"] || seen["CLAUDE_CODE_ENTRYPOINT"] {
+		t.Fatal("a nested-session marker reached the login")
+	}
+	if !seen["CLAUDE_CODE_USE_BEDROCK"] {
+		t.Fatal("the user's own Claude Code configuration was dropped")
+	}
+}
