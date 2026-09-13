@@ -711,6 +711,13 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       pendingBrowseQueries.clear();
       pendingCountQueries.clear();
       set((state) => ({
+        // #49: the tree, and the schema new consoles are stamped with, were the
+        // old connection's until the new snapshot arrived — or for good, when
+        // the new one has no schema of that name.
+        schemaSnapshot: null,
+        indexingSchema: false,
+        schemaError: "",
+        selectedSchema: "",
         pageKeys: {},
         browse: Object.fromEntries(
           Object.entries(state.browse).map(([key, browse]) => [
@@ -842,12 +849,15 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   loadSchemaSnapshot: async (profileId: string) => {
     try {
       const snap = await getSchemaCache(profileId);
+      // #49: switching A→B quickly let A's snapshot land after B's.
+      if (get().selectedProfileId !== profileId) return;
       set({ schemaSnapshot: snap });
       const schemas = Object.keys(snap.namespace || {});
       if (schemas.length > 0 && !get().selectedSchema) {
         set({ selectedSchema: schemas[0] });
       }
     } catch {
+      if (get().selectedProfileId !== profileId) return;
       // If cache read fails, try indexing once
       void get().refreshSchema(profileId);
     }
@@ -857,12 +867,14 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     set({ indexingSchema: true, schemaError: "" });
     try {
       const snap = await indexSchema(profileId);
+      if (get().selectedProfileId !== profileId) return;
       set({ schemaSnapshot: snap, indexingSchema: false });
       const schemas = Object.keys(snap.namespace || {});
       if (schemas.length > 0 && !get().selectedSchema) {
         set({ selectedSchema: schemas[0] });
       }
     } catch (e) {
+      if (get().selectedProfileId !== profileId) return;
       set({ indexingSchema: false, schemaError: errorMessage(e) });
     }
   },
@@ -1404,6 +1416,8 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       if (
         Number.isFinite(value) &&
         get().selectedProfileId === selectedProfileId &&
+        // #49: a count landing after its tab closed brought the tab's state back.
+        key in get().browse &&
         get().browseState(key).where === browse.where
       ) {
         patchBrowse(set, key, { totalRows: value });
@@ -1424,7 +1438,13 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   setPageKey: (key, columns) =>
     set((state) => ({ pageKeys: { ...state.pageKeys, [key]: columns } })),
 
-  closeBrowse: (key) =>
+  closeBrowse: (key) => {
+    // #49: its loads go with it. Left running, they answer into a tab that is
+    // no longer there.
+    pendingBrowseQueries.get(key)?.cancel();
+    pendingBrowseQueries.delete(key);
+    pendingCountQueries.get(key)?.cancel();
+    pendingCountQueries.delete(key);
     set((state) => {
       if (!(key in state.browse) && !(key in state.pageKeys)) {
         return state;
@@ -1435,7 +1455,8 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       // its first page by a key that has since been re-read.
       const { [key]: _key, ...pageKeys } = state.pageKeys;
       return { browse, pageKeys };
-    }),
+    });
+  },
 
   /*
    * Every edit goes through here, so this is where the file is kept up to

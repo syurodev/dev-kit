@@ -31,8 +31,10 @@ export function DeleteProfileDialog({
 }: {
   profile: ConnectionProfile | null;
   onClose: () => void;
-  onConfirm: () => void;
+  onConfirm: () => Promise<void>;
 }) {
+  // Held while the delete runs, so a second click is not a second delete.
+  const [deleting, setDeleting] = useState(false);
   const { folders } = useDatabaseStore(
     useShallow((s) => ({
       folders: s.folders,
@@ -114,7 +116,19 @@ export function DeleteProfileDialog({
           <Button variant="outline" size="sm" onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="destructive" size="sm" onClick={onConfirm}>
+          <Button
+            variant="destructive"
+            size="sm"
+            disabled={deleting}
+            onClick={async () => {
+              setDeleting(true);
+              try {
+                await onConfirm();
+              } finally {
+                setDeleting(false);
+              }
+            }}
+          >
             <Trash2 />
             Delete profile
           </Button>

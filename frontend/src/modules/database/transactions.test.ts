@@ -89,6 +89,20 @@ describe("transaction mode", () => {
     expect(useDatabaseStore.getState().strandedTransaction).toBe("prod");
   });
 
+  // #49. A snapshot read for the connection you already left must not replace
+  // the one for the connection you are on.
+  it("drops a schema snapshot that lands after the connection changed", async () => {
+    useDatabaseStore.setState({ selectedProfileId: "p2", schemaSnapshot: null });
+    await useDatabaseStore.getState().loadSchemaSnapshot("p1");
+    expect(useDatabaseStore.getState().schemaSnapshot).toBeNull();
+  });
+
+  it("a connection switch forgets the old schema selection", () => {
+    useDatabaseStore.setState({ selectedProfileId: "p1", selectedSchema: "billing" });
+    useDatabaseStore.getState().setSelectedProfileId("p2");
+    expect(useDatabaseStore.getState().selectedSchema).toBe("");
+  });
+
   it("does nothing with no connection selected", async () => {
     useDatabaseStore.setState({ selectedProfileId: "" });
     await useDatabaseStore.getState().setTxManual(true);
