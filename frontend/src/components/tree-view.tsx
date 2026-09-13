@@ -90,7 +90,13 @@ const FADE = 16;
  * guide nobody sees. Tertiary text at 35% measured 1.55–1.93: a line in every
  * palette, well under the labels.
  */
-const GUIDE = "1px solid color-mix(in srgb, var(--text-tertiary) 35%, transparent)";
+//
+// Mixed into the rail's ground rather than into transparent: an elbow overlaps
+// the line it leaves, and two translucent borders on one pixel draw it twice
+// as dark. Opaque, the overlap does not show.
+const GUIDE = "1px solid color-mix(in srgb, var(--text-tertiary) 35%, var(--background-app))";
+/** Elbow corner radius. */
+const ELBOW_RADIUS = 5;
 
 /** Where a row at `level` starts its chevron. */
 const contentX = (level: number) => INSET + level * INDENT;
@@ -181,12 +187,26 @@ export function pinnedRows(
  * curves or a highlighted path) is a change to this function alone.
  */
 function Guides({ row }: { row: FlatRow }) {
-  const { level, lasts, open } = row;
+  const { level, lasts, open, node, placeholder } = row;
   const half = TREE_ROW_HEIGHT / 2;
+  // A row with a chevron takes the elbow to the chevron. A leaf has an empty
+  // chevron slot, and stopping there left its elbow 14px short of the icon —
+  // shallow next to the rows above it. It runs through the slot instead.
+  const reachesIcon = placeholder || !node.expandable;
   const lines: ReactNode[] = [];
   for (let depth = 0; depth < level; depth++) {
     const continues = !lasts[depth + 1];
     if (depth === level - 1) {
+      // A continuing branch is one straight line the full height of the row,
+      // with the elbow laid over it. It used to be the elbow's own border down
+      // to the middle and a second line from the middle on — but the elbow's
+      // rounded corner spends its last ELBOW_RADIUS px curving away, so every
+      // row left that much of a gap in the line below its elbow.
+      if (continues) {
+        lines.push(
+          <span key={`line-${depth}`} style={{ position: "absolute", left: lineX(depth), top: 0, bottom: 0, borderLeft: GUIDE }} />,
+        );
+      }
       lines.push(
         <span
           key={`elbow-${depth}`}
@@ -194,19 +214,14 @@ function Guides({ row }: { row: FlatRow }) {
             position: "absolute",
             left: lineX(depth),
             top: 0,
-            width: contentX(level) - lineX(depth) - 2,
+            width: contentX(level) - lineX(depth) - 2 + (reachesIcon ? CHEVRON + 2 : 0),
             height: half,
             borderLeft: GUIDE,
             borderBottom: GUIDE,
-            borderBottomLeftRadius: 5,
+            borderBottomLeftRadius: ELBOW_RADIUS,
           }}
         />,
       );
-      if (continues) {
-        lines.push(
-          <span key={`tail-${depth}`} style={{ position: "absolute", left: lineX(depth), top: half, bottom: 0, borderLeft: GUIDE }} />,
-        );
-      }
     } else if (continues) {
       lines.push(
         <span key={`line-${depth}`} style={{ position: "absolute", left: lineX(depth), top: 0, bottom: 0, borderLeft: GUIDE }} />,

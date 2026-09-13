@@ -346,7 +346,7 @@ function ContrastTable() {
         <div data-probe="selected" className="flex-1 rounded-md border border-status-info bg-status-info/10 px-2 text-body-13 text-text-primary">
           customers
         </div>
-        <span data-probe="guide" className="h-6" style={{ borderLeft: "1px solid color-mix(in srgb, var(--text-tertiary) 35%, transparent)" }} />
+        <span data-probe="guide" className="h-6" style={{ borderLeft: "1px solid color-mix(in srgb, var(--text-tertiary) 35%, var(--background-app))" }} />
       </div>
       <button type="button" className="w-fit rounded-md border border-border-default px-2 py-1 text-body-12 hover:bg-state-soft" onClick={check}>
         Check every palette
