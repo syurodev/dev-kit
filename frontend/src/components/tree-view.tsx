@@ -75,8 +75,8 @@ export const TREE_ROW_HEIGHT = 24;
 
 /**
  * 16 a level. A guide needs room for its elbow between the parent's chevron
- * and the child's, and at 16 that elbow is 10px wide — enough for the full
- * ELBOW_RADIUS on every row, where 14 left a row with a chevron capped at 6.
+ * and the child's, and at 16 that elbow is 8px wide on a row with a chevron —
+ * the full ELBOW_RADIUS, where 14 left it 6px and capped the corner there.
  * The guides carry depth, which is what keeps five levels readable in a rail.
  */
 const INDENT = 16;
@@ -97,7 +97,10 @@ const SCROLLBAR_STRIP = 10;
  * as dark. Opaque, the overlap does not show.
  */
 const GUIDE = "1px solid color-mix(in srgb, var(--text-tertiary) 35%, var(--background-app))";
-/** Elbow corner radius. CSS caps a corner at its box; every elbow is at least 10px wide. */
+/**
+ * Elbow corner radius. CSS caps a corner at its box, and the narrowest elbow —
+ * into a chevron, INDENT − 8 — is exactly this wide.
+ */
 const ELBOW_RADIUS = 8;
 
 /** Where a row at `level` starts its chevron. */
