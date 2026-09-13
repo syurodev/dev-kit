@@ -130,9 +130,7 @@ function DialogContent({
   showCloseButton?: boolean
   portal?: boolean
 }) {
-  const content = (
-    <>
-      <DialogOverlay />
+  const panel = (
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(
@@ -162,11 +160,29 @@ function DialogContent({
           </DialogPrimitive.Close>
         )}
       </DialogPrimitive.Content>
-    </>
   )
 
-  if (!portal) return content
-  return <DialogPortal>{content}</DialogPortal>
+  if (!portal) {
+    return (
+      <>
+        <DialogOverlay />
+        {panel}
+      </>
+    )
+  }
+  /*
+   * Two children, never one fragment. DialogPortal gives EACH child its own
+   * Presence, and Presence waits for an exit animation by reading the styles
+   * of the element it holds a ref to. A fragment is no element: the ref went
+   * nowhere, Presence read "no animation", and every dialog in the app was
+   * removed the instant it closed — the animate-out classes never ran.
+   */
+  return (
+    <DialogPortal>
+      <DialogOverlay />
+      {panel}
+    </DialogPortal>
+  )
 }
 
 function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {

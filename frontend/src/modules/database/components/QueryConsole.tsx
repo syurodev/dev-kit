@@ -121,6 +121,9 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
   const [gridWidths, setGridWidths] = useState<number[]>(EMPTY_ARRAY);
 
   const [activePlan, setActivePlan] = useState<QueryPlan | null>(null);
+  // Separate from the plan: closing keeps the plan mounted so the dialog can
+  // animate out with its content still in it, instead of vanishing.
+  const [planOpen, setPlanOpen] = useState(false);
   const [explaining, setExplaining] = useState(false);
 
   const profile = profiles.find((p) => p.id === selectedProfileId);
@@ -300,6 +303,7 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
         ? await explainAnalyze(selectedProfileId, target)
         : await explain(selectedProfileId, target);
       setActivePlan(plan);
+      setPlanOpen(true);
     } catch (e: any) {
       setQueryError(consoleId, e.message || String(e));
     } finally {
@@ -707,7 +711,7 @@ export function QueryConsole({ consoleId }: { consoleId: string }) {
 
       {/* Plan Viewer Modal (Screen 22) */}
       {activePlan && (
-        <QueryPlanView plan={activePlan} onClose={() => setActivePlan(null)} />
+        <QueryPlanView plan={activePlan} open={planOpen} onClose={() => setPlanOpen(false)} />
       )}
     </div>
   );

@@ -22,9 +22,11 @@ import { PlanDiagram } from "../plan/PlanDiagram";
 
 export function QueryPlanView({
   plan,
+  open,
   onClose,
 }: {
   plan: QueryPlan;
+  open: boolean;
   onClose: () => void;
 }) {
   const [activeTab, setActiveTab] = useState<"diagram" | "visual" | "raw">("diagram");
@@ -65,7 +67,7 @@ export function QueryPlanView({
   return (
     // The app's Dialog: overlay, Escape, focus trap, and the height animation
     // between tabs, which DialogContent now does for every dialog.
-    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+    <Dialog open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
       <DialogContent
         showCloseButton={false}
         aria-describedby={undefined}

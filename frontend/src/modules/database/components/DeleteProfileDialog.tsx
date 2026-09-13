@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { listQueryHistory, listSavedQueries, type ConnectionProfile } from "../../../bridge/database";
 import { useShallow } from "zustand/react/shallow";
 import { useDatabaseStore } from "../databaseStore";
+import { useLastPresent } from "@/lib/useLastPresent";
 
 /**
  * Figma `DB / Delete Profile Dialog` (576:7817).
@@ -63,7 +64,9 @@ export function DeleteProfileDialog({
     };
   }, [profile]);
 
-  const folder = profile ? folders.find((f) => f.profileIds.includes(profile.id)) : undefined;
+  // What the dialog shows, kept through the close animation.
+  const shown = useLastPresent(profile);
+  const folder = shown ? folders.find((f) => f.profileIds.includes(shown.id)) : undefined;
 
   const losses: Array<{ label: string; note: string }> = [
     { label: "Password", note: "sealed with the vault key" },
@@ -91,7 +94,7 @@ export function DeleteProfileDialog({
     <Dialog open={!!profile} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="sm:max-w-[480px]">
         <DialogHeader>
-          <DialogTitle>Delete {profile?.name}?</DialogTitle>
+          <DialogTitle>Delete {shown?.name}?</DialogTitle>
           <DialogDescription>
             The database itself is untouched — this removes the connection profile from DevKit
             and everything stored alongside it.
