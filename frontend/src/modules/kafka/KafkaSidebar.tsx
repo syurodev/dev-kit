@@ -131,8 +131,9 @@ export function KafkaSidebar() {
         </Button>
       </SidebarHeader>
 
-      <div className="min-h-0 flex-1 overflow-y-auto scrollbar-gutter-symmetric pb-2">
-        {profiles.length === 0 ? (
+      {/* The tree is its own scroller; the empty states are not in it. */}
+      {profiles.length === 0 ? (
+        <div className="min-h-0 flex-1">
           <Empty className="px-4 py-6">
             <EmptyTitle className="text-body-12 text-text-tertiary">No clusters saved.</EmptyTitle>
             <EmptyContent>
@@ -141,14 +142,16 @@ export function KafkaSidebar() {
               </Button>
             </EmptyContent>
           </Empty>
-        ) : nodes.length === 0 ? (
+        </div>
+      ) : nodes.length === 0 ? (
+        <div className="min-h-0 flex-1">
           <Empty className="px-4 py-6">
             <EmptyDescription>Nothing matches “{needle}”.</EmptyDescription>
           </Empty>
-        ) : (
-          <TreeView nodes={nodes} />
-        )}
-      </div>
+        </div>
+      ) : (
+        <TreeView nodes={nodes} className="flex-1 scrollbar-gutter-symmetric" />
+      )}
 
       {/* The one fact the rail must always answer: am I connected, and to what. */}
       <div className="flex h-10 shrink-0 items-center gap-1.5 px-2 text-code-11 text-text-tertiary">

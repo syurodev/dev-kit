@@ -1,9 +1,8 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { ChevronRight } from "lucide-react";
 import { observeElementRect, useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "@/lib/utils";
-import { shouldVirtualize } from "@/components/ui/virtual-rows";
 
 /**
  * One row of the tree.
@@ -23,13 +22,18 @@ export type TreeNodeData = {
   /** A 14px glyph before the label. */
   icon?: ReactNode;
   /**
-   * Muted text set immediately after the label — a count, a column type.
-   * Inline rather than pinned right, which is what lets a long name spend the
-   * rest of the row: a right-aligned column of numbers charges every name for
-   * the width of the widest one.
+   * Muted text set immediately after the label — a column's type. It gives way
+   * before the name does when the rail is narrow.
    */
   meta?: ReactNode;
-  /** Pinned to the right edge, outside the row's button — chips, hover actions. */
+  /** A short number pinned to the right edge — tables in a schema. */
+  count?: number;
+  /**
+   * Controls shown only while the row is hovered or focused, in the count's
+   * place where there is one. They take no room until then.
+   */
+  actions?: ReactNode;
+  /** Always shown, right of everything else — status marks, an env chip. */
   trailing?: ReactNode;
   expandable?: boolean;
   expanded?: boolean;
@@ -64,62 +68,34 @@ export type TreeNodeData = {
 };
 
 /**
- * Rows are 24 tall and step 10 per level.
- *
- * Five levels of a database tree have to fit a name in a ~280px rail, and the
- * chrome before the label is what decides whether they do. A table sits at
- * level 3: 8 + 3×12 of indent plus a 14px chevron, a 16px glyph and two 6px
- * gaps put its name 86px in. At 4 + 3×10 with 12/14 and 4px gaps it starts at
- * 68 — measured against the running app, not computed — and the 28→24 row
- * buys back a seventh of the height on a 173-table schema.
- */
-const ROW_INDENT = 10;
-const ROW_INSET = 4;
-
-/**
- * --control-height-xs, the row height below. Rows are fixed-height, which is
- * what lets a long tree be windowed by arithmetic instead of by measuring.
+ * --control-height-xs, the row height. Rows are fixed-height, which is what
+ * lets the tree be windowed by arithmetic instead of by measuring.
  */
 export const TREE_ROW_HEIGHT = 24;
 
-function indent(level: number): number {
-  return ROW_INSET + level * ROW_INDENT;
-}
-
-const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
-
 /**
- * A tree up to the virtualization threshold renders whole, nested, with CSS
- * sticky. Past it, as a flat window of rows.
- *
- * No motion but the chevron's turn. A branch used to grow open and its rows
- * slide in; the windowed tree could not do either, and a tree crossing the
- * threshold remounted in the other rendering, which replayed every row's
- * entrance at once. Opening a node is instant in both, so the two renderings
- * look the same and crossing between them shows nothing.
- *
- * The threshold counts the rows that are showing, so a database rail with a
- * few schemas open is windowed and the same rail with them closed is not.
- * Windowing is what keeps a 900-table connection cheap to show: the rail used
- * to lay out every row each time it came back on screen.
+ * 14 a level: a guide needs room for its elbow between the parent's chevron
+ * and the child's. The guides carry depth, which is what keeps five levels
+ * readable in a 280px rail — measured in the gallery at 158px of name left at
+ * a table, 118 at the 240 floor.
  */
-export function TreeView({
-  nodes,
-  className,
-}: {
-  nodes: TreeNodeData[];
-  className?: string;
-}) {
-  const rows = flattenTree(nodes);
-  if (shouldVirtualize(rows.length)) {
-    return <VirtualTree rows={rows} className={className} />;
-  }
-  return (
-    <div role="tree" className={cn("flex flex-col", className)}>
-      <TreeRows nodes={nodes} level={0} />
-    </div>
-  );
-}
+const INDENT = 14;
+const INSET = 4;
+const CHEVRON = 12;
+const PAD_TOP = 4;
+const PAD_BOTTOM = 8;
+const FADE = 16;
+/**
+ * --border-default measured 1.02–1.30 against the rail across the palettes, a
+ * guide nobody sees. Tertiary text at 35% measured 1.55–1.93: a line in every
+ * palette, well under the labels.
+ */
+const GUIDE = "1px solid color-mix(in srgb, var(--text-tertiary) 35%, transparent)";
+
+/** Where a row at `level` starts its chevron. */
+const contentX = (level: number) => INSET + level * INDENT;
+/** The guide under a row at `depth`: the centre of its chevron. */
+const lineX = (depth: number) => contentX(depth) + CHEVRON / 2;
 
 /** A row of the flattened tree: the rows that are showing, in order. */
 export type FlatRow = {
@@ -127,32 +103,44 @@ export type FlatRow = {
   key: string;
   node: TreeNodeData;
   level: number;
-  /** Position among its siblings. */
-  index: number;
   /** One past the last row of this node's subtree — itself included. */
   end: number;
+  /** For each level of the path, from the root: whether that node is its parent's last child. */
+  lasts: boolean[];
+  /** The row is open, so a guide runs down from its chevron. */
+  open: boolean;
   /** The loading or empty line under an expanded node with no children. */
   placeholder?: boolean;
 };
 
 export function flattenTree(nodes: TreeNodeData[]): FlatRow[] {
   const rows: FlatRow[] = [];
-  const walk = (list: TreeNodeData[], level: number, parentKey: string) => {
+  const walk = (list: TreeNodeData[], level: number, parentKey: string, lasts: boolean[]) => {
     list.forEach((node, index) => {
       const key = `${parentKey}/${node.id}`;
+      const mine = [...lasts, index === list.length - 1];
+      const open = !!node.expandable && !!node.expanded;
       const at = rows.length;
-      rows.push({ key, node, level, index, end: at + 1 });
-      if (node.expandable && node.expanded) {
+      rows.push({ key, node, level, end: at + 1, lasts: mine, open });
+      if (open) {
         if (node.children?.length) {
-          walk(node.children, level + 1, key);
+          walk(node.children, level + 1, key, mine);
         } else {
-          rows.push({ key: `${key}/…`, node, level: level + 1, index: 0, end: rows.length + 1, placeholder: true });
+          rows.push({
+            key: `${key}/…`,
+            node,
+            level: level + 1,
+            end: rows.length + 1,
+            lasts: [...mine, true],
+            open: false,
+            placeholder: true,
+          });
         }
       }
       rows[at].end = rows.length;
     });
   };
-  walk(nodes, 0, "");
+  walk(nodes, 0, "", []);
   return rows;
 }
 
@@ -183,268 +171,273 @@ export function pinnedRows(
   return pins;
 }
 
-function scrollParent(element: HTMLElement): HTMLElement | null {
-  for (let parent = element.parentElement; parent; parent = parent.parentElement) {
-    const { overflowY } = getComputedStyle(parent);
-    if (overflowY === "auto" || overflowY === "scroll") return parent;
+/**
+ * The guides a row draws: a full-height line for every ancestor whose branch
+ * continues past it, an elbow from its parent's line into its own chevron, and
+ * — when open — a stub down from that chevron to its first child.
+ *
+ * CSS borders on absolute spans, which snap to the pixel at any display scale.
+ * Everything about the lines lives here, so drawing them another way (SVG, for
+ * curves or a highlighted path) is a change to this function alone.
+ */
+function Guides({ row }: { row: FlatRow }) {
+  const { level, lasts, open } = row;
+  const half = TREE_ROW_HEIGHT / 2;
+  const lines: ReactNode[] = [];
+  for (let depth = 0; depth < level; depth++) {
+    const continues = !lasts[depth + 1];
+    if (depth === level - 1) {
+      lines.push(
+        <span
+          key={`elbow-${depth}`}
+          style={{
+            position: "absolute",
+            left: lineX(depth),
+            top: 0,
+            width: contentX(level) - lineX(depth) - 2,
+            height: half,
+            borderLeft: GUIDE,
+            borderBottom: GUIDE,
+            borderBottomLeftRadius: 5,
+          }}
+        />,
+      );
+      if (continues) {
+        lines.push(
+          <span key={`tail-${depth}`} style={{ position: "absolute", left: lineX(depth), top: half, bottom: 0, borderLeft: GUIDE }} />,
+        );
+      }
+    } else if (continues) {
+      lines.push(
+        <span key={`line-${depth}`} style={{ position: "absolute", left: lineX(depth), top: 0, bottom: 0, borderLeft: GUIDE }} />,
+      );
+    }
   }
-  return null;
-}
-
-function VirtualTree({ rows, className }: { rows: FlatRow[]; className?: string }) {
-  const listRef = useRef<HTMLDivElement>(null);
-  const [scroller, setScroller] = useState<HTMLElement | null>(null);
-  // Where the list starts inside the scroller: the rail has headers and the
-  // tree has its own top padding above the first row.
-  const [margin, setMargin] = useState(0);
-
-  useIsomorphicLayoutEffect(() => {
-    const list = listRef.current;
-    // Hidden with its module: nothing to measure, and zeros would be wrong.
-    if (!list || list.getClientRects().length === 0) return;
-    const element = scroller?.contains(list) ? scroller : scrollParent(list);
-    if (element !== scroller) setScroller(element);
-    if (!element) return;
-    const next = Math.round(
-      list.getBoundingClientRect().top - element.getBoundingClientRect().top + element.scrollTop,
+  if (open) {
+    lines.push(
+      <span key="stub" style={{ position: "absolute", left: lineX(level), top: half + CHEVRON / 2, bottom: 0, borderLeft: GUIDE }} />,
     );
-    if (next !== margin) setMargin(next);
-  });
-
-  const virtualizer = useVirtualizer({
-    count: rows.length,
-    getScrollElement: () => scroller,
-    getItemKey: (i) => rows[i].key,
-    estimateSize: () => TREE_ROW_HEIGHT,
-    overscan: 12,
-    scrollMargin: margin,
-    // Rows before the scroller is known: a window's worth, not an empty rail.
-    initialRect: { width: 0, height: typeof window === "undefined" ? 800 : window.innerHeight },
-    // A module's rail stays mounted while hidden (SidebarSurface). Hidden, the
-    // scroller measures 0 tall; kept, that would render no rows and the rail
-    // would come back empty for a frame. The last real size stands instead.
-    observeElementRect: (instance, cb) =>
-      observeElementRect(instance, (rect) => {
-        if (rect.height > 0) cb(rect);
-      }),
-  });
-
-  return (
-    <div role="tree" className={cn("flex flex-col", className)}>
-      <div ref={listRef} style={{ position: "relative", height: virtualizer.getTotalSize() }}>
-        <PinnedRows rows={rows} scroller={scroller} margin={margin} />
-        {virtualizer.getVirtualItems().map((item) => {
-          const row = rows[item.index];
-          return (
-            <div
-              key={item.key}
-              style={{
-                position: "absolute",
-                top: 0,
-                left: 0,
-                right: 0,
-                transform: `translateY(${item.start - margin}px)`,
-              }}
-            >
-              {row.placeholder ? (
-                <BranchPlaceholder node={row.node} level={row.level} />
-              ) : (
-                <TreeRowLine node={row.node} level={row.level} />
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
+  }
+  return <span aria-hidden>{lines}</span>;
 }
 
-/**
- * The pinned rows, on a zero-height host stuck to the scroller's top.
- *
- * Its own scroll listener rather than the virtualizer's offset: the virtualizer
- * re-renders only when the window of rows changes, so a scroll of a few pixels
- * left the pins where the last window put them — measured a row late at the
- * point one schema pushes out the next. flushSync, so the pins move in the same
- * frame as the rows; it renders two or three rows, not the window.
- *
- * Copies of real rows for the eye and the pointer; the windowed rows are what
- * assistive tech and the tab order see.
- */
-function PinnedRows({
-  rows,
-  scroller,
-  margin,
-}: {
-  rows: FlatRow[];
-  scroller: HTMLElement | null;
-  margin: number;
-}) {
-  const [offset, setOffset] = useState(0);
+function Row({ row, copy = false }: { row: FlatRow; copy?: boolean }) {
+  const { node, level, open } = row;
+  const hasCount = node.count !== undefined;
+  const hasActions = node.actions != null;
 
-  useEffect(() => {
-    if (!scroller) return;
-    setOffset(scroller.scrollTop - margin);
-    const onScroll = () => flushSync(() => setOffset(scroller.scrollTop - margin));
-    scroller.addEventListener("scroll", onScroll, { passive: true });
-    return () => scroller.removeEventListener("scroll", onScroll);
-  }, [scroller, margin]);
-
-  const pins = pinnedRows(rows, offset, TREE_ROW_HEIGHT);
-  return (
-    <div style={{ position: "sticky", top: 0, height: 0, zIndex: 2 }}>
-      {/* Deepest first, so a schema being pushed out slides under its
-          connection instead of over it. */}
-      {[...pins].reverse().map(({ index, top }) => (
-        <div
-          key={rows[index].key}
-          aria-hidden
-          className="bg-(--background-app)"
-          style={{ position: "absolute", top, left: 0, right: 0 }}
-        >
-          <TreeRowLine node={rows[index].node} level={rows[index].level} copy />
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function TreeRows({ nodes, level }: { nodes: TreeNodeData[]; level: number }) {
-  return (
-    <>
-      {nodes.map((node) => (
-        <TreeRow key={node.id} node={node} level={level} />
-      ))}
-    </>
-  );
-}
-
-/**
- * The row itself, shared by both renderings. `copy` is a pinned row's
- * duplicate, kept out of the tab order.
- */
-function TreeRowLine({
-  node,
-  level,
-  copy = false,
-}: {
-  node: TreeNodeData;
-  level: number;
-  copy?: boolean;
-}) {
-  const open = !!node.expandable && !!node.expanded;
-  const row = (
+  const line = (
     <div
       role={copy ? undefined : "treeitem"}
       aria-level={copy ? undefined : level + 1}
       aria-expanded={!copy && node.expandable ? open : undefined}
       aria-selected={(!copy && node.selected) || undefined}
       title={node.title}
-      style={{ paddingLeft: indent(level) }}
-      className={cn(
-        // The tree tier (--control-height-xs): depth costs vertical room here,
-        // so a row is denser than the flat lists in other rails.
-        // The border is on every row, transparent until selected: a border that
-        // appears would move the label 1px and shove the whole subtree down.
-        "group flex h-(--control-height-xs) items-center gap-1 rounded-md border pr-1.5",
-        node.selected
-          // --status-info, not the brand colour: a brand is free to be pale,
-          // and --action-primary at 45% measured 1.05:1 against this very fill
-          // on devkit light — a border that says "selected" to nobody looking
-          // at it. See themeContrast.test.ts, which floors this mark at 3:1.
-          ? "border-status-info bg-surface-raised text-text-primary"
-          // The state layer, not a translucent surface. --surface-raised at 60%
-          // lifts clearly off a near-black rail and is all but invisible on a
-          // light one (1.06:1 against --background-app, against dark's 1.14);
-          // --state-soft is defined per mode for exactly this — white alpha
-          // where dark lifts, ink alpha where light recesses — and lands at
-          // 1.08–1.18 in every palette either way.
-          : "border-transparent text-text-secondary hover:bg-state-soft hover:text-text-primary",
-      )}
+      data-level={level}
+      className="group/row relative"
+      style={{ height: TREE_ROW_HEIGHT }}
     >
-      {/* One button for the whole row, chevron included: a separate chevron
-          target would be a button inside a button. Clicking a row both selects
-          it and opens it, which is what a single-click tree does anyway. */}
-      <button
-        type="button"
-        tabIndex={copy ? -1 : undefined}
-        className="flex min-w-0 flex-1 items-center gap-1 text-left"
-        onClick={() => {
-          node.onSelect?.();
-          node.onToggle?.();
-        }}
-        onDoubleClick={node.onActivate}
+      <Guides row={row} />
+      {/* The highlight starts at the row's own chevron, not the rail's edge:
+          a full-width one would paint over the guides it hangs from. */}
+      <div
+        className={cn(
+          // The border is on every row, transparent until selected: a border
+          // that appears would move the label 1px.
+          "absolute inset-y-0 right-1 flex items-center gap-1 rounded-md border pr-1.5",
+          node.selected
+            // Tinted, and the border stays: --status-info is the mark that
+            // clears 3:1 in every palette (themeContrast.test.ts), the tint
+            // alone does not. Measured 4.51–13.38 in the gallery.
+            ? "border-status-info bg-status-info/10 text-text-primary"
+            // --state-soft is defined per mode — white alpha where dark lifts,
+            // ink alpha where light recesses.
+            : "border-transparent text-text-secondary hover:bg-state-soft hover:text-text-primary",
+        )}
+        style={{ left: contentX(level) - 2, paddingLeft: 1 }}
       >
-        {/* The slot is kept on a leaf so names stay on one vertical line. */}
-        <span className="flex size-3 shrink-0 items-center justify-center text-text-tertiary">
-          {node.expandable && (
-            <ChevronRight
-              className={cn("size-3 transition-transform", open && "rotate-90")}
-            />
-          )}
-        </span>
-        {node.icon}
-        {/* Not flex-1: the label takes what it needs and no more, so `meta`
-            follows the name instead of the row's right edge. */}
-        <span className="min-w-0 truncate text-body-13">{node.label}</span>
-        {node.meta ? (
-          <span className="shrink-0 text-code-11 text-text-tertiary">{node.meta}</span>
+        {/* One button for the whole row, chevron included: a separate chevron
+            target would be a button inside a button. Clicking a row both
+            selects it and opens it, which is what a single-click tree does. */}
+        <button
+          type="button"
+          tabIndex={copy ? -1 : undefined}
+          className="flex min-w-0 flex-1 items-center gap-1 text-left"
+          onClick={() => {
+            node.onSelect?.();
+            node.onToggle?.();
+          }}
+          onDoubleClick={node.onActivate}
+        >
+          {/* The slot is kept on a leaf so names stay on one vertical line. */}
+          <span className="flex size-3 shrink-0 items-center justify-center text-text-tertiary">
+            {node.expandable && (
+              <ChevronRight className={cn("size-3 transition-transform", open && "rotate-90")} />
+            )}
+          </span>
+          {node.icon}
+          <span data-slot="tree-label" className="min-w-0 truncate text-body-13">
+            {node.label}
+          </span>
+          {/* Gives way first: at 240 a column's type kept its width and the
+              name was cut. The name is what the row is for. */}
+          {node.meta ? (
+            <span className="min-w-0 truncate text-code-11 text-text-tertiary" style={{ flexShrink: 100 }}>
+              {node.meta}
+            </span>
+          ) : null}
+        </button>
+        {hasCount || hasActions ? (
+          <span className="relative flex shrink-0 items-center justify-end">
+            {hasCount ? (
+              <span
+                className={cn(
+                  "text-code-11 tabular-nums text-text-tertiary",
+                  hasActions &&
+                    "group-hover/row:opacity-0 group-focus-within/row:opacity-0 group-has-data-[state=open]/row:opacity-0",
+                )}
+              >
+                {node.count}
+              </span>
+            ) : null}
+            {hasActions ? (
+              // Over the count where there is one; where there is not, no room
+              // until shown — kept at opacity 0 they cost every name 40px.
+              // Held open while a menu they opened is: hiding its trigger would
+              // leave the menu anchored to nothing.
+              <span
+                className={cn(
+                  "items-center gap-0.5",
+                  hasCount
+                    ? "absolute right-0 flex opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100 has-data-[state=open]:opacity-100"
+                    : "hidden group-hover/row:flex group-focus-within/row:flex has-data-[state=open]:flex",
+                )}
+              >
+                {node.actions}
+              </span>
+            ) : null}
+          </span>
         ) : null}
-      </button>
-      {node.trailing}
+        {node.trailing}
+      </div>
     </div>
   );
 
-  return node.wrap ? node.wrap(row) : row;
+  return node.wrap ? <>{node.wrap(line)}</> : line;
 }
 
-/** The loading or empty line under an expanded node with no children. */
-function BranchPlaceholder({ node, level }: { node: TreeNodeData; level: number }) {
+function Placeholder({ row }: { row: FlatRow }) {
   return (
-    <span
-      className="flex h-(--control-height-xs) items-center pr-1.5 text-code-11 text-text-tertiary"
-      style={{ paddingLeft: indent(level) + 16 }}
-    >
-      {node.loading ? "Loading…" : node.emptyLabel}
-    </span>
+    <div className="relative" style={{ height: TREE_ROW_HEIGHT }}>
+      <Guides row={row} />
+      <span
+        className="absolute inset-y-0 flex items-center text-code-11 text-text-tertiary"
+        style={{ left: contentX(row.level) + CHEVRON + 4 }}
+      >
+        {row.node.loading ? "Loading…" : row.node.emptyLabel}
+      </span>
+    </div>
   );
 }
 
-function TreeRow({ node, level }: { node: TreeNodeData; level: number }) {
-  const open = !!node.expandable && !!node.expanded;
-  const wrapped = <TreeRowLine node={node} level={level} />;
+/**
+ * The tree, windowed, in a scroller of its own — give it a height with
+ * `className` (flex-1 in a rail).
+ *
+ * One rendering for every size. Only the rows in view are in the DOM, which is
+ * what keeps a 900-table connection cheap to bring back on screen: the rail
+ * used to lay out every row each time, 96–134ms against 5–6ms windowed.
+ *
+ * No motion but the chevron's turn. Owning the scroller is what the edge fades
+ * need — a mask on it — and the pins and the window both read its offset.
+ */
+export function TreeView({ nodes, className }: { nodes: TreeNodeData[]; className?: string }) {
+  const rows = flattenTree(nodes);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [view, setView] = useState({ offset: 0, top: false, bottom: false });
+
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scrollRef.current,
+    getItemKey: (i) => rows[i].key,
+    estimateSize: () => TREE_ROW_HEIGHT,
+    overscan: 12,
+    paddingStart: PAD_TOP,
+    paddingEnd: PAD_BOTTOM,
+    // Rows before the scroller is measured: a window's worth, not an empty rail.
+    initialRect: { width: 0, height: typeof window === "undefined" ? 800 : window.innerHeight },
+    // A module's rail stays mounted while another module is on screen
+    // (SidebarSurface). Hidden, the scroller measures 0 tall; kept, that would
+    // render no rows and the rail would come back empty for a frame.
+    observeElementRect: (instance, cb) =>
+      observeElementRect(instance, (rect) => {
+        if (rect.height > 0) cb(rect);
+      }),
+  });
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const read = () => ({
+      offset: el.scrollTop - PAD_TOP,
+      top: el.scrollTop > 0,
+      bottom: el.scrollTop + el.clientHeight < el.scrollHeight - 1,
+    });
+    setView(read());
+    // Its own listener, not the virtualizer's offset: the virtualizer
+    // re-renders only when the window changes, which left the pins a row late.
+    // flushSync, so pins and fades move in the frame the rows do.
+    const onScroll = () => flushSync(() => setView(read()));
+    el.addEventListener("scroll", onScroll, { passive: true });
+    const observer = new ResizeObserver(() => setView(read()));
+    observer.observe(el);
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      observer.disconnect();
+    };
+  }, [rows.length]);
+
+  const pins = pinnedRows(rows, view.offset, TREE_ROW_HEIGHT);
+  const pinBottom = pins.reduce((bottom, pin) => Math.max(bottom, pin.top + TREE_ROW_HEIGHT), 0);
+  // The fades start under the pins: what is pinned stays solid, and what
+  // scrolls beneath it dissolves into it instead of being cut at its edge.
+  const mask = `linear-gradient(to bottom, #000 0, #000 ${pinBottom}px, ${view.top ? "transparent" : "#000"} ${pinBottom}px, #000 ${pinBottom + FADE}px, #000 calc(100% - ${FADE}px), ${view.bottom ? "transparent" : "#000"} 100%)`;
 
   return (
-    <>
-      {node.sticky === undefined ? (
-        wrapped
-      ) : (
-        /*
-         * A pinned row sits on a square, opaque ground of its own.
-         *
-         * The rail has no material, so a bare sticky row lets the tables
-         * scroll through it. The ground used to be the row's ::after, and it
-         * leaked three ways: it inherited the row's radius (text in the
-         * corners), stopped at the padding box (a 1px ring through the
-         * transparent border), and at z-index -1 inside the row's stacking
-         * context it painted OVER the selected tint. A wrapper is square,
-         * covers the border box, and paints under everything the row draws.
-         */
-        <div className="bg-(--background-app)" style={{ position: "sticky", top: node.sticky, zIndex: 2 }}>
-          {wrapped}
+    <div
+      ref={scrollRef}
+      className={cn("min-h-0 overflow-y-auto", className)}
+      style={{ maskImage: mask, WebkitMaskImage: mask }}
+    >
+      <div role="tree" style={{ position: "relative", height: virtualizer.getTotalSize() }}>
+        {/* Pinned rows on a zero-height host stuck to the scroller's top.
+            Copies for the eye and the pointer; the windowed rows are what
+            assistive tech and the tab order see. Deepest first, so a schema
+            being pushed out slides under its connection. */}
+        <div style={{ position: "sticky", top: 0, height: 0, zIndex: 2 }}>
+          {[...pins].reverse().map(({ index, top }) => (
+            <div
+              key={rows[index].key}
+              aria-hidden
+              className="bg-(--background-app)"
+              style={{ position: "absolute", top, left: 0, right: 0 }}
+            >
+              <Row row={rows[index]} copy />
+            </div>
+          ))}
         </div>
-      )}
-      {open && (
-        // min-w-0 so a branch shrinks to the rail and its labels ellipsise,
-        // rather than growing to the longest table name.
-        <div role="group" className="min-w-0">
-          {node.children?.length ? (
-            <TreeRows nodes={node.children} level={level + 1} />
-          ) : (
-            <BranchPlaceholder node={node} level={level + 1} />
-          )}
-        </div>
-      )}
-    </>
+        {virtualizer.getVirtualItems().map((item) => {
+          const row = rows[item.index];
+          return (
+            <div
+              key={item.key}
+              style={{ position: "absolute", top: 0, left: 0, right: 0, transform: `translateY(${item.start}px)` }}
+            >
+              {row.placeholder ? <Placeholder row={row} /> : <Row row={row} />}
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }

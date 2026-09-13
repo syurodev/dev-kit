@@ -12,8 +12,7 @@ import {
   Table2,
   Type,
 } from "lucide-react";
-import { TreeView } from "@/components/tree-view";
-import { TreeViewNext, type TreeNextNode } from "@/components/tree-view-next";
+import { TreeView, type TreeNodeData } from "@/components/tree-view";
 import { useTheme } from "@/theme/ThemeProvider";
 import { FAMILIES } from "@/theme/families";
 import { applyThemeFamily } from "@/theme/applyTheme";
@@ -44,7 +43,7 @@ function RowActions() {
 function useTreeState(initialOpen: string[], initialSelected: string) {
   const [open, setOpen] = useState(() => new Set(initialOpen));
   const [selected, setSelected] = useState(initialSelected);
-  return (id: string, extra: Partial<TreeNextNode> = {}): Pick<TreeNextNode, "id" | "expanded" | "onToggle" | "selected" | "onSelect"> & Partial<TreeNextNode> => ({
+  return (id: string, extra: Partial<TreeNodeData> = {}): Pick<TreeNodeData, "id" | "expanded" | "onToggle" | "selected" | "onSelect"> & Partial<TreeNodeData> => ({
     id,
     expanded: open.has(id),
     onToggle: () =>
@@ -67,7 +66,7 @@ const LONG_TABLES = [
   "ba_his_employee_map",
 ];
 
-function useDatabaseNodes(): TreeNextNode[] {
+function useDatabaseNodes(): TreeNodeData[] {
   const n = useTreeState(
     ["prod", "orders", "orders.public", "orders.public.customers", "orders.public.orders_archive"],
     "orders.public.customers",
@@ -75,13 +74,13 @@ function useDatabaseNodes(): TreeNextNode[] {
   const folderIcon = (id: string, isOpen: boolean) =>
     isOpen ? <FolderOpen key={id} className={GLYPH} /> : <Folder key={id} className={GLYPH} />;
 
-  const columns: TreeNextNode[] = [
+  const columns: TreeNodeData[] = [
     { id: "id", label: "id", icon: <KeyRound className={GLYPH} />, meta: "bigint" },
     { id: "email", label: "email", icon: <Type className={GLYPH} />, meta: "varchar(255)" },
     { id: "full_name", label: "full_name", icon: <Type className={GLYPH} />, meta: "text" },
     { id: "created_at", label: "created_at", icon: <Type className={GLYPH} />, meta: "timestamptz" },
   ];
-  const tables: TreeNextNode[] = [
+  const tables: TreeNodeData[] = [
     ...LONG_TABLES,
     ...Array.from({ length: 56 }, (_, i) => `table_${String(i).padStart(2, "0")}`),
   ].map((name) => ({ ...n(`orders.public.${name}`), label: name, icon: <Table2 className={GLYPH} />, expandable: true }));
@@ -91,7 +90,7 @@ function useDatabaseNodes(): TreeNextNode[] {
     icon: <Table2 className={GLYPH} />,
     expandable: true,
     children: columns,
-    trailing: <RowActions />,
+    actions: <RowActions />,
   });
   tables.splice(2, 0, {
     ...n("orders.public.orders_archive"),
@@ -101,7 +100,7 @@ function useDatabaseNodes(): TreeNextNode[] {
     loading: true,
   });
 
-  const schema = (conn: string, name: string, children: TreeNextNode[], count: number): TreeNextNode => ({
+  const schema = (conn: string, name: string, children: TreeNodeData[], count: number): TreeNodeData => ({
     ...n(`${conn}.${name}`),
     label: name,
     icon: <Layers className={GLYPH} />,
@@ -109,7 +108,7 @@ function useDatabaseNodes(): TreeNextNode[] {
     sticky: 24,
     count,
     children,
-    trailing: <RowActions />,
+    actions: <RowActions />,
   });
 
   const orders = n("orders");
@@ -128,7 +127,7 @@ function useDatabaseNodes(): TreeNextNode[] {
           expandable: true,
           sticky: 0,
           count: 2,
-          trailing: <RowActions />,
+          actions: <RowActions />,
           children: [
             schema("orders", "public", tables, tables.length),
             schema("orders", "billing", [], 18),
@@ -155,9 +154,9 @@ function useDatabaseNodes(): TreeNextNode[] {
   ];
 }
 
-function useNotesNodes(): TreeNextNode[] {
+function useNotesNodes(): TreeNodeData[] {
   const n = useTreeState(["updates", "docs3", "sales", "untitled", "support"], "peter");
-  const folder = (id: string, label: string, count: number | undefined, children: TreeNextNode[], extra: Partial<TreeNextNode> = {}) => {
+  const folder = (id: string, label: string, count: number | undefined, children: TreeNodeData[], extra: Partial<TreeNodeData> = {}) => {
     const base = n(id);
     return {
       ...base,
@@ -166,16 +165,16 @@ function useNotesNodes(): TreeNextNode[] {
       expandable: true,
       count,
       children,
-      trailing: <RowActions />,
+      actions: <RowActions />,
       ...extra,
     };
   };
-  const doc = (id: string, label: string, count?: number): TreeNextNode => ({
+  const doc = (id: string, label: string, count?: number): TreeNodeData => ({
     ...n(id),
     label,
     icon: <FileText className={GLYPH} />,
     count,
-    trailing: <RowActions />,
+    actions: <RowActions />,
   });
   return [
     folder("updates", "Product Updates", 18, [
@@ -236,7 +235,7 @@ function Rail({ width, height = 440, children }: { width: number; height?: numbe
   );
 }
 
-function Sample({ title, nodes, levels, comparison = false }: { title: string; nodes: TreeNextNode[]; levels: string[]; comparison?: boolean }) {
+function Sample({ title, nodes, levels }: { title: string; nodes: TreeNodeData[]; levels: string[] }) {
   const wide = useRef<HTMLDivElement>(null);
   const narrow = useRef<HTMLDivElement>(null);
   return (
@@ -245,26 +244,16 @@ function Sample({ title, nodes, levels, comparison = false }: { title: string; n
       <div className="flex flex-wrap items-start gap-6">
         <div ref={wide} className="flex flex-col gap-1">
           <Rail width={280}>
-            <TreeViewNext nodes={nodes} className="flex-1" />
+            <TreeView nodes={nodes} className="flex-1" />
           </Rail>
           <LabelRoom target={wide} names={levels} />
         </div>
         <div ref={narrow} className="flex flex-col gap-1">
           <Rail width={240}>
-            <TreeViewNext nodes={nodes} className="flex-1" />
+            <TreeView nodes={nodes} className="flex-1" />
           </Rail>
           <LabelRoom target={narrow} names={levels} />
         </div>
-        {comparison ? (
-          <div className="flex flex-col gap-1">
-            <Rail width={280}>
-              <div className="min-h-0 flex-1 overflow-y-auto">
-                <TreeView nodes={nodes} className="pt-1" />
-              </div>
-            </Rail>
-            <p className="text-code-11 text-text-tertiary">Today&apos;s TreeView, same data</p>
-          </div>
-        ) : null}
       </div>
     </div>
   );
@@ -399,7 +388,6 @@ export function TreeNextSection() {
           title="Database rail — folder › connection › schema › table › column. Scroll to see the pins; hover a schema or table for its actions."
           nodes={database}
           levels={["folder", "connection", "schema", "table", "column"]}
-          comparison
         />
         <Sample title="Notes-shaped tree — the reference image's data." nodes={notes} levels={["level 0", "level 1", "level 2", "level 3"]} />
         <ContrastTable />
