@@ -97,6 +97,27 @@ describe("buildBrowseQuery", () => {
     expect(sql).toContain("'o''brien'");
   });
 
+  // #36. The cursor is cell text someone else may have written. MySQL reads a
+  // backslash as an escape, so a key ending in one would close the literal
+  // early and turn the rest of the row into SQL — doubling the quote alone
+  // is only enough for Postgres.
+  test("a MySQL cursor value carrying a backslash cannot end the literal", () => {
+    const { sql } = buildBrowseQuery({
+      ...base,
+      engine: "mysql",
+      cursor: { values: ["\\') OR 1=1 -- "], direction: "next" },
+    });
+    expect(sql).toContain("> ('\\\\'') OR 1=1 -- ')");
+  });
+
+  test("a Postgres cursor value keeps its backslash as text", () => {
+    const { sql } = buildBrowseQuery({
+      ...base,
+      cursor: { values: ["C:\\"], direction: "next" },
+    });
+    expect(sql).toContain("> ('C:\\')");
+  });
+
   // A11. The reason the comparison is written `(a, b) > (…)` rather than
   // `a > …` is a composite key, and with a single-column key the two forms are
   // indistinguishable — so nothing above would catch a bug here. Every key
