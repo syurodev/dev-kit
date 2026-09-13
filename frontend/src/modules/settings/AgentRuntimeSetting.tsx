@@ -49,6 +49,7 @@ import {
   type AgentRuntimeStatus,
   type ClaudeBinarySource,
   type Requirement,
+  compareVersions,
 } from "@/bridge/agentRuntime";
 
 export const agentRuntimeQueryKey = (agent: string) => ["agentRuntime", agent] as const;
@@ -175,7 +176,10 @@ export function AgentRuntimeSetting() {
           {current && current.version !== testedVersion ? (
             <Button type="button" size="sm" disabled={rt.busy} onClick={() => rt.install()}>
               <Download />
-              {`Update to ${testedVersion} (tested)`}
+              {/* Off an untested newer version this is a step back, and says so. */}
+              {compareVersions(current.version, testedVersion) > 0
+                ? `Switch back to ${testedVersion} (tested)`
+                : `Update to ${testedVersion} (tested)`}
             </Button>
           ) : null}
           {current ? (

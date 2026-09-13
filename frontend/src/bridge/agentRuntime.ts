@@ -113,3 +113,19 @@ export function formatBytes(bytes: number): string {
   }
   return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
 }
+
+/**
+ * Orders two dotted versions by their numeric parts, so "0.10.0" sorts after
+ * "0.9.0". A string comparison would say otherwise, and the button that moves
+ * off an untested version would call a downgrade an update.
+ */
+export function compareVersions(a: string, b: string): number {
+  const left = a.match(/\d+/g)?.map(Number) ?? [];
+  const right = b.match(/\d+/g)?.map(Number) ?? [];
+  for (let i = 0; i < Math.max(left.length, right.length); i += 1) {
+    const diff = (left[i] ?? 0) - (right[i] ?? 0);
+    if (diff !== 0) return Math.sign(diff);
+  }
+  return 0;
+}
+

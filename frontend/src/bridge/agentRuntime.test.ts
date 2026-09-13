@@ -9,6 +9,7 @@ import {
   type AgentRuntimeStatus,
   type InstalledRuntime,
 } from "./agentRuntime";
+import { compareVersions } from "./agentRuntime";
 import { AppError } from "./errors";
 
 function installed(version: string): InstalledRuntime {
@@ -81,3 +82,10 @@ test("formatBytes", () => {
   expect(formatBytes(1536)).toBe("1.5 KB");
   expect(formatBytes(250 * 1024 * 1024)).toBe("250 MB");
 });
+
+test("versions compare by number, not by text", () => {
+  expect(compareVersions("0.10.0", "0.9.0")).toBe(1);
+  expect(compareVersions("0.74.0", "0.76.0")).toBe(-1);
+  expect(compareVersions("0.74", "0.74.0")).toBe(0);
+});
+
