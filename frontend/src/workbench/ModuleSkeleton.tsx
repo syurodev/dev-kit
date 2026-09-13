@@ -6,6 +6,7 @@ import {
 } from "@/components/ui/sidebar-shell";
 import { useSidebarContentStore } from "@/stores/sidebarContent";
 import { getModule, type ModuleManifest } from "@/modules/registry";
+import { perfLog } from "@/lib/perfLog";
 
 /**
  * Whether a module already has a rail on screen, from either source.
@@ -62,11 +63,8 @@ function useSkeletonTrace(): void {
       return;
     }
     const startedAt = shownAt.current;
-    // eslint-disable-next-line no-console -- dev-only instrumentation
-    console.info(`[skeleton] shown`);
     return () => {
-      // eslint-disable-next-line no-console -- dev-only instrumentation
-      console.info(`[skeleton] gone after ${Math.round(performance.now() - startedAt)}ms`);
+      perfLog(`[perf] skeleton gone after ${Math.round(performance.now() - startedAt)}ms`);
     };
   }, []);
 }

@@ -1,4 +1,5 @@
 import { getModule, viewIcon } from "@/modules/registry";
+import { perfLog } from "@/lib/perfLog";
 import { moduleTabs, tabKey, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
 import { DEFAULT_CONSOLE_ID, useDatabaseStore } from "./databaseStore";
 
@@ -20,8 +21,7 @@ function open(viewId: string, title: string, params?: Record<string, unknown>, p
     void preload()
       .then(() => {
         if (import.meta.env.DEV || localStorage.getItem("devkitPerf") === "1") {
-          // eslint-disable-next-line no-console -- dev-only instrumentation
-          console.info(`[chunk] ${viewId} ready in ${Math.round(performance.now() - startedAt)}ms`);
+          perfLog(`[perf] chunk ${viewId} ready in ${Math.round(performance.now() - startedAt)}ms`);
         }
       })
       .catch(() => undefined);

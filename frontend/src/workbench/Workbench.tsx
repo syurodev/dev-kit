@@ -1,4 +1,5 @@
-import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, memo, Profiler, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { recordCommit } from "@/lib/perfLog";
 import { ModuleSkeleton } from "./ModuleSkeleton";
 import { Events, Window } from "@wailsio/runtime";
 import { MessageSquare, PanelBottom, PanelLeft, Search, Settings as SettingsIcon } from "lucide-react";
@@ -576,6 +577,8 @@ export function Workbench() {
   const hasMetadataWarning = metadataError || parityIssues.length > 0;
 
   return (
+    // Feeds perfTrace's "ms React". Profiler is inert in production builds.
+    <Profiler id="workbench" onRender={recordCommit}>
     <AppShell
       fullscreen={isFullscreen}
       activeModuleId={activeModule?.id ?? null}
@@ -803,5 +806,6 @@ export function Workbench() {
         activeTabId={activeTabs.activeTabId}
       />
     </AppShell>
+    </Profiler>
   );
 }
