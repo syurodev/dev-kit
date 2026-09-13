@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -168,17 +169,62 @@ func (c *mysqlConn) Close() {
 	releaseMySQLTLS(c.tlsName)
 }
 
+/*
+Query runs one statement on a connection pinned for as long as its rows are
+open, so that a cancel can name it to the server (#40).
+
+go-sql-driver ends a cancelled call by closing its socket, and MySQL does not
+notice a closed socket until it next writes to it: a stopped UPDATE ran to the
+end and committed while the console said it had stopped. KILL QUERY, sent on
+another connection, is how MySQL is told — and it needs the server's id for the
+connection, which costs a round trip per statement.
+*/
 func (c *mysqlConn) Query(ctx context.Context, query string, args ...any) (Rows, error) {
-	rows, err := c.db.QueryContext(ctx, query, args...)
+	pinned, err := c.db.Conn(ctx)
 	if err != nil {
+		return nil, err
+	}
+	id, err := connectionID(ctx, pinned)
+	if err != nil {
+		_ = pinned.Close()
+		return nil, err
+	}
+	stop := context.AfterFunc(ctx, c.killQuery(id))
+	release := func() {
+		stop()
+		_ = pinned.Close()
+	}
+	rows, err := pinned.QueryContext(ctx, query, args...)
+	if err != nil {
+		release()
 		return nil, err
 	}
 	columns, err := rows.Columns()
 	if err != nil {
 		_ = rows.Close()
+		release()
 		return nil, err
 	}
-	return &mysqlRows{rows: rows, columns: columns}, nil
+	return &mysqlRows{rows: rows, columns: columns, release: release}, nil
+}
+
+func connectionID(ctx context.Context, conn *sql.Conn) (int64, error) {
+	var id int64
+	err := conn.QueryRowContext(ctx, "SELECT CONNECTION_ID()").Scan(&id)
+	return id, err
+}
+
+// killQuery stops whatever the server connection id is running, from a
+// connection of its own, bounded because it runs after the user stopped waiting.
+//
+// ponytail: borrows from the profile's pool of four; with all four busy the KILL
+// waits out its 5s. A connection kept aside for it is the upgrade if that bites.
+func (c *mysqlConn) killQuery(id int64) func() {
+	return func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, _ = c.db.ExecContext(ctx, "KILL QUERY "+strconv.FormatInt(id, 10))
+	}
 }
 
 // Begin pins one of the pool's four connections for the transaction's life.
@@ -192,30 +238,42 @@ func (c *mysqlConn) Begin(ctx context.Context) (Tx, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Asked once: the transaction keeps this connection, so its id holds for
+	// every statement run inside it.
+	id, err := connectionID(ctx, pinned)
+	if err != nil {
+		_ = pinned.Close()
+		return nil, err
+	}
 	tx, err := pinned.BeginTx(ctx, nil)
 	if err != nil {
 		_ = pinned.Close()
 		return nil, err
 	}
-	return &mysqlTx{pinned: pinned, tx: tx}, nil
+	return &mysqlTx{pinned: pinned, tx: tx, kill: c.killQuery(id)}, nil
 }
 
 type mysqlTx struct {
 	pinned *sql.Conn
 	tx     *sql.Tx
+	// kill stops the statement running on the pinned connection. See Query.
+	kill func()
 }
 
 func (t *mysqlTx) Query(ctx context.Context, query string, args ...any) (Rows, error) {
+	stop := context.AfterFunc(ctx, t.kill)
 	rows, err := t.tx.QueryContext(ctx, query, args...)
 	if err != nil {
+		stop()
 		return nil, err
 	}
 	columns, err := rows.Columns()
 	if err != nil {
 		_ = rows.Close()
+		stop()
 		return nil, err
 	}
-	return &mysqlRows{rows: rows, columns: columns}, nil
+	return &mysqlRows{rows: rows, columns: columns, release: func() { stop() }}, nil
 }
 
 func (t *mysqlTx) Commit(ctx context.Context) error {
@@ -357,12 +415,22 @@ func (c *mysqlConn) ListColumns(ctx context.Context, schema, table string) ([]Co
 type mysqlRows struct {
 	rows    *sql.Rows
 	columns []string
+	// release runs once the rows are closed: the cancel watch is dropped, and
+	// an auto-commit statement's pinned connection goes back to the pool.
+	release func()
 }
 
 func (r *mysqlRows) Columns() []string { return r.columns }
 func (r *mysqlRows) Next() bool        { return r.rows.Next() }
 func (r *mysqlRows) Err() error        { return r.rows.Err() }
-func (r *mysqlRows) Close()            { _ = r.rows.Close() }
+
+func (r *mysqlRows) Close() {
+	_ = r.rows.Close()
+	if r.release != nil {
+		r.release()
+		r.release = nil
+	}
+}
 
 func (r *mysqlRows) Values() ([]string, error) {
 	raw := make([]any, len(r.columns))

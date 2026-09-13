@@ -131,9 +131,10 @@ func assertNoneRunning(t *testing.T, probe Conn, countSQL string) {
 	t.Fatalf("the statement is still running on the server (count=%q): cancel stopped the wait, not the query", last)
 }
 
-func dialPostgres(t *testing.T) Conn {
+// opts adjust the config before dialling — a read-only profile, say.
+func dialPostgres(t *testing.T, opts ...func(*ConnConfig)) Conn {
 	t.Helper()
-	conn, err := postgresDriver{}.Dial(context.Background(), ConnConfig{
+	cfg := ConnConfig{
 		Engine:   EnginePostgres,
 		Host:     envOr("DEVKIT_PG_HOST", "127.0.0.1"),
 		Port:     5432,
@@ -141,17 +142,21 @@ func dialPostgres(t *testing.T) Conn {
 		Username: envOr("DEVKIT_PG_USER", "devkit"),
 		Password: envOr("DEVKIT_PG_PASSWORD", "devkitpass"),
 		SSLMode:  "disable",
-	})
+	}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	conn, err := postgresDriver{}.Dial(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("Dial postgres: %v", err)
 	}
 	return conn
 }
 
-func dialMySQL(t *testing.T) Conn {
+func dialMySQL(t *testing.T, opts ...func(*ConnConfig)) Conn {
 	t.Helper()
 	port, _ := strconv.Atoi(envOr("DEVKIT_MYSQL_PORT", "3307"))
-	conn, err := mysqlDriver{engine: EngineMySQL}.Dial(context.Background(), ConnConfig{
+	cfg := ConnConfig{
 		Engine:   EngineMySQL,
 		Host:     envOr("DEVKIT_MYSQL_HOST", "127.0.0.1"),
 		Port:     port,
@@ -159,7 +164,11 @@ func dialMySQL(t *testing.T) Conn {
 		Username: envOr("DEVKIT_MYSQL_USER", "devkit"),
 		Password: envOr("DEVKIT_MYSQL_PASSWORD", "devkitpass"),
 		SSLMode:  "disable",
-	})
+	}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	conn, err := mysqlDriver{engine: EngineMySQL}.Dial(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("Dial mysql: %v", err)
 	}

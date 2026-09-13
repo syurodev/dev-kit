@@ -70,10 +70,15 @@ func (postgresDriver) Dial(ctx context.Context, cfg ConnConfig) (Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &postgresConn{pool: pool}, nil
+	return &postgresConn{pool: pool, readOnly: cfg.ReadOnly}, nil
 }
 
-type postgresConn struct{ pool *pgxpool.Pool }
+type postgresConn struct {
+	pool *pgxpool.Pool
+	// readOnly runs every statement inside a READ ONLY transaction. See
+	// queryReadOnly.
+	readOnly bool
+}
 
 func (c *postgresConn) Ping(ctx context.Context) error { return c.pool.Ping(ctx) }
 func (c *postgresConn) Close()                         { c.pool.Close() }
@@ -89,6 +94,9 @@ func (c *postgresConn) Close()                         { c.pool.Close() }
 var textResults = pgx.QueryResultFormats{pgx.TextFormatCode}
 
 func (c *postgresConn) Query(ctx context.Context, sql string, args ...any) (Rows, error) {
+	if c.readOnly {
+		return c.queryReadOnly(ctx, sql, args...)
+	}
 	rows, err := c.pool.Query(ctx, sql, append([]any{textResults}, args...)...)
 	if err != nil {
 		return nil, err
@@ -108,11 +116,68 @@ func (c *postgresConn) Query(ctx context.Context, sql string, args ...any) (Rows
 // hand, for the same reason: a bare BEGIN would open a transaction on whatever
 // connection served it and leave the next statement somewhere else.
 func (c *postgresConn) Begin(ctx context.Context) (Tx, error) {
-	tx, err := c.pool.Begin(ctx)
+	if !c.readOnly {
+		tx, err := c.pool.Begin(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return &postgresTx{tx: tx}, nil
+	}
+	tx, err := c.pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
 	if err != nil {
 		return nil, err
 	}
+	// READ ONLY binds only once the transaction holds a snapshot. Before that,
+	// SET TRANSACTION READ WRITE lifts it — and a manual transaction's first
+	// statement is the user's, arriving exactly then. A read takes the
+	// snapshot first, so nothing after it can (#43).
+	if _, err := tx.Exec(ctx, "SELECT 1"); err != nil {
+		_ = tx.Rollback(ctx)
+		return nil, err
+	}
 	return &postgresTx{tx: tx}, nil
+}
+
+/*
+queryReadOnly is how a read-only profile runs a statement (#43).
+
+default_transaction_read_only, set on every pooled connection, is a setting the
+session can change back: `SET default_transaction_read_only = off` stayed on the
+connection, and the next write it served went through. Inside a READ ONLY
+transaction that SET is undone by the rollback, and a single statement cannot
+lift the transaction's own READ ONLY — lifting it has to come before the
+snapshot, and every statement that could go on to write takes one first.
+
+The connection setting stays, for the catalogue reads the app runs itself.
+
+ponytail: three round trips (BEGIN, the statement, ROLLBACK) instead of one; a
+pipeline is the upgrade if a remote read-only profile feels slow.
+*/
+func (c *postgresConn) queryReadOnly(ctx context.Context, sql string, args ...any) (Rows, error) {
+	tx, err := c.pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return nil, err
+	}
+	rows, err := tx.Query(ctx, sql, append([]any{textResults}, args...)...)
+	if err != nil {
+		_ = tx.Rollback(ctx)
+		return nil, err
+	}
+	return &postgresRows{
+		rows:    rows,
+		columns: columnNames(rows),
+		// Rolled back, not committed: nothing in it can have written.
+		end: func() { _ = tx.Rollback(ctx) },
+	}, nil
+}
+
+func columnNames(rows pgx.Rows) []string {
+	fields := rows.FieldDescriptions()
+	columns := make([]string, len(fields))
+	for i, f := range fields {
+		columns[i] = f.Name
+	}
+	return columns
 }
 
 type postgresTx struct{ tx pgx.Tx }
@@ -352,12 +417,22 @@ func (c *postgresConn) ListColumns(ctx context.Context, schema, table string) ([
 type postgresRows struct {
 	rows    pgx.Rows
 	columns []string
+	// end finishes the transaction a read-only statement ran in, once its rows
+	// are done with. Nil for everything else.
+	end func()
 }
 
 func (r *postgresRows) Columns() []string { return r.columns }
 func (r *postgresRows) Next() bool        { return r.rows.Next() }
 func (r *postgresRows) Err() error        { return r.rows.Err() }
-func (r *postgresRows) Close()            { r.rows.Close() }
+
+func (r *postgresRows) Close() {
+	r.rows.Close()
+	if r.end != nil {
+		r.end()
+		r.end = nil
+	}
+}
 
 // Values reads the text the server sent (see textResults) as it is. The raw
 // buffers are reused on the next row, so each is copied into its string.
