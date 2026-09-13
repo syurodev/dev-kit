@@ -180,7 +180,11 @@ function TreeRow({ node, level, index }: { node: TreeNodeData; level: number; in
         // appears would move the label 1px and shove the whole subtree down.
         "group tree-row-enter flex h-(--control-height-xs) items-center gap-1 rounded-md border pr-1.5",
         node.selected
-          ? "border-action-primary/45 bg-surface-raised text-text-primary"
+          // --status-info, not the brand colour: a brand is free to be pale,
+          // and --action-primary at 45% measured 1.05:1 against this very fill
+          // on devkit light — a border that says "selected" to nobody looking
+          // at it. See themeContrast.test.ts, which floors this mark at 3:1.
+          ? "border-status-info bg-surface-raised text-text-primary"
           // The state layer, not a translucent surface. --surface-raised at 60%
           // lifts clearly off a near-black rail and is all but invisible on a
           // light one (1.06:1 against --background-app, against dark's 1.14);

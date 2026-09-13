@@ -77,10 +77,16 @@ function unvirtualizedTables(): number {
  * the prefers-reduced-transparency block is entirely made of them — and prose
  * mentioning the property costs nothing at all; counting either made the
  * number go up when glass was being removed, which is backwards.
+ *
+ * The exclusion was written as `\s*(?!none)` and did not work: `\s*` gives
+ * back the space it matched, the lookahead then reads " none", and " none"
+ * does not begin with "none", so every opt-out counted. Adding a
+ * reduced-transparency block for one new surface cost two. `(?!\s*none)`
+ * refuses on both paths, which is what the paragraph above always claimed.
  */
 function blurSurfaces(): number {
   let total = count(
-    /backdrop-filter:\s*(?!none)/,
+    /backdrop-filter:\s*(?!\s*none)/,
     readFileSync(join(ROOT, "index.css"), "utf8"),
   );
   for (const dir of ["modules", "components", "workbench", "dev"]) {
@@ -131,7 +137,10 @@ function untokenisedAnimateIn(): number {
 const BASELINE = {
   emptyListState: 6,
   unvirtualizedTables: 2,
-  blurSurfaces: 48,
+  // 48 → 44 with the glass button already in it: four of the old 48 were
+  // `backdrop-filter: none` opt-outs that the exclusion above never actually
+  // excluded.
+  blurSurfaces: 44,
   untokenisedAnimateIn: 3,
   unstableQueryDefaults: 0,
 };

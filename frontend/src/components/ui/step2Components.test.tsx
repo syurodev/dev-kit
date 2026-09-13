@@ -190,7 +190,11 @@ describe("Step 2 Form Controls Reconciliation", () => {
       expect(html).toContain('data-slot="tabs-list"')
       expect(html).toContain("h-8")
       expect(html).toContain("rounded-md")
-      expect(html).toContain("bg-black/25")
+      // Figma's black/25 lives in --segment-track now, with a light-mode
+      // value beside it: composited on a light surface the raw alpha made a
+      // grey track with the chip six values away from it, so the selected
+      // tab was invisible in light mode.
+      expect(html).toContain("bg-(--segment-track)")
       expect(html).toContain('data-slot="tabs-trigger"')
       expect(html).toContain("h-6")
       expect(html).toContain("rounded-sm")

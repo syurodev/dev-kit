@@ -1,6 +1,6 @@
 import { getModule, viewIcon } from "@/modules/registry";
-import { moduleTabs, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
-import { DEFAULT_CONSOLE_ID } from "./databaseStore";
+import { moduleTabs, tabKey, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
+import { DEFAULT_CONSOLE_ID, useDatabaseStore } from "./databaseStore";
 
 /**
  * Opening a Database document.
@@ -43,8 +43,37 @@ export function openTableTab(schema: string, table: string, preview = false): vo
   open("database.table", table, { schema, table }, preview);
 }
 
+/**
+ * A console id, from something that identifies the console.
+ *
+ * The id is also the name of the file the console is written to, so it has to
+ * survive being one: a table called `orders/2024` or a schema with a dot in
+ * it would otherwise produce a path, and the store rejects those rather than
+ * cleaning them. Deterministic, so reopening the same table finds the same
+ * console rather than starting a second one beside it.
+ */
+export function consoleIdFor(seed: string): string {
+  const slug = seed
+    .replace(/[^A-Za-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+  return `console-${slug || "untitled"}`;
+}
+
 export function openConsoleTab(consoleId: string, title = "Console"): void {
   open("database.console", title, { consoleId }, false);
+}
+
+/**
+ * Closes the tab a console is open in, if it is open in one.
+ *
+ * Deleting a console deletes the document, and leaving its editor open over
+ * a file that no longer exists is the kind of half-state that ends with the
+ * next keystroke writing the whole thing back.
+ */
+export function closeConsoleTab(consoleId: string): void {
+  const state = useWorkbenchTabsStore.getState();
+  state.closeTab(tabKey("database", "database.console", { consoleId }));
 }
 
 /**
@@ -59,6 +88,21 @@ let consoleSerial = 0;
 export function openNewConsoleTab(): void {
   consoleSerial += 1;
   openConsoleTab(`console-${consoleSerial}-${Math.random().toString(36).slice(2, 8)}`);
+}
+
+/**
+ * A saved query, opened in the console it always opens in.
+ *
+ * Namespaced by kind: a history entry and a saved query can share an id, and
+ * without the prefix the two would collide on one console. Here rather than
+ * in a view because two places open them now — the Saved queries document
+ * and the rail's Saved list — and two copies of the id rule is one console
+ * too many.
+ */
+export function openSavedQuery(entry: { id: string; name: string; sql: string }): void {
+  const consoleId = consoleIdFor(`saved-${entry.id}`);
+  useDatabaseStore.getState().setSql(consoleId, entry.sql);
+  openConsoleTab(consoleId, entry.name || "Console");
 }
 
 export function openErdTab(): void {

@@ -16,6 +16,8 @@ import {
   type SchemaSnapshot,
   type ColumnInfo,
 } from "../../bridge/database";
+import { listConsoles, type StoredConsole } from "../../bridge/database";
+import { consoleFiles } from "./consoleFiles";
 import { listEnvTags, type EnvTag } from "../../bridge/environments";
 import { listSSHProfiles, type SSHProfile } from "../../bridge/ssh";
 import { errorMessage, isCancelError } from "../../bridge/errors";
@@ -90,9 +92,35 @@ export function migrateFoldersToIds<T extends LegacyFolderState>(
  * console that asked for it, and a slow query landing after you switched tabs
  * has to find its way back to the tab that ran it.
  */
+/**
+ * What one statement did, the last time it ran.
+ *
+ * The duration rides along because the editor prints it beside the
+ * statement: with five statements in a console, "which one takes a second"
+ * is a question only a number next to each of them answers.
+ */
+export type StatementRun = { outcome: "ok" | "error"; durationMs: number };
+
+/** One grid, and the statement that produced it. */
+export type ResultTab = {
+  /** Names the tab, and says which of four grids you are looking at. */
+  statement: string;
+  result: QueryResult;
+};
+
 export type ConsoleState = {
   sql: string;
-  queryResult: QueryResult | null;
+  /**
+   * Every grid the last run produced, in the order the statements ran.
+   *
+   * A list rather than one result, because a script is several statements
+   * and each SELECT in it has an answer. "The last run" is the whole scope:
+   * one statement replaces the list with its own result, a script fills it.
+   * Nothing accumulates across runs, so there is never a tab whose rows came
+   * from a question asked ten minutes ago.
+   */
+  results: ResultTab[];
+  activeResult: number;
   runningQuery: boolean;
   queryStartTime: number | null;
   queryError: string;
@@ -101,14 +129,63 @@ export type ConsoleState = {
   queryRunId: number;
   /** Percent of the console's height given to the editor. */
   editorSize: number;
+  /**
+   * The connection and database the console's FILE says it belongs to — read
+   * back from the header the store writes, and rewritten on every save.
+   *
+   * Separate from the selected connection because the two can disagree, and
+   * the disagreement is the interesting state: a console restored from disk
+   * against a different connection than the one now selected is a console
+   * whose next Run goes somewhere its text was not written for.
+   */
+  originProfileId: string;
+  originDatabase: string;
+  /**
+   * How each statement went and how long it took, keyed by its own text.
+   *
+   * By text and not by position, which is what makes the marks in the gutter
+   * survive an edit: insert a line above and every offset moves, but the
+   * statement you ran is still that statement. Change the statement and its
+   * mark goes with it, because the answer you have is about something you no
+   * longer have.
+   */
+  statementRuns: Record<string, StatementRun>;
+  /** The statement the last run actually sent, which is not the whole console
+   * once a script has more than one. */
+  lastStatement: string;
 };
+
+/**
+ * How one statement's run ended.
+ *
+ * A script stops on anything that is not "ok", and the three ways that
+ * happens are not the same thing: an engine error is the user's to read, a
+ * cancel is the user's own decision, and "superseded" means a newer run in
+ * this console has already replaced the answer this one was going to give.
+ */
+export type RunVerdict = "ok" | "error" | "cancelled" | "superseded" | "skipped";
+
+/** Which of the rail's three lists is showing. */
+export type SidebarPane = "connections" | "consoles" | "saved";
+
+/**
+ * The grid on screen: the active one of the last run's results.
+ *
+ * A function rather than a field, because a field would be the same fact
+ * written twice and the two would disagree the first time one of them was
+ * updated without the other.
+ */
+export function visibleResult(console: ConsoleState): QueryResult | null {
+  return console.results[console.activeResult]?.result ?? null;
+}
 
 /** The console a module opens with, and the one every legacy caller means. */
 export const DEFAULT_CONSOLE_ID = "console-1";
 
 export const EMPTY_CONSOLE: ConsoleState = Object.freeze({
   sql: "",
-  queryResult: null,
+  results: [],
+  activeResult: 0,
   runningQuery: false,
   queryStartTime: null,
   queryError: "",
@@ -116,6 +193,10 @@ export const EMPTY_CONSOLE: ConsoleState = Object.freeze({
   queryDurationMs: null,
   queryRunId: 0,
   editorSize: 50,
+  originProfileId: "",
+  originDatabase: "",
+  statementRuns: {},
+  lastStatement: "",
 }) as ConsoleState;
 
 /**
@@ -250,6 +331,12 @@ export type DatabaseStoreState = {
 
   /** Every open console's state, keyed by the tab's console id. */
   consoles: Record<string, ConsoleState>;
+  /**
+   * Which list the rail is showing. Remembered, because a rail that snaps
+   * back to Connections on every launch makes the other two feel like modes
+   * you are visiting rather than places the app keeps things.
+   */
+  sidebarPane: SidebarPane;
 
   /** Every open table tab's browsing state, keyed "schema.table". */
   browse: Record<string, BrowseState>;
@@ -398,17 +485,40 @@ export type DatabaseStoreState = {
   setSelectedTable: (table: string) => void;
 
   // Query actions
-  executeQuery: (consoleId: string) => Promise<void>;
+  /** Runs one statement. Without one, the whole console — which is what a
+   * single-statement console means anyway. */
+  executeQuery: (
+    consoleId: string,
+    statement?: string,
+    options?: { append?: boolean },
+  ) => Promise<RunVerdict>;
+  /** Runs a script top to bottom, stopping at the first statement that does
+   * not come back clean. */
+  runScript: (consoleId: string, statements: readonly string[]) => Promise<void>;
   cancelQuery: (consoleId: string) => void;
   clearQueryResult: (consoleId: string) => void;
   clearQueryError: (consoleId: string) => void;
   /** Reports a failure into one console — Explain and friends, which run
    * outside executeQuery but land in the same error slot. */
   setQueryError: (consoleId: string, message: string) => void;
+  /** Brings one of a script's grids to the front. */
+  setActiveResult: (consoleId: string, index: number) => void;
+  /** Drops one grid. The rest of the run's tabs stay. */
+  closeResult: (consoleId: string, index: number) => void;
   /** Reads a console, defaulting to EMPTY_CONSOLE so callers never branch. */
   consoleState: (consoleId: string) => ConsoleState;
-  /** Drops a console's slice when its tab closes. */
+  /** Drops a console's slice when its tab closes, and the file with it. */
   closeConsole: (consoleId: string) => void;
+  /** Removes a console's file for good. The tab, if one is open, keeps its
+   * text — this deletes the document, and a console you are looking at is
+   * not a document you meant to lose mid-sentence. */
+  deleteConsoleFile: (consoleId: string) => void;
+  setSidebarPane: (pane: SidebarPane) => void;
+  /** Reads the console files back from disk into consoles nobody has typed in
+   * yet. Called once when the module's rail mounts. The loader is a parameter
+   * so the rule below — never land on top of typed text — can be tested
+   * without a bridge. */
+  hydrateConsoles: (load?: () => Promise<StoredConsole[]>) => Promise<void>;
 };
 
 /**
@@ -451,6 +561,14 @@ export function dropSeededFolders(folders: DatabaseFolder[]): DatabaseFolder[] {
  * the first thing that touched it. Every console writer goes through here so a
  * missing slice is never a branch at the call site.
  */
+/** The selected connection's record, or undefined before one is picked. */
+function profileOf(
+  state: { profiles: ConnectionProfile[] },
+  id: string,
+): ConnectionProfile | undefined {
+  return state.profiles.find((profile) => profile.id === id);
+}
+
 function patchConsole(
   set: (fn: (state: DatabaseStoreState) => Partial<DatabaseStoreState>) => void,
   consoleId: string,
@@ -524,6 +642,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   tableColumnsError: {},
 
   consoles: {},
+  sidebarPane: "connections",
   browse: {},
   browsePageSize: BROWSE_PAGE_SIZE,
   pageKeys: {},
@@ -582,7 +701,14 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       consoles: Object.fromEntries(
         Object.entries(state.consoles).map(([id, console]) => [
           id,
-          { ...console, queryResult: null, queryError: "", queryStatus: "", queryDurationMs: null },
+          {
+            ...console,
+            results: [],
+            activeResult: 0,
+            queryError: "",
+            queryStatus: "",
+            queryDurationMs: null,
+          },
         ]),
       ),
     }));
@@ -724,11 +850,12 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
   setSelectedSchema: (schema: string) => set({ selectedSchema: schema }),
   setSelectedTable: (table: string) => set({ selectedTable: table }),
 
-  executeQuery: async (consoleId) => {
+  executeQuery: async (consoleId, statement, options) => {
     const { selectedProfileId } = get();
     const console = get().consoleState(consoleId);
-    if (!selectedProfileId || !console.sql.trim()) {
-      return;
+    const sql = (statement ?? console.sql).trim();
+    if (!selectedProfileId || !sql) {
+      return "skipped";
     }
 
     const runId = console.queryRunId + 1;
@@ -738,35 +865,89 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       queryError: "",
       queryStatus: "",
       queryStartTime: Date.now(),
+      lastStatement: sql,
     });
 
     try {
-      const call = runQuery(selectedProfileId, console.sql);
+      const call = runQuery(selectedProfileId, sql);
       pendingQueries.set(consoleId, call);
       const result = await call;
       // A newer run in THIS console has already started; its answer wins.
       if (get().consoleState(consoleId).queryRunId !== runId) {
-        return;
+        return "superseded";
       }
+      // A single run is its own scope: its result replaces whatever was
+      // there. Only a script appends, and it cleared the list before it
+      // started — so the tabs on screen are always one run's worth.
+      const elapsed = Date.now() - (get().consoleState(consoleId).queryStartTime ?? Date.now());
+      const previous = options?.append ? get().consoleState(consoleId).results : [];
+      const results = [...previous, { statement: sql, result }];
       patchConsole(set, consoleId, {
-        queryResult: result,
+        results,
+        // The newest, so a script is watched arriving rather than reviewed
+        // afterwards.
+        activeResult: results.length - 1,
         runningQuery: false,
-        queryDurationMs: Date.now() - (get().consoleState(consoleId).queryStartTime ?? Date.now()),
+        queryDurationMs: elapsed,
         queryStatus: `${result.rowCount} row${result.rowCount === 1 ? "" : "s"}`,
+        statementRuns: {
+          ...get().consoleState(consoleId).statementRuns,
+          [sql]: { outcome: "ok", durationMs: elapsed },
+        },
       });
+      return "ok";
     } catch (e) {
       if (isCancelError(e)) {
         // A cancel is something the user asked for; it leaves the previous
         // result alone.
         patchConsole(set, consoleId, { runningQuery: false });
-        return;
+        return "cancelled";
       }
       if (get().consoleState(consoleId).queryRunId !== runId) {
-        return;
+        return "superseded";
       }
-      patchConsole(set, consoleId, { queryError: errorMessage(e), runningQuery: false });
+      const elapsed = Date.now() - (get().consoleState(consoleId).queryStartTime ?? Date.now());
+      patchConsole(set, consoleId, {
+        queryError: errorMessage(e),
+        runningQuery: false,
+        statementRuns: {
+          ...get().consoleState(consoleId).statementRuns,
+          [sql]: { outcome: "error", durationMs: elapsed },
+        },
+        // How long it took to fail is worth as much as how long it took to
+        // succeed — a statement rejected in 3ms is a typo, one that fails at
+        // 28s hit the cap. It was only recorded on the success path, which is
+        // also what made a failure look like nothing had run at all.
+        queryDurationMs: elapsed,
+      });
+      return "error";
     } finally {
       pendingQueries.delete(consoleId);
+    }
+  },
+
+  /*
+   * Top to bottom, stopping at the first statement that does not come back
+   * clean — including a cancel, which is the user saying stop and not the
+   * user saying skip this one.
+   *
+   * The marks are cleared first. A script that stops at the second statement
+   * must not leave the last three wearing ticks from the run before: the
+   * question the marks answer is "what happened this time", and the honest
+   * answer for a statement that never ran is nothing at all.
+   *
+   * The statements arrive split. The caller has the dialect, because it has
+   * the connection; the store has the sequencing, because it has the run.
+   */
+  runScript: async (consoleId, statements) => {
+    if (statements.length === 0) {
+      return;
+    }
+    patchConsole(set, consoleId, { statementRuns: {}, results: [], activeResult: 0 });
+    for (const statement of statements) {
+      if ((await get().executeQuery(consoleId, statement, { append: true })) !== "ok") {
+        return;
+      }
     }
   },
 
@@ -774,16 +955,85 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
     pendingQueries.get(consoleId)?.cancel();
   },
 
+  setActiveResult: (consoleId, index) => patchConsole(set, consoleId, { activeResult: index }),
+
+  /*
+   * Closing a tab leaves you looking at the same place, not back at the
+   * first one: close something to the left of the tab you are reading and
+   * the index has to come down with it, close the one you are reading and
+   * its neighbour takes the slot. Clamped, because the last tab has no
+   * neighbour to the right.
+   */
+  closeResult: (consoleId, index) => {
+    const console = get().consoleState(consoleId);
+    const results = console.results.filter((_, position) => position !== index);
+    const shifted = console.activeResult > index ? console.activeResult - 1 : console.activeResult;
+    patchConsole(set, consoleId, {
+      results,
+      activeResult: Math.max(0, Math.min(shifted, results.length - 1)),
+    });
+  },
+
   consoleState: (consoleId) => get().consoles[consoleId] ?? EMPTY_CONSOLE,
 
-  closeConsole: (consoleId) =>
+  /*
+   * Closing a console closes the TAB. The file stays.
+   *
+   * It used to delete, and that was defensible only while nothing could list
+   * the files: a console nobody could ever find again is a leak, not a
+   * document. The Consoles rail is what changed it — closing a tab is now
+   * how you tidy the strip, and deleting is a thing you do to a console you
+   * can see. Whatever was queued is written on the way out, because the last
+   * edit is usually still inside the debounce window when a tab is closed.
+   */
+  closeConsole: (consoleId) => {
+    consoleFiles.release(consoleId);
     set((state) => {
       if (!(consoleId in state.consoles)) {
         return state;
       }
       const { [consoleId]: _closed, ...rest } = state.consoles;
       return { consoles: rest };
-    }),
+    });
+  },
+
+  /*
+   * The consoles from disk, into the slices nobody has typed in yet.
+   *
+   * Untouched slices only. Hydration is a bridge call and the window renders
+   * long before it lands; overwriting a console the user has already started
+   * typing in — because a file from the last session arrived late — would be
+   * the worst possible way to lose a query.
+   */
+  deleteConsoleFile: (consoleId) => consoleFiles.forget(consoleId),
+
+  setSidebarPane: (pane) => set({ sidebarPane: pane }),
+
+  hydrateConsoles: async (load = listConsoles) => {
+    let stored;
+    try {
+      stored = await load();
+    } catch {
+      // A console that cannot be read is a console that starts empty. There
+      // is no banner for this: the user did not ask for it and cannot act on
+      // it, and the backend has logged the cause.
+      return;
+    }
+    set((state) => {
+      const consoles = { ...state.consoles };
+      for (const file of stored) {
+        const current = consoles[file.id];
+        if (current && current.sql !== "") continue;
+        consoles[file.id] = {
+          ...(current ?? EMPTY_CONSOLE),
+          sql: file.sql,
+          originProfileId: file.profileId,
+          originDatabase: file.database,
+        };
+      }
+      return { consoles };
+    });
+  },
 
   browseState: (key) => get().browse[key] ?? EMPTY_BROWSE,
 
@@ -1079,13 +1329,40 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
       return { browse, pageKeys };
     }),
 
-  setSql: (consoleId, sql) => patchConsole(set, consoleId, { sql }),
+  /*
+   * Every edit goes through here, so this is where the file is kept up to
+   * date. Debounced in consoleFiles — one write per pause, not per keystroke.
+   *
+   * The connection is stamped at write time rather than at creation: a
+   * console belongs to whatever it was last pointed at, and that is also what
+   * makes the file self-describing when you open it outside the app.
+   */
+  setSql: (consoleId, sql) => {
+    const { selectedProfileId, selectedSchema } = get();
+    const database = selectedSchema || profileOf(get(), selectedProfileId)?.database || "";
+    patchConsole(set, consoleId, {
+      sql,
+      originProfileId: selectedProfileId,
+      originDatabase: database,
+    });
+    consoleFiles.schedule({
+      id: consoleId,
+      profileId: selectedProfileId,
+      database,
+      sql,
+    });
+  },
 
   setConsoleEditorSize: (consoleId, size) =>
     patchConsole(set, consoleId, { editorSize: size }),
 
   clearQueryResult: (consoleId) =>
-    patchConsole(set, consoleId, { queryResult: null, queryStatus: "", queryDurationMs: null }),
+    patchConsole(set, consoleId, {
+      results: [],
+      activeResult: 0,
+      queryStatus: "",
+      queryDurationMs: null,
+    }),
 
   clearQueryError: (consoleId) => patchConsole(set, consoleId, { queryError: "" }),
 
@@ -1116,6 +1393,7 @@ export const useDatabaseStore = create<DatabaseStoreState>()(
         folders: state.folders,
         expandedFolders: state.expandedFolders,
         browsePageSize: state.browsePageSize,
+        sidebarPane: state.sidebarPane,
       }),
     },
   ),

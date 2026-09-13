@@ -1,29 +1,43 @@
 import { describe, expect, it, mock } from "bun:test";
 import { renderToString } from "react-dom/server";
-import { IconButton } from "./icon-button";
+import { Button } from "./button";
 import { Tag } from "./tag";
 import { TagInput } from "./tag-input";
 
 describe("Step 1 Shared Components Reconciliation", () => {
-  describe("Icon Button (Figma 27:85)", () => {
-
-    it("renders tone='primary' with action primary lime styling", () => {
+  /**
+   * Figma 27:85 was a component of its own until it turned out to be Button
+   * twice over: its primary tone is Button's primary, and its neutral tone is
+   * the same glass recipe as Button's secondary. A second component for a
+   * button that already existed is a second place to fix everything.
+   */
+  describe("Icon Button (Figma 27:85) is Button at icon size", () => {
+    it("renders the primary tone with action primary styling", () => {
       const html = renderToString(
-        <IconButton tone="primary" aria-label="Confirm">
-          <span data-testid="icon">+</span >
-        </IconButton>,
+        <Button variant="primary" size="icon" aria-label="Confirm">
+          <span data-testid="icon">+</span>
+        </Button>,
       );
 
-      expect(html).toContain('data-tone="primary"');
       expect(html).toContain("bg-action-primary");
       expect(html).toContain("text-action-primary-foreground");
       expect(html).toContain("size-(--control-height-md)");
       expect(html).toContain("rounded-md");
     });
 
+    it("renders the neutral tone on the glass recipe", () => {
+      const html = renderToString(
+        <Button variant="secondary" size="icon" aria-label="Neutral" />,
+      );
+      expect(html).toContain("bg-(--glass-panel-bg)");
+      expect(html).toContain("border-(--glass-border)");
+      expect(html).toContain("size-(--control-height-md)");
+    });
 
     it("handles disabled state", () => {
-      const html = renderToString(<IconButton disabled aria-label="Disabled" />);
+      const html = renderToString(
+        <Button variant="primary" size="icon" disabled aria-label="Disabled" />,
+      );
       expect(html).toContain("disabled");
       expect(html).toContain("disabled:opacity-38");
     });

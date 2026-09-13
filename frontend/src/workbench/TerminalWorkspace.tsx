@@ -78,9 +78,8 @@ export function TerminalWorkspace({ moduleContent }: { moduleContent?: React.Rea
         </Tabs>
         <div className="flex items-center gap-1">
           <Button
-            size="icon"
-            variant="ghost"
-            className="size-7 shrink-0 rounded-[8px] hover:bg-state-soft hover:text-text-primary cursor-pointer p-0"
+            size="icon-sm"
+            variant="titlebar"
             aria-label="New terminal"
             onClick={openTab}
           >

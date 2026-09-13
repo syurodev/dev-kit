@@ -23,6 +23,7 @@ import {
   Bookmark,
   History,
   Network,
+  Terminal,
 } from "lucide-react";
 import { ActionTooltip } from "@/components/ui/action-tooltip";
 import { Button } from "@/components/ui/button";
@@ -48,12 +49,15 @@ import {
 import { TreeView, type TreeNodeData } from "@/components/tree-view";
 import { cn } from "@/lib/utils";
 import { useShallow } from "zustand/react/shallow";
-import { useDatabaseStore } from "../databaseStore";
+import { useDatabaseStore, type SidebarPane } from "../databaseStore";
 import { countTables, filterNamespace, matchesProfile } from "../databaseTree";
 import { FolderIcon } from "../folderIcons";
 import { DatabaseModuleOverlays } from "../DatabaseModuleOverlays";
 import { RowContextMenuContent, RowDropdownMenuContent, type RowAction } from "./rowActions";
 import { EditFolderDialog } from "./EditFolderDialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ConsoleFilesPanel } from "./ConsoleFilesPanel";
+import { SavedQueriesPanel } from "./SavedQueriesPanel";
 import { DeleteProfileDialog } from "./DeleteProfileDialog";
 import { Chip, EngineMark } from "./EngineBadge";
 import { deleteProfile, type ConnectionProfile } from "../../../bridge/database";
@@ -62,6 +66,7 @@ import {
   openActivityTab,
   openErdTab,
   openHistoryTab,
+  openNewConsoleTab,
   openSavedTab,
   openTableTab,
 } from "../documents";
@@ -119,6 +124,16 @@ const ACTION =
  * `keys`/`indexes` under a table. The snapshot holds tables and columns only,
  * and a folder whose only child is the group below it is a click for nothing.
  */
+/**
+ * The rail's three lists, in the order they are reached for: the catalogue
+ * you browse, the consoles you left open, the queries you kept.
+ */
+const PANES: { value: SidebarPane; label: string; Icon: typeof Database }[] = [
+  { value: "connections", label: "Connections", Icon: Database },
+  { value: "consoles", label: "Consoles", Icon: Terminal },
+  { value: "saved", label: "Saved queries", Icon: Bookmark },
+];
+
 export function DatabaseSidebar() {
   const {
     profiles,
@@ -126,6 +141,9 @@ export function DatabaseSidebar() {
     setSelectedProfileId,
     loadingProfiles,
     fetchProfiles,
+    hydrateConsoles,
+    sidebarPane,
+    setSidebarPane,
     refreshTxState,
     folders,
     expandedFolders,
@@ -159,6 +177,9 @@ export function DatabaseSidebar() {
       setSelectedProfileId: s.setSelectedProfileId,
       loadingProfiles: s.loadingProfiles,
       fetchProfiles: s.fetchProfiles,
+      hydrateConsoles: s.hydrateConsoles,
+      sidebarPane: s.sidebarPane,
+      setSidebarPane: s.setSidebarPane,
       refreshTxState: s.refreshTxState,
       folders: s.folders,
       expandedFolders: s.expandedFolders,
@@ -202,12 +223,16 @@ export function DatabaseSidebar() {
   // the call here removes a fetch rather than adding one.
   useEffect(() => {
     void fetchProfiles();
+    // And the console files, for the same reason and in the same place: the
+    // rail mounts once for the module, so this is one read rather than one
+    // per console tab the window restored.
+    void hydrateConsoles();
     // And whether the selected connection is already inside a transaction: one
     // outlives the window that opened it, so arriving can mean arriving inside
     // one, and showing "Auto" beside it would be a lie about what the next
     // statement does.
     void refreshTxState();
-  }, [fetchProfiles, refreshTxState]);
+  }, [fetchProfiles, hydrateConsoles, refreshTxState]);
 
   const [filterQuery, setFilterQuery] = useState("");
   const [editingFolderId, setEditingFolderId] = useState("");
@@ -316,6 +341,12 @@ export function DatabaseSidebar() {
                 Open data
                 <ContextMenuShortcut>Double-click</ContextMenuShortcut>
               </ContextMenuItem>
+              {/* No profile to select here: a table row only exists under the
+                  connection that is already open. */}
+              <ContextMenuItem onSelect={() => openNewConsoleTab()}>
+                <Terminal />
+                Open query console
+              </ContextMenuItem>
               <ContextMenuItem
                 onSelect={() => {
                   setSelectedSchema(schemaName);
@@ -364,6 +395,36 @@ export function DatabaseSidebar() {
       children: tableNodes(schemaName),
       emptyLabel: "No tables",
       meta: Object.keys(namespace[schemaName] ?? {}).length,
+      // The schema row had no right-click menu at all: the level between a
+      // connection with nine actions and a table with five offered none, so
+      // the gesture that works everywhere else in the tree died here.
+      //
+      // Three items, and each is the schema's version of one the table row
+      // already carries — a menu that invents its own vocabulary one level up
+      // is a second menu to learn.
+      wrap: (row) => (
+        <ContextMenu key={`schema:${schemaName}`}>
+          <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
+          <ContextMenuContent>
+            <ContextMenuItem onSelect={() => openNewConsoleTab()}>
+              <Terminal />
+              Open query console
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={() => void copyText(schemaName)}>
+              <Copy />
+              Copy schema name
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              onSelect={() => void refreshSchema(selectedProfileId)}
+              disabled={indexingSchema}
+            >
+              <RefreshCw />
+              Re-index schema
+            </ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
+      ),
     }));
   }
 
@@ -429,6 +490,20 @@ export function DatabaseSidebar() {
           ),
       },
       { kind: "separator" },
+      {
+        kind: "item",
+        icon: <Terminal />,
+        label: "Open query console",
+        // Selecting first, because a console runs against the SELECTED
+        // connection and nothing else: opened from a row that is not the
+        // current one, an empty console pointed at the previous database is
+        // the one outcome nobody wants. Guarded, because setSelectedProfileId
+        // throws away the result grid.
+        onSelect: () => {
+          if (!isSelected) setSelectedProfileId(profile.id);
+          openNewConsoleTab();
+        },
+      },
       { kind: "item", icon: <Network />, label: "ERD diagram", onSelect: () => openErdTab() },
       { kind: "item", icon: <Activity />, label: "Live activity", onSelect: () => openActivityTab() },
       { kind: "item", icon: <History />, label: "Query history", onSelect: () => openHistoryTab() },
@@ -594,7 +669,57 @@ export function DatabaseSidebar() {
   const matchCount = countTables(namespace);
 
   return (
-    <div className="flex h-full flex-col select-none">
+    <div className="flex h-full min-h-0 flex-col select-none">
+      {/*
+        Three lists, one rail.
+
+        The rail is already the navigation surface and it already groups by
+        connection, which is the axis all three of these share — a second tree
+        in the right-hand panel would have been the same grouping at the other
+        end of the window, in a slot that holds one thing at a time and is
+        shared with every other module.
+
+        Consoles and Saved queries are two tabs rather than two sections of
+        one, because they are two different things: a console is a local
+        scratch file written as you type, a saved query is a named, sealed,
+        synced vault item. One tree holding both would promise they behave
+        alike, and none of it is true.
+
+        gap-0 and the panels carry their own padding: the default Tabs gap
+        would put a band between the strip and a list that is meant to run
+        under it.
+      */}
+      <Tabs
+        value={sidebarPane}
+        onValueChange={(value) => setSidebarPane(value as SidebarPane)}
+        className="min-h-0 flex-1 gap-0"
+      >
+        {/*
+          Icon only, and the glyphs are the ones the documents already use:
+          the console view's Terminal, the saved view's Bookmark. A tab that
+          opens a list shows the same mark as the thing it lists, so the strip
+          is learnable from the rest of the module rather than on its own.
+
+          Labels did not fit. Three at the rail's 240px floor need 233px of
+          text and padding and have 206 — so one of them had to be renamed to
+          something shorter and less true, or truncated to "Connectio…". The
+          name lives in the tooltip and in aria-label instead, which is what
+          ActionTooltip is for: a Radix tooltip alone sets aria-describedby,
+          and a control with no name is one a screen reader calls "button".
+        */}
+        <div className="px-2 pt-2">
+          <TabsList className="w-full">
+            {PANES.map(({ value, label, Icon }) => (
+              <ActionTooltip key={value} label={label}>
+                <TabsTrigger value={value} className="flex-1">
+                  <Icon />
+                </TabsTrigger>
+              </ActionTooltip>
+            ))}
+          </TabsList>
+        </div>
+
+        <TabsContent value="connections" className="flex min-h-0 flex-col">
       <SidebarHeader>
         <SidebarSearch
           value={filterQuery}
@@ -627,7 +752,10 @@ export function DatabaseSidebar() {
         </span>
       ) : null}
 
-      <div className="min-h-0 flex-1 overflow-y-auto scrollbar-gutter-symmetric pb-2">
+      {/* pt-1 against SidebarHeader's pb-1: 8px under the search field, the
+          same 8 the other two panes leave under the strip. The first row
+          carries a selected border, and 4px put it against the box. */}
+      <div className="min-h-0 flex-1 overflow-y-auto scrollbar-gutter-symmetric pt-1 pb-2">
         {profiles.length === 0 && !loadingProfiles ? (
           <Empty className="px-4 py-6">
             <EmptyTitle className="text-body-12 text-text-tertiary">
@@ -651,6 +779,20 @@ export function DatabaseSidebar() {
           <TreeView nodes={tree} />
         )}
       </div>
+        </TabsContent>
+
+        <TabsContent value="consoles" className="flex min-h-0 flex-col">
+          <div className="min-h-0 flex-1 overflow-y-auto scrollbar-gutter-symmetric px-1 pb-2">
+            <ConsoleFilesPanel />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="saved" className="flex min-h-0 flex-col">
+          <div className="min-h-0 flex-1 overflow-y-auto scrollbar-gutter-symmetric px-1 pt-2 pb-2">
+            <SavedQueriesPanel />
+          </div>
+        </TabsContent>
+      </Tabs>
 
       <DeleteProfileDialog
         profile={profiles.find((p) => p.id === deletingProfileId) ?? null}

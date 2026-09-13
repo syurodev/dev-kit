@@ -9,6 +9,15 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* The sheen on the glass button travels by animating an angle, and an angle
+   only animates if the browser knows it is one — an unregistered custom
+   property is a string, and a string jumps from one value to the next. */
+@property --button-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: -75deg;
+}
+
 @theme inline {
     --font-heading: var(--font-sans);
     --font-sans: 'Geist Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -216,6 +225,11 @@
     --glass-float-bg: color-mix(in srgb, var(--surface-base) 62%, transparent);
     --glass-border: color-mix(in srgb, var(--tint-veil) 10%, transparent);
     --glass-highlight: color-mix(in srgb, var(--tint-specular) 6%, transparent);
+    /* The travelling sheen on .glass-button. Brighter than --glass-highlight
+       on purpose: that one is a 1px inset line that only has to be seen at the
+       edge of a surface, this one is a gradient stop competing with whatever
+       is behind the glass. */
+    --glass-sheen: color-mix(in srgb, var(--tint-specular) 50%, transparent);
     --glass-blur: 40px;
     --glass-saturate: 170%;
 
@@ -230,6 +244,25 @@
        accent kept candy-blue hairlines. Percentages stay per-mode where they
        genuinely differ — dark lifts less than light recesses. */
     --state-soft: color-mix(in srgb, var(--tint-veil) 6%, transparent);
+
+    /* A segmented control: the track it sits in and the chip that marks the
+       selected one. Two tokens rather than one, because the two modes want
+       opposite directions and a single value cannot be both — dark recesses
+       the track below the page and lifts the chip out of it, light does the
+       reverse and returns the chip to white. Written as alphas so the pair
+       works on whatever surface the control is dropped onto.
+
+       This was black/25 and white/10 in the component. On a light surface
+       those composite to a grey track with the chip six values away from it,
+       which is a segmented control with no visible selection — and on an
+       icon-only strip, no visible selection is no way to tell which list you
+       are looking at. */
+    /* Figma's own value for the track (318:385), kept: black at 25%, which
+       recesses whatever it is dropped on. A tint of the page colour would
+       vanish the moment the control sat on a surface of that colour, which
+       is exactly where the rail put it. */
+    --segment-track: color-mix(in srgb, #000000 25%, transparent);
+    --segment-chip: color-mix(in srgb, var(--tint-veil) 10%, transparent);
     --surface-well: color-mix(in srgb, var(--tint-veil) 6%, transparent);
     /* The added-line wash in a code block. Derived at the same 14% as its
        danger twin, so a diff reads as one pair in every theme. */
@@ -237,10 +270,30 @@
        ring uses, so a rectangle of selected cells and the one cell inside it
        that holds the focus read as one gesture rather than two colours. */
     --feedback-selected: color-mix(in srgb, var(--status-info) 18%, transparent);
+    /* Selected TEXT: the same wash, at the strength each mode can carry.
+       A tint moves the ground the syntax sits on, so every token's contrast
+       is spent on it.
+
+       Measured on the editor's own ground here at 18%: keywords 12.04:1 →
+       7.71, operators 8.44 → 5.40, literals 13.40 → 8.58 — all clear of the
+       4.5:1 floor. COMMENTS are not: 4.58:1 → 2.93, and no visible band can
+       save them. A comment is dim on purpose, which leaves it half a point
+       of headroom, and the arithmetic says a band light enough to keep it at
+       4.5 would be 0.0013 of luminance away from the ground — a selection
+       nobody can see. Every editor with dim comments makes the same trade;
+       this one at least knows the number. */
+    --editor-selection: var(--feedback-selected);
     --feedback-success-soft: color-mix(in srgb, var(--status-success) 14%, transparent);
     --feedback-danger-soft: color-mix(in srgb, var(--status-danger) 14%, transparent);
     --feedback-danger-hover: color-mix(in srgb, var(--status-danger) 24%, transparent);
     --feedback-danger-pressed: color-mix(in srgb, var(--status-danger) 32%, transparent);
+    /* The SOLID danger's press states. The three above are alpha mixes for a
+       tinted box; a filled control has nothing behind it to tint and has to
+       move within its own colour. --tint-veil is white in dark and ink in
+       light, so one declaration lifts on a dark theme and recesses on a light
+       one — the same direction every other state layer in this file takes. */
+    --status-danger-hover: color-mix(in srgb, var(--status-danger) 88%, var(--tint-veil));
+    --status-danger-pressed: color-mix(in srgb, var(--status-danger) 78%, var(--tint-veil));
     --border-danger: color-mix(in srgb, var(--status-danger) 40%, transparent);
 
     /* Note/folder 9-color palette (Figma "Note Palette" collection).
@@ -340,11 +393,27 @@
     --glass-float-bg: color-mix(in srgb, var(--surface-base) 72%, transparent);
     --glass-border: color-mix(in srgb, var(--tint-veil) 8%, transparent);
     --glass-highlight: color-mix(in srgb, var(--tint-specular) 60%, transparent);
+    /* Ink, not specular. --tint-specular is #ffffff and is never overridden
+       per mode, so a white sheen travelling over a light glass is a sheen
+       nobody can see — the same reason --state-soft is white where dark lifts
+       and ink where light recesses. */
+    --glass-sheen: color-mix(in srgb, var(--tint-veil) 45%, transparent);
 
     /* --state-soft is not here: dark already says "tint-veil at 6%", and the
        tint is what differs between the modes. --surface-well stays because
        light really does want a shallower well (4% vs 6%). */
     --surface-well: color-mix(in srgb, var(--tint-veil) 4%, transparent);
+    /* Ink recesses the track, and the chip comes all the way back to the
+       page. The dark pair lifts instead; see the note where they are set. */
+    --segment-track: color-mix(in srgb, var(--tint-veil) 7%, transparent);
+    --segment-chip: var(--surface-base);
+    /* 8%, not the 18% dark gets. Measured on the editor's own ground: the
+       SQL keyword is 5.05:1 there, so a tint of 12% takes it to 4.29 and
+       18% to 3.93 — under the floor, in the control where selecting is how
+       you choose what to run. 8% leaves 4.53:1 and is the most band this
+       palette can carry. A darker light-mode keyword would buy more; that
+       is a palette change, not a selection one. */
+    --editor-selection: color-mix(in srgb, var(--status-info) 8%, transparent);
     /* The danger tints are NOT here any more, and that is a fix: they were
        rgba(216, 120, 134, …) — the DARK --status-danger, typed out — while
        light's own --status-danger is #b3374a. Light has been drawing salmon
@@ -561,6 +630,63 @@
   box-shadow:
     inset 0 1px 0 var(--glass-highlight),
     0 8px 32px rgba(0, 0, 0, 0.35);
+}
+
+/* Button's `glass` variant. A control rather than a surface, so it takes the
+   float tier's blur and none of its box: no fill of its own beyond the wash
+   below, no border (the ring is drawn by ::before), and no drop shadow — a
+   32px shadow under a 32px button is a shadow bigger than the thing casting
+   it.
+
+   Radius, height and padding are deliberately absent. They belong to `size`,
+   and a variant that sets them is how nine copies of the title bar's action
+   button came to override their own size in className. ::before inherits
+   whatever radius the size gives.
+
+   The blur is shared with .glass-float rather than declared again: one
+   recipe, two tiers, and the smoothness ratchet counts blur DECLARATIONS —
+   this adds a glass surface without adding a blur to the budget. */
+.glass-button {
+  background-image: linear-gradient(
+    to left,
+    color-mix(in srgb, var(--glass-sheen) 30%, transparent),
+    color-mix(in srgb, var(--glass-sheen) 50%, transparent)
+  );
+  background-clip: padding-box;
+}
+
+.glass-button::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  border: 1px solid transparent;
+  background-origin: border-box;
+  /* The ring: a conic sweep whose start angle is the only thing that moves.
+     Masking to the border box minus the content box leaves just the 1px
+     frame, so the sweep reads as light running around the edge. */
+  background-image: conic-gradient(
+    from var(--button-angle) at 50% 50%,
+    var(--glass-sheen),
+    transparent 10% 43%,
+    var(--glass-sheen) 50%,
+    transparent 73% 93%,
+    var(--glass-sheen)
+  );
+  mask-image: linear-gradient(#fff 0 0), linear-gradient(#fff 0 0);
+  mask-clip: content-box, border-box;
+  mask-composite: exclude;
+  -webkit-mask-composite: xor;
+  transition: --button-angle var(--motion-slow) ease-in-out;
+}
+
+.glass-button:hover::before {
+  --button-angle: -125deg;
+}
+
+.glass-float,
+.glass-button {
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
 }
@@ -585,6 +711,19 @@
     background-color: var(--surface-raised);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
+  }
+  /* The button loses its blur and its travelling ring: the ring is the one
+     part of it that is purely decorative, and someone who has asked for less
+     transparency has not asked for less animation by accident. The fill drops
+     to a solid so the label keeps its ground. */
+  .glass-button {
+    background-image: none;
+    background-color: var(--surface-raised);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .glass-button::before {
+    display: none;
   }
 }
 
@@ -809,6 +948,68 @@
   outline: none;
 }
 
+/* The editor fills its pane, so clicking under the last line lands on it.
+   CodeMirror sizes .cm-editor to its CONTENT: a two-line query left the rest
+   of the well as dead space that swallowed the click and focused nothing, and
+   the only way in was to hit a row exactly. Full height gives the scroller the
+   empty space, and CodeMirror already puts the cursor on the nearest line when
+   the click is past the end of the document. */
+.cm-surfaceless .cm-editor {
+  height: 100%;
+}
+
+/* How a statement went, in the colour of its line number
+   (modules/database/sql/statementGutter.ts).
+ *
+ * It was a tick and a cross in a gutter of their own — a second column of
+ * chrome for one character of information. The line number is already
+ * there, already aligned with the statement, already the thing the eye uses
+ * to find a line.
+ *
+ * A failure is also BOLD. Red and green are the pair deuteranopia collapses,
+ * and "which of these five failed" is exactly the question colour alone
+ * would leave unanswerable. The status tokens, so both follow the palette
+ * and the mode. */
+.cm-surfaceless .cm-statement-ok {
+  color: var(--status-success);
+}
+
+.cm-surfaceless .cm-statement-error {
+  color: var(--status-danger);
+  font-weight: 700;
+}
+
+/* React Flow's canvas chrome, in this app's colours.
+ *
+ * Through the library's own variables rather than by overriding its rules.
+ * Its stylesheet reads these, so whichever of the two files the bundler puts
+ * last, the answer is the same — an override loses that race half the time,
+ * which is how three white buttons stayed white after one was written.
+ *
+ * On .react-flow rather than :root, so it is scoped to the canvases and does
+ * not sit in the global sheet waiting to surprise something. */
+.react-flow {
+  --xy-controls-button-background-color: var(--surface-raised);
+  --xy-controls-button-background-color-hover: var(--state-soft);
+  --xy-controls-button-color: var(--text-secondary);
+  --xy-controls-button-color-hover: var(--text-primary);
+  --xy-controls-button-border-color: var(--border-subtle);
+}
+
+/* How long a statement took, at the end of its line
+   (modules/database/sql/statementGutter.ts).
+ *
+ * A console with five statements raises one question the pill cannot
+ * answer: which of them is the slow one. Tertiary and a size down, past the
+ * end of the SQL — present when looked for, out of the way when not. */
+.cm-surfaceless .cm-statement-timing {
+  margin-left: 1.5ch;
+  color: var(--text-tertiary);
+  font-size: 0.85em;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+
 /* Hanging indent for wrapped rows.
  *
  * CodeMirror wraps to column zero, so a continuation lands further left than
@@ -1011,6 +1212,12 @@
         transition: none;
     }
     .row-accent::before {
+        transition: none;
+    }
+    /* The sweep is decoration on a hover — the first thing motion.md asks to
+       drop. The ring stays where it is rather than disappearing, so the
+       button keeps its edge. */
+    .glass-button::before {
         transition: none;
     }
     .value-blink {

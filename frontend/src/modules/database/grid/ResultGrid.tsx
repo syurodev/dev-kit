@@ -67,6 +67,7 @@ import {
 // Object.fromEntries over `columns` is a different function with its own bugs.
 import { columnValues, rowAsJSON } from "./rowText";
 import { typeGlyph } from "./columnTypes";
+import { numericColumns } from "./numericColumns";
 import {
   HEADER_ROW,
   inRange,
@@ -189,6 +190,14 @@ export function ResultGrid({
   /** Why editing is refused, shown where the attempt is made. "" means it is not. */
   editRefusal?: string;
 }) {
+  // Decided from the values, because a query result carries no types. Once
+  // per result rather than per cell: a 200-row sample across 74 columns is
+  // cheap, and doing it inside the cell would do it again on every scroll.
+  const numeric = useMemo(
+    () => numericColumns(result.rows, result.columns.length),
+    [result.rows, result.columns.length],
+  );
+
   const rows = useVirtualRows(result.rows.length, ROW_HEIGHT);
   const order = orderedColumns(result.columns, columnOrder);
   // What the content needs, for every column nobody has dragged. Recomputed
@@ -590,6 +599,12 @@ export function ResultGrid({
                           style={frozenStyle(position)}
                           className={cn(
                             "h-7 cursor-pointer truncate border-r border-b border-border-subtle px-3 select-text last:border-r-0 hover:text-text-primary",
+                            // A number goes right, and in figures of one
+                            // width: that is what makes a column of ids
+                            // scannable — the four-digit one is visibly
+                            // longer instead of being one character further
+                            // along a ragged right edge.
+                            numeric[columnIndex] && "text-right tabular-nums",
                             isSelected && !isFocused && "bg-(--feedback-selected)",
                             isFocused &&
                               "outline outline-1 -outline-offset-1 outline-status-info",
@@ -619,7 +634,12 @@ export function ResultGrid({
                               onCancel={() => setEditing(null)}
                             />
                           ) : value === "" ? (
-                            <span className="text-code-11 text-status-warning">NULL</span>
+                            /* The absence of a value, dressed as an absence.
+                               It was NULL in the warning colour — four
+                               saturated letters repeated down a column of
+                               empty cells, louder than the data they were
+                               standing in for, and warning of nothing. */
+                            <span className="text-code-11 text-text-tertiary italic">null</span>
                           ) : (
                             value
                           )}

@@ -12,8 +12,32 @@ import (
 // the same `mysql` driver, with no MariaDB-specific code path. That cannot be
 // asserted against a fake, so this test only runs when pointed at a server:
 //
-//	DEVKIT_MARIADB_ADDR=127.0.0.1:3399 DEVKIT_MARIADB_USER=root \
-//	DEVKIT_MARIADB_PASSWORD=… DEVKIT_MARIADB_DB=devkit_check go test ./internal/database/
+//	docker run -d --name devkit-mariadb-test -p 3308:3306 \
+//	  -e MARIADB_USER=devkit -e MARIADB_PASSWORD=devkitpass \
+//	  -e MARIADB_DATABASE=devkitdb -e MARIADB_ROOT_PASSWORD=devkitroot mariadb:11
+//
+//	DEVKIT_MARIADB_ADDR=127.0.0.1:3308 DEVKIT_MARIADB_USER=devkit \
+//	DEVKIT_MARIADB_PASSWORD=devkitpass DEVKIT_MARIADB_DB=devkitdb go test ./internal/database/
+//
+// The suite reads a fixture it does not create. A fresh container fails three
+// tests on "table doesn't exist" until this is loaded into the database:
+//
+//	CREATE TABLE customers (id INT PRIMARY KEY AUTO_INCREMENT,
+//	  email VARCHAR(255) NOT NULL, UNIQUE KEY uq_email (email)) ENGINE=InnoDB;
+//	CREATE TABLE orders (id INT PRIMARY KEY AUTO_INCREMENT,
+//	  customer_id INT NOT NULL, total DECIMAL(10,2) NOT NULL DEFAULT 0,
+//	  note VARCHAR(255) NULL, KEY fk_o_c (customer_id),
+//	  FOREIGN KEY (customer_id) REFERENCES customers (id)) ENGINE=InnoDB;
+//	CREATE TABLE profiles (id INT PRIMARY KEY AUTO_INCREMENT,
+//	  customer_id INT NOT NULL, UNIQUE KEY (customer_id),
+//	  FOREIGN KEY (customer_id) REFERENCES customers (id)) ENGINE=InnoDB;
+//	INSERT INTO customers (id, email) VALUES (1, 'a@example.com'), (2, 'b@example.com');
+//	INSERT INTO orders (id, customer_id, total) VALUES (1, 1, 10), (2, 1, 20), (3, 2, 30);
+//	INSERT INTO profiles (id, customer_id) VALUES (1, 1), (2, 2);
+//
+// Two customers and a non-unique orders.customer_id beside a unique
+// profiles.customer_id are what the tests assert; the rollback test inserts
+// into orders.note.
 func mariaDBConfig(t *testing.T) ConnConfig {
 	t.Helper()
 	addr := os.Getenv("DEVKIT_MARIADB_ADDR")
@@ -224,8 +248,16 @@ func TestMariaDBExplainAnalyzeRollsBackItsStatement(t *testing.T) {
 	}
 	defer conn.Close()
 
+	/*
+		Rows of orders, counted by walking them.
+
+		This used to walk the rows of `SELECT COUNT(*) FROM orders` — which is
+		always exactly one row, whatever the table holds — so before and after
+		were both 1 and the test could not fail. An INSERT that survived rollback
+		passed. Walking the ids counts the table instead of counting the count.
+	*/
 	count := func() int {
-		rows, err := conn.Query(ctx, "SELECT COUNT(*) FROM orders")
+		rows, err := conn.Query(ctx, "SELECT id FROM orders")
 		if err != nil {
 			t.Fatalf("count: %v", err)
 		}

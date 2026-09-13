@@ -35,8 +35,11 @@ func (c *mysqlConn) Explain(ctx context.Context, sql string) (QueryPlan, error) 
 // Raw is for. Half-parsing that text into fake nodes would claim a precision
 // the output does not have.
 func (c *mysqlConn) ExplainAnalyze(ctx context.Context, sql string) (QueryPlan, error) {
+	// The server's word for what it is, not the profile's: a MariaDB server
+	// saved as "MySQL" was sent EXPLAIN ANALYZE and answered with error 1064.
+	maria := c.isMariaDB(ctx)
 	statement := "EXPLAIN ANALYZE " + sql
-	if c.engine == EngineMariaDB {
+	if maria {
 		statement = "ANALYZE FORMAT=JSON " + sql
 	}
 
@@ -51,7 +54,7 @@ func (c *mysqlConn) ExplainAnalyze(ctx context.Context, sql string) (QueryPlan, 
 		return QueryPlan{}, err
 	}
 
-	if c.engine != EngineMariaDB {
+	if !maria {
 		return QueryPlan{Raw: raw, Analyzed: true}, nil
 	}
 	return parseMySQLPlan(raw, true)

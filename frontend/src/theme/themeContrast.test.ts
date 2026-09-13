@@ -114,3 +114,106 @@ describe("every family is readable on its own surfaces", () => {
     }
   }
 });
+
+/**
+ * The mark that says "this one is selected": the hairline on the active tab and
+ * on the selected row of a tree.
+ *
+ * accessibility.md › Vision puts non-text interface elements at 3:1. The mark
+ * used to be `--action-primary` at 45%, and a brand colour is free to be pale —
+ * on devkit light that came to 1.08:1 against the fill it outlines, so the
+ * active tab and the tab beside it were the same object with different words
+ * on them. `--status-info` is already the app's "this is the focused thing"
+ * (`--feedback-selected` is mixed from it, and the filter box borders with it)
+ * and it is floored against every surface above, so it is the one token that
+ * holds in all ten palettes — at full opacity: at 70% the worst family lands
+ * on 2.92:1.
+ */
+describe("the selected mark is visible on the surface it outlines", () => {
+  for (const family of Object.values(FAMILIES)) {
+    for (const mode of ["dark", "light"] as const) {
+      const palette = family[mode] as Record<string, string>;
+      it(`${family.id}/${mode}`, () => {
+        const fill = palette["--surface-raised"];
+        const mark = palette["--status-info"];
+        const ratio = contrast(mark, fill);
+        expect(
+          ratio,
+          `${mark} on ${fill} is ${ratio.toFixed(2)}:1, floor 3:1`,
+        ).toBeGreaterThanOrEqual(3);
+      });
+    }
+  }
+});
+
+/**
+ * The solid danger button — Stop, while a query runs.
+ *
+ * Two floors, because it is two things at once. Its glyph is text-sized
+ * (4.5:1), and the fill itself is the boundary of a control, which
+ * accessibility.md › Vision puts at 3:1 — the tinted `destructive` measured
+ * 1.02:1 against a dark card, which is why this variant exists at all.
+ *
+ * The glyph is --surface-base rather than a foreground of its own, and that
+ * works because --status-danger is already inverted against the theme: a light
+ * rose on dark, a deep red on light.
+ */
+/**
+ * The status pill beside Run, which is a filled tone in three colours.
+ *
+ * Same shape of contract as the danger button below, and the same reason for
+ * --surface-base as the type: these tokens are already inverted against the
+ * theme, light on a dark palette and dark on a light one, so the surface they
+ * are NOT on is the legible foreground. The fill also has to stand off the
+ * card, which is the 3:1 non-text floor — a pill at 1.1:1 was the first
+ * attempt, on --surface-raised, and it read as a smudge.
+ */
+describe("the status pill is legible on every theme", () => {
+  for (const family of Object.values(FAMILIES)) {
+    for (const mode of ["dark", "light"] as const) {
+      const palette = family[mode] as Record<string, string>;
+      for (const token of ["--status-success", "--status-warning", "--status-danger"]) {
+        it(`${family.id}/${mode} ${token}`, () => {
+          const fill = palette[token];
+          const glyph = palette["--surface-base"];
+          const onFill = contrast(glyph, fill);
+          expect(
+            onFill,
+            `glyph ${glyph} on ${fill} is ${onFill.toFixed(2)}:1, floor 4.5:1`,
+          ).toBeGreaterThanOrEqual(4.5);
+
+          const onCard = contrast(fill, palette["--surface-base"]);
+          expect(
+            onCard,
+            `fill ${fill} on the card is ${onCard.toFixed(2)}:1, floor 3:1`,
+          ).toBeGreaterThanOrEqual(3);
+        });
+      }
+    }
+  }
+});
+
+describe("the solid danger button is legible on every theme", () => {
+  for (const family of Object.values(FAMILIES)) {
+    for (const mode of ["dark", "light"] as const) {
+      const palette = family[mode] as Record<string, string>;
+      it(`${family.id}/${mode}`, () => {
+        const fill = palette["--status-danger"];
+        const glyph = palette["--surface-base"];
+        const glyphRatio = contrast(glyph, fill);
+        expect(
+          glyphRatio,
+          `glyph ${glyph} on ${fill} is ${glyphRatio.toFixed(2)}:1, floor 4.5:1`,
+        ).toBeGreaterThanOrEqual(4.5);
+
+        for (const [name, ground] of Object.entries(groundsOf(palette, mode))) {
+          const fillRatio = contrast(fill, ground);
+          expect(
+            fillRatio,
+            `fill ${fill} on ${name} ${ground} is ${fillRatio.toFixed(2)}:1, floor 3:1`,
+          ).toBeGreaterThanOrEqual(3);
+        }
+      });
+    }
+  }
+});

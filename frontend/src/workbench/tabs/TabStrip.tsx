@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { AnimatePresence, Reorder, motion } from "framer-motion";
 import { Plus, Wrench, X } from "lucide-react";
@@ -272,11 +273,21 @@ function TabGroupRow({
                 // inside a 320 slot, so a lone tab truncated its title while
                 // 120px of empty pill pushed the + button away from it.
                 "group relative flex h-8 shrink-0 items-center rounded-[6px] border px-3 gap-2 transition-[filter,border-color,background-color] select-none [--wails-draggable:no-drag]",
+                // The same two marks the selected row in a tree carries — a
+                // --status-info hairline and a fill — because they mean the
+                // same thing and a second vocabulary for "this is the one" is
+                // a vocabulary to learn twice. The fill alone cannot carry it:
+                // --surface-raised over a --state-soft neighbour measured
+                // 1.03:1 in Dracula light and under 1.1 in five more palettes,
+                // which is a difference you can be told about but not see. So
+                // the neighbours give up their fill entirely — an inactive tab
+                // is drawn by its label and nothing else, and the tint comes
+                // back under the pointer.
                 isActive
-                  ? "bg-surface-raised border-border text-text-primary"
+                  ? "bg-surface-raised border-status-info text-text-primary"
                   : tab.preview
-                    ? "bg-state-soft border-border-subtle border-dashed text-body-12 text-text-secondary hover:bg-state-soft/80"
-                    : "bg-state-soft border-border-subtle border-solid text-label-12 text-text-secondary hover:bg-state-soft/80",
+                    ? "border-border-subtle border-dashed text-body-12 text-text-secondary hover:bg-state-soft hover:text-text-primary"
+                    : "border-transparent text-label-12 text-text-secondary hover:bg-state-soft hover:text-text-primary",
               )}
             >
               {/* Focus ring: separate layer at radius 8, not the pill's radius 6 (Figma 448:343 exception) */}
@@ -562,14 +573,15 @@ export function TabStrip({
         </AnimatePresence>
       </div>
       {/* New-tab button: 28x28, radius 8, plus glyph 13px (Figma 449:325) */}
-      <button
+      <Button
         type="button"
+        variant="titlebar"
+        size="icon-sm"
         aria-label="New tab"
         onClick={onNewTab}
-        className="size-7 shrink-0 rounded-[8px] flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-state-soft transition-colors cursor-pointer"
       >
         <Plus className="size-[13px]" />
-      </button>
+      </Button>
       {/* Trailing spacer: a flex-grow 8px-high frame after new-tab (Figma 449:325) */}
       <div className="flex-1 h-2 self-center" aria-hidden="true" />
     </div>

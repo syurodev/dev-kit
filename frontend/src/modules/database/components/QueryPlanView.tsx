@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { copyText } from "../../../bridge/clipboard";
 import {
   Sliders,
@@ -14,6 +14,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { PlanNode, QueryPlan } from "../../../bridge/database";
+import { cn } from "@/lib/utils";
+import { planGraph } from "../plan/planGraph";
+import { PlanDiagram } from "../plan/PlanDiagram";
 
 export function QueryPlanView({
   plan,
@@ -22,7 +25,7 @@ export function QueryPlanView({
   plan: QueryPlan;
   onClose: () => void;
 }) {
-  const [activeTab, setActiveTab] = useState<"visual" | "raw">("visual");
+  const [activeTab, setActiveTab] = useState<"diagram" | "visual" | "raw">("diagram");
   const [copied, setCopied] = useState(false);
 
   // Flatten nodes for calculating max self time and statistics
@@ -36,6 +39,10 @@ export function QueryPlanView({
   if (plan.nodes) {
     plan.nodes.forEach(collect);
   }
+
+  // The same tree, as a diagram. Pure and tested in plan/planGraph; this
+  // component only decides which of the three views is on screen.
+  const graph = useMemo(() => planGraph(plan), [plan]);
 
   const maxSelfMillis = Math.max(1, ...flattenedNodes.map((n) => n.selfMillis || 0));
   const totalSelfMillis = flattenedNodes.reduce((acc, n) => acc + (n.selfMillis || 0), 0);
@@ -74,6 +81,17 @@ export function QueryPlanView({
 
           <div className="flex items-center gap-2">
             <div className="flex items-center bg-surface-base border border-border rounded-md p-0.5 text-body-12">
+              <button
+                type="button"
+                className={`px-2.5 py-1 rounded transition-colors ${
+                  activeTab === "diagram"
+                    ? "bg-surface-raised text-text-primary font-medium shadow-2xs"
+                    : "text-text-tertiary hover:text-text-primary"
+                }`}
+                onClick={() => setActiveTab("diagram")}
+              >
+                Diagram
+              </button>
               <button
                 type="button"
                 className={`px-2.5 py-1 rounded transition-colors ${
@@ -139,9 +157,29 @@ export function QueryPlanView({
           )}
         </div>
 
-        {/* Content Area */}
-        <div className="p-4 overflow-y-auto flex-1 bg-surface-base">
-          {activeTab === "visual" ? (
+        {/* Content Area. The diagram takes the whole box and scrolls itself
+            — a canvas inside an overflow-y-auto would scroll twice and pan
+            never. */}
+        <div
+          className={cn(
+            "bg-surface-base",
+            // A concrete height, because React Flow measures its parent and
+            // this modal is sized by its content: flex-1 inside a box with
+            // no height of its own resolves to nothing, and a canvas of
+            // nothing draws nothing. 60vh inside a max-h-[90vh] modal
+            // leaves the header and the metrics bar their rows.
+            // flex-1 belongs to the OTHER branch: in a column whose height
+            // is a max rather than a number, `flex: 1 1 0%` resolves to
+            // zero and takes the height with it — which is what a canvas
+            // drew when it had one.
+            activeTab === "diagram"
+              ? "flex h-[60vh] shrink-0 overflow-hidden"
+              : "flex-1 overflow-y-auto p-4",
+          )}
+        >
+          {activeTab === "diagram" ? (
+            <PlanDiagram graph={graph} />
+          ) : activeTab === "visual" ? (
             <div className="space-y-2">
               {plan.nodes && plan.nodes.length > 0 ? (
                 plan.nodes.map((node, i) => (

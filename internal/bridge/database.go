@@ -3,6 +3,7 @@ package bridge
 import (
 	"context"
 	"errors"
+	"log"
 	"os"
 	"strings"
 
@@ -472,4 +473,157 @@ func (s *AppService) DBExplainAnalyze(ctx context.Context, id, sql string) (data
 		return database.QueryPlan{}, err
 	}
 	return result.(database.QueryPlan), nil
+}
+
+/*
+Query consoles: the scratch text, not the saved query.
+
+Their own capability rather than another scope under db:query. Reading a
+console is reading what the user typed in every window they left open, which
+is a different permission from being allowed to ask a database a question —
+and the files are in the app's own directory, so no profile scopes them.
+*/
+func (s *AppService) DBListConsoles() ([]database.Console, error) {
+	result, err := s.call(context.Background(), "builtin.database", "db:console", "console:list", map[string]any{
+		"action": "list_consoles",
+	}, func(context.Context) (any, error) {
+		return s.container.Database.ListConsoles()
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]database.Console), nil
+}
+
+/*
+DBSaveConsole writes one console's text. Called on a debounce as the user
+types, so it is the one bridge call here that runs without being asked for.
+
+Four strings rather than the Console struct, and the reason is the struct's
+UpdatedAt. Wails parses each argument out of JSON before the method runs, so
+a time.Time in the signature makes a timestamp REQUIRED of the caller — and
+the window has no business having one. It sent "", every call failed in the
+binding layer before reaching any code here ("cannot parse \"\" as
+\"2006\""), and nothing was ever written. The stamp belongs to the writer:
+the store puts it on at the moment the bytes land.
+*/
+func (s *AppService) DBSaveConsole(id, profileID, databaseName, sql string) error {
+	_, err := s.call(context.Background(), "builtin.database", "db:console", "console:"+recordID(id), map[string]any{
+		"action":     "save_console",
+		"console_id": recordID(id),
+	}, func(context.Context) (any, error) {
+		return nil, s.container.Database.SaveConsole(database.Console{
+			ID:        id,
+			ProfileID: profileID,
+			Database:  databaseName,
+			SQL:       sql,
+		})
+	})
+	return err
+}
+
+func (s *AppService) DBDeleteConsole(id string) error {
+	_, err := s.call(context.Background(), "builtin.database", "db:console", "console:"+recordID(id), map[string]any{
+		"action":     "delete_console",
+		"console_id": recordID(id),
+	}, func(context.Context) (any, error) {
+		return nil, s.container.Database.DeleteConsole(id)
+	})
+	return err
+}
+
+// ConsoleDirKey is where the chosen console folder is remembered. A ui_state
+// row rather than a typed preference: it is one string, and main reads it
+// straight back at startup to build the store.
+const ConsoleDirKey = "database.console_dir"
+
+// ConsoleDirectory is the folder the consoles are in, and the one they would
+// return to. Both, because "Use the default" has to be offerable without the
+// window knowing what the default is.
+type ConsoleDirectory struct {
+	Path string `json:"path"`
+	// Default is where they go when nothing is chosen.
+	Default string `json:"default"`
+	// Custom is whether Path is a choice somebody made.
+	Custom bool `json:"custom"`
+}
+
+func (s *AppService) DBConsoleDirectory() (ConsoleDirectory, error) {
+	result, err := s.call(context.Background(), "builtin.database", "db:console", "console:list", map[string]any{
+		"action": "console_directory",
+	}, func(context.Context) (any, error) {
+		current, fallback, err := s.container.Database.ConsoleDirectory()
+		if err != nil {
+			return ConsoleDirectory{}, err
+		}
+		return ConsoleDirectory{Path: current, Default: fallback, Custom: current != fallback}, nil
+	})
+	if err != nil {
+		return ConsoleDirectory{}, err
+	}
+	return result.(ConsoleDirectory), nil
+}
+
+/*
+DBSetConsoleDirectory moves the consoles and remembers where they went.
+
+The move happens first and the row is written only if it worked, so the
+setting the window shows on the next launch is the folder the files are
+actually in. Failing to remember is not failing to move: the consoles are
+where the user asked for, and saying otherwise would send them looking for
+files that are not there. It is logged and the call succeeds.
+
+An empty path is "use the default" — one call for both, because the window's
+two buttons are the same decision with different arguments.
+*/
+func (s *AppService) DBSetConsoleDirectory(path string) (ConsoleDirectory, error) {
+	result, err := s.call(context.Background(), "builtin.database", "db:console", "console:directory", map[string]any{
+		"action": "set_console_directory",
+	}, func(context.Context) (any, error) {
+		if err := s.container.Database.SetConsoleDirectory(path); err != nil {
+			return ConsoleDirectory{}, err
+		}
+		current, fallback, err := s.container.Database.ConsoleDirectory()
+		if err != nil {
+			return ConsoleDirectory{}, err
+		}
+		if s.container.UIState != nil {
+			stored := current
+			if current == fallback {
+				stored = ""
+			}
+			if err := s.container.UIState.Set(ConsoleDirKey, stored); err != nil {
+				log.Printf("database: remember console folder: %v", err)
+			}
+		}
+		return ConsoleDirectory{Path: current, Default: fallback, Custom: current != fallback}, nil
+	})
+	if err != nil {
+		return ConsoleDirectory{}, err
+	}
+	return result.(ConsoleDirectory), nil
+}
+
+// DBChooseConsoleDirectory opens the native folder picker, starting in the
+// folder they are in now. Cancelling returns "" and is not an error — the
+// settings panel stays as it was, and an error there would read as a failure
+// the user caused by changing their mind.
+func (s *AppService) DBChooseConsoleDirectory() (string, error) {
+	result, err := s.call(context.Background(), "builtin.database", "db:console", "console:directory", map[string]any{
+		"action": "choose_console_directory",
+	}, func(context.Context) (any, error) {
+		startIn, _, err := s.container.Database.ConsoleDirectory()
+		if err != nil {
+			startIn = ""
+		}
+		dialog := s.openDirDialog
+		if dialog == nil {
+			dialog = defaultOpenDirectoryDialog
+		}
+		return dialog("Where to keep query consoles", startIn)
+	})
+	if err != nil {
+		return "", err
+	}
+	return result.(string), nil
 }

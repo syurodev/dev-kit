@@ -40,7 +40,7 @@ const BASELINE: Record<string, { twText: number; rawPx: number; rawHex: number }
   // Converted 2026-09-09 against Figma 11 Settings. The 9 remaining rawPx are
   // the modal's own frame (620×940, a 220 nav, 656 content columns) and the
   // two blur radii — measures of the modal, not steps on the scale.
-  "modules/settings": { twText: 0, rawPx: 9, rawHex: 0 },
+  "modules/settings": { twText: 0, rawPx: 6, rawHex: 0 },
   "modules/ssh": { twText: 0, rawPx: 0, rawHex: 0 },
   "modules/sync": { twText: 0, rawPx: 0, rawHex: 0 },
   "modules/tools": { twText: 0, rawPx: 0, rawHex: 0 },
@@ -57,9 +57,10 @@ const BASELINE: Record<string, { twText: number; rawPx: number; rawHex: number }
   // tokens now, so a code block follows the theme family. What remains is
   // documentation: comments naming the Figma token a class maps to.
   components: { twText: 0, rawPx: 102, rawHex: 1 },
-  // 34 since the tab element's stale max-w-[200px] went: computeTabWidths
-  // already caps, and a second cap in CSS is what stranded the + button.
-  workbench: { twText: 0, rawPx: 33, rawHex: 1 },
+  // 33 → 24: nine `rounded-[8px]` went with the nine copies of the title
+  // bar's action button, which is Button's `titlebar` variant now. --radius-md
+  // is that 8px, so the scale had the number the whole time.
+  workbench: { twText: 0, rawPx: 24, rawHex: 1 },
 };
 
 // Two files carry raw hex on purpose and are not design-system surfaces: a

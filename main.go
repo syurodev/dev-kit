@@ -117,6 +117,24 @@ func main() {
 	container.Notes.SetLinkIndex(notes.NewSQLLinkIndex(db))
 	container.Preferences = preferences.NewService(preferences.NewSQLRepository(db))
 	container.UIState = uistate.NewService(uistate.NewSQLRepository(db))
+	// Query consoles are files, DataGrip-style: one .sql per console, with the
+	// connection it belongs to on the first line. Not vault items — those are
+	// the saved queries, which are named, deliberate and synced, and are
+	// untouched by this. Wired after UIState because the folder is settable,
+	// and the choice is remembered in a ui_state row.
+	consoles := database.NewConsoleStore(filepath.Join(dataDir, "consoles"))
+	if chosen, found, err := container.UIState.Get(bridge.ConsoleDirKey); err != nil {
+		log.Printf("database: read console folder: %v", err)
+	} else if found && chosen != "" {
+		// A folder that has since been deleted, unmounted or made read-only
+		// is not a reason to refuse to start: the consoles fall back to the
+		// default and the setting still says what was asked for, which is the
+		// state the settings panel can explain.
+		if err := consoles.SetDir(chosen); err != nil {
+			log.Printf("database: console folder %q unusable, using the default: %v", chosen, err)
+		}
+	}
+	container.Database.SetConsoleStore(consoles)
 	// Audit persists to SQLite (audit_events); the in-memory sink stays as the
 	// diagnostic view and the fallback when a write fails. Rebuild the gateway
 	// here, before RegisterBuiltins / NewAppService capture it.

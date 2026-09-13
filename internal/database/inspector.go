@@ -141,7 +141,8 @@ func (s *Service) Explain(ctx context.Context, id, sql string) (QueryPlan, error
 	}
 	ctx, cancel := queryContext(ctx)
 	defer cancel()
-	return planner.Explain(ctx, sql)
+	plan, err := planner.Explain(ctx, sql)
+	return plan, NewStatementError(err)
 }
 
 // ExplainAnalyze runs the statement inside a rolled-back transaction.
@@ -152,5 +153,6 @@ func (s *Service) ExplainAnalyze(ctx context.Context, id, sql string) (QueryPlan
 	}
 	ctx, cancel := queryContext(ctx)
 	defer cancel()
-	return planner.ExplainAnalyze(ctx, sql)
+	plan, err := planner.ExplainAnalyze(ctx, sql)
+	return plan, NewStatementError(err)
 }

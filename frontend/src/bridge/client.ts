@@ -28,6 +28,14 @@ export type CancellableCall<T> = Promise<T> & {
  * `then` on a CancellablePromise propagates cancellation up the chain, so the
  * mapped promise returned here cancels the underlying call. A CancelError is
  * rethrown untouched: it is a control signal, not a failure to show the user.
+ *
+ * The method reference is taken BEFORE the property is assigned, and that is
+ * the whole of why this is two statements. `result` is the mapped promise
+ * itself, cast — not a wrapper around it — so `result.cancel = ...` replaces
+ * the very method the closure would go on to call, and cancelling recursed
+ * until the stack ran out. From the outside that was a Stop button that could
+ * not be pressed, and it was every cancel in the app: the console's Stop, a
+ * superseded table page, a superseded row count, Kafka's peek.
  */
 export function callBridgeCancellable<R, T>(
   start: () => CancellablePromise<R>,
@@ -38,9 +46,10 @@ export function callBridgeCancellable<R, T>(
     if (isCancelError(error)) throw error;
     throw toAppError(error);
   });
+  const cancelChain = mapped.cancel.bind(mapped);
   const result = mapped as unknown as CancellableCall<T>;
   result.cancel = () => {
-    void mapped.cancel();
+    void cancelChain();
   };
   return result;
 }

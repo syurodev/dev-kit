@@ -4,6 +4,11 @@ import { Dialogs } from "@wailsio/runtime";
 import { keymap } from "@codemirror/view";
 import { CodeEditor } from "@/components/code-editor/CodeEditor";
 import { Button } from "@/components/ui/button";
+import {
+  CraftButton,
+  CraftButtonIcon,
+  CraftButtonLabel,
+} from "@/components/ui/craft-button";
 import { useSidebarContent } from "@/components/ui/sidebar-shell";
 import { useSplitPanel } from "@/components/ui/split-panel";
 import { AnalyzerSetup } from "./AnalyzerSetup";
@@ -576,7 +581,15 @@ export function CodeGraphView() {
                   search endpoints
                 </span>
               ) : (
-                <Button onClick={pickAndOpenProject}>Open Java project…</Button>
+                /* Alone on the screen and an invitation, so it takes the
+                   craft button — unlike the two buttons further up, which
+                   recover from an error and should not be celebrating. */
+                <CraftButton onClick={pickAndOpenProject}>
+                  <CraftButtonIcon>
+                    <FolderSearch className="size-3" />
+                  </CraftButtonIcon>
+                  <CraftButtonLabel>Open Java project…</CraftButtonLabel>
+                </CraftButton>
               )}
             </EmptyState>
           )}

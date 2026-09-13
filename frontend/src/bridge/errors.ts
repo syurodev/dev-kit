@@ -58,6 +58,17 @@ function findPayload(error: unknown): AppErrorPayload | undefined {
   return undefined;
 }
 
+/**
+ * The sentence shown when whatever went wrong did not bring one.
+ *
+ * An Error can carry an empty message — `new Error()`, and the rejection
+ * @wailsio/runtime produces when there is no runtime behind the call — and
+ * "" rendered into an error card is a card with nothing in it. A blank
+ * explanation is worse than a dull one: the reader cannot tell a failure
+ * from a feature that has not loaded.
+ */
+const UNEXPLAINED = "An unexpected error occurred.";
+
 export function toAppError(error: unknown): AppError {
   if (error instanceof AppError) {
     return error;
@@ -65,20 +76,20 @@ export function toAppError(error: unknown): AppError {
 
   const payload = findPayload(error);
   if (payload) {
-    return new AppError(payload);
+    return new AppError({ ...payload, message: payload.message || UNEXPLAINED });
   }
 
   if (error instanceof Error) {
     return new AppError({
       code: "unknown",
-      message: error.message,
+      message: error.message || UNEXPLAINED,
       recoverable: false,
     });
   }
 
   return new AppError({
     code: "unknown",
-    message: typeof error === "string" ? error : "An unexpected error occurred.",
+    message: (typeof error === "string" ? error : "") || UNEXPLAINED,
     recoverable: false,
   });
 }

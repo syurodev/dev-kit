@@ -73,7 +73,7 @@ mock.module("../../bridge/database", () => ({
   indexSchema: async () => null,
 }));
 
-const { useDatabaseStore } = await import("./databaseStore");
+const { useDatabaseStore, visibleResult } = await import("./databaseStore");
 
 const RESULT = (rowCount: number) => ({
   columns: ["n"],
@@ -96,19 +96,19 @@ describe("executeQuery, while it is running", () => {
   it("keeps the previous result on screen and flags the run", async () => {
     useDatabaseStore.setState((s) => ({
       selectedProfileId: "p1",
-      consoles: { ...s.consoles, [C]: { ...s.consoleState(C), sql: "select 1", queryResult: RESULT(7) } },
+      consoles: { ...s.consoles, [C]: { ...s.consoleState(C), sql: "select 1", results: [{ statement: "select 1", result: RESULT(7) }] } },
     }));
 
     const run = useDatabaseStore.getState().executeQuery(C);
 
     // The old table is still there — the pane does not empty for the length of
     // the statement — and the console knows to dim it.
-    expect(useDatabaseStore.getState().consoleState(C).queryResult?.rowCount).toBe(7);
+    expect(visibleResult(useDatabaseStore.getState().consoleState(C))?.rowCount).toBe(7);
     expect(useDatabaseStore.getState().consoleState(C).runningQuery).toBe(true);
 
     pending[0].resolve(RESULT(9));
     await run;
-    expect(useDatabaseStore.getState().consoleState(C).queryResult?.rowCount).toBe(9);
+    expect(visibleResult(useDatabaseStore.getState().consoleState(C))?.rowCount).toBe(9);
     expect(useDatabaseStore.getState().consoleState(C).runningQuery).toBe(false);
   });
 
@@ -128,7 +128,7 @@ describe("executeQuery, while it is running", () => {
     pending[0].resolve(RESULT(1));
     await first;
 
-    expect(useDatabaseStore.getState().consoleState(C).queryResult?.rowCount).toBe(2);
+    expect(visibleResult(useDatabaseStore.getState().consoleState(C))?.rowCount).toBe(2);
   });
 
   it("a late failure from a superseded run does not raise an error card", async () => {
@@ -146,13 +146,13 @@ describe("executeQuery, while it is running", () => {
     await first;
 
     expect(useDatabaseStore.getState().consoleState(C).queryError).toBe("");
-    expect(useDatabaseStore.getState().consoleState(C).queryResult?.rowCount).toBe(3);
+    expect(visibleResult(useDatabaseStore.getState().consoleState(C))?.rowCount).toBe(3);
   });
 
   it("cancel stops the call and leaves the previous result alone", async () => {
     useDatabaseStore.setState((s) => ({
       selectedProfileId: "p1",
-      consoles: { ...s.consoles, [C]: { ...s.consoleState(C), sql: "select 1", queryResult: RESULT(4) } },
+      consoles: { ...s.consoles, [C]: { ...s.consoleState(C), sql: "select 1", results: [{ statement: "select 1", result: RESULT(4) }] } },
     }));
 
     const run = useDatabaseStore.getState().executeQuery(C);
@@ -162,7 +162,7 @@ describe("executeQuery, while it is running", () => {
     expect(pending[0].cancelled).toBe(true);
     expect(useDatabaseStore.getState().consoleState(C).runningQuery).toBe(false);
     expect(useDatabaseStore.getState().consoleState(C).queryError).toBe("");
-    expect(useDatabaseStore.getState().consoleState(C).queryResult?.rowCount).toBe(4);
+    expect(visibleResult(useDatabaseStore.getState().consoleState(C))?.rowCount).toBe(4);
   });
 
   // The reason run tokens moved per console: two consoles running at once must
@@ -189,8 +189,8 @@ describe("executeQuery, while it is running", () => {
 
     // Both answers land. Neither run was superseded, because neither shares a
     // token with the other.
-    expect(useDatabaseStore.getState().consoleState("a").queryResult?.rowCount).toBe(1);
-    expect(useDatabaseStore.getState().consoleState("b").queryResult?.rowCount).toBe(2);
+    expect(visibleResult(useDatabaseStore.getState().consoleState("a"))?.rowCount).toBe(1);
+    expect(visibleResult(useDatabaseStore.getState().consoleState("b"))?.rowCount).toBe(2);
   });
 });
 

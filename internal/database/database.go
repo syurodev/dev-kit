@@ -160,6 +160,7 @@ type Service struct {
 	history       QueryHistoryRepository
 	sealer        Sealer
 	schemaCache   SchemaCacheRepository
+	consoles      *ConsoleStore
 	txs           *transactions
 }
 
@@ -519,8 +520,11 @@ func (s *Service) Query(ctx context.Context, id string, sql string, maxRows int)
 	} else {
 		rows, err = pool.Query(ctx, sql)
 	}
+	// Marked from here down: everything below is the engine answering the SQL
+	// the caller typed, and the bridge redacts a database error unless it is
+	// told that is what it is. See StatementError.
 	if err != nil {
-		return QueryResult{}, err
+		return QueryResult{}, NewStatementError(err)
 	}
 	defer rows.Close()
 
@@ -534,13 +538,16 @@ func (s *Service) Query(ctx context.Context, id string, sql string, maxRows int)
 		// shape serves every engine.
 		row, err := rows.Values()
 		if err != nil {
-			return QueryResult{}, err
+			return QueryResult{}, NewStatementError(err)
 		}
 		result.Rows = append(result.Rows, row)
 		result.RowCount++
 	}
+	// Where a statement that started fine ends badly — a division by zero on
+	// row 900, a cast that only the tenth value fails. pgx reports those on
+	// the drain, not on Query.
 	if err := rows.Err(); err != nil && !result.Truncated {
-		return QueryResult{}, err
+		return QueryResult{}, NewStatementError(err)
 	}
 	s.recordHistory(id, sql)
 	s.refreshSchemaAfterDDL(id, sql)

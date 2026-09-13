@@ -76,12 +76,23 @@ export function SidebarSection({
   open,
   onToggle,
   actions,
+  first = false,
 }: {
   label: string;
   count?: number;
   open?: boolean;
   onToggle?: () => void;
   actions?: React.ReactNode;
+  /**
+   * The first heading in a rail that begins with one.
+   *
+   * pt-4 is the air a heading needs when it follows rows. A heading that
+   * follows the rail's own chrome — a tab strip, a search field — already
+   * has that air above it, and 16px more reads as the list having failed to
+   * load. 6px is what the search field leaves, so both panes of a tabbed
+   * rail start on the same line.
+   */
+  first?: boolean;
 }) {
   const heading = (
     <>
@@ -102,7 +113,12 @@ export function SidebarSection({
   return (
     // pt-4/pb-1.5, not a symmetric py: a section heading belongs to the rows
     // below it, and equal padding leaves it floating between two groups.
-    <div className="flex items-center justify-between gap-2 px-3 pt-4 pb-1.5">
+    <div
+      className={cn(
+        "flex items-center justify-between gap-2 px-3 pb-1.5",
+        first ? "pt-2" : "pt-4",
+      )}
+    >
       {onToggle ? (
         <button
           type="button"

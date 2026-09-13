@@ -62,8 +62,33 @@ const editorChrome = EditorView.theme({
   "&": { color: "var(--text-primary)" },
   ".cm-content": { caretColor: "var(--brand-text)" },
   ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--brand-text)" },
+  /*
+   * The selection, in the app's own tint — and written the long way ON
+   * PURPOSE.
+   *
+   * CodeMirror's default light theme carries
+   * `.ͼ2.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground`,
+   * five classes of specificity, for a pale lavender mixed to sit under
+   * dark-on-light syntax. The short selector below it lost every time, so
+   * every editor in this app has been selecting text in #d7d4f0 with
+   * colours mixed for a dark ground on top of it — a band you cannot read,
+   * in the one control where selecting is how you choose what to run.
+   *
+   * Matching the shape ties the specificity, and a tie goes to whoever is
+   * registered later: this theme, which is added after basicSetup.
+   *
+   * --editor-selection, not --surface-tinted, which is what this rule asked
+   * for before anyone could see it apply: measured 1.06:1 against the
+   * editor's own ground, so the selection was there and invisible. The new
+   * one is the selected-cell wash at a strength each mode can carry — a
+   * tint, so every token keeps the colour that says what it is, and
+   * selecting rows and selecting SQL are one gesture in one colour.
+   */
+  "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground": {
+    backgroundColor: "var(--editor-selection)",
+  },
   "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection": {
-    backgroundColor: "var(--surface-tinted)",
+    backgroundColor: "var(--editor-selection)",
   },
   ".cm-activeLine": { backgroundColor: "var(--state-soft)" },
   ".cm-gutters": {

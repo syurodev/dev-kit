@@ -562,3 +562,86 @@ export function explainAnalyze(id: string, sql: string): Promise<QueryPlan> {
     return toQueryPlan(plan);
   });
 }
+
+/**
+ * A query console's text as it is kept on disk — DataGrip's model: one .sql
+ * per console, written as you type, with the connection it belongs to on the
+ * first line of the file.
+ *
+ * Not the same thing as a SavedQuery, and it must not become one. A saved
+ * query is named, deliberate, and a synced vault item; a console is the
+ * scratch pad you left open and expect to find again.
+ */
+export type StoredConsole = {
+  id: string;
+  profileId: string;
+  /** The schema or database it was last pointed at. */
+  database: string;
+  sql: string;
+  updatedAt: string;
+};
+
+export function listConsoles(): Promise<StoredConsole[]> {
+  return callBridge(async () => {
+    const list = await AppService.DBListConsoles();
+    return (list ?? []).map((c) => ({
+      id: c.id,
+      profileId: c.profile_id,
+      database: c.database,
+      sql: c.sql,
+      updatedAt: c.updated_at,
+    }));
+  });
+}
+
+/**
+ * Four arguments rather than the Console object, because the object carries
+ * an `updated_at` the window does not have. Wails parses every argument
+ * before the method runs, so a time in the signature made a timestamp
+ * mandatory here; sending "" failed in the binding layer and nothing was
+ * ever written. The stamp belongs to whoever writes the bytes.
+ */
+export function saveConsole(console: Omit<StoredConsole, "updatedAt">): Promise<void> {
+  return callBridge(
+    () =>
+      AppService.DBSaveConsole(
+        console.id,
+        console.profileId,
+        console.database,
+        console.sql,
+      ) as Promise<void>,
+  );
+}
+
+export function deleteConsole(id: string): Promise<void> {
+  return callBridge(() => AppService.DBDeleteConsole(id) as Promise<void>);
+}
+
+/** Where the console files are kept, and where they would go by default. */
+export type ConsoleDirectory = {
+  path: string;
+  /** The folder they return to when the setting is cleared. */
+  fallback: string;
+  /** Whether `path` is a choice somebody made. */
+  custom: boolean;
+};
+
+const asDirectory = (d: { path: string; default: string; custom: boolean }): ConsoleDirectory => ({
+  path: d.path,
+  fallback: d.default,
+  custom: d.custom,
+});
+
+export function consoleDirectory(): Promise<ConsoleDirectory> {
+  return callBridge(async () => asDirectory(await AppService.DBConsoleDirectory()));
+}
+
+/** Moves the console files. An empty path means "back to the default". */
+export function setConsoleDirectory(path: string): Promise<ConsoleDirectory> {
+  return callBridge(async () => asDirectory(await AppService.DBSetConsoleDirectory(path)));
+}
+
+/** The native folder picker. "" when the user cancelled, which is not an error. */
+export function chooseConsoleDirectory(): Promise<string> {
+  return callBridge(() => AppService.DBChooseConsoleDirectory() as Promise<string>);
+}

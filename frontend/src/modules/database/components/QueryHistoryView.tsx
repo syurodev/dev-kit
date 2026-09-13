@@ -21,7 +21,7 @@ import { useDatabaseStore } from "../databaseStore";
 import { listQueryHistory, type HistoryEntry } from "../../../bridge/database";
 import { errorMessage } from "../../../bridge/errors";
 import { isVaultLockedError } from "../errorStates";
-import { openConsoleTab } from "../documents";
+import { consoleIdFor, openConsoleTab } from "../documents";
 import { useIsActiveDocument } from "../useIsActiveDocument";
 import { useDatabaseChrome } from "../useDatabaseChrome";
 
@@ -69,7 +69,7 @@ export function QueryHistoryView() {
   function handleOpenInConsole(entry: HistoryEntry) {
     // Namespaced by view: a history entry and a saved query can otherwise
     // share an id and collide on the same console.
-    const consoleId = `console-history-${entry.id}`;
+    const consoleId = consoleIdFor(`history-${entry.id}`);
     setSql(consoleId, entry.sql);
     openConsoleTab(consoleId);
   }

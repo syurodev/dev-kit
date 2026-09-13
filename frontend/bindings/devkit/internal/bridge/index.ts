@@ -9,6 +9,7 @@ export {
 export type {
     ActiveProfileDTO,
     AuthStatusDTO,
+    ConsoleDirectory,
     ExecuteCommandRequest,
     ModuleDTO,
     SyncConflictDTO,

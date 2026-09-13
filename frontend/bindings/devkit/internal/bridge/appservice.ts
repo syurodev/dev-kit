@@ -308,12 +308,30 @@ export function DBCancelQuery(id: string, pid: string): $CancellablePromise<void
     return $Call.ByID(652064838, id, pid);
 }
 
+/**
+ * DBChooseConsoleDirectory opens the native folder picker, starting in the
+ * folder they are in now. Cancelling returns "" and is not an error — the
+ * settings panel stays as it was, and an error there would read as a failure
+ * the user caused by changing their mind.
+ */
+export function DBChooseConsoleDirectory(): $CancellablePromise<string> {
+    return $Call.ByID(2112834229);
+}
+
 export function DBCommitTx(id: string): $CancellablePromise<void> {
     return $Call.ByID(2136861641, id);
 }
 
+export function DBConsoleDirectory(): $CancellablePromise<$models.ConsoleDirectory> {
+    return $Call.ByID(3758236692);
+}
+
 export function DBCreateProfile(input: database$0.CreateProfileInput): $CancellablePromise<database$0.ProfileSummary> {
     return $Call.ByID(3479862833, input);
+}
+
+export function DBDeleteConsole(id: string): $CancellablePromise<void> {
+    return $Call.ByID(4186181056, id);
 }
 
 export function DBDeleteProfile(id: string): $CancellablePromise<void> {
@@ -361,6 +379,18 @@ export function DBListActivity(id: string): $CancellablePromise<database$0.Sessi
 
 export function DBListColumns(id: string, schema: string, table: string): $CancellablePromise<database$0.ColumnInfo[] | null> {
     return $Call.ByID(2451086547, id, schema, table);
+}
+
+/**
+ * Query consoles: the scratch text, not the saved query.
+ * 
+ * Their own capability rather than another scope under db:query. Reading a
+ * console is reading what the user typed in every window they left open, which
+ * is a different permission from being allowed to ask a database a question —
+ * and the files are in the app's own directory, so no profile scopes them.
+ */
+export function DBListConsoles(): $CancellablePromise<database$0.Console[] | null> {
+    return $Call.ByID(402383590);
 }
 
 export function DBListForeignKeys(id: string, schema: string): $CancellablePromise<database$0.ForeignKey[] | null> {
@@ -416,6 +446,22 @@ export function DBRollbackTx(id: string): $CancellablePromise<void> {
     return $Call.ByID(9079048, id);
 }
 
+/**
+ * DBSaveConsole writes one console's text. Called on a debounce as the user
+ * types, so it is the one bridge call here that runs without being asked for.
+ * 
+ * Four strings rather than the Console struct, and the reason is the struct's
+ * UpdatedAt. Wails parses each argument out of JSON before the method runs, so
+ * a time.Time in the signature makes a timestamp REQUIRED of the caller — and
+ * the window has no business having one. It sent "", every call failed in the
+ * binding layer before reaching any code here ("cannot parse \"\" as
+ * \"2006\""), and nothing was ever written. The stamp belongs to the writer:
+ * the store puts it on at the moment the bytes land.
+ */
+export function DBSaveConsole(id: string, profileID: string, databaseName: string, sql: string): $CancellablePromise<void> {
+    return $Call.ByID(2390604210, id, profileID, databaseName, sql);
+}
+
 export function DBSaveExportFile(suggestedName: string, content: string): $CancellablePromise<string> {
     return $Call.ByID(2407386373, suggestedName, content);
 }
@@ -430,6 +476,22 @@ export function DBSaveQuery(id: string, name: string, sql: string): $Cancellable
 
 export function DBSetActiveProfile(id: string): $CancellablePromise<void> {
     return $Call.ByID(646248503, id);
+}
+
+/**
+ * DBSetConsoleDirectory moves the consoles and remembers where they went.
+ * 
+ * The move happens first and the row is written only if it worked, so the
+ * setting the window shows on the next launch is the folder the files are
+ * actually in. Failing to remember is not failing to move: the consoles are
+ * where the user asked for, and saying otherwise would send them looking for
+ * files that are not there. It is logged and the call succeeds.
+ * 
+ * An empty path is "use the default" — one call for both, because the window's
+ * two buttons are the same decision with different arguments.
+ */
+export function DBSetConsoleDirectory(path: string): $CancellablePromise<$models.ConsoleDirectory> {
+    return $Call.ByID(1259808484, path);
 }
 
 /**
