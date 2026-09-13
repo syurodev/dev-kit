@@ -45,6 +45,81 @@ function DialogOverlay({
   )
 }
 
+/**
+ * Layout the body takes from the content box.
+ *
+ * Callers style DialogContent with one className that mixes the box
+ * (`sm:max-w-2xl`, a background) with how its children are laid out
+ * (`gap-0 p-0 flex flex-col`). The body sits between the box and the
+ * children, so it inherits the second half and the children are placed
+ * exactly as they were. Padding stays on the box.
+ */
+const INHERIT_LAYOUT: React.CSSProperties = {
+  display: "inherit",
+  flexDirection: "inherit",
+  flexWrap: "inherit",
+  gap: "inherit",
+  alignItems: "inherit",
+  alignContent: "inherit",
+  justifyItems: "inherit",
+  justifyContent: "inherit",
+  gridTemplateColumns: "inherit",
+}
+
+/**
+ * The dialog follows its content's height instead of jumping to it.
+ *
+ * The body is `h-fit shrink-0`, so its height is what the content needs and
+ * never what the animating box is passing through. When it changes, the box
+ * animates from the height it was showing to the height it now has.
+ *
+ * WAAPI on the element rather than React state: nothing re-renders, the box's
+ * own height stays `auto` once the animation ends, and a caller's `max-h`
+ * still clamps both ends. A ref callback rather than an effect, because Radix
+ * mounts the content only when the dialog opens.
+ */
+function followContentHeight(body: HTMLDivElement | null) {
+  const box = body?.parentElement
+  if (!body || !box || typeof ResizeObserver === "undefined") return
+
+  const overflow = box.style.overflow
+  let settled = box.offsetHeight
+  let running: Animation | null = null
+
+  const observer = new ResizeObserver(() => {
+    // Mid-animation the box is where the animation has it; start from there.
+    const from = running ? parseFloat(getComputedStyle(box).height) : settled
+    running?.cancel()
+    running = null
+    const to = box.offsetHeight
+    settled = to
+
+    if (Math.abs(from - to) < 1 || matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      box.style.overflow = overflow
+      return
+    }
+
+    const tokens = getComputedStyle(document.documentElement)
+    box.style.overflow = "hidden"
+    const animation = box.animate([{ height: `${from}px` }, { height: `${to}px` }], {
+      duration: parseFloat(tokens.getPropertyValue("--motion-base")) || 180,
+      easing: tokens.getPropertyValue("--ease-out-strong").trim() || "ease-out",
+    })
+    running = animation
+    animation.onfinish = () => {
+      if (running !== animation) return
+      running = null
+      box.style.overflow = overflow
+    }
+  })
+  observer.observe(body)
+
+  return () => {
+    observer.disconnect()
+    running?.cancel()
+  }
+}
+
 function DialogContent({
   className,
   children,
@@ -66,7 +141,14 @@ function DialogContent({
         )}
         {...props}
       >
-        {children}
+        <div
+          ref={followContentHeight}
+          data-slot="dialog-body"
+          className="h-fit w-full min-w-0 shrink-0"
+          style={INHERIT_LAYOUT}
+        >
+          {children}
+        </div>
         {showCloseButton && (
           <DialogPrimitive.Close data-slot="dialog-close" asChild>
             <Button

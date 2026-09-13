@@ -1,5 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
-import { motion, useReducedMotion } from "framer-motion";
+import { useMemo, useState } from "react";
 import { copyText } from "../../../bridge/clipboard";
 import {
   Sliders,
@@ -15,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import type { PlanNode, QueryPlan } from "../../../bridge/database";
 import { cn } from "@/lib/utils";
 import { planGraph } from "../plan/planGraph";
@@ -29,27 +29,6 @@ export function QueryPlanView({
 }) {
   const [activeTab, setActiveTab] = useState<"diagram" | "visual" | "raw">("diagram");
   const [copied, setCopied] = useState(false);
-
-  /*
-   * The body's height, animated between tabs.
-   *
-   * Each tab is as tall as it wants (the diagram a fixed 60vh, the others
-   * their content up to the same cap), and switching used to snap the whole
-   * modal to the new size in one frame. The inner box keeps its natural
-   * height; the outer one moves to it.
-   */
-  const motionOff = useReducedMotion() ?? false;
-  const bodyRef = useRef<HTMLDivElement>(null);
-  const [bodyHeight, setBodyHeight] = useState<number | null>(null);
-  useLayoutEffect(() => {
-    const el = bodyRef.current;
-    if (!el) return;
-    const sync = () => setBodyHeight(el.offsetHeight);
-    sync();
-    const observer = new ResizeObserver(sync);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
 
   // Flatten nodes for calculating max self time and statistics
   const flattenedNodes: PlanNode[] = [];
@@ -84,13 +63,19 @@ export function QueryPlanView({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-      <div className="bg-surface-base border border-border rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-(--motion-base)">
+    // The app's Dialog: overlay, Escape, focus trap, and the height animation
+    // between tabs, which DialogContent now does for every dialog.
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent
+        showCloseButton={false}
+        aria-describedby={undefined}
+        className="flex max-h-[90vh] flex-col gap-0 overflow-hidden rounded-xl border border-border bg-surface-base p-0 shadow-2xl ring-0 sm:max-w-4xl"
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-surface-raised/50">
           <div className="flex items-center gap-2.5">
             <Sliders className="w-4 h-4 text-action-primary" />
-            <h2 className="text-title-14 text-text-primary">Query Plan Inspector</h2>
+            <DialogTitle className="text-title-14 text-text-primary">Query Plan Inspector</DialogTitle>
             {plan.analyzed ? (
               <Badge variant="outline" className="text-caption-11 text-status-success border-status-success/30 bg-status-success/10">
                 EXPLAIN ANALYZE · Executed & Rolled Back
@@ -103,8 +88,8 @@ export function QueryPlanView({
           </div>
 
           <div className="flex items-center gap-2">
-            {/* The app's Tabs, list only: the body below keeps its own
-                height animation, which TabsContent's slide would fight. */}
+            {/* The app's Tabs, list only: the dialog animates its height
+                between tabs, which TabsContent's slide would fight. */}
             <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)}>
               <TabsList>
                 <TabsTrigger value="diagram">Diagram</TabsTrigger>
@@ -157,15 +142,9 @@ export function QueryPlanView({
         {/* Content Area. The diagram takes the whole box and scrolls itself
             — a canvas inside an overflow-y-auto would scroll twice and pan
             never. */}
-        <motion.div
-          className="shrink-0 overflow-hidden bg-surface-base"
-          initial={false}
-          animate={{ height: bodyHeight ?? "auto" }}
-          transition={motionOff ? { duration: 0 } : { duration: 0.22, ease: "easeInOut" }}
-        >
         <div
-          ref={bodyRef}
           className={cn(
+            "shrink-0",
             // A concrete height, because React Flow measures its parent and
             // this modal is sized by its content: a canvas inside a box with
             // no height of its own draws nothing. The other tabs share the
@@ -211,7 +190,6 @@ export function QueryPlanView({
             </div>
           )}
         </div>
-        </motion.div>
 
         {/* Footer */}
         <div className="px-4 py-2.5 border-t border-border bg-surface-raised/40 flex items-center justify-between text-body-12 text-text-tertiary">
@@ -220,8 +198,8 @@ export function QueryPlanView({
             Done
           </Button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

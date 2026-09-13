@@ -1,10 +1,18 @@
 import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Bookmark, X } from "lucide-react";
+import { Bookmark } from "lucide-react";
 import { sql as codemirrorSql, PostgreSQL, MySQL, MariaSQL } from "@codemirror/lang-sql";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CodeEditor } from "@/components/code-editor/CodeEditor";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useShallow } from "zustand/react/shallow";
 import { EMPTY_CONSOLE, useDatabaseStore } from "../databaseStore";
 import { saveQuery } from "../../../bridge/database";
@@ -43,8 +51,6 @@ export function SaveQueryModal() {
     return [codemirrorSql({ dialect, upperCaseKeywords: true })];
   }, [engine]);
 
-  if (!showSaveQueryModal) return null;
-
   async function handleSave() {
     if (!selectedProfileId || !name.trim() || !sql.trim()) return;
     setSaving(true);
@@ -62,30 +68,24 @@ export function SaveQueryModal() {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-      <div className="bg-surface-base border border-border rounded-xl shadow-xl w-full max-w-2xl p-5 flex flex-col gap-4 animate-in fade-in zoom-in-95 duration-(--motion-base)">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Bookmark className="w-4 h-4 text-action-primary" />
-            <h3 className="text-title-14 text-text-primary">Save Query</h3>
-          </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6 text-text-tertiary hover:text-text-primary"
-            onClick={() => setShowSaveQueryModal(false)}
-          >
-            <X className="w-4 h-4" />
-          </Button>
-        </div>
-
-        <p className="text-body-12 text-text-secondary">
-          Give this statement a memorable name. Saved queries sync securely with your vault across devices.
-        </p>
+    <Dialog open={showSaveQueryModal} onOpenChange={setShowSaveQueryModal}>
+      <DialogContent className="gap-4 p-5 sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-title-14 text-text-primary">
+            <Bookmark className="size-4 text-action-primary" />
+            Save Query
+          </DialogTitle>
+          <DialogDescription className="text-body-12 text-text-secondary">
+            Give this statement a memorable name. Saved queries sync securely with your vault across devices.
+          </DialogDescription>
+        </DialogHeader>
 
         <div className="space-y-2">
-          <label className="text-label-12 text-text-primary">Query Name</label>
+          <label htmlFor="save-query-name" className="text-label-12 text-text-primary">
+            Query Name
+          </label>
           <Input
+            id="save-query-name"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="e.g. Monthly active users count"
@@ -95,7 +95,7 @@ export function SaveQueryModal() {
         </div>
 
         <div className="space-y-1">
-          <label className="text-caption-11-medium text-text-tertiary">SQL Preview</label>
+          <span className="text-caption-11-medium text-text-tertiary">SQL Preview</span>
           <div className="h-72 overflow-hidden rounded-md border border-border bg-surface-raised">
             <CodeEditor value={sql} onChange={() => {}} extensions={sqlExtensions} readOnly wrap />
           </div>
@@ -107,7 +107,7 @@ export function SaveQueryModal() {
           </div>
         )}
 
-        <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+        <DialogFooter className="-mx-5 -mb-5 px-5">
           <Button
             variant="outline"
             size="sm"
@@ -124,8 +124,8 @@ export function SaveQueryModal() {
           >
             {saving ? "Saving…" : "Save Query"}
           </Button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
