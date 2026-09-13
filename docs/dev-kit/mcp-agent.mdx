@@ -227,7 +227,7 @@ render hàng đợi.
 **Vì sao socket chứ không phải token.** Token là chuỗi: nằm trong env, lọt vào
 transcript, agent B có token của A thì nối socket chung rồi giả A. Socket riêng
 + `AllowUnixSockets` đặt ranh giới ở kernel. `getpeereid`/pid bị loại vì
-`npx → node → claude → devkit-mcp` là bốn tầng spawn và bwrap có pid namespace
+`node (adapter) → claude → devkit-mcp` là ba tầng spawn và bwrap có pid namespace
 riêng.
 
 ### `structuredContent` phải là JSON object (Implemented)

@@ -179,11 +179,43 @@ phải một rule profile.
   `install.ResolveCommand()`; không tìm thấy → `CreateSession` fail rõ
   (`ErrProxyNotFound`) thay vì spawn một agent không gọi được DevKit.
 
+### Grant khi Agent Hub khởi chạy agent (Implemented)
+
+Adapter Claude chạy bằng **node tuyệt đối + entry tuyệt đối** từ runtime DevKit
+cài (xem [Agent Hub § Runtime do DevKit quản lý](/dev-kit/agent-hub#runtime-do-devkit-quản-lý-implemented)),
+không còn qua `npx` hay shebang tìm node trên PATH. `agentruntime.Resolved.ReadOnlyPaths`
+(`internal/agentruntime`) liệt kê tường minh thứ jail phải đọc được, tất cả đã
+`EvalSymlinks` và dùng **cùng một cách viết** cho command, argument lẫn grant —
+bwrap bind đúng chuỗi được đưa, một symlink trong đường dẫn runtime sẽ để command
+trỏ ra ngoài jail:
+
+| Grant | Vì sao |
+|---|---|
+| `<UserConfigDir>/DevKit/runtimes/claude-acp/<version>` | entry, cây `node_modules` (entry import SDK từ đây — thiếu là `ERR_MODULE_NOT_FOUND`), binary Claude đi kèm |
+| Prefix cài node (`<prefix>` của `<prefix>/bin/node`, hoặc thư mục chứa `node.exe`) | chính node và thư viện của nó; adapter thêm cả file node |
+| Root Homebrew (`/opt/homebrew`, hoặc phần trước `/Cellar/`) — chỉ khi node là bản Homebrew | node Homebrew link `icu4c`, `openssl`, `libuv`… nằm chỗ khác dưới root, nên cấp cả root, read-only (`ponytail:` trong `nodeReadPaths`: thu hẹp theo `otool -L` nếu grant này thành vấn đề) |
+| Thư mục chứa `claude` trên máy, đã resolve — chỉ khi chọn file chạy `machine` | `~/.local/bin/claude` là symlink vào `~/.local/share/claude/versions/<v>` |
+
+Tất cả chỉ đọc: agent không sửa được adapter của chính nó. Quyền ghi vẫn chỉ
+`~/.claude` + `~/.claude.json`. Env của runtime (`PATH` = thư mục node + PATH
+của host, `CLAUDE_CODE_EXECUTABLE` khi chọn `machine`) merge đè lên allowlist.
+
+**Linux: gần như mọi grant nằm dưới `$HOME`.** `~/.config/DevKit/runtimes` và
+node của nvm/Volta/fnm đều ở trong home, mà `PrivateHome` phủ `--tmpfs $HOME`.
+`bwrap_args.go` bind lại những `ReadOnlyPaths` nằm trong home **sau** tmpfs
+(`appendHomeAllowlist`, cùng slot re-bind WorkDir), nên chỉ path có trong danh
+sách mới hiện ra; thứ node cần dưới home mà thiếu grant thì trong jail đơn giản
+là không tồn tại. Đó là lý do cấp tường minh là bắt buộc, không phải phòng xa.
+
+Override `DEVKIT_CLAUDE_ACP_COMMAND` (dev/CI) giữ hành vi cũ: grant là chính
+file đó + `node_modules` ngoài cùng chứa nó (`nodeModulesRoot`), và node do
+shebang tìm qua PATH phải tự đọc được trong jail.
+
 ### Symlink: allow và deny đều phải resolve (Implemented)
 
 Seatbelt so khớp **path đã resolve**, còn generator từng emit **nguyên văn**.
-Hệ quả là một grant trên symlink không bao giờ khớp: `nvm` cài
-`bin/npx -> ../lib/node_modules/npm/bin/npx-cli.js`, và trong jail node chết
+Hệ quả là một grant trên symlink không bao giờ khớp: thời Agent Hub còn chạy qua
+`npx`, `nvm` cài `bin/npx -> ../lib/node_modules/npm/bin/npx-cli.js`, và trong jail node chết
 với `Cannot find module '.../bin/npx'`; project nằm dưới thư mục cha là symlink
 thì âm thầm thành read-only.
 

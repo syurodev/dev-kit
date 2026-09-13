@@ -1,6 +1,6 @@
 # Agent runtime do DevKit quản lý (ACP adapter tải theo từng agent)
 
-Ngày: 2026-09-13 · Trạng thái: Design · Phạm vi: Agent Hub, bắt đầu với Claude
+Ngày: 2026-09-13 · Trạng thái: Implemented (backend); UI in progress · Phạm vi: Agent Hub, bắt đầu với Claude
 
 ## 1. Vấn đề
 
@@ -272,3 +272,32 @@ Live (gated `DEVKIT_AGENT_INSTALL_TEST=1`, cần mạng + Node)
 3. **Thiếu Node ≥ 22**: chỉ hướng dẫn cài, có lệnh để copy. v1 không tải Node.
 4. **Adapter cài global trên PATH**: bỏ qua. Dev/CI dùng `DEVKIT_CLAUDE_ACP_COMMAND` để trỏ tới bản
    khác.
+
+## 15. Implementation notes (2026-09-13)
+
+Backend đã có (commit `8ef101b`, `573fa7f`, `ab8afef`); UI Settings → Agents đang làm. Chỗ code lệch
+khỏi design ở trên:
+
+- **Package và kiểu**: `internal/agentruntime` (không phải `internal/agenthub/runtime`); không có kiểu
+  `RuntimeResolver` — adapter nhận `ClaudeOptions.Runtime func() (agentruntime.Resolved, error)`,
+  gọi ở mỗi Open/Load. `ClaudeAdapter.Probe` là `Manager.Verify`.
+- **Không tách `internal/toolchain`**: `internal/agentruntime/locate.go` là bản copy nhỏ của locator
+  `codegraph`, vì node cần thứ khác (`process.execPath` thật để cấp quyền sandbox). Locator không có
+  bước "setting người dùng chọn node".
+- **Lỗi bridge**: ba code riêng `agent_not_installed`, `runtime_requirement`, `install_failed`, xét
+  trước "Agent process failed.". Sentinel Go: `agenthub.notInstalled`,
+  `agentruntime.requirementNotMet`, `agentruntime.installFailed`.
+- **Lựa chọn file chạy Claude** lưu ở `runtimes/claude-acp/settings.json` (`claudeBinary`), không ở
+  `ui_state` key `agenthub.claude.binary`.
+- **PATH của npm** = thư mục node + PATH của host (env còn lại giữ nguyên env host), không chỉ thư
+  mục node. Env của phiên cũng vậy.
+- **Lý do `install_failed`** là dòng `npm error` có nghĩa **đầu tiên** (bỏ dòng `code …` và dòng trỏ
+  log), không phải dòng cuối; đã lọc credential, tối đa 300 ký tự.
+- **Node của phiên**: dùng node ghi trong `install.json` lúc cài nếu còn chạy được, không thì dò lại.
+- **GC khởi động** chạy đồng bộ trước khi phiên nào mở; staging/trash luôn xoá, phiên bản ngoài
+  `current`/`previous` chỉ xoá khi `current.json` đọc được.
+- **ETag** của registry lưu ở file riêng `runtimes/registry.etag`.
+- **Test**: test integration/capture chỉ lấy agent từ `DEVKIT_CLAUDE_ACP_BIN` (CI cài global rồi đặt
+  biến đó). Live install: `DEVKIT_AGENT_INSTALL_TEST=1 go test ./internal/agenthub/ -run
+  TestAgentRuntimeLiveInstall -v` — cài 0.74.0 (~237 MB kể cả binary Claude) rồi probe `initialize`
+  trong sandbox. Chưa có test live cài bản thứ hai + rollback (§12).

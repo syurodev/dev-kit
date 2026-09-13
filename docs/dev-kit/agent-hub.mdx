@@ -98,7 +98,7 @@ Dev dùng nhiều agent CLI khác nhau (Claude Code, Codex, Gemini CLI...) nhưn
 - Router thông minh tự động chọn agent theo intent — v1 chỉ có `invokeAgent` tường minh theo `sessionId`, không có "agent nào phù hợp nhất cho việc này".
 - Nhiều client cùng đồng bộ xem 1 session (kiểu AHP mutex-over-ACP cho collaboration) — v1 chỉ 1 UI điều khiển 1 session.
 - Target ACP protocol version 2.
-- Tự động phát hiện/cài đặt agent CLI mới trên máy user — v1 chỉ hỗ trợ agent đã có adapter được viết sẵn trong DevKit.
+- Tự động phát hiện/cài đặt agent CLI mới trên máy user — v1 chỉ hỗ trợ agent đã có adapter được viết sẵn trong DevKit. (DevKit **có** tự cài package ACP của agent đã có adapter, đúng phiên bản đã khoá — xem [Runtime do DevKit quản lý](#runtime-do-devkit-quản-lý-implemented) — nhưng không dò hay cài agent lạ.)
 
 ### Acceptance criteria
 
@@ -183,7 +183,7 @@ sequenceDiagram
 
 - **ACP transport (Go, tự implement)** — line-delimited JSON-RPC 2.0 qua stdio, quản lý lifecycle subprocess (spawn, `session/cancel`, SIGTERM→SIGKILL timeout). Không phụ thuộc package community bên ngoài — lý do: đây là core dependency chạm tới execute-permission, rủi ro bus-factor của 1 package chưa ai official-support không chấp nhận được cho phần này.
 
-  > **Nguyên tắc này hiện chỉ giữ được ở nửa phía client.** Phía agent với vendor Claude là `@agentclientprotocol/claude-agent-acp` (Zed Industries, Apache-2.0) — đúng loại package community mà lý do trên loại trừ, và nó nằm ngay trong đường execute-permission. Không có bridge ACP nào của Anthropic: `claude` CLI không nói ACP, và scope `@agentclientprotocol/*` trên npm do Zed giữ.
+  > **Nguyên tắc này hiện chỉ giữ được ở nửa phía client.** ACP client là code Go của DevKit, không phụ thuộc code nào của Zed. Phía agent với vendor Claude thì runtime dependency là package `@agentclientprotocol/claude-agent-acp`, nằm ngay trong đường execute-permission — `claude` CLI tự nó không nói ACP. ACP registry ghi tác giả package là Anthropic, Zed Industries và JetBrains. License không thống nhất: `package.json` ghi Apache-2.0, registry ghi `proprietary`, vì Claude Agent SDK đi kèm bên trong là proprietary. DevKit khoá phiên bản package này thay vì chạy bản máy tình cờ có — xem [Runtime do DevKit quản lý](#runtime-do-devkit-quản-lý-implemented).
   >
   > Phụ thuộc còn sâu hơn "spawn binary của họ": cách ly permission của DevKit đi qua `session/new` `_meta.claudeCode.options` — **extension riêng của package đó, không thuộc spec ACP**. Hai thứ bám vào đó: `settingSources: []` (chặn `~/.claude/settings.json` của người dùng cấp allow rule vượt cổng) và `settings.hooks.PreToolUse` (chặn tool đọc credential mà jail buộc phải bind RW). Package đổi đường là cả hai lặng lẽ mất, agent vẫn chạy bình thường.
   >
@@ -195,7 +195,8 @@ sequenceDiagram
   **Ngoại lệ có chủ đích: content block chỉ có một.** Nó là hình dạng dây, không phải bản dịch của hình dạng dây — cùng object cho cả prompt gửi đi lẫn chunk nhận về. `agenthub.ContentBlock` vì thế là alias tới `acp.ContentBlock`, không phải bản sao. Trước đó nó là bản sao, và bản sao đã lệch thật: `acp.ContentBlock` mọc thêm `resource` khi prompt biết mang nội dung file, bản sao thì không — một embedded resource agent gửi về sẽ mất phần thân trên đường ra UI. `TestParseSessionUpdateKeepsAnEmbeddedResource` là cái đỏ lên nếu bản sao quay lại.
 - **Vendor adapter registry** — `map[AgentType]VendorAdapter`. Mỗi adapter chịu trách nhiệm:
   1. Biết cách spawn agent tương ứng qua `sandbox.DefaultRunner().StartPiped`
-     (binary path hoặc `npx <package>`, biến môi trường auth cần thiết) — **không**
+     (node + entry tuyệt đối từ [runtime DevKit cài](#runtime-do-devkit-quản-lý-implemented),
+     biến môi trường auth cần thiết) — **không**
      dùng unsandboxed `exec` / `acp.StartProcess` cho vendor thật.
   2. Normalize `_meta` thành model chung DevKit dùng nội bộ (`NormalizedUsage{cost, rateLimit}`, `NormalizedToolResult{stdout, stderr, ...}`) — ví dụ vendor Claude đã quan sát thật: `_meta.claudeCode.toolResponse`, `_meta._claude/rateLimit`, `_meta._claude/origin`, `_meta.permission.changes`. Codex/Gemini gần như chắc chắn có shape khác — mỗi vendor tự viết adapter riêng, core không đụng tới.
   3. Khai báo custom extension method vendor hỗ trợ (ví dụ Claude có `_session/steering`, `_session/goal` — không phải core spec) để UI biết bật/tắt tính năng theo từng tab.
@@ -324,10 +325,125 @@ Grant là **đúng hai path**, không bao giờ cả `$HOME` — có test khoá 
 của agent. Đổi lại, agent do DevKit spawn mới hoạt động được với tài khoản
 subscription.
 
-`ClaudeOptions.Command` ưu tiên binary `claude-agent-acp` đã cài; `npx -y` chỉ
-là fallback kèm cảnh báo, vì npx cần `~/.npm` ghi được — thứ jail không có.
-Binary Node còn cần cả cây `node_modules` của nó trong `ReadOnlyPaths`, nếu
-không sẽ `ERR_MODULE_NOT_FOUND` ở import đầu tiên.
+### Runtime do DevKit quản lý (Implemented)
+
+Adapter Claude không còn lấy từ PATH hay `npx`. Trước đây `main.go` chọn **một
+lần lúc khởi động**: `claude-agent-acp` trên PATH, không có thì `npx -y`. Cả hai
+đều hỏng theo cách riêng: app mở từ Dock/Finder kế thừa PATH tối thiểu của
+launchd nên không thấy bản cài qua nvm/Homebrew; `npx` cần `~/.npm` ghi được và
+chết `EPERM` trong jail trước khi tải được gì (đo được); và phiên bản chạy là bản
+máy tình cờ có, trong khi cách ly permission phụ thuộc vào kênh `_meta` riêng của
+package. Giờ DevKit tự cài một bản đã khoá vào thư mục của nó. Code:
+`internal/agentruntime`, `ClaudeOptions.Runtime` + `ClaudeAdapter.Probe` trong
+`internal/agenthub/adapter_claude.go`, `internal/bridge/agentruntime.go`. Spec:
+`docs/superpowers/specs/2026-09-13-agent-runtime-install-design.md`.
+
+**Nơi cài và phiên bản.** `<UserConfigDir>/DevKit/runtimes/claude-acp/<version>/`
+(cây `npm --prefix` + `install.json`), cạnh `current.json` (`version`,
+`previous`) và `settings.json` (file chạy Claude). Mặc định là `TestedVersion`
+khoá trong `internal/agentruntime/agentruntime.go` — hiện **0.74.0**. Bản mới
+nhất đọc từ ACP registry (cache `runtimes/registry.json` kèm ETag, chỉ tải khi
+gọi `AgentRuntimeCheckLatest`, mất mạng thì dùng cache) và chỉ được đề nghị như
+một bản cập nhật chưa kiểm thử, người dùng tự chọn cài.
+
+**Yêu cầu máy.** Node ≥ 22 (engines floor của adapter) có `npm` cạnh bên. Thứ tự
+dò: nvm, `$NVM_DIR`, Volta, fnm, Homebrew, `/usr/local`, rồi PATH; chọn bản mới
+nhất, lấy `process.execPath` của chính nó nên shim và symlink Cellar được
+resolve. Thiếu thì báo requirement kèm lệnh cài — **DevKit không bao giờ tải
+Node**.
+
+**Luồng cài** — trong backend, ngoài sandbox (cần mạng và quyền ghi),
+single-flight theo agent:
+
+1. **Staging**: `npm install --prefix <agent>/.staging-<ver>-* <package>@<ver>
+   --ignore-scripts --no-audit --no-fund --omit=dev --no-update-notifier`. Env là
+   env của host với thư mục node đứng đầu PATH và `npm_config_cache` riêng ở
+   `runtimes/.npm-cache` (không đụng `~/.npm`); `HOME` giữ nguyên để npm đọc
+   `.npmrc`. `--ignore-scripts` bắt buộc vì bộ cài chạy ngoài jail — không code
+   nào của package chạy trước bước probe trong sandbox. Mỗi dòng output (đã lọc
+   credential) phát ra event `agenthub:runtimeInstallOutput` `{agent, line}`.
+2. **Xác minh tĩnh**: entry có mặt, `package.json` đúng phiên bản yêu cầu,
+   `package-lock.json` có mặt, binary Claude đi kèm đúng nền tảng tồn tại và thực
+   thi được (trừ khi đang chọn bản trên máy).
+3. **Xác minh chạy**: `ClaudeAdapter.Probe` (nối làm `Manager.Verify` ở
+   `main.go`) khởi động bản staging **trong sandbox với đúng policy của phiên
+   thật** (`sandboxFor`, chung cho Open/Load/Probe), gửi `initialize` giới hạn 20s
+   rồi dừng. Không tạo session, nên không đụng credential hay model.
+4. **Kích hoạt nguyên tử**: rename staging → `<version>/`, ghi `current.json` qua
+   tệp tạm + rename; bản đang dùng trước đó thành `previous`. Lỗi ở bất kỳ bước
+   nào: xoá staging, `current.json` giữ nguyên. Hủy bridge call thì kill npm và
+   xoá staging.
+5. **GC lúc khởi động**: `main.go` gọi `GCOnStartup` đồng bộ, trước khi phiên nào
+   mở được — luôn xoá `.staging-*`/`.trash-*`, còn phiên bản ngoài
+   `current`/`previous` chỉ bị xoá khi `current.json` đọc được.
+
+`AgentRuntimeActivate` là rollback (bản cũ thành `previous`); `AgentRuntimeRemove`
+từ chối gỡ bản đang dùng.
+
+**Khởi chạy phiên.** `ClaudeOptions.Runtime` được gọi ở **mỗi** `Open`/`Load`,
+nên cài, cập nhật hay rollback áp dụng cho phiên kế tiếp mà không cần khởi động
+lại; phiên đang chạy giữ process của nó. Thứ tự:
+
+1. `DEVKIT_CLAUDE_ACP_COMMAND` — đường dẫn tuyệt đối (tương đối bị bỏ qua kèm
+   log), chỉ cho dev/CI, bỏ qua runtime hoàn toàn.
+2. `current.json` → `agentruntime.Resolved{Command: node tuyệt đối, Args: [entry
+   tuyệt đối], ReadOnlyPaths, Env}`.
+3. Không có → `ErrAgentNotInstalled` (`agenthub.notInstalled`). **Không có nhánh
+   PATH hay `npx`.**
+
+Node dùng là node ghi trong `install.json` lúc cài nếu nó còn chạy được; mất (nvm
+uninstall, brew upgrade) mới dò lại. Env của runtime merge đè lên allowlist:
+`PATH` = thư mục node + PATH của host. Grant đọc tường minh — thư mục phiên bản,
+prefix node, root Homebrew khi cần, thư mục Claude trên máy — ghi ở
+[Sandbox § Grant khi Agent Hub khởi chạy agent](/dev-kit/sandbox#grant-khi-agent-hub-khởi-chạy-agent-implemented).
+
+**File chạy Claude Code.** `bundled` (mặc định) là binary trong platform package
+của SDK (`@anthropic-ai/claude-agent-sdk-<os>-<cpu>`), khớp SDK. `machine` đặt
+`CLAUDE_CODE_EXECUTABLE` = `claude` trên máy (`~/.local/bin`, `~/.claude/local`,
+Homebrew, `/usr/local`, PATH) đã resolve symlink, và cấp đọc thư mục chứa nó; có
+thể lệch phiên bản với SDK. Lựa chọn lưu ở `runtimes/claude-acp/settings.json`.
+
+**Bridge.** Qua gateway là `builtin.agenthub` trên resource `runtime:<agent>`;
+đọc cần `agenthub:read`, thay đổi cần `agenthub:execute`. Mọi method trả
+`agentruntime.Status` của agent để UI render lại từ một reply.
+
+| Method | Capability | Việc |
+|---|---|---|
+| `AgentRuntimeStatus(agent)` | `agenthub:read` | Không gọi mạng; latest lấy từ cache |
+| `AgentRuntimeCheckLatest(agent)` | `agenthub:read` | Tải lại registry (ETag, timeout 15s; offline không phải lỗi) |
+| `AgentRuntimeInstall(agent, version)` | `agenthub:execute` | `version` rỗng = `TestedVersion`; hủy được; stream output |
+| `AgentRuntimeActivate(agent, version)` | `agenthub:execute` | Đổi bản đang dùng / rollback |
+| `AgentRuntimeRemove(agent, version)` | `agenthub:execute` | Từ chối gỡ bản đang dùng |
+| `AgentRuntimeSetClaudeBinary(source)` | `agenthub:execute` | `"bundled"` \| `"machine"` |
+
+Ba code lỗi mới, mỗi cái ứng với một hành động riêng ở UI. Bridge xét chúng
+**trước** "Agent process failed." — phiên không mở được vì thiếu Node cũng mang
+`ErrProcessFailed`, và thông điệp chung sẽ giấu mất thứ duy nhất người dùng sửa
+được:
+
+| Code | Nguồn | Thông điệp |
+|---|---|---|
+| `agent_not_installed` | `agenthub.ErrAgentNotInstalled` | "Claude Agent is not installed. Install it in Settings → Agents." |
+| `runtime_requirement` | `agentruntime.ErrRequirementNotMet` | kèm Node thiếu gì |
+| `install_failed` | `agentruntime.ErrInstallFailed` | kèm lý do: dòng `npm error` có nghĩa đầu tiên (bỏ dòng `code …` và dòng trỏ log), đã lọc token, tối đa 300 ký tự |
+
+UI (tab Settings → Agents, empty state "chưa cài" trong Agent Hub) đang làm.
+
+#### Nâng `TestedVersion`
+
+Là thay đổi code kèm phép đo, không phải cấu hình:
+
+1. Sửa `TestedVersion` của `claude-acp` trong `internal/agentruntime/agentruntime.go`.
+2. Cài thật và probe trong sandbox:
+   `DEVKIT_AGENT_INSTALL_TEST=1 go test ./internal/agenthub/ -run TestAgentRuntimeLiveInstall -v -timeout 15m`
+   (cần mạng + Node; 0.74.0 nặng ~237 MB kể cả binary Claude đi kèm).
+3. Chạy guard của kênh `_meta` trên đúng bản mới: cài nó, rồi
+   `DEVKIT_CLAUDE_ACP=1 DEVKIT_CLAUDE_ACP_BIN=<runtimes>/claude-acp/<version>/node_modules/.bin/claude-agent-acp go test ./internal/agenthub/ -run TestClaudeACPMetaChannelStillWorks -v -timeout 10m`.
+   Đỏ thì không nâng — cách ly permission đã mất. (Qua `DEVKIT_CLAUDE_ACP_BIN`
+   node do shebang tìm trên PATH phải đọc được trong jail.)
+4. Đo lại mọi thứ doc này ghi là đo trên 0.74.0 —
+   [Kế hoạch ACP](#kế-hoạch-acp--phần-surface-còn-thiếu) T0/T1/T2 — rồi cập nhật
+   số hoặc ghi rõ phiên bản đã đo.
 
 ### UI — ba bề mặt (Design)
 
@@ -477,6 +593,9 @@ Không cái nào bị protocol bắt buộc; thêm khi có nhu cầu thật.
 - Router tự động chọn agent theo intent chưa có — v1 chỉ gọi tường minh theo `sessionId`.
 - Chưa có multi-client đồng bộ xem 1 session (kiểu AHP) — ngoài scope v1.
 - Claude adapter chưa được claim production-verified trong CI với Claude Code thật.
+- Runtime Claude chỉ cài được khi máy đã có Node ≥ 22 — DevKit không tải Node. Mới
+  có một agent cài được (`claude-acp`); Codex/Gemini dùng lại `agentruntime` khi có
+  adapter. UI Settings → Agents cho runtime đang làm.
 - UI mới là **Design**: chưa có code nào của `Agent / Rail`, toast hay dock badge.
   `frontend/src/workbench/AgentCompanion.tsx` là bản một-agent đi trước, chưa có
   strip chuyển bầy lẫn cây cha→con.
@@ -554,7 +673,7 @@ T0 trước vì nó rẻ và nó quyết định `fs/*` có đáng làm không. 
 - Session data (transcript, cost) có nên cho phép opt-in sync không, hay tuyệt đối local-only như NFR-5 đề ra? (liên quan tới câu hỏi sync đã có ở [Open questions](/dev-kit/open-questions))
 - Vendor thứ 2 nên ưu tiên viết adapter là Codex hay Gemini CLI — cần biết cả hai có ACP-compatible adapter chính thức/community ở mức trưởng thành tương đương `claude-agent-acp` không trước khi cam kết.
 - `fs/*` và `terminal/*` có thực sự được `claude-agent-acp` gọi không, hay chỉ là plumbing chưa dùng? Quyết định cả việc Capability Gateway có mediate được file access của agent hay không — đo bằng T0 trước khi cam kết.
-- Ai chịu trách nhiệm theo dõi version bump từ `agentclientprotocol` org theo thời gian — nên có ADR riêng ghi rõ (giống ADR-002) thay vì để ngầm định.
+- ~~Ai chịu trách nhiệm theo dõi version bump từ `agentclientprotocol` org theo thời gian?~~ **Đã chốt (2026-09-13):** DevKit khoá `TestedVersion`; bản mới nhất của registry chỉ hiện như cập nhật chưa kiểm thử, và nâng mặc định theo [quy trình Nâng `TestedVersion`](#nâng-testedversion). Guard CI (`agent-acp-guard.yml`) vẫn chạy latest để báo trước release làm hỏng kênh `_meta`.
 
 import { Cards, Card } from 'fumadocs-ui/components/card';
 
