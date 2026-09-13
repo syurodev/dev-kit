@@ -95,8 +95,12 @@ const FADE = 16;
 // the line it leaves, and two translucent borders on one pixel draw it twice
 // as dark. Opaque, the overlap does not show.
 const GUIDE = "1px solid color-mix(in srgb, var(--text-tertiary) 35%, var(--background-app))";
-/** Elbow corner radius. */
-const ELBOW_RADIUS = 5;
+/**
+ * Elbow corner radius. CSS caps a corner at its box, so a row with a chevron —
+ * whose elbow is only INDENT − 8 = 6px wide — draws at 6; a leaf's runs through
+ * the empty chevron slot and gets the full 8.
+ */
+const ELBOW_RADIUS = 8;
 
 /** Where a row at `level` starts its chevron. */
 const contentX = (level: number) => INSET + level * INDENT;
