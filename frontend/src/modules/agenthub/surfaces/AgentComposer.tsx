@@ -1,5 +1,5 @@
 import * as React from "react";
-import { useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useReducedMotion } from "framer-motion";
 import { AtSign, Check, ChevronDown, Command as CommandIcon, Pencil, Play, SlidersHorizontal, X } from "lucide-react";
 // Icon DATA, not components: morphicons interpolates path geometry, which a
@@ -11,6 +11,16 @@ import { BorderBeam } from "border-beam";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ActionTooltip } from "@/components/ui/action-tooltip";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -47,6 +57,30 @@ export function composerModeChoices(mode: string | null, configOptions: ConfigOp
     new Set([current, ...(modeOption?.options?.map((choice) => choice.value) ?? [])].filter((c): c is string => Boolean(c))),
   );
   return { modeOption, current, choices };
+}
+
+const BYPASS = /bypass|dangerously|skip[\s_-]*permissions?/i;
+const OFF = /^(false|off|no|disabled?|none)$/i;
+
+/**
+ * Whether choosing this turns off the agent's permission prompts — by what the
+ * value means, not by which menu lists it: bypassPermissions in the mode
+ * picker, and just as much a "dangerously skip permissions" value in the
+ * settings menu. An option that is itself the bypass switch counts unless the
+ * value turns it off.
+ */
+export function isPermissionBypassChoice(
+  choice: { value: string; name?: string },
+  option?: { id: string; name?: string },
+): boolean {
+  if (BYPASS.test(choice.value) || BYPASS.test(choice.name ?? "")) return true;
+  return Boolean(option && (BYPASS.test(option.id) || BYPASS.test(option.name ?? "")) && !OFF.test(choice.value));
+}
+
+/** Applies a choice, or hands a bypass to `ask` to apply only once confirmed. */
+export function requestComposerChoice(isBypass: boolean, apply: () => void, ask: (apply: () => void) => void): void {
+  if (isBypass) ask(apply);
+  else apply();
 }
 
 export function shouldCancelComposerOnEscape(key: string, streaming: boolean, composing = false): boolean {
@@ -260,6 +294,10 @@ export function AgentComposer({
   const effectiveState: ComposerState =
     state ?? (isStreaming ? "streaming" : attachedFiles.length > 0 || imageAttachments.length > 0 ? "attached" : "idle");
   const { modeOption, current: currentMode, choices: modeChoices } = composerModeChoices(mode, configOptions);
+  // A bypass waiting on the dialog. Not window.confirm: WKWebView (macOS) has
+  // no confirm panel, so it answered false and bypass could never be enabled.
+  const [pendingBypass, setPendingBypass] = useState<{ apply: () => void } | null>(null);
+  const askBypass = (apply: () => void) => setPendingBypass({ apply });
   const selectableOptions = configOptions.filter(
     (option) => option !== modeOption && option.options && option.options.length > 0,
   );
@@ -462,10 +500,16 @@ export function AgentComposer({
                     key={choice}
                     data-testid="composer-mode-option"
                     detail={choice === currentMode ? <Check className="size-3" aria-hidden="true" /> : undefined}
-                    onSelect={() => {
-                      if (choice.toLowerCase().includes("bypass") && !window.confirm("Enable bypass permission mode? The agent will not ask before protected actions.")) return;
-                      onSetMode(choice);
-                    }}
+                    onSelect={() =>
+                      requestComposerChoice(
+                        isPermissionBypassChoice({
+                          value: choice,
+                          name: modeOption?.options?.find((option) => option.value === choice)?.name,
+                        }),
+                        () => onSetMode(choice),
+                        askBypass,
+                      )
+                    }
                   >
                     {choice}
                   </DropdownMenuItem>
@@ -490,7 +534,13 @@ export function AgentComposer({
                         key={`${option.id}-${choice.value}`}
                         data-testid="composer-config-option"
                         detail={String(option.currentValue) === choice.value ? <Check className="size-3" aria-hidden="true" /> : undefined}
-                        onSelect={() => onSetConfigOption(option.id, choice.value)}
+                        onSelect={() =>
+                          requestComposerChoice(
+                            isPermissionBypassChoice(choice, option),
+                            () => onSetConfigOption(option.id, choice.value),
+                            askBypass,
+                          )
+                        }
                       >
                         {choice.name || choice.value}
                       </DropdownMenuItem>
@@ -532,6 +582,24 @@ export function AgentComposer({
             </Button>
           </BorderBeam>
         </div>
+        {/* Radix focuses Cancel when an alert dialog opens, so Enter or Space
+            straight after picking the item does not confirm it. */}
+        <AlertDialog open={pendingBypass !== null} onOpenChange={(open) => !open && setPendingBypass(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Skip permission prompts?</AlertDialogTitle>
+              <AlertDialogDescription>
+                {`${agentName ?? "The agent"} will edit files and run commands without asking you first, until you change this back.`}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction variant="destructive" onClick={() => pendingBypass?.apply()}>
+                Skip permissions
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
   );
 }

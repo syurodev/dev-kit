@@ -3,10 +3,66 @@ import { renderToString as renderRaw } from "react-dom/server";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { ConfigOption } from "../types";
-import { AgentComposer, composerModeChoices, handleComposerKeyDown, shouldCancelComposerOnEscape } from "./AgentComposer";
+import {
+  AgentComposer,
+  composerModeChoices,
+  handleComposerKeyDown,
+  isPermissionBypassChoice,
+  requestComposerChoice,
+  shouldCancelComposerOnEscape,
+} from "./AgentComposer";
 
 const renderToString = (node: React.ReactNode) => renderRaw(<TooltipProvider>{node}</TooltipProvider>);
 const base = { value: "", onChange: () => {}, onSend: () => {}, onCancel: () => {} };
+
+describe("confirming a permission bypass", () => {
+  it("recognises a bypass by what the choice means, wherever it is listed", () => {
+    expect(isPermissionBypassChoice({ value: "bypassPermissions" })).toBe(true);
+    expect(isPermissionBypassChoice({ value: "yolo", name: "Dangerously skip permissions" })).toBe(true);
+    expect(isPermissionBypassChoice({ value: "skip-permissions" })).toBe(true);
+    // An option that IS the bypass switch: turning it on needs confirming, off does not.
+    const option = { id: "dangerously_skip_permissions" };
+    expect(isPermissionBypassChoice({ value: "true" }, option)).toBe(true);
+    expect(isPermissionBypassChoice({ value: "false" }, option)).toBe(false);
+    expect(isPermissionBypassChoice({ value: "off" }, option)).toBe(false);
+
+    expect(isPermissionBypassChoice({ value: "plan" })).toBe(false);
+    expect(isPermissionBypassChoice({ value: "acceptEdits", name: "Accept edits" })).toBe(false);
+    expect(isPermissionBypassChoice({ value: "sonnet" }, { id: "model", name: "Model" })).toBe(false);
+  });
+
+  function choose(isBypass: boolean) {
+    const applied: string[] = [];
+    let pending: (() => void) | null = null;
+    requestComposerChoice(isBypass, () => applied.push("set"), (apply) => {
+      pending = apply;
+    });
+    return { applied, confirm: () => (pending as (() => void) | null)?.(), asked: () => pending !== null };
+  }
+
+  it("applies an ordinary choice at once", () => {
+    const { applied, asked } = choose(false);
+    expect(applied).toEqual(["set"]);
+    expect(asked()).toBe(false);
+  });
+
+  it("holds a bypass until it is confirmed, and drops it on Cancel", () => {
+    const confirmed = choose(true);
+    expect(confirmed.asked()).toBe(true);
+    expect(confirmed.applied).toEqual([]);
+    confirmed.confirm();
+    expect(confirmed.applied).toEqual(["set"]);
+
+    // Cancel is never calling the held choice.
+    const cancelled = choose(true);
+    expect(cancelled.applied).toEqual([]);
+  });
+
+  it("does not render the confirmation until something asks for it", () => {
+    const html = renderToString(<AgentComposer {...base} mode="default" onSetMode={() => {}} />);
+    expect(html).not.toContain("without asking");
+  });
+});
 
 describe("composer mode list", () => {
   const modeOption: ConfigOption = {
