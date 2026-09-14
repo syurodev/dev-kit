@@ -22,7 +22,6 @@ import {
   agentHubCreateSession,
   agentHubDeleteSession,
   agentHubGetStatus,
-  agentHubInvoke,
   agentHubListVendorTypes,
   agentHubListContextFiles,
   agentHubSetMode,
@@ -48,6 +47,7 @@ import { useAgentPinsStore } from "../../stores/agentPins";
 import { useModuleVisibility } from "@/components/ui/module-visibility";
 import { imageAttachmentFromFile } from "./imageAttachments";
 import type { QueuedAgentPrompt } from "../../stores/agentSessions";
+import { queuedPrompt, resumeQueuedPrompts, sendAgentTurn } from "../../workbench/agentPromptQueue";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -164,6 +164,9 @@ export function AgentHubView() {
   );
   const queuedPrompts = useAgentSessionsStore(
     (state) => state.queuedPromptsBySession[activeSession?.id ?? ""] ?? [],
+  );
+  const queuePaused = useAgentSessionsStore((state) =>
+    Boolean(state.queuePausedBySession[activeSession?.id ?? ""]),
   );
 
   // Live typed transcript model powered by useAgentTranscript
@@ -379,12 +382,7 @@ export function AgentHubView() {
   }
 
   function queuePrompt(session: AgentSession, text: string, attached: string[], attachedImages: AgentImageAttachment[]) {
-    enqueuePrompt(session.id, {
-      id: globalThis.crypto?.randomUUID?.() ?? `queued-${Date.now()}-${Math.random()}`,
-      text,
-      attachments: attached,
-      images: attachedImages,
-    });
+    enqueuePrompt(session.id, queuedPrompt(text, attached, attachedImages));
     setPrompt(session.id, "");
     setAttachments((prev) => ({ ...prev, [session.id]: [] }));
     setImages((prev) => ({ ...prev, [session.id]: [] }));
@@ -497,24 +495,16 @@ export function AgentHubView() {
     setError("");
     setAuthRetry(null);
     try {
-      upsertSession({ ...session, status: "running" });
-      await agentHubInvoke({
-        sessionId: session.id,
-        prompt: text,
-        attachments: attached,
-        images: attachedImages,
-      });
+      // Resolves without a result when the backend was busy and the prompt was
+      // queued instead; its files went into the queue with it.
+      await sendAgentTurn(session.id, queuedPrompt(text, attached, attachedImages));
       // Cleared only once the turn was accepted: a failed send should leave the
       // files where the user put them rather than make them pick again.
       setAttachments((prev) => ({ ...prev, [session.id]: [] }));
       setImages((prev) => ({ ...prev, [session.id]: [] }));
-      upsertSession(await agentHubGetStatus(session.id));
     } catch (e) {
       reportError(e);
       if (isAgentAuthRequiredError(e)) setAuthRetry({ kind: "turn", ...turn });
-      try {
-        upsertSession(await agentHubGetStatus(session.id));
-      } catch {}
     } finally {
       setBusy(false);
     }
@@ -750,6 +740,8 @@ export function AgentHubView() {
             onDropImage={(file) => void handleAddImage(file)}
             imageError={imageError}
             queuedPrompts={queuedPrompts}
+            queuePaused={queuePaused}
+            onResumeQueued={() => activeSession && resumeQueuedPrompts(activeSession.id)}
             onCancelQueued={(id) => activeSession && removeQueuedPrompt(activeSession.id, id)}
             onEditQueued={editQueuedPrompt}
             onBrowseContext={() => void handleBrowseContext()}

@@ -1,50 +1,290 @@
 import { describe, expect, it } from "bun:test";
 
-import { drainQueuedPrompt } from "./agentPromptQueue";
+import { drainQueuedPrompt, resumeQueuedPrompts, sendAgentTurn, type TurnBridge } from "./agentPromptQueue";
+import { handleAgentTurnFinished } from "./AgentSessionsSubscriber";
 import { useAgentSessionsStore, type QueuedAgentPrompt } from "../stores/agentSessions";
+import type { AgentSession, InvokeResult, InvokeSessionInput } from "../bridge/agenthub";
+import { AppError } from "../bridge/errors";
 
 const queued = (id: string): QueuedAgentPrompt => ({ id, text: id, attachments: [], images: [] });
+const completed: InvokeResult = { status: "completed", summary: "", filesChanged: [], turnCount: 1, stopReason: "end_turn" };
+const session = (id: string, status: AgentSession["status"] = "idle"): AgentSession => ({
+  id,
+  agentType: "claude",
+  projectPath: "/p",
+  status,
+  parentSessionId: null,
+  depth: 0,
+  title: id,
+  acpSessionId: "",
+});
+const busy = () => new AppError({ code: "validation_failed", message: "Agent session is busy.", recoverable: true });
+const cancelled = () => new AppError({ code: "operation_cancelled", message: "Operation cancelled.", recoverable: true });
+const crashed = () => new AppError({ code: "connection_failed", message: "Agent process failed.", recoverable: true });
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-function resetQueue() {
-  useAgentSessionsStore.setState({ queuedPromptsBySession: {}, queuedPromptInFlightBySession: {} });
+function reset(...sessions: AgentSession[]) {
+  useAgentSessionsStore.setState({
+    sessionsById: Object.fromEntries(sessions.map((s) => [s.id, s])),
+    sessionIds: sessions.map((s) => s.id),
+    queuedPromptsBySession: {},
+    turnInFlightBySession: {},
+    queuePausedBySession: {},
+    pending: null,
+    pendingQueue: [],
+    activeSessionId: "",
+    chatOpen: false,
+    unreadCompletedBySession: {},
+  });
 }
 
-describe("Agent prompt queue", () => {
-  it("sends and removes the first prompt after a successful turn", async () => {
-    resetQueue();
-    const store = useAgentSessionsStore.getState();
-    store.enqueuePrompt("s1", queued("first"));
-    store.enqueuePrompt("s1", queued("second"));
-    const sent: string[] = [];
+const store = () => useAgentSessionsStore.getState();
+const queue = (id = "s1") => (store().queuedPromptsBySession[id] ?? []).map((prompt) => prompt.id);
+const status = (id = "s1") => store().sessionsById[id]?.status;
 
-    expect(await drainQueuedPrompt("s1", async (input) => {
-      sent.push(input.prompt);
-      return { status: "completed", summary: "", filesChanged: [], turnCount: 1, stopReason: "end_turn" };
-    })).toBe(true);
-    expect(sent).toEqual(["first"]);
-    expect(useAgentSessionsStore.getState().queuedPromptsBySession.s1.map((item) => item.id)).toEqual(["second"]);
+/** A backend whose turns end when the test says so. */
+function backend() {
+  const sent: InvokeSessionInput[] = [];
+  const turns: Array<{ resolve: (result: InvokeResult) => void; reject: (error: unknown) => void }> = [];
+  let after: AgentSession["status"] = "idle";
+  const bridge: TurnBridge = {
+    invoke: (input) => {
+      sent.push(input);
+      return new Promise((resolve, reject) => turns.push({ resolve, reject }));
+    },
+    getStatus: async (id) => ({ ...session(id), status: after }),
+  };
+  return {
+    bridge,
+    sent: () => sent.map((input) => input.prompt),
+    turns,
+    statusAfter: (next: AgentSession["status"]) => {
+      after = next;
+    },
+  };
+}
+
+describe("one send path for every turn", () => {
+  it("marks the session running while a queued prompt is sent", async () => {
+    reset(session("s1"));
+    store().enqueuePrompt("s1", queued("first"));
+    const b = backend();
+
+    void drainQueuedPrompt("s1", b.bridge);
+
+    expect(b.sent()).toEqual(["first"]);
+    expect(status()).toBe("running");
+    b.turns[0].resolve(completed);
+    await settle();
+    expect(status()).toBe("idle");
   });
 
-  it("keeps a prompt when the turn errors or is cancelled", async () => {
-    resetQueue();
-    useAgentSessionsStore.getState().enqueuePrompt("s1", queued("retry-me"));
+  it("takes a prompt out of the queue as soon as its turn starts", () => {
+    reset(session("s1"));
+    store().enqueuePrompt("s1", queued("first"));
+    store().enqueuePrompt("s1", queued("second"));
 
-    expect(await drainQueuedPrompt("s1", async () => ({
-      status: "error", summary: "", filesChanged: [], turnCount: 0, stopReason: "",
-    }))).toBe(false);
-    expect(useAgentSessionsStore.getState().queuedPromptsBySession.s1[0].id).toBe("retry-me");
-    expect(useAgentSessionsStore.getState().queuedPromptInFlightBySession.s1).toBeUndefined();
+    void drainQueuedPrompt("s1", backend().bridge);
+
+    expect(queue()).toEqual(["second"]);
   });
 
-  it("does not release another prompt when a queued sibling is cancelled", () => {
-    resetQueue();
-    const store = useAgentSessionsStore.getState();
-    store.enqueuePrompt("s1", queued("first"));
-    store.enqueuePrompt("s1", queued("second"));
-    expect(store.claimQueuedPrompt("s1")?.id).toBe("first");
+  it("never resends a prompt whose turn was cancelled", async () => {
+    reset(session("s1"));
+    store().enqueuePrompt("s1", queued("first"));
+    const b = backend();
 
-    store.removeQueuedPrompt("s1", "second");
+    void drainQueuedPrompt("s1", b.bridge);
+    b.turns[0].reject(cancelled());
+    await settle();
+    expect(queue()).toEqual([]);
 
-    expect(useAgentSessionsStore.getState().queuedPromptInFlightBySession.s1).toBe("first");
+    const manual = sendAgentTurn("s1", queued("manual"), b.bridge);
+    b.turns[1].resolve(completed);
+    await manual;
+    await settle();
+    expect(b.sent()).toEqual(["first", "manual"]);
+  });
+
+  it("puts a prompt back at the head when the backend refused it before the turn began", async () => {
+    reset(session("s1"));
+    store().enqueuePrompt("s1", queued("first"));
+    store().enqueuePrompt("s1", queued("second"));
+    const b = backend();
+
+    void drainQueuedPrompt("s1", b.bridge);
+    b.turns[0].reject(busy());
+    await settle();
+
+    expect(queue()).toEqual(["first", "second"]);
+    expect(store().queuePausedBySession.s1).toBeFalsy();
+  });
+
+  it("keeps draining when turnFinished lands before the invoke returns", async () => {
+    reset(session("s1"));
+    store().enqueuePrompt("s1", queued("first"));
+    store().enqueuePrompt("s1", queued("second"));
+    const b = backend();
+
+    void drainQueuedPrompt("s1", b.bridge);
+    // Go emits turnFinished from Invoke's defer, before the RPC returns.
+    handleAgentTurnFinished({ sessionId: "s1", status: "idle", outcome: "completed" }, b.bridge);
+    await settle();
+    expect(b.sent()).toEqual(["first"]);
+    expect(status()).toBe("running");
+
+    b.turns[0].resolve(completed);
+    await settle();
+    expect(b.sent()).toEqual(["first", "second"]);
+
+    handleAgentTurnFinished({ sessionId: "s1", status: "idle", outcome: "completed" }, b.bridge);
+    b.turns[1].resolve(completed);
+    await settle();
+    handleAgentTurnFinished({ sessionId: "s1", status: "idle", outcome: "completed" }, b.bridge);
+    await settle();
+    expect(b.sent()).toEqual(["first", "second"]);
+  });
+
+  it("pauses the queue after a failed turn, even past a later successful one, until Resume", async () => {
+    reset(session("s1"));
+    store().enqueuePrompt("s1", queued("first"));
+    store().enqueuePrompt("s1", queued("second"));
+    const b = backend();
+
+    void drainQueuedPrompt("s1", b.bridge);
+    b.statusAfter("error");
+    b.turns[0].reject(crashed());
+    await settle();
+    expect(store().queuePausedBySession.s1).toBe(true);
+    expect(queue()).toEqual(["second"]);
+    expect(status()).toBe("error");
+
+    const manual = sendAgentTurn("s1", queued("manual"), b.bridge);
+    b.turns[1].resolve(completed);
+    await manual;
+    await settle();
+    // A manual send while paused does not resume the queue.
+    expect(b.sent()).toEqual(["first", "manual"]);
+    expect(store().queuePausedBySession.s1).toBe(true);
+
+    resumeQueuedPrompts("s1", b.bridge);
+    expect(store().queuePausedBySession.s1).toBeFalsy();
+    expect(b.sent()).toEqual(["first", "manual", "second"]);
+  });
+
+  it("pauses the queue when a manual turn is cancelled", async () => {
+    reset(session("s1"));
+    store().enqueuePrompt("s1", queued("waiting"));
+    const b = backend();
+
+    const manual = sendAgentTurn("s1", queued("manual"), b.bridge);
+    b.turns[0].reject(cancelled());
+    await expect(manual).rejects.toThrow("Operation cancelled.");
+    await settle();
+
+    expect(store().queuePausedBySession.s1).toBe(true);
+    handleAgentTurnFinished({ sessionId: "s1", status: "idle", outcome: "completed" }, b.bridge);
+    await settle();
+    expect(b.sent()).toEqual(["manual"]);
+  });
+
+  it("keeps the text of a manual send the backend refused as busy", async () => {
+    reset(session("s1"));
+    const b = backend();
+
+    b.statusAfter("running");
+    const manual = sendAgentTurn("s1", { id: "typed", text: "hello", attachments: [], images: [] }, b.bridge);
+    b.turns[0].reject(busy());
+    expect(await manual).toBeNull();
+    await settle();
+    expect(queue()).toEqual(["typed"]);
+    expect(store().queuePausedBySession.s1).toBeFalsy();
+
+    // The turn that held the session ends; the refused prompt goes next.
+    handleAgentTurnFinished({ sessionId: "s1", status: "idle", outcome: "completed" }, b.bridge);
+    await settle();
+    expect(b.sent()).toEqual(["hello", "hello"]);
+  });
+
+  it("clears the pause once the last queued prompt is removed", () => {
+    reset(session("s1"));
+    store().enqueuePrompt("s1", queued("first"));
+    store().pauseQueue("s1");
+    expect(store().queuePausedBySession.s1).toBe(true);
+
+    store().removeQueuedPrompt("s1", "first");
+
+    expect(store().queuePausedBySession.s1).toBeFalsy();
+  });
+});
+
+describe("the queue only sends where it may", () => {
+  it("sends a session's own prompts and nobody else's", async () => {
+    reset(session("s1"), session("s2"));
+    store().enqueuePrompt("s1", queued("first"));
+    const b = backend();
+
+    expect(await drainQueuedPrompt("s2", b.bridge)).toBe(false);
+    expect(b.sent()).toEqual([]);
+
+    void drainQueuedPrompt("s1", b.bridge);
+    expect(b.sent()).toEqual(["first"]);
+  });
+
+  it("does not send to a deleted session", async () => {
+    reset(session("s1"));
+    store().enqueuePrompt("s1", queued("first"));
+    store().removeSession("s1");
+    const b = backend();
+
+    expect(await drainQueuedPrompt("s1", b.bridge)).toBe(false);
+    expect(b.sent()).toEqual([]);
+  });
+
+  it("does not send to a closed or still-running session", async () => {
+    for (const current of ["closed", "running", "awaiting_permission"] as const) {
+      reset(session("s1", current));
+      store().enqueuePrompt("s1", queued("first"));
+      const b = backend();
+
+      expect(await drainQueuedPrompt("s1", b.bridge)).toBe(false);
+      expect(b.sent()).toEqual([]);
+      expect(queue()).toEqual(["first"]);
+    }
+  });
+
+  it("does not send while the session has a permission request pending", async () => {
+    reset(session("s1"));
+    store().enqueuePending({
+      id: "permission-1",
+      sessionId: "s1",
+      params: {},
+      caller: "agent:claude",
+      title: "Run command",
+      depth: 0,
+      createdAt: "",
+      expiresAt: "",
+    });
+    store().enqueuePrompt("s1", queued("first"));
+    const b = backend();
+
+    expect(await drainQueuedPrompt("s1", b.bridge)).toBe(false);
+    expect(b.sent()).toEqual([]);
+    expect(queue()).toEqual(["first"]);
+  });
+
+  it("leaves a turn in flight alone when a waiting prompt is cancelled", async () => {
+    reset(session("s1"));
+    store().enqueuePrompt("s1", queued("first"));
+    store().enqueuePrompt("s1", queued("second"));
+    const b = backend();
+
+    void drainQueuedPrompt("s1", b.bridge);
+    store().removeQueuedPrompt("s1", "second");
+    b.turns[0].resolve(completed);
+    await settle();
+
+    expect(b.sent()).toEqual(["first"]);
+    expect(store().turnInFlightBySession.s1).toBeFalsy();
   });
 });

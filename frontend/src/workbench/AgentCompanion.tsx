@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import {
   agentHubCancel,
   agentHubGetStatus,
-  agentHubInvoke,
   agentHubChooseFiles,
   agentHubListContextFiles,
   agentHubSetConfigOption,
@@ -21,6 +20,7 @@ import { useCodeGraphStore } from "@/modules/codegraph/codegraphStore";
 import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
 import { imageAttachmentFromFile } from "@/modules/agenthub/imageAttachments";
 import type { QueuedAgentPrompt } from "@/stores/agentSessions";
+import { queuedPrompt, resumeQueuedPrompts, sendAgentTurn } from "./agentPromptQueue";
 
 /**
  * The running conversation, in the shell's companion slot.
@@ -56,6 +56,7 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
   const session = sessions.find((s) => s.id === activeSessionId) ?? sessions[0] ?? null;
   const prompt = useAgentSessionsStore((s) => s.promptBySession[session?.id ?? ""] ?? "");
   const queuedPrompts = useAgentSessionsStore((s) => s.queuedPromptsBySession[session?.id ?? ""] ?? []);
+  const queuePaused = useAgentSessionsStore((s) => Boolean(s.queuePausedBySession[session?.id ?? ""]));
 
   // Live transcript stream for the active session in rail
   const transcriptModel = useAgentTranscript(session?.id ?? "", { enabled: visible });
@@ -92,39 +93,24 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
     if (session.status === "closed") return;
     const text = inputText ?? prompt.trim();
     if (!text && attachments.length === 0 && images.length === 0) return;
+    const turn = queuedPrompt(text, attachments, images);
+    setPrompt(session.id, "");
     if (busy || session.status === "running" || session.status === "awaiting_permission") {
-      enqueuePrompt(session.id, {
-        id: globalThis.crypto?.randomUUID?.() ?? `queued-${Date.now()}-${Math.random()}`,
-        text,
-        attachments,
-        images,
-      });
-      setPrompt(session.id, "");
+      enqueuePrompt(session.id, turn);
       setAttachments([]);
       setImages([]);
       return;
     }
-    if (busy) return;
-    setPrompt(session.id, "");
-    const attached = attachments;
     setBusy(true);
     setError("");
     try {
-      upsertSession({ ...session, status: "running" });
-      await agentHubInvoke({
-        sessionId: session.id,
-        prompt: text,
-        attachments: attached,
-        images,
-      });
-      upsertSession(await agentHubGetStatus(session.id));
+      await sendAgentTurn(session.id, turn);
+      // Cleared only once the turn was accepted or queued: a failed send leaves
+      // the files where the user put them.
       setAttachments([]);
       setImages([]);
     } catch (e) {
       setError(errorMessage(e));
-      try {
-        upsertSession(await agentHubGetStatus(session.id));
-      } catch {}
     } finally {
       setBusy(false);
     }
@@ -228,6 +214,8 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
       onDropImage={(file) => void addImage(file)}
       imageError={imageError}
       queuedPrompts={queuedPrompts}
+      queuePaused={queuePaused}
+      onResumeQueued={() => session && resumeQueuedPrompts(session.id)}
       onCancelQueued={(id) => session && removeQueuedPrompt(session.id, id)}
       onEditQueued={editQueuedPrompt}
       onBrowseContext={() => {

@@ -178,6 +178,27 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       expect(html).toContain("Edit queued prompt");
     });
 
+    it("offers Resume only while the queue is paused", () => {
+      const composer = (queuePaused: boolean) =>
+        renderToString(
+          <AgentComposer
+            value=""
+            onChange={() => {}}
+            onSend={() => {}}
+            onCancel={() => {}}
+            queuedPrompts={[{ id: "queued-1", text: "Run the tests", attachments: [], images: [] }]}
+            queuePaused={queuePaused}
+            onResumeQueued={() => {}}
+          />,
+        );
+
+      const paused = composer(true);
+      expect(paused).toContain('data-testid="composer-queue-paused"');
+      expect(paused).toContain('aria-label="Resume queued prompts"');
+      expect(paused).toContain("Run the tests");
+      expect(composer(false)).not.toContain("Resume queued prompts");
+    });
+
     it("renders the session controls only when the agent advertises them", () => {
       const html = renderToString(
         <AgentComposer

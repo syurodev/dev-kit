@@ -38,6 +38,9 @@ export type QueuedAgentPrompt = {
  */
 const KILLED_STATES = new Set(["cancelled", "disconnected"]);
 
+/** The statuses Go's Invoke refuses a prompt in. */
+const CANNOT_TAKE_PROMPT = new Set(["running", "awaiting_permission", "closed"]);
+
 type AgentSessionsState = {
   sessionsById: Record<string, AgentSession>;
   sessionIds: string[];
@@ -72,8 +75,16 @@ type AgentSessionsState = {
   chatOpen: boolean;
   pendingAgentHubCommand: AgentHubCommand | null;
   unreadCompletedBySession: Record<string, boolean>;
+  /** Prompts waiting for their turn. One whose turn has started is not here. */
   queuedPromptsBySession: Record<string, QueuedAgentPrompt[]>;
-  queuedPromptInFlightBySession: Record<string, string | undefined>;
+  /**
+   * A turn this window sent is between invoke and its answer. sendAgentTurn
+   * owns the session's status until it returns, whichever order Go's
+   * turnFinished event and the RPC's reply arrive in.
+   */
+  turnInFlightBySession: Record<string, boolean>;
+  /** A turn failed or was cancelled with prompts still waiting; they wait for Resume. */
+  queuePausedBySession: Record<string, boolean>;
   setSessions: (sessions: AgentSession[]) => void;
   upsertSession: (session: AgentSession) => void;
   removeSession: (id: string) => void;
@@ -102,11 +113,23 @@ type AgentSessionsState = {
   enqueuePrompt: (sessionId: string, prompt: QueuedAgentPrompt) => void;
   removeQueuedPrompt: (sessionId: string, promptId: string) => void;
   updateQueuedPrompt: (sessionId: string, prompt: QueuedAgentPrompt) => void;
+  /** Marks a turn in flight; false when one already is. */
+  beginTurn: (sessionId: string) => boolean;
+  /**
+   * Takes the next waiting prompt out of the queue and marks its turn in
+   * flight — only when the session exists, can take a prompt, has no
+   * permission request waiting, and its queue is not paused.
+   */
   claimQueuedPrompt: (sessionId: string) => QueuedAgentPrompt | null;
-  releaseQueuedPrompt: (sessionId: string, promptId: string) => void;
+  /** Puts back, at the head, a prompt the backend refused before its turn began. */
+  releaseQueuedPrompt: (sessionId: string, prompt: QueuedAgentPrompt) => void;
+  finishTurn: (sessionId: string) => void;
+  /** Pauses the session's queue if anything is waiting in it. */
+  pauseQueue: (sessionId: string) => void;
+  resumeQueue: (sessionId: string) => void;
 };
 
-export const useAgentSessionsStore = create<AgentSessionsState>((set) => ({
+export const useAgentSessionsStore = create<AgentSessionsState>((set, get) => ({
   sessionsById: {},
   sessionIds: [],
   activeSessionId: "",
@@ -122,7 +145,8 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set) => ({
   pendingAgentHubCommand: null,
   unreadCompletedBySession: {},
   queuedPromptsBySession: {},
-  queuedPromptInFlightBySession: {},
+  turnInFlightBySession: {},
+  queuePausedBySession: {},
   setSessions: (sessions) =>
     set({
       sessionsById: Object.fromEntries(sessions.map((session) => [session.id, session])),
@@ -151,7 +175,8 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set) => ({
       const { [id]: _prompt, ...promptBySession } = state.promptBySession;
       const { [id]: _unread, ...unreadCompletedBySession } = state.unreadCompletedBySession;
       const { [id]: _queued, ...queuedPromptsBySession } = state.queuedPromptsBySession;
-      const { [id]: _inFlight, ...queuedPromptInFlightBySession } = state.queuedPromptInFlightBySession;
+      const { [id]: _inFlight, ...turnInFlightBySession } = state.turnInFlightBySession;
+      const { [id]: _paused, ...queuePausedBySession } = state.queuePausedBySession;
       return {
         sessionIds: state.sessionIds.filter((sessionId) => sessionId !== id),
         sessionsById,
@@ -162,7 +187,8 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set) => ({
         promptBySession,
         unreadCompletedBySession,
         queuedPromptsBySession,
-        queuedPromptInFlightBySession,
+        turnInFlightBySession,
+        queuePausedBySession,
         subagents,
       };
     }),
@@ -237,16 +263,14 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set) => ({
     })),
   removeQueuedPrompt: (sessionId, promptId) =>
     set((state) => {
-      const inFlight = state.queuedPromptInFlightBySession[sessionId];
+      const queue = (state.queuedPromptsBySession[sessionId] ?? []).filter((prompt) => prompt.id !== promptId);
       return {
-        queuedPromptsBySession: {
-          ...state.queuedPromptsBySession,
-          [sessionId]: (state.queuedPromptsBySession[sessionId] ?? []).filter((prompt) => prompt.id !== promptId),
-        },
-        queuedPromptInFlightBySession:
-          inFlight === promptId
-            ? { ...state.queuedPromptInFlightBySession, [sessionId]: undefined }
-            : state.queuedPromptInFlightBySession,
+        queuedPromptsBySession: { ...state.queuedPromptsBySession, [sessionId]: queue },
+        // Nothing left to resume.
+        queuePausedBySession:
+          queue.length === 0
+            ? { ...state.queuePausedBySession, [sessionId]: false }
+            : state.queuePausedBySession,
       };
     }),
   updateQueuedPrompt: (sessionId, prompt) =>
@@ -258,32 +282,53 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set) => ({
         ),
       },
     })),
-  claimQueuedPrompt: (sessionId) => {
-    let claimed: QueuedAgentPrompt | null = null;
-    set((state) => {
-      if (state.queuedPromptInFlightBySession[sessionId]) return state;
-      claimed = state.queuedPromptsBySession[sessionId]?.[0] ?? null;
-      if (!claimed) return state;
-      return {
-        queuedPromptInFlightBySession: {
-          ...state.queuedPromptInFlightBySession,
-          [sessionId]: claimed.id,
-        },
-      };
-    });
-    return claimed;
+  beginTurn: (sessionId) => {
+    if (get().turnInFlightBySession[sessionId]) return false;
+    set((state) => ({ turnInFlightBySession: { ...state.turnInFlightBySession, [sessionId]: true } }));
+    return true;
   },
-  releaseQueuedPrompt: (sessionId, promptId) =>
+  claimQueuedPrompt: (sessionId) => {
+    const state = get();
+    const [next, ...rest] = state.queuedPromptsBySession[sessionId] ?? [];
+    const session = state.sessionsById[sessionId];
+    if (
+      !next ||
+      !session ||
+      CANNOT_TAKE_PROMPT.has(session.status) ||
+      state.turnInFlightBySession[sessionId] ||
+      state.queuePausedBySession[sessionId] ||
+      // The agent is waiting on a person; a queued prompt must not jump that.
+      state.pendingQueue.some((pending) => pending.sessionId === sessionId)
+    ) {
+      return null;
+    }
+    set({
+      queuedPromptsBySession: { ...state.queuedPromptsBySession, [sessionId]: rest },
+      turnInFlightBySession: { ...state.turnInFlightBySession, [sessionId]: true },
+    });
+    return next;
+  },
+  releaseQueuedPrompt: (sessionId, prompt) =>
     set((state) =>
-      state.queuedPromptInFlightBySession[sessionId] === promptId
+      state.sessionsById[sessionId]
         ? {
-            queuedPromptInFlightBySession: {
-              ...state.queuedPromptInFlightBySession,
-              [sessionId]: undefined,
+            queuedPromptsBySession: {
+              ...state.queuedPromptsBySession,
+              [sessionId]: [prompt, ...(state.queuedPromptsBySession[sessionId] ?? [])],
             },
           }
         : state,
     ),
+  finishTurn: (sessionId) =>
+    set((state) => ({ turnInFlightBySession: { ...state.turnInFlightBySession, [sessionId]: false } })),
+  pauseQueue: (sessionId) =>
+    set((state) =>
+      state.queuedPromptsBySession[sessionId]?.length
+        ? { queuePausedBySession: { ...state.queuePausedBySession, [sessionId]: true } }
+        : state,
+    ),
+  resumeQueue: (sessionId) =>
+    set((state) => ({ queuePausedBySession: { ...state.queuePausedBySession, [sessionId]: false } })),
 }));
 
 export function useAgentSessionList(): AgentSession[] {

@@ -39,6 +39,8 @@ export type AgentRailProps = {
   onDropImage?: (file: File) => void;
   imageError?: string;
   queuedPrompts?: QueuedAgentPrompt[];
+  queuePaused?: boolean;
+  onResumeQueued?: () => void;
   onCancelQueued?: (id: string) => void;
   onEditQueued?: (prompt: QueuedAgentPrompt) => void;
   configOptions?: ConfigOption[];
@@ -108,6 +110,8 @@ export function AgentRail({
   onDropImage,
   imageError,
   queuedPrompts = [],
+  queuePaused = false,
+  onResumeQueued,
   onCancelQueued,
   onEditQueued,
   configOptions = [],
@@ -262,6 +266,8 @@ export function AgentRail({
               onDropImage={onDropImage}
               imageError={imageError}
               queuedPrompts={queuedPrompts}
+              queuePaused={queuePaused}
+              onResumeQueued={onResumeQueued}
               onCancelQueued={onCancelQueued}
               onEditQueued={onEditQueued}
               configOptions={configOptions}

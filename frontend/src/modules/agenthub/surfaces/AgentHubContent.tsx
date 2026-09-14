@@ -78,6 +78,8 @@ export type AgentHubContentProps = {
   onDropImage?: (file: File) => void;
   imageError?: string;
   queuedPrompts?: QueuedAgentPrompt[];
+  queuePaused?: boolean;
+  onResumeQueued?: () => void;
   onCancelQueued?: (id: string) => void;
   onEditQueued?: (prompt: QueuedAgentPrompt) => void;
   onOpenFile?: (path: string, line?: number) => void;
@@ -190,6 +192,8 @@ export function AgentHubContent({
   onDropImage,
   imageError,
   queuedPrompts = [],
+  queuePaused = false,
+  onResumeQueued,
   onCancelQueued,
   onEditQueued,
   onOpenFile,
@@ -561,6 +565,8 @@ export function AgentHubContent({
               onDropImage={onDropImage}
               imageError={imageError}
               queuedPrompts={queuedPrompts}
+              queuePaused={queuePaused}
+              onResumeQueued={onResumeQueued}
               onCancelQueued={onCancelQueued}
               onEditQueued={onEditQueued}
               className="min-w-0 flex-1"

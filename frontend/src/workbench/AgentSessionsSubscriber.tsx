@@ -8,12 +8,52 @@ import {
   onAgentHubSessionUpdate,
   onAgentHubNotificationAction,
   onAgentHubTurnFinished,
+  type AgentTurnFinishedEvent,
 } from "../bridge/agenthub";
 import { useAgentSessionsStore } from "../stores/agentSessions";
 import { startAgentTranscriptStream } from "../modules/agenthub/transcript";
 import { moduleTabs, useWorkbenchTabsStore, type TabStatus } from "../stores/workbenchTabs";
 import { UpdateKind } from "../../bindings/devkit/internal/agenthub/models";
-import { drainQueuedPrompt } from "./agentPromptQueue";
+import { drainQueuedPrompt, type TurnBridge } from "./agentPromptQueue";
+
+/**
+ * What a finished turn changes outside the turn itself: the session row, the
+ * tab dot, the unread badge and the queue. Go emits the event from Invoke's
+ * defer, so for a turn this window sent it can arrive before or after the
+ * RPC's reply — sendAgentTurn settles that turn's status and drains the queue
+ * itself, and this leaves both alone while it is in flight.
+ */
+export function handleAgentTurnFinished(
+  { sessionId, status, outcome }: AgentTurnFinishedEvent,
+  bridge?: TurnBridge,
+) {
+  const state = useAgentSessionsStore.getState();
+  const session = state.sessionsById[sessionId];
+  const ours = state.turnInFlightBySession[sessionId];
+  const nextStatus = status === "error" ? "error" : status === "closed" ? "closed" : "idle";
+  if (session && !ours && session.status !== nextStatus) {
+    state.upsertSession({ ...session, status: nextStatus });
+  }
+
+  const { modules, activeModuleId, setTabStatus } = useWorkbenchTabsStore.getState();
+  const targetTabs = moduleTabs(modules, "agenthub").openTabs.filter(
+    (tab) => !tab.params?.sessionId || tab.params.sessionId === sessionId,
+  );
+  for (const tab of targetTabs) {
+    setTabStatus(tab.id, nextStatus === "error" ? "error" : "success");
+  }
+
+  const visible =
+    (activeModuleId === "agenthub" && state.activeSessionId === sessionId) ||
+    (state.chatOpen && state.activeSessionId === sessionId);
+  if (visible) state.markCompletedRead(sessionId);
+  else state.markCompletedUnread(sessionId);
+
+  if (ours) return;
+  // A turn this window did not send — another agent's invoke — ends the same way.
+  if (outcome === "completed") void drainQueuedPrompt(sessionId, bridge);
+  else if (outcome === "error" || outcome === "cancelled") state.pauseQueue(sessionId);
+}
 
 /**
  * Keeps the shared Agent Hub session store in sync regardless of which
@@ -26,8 +66,6 @@ export function AgentSessionsSubscriber() {
   const upsertSession = useAgentSessionsStore((state) => state.upsertSession);
   const enqueuePending = useAgentSessionsStore((state) => state.enqueuePending);
   const trackSubagent = useAgentSessionsStore((state) => state.trackSubagent);
-  const markCompletedUnread = useAgentSessionsStore((state) => state.markCompletedUnread);
-  const markCompletedRead = useAgentSessionsStore((state) => state.markCompletedRead);
 
   useEffect(() => {
     let mounted = true;
@@ -117,31 +155,7 @@ export function AgentSessionsSubscriber() {
     });
   }, [trackSubagent]);
 
-  useEffect(() => {
-    return onAgentHubTurnFinished(({ sessionId, status, outcome }) => {
-      const state = useAgentSessionsStore.getState();
-      const session = state.sessionsById[sessionId];
-      const nextStatus = status === "error" ? "error" : status === "closed" ? "closed" : "idle";
-      if (session && session.status !== nextStatus) {
-        state.upsertSession({ ...session, status: nextStatus });
-      }
-
-      const { modules, activeModuleId, setTabStatus } = useWorkbenchTabsStore.getState();
-      const targetTabs = moduleTabs(modules, "agenthub").openTabs.filter(
-        (tab) => !tab.params?.sessionId || tab.params.sessionId === sessionId,
-      );
-      for (const tab of targetTabs) {
-        setTabStatus(tab.id, nextStatus === "error" ? "error" : "success");
-      }
-
-      const visible =
-        (activeModuleId === "agenthub" && state.activeSessionId === sessionId) ||
-        (state.chatOpen && state.activeSessionId === sessionId);
-      if (visible) markCompletedRead(sessionId);
-      else markCompletedUnread(sessionId);
-      if (outcome === "completed") void drainQueuedPrompt(sessionId);
-    });
-  }, [markCompletedRead, markCompletedUnread]);
+  useEffect(() => onAgentHubTurnFinished((event) => handleAgentTurnFinished(event)), []);
 
   useEffect(() => {
     return onAgentHubNotificationAction((sessionId) => {

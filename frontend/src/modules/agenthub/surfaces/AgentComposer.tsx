@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import { useReducedMotion } from "framer-motion";
-import { AtSign, Check, ChevronDown, Command as CommandIcon, SlidersHorizontal } from "lucide-react";
+import { AtSign, Check, ChevronDown, Command as CommandIcon, Play, SlidersHorizontal } from "lucide-react";
 // Icon DATA, not components: morphicons interpolates path geometry, which a
 // lucide-react component does not expose. Same version as lucide-react.
 import { ArrowUp, Square } from "lucide";
@@ -54,6 +54,9 @@ export type AgentComposerProps = {
   onDropImage?: (file: File) => void;
   imageError?: string;
   queuedPrompts?: QueuedAgentPrompt[];
+  /** A turn failed or was cancelled; the queue goes on only when Resume is pressed. */
+  queuePaused?: boolean;
+  onResumeQueued?: () => void;
   onCancelQueued?: (id: string) => void;
   onEditQueued?: (prompt: QueuedAgentPrompt) => void;
   onSelectCommand?: (name: string) => void;
@@ -142,6 +145,8 @@ export function AgentComposer({
   onDropImage,
   imageError,
   queuedPrompts = [],
+  queuePaused = false,
+  onResumeQueued,
   onCancelQueued,
   onEditQueued,
   onSelectCommand,
@@ -265,6 +270,18 @@ export function AgentComposer({
         ) : null}
         {queuedPrompts.length > 0 ? (
           <div data-testid="composer-queued-prompts" className="flex w-full flex-wrap items-center gap-1 px-1">
+            {queuePaused ? (
+              // A turn failed or was cancelled with these still waiting. They do
+              // not go on their own — not even after a later turn succeeds.
+              <div data-testid="composer-queue-paused" className="flex items-center gap-1 text-caption-11 text-text-secondary">
+                <span>Paused</span>
+                {onResumeQueued ? (
+                  <Button type="button" variant="ghost" size="icon-sm" aria-label="Resume queued prompts" onClick={onResumeQueued}>
+                    <Play aria-hidden="true" />
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
             {queuedPrompts.map((queued) => (
               <div key={queued.id} className="flex max-w-full items-center gap-1 rounded-sm bg-(--state-soft) px-2 py-1 text-caption-11 text-text-secondary">
                 <span className="shrink-0">Queued</span>
