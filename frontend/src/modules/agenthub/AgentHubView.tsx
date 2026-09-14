@@ -23,6 +23,7 @@ import {
   agentHubGetStatus,
   agentHubInvoke,
   agentHubListVendorTypes,
+  CLAUDE_VENDOR,
   isSandboxUnavailableError,
   sandboxUnavailableMessage,
   type AgentSession,
@@ -80,7 +81,7 @@ export function AgentHubView() {
   // session and there is nothing to bind yet. This replaced a dialog that asked
   // for the agent up front, before anyone had said what they wanted from it.
   const [draft, setDraft] = useState<{ cwd: string; parent: AgentSession | null } | null>(null);
-  const [draftAgent, setDraftAgent] = useState<string>(CLAUDE_AGENT);
+  const [draftAgent, setDraftAgent] = useState<string>(CLAUDE_VENDOR);
   const [draftPrompt, setDraftPrompt] = useState("");
   // Figma 948:2204 writes the reason as "agenthub.processFailed — the agent
   // exited after …": the DevKit code AND what happened. errorMessage() gives
@@ -109,7 +110,7 @@ export function AgentHubView() {
   const claudeRuntime = useQuery({
     queryKey: agentRuntimeQueryKey(CLAUDE_AGENT),
     queryFn: () => agentRuntimeStatus(CLAUDE_AGENT),
-    enabled: draft !== null && draftAgent === CLAUDE_AGENT,
+    enabled: draft !== null && draftAgent === CLAUDE_VENDOR,
   });
   // The session awaiting a delete confirmation, with how many go with it.
   const [pendingDelete, setPendingDelete] = useState<{
@@ -404,7 +405,7 @@ export function AgentHubView() {
 
   // What stands between a draft and its first message, in the draft's own view.
   const draftBlocked =
-    draftAgent === CLAUDE_AGENT && Boolean(claudeRuntime.data && runtimeBlocked(claudeRuntime.data));
+    draftAgent === CLAUDE_VENDOR && Boolean(claudeRuntime.data && runtimeBlocked(claudeRuntime.data));
   const draftNotice = !draft ? null : draftBlocked ? (
     <ClaudeAgentSetup onOpenSettings={() => requestSettings("agents")} />
   ) : authRetry?.kind === "create" ? (

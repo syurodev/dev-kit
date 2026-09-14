@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { AgentType } from "../../bindings/devkit/internal/agenthub/models";
+import { CLAUDE_VENDOR } from "./agenthub";
 import {
+  CLAUDE_AGENT,
   formatBytes,
   hintCommands,
   isAgentAuthRequiredError,
@@ -114,5 +117,18 @@ describe("sign-in", () => {
     const coded = (code: string) => new AppError({ code, message: "Claude isn't signed in.", recoverable: true });
     expect(isAgentAuthRequiredError(coded("agent_auth_required"))).toBe(true);
     expect(isAgentAuthRequiredError(coded("connection_failed"))).toBe(false);
+  });
+});
+
+describe("the two Claude ids", () => {
+  // The runtime id names the adapter DevKit installs; the vendor is the
+  // agentType a session is created with. A draft once defaulted to the runtime
+  // id, and every first message failed with "Unknown agent vendor".
+  test("a session is created with the vendor the backend registers", () => {
+    expect(CLAUDE_VENDOR).toBe(AgentType.AgentTypeClaude);
+  });
+
+  test("and that is not the runtime's id", () => {
+    expect(CLAUDE_AGENT).not.toBe(CLAUDE_VENDOR);
   });
 });

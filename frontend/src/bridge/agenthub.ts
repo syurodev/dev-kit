@@ -12,6 +12,14 @@ import type { SessionUpdate } from "../modules/agenthub/types";
 
 export type AgentVendor = "claude";
 
+/**
+ * The Claude agent as the hub knows it — the `agentType` a session is created
+ * with. Not CLAUDE_AGENT from bridge/agentRuntime: that is "claude-acp", the id
+ * of the adapter DevKit installs, and a session created with it fails with
+ * "Unknown agent vendor". Two ids for one agent, one per job.
+ */
+export const CLAUDE_VENDOR: AgentVendor = "claude";
+
 export type SessionStatus =
   | "idle"
   | "running"
