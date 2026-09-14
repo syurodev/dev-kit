@@ -3,6 +3,7 @@ package agenthub_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"slices"
@@ -363,71 +364,84 @@ func TestListTranscriptPageSnapIsBounded(t *testing.T) {
 	}
 }
 
-// Retention used to be a created_at cut, which sawed the HEAD off any session
-// old enough to span the cutoff — the exact middle-loss the ListTranscript
-// comment promises cannot happen. The rule is now whole-session: a transcript
-// goes only when its session has been silent past the window, and an active
-// session keeps every row no matter how old they are.
-func TestPruneAbandonedTranscriptsKeepsActiveSessionsWhole(t *testing.T) {
+// Retention keyed on updated_at, which opening or reading a session never
+// touches: a session left idle past the window lost its whole transcript while
+// its row stayed resumable, and reopened as an empty conversation that still
+// answered. Only closed sessions go now, each whole — row, turns, transcript —
+// and never out from under a child that is kept. (Before that, a row-wise
+// created_at cut sawed the head off long conversations.)
+func TestPruneClosedSessionsKeepsEverySessionStillInUse(t *testing.T) {
 	store := newTestStore(t)
 	sql, ok := store.(*agenthub.SQLStore)
 	if !ok {
 		t.Fatalf("want *agenthub.SQLStore, got %T", store)
 	}
 	ctx := context.Background()
-
 	old := time.Now().AddDate(0, 0, -120)
+	recent := time.Now().AddDate(0, 0, -1)
 
-	abandoned := sampleSession("abandoned")
-	abandoned.CreatedAt = old
-	abandoned.UpdatedAt = old
-	if err := sql.InsertSession(ctx, abandoned); err != nil {
-		t.Fatal(err)
-	}
-	// Active yesterday, but its transcript rows are months old: the head cut
-	// used to take them; an active conversation must keep its history.
-	active := sampleSession("active")
-	active.CreatedAt = old
-	active.UpdatedAt = time.Now().AddDate(0, 0, -1)
-	if err := sql.InsertSession(ctx, active); err != nil {
-		t.Fatal(err)
-	}
-
-	for _, sessionID := range []string{"abandoned", "active"} {
+	insert := func(id string, status agenthub.SessionStatus, updated time.Time, parent string) {
+		t.Helper()
+		s := sampleSession(id)
+		s.Status = status
+		s.CreatedAt = old
+		s.UpdatedAt = updated
+		if parent != "" {
+			s.ParentSessionID = &parent
+		}
+		if err := sql.InsertSession(ctx, s); err != nil {
+			t.Fatal(err)
+		}
 		for i := 0; i < 3; i++ {
 			if err := sql.AppendTranscript(ctx, agenthub.TranscriptEntry{
-				ID:        fmt.Sprintf("%s-t%d", sessionID, i+1),
-				SessionID: sessionID,
-				Seq:       int64(i + 1),
-				Kind:      agenthub.UpdateAgentMessageChunk,
-				Text:      "x",
-				CreatedAt: old,
-				UpdatedAt: old,
+				ID: fmt.Sprintf("%s-t%d", id, i), SessionID: id, Kind: agenthub.UpdateAgentMessageChunk,
+				Text: "x", CreatedAt: old, UpdatedAt: old,
 			}); err != nil {
 				t.Fatal(err)
 			}
 		}
+		if err := sql.InsertTurn(ctx, agenthub.TurnRecord{ID: id + "-turn", SessionID: id, CreatedAt: old}); err != nil {
+			t.Fatal(err)
+		}
 	}
+	// Idle for months, but still the user's: it resumes on the next prompt.
+	insert("idle-old", agenthub.SessionStatusIdle, old, "")
+	insert("closed-recent", agenthub.SessionStatusClosed, recent, "")
+	insert("closed-old", agenthub.SessionStatusClosed, old, "")
+	insert("closed-old-child", agenthub.SessionStatusClosed, old, "closed-old")
+	insert("closed-parent-of-idle", agenthub.SessionStatusClosed, old, "")
+	insert("idle-child", agenthub.SessionStatusIdle, old, "closed-parent-of-idle")
 
-	removed, err := sql.PruneAbandonedTranscripts(ctx, time.Now().AddDate(0, 0, -90))
+	removed, err := sql.PruneClosedSessions(ctx, time.Now().AddDate(0, 0, -90))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if removed != 3 {
-		t.Fatalf("removed %d rows, want the abandoned session's 3", removed)
+	if removed != 2 {
+		t.Fatalf("removed %d sessions, want closed-old and its closed child", removed)
 	}
 
-	for _, sessionID := range []string{"abandoned", "active"} {
-		rows, err := sql.ListTranscript(ctx, sessionID)
+	for id, kept := range map[string]bool{
+		"idle-old":              true,
+		"closed-recent":         true,
+		"closed-old":            false,
+		"closed-old-child":      false,
+		"closed-parent-of-idle": true,
+		"idle-child":            true,
+	} {
+		_, getErr := sql.GetSession(ctx, id)
+		rows, err := sql.ListTranscript(ctx, id)
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := 0
-		if sessionID == "active" {
-			want = 3
+		turns, err := sql.ListTurns(ctx, id)
+		if err != nil {
+			t.Fatal(err)
 		}
-		if len(rows) != want {
-			t.Fatalf("session %s kept %d rows, want %d", sessionID, len(rows), want)
+		if kept && (getErr != nil || len(rows) != 3 || len(turns) != 1) {
+			t.Fatalf("%s: session err=%v, %d transcript rows, %d turns; want it kept whole", id, getErr, len(rows), len(turns))
+		}
+		if !kept && (!errors.Is(getErr, agenthub.ErrSessionNotFound) || len(rows) != 0 || len(turns) != 0) {
+			t.Fatalf("%s: session err=%v, %d transcript rows, %d turns; want it gone whole", id, getErr, len(rows), len(turns))
 		}
 	}
 }

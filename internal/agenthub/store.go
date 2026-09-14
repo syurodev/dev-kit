@@ -286,29 +286,56 @@ func (st *SQLStore) FindTranscriptKind(ctx context.Context, sessionID string, ki
 	return scanOptionalTranscript(row)
 }
 
-// PruneAbandonedTranscripts deletes every transcript row of sessions whose
-// last activity is older than inactiveBefore, and reports how many went.
+// PruneClosedSessions permanently deletes sessions closed before closedBefore
+// — row, turns and transcript — and reports how many went.
 //
-// Nothing ever deleted from this table: it is append-plus-upsert only, no
-// session delete cascades into it, and a single long-running agent session
-// writes a row per chunk. The table was unbounded by construction.
+// Nothing else ever deletes from agent_transcript unasked: it is
+// append-plus-upsert, and a long agent session writes a row per chunk.
 //
-// The rule is whole-session on purpose. The first cut was row-wise on
-// created_at, which sawed the HEAD off any session old enough to span the
-// cutoff — a conversation in daily use for four months silently lost its
-// first month, the exact middle-loss this store promises cannot happen. A
-// session that was silent past the window loses its transcript entire (the
-// session row itself stays); an active one keeps every row however old.
-func (st *SQLStore) PruneAbandonedTranscripts(ctx context.Context, inactiveBefore time.Time) (int64, error) {
-	res, err := st.db.ExecContext(ctx,
-		`DELETE FROM `+tableAgentTranscript+`
-		WHERE session_id IN (SELECT id FROM `+tableAgentSessions+` WHERE updated_at < ?)`,
-		formatStoreTime(inactiveBefore),
-	)
+// Whole sessions, never rows: the first cut was row-wise on created_at and
+// sawed the head off any conversation old enough to span the cutoff. And only
+// closed ones: the second rule keyed on updated_at, which opening or reading a
+// session never touches, so a session left idle for the window lost its whole
+// transcript while its row stayed resumable — reopened, it looked empty and
+// still answered. A closed session is one the user ended, and it goes with
+// its row, so nothing is left looking alive and empty.
+//
+// A closed session with a descendant that is kept stays too: children point
+// at their parent by id, and a parent pruned from under a live child would
+// reshape the tree in the sidebar.
+func (st *SQLStore) PruneClosedSessions(ctx context.Context, closedBefore time.Time) (int, error) {
+	sessions, err := st.ListSessions(ctx)
 	if err != nil {
 		return 0, err
 	}
-	return res.RowsAffected()
+	children := map[string][]AgentSession{}
+	for _, s := range sessions {
+		if s.ParentSessionID != nil {
+			children[*s.ParentSessionID] = append(children[*s.ParentSessionID], s)
+		}
+	}
+	var prunable func(AgentSession) bool
+	prunable = func(s AgentSession) bool {
+		if s.Status != SessionStatusClosed || !s.UpdatedAt.Before(closedBefore) {
+			return false
+		}
+		for _, child := range children[s.ID] {
+			if !prunable(child) {
+				return false
+			}
+		}
+		return true
+	}
+	var ids []string
+	for _, s := range sessions {
+		if prunable(s) {
+			ids = append(ids, s.ID)
+		}
+	}
+	if err := st.DeleteSessions(ctx, ids); err != nil {
+		return 0, err
+	}
+	return len(ids), nil
 }
 
 // DeleteSessions removes the given sessions along with their turns and
