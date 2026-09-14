@@ -1,3 +1,4 @@
+import * as React from "react";
 import { Copy, Ellipsis, FolderOpen, Square } from "lucide-react";
 import { UpdateKind } from "../../../../bindings/devkit/internal/agenthub/models";
 import { cn } from "@/lib/utils";
@@ -54,6 +55,8 @@ export type AgentHubContentProps = {
   onRemoveAttachment?: (path: string) => void;
   /** Copies a string for the header's session menu — the path, the id. */
   onCopy?: (text: string) => void;
+  /** Sends /compact. Offered in the context popover only when the agent lists the command. */
+  onCompact?: () => void;
   className?: string;
 };
 
@@ -128,6 +131,7 @@ export function AgentHubContent({
   onBrowseContext,
   onRemoveAttachment,
   onCopy,
+  onCompact,
   className,
 }: AgentHubContentProps) {
   const effectiveState: AgentHubContentState = explicitState
@@ -137,6 +141,24 @@ export function AgentHubContent({
       : session.status === "error"
         ? "Error"
         : "Conversation";
+
+  // The floating composer's height, measured, so the transcript can pad its
+  // foot by exactly that much. A fixed guess is wrong the moment a file is
+  // attached and the composer grows a row of chips.
+  const composerRef = React.useRef<HTMLDivElement>(null);
+  const [composerHeight, setComposerHeight] = React.useState(0);
+  React.useEffect(() => {
+    const el = composerRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) =>
+      setComposerHeight(Math.ceil(entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height)),
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [effectiveState]);
+  // Offered only when the agent says it has the command: a button that sends a
+  // prompt the agent does not understand is a button that makes it reply "?".
+  const canCompact = commands.some((command) => command.name.replace(/^\//, "") === "compact");
 
   const displayTitle =
     session?.title || (session ? `Session ${session.id.slice(0, 8)}` : "");
@@ -290,16 +312,24 @@ export function AgentHubContent({
       ) : (
         <div
           data-testid="agent-hub-content-conversation"
-          className="flex min-h-0 w-full min-w-0 flex-1 flex-col"
+          className="relative flex min-h-0 w-full min-w-0 flex-1 flex-col"
+          // How much of the transcript's foot the composer covers; the stream
+          // pads by it so the last line of an answer scrolls clear.
+          style={{ "--composer-inset": `${composerHeight}px` } as React.CSSProperties}
         >
           <div className="min-h-0 flex-1 overflow-hidden">
             <TranscriptStream items={items} vendor={vendor} streaming={streaming} />
           </div>
 
-          {/* In the transcript's reading column, so what you write lines up
-              with what you are answering. */}
-          <div className="flex w-full shrink-0 px-6">
-          <div className="mx-auto flex w-full max-w-180 items-center gap-3">
+          {/* Floats over the transcript's foot, in its reading column, so what
+              you write lines up with what you are answering. Only the composer
+              takes the pointer; the strip either side of it lets clicks through
+              to the text scrolling underneath. */}
+          <div
+            ref={composerRef}
+            className="pointer-events-none absolute inset-x-0 bottom-0 flex w-full px-6 pb-4"
+          >
+          <div className="pointer-events-auto mx-auto flex w-full max-w-180 items-center gap-3">
             <AgentComposer
               size="wide"
               value={promptValue}
@@ -321,6 +351,7 @@ export function AgentHubContent({
               vendor={vendor}
               agentName={displayTitle}
               commands={commands}
+              onCompact={canCompact ? onCompact : undefined}
               attachedFiles={attachments}
               onBrowseContext={onBrowseContext}
               onRemoveAttachment={onRemoveAttachment}

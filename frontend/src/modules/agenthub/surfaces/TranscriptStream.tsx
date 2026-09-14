@@ -84,7 +84,9 @@ export function TranscriptStream({
         ref={scrollRef}
         onScroll={handleScroll}
         data-testid="transcript-viewport"
-        className="flex size-full min-h-0 flex-col overflow-y-auto px-6 py-6 scroll-smooth"
+        className="flex size-full min-h-0 flex-col overflow-y-auto px-6 pt-6 scroll-smooth"
+        // Clear of the floating composer, whose height AgentHubContent measures.
+        style={{ paddingBottom: "calc(var(--composer-inset, 0px) + var(--space-section))" }}
       >
         <div className="mx-auto flex w-full max-w-180 flex-col gap-8">
           {items.length === 0 && !loading ? (
@@ -126,7 +128,10 @@ export function TranscriptStream({
       />
 
       {/* Floating Jump to Latest Button */}
-      <div className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 z-20">
+      <div
+        className="pointer-events-none absolute left-1/2 z-20 -translate-x-1/2"
+        style={{ bottom: "calc(var(--composer-inset, 0px) + var(--space-control))" }}
+      >
         <div className="pointer-events-auto">
           <AgentJumpToLatest visible={showJump} count={unread} onClick={scrollToBottom} />
         </div>

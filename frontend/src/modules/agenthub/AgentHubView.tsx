@@ -431,6 +431,14 @@ export function AgentHubView() {
             onCancel={() => void handleCancel()}
             onCloseSession={() => void handleCloseSession()}
             onCopy={(text) => void copyText(text)}
+            onCompact={() => {
+              // Through the same path as a typed prompt, so a compact is a turn
+              // like any other: it shows, it can fail, it can be retried. Not
+              // through the draft, which may hold something half-written.
+              if (activeSession) {
+                void handleSend({ sessionId: activeSession.id, text: "/compact", attachments: [] });
+              }
+            }}
             streaming={busy || activeSession?.status === "running"}
             errorMessage={errorReason || error}
             errorCause={errorCause}

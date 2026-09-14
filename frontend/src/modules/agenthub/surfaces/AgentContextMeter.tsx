@@ -1,0 +1,117 @@
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Progress } from "@/components/ui/progress";
+import type { Usage } from "../types";
+
+export type AgentContextMeterProps = {
+  usage?: Usage | null;
+  turnCount?: number;
+  /** Sends /compact. Omitted when the agent offers no such command. */
+  onCompact?: () => void;
+  className?: string;
+};
+
+/** "24.5k", "1M" — the precision a glance needs. */
+export function shortCount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(n % 1_000 === 0 ? 0 : 1)}k`;
+  return String(n);
+}
+
+/**
+ * How full the context window is, and what that costs. Warning at 80%,
+ * danger at 95%: past those the agent is about to compact or refuse, and the
+ * ring changing colour is the notice a glance picks up.
+ */
+function level(percent: number): "info" | "warning" | "danger" {
+  if (percent >= 95) return "danger";
+  if (percent >= 80) return "warning";
+  return "info";
+}
+
+const RING = { info: "stroke-status-info", warning: "stroke-status-warning", danger: "stroke-status-danger" };
+const BAR = {
+  info: "[&>[data-slot=progress-indicator]]:bg-status-info",
+  warning: "[&>[data-slot=progress-indicator]]:bg-status-warning",
+  danger: "[&>[data-slot=progress-indicator]]:bg-status-danger",
+};
+
+/**
+ * The composer's context gauge: a ring the size of an icon, and the numbers
+ * behind it one click away.
+ *
+ * It replaces "29,480 / 1,000,000 context" spelled out beside the pills and
+ * "2 turns · $0.91" in a band above the field — two lines of numbers a person
+ * reads a few times a session, sitting on the composer every moment of it. The
+ * ring answers the only question worth a glance, how full is it; the popover
+ * holds the rest.
+ *
+ * What it does not show is what ACP does not say. Claude's own gauge also has
+ * the auto-compact threshold and plan usage limits, and neither is on the
+ * wire: a made-up "compacts at 97%" is worse than no line.
+ */
+export function AgentContextMeter({ usage, turnCount = 0, onCompact, className }: AgentContextMeterProps) {
+  const used = usage?.used ?? 0;
+  const size = usage?.size ?? 0;
+  if (!size) return null;
+
+  const percent = Math.min(100, Math.round((used / size) * 100));
+  const tone = level(percent);
+  const summary = `${shortCount(used)} / ${shortCount(size)} (${percent}%)`;
+  // r=6 on a 16 box: the circumference the dash array divides.
+  const circumference = 2 * Math.PI * 6;
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label={`Context: ${shortCount(used)} of ${shortCount(size)} used (${percent}%)`}
+          data-testid="composer-context"
+          data-level={tone}
+          className={cn("shrink-0 rounded-full", className)}
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true" className="size-4 -rotate-90">
+            <circle cx="8" cy="8" r="6" fill="none" strokeWidth="2" className="stroke-border-default" />
+            <circle
+              cx="8"
+              cy="8"
+              r="6"
+              fill="none"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeDasharray={`${(percent / 100) * circumference} ${circumference}`}
+              className={RING[tone]}
+            />
+          </svg>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent side="top" align="end" className="w-72 gap-3 p-3">
+        <div className="flex w-full items-baseline justify-between gap-3 text-body-14">
+          <span className="text-text-secondary">Context window</span>
+          <span className="tabular-nums text-text-tertiary">{summary}</span>
+        </div>
+        <Progress value={percent} className={cn("h-1 bg-(--state-soft)", BAR[tone])} />
+        <div className="h-px w-full bg-border-subtle" />
+        <div className="flex w-full items-baseline justify-between gap-3 text-body-14">
+          <span className="tabular-nums text-text-tertiary">
+            {`${turnCount} turn${turnCount === 1 ? "" : "s"} · $${(usage?.amount ?? 0).toFixed(2)}`}
+          </span>
+          {onCompact ? (
+            <button
+              type="button"
+              onClick={onCompact}
+              data-testid="composer-compact"
+              className="cursor-pointer text-status-info underline-offset-2 hover:underline"
+            >
+              Compact session
+            </button>
+          ) : null}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}

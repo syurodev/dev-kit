@@ -1,11 +1,14 @@
+import { useSyncExternalStore } from "react";
 import { AtSign, Command as CommandIcon, ArrowUp, X } from "lucide-react";
+import { BorderBeam } from "border-beam";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { onThemeChange } from "@/theme/themeColors";
 import { AgentFileChip } from "../transcript/AgentFileChip";
 import { AgentMenu, type ContextFileItem } from "./AgentMenu";
+import { AgentContextMeter } from "./AgentContextMeter";
 import type { AvailableCommand, Usage } from "../types";
-import { VendorIcon } from "./VendorIcon";
 
 export type ComposerSize = "wide" | "rail";
 export type ComposerState = "idle" | "streaming" | "attached";
@@ -27,6 +30,8 @@ export type AgentComposerProps = {
   onSelectCommand?: (name: string) => void;
   onSelectContext?: (path: string) => void;
   onBrowseContext?: () => void;
+  /** Sends /compact from the context popover. Omit when the agent offers no such command. */
+  onCompact?: () => void;
   commands?: AvailableCommand[];
   contextFiles?: ContextFileItem[];
   disabled?: boolean;
@@ -36,36 +41,42 @@ export type AgentComposerProps = {
 };
 
 /**
- * Agent / Composer — Figma `963:2634`, six variants: Size Wide/Rail x State
- * Idle/Streaming/Attached.
- *
- * Figma's note defines the shape: "one bordered frame around the input only.
- * The meta band sits on that frame's own ground above the field, so the frame's
- * top region reads as a thick top border — it is not a header for the
- * conversation, it travels with the composer."
- *
- * So there are two boxes, not one: an outer bordered frame at radius/14 with no
- * fill, and an inner surface/raised field at radius/10, with the meta line
- * between them. A single box with a bottom-bordered header strip inside it
- * would read as a header for whatever sits above.
- *
- * State is small: Streaming swaps the send glyph for a stop and changes the
- * placeholder; Attached inserts a chip row at the top of the field. Nothing else
- * moves.
- *
- * Size is not: at 280px the pills lose their labels and become icon-only, the
- * send button drops 32 -> 28, the input's top row drops 56 -> 40, and both the
- * vendor string and the context counter use short forms. Figma writes
- * "claude-agent-acp 0.74" and "24,503 / 1,000,000 context" wide, "claude" and
- * "24.5k / 1M" in the rail.
+ * The app's resolved light/dark mode, read off <html> the way ThemeProvider
+ * writes it. Not useTheme(): that throws outside the provider, and the beam's
+ * own `theme="auto"` follows the OS, which is not the app's setting.
  */
-
-function shortCount(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(n % 1_000 === 0 ? 0 : 1)}k`;
-  return String(n);
+function useAppTheme(): "dark" | "light" {
+  return useSyncExternalStore(
+    onThemeChange,
+    () => (document.documentElement.dataset.theme === "light" ? "light" : "dark"),
+    () => "dark",
+  );
 }
 
+/**
+ * Agent / Composer — Figma `963:2634`, Size Wide/Rail x State Idle/Streaming/
+ * Attached.
+ *
+ * One glass surface that floats over the foot of the transcript. The text
+ * scrolls under it and the blur is what keeps the field legible over whatever
+ * line is passing — the one place in the module where glass is doing work,
+ * because it is the one layer that sits on top of content (liquid-glass.md).
+ * With transparency reduced, `.glass-float` falls back to surface/raised.
+ *
+ * It used to be two boxes: a bordered frame with a meta band — "2 turns ·
+ * $0.91", the vendor and version — above an inner field, and
+ * "29,480 / 1,000,000 context" spelled out beside the pills. Those numbers are
+ * behind the context ring now (AgentContextMeter); the vendor is already in the
+ * header one glance up.
+ *
+ * While a turn runs, a border beam travels the edge. The composer is where the
+ * eye is when you have just pressed Enter, and a moving edge there says "it is
+ * working" without a line of text; it is warm for Claude, matching its mark in
+ * the rail. The library stills itself under Reduce Motion.
+ *
+ * Size still matters: at 280px the pills lose their labels and the field's top
+ * row drops from 56 to 40.
+ */
 export function AgentComposer({
   size = "wide",
   state,
@@ -77,12 +88,12 @@ export function AgentComposer({
   usage,
   turnCount = 0,
   vendor = "claude",
-  version,
   attachedFiles = [],
   onRemoveAttachment,
   onSelectCommand,
   onSelectContext,
   onBrowseContext,
+  onCompact,
   commands = [],
   contextFiles = [],
   disabled = false,
@@ -90,22 +101,11 @@ export function AgentComposer({
   agentName,
   className,
 }: AgentComposerProps) {
+  const theme = useAppTheme();
   const rail = size === "rail";
   const isStreaming = streaming || state === "streaming";
   const effectiveState: ComposerState =
     state ?? (isStreaming ? "streaming" : attachedFiles.length > 0 ? "attached" : "idle");
-
-  const used = usage?.used ?? 0;
-  const limit = usage?.size ?? 0;
-  const cost = usage?.amount ?? 0;
-
-  const contextLabel = !limit
-    ? ""
-    : rail
-      ? `${shortCount(used)} / ${shortCount(limit)}`
-      : `${used.toLocaleString()} / ${limit.toLocaleString()} context`;
-
-  const vendorLabel = rail ? vendor : [vendor, version].filter(Boolean).join(" ");
 
   const inputPlaceholder =
     placeholder ??
@@ -114,45 +114,24 @@ export function AgentComposer({
       : `Ask ${agentName ?? "agent"}…`);
 
   return (
-    <div
-      role="region"
-      aria-label="Agent prompt composer"
-      data-testid="agent-composer"
-      data-size={size}
-      data-state={effectiveState}
-      className={cn(
-        // The outer frame carries the border and NO fill — the meta band shows
-        // the ground behind the composer, which is what makes the top read as a
-        // thick border rather than as a header.
-        "flex w-full flex-col gap-2 rounded-lg border border-border-subtle px-1 pt-3 pb-1",
-        rail ? "max-w-70" : "max-w-274",
-        className,
-      )}
+    <BorderBeam
+      active={isStreaming}
+      size="md"
+      colorVariant={vendor.toLowerCase().startsWith("claude") ? "sunset" : "ocean"}
+      theme={theme}
+      strength={0.8}
+      className={cn("w-full", rail ? "max-w-70" : "max-w-274", className)}
     >
-      <div className="flex w-full items-center gap-2 px-1">
-        <p
-          data-testid="composer-meta-left"
-          className="min-w-0 flex-1 text-caption-11-medium text-text-secondary"
-        >
-          {`${turnCount} turn${turnCount === 1 ? "" : "s"} · $${cost.toFixed(2)}`}
-        </p>
-        <div
-          data-testid="composer-meta-right"
-          className="flex shrink-0 items-center gap-2"
-        >
-          <VendorIcon vendor={vendor} className="size-3 text-icon-secondary" />
-          <span className="text-caption-11 text-text-tertiary whitespace-nowrap">
-            {vendorLabel}
-          </span>
-        </div>
-      </div>
-
-      <div className="flex w-full flex-col gap-3 rounded-control bg-surface-raised p-3">
+      <div
+        role="region"
+        aria-label="Agent prompt composer"
+        data-testid="agent-composer"
+        data-size={size}
+        data-state={effectiveState}
+        className="glass-float flex w-full flex-col gap-3 rounded-xl p-3"
+      >
         {attachedFiles.length > 0 ? (
-          <div
-            data-testid="composer-attachments"
-            className="flex w-full flex-wrap items-center gap-1"
-          >
+          <div data-testid="composer-attachments" className="flex w-full flex-wrap items-center gap-1">
             {attachedFiles.map((path) => (
               <AgentFileChip
                 key={path}
@@ -217,20 +196,13 @@ export function AgentComposer({
               disabled={disabled}
               aria-label="Add context"
               data-testid="composer-attach-button"
-              className={cn(
-                "h-8 border-border-subtle text-text-secondary",
-                rail ? "px-2" : "px-3",
-              )}
+              className={cn("h-8 border-border-subtle text-text-secondary", rail ? "px-2" : "px-3")}
             >
               <AtSign className="size-3.5" aria-hidden="true" />
               {rail ? null : "Add context"}
             </Button>
           </AgentMenu>
-          <AgentMenu
-            mode="commands"
-            commands={commands}
-            onSelectCommand={onSelectCommand}
-          >
+          <AgentMenu mode="commands" commands={commands} onSelectCommand={onSelectCommand}>
             <Button
               type="button"
               variant="outline"
@@ -238,26 +210,16 @@ export function AgentComposer({
               disabled={disabled}
               aria-label="Commands"
               data-testid="composer-menu-button"
-              className={cn(
-                "h-8 border-border-subtle text-text-secondary",
-                rail ? "px-2" : "px-3",
-              )}
+              className={cn("h-8 border-border-subtle text-text-secondary", rail ? "px-2" : "px-3")}
             >
               <CommandIcon className="size-3.5" aria-hidden="true" />
               {rail ? null : "Commands"}
             </Button>
           </AgentMenu>
           <span className="min-w-0 flex-1" />
-          {contextLabel ? (
-            <span
-              data-testid="composer-context"
-              className="shrink-0 text-caption-11 text-text-tertiary whitespace-nowrap"
-            >
-              {contextLabel}
-            </span>
-          ) : null}
+          <AgentContextMeter usage={usage} turnCount={turnCount} onCompact={onCompact} />
         </div>
       </div>
-    </div>
+    </BorderBeam>
   );
 }

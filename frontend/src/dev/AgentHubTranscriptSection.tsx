@@ -87,6 +87,9 @@ export function AgentHubTranscriptSection() {
         <AgentHubContent
           session={session}
           items={items}
+          usage={{ used: 581_900, size: 1_000_000, amount: 0.91 }}
+          commands={[{ name: "compact", description: "Clear history but keep a summary" }]}
+          onCompact={() => {}}
           streaming
           promptValue=""
           onPromptChange={() => {}}

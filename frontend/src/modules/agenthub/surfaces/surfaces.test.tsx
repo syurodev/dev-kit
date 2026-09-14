@@ -23,11 +23,10 @@ import type { TranscriptItem } from "../types";
 
 describe("Agent Hub Phase 3 Surfaces", () => {
   describe("AgentComposer (Figma 963:2634)", () => {
-    it("renders the meta band above the field, on the frame's own ground", () => {
-      // Figma's note: "one bordered frame around the input only. The meta band
-      // sits on that frame's own ground above the field, so the frame's top
-      // region reads as a thick top border — it is not a header." The old
-      // markup put a bottom-bordered strip inside a single box.
+    it("is one glass surface with its numbers behind a context ring", () => {
+      // It floats over the transcript, so it is glass; the meta band above the
+      // field ("4 turns · $0.21", the vendor) and the spelled-out counter went
+      // into the ring's popover, which renders nothing until opened.
       const html = renderToString(
         <AgentComposer
           size="wide"
@@ -45,10 +44,10 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       expect(html).toContain('data-testid="agent-composer"');
       expect(html).toContain('data-size="wide"');
       expect(html).toContain('data-state="idle"');
-      expect(html).toContain("4 turns · $0.21");
-      expect(html).toContain("claude-agent-acp 0.74");
-      // Wide spells the counter out; the rail abbreviates it.
-      expect(html).toContain("24,503 / 1,000,000 context");
+      expect(html).toContain("glass-float");
+      expect(html).toContain('aria-label="Context: 24.5k of 1M used (2%)"');
+      expect(html).not.toContain("4 turns · $0.21");
+      expect(html).not.toContain("24,503 / 1,000,000 context");
       expect(html).toContain("Add context");
       expect(html).toContain("Commands");
       expect(html).toContain("Test prompt");
@@ -91,11 +90,9 @@ describe("Agent Hub Phase 3 Surfaces", () => {
         />,
       );
 
-      // 280px cannot hold two labelled pills and a spelled-out counter.
+      // 280px cannot hold two labelled pills.
       expect(html).not.toContain("Add context</button>");
-      expect(html).toContain("24.5k / 1M");
-      // Rail shows the bare vendor, wide appends the version.
-      expect(html).not.toContain("claude 0.74");
+      expect(html).toContain("24.5k of 1M");
     });
 
     it("inserts the attachment row inside the field when files are attached", () => {
@@ -582,17 +579,8 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       expect(row).toContain('data-vendor="claude"');
       expect(row).not.toContain("lucide-bot");
 
-      const composer = renderToString(
-        <AgentComposer
-          value=""
-          onChange={() => {}}
-          onSend={() => {}}
-          onCancel={() => {}}
-          vendor="claude"
-        />,
-      );
-      expect(composer).toContain('data-vendor="claude"');
-      expect(composer).not.toContain("lucide-bot");
+      // The composer no longer carries a mark at all: its meta band went, and
+      // the vendor is in the header one glance up.
 
       // A vendor DevKit has not drawn falls back to one shape on purpose, so
       // unknown is visibly unknown rather than wearing someone else's logo.
@@ -816,7 +804,8 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       // No "You" over it and no initial beside it: a message on the right of
       // the column is yours, and saying so twice was a chat app's habit.
       expect(html).not.toContain(">You<");
-      expect(html).toContain("1 turn · $");
+      // The turn count is in the context ring's popover now, which renders
+      // nothing until it is opened.
     });
 
     it("folds a turn's tool calls behind one line", () => {
