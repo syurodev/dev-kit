@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+type TickTurn = { id: string; prompt?: { text?: string }; answer: { text?: string }[] };
 
 export type TranscriptTick = {
   id: string;
@@ -90,11 +91,24 @@ export function TranscriptTicks({ ticks, active, onJump, className }: Transcript
 
 /** The ticks for a list of turns: those that start with something you typed. */
 export function ticksOf(
-  turns: { id: string; prompt?: { text?: string }; answer: { text?: string }[] }[],
+  turns: TickTurn[],
+  previousTurns: TickTurn[] = [],
+  previousTicks: TranscriptTick[] = [],
 ): TranscriptTick[] {
+  const previousByTurn = new Map<TickTurn, TranscriptTick>();
+  let previousIndex = 0;
+  for (const turn of previousTurns) {
+    if (!turn.prompt?.text?.trim()) continue;
+    const tick = previousTicks[previousIndex];
+    if (tick) previousByTurn.set(turn, tick);
+    previousIndex += 1;
+  }
+
   return turns.flatMap((turn) => {
     const prompt = turn.prompt?.text?.trim();
     if (!prompt) return [];
+    const previous = previousByTurn.get(turn);
+    if (previous) return [previous];
     const answer = turn.answer.map((item) => item.text ?? "").join("\n");
     // Markdown marks read as noise in a two-line preview. Hyphens inside
     // words stay: only a list bullet's dash goes.

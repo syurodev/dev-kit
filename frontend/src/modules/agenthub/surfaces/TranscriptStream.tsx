@@ -3,7 +3,7 @@ import { ScrollArea as ScrollAreaPrimitive } from "radix-ui";
 import { ScrollBar } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import type { TranscriptItem } from "../types";
-import { groupTurns } from "../turns";
+import { groupTurns, type Turn } from "../turns";
 import { AgentJumpToLatest } from "./AgentJumpToLatest";
 import { AgentMetaInspector } from "./AgentMetaInspector";
 import { AgentTurn } from "./AgentTurn";
@@ -11,6 +11,8 @@ import { TranscriptTicks, ticksOf } from "./TranscriptTicks";
 
 export type TranscriptStreamProps = {
   items: TranscriptItem[];
+  /** Resets structural sharing when the visible session changes. */
+  streamKey?: string;
   /** The vendor, for marks and metadata — not what a message is signed with. */
   vendor?: string;
   /** A turn is in flight. The newest turn runs its orb and follows its steps. */
@@ -36,6 +38,7 @@ export type TranscriptStreamProps = {
  */
 export function TranscriptStream({
   items,
+  streamKey,
   vendor = "Claude",
   streaming = false,
   onCopy,
@@ -43,8 +46,34 @@ export function TranscriptStream({
   loading = false,
   className,
 }: TranscriptStreamProps) {
-  const turns = useMemo(() => groupTurns(items), [items]);
-  const ticks = useMemo(() => ticksOf(turns), [turns]);
+  const previousTurnsRef = useRef<Turn[]>([]);
+  const previousTicksRef = useRef<ReturnType<typeof ticksOf>>([]);
+  const previousStreamKeyRef = useRef<string | undefined>(streamKey);
+  const turns = useMemo(() => {
+    const previous = previousStreamKeyRef.current === streamKey ? previousTurnsRef.current : [];
+    previousStreamKeyRef.current = streamKey;
+    if (previous.length === 0) previousTicksRef.current = [];
+    return groupTurns(items, previous);
+  }, [items, streamKey]);
+  const ticks = useMemo(() => {
+    const next = ticksOf(turns, previousTurnsRef.current, previousTicksRef.current);
+    previousTurnsRef.current = turns;
+    previousTicksRef.current = next;
+    return next;
+  }, [turns]);
+
+  const onCopyRef = useRef(onCopy);
+  const onEditPromptRef = useRef(onEditPrompt);
+  onCopyRef.current = onCopy;
+  onEditPromptRef.current = onEditPrompt;
+  const stableOnCopy = useMemo(
+    () => (onCopy ? (text: string) => onCopyRef.current?.(text) : undefined),
+    [Boolean(onCopy)],
+  );
+  const stableOnEditPrompt = useMemo(
+    () => (onEditPrompt ? (text: string) => onEditPromptRef.current?.(text) : undefined),
+    [Boolean(onEditPrompt)],
+  );
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showJump, setShowJump] = useState(false);
   const [activeTick, setActiveTick] = useState(0);
@@ -164,8 +193,8 @@ export function TranscriptStream({
                 live={latest && streaming}
                 vendor={vendor}
                 onInspect={setInspecting}
-                onCopy={onCopy}
-                onEditPrompt={onEditPrompt}
+                onCopy={stableOnCopy}
+                onEditPrompt={stableOnEditPrompt}
               />
             );
           })}

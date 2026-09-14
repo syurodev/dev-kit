@@ -62,7 +62,7 @@ export type AgentTurnProps = {
  * (inline) inside a line. Work lines are 13px beside the answer's 14: the
  * account of what was done is the quieter register of the two.
  */
-export function AgentTurn({
+export const AgentTurn = React.memo(function AgentTurn({
   turn,
   live = false,
   latest = false,
@@ -74,8 +74,10 @@ export function AgentTurn({
   const reduce = useReducedMotion() ?? false;
   const [open, setOpen] = React.useState(false);
 
-  const activity = live ? activityOf(turn) : null;
-  const answer = turn.answer.filter((item) => item.text?.trim());
+  const activity = React.useMemo(() => (live ? activityOf(turn) : null), [live, turn]);
+  const answer = React.useMemo(() => turn.answer.filter((item) => item.text?.trim()), [turn.answer]);
+  const worked = React.useMemo(() => (live ? "Worked" : workedFor(turn)), [live, turn]);
+  const segments = React.useMemo(() => (open ? workSegments(turn.work) : []), [open, turn.work]);
   // Reduce Motion keeps the fade and drops the travel, scale and blur — the
   // parts accessibility.md › Motion names, "zooming, scaling, and peripheral
   // motion". Text still arrives; it just stops moving to get there.
@@ -120,14 +122,14 @@ export function AgentTurn({
             {activity ? (
               <ThinkingOrb state={activity.orb} size={20} aria-label={activity.label} className="shrink-0" />
             ) : null}
-            <SwapText text={activity ? activity.label : workedFor(turn)} animate={latest} reduce={reduce} />
+            <SwapText text={activity ? activity.label : worked} animate={latest} reduce={reduce} />
             <ChevronRight
               aria-hidden="true"
               className={cn("size-3.5 shrink-0 transition-transform duration-(--motion-fast)", open && "rotate-90")}
             />
           </button>
           <AnimatedCollapse open={open} className="flex w-full flex-col gap-3 pt-3">
-              {workSegments(turn.work).map((segment) => {
+              {segments.map((segment) => {
                 if (segment.kind === "text") {
                   // What the agent said between steps is prose like its answer:
                   // it is the account of the work, and the steps are its evidence.
@@ -174,7 +176,7 @@ export function AgentTurn({
       ))}
     </section>
   );
-}
+});
 
 /**
  * A run of steps between two things the agent said, under one line saying what

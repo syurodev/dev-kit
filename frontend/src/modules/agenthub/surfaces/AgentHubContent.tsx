@@ -369,7 +369,7 @@ export function AgentHubContent({
           className="flex min-h-0 w-full flex-1 flex-col gap-6"
         >
           <div className="min-h-0 flex-1">
-            <TranscriptStream items={items} vendor={vendor} />
+            <TranscriptStream items={items} streamKey={session?.id} vendor={vendor} />
           </div>
           <div className="w-full shrink-0 px-6 pb-6">
             <AgentSessionError
@@ -424,6 +424,7 @@ export function AgentHubContent({
             ) : (
               <TranscriptStream
                 items={items}
+                streamKey={session?.id}
                 vendor={vendor}
                 streaming={streaming}
                 onCopy={onCopy}

@@ -184,7 +184,7 @@ export function AgentRail({
 
           {/* Transcript Area */}
           <div className="flex-1 min-h-0 overflow-hidden">
-            <TranscriptStream items={items} vendor={vendor} />
+            <TranscriptStream items={items} streamKey={activeSession?.id} vendor={vendor} />
           </div>
 
           {errorMessage ? (

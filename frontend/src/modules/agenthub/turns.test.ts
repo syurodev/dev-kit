@@ -68,6 +68,22 @@ describe("groupTurns", () => {
     expect(turn.notes.map((r) => r.kind)).toEqual(["rate_limit", "seventeenth_kind"]);
     expect(turn.work).toEqual([]);
   });
+
+  it("shares unchanged turns when the last item grows", () => {
+    const initial = [
+      row("user_message_chunk", { text: "one" }),
+      row("agent_message_chunk", { text: "first" }),
+      row("user_message_chunk", { text: "two" }),
+      row("agent_message_chunk", { text: "second" }),
+    ];
+    const previous = groupTurns(initial);
+    const last = initial[initial.length - 1];
+    const next = [...initial.slice(0, -1), { ...last, text: "second chunk" }];
+    const current = groupTurns(next, previous);
+
+    expect(current[0]).toBe(previous[0]);
+    expect(current[1]).not.toBe(previous[1]);
+  });
 });
 
 describe("workedFor", () => {

@@ -43,12 +43,35 @@ const WORK_KINDS = new Set([
  * is the only rule that holds while a turn is live, because nothing on the wire
  * marks a message as final.
  */
-export function groupTurns(items: TranscriptItem[]): Turn[] {
-  const turns: Turn[] = [];
-  let current: Turn | null = null;
-  const open = (id: string, prompt?: TranscriptItem): Turn => {
-    const turn: Turn = { id, prompt, work: [], answer: [], notes: [] };
-    turns.push(turn);
+type TurnDraft = {
+  id: string;
+  prompt?: TranscriptItem;
+  work: TranscriptItem[];
+  answer: TranscriptItem[];
+  notes: TranscriptItem[];
+};
+
+function sameItems(left: TranscriptItem[], right: TranscriptItem[]): boolean {
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) return false;
+  }
+  return true;
+}
+
+/**
+ * Groups a transcript while retaining the Turn objects that did not change.
+ *
+ * The rows are still scanned because a later work row can reclassify the
+ * answer immediately before it. That only allocates drafts; React sees the
+ * old Turn identity for every unaffected exchange.
+ */
+export function groupTurns(items: TranscriptItem[], previous: Turn[] = []): Turn[] {
+  const drafts: TurnDraft[] = [];
+  let current: TurnDraft | null = null;
+  const open = (id: string, prompt?: TranscriptItem): TurnDraft => {
+    const turn: TurnDraft = { id, prompt, work: [], answer: [], notes: [] };
+    drafts.push(turn);
     return turn;
   };
 
@@ -62,24 +85,50 @@ export function groupTurns(items: TranscriptItem[]): Turn[] {
     if (kind === "agent_message_chunk") {
       current.answer.push(item);
     } else if (WORK_KINDS.has(kind)) {
-      current.work.push(...current.answer, item);
+      for (const answer of current.answer) current.work.push(answer);
+      current.work.push(item);
       current.answer = [];
     } else {
       current.notes.push(item);
     }
   }
-  return turns;
+  return drafts.map((draft, index) => {
+    const prior = previous[index];
+    if (
+      prior &&
+      prior.id === draft.id &&
+      prior.prompt === draft.prompt &&
+      sameItems(prior.work, draft.work) &&
+      sameItems(prior.answer, draft.answer) &&
+      sameItems(prior.notes, draft.notes)
+    ) {
+      return prior;
+    }
+    return draft;
+  });
 }
 
 /** The first and last moment anything in the turn happened, as epoch ms. */
+const spanCache = new WeakMap<Turn, [number, number] | null>();
 function span(turn: Turn): [number, number] | undefined {
-  const rows = [turn.prompt, ...turn.work, ...turn.answer].filter(Boolean) as TranscriptItem[];
-  const starts = rows.map((row) => Date.parse(row.createdAt ?? "")).filter(Number.isFinite);
-  const ends = rows
-    .map((row) => Date.parse(row.updatedAt ?? row.createdAt ?? ""))
-    .filter(Number.isFinite);
-  if (!starts.length || !ends.length) return undefined;
-  return [Math.min(...starts), Math.max(...ends)];
+  const cached = spanCache.get(turn);
+  if (cached !== undefined) return cached ?? undefined;
+
+  let first: number | undefined;
+  let last: number | undefined;
+  const visit = (row: TranscriptItem | undefined) => {
+    if (!row) return;
+    const start = Date.parse(row.createdAt ?? "");
+    if (Number.isFinite(start) && (first === undefined || start < first)) first = start;
+    const end = Date.parse(row.updatedAt ?? row.createdAt ?? "");
+    if (Number.isFinite(end) && (last === undefined || end > last)) last = end;
+  };
+  visit(turn.prompt);
+  for (const row of turn.work) visit(row);
+  for (const row of turn.answer) visit(row);
+  const range: [number, number] | null = first === undefined || last === undefined ? null : [first, last];
+  spanCache.set(turn, range);
+  return range ?? undefined;
 }
 
 /** "12s", "4m 7s", "1h 2m" — the precision a person uses, not a stopwatch's. */
