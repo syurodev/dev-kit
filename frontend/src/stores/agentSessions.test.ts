@@ -16,7 +16,15 @@ const session = (id: string): AgentSession => ({
 
 describe("subagents in the session store", () => {
   beforeEach(() => {
-    useAgentSessionsStore.setState({ sessions: [], subagents: {} });
+    useAgentSessionsStore.setState({
+      sessionsById: {},
+      sessionIds: [],
+      transcriptsById: {},
+      transcriptLoadingById: {},
+      transcriptErrorsById: {},
+      promptBySession: {},
+      subagents: {},
+    });
   });
 
   it("merges the state update onto the spawn instead of replacing it", () => {

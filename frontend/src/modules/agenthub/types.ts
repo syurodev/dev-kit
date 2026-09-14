@@ -218,6 +218,8 @@ export type TranscriptModel = {
   usage: Usage | null;
   commands: AvailableCommand[];
   mode: string | null;
+  /** O(1) lookup for tool_call_update; maintained with the item snapshot. */
+  toolCallIndex: Map<string, number>;
 };
 
 /**

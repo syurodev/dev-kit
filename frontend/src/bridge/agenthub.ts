@@ -355,31 +355,6 @@ export function onAgentHubPermission(
   });
 }
 
-export function extractUpdateText(update: unknown): string {
-  if (!update || typeof update !== "object") {
-    if (typeof update === "string") {
-      return update;
-    }
-    return "";
-  }
-  const record = update as Record<string, unknown>;
-  const content = record.content;
-  if (content && typeof content === "object") {
-    const block = content as Record<string, unknown>;
-    if (typeof block.text === "string") {
-      return block.text;
-    }
-  }
-  if (typeof record.text === "string") {
-    return record.text;
-  }
-  try {
-    return JSON.stringify(update);
-  } catch {
-    return "";
-  }
-}
-
 export function parsePermissionOptions(params: unknown): PermissionOption[] {
   if (!params || typeof params !== "object") {
     return [];

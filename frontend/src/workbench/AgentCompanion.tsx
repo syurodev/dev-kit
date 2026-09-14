@@ -10,7 +10,7 @@ import {
 import { errorMessage } from "@/bridge/errors";
 import { AgentRail } from "@/modules/agenthub/surfaces";
 import { useAgentTranscript } from "@/modules/agenthub/transcript";
-import { useAgentSessionsStore } from "@/stores/agentSessions";
+import { useAgentSessionList, useAgentSessionsStore } from "@/stores/agentSessions";
 
 /**
  * The running conversation, in the shell's companion slot.
@@ -24,10 +24,9 @@ import { useAgentSessionsStore } from "@/stores/agentSessions";
  * vendor and working directory to choose, not something to do mid-conversation.
  */
 export function AgentCompanion() {
-  const sessions = useAgentSessionsStore((s) => s.sessions);
+  const sessions = useAgentSessionList();
   const activeSessionId = useAgentSessionsStore((s) => s.activeSessionId);
   const setActiveSessionId = useAgentSessionsStore((s) => s.setActiveSessionId);
-  const transcripts = useAgentSessionsStore((s) => s.transcripts);
   const upsertSession = useAgentSessionsStore((s) => s.upsertSession);
   const setPrompt = useAgentSessionsStore((s) => s.setPrompt);
   const pending = useAgentSessionsStore((s) => s.pending);
@@ -38,7 +37,7 @@ export function AgentCompanion() {
   const [permBusy, setPermBusy] = useState(false);
 
   const session = sessions.find((s) => s.id === activeSessionId) ?? sessions[0] ?? null;
-  const prompt = session ? (transcripts[session.id]?.prompt ?? "") : "";
+  const prompt = useAgentSessionsStore((s) => s.promptBySession[session?.id ?? ""] ?? "");
 
   // Live transcript stream for the active session in rail
   const transcriptModel = useAgentTranscript(session?.id ?? "");

@@ -1,11 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect } from "react";
 import { UpdateKind, type TranscriptEntry } from "../../../bindings/devkit/internal/agenthub/models";
 import { agentHubTranscript, onAgentHubSessionUpdate } from "../../bridge/agenthub";
+import {
+  EMPTY_TRANSCRIPT_MODEL,
+  useAgentSessionsStore,
+} from "../../stores/agentSessions";
 import type {
   SessionUpdate,
   ToolCall,
   TranscriptAction,
-  TranscriptItem,
   TranscriptModel,
   Subagent,
 } from "./types";
@@ -38,6 +41,7 @@ export function createInitialTranscriptModel(): TranscriptModel {
     usage: null,
     commands: [],
     mode: null,
+    toolCallIndex: new Map(),
   };
 }
 
@@ -159,159 +163,211 @@ export function applySessionUpdate(
   model: TranscriptModel,
   update: SessionUpdate,
 ): TranscriptModel {
-  const kind = update.kind;
+  return applySessionUpdates(model, [update]);
+}
 
-  if (kind === UpdateKind.UpdateUsage || kind === "usage_update") {
-    return {
-      ...model,
-      usage: update.usage ? { ...update.usage } : model.usage,
-    };
-  }
+/**
+ * Applies one frame's updates with one shallow item-array copy at most. The
+ * mutable locals are deliberately scoped to this batch: the model in the
+ * store remains immutable to readers between publishes.
+ */
+export function applySessionUpdates(
+  model: TranscriptModel,
+  updates: SessionUpdate[],
+): TranscriptModel {
+  let items = model.items;
+  let itemsCopied = false;
+  let toolCallIndex = model.toolCallIndex;
+  let toolCallIndexCopied = false;
+  let usage = model.usage;
+  let commands = model.commands;
+  let mode = model.mode;
+  let changed = false;
 
-  if (kind === UpdateKind.UpdateAvailableCommands || kind === "available_commands_update") {
-    return {
-      ...model,
-      commands: update.commands ? [...update.commands] : model.commands,
-    };
-  }
+  const copyItems = () => {
+    if (!itemsCopied) {
+      items = [...items];
+      itemsCopied = true;
+    }
+  };
+  const copyToolCallIndex = () => {
+    if (!toolCallIndexCopied) {
+      toolCallIndex = new Map(toolCallIndex);
+      toolCallIndexCopied = true;
+    }
+  };
+  const now = () => new Date().toISOString();
 
-  if (kind === UpdateKind.UpdateCurrentMode || kind === "current_mode_update") {
-    return {
-      ...model,
-      mode: update.mode ?? model.mode,
-    };
-  }
+  for (const update of updates) {
+    const kind = update.kind;
 
-  if (isChunkKind(kind)) {
-    const chunkText = extractChunkText(update);
-    const lastIndex = model.items.length - 1;
-    const last = lastIndex >= 0 ? model.items[lastIndex] : null;
-
-    if (last && last.kind === kind && isSameMessage(last.messageId, update.messageId)) {
-      const updatedItem: TranscriptItem = {
-        ...last,
-        text: (last.text ?? "") + chunkText,
-        updatedAt: new Date().toISOString(),
-      };
-      const nextItems = [...model.items];
-      nextItems[lastIndex] = updatedItem;
-      return { ...model, items: nextItems };
+    if (kind === UpdateKind.UpdateUsage || kind === "usage_update") {
+      if (update.usage) {
+        usage = { ...update.usage };
+        changed = true;
+      }
+      continue;
     }
 
-    const newItem: TranscriptItem = {
-      id: generateId(),
-      kind,
-      text: chunkText,
-      messageId: update.messageId,
-      raw: update.raw,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    return { ...model, items: [...model.items, newItem] };
-  }
+    if (kind === UpdateKind.UpdateAvailableCommands || kind === "available_commands_update") {
+      if (update.commands) {
+        commands = [...update.commands];
+        changed = true;
+      }
+      continue;
+    }
 
-  if (
-    kind === UpdateKind.UpdateToolCall ||
-    kind === UpdateKind.UpdateToolCallUpdate ||
-    kind === "tool_call" ||
-    kind === "tool_call_update" ||
-    (update.toolCall && update.toolCall.id)
-  ) {
-    const call = update.toolCall ?? { id: "" };
-    const toolCallId = call.id;
+    if (kind === UpdateKind.UpdateCurrentMode || kind === "current_mode_update") {
+      if (update.mode !== undefined) {
+        mode = update.mode;
+        changed = true;
+      }
+      continue;
+    }
 
-    if (toolCallId) {
-      const existingIndex = model.items.findIndex(
-        (item) => item.toolCallId === toolCallId || item.toolCall?.id === toolCallId,
-      );
+    if (isChunkKind(kind)) {
+      const chunkText = extractChunkText(update);
+      const lastIndex = items.length - 1;
+      const last = lastIndex >= 0 ? items[lastIndex] : null;
+      copyItems();
+      if (last && last.kind === kind && isSameMessage(last.messageId, update.messageId)) {
+        items[lastIndex] = {
+          ...last,
+          text: (last.text ?? "") + chunkText,
+          updatedAt: now(),
+        };
+      } else {
+        items.push({
+          id: generateId(),
+          kind,
+          text: chunkText,
+          messageId: update.messageId,
+          raw: update.raw,
+          createdAt: now(),
+          updatedAt: now(),
+        });
+      }
+      changed = true;
+      continue;
+    }
+
+    if (
+      kind === UpdateKind.UpdateToolCall ||
+      kind === UpdateKind.UpdateToolCallUpdate ||
+      kind === "tool_call" ||
+      kind === "tool_call_update" ||
+      (update.toolCall && update.toolCall.id)
+    ) {
+      const call = update.toolCall ?? { id: "" };
+      const toolCallId = call.id;
+      const existingIndex = toolCallId ? (toolCallIndex.get(toolCallId) ?? -1) : -1;
 
       if (existingIndex !== -1) {
-        const existing = model.items[existingIndex];
-        const merged = mergeToolCall(existing.toolCall, call);
-        const updatedItem: TranscriptItem = {
+        const existing = items[existingIndex];
+        copyItems();
+        items[existingIndex] = {
           ...existing,
-          toolCall: merged,
+          toolCall: mergeToolCall(existing.toolCall, call),
           raw: update.raw ?? existing.raw,
-          updatedAt: new Date().toISOString(),
+          updatedAt: now(),
         };
-        const nextItems = [...model.items];
-        nextItems[existingIndex] = updatedItem;
-        return { ...model, items: nextItems };
+      } else {
+        copyItems();
+        const index = items.length;
+        items.push({
+          id: generateId(),
+          kind,
+          toolCallId,
+          toolCall: { ...call },
+          raw: update.raw,
+          createdAt: now(),
+          updatedAt: now(),
+        });
+        if (toolCallId) {
+          copyToolCallIndex();
+          toolCallIndex.set(toolCallId, index);
+        }
       }
+      changed = true;
+      continue;
     }
 
-    const newItem: TranscriptItem = {
-      id: generateId(),
-      kind,
-      toolCallId,
-      toolCall: { ...call },
-      raw: update.raw,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    return { ...model, items: [...model.items, newItem] };
-  }
-
-  if (kind === UpdateKind.UpdatePlan || kind === "plan") {
-    const newItem: TranscriptItem = {
-      id: generateId(),
-      kind,
-      plan: update.plan ? [...update.plan] : [],
-      raw: update.raw,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    return { ...model, items: [...model.items, newItem] };
-  }
-
-  // Subagents: one card per subagent, not one row per event. Spawn carries the
-  // name and the task, the state update carries only the id — so they are
-  // paired here the way tool calls are, rather than rendered as two lines that
-  // say half a thing each.
-  if (
-    kind === UpdateKind.UpdateSubagentSpawned ||
-    kind === UpdateKind.UpdateSubagentState ||
-    kind === "subagent_spawned" ||
-    kind === "subagent_state_update"
-  ) {
-    const incoming = update.subagent;
-    if (incoming?.id) {
-      const index = model.items.findIndex((item) => item.subagent?.id === incoming.id);
-      if (index >= 0) {
-        const merged: Subagent = { ...model.items[index].subagent, ...incoming };
-        // Spawn is the only message with a name; a state update must not blank it.
-        merged.name = incoming.name || model.items[index].subagent?.name;
-        merged.task = incoming.task || model.items[index].subagent?.task;
-        const nextItems = [...model.items];
-        nextItems[index] = {
-          ...model.items[index],
-          subagent: merged,
-          raw: update.raw ?? model.items[index].raw,
-          updatedAt: new Date().toISOString(),
-        };
-        return { ...model, items: nextItems };
-      }
-      const newItem: TranscriptItem = {
+    if (kind === UpdateKind.UpdatePlan || kind === "plan") {
+      copyItems();
+      items.push({
         id: generateId(),
-        kind: UpdateKind.UpdateSubagentSpawned,
-        subagent: { ...incoming },
+        kind,
+        plan: update.plan ? [...update.plan] : [],
         raw: update.raw,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      return { ...model, items: [...model.items, newItem] };
+        createdAt: now(),
+        updatedAt: now(),
+      });
+      changed = true;
+      continue;
     }
+
+    // Subagents: one card per subagent, not one row per event. Spawn carries the
+    // name and the task, the state update carries only the id — so they are
+    // paired here the way tool calls are, rather than rendered as two lines that
+    // say half a thing each.
+    if (
+      kind === UpdateKind.UpdateSubagentSpawned ||
+      kind === UpdateKind.UpdateSubagentState ||
+      kind === "subagent_spawned" ||
+      kind === "subagent_state_update"
+    ) {
+      const incoming = update.subagent;
+      if (incoming?.id) {
+        const index = items.findIndex((item) => item.subagent?.id === incoming.id);
+        copyItems();
+        if (index >= 0) {
+          const previous = items[index];
+          const merged: Subagent = { ...previous.subagent, ...incoming };
+          // Spawn is the only message with a name; a state update must not blank it.
+          merged.name = incoming.name || previous.subagent?.name;
+          merged.task = incoming.task || previous.subagent?.task;
+          items[index] = {
+            ...previous,
+            subagent: merged,
+            raw: update.raw ?? previous.raw,
+            updatedAt: now(),
+          };
+        } else {
+          items.push({
+            id: generateId(),
+            kind: UpdateKind.UpdateSubagentSpawned,
+            subagent: { ...incoming },
+            raw: update.raw,
+            createdAt: now(),
+            updatedAt: now(),
+          });
+        }
+        changed = true;
+        continue;
+      }
+    }
+
+    // Unknown / unmodelled kinds: kept intact with raw payload.
+    copyItems();
+    items.push({
+      id: generateId(),
+      kind,
+      raw: update.raw,
+      createdAt: now(),
+      updatedAt: now(),
+    });
+    changed = true;
   }
 
-  // Unknown / unmodelled kinds: kept intact with raw payload
-  const newItem: TranscriptItem = {
-    id: generateId(),
-    kind,
-    raw: update.raw,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+  if (!changed) return model;
+  return {
+    ...model,
+    items,
+    usage,
+    commands,
+    mode,
+    toolCallIndex,
   };
-  return { ...model, items: [...model.items, newItem] };
 }
 
 /**
@@ -394,9 +450,9 @@ export function initTranscript(
     ) {
       const call = payload.toolCall ?? { id: toolCallId };
       const activeToolCallId = toolCallId || call.id;
-      const existingIndex = model.items.findIndex(
-        (item) => item.toolCallId === activeToolCallId || item.toolCall?.id === activeToolCallId,
-      );
+      const existingIndex = activeToolCallId
+        ? (model.toolCallIndex.get(activeToolCallId) ?? -1)
+        : -1;
 
       if (existingIndex !== -1) {
         const existing = model.items[existingIndex];
@@ -416,6 +472,9 @@ export function initTranscript(
           createdAt,
           updatedAt,
         });
+        if (activeToolCallId) {
+          model.toolCallIndex.set(activeToolCallId, model.items.length - 1);
+        }
       }
       continue;
     }
@@ -464,70 +523,230 @@ export function transcriptReducer(
   }
 }
 
+export type TranscriptFrameScheduler = (callback: () => void) => () => void;
+
+/** Schedule a frame, with a bounded fallback for hidden WebKit windows. */
+export const scheduleTranscriptFrame: TranscriptFrameScheduler = (callback) => {
+  let active = true;
+  let frameId: number | undefined;
+  const timeoutId = setTimeout(run, 50);
+
+  function run() {
+    if (!active) return;
+    active = false;
+    if (frameId !== undefined && typeof cancelAnimationFrame === "function") {
+      cancelAnimationFrame(frameId);
+    }
+    clearTimeout(timeoutId);
+    callback();
+  }
+
+  if (typeof requestAnimationFrame === "function") {
+    frameId = requestAnimationFrame(run);
+  }
+  return () => {
+    active = false;
+    if (frameId !== undefined && typeof cancelAnimationFrame === "function") {
+      cancelAnimationFrame(frameId);
+    }
+    clearTimeout(timeoutId);
+  };
+};
+
 /**
- * React hook that loads persisted transcript rows once and subscribes
- * to incoming session updates for live conversation streaming.
+ * Mutable event buffer used by the shell-owned stream. It publishes only on
+ * flush, while retaining immutable snapshots for Zustand/React readers.
  */
-export function useAgentTranscript(sessionId: string) {
-  const [model, setModel] = useState<TranscriptModel>(createInitialTranscriptModel);
-  const [loading, setLoading] = useState<boolean>(Boolean(sessionId));
-  const [error, setError] = useState<Error | null>(null);
+export class TranscriptEventBuffer {
+  private model: TranscriptModel;
+  private pending: SessionUpdate[] = [];
+  private cancelScheduledFlush: (() => void) | null = null;
 
-  const loadingRef = useRef(loading);
-  loadingRef.current = loading;
-  const bufferedUpdatesRef = useRef<SessionUpdate[]>([]);
+  constructor(
+    model: TranscriptModel,
+    private readonly publish: (model: TranscriptModel) => void,
+    private readonly schedule: TranscriptFrameScheduler = scheduleTranscriptFrame,
+  ) {
+    this.model = model;
+  }
 
-  const load = useCallback(async () => {
-    if (!sessionId) {
-      setModel(createInitialTranscriptModel());
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    bufferedUpdatesRef.current = [];
-    try {
-      const entries = await agentHubTranscript(sessionId);
-      let nextModel = initTranscript(entries);
-      for (const buffered of bufferedUpdatesRef.current) {
-        nextModel = applySessionUpdate(nextModel, buffered);
-      }
-      bufferedUpdatesRef.current = [];
-      setModel(nextModel);
-    } catch (err) {
-      setError(err instanceof Error ? err : new Error(String(err)));
-    } finally {
-      setLoading(false);
-    }
-  }, [sessionId]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  useEffect(() => {
-    if (!sessionId) {
-      return;
-    }
-    return onAgentHubSessionUpdate((event) => {
-      if (event.sessionId !== sessionId) {
-        return;
-      }
-      if (!event.parsed) {
-        return;
-      }
-      if (loadingRef.current) {
-        bufferedUpdatesRef.current.push(event.parsed);
-      } else {
-        setModel((prev) => applySessionUpdate(prev, event.parsed!));
-      }
+  enqueue(update: SessionUpdate): void {
+    this.pending.push(update);
+    if (this.cancelScheduledFlush) return;
+    this.cancelScheduledFlush = this.schedule(() => {
+      this.cancelScheduledFlush = null;
+      this.flush();
     });
+  }
+
+  /** Control-plane updates take the current queue with them and publish now. */
+  applyImmediate(update: SessionUpdate): void {
+    this.cancelScheduledFlush?.();
+    this.cancelScheduledFlush = null;
+    this.pending.push(update);
+    this.flush();
+  }
+
+  flush(): void {
+    if (this.pending.length === 0) return;
+    const pending = this.pending;
+    this.pending = [];
+    this.model = applySessionUpdates(this.model, pending);
+    this.publish(this.model);
+  }
+
+  get currentModel(): TranscriptModel {
+    return this.model;
+  }
+}
+
+const IMMEDIATE_UPDATE_KINDS = new Set<string>([
+  UpdateKind.UpdateUsage,
+  UpdateKind.UpdateAvailableCommands,
+  UpdateKind.UpdateCurrentMode,
+  UpdateKind.UpdateSessionInfo,
+  UpdateKind.UpdateConfigOptions,
+  UpdateKind.UpdateAsyncTaskSpawned,
+  UpdateKind.UpdateAsyncTaskProgress,
+  UpdateKind.UpdateAsyncTaskState,
+  "usage_update",
+  "available_commands_update",
+  "current_mode_update",
+  "session_info_update",
+  "config_option_update",
+  "async_task_spawned",
+  "async_task_progress",
+  "async_task_state_update",
+]);
+
+export function isImmediateTranscriptUpdate(update: SessionUpdate): boolean {
+  return IMMEDIATE_UPDATE_KINDS.has(String(update.kind));
+}
+
+type TranscriptRuntime = {
+  model: TranscriptModel;
+  loading: boolean;
+  loadingUpdates: SessionUpdate[];
+  buffer: TranscriptEventBuffer | null;
+  loadPromise: Promise<void> | null;
+};
+
+const runtimes = new Map<string, TranscriptRuntime>();
+let streamStarted = false;
+
+function publishTranscript(sessionId: string, model: TranscriptModel): void {
+  const state = useAgentSessionsStore.getState();
+  state.setTranscript(sessionId, model);
+}
+
+function makeBuffer(sessionId: string, model: TranscriptModel): TranscriptEventBuffer {
+  return new TranscriptEventBuffer(model, (next) => {
+    const runtime = runtimes.get(sessionId);
+    if (!runtime) return;
+    runtime.model = next;
+    publishTranscript(sessionId, next);
+  });
+}
+
+function receiveTranscriptUpdate(sessionId: string, update: SessionUpdate): void {
+  const runtime = runtimes.get(sessionId);
+  if (!runtime) return;
+  if (runtime.loading) {
+    runtime.loadingUpdates.push(update);
+    return;
+  }
+  runtime.buffer ??= makeBuffer(sessionId, runtime.model);
+  if (isImmediateTranscriptUpdate(update)) runtime.buffer.applyImmediate(update);
+  else runtime.buffer.enqueue(update);
+}
+
+/** Starts the one shell-level event listener; repeated calls are harmless. */
+export function startAgentTranscriptStream(): void {
+  if (streamStarted) return;
+  streamStarted = true;
+  onAgentHubSessionUpdate((event) => {
+    if (event.parsed) receiveTranscriptUpdate(event.sessionId, event.parsed);
+  });
+}
+
+async function loadTranscriptRuntime(sessionId: string, runtime: TranscriptRuntime): Promise<void> {
+  try {
+    const entries = await agentHubTranscript(sessionId);
+    const model = applySessionUpdates(initTranscript(entries), runtime.loadingUpdates);
+    runtime.loadingUpdates = [];
+    runtime.model = model;
+    runtime.buffer = makeBuffer(sessionId, model);
+    runtime.loading = false;
+    const state = useAgentSessionsStore.getState();
+    state.setTranscript(sessionId, model);
+    state.setTranscriptError(sessionId, null);
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    const model = applySessionUpdates(createInitialTranscriptModel(), runtime.loadingUpdates);
+    runtime.loadingUpdates = [];
+    runtime.model = model;
+    runtime.buffer = makeBuffer(sessionId, model);
+    runtime.loading = false;
+    const state = useAgentSessionsStore.getState();
+    state.setTranscript(sessionId, model);
+    state.setTranscriptError(sessionId, error);
+  } finally {
+    runtime.loadPromise = null;
+    useAgentSessionsStore.getState().setTranscriptLoading(sessionId, false);
+  }
+}
+
+function ensureTranscript(sessionId: string): void {
+  if (!sessionId) return;
+  startAgentTranscriptStream();
+  let runtime = runtimes.get(sessionId);
+  if (!runtime) {
+    runtime = {
+      model: createInitialTranscriptModel(),
+      loading: true,
+      loadingUpdates: [],
+      buffer: null,
+      loadPromise: null,
+    };
+    runtimes.set(sessionId, runtime);
+  }
+  if (!runtime.loadPromise && runtime.loading) {
+    useAgentSessionsStore.getState().setTranscriptLoading(sessionId, true);
+    runtime.loadPromise = loadTranscriptRuntime(sessionId, runtime);
+  }
+}
+
+function reloadTranscript(sessionId: string): void {
+  const runtime = runtimes.get(sessionId);
+  if (!runtime || runtime.loading) return;
+  runtime.loading = true;
+  runtime.loadingUpdates = [];
+  runtime.buffer?.flush();
+  runtime.buffer = null;
+  useAgentSessionsStore.getState().setTranscriptLoading(sessionId, true);
+  runtime.loadPromise = loadTranscriptRuntime(sessionId, runtime);
+}
+
+/** React is only a reader of the shell-owned model and never owns the stream. */
+export function useAgentTranscript(sessionId: string) {
+  const model = useAgentSessionsStore(
+    (state) => state.transcriptsById[sessionId] ?? EMPTY_TRANSCRIPT_MODEL,
+  );
+  const loading = useAgentSessionsStore(
+    (state) => Boolean(sessionId) && Boolean(state.transcriptLoadingById[sessionId]),
+  );
+  const error = useAgentSessionsStore(
+    (state) => state.transcriptErrorsById[sessionId] ?? null,
+  );
+
+  useEffect(() => {
+    ensureTranscript(sessionId);
   }, [sessionId]);
 
   return {
     ...model,
     loading,
     error,
-    reload: load,
+    reload: () => reloadTranscript(sessionId),
   };
 }

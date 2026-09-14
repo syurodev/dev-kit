@@ -2,7 +2,7 @@ import { MENU_ROW, MenuRow } from "@/components/ui/menu-row";
 import { cn } from "@/lib/utils";
 import type { ModulePeekProps } from "../registry";
 import type { AgentSession } from "../../bridge/agenthub";
-import { useAgentSessionsStore } from "../../stores/agentSessions";
+import { useAgentSessionList, useAgentSessionsStore } from "../../stores/agentSessions";
 import { AgentDockBadge } from "./surfaces/AgentDockBadge";
 
 /**
@@ -29,7 +29,7 @@ function sessionLabel(session: AgentSession) {
 }
 
 export function AgentHubPeek({ focusModule }: ModulePeekProps) {
-  const sessions = useAgentSessionsStore((state) => state.sessions);
+  const sessions = useAgentSessionList();
   const setActiveSessionId = useAgentSessionsStore((state) => state.setActiveSessionId);
 
   if (sessions.length === 0) {
@@ -60,13 +60,11 @@ export function AgentHubPeek({ focusModule }: ModulePeekProps) {
 
 /** Waiting for permission outranks running: one must be answered, the other needs nothing. */
 export function AgentHubBadge() {
-  const waiting = useAgentSessionsStore(
-    (state) =>
-      state.pendingQueue.length ||
-      state.sessions.filter((s) => s.status === "awaiting_permission").length,
-  );
+  const sessions = useAgentSessionList();
+  const pendingCount = useAgentSessionsStore((state) => state.pendingQueue.length);
+  const waiting = pendingCount || sessions.filter((s) => s.status === "awaiting_permission").length;
   const running = useAgentSessionsStore((state) =>
-    state.sessions.some((s) => s.status === "running"),
+    state.sessionIds.some((id) => state.sessionsById[id].status === "running"),
   );
   if (waiting > 0) return <AgentDockBadge state="waiting" count={waiting} />;
   if (running) return <AgentDockBadge state="running" />;

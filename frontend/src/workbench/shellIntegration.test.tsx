@@ -39,8 +39,8 @@ describe("Phase 4 Shell Integration", () => {
     });
 
     useAgentSessionsStore.setState({
-      sessions: [
-        {
+      sessionsById: {
+        "sess-1": {
           id: "sess-1",
           agentType: "claude",
           projectPath: "/test/project",
@@ -50,7 +50,8 @@ describe("Phase 4 Shell Integration", () => {
           title: "Root Agent",
           acpSessionId: "acp-1",
         },
-      ],
+      },
+      sessionIds: ["sess-1"],
       activeSessionId: "sess-1",
       chatOpen: false,
       pending: null,

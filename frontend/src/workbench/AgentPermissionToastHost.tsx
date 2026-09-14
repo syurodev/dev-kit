@@ -8,7 +8,7 @@ import {
   type PendingPermission,
 } from "@/bridge/agenthub";
 import { AgentPermissionToast } from "@/modules/agenthub/surfaces/AgentPermissionToast";
-import { useAgentSessionsStore } from "@/stores/agentSessions";
+import { useAgentSessionList, useAgentSessionsStore } from "@/stores/agentSessions";
 
 /**
  * Hosts the Agent / Permission Toast (Figma 924:152) at the shell level.
@@ -36,7 +36,7 @@ export function AgentPermissionToastHost({
 }: AgentPermissionToastHostProps = {}) {
   const storePending = useAgentSessionsStore((s) => s.pending);
   const dequeuePending = useAgentSessionsStore((s) => s.dequeuePending);
-  const storeSessions = useAgentSessionsStore((s) => s.sessions);
+  const storeSessions = useAgentSessionList();
   const storeActiveSessionId = useAgentSessionsStore((s) => s.activeSessionId);
   const storeChatOpen = useAgentSessionsStore((s) => s.chatOpen);
   const setChatOpen = useAgentSessionsStore((s) => s.setChatOpen);
@@ -54,7 +54,9 @@ export function AgentPermissionToastHost({
       : isSSR
         ? useAgentSessionsStore.getState().pending
         : storePending;
-  const sessions = isSSR ? useAgentSessionsStore.getState().sessions : storeSessions;
+  const sessions = isSSR
+    ? useAgentSessionsStore.getState().sessionIds.map((id) => useAgentSessionsStore.getState().sessionsById[id])
+    : storeSessions;
   const activeSessionId = isSSR ? useAgentSessionsStore.getState().activeSessionId : storeActiveSessionId;
   const chatOpen =
     propChatOpen !== undefined

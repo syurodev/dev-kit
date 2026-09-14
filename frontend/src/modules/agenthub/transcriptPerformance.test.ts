@@ -1,6 +1,13 @@
 import { describe, expect, it } from "bun:test";
 import { UpdateKind } from "../../../bindings/devkit/internal/agenthub/models";
-import { applySessionUpdate, createInitialTranscriptModel, initTranscript } from "./transcript";
+import {
+  applySessionUpdate,
+  createInitialTranscriptModel,
+  initTranscript,
+  isImmediateTranscriptUpdate,
+  TranscriptEventBuffer,
+  type TranscriptModel,
+} from "./transcript";
 import { largeTranscriptEntries, LARGE_TRANSCRIPT_ROW_COUNT } from "./transcriptPerformance.fixture";
 
 const TOKEN_COUNT = 1_000;
@@ -53,5 +60,71 @@ describe("Agent Hub transcript performance fixture", () => {
         `applyMsMedian=${median(applySamples).toFixed(2)} ` +
         `initRows=${entries.length} initMsMedian=${median(initSamples).toFixed(2)}`,
     );
+  });
+
+  it("coalesces one stream into one publish and keeps control events immediate", () => {
+    const frames: Array<() => void> = [];
+    const published: TranscriptModel[] = [];
+    const buffer = new TranscriptEventBuffer(
+      createInitialTranscriptModel(),
+      (model) => published.push(model),
+      (callback) => {
+        frames.push(callback);
+        return () => undefined;
+      },
+    );
+
+    for (const update of tokenUpdates()) buffer.enqueue(update);
+    expect(published).toHaveLength(0);
+    expect(frames).toHaveLength(1);
+    frames[0]();
+    expect(published).toHaveLength(1);
+    expect(published[0].items[0].text).toContain("token-999");
+
+    buffer.enqueue(tokenUpdates()[0]);
+    const usage = {
+      kind: UpdateKind.UpdateUsage,
+      usage: { used: 1, size: 100, amount: 0 },
+    };
+    expect(isImmediateTranscriptUpdate(usage)).toBe(true);
+    buffer.applyImmediate(usage);
+    // The control-plane path publishes synchronously; permission events use
+    // the same dedicated, non-buffered path in AgentSessionsSubscriber.
+    expect(published).toHaveLength(2);
+    expect(published[1].usage?.used).toBe(1);
+  });
+
+  it("keeps another session's flush from changing this model identity", () => {
+    const publishedA: unknown[] = [];
+    const publishedB: unknown[] = [];
+    const framesA: Array<() => void> = [];
+    const framesB: Array<() => void> = [];
+    const a = new TranscriptEventBuffer(
+      createInitialTranscriptModel(),
+      (model) => publishedA.push(model),
+      (cb) => {
+        framesA.push(cb);
+        return () => undefined;
+      },
+    );
+    const b = new TranscriptEventBuffer(
+      createInitialTranscriptModel(),
+      (model) => publishedB.push(model),
+      (cb) => {
+        framesB.push(cb);
+        return () => undefined;
+      },
+    );
+
+    a.enqueue(tokenUpdates()[0]);
+    b.enqueue(tokenUpdates()[1]);
+    expect(publishedA).toHaveLength(0);
+    framesB[0]();
+    const modelB = publishedB[0];
+
+    framesA[0]();
+    const modelA = publishedA[0];
+    expect(publishedB).toHaveLength(1);
+    expect(modelA).not.toBe(modelB);
   });
 });

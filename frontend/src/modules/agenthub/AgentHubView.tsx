@@ -35,7 +35,7 @@ import { toAppError } from "../../bridge/errors";
 import { useAgentHubSidebar } from "./useAgentHubSidebar";
 import { useAgentTranscript } from "./transcript";
 import { AgentHubContent } from "./surfaces";
-import { useAgentSessionsStore } from "../../stores/agentSessions";
+import { useAgentSessionList, useAgentSessionsStore } from "../../stores/agentSessions";
 import { useAgentPinsStore } from "../../stores/agentPins";
 import {
   AlertDialog,
@@ -65,12 +65,11 @@ type TurnInput = { sessionId: string; text: string; attachments: string[] };
 type AuthRetry = { kind: "create"; params: CreateParams } | ({ kind: "turn" } & TurnInput);
 
 export function AgentHubView() {
-  const sessions = useAgentSessionsStore((state) => state.sessions);
+  const sessions = useAgentSessionList();
   const activeSessionId = useAgentSessionsStore((state) => state.activeSessionId);
   const setActiveSessionId = useAgentSessionsStore((state) => state.setActiveSessionId);
   const upsertSession = useAgentSessionsStore((state) => state.upsertSession);
   const removeSession = useAgentSessionsStore((state) => state.removeSession);
-  const transcripts = useAgentSessionsStore((state) => state.transcripts);
   const setPrompt = useAgentSessionsStore((state) => state.setPrompt);
   const pendingQueue = useAgentSessionsStore((state) => state.pendingQueue);
 
@@ -136,9 +135,9 @@ export function AgentHubView() {
     return sessions.find((s) => s.id === activeSession.parentSessionId) ?? null;
   }, [sessions, activeSession]);
 
-  const activePrompt = activeSession
-    ? transcripts[activeSession.id]?.prompt ?? ""
-    : "";
+  const activePrompt = useAgentSessionsStore(
+    (state) => state.promptBySession[activeSession?.id ?? ""] ?? "",
+  );
 
   // Live typed transcript model powered by useAgentTranscript
   const transcriptModel = useAgentTranscript(activeSession?.id ?? "");

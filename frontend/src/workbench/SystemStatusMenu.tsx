@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { vaultStatus, type VaultState } from "../bridge/vault";
 import { syncConflicts } from "../bridge/sync";
-import { useAgentSessionsStore } from "../stores/agentSessions";
+import { useAgentSessionList } from "../stores/agentSessions";
 import { requestVaultUnlock } from "./vaultUnlockRequest";
 
 export type SystemStatus = {
@@ -58,7 +58,7 @@ export function SystemStatusMenu({
   onResolveConflicts: () => void;
   onOpenAgents: () => void;
 }) {
-  const sessions = useAgentSessionsStore((s) => s.sessions);
+  const sessions = useAgentSessionList();
   const [vault, setVault] = useState<VaultState | null>(null);
   const [conflicts, setConflicts] = useState(0);
 

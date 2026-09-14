@@ -6,7 +6,8 @@ import {
   onAgentHubPermission,
   onAgentHubSessionUpdate,
 } from "../bridge/agenthub";
-import { appendUpdateLine, useAgentSessionsStore } from "../stores/agentSessions";
+import { useAgentSessionsStore } from "../stores/agentSessions";
+import { startAgentTranscriptStream } from "../modules/agenthub/transcript";
 import { moduleTabs, useWorkbenchTabsStore, type TabStatus } from "../stores/workbenchTabs";
 import { UpdateKind } from "../../bindings/devkit/internal/agenthub/models";
 
@@ -19,7 +20,6 @@ import { UpdateKind } from "../../bindings/devkit/internal/agenthub/models";
 export function AgentSessionsSubscriber() {
   const setSessions = useAgentSessionsStore((state) => state.setSessions);
   const upsertSession = useAgentSessionsStore((state) => state.upsertSession);
-  const updateLines = useAgentSessionsStore((state) => state.updateLines);
   const enqueuePending = useAgentSessionsStore((state) => state.enqueuePending);
   const trackSubagent = useAgentSessionsStore((state) => state.trackSubagent);
 
@@ -58,17 +58,16 @@ export function AgentSessionsSubscriber() {
    * Tasks will be the second consumer of setTabStatus.
    */
   useEffect(() => {
+    startAgentTranscriptStream();
     return onAgentHubSessionUpdate((event) => {
-      updateLines(event.sessionId, (prev) => appendUpdateLine(prev, event.update));
-
       // The agent names the session itself, after the first exchange, from
       // what was actually said. Until this landed every row in the swarm tree
       // read "Session 1d5b9d50" — an id is not a name. The backend has already
       // persisted it by the time this update arrives; this is what renames the
       // row without waiting for a reload.
       if (event.parsed?.kind === UpdateKind.UpdateSessionInfo && event.parsed.title) {
-        const { sessions, upsertSession } = useAgentSessionsStore.getState();
-        const session = sessions.find((s) => s.id === event.sessionId);
+        const { sessionsById, upsertSession } = useAgentSessionsStore.getState();
+        const session = sessionsById[event.sessionId];
         if (session && !session.title) {
           upsertSession({ ...session, title: event.parsed.title });
         }
@@ -107,14 +106,12 @@ export function AgentSessionsSubscriber() {
         }
       }
     });
-  }, [updateLines, trackSubagent]);
+  }, [trackSubagent]);
 
   useEffect(() => {
     return onAgentHubPermission(async (pending) => {
       enqueuePending(pending);
-      const session = useAgentSessionsStore
-        .getState()
-        .sessions.find((s) => s.id === pending.sessionId);
+      const session = useAgentSessionsStore.getState().sessionsById[pending.sessionId];
       if (session) {
         upsertSession({ ...session, status: "awaiting_permission" });
         return;

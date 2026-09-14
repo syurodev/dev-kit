@@ -1,45 +1,15 @@
 import { create } from "zustand";
-import { extractUpdateText, type AgentSession, type PendingPermission } from "../bridge/agenthub";
-import type { Subagent } from "../modules/agenthub/types";
+import type { AgentSession, PendingPermission } from "../bridge/agenthub";
+import type { Subagent, TranscriptModel } from "../modules/agenthub/types";
+import { useShallow } from "zustand/react/shallow";
 
-export type TranscriptLine = {
-  id: string;
-  role: "user" | "agent" | "system";
-  text: string;
+export const EMPTY_TRANSCRIPT_MODEL: TranscriptModel = {
+  items: [],
+  usage: null,
+  commands: [],
+  mode: null,
+  toolCallIndex: new Map(),
 };
-
-export type TranscriptState = {
-  lines: TranscriptLine[];
-  prompt: string;
-};
-
-export const EMPTY_TRANSCRIPT: TranscriptState = { lines: [], prompt: "" };
-
-/** Append streaming chunk text for a session update payload. */
-export function appendUpdateLine(
-  lines: TranscriptLine[],
-  update: unknown,
-): TranscriptLine[] {
-  const text = extractUpdateText(update).trim();
-  if (!text) {
-    return lines;
-  }
-  const last = lines[lines.length - 1];
-  if (last?.role === "agent") {
-    return [
-      ...lines.slice(0, -1),
-      { ...last, text: last.text === text ? last.text : `${last.text}${text}` },
-    ];
-  }
-  return [
-    ...lines,
-    {
-      id: `agent-${Date.now()}-${lines.length}`,
-      role: "agent",
-      text,
-    },
-  ];
-}
 
 /**
  * The subagent end states that mean "stopped", not "finished".
@@ -55,7 +25,8 @@ export function appendUpdateLine(
 const KILLED_STATES = new Set(["cancelled", "disconnected"]);
 
 type AgentSessionsState = {
-  sessions: AgentSession[];
+  sessionsById: Record<string, AgentSession>;
+  sessionIds: string[];
   activeSessionId: string;
   /**
    * The conversations themselves. They live here, not in AgentHubView state,
@@ -63,7 +34,10 @@ type AgentSessionsState = {
    * transcript and, worse, dropping the event subscription, so updates arriving
    * while you were elsewhere were never collected at all.
    */
-  transcripts: Record<string, TranscriptState>;
+  transcriptsById: Record<string, TranscriptModel>;
+  transcriptLoadingById: Record<string, boolean>;
+  transcriptErrorsById: Record<string, Error | null>;
+  promptBySession: Record<string, string>;
   /**
    * The agents Claude started inside its own process, by the session that owns
    * them. Kept here rather than read back out of the transcript because the
@@ -84,10 +58,9 @@ type AgentSessionsState = {
   removeSession: (id: string) => void;
   setActiveSessionId: (id: string) => void;
   setPrompt: (sessionId: string, prompt: string) => void;
-  updateLines: (
-    sessionId: string,
-    updater: (prev: TranscriptLine[]) => TranscriptLine[],
-  ) => void;
+  setTranscript: (sessionId: string, model: TranscriptModel) => void;
+  setTranscriptLoading: (sessionId: string, loading: boolean) => void;
+  setTranscriptError: (sessionId: string, error: Error | null) => void;
   /**
    * Records a subagent_spawned or subagent_state_update. Neither message is
    * complete — the spawn names it, the state update only says how it ended —
@@ -103,49 +76,65 @@ type AgentSessionsState = {
 };
 
 export const useAgentSessionsStore = create<AgentSessionsState>((set) => ({
-  sessions: [],
+  sessionsById: {},
+  sessionIds: [],
   activeSessionId: "",
-  transcripts: {},
+  transcriptsById: {},
+  transcriptLoadingById: {},
+  transcriptErrorsById: {},
+  promptBySession: {},
   subagents: {},
   pending: null,
   pendingQueue: [],
   chatOpen: false,
-  setSessions: (sessions) => set({ sessions }),
+  setSessions: (sessions) =>
+    set({
+      sessionsById: Object.fromEntries(sessions.map((session) => [session.id, session])),
+      sessionIds: sessions.map((session) => session.id),
+    }),
   upsertSession: (session) =>
     set((state) => {
-      const index = state.sessions.findIndex((s) => s.id === session.id);
-      if (index === -1) {
-        return { sessions: [...state.sessions, session] };
+      if (!state.sessionsById[session.id]) {
+        return {
+          sessionsById: { ...state.sessionsById, [session.id]: session },
+          sessionIds: [...state.sessionIds, session.id],
+        };
       }
-      const next = state.sessions.slice();
-      next[index] = session;
-      return { sessions: next };
+      return { sessionsById: { ...state.sessionsById, [session.id]: session } };
     }),
   removeSession: (id) =>
     set((state) => {
       // The session's subagents go with it. Nothing reads them once the session
       // is gone, so leaving them behind is a map that only ever grows.
       const { [id]: _gone, ...subagents } = state.subagents;
-      return { sessions: state.sessions.filter((s) => s.id !== id), subagents };
+      const { [id]: _session, ...sessionsById } = state.sessionsById;
+      const { [id]: _transcript, ...transcriptsById } = state.transcriptsById;
+      const { [id]: _loading, ...transcriptLoadingById } = state.transcriptLoadingById;
+      const { [id]: _transcriptError, ...transcriptErrorsById } = state.transcriptErrorsById;
+      const { [id]: _prompt, ...promptBySession } = state.promptBySession;
+      return {
+        sessionIds: state.sessionIds.filter((sessionId) => sessionId !== id),
+        sessionsById,
+        transcriptsById,
+        transcriptLoadingById,
+        transcriptErrorsById,
+        promptBySession,
+        subagents,
+      };
     }),
   setActiveSessionId: (id) => set({ activeSessionId: id }),
   setPrompt: (sessionId, prompt) =>
+    set((state) => ({ promptBySession: { ...state.promptBySession, [sessionId]: prompt } })),
+  setTranscript: (sessionId, model) =>
+    set((state) => ({ transcriptsById: { ...state.transcriptsById, [sessionId]: model } })),
+  setTranscriptLoading: (sessionId, loading) =>
     set((state) => ({
-      transcripts: {
-        ...state.transcripts,
-        [sessionId]: { ...(state.transcripts[sessionId] ?? EMPTY_TRANSCRIPT), prompt },
-      },
+      transcriptLoadingById: { ...state.transcriptLoadingById, [sessionId]: loading },
     })),
-  updateLines: (sessionId, updater) =>
-    set((state) => {
-      const current = state.transcripts[sessionId] ?? EMPTY_TRANSCRIPT;
-      return {
-        transcripts: {
-          ...state.transcripts,
-          [sessionId]: { ...current, lines: updater(current.lines) },
-        },
-      };
-    }),
+  setTranscriptError: (sessionId, error) =>
+    set((state) => ({
+      transcriptErrorsById: { ...state.transcriptErrorsById, [sessionId]: error },
+    })),
   trackSubagent: (sessionId, subagent) =>
     set((state) => {
       const current = state.subagents[sessionId] ?? [];
@@ -175,3 +164,9 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set) => ({
     }),
   setChatOpen: (open) => set({ chatOpen: open }),
 }));
+
+export function useAgentSessionList(): AgentSession[] {
+  return useAgentSessionsStore(
+    useShallow((state) => state.sessionIds.map((id) => state.sessionsById[id])),
+  );
+}
