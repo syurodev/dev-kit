@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/empty";
 import type { AgentSession } from "@/bridge/agenthub";
 import type { AgentImageAttachment } from "@/bridge/agenthub";
+import { errorMessage as describeError } from "@/bridge/errors";
 import type { QueuedAgentPrompt } from "@/stores/agentSessions";
 import type { AvailableCommand, ConfigOption, TranscriptItem, Usage } from "../types";
 import type { ContextFileItem } from "./AgentMenu";
@@ -32,6 +33,16 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 export type AgentHubContentState = "Conversation" | "Empty" | "Error";
+
+/** What the rename dialog says after Save: "" once renamed, the reason when it was not. */
+export async function submitRename(title: string, rename: (title: string) => void | Promise<void>): Promise<string> {
+  try {
+    await rename(title);
+    return "";
+  } catch (error) {
+    return describeError(error);
+  }
+}
 
 export type AgentHubContentProps = {
   state?: AgentHubContentState;
@@ -209,6 +220,7 @@ export function AgentHubContent({
 }: AgentHubContentProps) {
   const [renameOpen, setRenameOpen] = React.useState(false);
   const [renameValue, setRenameValue] = React.useState("");
+  const [renameError, setRenameError] = React.useState("");
   const effectiveState: AgentHubContentState = explicitState
     ? explicitState
     : draft
@@ -575,22 +587,51 @@ export function AgentHubContent({
           </div>
         </div>
       )}
-      <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
+      <Dialog
+        open={renameOpen}
+        onOpenChange={(open) => {
+          setRenameOpen(open);
+          if (!open) setRenameError("");
+        }}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader><DialogTitle>Rename session</DialogTitle></DialogHeader>
           <form onSubmit={(event) => {
             event.preventDefault();
             const title = renameValue.trim();
             if (!title || !onRenameSession) return;
-            void Promise.resolve(onRenameSession(title))
-              .then(() => setRenameOpen(false))
-              .catch(() => {
-                // Keep the dialog open so the user can retry after a bridge error.
-              });
+            // A refused rename keeps the dialog open with the reason, so the
+            // name can be fixed and saved again.
+            void submitRename(title, onRenameSession).then((reason) => {
+              setRenameError(reason);
+              if (!reason) setRenameOpen(false);
+            });
           }}>
-            <Input value={renameValue} onChange={(event) => setRenameValue(event.target.value)} maxLength={120} autoFocus aria-label="Session name" />
+            <Input
+              value={renameValue}
+              onChange={(event) => setRenameValue(event.target.value)}
+              maxLength={120}
+              autoFocus
+              aria-label="Session name"
+              aria-invalid={Boolean(renameError)}
+              aria-describedby={renameError ? "rename-session-error" : undefined}
+            />
+            {renameError ? (
+              <p id="rename-session-error" role="alert" className="mt-2 text-caption-11 text-status-danger">
+                {renameError}
+              </p>
+            ) : null}
             <DialogFooter className="mt-4">
-              <Button type="button" variant="ghost" onClick={() => setRenameOpen(false)}>Cancel</Button>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  setRenameOpen(false);
+                  setRenameError("");
+                }}
+              >
+                Cancel
+              </Button>
               <Button type="submit" disabled={!renameValue.trim()}>Save</Button>
             </DialogFooter>
           </form>

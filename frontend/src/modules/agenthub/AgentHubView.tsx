@@ -44,6 +44,7 @@ import { AgentHubContent } from "./surfaces";
 import { useAgentSessionList, useAgentSessionsStore } from "../../stores/agentSessions";
 import { useAgentPinsStore } from "../../stores/agentPins";
 import { useModuleVisibility } from "@/components/ui/module-visibility";
+import { detectPlatform } from "@/lib/platform";
 import { imageAttachmentFromFile } from "./imageAttachments";
 import type { QueuedAgentPrompt } from "../../stores/agentSessions";
 import { queuedPrompt, resumeQueuedPrompts, sendAgentTurn } from "../../workbench/agentPromptQueue";
@@ -74,6 +75,38 @@ type CreateParams = {
 type TurnInput = { sessionId: string; text: string; attachments: string[]; images: AgentImageAttachment[] };
 /** The action that failed on sign-in, retried once a login exits 0. */
 type AuthRetry = { kind: "create"; params: CreateParams } | ({ kind: "turn" } & TurnInput);
+
+type ShortcutKey = Pick<
+  KeyboardEvent,
+  "key" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey" | "repeat" | "isComposing" | "defaultPrevented"
+>;
+
+/**
+ * ⌘N on macOS, Ctrl+N elsewhere — not either on both: on a Mac, Ctrl+N is the
+ * text field's own next-line. Stands aside for a key something else already
+ * handled, an IME composition, and an open dialog or menu, where the key
+ * belongs to what is open.
+ */
+export function isNewSessionShortcut(event: ShortcutKey, mac: boolean, overlayOpen: boolean): boolean {
+  if (event.defaultPrevented || event.isComposing || event.repeat || event.altKey || event.shiftKey || overlayOpen) {
+    return false;
+  }
+  const modifier = mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+  return modifier && event.key.toLowerCase() === "n";
+}
+
+/** Renames a session. Throws, so the rename dialog stays open and says why. */
+export async function renameAgentSession(
+  sessionId: string,
+  title: string,
+  rename: (sessionId: string, title: string) => Promise<void> = agentHubRenameSession,
+): Promise<void> {
+  await rename(sessionId, title);
+  const { sessionsById, upsertSession } = useAgentSessionsStore.getState();
+  const session = sessionsById[sessionId];
+  // The store's row, not the one the view rendered: its status may have moved on.
+  if (session) upsertSession({ ...session, title });
+}
 
 export function AgentHubView() {
   const visible = useModuleVisibility();
@@ -190,16 +223,8 @@ export function AgentHubView() {
   useEffect(() => {
     if (!visible) return;
     function handleKeyDown(event: KeyboardEvent) {
-      if (
-        event.isComposing ||
-        event.repeat ||
-        event.altKey ||
-        event.shiftKey ||
-        !(event.metaKey || event.ctrlKey) ||
-        event.key.toLowerCase() !== "n"
-      ) {
-        return;
-      }
+      const overlayOpen = Boolean(document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"]'));
+      if (!isNewSessionShortcut(event, detectPlatform() === "mac", overlayOpen)) return;
       event.preventDefault();
       void chooseFolderForDraft();
     }
@@ -585,14 +610,10 @@ export function AgentHubView() {
     }
   }
 
+  // Not caught: the rename dialog shows the reason and stays open.
   async function handleRenameSession(title: string) {
     if (!activeSession) return;
-    try {
-      await agentHubRenameSession(activeSession.id, title);
-      upsertSession({ ...activeSession, title });
-    } catch (e) {
-      reportError(e);
-    }
+    await renameAgentSession(activeSession.id, title);
   }
 
 
