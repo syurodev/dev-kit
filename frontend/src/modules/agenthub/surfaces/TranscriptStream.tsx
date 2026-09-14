@@ -49,6 +49,31 @@ export function anchoredScrollTop(
   return prevScrollTop + (nextScrollHeight - prevScrollHeight);
 }
 
+/** The viewport, and the oldest item held, when an older page is asked for. */
+export type PrependAnchor = { scrollTop: number; scrollHeight: number; firstItemId?: string };
+
+/**
+ * One commit's step for a held prepend anchor. The request turns loadingOlder
+ * on before any page exists, so while it is in flight the anchor only follows
+ * the viewport — a token landing below and the reader's own scrolling are not
+ * the prepend. Once it settles the viewport moves down by what landed above;
+ * a page that failed (the oldest item is unchanged) just drops the anchor so
+ * the next approach to the top asks again.
+ */
+export function settlePrependAnchor(
+  anchor: PrependAnchor | null,
+  loadingOlder: boolean,
+  now: PrependAnchor,
+): { anchor: PrependAnchor | null; scrollTop: number | null } {
+  if (!anchor) return { anchor: null, scrollTop: null };
+  if (loadingOlder) return { anchor: { ...now, firstItemId: anchor.firstItemId }, scrollTop: null };
+  const landed = now.firstItemId !== anchor.firstItemId && now.scrollHeight > anchor.scrollHeight;
+  return {
+    anchor: null,
+    scrollTop: landed ? anchoredScrollTop(anchor.scrollTop, anchor.scrollHeight, now.scrollHeight) : null,
+  };
+}
+
 export function isTranscriptAtBottom(
   scrollHeight: number,
   scrollTop: number,
@@ -197,10 +222,10 @@ export function TranscriptStream({
   const scrollFrameRef = useRef<(() => void) | null>(null);
   const autoScrollFrameRef = useRef<(() => void) | null>(null);
   const pendingJumpRef = useRef<string | null>(null);
-  // The scroll geometry at the moment an older page was asked for. The
-  // layout effect below moves the viewport down by whatever the prepend
+  // The scroll geometry while an older page is on its way (settlePrependAnchor).
+  // The layout effect below moves the viewport down by whatever the prepend
   // inserted, so the line being read does not jump.
-  const prependAnchorRef = useRef<{ scrollTop: number; scrollHeight: number } | null>(null);
+  const prependAnchorRef = useRef<PrependAnchor | null>(null);
 
   const virtualized = turns.length > TRANSCRIPT_VIRTUALIZE_THRESHOLD;
   const rowVirtualizer = useVirtualizer({
@@ -236,32 +261,39 @@ export function TranscriptStream({
       isAtBottomRef.current = atBottom;
       setShowJump((previous) => (previous === !atBottom ? previous : !atBottom));
       if (atBottom && ticks.length > 0) setActiveTickIfChanged(ticks.length - 1);
-      if (
-        hasMore &&
-        !loadingOlder &&
-        onLoadOlder &&
-        el.scrollTop <= PRELOAD_MARGIN_PX &&
-        !prependAnchorRef.current
-      ) {
-        prependAnchorRef.current = { scrollTop: el.scrollTop, scrollHeight: el.scrollHeight };
-        onLoadOlder();
+      const anchor = prependAnchorRef.current;
+      if (anchor) {
+        // Waiting on a page: the reader is still reading, so the anchor moves with them.
+        prependAnchorRef.current = { ...anchor, scrollTop: el.scrollTop, scrollHeight: el.scrollHeight };
+      } else if (hasMore && !loadingOlder && el.scrollTop <= PRELOAD_MARGIN_PX) {
+        requestOlder();
       }
     });
   }
 
+  // The pill and the preload both come through here: a page asked for without
+  // an anchor lands with nothing to keep the reader's line in place.
+  function requestOlder() {
+    const el = scrollRef.current;
+    if (!el || !onLoadOlder) return;
+    prependAnchorRef.current = { scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, firstItemId: items[0]?.id };
+    onLoadOlder();
+  }
+
   // Keeps the reader where they were across a prepend. Layout effect, before
   // paint: without it the browser paints the un-compensated scroll first and
-  // the transcript visibly jumps. Also re-runs when a requested page fails
-  // (items unchanged, loadingOlder back to false): the anchor is dropped so
-  // the next approach to the top can try again.
+  // the transcript visibly jumps. The scrollTop written is absolute, so a
+  // browser that anchors scroll itself (Chromium) is overwritten, not added to.
   useLayoutEffect(() => {
-    const anchor = prependAnchorRef.current;
-    if (!anchor) return;
     const el = scrollRef.current;
-    if (el && el.scrollHeight > anchor.scrollHeight) {
-      el.scrollTop = anchoredScrollTop(anchor.scrollTop, anchor.scrollHeight, el.scrollHeight);
-    }
-    prependAnchorRef.current = null;
+    if (!prependAnchorRef.current || !el) return;
+    const step = settlePrependAnchor(prependAnchorRef.current, loadingOlder, {
+      scrollTop: el.scrollTop,
+      scrollHeight: el.scrollHeight,
+      firstItemId: items[0]?.id,
+    });
+    prependAnchorRef.current = step.anchor;
+    if (step.scrollTop !== null) el.scrollTop = step.scrollTop;
   }, [items, loadingOlder]);
 
   function sectionOf(id: string) {
@@ -451,7 +483,7 @@ export function TranscriptStream({
           {virtualized && hasMore && items.length > 0 ? (
             <button
               type="button"
-              onClick={() => onLoadOlder?.()}
+              onClick={requestOlder}
               disabled={loadingOlder || !onLoadOlder}
               data-testid="transcript-load-older"
               className={cn(
@@ -470,7 +502,7 @@ export function TranscriptStream({
           {!virtualized && hasMore && items.length > 0 ? (
             <button
               type="button"
-              onClick={() => onLoadOlder?.()}
+              onClick={requestOlder}
               disabled={loadingOlder || !onLoadOlder}
               data-testid="transcript-load-older"
               className={cn(

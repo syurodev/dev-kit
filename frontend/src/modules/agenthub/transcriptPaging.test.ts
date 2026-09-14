@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { anchoredScrollTop } from "./surfaces/TranscriptStream";
+import { anchoredScrollTop, settlePrependAnchor, type PrependAnchor } from "./surfaces/TranscriptStream";
 import { initTranscript, modelFromNewestPage, prependTranscriptEntries } from "./transcript";
 import { EMPTY_TRANSCRIPT_MODEL } from "../../stores/agentSessions";
 import type { TranscriptModel } from "./types";
@@ -29,6 +29,45 @@ describe("anchoredScrollTop", () => {
 
   test("at the very top of a fresh page", () => {
     expect(anchoredScrollTop(0, 1500, 2200)).toBe(700);
+  });
+});
+
+describe("settlePrependAnchor", () => {
+  // The commits a load-older goes through, in the order the store produces
+  // them: the request flips loadingOlder on before any page exists.
+  test("holds the anchor while the page is in flight and restores the line once it lands", () => {
+    let anchor: PrependAnchor | null = { scrollTop: 50, scrollHeight: 2000, firstItemId: "a" };
+
+    // loadingOlder turns on; nothing has been inserted yet.
+    let step = settlePrependAnchor(anchor, true, { scrollTop: 50, scrollHeight: 2000, firstItemId: "a" });
+    expect(step.scrollTop).toBeNull();
+    anchor = step.anchor;
+    expect(anchor).not.toBeNull();
+
+    // A token lands below and the reader nudges up while waiting.
+    step = settlePrependAnchor(anchor, true, { scrollTop: 30, scrollHeight: 2100, firstItemId: "a" });
+    expect(step.scrollTop).toBeNull();
+    anchor = step.anchor;
+
+    // The older page lands above: 600px inserted.
+    step = settlePrependAnchor(anchor, false, { scrollTop: 30, scrollHeight: 2700, firstItemId: "older" });
+    expect(step.scrollTop).toBe(630);
+    expect(step.anchor).toBeNull();
+  });
+
+  test("a failed page drops the anchor without moving the view, so the next approach retries", () => {
+    const anchor: PrependAnchor = { scrollTop: 50, scrollHeight: 2000, firstItemId: "a" };
+    const held = settlePrependAnchor(anchor, true, { scrollTop: 50, scrollHeight: 2000, firstItemId: "a" });
+    // The page failed while a streamed token grew the foot: nothing landed above.
+    const step = settlePrependAnchor(held.anchor, false, { scrollTop: 50, scrollHeight: 2150, firstItemId: "a" });
+    expect(step).toEqual({ anchor: null, scrollTop: null });
+  });
+
+  test("without an anchor a commit does nothing", () => {
+    expect(settlePrependAnchor(null, false, { scrollTop: 0, scrollHeight: 10, firstItemId: "a" })).toEqual({
+      anchor: null,
+      scrollTop: null,
+    });
   });
 });
 

@@ -938,9 +938,16 @@ function loadOlderTranscript(sessionId: string): void {
       runtime.model = merged;
       runtime.buffer = makeBuffer(sessionId, merged);
       runtime.oldestSeq = page.entries.length > 0 ? entrySeq(page.entries[0]) : null;
-      const next = useAgentSessionsStore.getState();
-      next.setTranscript(sessionId, merged);
-      next.setTranscriptPaging(sessionId, { hasMore: page.hasMore, loadingOlder: false });
+      // One publish: a render between the items and loadingOlder=false would
+      // show the stream a prepend that still looks in flight, and it would
+      // take the grown height as the baseline instead of compensating for it.
+      useAgentSessionsStore.setState((state) => ({
+        transcriptsById: { ...state.transcriptsById, [sessionId]: merged },
+        transcriptPagingById: {
+          ...state.transcriptPagingById,
+          [sessionId]: { hasMore: page.hasMore, loadingOlder: false },
+        },
+      }));
     } catch {
       if (runtimes.get(sessionId) !== runtime) return;
       // The walk stops but the history is still up there; say so rather than
