@@ -33,7 +33,7 @@ import { codeGraphProjectRoot } from "../../bridge/codegraph";
 import { copyText } from "../../bridge/clipboard";
 import { toAppError } from "../../bridge/errors";
 import { useAgentHubSidebar } from "./useAgentHubSidebar";
-import { useAgentTranscript } from "./transcript";
+import { forgetAgentTranscript, useAgentTranscript } from "./transcript";
 import { AgentHubContent } from "./surfaces";
 import { useAgentSessionList, useAgentSessionsStore } from "../../stores/agentSessions";
 import { useAgentPinsStore } from "../../stores/agentPins";
@@ -370,6 +370,7 @@ export function AgentHubView() {
       }
       for (const id of gone) {
         removeSession(id);
+        forgetAgentTranscript(id);
         unpin(id);
       }
       if (activeSession && gone.has(activeSession.id)) {

@@ -50,8 +50,9 @@ export function AgentSessionsSubscriber() {
   }, [setSessions, enqueuePending]);
 
   /**
-   * The transcript stream & tab status synchronization.
-   * `agenthub:sessionUpdate` → `setTabStatus`
+   * Session metadata and tab status synchronization.
+   * The shell-owned transcript stream is started alongside this listener;
+   * `agenthub:sessionUpdate` still drives `setTabStatus` here.
    *
    * Subscribed globally so turns continue streaming when working in another module.
    * Synchronizes tab status with ACP update stream ('running' during turns, 'error' on failure).

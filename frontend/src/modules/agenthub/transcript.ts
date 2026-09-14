@@ -598,6 +598,12 @@ export class TranscriptEventBuffer {
   get currentModel(): TranscriptModel {
     return this.model;
   }
+
+  dispose(): void {
+    this.cancelScheduledFlush?.();
+    this.cancelScheduledFlush = null;
+    this.pending = [];
+  }
 }
 
 const IMMEDIATE_UPDATE_KINDS = new Set<string>([
@@ -672,6 +678,7 @@ export function startAgentTranscriptStream(): void {
 async function loadTranscriptRuntime(sessionId: string, runtime: TranscriptRuntime): Promise<void> {
   try {
     const entries = await agentHubTranscript(sessionId);
+    if (runtimes.get(sessionId) !== runtime) return;
     const model = applySessionUpdates(initTranscript(entries), runtime.loadingUpdates);
     runtime.loadingUpdates = [];
     runtime.model = model;
@@ -681,6 +688,7 @@ async function loadTranscriptRuntime(sessionId: string, runtime: TranscriptRunti
     state.setTranscript(sessionId, model);
     state.setTranscriptError(sessionId, null);
   } catch (err) {
+    if (runtimes.get(sessionId) !== runtime) return;
     const error = err instanceof Error ? err : new Error(String(err));
     const model = applySessionUpdates(createInitialTranscriptModel(), runtime.loadingUpdates);
     runtime.loadingUpdates = [];
@@ -692,7 +700,9 @@ async function loadTranscriptRuntime(sessionId: string, runtime: TranscriptRunti
     state.setTranscriptError(sessionId, error);
   } finally {
     runtime.loadPromise = null;
-    useAgentSessionsStore.getState().setTranscriptLoading(sessionId, false);
+    if (runtimes.get(sessionId) === runtime) {
+      useAgentSessionsStore.getState().setTranscriptLoading(sessionId, false);
+    }
   }
 }
 
@@ -725,6 +735,13 @@ function reloadTranscript(sessionId: string): void {
   runtime.buffer = null;
   useAgentSessionsStore.getState().setTranscriptLoading(sessionId, true);
   runtime.loadPromise = loadTranscriptRuntime(sessionId, runtime);
+}
+
+/** Drops the shell cache when the backend session is deleted. */
+export function forgetAgentTranscript(sessionId: string): void {
+  const runtime = runtimes.get(sessionId);
+  runtime?.buffer?.dispose();
+  runtimes.delete(sessionId);
 }
 
 /** React is only a reader of the shell-owned model and never owns the stream. */
