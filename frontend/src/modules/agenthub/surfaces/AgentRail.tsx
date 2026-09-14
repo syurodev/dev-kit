@@ -121,6 +121,7 @@ export function AgentRail({
   imageError,
   queuedPrompts = [],
   queuePaused = false,
+  queuePausedReason,
   onResumeQueued,
   onCancelQueued,
   onEditQueued,
@@ -280,6 +281,7 @@ export function AgentRail({
               imageError={imageError}
               queuedPrompts={queuedPrompts}
               queuePaused={queuePaused}
+              queuePausedReason={queuePausedReason}
               onResumeQueued={onResumeQueued}
               onCancelQueued={onCancelQueued}
               onEditQueued={onEditQueued}

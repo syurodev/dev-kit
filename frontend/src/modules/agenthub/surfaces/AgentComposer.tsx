@@ -164,6 +164,8 @@ export type AgentComposerProps = {
   queuedPrompts?: QueuedAgentPrompt[];
   /** A turn failed or was cancelled; the queue goes on only when Resume is pressed. */
   queuePaused?: boolean;
+  /** Why the queue paused, when a refusal said; shown next to Paused. */
+  queuePausedReason?: string;
   onResumeQueued?: () => void;
   onCancelQueued?: (id: string) => void;
   onEditQueued?: (prompt: QueuedAgentPrompt) => void;
@@ -256,6 +258,7 @@ export function AgentComposer({
   imageError,
   queuedPrompts = [],
   queuePaused = false,
+  queuePausedReason,
   onResumeQueued,
   onCancelQueued,
   onEditQueued,
@@ -385,10 +388,14 @@ export function AgentComposer({
             {queuePaused ? (
               // A turn failed or was cancelled with these still waiting. They do
               // not go on their own — not even after a later turn succeeds.
-              <div data-testid="composer-queue-paused" className="flex items-center gap-1 text-caption-11 text-text-secondary">
-                <span>Paused</span>
+              <div data-testid="composer-queue-paused" className="flex min-w-0 max-w-full items-center gap-1 text-caption-11 text-text-secondary">
+                {/* One line: a long reason truncates and reads in full on hover,
+                    and Resume stays beside it. */}
+                <span className="min-w-0 truncate" title={queuePausedReason || undefined}>
+                  {queuePausedReason ? `Paused: ${queuePausedReason}` : "Paused"}
+                </span>
                 {onResumeQueued ? (
-                  <Button type="button" variant="ghost" size="icon-sm" aria-label="Resume queued prompts" onClick={onResumeQueued}>
+                  <Button type="button" variant="ghost" size="icon-sm" aria-label="Resume queued prompts" className="shrink-0" onClick={onResumeQueued}>
                     <Play aria-hidden="true" />
                   </Button>
                 ) : null}

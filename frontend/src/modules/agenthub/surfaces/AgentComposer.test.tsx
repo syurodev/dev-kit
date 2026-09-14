@@ -16,6 +16,27 @@ import {
 const renderToString = (node: React.ReactNode) => renderRaw(<TooltipProvider>{node}</TooltipProvider>);
 const base = { value: "", onChange: () => {}, onSend: () => {}, onCancel: () => {} };
 
+describe("a paused queue", () => {
+  const queued = [{ id: "q1", text: "next", images: [], attachments: [] }];
+
+  it("says why it paused when the refusal said", () => {
+    const html = renderToString(
+      <AgentComposer {...base} queuedPrompts={queued} queuePaused queuePausedReason="Claude is not signed in" onResumeQueued={() => {}} />,
+    );
+    const row = html.match(/<div[^>]*data-testid="composer-queue-paused"[^>]*>.*?<\/button>/)?.[0] ?? "";
+    expect(row).toContain("Paused: Claude is not signed in");
+    expect(row).toContain('title="Claude is not signed in"');
+    expect(row).toContain('aria-label="Resume queued prompts"');
+  });
+
+  it("says only Paused when there is no reason", () => {
+    const html = renderToString(<AgentComposer {...base} queuedPrompts={queued} queuePaused />);
+    const row = html.match(/<div[^>]*data-testid="composer-queue-paused"[^>]*>.*?<\/div>/)?.[0] ?? "";
+    expect(row).toContain(">Paused</span>");
+    expect(row).not.toContain("Paused:");
+  });
+});
+
 describe("composer controls", () => {
   it("names the icon-only settings button", () => {
     const html = renderToString(

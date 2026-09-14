@@ -206,6 +206,7 @@ export function AgentHubContent({
   imageError,
   queuedPrompts = [],
   queuePaused = false,
+  queuePausedReason,
   onResumeQueued,
   onCancelQueued,
   onEditQueued,
@@ -569,6 +570,7 @@ export function AgentHubContent({
               imageError={imageError}
               queuedPrompts={queuedPrompts}
               queuePaused={queuePaused}
+              queuePausedReason={queuePausedReason}
               onResumeQueued={onResumeQueued}
               onCancelQueued={onCancelQueued}
               onEditQueued={onEditQueued}
