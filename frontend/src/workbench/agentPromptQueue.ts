@@ -165,8 +165,9 @@ async function runTurn(
     // A turn that ran and failed or was cancelled pauses the queue, and so does
     // a queued prompt refused for itself: sent again, it is refused again. Busy,
     // or a manual send refused before its turn, ran no turn.
-    if (!busy && (fromQueue || !refused)) store.pauseQueue(sessionId);
-    const code = toAppError(error).code;
+    const { code, message } = toAppError(error);
+    // The reason is shown by Paused: a queued prompt's error is not thrown to anyone.
+    if (!busy && (fromQueue || !refused)) store.pauseQueue(sessionId, message);
     await refreshStatus(sessionId, bridge, busy ? "running" : code === "operation_cancelled" ? "idle" : "error");
     // claimQueuedPrompt sends only if the fresh status can take it and the queue is not paused.
     if (busy) {

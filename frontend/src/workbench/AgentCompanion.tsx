@@ -56,6 +56,7 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
   const prompt = useAgentSessionsStore((s) => s.promptBySession[session?.id ?? ""] ?? "");
   const queuedPrompts = useAgentSessionsStore((s) => s.queuedPromptsBySession[session?.id ?? ""] ?? []);
   const queuePaused = useAgentSessionsStore((s) => Boolean(s.queuePausedBySession[session?.id ?? ""]));
+  const queuePausedReason = useAgentSessionsStore((s) => s.queuePauseReasonBySession[session?.id ?? ""] ?? "");
 
   // Live transcript stream for the active session in rail
   const transcriptModel = useAgentTranscript(session?.id ?? "", { enabled: visible });
@@ -210,6 +211,7 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
       imageError={imageError}
       queuedPrompts={queuedPrompts}
       queuePaused={queuePaused}
+      queuePausedReason={queuePausedReason}
       onResumeQueued={() => session && resumeQueuedPrompts(session.id)}
       onCancelQueued={(id) => session && removeQueuedPrompt(session.id, id)}
       onEditQueued={editQueuedPrompt}

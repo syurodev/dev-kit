@@ -86,6 +86,8 @@ type AgentSessionsState = {
   turnInFlightBySession: Record<string, boolean>;
   /** A turn failed or was cancelled with prompts still waiting; they wait for Resume. */
   queuePausedBySession: Record<string, boolean>;
+  /** Why the queue paused, when the refusal said: a refused queued prompt is refused again on each Resume until fixed. */
+  queuePauseReasonBySession: Record<string, string>;
   setSessions: (sessions: AgentSession[]) => void;
   upsertSession: (session: AgentSession) => void;
   removeSession: (id: string) => void;
@@ -126,7 +128,7 @@ type AgentSessionsState = {
   releaseQueuedPrompt: (sessionId: string, prompt: QueuedAgentPrompt) => void;
   finishTurn: (sessionId: string) => void;
   /** Pauses the session's queue if anything is waiting in it. */
-  pauseQueue: (sessionId: string) => void;
+  pauseQueue: (sessionId: string, reason?: string) => void;
   resumeQueue: (sessionId: string) => void;
 };
 
@@ -148,6 +150,7 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set, get) => ({
   queuedPromptsBySession: {},
   turnInFlightBySession: {},
   queuePausedBySession: {},
+  queuePauseReasonBySession: {},
   setSessions: (sessions) =>
     set({
       sessionsById: Object.fromEntries(sessions.map((session) => [session.id, session])),
@@ -178,6 +181,7 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set, get) => ({
       const { [id]: _queued, ...queuedPromptsBySession } = state.queuedPromptsBySession;
       const { [id]: _inFlight, ...turnInFlightBySession } = state.turnInFlightBySession;
       const { [id]: _paused, ...queuePausedBySession } = state.queuePausedBySession;
+      const { [id]: _reason, ...queuePauseReasonBySession } = state.queuePauseReasonBySession;
       return {
         sessionIds: state.sessionIds.filter((sessionId) => sessionId !== id),
         sessionsById,
@@ -190,6 +194,7 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set, get) => ({
         queuedPromptsBySession,
         turnInFlightBySession,
         queuePausedBySession,
+        queuePauseReasonBySession,
         subagents,
       };
     }),
@@ -272,6 +277,10 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set, get) => ({
           queue.length === 0
             ? { ...state.queuePausedBySession, [sessionId]: false }
             : state.queuePausedBySession,
+        queuePauseReasonBySession:
+          queue.length === 0
+            ? { ...state.queuePauseReasonBySession, [sessionId]: "" }
+            : state.queuePauseReasonBySession,
       };
     }),
   updateQueuedPrompt: (sessionId, prompt) =>
@@ -322,14 +331,20 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set, get) => ({
     ),
   finishTurn: (sessionId) =>
     set((state) => ({ turnInFlightBySession: { ...state.turnInFlightBySession, [sessionId]: false } })),
-  pauseQueue: (sessionId) =>
+  pauseQueue: (sessionId, reason = "") =>
     set((state) =>
       state.queuedPromptsBySession[sessionId]?.length
-        ? { queuePausedBySession: { ...state.queuePausedBySession, [sessionId]: true } }
+        ? {
+            queuePausedBySession: { ...state.queuePausedBySession, [sessionId]: true },
+            queuePauseReasonBySession: { ...state.queuePauseReasonBySession, [sessionId]: reason },
+          }
         : state,
     ),
   resumeQueue: (sessionId) =>
-    set((state) => ({ queuePausedBySession: { ...state.queuePausedBySession, [sessionId]: false } })),
+    set((state) => ({
+      queuePausedBySession: { ...state.queuePausedBySession, [sessionId]: false },
+      queuePauseReasonBySession: { ...state.queuePauseReasonBySession, [sessionId]: "" },
+    })),
 }));
 
 export function useAgentSessionList(): AgentSession[] {

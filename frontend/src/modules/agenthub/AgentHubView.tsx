@@ -204,6 +204,9 @@ export function AgentHubView() {
   const queuePaused = useAgentSessionsStore((state) =>
     Boolean(state.queuePausedBySession[activeSession?.id ?? ""]),
   );
+  const queuePausedReason = useAgentSessionsStore(
+    (state) => state.queuePauseReasonBySession[activeSession?.id ?? ""] ?? "",
+  );
 
   // Live typed transcript model powered by useAgentTranscript
   const transcriptModel = useAgentTranscript(activeSession?.id ?? "", { enabled: visible });
@@ -752,6 +755,7 @@ export function AgentHubView() {
             imageError={imageError}
             queuedPrompts={queuedPrompts}
             queuePaused={queuePaused}
+            queuePausedReason={queuePausedReason}
             onResumeQueued={() => activeSession && resumeQueuedPrompts(activeSession.id)}
             onCancelQueued={(id) => activeSession && removeQueuedPrompt(activeSession.id, id)}
             onEditQueued={editQueuedPrompt}

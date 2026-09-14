@@ -30,6 +30,7 @@ function reset(...sessions: AgentSession[]) {
     queuedPromptsBySession: {},
     turnInFlightBySession: {},
     queuePausedBySession: {},
+    queuePauseReasonBySession: {},
     pending: null,
     pendingQueue: [],
     activeSessionId: "",
@@ -255,6 +256,22 @@ describe("one send path for every turn", () => {
     expect(store().queuePausedBySession.s1).toBeFalsy();
     // No turn ran; the session is idle, so what was waiting goes.
     expect(b.sent()).toEqual(["manual", "waiting"]);
+  });
+
+  it("says why a refused queued prompt paused the queue, until Resume", async () => {
+    reset(session("s1"));
+    store().enqueuePrompt("s1", queued("first"));
+    const b = backend();
+
+    void drainQueuedPrompt("s1", b.bridge);
+    b.turns[0].reject(new AppError({ code: "validation_failed", message: "Attachment not found.", recoverable: true }));
+    await settle();
+    expect(store().queuePausedBySession.s1).toBe(true);
+    expect(store().queuePauseReasonBySession.s1).toBe("Attachment not found.");
+
+    resumeQueuedPrompts("s1", b.bridge);
+    expect(store().queuePauseReasonBySession.s1).toBeFalsy();
+    expect(b.sent()).toEqual(["first", "first"]);
   });
 
   it("clears the pause once the last queued prompt is removed", () => {

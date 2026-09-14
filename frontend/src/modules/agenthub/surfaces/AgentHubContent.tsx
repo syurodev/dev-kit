@@ -90,6 +90,8 @@ export type AgentHubContentProps = {
   imageError?: string;
   queuedPrompts?: QueuedAgentPrompt[];
   queuePaused?: boolean;
+  /** Why the queue paused, when a refusal said; shown next to Paused. */
+  queuePausedReason?: string;
   onResumeQueued?: () => void;
   onCancelQueued?: (id: string) => void;
   onEditQueued?: (prompt: QueuedAgentPrompt) => void;
