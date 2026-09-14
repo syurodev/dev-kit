@@ -53,7 +53,8 @@ trang kiểm chứng.
 
 - Status: Implemented (**Claude-only v1** — Codex/Gemini deferred)
 - Goal: Built-in orchestration để chạy nhiều AI coding agent CLI song song trong
-  Workbench — mỗi agent một tab — qua **ACP tự implement** (DevKit = ACP Client).
+  Workbench — session chạy song song trong shell rail và module content — qua
+  **ACP tự implement** (DevKit = ACP Client).
   Trên nền đó mở agent-gọi-agent (`agenthub.invokeAgent`) qua Capability Gateway
   + MCP tool surface đã có. **v1 chỉ ship Claude** (mock adapter chỉ dùng trong test); thêm vendor sau qua
   cùng `VendorAdapter`.
@@ -73,9 +74,12 @@ trang kiểm chứng.
   Windows sandbox parity; microVM-per-tab; production CI smoke vs real Claude Code
   (desktop smoke recommended).
 
+  Queue prompt, paste/drop image, live plan, closed-session history và rename đã
+  có trong app. Tìm kiếm/xuất transcript và syntax highlighting để đợt sau.
+
 ## Phase 5 — Workbench UI
 
-- Status: **In progress** (nhánh `phase-5-workbench-ui`, 2026-09-09) — shell,
+- Status: **In progress** (2026-09-14) — shell,
   tab ownership, Notes, Settings, Database, CodeGraph, Sync (3-pane merge),
   Vault gate và Agent Hub đã đối chiếu với Figma; còn device-management UI.
 - Goal: Áp design system toàn app theo [Design system](/dev-kit/design-system)
@@ -145,7 +149,7 @@ trang kiểm chứng.
 10. ✅ **Phase 4 Agent Hub v1 (Claude-only) đóng**: ACP + Claude + sandbox
     `StartPiped` + bridge/UI/MCP `agenthub.*`. Codex/Gemini deferred. Chi tiết:
     [`/dev-kit/agent-hub`](/dev-kit/agent-hub).
-11. 🔄 **Phase 5 Workbench UI đang chạy** (nhánh `phase-5-workbench-ui`):
+11. 🔄 **Phase 5 Workbench UI đang chạy**:
     design system + Figma đã áp cho shell, tab ownership và mọi module; còn
     device-management UI và ratchet cho `components/`. Plugins → Phase 6;
     marketplace → Phase 7. Spec:

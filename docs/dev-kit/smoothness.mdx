@@ -183,8 +183,9 @@ virtualization và batching; đây là phần chạm tới cảm giác:
 - **Ratchet** như design-system: đếm `useState([])`-kèm-fetch, destructure cả
   store, `backdrop-filter`, bảng không virtualize — số chỉ được giảm. Đã có ở
   `frontend/src/smoothnessRatchet.test.ts` với baseline đo hôm nay:
-  `useState([])` cạnh effect trong `modules/` là 6, bảng `.map` không
-  virtualizer là 2, `backdrop-filter`/`backdrop-blur` là 48, `animate-in`
+  `useState([])` cạnh effect trong `modules/` là 7 (một chỗ là state preview
+  ảnh draft), bảng `.map` không virtualizer là 2,
+  `backdrop-filter`/`backdrop-blur` là 36, `animate-in`
   không kèm `duration-(--motion-*)` là 3. Cố ý đếm thô — regex không phân biệt
   được fetch với subscription, cũng không biết bảng 12 dòng hay 12 000 dòng —
   và như design-system ratchet, test cũng đỏ khi số **thấp hơn** baseline, để
@@ -313,9 +314,9 @@ kiến trúc) → TanStack Query cho 10 view fetch, lấy 3 view Database làm m
 6. ~~**Catalogue motion còn lại (4.4)**~~ — xong, trừ Workbench tab slide ở mục
    3 (phụ thuộc skeleton theo module).
 7. **Glass về lớp nổi (7.1)** cùng đợt Foundations v2 — ratchet `blurSurfaces`
-   đang ở 48.
+   hiện ở 36; phần còn lại là các lớp nổi hợp lệ.
 8. ~~**Khởi động (8.1, 8.2)**~~ — đã đo và đã có chuyển cảnh; 8.2 hoá ra vốn đã
    song song. Còn lại: `InteractionPendingList` poll 500 ms/lần suốt phiên.
-9. **Còn nợ từ đợt này**: 2.1 vẫn còn 6 chỗ `useState([])` cạnh effect trong
+9. **Còn nợ từ đợt này**: 2.1 vẫn còn 7 chỗ `useState([])` cạnh effect trong
    `modules/`; `scrollbar-gutter` chưa phủ transcript; 2 bảng chưa virtualize
    (`table-node.tsx`, `AgentMessageRich.tsx`) — cả hai đều nhỏ, ratchet giữ số.

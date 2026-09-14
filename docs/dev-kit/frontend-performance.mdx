@@ -352,6 +352,8 @@ phải budget cho mọi máy.
 | Parse markdown 20.000 byte theo 1.000 prefix chunk | 454,98 ms | 85,56 ms | cùng fixture, một pass; benchmark `markdownMs`, incremental tail |
 | Section transcript trong DOM / 5.000 turn | 5.000 | 11 | `TranscriptStream.performance.test.tsx`: SSR virtual window, budget kiểm thử 32 |
 | Flush reducer cho 1.000 token | 1.24 ms × 1.000 lần | 0.81 ms × 1 batch | `transcriptPerformance.test.ts`: `batchedApplyMsMedian` |
+| Plan cards for N updates in one turn | N cards | 1 live card | `transcript.test.ts`: `updates one live plan in place` |
+| Queued prompt after a busy turn | 0 accepted / 0 retained | 1 store item, 1 drain after `outcome=completed` | `agentPromptQueue.test.ts`: success/error paths |
 | Scroll long task trên Wails/WKWebView | Chưa có trace | Chưa có trace | cần chạy production build trên desktop; Bun không cung cấp layout/paint trace |
 
 Con số của đợt này được đo trong cùng một lần chạy test: trước là

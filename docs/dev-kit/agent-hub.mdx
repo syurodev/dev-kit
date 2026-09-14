@@ -6,8 +6,8 @@ description: Trung tâm chạy nhiều agent CLI (Claude Code, Codex, Gemini...)
 # Agent Hub (Multi-Agent Sessions)
 
 Agent Hub là module built-in giúp DevKit tập trung chạy nhiều AI coding agent
-(Claude Code, Codex, Gemini CLI, …) song song, mỗi agent một "tab" độc lập,
-quản lý qua Capability Gateway như mọi module khác. Trên nền đó, module mở thêm
+(Claude Code, Codex, Gemini CLI, …) song song, mỗi session độc lập trong shell
+rail và module content, quản lý qua Capability Gateway như mọi module khác. Trên nền đó, module mở thêm
 khả năng **agent-gọi-agent**: chọn 1 agent làm "master", cấp cho nó 1 tool để
 tự gọi sang agent khác lấy kết quả — không cần con người điều phối thủ công.
 
@@ -81,9 +81,10 @@ Dev dùng nhiều agent CLI khác nhau (Claude Code, Codex, Gemini CLI...) nhưn
 | FR-6 | `invokeAgent` có depth/cycle guard — chặn agent A gọi B gọi lại A vô hạn. |
 | FR-7 | Mỗi agent vendor (Claude/Codex/Gemini...) có 1 adapter riêng implement chung 1 interface; core orchestration không đọc trực tiếp field riêng của vendor nào. |
 | FR-8 | Field mở rộng (`_meta`) của mọi message luôn được lưu nguyên dạng raw JSON song song với field đã normalize — không silently drop dữ liệu vendor chưa được adapter xử lý. |
-| FR-9 | Composer nối được available slash commands, context suggestions theo project (tối đa 100 file), và file location mở trong Code Graph editor tới đúng dòng. |
+| FR-9 | Composer nối được available slash commands, context suggestions theo project (tối đa 100 file), file location mở trong Code Graph editor tới đúng dòng, và paste/drop ảnh giới hạn 8 MiB. |
 | FR-10 | Composer đọc config/mode từ transcript và đổi model, effort, permission mode qua `session/set_config_option` / `session/set_mode`; bypass permissions luôn cần xác nhận rõ ràng. |
 | FR-11 | Agent Hub dùng được bằng bàn phím và screen reader; trạng thái/hoàn tất được announce không theo từng token, permission và lượt hoàn tất có notification nền khi cửa sổ không focus. |
+| FR-12 | Prompt nhập trong lúc session bận được xếp hàng theo session; chỉ tự gửi sau lượt completed, còn lỗi/huỷ giữ lại để người dùng sửa hoặc huỷ. Plan sống cập nhật tại chỗ; session đóng vẫn đọc và đổi tên được. |
 
 ### Non-functional requirements
 
@@ -486,7 +487,7 @@ bao giờ xảy ra. Session đang hoạt động giữ mọi row dù cũ bao nhi
 trưởng của một session hoạt động là việc của phân trang + virtualize phía UI,
 không phải của retention.
 
-### UI — ba bề mặt (Design)
+### UI — ba bề mặt (Implemented)
 
 Thiết kế: [Figma page 17 · Agent Hub](https://www.figma.com/design/3dOzSZBYY7QtzANFTCfEe8/DevKit?node-id=904-2).
 
@@ -572,7 +573,7 @@ Component có sẵn trên page 17 (số trong ngoặc là số variant):
 | `Agent / Row` (3) | 264×56 | một agent trong cây bầy — `State` Rest / Hover / Selected |
 | `Agent / Message` (4) | 272–720×72–136 | bubble chat, `Align` Start/End × `Width` Rail/Wide |
 | `Agent / Message Rich` (1) | 720×436 | mẫu chốt ngôn ngữ markdown của câu trả lời — xem dưới |
-| `Agent / Image` (1) | 400×257 | content block `image`: khung 16:9 + tên file + kích thước |
+| `Agent / Image` (1) | 400×257 | thiết kế content block `image`; runtime dùng preview paste/drop trong composer |
 | `Agent / Code Block` (2) | 536×136 | code trong câu trả lời — `State` Default / Collapsed |
 | `Agent / File Chip` (1) | 178×24 | `resource_link` và `locations` — `path` + `:line` |
 | `Agent / Thinking` (2) | 536×32–88 | khối reasoning — `State` Collapsed / Expanded |
@@ -622,7 +623,7 @@ spacing và radius theo [Design system](/dev-kit/design-system).
 
 <Callout type="info" title="Chưa vẽ, có chủ đích">
 Con trỏ đang stream trong bubble (là override nội dung, không phải component),
-vạch phân cách lượt và timestamp trong transcript, nút xoá trên chip đính kèm.
+vạch phân cách lượt và timestamp trong transcript.
 Không cái nào bị protocol bắt buộc; thêm khi có nhu cầu thật.
 </Callout>
 
@@ -639,9 +640,12 @@ Không cái nào bị protocol bắt buộc; thêm khi có nhu cầu thật.
 - Runtime Claude chỉ cài được khi máy đã có Node ≥ 22 — DevKit không tải Node. Mới
   có một agent cài được (`claude-acp`); Codex/Gemini dùng lại `agentruntime` khi có
   adapter. UI Settings → Agents cho runtime đang làm.
-- UI mới là **Design**: chưa có code nào của `Agent / Rail`, toast hay dock badge.
-  `frontend/src/workbench/AgentCompanion.tsx` là bản một-agent đi trước, chưa có
-  strip chuyển bầy lẫn cây cha→con.
+- UI runtime đã có `Agent / Rail`, permission toast, dock badge và companion;
+  subscriber shell giữ transcript chạy khi đổi module. Session đóng vẫn hiện như
+  lịch sử và có thể đổi tên; prompt mới khi agent bận vào queue, chỉ drain sau
+  `outcome=completed`.
+- Composer hỗ trợ file picker/context bounded và paste/drop PNG, JPEG, GIF, WebP
+  tối đa 8 MiB. Ảnh được gửi transient như ACP image block, không lưu transcript.
 - **Sandbox vendor phải tắt khi spawn qua DevKit.** Trên macOS sandbox không
   lồng được (`sandbox_apply: Operation not permitted`, đo 2026-09-05); Claude
   Code `/sandbox` / Codex sandbox bật bên trong jail DevKit làm mọi lệnh bash
@@ -698,12 +702,14 @@ Kết luận ở trên đúng với một version của một vendor, nên hai c
 - **Subagent (Implemented).** Cần **hai** cổng, không phải một: `subagents` chuyển tiếp *lời* của subagent, còn extension khai dưới `clientCapabilities._meta.jetbrains.air` (`version: 1`, `capabilities: [nativeSubagentSessions, asyncTasks, sessionFailure]`) mới khiến vendor nói *có tồn tại* subagent. Với cả hai, cùng prompt phát thêm `subagent_spawned` (id + name + task) và `subagent_state_update` (id + state). Model ở `internal/agenthub/update.go`; frontend ghép hai update thành một card theo id, như cách nó ghép tool call.
 
   **Không vẽ trong cây swarm** — và đây là quyết định đáng ghi. Subagent của vendor **không phải session của DevKit**: không do đây tạo, composer không gọi tới được, đóng nó không phải việc của mình. Đặt cạnh session thật là để sidebar mời người dùng bấm vào thứ không tồn tại. Nó nhận card yên tĩnh nhất trong transcript. Figma không có node nào cho việc này (thiết kế Agent Hub chỉ phủ session của DevKit), nên card được dựng tối thiểu thay vì bịa ra.
-- **Prompt không chỉ có text.** `acp.PromptRequest` đã model `[]ContentBlock` đúng chuẩn, nhưng `SessionRuntime.Prompt` trong `internal/agenthub/adapter.go` nhận `string`, bóp mất chỗ đó. Hệ quả nhìn thấy được: nút "Add context" trên `AgentComposer` và component `AgentImage` (dựng theo Figma) không có đường nào nhận đính kèm. Đổi chữ ký là mở khoá cả `promptCapabilities.image` lẫn `embeddedContext`.
+- **Prompt không chỉ có text.** `SessionRuntime.Prompt` nhận `[]ContentBlock`; file
+  và ảnh đi qua `InvokeInput` rồi `buildPrompt`. UI paste/drop dựng preview transient;
+  `AgentImage` cũ đã xoá vì transcript wire không lưu prompt image payload.
 - **`fs/*` và `terminal/*` — bỏ, T0 đã đo là vendor không gọi.** NFR-1 gọi đây là client-side surface để Gateway mediate — tức mọi file access của agent lẽ ra đi qua Capability Gateway. Hiện agent dùng tool Read/Write riêng, ghi thẳng vào đĩa trong sandbox, Gateway không thấy gì; cùng loại điểm mù với cổng permission. **Nhưng chưa chứng minh được agent sẽ dùng**: trong bundle có plumbing (`readTextFile`/`writeTextFile` proxy qua `methods.client.fs.*`) mà không tìm ra call site. Gate mục này sau kết quả T0.
 - **`delete` (Implemented).** Hai bên **không** cùng một thứ: `Service.DeleteSession` xoá row của DevKit, còn vendor giữ session của nó thành file trong store riêng — nên một cuộc hội thoại xoá "for good" (chữ trong hộp xác nhận) vẫn đọc được ở đó. `session/delete` giờ được gọi qua `RuntimeDeleter` **trước** khi đóng connection, best-effort: hỏng phần dọn của vendor mà làm hỏng cả thao tác thì còn để lại row, tệ hơn. **Trần đã biết:** chỉ với tới được khi runtime còn sống; session mà process đã chết vẫn để lại bản của vendor — `resumeRuntime` khiến việc dọn nốt là khả thi nếu về sau đống thừa đó đáng giá hơn chi phí.
 - **`resume`** — đã làm ở T1 qua `session/load`.
 - **`fork` / `list`** — chưa làm, chưa có nhu cầu từ UI.
-- **Prompt không chỉ có text (Implemented).** Cả lát dọc: picker file native (`AgentHubChooseFiles`) → "Browse files…" đầu menu context → state đính kèm theo từng session trong `AgentHubView` → `InvokeInput.Attachments` → `buildPrompt` → `[]acp.ContentBlock`. `SessionRuntime.Prompt` nhận block thay vì `string`; `acp.ContentBlock` mở rộng theo đúng schema SDK sinh ra (`text`, `image{data,mimeType}`, `resource_link{name,uri}`, `resource{resource{uri,text|blob,mimeType}}`).
+- **Prompt không chỉ có text (Implemented).** Cả lát dọc: picker file native (`AgentHubChooseFiles`) → "Browse files…" đầu menu context → attachment state theo session → `InvokeInput.Attachments` hoặc `Images` → `buildPrompt` → `[]acp.ContentBlock`. Paste/drop dùng PNG, JPEG, GIF, WebP ≤8 MiB; dữ liệu ảnh chỉ sống trong request.
 
   **Nội dung đi kèm prompt, không phải đường dẫn.** Agent khai `promptCapabilities.embeddedContext`, và một path chỉ hữu ích với agent nếu file nằm trong jail của nó — đính kèm từ chỗ khác trên máy đúng là ca mà path không phục vụ được. Ảnh đi bằng `image` block vì vendor khai `promptCapabilities.image`; binary không phải ảnh bị từ chối thay vì gửi thành nhiễu.
 
