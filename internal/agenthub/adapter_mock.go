@@ -108,12 +108,27 @@ func (r *mockRuntime) SetMode(ctx context.Context, modeID string) error {
 		return err
 	}
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	if r.closed {
+		r.mu.Unlock()
 		return ErrSessionNotFound
 	}
 	r.setMode = modeID
+	h := r.handlers
+	r.mu.Unlock()
+	r.echo(h, map[string]any{"sessionUpdate": "current_mode_update", "currentModeId": modeID})
 	return nil
+}
+
+// echo sends the update a real agent answers a settings call with, before the
+// call returns — which is when a runtime resumed for that call has to be
+// listening already.
+func (r *mockRuntime) echo(h RuntimeHandlers, update map[string]any) {
+	if h.OnUpdate == nil {
+		return
+	}
+	if raw, err := json.Marshal(update); err == nil {
+		h.OnUpdate(raw, nil)
+	}
 }
 
 func (r *mockRuntime) SetConfigOption(ctx context.Context, optionID, value string) error {
@@ -121,14 +136,20 @@ func (r *mockRuntime) SetConfigOption(ctx context.Context, optionID, value strin
 		return err
 	}
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	if r.closed {
+		r.mu.Unlock()
 		return ErrSessionNotFound
 	}
 	if r.setOptions == nil {
 		r.setOptions = make(map[string]string)
 	}
 	r.setOptions[optionID] = value
+	h := r.handlers
+	r.mu.Unlock()
+	r.echo(h, map[string]any{
+		"sessionUpdate": "config_option_update",
+		"configOptions": []map[string]any{{"id": optionID, "type": "select", "currentValue": value}},
+	})
 	return nil
 }
 

@@ -265,6 +265,9 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 		closeEndpoint()
 		return AgentSession{}, err
 	}
+	// After the insert: a row recorded for a session the store does not have
+	// yet would have nowhere to belong.
+	s.attachUpdates(sess.ID, rt)
 
 	s.mu.Lock()
 	s.runtimes[sess.ID] = rt
@@ -897,38 +900,20 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 		permDenied   atomic.Bool
 	)
 	rt.SetHandlers(RuntimeHandlers{
+		// Replaces the handler attachUpdates installed rather than adding to
+		// it, so the turn's updates are still emitted and recorded once.
 		OnUpdate: func(update json.RawMessage, meta json.RawMessage) {
 			_ = meta
 			lastUpdateMu.Lock()
 			lastUpdate = append(json.RawMessage(nil), update...)
 			lastUpdateMu.Unlock()
-			// Emit before persisting: the screen must never wait on SQLite,
-			// and the recorder batches its writes anyway — a reload lands
-			// within one flush cadence of what the live event said.
-			//
 			// recordCtx, not ctx: the turn's context is cancelled the moment
 			// the turn goes wrong, and the update that says *why* is the last
 			// one to arrive. Writing it under ctx meant the one message worth
 			// keeping was the one guaranteed to be dropped — the log read
 			// "transcript write failed: context canceled" and the UI drew an
 			// empty bubble where the agent's error should have been.
-			s.emit(in.SessionID, update)
-			parsed := ParseSessionUpdate(update)
-			if parsed.Kind == UpdateSessionInfo && parsed.Title != "" {
-				if err := s.adoptSessionTitle(recordCtx, in.SessionID, parsed.Title); err != nil && s.OnRecordError != nil {
-					s.OnRecordError(in.SessionID, err)
-				}
-			}
-			if parsed.Kind == UpdateUnknown && s.OnUnknownUpdate != nil {
-				// Once per kind per session: a stream of chunks of one unknown
-				// kind is one fact, not a thousand log lines.
-				if s.markUnknownSeen(in.SessionID, parsed.WireKind) {
-					s.OnUnknownUpdate(in.SessionID, parsed.WireKind, parsed.Raw)
-				}
-			}
-			if err := s.recorder.Record(recordCtx, in.SessionID, parsed); err != nil && s.OnRecordError != nil {
-				s.OnRecordError(in.SessionID, err)
-			}
+			s.handleUpdate(recordCtx, in.SessionID, update)
 		},
 		OnPermission: func(ctx context.Context, params json.RawMessage) (json.RawMessage, error) {
 			outcome, err := s.mediatePermission(ctx, in.SessionID, params)
@@ -1033,6 +1018,48 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 		TurnCount:    len(turns),
 		StopReason:   outcome.StopReason,
 	}, nil
+}
+
+// handleUpdate emits one session/update and records it.
+//
+// Emit before persisting: the screen must never wait on SQLite, and the
+// recorder batches its writes anyway — a reload lands within one flush cadence
+// of what the live event said.
+func (s *Service) handleUpdate(ctx context.Context, sessionID string, update json.RawMessage) {
+	s.emit(sessionID, update)
+	parsed := ParseSessionUpdate(update)
+	if parsed.Kind == UpdateSessionInfo && parsed.Title != "" {
+		if err := s.adoptSessionTitle(ctx, sessionID, parsed.Title); err != nil && s.OnRecordError != nil {
+			s.OnRecordError(sessionID, err)
+		}
+	}
+	if parsed.Kind == UpdateUnknown && s.OnUnknownUpdate != nil {
+		// Once per kind per session: a stream of chunks of one unknown kind is
+		// one fact, not a thousand log lines.
+		if s.markUnknownSeen(sessionID, parsed.WireKind) {
+			s.OnUnknownUpdate(sessionID, parsed.WireKind, parsed.Raw)
+		}
+	}
+	if err := s.recorder.Record(ctx, sessionID, parsed); err != nil && s.OnRecordError != nil {
+		s.OnRecordError(sessionID, err)
+	}
+}
+
+// attachUpdates gives a runtime its update handler the moment the service
+// holds it. Installing it only when a prompt started left a runtime that a
+// settings call had just resumed deaf to the config_option_update and
+// current_mode_update the agent answers with: the setting changed and nothing
+// recorded or showed it. Invoke replaces this with its own handler for the
+// turn, which routes through the same handleUpdate.
+//
+// No permission handler: outside a turn there is nobody to ask, and a runtime
+// without one refuses, which is the fail-closed answer.
+func (s *Service) attachUpdates(sessionID string, rt SessionRuntime) {
+	rt.SetHandlers(RuntimeHandlers{
+		OnUpdate: func(update json.RawMessage, _ json.RawMessage) {
+			s.handleUpdate(context.Background(), sessionID, update)
+		},
+	})
 }
 
 // userEchoUpdate is the same echo in ACP's own wire shape, for the live event.
@@ -1195,6 +1222,10 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (Session
 		closeEndpoint()
 		return nil, err
 	}
+	// After Load, not before: the replay it streams is already in the store.
+	// Before the runtime is published, so a caller waiting on this resume
+	// never gets a runtime that cannot hear the agent.
+	s.attachUpdates(sess.ID, rt)
 
 	s.mu.Lock()
 	s.runtimes[sess.ID] = rt

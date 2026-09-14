@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -1310,6 +1311,74 @@ func TestSettingsResumeTheAgentAfterRestart(t *testing.T) {
 	} {
 		if !errors.Is(err, agenthub.ErrInvalidConfigOption) {
 			t.Fatalf("%s: err = %v, want ErrInvalidConfigOption", name, err)
+		}
+	}
+}
+
+// A runtime resumed by a settings call had no update handler until the next
+// prompt, so the config_option_update the agent answers with was neither
+// recorded nor shown: the picker kept the old model until something else ran.
+func TestSettingsUpdateAfterResumeIsRecordedAndEmittedOnce(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	adapter := resumableMock{agenthub.NewMockAdapter()}
+	reg := agenthub.NewRegistry()
+	reg.Register(adapter)
+	sess, err := agenthub.NewService(reg, store, nil).CreateSession(ctx, agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var mu sync.Mutex
+	emitted := map[agenthub.UpdateKind]int{}
+	restarted := agenthub.NewService(reg, store, func(_ string, update json.RawMessage) {
+		mu.Lock()
+		emitted[agenthub.ParseSessionUpdate(update).Kind]++
+		mu.Unlock()
+	})
+	emittedCount := func(kind agenthub.UpdateKind) int {
+		mu.Lock()
+		defer mu.Unlock()
+		return emitted[kind]
+	}
+	if err := restarted.SetConfigOption(ctx, sess.ID, "model", "opus"); err != nil {
+		t.Fatalf("set config option: %v", err)
+	}
+	if n := emittedCount(agenthub.UpdateConfigOptions); n != 1 {
+		t.Fatalf("config_option_update emitted %d times, want once", n)
+	}
+	page, err := restarted.TranscriptPage(ctx, sess.ID, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var model string
+	for _, entry := range append(page.State, page.Entries...) {
+		if entry.Kind != agenthub.UpdateConfigOptions {
+			continue
+		}
+		var stored agenthub.SessionUpdate
+		if err := json.Unmarshal(entry.Payload, &stored); err != nil || len(stored.ConfigOptions) != 1 {
+			t.Fatalf("stored config options = %s (%v)", entry.Payload, err)
+		}
+		model = string(stored.ConfigOptions[0].CurrentValue)
+	}
+	if model != `"opus"` {
+		t.Fatalf("recorded model = %s, want the agent's answer to the resume's setting", model)
+	}
+
+	if _, err := restarted.Invoke(ctx, agenthub.InvokeInput{SessionID: sess.ID, Prompt: "hi"}); err != nil {
+		t.Fatalf("invoke: %v", err)
+	}
+	if n := emittedCount(agenthub.UpdateAgentMessageChunk); n != 1 {
+		t.Fatalf("reply emitted %d times, want once", n)
+	}
+	page, err = restarted.TranscriptPage(ctx, sess.ID, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range page.Entries {
+		if entry.Kind == agenthub.UpdateAgentMessageChunk && entry.Text != "mock reply" {
+			t.Fatalf("reply recorded as %q, want it recorded once", entry.Text)
 		}
 	}
 }
