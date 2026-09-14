@@ -140,18 +140,22 @@ async function runTurn(
     });
   } catch (error) {
     const busy = isBusy(error);
-    if (fromQueue && refusedBeforeTurn(error)) store.releaseQueuedPrompt(sessionId, prompt);
+    const refused = refusedBeforeTurn(error);
+    if (fromQueue && refused) store.releaseQueuedPrompt(sessionId, prompt);
     else if (busy) store.enqueuePrompt(sessionId, prompt);
     store.finishTurn(sessionId);
-    // Busy is not a failed turn: the queue goes on once the other one ends.
-    if (!busy) store.pauseQueue(sessionId);
+    // A turn that ran and failed or was cancelled pauses the queue, and so does
+    // a queued prompt refused for itself: sent again, it is refused again. Busy,
+    // or a manual send refused before its turn, ran no turn.
+    if (!busy && (fromQueue || !refused)) store.pauseQueue(sessionId);
     const code = toAppError(error).code;
     await refreshStatus(sessionId, bridge, busy ? "running" : code === "operation_cancelled" ? "idle" : "error");
+    // claimQueuedPrompt sends only if the fresh status can take it and the queue is not paused.
     if (busy) {
-      // claimQueuedPrompt sends only if the fresh status can take it.
       if (finishedDuringTurn.delete(sessionId)) void drainQueuedPrompt(sessionId, bridge);
       return null;
     }
+    void drainQueuedPrompt(sessionId, bridge);
     throw error;
   }
   store.finishTurn(sessionId);

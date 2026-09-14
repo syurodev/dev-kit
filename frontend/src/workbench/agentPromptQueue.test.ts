@@ -242,6 +242,21 @@ describe("one send path for every turn", () => {
     expect(b.sent()).toEqual(["typed", "typed"]);
   });
 
+  it("does not pause the queue when a manual send is refused before its turn began", async () => {
+    reset(session("s1"));
+    store().enqueuePrompt("s1", queued("waiting"));
+    const b = backend();
+
+    const manual = sendAgentTurn("s1", queued("manual"), b.bridge);
+    b.turns[0].reject(new AppError({ code: "validation_failed", message: "Image is too large.", recoverable: true }));
+    await expect(manual).rejects.toThrow("Image is too large.");
+    await settle();
+
+    expect(store().queuePausedBySession.s1).toBeFalsy();
+    // No turn ran; the session is idle, so what was waiting goes.
+    expect(b.sent()).toEqual(["manual", "waiting"]);
+  });
+
   it("clears the pause once the last queued prompt is removed", () => {
     reset(session("s1"));
     store().enqueuePrompt("s1", queued("first"));
