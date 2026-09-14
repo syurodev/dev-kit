@@ -325,11 +325,16 @@ export function AgentComposer({
         {attachedFiles.length > 0 || imageAttachments.length > 0 ? (
           <div data-testid="composer-attachments" className="flex w-full flex-wrap items-center gap-1 px-1">
             {attachedFiles.map((path) => (
-              <AgentFileChip
-                key={path}
-                path={path}
-                onClick={onRemoveAttachment ? () => onRemoveAttachment(path) : undefined}
-              />
+              // Removed by a named button, like an image: the whole 24px chip
+              // as the control removed the file on a click that said nothing.
+              <div key={path} className="flex min-w-0 items-center">
+                <AgentFileChip path={path} />
+                {onRemoveAttachment ? (
+                  <Button type="button" variant="ghost" size="icon-sm" aria-label={`Remove ${path}`} onClick={() => onRemoveAttachment(path)}>
+                    <X aria-hidden="true" />
+                  </Button>
+                ) : null}
+              </div>
             ))}
             {imageAttachments.map((image) => (
               <div key={image.id} className="flex items-center gap-1 rounded-sm bg-surface-raised px-1 py-1">
@@ -520,9 +525,11 @@ export function AgentComposer({
           {onSetConfigOption && selectableOptions.length > 0 ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button type="button" variant="ghost" size="icon-sm" data-testid="composer-config" className="text-text-secondary">
-                  <SlidersHorizontal aria-hidden="true" />
-                </Button>
+                <ActionTooltip label="Agent settings" side="top">
+                  <Button type="button" variant="ghost" size="icon-sm" data-testid="composer-config" className="text-text-secondary">
+                    <SlidersHorizontal aria-hidden="true" />
+                  </Button>
+                </ActionTooltip>
               </DropdownMenuTrigger>
               <DropdownMenuContent side="top" align="start" className="w-64">
                 <DropdownMenuLabel>Agent settings</DropdownMenuLabel>

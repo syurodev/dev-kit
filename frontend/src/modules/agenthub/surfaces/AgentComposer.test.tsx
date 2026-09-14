@@ -15,6 +15,26 @@ import {
 const renderToString = (node: React.ReactNode) => renderRaw(<TooltipProvider>{node}</TooltipProvider>);
 const base = { value: "", onChange: () => {}, onSend: () => {}, onCancel: () => {} };
 
+describe("composer controls", () => {
+  it("names the icon-only settings button", () => {
+    const html = renderToString(
+      <AgentComposer {...base} configOptions={[{ id: "model", options: [{ value: "sonnet" }] }]} onSetConfigOption={() => {}} />,
+    );
+    const tag = html.match(/<button[^>]*data-testid="composer-config"[^>]*>/)?.[0] ?? "";
+    expect(tag).toContain('aria-label="Agent settings"');
+  });
+
+  it("removes an attached file with a named 28px button, not by clicking the 24px chip", () => {
+    const html = renderToString(
+      <AgentComposer {...base} attachedFiles={["src/app.ts"]} onRemoveAttachment={() => {}} />,
+    );
+    const remove = html.match(/<button[^>]*aria-label="Remove src\/app.ts"[^>]*>/)?.[0] ?? "";
+    expect(remove).toContain("control-height-sm");
+    // The chip itself is a label now, not a control.
+    expect(html).not.toMatch(/<button[^>]*data-testid="agent-file-chip"/);
+  });
+});
+
 describe("confirming a permission bypass", () => {
   it("recognises a bypass by what the choice means, wherever it is listed", () => {
     expect(isPermissionBypassChoice({ value: "bypassPermissions" })).toBe(true);
