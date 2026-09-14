@@ -56,6 +56,23 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       expect(html).toContain("Test prompt");
     });
 
+    it("grows the field with its text, up to a ceiling where it scrolls", () => {
+      // The height itself is measured in the browser; what is pinned here is
+      // that there is a floor, a ceiling, and a scroll past it — not a fixed
+      // height that cut a long prompt off after two lines.
+      const field = (size: "wide" | "rail") => {
+        const html = renderToString(
+          <AgentComposer size={size} value="" onChange={() => {}} onSend={() => {}} onCancel={() => {}} />,
+        );
+        return html.slice(html.indexOf("<textarea"), html.indexOf(">", html.indexOf("<textarea")));
+      };
+      expect(field("wide")).toContain("min-h-10");
+      expect(field("wide")).toContain("max-h-60");
+      expect(field("wide")).toContain("overflow-y-auto");
+      expect(field("wide")).not.toContain(" h-10");
+      expect(field("rail")).toContain("max-h-40");
+    });
+
     it("keeps one send button and only swaps its glyph while streaming", () => {
       // Figma draws the same 32px circle in Idle and Streaming; only the icon
       // changes. Two testids implied two buttons in two places.

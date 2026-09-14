@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import { AtSign, Check, ChevronDown, Command as CommandIcon } from "lucide-react";
 // Icon DATA, not components: morphicons interpolates path geometry, which a
 // lucide-react component does not expose. Same version as lucide-react.
@@ -131,6 +131,21 @@ export function AgentComposer({
 }: AgentComposerProps) {
   const theme = useAppTheme();
   const rail = size === "rail";
+
+  // The field grows with what is typed, from one line up to its max height,
+  // then scrolls. Measured rather than `field-sizing: content`: that is
+  // Chromium's, and the webview on macOS and Linux is WebKit. Reset to auto
+  // first so a field that was taller can shrink back when text is deleted.
+  // Not animated — this changes on every keystroke, and motion there is noise.
+  // ponytail: re-measures on text change only; a width change (sidebar
+  // toggled) takes effect at the next keystroke.
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [value, rail]);
   const isStreaming = streaming || state === "streaming";
   const effectiveState: ComposerState =
     state ?? (isStreaming ? "streaming" : attachedFiles.length > 0 ? "attached" : "idle");
@@ -171,6 +186,7 @@ export function AgentComposer({
             already provides around it. Overriding six properties to get back
             to plain text is more code than plain text. */}
         <textarea
+          ref={textareaRef}
           rows={1}
           value={value}
           disabled={disabled}
@@ -185,8 +201,11 @@ export function AgentComposer({
             }
           }}
           className={cn(
-            "w-full resize-none bg-transparent px-2 pt-1 text-body-14 text-text-primary placeholder:text-text-tertiary outline-none disabled:opacity-60",
-            rail ? "h-8" : "h-10",
+            "w-full resize-none overflow-y-auto bg-transparent px-2 pt-1 text-body-14 text-text-primary placeholder:text-text-tertiary outline-none disabled:opacity-60",
+            // Floor is the old fixed height; ceiling is about eleven lines wide
+            // and seven in the rail, past which the field scrolls instead of
+            // pushing the composer up over the conversation.
+            rail ? "min-h-8 max-h-40" : "min-h-10 max-h-60",
           )}
         />
 

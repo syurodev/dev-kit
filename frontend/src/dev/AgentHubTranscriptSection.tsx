@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { AgentSession } from "@/bridge/agenthub";
 import { AgentHubContent } from "@/modules/agenthub/surfaces/AgentHubContent";
 import type { TranscriptItem } from "@/modules/agenthub/types";
@@ -83,6 +84,8 @@ const items: TranscriptItem[] = [
 ];
 
 export function AgentHubTranscriptSection() {
+  // The draft's composer is live, so typing into it shows the field growing.
+  const [draftPrompt, setDraftPrompt] = useState("");
   return (
     <section id="agenthub-transcript" className="flex flex-col gap-3">
       <h2 className="text-title-16 text-text-primary">Agent Hub — conversation</h2>
@@ -113,8 +116,8 @@ export function AgentHubTranscriptSection() {
           agents={["claude"]}
           agent="claude"
           onAgentChange={() => {}}
-          promptValue=""
-          onPromptChange={() => {}}
+          promptValue={draftPrompt}
+          onPromptChange={setDraftPrompt}
           onSend={() => {}}
           onCancel={() => {}}
         />
