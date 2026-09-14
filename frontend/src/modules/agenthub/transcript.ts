@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import { UpdateKind, type TranscriptEntry } from "../../../bindings/devkit/internal/agenthub/models";
 import { agentHubTranscriptPage, onAgentHubSessionUpdate } from "../../bridge/agenthub";
 import {
@@ -675,6 +675,25 @@ let streamStarted = false;
 
 const NO_MORE_PAGES = { hasMore: false, loadingOlder: false };
 
+type AgentSessionsStoreState = ReturnType<typeof useAgentSessionsStore.getState>;
+const noopSubscribe = () => () => {};
+
+function useTranscriptStoreValue<T>(
+  enabled: boolean,
+  selector: (state: AgentSessionsStoreState) => T,
+  fallback: T,
+): T {
+  const getSnapshot = useCallback(
+    () => (enabled ? selector(useAgentSessionsStore.getState()) : fallback),
+    [enabled, fallback, selector],
+  );
+  return useSyncExternalStore(
+    enabled ? useAgentSessionsStore.subscribe : noopSubscribe,
+    getSnapshot,
+    getSnapshot,
+  );
+}
+
 function entrySeq(entry: TranscriptEntry | Record<string, any>): number | null {
   const raw = (entry as TranscriptEntry).Seq ?? (entry as Record<string, any>).seq;
   return typeof raw === "number" && raw > 0 ? raw : null;
@@ -839,23 +858,33 @@ export function forgetAgentTranscript(sessionId: string): void {
 }
 
 /** React is only a reader of the shell-owned model and never owns the stream. */
-export function useAgentTranscript(sessionId: string) {
-  const model = useAgentSessionsStore(
-    (state) => state.transcriptsById[sessionId] ?? EMPTY_TRANSCRIPT_MODEL,
+export function useAgentTranscript(sessionId: string, options: { enabled?: boolean } = {}) {
+  const enabled = options.enabled ?? true;
+  const modelSelector = useMemo(
+    () => (state: AgentSessionsStoreState) => state.transcriptsById[sessionId] ?? EMPTY_TRANSCRIPT_MODEL,
+    [sessionId],
   );
-  const loading = useAgentSessionsStore(
-    (state) => Boolean(sessionId) && Boolean(state.transcriptLoadingById[sessionId]),
+  const loadingSelector = useMemo(
+    () => (state: AgentSessionsStoreState) => Boolean(sessionId) && Boolean(state.transcriptLoadingById[sessionId]),
+    [sessionId],
   );
-  const error = useAgentSessionsStore(
-    (state) => state.transcriptErrorsById[sessionId] ?? null,
+  const errorSelector = useMemo(
+    () => (state: AgentSessionsStoreState) => state.transcriptErrorsById[sessionId] ?? null,
+    [sessionId],
   );
-  const paging = useAgentSessionsStore(
-    (state) => state.transcriptPagingById[sessionId] ?? NO_MORE_PAGES,
+  const pagingSelector = useMemo(
+    () => (state: AgentSessionsStoreState) => state.transcriptPagingById[sessionId] ?? NO_MORE_PAGES,
+    [sessionId],
   );
+  const model = useTranscriptStoreValue(enabled, modelSelector, EMPTY_TRANSCRIPT_MODEL);
+  const loading = useTranscriptStoreValue(enabled, loadingSelector, false);
+  const error = useTranscriptStoreValue(enabled, errorSelector, null);
+  const paging = useTranscriptStoreValue(enabled, pagingSelector, NO_MORE_PAGES);
 
   useEffect(() => {
+    if (!enabled) return;
     ensureTranscript(sessionId);
-  }, [sessionId]);
+  }, [enabled, sessionId]);
 
   return {
     ...model,

@@ -154,6 +154,7 @@ export function TranscriptStream({
     getItemKey: (index) => turns[index]?.id ?? index,
     estimateSize: () => 180,
     overscan: TRANSCRIPT_OVERSCAN,
+    paddingStart: virtualized && hasMore && items.length > 0 ? 40 : 0,
     initialRect: { width: 0, height: 800 },
   });
   const virtualItems = rowVirtualizer.getVirtualItems();
@@ -380,7 +381,26 @@ export function TranscriptStream({
               truncated conversation reads as complete and lies about what
               the agent said. Reachable by scrolling; the pill is for the
               first discovery and for when the preload has not fired. */}
-          {hasMore && items.length > 0 ? (
+          {virtualized && hasMore && items.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => onLoadOlder?.()}
+              disabled={loadingOlder || !onLoadOlder}
+              data-testid="transcript-load-older"
+              className={cn(
+                "absolute top-0 left-1/2 z-10 -translate-x-1/2 inline-flex items-center gap-2 rounded-full",
+                "border border-border-subtle bg-surface-base",
+                "px-4 py-1 text-caption-11 text-text-tertiary",
+                "cursor-pointer select-none",
+                "hover:text-text-secondary focus-visible:ring-ring focus-visible:ring-1 focus-visible:outline-none",
+                "disabled:cursor-default disabled:opacity-70",
+              )}
+            >
+              {loadingOlder ? "Loading earlier messages…" : "Load earlier messages"}
+            </button>
+          ) : null}
+
+          {!virtualized && hasMore && items.length > 0 ? (
             <button
               type="button"
               onClick={() => onLoadOlder?.()}

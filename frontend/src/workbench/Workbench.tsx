@@ -45,6 +45,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Kbd } from "@/components/ui/kbd";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { SidebarModuleIdContext } from "@/components/ui/sidebar-shell";
+import { ModuleVisibilityProvider } from "@/components/ui/module-visibility";
 import { useModuleActionsStore } from "../stores/moduleActions";
 import {
   allOpenTabs,
@@ -306,7 +307,11 @@ const WorkbenchViews = memo(
                   key={tab.id}
                   className={tab.id === activeTabId ? "contents" : "hidden"}
                 >
-                  <TabBody tab={tab} />
+                  <ModuleVisibilityProvider
+                    visible={tab.moduleId === activeModuleId && tab.id === activeTabId}
+                  >
+                    <TabBody tab={tab} />
+                  </ModuleVisibilityProvider>
                 </div>
               );
             })

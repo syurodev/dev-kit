@@ -27,7 +27,7 @@ export function AgentCompanionSlot() {
     }
     openCompanion(
       <Suspense fallback={null}>
-        <LazyAgentCompanion />
+        <LazyAgentCompanion visible={chatOpen} />
       </Suspense>,
       { onClose: () => setChatOpen(false) },
     );

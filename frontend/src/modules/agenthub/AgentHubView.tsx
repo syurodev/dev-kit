@@ -37,6 +37,7 @@ import { forgetAgentTranscript, useAgentTranscript } from "./transcript";
 import { AgentHubContent } from "./surfaces";
 import { useAgentSessionList, useAgentSessionsStore } from "../../stores/agentSessions";
 import { useAgentPinsStore } from "../../stores/agentPins";
+import { useModuleVisibility } from "@/components/ui/module-visibility";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -65,6 +66,7 @@ type TurnInput = { sessionId: string; text: string; attachments: string[] };
 type AuthRetry = { kind: "create"; params: CreateParams } | ({ kind: "turn" } & TurnInput);
 
 export function AgentHubView() {
+  const visible = useModuleVisibility();
   const sessions = useAgentSessionList();
   const activeSessionId = useAgentSessionsStore((state) => state.activeSessionId);
   const setActiveSessionId = useAgentSessionsStore((state) => state.setActiveSessionId);
@@ -140,7 +142,7 @@ export function AgentHubView() {
   );
 
   // Live typed transcript model powered by useAgentTranscript
-  const transcriptModel = useAgentTranscript(activeSession?.id ?? "");
+  const transcriptModel = useAgentTranscript(activeSession?.id ?? "", { enabled: visible });
 
   // Auto-select first session if none active
   useEffect(() => {

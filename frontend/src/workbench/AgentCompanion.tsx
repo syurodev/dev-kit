@@ -23,7 +23,7 @@ import { useAgentSessionList, useAgentSessionsStore } from "@/stores/agentSessio
  * Session creation stays in the Agent Hub module: that is a setup step with
  * vendor and working directory to choose, not something to do mid-conversation.
  */
-export function AgentCompanion() {
+export function AgentCompanion({ visible = true }: { visible?: boolean }) {
   const sessions = useAgentSessionList();
   const activeSessionId = useAgentSessionsStore((s) => s.activeSessionId);
   const setActiveSessionId = useAgentSessionsStore((s) => s.setActiveSessionId);
@@ -40,7 +40,7 @@ export function AgentCompanion() {
   const prompt = useAgentSessionsStore((s) => s.promptBySession[session?.id ?? ""] ?? "");
 
   // Live transcript stream for the active session in rail
-  const transcriptModel = useAgentTranscript(session?.id ?? "");
+  const transcriptModel = useAgentTranscript(session?.id ?? "", { enabled: visible });
 
   async function resolvePermission(optionId: string | null) {
     if (!pending) return;
