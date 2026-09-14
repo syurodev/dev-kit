@@ -169,8 +169,10 @@ export function TranscriptStream({
 
   const onCopyRef = useRef(onCopy);
   const onEditPromptRef = useRef(onEditPrompt);
+  const onOpenFileRef = useRef(onOpenFile);
   onCopyRef.current = onCopy;
   onEditPromptRef.current = onEditPrompt;
+  onOpenFileRef.current = onOpenFile;
   const stableOnCopy = useMemo(
     () => (onCopy ? (text: string) => onCopyRef.current?.(text) : undefined),
     [Boolean(onCopy)],
@@ -178,6 +180,10 @@ export function TranscriptStream({
   const stableOnEditPrompt = useMemo(
     () => (onEditPrompt ? (text: string) => onEditPromptRef.current?.(text) : undefined),
     [Boolean(onEditPrompt)],
+  );
+  const stableOnOpenFile = useMemo(
+    () => (onOpenFile ? (path: string, line?: number) => onOpenFileRef.current?.(path, line) : undefined),
+    [Boolean(onOpenFile)],
   );
   const scrollRef = useRef<HTMLDivElement>(null);
   const reduce = useReducedMotion() ?? false;
@@ -375,7 +381,7 @@ export function TranscriptStream({
         onInspect={setInspecting}
         onCopy={stableOnCopy}
         onEditPrompt={stableOnEditPrompt}
-        onOpenFile={onOpenFile}
+        onOpenFile={stableOnOpenFile}
       />
     );
   }
