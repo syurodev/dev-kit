@@ -72,7 +72,7 @@ function closedPrefixOf(source: string): number {
     if (FENCE.test(line)) {
       if (inFence) closed = end;
       inFence = !inFence;
-    } else if (!inFence && !line.trim()) {
+    } else if (!inFence && index < lines.length - 1 && !line.trim()) {
       closed = end;
     }
     offset = end;
