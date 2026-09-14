@@ -193,21 +193,21 @@ export function AgentHubContent({
       {effectiveState !== "Empty" && session ? (
         <header
           data-testid="agent-hub-content-header"
-          className="flex w-full shrink-0 items-center gap-3 px-6 py-3 select-none"
+          className="flex w-full shrink-0 items-center gap-2 px-6 py-2 select-none"
         >
           <VendorIcon
             vendor={vendor}
             working={session.status === "running"}
-            className="size-4 text-icon-secondary"
+            className="size-3.5 text-icon-secondary"
           />
           {/* The name gives way last: it truncates, but only after the project
               line beside it has. */}
           <div className="flex min-w-0 flex-1 items-baseline gap-2">
-            <h2 className="min-w-0 shrink truncate text-title-16 text-text-primary">{displayTitle}</h2>
+            <h2 className="min-w-0 shrink truncate text-title-14 text-text-primary">{displayTitle}</h2>
             {context ? (
               <p
                 data-testid="content-header-context"
-                className="min-w-0 truncate text-body-14 text-text-tertiary"
+                className="min-w-0 truncate text-body-13 text-text-tertiary"
                 style={{ flexShrink: 100 }}
               >
                 {context}
@@ -327,7 +327,7 @@ export function AgentHubContent({
               to the text scrolling underneath. */}
           <div
             ref={composerRef}
-            className="pointer-events-none absolute inset-x-0 bottom-0 flex w-full px-6 pb-4"
+            className="pointer-events-none absolute inset-x-0 bottom-0 flex w-full px-6 pb-3"
           >
           <div className="pointer-events-auto mx-auto flex w-full max-w-180 items-center gap-3">
             <AgentComposer

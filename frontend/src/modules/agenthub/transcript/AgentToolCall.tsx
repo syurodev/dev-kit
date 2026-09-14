@@ -228,9 +228,9 @@ export function AgentToolCall({
         className={cn("flex w-full min-w-0 flex-col gap-2", className)}
       >
         {head(
-          "flex w-full min-w-0 items-center gap-2 text-left text-body-14",
+          "flex w-full min-w-0 items-center gap-2 text-left text-body-13",
           <>
-            <KindIcon className="size-4 shrink-0 text-icon-secondary" aria-hidden="true" />
+            <KindIcon className="size-3.5 shrink-0 text-icon-secondary" aria-hidden="true" />
             <span className="flex min-w-0 items-baseline gap-1">
               <span className={cn("shrink-0", state === "failed" ? "text-status-danger" : "text-text-secondary")}>
                 {verb}
@@ -251,8 +251,9 @@ export function AgentToolCall({
             {chevron}
           </>,
         )}
-        {/* Under the words, not under the icon: 16px icon + 8px gap. */}
-        {reason || expanded ? <div className="flex w-full min-w-0 flex-col gap-2 pl-6">{body}</div> : null}
+        {/* Under the words, not under the icon: 14px icon + 8px gap. A measure
+            taken from the row, like the tree's indent, not a spacing step. */}
+        {reason || expanded ? <div className="flex w-full min-w-0 flex-col gap-2 pl-5.5">{body}</div> : null}
       </div>
     );
   }

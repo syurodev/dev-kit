@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "bun:test";
-import { renderToString } from "react-dom/server";
+import { renderToString as renderRaw } from "react-dom/server";
 import {
   AgentComposer,
   AgentJumpToLatest,
@@ -20,6 +20,11 @@ import {
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { AgentSession } from "@/bridge/agenthub";
 import type { TranscriptItem } from "../types";
+
+// Surfaces use the app's tooltips (the composer's icon-only actions, the
+// rail's rows), which want the provider App.tsx mounts once around the window.
+// Every render here gets one, the way every render in the app does.
+const renderToString = (node: React.ReactNode) => renderRaw(<TooltipProvider>{node}</TooltipProvider>);
 
 describe("Agent Hub Phase 3 Surfaces", () => {
   describe("AgentComposer (Figma 963:2634)", () => {

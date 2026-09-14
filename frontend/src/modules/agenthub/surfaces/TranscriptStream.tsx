@@ -88,7 +88,7 @@ export function TranscriptStream({
         // Clear of the floating composer, whose height AgentHubContent measures.
         style={{ paddingBottom: "calc(var(--composer-inset, 0px) + var(--space-section))" }}
       >
-        <div className="mx-auto flex w-full max-w-180 flex-col gap-8">
+        <div className="mx-auto flex w-full max-w-180 flex-col gap-6">
           {items.length === 0 && !loading ? (
             <div className="flex h-48 flex-col items-center justify-center text-center">
               <p className="text-body-13 text-text-secondary">No messages yet</p>

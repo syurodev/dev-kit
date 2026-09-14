@@ -42,9 +42,9 @@ export function AgentSubagent({ subagent, variant = "card", className }: AgentSu
         data-testid="agent-subagent"
         data-variant="row"
         data-state={state}
-        className={cn("flex w-full min-w-0 items-center gap-2 text-body-14", className)}
+        className={cn("flex w-full min-w-0 items-center gap-2 text-body-13", className)}
       >
-        <GitBranch className="size-4 shrink-0 text-icon-secondary" aria-hidden="true" />
+        <GitBranch className="size-3.5 shrink-0 text-icon-secondary" aria-hidden="true" />
         <span className="shrink-0 text-text-secondary">{subagent.name || "Subagent"}</span>
         {subagent.task ? <span className="min-w-0 truncate text-text-tertiary">{subagent.task}</span> : null}
         {/* The state as a word, not a dot: a coloured dot on its own is a

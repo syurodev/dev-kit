@@ -75,7 +75,10 @@ export function AgentContextMeter({ usage, turnCount = 0, onCompact, className }
           className={cn("shrink-0 rounded-full", className)}
         >
           <svg viewBox="0 0 16 16" aria-hidden="true" className="size-4 -rotate-90">
-            <circle cx="8" cy="8" r="6" fill="none" strokeWidth="2" className="stroke-border-default" />
+            {/* The token directly: --border-default has no colour utility, and
+                `stroke-border-default` compiled to nothing — the track was
+                missing, so at 3% the ring was a lone dot. */}
+            <circle cx="8" cy="8" r="6" fill="none" strokeWidth="2" className="stroke-(--border-default)" />
             <circle
               cx="8"
               cy="8"
@@ -89,14 +92,14 @@ export function AgentContextMeter({ usage, turnCount = 0, onCompact, className }
           </svg>
         </Button>
       </PopoverTrigger>
-      <PopoverContent side="top" align="end" className="w-72 gap-3 p-3">
-        <div className="flex w-full items-baseline justify-between gap-3 text-body-14">
+      <PopoverContent side="top" align="end" className="w-64 gap-2 p-3">
+        <div className="flex w-full items-baseline justify-between gap-3 text-body-13">
           <span className="text-text-secondary">Context window</span>
           <span className="tabular-nums text-text-tertiary">{summary}</span>
         </div>
         <Progress value={percent} className={cn("h-1 bg-(--state-soft)", BAR[tone])} />
         <div className="h-px w-full bg-border-subtle" />
-        <div className="flex w-full items-baseline justify-between gap-3 text-body-14">
+        <div className="flex w-full items-baseline justify-between gap-3 text-body-13">
           <span className="tabular-nums text-text-tertiary">
             {`${turnCount} turn${turnCount === 1 ? "" : "s"} · $${(usage?.amount ?? 0).toFixed(2)}`}
           </span>

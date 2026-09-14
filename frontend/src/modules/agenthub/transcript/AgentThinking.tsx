@@ -57,9 +57,9 @@ export function AgentThinking({
           type="button"
           onClick={toggle}
           aria-expanded={isExpanded}
-          className="flex w-full min-w-0 cursor-pointer items-center gap-2 text-left text-body-14"
+          className="flex w-full min-w-0 cursor-pointer items-center gap-2 text-left text-body-13"
         >
-          <Brain className="size-4 shrink-0 text-icon-secondary" aria-hidden="true" />
+          <Brain className="size-3.5 shrink-0 text-icon-secondary" aria-hidden="true" />
           <span className="min-w-0 truncate text-text-secondary">{label}</span>
           <ChevronRight
             aria-hidden="true"
@@ -70,7 +70,7 @@ export function AgentThinking({
           />
         </button>
         {isExpanded ? (
-          <p className="w-full pl-6 text-body-14 whitespace-pre-wrap break-words text-text-tertiary select-text">
+          <p className="w-full pl-5.5 text-body-13 whitespace-pre-wrap break-words text-text-tertiary select-text">
             {text}
           </p>
         ) : null}

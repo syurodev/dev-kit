@@ -51,9 +51,10 @@ export type AgentTurnProps = {
  * speaking; a bubble around a document squeezes headings and code into a chat
  * line.
  *
- * Spacing is the scale's named steps and nothing between them: 24 (section)
- * between the parts of a turn, 16 (group) between the parts of its work, 8
- * (inline) inside a line.
+ * Spacing is the scale's named steps and nothing between them: 16 (group)
+ * between the parts of a turn, 12 (control) between the parts of its work, 8
+ * (inline) inside a line. Work lines are 13px beside the answer's 14: the
+ * account of what was done is the quieter register of the two.
  */
 export function AgentTurn({ turn, live = false, latest = false, vendor, onInspect }: AgentTurnProps) {
   const reduce = useReducedMotion() ?? false;
@@ -69,12 +70,12 @@ export function AgentTurn({ turn, live = false, latest = false, vendor, onInspec
   const from = reduce ? { opacity: 0 } : FADE_THROUGH.from;
 
   return (
-    <section data-testid="agent-turn" data-live={live || undefined} className="flex w-full flex-col gap-6">
+    <section data-testid="agent-turn" data-live={live || undefined} className="flex w-full flex-col gap-4">
       {turn.prompt?.text?.trim() ? (
         <div className="flex w-full justify-end">
           <p
             data-testid="turn-prompt"
-            className="max-w-[80%] rounded-xl bg-surface-tinted px-4 py-2 text-body-14 whitespace-pre-wrap break-words text-text-primary select-text"
+            className="max-w-[80%] rounded-lg bg-surface-tinted px-3 py-2 text-body-14 whitespace-pre-wrap break-words text-text-primary select-text"
           >
             {turn.prompt.text}
           </p>
@@ -87,7 +88,7 @@ export function AgentTurn({ turn, live = false, latest = false, vendor, onInspec
             type="button"
             onClick={() => setOpen((value) => !value)}
             aria-expanded={open}
-            className="flex w-full min-w-0 cursor-pointer items-center gap-2 border-b border-border-subtle pb-2 text-left text-body-14 text-text-tertiary hover:text-text-secondary"
+            className="flex w-full min-w-0 cursor-pointer items-center gap-2 border-b border-border-subtle pb-2 text-left text-body-13 text-text-tertiary hover:text-text-secondary"
           >
             {activity ? (
               <ThinkingOrb state={activity.orb} size={20} aria-label={activity.label} className="shrink-0" />
@@ -99,7 +100,7 @@ export function AgentTurn({ turn, live = false, latest = false, vendor, onInspec
             />
           </button>
           {open ? (
-            <div className="flex w-full flex-col gap-4 pt-4">
+            <div className="flex w-full flex-col gap-3 pt-3">
               {workSegments(turn.work).map((segment) => {
                 if (segment.kind === "text") {
                   // What the agent said between steps is prose like its answer:
@@ -172,7 +173,7 @@ export function StepGroup({ items }: { items: TranscriptItem[] }) {
         type="button"
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
-        className="flex w-full min-w-0 cursor-pointer items-center gap-2 text-left text-body-14 text-text-tertiary hover:text-text-secondary"
+        className="flex w-full min-w-0 cursor-pointer items-center gap-2 text-left text-body-13 text-text-tertiary hover:text-text-secondary"
       >
         <span className="min-w-0 truncate">{stepSummary(items)}</span>
         <ChevronRight
