@@ -171,7 +171,7 @@ export function AgentHubContent({
       {effectiveState !== "Empty" && session ? (
         <header
           data-testid="agent-hub-content-header"
-          className="flex w-full shrink-0 items-center gap-3 px-5 py-3 select-none"
+          className="flex w-full shrink-0 items-center gap-3 px-6 py-3 select-none"
         >
           <VendorIcon
             vendor={vendor}
@@ -185,7 +185,7 @@ export function AgentHubContent({
             {context ? (
               <p
                 data-testid="content-header-context"
-                className="min-w-0 truncate text-body-12 text-text-tertiary"
+                className="min-w-0 truncate text-body-14 text-text-tertiary"
                 style={{ flexShrink: 100 }}
               >
                 {context}
@@ -238,7 +238,7 @@ export function AgentHubContent({
       ) : null}
 
       {effectiveState === "Empty" ? (
-        <Empty data-testid="agent-hub-content-empty" className="min-h-0 gap-3 p-5">
+        <Empty data-testid="agent-hub-content-empty" className="min-h-0 gap-3 p-6">
           <EmptyHeader className="w-105 max-w-full gap-3">
             <EmptyTitle className="text-title-16 text-text-secondary">No agent running</EmptyTitle>
             {/* Figma's note: Empty is the first thing a new user meets, so it
@@ -268,12 +268,12 @@ export function AgentHubContent({
         // because the failed tool call is the evidence for the error.
         <div
           data-testid="agent-hub-content-error"
-          className="flex min-h-0 w-full flex-1 flex-col gap-5"
+          className="flex min-h-0 w-full flex-1 flex-col gap-6"
         >
           <div className="min-h-0 flex-1">
             <TranscriptStream items={items} vendor={vendor} />
           </div>
-          <div className="w-full shrink-0 px-5 pb-5">
+          <div className="w-full shrink-0 px-6 pb-6">
             <AgentSessionError
               cause={errorCause}
               agentName={displayTitle || "Agent"}
@@ -298,7 +298,7 @@ export function AgentHubContent({
 
           {/* In the transcript's reading column, so what you write lines up
               with what you are answering. */}
-          <div className="flex w-full shrink-0 px-5">
+          <div className="flex w-full shrink-0 px-6">
           <div className="mx-auto flex w-full max-w-180 items-center gap-3">
             <AgentComposer
               size="wide"

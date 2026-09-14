@@ -84,7 +84,7 @@ export function TranscriptStream({
         ref={scrollRef}
         onScroll={handleScroll}
         data-testid="transcript-viewport"
-        className="flex size-full min-h-0 flex-col overflow-y-auto px-5 py-6 scroll-smooth"
+        className="flex size-full min-h-0 flex-col overflow-y-auto px-6 py-6 scroll-smooth"
       >
         <div className="mx-auto flex w-full max-w-180 flex-col gap-8">
           {items.length === 0 && !loading ? (

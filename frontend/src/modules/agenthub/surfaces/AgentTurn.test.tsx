@@ -3,7 +3,7 @@ import { renderToString } from "react-dom/server";
 
 import { groupTurns } from "../turns";
 import type { TranscriptItem } from "../types";
-import { AgentTurn } from "./AgentTurn";
+import { AgentTurn, StepGroup } from "./AgentTurn";
 
 const items: TranscriptItem[] = [
   { id: "u", kind: "user_message_chunk", text: "explain the repo", createdAt: "2026-09-14T10:00:00Z" },
@@ -47,5 +47,37 @@ describe("AgentTurn", () => {
   it("shows the orb only while the turn runs", () => {
     const [turn] = groupTurns(items);
     expect(renderToString(<AgentTurn turn={turn} latest />)).not.toContain("<canvas");
+  });
+});
+
+describe("StepGroup", () => {
+  const read = (id: string, title: string): TranscriptItem => ({
+    id,
+    kind: "tool_call",
+    toolCall: { id, kind: "read", title, status: "completed" },
+  });
+
+  it("gathers a run of steps under what kind of work it was, as plain rows", () => {
+    const html = renderToString(
+      <StepGroup
+        items={[
+          read("a", "Read internal/agenthub/hook.go"),
+          { id: "b", kind: "tool_call", toolCall: { id: "b", kind: "execute", title: "go test ./...", status: "completed" } },
+        ]}
+      />,
+    );
+    expect(html).toContain('data-testid="step-group"');
+    expect(html).toContain("Read files, ran commands");
+    // Rows, not cards: a verb and what it acted on.
+    expect(html).toContain('data-variant="row"');
+    expect(html).toContain("hook.go");
+    expect(html).not.toContain("internal/agenthub/hook.go");
+  });
+
+  it("draws a single step as its row alone", () => {
+    const html = renderToString(<StepGroup items={[{ id: "t", kind: "agent_thought_chunk", text: "hm" }]} />);
+    // "Thought" over a row reading "Thought" was the same word twice.
+    expect(html).not.toContain('data-testid="step-group"');
+    expect(html).toContain('data-testid="agent-thinking"');
   });
 });

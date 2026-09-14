@@ -6,7 +6,7 @@ import { ThinkingOrb } from "thinking-orbs";
 import { cn } from "@/lib/utils";
 import { FADE_THROUGH } from "@/lib/motion";
 import type { TranscriptItem, Usage } from "../types";
-import { activityOf, workedFor, type Turn } from "../turns";
+import { activityOf, stepSummary, workedFor, workSegments, type Turn } from "../turns";
 import {
   AgentInvokeResult,
   AgentPlan,
@@ -42,10 +42,18 @@ export type AgentTurnProps = {
  * says what is happening while it happens — the tool's own title beside an orb
  * whose motion matches the kind of step — and what it came to once it is done.
  *
+ * Opened, the work reads as an account rather than a log: what the agent said
+ * as prose, and each run of steps between two sentences under one summary —
+ * "Read files, ran commands, searched the web" — with the steps as plain rows.
+ *
  * No bubble and no name on the agent's side, and no avatar on either. With one
  * person and one agent in the room, the side of the column already says who is
  * speaking; a bubble around a document squeezes headings and code into a chat
  * line.
+ *
+ * Spacing is the scale's named steps and nothing between them: 24 (section)
+ * between the parts of a turn, 16 (group) between the parts of its work, 8
+ * (inline) inside a line.
  */
 export function AgentTurn({ turn, live = false, latest = false, vendor, onInspect }: AgentTurnProps) {
   const reduce = useReducedMotion() ?? false;
@@ -61,12 +69,12 @@ export function AgentTurn({ turn, live = false, latest = false, vendor, onInspec
   const from = reduce ? { opacity: 0 } : FADE_THROUGH.from;
 
   return (
-    <section data-testid="agent-turn" data-live={live || undefined} className="flex w-full flex-col gap-5">
+    <section data-testid="agent-turn" data-live={live || undefined} className="flex w-full flex-col gap-6">
       {turn.prompt?.text?.trim() ? (
         <div className="flex w-full justify-end">
           <p
             data-testid="turn-prompt"
-            className="max-w-[80%] rounded-2xl bg-surface-tinted px-4 py-2.5 text-body-16 whitespace-pre-wrap break-words text-text-primary select-text"
+            className="max-w-[80%] rounded-xl bg-surface-tinted px-4 py-3 text-body-16 whitespace-pre-wrap break-words text-text-primary select-text"
           >
             {turn.prompt.text}
           </p>
@@ -79,7 +87,7 @@ export function AgentTurn({ turn, live = false, latest = false, vendor, onInspec
             type="button"
             onClick={() => setOpen((value) => !value)}
             aria-expanded={open}
-            className="flex w-full min-w-0 cursor-pointer items-center gap-2 border-b border-border-subtle pb-2 text-left text-body-13 text-text-tertiary hover:text-text-secondary"
+            className="flex w-full min-w-0 cursor-pointer items-center gap-2 border-b border-border-subtle pb-2 text-left text-body-14 text-text-tertiary hover:text-text-secondary"
           >
             {activity ? (
               <ThinkingOrb state={activity.orb} size={20} aria-label={activity.label} className="shrink-0" />
@@ -91,10 +99,18 @@ export function AgentTurn({ turn, live = false, latest = false, vendor, onInspec
             />
           </button>
           {open ? (
-            <div className="flex w-full flex-col gap-2 pt-3">
-              {turn.work.map((item) => (
-                <WorkRow key={item.id} item={item} />
-              ))}
+            <div className="flex w-full flex-col gap-4 pt-4">
+              {workSegments(turn.work).map((segment) => {
+                if (segment.kind === "text") {
+                  // What the agent said between steps is prose like its answer:
+                  // it is the account of the work, and the steps are its evidence.
+                  return <AgentProse key={segment.item.id} text={segment.item.text ?? ""} />;
+                }
+                if (segment.kind === "plan") {
+                  return <AgentPlan key={segment.item.id} entries={segment.item.plan ?? []} />;
+                }
+                return <StepGroup key={segment.id} items={segment.items} />;
+              })}
             </div>
           ) : null}
         </div>
@@ -108,11 +124,7 @@ export function AgentTurn({ turn, live = false, latest = false, vendor, onInspec
           // answer arrives once, and the text streaming into it afterwards is
           // already motion enough. A loaded history renders standing still.
           wrapBlock={(block) => (
-            <motion.div
-              initial={live ? from : false}
-              animate={FADE_THROUGH.to}
-              transition={FADE_THROUGH.enter}
-            >
+            <motion.div initial={live ? from : false} animate={FADE_THROUGH.to} transition={FADE_THROUGH.enter}>
               {block}
             </motion.div>
           )}
@@ -135,6 +147,89 @@ export function AgentTurn({ turn, live = false, latest = false, vendor, onInspec
       ))}
     </section>
   );
+}
+
+/**
+ * A run of steps between two things the agent said, under one line saying what
+ * kind of work it was.
+ *
+ * Open by default: the turn's own fold is where the work is hidden, and a
+ * second fold inside it would make opening "Worked for" show a list of closed
+ * lists. A long run scrolls inside a 240px well (max-h-60) and fades at the
+ * foot, so one directory crawl cannot push the answer a screen down.
+ */
+const LONG_RUN = 8;
+
+export function StepGroup({ items }: { items: TranscriptItem[] }) {
+  const [open, setOpen] = React.useState(true);
+  const long = items.length > LONG_RUN;
+  // One step needs no summary: "Thought" over a row reading "Thought" says the
+  // same thing twice, and a fold around a single line hides nothing.
+  if (items.length === 1) return <StepRow item={items[0]} />;
+  return (
+    <div data-testid="step-group" data-state={open ? "expanded" : "collapsed"} className="flex w-full flex-col gap-2">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        className="flex w-full min-w-0 cursor-pointer items-center gap-2 text-left text-body-14 text-text-tertiary hover:text-text-secondary"
+      >
+        <span className="min-w-0 truncate">{stepSummary(items)}</span>
+        <ChevronRight
+          aria-hidden="true"
+          className={cn("size-3.5 shrink-0 transition-transform duration-(--motion-fast)", open && "rotate-90")}
+        />
+      </button>
+      {open ? (
+        <div
+          className={cn("w-full", long && "max-h-60 overflow-y-auto")}
+          // The fade covers the last 32px (page step) of the well, and the list
+          // carries the same padding at its foot, so the final row can always
+          // be scrolled clear of it.
+          style={
+            long
+              ? {
+                  maskImage: "linear-gradient(to bottom, black calc(100% - var(--space-page)), transparent)",
+                  WebkitMaskImage: "linear-gradient(to bottom, black calc(100% - var(--space-page)), transparent)",
+                }
+              : undefined
+          }
+        >
+          <div className={cn("flex w-full flex-col gap-2", long && "pb-8")}>
+            {items.map((item) => (
+              <StepRow key={item.id} item={item} />
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** One step, as a row. */
+function StepRow({ item }: { item: TranscriptItem }) {
+  switch (String(item.kind)) {
+    case "agent_thought_chunk": {
+      const raw = item.raw as Record<string, unknown> | undefined;
+      return (
+        <AgentThinking
+          variant="row"
+          text={item.text ?? ""}
+          duration={typeof raw?.duration === "string" ? raw.duration : undefined}
+        />
+      );
+    }
+    case "subagent_spawned":
+    case "subagent_state_update":
+      return item.subagent ? <AgentSubagent variant="row" subagent={item.subagent} /> : null;
+    default:
+      return (
+        <AgentToolCall
+          variant="row"
+          call={item.toolCall ?? { id: item.toolCallId || item.id, title: "Tool execution", status: "completed" }}
+        />
+      );
+  }
 }
 
 /**
@@ -165,40 +260,6 @@ function SwapText({ text, animate, reduce }: { text: string; animate: boolean; r
       </AnimatePresence>
     </span>
   );
-}
-
-/** One step of the work, in the order the agent took it. */
-function WorkRow({ item }: { item: TranscriptItem }) {
-  switch (String(item.kind)) {
-    case "agent_thought_chunk": {
-      const raw = item.raw as Record<string, unknown> | undefined;
-      return (
-        <AgentThinking
-          text={item.text ?? ""}
-          duration={typeof raw?.duration === "string" ? raw.duration : undefined}
-        />
-      );
-    }
-    case "agent_message_chunk":
-      // What the agent said between steps. Quieter than the answer: it is
-      // narration of the work, and it is inside the work.
-      return item.text?.trim() ? (
-        <p className="text-body-13 whitespace-pre-wrap break-words text-text-secondary select-text">
-          {item.text}
-        </p>
-      ) : null;
-    case "plan":
-      return <AgentPlan entries={item.plan ?? []} />;
-    case "subagent_spawned":
-    case "subagent_state_update":
-      return item.subagent ? <AgentSubagent subagent={item.subagent} /> : null;
-    default:
-      return (
-        <AgentToolCall
-          call={item.toolCall ?? { id: item.toolCallId || item.id, title: "Tool execution", status: "completed" }}
-        />
-      );
-  }
 }
 
 /** Rows that are neither work nor words: a rate limit, an invoke result. */

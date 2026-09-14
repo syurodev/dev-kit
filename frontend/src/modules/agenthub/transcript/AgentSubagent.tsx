@@ -5,6 +5,8 @@ import type { Subagent } from "../types";
 
 export type AgentSubagentProps = {
   subagent: Subagent;
+  /** `row` is one step inside a turn's work: its name, what it was told, how it ended. */
+  variant?: "card" | "row";
   className?: string;
 };
 
@@ -31,8 +33,26 @@ const STATE_DOT: Record<string, string> = {
   cancelled: "bg-text-tertiary",
 };
 
-export function AgentSubagent({ subagent, className }: AgentSubagentProps) {
+export function AgentSubagent({ subagent, variant = "card", className }: AgentSubagentProps) {
   const state = subagent.state ?? "running";
+
+  if (variant === "row") {
+    return (
+      <div
+        data-testid="agent-subagent"
+        data-variant="row"
+        data-state={state}
+        className={cn("flex w-full min-w-0 items-center gap-2 text-body-14", className)}
+      >
+        <GitBranch className="size-4 shrink-0 text-icon-secondary" aria-hidden="true" />
+        <span className="shrink-0 text-text-secondary">{subagent.name || "Subagent"}</span>
+        {subagent.task ? <span className="min-w-0 truncate text-text-tertiary">{subagent.task}</span> : null}
+        {/* The state as a word, not a dot: a coloured dot on its own is a
+            meaning only some people can read. */}
+        <span className="ml-auto shrink-0 text-text-tertiary">{state}</span>
+      </div>
+    );
+  }
 
   return (
     <div

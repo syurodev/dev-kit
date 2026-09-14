@@ -1,6 +1,14 @@
 import { describe, expect, it } from "bun:test";
 
-import { activityOf, formatElapsed, groupTurns, workedFor } from "./turns";
+import {
+  activityOf,
+  formatElapsed,
+  groupTurns,
+  stepLabel,
+  stepSummary,
+  workedFor,
+  workSegments,
+} from "./turns";
 import type { TranscriptItem } from "./types";
 
 let seq = 0;
@@ -114,5 +122,61 @@ describe("activityOf", () => {
       label: "Writing",
       orb: "composing",
     });
+  });
+});
+
+describe("workSegments", () => {
+  it("runs steps together until the agent speaks again", () => {
+    const segments = workSegments([
+      row("agent_message_chunk", { text: "Comparing the docs with the repo." }),
+      row("tool_call", { toolCall: { id: "a", kind: "read" } }),
+      row("agent_thought_chunk"),
+      row("tool_call", { toolCall: { id: "b", kind: "fetch" } }),
+      row("agent_message_chunk", { text: "" }),
+      row("tool_call", { toolCall: { id: "c", kind: "execute" } }),
+      row("agent_message_chunk", { text: "Only PreToolUse is wired." }),
+      row("plan"),
+    ]);
+
+    expect(segments.map((s) => (s.kind === "steps" ? `steps:${s.items.length}` : s.kind))).toEqual([
+      "text",
+      // An empty message is not speech: it does not split the run.
+      "steps:4",
+      "text",
+      "plan",
+    ]);
+  });
+});
+
+describe("stepSummary", () => {
+  it("names each kind of step once, in the order it first happened", () => {
+    expect(
+      stepSummary([
+        row("tool_call", { toolCall: { id: "a", kind: "read" } }),
+        row("tool_call", { toolCall: { id: "b", kind: "read" } }),
+        row("tool_call", { toolCall: { id: "c", kind: "execute" } }),
+        row("tool_call", { toolCall: { id: "d", kind: "fetch" } }),
+      ]),
+    ).toBe("Read files, ran commands, searched the web");
+    expect(stepSummary([row("agent_thought_chunk"), row("tool_call", { toolCall: { id: "e" } })])).toBe(
+      "Thought, used tools",
+    );
+  });
+});
+
+describe("stepLabel", () => {
+  // The titles claude-agent-acp 0.74 writes, verbatim in shape.
+  it.each([
+    [{ kind: "read", title: "Read internal/agenthub/hook.go" }, "Read", "hook.go"],
+    [{ kind: "read", title: "Read docs/agent-hub.mdx (1 - 50)" }, "Read", "agent-hub.mdx"],
+    [{ kind: "edit", title: "Edit frontend/src/turns.ts" }, "Edited", "turns.ts"],
+    [{ kind: "edit", title: "Write notes.md" }, "Wrote", "notes.md"],
+    [{ kind: "fetch", title: "Fetch https://code.claude.com/docs/en/hooks" }, "Fetched", "https://code.claude.com/docs/en/hooks"],
+    [{ kind: "fetch", title: 'Search "claude code hooks"' }, "Searched the web for", "claude code hooks"],
+    [{ kind: "search", title: 'grep -n "PreToolUse" internal' }, "Searched for", '-n "PreToolUse" internal'],
+    [{ kind: "execute", title: "go test ./internal/agenthub/" }, "Ran", "go test ./internal/agenthub/"],
+    [{ kind: "other", title: "mcp__devkit__db_listProfiles" }, "mcp__devkit__db_listProfiles", ""],
+  ])("%o reads as a verb and its object", (call, verb, object) => {
+    expect(stepLabel({ id: "x", ...call })).toEqual({ verb, object });
   });
 });

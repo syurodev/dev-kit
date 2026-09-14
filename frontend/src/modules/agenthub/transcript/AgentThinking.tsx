@@ -1,5 +1,5 @@
 import * as React from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { Brain, ChevronDown, ChevronRight } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -10,6 +10,8 @@ export type AgentThinkingProps = {
   expanded?: boolean;
   defaultExpanded?: boolean;
   onToggleExpanded?: () => void;
+  /** `row` is one step inside a turn's work, beside tool calls drawn the same way. */
+  variant?: "card" | "row";
   className?: string;
 };
 
@@ -31,15 +33,50 @@ export function AgentThinking({
   expanded: controlledExpanded,
   defaultExpanded = false,
   onToggleExpanded,
+  variant = "card",
   className,
 }: AgentThinkingProps) {
   const [internalExpanded, setInternalExpanded] = React.useState(defaultExpanded);
   const isExpanded = controlledExpanded ?? internalExpanded;
+  const label = duration ? `Thought for ${duration}` : "Thought";
 
   const toggle = () => {
     if (onToggleExpanded) onToggleExpanded();
     else setInternalExpanded((prev) => !prev);
   };
+
+  if (variant === "row") {
+    return (
+      <div
+        data-testid="agent-thinking"
+        data-variant="row"
+        data-state={isExpanded ? "expanded" : "collapsed"}
+        className={cn("flex w-full min-w-0 flex-col gap-2", className)}
+      >
+        <button
+          type="button"
+          onClick={toggle}
+          aria-expanded={isExpanded}
+          className="flex w-full min-w-0 cursor-pointer items-center gap-2 text-left text-body-14"
+        >
+          <Brain className="size-4 shrink-0 text-icon-secondary" aria-hidden="true" />
+          <span className="min-w-0 truncate text-text-secondary">{label}</span>
+          <ChevronRight
+            aria-hidden="true"
+            className={cn(
+              "size-3.5 shrink-0 text-text-tertiary transition-transform duration-(--motion-fast)",
+              isExpanded && "rotate-90",
+            )}
+          />
+        </button>
+        {isExpanded ? (
+          <p className="w-full pl-6 text-body-14 whitespace-pre-wrap break-words text-text-tertiary select-text">
+            {text}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <div
@@ -61,9 +98,7 @@ export function AgentThinking({
         ) : (
           <ChevronRight className="size-3 shrink-0 text-text-tertiary" aria-hidden="true" />
         )}
-        <span className="min-w-0 flex-1 truncate text-caption-11 text-text-tertiary">
-          {duration ? `Thought for ${duration}` : "Thought"}
-        </span>
+        <span className="min-w-0 flex-1 truncate text-caption-11 text-text-tertiary">{label}</span>
       </button>
 
       {isExpanded ? (

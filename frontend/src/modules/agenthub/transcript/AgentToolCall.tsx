@@ -1,15 +1,9 @@
 import * as React from "react";
-import {
-  ChevronRight,
-  FileEdit,
-  FileText,
-  Search,
-  Terminal,
-  Wrench,
-} from "lucide-react";
+import { BookOpen, Bot, ChevronRight, FileEdit, Globe, Search, Terminal, Wrench } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import type { ToolCall } from "../types";
+import { stepLabel } from "../turns";
 import { AgentFileChip } from "./AgentFileChip";
 import { AgentToolDiff } from "./AgentToolDiff";
 import { AgentToolTerminal } from "./AgentToolTerminal";
@@ -23,6 +17,13 @@ export type AgentToolCallProps = {
    * went; the output is one click away for the call you actually care about.
    */
   defaultExpanded?: boolean;
+  /**
+   * `card` is Figma's standalone tool call. `row` is one step inside a turn's
+   * work: an icon, a verb and what it acted on — "Read hook.go" — on the page's
+   * own ground. Forty cards in a list read as forty separate things; forty rows
+   * read as one piece of work.
+   */
+  variant?: "card" | "row";
   className?: string;
 };
 
@@ -49,12 +50,15 @@ export type AgentToolCallProps = {
  */
 function kindIcon(kind?: string) {
   const k = kind?.toLowerCase() ?? "";
-  if (k.includes("read") || k.includes("view") || k.includes("cat")) return FileText;
+  if (k.includes("read") || k.includes("view") || k.includes("cat")) return BookOpen;
   if (k.includes("edit") || k.includes("write") || k.includes("patch")) return FileEdit;
   if (k.includes("exec") || k.includes("bash") || k.includes("run") || k.includes("command"))
     return Terminal;
   if (k.includes("search") || k.includes("grep") || k.includes("glob") || k.includes("find"))
     return Search;
+  if (k.includes("fetch")) return Globe;
+  // claude-agent-acp gives its Task/Agent tool the `think` kind: a subagent.
+  if (k.includes("think")) return Bot;
   return Wrench;
 }
 
@@ -109,7 +113,12 @@ function isOneLineStatus(raw: string): boolean {
   return !text.startsWith("{") && !text.startsWith("[");
 }
 
-export function AgentToolCall({ call, defaultExpanded = false, className }: AgentToolCallProps) {
+export function AgentToolCall({
+  call,
+  defaultExpanded = false,
+  variant = "card",
+  className,
+}: AgentToolCallProps) {
   const KindIcon = kindIcon(call.kind);
   const state = toToolState(call.status);
   const title = call.title || call.kind || call.id || "Tool execution";
@@ -131,6 +140,123 @@ export function AgentToolCall({ call, defaultExpanded = false, className }: Agen
   const result = state === "failed" ? FALLBACK.failed : summary || FALLBACK[state];
   const reason = state === "failed" ? raw : "";
 
+  // The whole row is the toggle when there is output to show, and a plain row
+  // when there is not — a button that opens nothing is a lie about what the
+  // row holds.
+  const head = (className: string, children: React.ReactNode) =>
+    React.createElement(
+      hasBody ? "button" : "div",
+      {
+        ...(hasBody
+          ? {
+              type: "button",
+              onClick: () => setExpanded((open) => !open),
+              "aria-expanded": expanded,
+              "data-testid": "tool-call-toggle",
+            }
+          : {}),
+        className: cn(className, hasBody && "cursor-pointer"),
+      },
+      children,
+    );
+
+  const chevron = hasBody ? (
+    <ChevronRight
+      aria-hidden="true"
+      className={cn(
+        "size-3.5 shrink-0 text-text-tertiary transition-transform duration-(--motion-fast)",
+        expanded && "rotate-90",
+      )}
+    />
+  ) : null;
+
+  const body = (
+    <>
+      {expanded && locations.length > 0 ? (
+        <div className="flex w-full flex-wrap items-center gap-1">
+          {locations.map((loc, idx) => (
+            <AgentFileChip key={`${loc.path}-${loc.line ?? idx}`} path={loc.path} line={loc.line} />
+          ))}
+        </div>
+      ) : null}
+
+      {/* Figma: failed keeps its reason inline. A red dot alone is not actionable. */}
+      {reason ? (
+        <p
+          data-testid="tool-call-reason"
+          className={cn(
+            "w-full max-w-full break-all whitespace-pre-wrap text-text-secondary",
+            variant === "row" ? "text-code-12" : "text-caption-11",
+          )}
+        >
+          {reason}
+        </p>
+      ) : null}
+
+      {expanded &&
+        content.map((item, idx) => {
+          if (item.type === "diff") {
+            return <AgentToolDiff key={idx} path={item.path} oldText={item.oldText} newText={item.newText} />;
+          }
+          if (item.type === "terminal") {
+            return <AgentToolTerminal key={idx} terminalId={item.terminalId} />;
+          }
+          if (item.content?.text) {
+            return (
+              <pre
+                key={idx}
+                className="w-full overflow-x-auto rounded-md bg-surface-base p-2 text-code-11 whitespace-pre text-text-secondary select-text"
+              >
+                <code>{item.content.text}</code>
+              </pre>
+            );
+          }
+          return null;
+        })}
+    </>
+  );
+
+  if (variant === "row") {
+    const { verb, object } = stepLabel(call);
+    const pending = state === "running" || state === "pending" || state === "awaiting";
+    return (
+      <div
+        data-testid="agent-tool-call"
+        data-variant="row"
+        data-status={call.status ?? "completed"}
+        data-state={state}
+        className={cn("flex w-full min-w-0 flex-col gap-2", className)}
+      >
+        {head(
+          "flex w-full min-w-0 items-center gap-2 text-left text-body-14",
+          <>
+            <KindIcon className="size-4 shrink-0 text-icon-secondary" aria-hidden="true" />
+            <span className="flex min-w-0 items-baseline gap-1">
+              <span className={cn("shrink-0", state === "failed" ? "text-status-danger" : "text-text-secondary")}>
+                {verb}
+              </span>
+              {object ? (
+                // A command is code; a file name and a query are words.
+                <span
+                  className={cn(
+                    "min-w-0 truncate text-text-tertiary",
+                    call.kind?.toLowerCase() === "execute" && "text-code-12",
+                  )}
+                >
+                  {object}
+                </span>
+              ) : null}
+            </span>
+            {pending ? <span className="shrink-0 text-text-tertiary">{FALLBACK[state]}</span> : null}
+            {chevron}
+          </>,
+        )}
+        {/* Under the words, not under the icon: 16px icon + 8px gap. */}
+        {reason || expanded ? <div className="flex w-full min-w-0 flex-col gap-2 pl-6">{body}</div> : null}
+      </div>
+    );
+  }
+
   return (
     <div
       data-testid="agent-tool-call"
@@ -142,110 +268,35 @@ export function AgentToolCall({ call, defaultExpanded = false, className }: Agen
         className,
       )}
     >
-      {/* The whole row is the toggle when there is output to show, and a plain
-          row when there is not — a button that opens nothing is a lie about
-          what the row holds. */}
-      {React.createElement(
-        hasBody ? "button" : "div",
-        {
-          ...(hasBody
-            ? {
-                type: "button",
-                onClick: () => setExpanded((open) => !open),
-                "aria-expanded": expanded,
-                "data-testid": "tool-call-toggle",
-              }
-            : {}),
-          className: cn("flex w-full min-w-0 items-center gap-2 text-left", hasBody && "cursor-pointer"),
-        },
+      {head(
+        "flex w-full min-w-0 items-center gap-2 text-left",
         <>
-        <span
-          aria-hidden="true"
-          className={cn("size-1.5 shrink-0 rounded-full", DOT[state])}
-        />
-        <KindIcon className="size-3 shrink-0 text-icon-secondary" aria-hidden="true" />
-        {/* Truncates rather than holding its width: a shell command is a title
-            too, and at nowrap/shrink-0 a long one pushed the row past the
-            column. The full command is in the output once opened. */}
-        <span className="min-w-0 truncate text-body-12 text-text-secondary">
-          {title}
-        </span>
-        <span className="min-w-0 flex-1" />
-        {result ? (
-          <span
-            data-testid="tool-call-result"
-            className={cn(
-              "min-w-0 max-w-[50%] shrink truncate text-caption-11 whitespace-nowrap",
-              state === "failed"
-                ? "text-status-danger"
-                : state === "done"
-                  ? "text-text-tertiary"
-                  : "text-text-secondary",
-            )}
-          >
-            {result}
-          </span>
-        ) : null}
-        {hasBody ? (
-          <ChevronRight
-            aria-hidden="true"
-            className={cn(
-              "size-3 shrink-0 text-text-tertiary transition-transform",
-              expanded && "rotate-90",
-            )}
-          />
-        ) : null}
+          <span aria-hidden="true" className={cn("size-1.5 shrink-0 rounded-full", DOT[state])} />
+          <KindIcon className="size-3 shrink-0 text-icon-secondary" aria-hidden="true" />
+          {/* Truncates rather than holding its width: a shell command is a title
+              too, and at nowrap/shrink-0 a long one pushed the row past the
+              column. The full command is in the output once opened. */}
+          <span className="min-w-0 truncate text-body-12 text-text-secondary">{title}</span>
+          <span className="min-w-0 flex-1" />
+          {result ? (
+            <span
+              data-testid="tool-call-result"
+              className={cn(
+                "min-w-0 max-w-[50%] shrink truncate text-caption-11 whitespace-nowrap",
+                state === "failed"
+                  ? "text-status-danger"
+                  : state === "done"
+                    ? "text-text-tertiary"
+                    : "text-text-secondary",
+              )}
+            >
+              {result}
+            </span>
+          ) : null}
+          {chevron}
         </>,
       )}
-
-      {expanded && locations.length > 0 ? (
-        <div className="flex w-full flex-wrap items-center gap-1">
-          {locations.map((loc, idx) => (
-            <AgentFileChip
-              key={`${loc.path}-${loc.line ?? idx}`}
-              path={loc.path}
-              line={loc.line}
-            />
-          ))}
-        </div>
-      ) : null}
-
-      {/* Figma: failed keeps its reason inline. A red dot alone is not actionable. */}
-      {reason ? (
-        <p
-          data-testid="tool-call-reason"
-          className="w-full max-w-full text-caption-11 break-all whitespace-pre-wrap text-text-secondary"
-        >
-          {reason}
-        </p>
-      ) : null}
-
-      {expanded && content.map((item, idx) => {
-        if (item.type === "diff") {
-          return (
-            <AgentToolDiff
-              key={idx}
-              path={item.path}
-              oldText={item.oldText}
-              newText={item.newText}
-            />
-          );
-        }
-        if (item.type === "terminal") {
-          return <AgentToolTerminal key={idx} terminalId={item.terminalId} />;
-        }
-        if (item.content?.text) {
-          return (
-            <pre
-              key={idx}
-              className="w-full overflow-x-auto rounded-sm bg-surface-base p-2 text-code-11 whitespace-pre text-text-secondary select-text"
-            >
-              <code>{item.content.text}</code>
-            </pre>
-          );
-        }
-        return null;
-      })}
+      {body}
     </div>
   );
 }
