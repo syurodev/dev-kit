@@ -20,6 +20,9 @@ var (
 	ErrInvalidCwd              = errors.New("agenthub.invalidCwd")
 	ErrInvalidSessionTitle     = errors.New("agenthub.invalidSessionTitle")
 	ErrInvalidConfigOption     = errors.New("agenthub.invalidConfigOption")
+	// ErrInvalidPrompt is a prompt DevKit refuses to send: empty, or with an
+	// attachment or pasted image that is unreadable, unsupported or too large.
+	ErrInvalidPrompt = errors.New("agenthub.invalidPrompt")
 	ErrCallerMismatch          = errors.New("agenthub.callerMismatch")
 	ErrProxyNotFound           = errors.New("agenthub.proxyNotFound")
 	// ErrAgentAuthRequired is an agent with no working sign-in: an expired or

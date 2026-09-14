@@ -2,6 +2,7 @@ package agenthub
 
 import (
 	"encoding/base64"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -84,6 +85,49 @@ func TestPastedImageUsesTheImageBlockAndLimitsInput(t *testing.T) {
 	}
 	if _, err := buildPromptWithImages("x", nil, []ImageAttachment{{Name: "paste.bmp", MimeType: "image/bmp", Data: data}}, t.TempDir(), false); err == nil {
 		t.Fatal("unsupported pasted image type was accepted")
+	}
+}
+
+// Pasted images were decoded before their size was checked, against an 8 MiB
+// decoded limit — over 10 MiB of base64, past what Claude takes per image. And
+// every refusal surfaced as "Agent cwd is not a valid project directory."
+func TestPastedImageSizeIsCheckedOnItsBase64BeforeDecoding(t *testing.T) {
+	image := func(data string) []ImageAttachment {
+		return []ImageAttachment{{Name: "paste.png", MimeType: "image/png", Data: data}}
+	}
+	dir := t.TempDir()
+
+	// Over the limit and not even base64: only a check that runs before the
+	// decode can say it is the size that is wrong.
+	_, err := buildPromptWithImages("x", nil, image(strings.Repeat("!", maxImageBase64Bytes+1)), dir, false)
+	if !errors.Is(err, ErrInvalidPrompt) || !strings.Contains(err.Error(), "limit") {
+		t.Fatalf("oversized paste err = %v, want the size limit before any decode", err)
+	}
+
+	atLimit := base64.StdEncoding.EncodeToString(make([]byte, maxImageBase64Bytes/4*3))
+	if _, err := buildPromptWithImages("x", nil, image(atLimit), dir, false); err != nil {
+		t.Fatalf("an image of exactly %d base64 bytes was refused: %v", len(atLimit), err)
+	}
+	// Under the old decoded limit, over Claude's encoded one.
+	over := base64.StdEncoding.EncodeToString(make([]byte, maxImageBase64Bytes/4*3+1))
+	if _, err := buildPromptWithImages("x", nil, image(over), dir, false); !errors.Is(err, ErrInvalidPrompt) {
+		t.Fatalf("image of %d base64 bytes err = %v, want refused", len(over), err)
+	}
+
+	_, err = buildPromptWithImages("x", nil, []ImageAttachment{{Name: "paste.bmp", MimeType: "image/bmp", Data: "AA=="}}, dir, false)
+	if !errors.Is(err, ErrInvalidPrompt) || errors.Is(err, ErrInvalidCwd) {
+		t.Fatalf("unsupported image err = %v, want a prompt error, not a cwd error", err)
+	}
+}
+
+func TestAttachedImageFileIsLimitedByItsBase64Size(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "big.png")
+	if err := os.WriteFile(path, make([]byte, maxImageBase64Bytes/4*3+1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := buildPrompt("x", []string{path}, dir, false); !errors.Is(err, ErrInvalidPrompt) {
+		t.Fatalf("err = %v, want an image over the base64 limit refused as a prompt error", err)
 	}
 }
 

@@ -20,6 +20,14 @@ import (
 // sentence beats a turn that stalls and then errors somewhere less legible.
 const maxAttachmentBytes = 8 << 20
 
+// maxImageBase64Bytes bounds one image the way Claude measures it: the base64
+// payload, not the decoded bytes. The API takes 10 MB per image directly but 5
+// MB on Bedrock and Vertex, and DevKit cannot tell which one the agent is
+// signed in to, so the lower limit holds. The old 8 MiB decoded limit was
+// over 10 MiB of base64 — past both. Mirrors MAX_AGENT_IMAGE_BYTES in
+// frontend/src/modules/agenthub/imageAttachments.ts.
+const maxImageBase64Bytes = 5 << 20
+
 // buildPrompt turns the user's text and the files they attached into the
 // blocks session/prompt takes.
 //
@@ -55,7 +63,7 @@ func buildPromptWithImages(text string, attachments []string, images []ImageAtta
 	}
 
 	if len(blocks) == 0 {
-		return nil, fmt.Errorf("%w: prompt is empty", ErrInvalidCwd)
+		return nil, fmt.Errorf("%w: prompt is empty", ErrInvalidPrompt)
 	}
 	return blocks, nil
 }
@@ -63,14 +71,15 @@ func buildPromptWithImages(text string, attachments []string, images []ImageAtta
 func pastedImageBlock(image ImageAttachment) (acp.ContentBlock, error) {
 	allowed := map[string]bool{"image/png": true, "image/jpeg": true, "image/gif": true, "image/webp": true}
 	if !allowed[image.MimeType] {
-		return acp.ContentBlock{}, fmt.Errorf("%w: %s is not a supported image", ErrInvalidCwd, image.Name)
+		return acp.ContentBlock{}, fmt.Errorf("%w: %s is not a supported image", ErrInvalidPrompt, image.Name)
 	}
-	body, err := base64.StdEncoding.DecodeString(image.Data)
-	if err != nil {
-		return acp.ContentBlock{}, fmt.Errorf("%w: invalid image data for %s", ErrInvalidCwd, image.Name)
+	// Size first, on the encoded length: decoding an oversized paste only to
+	// refuse it spends the memory the limit is there to protect.
+	if len(image.Data) > maxImageBase64Bytes {
+		return acp.ContentBlock{}, fmt.Errorf("%w: %s is over the %d byte image limit", ErrInvalidPrompt, image.Name, maxImageBase64Bytes)
 	}
-	if len(body) > maxAttachmentBytes {
-		return acp.ContentBlock{}, fmt.Errorf("%w: %s is over the %d byte limit", ErrInvalidCwd, image.Name, maxAttachmentBytes)
+	if _, err := base64.StdEncoding.DecodeString(image.Data); err != nil {
+		return acp.ContentBlock{}, fmt.Errorf("%w: invalid image data for %s", ErrInvalidPrompt, image.Name)
 	}
 	return acp.ContentBlock{Type: "image", Data: image.Data, MimeType: image.MimeType, Name: image.Name}, nil
 }
@@ -87,11 +96,11 @@ func pastedImageBlock(image ImageAttachment) (acp.ContentBlock, error) {
 func attachmentBlock(path, allowedRoot string, callerIsAgent bool) (acp.ContentBlock, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
-		return acp.ContentBlock{}, fmt.Errorf("%w: %s", ErrInvalidCwd, path)
+		return acp.ContentBlock{}, fmt.Errorf("%w: %s", ErrInvalidPrompt, path)
 	}
 	resolved, err := filepath.EvalSymlinks(abs)
 	if err != nil {
-		return acp.ContentBlock{}, fmt.Errorf("%w: %s: %v", ErrInvalidCwd, path, err)
+		return acp.ContentBlock{}, fmt.Errorf("%w: %s: %v", ErrInvalidPrompt, path, err)
 	}
 
 	if callerIsAgent {
@@ -104,25 +113,30 @@ func attachmentBlock(path, allowedRoot string, callerIsAgent bool) (acp.ContentB
 
 	info, err := os.Stat(resolved)
 	if err != nil {
-		return acp.ContentBlock{}, fmt.Errorf("%w: %s: %v", ErrInvalidCwd, path, err)
+		return acp.ContentBlock{}, fmt.Errorf("%w: %s: %v", ErrInvalidPrompt, path, err)
 	}
 	if info.IsDir() {
-		return acp.ContentBlock{}, fmt.Errorf("%w: %s is a directory", ErrInvalidCwd, path)
+		return acp.ContentBlock{}, fmt.Errorf("%w: %s is a directory", ErrInvalidPrompt, path)
 	}
+	mimeType := mime.TypeByExtension(filepath.Ext(resolved))
+	isImage := strings.HasPrefix(mimeType, "image/")
 	if info.Size() > maxAttachmentBytes {
 		return acp.ContentBlock{}, fmt.Errorf("%w: %s is %d bytes, over the %d limit",
-			ErrInvalidCwd, filepath.Base(path), info.Size(), maxAttachmentBytes)
+			ErrInvalidPrompt, filepath.Base(path), info.Size(), maxAttachmentBytes)
+	}
+	if isImage && base64.StdEncoding.EncodedLen(int(info.Size())) > maxImageBase64Bytes {
+		return acp.ContentBlock{}, fmt.Errorf("%w: %s is %d bytes, over the %d byte base64 image limit",
+			ErrInvalidPrompt, filepath.Base(path), info.Size(), maxImageBase64Bytes)
 	}
 
 	body, err := os.ReadFile(resolved)
 	if err != nil {
-		return acp.ContentBlock{}, fmt.Errorf("%w: %s: %v", ErrInvalidCwd, path, err)
+		return acp.ContentBlock{}, fmt.Errorf("%w: %s: %v", ErrInvalidPrompt, path, err)
 	}
 
-	mimeType := mime.TypeByExtension(filepath.Ext(resolved))
 	uri := "file://" + resolved
 
-	if strings.HasPrefix(mimeType, "image/") {
+	if isImage {
 		return acp.ContentBlock{
 			Type:     "image",
 			Data:     base64.StdEncoding.EncodeToString(body),
@@ -136,7 +150,7 @@ func attachmentBlock(path, allowedRoot string, callerIsAgent bool) (acp.ContentB
 	// will read as noise and answer about anyway.
 	if !utf8Text(body) {
 		return acp.ContentBlock{}, fmt.Errorf("%w: %s is not text or an image",
-			ErrInvalidCwd, filepath.Base(path))
+			ErrInvalidPrompt, filepath.Base(path))
 	}
 	if mimeType == "" {
 		mimeType = "text/plain"

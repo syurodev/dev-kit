@@ -81,7 +81,7 @@ Dev dùng nhiều agent CLI khác nhau (Claude Code, Codex, Gemini CLI...) nhưn
 | FR-6 | `invokeAgent` có depth/cycle guard — chặn agent A gọi B gọi lại A vô hạn. |
 | FR-7 | Mỗi agent vendor (Claude/Codex/Gemini...) có 1 adapter riêng implement chung 1 interface; core orchestration không đọc trực tiếp field riêng của vendor nào. |
 | FR-8 | Field mở rộng (`_meta`) của mọi message luôn được lưu nguyên dạng raw JSON song song với field đã normalize — không silently drop dữ liệu vendor chưa được adapter xử lý. |
-| FR-9 | Composer nối được available slash commands, context suggestions theo project (tối đa 100 file), file location mở trong Code Graph editor tới đúng dòng, và paste/drop ảnh giới hạn 8 MiB. |
+| FR-9 | Composer nối được available slash commands, context suggestions theo project (tối đa 100 file), file location mở trong Code Graph editor tới đúng dòng, và paste/drop ảnh giới hạn 3,75 MiB (tức 5 MiB base64 — giới hạn mỗi ảnh của Claude trên Bedrock/Vertex). |
 | FR-10 | Composer đọc config/mode từ transcript và đổi model, effort, permission mode qua `session/set_config_option` / `session/set_mode`; bypass permissions luôn cần xác nhận rõ ràng. |
 | FR-11 | Agent Hub dùng được bằng bàn phím và screen reader; trạng thái/hoàn tất được announce không theo từng token, permission và lượt hoàn tất có notification nền khi cửa sổ không focus. |
 | FR-12 | Prompt nhập trong lúc session bận được xếp hàng theo session. Mọi lượt (composer, companion, Retry, hàng đợi) đi qua một đường gửi (`sendAgentTurn`): session chuyển running trước khi invoke. Prompt rời hàng đợi ngay khi lượt của nó bắt đầu và không bao giờ bị gửi lại; chỉ khi backend từ chối trước khi lượt bắt đầu (busy, validation, chưa cài/chưa đăng nhập) nó mới về lại đầu hàng đợi. Hàng đợi tự gửi tiếp sau mỗi lượt completed, bất kể `agenthub:turnFinished` hay RPC về trước. Lượt lỗi/huỷ khi còn prompt chờ thì hàng đợi tạm dừng cho tới khi người dùng bấm Resume; gửi tay không tự resume. Không gửi vào session đã xoá, đã đóng, đang chạy hoặc đang chờ permission. Gửi tay bị backend báo busy thì prompt vào hàng đợi, không mất text. Plan sống cập nhật tại chỗ; session đóng vẫn đọc và đổi tên được. |
@@ -663,7 +663,7 @@ Không cái nào bị protocol bắt buộc; thêm khi có nhu cầu thật.
   lịch sử và có thể đổi tên; prompt mới khi agent bận vào queue, chỉ drain sau
   lượt completed; lượt lỗi/huỷ tạm dừng queue tới khi bấm Resume (FR-12).
 - Composer hỗ trợ file picker/context bounded và paste/drop PNG, JPEG, GIF, WebP
-  tối đa 8 MiB. Ảnh được gửi transient như ACP image block, không lưu transcript.
+  tối đa 3,75 MiB (5 MiB khi base64: giới hạn mỗi ảnh của Claude trên Bedrock/Vertex; API trực tiếp cho 10 MB, DevKit không biết agent đăng nhập qua đâu nên theo mức thấp). Ảnh được gửi transient như ACP image block, không lưu transcript.
 - **Sandbox vendor phải tắt khi spawn qua DevKit.** Trên macOS sandbox không
   lồng được (`sandbox_apply: Operation not permitted`, đo 2026-09-05); Claude
   Code `/sandbox` / Codex sandbox bật bên trong jail DevKit làm mọi lệnh bash
@@ -727,11 +727,11 @@ Kết luận ở trên đúng với một version của một vendor, nên hai c
 - **`delete` (Implemented).** Hai bên **không** cùng một thứ: `Service.DeleteSession` xoá row của DevKit, còn vendor giữ session của nó thành file trong store riêng — nên một cuộc hội thoại xoá "for good" (chữ trong hộp xác nhận) vẫn đọc được ở đó. `session/delete` giờ được gọi qua `RuntimeDeleter` **trước** khi đóng connection, best-effort: hỏng phần dọn của vendor mà làm hỏng cả thao tác thì còn để lại row, tệ hơn. **Trần đã biết:** chỉ với tới được khi runtime còn sống; session mà process đã chết vẫn để lại bản của vendor — `resumeRuntime` khiến việc dọn nốt là khả thi nếu về sau đống thừa đó đáng giá hơn chi phí.
 - **`resume`** — đã làm ở T1 qua `session/load`.
 - **`fork` / `list`** — chưa làm, chưa có nhu cầu từ UI.
-- **Prompt không chỉ có text (Implemented).** Cả lát dọc: picker file native (`AgentHubChooseFiles`) → "Browse files…" đầu menu context → attachment state theo session → `InvokeInput.Attachments` hoặc `Images` → `buildPrompt` → `[]acp.ContentBlock`. Paste/drop dùng PNG, JPEG, GIF, WebP ≤8 MiB; dữ liệu ảnh chỉ sống trong request.
+- **Prompt không chỉ có text (Implemented).** Cả lát dọc: picker file native (`AgentHubChooseFiles`) → "Browse files…" đầu menu context → attachment state theo session → `InvokeInput.Attachments` hoặc `Images` → `buildPrompt` → `[]acp.ContentBlock`. Paste/drop dùng PNG, JPEG, GIF, WebP ≤3,75 MiB (5 MiB base64; backend kiểm độ dài base64 trước khi decode); dữ liệu ảnh chỉ sống trong request.
 
   **Nội dung đi kèm prompt, không phải đường dẫn.** Agent khai `promptCapabilities.embeddedContext`, và một path chỉ hữu ích với agent nếu file nằm trong jail của nó — đính kèm từ chỗ khác trên máy đúng là ca mà path không phục vụ được. Ảnh đi bằng `image` block vì vendor khai `promptCapabilities.image`; binary không phải ảnh bị từ chối thay vì gửi thành nhiễu.
 
-  **Chốt an toàn, và đây là phần đáng đọc kỹ.** `Invoke` cũng là đường một agent gọi agent khác (`invokeAgent`), nên ở đó đường dẫn đến từ model. DevKit đọc file bằng quyền của **chính nó**, ngoài sandbox vốn sinh ra để chặn đúng việc này — nên attachment do agent cung cấp bị giới hạn trong project của session, so sánh sau khi `EvalSymlinks` để symlink cắm trong project không trỏ ra ngoài được. Người dùng chọn file qua composer thì không bị giới hạn đó: họ là một actor khác. Trần 8 MiB mỗi file.
+  **Chốt an toàn, và đây là phần đáng đọc kỹ.** `Invoke` cũng là đường một agent gọi agent khác (`invokeAgent`), nên ở đó đường dẫn đến từ model. DevKit đọc file bằng quyền của **chính nó**, ngoài sandbox vốn sinh ra để chặn đúng việc này — nên attachment do agent cung cấp bị giới hạn trong project của session, so sánh sau khi `EvalSymlinks` để symlink cắm trong project không trỏ ra ngoài được. Người dùng chọn file qua composer thì không bị giới hạn đó: họ là một actor khác. Trần 8 MiB mỗi file; file ảnh thì theo độ dài base64 ≤5 MiB như ảnh dán. Prompt rỗng hay attachment/ảnh bị từ chối trả `ErrInvalidPrompt` (trước bị bọc thành `ErrInvalidCwd`, nên UI báo nhầm "cwd không hợp lệ").
 
 ### T3 — Dọn tầng (Đã làm 2026-09-07)
 

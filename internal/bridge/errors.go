@@ -237,6 +237,8 @@ func publicError(subject string, err error) *apperrors.AppError {
 			return apperrors.New(codeValidationFailed, "Agent cwd is not a valid project directory.", true)
 		case errors.Is(err, agenthub.ErrInvalidConfigOption):
 			return apperrors.New(codeValidationFailed, "Choose a valid agent setting.", true)
+		case errors.Is(err, agenthub.ErrInvalidPrompt):
+			return apperrors.New(codeValidationFailed, "The prompt is empty, or an attachment is unreadable, unsupported, or too large (images: 3.75 MB).", true)
 		case errors.Is(err, agenthub.ErrCallerMismatch):
 			return apperrors.New(codeValidationFailed, "callerSessionId does not match the calling agent.", true)
 		case errors.Is(err, agenthub.ErrProxyNotFound):
