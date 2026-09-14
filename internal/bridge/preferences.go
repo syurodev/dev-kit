@@ -77,6 +77,46 @@ func (s *AppService) PreferencesGetThemeFamily() (preferences.ThemeFamily, error
 	return result.(preferences.ThemeFamily), nil
 }
 
+// PreferencesGetAgentNotifications reports whether Agent Hub notifies when an
+// agent needs the user or finishes. On by default.
+func (s *AppService) PreferencesGetAgentNotifications() (bool, error) {
+	result, err := s.call(context.Background(), "builtin.settings", "preferences:read", "agent_notifications", map[string]any{
+		"action": "get_agent_notifications",
+	}, func(context.Context) (any, error) {
+		if s.container.Preferences == nil {
+			return nil, errPreferencesUnavailable
+		}
+		return s.container.Preferences.AgentNotifications()
+	})
+	if err != nil {
+		return false, err
+	}
+	return result.(bool), nil
+}
+
+// PreferencesSetAgentNotifications turns the notifications on or off. Turning
+// them on is when the OS is asked for permission to show them — a moment the
+// user chose, rather than the first time an agent needs them, when the dialog
+// would cover the very prompt it is about.
+func (s *AppService) PreferencesSetAgentNotifications(enabled bool) error {
+	_, err := s.call(context.Background(), "builtin.settings", "preferences:write", "agent_notifications", map[string]any{
+		"action":  "set_agent_notifications",
+		"enabled": enabled,
+	}, func(context.Context) (any, error) {
+		if s.container.Preferences == nil {
+			return nil, errPreferencesUnavailable
+		}
+		if err := s.container.Preferences.SetAgentNotifications(enabled); err != nil {
+			return nil, err
+		}
+		if enabled && s.container.AgentNotifications != nil {
+			s.container.AgentNotifications.Authorize()
+		}
+		return nil, nil
+	})
+	return err
+}
+
 func (s *AppService) PreferencesSetThemeFamily(family preferences.ThemeFamily) error {
 	_, err := s.call(context.Background(), "builtin.settings", "preferences:write", "theme_family", map[string]any{
 		"action": "set_theme_family",

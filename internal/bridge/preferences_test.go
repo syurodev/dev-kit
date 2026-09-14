@@ -2,8 +2,11 @@ package bridge
 
 import (
 	"errors"
+	"sync/atomic"
 	"testing"
+	"time"
 
+	"devkit/internal/agenthub"
 	"devkit/internal/app"
 	"devkit/internal/preferences"
 )
@@ -91,6 +94,49 @@ func TestPreferencesSetThemeFamilyLeavesTheNativeFrameAlone(t *testing.T) {
 	}
 	if applied != "" {
 		t.Fatalf("applyTheme called with %q; the family must not move the native frame", applied)
+	}
+}
+
+type countingDesktop struct{ requests atomic.Int32 }
+
+func (*countingDesktop) Start() error { return nil }
+func (d *countingDesktop) RequestAuthorization() (bool, error) {
+	d.requests.Add(1)
+	return true, nil
+}
+func (*countingDesktop) Send(agenthub.DesktopNotification, bool) error { return nil }
+
+func TestPreferencesAgentNotificationsDefaultOnAndTurningOnAsksTheOS(t *testing.T) {
+	container := app.NewContainer()
+	desktop := &countingDesktop{}
+	container.AgentNotifications = &agenthub.Notifier{Desktop: desktop, Enabled: func() bool {
+		on, err := container.Preferences.AgentNotifications()
+		return err == nil && on
+	}}
+	service := NewAppService(container)
+
+	if on, err := service.PreferencesGetAgentNotifications(); err != nil || !on {
+		t.Fatalf("default = %v, err = %v; want on", on, err)
+	}
+	if err := service.PreferencesSetAgentNotifications(false); err != nil {
+		t.Fatalf("turn off: %v", err)
+	}
+	if on, err := service.PreferencesGetAgentNotifications(); err != nil || on {
+		t.Fatalf("after turning off = %v, err = %v", on, err)
+	}
+	if got := desktop.requests.Load(); got != 0 {
+		t.Fatalf("asked the OS %d times while turning it off", got)
+	}
+
+	if err := service.PreferencesSetAgentNotifications(true); err != nil {
+		t.Fatalf("turn on: %v", err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for desktop.requests.Load() != 1 {
+		if time.Now().After(deadline) {
+			t.Fatal("turning notifications on did not ask the OS for permission")
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 

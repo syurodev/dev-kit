@@ -34,6 +34,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { McpInstallPanel } from "./McpInstallPanel";
 import { ConsoleStorageSetting } from "./ConsoleStorageSetting";
 import { AgentRuntimeSetting } from "./AgentRuntimeSetting";
+import { AgentNotificationSetting } from "./AgentNotificationSetting";
 import {
   Select,
   SelectContent,
@@ -781,6 +782,10 @@ function AgentsTab() {
       <div className="flex flex-col gap-3">
         <GroupLabel>CLAUDE AGENT</GroupLabel>
         <AgentRuntimeSetting />
+      </div>
+      <div className="flex flex-col gap-3">
+        <GroupLabel>NOTIFICATIONS</GroupLabel>
+        <AgentNotificationSetting />
       </div>
     </TabColumn>
   );

@@ -922,6 +922,14 @@ export function NotesUpdate(id: string, title: string, body: string): $Cancellab
     return $Call.ByID(3274258150, id, title, body);
 }
 
+/**
+ * PreferencesGetAgentNotifications reports whether Agent Hub notifies when an
+ * agent needs the user or finishes. On by default.
+ */
+export function PreferencesGetAgentNotifications(): $CancellablePromise<boolean> {
+    return $Call.ByID(2656868863);
+}
+
 export function PreferencesGetTheme(): $CancellablePromise<preferences$0.Theme> {
     return $Call.ByID(1151267161);
 }
@@ -935,6 +943,16 @@ export function PreferencesGetTheme(): $CancellablePromise<preferences$0.Theme> 
  */
 export function PreferencesGetThemeFamily(): $CancellablePromise<preferences$0.ThemeFamily> {
     return $Call.ByID(2641332005);
+}
+
+/**
+ * PreferencesSetAgentNotifications turns the notifications on or off. Turning
+ * them on is when the OS is asked for permission to show them — a moment the
+ * user chose, rather than the first time an agent needs them, when the dialog
+ * would cover the very prompt it is about.
+ */
+export function PreferencesSetAgentNotifications(enabled: boolean): $CancellablePromise<void> {
+    return $Call.ByID(3283860843, enabled);
 }
 
 export function PreferencesSetTheme(theme: preferences$0.Theme): $CancellablePromise<void> {

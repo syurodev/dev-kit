@@ -61,3 +61,15 @@ export function saveThemeFamily(family: ThemeFamilyPreference): Promise<void> {
   }[family];
   return callBridge(() => AppService.PreferencesSetThemeFamily(native));
 }
+
+/**
+ * Whether Agent Hub raises an OS notification when an agent needs you or
+ * finishes. On by default; turning it on asks the OS for permission to notify.
+ */
+export function getAgentNotifications(): Promise<boolean> {
+  return callBridge(() => AppService.PreferencesGetAgentNotifications());
+}
+
+export function saveAgentNotifications(enabled: boolean): Promise<void> {
+  return callBridge(() => AppService.PreferencesSetAgentNotifications(enabled));
+}
