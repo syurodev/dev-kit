@@ -37,9 +37,13 @@ function Inline({ text }: { text: string }) {
         switch (token.type) {
           case "code":
             return (
+              // The notes editor's inline code, class for class. It sat on
+              // surface/base, which is the transcript's own ground since the
+              // answer lost its bubble — a fill the same colour as the page,
+              // so `git` in a sentence was only a font change.
               <code
                 key={idx}
-                className="rounded-sm bg-surface-base px-1 text-code-12 text-text-primary"
+                className="whitespace-pre-wrap rounded-md bg-muted px-(--space-inline-code-x) py-(--space-inline-code-y) text-code-12 text-text-primary"
               >
                 {token.value}
               </code>
