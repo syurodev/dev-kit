@@ -1,5 +1,9 @@
 import { useSyncExternalStore } from "react";
-import { AtSign, Command as CommandIcon, ArrowUp, X } from "lucide-react";
+import { AtSign, Command as CommandIcon } from "lucide-react";
+// Icon DATA, not components: morphicons interpolates path geometry, which a
+// lucide-react component does not expose. Same version as lucide-react.
+import { ArrowUp, Square } from "lucide";
+import { MorphIcon } from "morphicons/react";
 import { BorderBeam } from "border-beam";
 
 import { cn } from "@/lib/utils";
@@ -70,10 +74,17 @@ function useAppTheme(): "dark" | "light" {
  * circle and a 56px field it was 124 — a sixth of a laptop window spent on the
  * box you type into, covering the transcript it floats over.
  *
- * While a turn runs, a border beam travels the edge. The composer is where the
- * eye is when you have just pressed Enter, and a moving edge there says "it is
- * working" without a line of text; it is warm for Claude, matching its mark in
- * the rail. The library stills itself under Reduce Motion.
+ * While a turn runs, a border beam travels the stop button — the control that
+ * acts on the running turn, and where the pointer already is after sending.
+ * Around the whole composer it was a moving edge around a field nobody is
+ * typing in; on the button it points at the one thing you can do. Warm for
+ * Claude, matching its mark in the rail; the library stills itself under
+ * Reduce Motion.
+ *
+ * The glyph morphs between send and stop (morphicons) instead of cutting from
+ * one to the other: the button stays where it is and changes what it does, and
+ * a morph is how that reads as the same control. It honours Reduce Motion
+ * (`reducedMotion="user"`) and swaps instantly then.
  */
 export function AgentComposer({
   size = "wide",
@@ -112,21 +123,17 @@ export function AgentComposer({
       : `Ask ${agentName ?? "agent"}…`);
 
   return (
-    <BorderBeam
-      active={isStreaming}
-      size="md"
-      colorVariant={vendor.toLowerCase().startsWith("claude") ? "sunset" : "ocean"}
-      theme={theme}
-      strength={0.8}
-      className={cn("w-full", rail ? "max-w-70" : "max-w-274", className)}
-    >
       <div
         role="region"
         aria-label="Agent prompt composer"
         data-testid="agent-composer"
         data-size={size}
         data-state={effectiveState}
-        className="glass-float flex w-full flex-col gap-2 rounded-xl p-2"
+        className={cn(
+          "glass-float flex w-full flex-col gap-2 rounded-xl p-2",
+          rail ? "max-w-70" : "max-w-274",
+          className,
+        )}
       >
         {attachedFiles.length > 0 ? (
           <div data-testid="composer-attachments" className="flex w-full flex-wrap items-center gap-1 px-1">
@@ -202,19 +209,32 @@ export function AgentComposer({
           </AgentMenu>
           <span className="min-w-0 flex-1" />
           <AgentContextMeter usage={usage} turnCount={turnCount} onCompact={onCompact} />
-          <Button
-            type="button"
-            size="icon-sm"
-            disabled={disabled}
-            aria-label={isStreaming ? "Stop generating" : "Send message"}
-            data-testid="composer-send-button"
-            onClick={isStreaming ? onCancel : onSend}
+          <BorderBeam
+            active={isStreaming}
+            size="sm"
+            colorVariant={vendor.toLowerCase().startsWith("claude") ? "sunset" : "ocean"}
+            theme={theme}
             className="shrink-0 rounded-full"
           >
-            {isStreaming ? <X aria-hidden="true" /> : <ArrowUp aria-hidden="true" />}
-          </Button>
+            <Button
+              type="button"
+              size="icon-sm"
+              disabled={disabled}
+              aria-label={isStreaming ? "Stop generating" : "Send message"}
+              data-testid="composer-send-button"
+              onClick={isStreaming ? onCancel : onSend}
+              className="rounded-full"
+            >
+              <MorphIcon
+                icon={isStreaming ? Square : ArrowUp}
+                size={14}
+                strokeWidth={2}
+                spring="snappy"
+                reducedMotion="user"
+              />
+            </Button>
+          </BorderBeam>
         </div>
       </div>
-    </BorderBeam>
   );
 }
