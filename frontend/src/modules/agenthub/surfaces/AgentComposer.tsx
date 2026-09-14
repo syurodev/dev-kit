@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useSyncExternalStore } from "react";
+import { useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import { AtSign, Check, ChevronDown, Command as CommandIcon } from "lucide-react";
 // Icon DATA, not components: morphicons interpolates path geometry, which a
 // lucide-react component does not expose. Same version as lucide-react.
@@ -137,15 +137,31 @@ export function AgentComposer({
   // Chromium's, and the webview on macOS and Linux is WebKit. Reset to auto
   // first so a field that was taller can shrink back when text is deleted.
   // Not animated — this changes on every keystroke, and motion there is noise.
-  // ponytail: re-measures on text change only; a width change (sidebar
-  // toggled) takes effect at the next keystroke.
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  useLayoutEffect(() => {
+  const fit = () => {
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = "auto";
     el.style.height = `${el.scrollHeight}px`;
-  }, [value, rail]);
+  };
+  useLayoutEffect(fit, [value, rail]);
+  // And again when the field's width changes. The split panel opens by
+  // animating from zero width, and a field measured mid-slide wrapped its
+  // placeholder a word a line — an empty composer stuck at its ceiling until
+  // something was typed. Width only: the height this sets would otherwise
+  // trigger the observer it is answering.
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    let width = el.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (el.clientWidth === width) return;
+      width = el.clientWidth;
+      fit();
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
   const isStreaming = streaming || state === "streaming";
   const effectiveState: ComposerState =
     state ?? (isStreaming ? "streaming" : attachedFiles.length > 0 ? "attached" : "idle");
