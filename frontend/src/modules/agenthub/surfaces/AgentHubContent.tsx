@@ -386,7 +386,13 @@ export function AgentHubContent({
                 </div>
               </div>
             ) : (
-              <TranscriptStream items={items} vendor={vendor} streaming={streaming} />
+              <TranscriptStream
+                items={items}
+                vendor={vendor}
+                streaming={streaming}
+                onCopy={onCopy}
+                onEditPrompt={onPromptChange}
+              />
             )}
           </div>
 

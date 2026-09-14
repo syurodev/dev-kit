@@ -17,6 +17,7 @@ import {
   AgentToolCall,
 } from "../transcript/index";
 import { AgentProse } from "../transcript/AgentMessageRich";
+import { MessageHoverCard } from "./MessageHoverCard";
 
 export type AgentTurnProps = {
   turn: Turn;
@@ -31,6 +32,10 @@ export type AgentTurnProps = {
   vendor?: string;
   /** Opens the inspector for a reply that carries cost and timing. */
   onInspect?: (item: TranscriptItem) => void;
+  /** Copy, in a message's hover card. */
+  onCopy?: (text: string) => void;
+  /** Edit, in your own prompt's hover card: its text goes back in the composer. */
+  onEditPrompt?: (text: string) => void;
 };
 
 /**
@@ -57,14 +62,20 @@ export type AgentTurnProps = {
  * (inline) inside a line. Work lines are 13px beside the answer's 14: the
  * account of what was done is the quieter register of the two.
  */
-export function AgentTurn({ turn, live = false, latest = false, vendor, onInspect }: AgentTurnProps) {
+export function AgentTurn({
+  turn,
+  live = false,
+  latest = false,
+  vendor,
+  onInspect,
+  onCopy,
+  onEditPrompt,
+}: AgentTurnProps) {
   const reduce = useReducedMotion() ?? false;
   const [open, setOpen] = React.useState(false);
 
   const activity = live ? activityOf(turn) : null;
   const answer = turn.answer.filter((item) => item.text?.trim());
-  const last = answer[answer.length - 1];
-  const meta = last ? turnMeta(last) : undefined;
   // Reduce Motion keeps the fade and drops the travel, scale and blur — the
   // parts accessibility.md › Motion names, "zooming, scaling, and peripheral
   // motion". Text still arrives; it just stops moving to get there.
@@ -74,12 +85,20 @@ export function AgentTurn({ turn, live = false, latest = false, vendor, onInspec
     <section data-testid="agent-turn" data-live={live || undefined} className="flex w-full flex-col gap-4">
       {turn.prompt?.text?.trim() ? (
         <div className="flex w-full justify-end">
-          <p
-            data-testid="turn-prompt"
-            className="max-w-[80%] rounded-lg bg-surface-tinted px-3 py-2 text-body-14 whitespace-pre-wrap break-words text-text-primary select-text"
+          <MessageHoverCard
+            align="end"
+            text={turn.prompt.text}
+            at={turn.prompt.createdAt}
+            onCopy={onCopy}
+            onEdit={onEditPrompt}
           >
-            {turn.prompt.text}
-          </p>
+            <p
+              data-testid="turn-prompt"
+              className="max-w-[80%] rounded-lg bg-surface-tinted px-3 py-2 text-body-14 whitespace-pre-wrap break-words text-text-primary select-text"
+            >
+              {turn.prompt.text}
+            </p>
+          </MessageHoverCard>
         </div>
       ) : null}
 
@@ -117,30 +136,31 @@ export function AgentTurn({ turn, live = false, latest = false, vendor, onInspec
       ) : null}
 
       {answer.map((item) => (
-        <AgentProse
+        <MessageHoverCard
           key={item.id}
+          align="start"
           text={item.text ?? ""}
-          // Only while the turn is live, and only on mount: a block of the
-          // answer arrives once, and the text streaming into it afterwards is
-          // already motion enough. A loaded history renders standing still.
-          wrapBlock={(block) => (
-            <motion.div initial={live ? from : false} animate={FADE_THROUGH.to} transition={FADE_THROUGH.enter}>
-              {block}
-            </motion.div>
-          )}
-        />
-      ))}
-
-      {meta && last && onInspect ? (
-        <button
-          type="button"
-          data-testid="message-open-meta"
-          onClick={() => onInspect(last)}
-          className="cursor-pointer self-start text-caption-11 text-text-tertiary hover:text-text-primary"
+          at={item.createdAt}
+          meta={turnMeta(item)}
+          onDetails={onInspect ? () => onInspect(item) : undefined}
+          onCopy={onCopy}
         >
-          {meta}
-        </button>
-      ) : null}
+          {/* AgentProse is not a DOM element; the trigger needs one to measure. */}
+          <div className="w-full">
+            <AgentProse
+              text={item.text ?? ""}
+              // Only while the turn is live, and only on mount: a block of the
+              // answer arrives once, and the text streaming into it afterwards is
+              // already motion enough. A loaded history renders standing still.
+              wrapBlock={(block) => (
+                <motion.div initial={live ? from : false} animate={FADE_THROUGH.to} transition={FADE_THROUGH.enter}>
+                  {block}
+                </motion.div>
+              )}
+            />
+          </div>
+        </MessageHoverCard>
+      ))}
 
       {turn.notes.map((item) => (
         <Note key={item.id} item={item} vendor={vendor} />

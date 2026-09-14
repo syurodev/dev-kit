@@ -12,6 +12,10 @@ export type TranscriptStreamProps = {
   vendor?: string;
   /** A turn is in flight. The newest turn runs its orb and follows its steps. */
   streaming?: boolean;
+  /** Copy, in each message's hover card. */
+  onCopy?: (text: string) => void;
+  /** Edit, in your own prompts' hover cards: the text goes back in the composer. */
+  onEditPrompt?: (text: string) => void;
   loading?: boolean;
   className?: string;
 };
@@ -31,6 +35,8 @@ export function TranscriptStream({
   items,
   vendor = "Claude",
   streaming = false,
+  onCopy,
+  onEditPrompt,
   loading = false,
   className,
 }: TranscriptStreamProps) {
@@ -108,6 +114,8 @@ export function TranscriptStream({
                 live={latest && streaming}
                 vendor={vendor}
                 onInspect={setInspecting}
+                onCopy={onCopy}
+                onEditPrompt={onEditPrompt}
               />
             );
           })}

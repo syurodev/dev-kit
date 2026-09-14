@@ -81,3 +81,18 @@ describe("StepGroup", () => {
     expect(html).toContain('data-testid="agent-thinking"');
   });
 });
+
+describe("message hover cards", () => {
+  it("keeps a message's time and actions off the transcript until it is hovered", () => {
+    const [turn] = groupTurns(items);
+    const html = renderToString(<AgentTurn turn={turn} onCopy={() => {}} onEditPrompt={() => {}} />);
+
+    // The prompt and the answer are hover-card triggers…
+    expect((html.match(/data-slot="hover-card-trigger"/g) ?? []).length).toBe(2);
+    // …and nothing of the card is on the page while it is closed: no inline
+    // meta line under a reply, no time, no buttons.
+    expect(html).not.toContain('data-testid="message-hover-card"');
+    expect(html).not.toContain('data-testid="message-open-meta"');
+    expect(html).not.toContain('data-testid="message-copy"');
+  });
+});
