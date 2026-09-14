@@ -6,6 +6,7 @@ import {
   AgentSessionsSubscriber,
   handleAgentTurnFinished,
   statusAnnouncement,
+  statusTransitionAnnouncement,
   turnFinishedAnnouncement,
 } from "./AgentSessionsSubscriber";
 import { useAgentSessionsStore } from "../stores/agentSessions";
@@ -118,6 +119,27 @@ describe("what the shell's live region says", () => {
     expect(statusAnnouncement("awaiting_permission")).toBe("Waiting for permission.");
     expect(statusAnnouncement("idle")).toBe("");
     expect(statusAnnouncement(undefined)).toBe("");
+  });
+
+  it("announces a status only when the same session changes to it after mount", () => {
+    // Mounting with nothing loaded yet, then the session list arriving.
+    expect(statusTransitionAnnouncement(null, { sessionId: "", status: undefined })).toBe("");
+    expect(
+      statusTransitionAnnouncement({ sessionId: "s1", status: undefined }, { sessionId: "s1", status: "running" }),
+    ).toBe("");
+    // Switching to a session that is already running.
+    expect(
+      statusTransitionAnnouncement({ sessionId: "s1", status: "idle" }, { sessionId: "s2", status: "running" }),
+    ).toBe("");
+    expect(
+      statusTransitionAnnouncement({ sessionId: "s1", status: "idle" }, { sessionId: "s1", status: "running" }),
+    ).toBe("Running…");
+    expect(
+      statusTransitionAnnouncement(
+        { sessionId: "s1", status: "running" },
+        { sessionId: "s1", status: "awaiting_permission" },
+      ),
+    ).toBe("Waiting for permission.");
   });
 
   it("is one polite region, mounted once by the shell", () => {

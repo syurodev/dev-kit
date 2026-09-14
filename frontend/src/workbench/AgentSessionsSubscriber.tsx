@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Window } from "@wailsio/runtime";
 import {
   agentHubGetStatus,
@@ -34,6 +34,18 @@ export function statusAnnouncement(status: string | undefined): string {
   if (status === "running") return "Running…";
   if (status === "awaiting_permission") return "Waiting for permission.";
   return "";
+}
+
+type ObservedStatus = { sessionId: string; status: string | undefined };
+
+/**
+ * statusAnnouncement for a change seen on one session. Not for the first status
+ * seen — mounting, the session list arriving — nor for switching to a session:
+ * those said "Running…" for a turn nobody had just started.
+ */
+export function statusTransitionAnnouncement(previous: ObservedStatus | null, next: ObservedStatus): string {
+  if (!previous || previous.sessionId !== next.sessionId || previous.status === undefined) return "";
+  return previous.status === next.status ? "" : statusAnnouncement(next.status);
 }
 
 /**
@@ -111,11 +123,15 @@ export function AgentSessionsSubscriber() {
   // The one live region for Agent Hub. The hub and the companion each mount a
   // transcript, and a region in each read every status twice.
   const [announcement, setAnnouncement] = useState("");
+  const activeSessionId = useAgentSessionsStore((state) => state.activeSessionId);
   const activeStatus = useAgentSessionsStore((state) => state.sessionsById[state.activeSessionId]?.status);
+  const observedStatus = useRef<ObservedStatus | null>(null);
   useEffect(() => {
-    const line = statusAnnouncement(activeStatus);
-    if (line && sessionVisible(useAgentSessionsStore.getState().activeSessionId)) setAnnouncement(line);
-  }, [activeStatus]);
+    const next = { sessionId: activeSessionId, status: activeStatus };
+    const line = statusTransitionAnnouncement(observedStatus.current, next);
+    observedStatus.current = next;
+    if (line && sessionVisible(activeSessionId)) setAnnouncement(line);
+  }, [activeSessionId, activeStatus]);
 
   useEffect(() => {
     let mounted = true;
