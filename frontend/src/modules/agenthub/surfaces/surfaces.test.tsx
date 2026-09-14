@@ -256,7 +256,7 @@ describe("Agent Hub Phase 3 Surfaces", () => {
     it("offers the agent picker in the composer only while a session is being started", () => {
       const base = { value: "", onChange: () => {}, onSend: () => {}, onCancel: () => {} };
       const picking = renderToString(
-        <AgentComposer {...base} agents={["claude", "mock"]} agent="claude" onAgentChange={() => {}} />,
+        <AgentComposer {...base} agents={["claude"]} agent="claude" onAgentChange={() => {}} />,
       );
       expect(picking).toContain('data-testid="composer-agent"');
       expect(picking).toContain("claude");
@@ -269,7 +269,7 @@ describe("Agent Hub Phase 3 Surfaces", () => {
         <AgentHubContent
           session={null}
           draft={{ projectPath: "/Users/dev/billing-service", parentName: "auth-refactor" }}
-          agents={["claude", "mock"]}
+          agents={["claude"]}
           agent="claude"
           onAgentChange={() => {}}
           promptValue=""

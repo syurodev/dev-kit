@@ -10,7 +10,7 @@ import type {
 } from "../../bindings/devkit/internal/agenthub/models";
 import type { SessionUpdate } from "../modules/agenthub/types";
 
-export type AgentVendor = "mock" | "claude";
+export type AgentVendor = "claude";
 
 export type SessionStatus =
   | "idle"
@@ -88,9 +88,6 @@ const SESSION_UPDATE_EVENT = "agenthub:sessionUpdate";
 const PERMISSION_EVENT = "agenthub:permission";
 
 function asVendor(value: string): AgentVendor | string {
-  if (value === "mock" || value === "claude") {
-    return value;
-  }
   return value;
 }
 
@@ -256,7 +253,7 @@ export function isSandboxUnavailableError(error: unknown): boolean {
 }
 
 export function sandboxUnavailableMessage(): string {
-  return "Agent sandbox is unavailable. On Linux install bubblewrap (bwrap); on macOS Seatbelt/sandbox-exec is required. Mock vendor works without a sandbox.";
+  return "Agent sandbox is unavailable. On Linux install bubblewrap (bwrap); on macOS Seatbelt/sandbox-exec is required.";
 }
 
 function parseSessionUpdate(data: unknown): SessionUpdateEvent | null {

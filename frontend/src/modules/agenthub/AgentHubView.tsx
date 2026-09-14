@@ -47,7 +47,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
-const DEFAULT_VENDORS: AgentVendor[] = ["mock", "claude"];
+// Until the backend answers. Claude is the one agent DevKit ships; the mock
+// adapter is a test double and is not offered.
+const DEFAULT_VENDORS: AgentVendor[] = ["claude"];
 
 /** A session to create, and the first message that is the reason for it. */
 type CreateParams = {

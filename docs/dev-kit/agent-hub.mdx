@@ -14,7 +14,7 @@ tự gọi sang agent khác lấy kết quả — không cần con người đi�
 import { Callout } from 'fumadocs-ui/components/callout';
 
 <Callout type="info" title="Implemented — Phase 4 v1 closed (Claude-only)">
-Phase 4 đóng với runtime: `internal/acp`, `internal/agenthub` (mock + Claude),
+Phase 4 đóng với runtime: `internal/acp`, `internal/agenthub` (Claude; mock chỉ là test double),
 bridge/UI multi-tab, MCP `agenthub.*`, spawn qua
 `sandbox.DefaultRunner().StartPiped(...)` (fail-closed). **Codex / Gemini
 adapters vẫn Design** — thêm sau, không chặn đóng Phase 4. Chưa claim
@@ -588,7 +588,9 @@ Không cái nào bị protocol bắt buộc; thêm khi có nhu cầu thật.
 ### Known ceiling (v1)
 
 - Chỉ target ACP protocol version 1; agent nào chỉ hỗ trợ v2 chưa dùng được.
-- Adapter shipped: **mock** (tests) + **Claude** (spawn qua `sandbox.StartPiped`).
+- Adapter shipped: **Claude** (spawn qua `sandbox.StartPiped`). Mock adapter chỉ là
+  test double cho test `agenthub`/`bridge` — không đăng ký trong app, không có trong
+  bộ chọn agent.
   Codex/Gemini vẫn Design — thêm theo cùng `VendorAdapter`, không rework core.
 - Router tự động chọn agent theo intent chưa có — v1 chỉ gọi tường minh theo `sessionId`.
 - Chưa có multi-client đồng bộ xem 1 session (kiểu AHP) — ngoài scope v1.

@@ -238,10 +238,12 @@ func main() {
 		Accounts:  remoteStore,
 		Items:     container.Items,
 	})
-	// Agent Hub: SQLite session/turn store + mock/claude adapters. Compose here
+	// Agent Hub: SQLite session/turn store + the Claude adapter. Compose here
 	// so agenthub never imports internal/storage (migrations stay in storage).
+	// The mock adapter is not registered: it is the test double the agenthub
+	// and bridge tests drive, and offered in the app it was an agent that
+	// answered nothing a user could want.
 	agentReg := agenthub.NewRegistry()
-	agentReg.Register(agenthub.NewMockAdapter())
 	// See ClaudeOptions.OnUnknownMethod: this is the measurement that decides
 	// whether fs/* and terminal/* are worth implementing. NFR-1 says the
 	// Capability Gateway mediates the agent's file access there; today it

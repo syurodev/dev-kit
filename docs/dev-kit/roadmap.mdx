@@ -55,13 +55,13 @@ trang kiểm chứng.
 - Goal: Built-in orchestration để chạy nhiều AI coding agent CLI song song trong
   Workbench — mỗi agent một tab — qua **ACP tự implement** (DevKit = ACP Client).
   Trên nền đó mở agent-gọi-agent (`agenthub.invokeAgent`) qua Capability Gateway
-  + MCP tool surface đã có. **v1 chỉ ship mock + Claude**; thêm vendor sau qua
+  + MCP tool surface đã có. **v1 chỉ ship Claude** (mock adapter chỉ dùng trong test); thêm vendor sau qua
   cùng `VendorAdapter`.
 - Evidence: [`/dev-kit/agent-hub`](/dev-kit/agent-hub),
-  `internal/acp`, `internal/agenthub` (mock + Claude), bridge/UI,
+  `internal/acp`, `internal/agenthub` (Claude; mock chỉ cho test), bridge/UI,
   MCP `agenthub.*`, spawn qua [`/dev-kit/sandbox`](/dev-kit/sandbox)
   `DefaultRunner().StartPiped` (fail-closed). ADR-009; desktop PR #22.
-- Done when: Spawn/cancel/UI/MCP tools cho Claude + mock; **mọi vendor spawn
+- Done when: Spawn/cancel/UI/MCP tools cho Claude; **mọi vendor spawn
   (non-mock) qua `sandbox.DefaultRunner()`**; audit `origin=mcp|ui`; không bypass
   Capability Gateway. Codex/Gemini **không** bắt buộc để đóng Phase 4.
 - Dependencies: Phase 0–2; MCP Implemented; **sandbox Implemented**.
@@ -142,7 +142,7 @@ trang kiểm chứng.
 9. ✅ **MCP runtime + install đã xong**: socket host, stdio proxy, tool allowlist,
    interaction gate (env wins over `allow_always`), install `claude-code`/`codex`
    × `global`/`project`. Chi tiết: [`/dev-kit/mcp-agent`](/dev-kit/mcp-agent).
-10. ✅ **Phase 4 Agent Hub v1 (Claude-only) đóng**: ACP + mock/Claude + sandbox
+10. ✅ **Phase 4 Agent Hub v1 (Claude-only) đóng**: ACP + Claude + sandbox
     `StartPiped` + bridge/UI/MCP `agenthub.*`. Codex/Gemini deferred. Chi tiết:
     [`/dev-kit/agent-hub`](/dev-kit/agent-hub).
 11. 🔄 **Phase 5 Workbench UI đang chạy** (nhánh `phase-5-workbench-ui`):

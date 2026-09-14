@@ -107,7 +107,7 @@ export function AgentHubTranscriptSection() {
         <AgentHubContent
           session={null}
           draft={{ projectPath: session.projectPath }}
-          agents={["claude", "mock"]}
+          agents={["claude"]}
           agent="claude"
           onAgentChange={() => {}}
           promptValue=""
