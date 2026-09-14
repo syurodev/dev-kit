@@ -191,10 +191,32 @@ export function TranscriptStream({
   const prependAnchorRef = useRef<PrependAnchor | null>(null);
 
   const virtualized = turns.length > TRANSCRIPT_VIRTUALIZE_THRESHOLD;
+  // virtual-core rebuilds every measurement (O(turns)) when the key function
+  // changes identity, and a new closure per render did that on every flush.
+  // The keys only change when turns are prepended, appended or replaced, and
+  // each of those moves an edge or the count.
+  const firstTurnId = turns[0]?.id;
+  const lastTurnId = turns[turns.length - 1]?.id;
+  const getItemKey = useMemo(() => {
+    const ids = turns.map((turn) => turn.id);
+    return (index: number) => ids[index] ?? index;
+  }, [turns.length, firstTurnId, lastTurnId]);
+  // The rows start below the viewport's top padding (the glass header's
+  // inset), so the virtualizer's window is offset by it. A padding change
+  // resizes the content box, which is what the observer sees.
+  const [scrollMargin, setScrollMargin] = useState(0);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!virtualized || !el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => setScrollMargin(parseFloat(getComputedStyle(el).paddingTop) || 0));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [virtualized]);
   const rowVirtualizer = useVirtualizer({
     count: virtualized ? turns.length : 0,
     getScrollElement: () => scrollRef.current,
-    getItemKey: (index) => turns[index]?.id ?? index,
+    getItemKey,
+    scrollMargin,
     estimateSize: () => 180,
     overscan: TRANSCRIPT_OVERSCAN,
     paddingStart: virtualized && hasMore && items.length > 0 ? 40 : 0,
@@ -407,7 +429,8 @@ export function TranscriptStream({
         data-index={item.index}
         data-testid="transcript-virtual-row"
         className="absolute top-0 left-0 w-full pb-6"
-        style={{ transform: `translateY(${item.start}px)` }}
+        // start counts the scroll margin; the row is placed inside the padded content.
+        style={{ transform: `translateY(${item.start - scrollMargin}px)` }}
       >
         {renderTurn(turn, item.index)}
       </div>
