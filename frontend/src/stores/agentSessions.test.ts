@@ -76,3 +76,27 @@ describe("subagents in the session store", () => {
     expect(useAgentSessionsStore.getState().subagents.s1).toBeUndefined();
   });
 });
+
+describe("permission control-plane state", () => {
+  beforeEach(() => {
+    useAgentSessionsStore.setState({ pending: null, pendingQueue: [] });
+  });
+
+  it("publishes a pending permission synchronously", () => {
+    const pending = {
+      id: "permission-1",
+      sessionId: "session-1",
+      params: {},
+      caller: "agent:claude",
+      title: "Run command",
+      depth: 0,
+      createdAt: "2026-09-14T00:00:00Z",
+      expiresAt: "2026-09-14T00:01:00Z",
+    };
+
+    useAgentSessionsStore.getState().enqueuePending(pending);
+
+    expect(useAgentSessionsStore.getState().pending).toBe(pending);
+    expect(useAgentSessionsStore.getState().pendingQueue).toEqual([pending]);
+  });
+});

@@ -35,15 +35,32 @@ describe("Agent Hub transcript performance fixture", () => {
 
   it("prints repeatable before/after measurements for the same fixture", () => {
     const updates = tokenUpdates();
-    const applySamples: number[] = [];
+    const legacyApplySamples: number[] = [];
     for (let run = 0; run < 3; run += 1) {
       let model = createInitialTranscriptModel();
       const started = performance.now();
       for (const update of updates) {
         model = applySessionUpdate(model, update);
       }
-      applySamples.push(performance.now() - started);
+      legacyApplySamples.push(performance.now() - started);
       expect(model.items).toHaveLength(1);
+    }
+
+    const batchedApplySamples: number[] = [];
+    for (let run = 0; run < 3; run += 1) {
+      const frames: Array<() => void> = [];
+      const buffer = new TranscriptEventBuffer(
+        createInitialTranscriptModel(),
+        () => undefined,
+        (callback) => {
+          frames.push(callback);
+          return () => undefined;
+        },
+      );
+      for (const update of updates) buffer.enqueue(update);
+      const started = performance.now();
+      frames[0]();
+      batchedApplySamples.push(performance.now() - started);
     }
 
     const entries = largeTranscriptEntries();
@@ -57,7 +74,8 @@ describe("Agent Hub transcript performance fixture", () => {
 
     console.log(
       `[agenthub perf] tokens=${TOKEN_COUNT} legacyPublishes=${TOKEN_COUNT * 2} ` +
-        `applyMsMedian=${median(applySamples).toFixed(2)} ` +
+        `batchedPublishes=1 legacyApplyMsMedian=${median(legacyApplySamples).toFixed(2)} ` +
+        `batchedApplyMsMedian=${median(batchedApplySamples).toFixed(2)} ` +
         `initRows=${entries.length} initMsMedian=${median(initSamples).toFixed(2)}`,
     );
   });

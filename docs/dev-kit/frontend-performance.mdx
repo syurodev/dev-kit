@@ -54,7 +54,7 @@ Kiến trúc hiện tại cần đọc cùng:
 | Offscreen paint hint | Implemented | Notes card/Agent transcript có `content-visibility`; đây chưa phải virtualization. |
 | Collection virtualization | Chưa implement | Notes, DB result, Kafka messages, transcript và graph vẫn cần primitive thật. |
 | Per-view activity policy | Chưa implement | Tab hiện giữ mounted; chưa có contract suspend/keep-alive/unmount theo nghiệp vụ. |
-| Realtime batching | Chưa implement đầy đủ | Agent stream vẫn có thể tạo update React theo từng event. |
+| Realtime batching | Implemented cho Agent Hub | Stream có buffer ngoài React theo session, flush tối đa một lần/frame; permission/control đi đường trực tiếp. |
 
 Baseline production đo ngày **2026-08-15** sau khi lazy module:
 
@@ -330,6 +330,28 @@ fail-closed.
 - Có ring/buffer ceiling cho live output, nhưng không làm mất durable history
   hoặc audit cần thiết.
 - Thêm vendor mới không được kéo UI/runtime SDK của mọi vendor vào initial chunk.
+
+#### Baseline — transcript stream (2026-09-14)
+
+Đo bằng `cd frontend && bun test src/modules/agenthub/transcriptPerformance.test.ts`
+trên macOS 27.0 arm64, Bun 1.4.0. Fixture được sinh deterministic trong
+`transcriptPerformance.fixture.ts`: 5.000 turn, 50.000 persisted row, gồm text,
+thought, plan và tool call có `rawOutput` dài. Mỗi số là median của 3 lượt trong
+cùng một process; thời gian máy local chỉ là evidence để bắt regression, không
+phải budget cho mọi máy.
+
+| Metric | Trước thay đổi | Sau thay đổi | Evidence |
+|---|---:|---:|---|
+| Publish transcript cho 1.000 token trên hai consumer | 2.000 | 1 store publish/frame | benchmark test: `legacyPublishes=2000`, `batchedPublishes=1` |
+| Reducer work cho 1.000 token | 1,35 ms tuần tự | 0,23 ms cho một batch/frame | benchmark test median |
+| `initTranscript` trên 50.000 row | 1.293,39 ms | 16,47 ms | cùng fixture, Map tool-call index |
+
+Con số trước là lần đo baseline ngay trước khi đổi (`applyMsMedian=1.35`,
+`initMsMedian=1293.39`); con số sau là lần chạy cùng test sau thay đổi
+(`batchedApplyMsMedian=0.23`, `initMsMedian=16.47`). Store snapshot được chuẩn
+hóa theo session nên event của session B không đổi identity model của A. Chưa
+đo được React Profiler trên Wails/WKWebView thật trong lượt này; benchmark cũng
+không thay thế kiểm tra DOM/paint hoặc memory của transcript lớn.
 
 ### Code Graph
 
