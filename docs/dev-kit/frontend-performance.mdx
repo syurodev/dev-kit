@@ -344,31 +344,38 @@ phải budget cho mọi máy.
 
 | Metric | Trước thay đổi | Sau thay đổi | Evidence |
 |---|---:|---:|---|
-| Publish transcript cho 1.000 token trên hai consumer | 2.000 | 1 store publish/frame | benchmark test: `legacyPublishes=2000`, `batchedPublishes=1` |
+| Store publish cho một burst 1.000 token | 1 publish/token mỗi consumer (ước tính, không đo) | 1 store publish/frame | `transcriptRuntime.test.ts`: đếm publish qua store thật và listener live-update của shell |
 | Reducer work cho 1.000 token | 1,35 ms tuần tự | 0,23 ms cho một batch/frame | benchmark test median |
 | `initTranscript` trên 50.000 row | 1.293,39 ms | 16,47 ms | cùng fixture, Map tool-call index |
-| Identity thay đổi của `AgentTurn` cho 1.000 token / 5.000 turn | 5.000.000 | 1.000 | benchmark test: `agentTurnIdentityChanges` |
-| Vòng `groupTurns` cho một token / 5.000 turn | 12,04 ms | 7,85 ms | cùng fixture, một pass; `groupTurnsOneTokenMs` |
-| Parse markdown 20.000 byte theo 1.000 prefix chunk | 454,98 ms | 85,56 ms | cùng fixture, một pass; benchmark `markdownMs`, incremental tail |
+| Identity thay đổi của `AgentTurn` cho 20 token / 5.000 turn | 100.000 | 20 | benchmark đếm từng token: `agentTurnIdentityChanges` |
+| Vòng `groupTurns` cho một token / 5.000 turn | 0,89 ms | 0,87 ms | trung bình 20 token; `groupTurnsOneTokenMs` |
+| Parse markdown 20.000 byte theo 1.000 prefix chunk | 49,99 ms | 3,07 ms | cùng fixture, một pass; `markdownMs`, quét ranh giới tiếp từ prefix đã khép |
 | Section transcript trong DOM / 5.000 turn | 5.000 | 11 | `TranscriptStream.performance.test.tsx`: SSR virtual window, budget kiểm thử 32 |
 | Flush reducer cho 1.000 token | 1.24 ms × 1.000 lần | 0.81 ms × 1 batch | `transcriptPerformance.test.ts`: `batchedApplyMsMedian` |
 | Plan cards for N updates in one turn | N cards | 1 live card | `transcript.test.ts`: `updates one live plan in place` |
 | Queued prompt after a busy turn | 0 accepted / 0 retained | 1 store item, 1 drain after `outcome=completed` | `agentPromptQueue.test.ts`: success/error paths |
 | Scroll long task trên Wails/WKWebView | Chưa có trace | Chưa có trace | cần chạy production build trên desktop; Bun không cung cấp layout/paint trace |
 
-Con số của đợt này được đo trong cùng một lần chạy test: trước là
-`agentTurnIdentityChanges=5000000`, `groupTurnsMsMedian=4049.55`,
-`markdownMs=454.98`; sau là `agentTurnIdentityChanges=1000`,
-`groupTurnsOneTokenMs=7.85`, `markdownMs=85.56`. Hai metric này chạy một
-pass đầy đủ để không làm scheduler của full suite bị đói; fixture và chunk size
-vẫn cố định nên có thể lặp lại độc lập. Store snapshot được chuẩn
-hóa theo session nên event của session B không đổi identity model của A. Chưa
+Con số identity, `groupTurns` và markdown đo lại ngày 2026-09-15 trong cùng
+một lần chạy: trước là `agentTurnIdentityChanges=100000`,
+`groupTurnsOneTokenMs=0.89`, `markdownMs=49.99`; sau là
+`agentTurnIdentityChanges=20`, `groupTurnsOneTokenMs=0.87`, `markdownMs=3.07`.
+Identity được đếm thật qua 20 token (trước đây một token nhân với 1.000, là
+số học chứ không phải đo). Markdown là một pass đầy đủ để không làm scheduler
+của full suite bị đói; fixture và chunk size cố định nên lặp lại được độc lập.
+`transcriptRuntime.test.ts` kiểm tra qua store thật rằng token của session B
+không đổi identity model của A. Chưa
 đo được React Profiler trên Wails/WKWebView thật trong lượt này; benchmark cũng
 không thay thế kiểm tra long task, paint hoặc memory của transcript lớn. Đợt
 viewport chọn virtualization vì `content-visibility` chỉ giảm paint nhưng vẫn
 giữ 5.000 section trong DOM; cùng fixture hiện chỉ render 11 section ở SSR
 (overscan 6, budget kiểm thử 32). Auto-scroll và scroll handler đều đi qua một
-frame gate; tick active dùng IntersectionObserver trên các section đang mount.
+frame gate; chỉ thao tác cuộn lên của người đọc (wheel, touch, phím, kéo thanh
+cuộn) mới tắt việc bám đáy, nội dung lớn lên thì không. Tick active dùng
+IntersectionObserver trên các section đang mount, chỉ dựng lại khi tập section
+mount đổi. Virtualizer giữ `getItemKey` ổn định giữa các flush và nhận
+padding đầu viewport làm `scrollMargin`. Runtime transcript giữ tối đa 8
+session mở gần nhất (`TRANSCRIPT_CACHE_LIMIT`) và bị quên khi session rời store.
 
 #### Baseline — backend transcript (2026-09-14)
 

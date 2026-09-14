@@ -70,13 +70,4 @@ describe("TranscriptStream long-history budget", () => {
     expect(keepsFollowing(false, { ...sample, atBottom: true })).toBe(true);
     expect(keepsFollowing(false, { ...sample, scrollTop: 1_200 })).toBe(false);
   });
-
-  it("keeps a tick jump addressable by turn index when the row is not mounted", () => {
-    const turns = largeTurnFixture(5_000);
-    const firstId = turns[0].id;
-    const lastId = turns[turns.length - 1]?.id;
-    expect(lastId).toBe("prompt-4999");
-    expect(turns.findIndex((turn) => turn.id === firstId)).toBe(0);
-    expect(turns.findIndex((turn) => turn.id === lastId)).toBe(4_999);
-  });
 });

@@ -28,12 +28,40 @@ function median(samples: number[]): number {
   return sorted[Math.floor(sorted.length / 2)];
 }
 
+/** Regrouping 50,000 rows per token is the cost being measured, so a short stream. */
+const STREAMED_TOKENS = 20;
+
+/**
+ * Streams tokens into the fixture's last answer, regrouping after each one
+ * (from scratch, or from the previous grouping), and counts the Turn objects
+ * that actually changed identity.
+ */
+function streamIntoLastAnswer(rows: TranscriptItem[], tokens: number, sharePrevious: boolean) {
+  const lastAnswerIndex = rows.length - 2;
+  let previous = groupTurns(rows);
+  let changed = 0;
+  let groupMs = 0;
+  for (let token = 0; token < tokens; token += 1) {
+    const answer = rows[lastAnswerIndex];
+    rows = [
+      ...rows.slice(0, lastAnswerIndex),
+      { ...answer, text: `${answer.text ?? ""} token-${token} ` },
+      ...rows.slice(lastAnswerIndex + 1),
+    ];
+    const started = performance.now();
+    const next = groupTurns(rows, sharePrevious ? previous : undefined);
+    groupMs += performance.now() - started;
+    for (let index = 0; index < next.length; index += 1) {
+      if (next[index] !== previous[index]) changed += 1;
+    }
+    previous = next;
+  }
+  return { turns: previous.length, changed, groupMs: groupMs / tokens };
+}
+
 describe("Agent Hub transcript performance fixture", () => {
-  it("keeps the workload and legacy publish count explicit", () => {
+  it("generates the workload it measures", () => {
     expect(largeTranscriptEntries()).toHaveLength(LARGE_TRANSCRIPT_ROW_COUNT);
-    // Before the shared shell model, AgentHubView and AgentCompanion each
-    // owned a hook, so every token caused one publish in each hook.
-    expect(TOKEN_COUNT * 2).toBe(2_000);
   });
 
   it("prints repeatable before/after measurements for the same fixture", () => {
@@ -76,8 +104,8 @@ describe("Agent Hub transcript performance fixture", () => {
     }
 
     console.log(
-      `[agenthub perf] tokens=${TOKEN_COUNT} legacyPublishes=${TOKEN_COUNT * 2} ` +
-        `batchedPublishes=1 legacyApplyMsMedian=${median(legacyApplySamples).toFixed(2)} ` +
+      `[agenthub perf] tokens=${TOKEN_COUNT} ` +
+        `legacyApplyMsMedian=${median(legacyApplySamples).toFixed(2)} ` +
         `batchedApplyMsMedian=${median(batchedApplySamples).toFixed(2)} ` +
         `initRows=${entries.length} initMsMedian=${median(initSamples).toFixed(2)}`,
     );
@@ -94,14 +122,7 @@ describe("Agent Hub transcript performance fixture", () => {
       updatedAt: String(entry.UpdatedAt),
       toolCallId: typeof entry.ToolCallID === "string" ? entry.ToolCallID : undefined,
     }));
-    const lastAnswerIndex = rows.length - 2;
-    const answer = rows[lastAnswerIndex];
-    const nextRows = [...rows.slice(0, lastAnswerIndex), { ...answer, text: `${answer.text ?? ""} token-0 ` }, ...rows.slice(lastAnswerIndex + 1)];
-    const started = performance.now();
-    const nextTurns = groupTurns(nextRows);
-    const groupMs = performance.now() - started;
-    // Without a previous result, every one of the 5,000 Turn objects changes.
-    const changedTurnCount = nextTurns.length * TOKEN_COUNT;
+    const { turns, changed: changedTurnCount, groupMs } = streamIntoLastAnswer(rows, STREAMED_TOKENS, false);
 
     const markdownAnswer = largeMarkdownAnswer();
     const markdownSamples: number[] = [];
@@ -112,12 +133,13 @@ describe("Agent Hub transcript performance fixture", () => {
     }
 
     console.log(
-        `[agenthub perf before] turns=5000 tokens=${TOKEN_COUNT} ` +
+        `[agenthub perf before] turns=${turns} tokens=${STREAMED_TOKENS} ` +
         `agentTurnIdentityChanges=${changedTurnCount} ` +
         `groupTurnsOneTokenMs=${groupMs.toFixed(2)} ` +
         `markdownBytes=${markdownAnswer.length} markdownMs=${median(markdownSamples).toFixed(2)}`,
     );
-    expect(changedTurnCount).toBe(5_000_000);
+    // Regrouped from scratch, every Turn is a new object on every token.
+    expect(changedTurnCount).toBe(turns * STREAMED_TOKENS);
   }, 30_000);
 
   it("prints the post-structural-sharing render and markdown measurements", () => {
@@ -131,18 +153,7 @@ describe("Agent Hub transcript performance fixture", () => {
       updatedAt: String(entry.UpdatedAt),
       toolCallId: typeof entry.ToolCallID === "string" ? entry.ToolCallID : undefined,
     }));
-    const lastAnswerIndex = rows.length - 2;
-    const previous = groupTurns(rows);
-    const answer = rows[lastAnswerIndex];
-    const nextRows = [...rows.slice(0, lastAnswerIndex), { ...answer, text: `${answer.text ?? ""} token-0 ` }, ...rows.slice(lastAnswerIndex + 1)];
-    const started = performance.now();
-    const nextTurns = groupTurns(nextRows, previous);
-    const groupMs = performance.now() - started;
-    let changedPerToken = 0;
-    for (let index = 0; index < nextTurns.length; index += 1) {
-      if (nextTurns[index] !== previous[index]) changedPerToken += 1;
-    }
-    const changedTurnCount = changedPerToken * TOKEN_COUNT;
+    const { turns, changed: changedTurnCount, groupMs } = streamIntoLastAnswer(rows, STREAMED_TOKENS, true);
 
     const markdownAnswer = largeMarkdownAnswer();
     const markdownSamples: number[] = [];
@@ -158,12 +169,13 @@ describe("Agent Hub transcript performance fixture", () => {
     }
     expect(finalState?.blocks).toEqual(parseMarkdown(markdownAnswer));
     console.log(
-        `[agenthub perf after] turns=5000 tokens=${TOKEN_COUNT} ` +
+        `[agenthub perf after] turns=${turns} tokens=${STREAMED_TOKENS} ` +
         `agentTurnIdentityChanges=${changedTurnCount} ` +
         `groupTurnsOneTokenMs=${groupMs.toFixed(2)} ` +
         `markdownBytes=${markdownAnswer.length} markdownMs=${median(markdownSamples).toFixed(2)}`,
     );
-    expect(changedTurnCount).toBe(TOKEN_COUNT);
+    // Only the turn each token landed in.
+    expect(changedTurnCount).toBe(STREAMED_TOKENS);
   }, 30_000);
 
   it("coalesces one stream into one publish and keeps control events immediate", () => {
@@ -198,37 +210,4 @@ describe("Agent Hub transcript performance fixture", () => {
     expect(published[1].usage?.used).toBe(1);
   });
 
-  it("keeps another session's flush from changing this model identity", () => {
-    const publishedA: unknown[] = [];
-    const publishedB: unknown[] = [];
-    const framesA: Array<() => void> = [];
-    const framesB: Array<() => void> = [];
-    const a = new TranscriptEventBuffer(
-      createInitialTranscriptModel(),
-      (model) => publishedA.push(model),
-      (cb) => {
-        framesA.push(cb);
-        return () => undefined;
-      },
-    );
-    const b = new TranscriptEventBuffer(
-      createInitialTranscriptModel(),
-      (model) => publishedB.push(model),
-      (cb) => {
-        framesB.push(cb);
-        return () => undefined;
-      },
-    );
-
-    a.enqueue(tokenUpdates()[0]);
-    b.enqueue(tokenUpdates()[1]);
-    expect(publishedA).toHaveLength(0);
-    framesB[0]();
-    const modelB = publishedB[0];
-
-    framesA[0]();
-    const modelA = publishedA[0];
-    expect(publishedB).toHaveLength(1);
-    expect(modelA).not.toBe(modelB);
-  });
 });

@@ -7,12 +7,17 @@ type PageCall = { sessionId: string; before: number; resolve: (page: Page) => vo
 // order pages land in is the test's to choose. The rest of the bridge is the
 // real module; only the Wails calls this file drives are replaced.
 const calls: PageCall[] = [];
+// The shell's one live-update listener, so a test can stream tokens into it.
+let deliver: (event: { sessionId: string; parsed: unknown }) => void = () => {};
 const real = await import("../../bridge/agenthub");
 mock.module("../../bridge/agenthub", () => ({
   ...real,
   agentHubTranscriptPage: (sessionId: string, before: number) =>
     new Promise<Page>((resolve) => calls.push({ sessionId, before, resolve })),
-  onAgentHubSessionUpdate: () => () => {},
+  onAgentHubSessionUpdate: (handler: typeof deliver) => {
+    deliver = handler;
+    return () => {};
+  },
 }));
 
 const { ensureTranscript, loadOlderTranscript, reloadTranscript, updateTranscriptControls, TRANSCRIPT_CACHE_LIMIT } =
@@ -46,6 +51,54 @@ const session = (id: string) => ({
   acpSessionId: "",
 });
 const held = (id: string) => updateTranscriptControls(id, (model) => model) !== null;
+
+const token = (index: number) => ({
+  kind: "agent_message_chunk",
+  messageId: "live",
+  content: { type: "text", text: `token-${index} ` },
+});
+// Past the frame scheduler's 50ms fallback: bun has no requestAnimationFrame.
+const nextFrame = () => new Promise((resolve) => setTimeout(resolve, 60));
+
+async function opened(id: string) {
+  ensureTranscript(id);
+  lastCall().resolve(page([1]));
+  await settle();
+}
+
+describe("the shell stream through the real store", () => {
+  test("publishes a burst of 1,000 tokens once", async () => {
+    useAgentSessionsStore.getState().setSessions([session("burst")]);
+    await opened("burst");
+    let publishes = 0;
+    const unsubscribe = useAgentSessionsStore.subscribe((state, previous) => {
+      if (state.transcriptsById.burst !== previous.transcriptsById.burst) publishes += 1;
+    });
+
+    for (let index = 0; index < 1_000; index += 1) deliver({ sessionId: "burst", parsed: token(index) });
+    await nextFrame();
+    unsubscribe();
+
+    expect(publishes).toBe(1);
+    const items = useAgentSessionsStore.getState().transcriptsById.burst.items;
+    expect(items[items.length - 1].text).toContain("token-999");
+  });
+
+  test("leaves one session's model untouched while another streams", async () => {
+    useAgentSessionsStore.getState().setSessions([session("quiet"), session("busy")]);
+    await opened("quiet");
+    await opened("busy");
+    const quiet = useAgentSessionsStore.getState().transcriptsById.quiet;
+    const busy = useAgentSessionsStore.getState().transcriptsById.busy;
+
+    deliver({ sessionId: "busy", parsed: token(0) });
+    await nextFrame();
+
+    const state = useAgentSessionsStore.getState();
+    expect(state.transcriptsById.busy).not.toBe(busy);
+    expect(state.transcriptsById.quiet).toBe(quiet);
+  });
+});
 
 describe("a reload racing an older page", () => {
   test("drops the older page asked for before the reload", async () => {
