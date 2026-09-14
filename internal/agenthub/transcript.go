@@ -165,6 +165,18 @@ func (r *Recorder) Forget(ctx context.Context, sessionID string) error {
 	return nil
 }
 
+// Drop discards one session's write state without writing it. DeleteSession
+// calls it once the rows are gone, so a tail that failed to write is not
+// retried against rows that no longer exist.
+func (r *Recorder) Drop(sessionID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if s := r.sessions[sessionID]; s != nil && s.timer != nil {
+		s.timer.Stop()
+	}
+	delete(r.sessions, sessionID)
+}
+
 // FlushAll writes out every session's buffered state and stops the recorder.
 // It is the app-quit path: a Cmd+Q mid-stream otherwise lost the last cadence
 // of text and left buffered tool calls "in progress" forever. After it, Record,

@@ -669,8 +669,12 @@ func (s *Service) CloseSession(ctx context.Context, id string) error {
 
 	// The conversation must be complete on disk before the session becomes
 	// history: closing is the one path after which no turn will ever flush.
-	if err := s.recorder.Flush(ctx, id); err != nil {
-		return err
+	// A write that fails is reported, not returned. Returning left the runtime
+	// out of the map but running, and a full disk made the session impossible
+	// to close — and, through DeleteSession, to delete, which is how the user
+	// frees that disk.
+	if err := s.recorder.Flush(ctx, id); err != nil && s.OnRecordError != nil {
+		s.OnRecordError(id, err)
 	}
 
 	if rt != nil {
@@ -682,9 +686,10 @@ func (s *Service) CloseSession(ctx context.Context, id string) error {
 		closeEndpoint()
 	}
 	// With the runtime gone nothing records for this session any more; land
-	// whatever arrived during the close and drop its write state.
-	if err := s.recorder.Forget(ctx, id); err != nil {
-		return err
+	// whatever arrived during the close and drop its write state. State that
+	// did not write is kept for a later flush; the close goes on either way.
+	if err := s.recorder.Forget(ctx, id); err != nil && s.OnRecordError != nil {
+		s.OnRecordError(id, err)
 	}
 
 	if err := s.store.UpdateSessionStatus(ctx, id, SessionStatusClosed, time.Now().UTC()); err != nil {
@@ -746,7 +751,15 @@ func (s *Service) DeleteSession(ctx context.Context, id string) error {
 			return err
 		}
 	}
-	return s.store.DeleteSessions(ctx, ids)
+	if err := s.store.DeleteSessions(ctx, ids); err != nil {
+		return err
+	}
+	// Close keeps a tail that would not write; with its rows gone there is
+	// nothing left for a retry to land in.
+	for _, target := range ids {
+		s.recorder.Drop(target)
+	}
+	return nil
 }
 
 // deleteVendorCopy tells the vendor to destroy its own record of a session.
