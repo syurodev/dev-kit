@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, type ReactNode } from "react";
 import { TreeNextSection } from "./TreeNextGallery";
+import { AgentHubTranscriptSection } from "./AgentHubTranscriptSection";
 import {
   Activity,
   FileText,
@@ -1054,6 +1055,8 @@ export default function ComponentGallery() {
 
         <Step4bMeasurementsInspector />
       </Section>
+
+      <AgentHubTranscriptSection />
 
       <TreeNextSection />
     </div>

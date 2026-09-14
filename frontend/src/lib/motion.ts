@@ -42,3 +42,27 @@ export const EASE_OUT_STRONG = [0.23, 1, 0.32, 1] as const;
 
 /** Content trailing its container, so the panel leads and the body follows. */
 export const CONTENT_FADE_DELAY = 0.06;
+
+/**
+ * animate-text's `fade-through`, for text that replaces text in the same place
+ * with no direction to it: the status line of a running turn moving from one
+ * step to the next, and a new block of an answer arriving.
+ *
+ * Its own timings rather than the tokens above. Those are for controls, which
+ * answer a click and have to be quick; this is text someone is reading, and at
+ * 180ms a 2px blur resolves too fast to register as anything but a flicker.
+ * The values are the spec's, from
+ * .agents/skills/animate-text/assets/specs/fade-through.json.
+ *
+ * `delay` is the swap: the spec starts the new text at exit − overlap(20ms) +
+ * micro-delay(60ms). AnimatePresence's "wait" already holds the new text for
+ * the whole exit, which leaves 40ms.
+ */
+export const FADE_THROUGH = {
+  enter: { duration: 0.42, ease: [0.2, 0, 0, 1] as const },
+  exit: { duration: 0.26, ease: [0.4, 0, 1, 1] as const },
+  delay: 0.04,
+  from: { opacity: 0, y: 6, scale: 0.99, filter: "blur(2px)" },
+  to: { opacity: 1, y: 0, scale: 1, filter: "blur(0px)" },
+  out: { opacity: 0, y: -4 },
+} as const;

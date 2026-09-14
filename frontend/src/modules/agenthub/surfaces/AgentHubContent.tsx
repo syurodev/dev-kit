@@ -1,6 +1,15 @@
+import { Copy, Ellipsis, FolderOpen, Square } from "lucide-react";
 import { UpdateKind } from "../../../../bindings/devkit/internal/agenthub/models";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Empty,
   EmptyContent,
@@ -43,6 +52,8 @@ export type AgentHubContentProps = {
   attachments?: string[];
   onBrowseContext?: () => void;
   onRemoveAttachment?: (path: string) => void;
+  /** Copies a string for the header's session menu — the path, the id. */
+  onCopy?: (text: string) => void;
   className?: string;
 };
 
@@ -55,16 +66,28 @@ export type AgentHubContentProps = {
  * that there is none."
  *
  * Three states, one header, and the header is the whole identity of the agent
- * on one line: vendor mark, name, live state, then the lineage in the quiet
- * tier — "depth 2 · parent auth-refactor · ~/acme/billing-service" is the
- * boundary this agent may act within, the thing you check before letting it
- * carry on. One sentence rather than four chips, and no status pill: that would
- * be a third status vocabulary next to AgentState.
+ * on one line: vendor mark, name, where it works, live state, and a menu.
+ *
+ * Where it works is the project's own name ("billing-service"), and the parent
+ * when there is one — "from auth-refactor". The line used to be
+ * "depth 2 · parent auth-refactor · /Users/…/billing-service": depth is how the
+ * hub counts, not something anyone chose, and the absolute path took the whole
+ * row to say what the folder's name says. The full path is the menu's first
+ * line, a click away, next to the action that copies it.
+ *
+ * Two buttons went. "Cancel turn" repeated the composer's Stop, which sits
+ * under the text being written — one action, one control. "Close" was a
+ * bordered button at the same weight as that, for the one action here that
+ * ends a process; it lives in the menu now, as it does on the sidebar row.
  *
  * Empty has no header and no composer — there is no agent to name and nothing
- * to send to. Error keeps the header but drops "Cancel turn": the turn is
- * already over.
+ * to send to.
  */
+
+/** The last segment of a path — the folder a developer calls the project. */
+function projectLabel(path: string): string {
+  return path.split("/").filter(Boolean).pop() ?? path;
+}
 
 /** Same mapping as AgentRow: the bridge says awaiting_permission, Figma says awaiting. */
 function toAgentStatus(status: string | undefined): AgentStatus {
@@ -104,6 +127,7 @@ export function AgentHubContent({
   attachments = [],
   onBrowseContext,
   onRemoveAttachment,
+  onCopy,
   className,
 }: AgentHubContentProps) {
   const effectiveState: AgentHubContentState = explicitState
@@ -118,15 +142,16 @@ export function AgentHubContent({
     session?.title || (session ? `Session ${session.id.slice(0, 8)}` : "");
   const vendor = session?.agentType || "claude";
 
-  // One sentence, not four chips. Parent is omitted rather than shown empty —
-  // a root agent has no parent, and "parent —" reads as a missing value.
-  const lineage = session
+  // Parent is omitted rather than shown empty — a root agent has no parent, and
+  // "from —" reads as a missing value.
+  const project = session ? projectLabel(session.projectPath) : "";
+  const context = session
     ? [
-        `depth ${session.depth}`,
-        parentSession
-          ? `parent ${parentSession.title || parentSession.id.slice(0, 8)}`
-          : null,
-        session.projectPath || ".",
+        // Not when it only repeats the name. An agent is often named after the
+        // folder it was opened in, and "Dev-kit-backend dev-kit-backend" says
+        // one thing twice.
+        project.toLowerCase() === displayTitle.toLowerCase() ? null : project,
+        parentSession ? `from ${parentSession.title || parentSession.id.slice(0, 8)}` : null,
       ]
         .filter(Boolean)
         .join(" · ")
@@ -146,37 +171,68 @@ export function AgentHubContent({
       {effectiveState !== "Empty" && session ? (
         <header
           data-testid="agent-hub-content-header"
-          className="flex w-full shrink-0 items-center gap-3 px-5 py-4 select-none"
+          className="flex w-full shrink-0 items-center gap-3 px-5 py-3 select-none"
         >
-          <VendorIcon vendor={vendor} className="size-4 text-icon-secondary" />
-          <h2 className="shrink-0 text-title-16 text-text-primary">{displayTitle}</h2>
+          <VendorIcon
+            vendor={vendor}
+            working={session.status === "running"}
+            className="size-4 text-icon-secondary"
+          />
+          {/* The name gives way last: it truncates, but only after the project
+              line beside it has. */}
+          <div className="flex min-w-0 flex-1 items-baseline gap-2">
+            <h2 className="min-w-0 shrink truncate text-title-16 text-text-primary">{displayTitle}</h2>
+            {context ? (
+              <p
+                data-testid="content-header-context"
+                className="min-w-0 truncate text-body-12 text-text-tertiary"
+                style={{ flexShrink: 100 }}
+              >
+                {context}
+              </p>
+            ) : null}
+          </div>
           <AgentState status={toAgentStatus(session.status)} />
-          <p className="min-w-0 flex-1 truncate text-body-12 text-text-tertiary">
-            {lineage}
-          </p>
-          {effectiveState === "Conversation" && streaming ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              data-testid="content-cancel-turn"
-              onClick={onCancel}
-              className="h-8 border-border-subtle px-3 text-text-secondary"
-            >
-              Cancel turn
-            </Button>
-          ) : null}
-          {onCloseSession ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              data-testid="content-close-session"
-              onClick={onCloseSession}
-              className="h-8 border-border-subtle px-3 text-text-secondary"
-            >
-              Close
-            </Button>
+          {onCopy || onCloseSession ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Session actions"
+                  data-testid="content-session-menu"
+                >
+                  <Ellipsis aria-hidden="true" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64">
+                <DropdownMenuLabel className="truncate">{session.projectPath || "."}</DropdownMenuLabel>
+                {onCopy ? (
+                  <>
+                    <DropdownMenuItem icon={<FolderOpen />} onSelect={() => onCopy(session.projectPath)}>
+                      Copy working directory
+                    </DropdownMenuItem>
+                    <DropdownMenuItem icon={<Copy />} onSelect={() => onCopy(session.id)}>
+                      Copy session ID
+                    </DropdownMenuItem>
+                  </>
+                ) : null}
+                {onCloseSession ? (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      icon={<Square />}
+                      data-testid="content-close-session"
+                      disabled={session.status === "closed"}
+                      onSelect={onCloseSession}
+                    >
+                      Close session
+                    </DropdownMenuItem>
+                  </>
+                ) : null}
+              </DropdownMenuContent>
+            </DropdownMenu>
           ) : null}
         </header>
       ) : null}
@@ -215,7 +271,7 @@ export function AgentHubContent({
           className="flex min-h-0 w-full flex-1 flex-col gap-5"
         >
           <div className="min-h-0 flex-1">
-            <TranscriptStream items={items} vendor={vendor} agentName={displayTitle} />
+            <TranscriptStream items={items} vendor={vendor} />
           </div>
           <div className="w-full shrink-0 px-5 pb-5">
             <AgentSessionError
@@ -237,15 +293,13 @@ export function AgentHubContent({
           className="flex min-h-0 w-full min-w-0 flex-1 flex-col"
         >
           <div className="min-h-0 flex-1 overflow-hidden">
-            <TranscriptStream
-              items={items}
-              vendor={vendor}
-              agentName={displayTitle}
-              loading={false}
-            />
+            <TranscriptStream items={items} vendor={vendor} streaming={streaming} />
           </div>
 
-          <div className="flex w-full shrink-0 items-center gap-3 px-5">
+          {/* In the transcript's reading column, so what you write lines up
+              with what you are answering. */}
+          <div className="flex w-full shrink-0 px-5">
+          <div className="mx-auto flex w-full max-w-180 items-center gap-3">
             <AgentComposer
               size="wide"
               value={promptValue}
@@ -272,6 +326,7 @@ export function AgentHubContent({
               onRemoveAttachment={onRemoveAttachment}
               className="min-w-0 flex-1"
             />
+          </div>
           </div>
         </div>
       )}

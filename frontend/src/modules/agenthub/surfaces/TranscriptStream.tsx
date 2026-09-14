@@ -1,49 +1,40 @@
-import { useEffect, useRef, useState } from "react";
-import { UpdateKind } from "../../../../bindings/devkit/internal/agenthub/models";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import type { TranscriptItem } from "../types";
-import {
-  AgentMessage,
-  AgentMessageRich,
-  AgentThinking,
-  AgentToolCall,
-  AgentPlan,
-  AgentInvokeResult,
-  AgentRateLimit,
-  AgentSubagent,
-  parseMarkdown,
-} from "../transcript/index";
+import { groupTurns } from "../turns";
 import { AgentJumpToLatest } from "./AgentJumpToLatest";
 import { AgentMetaInspector } from "./AgentMetaInspector";
+import { AgentTurn } from "./AgentTurn";
 
 export type TranscriptStreamProps = {
   items: TranscriptItem[];
   /** The vendor, for marks and metadata — not what a message is signed with. */
   vendor?: string;
-  /**
-   * What the agent is called. Figma's Message names the agent ("refund-worker"),
-   * not the vendor: with a swarm running, five bubbles signed "claude" tell you
-   * nothing about which of the five said it.
-   */
-  agentName?: string;
+  /** A turn is in flight. The newest turn runs its orb and follows its steps. */
+  streaming?: boolean;
   loading?: boolean;
   className?: string;
 };
 
 /**
  * TranscriptStream
- * Renders an ACP conversation stream by dispatching TranscriptItem rows
- * to the 11 Phase 2 leaf components. Handles scroll position tracking
- * and the floating AgentJumpToLatest button.
+ *
+ * The conversation as turns — question, folded work, answer — in one reading
+ * column. Owns the scroll position, the floating AgentJumpToLatest button and
+ * the meta inspector.
+ *
+ * The column is max-w-180, the 720 the notes editor writes in. At the full
+ * width of a wide window an answer ran to 200 characters a line, and a bubble
+ * pinned to the far right edge sat a whole window away from the reply under it.
  */
 export function TranscriptStream({
   items,
   vendor = "Claude",
-  agentName,
+  streaming = false,
   loading = false,
   className,
 }: TranscriptStreamProps) {
-  const speaker = agentName || vendor;
+  const turns = useMemo(() => groupTurns(items), [items]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showJump, setShowJump] = useState(false);
   const [unread, setUnread] = useState(0);
@@ -89,155 +80,36 @@ export function TranscriptStream({
       className={cn("relative flex size-full min-h-0 flex-col overflow-hidden", className)}
       data-testid="transcript-stream"
     >
-      {/* Scrollable Viewport */}
       <div
         ref={scrollRef}
         onScroll={handleScroll}
         data-testid="transcript-viewport"
-        className="flex size-full min-h-0 flex-col gap-5 overflow-y-auto p-5 scroll-smooth"
+        className="flex size-full min-h-0 flex-col overflow-y-auto px-5 py-6 scroll-smooth"
       >
-        {items.length === 0 && !loading ? (
-          <div className="flex h-48 flex-col items-center justify-center text-center">
-            <p className="text-body-13 text-text-secondary">No messages yet</p>
-            <p className="text-caption-11 text-text-tertiary">
-              Send a prompt below to start interacting with the agent.
-            </p>
-          </div>
-        ) : null}
+        <div className="mx-auto flex w-full max-w-180 flex-col gap-8">
+          {items.length === 0 && !loading ? (
+            <div className="flex h-48 flex-col items-center justify-center text-center">
+              <p className="text-body-13 text-text-secondary">No messages yet</p>
+              <p className="text-caption-11 text-text-tertiary">
+                Send a prompt below to start interacting with the agent.
+              </p>
+            </div>
+          ) : null}
 
-        {items.map((item) => {
-          const kind = item.kind;
-
-          // User message chunk
-          if (
-            kind === UpdateKind.UpdateUserMessageChunk ||
-            kind === "user_message_chunk"
-          ) {
+          {turns.map((turn, index) => {
+            const latest = index === turns.length - 1;
             return (
-              <AgentMessage
-                key={item.id}
-                align="end"
-                author="You"
-                text={item.text || ""}
+              <AgentTurn
+                key={turn.id}
+                turn={turn}
+                latest={latest}
+                live={latest && streaming}
+                vendor={vendor}
+                onInspect={setInspecting}
               />
             );
-          }
-
-          // Agent thought chunk
-          if (
-            kind === UpdateKind.UpdateAgentThoughtChunk ||
-            kind === "agent_thought_chunk"
-          ) {
-            const thoughtRaw = item.raw as Record<string, any> | undefined;
-            return (
-              <AgentThinking
-                key={item.id}
-                text={item.text || ""}
-                duration={thoughtRaw?.duration}
-              />
-            );
-          }
-
-          // Tool call update / execution
-          if (
-            kind === UpdateKind.UpdateToolCall ||
-            kind === UpdateKind.UpdateToolCallUpdate ||
-            kind === "tool_call" ||
-            kind === "tool_call_update"
-          ) {
-            const toolCall = item.toolCall ?? {
-              id: item.toolCallId || item.id,
-              title: "Tool Execution",
-              status: "completed",
-            };
-            return <AgentToolCall key={item.id} call={toolCall} />;
-          }
-
-          // A subagent the vendor ran inside its own process. The transcript
-          // model pairs spawn and state into one item, so there is one card
-          // per subagent rather than one per event.
-          if (
-            kind === UpdateKind.UpdateSubagentSpawned ||
-            kind === UpdateKind.UpdateSubagentState ||
-            kind === "subagent_spawned" ||
-            kind === "subagent_state_update"
-          ) {
-            return item.subagent ? (
-              <AgentSubagent key={item.id} subagent={item.subagent} />
-            ) : null;
-          }
-
-          // Plan update
-          if (kind === UpdateKind.UpdatePlan || kind === "plan") {
-            return <AgentPlan key={item.id} entries={item.plan ?? []} />;
-          }
-
-          // Invoke result
-          if (kind === "invoke_result") {
-            const raw = item.raw as Record<string, any> | undefined;
-            return (
-              <AgentInvokeResult
-                key={item.id}
-                agentName={raw?.agentName || vendor}
-                stopReason={raw?.stopReason}
-                duration={raw?.duration}
-                cost={raw?.cost}
-                summary={item.text || raw?.summary || ""}
-                filesChanged={raw?.filesChanged ?? []}
-              />
-            );
-          }
-
-          // Rate limit warning
-          if (kind === "rate_limit") {
-            const raw = item.raw as Record<string, any> | undefined;
-            return (
-              <AgentRateLimit
-                key={item.id}
-                level={raw?.level === "exhausted" ? "exhausted" : "warning"}
-                message={item.text}
-                resetTime={raw?.resetTime}
-              />
-            );
-          }
-
-          // Default / Agent message chunk. Agents answer in markdown, so a
-          // reply with any structure at all goes to the rich variant — the
-          // plain bubble was printing the source, bullets and asterisks and
-          // all. One unstructured paragraph stays a bubble: that is a remark,
-          // not a document, and Figma gives it the avatar.
-          const body = item.text || (typeof item.raw === "string" ? item.raw : "");
-          // An agent message with nothing in it is not a message. These arrive
-          // as the placeholder for a turn that errored before its first chunk,
-          // and rendering one draws an empty bubble under an author line —
-          // which reads as the agent having said something unreadable.
-          if (!body.trim()) return null;
-
-          const blocks = parseMarkdown(body);
-          const rich =
-            blocks.length > 1 || (blocks.length === 1 && blocks[0].type !== "paragraph");
-
-          return rich ? (
-            <AgentMessageRich key={item.id} author={speaker} text={body} />
-          ) : (
-            <AgentMessage
-              key={item.id}
-              align="start"
-              author={speaker}
-              text={body}
-              footer={turnMeta(item) ? (
-                <button
-                  type="button"
-                  data-testid="message-open-meta"
-                  onClick={() => setInspecting(item)}
-                  className="cursor-pointer hover:text-text-primary"
-                >
-                  {turnMeta(item)}
-                </button>
-              ) : undefined}
-            />
-          );
-        })}
+          })}
+        </div>
       </div>
 
       <AgentMetaInspector
@@ -256,11 +128,7 @@ export function TranscriptStream({
       {/* Floating Jump to Latest Button */}
       <div className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 z-20">
         <div className="pointer-events-auto">
-          <AgentJumpToLatest
-            visible={showJump}
-            count={unread}
-            onClick={scrollToBottom}
-          />
+          <AgentJumpToLatest visible={showJump} count={unread} onClick={scrollToBottom} />
         </div>
       </div>
     </div>
@@ -268,9 +136,9 @@ export function TranscriptStream({
 }
 
 /** The raw envelope, when there is one to read. */
-function rawOf(item: TranscriptItem | null | undefined): Record<string, any> | undefined {
+function rawOf(item: TranscriptItem | null | undefined): Record<string, unknown> | undefined {
   return item && typeof item.raw === "object" && item.raw !== null
-    ? (item.raw as Record<string, any>)
+    ? (item.raw as Record<string, unknown>)
     : undefined;
 }
 
@@ -282,20 +150,4 @@ function metaField(item: TranscriptItem | null | undefined, key: string): string
 function metaNumber(item: TranscriptItem | null | undefined, key: string): number | undefined {
   const value = rawOf(item)?.[key];
   return typeof value === "number" ? value : undefined;
-}
-
-/**
- * "1.2s · $0.03" — the footer affordance that opens the inspector. Nothing is
- * rendered when the turn carried no numbers, so the footer never becomes a
- * button with no label.
- */
-function turnMeta(item: TranscriptItem): string | undefined {
-  const raw = rawOf(item);
-  if (!raw) return undefined;
-  const cost = typeof raw.cost === "number" ? raw.cost : undefined;
-  const parts = [
-    typeof raw.duration === "string" ? raw.duration : undefined,
-    cost !== undefined ? `$${cost.toFixed(cost < 0.01 ? 4 : 2)}` : undefined,
-  ].filter(Boolean);
-  return parts.length > 0 ? parts.join(" · ") : undefined;
 }

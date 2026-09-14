@@ -144,6 +144,7 @@ describe("Agent Hub Transcript Leaves", () => {
               },
             ],
           }}
+          defaultExpanded
         />,
       );
       expect(html).toContain("Update config.json");
@@ -200,6 +201,41 @@ describe("Agent Hub Transcript Leaves", () => {
         />,
       );
       expect(awaitingHtml).toContain("awaiting permission");
+    });
+
+    it("keeps its output folded until asked", () => {
+      // A directory listing opened in place turned one call into a screen of
+      // text, and a turn makes dozens of calls.
+      const call = {
+        id: "call-5",
+        kind: "execute",
+        title: "find . -type d",
+        status: "completed",
+        content: [{ type: "content", content: { type: "text", text: "./deploy\n./docs" } }],
+      };
+      const folded = renderToString(<AgentToolCall call={call} />);
+      expect(folded).toContain("find . -type d");
+      expect(folded).toContain('aria-expanded="false"');
+      expect(folded).not.toContain("./deploy");
+      expect(renderToString(<AgentToolCall call={call} defaultExpanded />)).toContain("./deploy");
+    });
+
+    it("keeps a tool's whole output out of the one-line result slot", () => {
+      // An MCP tool returns a JSON document. Figma's right-hand slot holds
+      // "running…" or "exit 1"; a document in a nowrap, no-shrink span made
+      // the row wider than the module and gave the transcript a horizontal
+      // scrollbar.
+      const blob = JSON.stringify({ result: [{ id: "caad65a3dc6457d655a02a64", name: "Chiro local" }] });
+      const html = renderToString(
+        <AgentToolCall call={{ id: "c1", title: "mcp__devkit__db_listProfiles", status: "completed", rawOutput: blob }} />,
+      );
+      expect(html).toContain("mcp__devkit__db_listProfiles");
+      expect(html).not.toContain("caad65a3dc6457d655a02a64");
+      // A short result still belongs there.
+      const short = renderToString(
+        <AgentToolCall call={{ id: "c2", title: "Read", status: "completed", rawOutput: "42 lines" }} />,
+      );
+      expect(short).toContain("42 lines");
     });
   });
 

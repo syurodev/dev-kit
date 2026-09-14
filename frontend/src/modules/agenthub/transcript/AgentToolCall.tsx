@@ -1,4 +1,6 @@
+import * as React from "react";
 import {
+  ChevronRight,
   FileEdit,
   FileText,
   Search,
@@ -14,6 +16,13 @@ import { AgentToolTerminal } from "./AgentToolTerminal";
 
 export type AgentToolCallProps = {
   call: ToolCall;
+  /**
+   * Whether the output shows before anyone asks. Off by default: a directory
+   * listing or a test log opened in place turned one tool call into a screen of
+   * text, and a turn makes dozens of them. The row says what ran and how it
+   * went; the output is one click away for the call you actually care about.
+   */
+  defaultExpanded?: boolean;
   className?: string;
 };
 
@@ -100,13 +109,15 @@ function isOneLineStatus(raw: string): boolean {
   return !text.startsWith("{") && !text.startsWith("[");
 }
 
-export function AgentToolCall({ call, className }: AgentToolCallProps) {
+export function AgentToolCall({ call, defaultExpanded = false, className }: AgentToolCallProps) {
   const KindIcon = kindIcon(call.kind);
   const state = toToolState(call.status);
   const title = call.title || call.kind || call.id || "Tool execution";
+  const [expanded, setExpanded] = React.useState(defaultExpanded);
 
   const locations = call.locations ?? [];
   const content = call.content ?? [];
+  const hasBody = locations.length > 0 || content.length > 0;
   // rawOutput is `unknown` off the wire — an object stringifies to
   // "[object Object]", which is worse than saying nothing.
   const raw = typeof call.rawOutput === "string" ? call.rawOutput : "";
@@ -131,13 +142,32 @@ export function AgentToolCall({ call, className }: AgentToolCallProps) {
         className,
       )}
     >
-      <div className="flex w-full items-center gap-2">
+      {/* The whole row is the toggle when there is output to show, and a plain
+          row when there is not — a button that opens nothing is a lie about
+          what the row holds. */}
+      {React.createElement(
+        hasBody ? "button" : "div",
+        {
+          ...(hasBody
+            ? {
+                type: "button",
+                onClick: () => setExpanded((open) => !open),
+                "aria-expanded": expanded,
+                "data-testid": "tool-call-toggle",
+              }
+            : {}),
+          className: cn("flex w-full min-w-0 items-center gap-2 text-left", hasBody && "cursor-pointer"),
+        },
+        <>
         <span
           aria-hidden="true"
           className={cn("size-1.5 shrink-0 rounded-full", DOT[state])}
         />
         <KindIcon className="size-3 shrink-0 text-icon-secondary" aria-hidden="true" />
-        <span className="shrink-0 text-body-12 whitespace-nowrap text-text-secondary">
+        {/* Truncates rather than holding its width: a shell command is a title
+            too, and at nowrap/shrink-0 a long one pushed the row past the
+            column. The full command is in the output once opened. */}
+        <span className="min-w-0 truncate text-body-12 text-text-secondary">
           {title}
         </span>
         <span className="min-w-0 flex-1" />
@@ -156,9 +186,19 @@ export function AgentToolCall({ call, className }: AgentToolCallProps) {
             {result}
           </span>
         ) : null}
-      </div>
+        {hasBody ? (
+          <ChevronRight
+            aria-hidden="true"
+            className={cn(
+              "size-3 shrink-0 text-text-tertiary transition-transform",
+              expanded && "rotate-90",
+            )}
+          />
+        ) : null}
+        </>,
+      )}
 
-      {locations.length > 0 ? (
+      {expanded && locations.length > 0 ? (
         <div className="flex w-full flex-wrap items-center gap-1">
           {locations.map((loc, idx) => (
             <AgentFileChip
@@ -180,7 +220,7 @@ export function AgentToolCall({ call, className }: AgentToolCallProps) {
         </p>
       ) : null}
 
-      {content.map((item, idx) => {
+      {expanded && content.map((item, idx) => {
         if (item.type === "diff") {
           return (
             <AgentToolDiff

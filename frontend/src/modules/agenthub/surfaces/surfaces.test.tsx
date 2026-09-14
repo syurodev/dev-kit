@@ -766,7 +766,7 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       expect(html).toContain("data-testid=\"agent-composer\"");
     });
 
-    it("drops an empty message and signs the rest with the agent's name", () => {
+    it("drops an empty reply and signs none of them", () => {
       const html = renderToString(
         <AgentHubContent
           session={{ ...mockSession, title: "", status: "error" }}
@@ -783,13 +783,15 @@ describe("Agent Hub Phase 3 Surfaces", () => {
         />,
       );
 
-      // One bubble, not two: an empty one reads as the agent having said
+      // One reply, not two: an empty one reads as the agent having said
       // something unreadable.
-      expect((html.match(/data-testid="agent-message"/g) ?? []).length).toBe(1);
-      // Signed by the agent, not the vendor — five bubbles saying "claude"
-      // tell you nothing about which of five agents spoke.
-      expect(html).toContain("Session sess-100");
+      expect((html.match(/data-testid="agent-prose"/g) ?? []).length).toBe(1);
+      expect(html).toContain("401 token revoked.");
+      // Signed by nobody. The side of the column says who spoke; a name over
+      // every reply — the vendor's or the session's — was a chat convention in
+      // a transcript with one person and one agent in it.
       expect(html).not.toContain(">claude<");
+      expect(html).not.toContain('data-testid="agent-message"');
       // Figma's reason is the DevKit code AND what happened.
       expect(html).toContain("agenthub.processFailed — Agent process failed.");
     });
@@ -810,15 +812,17 @@ describe("Agent Hub Phase 3 Surfaces", () => {
         />,
       );
       expect(html).toContain("kiểm tra thực tế");
-      expect(html).toContain(">You<");
+      expect(html).toContain('data-testid="turn-prompt"');
+      // No "You" over it and no initial beside it: a message on the right of
+      // the column is yours, and saying so twice was a chat app's habit.
+      expect(html).not.toContain(">You<");
       expect(html).toContain("1 turn · $");
     });
 
-    it("keeps a tool's whole output out of the one-line result slot", () => {
-      // An MCP tool returns a JSON document. Figma's right-hand slot holds
-      // "running…" or "exit 1"; a document in a nowrap, no-shrink span made
-      // the row wider than the module and gave the transcript a horizontal
-      // scrollbar.
+    it("folds a turn's tool calls behind one line", () => {
+      // Every call used to be a card with its output open, and a turn that ran
+      // forty of them put forty cards between the question and its answer.
+      // The one-line result slot is tested on the leaf, where the row is.
       const blob = JSON.stringify({ result: [{ id: "caad65a3dc6457d655a02a64", name: "Chiro local" }] });
       const html = renderToString(
         <AgentHubContent
@@ -836,22 +840,11 @@ describe("Agent Hub Phase 3 Surfaces", () => {
           onCancel={() => {}}
         />,
       );
-      expect(html).toContain("mcp__devkit__db_listProfiles");
+      expect(html).toContain('data-testid="turn-work"');
+      expect(html).toContain('data-state="collapsed"');
+      // Neither the call nor its output is on screen until someone opens it.
+      expect(html).not.toContain("mcp__devkit__db_listProfiles");
       expect(html).not.toContain("caad65a3dc6457d655a02a64");
-      // A short result still belongs there.
-      const short = renderToString(
-        <AgentHubContent
-          session={mockSession}
-          items={[
-            { id: "t2", kind: "tool_call", toolCall: { id: "c2", title: "Read", status: "completed", rawOutput: "42 lines" } },
-          ]}
-          promptValue=""
-          onPromptChange={() => {}}
-          onSend={() => {}}
-          onCancel={() => {}}
-        />,
-      );
-      expect(short).toContain("42 lines");
     });
 
     it("shows attached files and a way to add them", () => {
@@ -910,13 +903,32 @@ describe("Agent Hub Phase 3 Surfaces", () => {
           onCancel={() => {}}
         />,
       );
-      expect(html).toContain("depth 2 · parent auth-refactor · dev-kit-app");
+      // The project's own name and where the agent came from. "depth 2" was the
+      // hub counting, and the absolute path took the row to say a folder's name.
+      expect(html).toContain("dev-kit-app · from auth-refactor");
+      expect(html).not.toContain("depth 2");
       // The colour-coded pill was a third status vocabulary beside AgentState.
       expect(html).toContain('data-slot="agent-state"');
       expect(html).not.toContain('data-testid="content-header-status"');
     });
 
-    it("offers Cancel turn only while a turn is in flight", () => {
+    it("does not repeat the name when the agent is named after its folder", () => {
+      // Seen in the app: "Dev-kit-backend dev-kit-backend".
+      const named = { ...mockSession, title: "Dev-Kit-App", projectPath: "/Users/dev/dev-kit-app" };
+      const html = renderToString(
+        <AgentHubContent
+          session={named}
+          promptValue=""
+          onPromptChange={() => {}}
+          onSend={() => {}}
+          onCancel={() => {}}
+        />,
+      );
+      expect(html).toContain("Dev-Kit-App");
+      expect(html).not.toContain('data-testid="content-header-context"');
+    });
+
+    it("stops a turn from the composer, not from a second button in the header", () => {
       const base = {
         session: mockSession,
         promptValue: "",
@@ -925,16 +937,14 @@ describe("Agent Hub Phase 3 Surfaces", () => {
         onCancel: () => {},
         onCloseSession: () => {},
       };
-      // Cancel turn with nothing running would cancel nothing.
-      expect(renderToString(<AgentHubContent {...base} />)).not.toContain(
-        'data-testid="content-cancel-turn"',
-      );
-      expect(renderToString(<AgentHubContent {...base} streaming />)).toContain(
-        'data-testid="content-cancel-turn"',
-      );
+      const running = renderToString(<AgentHubContent {...base} streaming />);
+      // The header's Cancel turn repeated the composer's Stop, which sits under
+      // the text being written. One action, one control.
+      expect(running).not.toContain('data-testid="content-cancel-turn"');
+      expect(running).toContain('aria-label="Stop generating"');
     });
 
-    it("shows Close only when something can actually close the session", () => {
+    it("offers the session menu only when it has something to do", () => {
       const base = {
         session: mockSession,
         promptValue: "",
@@ -942,12 +952,15 @@ describe("Agent Hub Phase 3 Surfaces", () => {
         onSend: () => {},
         onCancel: () => {},
       };
+      // Close lives in the menu now, as it does on the sidebar row: a bordered
+      // button at Stop's weight, for the one action here that ends a process,
+      // was the wrong emphasis. A menu with nothing in it is not drawn.
       expect(renderToString(<AgentHubContent {...base} />)).not.toContain(
-        'data-testid="content-close-session"',
+        'data-testid="content-session-menu"',
       );
       expect(
         renderToString(<AgentHubContent {...base} onCloseSession={() => {}} />),
-      ).toContain('data-testid="content-close-session"');
+      ).toContain('data-testid="content-session-menu"');
     });
   });
 

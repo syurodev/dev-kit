@@ -165,8 +165,6 @@ function Block({ block }: { block: MarkdownBlock }) {
 }
 
 export function AgentMessageRich({ text, author, className }: AgentMessageRichProps) {
-  const blocks = React.useMemo(() => parseMarkdown(text), [text]);
-
   return (
     <div
       data-testid="agent-message-rich"
@@ -175,11 +173,41 @@ export function AgentMessageRich({ text, author, className }: AgentMessageRichPr
       {author ? (
         <p className="text-caption-11 whitespace-nowrap text-text-tertiary">{author}</p>
       ) : null}
-      <div className="flex w-full flex-col gap-4 rounded-lg bg-surface-raised p-4 select-text">
-        {blocks.map((block, idx) => (
-          <Block key={idx} block={block} />
-        ))}
-      </div>
+      <AgentProse text={text} className="rounded-lg bg-surface-raised p-4" />
+    </div>
+  );
+}
+
+export type AgentProseProps = {
+  text: string;
+  /**
+   * Wraps each block so the caller can animate it in. A render prop rather than
+   * an animation flag, so this file stays about markdown and knows nothing of
+   * motion or of which turn is live.
+   */
+  wrapBlock?: (block: React.ReactNode, index: number) => React.ReactNode;
+  className?: string;
+};
+
+/**
+ * The agent's words on the page's own ground: no bubble, no author line.
+ *
+ * A bubble marks a voice in a conversation between people. In a transcript with
+ * one person and one agent the side of the column already says who is talking,
+ * and the agent's answer is a document — headings, lists, code — that a rounded
+ * card squeezes into looking like a chat line.
+ */
+export function AgentProse({ text, wrapBlock, className }: AgentProseProps) {
+  const blocks = React.useMemo(() => parseMarkdown(text), [text]);
+  return (
+    <div
+      data-testid="agent-prose"
+      className={cn("flex w-full flex-col gap-4 select-text", className)}
+    >
+      {blocks.map((block, idx) => {
+        const node = <Block block={block} />;
+        return <React.Fragment key={idx}>{wrapBlock ? wrapBlock(node, idx) : node}</React.Fragment>;
+      })}
     </div>
   );
 }
