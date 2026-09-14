@@ -10,6 +10,8 @@ import {
 } from "./AgentSessionsSubscriber";
 import { useAgentSessionsStore } from "../stores/agentSessions";
 import { useWorkbenchTabsStore } from "../stores/workbenchTabs";
+import { sendAgentTurn, type TurnBridge } from "./agentPromptQueue";
+import type { InvokeResult } from "../bridge/agenthub";
 
 // No ui_state writes: the debounced bridge call would reject after this file ends.
 useWorkbenchTabsStore.persist.setOptions({
@@ -65,6 +67,30 @@ describe("an Agent Hub tab when a turn finishes", () => {
     handleAgentTurnFinished({ sessionId: "s1", status: "error", outcome: "error" });
 
     expect(tabStatus()).toBe("error");
+  });
+
+  it("stays running when a late turnFinished lands while the next turn of ours runs", () => {
+    useAgentSessionsStore.setState({ turnInFlightBySession: { s1: true } });
+
+    handleAgentTurnFinished({ sessionId: "s1", status: "idle", outcome: "completed" });
+
+    expect(tabStatus()).toBe("running");
+  });
+
+  it("goes back to idle when our turn's reply comes after its turnFinished", async () => {
+    let finish!: (result: InvokeResult) => void;
+    const bridge: TurnBridge = {
+      invoke: () => new Promise((resolve) => (finish = resolve)),
+      getStatus: async (id) => useAgentSessionsStore.getState().sessionsById[id],
+    };
+
+    const turn = sendAgentTurn("s1", { id: "p", text: "go", attachments: [], images: [] }, bridge);
+    handleAgentTurnFinished({ sessionId: "s1", status: "idle", outcome: "completed" }, bridge);
+    expect(tabStatus()).toBe("running");
+    finish({ status: "completed", summary: "", filesChanged: [], turnCount: 1, stopReason: "end_turn" });
+    await turn;
+
+    expect(tabStatus()).toBe("idle");
   });
 });
 

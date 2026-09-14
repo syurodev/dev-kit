@@ -16,7 +16,12 @@ import { groupTurns, workedFor } from "../modules/agenthub/turns";
 import type { TranscriptItem } from "../modules/agenthub/types";
 import { moduleTabs, useWorkbenchTabsStore, type TabStatus } from "../stores/workbenchTabs";
 import { UpdateKind } from "../../bindings/devkit/internal/agenthub/models";
-import { drainQueuedPrompt, noteTurnFinishedDuringOurs, type TurnBridge } from "./agentPromptQueue";
+import {
+  drainQueuedPrompt,
+  noteTurnFinishedDuringOurs,
+  setAgentHubTabsStatus,
+  type TurnBridge,
+} from "./agentPromptQueue";
 
 /** Someone is looking at this session: the hub open on it, or the companion. */
 function sessionVisible(sessionId: string): boolean {
@@ -72,16 +77,12 @@ export function handleAgentTurnFinished(
     state.upsertSession({ ...session, status: nextStatus });
   }
 
-  const { modules, setTabStatus } = useWorkbenchTabsStore.getState();
-  const targetTabs = moduleTabs(modules, "agenthub").openTabs.filter(
-    (tab) => !tab.params?.sessionId || tab.params.sessionId === sessionId,
-  );
   // The turn is over, so the dot stops saying anything is happening. Whether
   // anyone has seen the answer is the unread badge's job (below); a "success"
-  // dot never went away again.
-  for (const tab of targetTabs) {
-    setTabStatus(tab.id, nextStatus === "error" ? "error" : "idle");
-  }
+  // dot never went away again. Not while a turn of ours is in flight: a late
+  // event would put the next queued turn's dot out, and sendAgentTurn settles
+  // the dot of its own turn.
+  if (!ours) setAgentHubTabsStatus(sessionId, nextStatus === "error" ? "error" : "idle");
 
   if (sessionVisible(sessionId)) state.markCompletedRead(sessionId);
   else state.markCompletedUnread(sessionId);

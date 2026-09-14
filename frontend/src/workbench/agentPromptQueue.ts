@@ -9,6 +9,7 @@ import {
 import { isAgentAuthRequiredError, isAgentNotInstalledError, isRuntimeRequirementError } from "../bridge/agentRuntime";
 import { toAppError } from "../bridge/errors";
 import { useAgentSessionsStore, type QueuedAgentPrompt } from "../stores/agentSessions";
+import { moduleTabs, useWorkbenchTabsStore, type TabStatus } from "../stores/workbenchTabs";
 
 export type TurnBridge = {
   invoke: (input: InvokeSessionInput) => Promise<InvokeResult>;
@@ -120,6 +121,23 @@ export function noteTurnFinishedDuringOurs(sessionId: string): void {
   finishedDuringTurn.add(sessionId);
 }
 
+/** The dot on every Agent Hub tab showing this session. */
+export function setAgentHubTabsStatus(sessionId: string, status: TabStatus): void {
+  const { modules, setTabStatus } = useWorkbenchTabsStore.getState();
+  for (const tab of moduleTabs(modules, "agenthub").openTabs) {
+    if (!tab.params?.sessionId || tab.params.sessionId === sessionId) setTabStatus(tab.id, status);
+  }
+}
+
+/** A turn of ours settled. turnFinished leaves the dot alone while one is in flight. */
+function settleTabs(sessionId: string) {
+  const state = useAgentSessionsStore.getState();
+  const status = state.sessionsById[sessionId]?.status;
+  // The next queued turn has started, or another agent's turn holds the session.
+  if (state.turnInFlightBySession[sessionId] || status === "running" || status === "awaiting_permission") return;
+  setAgentHubTabsStatus(sessionId, status === "error" ? "error" : "idle");
+}
+
 /** Runs a turn already marked in flight (beginTurn / claimQueuedPrompt). */
 async function runTurn(
   sessionId: string,
@@ -153,20 +171,24 @@ async function runTurn(
     // claimQueuedPrompt sends only if the fresh status can take it and the queue is not paused.
     if (busy) {
       if (finishedDuringTurn.delete(sessionId)) void drainQueuedPrompt(sessionId, bridge);
+      settleTabs(sessionId);
       return null;
     }
     void drainQueuedPrompt(sessionId, bridge);
+    settleTabs(sessionId);
     throw error;
   }
   store.finishTurn(sessionId);
   if (result.status !== "completed") {
     store.pauseQueue(sessionId);
     await refreshStatus(sessionId, bridge, "error");
+    settleTabs(sessionId);
     return result;
   }
   // Go set the session idle before replying. Not re-read: the next queued turn
   // starts now, and a late read would take its Stop button away.
   setStatus(sessionId, "idle");
   void drainQueuedPrompt(sessionId, bridge);
+  settleTabs(sessionId);
   return result;
 }
