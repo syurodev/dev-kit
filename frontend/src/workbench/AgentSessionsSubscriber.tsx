@@ -118,7 +118,7 @@ export function AgentSessionsSubscriber() {
   }, [trackSubagent]);
 
   useEffect(() => {
-    return onAgentHubTurnFinished(({ sessionId, status }) => {
+    return onAgentHubTurnFinished(({ sessionId, status, outcome }) => {
       const state = useAgentSessionsStore.getState();
       const session = state.sessionsById[sessionId];
       const nextStatus = status === "error" ? "error" : status === "closed" ? "closed" : "idle";
@@ -139,7 +139,7 @@ export function AgentSessionsSubscriber() {
         (state.chatOpen && state.activeSessionId === sessionId);
       if (visible) markCompletedRead(sessionId);
       else markCompletedUnread(sessionId);
-      if (nextStatus === "idle") void drainQueuedPrompt(sessionId);
+      if (outcome === "completed") void drainQueuedPrompt(sessionId);
     });
   }, [markCompletedRead, markCompletedUnread]);
 

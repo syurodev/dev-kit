@@ -90,6 +90,7 @@ export type SessionUpdateEvent = {
 export type AgentTurnFinishedEvent = {
   sessionId: string;
   status: SessionStatus;
+  outcome: "completed" | "cancelled" | "error" | "";
 };
 
 export type PendingPermission = {
@@ -439,7 +440,7 @@ export function onAgentHubPermission(
   });
 }
 
-function parseSessionEvent(data: unknown): { sessionId: string; status?: SessionStatus } | null {
+function parseSessionEvent(data: unknown): { sessionId: string; status?: SessionStatus; outcome?: AgentTurnFinishedEvent["outcome"] } | null {
   const record = Array.isArray(data) ? data[0] : data;
   if (!record || typeof record !== "object") return null;
   const value = record as Record<string, unknown>;
@@ -447,6 +448,7 @@ function parseSessionEvent(data: unknown): { sessionId: string; status?: Session
   return {
     sessionId: value.sessionId,
     status: typeof value.status === "string" ? asStatus(value.status) : undefined,
+    outcome: typeof value.outcome === "string" ? value.outcome as AgentTurnFinishedEvent["outcome"] : undefined,
   };
 }
 
@@ -455,7 +457,7 @@ export function onAgentHubTurnFinished(
 ): () => void {
   return Events.On(TURN_FINISHED_EVENT, (ev) => {
     const parsed = parseSessionEvent(ev?.data);
-    if (parsed) handler({ sessionId: parsed.sessionId, status: parsed.status ?? "idle" });
+    if (parsed) handler({ sessionId: parsed.sessionId, status: parsed.status ?? "idle", outcome: parsed.outcome ?? "" });
   });
 }
 

@@ -97,7 +97,7 @@ type Service struct {
 	OnSessionClosed func(sessionID string)
 	// OnTurnFinished fires after the turn's final transcript flush, including
 	// cancellation and errors, so shell consumers can clear running state once.
-	OnTurnFinished func(sessionID string, status SessionStatus)
+	OnTurnFinished func(sessionID string, status SessionStatus, outcome string)
 	// OnUnknownUpdate reports a session/update kind this build does not model,
 	// once per kind per session. It exists because the gap used to be wide and
 	// silent: of the sixteen kinds claude-agent-acp 0.74 emits this build parsed
@@ -715,6 +715,7 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 	}
 	s.invoking[in.SessionID] = struct{}{}
 	s.mu.Unlock()
+	turnOutcome := "error"
 	defer func() {
 		s.mu.Lock()
 		delete(s.invoking, in.SessionID)
@@ -728,7 +729,7 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 		}
 		if s.OnTurnFinished != nil {
 			if session, err := s.store.GetSession(context.WithoutCancel(ctx), in.SessionID); err == nil {
-				s.OnTurnFinished(in.SessionID, session.Status)
+				s.OnTurnFinished(in.SessionID, session.Status, turnOutcome)
 			}
 		}
 	}()
@@ -888,6 +889,7 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 	if err := s.setSessionStatus(recordCtx, in.SessionID, SessionStatusIdle); err != nil {
 		return InvokeResult{Status: "error"}, err
 	}
+	turnOutcome = "completed"
 
 	return InvokeResult{
 		Status:       "completed",

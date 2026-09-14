@@ -433,12 +433,13 @@ func main() {
 	}
 	// Keep the stamped deadline and the enforced one from drifting apart.
 	agentWaiter.Timeout = agentSvc.PermissionTimeoutOrDefault()
-	agentSvc.OnTurnFinished = func(sessionID string, status agenthub.SessionStatus) {
+	agentSvc.OnTurnFinished = func(sessionID string, status agenthub.SessionStatus, outcome string) {
 		emitAppEvent("agenthub:turnFinished", map[string]any{
 			"sessionId": sessionID,
 			"status":    string(status),
+			"outcome":   outcome,
 		})
-		if status == agenthub.SessionStatusIdle {
+		if outcome == "completed" {
 			notifyAgent(sessionID, "Answer ready", "The agent finished its turn.")
 		}
 	}
