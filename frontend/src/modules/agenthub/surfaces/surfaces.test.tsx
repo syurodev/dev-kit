@@ -182,13 +182,12 @@ describe("Agent Hub Phase 3 Surfaces", () => {
   });
 
   describe("AgentJumpToLatest", () => {
-    it("renders floating pill when visible", () => {
+    it("renders the floating button when visible", () => {
       const html = renderToString(
         <AgentJumpToLatest visible={true} onClick={() => {}} />,
       );
 
       expect(html).toContain("data-testid=\"agent-jump-to-latest\"");
-      expect(html).toContain("Jump to latest");
     });
 
     it("returns null when visible is false", () => {
@@ -1303,17 +1302,11 @@ describe("Agent Hub Phase 3 Surfaces", () => {
   });
 
   describe("Agent / Jump To Latest (Figma 1044:3196)", () => {
-    it("counts what arrived rather than repeating the arrow", () => {
-      const html = renderToString(
-        <AgentJumpToLatest visible count={3} onClick={() => {}} />,
-      );
-      expect(html).toContain("3 new messages");
-      expect(html).toContain("bg-surface-glass-floating");
-    });
-
-    it("still names itself when nothing has been counted", () => {
+    it("is an arrow with a name, not a count", () => {
       const html = renderToString(<AgentJumpToLatest visible onClick={() => {}} />);
-      expect(html).toContain("Jump to latest");
+      expect(html).toContain('aria-label="Scroll to bottom"');
+      expect(html).toContain("bg-surface-glass-floating");
+      expect(html).not.toContain("new message");
     });
   });
 });

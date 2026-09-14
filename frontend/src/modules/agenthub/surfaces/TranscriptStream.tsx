@@ -43,7 +43,6 @@ export function TranscriptStream({
   const turns = useMemo(() => groupTurns(items), [items]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showJump, setShowJump] = useState(false);
-  const [unread, setUnread] = useState(0);
   // Figma 951:2270 is opened from a message footer, so the transcript owns it:
   // one panel for whichever turn you asked about, not one per message.
   const [inspecting, setInspecting] = useState<TranscriptItem | null>(null);
@@ -57,20 +56,13 @@ export function TranscriptStream({
     const atBottom = distanceToBottom < 80;
     isAtBottomRef.current = atBottom;
     setShowJump(!atBottom);
-    if (atBottom) setUnread(0);
   }
 
   // Auto-scroll on new items if user is already at the bottom
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    if (isAtBottomRef.current) {
-      el.scrollTop = el.scrollHeight;
-    } else {
-      // Counted, not just flagged: "3 new messages" tells you whether
-      // scrolling back down is worth it.
-      setUnread((n) => n + 1);
-    }
+    if (isAtBottomRef.current) el.scrollTop = el.scrollHeight;
   }, [items]);
 
   function scrollToBottom() {
@@ -78,7 +70,6 @@ export function TranscriptStream({
     if (!el) return;
     el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
     setShowJump(false);
-    setUnread(0);
   }
 
   return (
@@ -146,7 +137,7 @@ export function TranscriptStream({
         style={{ bottom: "calc(var(--composer-inset, 0px) + var(--space-control))" }}
       >
         <div className="pointer-events-auto">
-          <AgentJumpToLatest visible={showJump} count={unread} onClick={scrollToBottom} />
+          <AgentJumpToLatest visible={showJump} onClick={scrollToBottom} />
         </div>
       </div>
     </div>
