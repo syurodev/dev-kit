@@ -4,8 +4,6 @@ import {
   agentHubGetStatus,
   agentHubChooseFiles,
   agentHubListContextFiles,
-  agentHubSetConfigOption,
-  agentHubSetMode,
   type AgentImageAttachment,
   agentHubResolvePermission,
   cancelledPermissionOutcome,
@@ -13,7 +11,8 @@ import {
 } from "@/bridge/agenthub";
 import { errorMessage } from "@/bridge/errors";
 import { AgentRail } from "@/modules/agenthub/surfaces";
-import { updateTranscriptControls, useAgentTranscript } from "@/modules/agenthub/transcript";
+import { useAgentTranscript } from "@/modules/agenthub/transcript";
+import { setSessionConfigOption, setSessionMode } from "@/modules/agenthub/transcriptControls";
 import { useAgentSessionList, useAgentSessionsStore } from "@/stores/agentSessions";
 import { openCodeGraphProject, readCodeGraphFile } from "@/bridge/codegraph";
 import { useCodeGraphStore } from "@/modules/codegraph/codegraphStore";
@@ -168,21 +167,14 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
 
   async function setMode(nextMode: string) {
     if (!session) return;
-    const previous = transcriptModel;
-    updateTranscriptControls(session.id, (model) => ({ ...model, mode: nextMode }));
-    try { await agentHubSetMode(session.id, nextMode); }
-    catch (e) { updateTranscriptControls(session.id, () => previous); setError(errorMessage(e)); }
+    try { await setSessionMode(session.id, nextMode); }
+    catch (e) { setError(errorMessage(e)); }
   }
 
   async function setConfigOption(optionId: string, value: string) {
     if (!session) return;
-    const previous = transcriptModel;
-    updateTranscriptControls(session.id, (model) => ({
-      ...model,
-      configOptions: model.configOptions.map((option) => option.id === optionId ? { ...option, currentValue: value } : option),
-    }));
-    try { await agentHubSetConfigOption(session.id, optionId, value); }
-    catch (e) { updateTranscriptControls(session.id, () => previous); setError(errorMessage(e)); }
+    try { await setSessionConfigOption(session.id, optionId, value); }
+    catch (e) { setError(errorMessage(e)); }
   }
 
   async function handleCancel() {

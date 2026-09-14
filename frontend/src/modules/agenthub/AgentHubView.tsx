@@ -24,8 +24,6 @@ import {
   agentHubGetStatus,
   agentHubListVendorTypes,
   agentHubListContextFiles,
-  agentHubSetMode,
-  agentHubSetConfigOption,
   CLAUDE_VENDOR,
   isSandboxUnavailableError,
   sandboxUnavailableMessage,
@@ -40,7 +38,8 @@ import { useWorkbenchTabsStore } from "../../stores/workbenchTabs";
 import { copyText } from "../../bridge/clipboard";
 import { toAppError } from "../../bridge/errors";
 import { useAgentHubSidebar } from "./useAgentHubSidebar";
-import { forgetAgentTranscript, updateTranscriptControls, useAgentTranscript } from "./transcript";
+import { forgetAgentTranscript, useAgentTranscript } from "./transcript";
+import { setSessionConfigOption, setSessionMode } from "./transcriptControls";
 import { AgentHubContent } from "./surfaces";
 import { useAgentSessionList, useAgentSessionsStore } from "../../stores/agentSessions";
 import { useAgentPinsStore } from "../../stores/agentPins";
@@ -446,29 +445,18 @@ export function AgentHubView() {
 
   async function handleSetMode(nextMode: string) {
     if (!activeSession) return;
-    const previous = transcriptModel;
-    updateTranscriptControls(activeSession.id, (model) => ({ ...model, mode: nextMode }));
     try {
-      await agentHubSetMode(activeSession.id, nextMode);
+      await setSessionMode(activeSession.id, nextMode);
     } catch (e) {
-      updateTranscriptControls(activeSession.id, () => previous);
       reportError(e);
     }
   }
 
   async function handleSetConfigOption(optionId: string, value: string) {
     if (!activeSession) return;
-    const previous = transcriptModel;
-    updateTranscriptControls(activeSession.id, (model) => ({
-      ...model,
-      configOptions: model.configOptions.map((option) =>
-        option.id === optionId ? { ...option, currentValue: value } : option,
-      ),
-    }));
     try {
-      await agentHubSetConfigOption(activeSession.id, optionId, value);
+      await setSessionConfigOption(activeSession.id, optionId, value);
     } catch (e) {
-      updateTranscriptControls(activeSession.id, () => previous);
       reportError(e);
     }
   }
