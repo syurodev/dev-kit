@@ -344,14 +344,14 @@ func main() {
 			"parsed":    agenthub.ParseSessionUpdate(update),
 		})
 	})
-		agentSvc.ResolvePermission = agentWaiter.Resolve
-		// A crash mid-turn leaves rows saying running/awaiting_permission, and
-		// no ACP process survives the restart that could finish those turns —
-		// without this reset, Invoke refuses the sessions with ErrSessionBusy
-		// forever. Same startup contract as outbox.RecoverStaleSyncing above.
-		if err := agentSvc.RecoverStaleSessions(context.Background()); err != nil {
-			log.Fatal(err)
-		}
+	agentSvc.ResolvePermission = agentWaiter.Resolve
+	// A crash mid-turn leaves rows saying running/awaiting_permission, and
+	// no ACP process survives the restart that could finish those turns —
+	// without this reset, Invoke refuses the sessions with ErrSessionBusy
+	// forever. Same startup contract as outbox.RecoverStaleSyncing above.
+	if err := agentSvc.RecoverStaleSessions(context.Background()); err != nil {
+		log.Fatal(err)
+	}
 	// Keep the stamped deadline and the enforced one from drifting apart.
 	agentWaiter.Timeout = agentSvc.PermissionTimeoutOrDefault()
 	agentSvc.OnRecordError = func(sessionID string, err error) {
