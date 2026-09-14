@@ -793,9 +793,13 @@ type TranscriptRuntime = {
   /** The seq of the oldest page edge held; where the backwards walk resumes. */
   oldestSeq: number | null;
   loadingOlder: boolean;
+  /** Bumped by a reload; an older page asked for in an earlier generation is dropped. */
+  generation: number;
 };
 
 const runtimes = new Map<string, TranscriptRuntime>();
+/** How many sessions keep a transcript in memory; the rest reload their newest page when reopened. */
+export const TRANSCRIPT_CACHE_LIMIT = 8;
 let streamStarted = false;
 
 export function updateTranscriptControls(
@@ -870,6 +874,14 @@ export function startAgentTranscriptStream(): void {
   onAgentHubSessionUpdate((event) => {
     if (event.parsed) receiveTranscriptUpdate(event.sessionId, event.parsed);
   });
+  // A session that leaves the store (deleted, or missing from a reloaded
+  // list) takes its transcript with it: nothing can open it again.
+  useAgentSessionsStore.subscribe((state, previous) => {
+    if (state.sessionsById === previous.sessionsById) return;
+    for (const id of runtimes.keys()) {
+      if (!state.sessionsById[id]) forgetAgentTranscript(id);
+    }
+  });
 }
 
 async function loadTranscriptRuntime(sessionId: string, runtime: TranscriptRuntime): Promise<void> {
@@ -915,7 +927,7 @@ async function loadTranscriptRuntime(sessionId: string, runtime: TranscriptRunti
  * before the items land (TranscriptStream), so the line being read stays put
  * while the older history appears above it.
  */
-function loadOlderTranscript(sessionId: string): void {
+export function loadOlderTranscript(sessionId: string): void {
   const runtime = runtimes.get(sessionId);
   if (!runtime || runtime.loading || runtime.loadingOlder) return;
   const before = runtime.oldestSeq;
@@ -925,11 +937,15 @@ function loadOlderTranscript(sessionId: string): void {
   if (!paging.hasMore) return;
 
   runtime.loadingOlder = true;
+  // A reload meanwhile replaces the window this page would extend; landing it
+  // on the new one leaves a gap or a duplicate at the seam.
+  const generation = runtime.generation;
+  const current = () => runtimes.get(sessionId) === runtime && runtime.generation === generation;
   state.setTranscriptPaging(sessionId, { ...paging, loadingOlder: true });
   void (async () => {
     try {
       const page = await agentHubTranscriptPage(sessionId, before, 0);
-      if (runtimes.get(sessionId) !== runtime) return;
+      if (!current()) return;
       // Land anything the buffer still holds first: the prepend merges from
       // the buffer's own model, and losing the pending frame would drop the
       // newest messages the reader just watched arrive.
@@ -949,23 +965,27 @@ function loadOlderTranscript(sessionId: string): void {
         },
       }));
     } catch {
-      if (runtimes.get(sessionId) !== runtime) return;
+      if (!current()) return;
       // The walk stops but the history is still up there; say so rather than
       // pretending the transcript is complete.
       useAgentSessionsStore
         .getState()
         .setTranscriptPaging(sessionId, { hasMore: true, loadingOlder: false });
     } finally {
-      runtime.loadingOlder = false;
+      if (runtime.generation === generation) runtime.loadingOlder = false;
     }
   })();
 }
 
-function ensureTranscript(sessionId: string): void {
+export function ensureTranscript(sessionId: string): void {
   if (!sessionId) return;
   startAgentTranscriptStream();
   let runtime = runtimes.get(sessionId);
-  if (!runtime) {
+  if (runtime) {
+    // Reopened, so most recent again: a Map iterates oldest insertion first.
+    runtimes.delete(sessionId);
+    runtimes.set(sessionId, runtime);
+  } else {
     runtime = {
       model: createInitialTranscriptModel(),
       loading: true,
@@ -974,8 +994,15 @@ function ensureTranscript(sessionId: string): void {
       loadPromise: null,
       oldestSeq: null,
       loadingOlder: false,
+      generation: 0,
     };
     runtimes.set(sessionId, runtime);
+    // Sessions not opened for a while give their transcript and older pages
+    // back; reopening one loads its newest page again, as a first open does.
+    for (const id of runtimes.keys()) {
+      if (runtimes.size <= TRANSCRIPT_CACHE_LIMIT) break;
+      forgetAgentTranscript(id);
+    }
   }
   if (!runtime.loadPromise && runtime.loading) {
     useAgentSessionsStore.getState().setTranscriptLoading(sessionId, true);
@@ -983,10 +1010,13 @@ function ensureTranscript(sessionId: string): void {
   }
 }
 
-function reloadTranscript(sessionId: string): void {
+export function reloadTranscript(sessionId: string): void {
   const runtime = runtimes.get(sessionId);
   if (!runtime || runtime.loading) return;
   runtime.loading = true;
+  // An older page still in flight extends the window being replaced (loadOlderTranscript).
+  runtime.generation += 1;
+  runtime.loadingOlder = false;
   runtime.loadingUpdates = [];
   runtime.oldestSeq = null;
   runtime.buffer?.flush();
@@ -995,11 +1025,21 @@ function reloadTranscript(sessionId: string): void {
   runtime.loadPromise = loadTranscriptRuntime(sessionId, runtime);
 }
 
-/** Drops the shell cache when the backend session is deleted. */
+/**
+ * Drops a session's transcript: its runtime and what the store holds for it.
+ * Called when the session leaves the store (startAgentTranscriptStream) and
+ * when it falls out of the cache (ensureTranscript).
+ */
 export function forgetAgentTranscript(sessionId: string): void {
-  const runtime = runtimes.get(sessionId);
-  runtime?.buffer?.dispose();
+  runtimes.get(sessionId)?.buffer?.dispose();
   runtimes.delete(sessionId);
+  useAgentSessionsStore.setState((state) => {
+    const { [sessionId]: _model, ...transcriptsById } = state.transcriptsById;
+    const { [sessionId]: _loading, ...transcriptLoadingById } = state.transcriptLoadingById;
+    const { [sessionId]: _error, ...transcriptErrorsById } = state.transcriptErrorsById;
+    const { [sessionId]: _paging, ...transcriptPagingById } = state.transcriptPagingById;
+    return { transcriptsById, transcriptLoadingById, transcriptErrorsById, transcriptPagingById };
+  });
 }
 
 /** React is only a reader of the shell-owned model and never owns the stream. */
