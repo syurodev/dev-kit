@@ -127,6 +127,14 @@ export function TranscriptStream({
         // sit over this scroller, and AgentHubContent measures each into a
         // variable so the first and last lines can scroll out from under them.
         style={{
+          // A classic scrollbar (macOS "Show scroll bars: Always", a mouse
+          // plugged in, Windows) takes its width off the right only, and the
+          // centred column slid left of the composer by half of it. Reserving
+          // the same gutter on the left keeps the column centred in the pane,
+          // under the composer. No effect with overlay scrollbars, which take
+          // no width. ponytail: below the 720 cap the column is still a gutter
+          // narrower per side than the composer; measure it if that shows.
+          scrollbarGutter: "stable both-edges",
           paddingTop: "calc(var(--header-inset, 0px) + var(--space-section))",
           paddingBottom: "calc(var(--composer-inset, 0px) + var(--space-section))",
         }}
