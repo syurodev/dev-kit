@@ -57,6 +57,23 @@ describe("groupTurns", () => {
     expect(turns.map((t) => t.answer[0]?.text)).toEqual(["a", "b"]);
   });
 
+  it("keeps every held turn's identity when an older page lands in front", () => {
+    const held = [
+      row("user_message_chunk", { text: "two" }),
+      row("agent_message_chunk", { text: "b" }),
+      row("user_message_chunk", { text: "three" }),
+      row("agent_message_chunk", { text: "c" }),
+    ];
+    const previous = groupTurns(held);
+    const older = [row("user_message_chunk", { text: "one" }), row("agent_message_chunk", { text: "a" })];
+
+    const next = groupTurns([...older, ...held], previous);
+
+    expect(next).toHaveLength(3);
+    expect(next[1]).toBe(previous[0]);
+    expect(next[2]).toBe(previous[1]);
+  });
+
   it("keeps what the agent said before anyone spoke", () => {
     const [turn] = groupTurns([row("agent_message_chunk", { text: "Hello" })]);
     expect(turn.prompt).toBeUndefined();

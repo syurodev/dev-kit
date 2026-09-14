@@ -92,8 +92,15 @@ export function groupTurns(items: TranscriptItem[], previous: Turn[] = []): Turn
       current.notes.push(item);
     }
   }
+  // Matched by id, not position: an older page lands in front and shifts
+  // every held turn along. The shift is found once, from the first turn held
+  // before; the common case (nothing prepended) costs one comparison.
+  let shift = 0;
+  if (previous.length > 0 && drafts[0]?.id !== previous[0].id) {
+    shift = drafts.findIndex((draft) => draft.id === previous[0].id);
+  }
   return drafts.map((draft, index) => {
-    const prior = previous[index];
+    const prior = shift < 0 ? undefined : previous[index - shift];
     if (
       prior &&
       prior.id === draft.id &&
