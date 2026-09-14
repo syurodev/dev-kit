@@ -60,22 +60,26 @@ function newBlockKey(): string {
   return `agent-block-${nextBlockKey}`;
 }
 
-/** Find the longest prefix that cannot be changed by more incoming lines. */
-function closedPrefixOf(source: string): number {
-  const lines = source.split("\n");
-  let offset = 0;
-  let closed = 0;
+/**
+ * Find the longest prefix that cannot be changed by more incoming text,
+ * scanning on from `from`, a boundary found earlier. Only lines that already
+ * have their newline count: an unfinished "```" can still grow into "````" or
+ * "```j", and a boundary taken on it was later withdrawn or cut a line in two.
+ * A boundary is never inside a fence, so the scan resumes outside one.
+ */
+function closedPrefixOf(source: string, from: number): number {
+  let closed = from;
   let inFence = false;
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index];
-    const end = offset + line.length + (index < lines.length - 1 ? 1 : 0);
+  let start = from;
+  for (let end = source.indexOf("\n", start); end !== -1; end = source.indexOf("\n", start)) {
+    const line = source.slice(start, end);
     if (FENCE.test(line)) {
-      if (inFence) closed = end;
+      if (inFence) closed = end + 1;
       inFence = !inFence;
-    } else if (!inFence && index < lines.length - 1 && !line.trim()) {
-      closed = end;
+    } else if (!inFence && !line.trim()) {
+      closed = end + 1;
     }
-    offset = end;
+    start = end + 1;
   }
   return closed;
 }
@@ -203,8 +207,10 @@ export function parseMarkdownIncremental(
   previous?: IncrementalMarkdownState,
 ): IncrementalMarkdownState {
   const normalized = source.replace(/\r\n?/g, "\n");
-  const closedPrefixLength = closedPrefixOf(normalized);
   const canExtend = previous && normalized.startsWith(previous.source);
+  // Resuming from the previous boundary keeps each token's scan to the tail,
+  // and means the closed prefix can only grow while the text only grows.
+  const closedPrefixLength = closedPrefixOf(normalized, canExtend ? previous.closedPrefixLength : 0);
 
   if (!canExtend) {
     const closedBlocks = parseMarkdown(normalized.slice(0, closedPrefixLength));

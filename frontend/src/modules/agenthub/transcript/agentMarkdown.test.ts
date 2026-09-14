@@ -97,6 +97,37 @@ describe("agentMarkdown", () => {
     expect(state.blocks).toEqual(parseMarkdown(source));
   });
 
+  // A stream is cut wherever the transport cuts it, including in the middle of
+  // a fence or its closing line. Whatever the cut, the incremental result must
+  // be exactly what parsing the same text in one go gives.
+  const streamed = {
+    "fence closed by a longer run": "intro\n\n```\ncode\n````\nafter",
+    "fence closing line that grows a word": "```\ncode\n```j\nmore",
+    "fence with language and blank lines": "a\n\n```ts\nconst x = 1;\n\nreturn x;\n```\n\nb",
+    "tilde fence": "~~~\ncode\n~~~\n\ntext",
+    "four-backtick fence": "````\ncode\n````\n\ntext",
+    "fence inside a list": "- one\n```\ncode\n```\n- two\n\n1. three",
+    "table whose divider comes after the header": "| A | B |\n| --- | ---: |\n| 1 | 2 |\n\nafter",
+    "list that keeps going": "- a\n- b\n\n- c\n- d\ntrailing",
+    quote: "> one\n> two\n\n> three\n\nend",
+    CRLF: "para\r\n\r\n```js\r\nx\r\n```\r\n\r\n| A |\r\n| - |\r\n| 1 |",
+    "unclosed fence at the end": "text\n\n```\nstill open\n\nmore",
+  };
+
+  for (const [name, source] of Object.entries(streamed)) {
+    for (const step of [1, 2, 3, 7]) {
+      it(`streams "${name}" in steps of ${step} exactly as a one-shot parse`, () => {
+        let state;
+        for (let offset = 1; offset < source.length + step; offset += step) {
+          const prefix = source.slice(0, Math.min(offset, source.length));
+          state = parseMarkdownIncremental(prefix, state);
+          expect(state.blocks).toEqual(parseMarkdown(prefix));
+          expect(state.blockKeys).toHaveLength(state.blocks.length);
+        }
+      });
+    }
+  }
+
   it("keeps the active block key while its text grows", () => {
     const first = parseMarkdownIncremental("A paragraph that is still streaming");
     const second = parseMarkdownIncremental(`${first.source} with another token`, first);
