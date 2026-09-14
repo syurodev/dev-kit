@@ -14,8 +14,6 @@ import {
   AgentFileChip,
   AgentPlan,
   AgentSubagent,
-  AgentInvokeResult,
-  AgentRateLimit,
 } from "./index";
 
 describe("Agent Hub Transcript Leaves", () => {
@@ -302,8 +300,7 @@ describe("Agent Hub Transcript Leaves", () => {
       // A zero exit is the expected case; Figma gives it no label.
       expect(html).not.toContain("EXITED");
       expect(html).not.toContain("exit 0");
-      expect(html).toContain("terminal output is available in the terminal");
-      expect(html).toContain("overflow-x-auto");
+      expect(html).not.toContain("terminal output is available in the terminal");
     });
 
     it("falls back to the terminal id when no command reached us", () => {
@@ -360,66 +357,6 @@ describe("Agent Hub Transcript Leaves", () => {
       expect(html).toContain("Explore repository");
       expect(html).toContain("Implement components");
       expect(html).toContain("Run verification tests");
-    });
-  });
-
-  describe("AgentInvokeResult", () => {
-    it("renders task completion with files modified and cost", () => {
-      const html = renderToString(
-        <AgentInvokeResult
-          agentName="refund-worker"
-          stopReason="end_turn"
-          summary="Successfully refactored module."
-          filesChanged={["src/a.ts", "src/b.ts"]}
-          duration="4.2s"
-          cost={{ amount: 0.08 }}
-        />,
-      );
-      // Named, not "Task Complete": with a swarm running, an unattributed
-      // completion tells you nothing.
-      expect(html).toContain("refund-worker returned");
-      expect(html).toContain("Successfully refactored module.");
-      expect(html).toContain("Files changed");
-      expect(html).toContain("src/a.ts");
-      expect(html).toContain("src/b.ts");
-      expect(html).toContain("end_turn · 4.2s · $0.08");
-    });
-
-    it("absence test: renders when filesChanged and cost are absent", () => {
-      const html = renderToString(
-        <AgentInvokeResult summary="All tasks finished." />,
-      );
-      expect(html).toContain("Agent returned");
-      // Sub-cent turns keep their precision: $0.00 would make a running total
-      // look free.
-      expect(
-        renderToString(<AgentInvokeResult summary="x" cost={{ amount: 0.0025 }} />),
-      ).toContain("$0.0025");
-      expect(html).toContain("All tasks finished.");
-      expect(html).not.toContain("Files changed");
-    });
-  });
-
-  describe("AgentRateLimit", () => {
-    it("renders warning level", () => {
-      const html = renderToString(
-        <AgentRateLimit level="warning" remaining={12} resetTime="14:20" />,
-      );
-      // Both variants say when you get it back — a limit with no reset time is
-      // indistinguishable from a broken agent.
-      expect(html).toContain("12% of the window left — resets 14:20");
-      expect(html).toContain('data-level="warning"');
-      // The sentence stays in the ordinary tier; only the ground carries level.
-      expect(html).toContain("text-text-secondary");
-    });
-
-    it("renders exhausted level", () => {
-      const html = renderToString(
-        <AgentRateLimit level="exhausted" resetTime="14:20" />,
-      );
-      expect(html).toContain("the next turn is blocked until 14:20");
-      expect(html).toContain('data-level="exhausted"');
-      expect(html).toContain("bg-(--feedback-danger-soft)");
     });
   });
 

@@ -55,6 +55,7 @@ export type AgentRailProps = {
   onResolvePermission?: (optionId: string | null) => void | Promise<void>;
   permissionBusy?: boolean;
   errorMessage?: string;
+  sendDisabled?: boolean;
   className?: string;
 };
 
@@ -123,6 +124,7 @@ export function AgentRail({
   onResolvePermission,
   permissionBusy = false,
   errorMessage,
+  sendDisabled = false,
   className,
 }: AgentRailProps) {
   const effectiveState: AgentRailState = explicitState
@@ -266,6 +268,7 @@ export function AgentRail({
               mode={mode}
               onSetMode={onSetMode}
               onSetConfigOption={onSetConfigOption}
+              disabled={sendDisabled}
             />
           </div>
         </div>

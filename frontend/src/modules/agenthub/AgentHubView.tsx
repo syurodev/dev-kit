@@ -70,8 +70,9 @@ type CreateParams = {
   parentSessionId?: string;
   prompt?: string;
   attachments?: string[];
+  images?: AgentImageAttachment[];
 };
-type TurnInput = { sessionId: string; text: string; attachments: string[] };
+type TurnInput = { sessionId: string; text: string; attachments: string[]; images: AgentImageAttachment[] };
 /** The action that failed on sign-in, retried once a login exits 0. */
 type AuthRetry = { kind: "create"; params: CreateParams } | ({ kind: "turn" } & TurnInput);
 
@@ -100,6 +101,7 @@ export function AgentHubView() {
   const [draft, setDraft] = useState<{ cwd: string; parent: AgentSession | null } | null>(null);
   const [draftAgent, setDraftAgent] = useState<string>(CLAUDE_VENDOR);
   const [draftPrompt, setDraftPrompt] = useState("");
+  const [draftImages, setDraftImages] = useState<AgentImageAttachment[]>([]);
   // Figma 948:2204 writes the reason as "agenthub.processFailed — the agent
   // exited after …": the DevKit code AND what happened. errorMessage() gives
   // only the humanised half, so the card was saying "Agent process failed."
@@ -246,6 +248,7 @@ export function AgentHubView() {
   function startDraft(cwd: string, parent: AgentSession | null) {
     setDraft({ cwd, parent });
     setDraftPrompt("");
+    setDraftImages([]);
     setError("");
     setErrorReason("");
     setErrorCause(undefined);
@@ -284,12 +287,13 @@ export function AgentHubView() {
       setActiveSessionId(session.id);
       setDraft(null);
       setDraftPrompt("");
-      if (params.prompt || params.attachments?.length) {
+      setDraftImages([]);
+      if (params.prompt || params.attachments?.length || params.images?.length) {
         // The message was written before the session existed and is the reason
         // it was created. Passed the session itself: the list this closure
         // sees was read before the session was added to it.
         await handleSend(
-          { sessionId: session.id, text: params.prompt ?? "", attachments: params.attachments ?? [] },
+          { sessionId: session.id, text: params.prompt ?? "", attachments: params.attachments ?? [], images: params.images ?? [] },
           session,
         );
       }
@@ -358,17 +362,20 @@ export function AgentHubView() {
   async function handleAddImage(file: File) {
     try {
       const image = await imageAttachmentFromFile(file);
-      if (!activeSession) return;
       setImageError("");
-      setImages((prev) => ({ ...prev, [activeSession.id]: [...(prev[activeSession.id] ?? []), image] }));
+      if (activeSession) setImages((prev) => ({ ...prev, [activeSession.id]: [...(prev[activeSession.id] ?? []), image] }));
+      else if (draft) setDraftImages((current) => [...current, image]);
     } catch (e) {
       setImageError(e instanceof Error ? e.message : "Could not attach image");
     }
   }
 
   function handleRemoveImage(id: string) {
-    if (!activeSession) return;
-    setImages((prev) => ({ ...prev, [activeSession.id]: (prev[activeSession.id] ?? []).filter((image) => image.id !== id) }));
+    if (activeSession) {
+      setImages((prev) => ({ ...prev, [activeSession.id]: (prev[activeSession.id] ?? []).filter((image) => image.id !== id) }));
+    } else {
+      setDraftImages((current) => current.filter((image) => image.id !== id));
+    }
   }
 
   function queuePrompt(session: AgentSession, text: string, attached: string[], attachedImages: AgentImageAttachment[]) {
@@ -436,7 +443,7 @@ export function AgentHubView() {
       setPrompt(activeSession.id, `${current}${current && !/\s$/.test(current) ? " " : ""}${commandName} `);
       return;
     }
-    void handleSend({ sessionId: activeSession.id, text: commandName, attachments: [] });
+    void handleSend({ sessionId: activeSession.id, text: commandName, attachments: [], images: [] });
   }
 
   async function handleSetMode(nextMode: string) {
@@ -472,8 +479,9 @@ export function AgentHubView() {
   async function handleSend(retry?: TurnInput, known?: AgentSession) {
     const session = known ?? (retry ? sessions.find((s) => s.id === retry.sessionId) : activeSession);
     if (!session) return;
+    if (session.status === "closed") return;
     const attached = retry ? retry.attachments : attachments[session.id] ?? [];
-    const attachedImages = retry ? [] : images[session.id] ?? [];
+    const attachedImages = retry ? retry.images : images[session.id] ?? [];
     const text = retry ? retry.text : activePrompt.trim();
     // A prompt with attachments and no words is a turn: "look at these".
     if (!text && attached.length === 0 && attachedImages.length === 0) return;
@@ -483,7 +491,7 @@ export function AgentHubView() {
     }
     if (busy) return;
     if (!retry) setPrompt(session.id, "");
-    const turn = { sessionId: session.id, text, attachments: attached };
+    const turn = { sessionId: session.id, text, attachments: attached, images: attachedImages };
     lastTurn.current = turn;
     setBusy(true);
     setError("");
@@ -689,7 +697,7 @@ export function AgentHubView() {
             agent={draftAgent}
             onAgentChange={setDraftAgent}
             draftNotice={draftNotice}
-            sendDisabled={draft ? busy || draftBlocked : false}
+            sendDisabled={draft ? busy || draftBlocked : activeSession?.status === "closed"}
             promptValue={draft ? draftPrompt : activePrompt}
             onPromptChange={(val) => {
               if (draft) setDraftPrompt(val);
@@ -697,12 +705,13 @@ export function AgentHubView() {
             }}
             onSend={() => {
               if (!draft) return void handleSend();
-              if (!draftPrompt.trim()) return;
+              if (!draftPrompt.trim() && draftImages.length === 0) return;
               void handleCreateSession({
                 vendor: draftAgent,
                 cwd: draft.cwd,
                 parentSessionId: draft.parent?.id,
                 prompt: draftPrompt.trim(),
+                images: draftImages,
               });
             }}
             onCancel={() => void handleCancel()}
@@ -714,7 +723,7 @@ export function AgentHubView() {
               // like any other: it shows, it can fail, it can be retried. Not
               // through the draft, which may hold something half-written.
               if (activeSession) {
-                void handleSend({ sessionId: activeSession.id, text: "/compact", attachments: [] });
+                void handleSend({ sessionId: activeSession.id, text: "/compact", attachments: [], images: [] });
               }
             }}
             streaming={busy || activeSession?.status === "running"}
@@ -735,7 +744,7 @@ export function AgentHubView() {
               ) : undefined
             }
             attachments={activeSession ? attachments[activeSession.id] ?? [] : []}
-            imageAttachments={activeSession ? images[activeSession.id] ?? [] : []}
+            imageAttachments={draft ? draftImages : activeSession ? images[activeSession.id] ?? [] : []}
             onRemoveImage={handleRemoveImage}
             onPasteImage={(file) => void handleAddImage(file)}
             onDropImage={(file) => void handleAddImage(file)}

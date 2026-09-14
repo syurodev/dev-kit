@@ -304,6 +304,9 @@ export function AgentComposer({
               onDropImage(image);
             }
           }}
+          onDragOver={(e) => {
+            if (Array.from(e.dataTransfer.types).includes("Files")) e.preventDefault();
+          }}
           onKeyDown={(e) => {
             if (shouldCancelComposerOnEscape(e.key, isStreaming)) {
               e.preventDefault();

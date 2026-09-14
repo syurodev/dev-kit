@@ -35,4 +35,16 @@ describe("Agent prompt queue", () => {
     expect(useAgentSessionsStore.getState().queuedPromptsBySession.s1[0].id).toBe("retry-me");
     expect(useAgentSessionsStore.getState().queuedPromptInFlightBySession.s1).toBeUndefined();
   });
+
+  it("does not release another prompt when a queued sibling is cancelled", () => {
+    resetQueue();
+    const store = useAgentSessionsStore.getState();
+    store.enqueuePrompt("s1", queued("first"));
+    store.enqueuePrompt("s1", queued("second"));
+    expect(store.claimQueuedPrompt("s1")?.id).toBe("first");
+
+    store.removeQueuedPrompt("s1", "second");
+
+    expect(useAgentSessionsStore.getState().queuedPromptInFlightBySession.s1).toBe("first");
+  });
 });

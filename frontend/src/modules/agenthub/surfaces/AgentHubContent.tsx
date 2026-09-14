@@ -576,7 +576,11 @@ export function AgentHubContent({
             event.preventDefault();
             const title = renameValue.trim();
             if (!title || !onRenameSession) return;
-            void Promise.resolve(onRenameSession(title)).then(() => setRenameOpen(false));
+            void Promise.resolve(onRenameSession(title))
+              .then(() => setRenameOpen(false))
+              .catch(() => {
+                // Keep the dialog open so the user can retry after a bridge error.
+              });
           }}>
             <Input value={renameValue} onChange={(event) => setRenameValue(event.target.value)} maxLength={120} autoFocus aria-label="Session name" />
             <DialogFooter className="mt-4">

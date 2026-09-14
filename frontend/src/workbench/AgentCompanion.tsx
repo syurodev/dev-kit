@@ -89,6 +89,7 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
 
   async function handleSend(inputText?: string) {
     if (!session) return;
+    if (session.status === "closed") return;
     const text = inputText ?? prompt.trim();
     if (!text && attachments.length === 0 && images.length === 0) return;
     if (busy || session.status === "running" || session.status === "awaiting_permission") {
@@ -249,6 +250,7 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
       onResolvePermission={resolvePermission}
       permissionBusy={permBusy}
       errorMessage={error}
+      sendDisabled={session?.status === "closed"}
     />
   );
 }

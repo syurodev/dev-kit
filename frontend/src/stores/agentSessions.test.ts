@@ -75,6 +75,16 @@ describe("subagents in the session store", () => {
 
     expect(useAgentSessionsStore.getState().subagents.s1).toBeUndefined();
   });
+
+  it("keeps closed sessions in the history after the session list is reloaded", () => {
+    const closed = { ...session("closed-1"), status: "closed" as const };
+
+    useAgentSessionsStore.getState().setSessions([closed]);
+
+    const state = useAgentSessionsStore.getState();
+    expect(state.sessionIds).toEqual(["closed-1"]);
+    expect(state.sessionsById["closed-1"]).toEqual(closed);
+  });
 });
 
 describe("permission control-plane state", () => {

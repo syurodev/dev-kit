@@ -20,7 +20,7 @@ export type Turn = {
   work: TranscriptItem[];
   /** What the agent said after its last piece of work. */
   answer: TranscriptItem[];
-  /** Rows that are neither: rate limits, invoke results, kinds this build does not model. */
+  /** Rows this build does not model, retained for forward-compatible history. */
   notes: TranscriptItem[];
 };
 

@@ -64,8 +64,8 @@ describe("groupTurns", () => {
   });
 
   it("sets aside rows that are neither work nor words", () => {
-    const [turn] = groupTurns([row("user_message_chunk"), row("rate_limit"), row("seventeenth_kind")]);
-    expect(turn.notes.map((r) => r.kind)).toEqual(["rate_limit", "seventeenth_kind"]);
+    const [turn] = groupTurns([row("user_message_chunk"), row("future_kind")]);
+    expect(turn.notes.map((r) => r.kind)).toEqual(["future_kind"]);
     expect(turn.work).toEqual([]);
   });
 

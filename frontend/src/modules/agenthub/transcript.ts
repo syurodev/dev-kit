@@ -165,7 +165,7 @@ export function parsePayload(payload: unknown): Partial<SessionUpdate> {
  * Reproduces the Go recorder's semantics:
  * - Chunks coalesce while kind AND messageId match the immediately preceding item.
  * - Tool call updates merge onto the same toolCallId, empty fields left intact.
- * - Plan updates append as new rows.
+ * - Plan updates replace the live plan for the current turn.
  * - Usage updates session-level usage (not added to transcript items).
  * - Available commands update session-level commands list.
  * - Current mode updates session-level mode.

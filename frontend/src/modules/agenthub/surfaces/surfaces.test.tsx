@@ -148,6 +148,36 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       expect(html).toContain("schema.sql");
     });
 
+    it("shows queued prompts and pasted image previews in the composer", () => {
+      const html = renderToString(
+        <AgentComposer
+          value=""
+          onChange={() => {}}
+          onSend={() => {}}
+          onCancel={() => {}}
+          imageAttachments={[{
+            id: "image-1",
+            name: "screenshot.png",
+            mimeType: "image/png",
+            data: "aW1hZ2U=",
+            previewUrl: "data:image/png;base64,aW1hZ2U=",
+            size: 5,
+          }]}
+          queuedPrompts={[{ id: "queued-1", text: "Run the tests", attachments: [], images: [] }]}
+          onCancelQueued={() => {}}
+          onEditQueued={() => {}}
+        />,
+      );
+
+      expect(html).toContain('data-testid="composer-attachments"');
+      expect(html).toContain('alt="screenshot.png"');
+      expect(html).toContain('data-testid="composer-queued-prompts"');
+      expect(html).toContain("Queued");
+      expect(html).toContain("Run the tests");
+      expect(html).toContain("Cancel queued prompt");
+      expect(html).toContain("Edit queued prompt");
+    });
+
     it("renders the session controls only when the agent advertises them", () => {
       const html = renderToString(
         <AgentComposer

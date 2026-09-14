@@ -181,9 +181,6 @@ export const AgentTurn = React.memo(function AgentTurn({
         </MessageHoverCard>
       ))}
 
-      {turn.notes.map((item) => (
-        <Note key={item.id} />
-      ))}
     </section>
   );
 });
@@ -301,11 +298,6 @@ function SwapText({ text, animate, reduce }: { text: string; animate: boolean; r
       </AnimatePresence>
     </span>
   );
-}
-
-/** Rows that are neither work nor words: a rate limit, an invoke result. */
-function Note() {
-  return null;
 }
 
 /** The raw envelope, when there is one to read. */

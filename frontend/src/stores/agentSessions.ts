@@ -236,16 +236,19 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set) => ({
       },
     })),
   removeQueuedPrompt: (sessionId, promptId) =>
-    set((state) => ({
-      queuedPromptsBySession: {
-        ...state.queuedPromptsBySession,
-        [sessionId]: (state.queuedPromptsBySession[sessionId] ?? []).filter((prompt) => prompt.id !== promptId),
-      },
-      queuedPromptInFlightBySession: {
-        ...state.queuedPromptInFlightBySession,
-        [sessionId]: undefined,
-      },
-    })),
+    set((state) => {
+      const inFlight = state.queuedPromptInFlightBySession[sessionId];
+      return {
+        queuedPromptsBySession: {
+          ...state.queuedPromptsBySession,
+          [sessionId]: (state.queuedPromptsBySession[sessionId] ?? []).filter((prompt) => prompt.id !== promptId),
+        },
+        queuedPromptInFlightBySession:
+          inFlight === promptId
+            ? { ...state.queuedPromptInFlightBySession, [sessionId]: undefined }
+            : state.queuedPromptInFlightBySession,
+      };
+    }),
   updateQueuedPrompt: (sessionId, prompt) =>
     set((state) => ({
       queuedPromptsBySession: {
