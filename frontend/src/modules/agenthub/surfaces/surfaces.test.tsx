@@ -951,6 +951,30 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       expect(html).not.toContain('data-testid="content-header-status"');
     });
 
+    it("floats the header over the transcript as glass", () => {
+      const html = renderToString(
+        <AgentHubContent
+          session={mockSession}
+          promptValue=""
+          onPromptChange={() => {}}
+          onSend={() => {}}
+          onCancel={() => {}}
+        />,
+      );
+      // A glass card, not a row above the body: content scrolls under it.
+      const bar = html.slice(html.indexOf('data-testid="agent-hub-header-bar"') - 120, html.indexOf('data-testid="agent-hub-header-bar"') + 120);
+      expect(bar).toContain("glass-float");
+      expect(bar).toContain("absolute");
+      expect(html).toContain('data-testid="agent-hub-content-header"');
+      // The transcript pads its top by the measured header, not a fixed guess.
+      expect(html).toContain("--header-inset");
+      // No agent, no header: the empty state draws no empty glass bar.
+      const empty = renderToString(
+        <AgentHubContent session={null} promptValue="" onPromptChange={() => {}} onSend={() => {}} onCancel={() => {}} />,
+      );
+      expect(empty).not.toContain('data-testid="agent-hub-header-bar"');
+    });
+
     it("does not repeat the name when the agent is named after its folder", () => {
       // Seen in the app: "Dev-kit-backend dev-kit-backend".
       const named = { ...mockSession, title: "Dev-Kit-App", projectPath: "/Users/dev/dev-kit-app" };

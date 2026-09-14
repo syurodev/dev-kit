@@ -166,6 +166,21 @@ export function AgentHubContent({
   // The floating composer's height, measured, so the transcript can pad its
   // foot by exactly that much. A fixed guess is wrong the moment a file is
   // attached and the composer grows a row of chips.
+  // The glass header's height, measured for the same reason as the composer's:
+  // the body scrolls under it, and its first line should start just below it.
+  const headerRef = React.useRef<HTMLDivElement>(null);
+  const [headerHeight, setHeaderHeight] = React.useState(0);
+  const hasHeader = Boolean(draft) || (effectiveState !== "Empty" && Boolean(session));
+  React.useEffect(() => {
+    const el = headerRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) =>
+      setHeaderHeight(Math.ceil(entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height)),
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasHeader]);
+
   const composerRef = React.useRef<HTMLDivElement>(null);
   const [composerHeight, setComposerHeight] = React.useState(0);
   React.useEffect(() => {
@@ -208,10 +223,22 @@ export function AgentHubContent({
       data-testid="agent-hub-content"
       data-state={effectiveState}
       className={cn(
-        "flex size-full min-h-0 min-w-0 flex-col gap-2 overflow-hidden px-4 pt-3 pb-4",
+        // Relative, no top padding and no gap: the header floats over the body
+        // rather than taking a row above it, so the body starts at the top edge
+        // and pads itself by the header's measured height instead.
+        "relative flex size-full min-h-0 min-w-0 flex-col overflow-hidden px-4 pb-4",
         className,
       )}
+      style={{ "--header-inset": `${headerHeight}px` } as React.CSSProperties}
     >
+      {/* The header floats over the body as a glass card, the same material
+          as the composer at the foot: content scrolls under both and the
+          blur keeps each legible over whatever is passing. The outer layer is
+          what gets measured (card plus its 12px gap) and lets the pointer
+          through that gap; only the card takes clicks. */}
+      {hasHeader ? (
+        <div ref={headerRef} className="pointer-events-none absolute inset-x-4 top-0 z-10 pt-3">
+          <div data-testid="agent-hub-header-bar" className="pointer-events-auto rounded-xl glass-float">
       {draft ? (
         <header
           data-testid="agent-hub-content-header"
@@ -301,6 +328,9 @@ export function AgentHubContent({
           ) : null}
         </header>
       ) : null}
+          </div>
+        </div>
+      ) : null}
 
       {effectiveState === "Empty" ? (
         <Empty data-testid="agent-hub-content-empty" className="min-h-0 gap-3 p-6">
@@ -368,7 +398,10 @@ export function AgentHubContent({
               <div
                 data-testid="agent-hub-draft"
                 className="flex size-full flex-col items-center justify-center px-6"
-                style={{ paddingBottom: "var(--composer-inset, 0px)" }}
+                style={{
+                  paddingTop: "var(--header-inset, 0px)",
+                  paddingBottom: "var(--composer-inset, 0px)",
+                }}
               >
                 <div className="flex w-full max-w-120 flex-col gap-3">
                   <p className="text-title-14 text-text-primary">

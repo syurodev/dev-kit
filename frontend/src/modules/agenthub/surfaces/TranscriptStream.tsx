@@ -90,16 +90,14 @@ export function TranscriptStream({
         ref={scrollRef}
         onScroll={handleScroll}
         data-testid="transcript-viewport"
-        // The top edge fades once there is something above it. Content scrolled
-        // up under the header was cut off in a hard line — a table's header row
-        // sliced in half — which reads as a rendering fault, not as "more above".
-        // scroll-fade-t (shadcn) grows the fade with the scroll offset where the
-        // webview has scroll-driven animations, and holds it on where it does
-        // not; sized to the 24px top padding, that held fade only ever covers
-        // empty space, never the first line at rest.
-        className="flex size-full min-h-0 flex-col overflow-y-auto px-6 pt-6 scroll-smooth scroll-fade-t [--scroll-fade-t-size:var(--space-section)]"
-        // Clear of the floating composer, whose height AgentHubContent measures.
-        style={{ paddingBottom: "calc(var(--composer-inset, 0px) + var(--space-section))" }}
+        className="flex size-full min-h-0 flex-col overflow-y-auto px-6 scroll-smooth"
+        // Clear of the glass header above and the floating composer below: both
+        // sit over this scroller, and AgentHubContent measures each into a
+        // variable so the first and last lines can scroll out from under them.
+        style={{
+          paddingTop: "calc(var(--header-inset, 0px) + var(--space-section))",
+          paddingBottom: "calc(var(--composer-inset, 0px) + var(--space-section))",
+        }}
       >
         <div className="mx-auto flex w-full max-w-180 flex-col gap-6">
           {items.length === 0 && !loading ? (
