@@ -235,6 +235,8 @@ func publicError(subject string, err error) *apperrors.AppError {
 			return apperrors.New(codeValidationFailed, "Agent cwd must be inside the parent session's project.", true)
 		case errors.Is(err, agenthub.ErrInvalidCwd):
 			return apperrors.New(codeValidationFailed, "Agent cwd is not a valid project directory.", true)
+		case errors.Is(err, agenthub.ErrInvalidConfigOption):
+			return apperrors.New(codeValidationFailed, "Choose a valid agent setting.", true)
 		case errors.Is(err, agenthub.ErrCallerMismatch):
 			return apperrors.New(codeValidationFailed, "callerSessionId does not match the calling agent.", true)
 		case errors.Is(err, agenthub.ErrProxyNotFound):

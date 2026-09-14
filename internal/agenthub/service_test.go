@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1195,5 +1196,133 @@ func TestNewestTranscriptPageCarriesSessionStateFromAboveTheWindow(t *testing.T)
 	}
 	if len(older.State) != 0 {
 		t.Fatalf("an older page carried state %v; only the newest page does", older.State)
+	}
+}
+
+// blockingLoadAdapter opens a runtime that is already dead and resumes slowly,
+// so a second prompt can land while the first is still resuming.
+type blockingLoadAdapter struct {
+	titlingAdapter
+	loads   atomic.Int32
+	started chan struct{}
+	release chan struct{}
+}
+
+func (a *blockingLoadAdapter) Open(context.Context, agenthub.OpenSpec) (agenthub.SessionRuntime, error) {
+	return &crashingRuntime{dead: true}, nil
+}
+
+func (a *blockingLoadAdapter) Load(context.Context, agenthub.OpenSpec, string) (agenthub.SessionRuntime, error) {
+	a.loads.Add(1)
+	a.started <- struct{}{}
+	<-a.release
+	return &titlingRuntime{}, nil
+}
+
+// The busy claim used to come after the resume, so two prompts on a dead
+// session both resumed it — two processes onto one MCP socket path.
+func TestConcurrentInvokesOnADeadRuntimeResumeOnce(t *testing.T) {
+	ctx := context.Background()
+	adapter := &blockingLoadAdapter{started: make(chan struct{}, 2), release: make(chan struct{})}
+	reg := agenthub.NewRegistry()
+	reg.Register(adapter)
+	svc := agenthub.NewService(reg, newTestStore(t), nil)
+	sess, err := svc.CreateSession(ctx, agenthub.CreateInput{AgentType: agenthub.AgentType("titling"), Cwd: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	first := make(chan error, 1)
+	go func() {
+		_, err := svc.Invoke(ctx, agenthub.InvokeInput{SessionID: sess.ID, Prompt: "one"})
+		first <- err
+	}()
+	<-adapter.started
+
+	second := make(chan error, 1)
+	go func() {
+		_, err := svc.Invoke(ctx, agenthub.InvokeInput{SessionID: sess.ID, Prompt: "two"})
+		second <- err
+	}()
+	select {
+	case err := <-second:
+		if !errors.Is(err, agenthub.ErrSessionBusy) {
+			close(adapter.release)
+			t.Fatalf("second invoke err = %v, want ErrSessionBusy", err)
+		}
+	case <-time.After(2 * time.Second):
+		close(adapter.release)
+		t.Fatal("second invoke did not come back busy; it went on to resume the session again")
+	}
+	close(adapter.release)
+	if err := <-first; err != nil {
+		t.Fatalf("first invoke: %v", err)
+	}
+	if n := adapter.loads.Load(); n != 1 {
+		t.Fatalf("resumed %d times, want once", n)
+	}
+}
+
+// resumableMock is the mock adapter plus SessionLoader; its runtime records the
+// mode and options it is set to.
+type resumableMock struct{ *agenthub.MockAdapter }
+
+func (a resumableMock) Load(ctx context.Context, spec agenthub.OpenSpec, _ string) (agenthub.SessionRuntime, error) {
+	return a.Open(ctx, spec)
+}
+
+// After a restart no session has a process, and the settings calls only read
+// the live map: the first model or mode change in a reopened session was
+// refused as "agent does not support session mode".
+func TestSettingsResumeTheAgentAfterRestart(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	adapter := resumableMock{agenthub.NewMockAdapter()}
+	reg := agenthub.NewRegistry()
+	reg.Register(adapter)
+	sess, err := agenthub.NewService(reg, store, nil).CreateSession(ctx, agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	restarted := agenthub.NewService(reg, store, nil)
+	if err := restarted.SetMode(ctx, sess.ID, "plan"); err != nil {
+		t.Fatalf("set mode after restart: %v", err)
+	}
+	resumed := adapter.LastRuntime()
+	if got := resumed.SetModeValue(); got != "plan" {
+		t.Fatalf("resumed runtime mode = %q, want plan", got)
+	}
+	if err := restarted.SetConfigOption(ctx, sess.ID, "model", "opus"); err != nil {
+		t.Fatalf("set config option: %v", err)
+	}
+	if adapter.LastRuntime() != resumed {
+		t.Fatal("second setting resumed the session again instead of using the live runtime")
+	}
+	if got := resumed.SetOptionValue("model"); got != "opus" {
+		t.Fatalf("model = %q, want opus", got)
+	}
+
+	for name, err := range map[string]error{
+		"blank mode":      restarted.SetMode(ctx, sess.ID, "  "),
+		"blank option id": restarted.SetConfigOption(ctx, sess.ID, "", "opus"),
+	} {
+		if !errors.Is(err, agenthub.ErrInvalidConfigOption) {
+			t.Fatalf("%s: err = %v, want ErrInvalidConfigOption", name, err)
+		}
+	}
+}
+
+func TestSettingsOnAnOrphanThatCannotResumeSayUnavailable(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	reg := agenthub.NewRegistry()
+	reg.Register(agenthub.NewMockAdapter())
+	sess, err := agenthub.NewService(reg, store, nil).CreateSession(ctx, agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := agenthub.NewService(reg, store, nil).SetMode(ctx, sess.ID, "plan"); !errors.Is(err, agenthub.ErrUnavailable) {
+		t.Fatalf("err = %v, want ErrUnavailable rather than a claim the agent has no modes", err)
 	}
 }

@@ -95,6 +95,7 @@ func TestAgentHubIdentityErrorsMap(t *testing.T) {
 		agenthub.ErrNotDescendant:    codePermissionDenied,
 		agenthub.ErrCwdOutsideParent: codeValidationFailed,
 		agenthub.ErrInvalidCwd:       codeValidationFailed,
+		agenthub.ErrInvalidConfigOption: codeValidationFailed,
 		agenthub.ErrCallerMismatch:   codeValidationFailed,
 		agenthub.ErrProxyNotFound:    codeConnectionFailed,
 	}

@@ -88,7 +88,11 @@ type Service struct {
 	runtimes          map[string]SessionRuntime
 	endpoints         map[string]func() // per-session MCP socket close
 	invoking          map[string]struct{}
-	mu                sync.Mutex
+	// resuming marks a session whose runtime is being reopened. A second
+	// caller waits on the channel rather than spawning a second process onto
+	// the same MCP socket path.
+	resuming map[string]chan struct{}
+	mu       sync.Mutex
 	emit              func(sessionID string, update json.RawMessage)
 	ResolvePermission PermissionResolver // nil = fail closed (no auto-approve)
 	PermissionTimeout time.Duration      // 0 = interaction.DefaultTimeout (60s)
@@ -129,6 +133,7 @@ func NewService(reg *Registry, store Store, emit func(sessionID string, update j
 		runtimes:  make(map[string]SessionRuntime),
 		endpoints: make(map[string]func()),
 		invoking:  make(map[string]struct{}),
+		resuming:  make(map[string]chan struct{}),
 		emit:      emit,
 	}
 	// A cadence flush has no caller to return its error to; route it to the
@@ -815,26 +820,11 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 		}
 	}
 
-	s.mu.Lock()
-	if _, busy := s.invoking[in.SessionID]; busy {
-		s.mu.Unlock()
-		return InvokeResult{}, ErrSessionBusy
-	}
-	s.mu.Unlock()
-	rt := s.liveRuntime(ctx, in.SessionID)
-
-	if rt == nil {
-		// An orphan: the row outlived the process that served it, which is
-		// what every restart does to every open session — and what a mid-turn
-		// crash does too, since liveRuntime evicts the corpse. This used to
-		// be the end of the conversation — ErrUnavailable, and the only way
-		// forward was to start again somewhere else and lose the context.
-		var err error
-		if rt, err = s.resumeRuntime(ctx, sess); err != nil {
-			return InvokeResult{}, err
-		}
-	}
-
+	// Claim the session before anything slow. The claim used to come after the
+	// resume, so two prompts on a dead or orphaned session both resumed it:
+	// two processes onto one MCP socket path, where the second failed with
+	// "address already in use" or removed the first one's socket and left
+	// that agent without DevKit's tools.
 	s.mu.Lock()
 	if _, busy := s.invoking[in.SessionID]; busy {
 		s.mu.Unlock()
@@ -842,11 +832,24 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 	}
 	s.invoking[in.SessionID] = struct{}{}
 	s.mu.Unlock()
-	turnOutcome := "error"
-	defer func() {
+	release := func() {
 		s.mu.Lock()
 		delete(s.invoking, in.SessionID)
 		s.mu.Unlock()
+	}
+
+	// An orphan — the row outlived the process that served it, which is what
+	// every restart does to every open session, and what a mid-turn crash does
+	// too — resumes here. This used to be the end of the conversation.
+	rt, err := s.runtimeFor(ctx, sess)
+	if err != nil {
+		release()
+		return InvokeResult{}, err
+	}
+
+	turnOutcome := "error"
+	defer func() {
+		release()
 		// The turn is over however it went: land the tail the recorder is
 		// still holding. WithoutCancel because the error paths reach here on
 		// a context that is already gone — the transcript of a failed turn is
@@ -1144,6 +1147,39 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (Session
 		return nil, ErrUnavailable
 	}
 
+	// One resume per session at a time. Invoke and the settings calls all
+	// resume, and two at once would open two MCP endpoints on one socket path.
+	s.mu.Lock()
+	if wait, busy := s.resuming[sess.ID]; busy {
+		s.mu.Unlock()
+		select {
+		case <-wait:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		s.mu.Lock()
+		rt := s.runtimes[sess.ID]
+		s.mu.Unlock()
+		if rt == nil {
+			return nil, ErrUnavailable
+		}
+		return rt, nil
+	}
+	if rt := s.runtimes[sess.ID]; rt != nil {
+		// Resumed by someone else between liveRuntime and here.
+		s.mu.Unlock()
+		return rt, nil
+	}
+	done := make(chan struct{})
+	s.resuming[sess.ID] = done
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		delete(s.resuming, sess.ID)
+		s.mu.Unlock()
+		close(done)
+	}()
+
 	spec := OpenSpec{Cwd: sess.ProjectPath}
 	closeEndpoint := func() {}
 	if s.MCPEndpoints != nil {
@@ -1165,15 +1201,6 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (Session
 	}
 
 	s.mu.Lock()
-	// Another Invoke may have resumed the same session while this one was
-	// spawning a process. The first one wins; a second live runtime for one
-	// session would answer with two agents.
-	if existing := s.runtimes[sess.ID]; existing != nil {
-		s.mu.Unlock()
-		_ = rt.Close(ctx)
-		closeEndpoint()
-		return existing, nil
-	}
 	s.runtimes[sess.ID] = rt
 	s.endpoints[sess.ID] = closeEndpoint
 	s.mu.Unlock()
@@ -1195,38 +1222,63 @@ func (s *Service) Cancel(ctx context.Context, id string) error {
 	return rt.Cancel(ctx)
 }
 
-// SetMode changes the live agent's mode without routing it through prompt.
-func (s *Service) SetMode(ctx context.Context, id, modeID string) error {
-	if err := s.authorizeTarget(ctx, id); err != nil {
-		return err
+// runtimeFor returns the session's live runtime, resuming it when its process
+// is gone.
+func (s *Service) runtimeFor(ctx context.Context, sess AgentSession) (SessionRuntime, error) {
+	if rt := s.liveRuntime(ctx, sess.ID); rt != nil {
+		return rt, nil
 	}
-	sess, err := s.store.GetSession(ctx, id)
+	return s.resumeRuntime(ctx, sess)
+}
+
+// SetMode changes the agent's mode without routing it through prompt.
+func (s *Service) SetMode(ctx context.Context, id, modeID string) error {
+	if strings.TrimSpace(modeID) == "" {
+		return fmt.Errorf("%w: mode id is required", ErrInvalidConfigOption)
+	}
+	configurator, err := s.configurator(ctx, id)
 	if err != nil {
 		return err
-	}
-	rt := s.liveRuntime(ctx, id)
-	configurator, ok := rt.(RuntimeConfigurator)
-	if !ok {
-		return fmt.Errorf("%w: agent %q does not support session mode", ErrUnsupported, sess.AgentType)
 	}
 	return configurator.SetMode(ctx, modeID)
 }
 
-// SetConfigOption changes one of the live agent's advertised settings.
+// SetConfigOption changes one of the agent's advertised settings.
 func (s *Service) SetConfigOption(ctx context.Context, id, optionID, value string) error {
-	if err := s.authorizeTarget(ctx, id); err != nil {
-		return err
+	if strings.TrimSpace(optionID) == "" {
+		return fmt.Errorf("%w: option id is required", ErrInvalidConfigOption)
 	}
-	sess, err := s.store.GetSession(ctx, id)
+	configurator, err := s.configurator(ctx, id)
 	if err != nil {
 		return err
 	}
-	rt := s.liveRuntime(ctx, id)
+	return configurator.SetConfigOption(ctx, optionID, value)
+}
+
+// configurator resumes the session's runtime the way Invoke does. It used to
+// read only the live map, which is empty after every restart, so the first
+// model or mode change in a reopened session was refused as "agent does not
+// support session mode".
+func (s *Service) configurator(ctx context.Context, id string) (RuntimeConfigurator, error) {
+	if err := s.authorizeTarget(ctx, id); err != nil {
+		return nil, err
+	}
+	sess, err := s.store.GetSession(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if sess.Status == SessionStatusClosed {
+		return nil, ErrSessionNotFound
+	}
+	rt, err := s.runtimeFor(ctx, sess)
+	if err != nil {
+		return nil, err
+	}
 	configurator, ok := rt.(RuntimeConfigurator)
 	if !ok {
-		return fmt.Errorf("%w: agent %q does not support config option", ErrUnsupported, sess.AgentType)
+		return nil, fmt.Errorf("%w: agent %q does not support session settings", ErrUnsupported, sess.AgentType)
 	}
-	return configurator.SetConfigOption(ctx, optionID, value)
+	return configurator, nil
 }
 
 func (s *Service) setSessionStatus(ctx context.Context, id string, status SessionStatus) error {
