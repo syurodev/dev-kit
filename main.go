@@ -293,10 +293,12 @@ func main() {
 	container.AgentRuntimes = runtimes
 	// Desktop notifications for Agent Hub. Nil in server mode, where there is no
 	// desktop to notify; Notify and Authorize are no-ops on nil. Nothing here
-	// touches the OS yet — see wailsNotifications and agenthub.Notifier.
+	// touches the OS yet — the backend starts in app.Run (notificationStartup)
+	// and asks for permission on focus (agenthub.Notifier).
 	var agentNotifier *agenthub.Notifier
+	var desktopNotifications *wailsNotifications
 	if !application.System.IsServer() {
-		desktopNotifications := wailsNotifications{service: notifications.New()}
+		desktopNotifications = &wailsNotifications{service: notifications.New()}
 		agentNotifier = &agenthub.Notifier{
 			Desktop: desktopNotifications,
 			Enabled: func() bool {
@@ -544,12 +546,17 @@ func main() {
 	agentSvc.MCPEndpoints = sessionHost
 	auditSQL.PruneLoop(mcpCtx, time.Hour)
 
+	// The notification service itself is not a Service here on purpose: see
+	// wailsNotifications for why a failing one must not fail app.Run.
+	// notificationStartup starts it at the same point and never fails.
+	services := []application.Service{application.NewService(appService)}
+	if desktopNotifications != nil {
+		services = append(services, application.NewService(&notificationStartup{desktop: desktopNotifications}))
+	}
 	wailsApp := application.New(application.Options{
 		Name:        "DevKit",
 		Description: "Local-first developer toolkit",
-		// The notification service is not a Service here on purpose: see
-		// wailsNotifications for why a failing one must not fail app.Run.
-		Services: []application.Service{application.NewService(appService)},
+		Services:    services,
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
 		},

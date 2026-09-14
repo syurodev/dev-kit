@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"devkit/internal/agenthub"
 
@@ -18,31 +19,73 @@ import (
 // main exits on that: Startup fails on Linux without a session D-Bus (WSL,
 // minimal window managers, containers) and on macOS for a binary without a
 // bundle identifier (a plain `go build`), so DevKit did not open at all.
-// Started lazily by the Notifier instead, a failure only turns notifications
-// off. Unregistered, its methods are not bound to the frontend either — nothing
-// there called them — which is also why binding generation no longer writes
-// files for it.
+// notificationStartup starts it at the same point without that failure mode.
+// Unregistered, its methods are not bound to the frontend either — nothing
+// there called them — which is also why binding generation writes no files
+// for it.
 type wailsNotifications struct {
 	service *notifications.NotificationService
+
+	startOnce sync.Once
+	startErr  error
 }
 
-func (w wailsNotifications) Start() (err error) {
+// Start brings the backend up once. notificationStartup and the Notifier's
+// first Authorize both call it and share the one outcome.
+func (w *wailsNotifications) Start() error {
+	w.startOnce.Do(func() { w.startErr = w.start() })
+	return w.startErr
+}
+
+func (w *wailsNotifications) start() (err error) {
 	defer recoverNotificationPanic(&err)
 	return w.service.ServiceStartup(context.Background(), application.ServiceOptions{})
 }
 
-func (w wailsNotifications) RequestAuthorization() (allowed bool, err error) {
+func (w *wailsNotifications) RequestAuthorization() (allowed bool, err error) {
 	defer recoverNotificationPanic(&err)
 	return w.service.RequestNotificationAuthorization()
 }
 
-func (w wailsNotifications) Send(n agenthub.DesktopNotification, update bool) (err error) {
+func (w *wailsNotifications) Send(n agenthub.DesktopNotification, update bool) (err error) {
 	defer recoverNotificationPanic(&err)
 	options := agentNotificationOptions(n)
 	if update {
 		return w.service.UpdateNotification(options)
 	}
 	return w.service.SendNotification(options)
+}
+
+// notificationStartup starts desktop notifications where Wails starts its
+// services — inside app.Run, before the platform run loop — and cannot fail
+// Run.
+//
+// Starting on the first window focus instead lost clicks. macOS hands a
+// notification response only to a UNUserNotificationCenter delegate set
+// before the app finishes launching, and Windows has no toast activation
+// callback or COM class factory until Startup ran, so a click that launched or
+// activated DevKit before any focus went nowhere. A start that fails here
+// changes nothing else: ServiceStartup still returns nil, and the Notifier
+// finds the failure on its first Authorize and turns notifications off.
+//
+// Its only methods are the two Wails treats as lifecycle hooks, so it binds
+// nothing to the frontend.
+type notificationStartup struct{ desktop *wailsNotifications }
+
+func (n notificationStartup) ServiceStartup(context.Context, application.ServiceOptions) error {
+	_ = n.desktop.Start()
+	return nil
+}
+
+// ServiceShutdown stops a backend that started; on Windows that cancels
+// scheduled toasts before the activator goes away. Wails shuts down only
+// services whose ServiceStartup ran, so Start here only reads the outcome.
+func (n notificationStartup) ServiceShutdown() (err error) {
+	if n.desktop.Start() != nil {
+		return nil
+	}
+	defer recoverNotificationPanic(&err)
+	return n.desktop.service.ServiceShutdown()
 }
 
 // agentNotificationOptions keys the notification and its thread by session, so

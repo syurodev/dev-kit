@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"testing"
 
 	"devkit/internal/agenthub"
 
+	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 )
 
@@ -27,6 +29,29 @@ func TestAgentNotificationIsKeyedBySessionAndOpensIt(t *testing.T) {
 	}
 	if _, ok := notificationSessionID(notifications.NotificationResponse{}); ok {
 		t.Fatal("a notification without a session opened one")
+	}
+}
+
+// Notifications now start where Wails starts its services, so a click that
+// launches the app reaches a delegate. A start that fails there — no session
+// D-Bus, no bundle identifier — must still not fail app.Run, which is what
+// kept DevKit from opening; and the Notifier's own Start must find that same
+// outcome instead of trying the backend again.
+func TestNotificationStartupNeverFailsTheApp(t *testing.T) {
+	desktop := &wailsNotifications{} // no service: the backend panics on start
+	startup := notificationStartup{desktop: desktop}
+	if err := startup.ServiceStartup(context.Background(), application.ServiceOptions{}); err != nil {
+		t.Fatalf("ServiceStartup = %v; a failed start must not fail app.Run", err)
+	}
+	first, second := desktop.Start(), desktop.Start()
+	if first == nil {
+		t.Fatal("the failed start was not kept for the Notifier to find")
+	}
+	if first != second {
+		t.Fatalf("Start ran the backend again: %v, then %v", first, second)
+	}
+	if err := startup.ServiceShutdown(); err != nil {
+		t.Fatalf("ServiceShutdown of a service that never started = %v", err)
 	}
 }
 
