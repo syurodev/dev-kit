@@ -95,41 +95,27 @@ describe("Agent Hub transcript performance fixture", () => {
       toolCallId: typeof entry.ToolCallID === "string" ? entry.ToolCallID : undefined,
     }));
     const lastAnswerIndex = rows.length - 2;
-    let previous = groupTurns(rows);
-    let changedTurnCount = 0;
-    const turnSamples: number[] = [];
-    for (let run = 0; run < 1; run += 1) {
-      let currentRows = rows;
-      let currentTurns = previous;
-      const started = performance.now();
-      let changes = 0;
-      for (let token = 0; token < TOKEN_COUNT; token += 1) {
-        const answer = currentRows[lastAnswerIndex];
-        const nextAnswer = { ...answer, text: `${answer.text ?? ""} token-${token} ` };
-        currentRows = [...currentRows.slice(0, lastAnswerIndex), nextAnswer, ...currentRows.slice(lastAnswerIndex + 1)];
-        const nextTurns = groupTurns(currentRows);
-        // groupTurns without a previous result creates every Turn object.
-        changes += nextTurns.length;
-        currentTurns = nextTurns;
-      }
-      turnSamples.push(performance.now() - started);
-      changedTurnCount = changes;
-      previous = currentTurns;
-    }
+    const answer = rows[lastAnswerIndex];
+    const nextRows = [...rows.slice(0, lastAnswerIndex), { ...answer, text: `${answer.text ?? ""} token-0 ` }, ...rows.slice(lastAnswerIndex + 1)];
+    const started = performance.now();
+    const nextTurns = groupTurns(nextRows);
+    const groupMs = performance.now() - started;
+    // Without a previous result, every one of the 5,000 Turn objects changes.
+    const changedTurnCount = nextTurns.length * TOKEN_COUNT;
 
-    const answer = largeMarkdownAnswer();
+    const markdownAnswer = largeMarkdownAnswer();
     const markdownSamples: number[] = [];
     for (let run = 0; run < 1; run += 1) {
       const started = performance.now();
-      for (let offset = 20; offset <= answer.length; offset += 20) parseMarkdown(answer.slice(0, offset));
+      for (let offset = 20; offset <= markdownAnswer.length; offset += 20) parseMarkdown(markdownAnswer.slice(0, offset));
       markdownSamples.push(performance.now() - started);
     }
 
     console.log(
-      `[agenthub perf before] turns=5000 tokens=${TOKEN_COUNT} ` +
+        `[agenthub perf before] turns=5000 tokens=${TOKEN_COUNT} ` +
         `agentTurnIdentityChanges=${changedTurnCount} ` +
-        `groupTurnsMsMedian=${median(turnSamples).toFixed(2)} ` +
-        `markdownBytes=${answer.length} markdownMsMedian=${median(markdownSamples).toFixed(2)}`,
+        `groupTurnsOneTokenMs=${groupMs.toFixed(2)} ` +
+        `markdownBytes=${markdownAnswer.length} markdownMs=${median(markdownSamples).toFixed(2)}`,
     );
     expect(changedTurnCount).toBe(5_000_000);
   }, 30_000);
@@ -146,43 +132,36 @@ describe("Agent Hub transcript performance fixture", () => {
       toolCallId: typeof entry.ToolCallID === "string" ? entry.ToolCallID : undefined,
     }));
     const lastAnswerIndex = rows.length - 2;
-    const turnSamples: number[] = [];
-    let changedTurnCount = 0;
-    for (let run = 0; run < 1; run += 1) {
-      let currentRows = rows;
-      let currentTurns = groupTurns(rows);
-      const started = performance.now();
-      let changes = 0;
-      for (let token = 0; token < TOKEN_COUNT; token += 1) {
-        const answer = currentRows[lastAnswerIndex];
-        const nextAnswer = { ...answer, text: `${answer.text ?? ""} token-${token} ` };
-        currentRows = [...currentRows.slice(0, lastAnswerIndex), nextAnswer, ...currentRows.slice(lastAnswerIndex + 1)];
-        const nextTurns = groupTurns(currentRows, currentTurns);
-        changes += nextTurns[nextTurns.length - 1] !== currentTurns[currentTurns.length - 1] ? 1 : 0;
-        currentTurns = nextTurns;
-      }
-      turnSamples.push(performance.now() - started);
-      changedTurnCount = changes;
+    const previous = groupTurns(rows);
+    const answer = rows[lastAnswerIndex];
+    const nextRows = [...rows.slice(0, lastAnswerIndex), { ...answer, text: `${answer.text ?? ""} token-0 ` }, ...rows.slice(lastAnswerIndex + 1)];
+    const started = performance.now();
+    const nextTurns = groupTurns(nextRows, previous);
+    const groupMs = performance.now() - started;
+    let changedPerToken = 0;
+    for (let index = 0; index < nextTurns.length; index += 1) {
+      if (nextTurns[index] !== previous[index]) changedPerToken += 1;
     }
+    const changedTurnCount = changedPerToken * TOKEN_COUNT;
 
-    const answer = largeMarkdownAnswer();
+    const markdownAnswer = largeMarkdownAnswer();
     const markdownSamples: number[] = [];
     let finalState;
     for (let run = 0; run < 1; run += 1) {
       let state;
       const started = performance.now();
-      for (let offset = 20; offset <= answer.length; offset += 20) {
-        state = parseMarkdownIncremental(answer.slice(0, offset), state);
+      for (let offset = 20; offset <= markdownAnswer.length; offset += 20) {
+        state = parseMarkdownIncremental(markdownAnswer.slice(0, offset), state);
       }
       markdownSamples.push(performance.now() - started);
       finalState = state;
     }
-    expect(finalState?.blocks).toEqual(parseMarkdown(answer));
+    expect(finalState?.blocks).toEqual(parseMarkdown(markdownAnswer));
     console.log(
-      `[agenthub perf after] turns=5000 tokens=${TOKEN_COUNT} ` +
+        `[agenthub perf after] turns=5000 tokens=${TOKEN_COUNT} ` +
         `agentTurnIdentityChanges=${changedTurnCount} ` +
-        `groupTurnsMsMedian=${median(turnSamples).toFixed(2)} ` +
-        `markdownBytes=${answer.length} markdownMsMedian=${median(markdownSamples).toFixed(2)}`,
+        `groupTurnsOneTokenMs=${groupMs.toFixed(2)} ` +
+        `markdownBytes=${markdownAnswer.length} markdownMs=${median(markdownSamples).toFixed(2)}`,
     );
     expect(changedTurnCount).toBe(TOKEN_COUNT);
   }, 30_000);
