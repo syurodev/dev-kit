@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -355,6 +356,11 @@ func (s *Service) GetStatus(ctx context.Context, id string) (AgentSession, error
 	return s.store.GetSession(ctx, id)
 }
 
+// ToolRawPreviewLimit is how much of a tool call's raw fields a transcript
+// page carries. One huge terminal dump used to ride with every page load —
+// the full output stays in the row and ToolCallDetail serves it.
+const ToolRawPreviewLimit = 8 << 10
+
 // TranscriptPage is the transcript read, bounded: the newest window of a
 // session rather than the whole of it. A session with months of history used
 // to pay for all of it on every open; the UI opens on the last page and walks
@@ -369,7 +375,52 @@ func (s *Service) TranscriptPage(ctx context.Context, sessionID string, beforeSe
 	if limit > MaxTranscriptPageSize {
 		limit = MaxTranscriptPageSize
 	}
-	return s.store.ListTranscriptPage(ctx, sessionID, beforeSeq, limit)
+	page, err := s.store.ListTranscriptPage(ctx, sessionID, beforeSeq, limit)
+	if err != nil {
+		return TranscriptPage{}, err
+	}
+	page.Entries = previewToolPayloads(page.Entries)
+	return page, nil
+}
+
+// previewToolPayloads shortens oversized rawInput/rawOutput in a page's tool
+// rows to ToolRawPreviewLimit and marks the call truncated. The cut preview
+// becomes a JSON string — the field is vendor-shaped JSON of any type, and a
+// byte slice through it would not parse. A cut may land mid-rune; a preview
+// that ends in U+FFFD is a fair price for a bounded page.
+func previewToolPayloads(entries []TranscriptEntry) []TranscriptEntry {
+	for i, entry := range entries {
+		if entry.ToolCallID == "" || len(entry.Payload) == 0 {
+			continue
+		}
+		var stored SessionUpdate
+		if err := json.Unmarshal(entry.Payload, &stored); err != nil || stored.ToolCall == nil {
+			continue
+		}
+		input, inCut := previewRaw(stored.ToolCall.RawInput)
+		output, outCut := previewRaw(stored.ToolCall.RawOutput)
+		if !inCut && !outCut {
+			continue
+		}
+		stored.ToolCall.RawInput = input
+		stored.ToolCall.RawOutput = output
+		stored.ToolCall.Truncated = true
+		payload, err := json.Marshal(stored)
+		if err != nil {
+			continue
+		}
+		entries[i].Payload = payload
+	}
+	return entries
+}
+
+// previewRaw passes small values through untouched and cuts big ones to a
+// quoted string of the first limit bytes.
+func previewRaw(raw json.RawMessage) (json.RawMessage, bool) {
+	if len(raw) <= ToolRawPreviewLimit {
+		return raw, false
+	}
+	return json.RawMessage(strconv.Quote(string(raw[:ToolRawPreviewLimit]))), true
 }
 
 // ToolCallDetail returns the stored row of one tool call, payload intact. The

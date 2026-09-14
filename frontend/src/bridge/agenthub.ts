@@ -64,7 +64,8 @@ export type InvokeSessionInput = {
 
 export type SessionUpdateEvent = {
   sessionId: string;
-  update: unknown;
+  /** The one payload copy: normalized, with `raw` kept only for kinds the
+ * backend does not model (unknown kinds' whole content lives there). */
   parsed: SessionUpdate | null;
 };
 
@@ -253,6 +254,17 @@ export function agentHubTranscriptPage(
   });
 }
 
+/**
+ * One stored tool call, payload intact — the "show the whole output" behind
+ * the page's truncated previews.
+ */
+export function agentHubToolCallDetail(
+  sessionId: string,
+  toolCallId: string,
+): Promise<TranscriptEntry> {
+  return callBridge(() => AppService.AgentHubToolCallDetail(sessionId, toolCallId));
+}
+
 export function agentHubResolvePermission(
   id: string,
   outcome: unknown,
@@ -296,7 +308,6 @@ function parseSessionUpdate(data: unknown): SessionUpdateEvent | null {
   }
   return {
     sessionId,
-    update: record.update ?? record.Update ?? null,
     parsed: (record.parsed ?? record.Parsed ?? null) as SessionUpdate | null,
   };
 }

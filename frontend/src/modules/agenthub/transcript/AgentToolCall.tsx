@@ -3,6 +3,7 @@ import { BookOpen, Bot, ChevronRight, FileEdit, Globe, Search, Terminal, Wrench 
 
 import { cn } from "@/lib/utils";
 import { AnimatedCollapse } from "@/components/ui/animated-collapse";
+import { agentHubToolCallDetail } from "../../../bridge/agenthub";
 import type { ToolCall } from "../types";
 import { stepLabel } from "../turns";
 import { AgentFileChip } from "./AgentFileChip";
@@ -25,6 +26,12 @@ export type AgentToolCallProps = {
    * read as one piece of work.
    */
   variant?: "card" | "row";
+  /**
+   * Whose transcript this call lives in — the page read truncated oversized
+   * raw fields to a preview, and this is the handle for fetching the whole
+   * row on demand.
+   */
+  sessionId?: string;
   className?: string;
 };
 
@@ -118,16 +125,43 @@ export function AgentToolCall({
   call,
   defaultExpanded = false,
   variant = "card",
+  sessionId,
   className,
 }: AgentToolCallProps) {
   const KindIcon = kindIcon(call.kind);
   const state = toToolState(call.status);
   const title = call.title || call.kind || call.id || "Tool execution";
   const [expanded, setExpanded] = React.useState(defaultExpanded);
+  // The whole output of a truncated call, fetched on ask. Pages carry bounded
+  // previews so one huge terminal dump cannot make every page load heavy; the
+  // full text stays in the row and is one click away.
+  const [fullOutput, setFullOutput] = React.useState<string | null>(null);
+  const [loadingFull, setLoadingFull] = React.useState(false);
+  const canLoadFull = call.truncated && Boolean(sessionId);
+  const loadFull = canLoadFull
+    ? () => {
+        if (loadingFull || fullOutput !== null) return;
+        setLoadingFull(true);
+        agentHubToolCallDetail(sessionId!, call.id)
+          .then((entry) => {
+            try {
+              const parsed = JSON.parse(String(entry?.Payload ?? "{}"));
+              const raw = parsed?.toolCall?.rawOutput;
+              setFullOutput(typeof raw === "string" ? raw : JSON.stringify(raw, null, 2));
+            } catch {
+              setFullOutput("");
+            }
+          })
+          .catch(() => setFullOutput(null))
+          .finally(() => setLoadingFull(false));
+      }
+    : undefined;
 
   const locations = call.locations ?? [];
   const content = call.content ?? [];
-  const hasBody = locations.length > 0 || content.length > 0;
+  // Truncated output also makes the row openable: the preview is the summary,
+  // the full text is what the disclosure holds.
+  const hasBody = locations.length > 0 || content.length > 0 || canLoadFull;
   // rawOutput is `unknown` off the wire — an object stringifies to
   // "[object Object]", which is worse than saying nothing.
   const raw = typeof call.rawOutput === "string" ? call.rawOutput : "";
@@ -217,6 +251,29 @@ export function AgentToolCall({
           }
           return null;
         })}
+
+      {fullOutput !== null ? (
+        <pre
+          data-testid="tool-call-full-output"
+          className="w-full max-w-full overflow-x-auto rounded-md bg-surface-base p-2 text-code-11 whitespace-pre text-text-secondary select-text"
+        >
+          <code>{fullOutput}</code>
+        </pre>
+      ) : canLoadFull ? (
+        <button
+          type="button"
+          onClick={loadFull}
+          disabled={loadingFull}
+          data-testid="tool-call-load-full"
+          className={cn(
+            "self-start text-caption-11 text-text-tertiary underline decoration-border-subtle",
+            "cursor-pointer hover:text-text-secondary focus-visible:ring-ring focus-visible:ring-1 focus-visible:outline-none",
+            "disabled:cursor-default disabled:opacity-70",
+          )}
+        >
+          {loadingFull ? "Loading full output…" : "Show full output"}
+        </button>
+      ) : null}
       </AnimatedCollapse>
     </>
   );

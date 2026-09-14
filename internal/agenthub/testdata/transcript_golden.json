@@ -123,15 +123,7 @@
         "type": "text",
         "text": "Inspecting "
       },
-      "messageId": "m1",
-      "raw": {
-        "sessionUpdate": "agent_message_chunk",
-        "content": {
-          "type": "text",
-          "text": "Inspecting "
-        },
-        "messageId": "m1"
-      }
+      "messageId": "m1"
     },
     {
       "kind": "agent_message_chunk",
@@ -139,15 +131,7 @@
         "type": "text",
         "text": "the code."
       },
-      "messageId": "m1",
-      "raw": {
-        "sessionUpdate": "agent_message_chunk",
-        "content": {
-          "type": "text",
-          "text": "the code."
-        },
-        "messageId": "m1"
-      }
+      "messageId": "m1"
     },
     {
       "kind": "agent_message_chunk",
@@ -155,28 +139,13 @@
         "type": "text",
         "text": "Second message."
       },
-      "messageId": "m2",
-      "raw": {
-        "sessionUpdate": "agent_message_chunk",
-        "content": {
-          "type": "text",
-          "text": "Second message."
-        },
-        "messageId": "m2"
-      }
+      "messageId": "m2"
     },
     {
       "kind": "agent_thought_chunk",
       "content": {
         "type": "text",
         "text": "weighing the fixture"
-      },
-      "raw": {
-        "sessionUpdate": "agent_thought_chunk",
-        "content": {
-          "type": "text",
-          "text": "weighing the fixture"
-        }
       }
     },
     {
@@ -186,24 +155,12 @@
         "title": "Edit RefundService",
         "kind": "edit",
         "status": "pending"
-      },
-      "raw": {
-        "sessionUpdate": "tool_call",
-        "toolCallId": "c1",
-        "title": "Edit RefundService",
-        "kind": "edit",
-        "status": "pending"
       }
     },
     {
       "kind": "tool_call_update",
       "toolCall": {
         "id": "c1",
-        "status": "in_progress"
-      },
-      "raw": {
-        "sessionUpdate": "tool_call_update",
-        "toolCallId": "c1",
         "status": "in_progress"
       }
     },
@@ -214,38 +171,12 @@
         "title": "Run tests",
         "kind": "execute",
         "status": "pending"
-      },
-      "raw": {
-        "sessionUpdate": "tool_call",
-        "toolCallId": "c2",
-        "title": "Run tests",
-        "kind": "execute",
-        "status": "pending"
       }
     },
     {
       "kind": "tool_call_update",
       "toolCall": {
         "id": "c1",
-        "status": "completed",
-        "content": [
-          {
-            "type": "diff",
-            "path": "/billing/RefundService.java",
-            "oldText": "round(x)",
-            "newText": "round(x, 2)"
-          }
-        ],
-        "locations": [
-          {
-            "path": "/billing/RefundService.java",
-            "line": 44
-          }
-        ]
-      },
-      "raw": {
-        "sessionUpdate": "tool_call_update",
-        "toolCallId": "c1",
         "status": "completed",
         "content": [
           {
@@ -340,15 +271,7 @@
         "type": "text",
         "text": "Done."
       },
-      "messageId": "m3",
-      "raw": {
-        "sessionUpdate": "agent_message_chunk",
-        "content": {
-          "type": "text",
-          "text": "Done."
-        },
-        "messageId": "m3"
-      }
+      "messageId": "m3"
     }
   ],
   "rows": [
@@ -365,15 +288,7 @@
           "type": "text",
           "text": "Inspecting "
         },
-        "messageId": "m1",
-        "raw": {
-          "sessionUpdate": "agent_message_chunk",
-          "content": {
-            "type": "text",
-            "text": "Inspecting "
-          },
-          "messageId": "m1"
-        }
+        "messageId": "m1"
       },
       "CreatedAt": "0001-01-01T00:00:00Z",
       "UpdatedAt": "0001-01-01T00:00:00Z"
@@ -391,15 +306,7 @@
           "type": "text",
           "text": "Second message."
         },
-        "messageId": "m2",
-        "raw": {
-          "sessionUpdate": "agent_message_chunk",
-          "content": {
-            "type": "text",
-            "text": "Second message."
-          },
-          "messageId": "m2"
-        }
+        "messageId": "m2"
       },
       "CreatedAt": "0001-01-01T00:00:00Z",
       "UpdatedAt": "0001-01-01T00:00:00Z"
@@ -416,13 +323,6 @@
         "content": {
           "type": "text",
           "text": "weighing the fixture"
-        },
-        "raw": {
-          "sessionUpdate": "agent_thought_chunk",
-          "content": {
-            "type": "text",
-            "text": "weighing the fixture"
-          }
         }
       },
       "CreatedAt": "0001-01-01T00:00:00Z",
@@ -456,25 +356,6 @@
               "line": 44
             }
           ]
-        },
-        "raw": {
-          "sessionUpdate": "tool_call_update",
-          "toolCallId": "c1",
-          "status": "completed",
-          "content": [
-            {
-              "type": "diff",
-              "path": "/billing/RefundService.java",
-              "oldText": "round(x)",
-              "newText": "round(x, 2)"
-            }
-          ],
-          "locations": [
-            {
-              "path": "/billing/RefundService.java",
-              "line": 44
-            }
-          ]
         }
       },
       "CreatedAt": "0001-01-01T00:00:00Z",
@@ -491,13 +372,6 @@
         "kind": "tool_call",
         "toolCall": {
           "id": "c2",
-          "title": "Run tests",
-          "kind": "execute",
-          "status": "pending"
-        },
-        "raw": {
-          "sessionUpdate": "tool_call",
-          "toolCallId": "c2",
           "title": "Run tests",
           "kind": "execute",
           "status": "pending"
@@ -630,15 +504,7 @@
           "type": "text",
           "text": "Done."
         },
-        "messageId": "m3",
-        "raw": {
-          "sessionUpdate": "agent_message_chunk",
-          "content": {
-            "type": "text",
-            "text": "Done."
-          },
-          "messageId": "m3"
-        }
+        "messageId": "m3"
       },
       "CreatedAt": "0001-01-01T00:00:00Z",
       "UpdatedAt": "0001-01-01T00:00:00Z"

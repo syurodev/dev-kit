@@ -57,6 +57,9 @@ export type ToolCall = {
   locations?: ToolCallLocation[];
   rawInput?: unknown;
   rawOutput?: unknown;
+  /** Set by the page read when oversized raw fields were cut to a preview;
+ * agentHubToolCallDetail serves the whole thing. */
+  truncated?: boolean;
 };
 
 /**
@@ -202,6 +205,9 @@ export type TranscriptItem = {
   /** The persisted row's seq, when the item came from a page read. The walk
    * backwards keys off it; live items have none yet. */
   seq?: number;
+  /** The session a page read loaded this item from — the handle a truncated
+   * tool call needs to fetch its full output. */
+  sessionId?: string;
   text?: string;
   messageId?: string;
   toolCallId?: string;

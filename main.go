@@ -333,14 +333,12 @@ func main() {
 	}
 
 	agentSvc := agenthub.NewService(agentReg, agentStore, func(sessionID string, update json.RawMessage) {
-		// `update` stays on the wire unchanged so the Meta Inspector can show
-		// exactly what the vendor sent; `parsed` is the normalized shape the
-		// transcript renders from. Sending both means the UI never has to
-		// learn ACP's wire format, and a kind this build does not model still
-		// arrives instead of being dropped.
+		// `parsed` is the one source the UI consumes: the normalized shape the
+		// transcript renders from, whose Raw keeps the wire unchanged for
+		// kinds this build does not model. It used to travel beside the raw
+		// blob too, which carried every streamed field twice per event.
 		emitAppEvent("agenthub:sessionUpdate", map[string]any{
 			"sessionId": sessionID,
-			"update":    rawJSON(update),
 			"parsed":    agenthub.ParseSessionUpdate(update),
 		})
 	})

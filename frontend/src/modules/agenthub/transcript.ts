@@ -376,6 +376,7 @@ export function applySessionUpdates(
  */
 export function initTranscript(
   entries: (TranscriptEntry | Record<string, any>)[],
+  sessionId?: string,
 ): TranscriptModel {
   const model: TranscriptModel = createInitialTranscriptModel();
   if (!Array.isArray(entries)) {
@@ -434,6 +435,7 @@ export function initTranscript(
           id,
           kind,
           seq,
+          sessionId,
           text: chunkText,
           messageId,
           raw: payload.raw,
@@ -470,6 +472,7 @@ export function initTranscript(
           id,
           kind,
           seq,
+          sessionId,
           toolCallId: activeToolCallId,
           toolCall: call,
           raw: payload.raw,
@@ -488,6 +491,7 @@ export function initTranscript(
         id,
         kind,
         seq,
+        sessionId,
         plan: payload.plan ?? [],
         raw: payload.raw,
         createdAt,
@@ -501,6 +505,7 @@ export function initTranscript(
       id,
       kind,
       seq,
+      sessionId,
       raw: payload.raw ?? asEntry.Payload ?? rec.payload,
       createdAt,
       updatedAt,
@@ -520,8 +525,9 @@ export function initTranscript(
 export function prependTranscriptEntries(
   model: TranscriptModel,
   entries: (TranscriptEntry | Record<string, any>)[],
+  sessionId?: string,
 ): TranscriptModel {
-  const page = initTranscript(entries);
+  const page = initTranscript(entries, sessionId);
   if (page.items.length === 0) return model;
   const toolCallIndex = new Map(page.toolCallIndex);
   for (const [id, index] of model.toolCallIndex) {
@@ -741,7 +747,7 @@ async function loadTranscriptRuntime(sessionId: string, runtime: TranscriptRunti
     // reader scrolls up (loadOlderTranscript).
     const page = await agentHubTranscriptPage(sessionId, 0, 0);
     if (runtimes.get(sessionId) !== runtime) return;
-    const model = applySessionUpdates(initTranscript(page.entries), runtime.loadingUpdates);
+    const model = applySessionUpdates(initTranscript(page.entries, sessionId), runtime.loadingUpdates);
     runtime.loadingUpdates = [];
     runtime.model = model;
     runtime.buffer = makeBuffer(sessionId, model);
@@ -796,7 +802,7 @@ function loadOlderTranscript(sessionId: string): void {
       // the buffer's own model, and losing the pending frame would drop the
       // newest messages the reader just watched arrive.
       runtime.buffer?.flush();
-      const merged = prependTranscriptEntries(runtime.model, page.entries);
+      const merged = prependTranscriptEntries(runtime.model, page.entries, sessionId);
       runtime.model = merged;
       runtime.buffer = makeBuffer(sessionId, merged);
       runtime.oldestSeq = page.entries.length > 0 ? entrySeq(page.entries[0]) : null;

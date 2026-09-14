@@ -259,6 +259,7 @@ function StepRow({ item }: { item: TranscriptItem }) {
       return (
         <AgentToolCall
           variant="row"
+          sessionId={item.sessionId}
           call={item.toolCall ?? { id: item.toolCallId || item.id, title: "Tool execution", status: "completed" }}
         />
       );

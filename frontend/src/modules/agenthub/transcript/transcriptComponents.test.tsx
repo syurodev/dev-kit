@@ -177,6 +177,31 @@ describe("Agent Hub Transcript Leaves", () => {
       expect(html).not.toContain("empty diff");
     });
 
+    it("offers the full output when the page read truncated it", () => {
+      const html = renderToString(
+        <AgentToolCall
+          sessionId="s1"
+          call={{
+            id: "call-big",
+            kind: "execute",
+            title: "Run tests",
+            status: "completed",
+            truncated: true,
+          }}
+          defaultExpanded
+        />,
+      );
+      expect(html).toContain('data-testid="tool-call-load-full"');
+      expect(html).toContain("Show full output");
+      // Without a session the preview is all there is — nothing to fetch.
+      const bare = renderToString(
+        <AgentToolCall
+          call={{ id: "call-big", kind: "execute", status: "completed", truncated: true }}
+        />,
+      );
+      expect(bare).not.toContain('data-testid="tool-call-load-full"');
+    });
+
     it("renders running and awaiting statuses", () => {
       const runningHtml = renderToString(
         <AgentToolCall

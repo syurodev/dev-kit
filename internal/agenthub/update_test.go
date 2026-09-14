@@ -22,8 +22,8 @@ func TestParseSessionUpdateChunk(t *testing.T) {
 	if got.Text() != "Hello from ACP" {
 		t.Fatalf("Text() = %q", got.Text())
 	}
-	if len(got.Raw) == 0 {
-		t.Fatal("Raw is empty; the original blob must survive parsing")
+	if got.Raw != nil {
+		t.Fatal("chunk kept Raw; content.text already carries every byte of it")
 	}
 }
 

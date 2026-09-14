@@ -96,6 +96,9 @@ type ToolCall struct {
 	Locations []ToolCallLocation `json:"locations,omitempty"`
 	RawInput  json.RawMessage    `json:"rawInput,omitempty"`
 	RawOutput json.RawMessage    `json:"rawOutput,omitempty"`
+	// Truncated says this copy had oversized raw fields cut to a preview. Set
+	// only on the page read — the stored row and the detail read stay whole.
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 // PlanEntry is one step of a `plan` update.
@@ -335,9 +338,16 @@ func ParseSessionUpdate(raw json.RawMessage) SessionUpdate {
 		if err := json.Unmarshal(wire.Content, &block); err == nil {
 			out.Content = &block
 		}
+		// The wire blob duplicates content.text byte for byte, and chunks are
+		// the per-token kind: every row and every event carried the message
+		// twice.
+		out.Raw = nil
 	case UpdateToolCall, UpdateToolCallUpdate:
 		out.Kind = UpdateKind(wire.SessionUpdate)
 		out.ToolCall = parseToolCall(wire)
+		// Same duplication, bigger: the wire carries rawInput and rawOutput
+		// and so does the normalized ToolCall — the row stored both copies.
+		out.Raw = nil
 	case UpdatePlan:
 		out.Kind = UpdatePlan
 		_ = json.Unmarshal(wire.Entries, &out.Plan)
