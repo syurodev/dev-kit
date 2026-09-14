@@ -26,7 +26,17 @@ export type MarkdownBlock =
   | { type: "list"; ordered: boolean; items: string[] }
   | { type: "quote"; text: string }
   | { type: "code"; language?: string; code: string }
-  | { type: "table"; head: string[]; rows: string[][] };
+  | { type: "table"; head: string[]; rows: string[][]; align: TableAlign[] };
+
+/** A column's alignment, as its divider cell spells it: `:---`, `:---:`, `---:`. */
+export type TableAlign = "left" | "center" | "right";
+
+function alignOf(divider: string): TableAlign {
+  const cell = divider.trim();
+  const left = cell.startsWith(":");
+  const right = cell.endsWith(":");
+  return left && right ? "center" : right ? "right" : "left";
+}
 
 const HEADING = /^(#{1,6})\s+(.*)$/;
 const BULLET = /^\s*[-*+]\s+(.*)$/;
@@ -83,13 +93,16 @@ export function parseMarkdown(source: string): MarkdownBlock[] {
     // containing pipes, which is what a shell command looks like.
     if (line.includes("|") && i + 1 < lines.length && TABLE_DIVIDER.test(lines[i + 1])) {
       const head = splitRow(line);
+      // The divider was only a marker before; it also says how each column
+      // aligns, and a column of numbers is right-aligned so its digits line up.
+      const align = splitRow(lines[i + 1]).map(alignOf);
       const rows: string[][] = [];
       i += 2;
       while (i < lines.length && lines[i].includes("|") && lines[i].trim()) {
         rows.push(splitRow(lines[i]));
         i += 1;
       }
-      blocks.push({ type: "table", head, rows });
+      blocks.push({ type: "table", head, rows, align });
       continue;
     }
 

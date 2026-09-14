@@ -65,7 +65,10 @@ const items: TranscriptItem[] = [
     text:
       "## Cấu trúc\n\nĐây là một project **Gradle** với các module chính:\n\n" +
       "- `gateway` — API gateway\n- `keycloak` — cấu hình xác thực\n- `deploy/server` — script triển khai\n\n" +
-      "```bash\n./gradlew build\n```",
+      "```bash\n./gradlew build\n```\n\n" +
+      "| Process | Vai trò | Modules |\n| --- | --- | ---: |\n" +
+      "| root (`src/`) | Sync API — Hexagonal Architecture | 5 |\n" +
+      "| `gateway/` | Spring Cloud Gateway MVC — validate Keycloak token, strip client identity header, ký internal JWT RS256 (TTL ~45s), publish JWKS | 1 |",
     createdAt: at(248),
     updatedAt: at(250),
   },

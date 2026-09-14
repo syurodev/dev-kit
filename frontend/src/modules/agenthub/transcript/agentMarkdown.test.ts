@@ -52,6 +52,16 @@ describe("agentMarkdown", () => {
     expect(blocks[1]).toMatchObject({ type: "paragraph", text: "after" });
   });
 
+  it("reads each column's alignment off the divider row", () => {
+    const [table] = parseMarkdown(
+      ["| Name | Status | Count |", "| :--- | :---: | ---: |", "| api | ok | 12 |"].join("\n"),
+    );
+    expect(table).toMatchObject({ type: "table", align: ["left", "center", "right"] });
+    // No colons is the common case, and it means left.
+    const [plain] = parseMarkdown(["| A | B |", "| --- | --- |", "| 1 | 2 |"].join("\n"));
+    expect(plain).toMatchObject({ align: ["left", "left"] });
+  });
+
   it("does not mistake a piped command for a table", () => {
     // Without a divider row this is a shell line, and turning it into a
     // two-column table would hide half of it.

@@ -83,6 +83,8 @@ function Inline({ text }: { text: string }) {
   );
 }
 
+const ALIGN = { left: "text-left", center: "text-center", right: "text-right" } as const;
+
 function Block({ block }: { block: MarkdownBlock }) {
   switch (block.type) {
     case "heading":
@@ -134,28 +136,50 @@ function Block({ block }: { block: MarkdownBlock }) {
       return <AgentCodeBlock code={block.code} language={block.language} />;
 
     case "table":
+      // A table is scanned along its rows and down its first column, and both
+      // need drawing. The first column holds the row's name — "root (src/)",
+      // "gateway/" — and does not wrap: wrapped, a name broke into a word and a
+      // code chip on separate lines while the long column beside it had room.
+      // Rows are divided by hairlines and light up under the pointer, cells sit
+      // on their top line so a two-line cell does not float its neighbours to
+      // its middle, and a column the markdown aligned (`:---:`, `---:`) is
+      // aligned — right-aligned columns are numbers, so their digits line up.
       return (
-        <div className="w-full overflow-x-auto rounded-sm border border-border-subtle">
+        <div
+          data-testid="agent-table"
+          className="w-full overflow-x-auto rounded-control border border-border-subtle"
+        >
           <table className="w-full border-collapse">
             <thead>
-              <tr className="bg-surface-base">
+              <tr className="border-b border-border-subtle bg-(--state-soft)">
                 {block.head.map((cell, idx) => (
                   <th
                     key={idx}
-                    className="px-3 py-2 text-left text-body-14 text-text-tertiary"
+                    className={cn(
+                      "px-3 py-2 align-bottom text-body-13-medium whitespace-nowrap text-text-secondary",
+                      ALIGN[block.align[idx] ?? "left"],
+                    )}
                   >
-                    {cell}
+                    <Inline text={cell} />
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {block.rows.map((row, rowIdx) => (
-                <tr key={rowIdx}>
+                <tr
+                  key={rowIdx}
+                  className="border-t border-border-subtle transition-colors duration-(--motion-fast) first:border-t-0 hover:bg-(--state-soft)"
+                >
                   {row.map((cell, idx) => (
                     <td
                       key={idx}
-                      className="px-3 py-2 text-left text-body-14 text-text-primary"
+                      className={cn(
+                        "px-3 py-2 align-top text-body-14 text-text-primary",
+                        idx === 0 && "whitespace-nowrap",
+                        ALIGN[block.align[idx] ?? "left"],
+                        block.align[idx] === "right" && "tabular-nums",
+                      )}
                     >
                       <Inline text={cell} />
                     </td>
