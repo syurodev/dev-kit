@@ -159,17 +159,24 @@ func TestPermissionsAndTurnsAreNotHeldByADesktopNotification(t *testing.T) {
 // running; it is reported once, not per event.
 func TestNotifierThatCannotStartSendsNothingAndSaysSoOnce(t *testing.T) {
 	desktop := &fakeDesktop{startErr: errors.New("no session bus"), authorized: true}
-	var logs atomic.Int32
+	var logs, considered atomic.Int32
 	n := &agenthub.Notifier{
 		Desktop: desktop,
-		Focused: func() bool { return false },
-		Logf:    func(string, ...any) { logs.Add(1) },
+		Focused: func() bool {
+			considered.Add(1)
+			return false
+		},
+		Logf: func(string, ...any) { logs.Add(1) },
 	}
 	n.Authorize()
 	eventually(t, "start attempt", func() bool { return logs.Load() == 1 })
 	n.Authorize()
+	// Delivery is one goroutine in queue order: once the probe queued behind
+	// it has been considered, the first notification's turn — and any Send it
+	// made — is over.
 	n.Notify("s1", "Answer ready", "done")
-	time.Sleep(50 * time.Millisecond)
+	n.Notify("probe", "Answer ready", "probe")
+	eventually(t, "both notifications to be considered", func() bool { return considered.Load() == 2 })
 
 	if got := desktop.starts.Load(); got != 1 {
 		t.Fatalf("Start called %d times, want 1", got)
@@ -177,8 +184,10 @@ func TestNotifierThatCannotStartSendsNothingAndSaysSoOnce(t *testing.T) {
 	if got := desktop.requests.Load(); got != 0 {
 		t.Fatalf("authorization requested %d times after a failed start", got)
 	}
-	if sent := desktop.sentList(); len(sent) != 0 {
-		t.Fatalf("sent %v through a backend that never started", sent)
+	for _, sent := range desktop.sentList() {
+		if sent.SessionID == "s1" {
+			t.Fatalf("sent %v through a backend that never started", sent)
+		}
 	}
 	if got := logs.Load(); got != 1 {
 		t.Fatalf("logged %d times, want 1", got)

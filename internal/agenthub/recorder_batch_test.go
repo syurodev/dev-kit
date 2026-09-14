@@ -317,10 +317,11 @@ func TestRecorderFlushAllLandsEverySessionAndStops(t *testing.T) {
 	if err := rec.Record(ctx, chat, chunkUpdate("m2", "late")); err != nil {
 		t.Fatal(err)
 	}
+	// A cadence timer's whole callback is this Flush, so calling it here does
+	// synchronously what any timer armed after FlushAll would do when it fired.
 	if err := rec.Flush(ctx, chat); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(20 * time.Millisecond) // long enough for any cadence timer to fire
 	if store.appends.Load() != appends || store.updates.Load() != updates {
 		t.Fatalf("writes after FlushAll: appends %d→%d, updates %d→%d",
 			appends, store.appends.Load(), updates, store.updates.Load())
