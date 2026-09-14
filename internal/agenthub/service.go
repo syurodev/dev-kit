@@ -117,6 +117,34 @@ func NewService(reg *Registry, store Store, emit func(sessionID string, update j
 	}
 }
 
+// RecoverStaleSessions resets sessions whose row still claims a turn is in
+// flight (running / awaiting_permission). No ACP process survives the restart
+// that runs this, so those rows describe turns that can never finish — and
+// because Invoke refuses them with ErrSessionBusy before it ever reaches the
+// resume path, a session left mid-turn was stuck forever. Idle is the truth:
+// the transcript keeps whatever the turn managed to say, and the next prompt
+// resumes the session on a fresh process.
+//
+// Startup-only by contract, mirroring outbox.RecoverStaleSyncing: calling it
+// while turns are actually running would reset live sessions.
+func (s *Service) RecoverStaleSessions(ctx context.Context) error {
+	list, err := s.store.ListSessions(ctx)
+	if err != nil {
+		return err
+	}
+	for _, sess := range list {
+		if sess.Status != SessionStatusRunning && sess.Status != SessionStatusAwaitingPermission {
+			continue
+		}
+		sess.Status = SessionStatusIdle
+		sess.UpdatedAt = time.Now().UTC()
+		if err := s.store.UpdateSession(ctx, sess); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // CreateSession opens a vendor runtime and persists an idle hub session.
 //
 // Order matters: the session id is generated first because the MCP socket is

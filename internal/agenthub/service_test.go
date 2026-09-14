@@ -560,6 +560,81 @@ func TestOrphanSessionResumesInsteadOfDyingThere(t *testing.T) {
 	}
 }
 
+func TestRestartResetsStaleMidTurnSessionsToIdle(t *testing.T) {
+	ctx := context.Background()
+	db, err := storage.Open(filepath.Join(t.TempDir(), "devkit.db"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if err := storage.Migrate(ctx, db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	adapter := &loadableAdapter{
+		titlingAdapter: titlingAdapter{rt: &titlingRuntime{}},
+		loaded:         make(chan string, 1),
+	}
+	reg := agenthub.NewRegistry()
+	reg.Register(adapter)
+	store := agenthub.NewSQLStore(db)
+
+	svc := agenthub.NewService(reg, store, nil)
+	running, err := svc.CreateSession(ctx, agenthub.CreateInput{
+		AgentType: agenthub.AgentType("titling"), Cwd: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	awaiting, err := svc.CreateSession(ctx, agenthub.CreateInput{
+		AgentType: agenthub.AgentType("titling"), Cwd: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	// The app died mid-turn: both rows still claim a turn is in flight, and
+	// the processes that could finish those turns died with the app — no ACP
+	// process survives a restart.
+	running.Status = agenthub.SessionStatusRunning
+	if err := store.UpdateSession(ctx, running); err != nil {
+		t.Fatal(err)
+	}
+	awaiting.Status = agenthub.SessionStatusAwaitingPermission
+	if err := store.UpdateSession(ctx, awaiting); err != nil {
+		t.Fatal(err)
+	}
+
+	restarted := agenthub.NewService(reg, store, nil)
+	if err := restarted.RecoverStaleSessions(ctx); err != nil {
+		t.Fatalf("recover: %v", err)
+	}
+	for _, sess := range []agenthub.AgentSession{running, awaiting} {
+		after, err := restarted.GetStatus(ctx, sess.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if after.Status != agenthub.SessionStatusIdle {
+			t.Fatalf("session %s status=%s, want idle", sess.ID, after.Status)
+		}
+	}
+
+	// Without the reset this was ErrSessionBusy forever: the row said a turn
+	// was in flight and nothing that could finish it existed anymore.
+	if _, err := restarted.Invoke(ctx, agenthub.InvokeInput{
+		SessionID: running.ID, Prompt: "still there?",
+	}); err != nil {
+		t.Fatalf("invoke after restart: %v", err)
+	}
+	select {
+	case got := <-adapter.loaded:
+		if got != running.ACPSessionID {
+			t.Fatalf("resumed %q, want the vendor id from the store %q", got, running.ACPSessionID)
+		}
+	default:
+	}
+}
+
 func TestOrphanSessionStaysUnavailableWithoutALoader(t *testing.T) {
 	// The mock adapter has no SessionLoader. A vendor that cannot resume must
 	// be exactly as available as before — the old behaviour is the floor.
