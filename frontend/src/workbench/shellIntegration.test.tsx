@@ -4,6 +4,11 @@ import { useWorkbenchTabsStore } from "../stores/workbenchTabs";
 import { useAgentSessionsStore } from "../stores/agentSessions";
 import { AgentPermissionToastHost } from "./AgentPermissionToastHost";
 
+// No ui_state writes: the debounced bridge call would reject after this file ends.
+useWorkbenchTabsStore.persist.setOptions({
+  storage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+});
+
 describe("Phase 4 Shell Integration", () => {
   beforeEach(() => {
     useWorkbenchTabsStore.setState({

@@ -3,6 +3,11 @@ import type { WorkbenchTab } from "@/stores/workbenchTabs";
 import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
 import { haveSameTabMembers } from "./workbenchViewMemo";
 
+// No ui_state writes: the debounced bridge call would reject after this file ends.
+useWorkbenchTabsStore.persist.setOptions({
+  storage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+});
+
 const first: WorkbenchTab = {
   id: "notes:edit:id=first",
   moduleId: "notes",

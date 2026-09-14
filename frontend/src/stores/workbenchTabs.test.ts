@@ -7,6 +7,13 @@ import {
   useWorkbenchTabsStore,
 } from "./workbenchTabs";
 
+// Every setState below schedules a debounced ui_state write that lands 400ms
+// later on a bridge with no Wails window — an unhandled rejection in whichever
+// test file happens to be running by then.
+useWorkbenchTabsStore.persist.setOptions({
+  storage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+});
+
 // module-tabs.mdx, "Design: per-module ownership": each module owns its tabs,
 // state survives leaving a module, the Dock comes back to the module's own
 // last-active tab, and none of the interaction rules change.

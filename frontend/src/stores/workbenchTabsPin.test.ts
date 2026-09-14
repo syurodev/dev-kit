@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { moduleTabs, useWorkbenchTabsStore } from "./workbenchTabs";
 
+// No ui_state writes: the debounced bridge call would reject after this file ends.
+useWorkbenchTabsStore.persist.setOptions({
+  storage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+});
+
 beforeEach(() => {
   useWorkbenchTabsStore.setState({ activeModuleId: "", modules: {} });
 });
