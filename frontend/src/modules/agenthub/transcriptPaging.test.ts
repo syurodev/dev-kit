@@ -2,7 +2,13 @@ import { describe, expect, test } from "bun:test";
 import { anchoredScrollTop, settlePrependAnchor, type PrependAnchor } from "./surfaces/TranscriptStream";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
-import { initTranscript, modelFromNewestPage, prependTranscriptEntries, useAgentTranscript } from "./transcript";
+import {
+  applySessionUpdates,
+  initTranscript,
+  modelFromNewestPage,
+  prependTranscriptEntries,
+  useAgentTranscript,
+} from "./transcript";
 import { EMPTY_TRANSCRIPT_MODEL, useAgentSessionsStore } from "../../stores/agentSessions";
 import type { TranscriptModel } from "./types";
 
@@ -151,6 +157,28 @@ describe("modelFromNewestPage", () => {
     expect(model.commands.map((command) => command.name)).toEqual(["review"]);
     expect(model.usage?.used).toBe(10);
     expect(model.items).toHaveLength(200);
+  });
+
+  test("restores the advertised modes and keeps them across the agent's bare mode update", () => {
+    const modes = [
+      { id: "default", name: "Default" },
+      { id: "plan", name: "Plan", description: "Read only" },
+    ];
+    const state = [pageEntry(3, { Kind: "current_mode_update", Payload: { mode: "default", availableModes: modes } })];
+    const model = modelFromNewestPage({ entries: [], state }, [], "s1");
+    expect(model.mode).toBe("default");
+    expect(model.availableModes).toEqual(modes);
+
+    // The agent's own update names only the new mode.
+    const live = applySessionUpdates(model, [{ kind: "current_mode_update", mode: "plan" }]);
+    expect(live.mode).toBe("plan");
+    expect(live.availableModes).toEqual(modes);
+
+    // A resume answers with the list again, and that one replaces it.
+    const resumed = applySessionUpdates(live, [
+      { kind: "current_mode_update", mode: "default", availableModes: [modes[0]] },
+    ]);
+    expect(resumed.availableModes).toEqual([modes[0]]);
   });
 
   test("does not append chunks the page already stored", () => {

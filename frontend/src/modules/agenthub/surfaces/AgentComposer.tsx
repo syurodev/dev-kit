@@ -33,7 +33,7 @@ import { onThemeChange } from "@/theme/themeColors";
 import { AgentFileChip } from "../transcript/AgentFileChip";
 import { AgentMenu, type ContextFileItem } from "./AgentMenu";
 import { AgentContextMeter } from "./AgentContextMeter";
-import type { AvailableCommand, ConfigOption, Usage } from "../types";
+import type { AvailableCommand, ConfigOption, ConfigSelectOption, SessionMode, Usage } from "../types";
 import type { QueuedAgentPrompt } from "@/stores/agentSessions";
 import type { AgentImageAttachment } from "@/bridge/agenthub";
 
@@ -41,22 +41,45 @@ export type ComposerSize = "wide" | "rail";
 export type ComposerState = "idle" | "streaming" | "attached";
 
 /**
- * The modes the picker offers: the session's current mode and whatever a mode
- * config option lists — only what the agent advertised. A fixed default /
- * acceptEdits / plan / bypassPermissions list offered modes an agent may not
- * have. ACP's session/new `modes.availableModes` would be the full list, but
- * the hub does not forward it yet (internal/acp SessionLoadResult keeps it raw).
+ * The modes the picker offers — only what the agent advertised. A fixed
+ * default / acceptEdits / plan / bypassPermissions list offered modes an agent
+ * may not have. The session's own mode list (ACP `modes.availableModes`, from
+ * session/new and session/load) is the full answer, in the agent's order; an
+ * agent that lists none falls back to the current mode plus whatever a mode
+ * config option lists. The mode option is found either way, so the settings
+ * menu does not offer it a second time.
  */
-export function composerModeChoices(mode: string | null, configOptions: ConfigOption[]) {
+export function composerModeChoices(
+  mode: string | null,
+  configOptions: ConfigOption[],
+  availableModes: SessionMode[] = [],
+) {
   const modeOption = configOptions.find((option) => {
     const id = option.id.toLowerCase();
     return option.category === "mode" || id.includes("permission") || id === "mode" || id.endsWith("_mode");
   });
   const current = mode ?? (typeof modeOption?.currentValue === "string" ? modeOption.currentValue : null);
-  const choices = Array.from(
-    new Set([current, ...(modeOption?.options?.map((choice) => choice.value) ?? [])].filter((c): c is string => Boolean(c))),
-  );
+  if (availableModes.length > 0) {
+    const choices: ConfigSelectOption[] = availableModes.map(({ id, name, description }) =>
+      description ? { value: id, name, description } : { value: id, name },
+    );
+    return { modeOption, current, choices };
+  }
+  const listed = modeOption?.options ?? [];
+  const choices: ConfigSelectOption[] = [
+    ...(current ? [listed.find((choice) => choice.value === current) ?? { value: current }] : []),
+    ...listed.filter((choice) => choice.value !== current),
+  ];
   return { modeOption, current, choices };
+}
+
+/** Picks a mode, holding one that skips permissions for the confirmation. */
+export function selectComposerMode(
+  choice: ConfigSelectOption,
+  onSetMode: (mode: string) => void,
+  ask: (apply: () => void) => void,
+): void {
+  requestComposerChoice(isPermissionBypassChoice(choice), () => onSetMode(choice.value), ask);
 }
 
 const BYPASS = /bypass|dangerously|skip[\s_-]*permissions?/i;
@@ -161,6 +184,8 @@ export type AgentComposerProps = {
   contextFiles?: ContextFileItem[];
   configOptions?: ConfigOption[];
   mode?: string | null;
+  /** The session's advertised modes; the picker lists these when there are any. */
+  availableModes?: SessionMode[];
   onSetMode?: (mode: string) => void;
   onSetConfigOption?: (optionId: string, value: string) => void;
   focusRequest?: number;
@@ -245,6 +270,7 @@ export function AgentComposer({
   contextFiles = [],
   configOptions = [],
   mode = null,
+  availableModes = [],
   onSetMode,
   onSetConfigOption,
   focusRequest = 0,
@@ -293,7 +319,12 @@ export function AgentComposer({
   const isStreaming = streaming || state === "streaming";
   const effectiveState: ComposerState =
     state ?? (isStreaming ? "streaming" : attachedFiles.length > 0 || imageAttachments.length > 0 ? "attached" : "idle");
-  const { modeOption, current: currentMode, choices: modeChoices } = composerModeChoices(mode, configOptions);
+  const { modeOption, current: currentMode, choices: modeChoices } = composerModeChoices(mode, configOptions, availableModes);
+  // Advertised modes are named by the agent; a mode config option's values
+  // stay shown as they were.
+  const modeLabel = (choice: ConfigSelectOption) => (availableModes.length > 0 && choice.name) || choice.value;
+  const currentModeChoice = modeChoices.find((choice) => choice.value === currentMode);
+  const currentModeLabel = currentModeChoice ? modeLabel(currentModeChoice) : currentMode;
   // A bypass waiting on the dialog. Not window.confirm: WKWebView (macOS) has
   // no confirm panel, so it answered false and bypass could never be enabled.
   const [pendingBypass, setPendingBypass] = useState<{ apply: () => void } | null>(null);
@@ -495,28 +526,26 @@ export function AgentComposer({
               <DropdownMenuTrigger asChild>
                 <Button type="button" variant="ghost" size="sm" data-testid="composer-mode" className="gap-1 px-2 text-text-secondary">
                   <SlidersHorizontal className="size-3.5" aria-hidden="true" />
-                  <span className="max-w-24 truncate text-body-13">{currentMode}</span>
+                  <span className="max-w-24 truncate text-body-13">{currentModeLabel}</span>
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent side="top" align="start" className="w-48">
+              <DropdownMenuContent side="top" align="start" className="w-64">
                 <DropdownMenuLabel>Permission mode</DropdownMenuLabel>
                 {modeChoices.map((choice) => (
                   <DropdownMenuItem
-                    key={choice}
+                    key={choice.value}
                     data-testid="composer-mode-option"
-                    detail={choice === currentMode ? <Check className="size-3" aria-hidden="true" /> : undefined}
-                    onSelect={() =>
-                      requestComposerChoice(
-                        isPermissionBypassChoice({
-                          value: choice,
-                          name: modeOption?.options?.find((option) => option.value === choice)?.name,
-                        }),
-                        () => onSetMode(choice),
-                        askBypass,
-                      )
+                    title={choice.description}
+                    detail={
+                      choice.value === currentMode ? (
+                        <Check className="size-3" aria-hidden="true" />
+                      ) : choice.description ? (
+                        <span className="text-caption-11">{choice.description}</span>
+                      ) : undefined
                     }
+                    onSelect={() => selectComposerMode(choice, onSetMode, askBypass)}
                   >
-                    {choice}
+                    {modeLabel(choice)}
                   </DropdownMenuItem>
                 ))}
               </DropdownMenuContent>

@@ -23,6 +23,7 @@ export type {
   ToolCallContent,
   ToolCallLocation,
   ConfigOption,
+  SessionMode,
   TranscriptAction,
   TranscriptItem,
   TranscriptModel,
@@ -43,6 +44,7 @@ export function createInitialTranscriptModel(): TranscriptModel {
     usage: null,
     commands: [],
     mode: null,
+    availableModes: [],
     configOptions: [],
     toolCallIndex: new Map(),
   };
@@ -194,6 +196,7 @@ export function applySessionUpdates(
   let usage = model.usage;
   let commands = model.commands;
   let mode = model.mode;
+  let availableModes = model.availableModes;
   let configOptions = model.configOptions;
   let changed = false;
 
@@ -233,6 +236,10 @@ export function applySessionUpdates(
     if (kind === UpdateKind.UpdateCurrentMode || kind === "current_mode_update") {
       if (update.mode !== undefined) {
         mode = update.mode;
+        changed = true;
+      }
+      if (update.availableModes) {
+        availableModes = [...update.availableModes];
         changed = true;
       }
       continue;
@@ -392,6 +399,7 @@ export function applySessionUpdates(
     usage,
     commands,
     mode,
+    availableModes,
     configOptions,
     toolCallIndex,
   };
@@ -442,6 +450,7 @@ export function initTranscript(
       if (payload.mode) {
         model.mode = payload.mode;
       }
+      if (payload.availableModes) model.availableModes = payload.availableModes;
       continue;
     }
 
@@ -559,18 +568,21 @@ export function initTranscript(
 function fillSessionState(model: TranscriptModel, page: TranscriptModel): TranscriptModel {
   const usage = model.usage ?? page.usage;
   const mode = model.mode ?? page.mode;
+  const availableModes =
+    model.availableModes.length > 0 || page.availableModes.length === 0 ? model.availableModes : page.availableModes;
   const commands = model.commands.length > 0 || page.commands.length === 0 ? model.commands : page.commands;
   const configOptions =
     model.configOptions.length > 0 || page.configOptions.length === 0 ? model.configOptions : page.configOptions;
   if (
     usage === model.usage &&
     mode === model.mode &&
+    availableModes === model.availableModes &&
     commands === model.commands &&
     configOptions === model.configOptions
   ) {
     return model;
   }
-  return { ...model, usage, mode, commands, configOptions };
+  return { ...model, usage, mode, availableModes, commands, configOptions };
 }
 
 /**

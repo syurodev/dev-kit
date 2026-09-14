@@ -22,7 +22,7 @@ import type { AgentSession } from "@/bridge/agenthub";
 import type { AgentImageAttachment } from "@/bridge/agenthub";
 import { errorMessage as describeError } from "@/bridge/errors";
 import type { QueuedAgentPrompt } from "@/stores/agentSessions";
-import type { AvailableCommand, ConfigOption, TranscriptItem, Usage } from "../types";
+import type { AvailableCommand, ConfigOption, SessionMode, TranscriptItem, Usage } from "../types";
 import type { ContextFileItem } from "./AgentMenu";
 import { TranscriptStream } from "./TranscriptStream";
 import { AgentComposer } from "./AgentComposer";
@@ -56,6 +56,7 @@ export type AgentHubContentProps = {
   onSelectContext?: (path: string) => void;
   configOptions?: ConfigOption[];
   mode?: string | null;
+  availableModes?: SessionMode[];
   onSetMode?: (mode: string) => void;
   onSetConfigOption?: (optionId: string, value: string) => void;
   focusComposerRequest?: number;
@@ -173,6 +174,7 @@ export function AgentHubContent({
   onSelectContext,
   configOptions = [],
   mode = null,
+  availableModes = [],
   onSetMode,
   onSetConfigOption,
   focusComposerRequest = 0,
@@ -546,6 +548,7 @@ export function AgentHubContent({
               onSelectContext={onSelectContext}
               configOptions={configOptions}
               mode={mode}
+              availableModes={availableModes}
               onSetMode={onSetMode}
               onSetConfigOption={onSetConfigOption}
               focusRequest={focusComposerRequest}

@@ -2,13 +2,14 @@ import { describe, expect, it } from "bun:test";
 import { renderToString as renderRaw } from "react-dom/server";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
-import type { ConfigOption } from "../types";
+import type { ConfigOption, SessionMode } from "../types";
 import {
   AgentComposer,
   composerModeChoices,
   handleComposerKeyDown,
   isPermissionBypassChoice,
   requestComposerChoice,
+  selectComposerMode,
   shouldCancelComposerOnEscape,
 } from "./AgentComposer";
 
@@ -96,8 +97,11 @@ describe("composer mode list", () => {
   };
 
   it("offers only the modes the agent advertised, not a built-in list", () => {
-    expect(composerModeChoices("default", []).choices).toEqual(["default"]);
-    expect(composerModeChoices("plan", [modeOption]).choices).toEqual(["plan", "default"]);
+    expect(composerModeChoices("default", []).choices).toEqual([{ value: "default" }]);
+    expect(composerModeChoices("plan", [modeOption]).choices).toEqual([
+      { value: "plan", name: "Plan" },
+      { value: "default", name: "Default" },
+    ]);
   });
 
   it("finds the mode option by its ACP category and takes its current value", () => {
@@ -105,7 +109,44 @@ describe("composer mode list", () => {
     const { modeOption: found, current, choices } = composerModeChoices(null, [option]);
     expect(found).toBe(option);
     expect(current).toBe("plan");
-    expect(choices).toEqual(["plan", "default"]);
+    expect(choices.map((choice) => choice.value)).toEqual(["plan", "default"]);
+  });
+
+  const advertised: SessionMode[] = [
+    { id: "default", name: "Default", description: "Ask before edits" },
+    { id: "plan", name: "Plan" },
+  ];
+
+  it("lists the session's advertised modes, in the agent's order, over a mode config option", () => {
+    const { current, choices } = composerModeChoices("plan", [modeOption], advertised);
+    expect(current).toBe("plan");
+    expect(choices).toEqual([
+      { value: "default", name: "Default", description: "Ask before edits" },
+      { value: "plan", name: "Plan" },
+    ]);
+    const html = renderToString(
+      <AgentComposer {...base} mode="default" availableModes={advertised} onSetMode={() => {}} />,
+    );
+    expect(html).toContain('data-testid="composer-mode"');
+    // The trigger names the mode, not its id.
+    expect(html).toContain(">Default</span>");
+  });
+
+  it("still asks before switching to an advertised mode that skips permissions", () => {
+    const modes: SessionMode[] = [
+      { id: "default", name: "Default" },
+      { id: "bypassPermissions", name: "Bypass Permissions" },
+      { id: "yolo", name: "Dangerously skip permissions" },
+    ];
+    const applied: string[] = [];
+    const held: (() => void)[] = [];
+    for (const choice of composerModeChoices("default", [], modes).choices) {
+      selectComposerMode(choice, (mode) => applied.push(mode), (apply) => held.push(apply));
+    }
+    expect(applied).toEqual(["default"]);
+    expect(held).toHaveLength(2);
+    for (const apply of held) apply();
+    expect(applied).toEqual(["default", "bypassPermissions", "yolo"]);
   });
 
   it("has nothing to offer when the agent advertised no mode", () => {

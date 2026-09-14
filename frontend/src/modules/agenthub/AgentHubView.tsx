@@ -686,6 +686,7 @@ export function AgentHubView() {
             onOpenFile={(path, line) => void handleOpenFile(path, line)}
             configOptions={transcriptModel.configOptions}
             mode={transcriptModel.mode}
+            availableModes={transcriptModel.availableModes}
             onSetMode={(mode) => void handleSetMode(mode)}
             onSetConfigOption={(optionId, value) => void handleSetConfigOption(optionId, value)}
             focusComposerRequest={focusComposerRequest}

@@ -108,6 +108,12 @@ export type SessionUpdate = {
   plan?: PlanEntry[];
   commands?: AvailableCommand[];
   mode?: string;
+  /**
+   * The agent's whole mode list, on a current_mode_update the hub makes from
+   * the session/new or session/load answer. The agent's own update carries
+   * only `mode`, and leaves the list as it was.
+   */
+  availableModes?: SessionMode[];
   /** Set on subagent_spawned and subagent_state_update. */
   subagent?: Subagent | null;
   /** Set on the three async_task_* kinds. */
@@ -192,6 +198,13 @@ export type ConfigOption = {
   options?: ConfigSelectOption[];
 };
 
+/** One mode the agent can run in. Mirrors internal/acp/types_v1.go: SessionMode */
+export type SessionMode = {
+  id: string;
+  name: string;
+  description?: string;
+};
+
 /** Mirrors internal/agenthub/update.go: ConfigSelectOption */
 export type ConfigSelectOption = {
   value: string;
@@ -231,6 +244,8 @@ export type TranscriptModel = {
   usage: Usage | null;
   commands: AvailableCommand[];
   mode: string | null;
+  /** The modes the agent advertised; empty when it listed none. */
+  availableModes: SessionMode[];
   configOptions: ConfigOption[];
   /** O(1) lookup for tool_call_update; maintained with the item snapshot. */
   toolCallIndex: Map<string, number>;

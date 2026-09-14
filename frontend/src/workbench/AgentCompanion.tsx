@@ -221,6 +221,7 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
       }}
       configOptions={transcriptModel.configOptions}
       mode={transcriptModel.mode}
+      availableModes={transcriptModel.availableModes}
       onSetMode={(mode) => void setMode(mode)}
       onSetConfigOption={(optionId, value) => void setConfigOption(optionId, value)}
       onOpenFile={(path, line) => void openFile(path, line)}
