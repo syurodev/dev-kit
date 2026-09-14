@@ -165,7 +165,8 @@ export function AgentComposer({
         data-state={effectiveState}
         className={cn(
           "glass-float flex w-full flex-col gap-2 rounded-xl p-2",
-          rail ? "max-w-70" : "max-w-274",
+          // The rail's composer fills its panel, which the user sizes.
+          !rail && "max-w-274",
           className,
         )}
       >

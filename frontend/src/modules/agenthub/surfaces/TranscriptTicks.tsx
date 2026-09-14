@@ -68,6 +68,10 @@ export function TranscriptTicks({ ticks, active, onJump, className }: Transcript
 
       {preview ? (
         <div
+          // Keyed per tick so each hover paints a fresh card. Updated in place,
+          // WebKit repainted the clamped answer but left the truncated prompt
+          // line showing the first tick's text.
+          key={preview.id}
           role="presentation"
           data-testid="transcript-tick-preview"
           className="pointer-events-none absolute left-full ml-2 flex w-80 flex-col gap-1 rounded-xl p-3 glass-float"

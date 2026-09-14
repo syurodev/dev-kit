@@ -110,7 +110,9 @@ export function AgentRail({
         // No fill: panel-surface behind the rail is the ground. No side
         // padding: the transcript scrolls edge to edge so its scrollbar sits on
         // the panel's edge, and each band below pads itself.
-        "flex h-full w-80 flex-col overflow-hidden pt-0 pb-3 select-none",
+        // w-full, not a fixed 320: the split panel is resizable, and a fixed
+        // width left the rail where it was with empty panel beside it.
+        "flex h-full w-full min-w-0 flex-col overflow-hidden pt-0 pb-3 select-none",
         className,
       )}
     >
