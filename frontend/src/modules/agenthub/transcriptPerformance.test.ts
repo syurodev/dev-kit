@@ -8,7 +8,10 @@ import {
   TranscriptEventBuffer,
   type TranscriptModel,
 } from "./transcript";
-import { largeTranscriptEntries, LARGE_TRANSCRIPT_ROW_COUNT } from "./transcriptPerformance.fixture";
+import { groupTurns } from "./turns";
+import { largeMarkdownAnswer, largeTranscriptEntries, LARGE_TRANSCRIPT_ROW_COUNT } from "./transcriptPerformance.fixture";
+import { parseMarkdown } from "./transcript/agentMarkdown";
+import type { TranscriptItem } from "./types";
 
 const TOKEN_COUNT = 1_000;
 
@@ -79,6 +82,56 @@ describe("Agent Hub transcript performance fixture", () => {
         `initRows=${entries.length} initMsMedian=${median(initSamples).toFixed(2)}`,
     );
   });
+
+  it("prints the pre-structural-sharing render and markdown baselines", () => {
+    const entries = largeTranscriptEntries();
+    const rows: TranscriptItem[] = entries.map((entry) => ({
+      id: String(entry.ID),
+      kind: String(entry.Kind),
+      text: typeof entry.Text === "string" ? entry.Text : undefined,
+      raw: entry.Payload,
+      createdAt: String(entry.CreatedAt),
+      updatedAt: String(entry.UpdatedAt),
+      toolCallId: typeof entry.ToolCallID === "string" ? entry.ToolCallID : undefined,
+    }));
+    const lastAnswerIndex = rows.length - 2;
+    let previous = groupTurns(rows);
+    let changedTurnCount = 0;
+    const turnSamples: number[] = [];
+    for (let run = 0; run < 3; run += 1) {
+      let currentRows = rows;
+      let currentTurns = previous;
+      const started = performance.now();
+      let changes = 0;
+      for (let token = 0; token < TOKEN_COUNT; token += 1) {
+        const answer = currentRows[lastAnswerIndex];
+        const nextAnswer = { ...answer, text: `${answer.text ?? ""} token-${token} ` };
+        currentRows = [...currentRows.slice(0, lastAnswerIndex), nextAnswer, ...currentRows.slice(lastAnswerIndex + 1)];
+        const nextTurns = groupTurns(currentRows);
+        changes += nextTurns.filter((turn, index) => turn !== currentTurns[index]).length;
+        currentTurns = nextTurns;
+      }
+      turnSamples.push(performance.now() - started);
+      changedTurnCount = changes;
+      previous = currentTurns;
+    }
+
+    const answer = largeMarkdownAnswer();
+    const markdownSamples: number[] = [];
+    for (let run = 0; run < 3; run += 1) {
+      const started = performance.now();
+      for (let offset = 20; offset <= answer.length; offset += 20) parseMarkdown(answer.slice(0, offset));
+      markdownSamples.push(performance.now() - started);
+    }
+
+    console.log(
+      `[agenthub perf before] turns=5000 tokens=${TOKEN_COUNT} ` +
+        `agentTurnIdentityChanges=${changedTurnCount} ` +
+        `groupTurnsMsMedian=${median(turnSamples).toFixed(2)} ` +
+        `markdownBytes=${answer.length} markdownMsMedian=${median(markdownSamples).toFixed(2)}`,
+    );
+    expect(changedTurnCount).toBe(5_000_000);
+  }, 30_000);
 
   it("coalesces one stream into one publish and keeps control events immediate", () => {
     const frames: Array<() => void> = [];

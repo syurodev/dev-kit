@@ -119,3 +119,29 @@ export function largeTranscriptEntries(): Record<string, unknown>[] {
 }
 
 export const LARGE_TRANSCRIPT_ROW_COUNT = TURN_COUNT * ROWS_PER_TURN;
+
+/** A repeatable 20 KiB answer for the streaming markdown parser benchmark. */
+export function largeMarkdownAnswer(): string {
+  const block = [
+    "## Result",
+    "",
+    "The agent compared the current implementation with the target behaviour.",
+    "",
+    "| Check | Status |",
+    "| --- | :---: |",
+    "| identity | passed |",
+    "| publish | passed |",
+    "",
+    "- Keep completed blocks stable.",
+    "- Parse only the active tail.",
+    "",
+    "```ts",
+    "const result = await measureStream();",
+    "return result.identityStable;",
+    "```",
+    "",
+  ].join("\n");
+  let answer = "";
+  while (answer.length < 20_000) answer += block;
+  return answer.slice(0, 20_000);
+}
