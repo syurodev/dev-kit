@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import type { TranscriptItem } from "../types";
 import { groupTurns } from "../turns";
@@ -46,6 +46,18 @@ export function TranscriptStream({
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showJump, setShowJump] = useState(false);
   const [activeTick, setActiveTick] = useState(0);
+  // The scrollbar's width: 0 with overlay scrollbars. A scrollbar appearing
+  // shrinks the content box, which is what the observer sees.
+  const [scrollbar, setScrollbar] = useState(0);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const measure = () => setScrollbar(el.offsetWidth - el.clientWidth);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
   // Figma 951:2270 is opened from a message footer, so the transcript owns it:
   // one panel for whichever turn you asked about, not one per message.
   const [inspecting, setInspecting] = useState<TranscriptItem | null>(null);
@@ -127,19 +139,26 @@ export function TranscriptStream({
         // sit over this scroller, and AgentHubContent measures each into a
         // variable so the first and last lines can scroll out from under them.
         style={{
-          // A classic scrollbar (macOS "Show scroll bars: Always", a mouse
-          // plugged in, Windows) takes its width off the right only, and the
-          // centred column slid left of the composer by half of it. Reserving
-          // the same gutter on the left keeps the column centred in the pane,
-          // under the composer. No effect with overlay scrollbars, which take
-          // no width. ponytail: below the 720 cap the column is still a gutter
-          // narrower per side than the composer; measure it if that shows.
-          scrollbarGutter: "stable both-edges",
+          // Measured scrollbar width, for the column's re-centring below.
+          "--scrollbar": `${scrollbar}px`,
           paddingTop: "calc(var(--header-inset, 0px) + var(--space-section))",
           paddingBottom: "calc(var(--composer-inset, 0px) + var(--space-section))",
-        }}
+        } as CSSProperties}
       >
-        <div className="mx-auto flex w-full max-w-180 flex-col gap-6">
+        <div
+          className="relative mx-auto flex w-full max-w-180 flex-col gap-6"
+          // A classic scrollbar (macOS "Show scroll bars: Always", a mouse
+          // plugged in, Windows) takes its width off the right only, so a
+          // capped column centres half a scrollbar left of the composer, which
+          // centres in the whole pane. Shift it back by that half — but only
+          // out of the slack beside a capped column. A column filling a narrow
+          // pane (the agent rail) stays put and keeps every pixel.
+          // `both-edges` gutters did the centring by reserving the width on the
+          // left too, which in a narrow panel was pure lost space.
+          style={{
+            left: "clamp(0px, calc((100% - var(--spacing) * 180) / 2), calc(var(--scrollbar, 0px) / 2))",
+          }}
+        >
           {items.length === 0 && !loading ? (
             <div className="flex h-48 flex-col items-center justify-center text-center">
               <p className="text-body-13 text-text-secondary">No messages yet</p>
