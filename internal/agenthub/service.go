@@ -390,10 +390,25 @@ func (s *Service) ListContextFiles(ctx context.Context, id, query string) ([]Con
 	paths := make([]string, 0, maxContextSuggestions)
 	err = filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
-			return walkErr
+			// One unreadable folder costs only its own subtree. Returning the
+			// error failed the whole listing, so a single permission-denied
+			// directory left the composer with no suggestions at all.
+			if path == root {
+				return walkErr
+			}
+			if entry != nil && entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 		if err := ctx.Err(); err != nil {
 			return err
+		}
+		if len(paths) >= maxContextSuggestions {
+			// SkipAll, not SkipDir: SkipDir returned for a file skips only the
+			// rest of that directory, so the walk still went through the
+			// whole tree after the cap.
+			return filepath.SkipAll
 		}
 		if entry.IsDir() {
 			name := entry.Name()
@@ -401,9 +416,6 @@ func (s *Service) ListContextFiles(ctx context.Context, id, query string) ([]Con
 				return filepath.SkipDir
 			}
 			return nil
-		}
-		if len(paths) >= maxContextSuggestions {
-			return filepath.SkipDir
 		}
 		rel, relErr := filepath.Rel(root, path)
 		if relErr != nil || rel == "." {

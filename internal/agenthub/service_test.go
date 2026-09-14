@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -1324,5 +1325,104 @@ func TestSettingsOnAnOrphanThatCannotResumeSayUnavailable(t *testing.T) {
 	}
 	if err := agenthub.NewService(reg, store, nil).SetMode(ctx, sess.ID, "plan"); !errors.Is(err, agenthub.ErrUnavailable) {
 		t.Fatalf("err = %v, want ErrUnavailable rather than a claim the agent has no modes", err)
+	}
+}
+
+// countingContext counts Err calls. ListContextFiles checks the context once
+// per entry the walk visits, so the count is how much of the tree it read.
+type countingContext struct {
+	context.Context
+	errCalls atomic.Int64
+}
+
+func (c *countingContext) Err() error {
+	c.errCalls.Add(1)
+	return c.Context.Err()
+}
+
+func contextFilesService(t *testing.T, root string) (*agenthub.Service, string) {
+	t.Helper()
+	reg := agenthub.NewRegistry()
+	reg.Register(agenthub.NewMockAdapter())
+	svc := agenthub.NewService(reg, newTestStore(t), nil)
+	sess, err := svc.CreateSession(context.Background(), agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return svc, sess.ID
+}
+
+// The cap returned SkipDir from a file, which skips only the rest of that
+// directory: past 100 suggestions the walk still read every folder in the
+// project.
+func TestListContextFilesStopsWalkingAtTheCap(t *testing.T) {
+	root := t.TempDir()
+	mkfile := func(path string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// 120 files reach the cap first; then 150 folders of folders. SkipDir from
+	// a file skips only that file's siblings, so every folder was still opened.
+	for f := 0; f < 120; f++ {
+		mkfile(filepath.Join(root, "a-files", fmt.Sprintf("f-%03d.ts", f)))
+	}
+	for d := 0; d < 150; d++ {
+		for s := 0; s < 3; s++ {
+			mkfile(filepath.Join(root, fmt.Sprintf("b-%03d", d), fmt.Sprintf("s%d", s), "f.ts"))
+		}
+	}
+	svc, id := contextFilesService(t, root)
+
+	ctx := &countingContext{Context: context.Background()}
+	files, err := svc.ListContextFiles(ctx, id, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 100 {
+		t.Fatalf("got %d suggestions, want 100", len(files))
+	}
+	// ~103 entries up to the cap, plus the store's own context checks; the
+	// whole tree is over 1,300.
+	if n := ctx.errCalls.Load(); n > 500 {
+		t.Fatalf("walk visited ~%d entries for 100 suggestions; it did not stop at the cap", n)
+	}
+}
+
+// A walk error in one subdirectory used to fail the whole listing.
+func TestListContextFilesSkipsAnUnreadableFolder(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod does not make a directory unreadable on Windows")
+	}
+	root := t.TempDir()
+	locked := filepath.Join(root, "locked")
+	if err := os.Mkdir(locked, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(locked, "secret.ts"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "readable.ts"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(locked, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o700) })
+	if _, err := os.ReadDir(locked); err == nil {
+		t.Skip("directory permissions are not enforced here (running as root?)")
+	}
+	svc, id := contextFilesService(t, root)
+
+	files, err := svc.ListContextFiles(context.Background(), id, "")
+	if err != nil {
+		t.Fatalf("one unreadable folder failed the whole listing: %v", err)
+	}
+	if len(files) != 1 || files[0].Name != "readable.ts" {
+		t.Fatalf("files = %+v, want the readable file", files)
 	}
 }
