@@ -316,9 +316,8 @@ func devkitClientCapabilities() map[string]any {
 		//
 		// The namespace is JetBrains' and the vendor's, not something DevKit
 		// chose. asyncTasks and sessionFailure are declared alongside because
-		// they are the same extension and the same version; whether their
-		// updates get modelled is a separate question from whether we are
-		// allowed to see them.
+		// they are the same extension and the same version; their updates are
+		// parsed (UpdateAsyncTask*), which is what makes asking for them honest.
 		"_meta": map[string]any{
 			"terminal-auth": true,
 			"jetbrains": map[string]any{
@@ -331,7 +330,7 @@ func devkitClientCapabilities() map[string]any {
 	}
 }
 
-// sessionNewMeta cuts the agent off// sessionNewMeta cuts the agent off from the user's own Claude Code settings.
+// sessionNewMeta cuts the agent off from the user's own Claude Code settings.
 //
 // claude-agent-acp passes settingSources: ["user","project","local"] to the
 // Agent SDK for every session, so ~/.claude/settings.json, the project's

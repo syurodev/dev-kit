@@ -37,6 +37,18 @@ const (
 	// vendor's subagentSessionId is the only handle to them.
 	UpdateSubagentSpawned UpdateKind = "subagent_spawned"
 	UpdateSubagentState   UpdateKind = "subagent_state_update"
+	// UpdateConfigOptions carries the whole set of per-session settings the
+	// agent exposes — model, effort, agent, fast mode — with their current
+	// values. Every notification is the full set, not a delta, so the latest one
+	// replaces the last (see isSessionState).
+	UpdateConfigOptions UpdateKind = "config_option_update"
+	// UpdateAsyncTask* report work the vendor runs in the background, past the
+	// end of the turn that started it. DevKit asks for them: the air extension
+	// declared in devkitClientCapabilities lists asyncTasks, so the agent sends
+	// them whether or not anything renders them.
+	UpdateAsyncTaskSpawned  UpdateKind = "async_task_spawned"
+	UpdateAsyncTaskProgress UpdateKind = "async_task_progress"
+	UpdateAsyncTaskState    UpdateKind = "async_task_state_update"
 	// UpdateUnknown is a kind this build does not model. The raw blob is kept
 	// so a vendor that ships a new kind degrades to "not rendered" rather than
 	// "silently dropped" — the Meta Inspector surface reads Raw.
@@ -109,6 +121,69 @@ type Usage struct {
 	Currency string  `json:"currency,omitempty"`
 }
 
+// ConfigSelectOption is one selectable value of a select-typed ConfigOption.
+//
+// The wire allows either a flat list of values or a list of named groups of
+// them; both arrive here flat, with Group naming the group a value came from.
+// Claude groups its models, and a flat list with the grouping still readable is
+// less to get wrong than two shapes for the same menu.
+type ConfigSelectOption struct {
+	Value       string `json:"value"`
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+	Group       string `json:"group,omitempty"`
+}
+
+// ConfigOption is one per-session setting from a config_option_update.
+//
+// CurrentValue stays raw because its type follows Type: a value id on a
+// "select", a bool on a "boolean". Raw is what the UI wants anyway — it reaches
+// the frontend as a JSON string or a JSON boolean, which is exactly the union
+// TypeScript needs.
+type ConfigOption struct {
+	ID           string               `json:"id"`
+	Name         string               `json:"name,omitempty"`
+	Description  string               `json:"description,omitempty"`
+	Category     string               `json:"category,omitempty"`
+	Type         string               `json:"type,omitempty"`
+	CurrentValue json.RawMessage      `json:"currentValue,omitempty"`
+	Options      []ConfigSelectOption `json:"options,omitempty"`
+}
+
+// AsyncTaskUsage is what a background task has spent so far.
+type AsyncTaskUsage struct {
+	TotalTokens int64 `json:"totalTokens"`
+	ToolUses    int64 `json:"toolUses"`
+	DurationMs  int64 `json:"durationMs"`
+}
+
+// AsyncTask is a background task the vendor is running, as reported by the
+// three async_task_* kinds.
+//
+// Like Subagent, no single message is complete: Name, TaskType, ShowInTranscript
+// and CanStop arrive only on spawn, State only on the state update, Usage and
+// LastToolName only on progress. A reader keeps them together by ID.
+type AsyncTask struct {
+	ID          string `json:"id"`
+	Name        string `json:"name,omitempty"`
+	TaskType    string `json:"taskType,omitempty"`
+	Description string `json:"description,omitempty"`
+	Summary     string `json:"summary,omitempty"`
+	State       string `json:"state,omitempty"`
+	// LastToolName is what the task was doing when it last reported in.
+	LastToolName string `json:"lastToolName,omitempty"`
+	// OutputFilePath is the task's durable log. It can arrive after the spawn.
+	OutputFilePath string `json:"outputFilePath,omitempty"`
+	// ToolCallID ties the task back to the tool call that started it, when the
+	// vendor knows the correlation — which it may only learn later.
+	ToolCallID string `json:"toolCallId,omitempty"`
+	// ShowInTranscript is the vendor's own answer to whether this task is worth
+	// showing. Spawn-only, so false also means "this message did not say".
+	ShowInTranscript bool            `json:"showInTranscript,omitempty"`
+	CanStop          bool            `json:"canStop,omitempty"`
+	Usage            *AsyncTaskUsage `json:"usage,omitempty"`
+}
+
 // SessionUpdate is the hub-owned view of one session/update notification.
 // Raw is always populated, including for UpdateUnknown.
 type SessionUpdate struct {
@@ -123,7 +198,11 @@ type SessionUpdate struct {
 	Title string `json:"title,omitempty"`
 	// Subagent carries the vendor-side agent a subagent_* update is about.
 	Subagent *Subagent `json:"subagent,omitempty"`
-	Usage    *Usage    `json:"usage,omitempty"`
+	// AsyncTask carries the background task an async_task_* update is about.
+	AsyncTask *AsyncTask `json:"asyncTask,omitempty"`
+	// ConfigOptions is the full set of settings from a config_option_update.
+	ConfigOptions []ConfigOption `json:"configOptions,omitempty"`
+	Usage         *Usage         `json:"usage,omitempty"`
 	// MessageID identifies the assistant message a chunk belongs to. Claude
 	// sends it on every chunk; it is a stricter coalescing key than "same kind"
 	// because two consecutive messages would otherwise fold into one bubble.
@@ -202,6 +281,34 @@ type wireUpdate struct {
 	Used              int64           `json:"used"`
 	Size              int64           `json:"size"`
 	Cost              json.RawMessage `json:"cost"`
+	ConfigOptions     json.RawMessage `json:"configOptions"`
+	AsyncTaskID       string          `json:"asyncTaskId"`
+	TaskType          string          `json:"taskType"`
+	Description       string          `json:"description"`
+	Summary           string          `json:"summary"`
+	LastToolName      string          `json:"lastToolName"`
+	OutputFilePath    string          `json:"outputFilePath"`
+	ShowInTranscript  bool            `json:"showInTranscript"`
+	CanStop           bool            `json:"canStop"`
+	// TaskUsage is an async task's spend. It shares no key with usage_update,
+	// which carries its numbers at the top level instead.
+	TaskUsage json.RawMessage `json:"usage"`
+}
+
+// wireConfigOption mirrors one entry of a config_option_update. `options` is
+// polymorphic — values or groups of values — so both shapes are read here and
+// the group's own values are flattened out.
+type wireConfigOption struct {
+	ID           string          `json:"id"`
+	Name         string          `json:"name"`
+	Description  string          `json:"description"`
+	Category     string          `json:"category"`
+	Type         string          `json:"type"`
+	CurrentValue json.RawMessage `json:"currentValue"`
+	Options      []struct {
+		ConfigSelectOption
+		Options []ConfigSelectOption `json:"options"`
+	} `json:"options"`
 }
 
 // ParseSessionUpdate normalizes one session/update blob. It never returns an
@@ -254,6 +361,12 @@ func ParseSessionUpdate(raw json.RawMessage) SessionUpdate {
 		// with an empty Title says "understood, nothing to apply".
 		out.Kind = UpdateSessionInfo
 		out.Title = wire.Title
+	case UpdateConfigOptions:
+		out.Kind = UpdateConfigOptions
+		out.ConfigOptions = parseConfigOptions(wire.ConfigOptions)
+	case UpdateAsyncTaskSpawned, UpdateAsyncTaskProgress, UpdateAsyncTaskState:
+		out.Kind = UpdateKind(wire.SessionUpdate)
+		out.AsyncTask = parseAsyncTask(wire)
 	case UpdateUsage:
 		out.Kind = UpdateUsage
 		usage := Usage{Used: wire.Used, Size: wire.Size}
@@ -268,6 +381,62 @@ func ParseSessionUpdate(raw json.RawMessage) SessionUpdate {
 		out.Usage = &usage
 	}
 	return out
+}
+
+// parseConfigOptions flattens the option list of a config_option_update. An
+// entry is either a value or a named group of values; a group contributes its
+// members, each tagged with the group's name.
+func parseConfigOptions(raw json.RawMessage) []ConfigOption {
+	var wire []wireConfigOption
+	if err := json.Unmarshal(raw, &wire); err != nil {
+		return nil
+	}
+	out := make([]ConfigOption, 0, len(wire))
+	for _, w := range wire {
+		option := ConfigOption{
+			ID:           w.ID,
+			Name:         w.Name,
+			Description:  w.Description,
+			Category:     w.Category,
+			Type:         w.Type,
+			CurrentValue: w.CurrentValue,
+		}
+		for _, entry := range w.Options {
+			if len(entry.Options) == 0 {
+				option.Options = append(option.Options, entry.ConfigSelectOption)
+				continue
+			}
+			for _, member := range entry.Options {
+				member.Group = entry.Name
+				option.Options = append(option.Options, member)
+			}
+		}
+		out = append(out, option)
+	}
+	return out
+}
+
+// parseAsyncTask shapes the background-task fields. Which of them are set
+// depends on the kind, so every one of them may be empty.
+func parseAsyncTask(wire wireUpdate) *AsyncTask {
+	task := &AsyncTask{
+		ID:               wire.AsyncTaskID,
+		Name:             wire.Name,
+		TaskType:         wire.TaskType,
+		Description:      wire.Description,
+		Summary:          wire.Summary,
+		State:            wire.State,
+		LastToolName:     wire.LastToolName,
+		OutputFilePath:   wire.OutputFilePath,
+		ToolCallID:       wire.ToolCallID,
+		ShowInTranscript: wire.ShowInTranscript,
+		CanStop:          wire.CanStop,
+	}
+	var usage AsyncTaskUsage
+	if err := json.Unmarshal(wire.TaskUsage, &usage); err == nil {
+		task.Usage = &usage
+	}
+	return task
 }
 
 // parseToolCall shapes the tool-call fields. A tool_call_update legitimately

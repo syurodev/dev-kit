@@ -84,11 +84,12 @@ type Service struct {
 	// OnSessionClosed fires after a session is closed (interaction.Hub forgets its allow_always).
 	OnSessionClosed func(sessionID string)
 	// OnUnknownUpdate reports a session/update kind this build does not model,
-	// once per kind per session. claude-agent-acp emits fifteen kinds and this
-	// build parses six; the other nine — subagent_spawned, async_task_*,
-	// session_info_update among them — were degrading to UpdateUnknown and
-	// vanishing without a trace, so nothing on screen or in the log said the
-	// vendor had started sending something new.
+	// once per kind per session. It exists because the gap used to be wide and
+	// silent: of the sixteen kinds claude-agent-acp 0.74 emits this build parsed
+	// six, and the other ten — subagent_spawned, async_task_*, session_info_update
+	// among them — degraded to UpdateUnknown and vanished without a trace, so
+	// nothing on screen or in the log said the vendor was sending something new.
+	// All sixteen are modelled now; this stays for the next version's additions.
 	//
 	// A hook rather than a log call for the same reason OnRecordError is one:
 	// internal/agenthub owns no logger.

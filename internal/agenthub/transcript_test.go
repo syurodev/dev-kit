@@ -222,10 +222,12 @@ func TestRecorderUpsertsSessionStateKinds(t *testing.T) {
 		`{"sessionUpdate":"available_commands_update","availableCommands":[{"name":"compact"}]}`,
 		`{"sessionUpdate":"usage_update","used":24503,"size":1000000,"cost":{"amount":0.21,"currency":"USD"}}`,
 		`{"sessionUpdate":"available_commands_update","availableCommands":[{"name":"compact"},{"name":"init"}]}`,
+		`{"sessionUpdate":"config_option_update","configOptions":[{"id":"model","type":"select","currentValue":"opus"}]}`,
+		`{"sessionUpdate":"config_option_update","configOptions":[{"id":"model","type":"select","currentValue":"haiku"}]}`,
 	)
 
 	entries, _ := store.ListTranscript(context.Background(), session)
-	if len(entries) != 2 {
+	if len(entries) != 3 {
 		t.Fatalf("got %d entries, want one row per session-level kind", len(entries))
 	}
 
@@ -248,5 +250,15 @@ func TestRecorderUpsertsSessionStateKinds(t *testing.T) {
 	}
 	if len(commands.Commands) != 2 {
 		t.Fatalf("commands = %+v, want the latest list", commands.Commands)
+	}
+
+	// The agent republishes the whole option set on every model switch, effort
+	// change and plan-mode exit, so this one matters most of the three.
+	var config agenthub.SessionUpdate
+	if err := json.Unmarshal(byKind[agenthub.UpdateConfigOptions].Payload, &config); err != nil {
+		t.Fatalf("config payload: %v", err)
+	}
+	if len(config.ConfigOptions) != 1 || string(config.ConfigOptions[0].CurrentValue) != `"haiku"` {
+		t.Fatalf("config = %+v, want the latest value", config.ConfigOptions)
 	}
 }

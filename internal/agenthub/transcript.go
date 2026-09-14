@@ -81,9 +81,13 @@ func (r *Recorder) Record(ctx context.Context, sessionID string, update SessionU
 // usage, the command menu reads the latest list. Appending them would grow the
 // transcript on every turn and force the UI to filter them back out. Measured:
 // one failed session already produced two available_commands_update.
+//
+// config_option_update belongs here for the same reason and more strongly: each
+// notification carries the entire set of options, and the agent republishes it
+// on every model switch, effort change and plan-mode exit.
 func isSessionState(kind UpdateKind) bool {
 	switch kind {
-	case UpdateUsage, UpdateAvailableCommands, UpdateCurrentMode:
+	case UpdateUsage, UpdateAvailableCommands, UpdateCurrentMode, UpdateConfigOptions:
 		return true
 	default:
 		return false

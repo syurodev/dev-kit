@@ -222,6 +222,24 @@ export enum UpdateKind {
     UpdateSubagentState = "subagent_state_update",
 
     /**
+     * UpdateConfigOptions carries the whole set of per-session settings the
+     * agent exposes — model, effort, agent, fast mode — with their current
+     * values. Every notification is the full set, not a delta, so the latest one
+     * replaces the last (see isSessionState).
+     */
+    UpdateConfigOptions = "config_option_update",
+
+    /**
+     * UpdateAsyncTask* report work the vendor runs in the background, past the
+     * end of the turn that started it. DevKit asks for them: the air extension
+     * declared in devkitClientCapabilities lists asyncTasks, so the agent sends
+     * them whether or not anything renders them.
+     */
+    UpdateAsyncTaskSpawned = "async_task_spawned",
+    UpdateAsyncTaskProgress = "async_task_progress",
+    UpdateAsyncTaskState = "async_task_state_update",
+
+    /**
      * UpdateUnknown is a kind this build does not model. The raw blob is kept
      * so a vendor that ships a new kind degrades to "not rendered" rather than
      * "silently dropped" — the Meta Inspector surface reads Raw.

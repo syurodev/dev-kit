@@ -176,6 +176,116 @@ func TestParseSessionUpdateUsage(t *testing.T) {
 	}
 }
 
+// config_option_update is how the agent publishes the session's settings —
+// model, effort, fast mode. Payload shape taken from claude-agent-acp 0.74's
+// own ConfigOptionUpdate/SessionConfigOption declarations: `options` is either
+// a flat list of values or a list of groups, and `currentValue` is a value id
+// on a select but a bool on a toggle.
+func TestParseSessionUpdateConfigOptions(t *testing.T) {
+	raw := json.RawMessage(`{"sessionUpdate":"config_option_update","configOptions":[
+		{"id":"model","name":"Model","category":"model","type":"select","currentValue":"opus",
+		 "options":[{"group":"anthropic","name":"Anthropic","options":[
+			{"value":"opus","name":"Opus 5"},{"value":"haiku","name":"Haiku 4.5"}]}]},
+		{"id":"fast_mode","name":"Fast mode","type":"boolean","currentValue":false}]}`)
+
+	got := agenthub.ParseSessionUpdate(raw)
+
+	if got.Kind != agenthub.UpdateConfigOptions {
+		t.Fatalf("kind = %q, want config_option_update", got.Kind)
+	}
+	if len(got.ConfigOptions) != 2 {
+		t.Fatalf("options = %d, want 2", len(got.ConfigOptions))
+	}
+	model := got.ConfigOptions[0]
+	if model.ID != "model" || model.Type != "select" || string(model.CurrentValue) != `"opus"` {
+		t.Fatalf("model option = %+v", model)
+	}
+	// A group's members arrive flat, each keeping the group it came from.
+	if len(model.Options) != 2 {
+		t.Fatalf("model values = %+v, want the group flattened", model.Options)
+	}
+	if model.Options[1].Value != "haiku" || model.Options[1].Group != "Anthropic" {
+		t.Fatalf("grouped value = %+v", model.Options[1])
+	}
+	// A boolean's currentValue is a bool, not a value id: leaving it raw is what
+	// lets one field carry both without the parse failing on the other shape.
+	if string(got.ConfigOptions[1].CurrentValue) != "false" {
+		t.Fatalf("fast mode currentValue = %s", got.ConfigOptions[1].CurrentValue)
+	}
+}
+
+// A flat option list is the other half of the same wire shape.
+func TestParseSessionUpdateConfigOptionsUngrouped(t *testing.T) {
+	raw := json.RawMessage(`{"sessionUpdate":"config_option_update","configOptions":[
+		{"id":"effort","type":"select","currentValue":"high",
+		 "options":[{"value":"low","name":"Low"},{"value":"high","name":"High"}]}]}`)
+
+	got := agenthub.ParseSessionUpdate(raw)
+
+	values := got.ConfigOptions[0].Options
+	if len(values) != 2 || values[0].Value != "low" || values[0].Group != "" {
+		t.Fatalf("values = %+v", values)
+	}
+}
+
+// The three async_task_* kinds describe one background task between them: the
+// spawn names it, progress reports what it is doing, the state update ends it.
+// No single message is complete, which is why they all land on one struct.
+func TestParseSessionUpdateAsyncTask(t *testing.T) {
+	spawned := agenthub.ParseSessionUpdate([]byte(`{"sessionUpdate":"async_task_spawned",
+		"asyncTaskId":"t1","name":"Build","taskType":"bash","description":"go build ./...",
+		"showInTranscript":true,"canStop":true,"toolCallId":"call_9"}`))
+	if spawned.Kind != agenthub.UpdateAsyncTaskSpawned {
+		t.Fatalf("kind = %q, want async_task_spawned", spawned.Kind)
+	}
+	if spawned.AsyncTask == nil {
+		t.Fatal("asyncTask is nil")
+	}
+	if spawned.AsyncTask.ID != "t1" || spawned.AsyncTask.Name != "Build" {
+		t.Fatalf("task = %+v", spawned.AsyncTask)
+	}
+	if !spawned.AsyncTask.ShowInTranscript || !spawned.AsyncTask.CanStop {
+		t.Fatalf("flags = %+v; the vendor said to show it and that it can be stopped", spawned.AsyncTask)
+	}
+	if spawned.AsyncTask.ToolCallID != "call_9" {
+		t.Fatalf("toolCallId = %q; the task is unlinkable from its tool call without it", spawned.AsyncTask.ToolCallID)
+	}
+
+	progress := agenthub.ParseSessionUpdate([]byte(`{"sessionUpdate":"async_task_progress",
+		"asyncTaskId":"t1","lastToolName":"Bash",
+		"usage":{"totalTokens":1200,"toolUses":3,"durationMs":8400}}`))
+	if progress.Kind != agenthub.UpdateAsyncTaskProgress {
+		t.Fatalf("kind = %q, want async_task_progress", progress.Kind)
+	}
+	if progress.AsyncTask.Usage == nil || progress.AsyncTask.Usage.TotalTokens != 1200 {
+		t.Fatalf("usage = %+v", progress.AsyncTask.Usage)
+	}
+	if progress.AsyncTask.Usage.ToolUses != 3 || progress.AsyncTask.Usage.DurationMs != 8400 {
+		t.Fatalf("usage = %+v", progress.AsyncTask.Usage)
+	}
+	// Progress says nothing about the name; a reader keeps it by id from spawn.
+	if progress.AsyncTask.Name != "" {
+		t.Fatalf("name = %q, want empty on a progress update", progress.AsyncTask.Name)
+	}
+
+	done := agenthub.ParseSessionUpdate([]byte(`{"sessionUpdate":"async_task_state_update",
+		"asyncTaskId":"t1","state":"completed","summary":"ok","outputFilePath":"/tmp/t1.log"}`))
+	if done.Kind != agenthub.UpdateAsyncTaskState {
+		t.Fatalf("kind = %q, want async_task_state_update", done.Kind)
+	}
+	if done.AsyncTask.State != "completed" || done.AsyncTask.Summary != "ok" {
+		t.Fatalf("state = %+v", done.AsyncTask)
+	}
+	if done.AsyncTask.OutputFilePath != "/tmp/t1.log" {
+		t.Fatalf("outputFilePath = %q", done.AsyncTask.OutputFilePath)
+	}
+	// usage_update carries its own numbers at the top level; an async task's
+	// ride in a `usage` object. Neither may claim the other's.
+	if done.Usage != nil {
+		t.Fatalf("Usage = %+v; an async task's spend is not the session's", done.Usage)
+	}
+}
+
 func TestParseSessionUpdateChunkCarriesMessageID(t *testing.T) {
 	raw := json.RawMessage(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"hi"},"messageId":"7d557a03"}`)
 
@@ -187,17 +297,18 @@ func TestParseSessionUpdateChunkCarriesMessageID(t *testing.T) {
 }
 
 func TestParseKeepsTheVendorsOwnKindForUnknowns(t *testing.T) {
-	// claude-agent-acp emits fifteen sessionUpdate kinds; this build models
-	// six. The other nine degraded to "unknown" with the vendor's own name
-	// thrown away, so an unmodelled kind and a malformed notification looked
-	// identical and neither was reported.
-	// async_task_spawned is still unmodelled; subagent_spawned used to be the
-	// example here and stopped being one, which is the point of the report.
-	u := agenthub.ParseSessionUpdate([]byte(`{"sessionUpdate":"async_task_spawned","taskId":"t1"}`))
+	// claude-agent-acp 0.74 emits sixteen sessionUpdate kinds; this build once
+	// modelled six. The other ten degraded to "unknown" with the vendor's own
+	// name thrown away, so an unmodelled kind and a malformed notification
+	// looked identical and neither was reported.
+	// All sixteen are modelled now, so the example has to be a kind no version
+	// has shipped — every real one stopped being an example, which is what the
+	// report is for.
+	u := agenthub.ParseSessionUpdate([]byte(`{"sessionUpdate":"seventeenth_kind","taskId":"t1"}`))
 	if u.Kind != agenthub.UpdateUnknown {
 		t.Fatalf("kind = %q, want unknown", u.Kind)
 	}
-	if u.WireKind != "async_task_spawned" {
+	if u.WireKind != "seventeenth_kind" {
 		t.Fatalf("wireKind = %q, want the vendor's own string", u.WireKind)
 	}
 	if len(u.Raw) == 0 {

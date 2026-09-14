@@ -103,6 +103,10 @@ export type SessionUpdate = {
   mode?: string;
   /** Set on subagent_spawned and subagent_state_update. */
   subagent?: Subagent | null;
+  /** Set on the three async_task_* kinds. */
+  asyncTask?: AsyncTask | null;
+  /** The whole set of session settings, on config_option_update. */
+  configOptions?: ConfigOption[];
   /**
    * The vendor's own name for the session, on session_info_update. Empty on
    * the goal-carrying shape of the same kind — one kind, two payloads.
@@ -126,6 +130,67 @@ export type Subagent = {
   name?: string;
   task?: string;
   state?: string;
+};
+
+/**
+ * AsyncTask is work the vendor runs in the background, past the end of the turn
+ * that started it.
+ *
+ * Like Subagent, no single message is complete: name, taskType, showInTranscript
+ * and canStop come with the spawn, state with the state update, usage and
+ * lastToolName with progress. Keep them together by id.
+ * Mirrors internal/agenthub/update.go: AsyncTask
+ */
+export type AsyncTask = {
+  id: string;
+  name?: string;
+  taskType?: string;
+  description?: string;
+  summary?: string;
+  state?: string;
+  lastToolName?: string;
+  outputFilePath?: string;
+  toolCallId?: string;
+  showInTranscript?: boolean;
+  canStop?: boolean;
+  usage?: AsyncTaskUsage | null;
+};
+
+/**
+ * AsyncTaskUsage is what a background task has spent so far. Not the session's
+ * usage: that one counts context and money, this one counts the task.
+ * Mirrors internal/agenthub/update.go: AsyncTaskUsage
+ */
+export type AsyncTaskUsage = {
+  totalTokens: number;
+  toolUses: number;
+  durationMs: number;
+};
+
+/**
+ * ConfigOption is one per-session setting — model, effort, fast mode.
+ *
+ * currentValue follows type: a value id on a "select", a boolean on a
+ * "boolean". Options arrive flat even when the agent grouped them, each value
+ * keeping the group it came from.
+ * Mirrors internal/agenthub/update.go: ConfigOption
+ */
+export type ConfigOption = {
+  id: string;
+  name?: string;
+  description?: string;
+  category?: string;
+  type?: string;
+  currentValue?: string | boolean;
+  options?: ConfigSelectOption[];
+};
+
+/** Mirrors internal/agenthub/update.go: ConfigSelectOption */
+export type ConfigSelectOption = {
+  value: string;
+  name?: string;
+  description?: string;
+  group?: string;
 };
 
 /**
