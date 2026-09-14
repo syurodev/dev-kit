@@ -106,6 +106,29 @@ export function requestComposerChoice(isBypass: boolean, apply: () => void, ask:
   else apply();
 }
 
+/**
+ * Holds a choice picked in a menu until that menu has closed. Opened straight
+ * from onSelect, the confirmation mounted while the menu was still animating
+ * out: the dialog's own copy of Radix's layer stack saved the menu's
+ * `pointer-events: none` on <body> as the value to restore, so Cancel could
+ * leave the window unclickable, and its focus return aimed at the menu item
+ * that no longer existed instead of the trigger. Released from the menu's
+ * onCloseAutoFocus, the menu's layer is gone and focus is back on its trigger.
+ */
+export function heldChoice() {
+  let held: (() => void) | null = null;
+  return {
+    hold: (apply: () => void) => {
+      held = apply;
+    },
+    release: (open: (apply: () => void) => void) => {
+      const apply = held;
+      held = null;
+      if (apply) open(apply);
+    },
+  };
+}
+
 export function shouldCancelComposerOnEscape(key: string, streaming: boolean, composing = false): boolean {
   return key === "Escape" && streaming && !composing;
 }
@@ -331,7 +354,10 @@ export function AgentComposer({
   // A bypass waiting on the dialog. Not window.confirm: WKWebView (macOS) has
   // no confirm panel, so it answered false and bypass could never be enabled.
   const [pendingBypass, setPendingBypass] = useState<{ apply: () => void } | null>(null);
-  const askBypass = (apply: () => void) => setPendingBypass({ apply });
+  // Picked in a menu, so it waits for that menu to close; see heldChoice.
+  const [heldBypass] = useState(heldChoice);
+  const askBypass = heldBypass.hold;
+  const openHeldBypass = () => heldBypass.release((apply) => setPendingBypass({ apply }));
   const selectableOptions = configOptions.filter(
     (option) => option !== modeOption && option.options && option.options.length > 0,
   );
@@ -536,7 +562,7 @@ export function AgentComposer({
                   <span className="max-w-24 truncate text-body-13">{currentModeLabel}</span>
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent side="top" align="start" className="w-64">
+              <DropdownMenuContent side="top" align="start" className="w-64" onCloseAutoFocus={openHeldBypass}>
                 <DropdownMenuLabel>Permission mode</DropdownMenuLabel>
                 {modeChoices.map((choice) => (
                   <DropdownMenuItem
@@ -567,7 +593,7 @@ export function AgentComposer({
                   </Button>
                 </ActionTooltip>
               </DropdownMenuTrigger>
-              <DropdownMenuContent side="top" align="start" className="w-64">
+              <DropdownMenuContent side="top" align="start" className="w-64" onCloseAutoFocus={openHeldBypass}>
                 <DropdownMenuLabel>Agent settings</DropdownMenuLabel>
                 {selectableOptions.map((option) => (
                   <React.Fragment key={option.id}>

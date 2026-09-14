@@ -7,6 +7,7 @@ import {
   AgentComposer,
   composerModeChoices,
   handleComposerKeyDown,
+  heldChoice,
   isPermissionBypassChoice,
   requestComposerChoice,
   selectComposerMode,
@@ -15,6 +16,37 @@ import {
 
 const renderToString = (node: React.ReactNode) => renderRaw(<TooltipProvider>{node}</TooltipProvider>);
 const base = { value: "", onChange: () => {}, onSend: () => {}, onCancel: () => {} };
+
+describe("confirming a bypass picked in a menu", () => {
+  it("opens the confirmation only once the menu has closed, and only once", () => {
+    const held = heldChoice();
+    const opened: Array<() => void> = [];
+    let applied = 0;
+
+    selectComposerMode({ value: "bypassPermissions" }, () => applied++, held.hold);
+    expect(opened).toHaveLength(0); // still inside onSelect: the menu is only starting to close
+
+    held.release((apply) => opened.push(apply)); // the menu's close finished
+    expect(opened).toHaveLength(1);
+    held.release((apply) => opened.push(apply)); // the next close of that menu
+    expect(opened).toHaveLength(1);
+
+    expect(applied).toBe(0);
+    opened[0]!();
+    expect(applied).toBe(1);
+  });
+
+  it("opens nothing when the menu closes without a bypass", () => {
+    const held = heldChoice();
+    const opened: Array<() => void> = [];
+    let applied = 0;
+
+    selectComposerMode({ value: "plan" }, () => applied++, held.hold);
+    held.release((apply) => opened.push(apply));
+    expect(opened).toHaveLength(0);
+    expect(applied).toBe(1);
+  });
+});
 
 describe("a paused queue", () => {
   const queued = [{ id: "q1", text: "next", images: [], attachments: [] }];
