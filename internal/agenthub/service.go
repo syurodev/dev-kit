@@ -89,9 +89,9 @@ type Service struct {
 	endpoints   map[string]func() // per-session MCP socket close
 	invoking    map[string]struct{}
 	// resuming marks a session whose runtime is being reopened. A second
-	// caller waits on the channel rather than spawning a second process onto
-	// the same MCP socket path.
-	resuming          map[string]chan struct{}
+	// caller waits on it rather than spawning a second process onto the same
+	// MCP socket path, and gets the same outcome.
+	resuming          map[string]*resumeCall
 	mu                sync.Mutex
 	emit              func(sessionID string, update json.RawMessage)
 	ResolvePermission PermissionResolver // nil = fail closed (no auto-approve)
@@ -133,7 +133,7 @@ func NewService(reg *Registry, store Store, emit func(sessionID string, update j
 		runtimes:  make(map[string]SessionRuntime),
 		endpoints: make(map[string]func()),
 		invoking:  make(map[string]struct{}),
-		resuming:  make(map[string]chan struct{}),
+		resuming:  make(map[string]*resumeCall),
 		emit:      emit,
 	}
 	// A cadence flush has no caller to return its error to; route it to the
@@ -1186,6 +1186,13 @@ func (s *Service) liveRuntime(ctx context.Context, id string) SessionRuntime {
 	return nil
 }
 
+// resumeCall is one resume in flight. err is set before done closes, so a
+// caller that waited reads the outcome the resuming caller got.
+type resumeCall struct {
+	done chan struct{}
+	err  error
+}
+
 // resumeRuntime reopens a session whose process is gone, using the vendor's own
 // session id from the store.
 //
@@ -1197,7 +1204,7 @@ func (s *Service) liveRuntime(ctx context.Context, id string) SessionRuntime {
 // A fresh MCP endpoint is opened for the resumed session because the old one
 // died with its process, and the identity-bound socket is what ties the agent's
 // tool calls back to this session in the audit log.
-func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (SessionRuntime, error) {
+func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt SessionRuntime, err error) {
 	if sess.ACPSessionID == "" {
 		return nil, ErrUnavailable
 	}
@@ -1213,12 +1220,18 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (Session
 	// One resume per session at a time. Invoke and the settings calls all
 	// resume, and two at once would open two MCP endpoints on one socket path.
 	s.mu.Lock()
-	if wait, busy := s.resuming[sess.ID]; busy {
+	if call, busy := s.resuming[sess.ID]; busy {
 		s.mu.Unlock()
 		select {
-		case <-wait:
+		case <-call.done:
 		case <-ctx.Done():
 			return nil, ctx.Err()
+		}
+		// The resume's own error, not ErrUnavailable: a settings call that
+		// waited on Invoke's resume must tell the user to sign in or install
+		// the agent just as Invoke does.
+		if call.err != nil {
+			return nil, call.err
 		}
 		s.mu.Lock()
 		rt := s.runtimes[sess.ID]
@@ -1233,14 +1246,15 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (Session
 		s.mu.Unlock()
 		return rt, nil
 	}
-	done := make(chan struct{})
-	s.resuming[sess.ID] = done
+	call := &resumeCall{done: make(chan struct{})}
+	s.resuming[sess.ID] = call
 	s.mu.Unlock()
 	defer func() {
 		s.mu.Lock()
 		delete(s.resuming, sess.ID)
 		s.mu.Unlock()
-		close(done)
+		call.err = err
+		close(call.done)
 	}()
 
 	spec := OpenSpec{Cwd: sess.ProjectPath}
@@ -1256,7 +1270,7 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (Session
 		spec.ReadOnlyPaths = []string{ep.Server.Command}
 	}
 
-	rt, err := loader.Load(ctx, spec, sess.ACPSessionID)
+	rt, err = loader.Load(ctx, spec, sess.ACPSessionID)
 	if err != nil {
 		log.Printf("agenthub: resume %s session %s: %v", sess.AgentType, sess.ID, err)
 		closeEndpoint()
