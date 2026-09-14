@@ -82,7 +82,14 @@ export function AgentTurn({
   const from = reduce ? { opacity: 0 } : FADE_THROUGH.from;
 
   return (
-    <section data-testid="agent-turn" data-live={live || undefined} className="flex w-full flex-col gap-4">
+    <section
+      data-testid="agent-turn"
+      data-turn-id={turn.id}
+      data-live={live || undefined}
+      className="flex w-full flex-col gap-4"
+      // A jump from the transcript's ticks lands the prompt clear of the glass header.
+      style={{ scrollMarginTop: "calc(var(--header-inset, 0px) + var(--space-section))" }}
+    >
       {turn.prompt?.text?.trim() ? (
         <div className="flex w-full justify-end">
           <MessageHoverCard

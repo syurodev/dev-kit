@@ -5,6 +5,7 @@ import { groupTurns } from "../turns";
 import { AgentJumpToLatest } from "./AgentJumpToLatest";
 import { AgentMetaInspector } from "./AgentMetaInspector";
 import { AgentTurn } from "./AgentTurn";
+import { TranscriptTicks, ticksOf } from "./TranscriptTicks";
 
 export type TranscriptStreamProps = {
   items: TranscriptItem[];
@@ -41,8 +42,10 @@ export function TranscriptStream({
   className,
 }: TranscriptStreamProps) {
   const turns = useMemo(() => groupTurns(items), [items]);
+  const ticks = useMemo(() => ticksOf(turns), [turns]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showJump, setShowJump] = useState(false);
+  const [activeTick, setActiveTick] = useState(0);
   // Figma 951:2270 is opened from a message footer, so the transcript owns it:
   // one panel for whichever turn you asked about, not one per message.
   const [inspecting, setInspecting] = useState<TranscriptItem | null>(null);
@@ -56,14 +59,52 @@ export function TranscriptStream({
     const atBottom = distanceToBottom < 80;
     isAtBottomRef.current = atBottom;
     setShowJump(!atBottom);
+    setActiveTick(tickInView(el));
+  }
+
+  function sectionOf(id: string) {
+    return scrollRef.current?.querySelector<HTMLElement>(`[data-turn-id="${CSS.escape(id)}"]`) ?? null;
+  }
+
+  // The prompt you are reading: the last one that has reached the top of the
+  // reading area, just under the glass header — where a jump lands it. Scrolled
+  // all the way down, a short last turn can never climb that high, so there it
+  // is the last one showing above the composer.
+  function tickInView(el: HTMLDivElement): number {
+    const box = el.getBoundingClientRect();
+    const style = getComputedStyle(el);
+    const atEnd = el.scrollHeight - el.scrollTop - el.clientHeight < 2;
+    const line = atEnd
+      ? box.bottom - parseFloat(style.paddingBottom)
+      : box.top + parseFloat(style.paddingTop) + 8;
+    let found = 0;
+    ticks.forEach((tick, index) => {
+      const section = sectionOf(tick.id);
+      if (section && section.getBoundingClientRect().top <= line) found = index;
+    });
+    return found;
+  }
+
+  // Scrolls the transcript alone. scrollIntoView would also scroll every
+  // overflow-hidden ancestor up to the window, shifting the hub's layout.
+  function jumpTo(id: string) {
+    const el = scrollRef.current;
+    const section = sectionOf(id);
+    if (!el || !section) return;
+    const margin = parseFloat(getComputedStyle(section).scrollMarginTop) || 0;
+    const offset = section.getBoundingClientRect().top - el.getBoundingClientRect().top;
+    el.scrollTo({ top: el.scrollTop + offset - margin });
   }
 
   // Auto-scroll on new items if user is already at the bottom
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    if (isAtBottomRef.current) el.scrollTop = el.scrollHeight;
-  }, [items]);
+    if (isAtBottomRef.current) {
+      el.scrollTop = el.scrollHeight;
+      setActiveTick(tickInView(el));
+    }
+  }, [items, ticks.length]);
 
   function scrollToBottom() {
     const el = scrollRef.current;
@@ -117,6 +158,13 @@ export function TranscriptStream({
           })}
         </div>
       </div>
+
+      <TranscriptTicks
+        ticks={ticks}
+        active={activeTick}
+        onJump={jumpTo}
+        className="absolute top-1/2 left-2 z-20 -translate-y-1/2"
+      />
 
       <AgentMetaInspector
         open={Boolean(inspecting)}
