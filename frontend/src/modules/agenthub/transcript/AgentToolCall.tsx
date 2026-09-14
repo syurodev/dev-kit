@@ -2,6 +2,7 @@ import * as React from "react";
 import { BookOpen, Bot, ChevronRight, FileEdit, Globe, Search, Terminal, Wrench } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { AnimatedCollapse } from "@/components/ui/animated-collapse";
 import type { ToolCall } from "../types";
 import { stepLabel } from "../turns";
 import { AgentFileChip } from "./AgentFileChip";
@@ -172,7 +173,24 @@ export function AgentToolCall({
 
   const body = (
     <>
-      {expanded && locations.length > 0 ? (
+      {/* Figma: failed keeps its reason inline. A red dot alone is not actionable. */}
+      {reason ? (
+        <p
+          data-testid="tool-call-reason"
+          className={cn(
+            "w-full max-w-full break-all whitespace-pre-wrap text-text-secondary",
+            variant === "row" ? "pt-2 text-code-12" : "text-caption-11",
+          )}
+        >
+          {reason}
+        </p>
+      ) : null}
+
+      <AnimatedCollapse
+        open={expanded}
+        className={cn("flex w-full min-w-0 flex-col gap-2", variant === "row" && "pt-2")}
+      >
+      {locations.length > 0 ? (
         <div className="flex w-full flex-wrap items-center gap-1">
           {locations.map((loc, idx) => (
             <AgentFileChip key={`${loc.path}-${loc.line ?? idx}`} path={loc.path} line={loc.line} />
@@ -180,21 +198,7 @@ export function AgentToolCall({
         </div>
       ) : null}
 
-      {/* Figma: failed keeps its reason inline. A red dot alone is not actionable. */}
-      {reason ? (
-        <p
-          data-testid="tool-call-reason"
-          className={cn(
-            "w-full max-w-full break-all whitespace-pre-wrap text-text-secondary",
-            variant === "row" ? "text-code-12" : "text-caption-11",
-          )}
-        >
-          {reason}
-        </p>
-      ) : null}
-
-      {expanded &&
-        content.map((item, idx) => {
+      {content.map((item, idx) => {
           if (item.type === "diff") {
             return <AgentToolDiff key={idx} path={item.path} oldText={item.oldText} newText={item.newText} />;
           }
@@ -213,6 +217,7 @@ export function AgentToolCall({
           }
           return null;
         })}
+      </AnimatedCollapse>
     </>
   );
 
@@ -225,7 +230,7 @@ export function AgentToolCall({
         data-variant="row"
         data-status={call.status ?? "completed"}
         data-state={state}
-        className={cn("flex w-full min-w-0 flex-col gap-2", className)}
+        className={cn("flex w-full min-w-0 flex-col", className)}
       >
         {head(
           "flex w-full min-w-0 items-center gap-2 text-left text-body-13",
@@ -253,7 +258,9 @@ export function AgentToolCall({
         )}
         {/* Under the words, not under the icon: 14px icon + 8px gap. A measure
             taken from the row, like the tree's indent, not a spacing step. */}
-        {reason || expanded ? <div className="flex w-full min-w-0 flex-col gap-2 pl-5.5">{body}</div> : null}
+        {/* Mounted whenever there is output, open or not: unmounting it on
+            close would take the output away before it could animate shut. */}
+        {reason || hasBody ? <div className="flex w-full min-w-0 flex-col pl-5.5">{body}</div> : null}
       </div>
     );
   }

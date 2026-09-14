@@ -4,6 +4,7 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { ThinkingOrb } from "thinking-orbs";
 
 import { cn } from "@/lib/utils";
+import { AnimatedCollapse } from "@/components/ui/animated-collapse";
 import { FADE_THROUGH } from "@/lib/motion";
 import type { TranscriptItem, Usage } from "../types";
 import { activityOf, stepSummary, workedFor, workSegments, type Turn } from "../turns";
@@ -99,8 +100,7 @@ export function AgentTurn({ turn, live = false, latest = false, vendor, onInspec
               className={cn("size-3.5 shrink-0 transition-transform duration-(--motion-fast)", open && "rotate-90")}
             />
           </button>
-          {open ? (
-            <div className="flex w-full flex-col gap-3 pt-3">
+          <AnimatedCollapse open={open} className="flex w-full flex-col gap-3 pt-3">
               {workSegments(turn.work).map((segment) => {
                 if (segment.kind === "text") {
                   // What the agent said between steps is prose like its answer:
@@ -112,8 +112,7 @@ export function AgentTurn({ turn, live = false, latest = false, vendor, onInspec
                 }
                 return <StepGroup key={segment.id} items={segment.items} />;
               })}
-            </div>
-          ) : null}
+          </AnimatedCollapse>
         </div>
       ) : null}
 
@@ -168,7 +167,7 @@ export function StepGroup({ items }: { items: TranscriptItem[] }) {
   // same thing twice, and a fold around a single line hides nothing.
   if (items.length === 1) return <StepRow item={items[0]} />;
   return (
-    <div data-testid="step-group" data-state={open ? "expanded" : "collapsed"} className="flex w-full flex-col gap-2">
+    <div data-testid="step-group" data-state={open ? "expanded" : "collapsed"} className="flex w-full flex-col">
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
@@ -181,7 +180,7 @@ export function StepGroup({ items }: { items: TranscriptItem[] }) {
           className={cn("size-3.5 shrink-0 transition-transform duration-(--motion-fast)", open && "rotate-90")}
         />
       </button>
-      {open ? (
+      <AnimatedCollapse open={open} className="pt-2">
         <div
           className={cn("w-full", long && "max-h-60 overflow-y-auto")}
           // The fade covers the last 32px (page step) of the well, and the list
@@ -202,7 +201,7 @@ export function StepGroup({ items }: { items: TranscriptItem[] }) {
             ))}
           </div>
         </div>
-      ) : null}
+      </AnimatedCollapse>
     </div>
   );
 }

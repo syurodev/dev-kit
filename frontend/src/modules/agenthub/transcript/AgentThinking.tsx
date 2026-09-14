@@ -2,6 +2,7 @@ import * as React from "react";
 import { Brain, ChevronDown, ChevronRight } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { AnimatedCollapse } from "@/components/ui/animated-collapse";
 
 export type AgentThinkingProps = {
   text: string;
@@ -51,7 +52,7 @@ export function AgentThinking({
         data-testid="agent-thinking"
         data-variant="row"
         data-state={isExpanded ? "expanded" : "collapsed"}
-        className={cn("flex w-full min-w-0 flex-col gap-2", className)}
+        className={cn("flex w-full min-w-0 flex-col", className)}
       >
         <button
           type="button"
@@ -69,11 +70,11 @@ export function AgentThinking({
             )}
           />
         </button>
-        {isExpanded ? (
+        <AnimatedCollapse open={isExpanded} className="pt-2">
           <p className="w-full pl-5.5 text-body-13 whitespace-pre-wrap break-words text-text-tertiary select-text">
             {text}
           </p>
-        ) : null}
+        </AnimatedCollapse>
       </div>
     );
   }
@@ -83,7 +84,7 @@ export function AgentThinking({
       data-testid="agent-thinking"
       data-state={isExpanded ? "expanded" : "collapsed"}
       className={cn(
-        "flex w-full max-w-full flex-col gap-2 rounded-control bg-(--state-soft) px-3 py-2",
+        "flex w-full max-w-full flex-col rounded-control bg-(--state-soft) px-3 py-2",
         className,
       )}
     >
@@ -101,11 +102,11 @@ export function AgentThinking({
         <span className="min-w-0 flex-1 truncate text-caption-11 text-text-tertiary">{label}</span>
       </button>
 
-      {isExpanded ? (
+      <AnimatedCollapse open={isExpanded} className="pt-2">
         <p className="w-full overflow-x-auto text-caption-11 whitespace-pre-wrap text-text-secondary select-text">
           {text}
         </p>
-      ) : null}
+      </AnimatedCollapse>
     </div>
   );
 }
