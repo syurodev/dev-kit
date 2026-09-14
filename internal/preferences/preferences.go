@@ -36,11 +36,17 @@ const DefaultThemeFamily = ThemeFamilyDevKit
 
 var ErrInvalidThemeFamily = errors.New("unsupported theme family")
 
+// DefaultAgentNotifications is on: the notifications exist so a user who
+// switched away is not left waiting on an agent that is waiting on them.
+const DefaultAgentNotifications = true
+
 type Repository interface {
 	GetTheme() (Theme, bool, error)
 	SetTheme(theme Theme) error
 	GetThemeFamily() (ThemeFamily, bool, error)
 	SetThemeFamily(family ThemeFamily) error
+	GetAgentNotifications() (bool, bool, error)
+	SetAgentNotifications(enabled bool) error
 }
 
 type Service struct {
@@ -106,4 +112,21 @@ func (s *Service) SetThemeFamily(family ThemeFamily) error {
 		return ErrInvalidThemeFamily
 	}
 	return s.repo.SetThemeFamily(family)
+}
+
+// AgentNotifications reports whether Agent Hub raises OS notifications when an
+// agent needs the user or finishes its turn.
+func (s *Service) AgentNotifications() (bool, error) {
+	enabled, found, err := s.repo.GetAgentNotifications()
+	if err != nil {
+		return false, err
+	}
+	if !found {
+		return DefaultAgentNotifications, nil
+	}
+	return enabled, nil
+}
+
+func (s *Service) SetAgentNotifications(enabled bool) error {
+	return s.repo.SetAgentNotifications(enabled)
 }

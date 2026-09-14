@@ -8,6 +8,23 @@ type MemoryRepository struct {
 	hasTheme  bool
 	family    ThemeFamily
 	hasFamily bool
+
+	agentNotifications    bool
+	hasAgentNotifications bool
+}
+
+func (r *MemoryRepository) GetAgentNotifications() (bool, bool, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.agentNotifications, r.hasAgentNotifications, nil
+}
+
+func (r *MemoryRepository) SetAgentNotifications(enabled bool) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.agentNotifications = enabled
+	r.hasAgentNotifications = true
+	return nil
 }
 
 func NewMemoryRepository() *MemoryRepository {

@@ -101,6 +101,9 @@ type Container struct {
 	// AgentHubPermissions completes UI permission prompts for AgentHub.
 	// Nil when AgentHub is unset.
 	AgentHubPermissions *agenthub.PermissionWaiter
+	// AgentNotifications raises Agent Hub's OS notifications. Nil in server
+	// mode and in tests that do not set it.
+	AgentNotifications *agenthub.Notifier
 	// AgentRuntimes installs and resolves the ACP adapters Agent Hub runs.
 	// Nil in ephemeral tests; main roots it at <dataDir>/runtimes.
 	AgentRuntimes *agentruntime.Manager
@@ -264,6 +267,8 @@ func NewContainerWithStores(
 		// optimistically and reverts when the save rejects.
 		{SubjectID: "builtin.settings", Capability: "preferences:read", Scope: "theme_family"},
 		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "theme_family"},
+		{SubjectID: "builtin.settings", Capability: "preferences:read", Scope: "agent_notifications"},
+		{SubjectID: "builtin.settings", Capability: "preferences:write", Scope: "agent_notifications"},
 		{SubjectID: "builtin.uistate", Capability: "ui:read", Scope: "key:*"},
 		{SubjectID: "builtin.uistate", Capability: "ui:write", Scope: "key:*"},
 	}...))

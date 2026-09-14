@@ -5,7 +5,6 @@ import (
 	"embed"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -68,77 +67,6 @@ const transcriptRetentionDays = 90
 
 func main() {
 	var mainWindow application.Window
-	notificationService := notifications.New()
-	var notificationMu sync.Mutex
-	notificationsAuthorized := false
-	notificationsDisabled := false
-	var notificationGate agenthub.NotificationGate
-	requestNotificationAuthorization := func() (allowed bool, err error) {
-		defer func() {
-			if recovered := recover(); recovered != nil {
-				err = fmt.Errorf("notification authorization panic: %v", recovered)
-			}
-		}()
-		return notificationService.RequestNotificationAuthorization()
-	}
-	writeNotification := func(options notifications.NotificationOptions, update bool) (err error) {
-		defer func() {
-			if recovered := recover(); recovered != nil {
-				err = fmt.Errorf("notification delivery panic: %v", recovered)
-			}
-		}()
-		if update {
-			return notificationService.UpdateNotification(options)
-		}
-		return notificationService.SendNotification(options)
-	}
-	notifyAgent := func(sessionID, title, body string) {
-		if application.System.IsServer() {
-			return
-		}
-		notificationMu.Lock()
-		defer notificationMu.Unlock()
-		if mainWindow == nil || mainWindow.IsFocused() || notificationsDisabled {
-			return
-		}
-		if !notificationsAuthorized {
-			allowed, err := requestNotificationAuthorization()
-			if err != nil || !allowed {
-				notificationsDisabled = true
-				if err != nil {
-					log.Printf("agenthub: desktop notifications unavailable: %v", err)
-				}
-				return
-			}
-			notificationsAuthorized = true
-		}
-		options := notifications.NotificationOptions{
-			ID:       "agenthub-" + sessionID,
-			Title:    title,
-			Body:     body,
-			ThreadID: "agenthub-" + sessionID,
-			Data: map[string]interface{}{
-				"sessionId": sessionID,
-			},
-		}
-		update := notificationGate.Next(sessionID)
-		err := writeNotification(options, update)
-		if err != nil {
-			if !update {
-				notificationGate.Reset(sessionID)
-			}
-			log.Printf("agenthub: send desktop notification for session %s: %v", sessionID, err)
-		}
-	}
-	notificationService.OnNotificationResponse(func(result notifications.NotificationResult) {
-		if result.Error != nil {
-			log.Printf("agenthub: desktop notification response: %v", result.Error)
-			return
-		}
-		if sessionID, ok := result.Response.UserInfo["sessionId"].(string); ok && sessionID != "" {
-			emitAppEvent("agenthub:notificationAction", map[string]any{"sessionId": sessionID})
-		}
-	})
 
 	// Before anything can bring up GTK/WebKit: the webview process inherits
 	// this environment, and WebKitGTK reads it once, at startup.
@@ -363,6 +291,31 @@ func main() {
 	runtimes.Verify = claudeAdapter.Probe
 	agentReg.Register(claudeAdapter)
 	container.AgentRuntimes = runtimes
+	// Desktop notifications for Agent Hub. Nil in server mode, where there is no
+	// desktop to notify; Notify and Authorize are no-ops on nil. Nothing here
+	// touches the OS yet — see wailsNotifications and agenthub.Notifier.
+	var agentNotifier *agenthub.Notifier
+	if !application.System.IsServer() {
+		desktopNotifications := wailsNotifications{service: notifications.New()}
+		agentNotifier = &agenthub.Notifier{
+			Desktop: desktopNotifications,
+			Enabled: func() bool {
+				enabled, err := container.Preferences.AgentNotifications()
+				return err == nil && enabled
+			},
+			Focused: func() bool { return mainWindow != nil && mainWindow.IsFocused() },
+		}
+		desktopNotifications.service.OnNotificationResponse(func(result notifications.NotificationResult) {
+			if result.Error != nil {
+				log.Printf("agenthub: desktop notification response: %v", result.Error)
+				return
+			}
+			if sessionID, ok := notificationSessionID(result.Response); ok {
+				emitAppEvent("agenthub:notificationAction", map[string]any{"sessionId": sessionID})
+			}
+		})
+		container.AgentNotifications = agentNotifier
+	}
 	agentWaiter := agenthub.NewPermissionWaiter(func(p agenthub.PendingPermission) {
 		payload := map[string]any{
 			"id":        p.ID,
@@ -387,8 +340,13 @@ func main() {
 			}
 		}
 		emitAppEvent("agenthub:permission", payload)
-		notifyAgent(p.SessionID, "Permission needed", "The agent is waiting for your approval.")
+		// Queues and returns: the waiter starts waiting for the answer only
+		// after this callback, so nothing here may wait on the OS.
+		agentNotifier.Notify(p.SessionID, "Permission needed", "The agent is waiting for your approval.")
 	})
+	if agentNotifier != nil {
+		agentNotifier.Busy = func() bool { return agentWaiter.Pending() != nil }
+	}
 	agentStore := agenthub.NewSQLStore(db)
 
 	// Nothing had ever deleted from agent_transcript: it is append-plus-upsert,
@@ -444,7 +402,8 @@ func main() {
 			"outcome":   outcome,
 		})
 		if outcome == "completed" {
-			notifyAgent(sessionID, "Answer ready", "The agent finished its turn.")
+			// Runs in Invoke's deferred turn end; queues and returns.
+			agentNotifier.Notify(sessionID, "Answer ready", "The agent finished its turn.")
 		}
 	}
 	agentSvc.OnRecordError = func(sessionID string, err error) {
@@ -585,14 +544,12 @@ func main() {
 	agentSvc.MCPEndpoints = sessionHost
 	auditSQL.PruneLoop(mcpCtx, time.Hour)
 
-	services := []application.Service{application.NewService(appService)}
-	if !application.System.IsServer() {
-		services = append(services, application.NewService(notificationService))
-	}
 	wailsApp := application.New(application.Options{
 		Name:        "DevKit",
 		Description: "Local-first developer toolkit",
-		Services:    services,
+		// The notification service is not a Service here on purpose: see
+		// wailsNotifications for why a failing one must not fail app.Run.
+		Services: []application.Service{application.NewService(appService)},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
 		},
@@ -796,6 +753,17 @@ func main() {
 	}
 	mainWindow = wailsApp.Window.NewWithOptions(windowOptions)
 	trackWindowFrame(mainWindow, container.UIState)
+
+	// Permission to notify is asked for when the user is here — the window
+	// gaining focus (the first time, normally at launch) or the setting being
+	// turned on — never when an agent first needs it. Authorize is a no-op once
+	// granted, while turned off, or while a permission waits.
+	if agentNotifier != nil {
+		mainWindow.OnWindowEvent(events.Common.WindowFocus, func(*application.WindowEvent) {
+			// Off AppKit's main thread: Authorize reads the setting from SQLite.
+			go agentNotifier.Authorize()
+		})
+	}
 
 	// WKWebView currently caps requestAnimationFrame near 60Hz even on a
 	// ProMotion display. Opt into its native refresh rate through a private

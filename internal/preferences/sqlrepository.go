@@ -3,12 +3,40 @@ package preferences
 import (
 	"context"
 	"database/sql"
+	"strconv"
 )
 
 const (
-	themeKey       = "theme"
-	themeFamilyKey = "theme_family"
+	themeKey              = "theme"
+	themeFamilyKey        = "theme_family"
+	agentNotificationsKey = "agent_notifications"
 )
+
+// GetAgentNotifications treats a value it cannot read as unset, so the default
+// applies rather than the setting becoming unreadable.
+func (r *SQLRepository) GetAgentNotifications() (bool, bool, error) {
+	var value string
+	err := r.db.QueryRowContext(context.Background(),
+		"SELECT value FROM app_preferences WHERE key = ?", agentNotificationsKey).Scan(&value)
+	if err == sql.ErrNoRows {
+		return false, false, nil
+	}
+	if err != nil {
+		return false, false, err
+	}
+	enabled, parseErr := strconv.ParseBool(value)
+	if parseErr != nil {
+		return false, false, nil
+	}
+	return enabled, true, nil
+}
+
+func (r *SQLRepository) SetAgentNotifications(enabled bool) error {
+	_, err := r.db.ExecContext(context.Background(),
+		`INSERT INTO app_preferences (key, value) VALUES (?, ?)
+		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`, agentNotificationsKey, strconv.FormatBool(enabled))
+	return err
+}
 
 type SQLRepository struct {
 	db *sql.DB
