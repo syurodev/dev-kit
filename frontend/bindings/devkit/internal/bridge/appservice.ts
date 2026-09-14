@@ -136,6 +136,13 @@ export function AgentHubPendingPermissions(): $CancellablePromise<agenthub$0.Pen
 }
 
 /**
+ * AgentHubRenameSession changes the title shown for a session.
+ */
+export function AgentHubRenameSession(id: string, title: string): $CancellablePromise<void> {
+    return $Call.ByID(1966262356, id, title);
+}
+
+/**
  * AgentHubResolvePermission completes a pending ACP permission prompt from the UI.
  */
 export function AgentHubResolvePermission(id: string, outcome: json$0.RawMessage): $CancellablePromise<void> {

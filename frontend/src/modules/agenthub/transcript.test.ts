@@ -14,6 +14,17 @@ import {
 } from "./transcript";
 
 describe("Agent Hub Transcript Reducer & Coalescing", () => {
+  it("updates one live plan in place", () => {
+    let model = createInitialTranscriptModel();
+    model = applySessionUpdate(model, { kind: "user_message_chunk", content: { type: "text", text: "work" } });
+    model = applySessionUpdate(model, { kind: "plan", plan: [{ content: "One", status: "in_progress" }] });
+    const planId = model.items[1].id;
+    model = applySessionUpdate(model, { kind: "plan", plan: [{ content: "One", status: "completed" }, { content: "Two" }] });
+    expect(model.items).toHaveLength(2);
+    expect(model.items[1].id).toBe(planId);
+    expect(model.items[1].plan?.[1].content).toBe("Two");
+  });
+
   it("coalesces consecutive chunks of the same kind", () => {
     let model: TranscriptModel = createInitialTranscriptModel();
 

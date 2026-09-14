@@ -13,6 +13,7 @@ import { useAgentSessionsStore } from "../stores/agentSessions";
 import { startAgentTranscriptStream } from "../modules/agenthub/transcript";
 import { moduleTabs, useWorkbenchTabsStore, type TabStatus } from "../stores/workbenchTabs";
 import { UpdateKind } from "../../bindings/devkit/internal/agenthub/models";
+import { drainQueuedPrompt } from "./agentPromptQueue";
 
 /**
  * Keeps the shared Agent Hub session store in sync regardless of which
@@ -33,7 +34,7 @@ export function AgentSessionsSubscriber() {
     agentHubListAgents()
       .then((sessions) => {
         if (mounted) {
-          setSessions(sessions.filter((s) => s.status !== "closed"));
+          setSessions(sessions);
         }
       })
       .catch(() => {
@@ -138,6 +139,7 @@ export function AgentSessionsSubscriber() {
         (state.chatOpen && state.activeSessionId === sessionId);
       if (visible) markCompletedRead(sessionId);
       else markCompletedUnread(sessionId);
+      if (nextStatus === "idle") void drainQueuedPrompt(sessionId);
     });
   }, [markCompletedRead, markCompletedUnread]);
 

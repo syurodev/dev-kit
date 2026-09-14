@@ -18,6 +18,7 @@ var (
 	ErrNotDescendant           = errors.New("agenthub.notDescendant")
 	ErrCwdOutsideParent        = errors.New("agenthub.cwdOutsideParent")
 	ErrInvalidCwd              = errors.New("agenthub.invalidCwd")
+	ErrInvalidSessionTitle     = errors.New("agenthub.invalidSessionTitle")
 	ErrCallerMismatch          = errors.New("agenthub.callerMismatch")
 	ErrProxyNotFound           = errors.New("agenthub.proxyNotFound")
 	// ErrAgentAuthRequired is an agent with no working sign-in: an expired or

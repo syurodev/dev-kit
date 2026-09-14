@@ -211,7 +211,9 @@ export function workSegments(work: TranscriptItem[]): WorkSegment[] {
       continue;
     }
     if (kind === "plan") {
-      out.push({ kind: "plan", item });
+      const existing = out.find((segment) => segment.kind === "plan");
+      if (existing?.kind === "plan") existing.item = item;
+      else out.push({ kind: "plan", item });
       continue;
     }
     const last = out[out.length - 1];

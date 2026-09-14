@@ -43,8 +43,17 @@ type InvokeInput struct {
 	// elsewhere on the machine is the case a path cannot serve. See
 	// attachment.go for the check that keeps that from becoming a way around
 	// the sandbox.
-	Attachments     []string
+	Attachments []string
+	// Images are transient pasted/drop images. Data is base64 and is never
+	// persisted in the session transcript or credential store.
+	Images          []ImageAttachment
 	CallerSessionID string // optional; used for CheckCycle on cross-session invoke
+}
+
+type ImageAttachment struct {
+	Name     string `json:"name"`
+	MimeType string `json:"mimeType"`
+	Data     string `json:"data"`
 }
 
 // InvokeResult is the MCP/UI-facing outcome of a blocking Invoke.
@@ -545,6 +554,25 @@ func (s *Service) CloseSession(ctx context.Context, id string) error {
 	return nil
 }
 
+// RenameSession changes the human-authored title without touching the vendor
+// runtime or its transcript.
+func (s *Service) RenameSession(ctx context.Context, id, title string) error {
+	if err := s.authorizeTarget(ctx, id); err != nil {
+		return err
+	}
+	title = strings.TrimSpace(title)
+	if title == "" || len([]rune(title)) > 120 {
+		return fmt.Errorf("%w: title must be between 1 and 120 characters", ErrInvalidSessionTitle)
+	}
+	sess, err := s.store.GetSession(ctx, id)
+	if err != nil {
+		return err
+	}
+	sess.Title = &title
+	sess.UpdatedAt = time.Now().UTC()
+	return s.store.UpdateSession(ctx, sess)
+}
+
 // DeleteSession permanently removes a session, its turns and its transcript,
 // along with every descendant session.
 //
@@ -791,7 +819,7 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 	}
 
 	invoker, _ := identity.FromContext(ctx)
-	prompt, err := buildPrompt(in.Prompt, in.Attachments, sess.ProjectPath, callerIsAgent(invoker))
+	prompt, err := buildPromptWithImages(in.Prompt, in.Attachments, in.Images, sess.ProjectPath, callerIsAgent(invoker))
 	if err != nil {
 		_ = s.setSessionStatus(recordCtx, in.SessionID, SessionStatusIdle)
 		return InvokeResult{Status: "error"}, err

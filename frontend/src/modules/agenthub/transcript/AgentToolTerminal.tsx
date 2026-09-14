@@ -6,7 +6,6 @@ export type AgentToolTerminalProps = {
   /** The command that ran. Figma puts it in the head — it is the identity. */
   command?: string | null;
   terminalId?: string | null;
-  output?: string | null;
   status?: "running" | "exited" | "failed";
   exitCode?: number | null;
   className?: string;
@@ -26,7 +25,6 @@ export type AgentToolTerminalProps = {
 export function AgentToolTerminal({
   command,
   terminalId,
-  output,
   status = "exited",
   exitCode,
   className,
@@ -67,7 +65,7 @@ export function AgentToolTerminal({
       </div>
 
       <pre className="w-full overflow-x-auto rounded-sm bg-surface-base p-2 text-code-11 whitespace-pre text-text-secondary select-text">
-        <code>{output || "(no output)"}</code>
+        <code>(terminal output is available in the terminal)</code>
       </pre>
     </div>
   );

@@ -317,6 +317,21 @@ func (s *AppService) AgentHubCloseSession(ctx context.Context, id string) error 
 	return err
 }
 
+// AgentHubRenameSession changes the title shown for a session.
+func (s *AppService) AgentHubRenameSession(ctx context.Context, id, title string) error {
+	opaqueID := hubSessionID(id)
+	_, err := s.call(ctx, "builtin.agenthub", "agenthub:execute", "session:"+opaqueID, map[string]any{
+		"action": "rename_session", "session_id": opaqueID,
+	}, func(callCtx context.Context) (any, error) {
+		svc, err := s.agentHubService()
+		if err != nil {
+			return nil, err
+		}
+		return nil, svc.RenameSession(callCtx, id, title)
+	})
+	return err
+}
+
 // AgentHubDeleteSession permanently removes a session, its transcript and
 // every descendant. Closing comes first inside the service, so this also ends
 // whatever was still running.

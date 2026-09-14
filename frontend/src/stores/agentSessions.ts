@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { AgentSession, PendingPermission } from "../bridge/agenthub";
+import type { AgentImageAttachment, AgentSession, PendingPermission } from "../bridge/agenthub";
 import type {
   Subagent,
   TranscriptModel,
@@ -17,6 +17,13 @@ export const EMPTY_TRANSCRIPT_MODEL: TranscriptModel = {
 };
 
 export type AgentHubCommand = "create" | "cancel" | "focus";
+
+export type QueuedAgentPrompt = {
+  id: string;
+  text: string;
+  attachments: string[];
+  images: AgentImageAttachment[];
+};
 
 /**
  * The subagent end states that mean "stopped", not "finished".
@@ -65,6 +72,8 @@ type AgentSessionsState = {
   chatOpen: boolean;
   pendingAgentHubCommand: AgentHubCommand | null;
   unreadCompletedBySession: Record<string, boolean>;
+  queuedPromptsBySession: Record<string, QueuedAgentPrompt[]>;
+  queuedPromptInFlightBySession: Record<string, string | undefined>;
   setSessions: (sessions: AgentSession[]) => void;
   upsertSession: (session: AgentSession) => void;
   removeSession: (id: string) => void;
@@ -90,6 +99,11 @@ type AgentSessionsState = {
   consumeAgentHubCommand: (command: AgentHubCommand) => void;
   markCompletedUnread: (sessionId: string) => void;
   markCompletedRead: (sessionId: string) => void;
+  enqueuePrompt: (sessionId: string, prompt: QueuedAgentPrompt) => void;
+  removeQueuedPrompt: (sessionId: string, promptId: string) => void;
+  updateQueuedPrompt: (sessionId: string, prompt: QueuedAgentPrompt) => void;
+  claimQueuedPrompt: (sessionId: string) => QueuedAgentPrompt | null;
+  releaseQueuedPrompt: (sessionId: string, promptId: string) => void;
 };
 
 export const useAgentSessionsStore = create<AgentSessionsState>((set) => ({
@@ -107,6 +121,8 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set) => ({
   chatOpen: false,
   pendingAgentHubCommand: null,
   unreadCompletedBySession: {},
+  queuedPromptsBySession: {},
+  queuedPromptInFlightBySession: {},
   setSessions: (sessions) =>
     set({
       sessionsById: Object.fromEntries(sessions.map((session) => [session.id, session])),
@@ -134,6 +150,8 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set) => ({
       const { [id]: _paging, ...transcriptPagingById } = state.transcriptPagingById;
       const { [id]: _prompt, ...promptBySession } = state.promptBySession;
       const { [id]: _unread, ...unreadCompletedBySession } = state.unreadCompletedBySession;
+      const { [id]: _queued, ...queuedPromptsBySession } = state.queuedPromptsBySession;
+      const { [id]: _inFlight, ...queuedPromptInFlightBySession } = state.queuedPromptInFlightBySession;
       return {
         sessionIds: state.sessionIds.filter((sessionId) => sessionId !== id),
         sessionsById,
@@ -143,6 +161,8 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set) => ({
         transcriptPagingById,
         promptBySession,
         unreadCompletedBySession,
+        queuedPromptsBySession,
+        queuedPromptInFlightBySession,
         subagents,
       };
     }),
@@ -208,6 +228,59 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set) => ({
       const { [sessionId]: _read, ...unreadCompletedBySession } = state.unreadCompletedBySession;
       return { unreadCompletedBySession };
     }),
+  enqueuePrompt: (sessionId, prompt) =>
+    set((state) => ({
+      queuedPromptsBySession: {
+        ...state.queuedPromptsBySession,
+        [sessionId]: [...(state.queuedPromptsBySession[sessionId] ?? []), prompt],
+      },
+    })),
+  removeQueuedPrompt: (sessionId, promptId) =>
+    set((state) => ({
+      queuedPromptsBySession: {
+        ...state.queuedPromptsBySession,
+        [sessionId]: (state.queuedPromptsBySession[sessionId] ?? []).filter((prompt) => prompt.id !== promptId),
+      },
+      queuedPromptInFlightBySession: {
+        ...state.queuedPromptInFlightBySession,
+        [sessionId]: undefined,
+      },
+    })),
+  updateQueuedPrompt: (sessionId, prompt) =>
+    set((state) => ({
+      queuedPromptsBySession: {
+        ...state.queuedPromptsBySession,
+        [sessionId]: (state.queuedPromptsBySession[sessionId] ?? []).map((current) =>
+          current.id === prompt.id ? prompt : current,
+        ),
+      },
+    })),
+  claimQueuedPrompt: (sessionId) => {
+    let claimed: QueuedAgentPrompt | null = null;
+    set((state) => {
+      if (state.queuedPromptInFlightBySession[sessionId]) return state;
+      claimed = state.queuedPromptsBySession[sessionId]?.[0] ?? null;
+      if (!claimed) return state;
+      return {
+        queuedPromptInFlightBySession: {
+          ...state.queuedPromptInFlightBySession,
+          [sessionId]: claimed.id,
+        },
+      };
+    });
+    return claimed;
+  },
+  releaseQueuedPrompt: (sessionId, promptId) =>
+    set((state) =>
+      state.queuedPromptInFlightBySession[sessionId] === promptId
+        ? {
+            queuedPromptInFlightBySession: {
+              ...state.queuedPromptInFlightBySession,
+              [sessionId]: undefined,
+            },
+          }
+        : state,
+    ),
 }));
 
 export function useAgentSessionList(): AgentSession[] {

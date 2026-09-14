@@ -24,6 +24,8 @@ import { AgentFileChip } from "../transcript/AgentFileChip";
 import { AgentMenu, type ContextFileItem } from "./AgentMenu";
 import { AgentContextMeter } from "./AgentContextMeter";
 import type { AvailableCommand, ConfigOption, Usage } from "../types";
+import type { QueuedAgentPrompt } from "@/stores/agentSessions";
+import type { AgentImageAttachment } from "@/bridge/agenthub";
 
 export type ComposerSize = "wide" | "rail";
 export type ComposerState = "idle" | "streaming" | "attached";
@@ -46,6 +48,14 @@ export type AgentComposerProps = {
   version?: string;
   attachedFiles?: string[];
   onRemoveAttachment?: (path: string) => void;
+  imageAttachments?: AgentImageAttachment[];
+  onRemoveImage?: (id: string) => void;
+  onPasteImage?: (file: File) => void;
+  onDropImage?: (file: File) => void;
+  imageError?: string;
+  queuedPrompts?: QueuedAgentPrompt[];
+  onCancelQueued?: (id: string) => void;
+  onEditQueued?: (prompt: QueuedAgentPrompt) => void;
   onSelectCommand?: (name: string) => void;
   onSelectContext?: (path: string) => void;
   onBrowseContext?: () => void;
@@ -126,6 +136,14 @@ export function AgentComposer({
   vendor = "claude",
   attachedFiles = [],
   onRemoveAttachment,
+  imageAttachments = [],
+  onRemoveImage,
+  onPasteImage,
+  onDropImage,
+  imageError,
+  queuedPrompts = [],
+  onCancelQueued,
+  onEditQueued,
   onSelectCommand,
   onSelectContext,
   onBrowseContext,
@@ -184,7 +202,7 @@ export function AgentComposer({
   }, []);
   const isStreaming = streaming || state === "streaming";
   const effectiveState: ComposerState =
-    state ?? (isStreaming ? "streaming" : attachedFiles.length > 0 ? "attached" : "idle");
+    state ?? (isStreaming ? "streaming" : attachedFiles.length > 0 || imageAttachments.length > 0 ? "attached" : "idle");
   const modeOption = configOptions.find((option) => {
     const id = option.id.toLowerCase();
     return id.includes("permission") || id === "mode" || id.endsWith("_mode");
@@ -223,7 +241,7 @@ export function AgentComposer({
           className,
         )}
       >
-        {attachedFiles.length > 0 ? (
+        {attachedFiles.length > 0 || imageAttachments.length > 0 ? (
           <div data-testid="composer-attachments" className="flex w-full flex-wrap items-center gap-1 px-1">
             {attachedFiles.map((path) => (
               <AgentFileChip
@@ -232,8 +250,32 @@ export function AgentComposer({
                 onClick={onRemoveAttachment ? () => onRemoveAttachment(path) : undefined}
               />
             ))}
+            {imageAttachments.map((image) => (
+              <div key={image.id} className="flex items-center gap-1 rounded-sm bg-surface-raised px-1 py-1">
+                <img src={image.previewUrl} alt={image.name} className="size-8 rounded-sm object-cover" />
+                <span className="max-w-32 truncate text-caption-11 text-text-secondary">{image.name}</span>
+                {onRemoveImage ? (
+                  <Button type="button" variant="ghost" size="icon-xs" aria-label={`Remove ${image.name}`} onClick={() => onRemoveImage(image.id)}>
+                    <span aria-hidden="true">×</span>
+                  </Button>
+                ) : null}
+              </div>
+            ))}
           </div>
         ) : null}
+        {queuedPrompts.length > 0 ? (
+          <div data-testid="composer-queued-prompts" className="flex w-full flex-wrap items-center gap-1 px-1">
+            {queuedPrompts.map((queued) => (
+              <div key={queued.id} className="flex max-w-full items-center gap-1 rounded-sm bg-(--state-soft) px-2 py-1 text-caption-11 text-text-secondary">
+                <span className="shrink-0">Queued</span>
+                <span className="min-w-0 truncate">{queued.text || `${queued.images.length} image${queued.images.length === 1 ? "" : "s"}`}</span>
+                {onEditQueued ? <Button type="button" variant="ghost" size="icon-xs" aria-label="Edit queued prompt" onClick={() => onEditQueued(queued)}>✎</Button> : null}
+                {onCancelQueued ? <Button type="button" variant="ghost" size="icon-xs" aria-label="Cancel queued prompt" onClick={() => onCancelQueued(queued.id)}>×</Button> : null}
+              </div>
+            ))}
+          </div>
+        ) : null}
+        {imageError ? <p data-testid="composer-image-error" className="px-1 text-caption-11 text-status-danger">{imageError}</p> : null}
 
         {/* A bare textarea, not the shared Textarea: that one brings a border,
             a fill, a focus ring and its own radius, all of which this field
@@ -248,6 +290,20 @@ export function AgentComposer({
           aria-label="Agent prompt input"
           data-testid="agent-composer-textarea"
           onChange={(e) => onChange(e.target.value)}
+          onPaste={(e) => {
+            const image = Array.from(e.clipboardData.files).find((file) => file.type.startsWith("image/"));
+            if (image && onPasteImage) {
+              e.preventDefault();
+              onPasteImage(image);
+            }
+          }}
+          onDrop={(e) => {
+            const image = Array.from(e.dataTransfer.files).find((file) => file.type.startsWith("image/"));
+            if (image && onDropImage) {
+              e.preventDefault();
+              onDropImage(image);
+            }
+          }}
           onKeyDown={(e) => {
             if (shouldCancelComposerOnEscape(e.key, isStreaming)) {
               e.preventDefault();
@@ -256,7 +312,7 @@ export function AgentComposer({
             }
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
-              if (!isStreaming) onSend();
+              onSend();
             }
           }}
           className={cn(

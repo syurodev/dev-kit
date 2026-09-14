@@ -71,6 +71,22 @@ func TestImageAttachmentUsesTheImageBlock(t *testing.T) {
 	}
 }
 
+func TestPastedImageUsesTheImageBlockAndLimitsInput(t *testing.T) {
+	data := base64.StdEncoding.EncodeToString([]byte("png bytes"))
+	blocks, err := buildPromptWithImages("see this", nil, []ImageAttachment{{
+		Name: "paste.png", MimeType: "image/png", Data: data,
+	}}, t.TempDir(), false)
+	if err != nil {
+		t.Fatalf("buildPromptWithImages: %v", err)
+	}
+	if len(blocks) != 2 || blocks[1].Type != "image" || blocks[1].Data != data {
+		t.Fatalf("blocks = %+v, want text and pasted image", blocks)
+	}
+	if _, err := buildPromptWithImages("x", nil, []ImageAttachment{{Name: "paste.bmp", MimeType: "image/bmp", Data: data}}, t.TempDir(), false); err == nil {
+		t.Fatal("unsupported pasted image type was accepted")
+	}
+}
+
 func TestAgentCannotAttachOutsideItsProject(t *testing.T) {
 	// This is the one that matters. Invoke is also how one agent prompts
 	// another, and there the paths come from a model. DevKit reads attachments

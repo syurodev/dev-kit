@@ -12,6 +12,7 @@ export type {
     AuthMethod,
     ContextFile,
     CreateInput,
+    ImageAttachment,
     InvokeInput,
     InvokeResult,
     PendingPermission,

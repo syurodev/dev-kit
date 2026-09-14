@@ -6,6 +6,8 @@ import {
 } from "@/components/ui/empty";
 import { cn } from "@/lib/utils";
 import type { AgentSession, PendingPermission } from "@/bridge/agenthub";
+import type { AgentImageAttachment } from "@/bridge/agenthub";
+import type { QueuedAgentPrompt } from "@/stores/agentSessions";
 import type { AvailableCommand, ConfigOption, TranscriptItem, Usage } from "../types";
 import type { ContextFileItem } from "./AgentMenu";
 import { TranscriptStream } from "./TranscriptStream";
@@ -31,6 +33,14 @@ export type AgentRailProps = {
   onBrowseContext?: () => void;
   attachedFiles?: string[];
   onRemoveAttachment?: (path: string) => void;
+  imageAttachments?: AgentImageAttachment[];
+  onRemoveImage?: (id: string) => void;
+  onPasteImage?: (file: File) => void;
+  onDropImage?: (file: File) => void;
+  imageError?: string;
+  queuedPrompts?: QueuedAgentPrompt[];
+  onCancelQueued?: (id: string) => void;
+  onEditQueued?: (prompt: QueuedAgentPrompt) => void;
   configOptions?: ConfigOption[];
   mode?: string | null;
   onSetMode?: (mode: string) => void;
@@ -45,7 +55,6 @@ export type AgentRailProps = {
   onResolvePermission?: (optionId: string | null) => void | Promise<void>;
   permissionBusy?: boolean;
   errorMessage?: string;
-  onOpenAgentHub?: () => void;
   className?: string;
 };
 
@@ -92,6 +101,14 @@ export function AgentRail({
   onBrowseContext,
   attachedFiles = [],
   onRemoveAttachment,
+  imageAttachments = [],
+  onRemoveImage,
+  onPasteImage,
+  onDropImage,
+  imageError,
+  queuedPrompts = [],
+  onCancelQueued,
+  onEditQueued,
   configOptions = [],
   mode = null,
   onSetMode,
@@ -106,7 +123,6 @@ export function AgentRail({
   onResolvePermission,
   permissionBusy = false,
   errorMessage,
-  onOpenAgentHub,
   className,
 }: AgentRailProps) {
   const effectiveState: AgentRailState = explicitState
@@ -238,6 +254,14 @@ export function AgentRail({
               onBrowseContext={onBrowseContext}
               attachedFiles={attachedFiles}
               onRemoveAttachment={onRemoveAttachment}
+              imageAttachments={imageAttachments}
+              onRemoveImage={onRemoveImage}
+              onPasteImage={onPasteImage}
+              onDropImage={onDropImage}
+              imageError={imageError}
+              queuedPrompts={queuedPrompts}
+              onCancelQueued={onCancelQueued}
+              onEditQueued={onEditQueued}
               configOptions={configOptions}
               mode={mode}
               onSetMode={onSetMode}

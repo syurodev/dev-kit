@@ -60,7 +60,17 @@ export type InvokeSessionInput = {
   prompt: string;
   /** Absolute paths DevKit reads and sends with the prompt. */
   attachments?: string[];
+  images?: AgentImageAttachment[];
   callerSessionId?: string;
+};
+
+export type AgentImageAttachment = {
+  id: string;
+  name: string;
+  mimeType: string;
+  data: string;
+  previewUrl: string;
+  size: number;
 };
 
 export type AgentContextFile = {
@@ -221,6 +231,7 @@ export function agentHubInvoke(
       SessionID: input.sessionId,
       Prompt: input.prompt,
       Attachments: input.attachments ?? [],
+      Images: (input.images ?? []).map(({ name, mimeType, data }) => ({ name, mimeType, data })),
       CallerSessionID: input.callerSessionId ?? "",
     });
     return toInvokeResult(result);
@@ -259,6 +270,10 @@ export function agentHubCloseSession(sessionId: string): Promise<void> {
   return callBridge(
     () => AppService.AgentHubCloseSession(sessionId) as Promise<void>,
   );
+}
+
+export function agentHubRenameSession(sessionId: string, title: string): Promise<void> {
+  return callBridge(() => AppService.AgentHubRenameSession(sessionId, title) as Promise<void>);
 }
 
 /**

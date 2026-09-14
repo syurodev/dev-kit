@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Copy, Ellipsis, FolderOpen, Square } from "lucide-react";
+import { Copy, Ellipsis, FolderOpen, Pencil, Square } from "lucide-react";
 import { UpdateKind } from "../../../../bindings/devkit/internal/agenthub/models";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,8 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import type { AgentSession } from "@/bridge/agenthub";
+import type { AgentImageAttachment } from "@/bridge/agenthub";
+import type { QueuedAgentPrompt } from "@/stores/agentSessions";
 import type { AvailableCommand, ConfigOption, TranscriptItem, Usage } from "../types";
 import type { ContextFileItem } from "./AgentMenu";
 import { TranscriptStream } from "./TranscriptStream";
@@ -26,6 +28,8 @@ import { AgentComposer } from "./AgentComposer";
 import { AgentSessionError, type SessionErrorCause } from "./AgentSessionError";
 import { AgentState, type AgentStatus } from "./AgentState";
 import { VendorIcon } from "./VendorIcon";
+import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 export type AgentHubContentState = "Conversation" | "Empty" | "Error";
 
@@ -58,6 +62,7 @@ export type AgentHubContentProps = {
   errorMessage?: string;
   onRetrySession?: () => void;
   onCloseSession?: () => void;
+  onRenameSession?: (title: string) => void | Promise<void>;
   onNewSession?: () => void;
   /** Opens Settings → Agents, for errors whose fix is an install. */
   onOpenSettings?: () => void;
@@ -67,6 +72,14 @@ export type AgentHubContentProps = {
   attachments?: string[];
   onBrowseContext?: () => void;
   onRemoveAttachment?: (path: string) => void;
+  imageAttachments?: AgentImageAttachment[];
+  onRemoveImage?: (id: string) => void;
+  onPasteImage?: (file: File) => void;
+  onDropImage?: (file: File) => void;
+  imageError?: string;
+  queuedPrompts?: QueuedAgentPrompt[];
+  onCancelQueued?: (id: string) => void;
+  onEditQueued?: (prompt: QueuedAgentPrompt) => void;
   onOpenFile?: (path: string, line?: number) => void;
   /** Copies a string for the header's session menu — the path, the id. */
   onCopy?: (text: string) => void;
@@ -164,12 +177,21 @@ export function AgentHubContent({
   errorMessage,
   onRetrySession,
   onCloseSession,
+  onRenameSession,
   onNewSession,
   onOpenSettings,
   errorDetail,
   attachments = [],
   onBrowseContext,
   onRemoveAttachment,
+  imageAttachments = [],
+  onRemoveImage,
+  onPasteImage,
+  onDropImage,
+  imageError,
+  queuedPrompts = [],
+  onCancelQueued,
+  onEditQueued,
   onOpenFile,
   onCopy,
   onCompact,
@@ -181,6 +203,8 @@ export function AgentHubContent({
   sendDisabled = false,
   className,
 }: AgentHubContentProps) {
+  const [renameOpen, setRenameOpen] = React.useState(false);
+  const [renameValue, setRenameValue] = React.useState("");
   const effectiveState: AgentHubContentState = explicitState
     ? explicitState
     : draft
@@ -316,7 +340,7 @@ export function AgentHubContent({
             ) : null}
           </div>
           <AgentState status={toAgentStatus(session.status)} />
-          {onCopy || onCloseSession ? (
+          {onCopy || onCloseSession || onRenameSession ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -340,6 +364,14 @@ export function AgentHubContent({
                       Copy session ID
                     </DropdownMenuItem>
                   </>
+                ) : null}
+                {onRenameSession ? (
+                  <DropdownMenuItem icon={<Pencil />} data-testid="content-rename-session" onSelect={() => {
+                    setRenameValue(displayTitle);
+                    setRenameOpen(true);
+                  }}>
+                    Rename session
+                  </DropdownMenuItem>
                 ) : null}
                 {onCloseSession ? (
                   <>
@@ -523,12 +555,37 @@ export function AgentHubContent({
               attachedFiles={attachments}
               onBrowseContext={onBrowseContext}
               onRemoveAttachment={onRemoveAttachment}
+              imageAttachments={imageAttachments}
+              onRemoveImage={onRemoveImage}
+              onPasteImage={onPasteImage}
+              onDropImage={onDropImage}
+              imageError={imageError}
+              queuedPrompts={queuedPrompts}
+              onCancelQueued={onCancelQueued}
+              onEditQueued={onEditQueued}
               className="min-w-0 flex-1"
             />
           </div>
           </div>
         </div>
       )}
+      <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader><DialogTitle>Rename session</DialogTitle></DialogHeader>
+          <form onSubmit={(event) => {
+            event.preventDefault();
+            const title = renameValue.trim();
+            if (!title || !onRenameSession) return;
+            void Promise.resolve(onRenameSession(title)).then(() => setRenameOpen(false));
+          }}>
+            <Input value={renameValue} onChange={(event) => setRenameValue(event.target.value)} maxLength={120} autoFocus aria-label="Session name" />
+            <DialogFooter className="mt-4">
+              <Button type="button" variant="ghost" onClick={() => setRenameOpen(false)}>Cancel</Button>
+              <Button type="submit" disabled={!renameValue.trim()}>Save</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </main>
   );
 }

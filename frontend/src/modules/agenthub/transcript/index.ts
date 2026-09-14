@@ -8,7 +8,6 @@ export * from "./AgentFileChip";
 export * from "./AgentPlan";
 export * from "./AgentInvokeResult";
 export * from "./AgentRateLimit";
-export * from "./AgentImage";
 export * from "./AgentMessageRich";
 export * from "./agentMarkdown";
 export * from "./AgentSubagent";

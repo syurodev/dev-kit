@@ -16,7 +16,6 @@ import {
   AgentSubagent,
   AgentInvokeResult,
   AgentRateLimit,
-  AgentImage,
 } from "./index";
 
 describe("Agent Hub Transcript Leaves", () => {
@@ -295,7 +294,6 @@ describe("Agent Hub Transcript Leaves", () => {
         <AgentToolTerminal
           command="mvn -q -pl billing-service test"
           terminalId="term-1"
-          output="build succeeded in 1.4s"
           status="exited"
           exitCode={0}
         />,
@@ -304,13 +302,13 @@ describe("Agent Hub Transcript Leaves", () => {
       // A zero exit is the expected case; Figma gives it no label.
       expect(html).not.toContain("EXITED");
       expect(html).not.toContain("exit 0");
-      expect(html).toContain("build succeeded in 1.4s");
+      expect(html).toContain("terminal output is available in the terminal");
       expect(html).toContain("overflow-x-auto");
     });
 
     it("falls back to the terminal id when no command reached us", () => {
       const html = renderToString(
-        <AgentToolTerminal terminalId="term-1" output="" status="failed" exitCode={1} />,
+        <AgentToolTerminal terminalId="term-1" status="failed" exitCode={1} />,
       );
       expect(html).toContain("term-1");
       expect(html).toContain("exit 1");
@@ -422,30 +420,6 @@ describe("Agent Hub Transcript Leaves", () => {
       expect(html).toContain("the next turn is blocked until 14:20");
       expect(html).toContain('data-level="exhausted"');
       expect(html).toContain("bg-(--feedback-danger-soft)");
-    });
-  });
-
-  describe("AgentImage", () => {
-    it("renders image with name, dimensions, and size", () => {
-      const html = renderToString(
-        <AgentImage
-          src="data:image/png;base64,iVBORw0KGgo="
-          name="diagram.png"
-          dimensions="1920 × 1080"
-        />,
-      );
-      expect(html).toContain("diagram.png");
-      expect(html).toContain("1920 × 1080");
-      expect(html).toContain('src="data:image/png;base64,iVBORw0KGgo="');
-    });
-
-    it("absence test: renders fallback safely when src is absent", () => {
-      const html = renderToString(<AgentImage name="missing.png" />);
-      expect(html).toContain("missing.png");
-      expect(html).not.toContain("<img");
-      // The canvas keeps its height so the transcript does not jump as
-      // attachments resolve.
-      expect(html).toContain("h-56.25");
     });
   });
 

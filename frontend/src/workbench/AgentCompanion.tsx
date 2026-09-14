@@ -7,6 +7,7 @@ import {
   agentHubListContextFiles,
   agentHubSetConfigOption,
   agentHubSetMode,
+  type AgentImageAttachment,
   agentHubResolvePermission,
   cancelledPermissionOutcome,
   selectedPermissionOutcome,
@@ -18,6 +19,8 @@ import { useAgentSessionList, useAgentSessionsStore } from "@/stores/agentSessio
 import { openCodeGraphProject, readCodeGraphFile } from "@/bridge/codegraph";
 import { useCodeGraphStore } from "@/modules/codegraph/codegraphStore";
 import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
+import { imageAttachmentFromFile } from "@/modules/agenthub/imageAttachments";
+import type { QueuedAgentPrompt } from "@/stores/agentSessions";
 
 /**
  * The running conversation, in the shell's companion slot.
@@ -39,15 +42,20 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
   const setPrompt = useAgentSessionsStore((s) => s.setPrompt);
   const pending = useAgentSessionsStore((s) => s.pending);
   const dequeuePending = useAgentSessionsStore((s) => s.dequeuePending);
+  const enqueuePrompt = useAgentSessionsStore((s) => s.enqueuePrompt);
+  const removeQueuedPrompt = useAgentSessionsStore((s) => s.removeQueuedPrompt);
 
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [permBusy, setPermBusy] = useState(false);
   const [attachments, setAttachments] = useState<string[]>([]);
+  const [images, setImages] = useState<AgentImageAttachment[]>([]);
+  const [imageError, setImageError] = useState("");
   const [contextFiles, setContextFiles] = useState<Awaited<ReturnType<typeof agentHubListContextFiles>>>([]);
 
   const session = sessions.find((s) => s.id === activeSessionId) ?? sessions[0] ?? null;
   const prompt = useAgentSessionsStore((s) => s.promptBySession[session?.id ?? ""] ?? "");
+  const queuedPrompts = useAgentSessionsStore((s) => s.queuedPromptsBySession[session?.id ?? ""] ?? []);
 
   // Live transcript stream for the active session in rail
   const transcriptModel = useAgentTranscript(session?.id ?? "", { enabled: visible });
@@ -80,8 +88,22 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
   }
 
   async function handleSend(inputText?: string) {
-    if (!session || (!(inputText ?? prompt.trim()) && attachments.length === 0) || busy) return;
+    if (!session) return;
     const text = inputText ?? prompt.trim();
+    if (!text && attachments.length === 0 && images.length === 0) return;
+    if (busy || session.status === "running" || session.status === "awaiting_permission") {
+      enqueuePrompt(session.id, {
+        id: globalThis.crypto?.randomUUID?.() ?? `queued-${Date.now()}-${Math.random()}`,
+        text,
+        attachments,
+        images,
+      });
+      setPrompt(session.id, "");
+      setAttachments([]);
+      setImages([]);
+      return;
+    }
+    if (busy) return;
     setPrompt(session.id, "");
     const attached = attachments;
     setBusy(true);
@@ -92,9 +114,11 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
         sessionId: session.id,
         prompt: text,
         attachments: attached,
+        images,
       });
       upsertSession(await agentHubGetStatus(session.id));
       setAttachments([]);
+      setImages([]);
     } catch (e) {
       setError(errorMessage(e));
       try {
@@ -103,6 +127,24 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function addImage(file: File) {
+    try {
+      const image = await imageAttachmentFromFile(file);
+      setImages((current) => [...current, image]);
+      setImageError("");
+    } catch (e) {
+      setImageError(e instanceof Error ? e.message : "Could not attach image");
+    }
+  }
+
+  function editQueuedPrompt(queued: QueuedAgentPrompt) {
+    if (!session) return;
+    setPrompt(session.id, queued.text);
+    setAttachments(queued.attachments);
+    setImages(queued.images);
+    removeQueuedPrompt(session.id, queued.id);
   }
 
   function selectCommand(name: string) {
@@ -179,6 +221,14 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
       onSelectContext={selectContext}
       attachedFiles={attachments}
       onRemoveAttachment={(path) => setAttachments((current) => current.filter((item) => item !== path))}
+      imageAttachments={images}
+      onRemoveImage={(id) => setImages((current) => current.filter((image) => image.id !== id))}
+      onPasteImage={(file) => void addImage(file)}
+      onDropImage={(file) => void addImage(file)}
+      imageError={imageError}
+      queuedPrompts={queuedPrompts}
+      onCancelQueued={(id) => session && removeQueuedPrompt(session.id, id)}
+      onEditQueued={editQueuedPrompt}
       onBrowseContext={() => {
         if (!session) return;
         void agentHubChooseFiles(session.projectPath).then((picked) => {

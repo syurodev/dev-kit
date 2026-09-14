@@ -87,6 +87,21 @@ func TestSetModeAndConfigOptionUseRuntime(t *testing.T) {
 	}
 }
 
+func TestRenameSessionPersistsTitle(t *testing.T) {
+	svc := newTestService(t)
+	sess, err := svc.CreateSession(context.Background(), agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.RenameSession(context.Background(), sess.ID, "Daily agent"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := svc.GetStatus(context.Background(), sess.ID)
+	if err != nil || got.Title == nil || *got.Title != "Daily agent" {
+		t.Fatalf("title = %#v, err = %v", got.Title, err)
+	}
+}
+
 func TestListContextFilesIsBoundedAndSkipsBuildTrees(t *testing.T) {
 	root := t.TempDir()
 	for i := 0; i < 120; i++ {

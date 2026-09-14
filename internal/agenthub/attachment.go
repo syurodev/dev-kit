@@ -30,7 +30,11 @@ const maxAttachmentBytes = 8 << 20
 // serve. Images go as image blocks because that is what the vendor asked for;
 // everything else goes as an embedded resource with its text.
 func buildPrompt(text string, attachments []string, allowedRoot string, callerIsAgent bool) ([]acp.ContentBlock, error) {
-	blocks := make([]acp.ContentBlock, 0, len(attachments)+1)
+	return buildPromptWithImages(text, attachments, nil, allowedRoot, callerIsAgent)
+}
+
+func buildPromptWithImages(text string, attachments []string, images []ImageAttachment, allowedRoot string, callerIsAgent bool) ([]acp.ContentBlock, error) {
+	blocks := make([]acp.ContentBlock, 0, len(attachments)+len(images)+1)
 	if strings.TrimSpace(text) != "" {
 		blocks = append(blocks, acp.ContentBlock{Type: "text", Text: text})
 	}
@@ -42,11 +46,33 @@ func buildPrompt(text string, attachments []string, allowedRoot string, callerIs
 		}
 		blocks = append(blocks, block)
 	}
+	for _, image := range images {
+		block, err := pastedImageBlock(image)
+		if err != nil {
+			return nil, err
+		}
+		blocks = append(blocks, block)
+	}
 
 	if len(blocks) == 0 {
 		return nil, fmt.Errorf("%w: prompt is empty", ErrInvalidCwd)
 	}
 	return blocks, nil
+}
+
+func pastedImageBlock(image ImageAttachment) (acp.ContentBlock, error) {
+	allowed := map[string]bool{"image/png": true, "image/jpeg": true, "image/gif": true, "image/webp": true}
+	if !allowed[image.MimeType] {
+		return acp.ContentBlock{}, fmt.Errorf("%w: %s is not a supported image", ErrInvalidCwd, image.Name)
+	}
+	body, err := base64.StdEncoding.DecodeString(image.Data)
+	if err != nil {
+		return acp.ContentBlock{}, fmt.Errorf("%w: invalid image data for %s", ErrInvalidCwd, image.Name)
+	}
+	if len(body) > maxAttachmentBytes {
+		return acp.ContentBlock{}, fmt.Errorf("%w: %s is over the %d byte limit", ErrInvalidCwd, image.Name, maxAttachmentBytes)
+	}
+	return acp.ContentBlock{Type: "image", Data: image.Data, MimeType: image.MimeType, Name: image.Name}, nil
 }
 
 // attachmentBlock reads one file and wraps it.

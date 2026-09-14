@@ -77,6 +77,12 @@ export interface CreateInput {
     "Title": string | null;
 }
 
+export interface ImageAttachment {
+    "name": string;
+    "mimeType": string;
+    "data": string;
+}
+
 /**
  * InvokeInput is a blocking prompt against an existing hub session.
  */
@@ -93,6 +99,12 @@ export interface InvokeInput {
      * the sandbox.
      */
     "Attachments": string[] | null;
+
+    /**
+     * Images are transient pasted/drop images. Data is base64 and is never
+     * persisted in the session transcript or credential store.
+     */
+    "Images": ImageAttachment[] | null;
 
     /**
      * optional; used for CheckCycle on cross-session invoke

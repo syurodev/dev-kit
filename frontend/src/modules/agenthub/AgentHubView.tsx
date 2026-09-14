@@ -18,6 +18,7 @@ import {
   agentHubChooseDirectory,
   agentHubChooseFiles,
   agentHubCloseSession,
+  agentHubRenameSession,
   agentHubCreateSession,
   agentHubDeleteSession,
   agentHubGetStatus,
@@ -32,6 +33,7 @@ import {
   type AgentSession,
   type AgentVendor,
   type AgentContextFile,
+  type AgentImageAttachment,
 } from "../../bridge/agenthub";
 import { codeGraphProjectRoot, openCodeGraphProject, readCodeGraphFile } from "../../bridge/codegraph";
 import { useCodeGraphStore } from "../codegraph/codegraphStore";
@@ -44,6 +46,8 @@ import { AgentHubContent } from "./surfaces";
 import { useAgentSessionList, useAgentSessionsStore } from "../../stores/agentSessions";
 import { useAgentPinsStore } from "../../stores/agentPins";
 import { useModuleVisibility } from "@/components/ui/module-visibility";
+import { imageAttachmentFromFile } from "./imageAttachments";
+import type { QueuedAgentPrompt } from "../../stores/agentSessions";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -83,6 +87,8 @@ export function AgentHubView() {
   const upsertSession = useAgentSessionsStore((state) => state.upsertSession);
   const removeSession = useAgentSessionsStore((state) => state.removeSession);
   const setPrompt = useAgentSessionsStore((state) => state.setPrompt);
+  const enqueuePrompt = useAgentSessionsStore((state) => state.enqueuePrompt);
+  const removeQueuedPrompt = useAgentSessionsStore((state) => state.removeQueuedPrompt);
   const pendingQueue = useAgentSessionsStore((state) => state.pendingQueue);
 
   const [vendors, setVendors] = useState<string[]>(DEFAULT_VENDORS);
@@ -132,6 +138,8 @@ export function AgentHubView() {
   // Per session: attachments belong to the turn you are composing, and
   // switching tabs must not carry someone else's files into your prompt.
   const [attachments, setAttachments] = useState<Record<string, string[]>>({});
+  const [images, setImages] = useState<Record<string, AgentImageAttachment[]>>({});
+  const [imageError, setImageError] = useState("");
   const [contextFiles, setContextFiles] = useState<Record<string, AgentContextFile[]>>({});
 
   const [busy, setBusy] = useState(false);
@@ -151,6 +159,9 @@ export function AgentHubView() {
 
   const activePrompt = useAgentSessionsStore(
     (state) => state.promptBySession[activeSession?.id ?? ""] ?? "",
+  );
+  const queuedPrompts = useAgentSessionsStore(
+    (state) => state.queuedPromptsBySession[activeSession?.id ?? ""] ?? [],
   );
 
   // Live typed transcript model powered by useAgentTranscript
@@ -344,6 +355,42 @@ export function AgentHubView() {
     }));
   }
 
+  async function handleAddImage(file: File) {
+    try {
+      const image = await imageAttachmentFromFile(file);
+      if (!activeSession) return;
+      setImageError("");
+      setImages((prev) => ({ ...prev, [activeSession.id]: [...(prev[activeSession.id] ?? []), image] }));
+    } catch (e) {
+      setImageError(e instanceof Error ? e.message : "Could not attach image");
+    }
+  }
+
+  function handleRemoveImage(id: string) {
+    if (!activeSession) return;
+    setImages((prev) => ({ ...prev, [activeSession.id]: (prev[activeSession.id] ?? []).filter((image) => image.id !== id) }));
+  }
+
+  function queuePrompt(session: AgentSession, text: string, attached: string[], attachedImages: AgentImageAttachment[]) {
+    enqueuePrompt(session.id, {
+      id: globalThis.crypto?.randomUUID?.() ?? `queued-${Date.now()}-${Math.random()}`,
+      text,
+      attachments: attached,
+      images: attachedImages,
+    });
+    setPrompt(session.id, "");
+    setAttachments((prev) => ({ ...prev, [session.id]: [] }));
+    setImages((prev) => ({ ...prev, [session.id]: [] }));
+  }
+
+  function editQueuedPrompt(queued: QueuedAgentPrompt) {
+    if (!activeSession) return;
+    setPrompt(activeSession.id, queued.text);
+    setAttachments((prev) => ({ ...prev, [activeSession.id]: queued.attachments }));
+    setImages((prev) => ({ ...prev, [activeSession.id]: queued.images }));
+    removeQueuedPrompt(activeSession.id, queued.id);
+  }
+
   function handleSelectContext(path: string) {
     if (!activeSession) return;
     setAttachments((prev) => {
@@ -424,11 +471,17 @@ export function AgentHubView() {
   /** Sends the composer's prompt, or `retry` — a turn that already failed once. */
   async function handleSend(retry?: TurnInput, known?: AgentSession) {
     const session = known ?? (retry ? sessions.find((s) => s.id === retry.sessionId) : activeSession);
-    if (!session || busy) return;
+    if (!session) return;
     const attached = retry ? retry.attachments : attachments[session.id] ?? [];
+    const attachedImages = retry ? [] : images[session.id] ?? [];
     const text = retry ? retry.text : activePrompt.trim();
     // A prompt with attachments and no words is a turn: "look at these".
-    if (!text && attached.length === 0) return;
+    if (!text && attached.length === 0 && attachedImages.length === 0) return;
+    if (!known && (busy || session.status === "running" || session.status === "awaiting_permission")) {
+      queuePrompt(session, text, attached, attachedImages);
+      return;
+    }
+    if (busy) return;
     if (!retry) setPrompt(session.id, "");
     const turn = { sessionId: session.id, text, attachments: attached };
     lastTurn.current = turn;
@@ -441,10 +494,12 @@ export function AgentHubView() {
         sessionId: session.id,
         prompt: text,
         attachments: attached,
+        images: attachedImages,
       });
       // Cleared only once the turn was accepted: a failed send should leave the
       // files where the user put them rather than make them pick again.
       setAttachments((prev) => ({ ...prev, [session.id]: [] }));
+      setImages((prev) => ({ ...prev, [session.id]: [] }));
       upsertSession(await agentHubGetStatus(session.id));
     } catch (e) {
       reportError(e);
@@ -541,6 +596,16 @@ export function AgentHubView() {
       reportError(e);
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function handleRenameSession(title: string) {
+    if (!activeSession) return;
+    try {
+      await agentHubRenameSession(activeSession.id, title);
+      upsertSession({ ...activeSession, title });
+    } catch (e) {
+      reportError(e);
     }
   }
 
@@ -642,6 +707,7 @@ export function AgentHubView() {
             }}
             onCancel={() => void handleCancel()}
             onCloseSession={() => void handleCloseSession()}
+            onRenameSession={(title) => handleRenameSession(title)}
             onCopy={(text) => void copyText(text)}
             onCompact={() => {
               // Through the same path as a typed prompt, so a compact is a turn
@@ -669,6 +735,14 @@ export function AgentHubView() {
               ) : undefined
             }
             attachments={activeSession ? attachments[activeSession.id] ?? [] : []}
+            imageAttachments={activeSession ? images[activeSession.id] ?? [] : []}
+            onRemoveImage={handleRemoveImage}
+            onPasteImage={(file) => void handleAddImage(file)}
+            onDropImage={(file) => void handleAddImage(file)}
+            imageError={imageError}
+            queuedPrompts={queuedPrompts}
+            onCancelQueued={(id) => activeSession && removeQueuedPrompt(activeSession.id, id)}
+            onEditQueued={editQueuedPrompt}
             onBrowseContext={() => void handleBrowseContext()}
             onRemoveAttachment={handleRemoveAttachment}
           />

@@ -10,6 +10,7 @@ import type {
   ToolCall,
   TranscriptAction,
   TranscriptModel,
+  TranscriptItem,
   Subagent,
 } from "./types";
 
@@ -86,6 +87,15 @@ export function isSameMessage(prevMessageId?: string, nextMessageId?: string): b
     return true;
   }
   return prevMessageId === nextMessageId;
+}
+
+function livePlanIndex(items: TranscriptItem[]): number {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const kind = String(items[index].kind);
+    if (kind === "user_message_chunk") return -1;
+    if (kind === "plan") return index;
+  }
+  return -1;
 }
 
 /**
@@ -305,14 +315,19 @@ export function applySessionUpdates(
 
     if (kind === UpdateKind.UpdatePlan || kind === "plan") {
       copyItems();
-      items.push({
-        id: generateId(),
+      const existingIndex = livePlanIndex(items);
+      const timestamp = now();
+      const existing = existingIndex >= 0 ? items[existingIndex] : undefined;
+      const next = {
+        id: existing?.id ?? generateId(),
         kind,
         plan: update.plan ? [...update.plan] : [],
         raw: update.raw,
-        createdAt: now(),
-        updatedAt: now(),
-      });
+        createdAt: existing?.createdAt ?? timestamp,
+        updatedAt: timestamp,
+      };
+      if (existingIndex >= 0) items[existingIndex] = next;
+      else items.push(next);
       changed = true;
       continue;
     }
@@ -504,16 +519,20 @@ export function initTranscript(
     }
 
     if (kind === UpdateKind.UpdatePlan || kind === "plan") {
-      model.items.push({
-        id,
+      const existingIndex = livePlanIndex(model.items);
+      const existing = existingIndex >= 0 ? model.items[existingIndex] : undefined;
+      const next = {
+        id: existing?.id ?? id,
         kind,
         seq,
         sessionId,
         plan: payload.plan ?? [],
         raw: payload.raw,
-        createdAt,
+        createdAt: existing?.createdAt ?? createdAt,
         updatedAt,
-      });
+      };
+      if (existingIndex >= 0) model.items[existingIndex] = next;
+      else model.items.push(next);
       continue;
     }
 

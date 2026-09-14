@@ -6,12 +6,10 @@ import { ThinkingOrb } from "thinking-orbs";
 import { cn } from "@/lib/utils";
 import { AnimatedCollapse } from "@/components/ui/animated-collapse";
 import { FADE_THROUGH } from "@/lib/motion";
-import type { TranscriptItem, Usage } from "../types";
+import type { TranscriptItem } from "../types";
 import { activityOf, stepSummary, workedFor, workSegments, type Turn } from "../turns";
 import {
-  AgentInvokeResult,
   AgentPlan,
-  AgentRateLimit,
   AgentSubagent,
   AgentThinking,
   AgentToolCall,
@@ -184,7 +182,7 @@ export const AgentTurn = React.memo(function AgentTurn({
       ))}
 
       {turn.notes.map((item) => (
-        <Note key={item.id} item={item} vendor={vendor} />
+        <Note key={item.id} />
       ))}
     </section>
   );
@@ -306,31 +304,8 @@ function SwapText({ text, animate, reduce }: { text: string; animate: boolean; r
 }
 
 /** Rows that are neither work nor words: a rate limit, an invoke result. */
-function Note({ item, vendor }: { item: TranscriptItem; vendor?: string }) {
-  const raw = rawOf(item);
-  switch (String(item.kind)) {
-    case "rate_limit":
-      return (
-        <AgentRateLimit
-          level={raw?.level === "exhausted" ? "exhausted" : "warning"}
-          message={item.text}
-          resetTime={typeof raw?.resetTime === "string" ? raw.resetTime : undefined}
-        />
-      );
-    case "invoke_result":
-      return (
-        <AgentInvokeResult
-          agentName={typeof raw?.agentName === "string" ? raw.agentName : vendor || "Agent"}
-          stopReason={typeof raw?.stopReason === "string" ? raw.stopReason : undefined}
-          duration={typeof raw?.duration === "string" ? raw.duration : undefined}
-          cost={typeof raw?.cost === "object" && raw.cost !== null ? (raw.cost as Partial<Usage>) : undefined}
-          summary={item.text || (typeof raw?.summary === "string" ? raw.summary : "")}
-          filesChanged={Array.isArray(raw?.filesChanged) ? (raw.filesChanged as string[]) : []}
-        />
-      );
-    default:
-      return null;
-  }
+function Note() {
+  return null;
 }
 
 /** The raw envelope, when there is one to read. */
@@ -344,11 +319,6 @@ function rawOf(item: TranscriptItem): Record<string, unknown> | undefined {
  */
 function turnMeta(item: TranscriptItem): string | undefined {
   const raw = rawOf(item);
-  if (!raw) return undefined;
-  const cost = typeof raw.cost === "number" ? raw.cost : undefined;
-  const parts = [
-    typeof raw.duration === "string" ? raw.duration : undefined,
-    cost !== undefined ? `$${cost.toFixed(cost < 0.01 ? 4 : 2)}` : undefined,
-  ].filter(Boolean);
-  return parts.length > 0 ? parts.join(" · ") : undefined;
+  const amount = typeof raw?.amount === "number" ? raw.amount : undefined;
+  return amount === undefined ? undefined : `$${amount.toFixed(amount < 0.01 ? 4 : 2)}`;
 }
