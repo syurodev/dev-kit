@@ -348,6 +348,9 @@ phải budget cho mọi máy.
 | Identity thay đổi của `AgentTurn` cho 1.000 token / 5.000 turn | 5.000.000 | 1.000 | benchmark test: `agentTurnIdentityChanges` |
 | Vòng `groupTurns` cho một token / 5.000 turn | 12,04 ms | 7,85 ms | cùng fixture, một pass; `groupTurnsOneTokenMs` |
 | Parse markdown 20.000 byte theo 1.000 prefix chunk | 454,98 ms | 85,56 ms | cùng fixture, một pass; benchmark `markdownMs`, incremental tail |
+| Section transcript trong DOM / 5.000 turn | 5.000 | 11 | `TranscriptStream.performance.test.tsx`: SSR virtual window, budget kiểm thử 32 |
+| Flush reducer cho 1.000 token | 1.24 ms × 1.000 lần | 0.81 ms × 1 batch | `transcriptPerformance.test.ts`: `batchedApplyMsMedian` |
+| Scroll long task trên Wails/WKWebView | Chưa có trace | Chưa có trace | cần chạy production build trên desktop; Bun không cung cấp layout/paint trace |
 
 Con số của đợt này được đo trong cùng một lần chạy test: trước là
 `agentTurnIdentityChanges=5000000`, `groupTurnsMsMedian=4049.55`,
@@ -357,7 +360,11 @@ pass đầy đủ để không làm scheduler của full suite bị đói; fixtu
 vẫn cố định nên có thể lặp lại độc lập. Store snapshot được chuẩn
 hóa theo session nên event của session B không đổi identity model của A. Chưa
 đo được React Profiler trên Wails/WKWebView thật trong lượt này; benchmark cũng
-không thay thế kiểm tra DOM/paint hoặc memory của transcript lớn.
+không thay thế kiểm tra long task, paint hoặc memory của transcript lớn. Đợt
+viewport chọn virtualization vì `content-visibility` chỉ giảm paint nhưng vẫn
+giữ 5.000 section trong DOM; cùng fixture hiện chỉ render 11 section ở SSR
+(overscan 6, budget kiểm thử 32). Auto-scroll và scroll handler đều đi qua một
+frame gate; tick active dùng IntersectionObserver trên các section đang mount.
 
 ### Code Graph
 
