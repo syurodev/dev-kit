@@ -392,7 +392,12 @@ export function AgentSidebarTree({
   return (
     <div
       data-testid="agent-sidebar-tree"
-      className={cn("flex h-full w-full max-w-66 flex-col", className)}
+      // No width of its own: the shell rail is resizable and the rail is what
+      // decides. Figma's frame is 264 wide and that number was here as a
+      // max-w-66, which stopped the tree growing with the rail — drag the
+      // sidebar wider and the rows stayed put with a band of empty rail beside
+      // them. The database and Kafka rails never took the cap.
+      className={cn("flex h-full w-full flex-col", className)}
     >
       <div className="flex w-full shrink-0 items-center gap-2 py-3">
         <span className="min-w-0 flex-1 text-label-12 text-text-secondary">Swarm</span>
