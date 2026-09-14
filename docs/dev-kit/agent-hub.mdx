@@ -493,14 +493,17 @@ bị cắt giữa chừng — chỉ giữ path + `truncated` và UI ghi "too lar
 preview". Có cắt thì call mang cờ `truncated`; `AgentHubToolCallDetail` trả
 nguyên bản theo id và "Show full output" thay preview bằng bản đầy đủ đó.
 
-**Retention theo session, không theo row.** `PruneAbandonedTranscripts` xóa
-transcript của những session im lặng quá 90 ngày (cả session, session row giữ
-nguyên). Quy tắc cũ cắt theo `created_at` của từng row — nghĩa là cưa mất PHẦN
-ĐẦU của bất kỳ session nào đủ cũ để vạch qua vạch cắt: một cuộc hội thoại dùng
-hàng ngày bốn tháng âm thầm mất tháng đầu tiên, đúng điều store hứa là không
-bao giờ xảy ra. Session đang hoạt động giữ mọi row dù cũ bao nhiêu; trần tăng
-trưởng của một session hoạt động là việc của phân trang + virtualize phía UI,
-không phải của retention.
+**Retention theo session đã đóng, không theo row.** `PruneClosedSessions` xoá
+hẳn những session đã **đóng** quá 90 ngày — dòng session, turns và transcript
+cùng lúc; session đóng mà còn session con đang được giữ thì cũng được giữ.
+Session idle không bao giờ bị prune: quy tắc trước xoá transcript của session
+"im lặng" theo `updated_at`, mà mở/đọc session không chạm cột này, nên sau 90
+ngày một session vẫn resume được lại mở ra trống trơn. Chọn "chỉ prune session
+đã đóng" thay vì ghi last-opened mỗi lần mở vì đơn giản hơn (không thêm cột,
+không ghi khi đọc) và không bao giờ để lại một session trông còn sống mà rỗng.
+Quy tắc cũ hơn nữa cắt theo `created_at` của từng row — cưa mất PHẦN ĐẦU của
+session dùng lâu ngày. Trần tăng trưởng của session đang dùng là việc của phân
+trang + virtualize phía UI, không phải của retention.
 
 ### UI — ba bề mặt (Implemented)
 
