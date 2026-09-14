@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { AtSign, Command as CommandIcon } from "lucide-react";
+import { AtSign, Check, ChevronDown, Command as CommandIcon } from "lucide-react";
 // Icon DATA, not components: morphicons interpolates path geometry, which a
 // lucide-react component does not expose. Same version as lucide-react.
 import { ArrowUp, Square } from "lucide";
@@ -9,6 +9,14 @@ import { BorderBeam } from "border-beam";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ActionTooltip } from "@/components/ui/action-tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { VendorIcon } from "./VendorIcon";
 import { onThemeChange } from "@/theme/themeColors";
 import { AgentFileChip } from "../transcript/AgentFileChip";
 import { AgentMenu, type ContextFileItem } from "./AgentMenu";
@@ -37,6 +45,14 @@ export type AgentComposerProps = {
   onBrowseContext?: () => void;
   /** Sends /compact from the context popover. Omit when the agent offers no such command. */
   onCompact?: () => void;
+  /**
+   * The agent picker, shown only while a session is being started. A session
+   * is bound to its agent's process once created, so afterwards there is
+   * nothing to pick — the header says which agent it is.
+   */
+  agents?: string[];
+  agent?: string;
+  onAgentChange?: (agent: string) => void;
   commands?: AvailableCommand[];
   contextFiles?: ContextFileItem[];
   disabled?: boolean;
@@ -103,6 +119,9 @@ export function AgentComposer({
   onSelectContext,
   onBrowseContext,
   onCompact,
+  agents = [],
+  agent = "claude",
+  onAgentChange,
   commands = [],
   contextFiles = [],
   disabled = false,
@@ -172,6 +191,37 @@ export function AgentComposer({
         />
 
         <div className="flex w-full items-center gap-1">
+          {onAgentChange ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  data-testid="composer-agent"
+                  className="gap-1.5 px-2 text-text-secondary"
+                >
+                  <VendorIcon vendor={agent} className="size-3.5" />
+                  <span className="text-body-13 capitalize">{agent}</span>
+                  <ChevronDown className="size-3 text-text-tertiary" aria-hidden="true" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent side="top" align="start" className="w-48">
+                <DropdownMenuLabel>Agent</DropdownMenuLabel>
+                {agents.map((option) => (
+                  <DropdownMenuItem
+                    key={option}
+                    data-testid="composer-agent-option"
+                    icon={<VendorIcon vendor={option} className="size-3.5" />}
+                    detail={option === agent ? <Check className="size-3" aria-hidden="true" /> : undefined}
+                    onSelect={() => onAgentChange(option)}
+                  >
+                    <span className="capitalize">{option}</span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
           {/* Each pill is its own menu trigger. One DropdownMenu with two
               triggers is not a thing — they open different lists. */}
           <AgentMenu
@@ -216,8 +266,12 @@ export function AgentComposer({
             theme={theme}
             className="shrink-0 rounded-full"
           >
+            {/* Glass, like the surface it sits on: a solid lime disc was the
+                loudest thing in the window at rest, for a button that does
+                nothing until there is something to send. */}
             <Button
               type="button"
+              variant="glass"
               size="icon-sm"
               disabled={disabled}
               aria-label={isStreaming ? "Stop generating" : "Send message"}

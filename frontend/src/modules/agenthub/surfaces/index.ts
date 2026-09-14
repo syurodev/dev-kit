@@ -2,7 +2,6 @@ export * from "./AgentJumpToLatest";
 export * from "./AgentMenu";
 export * from "./AgentSessionError";
 export * from "./AgentState";
-export * from "./AgentNewSession";
 export * from "./AgentSidebarTree";
 export * from "./AgentComposer";
 export * from "./TranscriptStream";

@@ -3,6 +3,7 @@ import { Ban, Bot, Copy, Folder, FolderOpen, Pin, PinOff, Plus, Square, Trash2 }
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { ActionTooltip } from "@/components/ui/action-tooltip";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -37,6 +38,11 @@ export type AgentSidebarTreeProps = {
   /** Node keys the user folded shut. Absent means open — a new project shows. */
   collapsedKeys?: string[];
   onToggleCollapsed?: (key: string) => void;
+  /**
+   * Starts a session in this project's folder: the "+" on a project row and
+   * its context menu. The folder is already known, so nothing is asked.
+   */
+  onNewSessionIn?: (projectPath: string) => void;
   /** Spawns a child of this session — the context menu's only creating action. */
   onNewChildSession?: (parent: AgentSession) => void;
   onCancelTurn?: (session: AgentSession) => void;
@@ -198,6 +204,7 @@ export function AgentSidebarTree({
   onTogglePin,
   collapsedKeys = [],
   onToggleCollapsed,
+  onNewSessionIn,
   onNewChildSession,
   onCancelTurn,
   onCloseSession,
@@ -354,6 +361,46 @@ export function AgentSidebarTree({
         title: group.path || undefined,
         icon: <Folder className="size-3 shrink-0 text-icon-secondary" />,
         count: group.total,
+        // On hover, in the count's place: starting another agent in a project
+        // you are looking at should not mean picking that folder again.
+        actions: onNewSessionIn ? (
+          <ActionTooltip label={`New session in ${projectLabel(group.path) || "this folder"}`}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              data-testid="agent-tree-project-new"
+              onClick={() => onNewSessionIn(group.path)}
+            >
+              <Plus aria-hidden="true" />
+            </Button>
+          </ActionTooltip>
+        ) : undefined,
+        wrap: (row: React.ReactNode) => (
+          <ContextMenu>
+            <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
+            <ContextMenuContent className="w-56">
+              <ContextMenuLabel className="truncate">
+                {projectLabel(group.path) || "No project"}
+              </ContextMenuLabel>
+              <ContextMenuSeparator />
+              {onNewSessionIn ? (
+                <ContextMenuItem icon={<Plus />} onSelect={() => onNewSessionIn(group.path)}>
+                  New session
+                </ContextMenuItem>
+              ) : null}
+              {onCopy ? (
+                <ContextMenuItem icon={<Copy />} onSelect={() => onCopy(group.path)}>
+                  Copy path
+                </ContextMenuItem>
+              ) : null}
+              <ContextMenuSeparator />
+              <ContextMenuItem onSelect={() => onToggleCollapsed?.(key)}>
+                {collapsed.has(key) ? "Expand" : "Collapse"}
+              </ContextMenuItem>
+            </ContextMenuContent>
+          </ContextMenu>
+        ),
         // Pinned to the top of the scroller, so scrolling through a long swarm
         // never leaves you looking at rows without knowing whose repo they are.
         sticky: 0,
@@ -374,6 +421,7 @@ export function AgentSidebarTree({
     onSelectSession,
     onToggleCollapsed,
     onTogglePin,
+    onNewSessionIn,
     onNewChildSession,
     onCancelTurn,
     onCloseSession,

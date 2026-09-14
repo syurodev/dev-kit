@@ -29,6 +29,7 @@ export function useAgentHubSidebar(args: {
   pendingCounts: Record<string, number>;
   onSelectSession: (id: string) => void;
   onNewSession: () => void;
+  onNewSessionIn: (projectPath: string) => void;
   onNewChildSession: (parent: AgentSession) => void;
   onCancelTurn: (session: AgentSession) => void;
   onCloseSession: (session: AgentSession) => void;
@@ -54,6 +55,10 @@ export function useAgentHubSidebar(args: {
     [],
   );
   const onNewSession = useCallback(() => handlers.current.onNewSession(), []);
+  const onNewSessionIn = useCallback(
+    (projectPath: string) => handlers.current.onNewSessionIn(projectPath),
+    [],
+  );
   const onNewChildSession = useCallback(
     (parent: AgentSession) => handlers.current.onNewChildSession(parent),
     [],
@@ -86,6 +91,7 @@ export function useAgentHubSidebar(args: {
         onToggleCollapsed={toggleCollapsed}
         onSelectSession={onSelectSession}
         onNewSession={onNewSession}
+        onNewSessionIn={onNewSessionIn}
         onNewChildSession={onNewChildSession}
         onCancelTurn={onCancelTurn}
         onCloseSession={onCloseSession}
@@ -104,6 +110,7 @@ export function useAgentHubSidebar(args: {
       toggleCollapsed,
       onSelectSession,
       onNewSession,
+      onNewSessionIn,
       onNewChildSession,
       onCancelTurn,
       onCloseSession,

@@ -33,10 +33,7 @@ import { copyText } from "../../bridge/clipboard";
 import { toAppError } from "../../bridge/errors";
 import { useAgentHubSidebar } from "./useAgentHubSidebar";
 import { useAgentTranscript } from "./transcript";
-import {
-  AgentHubContent,
-  AgentNewSession,
-} from "./surfaces";
+import { AgentHubContent } from "./surfaces";
 import { useAgentSessionsStore } from "../../stores/agentSessions";
 import { useAgentPinsStore } from "../../stores/agentPins";
 import {
@@ -52,7 +49,14 @@ import {
 
 const DEFAULT_VENDORS: AgentVendor[] = ["mock", "claude"];
 
-type CreateParams = { vendor: string; cwd: string; title?: string };
+/** A session to create, and the first message that is the reason for it. */
+type CreateParams = {
+  vendor: string;
+  cwd: string;
+  parentSessionId?: string;
+  prompt?: string;
+  attachments?: string[];
+};
 type TurnInput = { sessionId: string; text: string; attachments: string[] };
 /** The action that failed on sign-in, retried once a login exits 0. */
 type AuthRetry = { kind: "create"; params: CreateParams } | ({ kind: "turn" } & TurnInput);
@@ -68,7 +72,14 @@ export function AgentHubView() {
   const pendingQueue = useAgentSessionsStore((state) => state.pendingQueue);
 
   const [vendors, setVendors] = useState<string[]>(DEFAULT_VENDORS);
-  const [newSessionOpen, setNewSessionOpen] = useState(false);
+  // A session being started. Its folder and parent are known when it begins;
+  // its agent is picked in the composer; nothing exists on the backend until
+  // the first message is sent, because an agent is a process bound to its
+  // session and there is nothing to bind yet. This replaced a dialog that asked
+  // for the agent up front, before anyone had said what they wanted from it.
+  const [draft, setDraft] = useState<{ cwd: string; parent: AgentSession | null } | null>(null);
+  const [draftAgent, setDraftAgent] = useState<string>(CLAUDE_AGENT);
+  const [draftPrompt, setDraftPrompt] = useState("");
   // Figma 948:2204 writes the reason as "agenthub.processFailed — the agent
   // exited after …": the DevKit code AND what happened. errorMessage() gives
   // only the humanised half, so the card was saying "Agent process failed."
@@ -83,28 +94,21 @@ export function AgentHubView() {
   const lastTurn = useRef<TurnInput | null>(null);
   const signIn = useClaudeSignIn((outcome) => {
     if (authRetry?.kind === "create") {
-      // Back in front either way: with the new session, or with the outcome.
-      setNewSessionOpen(true);
+      // The draft is still on screen with its message, so a successful login
+      // carries straight on: the session is created and the message sent.
       if (outcome.signedIn) void handleCreateSession(authRetry.params);
     } else if (authRetry?.kind === "turn" && outcome.signedIn) {
       void handleSend(authRetry);
     }
   });
   const queryClient = useQueryClient();
-  // Asked before Create, not after it fails: the dialog swaps its form for the
-  // install panel as soon as Claude is the vendor and cannot start.
+  // Asked while the draft has Claude picked, not after a send fails: the draft
+  // shows the install panel as soon as Claude is chosen and cannot start.
   const claudeRuntime = useQuery({
     queryKey: agentRuntimeQueryKey(CLAUDE_AGENT),
     queryFn: () => agentRuntimeStatus(CLAUDE_AGENT),
-    enabled: newSessionOpen,
+    enabled: draft !== null && draftAgent === CLAUDE_AGENT,
   });
-  // The folder Code Graph has open, offered as one click in the new-session
-  // dialog. Read when the dialog opens rather than on mount: Code Graph may
-  // have opened a project since, and a stale path is worse than no suggestion.
-  const [codeGraphCwd, setCodeGraphCwd] = useState("");
-  // The parent a new session will inherit from, set by the tree's "New child
-  // session". Null means the dialog is starting a root session.
-  const [newSessionParent, setNewSessionParent] = useState<AgentSession | null>(null);
   // The session awaiting a delete confirmation, with how many go with it.
   const [pendingDelete, setPendingDelete] = useState<{
     session: AgentSession;
@@ -115,22 +119,6 @@ export function AgentHubView() {
   // switching tabs must not carry someone else's files into your prompt.
   const [attachments, setAttachments] = useState<Record<string, string[]>>({});
 
-  useEffect(() => {
-    if (!newSessionOpen) return;
-    let cancelled = false;
-    // A failure here means no suggestion, not a broken dialog — Code Graph
-    // simply has nothing open, which is the ordinary case.
-    codeGraphProjectRoot()
-      .then((root) => {
-        if (!cancelled) setCodeGraphCwd(root);
-      })
-      .catch(() => {
-        if (!cancelled) setCodeGraphCwd("");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [newSessionOpen]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [sandboxHint, setSandboxHint] = useState("");
@@ -175,6 +163,31 @@ export function AgentHubView() {
     };
   }, []);
 
+  /** Starts a draft in a folder that is already known — a project row, a parent. */
+  function startDraft(cwd: string, parent: AgentSession | null) {
+    setDraft({ cwd, parent });
+    setDraftPrompt("");
+    setError("");
+    setErrorReason("");
+    setErrorCause(undefined);
+    setSandboxHint("");
+    setAuthRetry(null);
+  }
+
+  /** Starts a draft in a folder the user picks, from "+ New" and the empty state. */
+  async function chooseFolderForDraft() {
+    // Opens where Code Graph is looking when it has a project open — the folder
+    // you are most likely about to point an agent at. Nothing open is the
+    // ordinary case, not an error.
+    const start = await codeGraphProjectRoot().catch(() => "");
+    try {
+      const picked = await agentHubChooseDirectory(start);
+      if (picked) startDraft(picked, null); // "" is a cancelled picker
+    } catch (e) {
+      reportError(e);
+    }
+  }
+
   async function handleCreateSession(params: CreateParams) {
     setBusy(true);
     setError("");
@@ -186,13 +199,21 @@ export function AgentHubView() {
       const session = await agentHubCreateSession({
         agentType: params.vendor,
         cwd: params.cwd,
-        title: params.title,
-        parentSessionId: newSessionParent?.id,
+        parentSessionId: params.parentSessionId,
       });
       upsertSession(session);
       setActiveSessionId(session.id);
-      setNewSessionOpen(false);
-      setNewSessionParent(null);
+      setDraft(null);
+      setDraftPrompt("");
+      if (params.prompt || params.attachments?.length) {
+        // The message was written before the session existed and is the reason
+        // it was created. Passed the session itself: the list this closure
+        // sees was read before the session was added to it.
+        await handleSend(
+          { sessionId: session.id, text: params.prompt ?? "", attachments: params.attachments ?? [] },
+          session,
+        );
+      }
     } catch (e) {
       if (isAgentNotInstalledError(e) || isRuntimeRequirementError(e)) {
         // The status changed under the dialog (removed, Node uninstalled):
@@ -256,8 +277,8 @@ export function AgentHubView() {
   }
 
   /** Sends the composer's prompt, or `retry` — a turn that already failed once. */
-  async function handleSend(retry?: TurnInput) {
-    const session = retry ? sessions.find((s) => s.id === retry.sessionId) : activeSession;
+  async function handleSend(retry?: TurnInput, known?: AgentSession) {
+    const session = known ?? (retry ? sessions.find((s) => s.id === retry.sessionId) : activeSession);
     if (!session || busy) return;
     const attached = retry ? retry.attachments : attachments[session.id] ?? [];
     const text = retry ? retry.text : activePrompt.trim();
@@ -379,6 +400,22 @@ export function AgentHubView() {
 
 
 
+  // What stands between a draft and its first message, in the draft's own view.
+  const draftBlocked =
+    draftAgent === CLAUDE_AGENT && Boolean(claudeRuntime.data && runtimeBlocked(claudeRuntime.data));
+  const draftNotice = !draft ? null : draftBlocked ? (
+    <ClaudeAgentSetup onOpenSettings={() => requestSettings("agents")} />
+  ) : authRetry?.kind === "create" ? (
+    <div data-testid="claude-sign-in-panel" className="flex w-full flex-col gap-3 rounded-sm bg-(--state-soft) p-4">
+      <p className="text-body-13-medium text-text-primary">Claude isn&apos;t signed in</p>
+      <p className="text-caption-11 text-text-tertiary">
+        Sign in in the terminal that opens. The session starts and your message is sent as soon as
+        the login finishes.
+      </p>
+      <ClaudeSignIn signIn={signIn} />
+    </div>
+  ) : null;
+
   // Group pending permission counts per session
   const pendingCounts = useMemo(() => {
     const map: Record<string, number> = {};
@@ -392,15 +429,13 @@ export function AgentHubView() {
     sessions,
     activeSessionId: activeSession?.id,
     pendingCounts,
-    onSelectSession: setActiveSessionId,
-    onNewSession: () => {
-      setNewSessionParent(null);
-      setNewSessionOpen(true);
+    onSelectSession: (id) => {
+      setDraft(null);
+      setActiveSessionId(id);
     },
-    onNewChildSession: (parent) => {
-      setNewSessionParent(parent);
-      setNewSessionOpen(true);
-    },
+    onNewSession: () => void chooseFolderForDraft(),
+    onNewSessionIn: (projectPath) => startDraft(projectPath, null),
+    onNewChildSession: (parent) => startDraft(parent.projectPath, parent),
     onCancelTurn: (session) => void handleCancelFor(session),
     onCloseSession: (session) => void handleCloseFor(session),
     onDeleteSession: (session, descendants) => setPendingDelete({ session, descendants }),
@@ -425,9 +460,27 @@ export function AgentHubView() {
             items={transcriptModel.items}
             usage={transcriptModel.usage}
             commands={transcriptModel.commands}
-            promptValue={activePrompt}
-            onPromptChange={(val) => activeSession && setPrompt(activeSession.id, val)}
-            onSend={() => void handleSend()}
+            draft={draft ? { projectPath: draft.cwd, parentName: draft.parent?.title || undefined } : null}
+            agents={vendors}
+            agent={draftAgent}
+            onAgentChange={setDraftAgent}
+            draftNotice={draftNotice}
+            sendDisabled={draft ? busy || draftBlocked : false}
+            promptValue={draft ? draftPrompt : activePrompt}
+            onPromptChange={(val) => {
+              if (draft) setDraftPrompt(val);
+              else if (activeSession) setPrompt(activeSession.id, val);
+            }}
+            onSend={() => {
+              if (!draft) return void handleSend();
+              if (!draftPrompt.trim()) return;
+              void handleCreateSession({
+                vendor: draftAgent,
+                cwd: draft.cwd,
+                parentSessionId: draft.parent?.id,
+                prompt: draftPrompt.trim(),
+              });
+            }}
             onCancel={() => void handleCancel()}
             onCloseSession={() => void handleCloseSession()}
             onCopy={(text) => void copyText(text)}
@@ -440,7 +493,7 @@ export function AgentHubView() {
               }
             }}
             streaming={busy || activeSession?.status === "running"}
-            errorMessage={errorReason || error}
+            errorMessage={errorReason || error || sandboxHint}
             errorCause={errorCause}
             onRetrySession={() =>
               void handleSend(
@@ -449,7 +502,7 @@ export function AgentHubView() {
                   : undefined,
               )
             }
-            onNewSession={() => setNewSessionOpen(true)}
+            onNewSession={() => void chooseFolderForDraft()}
             onOpenSettings={() => requestSettings("agents")}
             errorDetail={
               errorCause === "authRequired" && activeSession?.agentType === "claude" ? (
@@ -461,58 +514,6 @@ export function AgentHubView() {
             onRemoveAttachment={handleRemoveAttachment}
           />
         </div>
-
-      {/* Surface: Agent / New Session. The hand-rolled backdrop this replaced
-          had role="dialog" and aria-modal but none of what those promise — no
-          focus trap, no escape key, no scroll lock. Dialog brings all three. */}
-      <AgentNewSession
-        open={newSessionOpen}
-        onOpenChange={(next) => {
-          setNewSessionOpen(next);
-          if (!next) {
-            setError("");
-            setErrorReason("");
-            setErrorCause(undefined);
-            setSandboxHint("");
-            setNewSessionParent(null);
-            setAuthRetry(null);
-          }
-        }}
-        renderBlocker={(vendor) =>
-          vendor !== "claude" ? null : claudeRuntime.data && runtimeBlocked(claudeRuntime.data) ? (
-            <ClaudeAgentSetup
-              onOpenSettings={() => {
-                setNewSessionOpen(false);
-                requestSettings("agents");
-              }}
-            />
-          ) : authRetry?.kind === "create" ? (
-            <div
-              data-testid="claude-sign-in-panel"
-              className="flex w-full flex-col gap-3 rounded-sm bg-(--state-soft) p-4"
-            >
-              <p className="text-body-13-medium text-text-primary">Claude isn&apos;t signed in</p>
-              <p className="text-caption-11 text-text-tertiary">
-                Sign in in the terminal that opens. The session is created as soon as the login
-                finishes.
-              </p>
-              {/* The dialog steps aside while the login runs: a modal would sit
-                  over the terminal the user has to watch. It comes back when the
-                  login exits. */}
-              <ClaudeSignIn signIn={signIn} onStart={() => setNewSessionOpen(false)} />
-            </div>
-          ) : null
-        }
-        vendors={vendors}
-        busy={busy}
-        error={error || sandboxHint}
-        parentName={newSessionParent?.title ?? undefined}
-        depth={newSessionParent ? newSessionParent.depth + 1 : undefined}
-        defaultCwd={newSessionParent?.projectPath ?? ""}
-        suggestedCwd={codeGraphCwd}
-        onBrowse={() => agentHubChooseDirectory(codeGraphCwd)}
-        onCreate={handleCreateSession}
-      />
 
       {/* Delete is the one action here with nothing behind it: close keeps the
           row as history, this removes the transcript for good. */}

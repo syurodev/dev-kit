@@ -99,6 +99,23 @@ export function AgentHubTranscriptSection() {
           onCopy={() => {}}
         />
       </div>
+      <h2 className="text-title-16 text-text-primary">Agent Hub — starting a session</h2>
+      <div
+        data-testid="gallery-agenthub-draft"
+        className="h-120 overflow-hidden rounded-control border border-border-subtle bg-surface-base"
+      >
+        <AgentHubContent
+          session={null}
+          draft={{ projectPath: session.projectPath }}
+          agents={["claude", "mock"]}
+          agent="claude"
+          onAgentChange={() => {}}
+          promptValue=""
+          onPromptChange={() => {}}
+          onSend={() => {}}
+          onCancel={() => {}}
+        />
+      </div>
     </section>
   );
 }

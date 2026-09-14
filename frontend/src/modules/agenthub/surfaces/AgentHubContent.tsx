@@ -57,6 +57,19 @@ export type AgentHubContentProps = {
   onCopy?: (text: string) => void;
   /** Sends /compact. Offered in the context popover only when the agent lists the command. */
   onCompact?: () => void;
+  /**
+   * A session being started. Its folder (and parent) are known; its agent is
+   * picked in the composer; nothing exists on the backend until the first
+   * message is sent. Takes precedence over `session`.
+   */
+  draft?: { projectPath: string; parentName?: string } | null;
+  agents?: string[];
+  agent?: string;
+  onAgentChange?: (agent: string) => void;
+  /** What stands between the draft and its first message: an install, a sign-in. */
+  draftNotice?: React.ReactNode;
+  /** Blocks sending and typing — a create in flight, an agent that cannot start. */
+  sendDisabled?: boolean;
   className?: string;
 };
 
@@ -132,11 +145,19 @@ export function AgentHubContent({
   onRemoveAttachment,
   onCopy,
   onCompact,
+  draft,
+  agents = [],
+  agent = "claude",
+  onAgentChange,
+  draftNotice,
+  sendDisabled = false,
   className,
 }: AgentHubContentProps) {
   const effectiveState: AgentHubContentState = explicitState
     ? explicitState
-    : !session
+    : draft
+      ? "Conversation"
+      : !session
       ? "Empty"
       : session.status === "error"
         ? "Error"
@@ -160,9 +181,10 @@ export function AgentHubContent({
   // prompt the agent does not understand is a button that makes it reply "?".
   const canCompact = commands.some((command) => command.name.replace(/^\//, "") === "compact");
 
-  const displayTitle =
-    session?.title || (session ? `Session ${session.id.slice(0, 8)}` : "");
-  const vendor = session?.agentType || "claude";
+  const displayTitle = draft
+    ? "New session"
+    : session?.title || (session ? `Session ${session.id.slice(0, 8)}` : "");
+  const vendor = draft ? agent : session?.agentType || "claude";
 
   // Parent is omitted rather than shown empty — a root agent has no parent, and
   // "from —" reads as a missing value.
@@ -190,7 +212,28 @@ export function AgentHubContent({
         className,
       )}
     >
-      {effectiveState !== "Empty" && session ? (
+      {draft ? (
+        <header
+          data-testid="agent-hub-content-header"
+          className="flex w-full shrink-0 items-center gap-2 px-6 py-2 select-none"
+        >
+          <VendorIcon vendor={vendor} className="size-3.5 text-icon-secondary" />
+          <div className="flex min-w-0 flex-1 items-baseline gap-2">
+            <h2 className="min-w-0 shrink truncate text-title-14 text-text-primary">New session</h2>
+            <p
+              data-testid="content-header-context"
+              className="min-w-0 truncate text-body-13 text-text-tertiary"
+              style={{ flexShrink: 100 }}
+            >
+              {[projectLabel(draft.projectPath), draft.parentName ? `from ${draft.parentName}` : null]
+                .filter(Boolean)
+                .join(" · ")}
+            </p>
+          </div>
+        </header>
+      ) : null}
+
+      {!draft && effectiveState !== "Empty" && session ? (
         <header
           data-testid="agent-hub-content-header"
           className="flex w-full shrink-0 items-center gap-2 px-6 py-2 select-none"
@@ -318,7 +361,33 @@ export function AgentHubContent({
           style={{ "--composer-inset": `${composerHeight}px` } as React.CSSProperties}
         >
           <div className="min-h-0 flex-1 overflow-hidden">
-            <TranscriptStream items={items} vendor={vendor} streaming={streaming} />
+            {draft ? (
+              // Nothing to show yet but where the agent will work and what it
+              // may reach: the folder is the sandbox, and this is the last
+              // moment before that is fixed.
+              <div
+                data-testid="agent-hub-draft"
+                className="flex size-full flex-col items-center justify-center px-6"
+                style={{ paddingBottom: "var(--composer-inset, 0px)" }}
+              >
+                <div className="flex w-full max-w-120 flex-col gap-3">
+                  <p className="text-title-14 text-text-primary">
+                    {`Start a session in ${projectLabel(draft.projectPath) || draft.projectPath}`}
+                  </p>
+                  <p className="text-body-13 text-text-tertiary">
+                    {`Pick an agent below and send your first message. It can only reach paths inside ${draft.projectPath}.`}
+                  </p>
+                  {draftNotice}
+                  {errorMessage ? (
+                    <p data-testid="agent-hub-draft-error" className="text-body-13 text-status-danger">
+                      {errorMessage}
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            ) : (
+              <TranscriptStream items={items} vendor={vendor} streaming={streaming} />
+            )}
           </div>
 
           {/* Floats over the transcript's foot, in its reading column, so what
@@ -336,7 +405,7 @@ export function AgentHubContent({
               onChange={onPromptChange}
               onSend={onSend}
               onCancel={onCancel}
-              streaming={streaming}
+              streaming={draft ? false : streaming}
               usage={usage}
               turnCount={
                 // A turn is a thing the human said. Counting them here beats
@@ -349,9 +418,15 @@ export function AgentHubContent({
                 ).length
               }
               vendor={vendor}
-              agentName={displayTitle}
+              // A draft is not named yet; its placeholder addresses the agent
+              // that will answer — "Ask Claude…", not "Ask New session…".
+              agentName={draft ? agent.charAt(0).toUpperCase() + agent.slice(1) : displayTitle}
               commands={commands}
               onCompact={canCompact ? onCompact : undefined}
+              agents={draft ? agents : undefined}
+              agent={draft ? agent : undefined}
+              onAgentChange={draft ? onAgentChange : undefined}
+              disabled={sendDisabled}
               attachedFiles={attachments}
               onBrowseContext={onBrowseContext}
               onRemoveAttachment={onRemoveAttachment}

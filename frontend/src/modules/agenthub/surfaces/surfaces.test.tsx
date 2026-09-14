@@ -1,11 +1,9 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "bun:test";
 import { renderToString as renderRaw } from "react-dom/server";
 import {
   AgentComposer,
   AgentJumpToLatest,
   AgentMenu,
-  AgentNewSession,
   AgentSessionError,
   AgentSidebarTree,
   countDescendants,
@@ -251,40 +249,50 @@ describe("Agent Hub Phase 3 Surfaces", () => {
     });
   });
 
-  describe("AgentNewSession (Figma 946:2224)", () => {
-    // A Radix Dialog now, so the card lives in a portal and renderToString
-    // sees nothing while closed. The block this replaced set role="dialog"
-    // and aria-modal on a plain div — the attributes without the behaviour:
-    // no focus trap, no escape key, no scroll lock.
-    it("renders nothing while closed", () => {
-      const html = renderToString(
-        <AgentNewSession
-          open={false}
-          onOpenChange={() => {}}
-          vendors={["mock", "claude"]}
-          onCreate={() => {}}
-        />,
+  describe("Starting a session", () => {
+    // The agent is chosen where the first message is written, not in a dialog
+    // before it: a session is bound to its agent's process on creation, so the
+    // choice is only open until that first send.
+    it("offers the agent picker in the composer only while a session is being started", () => {
+      const base = { value: "", onChange: () => {}, onSend: () => {}, onCancel: () => {} };
+      const picking = renderToString(
+        <AgentComposer {...base} agents={["claude", "mock"]} agent="claude" onAgentChange={() => {}} />,
       );
-      expect(html).not.toContain("New agent session");
+      expect(picking).toContain('data-testid="composer-agent"');
+      expect(picking).toContain("claude");
+      // Once the session exists there is nothing to pick.
+      expect(renderToString(<AgentComposer {...base} />)).not.toContain('data-testid="composer-agent"');
     });
 
-    it("takes exactly the two inputs FR-1 allows, and no title field", () => {
-      // Figma: "choosing a vendor and a working directory is the only way a
-      // session starts. Parent and depth are shown, never chosen." The old
-      // card also offered a title and a "switch to mock" escape hatch.
-      const props = AgentNewSession as unknown as { name: string };
-      expect(props.name).toBe("AgentNewSession");
-
-      const source = readFileSync(
-        new URL("./AgentNewSession.tsx", import.meta.url),
-        "utf8",
+    it("draws a draft as the folder it will work in, with the composer ready", () => {
+      const html = renderToString(
+        <AgentHubContent
+          session={null}
+          draft={{ projectPath: "/Users/dev/billing-service", parentName: "auth-refactor" }}
+          agents={["claude", "mock"]}
+          agent="claude"
+          onAgentChange={() => {}}
+          promptValue=""
+          onPromptChange={() => {}}
+          onSend={() => {}}
+          onCancel={() => {}}
+        />,
       );
-      expect(source).toContain('data-testid="new-session-vendor"');
-      expect(source).toContain('data-testid="new-session-cwd"');
-      expect(source).not.toContain("onSwitchToMock");
-      // Parent/depth is a read-only row, never an input.
-      expect(source).toContain('data-testid="new-session-inherited"');
-      expect(source).not.toContain('id="new-session-parent"');
+      expect(html).toContain('data-testid="agent-hub-draft"');
+      expect(html).toContain("New session");
+      expect(html).toContain("billing-service · from auth-refactor");
+      // The folder is the sandbox; the draft says so before it is fixed.
+      expect(html).toContain("It can only reach paths inside /Users/dev/billing-service.");
+      expect(html).toContain('data-testid="composer-agent"');
+      // Not the empty state: a draft is somewhere to type, not a dead end.
+      expect(html).not.toContain("No agent running");
+    });
+
+    it("sends with a glass button, not a solid disc", () => {
+      const html = renderToString(
+        <AgentComposer value="" onChange={() => {}} onSend={() => {}} onCancel={() => {}} />,
+      );
+      expect(html).toContain("glass-button");
     });
   });
 
@@ -505,6 +513,26 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       );
       expect(codex).toContain('data-working="true"');
       expect(codex).not.toContain("text-vendor-");
+    });
+
+    it("starts a session from the project row, without asking for its folder again", () => {
+      const html = renderSidebar(
+        <AgentSidebarTree
+          sessions={[mockSession]}
+          onSelectSession={() => {}}
+          onNewSession={() => {}}
+          onNewSessionIn={() => {}}
+        />,
+      );
+      expect(html).toContain('data-testid="agent-tree-project-new"');
+      expect(html).toContain('aria-label="New session in core"');
+      // And the project row has a menu of its own, like the session rows.
+      expect((html.match(/data-slot="context-menu-trigger"/g) ?? []).length).toBe(2);
+
+      const without = renderSidebar(
+        <AgentSidebarTree sessions={[mockSession]} onSelectSession={() => {}} onNewSession={() => {}} />,
+      );
+      expect(without).not.toContain('data-testid="agent-tree-project-new"');
     });
 
     it("renders sidebar swarm tree with session count", () => {
