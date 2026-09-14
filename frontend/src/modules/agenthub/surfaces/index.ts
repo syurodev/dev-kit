@@ -3,7 +3,6 @@ export * from "./AgentMenu";
 export * from "./AgentSessionError";
 export * from "./AgentState";
 export * from "./AgentNewSession";
-export * from "./AgentRow";
 export * from "./AgentSidebarTree";
 export * from "./AgentComposer";
 export * from "./TranscriptStream";

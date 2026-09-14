@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { extractUpdateText, type AgentSession, type PendingPermission } from "../bridge/agenthub";
+import type { Subagent } from "../modules/agenthub/types";
 
 export type TranscriptLine = {
   id: string;
@@ -40,6 +41,19 @@ export function appendUpdateLine(
   ];
 }
 
+/**
+ * The subagent end states that mean "stopped", not "finished".
+ *
+ * A subagent that was killed leaves the tree: the rail is what is going on
+ * right now, and a row for an agent nobody can reach is a row that only invites
+ * a click that does nothing. The ones that ran to an end stay, with the dot
+ * saying how they ended — that is a result, and results are worth a glance.
+ *
+ * Whatever it said before it was killed is still in the session's transcript,
+ * which is where a record belongs.
+ */
+const KILLED_STATES = new Set(["cancelled", "disconnected"]);
+
 type AgentSessionsState = {
   sessions: AgentSession[];
   activeSessionId: string;
@@ -50,6 +64,17 @@ type AgentSessionsState = {
    * while you were elsewhere were never collected at all.
    */
   transcripts: Record<string, TranscriptState>;
+  /**
+   * The agents Claude started inside its own process, by the session that owns
+   * them. Kept here rather than read back out of the transcript because the
+   * rail shows every session's subagents and a transcript is only loaded for
+   * the one that is open.
+   *
+   * Live updates only: a subagent that ran before this app started is in that
+   * session's transcript, not here. They are turn-scoped things, and a finished
+   * one from last week is not what the rail is for.
+   */
+  subagents: Record<string, Subagent[]>;
   pending: PendingPermission | null;
   pendingQueue: PendingPermission[];
   /** Whether the shell is showing the conversation in the companion slot. */
@@ -63,6 +88,15 @@ type AgentSessionsState = {
     sessionId: string,
     updater: (prev: TranscriptLine[]) => TranscriptLine[],
   ) => void;
+  /**
+   * Records a subagent_spawned or subagent_state_update. Neither message is
+   * complete — the spawn names it, the state update only says how it ended —
+   * so they are merged by id rather than replacing one another.
+   *
+   * A subagent that was stopped rather than finished is removed instead of
+   * merged (see KILLED_STATES).
+   */
+  trackSubagent: (sessionId: string, subagent: Subagent) => void;
   enqueuePending: (pending: PendingPermission) => void;
   dequeuePending: (id: string) => void;
   setChatOpen: (open: boolean) => void;
@@ -72,6 +106,7 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set) => ({
   sessions: [],
   activeSessionId: "",
   transcripts: {},
+  subagents: {},
   pending: null,
   pendingQueue: [],
   chatOpen: false,
@@ -87,9 +122,12 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set) => ({
       return { sessions: next };
     }),
   removeSession: (id) =>
-    set((state) => ({
-      sessions: state.sessions.filter((s) => s.id !== id),
-    })),
+    set((state) => {
+      // The session's subagents go with it. Nothing reads them once the session
+      // is gone, so leaving them behind is a map that only ever grows.
+      const { [id]: _gone, ...subagents } = state.subagents;
+      return { sessions: state.sessions.filter((s) => s.id !== id), subagents };
+    }),
   setActiveSessionId: (id) => set({ activeSessionId: id }),
   setPrompt: (sessionId, prompt) =>
     set((state) => ({
@@ -107,6 +145,20 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set) => ({
           [sessionId]: { ...current, lines: updater(current.lines) },
         },
       };
+    }),
+  trackSubagent: (sessionId, subagent) =>
+    set((state) => {
+      const current = state.subagents[sessionId] ?? [];
+      let next: Subagent[];
+      if (KILLED_STATES.has(subagent.state ?? "")) {
+        next = current.filter((s) => s.id !== subagent.id);
+      } else {
+        const index = current.findIndex((s) => s.id === subagent.id);
+        next = current.slice();
+        if (index === -1) next.push(subagent);
+        else next[index] = { ...current[index], ...subagent };
+      }
+      return { subagents: { ...state.subagents, [sessionId]: next } };
     }),
   enqueuePending: (pending) =>
     set((state) => {

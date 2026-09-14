@@ -7,9 +7,9 @@ import {
   AgentMenu,
   AgentNewSession,
   AgentSessionError,
-  AgentRow,
   AgentSidebarTree,
   countDescendants,
+  groupByProject,
   AgentHubContent,
   AgentMetaInspector,
   AgentRail,
@@ -17,6 +17,7 @@ import {
   AgentPermissionToast,
   AgentDockBadge,
 } from "./index";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import type { AgentSession } from "@/bridge/agenthub";
 import type { TranscriptItem } from "../types";
 
@@ -336,7 +337,13 @@ describe("Agent Hub Phase 3 Surfaces", () => {
     });
   });
 
-  describe("AgentRow & AgentSidebarTree", () => {
+  describe("AgentSidebarTree", () => {
+    // The rail's rows carry the app's own tooltip (components/tree-view), which
+    // wants a provider from context. App.tsx has one around the whole window;
+    // a test that renders the rail on its own has to bring it.
+    const renderSidebar = (node: React.ReactNode) =>
+      renderToString(<TooltipProvider>{node}</TooltipProvider>);
+
     const mockSession: AgentSession = {
       id: "sess-abc12345",
       agentType: "claude",
@@ -361,18 +368,22 @@ describe("Agent Hub Phase 3 Surfaces", () => {
 
     it("delegates status to AgentState instead of carrying its own dot table", () => {
       // Figma 906:35: "Status lives on the nested Agent / State instance, so a
-      // row does not need a variant per status." The row had its own
+      // row does not need a variant per status." Rows had their own
       // StatusIndicator switch — a second dot-and-colour table in this module.
-      const html = renderToString(
-        <AgentRow session={mockChildSession} selected={true} turnCount={2} />,
+      const html = renderSidebar(
+        <AgentSidebarTree
+          sessions={[mockSession, mockChildSession]}
+          activeSessionId="sess-child6789"
+          turnCounts={{ "sess-child6789": 2 }}
+          onSelectSession={() => {}}
+          onNewSession={() => {}}
+        />,
       );
 
-      expect(html).toContain('data-testid="agent-row"');
-      expect(html).toContain('data-selected="true"');
       expect(html).toContain("Sub-worker");
       expect(html).toContain('data-slot="agent-state"');
       expect(html).toContain('data-status="awaiting"');
-      expect(html).toContain("· 2 turns");
+      expect(html).toContain('aria-selected="true"');
     });
 
     it("carries no pending-permission count", () => {
@@ -380,14 +391,85 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       // agent needs you, the rail and the toast carry the queue ("+2 waiting"),
       // and the dock badge carries the total. A count here would be a fourth
       // place to keep in sync.
-      const html = renderToString(
-        <AgentRow session={mockChildSession} selected={false} />,
+      const html = renderSidebar(
+        <AgentSidebarTree
+          sessions={[mockChildSession]}
+          onSelectSession={() => {}}
+          onNewSession={() => {}}
+        />,
       );
       expect(html).not.toContain("pending-badge");
     });
 
+    it("groups sessions under the project they were opened in", () => {
+      // Agents are opened per repo and a developer runs several at once. Before
+      // this level the rail was one flat list whose only clue which repo a row
+      // belonged to was a truncated path on its second line.
+      const other: AgentSession = {
+        ...mockSession,
+        id: "sess-other",
+        projectPath: "/Users/dev/billing-service",
+        title: "Billing",
+      };
+      const html = renderSidebar(
+        <AgentSidebarTree
+          sessions={[mockSession, mockChildSession, other]}
+          onSelectSession={() => {}}
+          onNewSession={() => {}}
+        />,
+      );
+
+      // The folder's own name, not the whole path.
+      expect(html).toContain(">billing-service<");
+      expect(html).toContain(">core<");
+      // Its count is the whole lineage in it — parent and child, not roots.
+      expect(html).toContain(">2<");
+    });
+
+    it("counts a project by everything in it, roots and their children alike", () => {
+      const groups = groupByProject([mockSession, mockChildSession]);
+      expect(groups).toHaveLength(1);
+      expect(groups[0].path).toBe("packages/core");
+      expect(groups[0].roots.map((s) => s.id)).toEqual(["sess-abc12345"]);
+      expect(groups[0].total).toBe(2);
+    });
+
+    it("keeps a child under its parent even when it was opened elsewhere", () => {
+      // Lineage is "the boundary an agent may act within". Hoisting a child into
+      // another project's folder because its cwd differs would make the tree say
+      // something untrue about who spawned it.
+      const away: AgentSession = { ...mockChildSession, projectPath: "/elsewhere" };
+      const groups = groupByProject([mockSession, away]);
+      expect(groups.map((g) => g.path)).toEqual(["packages/core"]);
+    });
+
+    it("shows Claude's own subagents under the session that spawned them", () => {
+      // They are not DevKit sessions — nothing here created them and they cannot
+      // be opened — but a swarm only visible in the transcript cannot be seen
+      // from the rail at all.
+      const html = renderSidebar(
+        <AgentSidebarTree
+          sessions={[mockSession]}
+          subagents={{
+            "sess-abc12345": [
+              { id: "sub-1", name: "Explore", task: "map the repo", state: "completed" },
+              { id: "sub-2", name: "Verify" },
+            ],
+          }}
+          onSelectSession={() => {}}
+          onNewSession={() => {}}
+        />,
+      );
+
+      expect(html).toContain("Explore");
+      expect(html).toContain("Verify");
+      // Finished, and still going: no state on the spawn means it is working.
+      expect(html).toContain('data-status="closed"');
+      expect(html).toContain('data-status="running"');
+    });
+
     it("renders sidebar swarm tree with session count", () => {
-      const html = renderToString(
+      const html = renderSidebar(
         <AgentSidebarTree
           sessions={[mockSession, mockChildSession]}
           activeSessionId="sess-abc12345"
@@ -409,19 +491,22 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       // Figma 917:101: "indentation is the parent→child chain, which is also
       // the boundary an agent may act within." Two siblings at the same indent
       // read as two roots pushed right unless the guide line is there.
-      const html = renderToString(
+      const html = renderSidebar(
         <AgentSidebarTree
           sessions={[mockSession, mockChildSession]}
           onSelectSession={() => {}}
           onNewSession={() => {}}
         />,
       );
-      expect(html).toContain('data-testid="agent-tree-guide"');
-      expect(html).toContain("pl-4");
+      // The guide is components/tree-view's now — elbows and lines drawn per
+      // row, where this used to be a bare 1px span and a pl-4 that could not
+      // tell a second child from a second root.
+      expect(html).toContain("border-bottom-left-radius");
+      expect(html).toContain('aria-level="3"');
     });
 
     it("sums what is waiting into one footer line", () => {
-      const html = renderToString(
+      const html = renderSidebar(
         <AgentSidebarTree
           sessions={[mockSession, mockChildSession]}
           onSelectSession={() => {}}
@@ -448,7 +533,15 @@ describe("Agent Hub Phase 3 Surfaces", () => {
         title: "one",
         acpSessionId: "acp-v",
       };
-      const row = renderToString(<AgentRow session={claude} />);
+      const tree = (session: AgentSession) =>
+        renderSidebar(
+          <AgentSidebarTree
+            sessions={[session]}
+            onSelectSession={() => {}}
+            onNewSession={() => {}}
+          />,
+        );
+      const row = tree(claude);
       expect(row).toContain('data-vendor="claude"');
       expect(row).not.toContain("lucide-bot");
 
@@ -466,9 +559,7 @@ describe("Agent Hub Phase 3 Surfaces", () => {
 
       // A vendor DevKit has not drawn falls back to one shape on purpose, so
       // unknown is visibly unknown rather than wearing someone else's logo.
-      const unknown = renderToString(
-        <AgentRow session={{ ...claude, agentType: "acme-agent" }} />,
-      );
+      const unknown = tree({ ...claude, agentType: "acme-agent" });
       expect(unknown).not.toContain("data-vendor=");
       expect(unknown).toContain("lucide-bot");
     });
@@ -482,7 +573,7 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       // Handlers are invisible to renderToString, but the attributes the
       // trigger puts on its child are not — and they arrive by the same
       // clone. If these are missing, nothing was wired.
-      const html = renderToString(
+      const html = renderSidebar(
         <AgentSidebarTree
           sessions={[
             {
@@ -502,7 +593,7 @@ describe("Agent Hub Phase 3 Surfaces", () => {
         />,
       );
       expect(html).toContain('data-slot="context-menu-trigger"');
-      expect(html).toContain('data-testid="agent-row"');
+      expect(html).toContain('role="treeitem"');
     });
 
     it("counts the whole subtree, because that is what delete takes", () => {
@@ -541,7 +632,7 @@ describe("Agent Hub Phase 3 Surfaces", () => {
         title: id,
         acpSessionId: "acp-" + id,
       });
-      const html = renderToString(
+      const html = renderSidebar(
         <AgentSidebarTree
           sessions={[at("first", null), at("kid", "first"), at("second", null)]}
           // "kid" is pinned too, and must NOT be hoisted: a child drawn above

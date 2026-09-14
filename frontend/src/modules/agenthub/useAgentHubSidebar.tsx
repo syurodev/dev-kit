@@ -3,6 +3,7 @@ import { useMemo, useRef, useCallback } from "react";
 import { useSidebarContent } from "@/components/ui/sidebar-shell";
 import { AgentSidebarTree } from "./surfaces";
 import { useAgentPinsStore } from "../../stores/agentPins";
+import { useAgentSessionsStore } from "../../stores/agentSessions";
 import type { AgentSession } from "../../bridge/agenthub";
 
 /**
@@ -37,6 +38,10 @@ export function useAgentHubSidebar(args: {
   const { sessions, activeSessionId, pendingCounts } = args;
   const pinned = useAgentPinsStore((state) => state.pinned);
   const togglePin = useAgentPinsStore((state) => state.togglePin);
+  const collapsed = useAgentPinsStore((state) => state.collapsed);
+  const toggleCollapsed = useAgentPinsStore((state) => state.toggleCollapsed);
+  // Every session's subagents, not the open one's: the rail draws them all.
+  const subagents = useAgentSessionsStore((state) => state.subagents);
 
   // The callbacks are redefined every render by the view. Holding them in a ref
   // keeps them out of the memo below, so the rail re-registers when what it
@@ -74,8 +79,11 @@ export function useAgentHubSidebar(args: {
         sessions={sessions}
         activeSessionId={activeSessionId}
         pendingCounts={pendingCounts}
+        subagents={subagents}
         pinnedIds={pinned}
         onTogglePin={togglePin}
+        collapsedKeys={collapsed}
+        onToggleCollapsed={toggleCollapsed}
         onSelectSession={onSelectSession}
         onNewSession={onNewSession}
         onNewChildSession={onNewChildSession}
@@ -89,8 +97,11 @@ export function useAgentHubSidebar(args: {
       sessions,
       activeSessionId,
       pendingCounts,
+      subagents,
       pinned,
       togglePin,
+      collapsed,
+      toggleCollapsed,
       onSelectSession,
       onNewSession,
       onNewChildSession,

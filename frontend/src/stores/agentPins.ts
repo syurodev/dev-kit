@@ -9,6 +9,16 @@ type AgentPinsState = {
   isPinned: (sessionId: string) => boolean;
   togglePin: (sessionId: string) => void;
   unpin: (sessionId: string) => void;
+  /**
+   * Tree nodes the user folded shut, by the rail's own keys ("project:<path>",
+   * "session:<id>").
+   *
+   * Closed rather than open, so the default is an open tree: a project opened
+   * for the first time, or a session that just spawned its first subagent, has
+   * no entry here and shows. Storing the open ones would hide everything new.
+   */
+  collapsed: string[];
+  toggleCollapsed: (key: string) => void;
 };
 
 /**
@@ -35,11 +45,18 @@ export const useAgentPinsStore = create<AgentPinsState>()(
         })),
       unpin: (sessionId) =>
         set((state) => ({ pinned: state.pinned.filter((id) => id !== sessionId) })),
+      collapsed: [],
+      toggleCollapsed: (key) =>
+        set((state) => ({
+          collapsed: state.collapsed.includes(key)
+            ? state.collapsed.filter((k) => k !== key)
+            : [...state.collapsed, key],
+        })),
     }),
     {
       name: "agentPins",
       storage: uiStateStorage,
-      partialize: (state) => ({ pinned: state.pinned }),
+      partialize: (state) => ({ pinned: state.pinned, collapsed: state.collapsed }),
     },
   ),
 );

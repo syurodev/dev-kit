@@ -21,6 +21,7 @@ export function AgentSessionsSubscriber() {
   const upsertSession = useAgentSessionsStore((state) => state.upsertSession);
   const updateLines = useAgentSessionsStore((state) => state.updateLines);
   const enqueuePending = useAgentSessionsStore((state) => state.enqueuePending);
+  const trackSubagent = useAgentSessionsStore((state) => state.trackSubagent);
 
   useEffect(() => {
     let mounted = true;
@@ -73,6 +74,17 @@ export function AgentSessionsSubscriber() {
         }
       }
 
+      // The swarm rail shows every session's subagents, not just the open
+      // one's, so they are collected here rather than from the transcript the
+      // module builds for whichever session you are looking at.
+      if (
+        (event.parsed?.kind === UpdateKind.UpdateSubagentSpawned ||
+          event.parsed?.kind === UpdateKind.UpdateSubagentState) &&
+        event.parsed.subagent
+      ) {
+        trackSubagent(event.sessionId, event.parsed.subagent);
+      }
+
       // Synchronize tab status: find open tabs belonging to Agent Hub
       const { modules, setTabStatus } = useWorkbenchTabsStore.getState();
       const targetTabs = moduleTabs(modules, "agenthub").openTabs.filter(
@@ -95,7 +107,7 @@ export function AgentSessionsSubscriber() {
         }
       }
     });
-  }, [updateLines]);
+  }, [updateLines, trackSubagent]);
 
   useEffect(() => {
     return onAgentHubPermission(async (pending) => {
