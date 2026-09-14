@@ -355,20 +355,10 @@ func (s *Service) GetStatus(ctx context.Context, id string) (AgentSession, error
 	return s.store.GetSession(ctx, id)
 }
 
-// Transcript returns what was said in a session, oldest first. It is the read
-// side of the recorder: the UI calls it on mount and then follows live events,
-// which is what makes a reload mid-turn show the same thing it showed before.
-func (s *Service) Transcript(ctx context.Context, id string) ([]TranscriptEntry, error) {
-	if err := s.authorizeTarget(ctx, id); err != nil {
-		return nil, err
-	}
-	return s.store.ListTranscript(ctx, id)
-}
-
-// TranscriptPage is Transcript, bounded: the newest window of a session rather
-// than the whole of it. A session with months of history used to pay for all
-// of it on every open; the UI opens on the last page and walks backwards with
-// beforeSeq from the page it holds.
+// TranscriptPage is the transcript read, bounded: the newest window of a
+// session rather than the whole of it. A session with months of history used
+// to pay for all of it on every open; the UI opens on the last page and walks
+// backwards with beforeSeq from the page it holds.
 func (s *Service) TranscriptPage(ctx context.Context, sessionID string, beforeSeq int64, limit int) (TranscriptPage, error) {
 	if err := s.authorizeTarget(ctx, sessionID); err != nil {
 		return TranscriptPage{}, err

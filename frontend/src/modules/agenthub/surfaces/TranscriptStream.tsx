@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import { useReducedMotion } from "framer-motion";
 import { ScrollArea as ScrollAreaPrimitive } from "radix-ui";
 import { ScrollBar } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
@@ -22,8 +24,59 @@ export type TranscriptStreamProps = {
   /** Edit, in your own prompts' hover cards: the text goes back in the composer. */
   onEditPrompt?: (text: string) => void;
   loading?: boolean;
+  /** Older pages exist above the ones held (see useAgentTranscript). */
+  hasMore?: boolean;
+  /** An older page is in flight; the top pill says so instead of going quiet. */
+  loadingOlder?: boolean;
+  /** Walks one page further back. The stream anchors the scroll around it. */
+  onLoadOlder?: () => void;
   className?: string;
 };
+
+/**
+ * The scroll position a prepend has to preserve: the reader stays on the
+ * line they are on while the older page lands above it, so the viewport
+ * moves down by exactly the height that was inserted.
+ */
+export function anchoredScrollTop(
+  prevScrollTop: number,
+  prevScrollHeight: number,
+  nextScrollHeight: number,
+): number {
+  return prevScrollTop + (nextScrollHeight - prevScrollHeight);
+}
+
+/** How close to the top the older page is asked for. */
+const PRELOAD_MARGIN_PX = 120;
+
+/** Transcript turns are variable-height, so large histories need real windowing. */
+export const TRANSCRIPT_VIRTUALIZE_THRESHOLD = 300;
+export const TRANSCRIPT_OVERSCAN = 6;
+
+function scheduleTranscriptFrame(callback: () => void): () => void {
+  let active = true;
+  let frameId: number | undefined;
+  const timeoutId = setTimeout(run, 50);
+
+  function run() {
+    if (!active) return;
+    active = false;
+    if (frameId !== undefined && typeof cancelAnimationFrame === "function") {
+      cancelAnimationFrame(frameId);
+    }
+    clearTimeout(timeoutId);
+    callback();
+  }
+
+  if (typeof requestAnimationFrame === "function") frameId = requestAnimationFrame(run);
+  return () => {
+    active = false;
+    if (frameId !== undefined && typeof cancelAnimationFrame === "function") {
+      cancelAnimationFrame(frameId);
+    }
+    clearTimeout(timeoutId);
+  };
+}
 
 /**
  * TranscriptStream
@@ -44,6 +97,9 @@ export function TranscriptStream({
   onCopy,
   onEditPrompt,
   loading = false,
+  hasMore = false,
+  loadingOlder = false,
+  onLoadOlder,
   className,
 }: TranscriptStreamProps) {
   const previousTurnsRef = useRef<Turn[]>([]);
@@ -75,73 +131,216 @@ export function TranscriptStream({
     [Boolean(onEditPrompt)],
   );
   const scrollRef = useRef<HTMLDivElement>(null);
+  const reduce = useReducedMotion() ?? false;
   const [showJump, setShowJump] = useState(false);
   const [activeTick, setActiveTick] = useState(0);
   // Figma 951:2270 is opened from a message footer, so the transcript owns it:
   // one panel for whichever turn you asked about, not one per message.
   const [inspecting, setInspecting] = useState<TranscriptItem | null>(null);
   const isAtBottomRef = useRef(true);
+  const activeTickRef = useRef(0);
+  const scrollFrameRef = useRef<(() => void) | null>(null);
+  const autoScrollFrameRef = useRef<(() => void) | null>(null);
+  const pendingJumpRef = useRef<string | null>(null);
+  // The scroll geometry at the moment an older page was asked for. The
+  // layout effect below moves the viewport down by whatever the prepend
+  // inserted, so the line being read does not jump.
+  const prependAnchorRef = useRef<{ scrollTop: number; scrollHeight: number } | null>(null);
 
-  // Handle scroll events to detect if user has scrolled up away from latest
-  function handleScroll() {
-    const el = scrollRef.current;
-    if (!el) return;
-    const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    const atBottom = distanceToBottom < 80;
-    isAtBottomRef.current = atBottom;
-    setShowJump(!atBottom);
-    setActiveTick(tickInView(el));
+  const virtualized = turns.length > TRANSCRIPT_VIRTUALIZE_THRESHOLD;
+  const rowVirtualizer = useVirtualizer({
+    count: virtualized ? turns.length : 0,
+    getScrollElement: () => scrollRef.current,
+    getItemKey: (index) => turns[index]?.id ?? index,
+    estimateSize: () => 180,
+    overscan: TRANSCRIPT_OVERSCAN,
+    initialRect: { width: 0, height: 800 },
+  });
+  const virtualItems = rowVirtualizer.getVirtualItems();
+  const mountedTurnKey = virtualized
+    ? virtualItems.map((item) => `${item.index}:${turns[item.index]?.id ?? ""}`).join(",")
+    : turns.map((turn) => turn.id).join(",");
+  const tickIndexById = useMemo(() => new Map(ticks.map((tick, index) => [tick.id, index])), [ticks]);
+
+  function setActiveTickIfChanged(next: number) {
+    if (activeTickRef.current === next) return;
+    activeTickRef.current = next;
+    setActiveTick(next);
   }
+
+  // Scroll state is sampled once per frame. Reading the three scroll metrics in
+  // the event handler made a burst of wheel events compete with layout.
+  function handleScroll() {
+    if (scrollFrameRef.current) return;
+    scrollFrameRef.current = scheduleTranscriptFrame(() => {
+      scrollFrameRef.current = null;
+      const el = scrollRef.current;
+      if (!el) return;
+      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+      isAtBottomRef.current = atBottom;
+      setShowJump((previous) => (previous === !atBottom ? previous : !atBottom));
+      if (atBottom && ticks.length > 0) setActiveTickIfChanged(ticks.length - 1);
+      if (
+        hasMore &&
+        !loadingOlder &&
+        onLoadOlder &&
+        el.scrollTop <= PRELOAD_MARGIN_PX &&
+        !prependAnchorRef.current
+      ) {
+        prependAnchorRef.current = { scrollTop: el.scrollTop, scrollHeight: el.scrollHeight };
+        onLoadOlder();
+      }
+    });
+  }
+
+  // Keeps the reader where they were across a prepend. Layout effect, before
+  // paint: without it the browser paints the un-compensated scroll first and
+  // the transcript visibly jumps. Also re-runs when a requested page fails
+  // (items unchanged, loadingOlder back to false): the anchor is dropped so
+  // the next approach to the top can try again.
+  useLayoutEffect(() => {
+    const anchor = prependAnchorRef.current;
+    if (!anchor) return;
+    const el = scrollRef.current;
+    if (el && el.scrollHeight > anchor.scrollHeight) {
+      el.scrollTop = anchoredScrollTop(anchor.scrollTop, anchor.scrollHeight, el.scrollHeight);
+    }
+    prependAnchorRef.current = null;
+  }, [items, loadingOlder]);
 
   function sectionOf(id: string) {
     return scrollRef.current?.querySelector<HTMLElement>(`[data-turn-id="${CSS.escape(id)}"]`) ?? null;
   }
 
-  // The prompt you are reading: the last one that has reached the top of the
-  // reading area, just under the glass header — where a jump lands it. Scrolled
-  // all the way down, a short last turn can never climb that high, so there it
-  // is the last one showing above the composer.
-  function tickInView(el: HTMLDivElement): number {
-    const box = el.getBoundingClientRect();
-    const style = getComputedStyle(el);
-    const atEnd = el.scrollHeight - el.scrollTop - el.clientHeight < 2;
-    const line = atEnd
-      ? box.bottom - parseFloat(style.paddingBottom)
-      : box.top + parseFloat(style.paddingTop) + 8;
-    let found = 0;
-    ticks.forEach((tick, index) => {
-      const section = sectionOf(tick.id);
-      if (section && section.getBoundingClientRect().top <= line) found = index;
-    });
-    return found;
-  }
-
-  // Scrolls the transcript alone. scrollIntoView would also scroll every
-  // overflow-hidden ancestor up to the window, shifting the hub's layout.
-  function jumpTo(id: string) {
+  function scrollToSection(id: string, behavior: ScrollBehavior) {
     const el = scrollRef.current;
     const section = sectionOf(id);
     if (!el || !section) return;
     const margin = parseFloat(getComputedStyle(section).scrollMarginTop) || 0;
     const offset = section.getBoundingClientRect().top - el.getBoundingClientRect().top;
-    el.scrollTo({ top: el.scrollTop + offset - margin });
+    el.scrollTo({ top: el.scrollTop + offset - margin, behavior });
   }
 
-  // Auto-scroll on new items if user is already at the bottom
+  // A tick may point at a virtualized row. Bring that index into the window,
+  // then adjust for the glass header after React has mounted its section.
+  function jumpTo(id: string) {
+    const index = turns.findIndex((turn) => turn.id === id);
+    if (index < 0) return;
+    pendingJumpRef.current = id;
+    if (virtualized) {
+      rowVirtualizer.scrollToIndex(index, { align: "start", behavior: "auto" });
+      return;
+    }
+    pendingJumpRef.current = null;
+    scrollToSection(id, reduce ? "instant" : "smooth");
+  }
+
+  // Observe only mounted prompt sections. The narrow root band replaces a
+  // full transcript query + getBoundingClientRect scan on every scroll event.
   useEffect(() => {
     const el = scrollRef.current;
-    if (!el) return;
-    if (isAtBottomRef.current) {
-      el.scrollTop = el.scrollHeight;
-      setActiveTick(tickInView(el));
-    }
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const headerInset = parseFloat(getComputedStyle(el).getPropertyValue("--header-inset")) || 0;
+    const visible = new Map<string, number>();
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          const id = (entry.target as HTMLElement).dataset.turnId;
+          if (!id) continue;
+          if (entry.isIntersecting) visible.set(id, entry.boundingClientRect.top);
+          else visible.delete(id);
+        }
+        if (isAtBottomRef.current && ticks.length > 0) {
+          setActiveTickIfChanged(ticks.length - 1);
+          return;
+        }
+        let next = activeTickRef.current;
+        let top = Number.POSITIVE_INFINITY;
+        for (const [id, value] of visible) {
+          const index = tickIndexById.get(id);
+          if (index !== undefined && value < top) {
+            top = value;
+            next = index;
+          }
+        }
+        setActiveTickIfChanged(next);
+      },
+      { root: el, rootMargin: `-${headerInset}px 0px -70% 0px`, threshold: [0, 1] },
+    );
+    el.querySelectorAll<HTMLElement>("[data-turn-id]").forEach((section) => observer.observe(section));
+    return () => observer.disconnect();
+  }, [mountedTurnKey, ticks.length, tickIndexById]);
+
+  useEffect(() => {
+    const id = pendingJumpRef.current;
+    if (!id || !sectionOf(id)) return;
+    pendingJumpRef.current = null;
+    const cancel = scheduleTranscriptFrame(() => scrollToSection(id, reduce ? "instant" : "smooth"));
+    return cancel;
+  }, [mountedTurnKey, reduce]);
+
+  // Auto-scroll after a store flush, at most once in the next frame. The
+  // instant write avoids restarting a smooth animation for every token.
+  useEffect(() => {
+    autoScrollFrameRef.current?.();
+    autoScrollFrameRef.current = scheduleTranscriptFrame(() => {
+      autoScrollFrameRef.current = null;
+      const el = scrollRef.current;
+      if (!el || !isAtBottomRef.current) return;
+      el.scrollTo({ top: el.scrollHeight, behavior: "instant" });
+      if (ticks.length > 0) setActiveTickIfChanged(ticks.length - 1);
+    });
+    return () => {
+      autoScrollFrameRef.current?.();
+      autoScrollFrameRef.current = null;
+    };
   }, [items, ticks.length]);
+
+  useEffect(() => () => {
+    scrollFrameRef.current?.();
+    autoScrollFrameRef.current?.();
+  }, []);
 
   function scrollToBottom() {
     const el = scrollRef.current;
     if (!el) return;
-    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-    setShowJump(false);
+    isAtBottomRef.current = true;
+    el.scrollTo({ top: el.scrollHeight, behavior: reduce ? "instant" : "smooth" });
+    setShowJump((previous) => (previous ? false : previous));
+    if (ticks.length > 0) setActiveTickIfChanged(ticks.length - 1);
+  }
+
+  function renderTurn(turn: Turn, index: number) {
+    const latest = index === turns.length - 1;
+    return (
+      <AgentTurn
+        key={turn.id}
+        turn={turn}
+        latest={latest}
+        live={latest && streaming}
+        vendor={vendor}
+        onInspect={setInspecting}
+        onCopy={stableOnCopy}
+        onEditPrompt={stableOnEditPrompt}
+      />
+    );
+  }
+
+  function renderVirtualTurn(item: (typeof virtualItems)[number]) {
+    const turn = turns[item.index];
+    if (!turn) return null;
+    return (
+      <div
+        key={turn.id}
+        ref={rowVirtualizer.measureElement}
+        data-index={item.index}
+        data-testid="transcript-virtual-row"
+        className="absolute top-0 left-0 w-full pb-6"
+        style={{ transform: `translateY(${item.start}px)` }}
+      >
+        {renderTurn(turn, item.index)}
+      </div>
+    );
   }
 
   return (
@@ -164,7 +363,7 @@ export function TranscriptStream({
         // Radix wraps the content in a display:table div so it can scroll
         // sideways too; as a table it widens to fit a long code line and drags
         // the column past the pane. Block keeps it to the viewport's width.
-        className="size-full px-6 scroll-smooth [&>div]:block!"
+        className="size-full px-6 [&>div]:block!"
         // Clear of the glass header above and the floating composer below: both
         // sit over this scroller, and AgentHubContent measures each into a
         // variable so the first and last lines can scroll out from under them.
@@ -173,7 +372,33 @@ export function TranscriptStream({
           paddingBottom: "calc(var(--composer-inset, 0px) + var(--space-section))",
         }}
       >
-        <div className="mx-auto flex w-full max-w-180 flex-col gap-6">
+        <div
+          className={cn("relative mx-auto w-full max-w-180", !virtualized && "flex flex-col gap-6")}
+          style={virtualized ? { height: rowVirtualizer.getTotalSize() } : undefined}
+        >
+          {/* History is still above and the transcript says so — a silently
+              truncated conversation reads as complete and lies about what
+              the agent said. Reachable by scrolling; the pill is for the
+              first discovery and for when the preload has not fired. */}
+          {hasMore && items.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => onLoadOlder?.()}
+              disabled={loadingOlder || !onLoadOlder}
+              data-testid="transcript-load-older"
+              className={cn(
+                "mx-auto inline-flex items-center gap-2 rounded-full",
+                "border border-border-subtle bg-surface-base",
+                "px-4 py-1 text-caption-11 text-text-tertiary",
+                "cursor-pointer select-none",
+                "hover:text-text-secondary focus-visible:ring-ring focus-visible:ring-1 focus-visible:outline-none",
+                "disabled:cursor-default disabled:opacity-70",
+              )}
+            >
+              {loadingOlder ? "Loading earlier messages…" : "Load earlier messages"}
+            </button>
+          ) : null}
+
           {items.length === 0 && !loading ? (
             <div className="flex h-48 flex-col items-center justify-center text-center">
               <p className="text-body-13 text-text-secondary">No messages yet</p>
@@ -183,21 +408,7 @@ export function TranscriptStream({
             </div>
           ) : null}
 
-          {turns.map((turn, index) => {
-            const latest = index === turns.length - 1;
-            return (
-              <AgentTurn
-                key={turn.id}
-                turn={turn}
-                latest={latest}
-                live={latest && streaming}
-                vendor={vendor}
-                onInspect={setInspecting}
-                onCopy={stableOnCopy}
-                onEditPrompt={stableOnEditPrompt}
-              />
-            );
-          })}
+          {virtualized ? virtualItems.map(renderVirtualTurn) : turns.map(renderTurn)}
         </div>
       </ScrollAreaPrimitive.Viewport>
       {/* Clear of the header and composer, which float over both ends. Top and

@@ -463,6 +463,9 @@ export function AgentHubView() {
             items={transcriptModel.items}
             usage={transcriptModel.usage}
             commands={transcriptModel.commands}
+            hasMore={transcriptModel.hasMore}
+            loadingOlder={transcriptModel.loadingOlder}
+            onLoadOlder={transcriptModel.loadOlder}
             draft={draft ? { projectPath: draft.cwd, parentName: draft.parent?.title || undefined } : null}
             agents={vendors}
             agent={draftAgent}

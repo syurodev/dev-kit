@@ -1,6 +1,10 @@
 import { create } from "zustand";
 import type { AgentSession, PendingPermission } from "../bridge/agenthub";
-import type { Subagent, TranscriptModel } from "../modules/agenthub/types";
+import type {
+  Subagent,
+  TranscriptModel,
+  TranscriptPaging,
+} from "../modules/agenthub/types";
 import { useShallow } from "zustand/react/shallow";
 
 export const EMPTY_TRANSCRIPT_MODEL: TranscriptModel = {
@@ -37,6 +41,9 @@ type AgentSessionsState = {
   transcriptsById: Record<string, TranscriptModel>;
   transcriptLoadingById: Record<string, boolean>;
   transcriptErrorsById: Record<string, Error | null>;
+  /** Where each session's page walk stands — read by the transcript's top
+ * edge to say whether history is still above. */
+  transcriptPagingById: Record<string, TranscriptPaging>;
   promptBySession: Record<string, string>;
   /**
    * The agents Claude started inside its own process, by the session that owns
@@ -61,6 +68,7 @@ type AgentSessionsState = {
   setTranscript: (sessionId: string, model: TranscriptModel) => void;
   setTranscriptLoading: (sessionId: string, loading: boolean) => void;
   setTranscriptError: (sessionId: string, error: Error | null) => void;
+  setTranscriptPaging: (sessionId: string, paging: TranscriptPaging) => void;
   /**
    * Records a subagent_spawned or subagent_state_update. Neither message is
    * complete — the spawn names it, the state update only says how it ended —
@@ -82,6 +90,7 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set) => ({
   transcriptsById: {},
   transcriptLoadingById: {},
   transcriptErrorsById: {},
+  transcriptPagingById: {},
   promptBySession: {},
   subagents: {},
   pending: null,
@@ -111,6 +120,7 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set) => ({
       const { [id]: _transcript, ...transcriptsById } = state.transcriptsById;
       const { [id]: _loading, ...transcriptLoadingById } = state.transcriptLoadingById;
       const { [id]: _transcriptError, ...transcriptErrorsById } = state.transcriptErrorsById;
+      const { [id]: _paging, ...transcriptPagingById } = state.transcriptPagingById;
       const { [id]: _prompt, ...promptBySession } = state.promptBySession;
       return {
         sessionIds: state.sessionIds.filter((sessionId) => sessionId !== id),
@@ -118,6 +128,7 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set) => ({
         transcriptsById,
         transcriptLoadingById,
         transcriptErrorsById,
+        transcriptPagingById,
         promptBySession,
         subagents,
       };
@@ -134,6 +145,10 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set) => ({
   setTranscriptError: (sessionId, error) =>
     set((state) => ({
       transcriptErrorsById: { ...state.transcriptErrorsById, [sessionId]: error },
+    })),
+  setTranscriptPaging: (sessionId, paging) =>
+    set((state) => ({
+      transcriptPagingById: { ...state.transcriptPagingById, [sessionId]: paging },
     })),
   trackSubagent: (sessionId, subagent) =>
     set((state) => {

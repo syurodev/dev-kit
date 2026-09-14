@@ -397,10 +397,11 @@ func TestTranscriptSurvivesTheContextThatKilledTheTurn(t *testing.T) {
 	if recordErr != nil {
 		t.Fatalf("transcript write failed: %v", recordErr)
 	}
-	entries, err := svc.Transcript(context.Background(), sess.ID)
+	page, err := svc.TranscriptPage(context.Background(), sess.ID, 0, 0)
 	if err != nil {
 		t.Fatalf("transcript: %v", err)
 	}
+	entries := page.Entries
 	// Two rows: the prompt DevKit echoes in itself, then the agent's reply.
 	// Both are written under the context the dead turn cannot cancel.
 	if len(entries) != 2 {

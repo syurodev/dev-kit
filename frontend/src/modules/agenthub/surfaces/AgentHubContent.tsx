@@ -35,6 +35,10 @@ export type AgentHubContentProps = {
   items?: TranscriptItem[];
   usage?: Usage | null;
   commands?: AvailableCommand[];
+  /** Older transcript pages exist above the ones held (see useAgentTranscript). */
+  hasMore?: boolean;
+  loadingOlder?: boolean;
+  onLoadOlder?: () => void;
   promptValue: string;
   onPromptChange: (value: string) => void;
   onSend: () => void;
@@ -128,6 +132,9 @@ export function AgentHubContent({
   items = [],
   usage,
   commands = [],
+  hasMore = false,
+  loadingOlder = false,
+  onLoadOlder,
   promptValue,
   onPromptChange,
   onSend,
@@ -369,7 +376,14 @@ export function AgentHubContent({
           className="flex min-h-0 w-full flex-1 flex-col gap-6"
         >
           <div className="min-h-0 flex-1">
-            <TranscriptStream items={items} streamKey={session?.id} vendor={vendor} />
+            <TranscriptStream
+              items={items}
+              streamKey={session?.id}
+              vendor={vendor}
+              hasMore={hasMore}
+              loadingOlder={loadingOlder}
+              onLoadOlder={onLoadOlder}
+            />
           </div>
           <div className="w-full shrink-0 px-6 pb-6">
             <AgentSessionError
@@ -429,6 +443,9 @@ export function AgentHubContent({
                 streaming={streaming}
                 onCopy={onCopy}
                 onEditPrompt={onPromptChange}
+                hasMore={hasMore}
+                loadingOlder={loadingOlder}
+                onLoadOlder={onLoadOlder}
               />
             )}
           </div>

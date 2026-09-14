@@ -168,31 +168,13 @@ func (s *AppService) AgentHubGetStatus(id string) (agenthub.AgentSession, error)
 	return result.(agenthub.AgentSession), nil
 }
 
-// AgentHubTranscript returns what was said in a session, oldest first. It goes
-// through the same capability gateway as every other read — an agent asking for
-// another agent's transcript is refused by authorizeTarget, not by the UI.
-func (s *AppService) AgentHubTranscript(id string) ([]agenthub.TranscriptEntry, error) {
-	opaqueID := hubSessionID(id)
-	result, err := s.call(context.Background(), "builtin.agenthub", "agenthub:read", "session:"+opaqueID, map[string]any{
-		"action":     "transcript",
-		"session_id": opaqueID,
-	}, func(ctx context.Context) (any, error) {
-		svc, err := s.agentHubService()
-		if err != nil {
-			return nil, err
-		}
-		return svc.Transcript(ctx, id)
-	})
-	if err != nil {
-		return nil, err
-	}
-	return result.([]agenthub.TranscriptEntry), nil
-}
-
-// AgentHubTranscriptPage is AgentHubTranscript bounded to the newest window of
-// a session: beforeSeq walks backwards from the page already held (0 starts
-// from the end), limit is clamped server-side. The unbounded listing this
-// replaces made a session with months of history pay for all of it on open.
+// AgentHubTranscriptPage is the transcript read: the newest bounded window of
+// a session, oldest first. It goes through the same capability gateway as
+// every other read — an agent asking for another agent's transcript is
+// refused by authorizeTarget, not by the UI. beforeSeq walks backwards from
+// the page already held (0 starts from the end), limit is clamped
+// server-side; the unbounded listing this replaces made a session with months
+// of history pay for all of it on open.
 func (s *AppService) AgentHubTranscriptPage(id string, beforeSeq int64, limit int) (agenthub.TranscriptPage, error) {
 	opaqueID := hubSessionID(id)
 	result, err := s.call(context.Background(), "builtin.agenthub", "agenthub:read", "session:"+opaqueID, map[string]any{

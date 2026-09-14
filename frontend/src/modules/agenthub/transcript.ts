@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { UpdateKind, type TranscriptEntry } from "../../../bindings/devkit/internal/agenthub/models";
-import { agentHubTranscript, onAgentHubSessionUpdate } from "../../bridge/agenthub";
+import { agentHubTranscriptPage, onAgentHubSessionUpdate } from "../../bridge/agenthub";
 import {
   EMPTY_TRANSCRIPT_MODEL,
   useAgentSessionsStore,
@@ -393,6 +393,8 @@ export function initTranscript(
     const payload = parsePayload(asEntry.Payload ?? rec.payload);
     const createdAt = asEntry.CreatedAt ?? rec.createdAt;
     const updatedAt = asEntry.UpdatedAt ?? rec.updatedAt;
+    const seqRaw = asEntry.Seq ?? rec.seq;
+    const seq = typeof seqRaw === "number" && seqRaw > 0 ? seqRaw : undefined;
 
     if (kind === UpdateKind.UpdateUsage || kind === "usage_update") {
       if (payload.usage) {
@@ -431,6 +433,7 @@ export function initTranscript(
         model.items.push({
           id,
           kind,
+          seq,
           text: chunkText,
           messageId,
           raw: payload.raw,
@@ -466,6 +469,7 @@ export function initTranscript(
         model.items.push({
           id,
           kind,
+          seq,
           toolCallId: activeToolCallId,
           toolCall: call,
           raw: payload.raw,
@@ -483,6 +487,7 @@ export function initTranscript(
       model.items.push({
         id,
         kind,
+        seq,
         plan: payload.plan ?? [],
         raw: payload.raw,
         createdAt,
@@ -495,6 +500,7 @@ export function initTranscript(
     model.items.push({
       id,
       kind,
+      seq,
       raw: payload.raw ?? asEntry.Payload ?? rec.payload,
       createdAt,
       updatedAt,
@@ -502,6 +508,30 @@ export function initTranscript(
   }
 
   return model;
+}
+
+/**
+ * Prepends one older page onto the front of a model. The backend snaps page
+ * boundaries to turn starts, so no chunk run is ever split across the seam
+ * and the two item lists concatenate; the tool call index is rebuilt with the
+ * older page's offsets underneath. Session-level values (usage, commands,
+ * mode) stay the current ones — the page's are older by definition.
+ */
+export function prependTranscriptEntries(
+  model: TranscriptModel,
+  entries: (TranscriptEntry | Record<string, any>)[],
+): TranscriptModel {
+  const page = initTranscript(entries);
+  if (page.items.length === 0) return model;
+  const toolCallIndex = new Map(page.toolCallIndex);
+  for (const [id, index] of model.toolCallIndex) {
+    toolCallIndex.set(id, index + page.items.length);
+  }
+  return {
+    ...model,
+    items: [...page.items, ...model.items],
+    toolCallIndex,
+  };
 }
 
 /**
@@ -635,10 +665,20 @@ type TranscriptRuntime = {
   loadingUpdates: SessionUpdate[];
   buffer: TranscriptEventBuffer | null;
   loadPromise: Promise<void> | null;
+  /** The seq of the oldest page edge held; where the backwards walk resumes. */
+  oldestSeq: number | null;
+  loadingOlder: boolean;
 };
 
 const runtimes = new Map<string, TranscriptRuntime>();
 let streamStarted = false;
+
+const NO_MORE_PAGES = { hasMore: false, loadingOlder: false };
+
+function entrySeq(entry: TranscriptEntry | Record<string, any>): number | null {
+  const raw = (entry as TranscriptEntry).Seq ?? (entry as Record<string, any>).seq;
+  return typeof raw === "number" && raw > 0 ? raw : null;
+}
 
 function publishTranscript(sessionId: string, model: TranscriptModel): void {
   const state = useAgentSessionsStore.getState();
@@ -677,16 +717,21 @@ export function startAgentTranscriptStream(): void {
 
 async function loadTranscriptRuntime(sessionId: string, runtime: TranscriptRuntime): Promise<void> {
   try {
-    const entries = await agentHubTranscript(sessionId);
+    // The newest window, not the whole conversation: an old session used to
+    // ship months of rows on every open. Older pages arrive on demand as the
+    // reader scrolls up (loadOlderTranscript).
+    const page = await agentHubTranscriptPage(sessionId, 0, 0);
     if (runtimes.get(sessionId) !== runtime) return;
-    const model = applySessionUpdates(initTranscript(entries), runtime.loadingUpdates);
+    const model = applySessionUpdates(initTranscript(page.entries), runtime.loadingUpdates);
     runtime.loadingUpdates = [];
     runtime.model = model;
     runtime.buffer = makeBuffer(sessionId, model);
     runtime.loading = false;
+    runtime.oldestSeq = page.entries.length > 0 ? entrySeq(page.entries[0]) : null;
     const state = useAgentSessionsStore.getState();
     state.setTranscript(sessionId, model);
     state.setTranscriptError(sessionId, null);
+    state.setTranscriptPaging(sessionId, { hasMore: page.hasMore, loadingOlder: false });
   } catch (err) {
     if (runtimes.get(sessionId) !== runtime) return;
     const error = err instanceof Error ? err : new Error(String(err));
@@ -695,15 +740,61 @@ async function loadTranscriptRuntime(sessionId: string, runtime: TranscriptRunti
     runtime.model = model;
     runtime.buffer = makeBuffer(sessionId, model);
     runtime.loading = false;
+    runtime.oldestSeq = null;
     const state = useAgentSessionsStore.getState();
     state.setTranscript(sessionId, model);
     state.setTranscriptError(sessionId, error);
+    state.setTranscriptPaging(sessionId, NO_MORE_PAGES);
   } finally {
     runtime.loadPromise = null;
     if (runtimes.get(sessionId) === runtime) {
       useAgentSessionsStore.getState().setTranscriptLoading(sessionId, false);
     }
   }
+}
+
+/**
+ * Walks one page further back and prepends it. The view anchors the scroll
+ * before the items land (TranscriptStream), so the line being read stays put
+ * while the older history appears above it.
+ */
+function loadOlderTranscript(sessionId: string): void {
+  const runtime = runtimes.get(sessionId);
+  if (!runtime || runtime.loading || runtime.loadingOlder) return;
+  const before = runtime.oldestSeq;
+  if (before === null) return;
+  const state = useAgentSessionsStore.getState();
+  const paging = state.transcriptPagingById[sessionId] ?? NO_MORE_PAGES;
+  if (!paging.hasMore) return;
+
+  runtime.loadingOlder = true;
+  state.setTranscriptPaging(sessionId, { ...paging, loadingOlder: true });
+  void (async () => {
+    try {
+      const page = await agentHubTranscriptPage(sessionId, before, 0);
+      if (runtimes.get(sessionId) !== runtime) return;
+      // Land anything the buffer still holds first: the prepend merges from
+      // the buffer's own model, and losing the pending frame would drop the
+      // newest messages the reader just watched arrive.
+      runtime.buffer?.flush();
+      const merged = prependTranscriptEntries(runtime.model, page.entries);
+      runtime.model = merged;
+      runtime.buffer = makeBuffer(sessionId, merged);
+      runtime.oldestSeq = page.entries.length > 0 ? entrySeq(page.entries[0]) : null;
+      const next = useAgentSessionsStore.getState();
+      next.setTranscript(sessionId, merged);
+      next.setTranscriptPaging(sessionId, { hasMore: page.hasMore, loadingOlder: false });
+    } catch {
+      if (runtimes.get(sessionId) !== runtime) return;
+      // The walk stops but the history is still up there; say so rather than
+      // pretending the transcript is complete.
+      useAgentSessionsStore
+        .getState()
+        .setTranscriptPaging(sessionId, { hasMore: true, loadingOlder: false });
+    } finally {
+      runtime.loadingOlder = false;
+    }
+  })();
 }
 
 function ensureTranscript(sessionId: string): void {
@@ -717,6 +808,8 @@ function ensureTranscript(sessionId: string): void {
       loadingUpdates: [],
       buffer: null,
       loadPromise: null,
+      oldestSeq: null,
+      loadingOlder: false,
     };
     runtimes.set(sessionId, runtime);
   }
@@ -731,6 +824,7 @@ function reloadTranscript(sessionId: string): void {
   if (!runtime || runtime.loading) return;
   runtime.loading = true;
   runtime.loadingUpdates = [];
+  runtime.oldestSeq = null;
   runtime.buffer?.flush();
   runtime.buffer = null;
   useAgentSessionsStore.getState().setTranscriptLoading(sessionId, true);
@@ -755,6 +849,9 @@ export function useAgentTranscript(sessionId: string) {
   const error = useAgentSessionsStore(
     (state) => state.transcriptErrorsById[sessionId] ?? null,
   );
+  const paging = useAgentSessionsStore(
+    (state) => state.transcriptPagingById[sessionId] ?? NO_MORE_PAGES,
+  );
 
   useEffect(() => {
     ensureTranscript(sessionId);
@@ -765,5 +862,8 @@ export function useAgentTranscript(sessionId: string) {
     loading,
     error,
     reload: () => reloadTranscript(sessionId),
+    hasMore: paging.hasMore,
+    loadingOlder: paging.loadingOlder,
+    loadOlder: () => loadOlderTranscript(sessionId),
   };
 }

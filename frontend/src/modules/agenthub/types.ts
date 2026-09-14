@@ -199,6 +199,9 @@ export type ConfigSelectOption = {
 export type TranscriptItem = {
   id: string;
   kind: UpdateKind | string;
+  /** The persisted row's seq, when the item came from a page read. The walk
+   * backwards keys off it; live items have none yet. */
+  seq?: number;
   text?: string;
   messageId?: string;
   toolCallId?: string;
@@ -220,6 +223,16 @@ export type TranscriptModel = {
   mode: string | null;
   /** O(1) lookup for tool_call_update; maintained with the item snapshot. */
   toolCallIndex: Map<string, number>;
+};
+
+/**
+ * Where a session's transcript stands in the backwards page walk.
+ * hasMore false means the top of the conversation is on screen — until then
+ * the transcript says so rather than silently ending.
+ */
+export type TranscriptPaging = {
+  hasMore: boolean;
+  loadingOlder: boolean;
 };
 
 /**

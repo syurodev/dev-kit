@@ -228,12 +228,28 @@ export function agentHubDeleteSession(sessionId: string): Promise<void> {
   );
 }
 
-export function agentHubTranscript(
+export type TranscriptPage = {
+  entries: TranscriptEntry[];
+  hasMore: boolean;
+};
+
+/**
+ * The newest window of a session's transcript, oldest entry first. Open on
+ * this and walk backwards with the oldest seq of the page held — the
+ * unbounded listing this replaces made a session with months of history pay
+ * for all of it on every open. limit 0 asks the backend for its default.
+ */
+export function agentHubTranscriptPage(
   sessionId: string,
-): Promise<TranscriptEntry[]> {
+  beforeSeq = 0,
+  limit = 0,
+): Promise<TranscriptPage> {
   return callBridge(async () => {
-    const list = await AppService.AgentHubTranscript(sessionId);
-    return list ?? [];
+    const page = await AppService.AgentHubTranscriptPage(sessionId, beforeSeq, limit);
+    return {
+      entries: page?.entries ?? [],
+      hasMore: Boolean(page?.hasMore),
+    };
   });
 }
 
