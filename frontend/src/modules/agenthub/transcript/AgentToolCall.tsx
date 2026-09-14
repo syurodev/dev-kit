@@ -4,6 +4,7 @@ import { BookOpen, Bot, ChevronRight, FileEdit, Globe, Search, Terminal, Wrench 
 import { cn } from "@/lib/utils";
 import { AnimatedCollapse } from "@/components/ui/animated-collapse";
 import { agentHubToolCallDetail } from "../../../bridge/agenthub";
+import { parsePayload } from "../transcript";
 import type { ToolCall } from "../types";
 import { stepLabel } from "../turns";
 import { AgentFileChip } from "./AgentFileChip";
@@ -122,6 +123,22 @@ function isOneLineStatus(raw: string): boolean {
   return !text.startsWith("{") && !text.startsWith("[");
 }
 
+/**
+ * The whole tool call out of an agentHubToolCallDetail row. Payload is a Go
+ * json.RawMessage, so the bridge hands it over already decoded — an object,
+ * not a string. Parsing `String(payload)` parsed "[object Object]", threw,
+ * and "Show full output" always showed nothing.
+ */
+export function toolCallFromDetail(payload: unknown): ToolCall | null {
+  return parsePayload(payload).toolCall ?? null;
+}
+
+/** rawOutput as text: vendor JSON of any shape, strings kept as they are. */
+export function toolOutputText(raw: unknown): string {
+  if (raw === undefined || raw === null) return "";
+  return typeof raw === "string" ? raw : JSON.stringify(raw, null, 2);
+}
+
 export function AgentToolCall({
   call,
   defaultExpanded = false,
@@ -134,33 +151,27 @@ export function AgentToolCall({
   const state = toToolState(call.status);
   const title = call.title || call.kind || call.id || "Tool execution";
   const [expanded, setExpanded] = React.useState(defaultExpanded);
-  // The whole output of a truncated call, fetched on ask. Pages carry bounded
-  // previews so one huge terminal dump cannot make every page load heavy; the
-  // full text stays in the row and is one click away.
-  const [fullOutput, setFullOutput] = React.useState<string | null>(null);
+  // The whole call behind a truncated preview, fetched on ask. Pages carry
+  // bounded previews — raw fields, text content, diffs — so one huge terminal
+  // dump cannot make every page load heavy; the full row is one click away,
+  // and once loaded it replaces the preview's content too.
+  const [fullCall, setFullCall] = React.useState<ToolCall | null>(null);
   const [loadingFull, setLoadingFull] = React.useState(false);
   const canLoadFull = call.truncated && Boolean(sessionId);
   const loadFull = canLoadFull
     ? () => {
-        if (loadingFull || fullOutput !== null) return;
+        if (loadingFull || fullCall !== null) return;
         setLoadingFull(true);
         agentHubToolCallDetail(sessionId!, call.id)
-          .then((entry) => {
-            try {
-              const parsed = JSON.parse(String(entry?.Payload ?? "{}"));
-              const raw = parsed?.toolCall?.rawOutput;
-              setFullOutput(typeof raw === "string" ? raw : JSON.stringify(raw, null, 2));
-            } catch {
-              setFullOutput("");
-            }
-          })
-          .catch(() => setFullOutput(null))
+          .then((entry) => setFullCall(toolCallFromDetail(entry?.Payload) ?? { id: call.id }))
+          .catch(() => setFullCall(null))
           .finally(() => setLoadingFull(false));
       }
     : undefined;
+  const fullOutput = fullCall ? toolOutputText(fullCall.rawOutput) : null;
 
   const locations = call.locations ?? [];
-  const content = call.content ?? [];
+  const content = fullCall?.content ?? call.content ?? [];
   // Truncated output also makes the row openable: the preview is the summary,
   // the full text is what the disclosure holds.
   const hasBody = locations.length > 0 || content.length > 0 || canLoadFull;
@@ -236,7 +247,15 @@ export function AgentToolCall({
 
       {content.map((item, idx) => {
           if (item.type === "diff") {
-            return <AgentToolDiff key={idx} path={item.path} oldText={item.oldText} newText={item.newText} />;
+            return (
+              <AgentToolDiff
+                key={idx}
+                path={item.path}
+                oldText={item.oldText}
+                newText={item.newText}
+                truncated={item.truncated}
+              />
+            );
           }
           if (item.type === "terminal") {
             return <AgentToolTerminal key={idx} terminalId={item.terminalId} />;
@@ -254,14 +273,15 @@ export function AgentToolCall({
           return null;
         })}
 
-      {fullOutput !== null ? (
+      {fullOutput ? (
         <pre
           data-testid="tool-call-full-output"
           className="w-full max-w-full overflow-x-auto rounded-md bg-surface-base p-2 text-code-11 whitespace-pre text-text-secondary select-text"
         >
           <code>{fullOutput}</code>
         </pre>
-      ) : canLoadFull ? (
+      ) : null}
+      {fullCall === null && canLoadFull ? (
         <button
           type="button"
           onClick={loadFull}

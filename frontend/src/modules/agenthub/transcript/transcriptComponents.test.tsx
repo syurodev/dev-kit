@@ -15,6 +15,7 @@ import {
   AgentPlan,
   AgentSubagent,
 } from "./index";
+import { toolCallFromDetail, toolOutputText } from "./AgentToolCall";
 
 describe("Agent Hub Transcript Leaves", () => {
   describe("AgentMessage", () => {
@@ -197,6 +198,39 @@ describe("Agent Hub Transcript Leaves", () => {
         />,
       );
       expect(bare).not.toContain('data-testid="tool-call-load-full"');
+    });
+
+    it("reads the full call from a detail row whether Payload arrives decoded or as text", () => {
+      // Payload is a json.RawMessage: the bridge delivers it as an object, and
+      // parsing String(object) left "Show full output" empty every time.
+      const full = "line of output\n".repeat(2000);
+      const payload = { kind: "tool_call", toolCall: { id: "call-big", rawOutput: full } };
+      expect(toolOutputText(toolCallFromDetail(payload)?.rawOutput)).toBe(full);
+      expect(toolOutputText(toolCallFromDetail(JSON.stringify(payload))?.rawOutput)).toBe(full);
+      const json = { toolCall: { id: "call-mcp", rawOutput: { exit: 1 } } };
+      expect(toolOutputText(toolCallFromDetail(json)?.rawOutput)).toBe('{\n  "exit": 1\n}');
+    });
+
+    it("says a diff was too large to preview instead of calling it unchanged", () => {
+      const html = renderToString(
+        <AgentToolCall
+          sessionId="s1"
+          call={{
+            id: "call-edit",
+            kind: "edit",
+            title: "Edit main.go",
+            status: "completed",
+            truncated: true,
+            content: [{ type: "diff", path: "main.go", truncated: true }],
+          }}
+          defaultExpanded
+        />,
+      );
+      expect(html).toContain("main.go");
+      expect(html).toContain("too large to preview");
+      expect(html).not.toContain("unchanged");
+      expect(html).not.toContain("No textual change");
+      expect(html).toContain('data-testid="tool-call-load-full"');
     });
 
     it("renders running and awaiting statuses", () => {

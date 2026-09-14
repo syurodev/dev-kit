@@ -478,9 +478,13 @@ không cắt giữa một chunk-run (hai bubble khỏi một tin); snap có gi�
 trang nữa — vượt thì giữ nguyên chỗ cắt thay vì tạo gap với tới không được.
 `agenthub:sessionUpdate` chỉ mang `parsed` (một nguồn); Raw bị bỏ cho kind
 chunk/tool vì dạng chuẩn hoá đã mang đủ từng byte — unknown kind vẫn giữ Raw
-(nội dung duy nhất của nó, Meta Inspector đọc đó). Tool call có
-rawInput/rawOutput lớn được cắt preview 8 KiB + cờ `truncated` ở mức trang;
-`AgentHubToolCallDetail` trả nguyên bản theo id.
+(nội dung duy nhất của nó, Meta Inspector đọc đó). Ở mức trang, mỗi tool call
+bị giới hạn 8 KiB cho từng rawInput/rawOutput (cắt ở ranh giới UTF-8, mã hoá
+bằng `encoding/json` — cả dấu nháy và escape nằm trong giới hạn), từng text
+content, và bỏ hẳn Raw (dòng cũ vẫn còn giữ nó); diff quá lớn không bao giờ
+bị cắt giữa chừng — chỉ giữ path + `truncated` và UI ghi "too large to
+preview". Có cắt thì call mang cờ `truncated`; `AgentHubToolCallDetail` trả
+nguyên bản theo id và "Show full output" thay preview bằng bản đầy đủ đó.
 
 **Retention theo session, không theo row.** `PruneAbandonedTranscripts` xóa
 transcript của những session im lặng quá 90 ngày (cả session, session row giữ

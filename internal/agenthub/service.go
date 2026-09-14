@@ -9,11 +9,11 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"devkit/internal/acp"
 	"devkit/internal/identity"
@@ -461,11 +461,12 @@ func (s *Service) TranscriptPage(ctx context.Context, sessionID string, beforeSe
 	return page, nil
 }
 
-// previewToolPayloads shortens oversized rawInput/rawOutput in a page's tool
-// rows to ToolRawPreviewLimit and marks the call truncated. The cut preview
-// becomes a JSON string — the field is vendor-shaped JSON of any type, and a
-// byte slice through it would not parse. A cut may land mid-rune; a preview
-// that ends in U+FFFD is a fair price for a bounded page.
+// previewToolPayloads bounds what a page carries for each tool row: rawInput,
+// rawOutput and text content are cut to ToolRawPreviewLimit, a diff too large
+// to preview keeps only its path, and Raw is dropped outright — for tool rows
+// it is a copy of those same fields, and rows written before the parser
+// stopped keeping it would otherwise ship it whole. Anything cut marks the
+// call truncated; ToolCallDetail still serves the row intact.
 func previewToolPayloads(entries []TranscriptEntry) []TranscriptEntry {
 	for i, entry := range entries {
 		if entry.ToolCallID == "" || len(entry.Payload) == 0 {
@@ -475,14 +476,19 @@ func previewToolPayloads(entries []TranscriptEntry) []TranscriptEntry {
 		if err := json.Unmarshal(entry.Payload, &stored); err != nil || stored.ToolCall == nil {
 			continue
 		}
-		input, inCut := previewRaw(stored.ToolCall.RawInput)
-		output, outCut := previewRaw(stored.ToolCall.RawOutput)
-		if !inCut && !outCut {
+		call := stored.ToolCall
+		changed := len(stored.Raw) > 0
+		stored.Raw = nil
+		var inCut, outCut bool
+		call.RawInput, inCut = previewRaw(call.RawInput)
+		call.RawOutput, outCut = previewRaw(call.RawOutput)
+		if contentCut := previewToolContent(call.Content); inCut || outCut || contentCut {
+			call.Truncated = true
+			changed = true
+		}
+		if !changed {
 			continue
 		}
-		stored.ToolCall.RawInput = input
-		stored.ToolCall.RawOutput = output
-		stored.ToolCall.Truncated = true
 		payload, err := json.Marshal(stored)
 		if err != nil {
 			continue
@@ -492,13 +498,86 @@ func previewToolPayloads(entries []TranscriptEntry) []TranscriptEntry {
 	return entries
 }
 
-// previewRaw passes small values through untouched and cuts big ones to a
-// quoted string of the first limit bytes.
+// previewRaw passes small values through untouched and turns big ones into a
+// JSON string of their leading bytes — the field is vendor-shaped JSON of any
+// type, and a byte slice of it would not parse. The string is encoded by
+// encoding/json from a cut that ends on a rune boundary: strconv.Quote, used
+// before, writes \xNN and \U escapes JSON does not have, so a cut through a
+// multi-byte character failed the page marshal and sent the row out whole.
+// The encoded preview, quotes and escapes included, fits the limit.
 func previewRaw(raw json.RawMessage) (json.RawMessage, bool) {
 	if len(raw) <= ToolRawPreviewLimit {
 		return raw, false
 	}
-	return json.RawMessage(strconv.Quote(string(raw[:ToolRawPreviewLimit]))), true
+	text := string(raw)
+	n := ToolRawPreviewLimit
+	for {
+		encoded, _ := json.Marshal(truncateUTF8(text, n))
+		if len(encoded) <= ToolRawPreviewLimit {
+			return encoded, true
+		}
+		// Escapes grew it past the limit (HTML-escaped <>&, control
+		// characters): shrink the cut in proportion. n strictly decreases,
+		// and an empty cut encodes to two bytes, so this ends.
+		n = n * ToolRawPreviewLimit / len(encoded)
+	}
+}
+
+// previewToolContent shortens oversized content items in place and reports
+// whether it cut anything. A diff is never cut inside — half an oldText against
+// half a newText renders as a change nobody made — so one too large to preview
+// keeps its path and is marked truncated; an image's data cannot be half-shown
+// either and is dropped the same way.
+func previewToolContent(content []ToolCallContent) bool {
+	cut := false
+	for i := range content {
+		item := &content[i]
+		if item.Type == "diff" {
+			size := len(item.NewText)
+			if item.OldText != nil {
+				size += len(*item.OldText)
+			}
+			if size > ToolRawPreviewLimit {
+				item.OldText, item.NewText, item.Truncated = nil, "", true
+				cut = true
+			}
+			continue
+		}
+		block := item.Content
+		if block == nil {
+			continue
+		}
+		if len(block.Text) > ToolRawPreviewLimit {
+			block.Text = truncateUTF8(block.Text, ToolRawPreviewLimit)
+			item.Truncated = true
+		}
+		if len(block.Data) > ToolRawPreviewLimit {
+			block.Data = ""
+			item.Truncated = true
+		}
+		if block.Resource != nil && len(block.Resource.Text) > ToolRawPreviewLimit {
+			block.Resource.Text = truncateUTF8(block.Resource.Text, ToolRawPreviewLimit)
+			item.Truncated = true
+		}
+		if block.Resource != nil && len(block.Resource.Blob) > ToolRawPreviewLimit {
+			block.Resource.Blob = ""
+			item.Truncated = true
+		}
+		cut = cut || item.Truncated
+	}
+	return cut
+}
+
+// truncateUTF8 returns at most n bytes of s, backed off to the start of the rune
+// the cut would split.
+func truncateUTF8(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for i := 0; i < utf8.UTFMax-1 && n > 0 && !utf8.RuneStart(s[n]); i++ {
+		n--
+	}
+	return s[:n]
 }
 
 // ToolCallDetail returns the stored row of one tool call, payload intact. The

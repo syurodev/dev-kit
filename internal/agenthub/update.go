@@ -84,6 +84,9 @@ type ToolCallContent struct {
 	// TerminalID is set when Type == "terminal" and refers to a terminal the
 	// agent created through ACP's terminal/* methods.
 	TerminalID string `json:"terminalId,omitempty"`
+	// Truncated says the page read shortened this item: text cut to a
+	// preview, or a diff too large to preview reduced to its path.
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 // ToolCall is the normalized form of a tool_call / tool_call_update payload.

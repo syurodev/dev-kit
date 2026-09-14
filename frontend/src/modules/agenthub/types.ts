@@ -42,6 +42,9 @@ export type ToolCallContent = {
   oldText?: string | null;
   newText?: string;
   terminalId?: string;
+  /** Set by the page read: text cut to a preview, or a diff too large to
+   * preview reduced to its path. */
+  truncated?: boolean;
 };
 
 /**

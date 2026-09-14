@@ -8,6 +8,9 @@ export type AgentToolDiffProps = {
   path?: string | null;
   oldText?: string | null;
   newText?: string | null;
+  /** The page read dropped this diff's texts because it was too large to
+   * preview; the tool call's "Show full output" loads it whole. */
+  truncated?: boolean;
   className?: string;
 };
 
@@ -30,10 +33,11 @@ export function AgentToolDiff({
   path,
   oldText = "",
   newText = "",
+  truncated = false,
   className,
 }: AgentToolDiffProps) {
-  const safeOld = oldText ?? "";
-  const safeNew = newText ?? "";
+  const safeOld = truncated ? "" : (oldText ?? "");
+  const safeNew = truncated ? "" : (newText ?? "");
 
   const lines: DiffLine[] = useMemo(
     () => (!safeOld && !safeNew ? [] : lineDiff(safeOld, safeNew)),
@@ -63,22 +67,27 @@ export function AgentToolDiff({
         <span className="min-w-0 flex-1 truncate text-code-11 text-text-secondary">
           {path ?? "diff"}
         </span>
-        {stats.added > 0 ? (
+        {/* No counts and no "unchanged": the texts are not here to count, and
+            saying nothing changed about a diff too big to show would be a lie. */}
+        {truncated ? (
+          <span className="shrink-0 text-caption-11 text-text-tertiary">too large to preview</span>
+        ) : null}
+        {!truncated && stats.added > 0 ? (
           <span className="shrink-0 text-caption-11 whitespace-nowrap text-status-success">
             {`+${stats.added}`}
           </span>
         ) : null}
-        {stats.removed > 0 ? (
+        {!truncated && stats.removed > 0 ? (
           <span className="shrink-0 text-caption-11 whitespace-nowrap text-status-danger">
             {`−${stats.removed}`}
           </span>
         ) : null}
-        {stats.added === 0 && stats.removed === 0 ? (
+        {!truncated && stats.added === 0 && stats.removed === 0 ? (
           <span className="shrink-0 text-caption-11 text-text-tertiary">unchanged</span>
         ) : null}
       </div>
 
-      {lines.length > 0 ? (
+      {truncated ? null : lines.length > 0 ? (
         <div className="w-full overflow-x-auto rounded-sm bg-surface-base text-code-12 select-text">
           {lines.map((line, idx) => (
             <div
