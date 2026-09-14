@@ -217,6 +217,7 @@ describe("Agent Hub Transcript Reducer & Coalescing", () => {
     expect(model.items[0].toolCall?.status).toBe("completed");
     expect(model.items[0].toolCall?.title).toBe("Build");
     expect(model.items[1].kind).toBe(UpdateKind.UpdateAgentMessageChunk);
+    expect(model.toolCallIndex.get("c1")).toBe(0);
   });
 
   it("updates session-level usage without adding a transcript row", () => {
