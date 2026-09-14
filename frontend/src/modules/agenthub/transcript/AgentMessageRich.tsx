@@ -2,7 +2,12 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 import { AgentCodeBlock } from "./AgentCodeBlock";
-import { parseInline, parseMarkdown, type MarkdownBlock } from "./agentMarkdown";
+import {
+  parseInline,
+  parseMarkdownIncremental,
+  type IncrementalMarkdownState,
+  type MarkdownBlock,
+} from "./agentMarkdown";
 
 export type AgentMessageRichProps = {
   /** Markdown as the agent sent it. */
@@ -233,8 +238,14 @@ export type AgentProseProps = {
  * and the agent's answer is a document — headings, lists, code — that a rounded
  * card squeezes into looking like a chat line.
  */
-export function AgentProse({ text, wrapBlock, className }: AgentProseProps) {
-  const blocks = React.useMemo(() => parseMarkdown(text), [text]);
+export const AgentProse = React.memo(function AgentProse({ text, wrapBlock, className }: AgentProseProps) {
+  const markdownRef = React.useRef<IncrementalMarkdownState | undefined>(undefined);
+  const markdown = React.useMemo(() => {
+    const next = parseMarkdownIncremental(text, markdownRef.current);
+    markdownRef.current = next;
+    return next;
+  }, [text]);
+  const { blocks, blockKeys } = markdown;
   return (
     <div
       data-testid="agent-prose"
@@ -242,8 +253,8 @@ export function AgentProse({ text, wrapBlock, className }: AgentProseProps) {
     >
       {blocks.map((block, idx) => {
         const node = <Block block={block} />;
-        return <React.Fragment key={idx}>{wrapBlock ? wrapBlock(node, idx) : node}</React.Fragment>;
+        return <React.Fragment key={blockKeys[idx]}>{wrapBlock ? wrapBlock(node, idx) : node}</React.Fragment>;
       })}
     </div>
   );
-}
+});

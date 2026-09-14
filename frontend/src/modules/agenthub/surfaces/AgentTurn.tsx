@@ -78,10 +78,18 @@ export const AgentTurn = React.memo(function AgentTurn({
   const answer = React.useMemo(() => turn.answer.filter((item) => item.text?.trim()), [turn.answer]);
   const worked = React.useMemo(() => (live ? "Worked" : workedFor(turn)), [live, turn]);
   const segments = React.useMemo(() => (open ? workSegments(turn.work) : []), [open, turn.work]);
-  // Reduce Motion keeps the fade and drops the travel, scale and blur — the
+  // Reduce Motion keeps the fade and drops the travel and scale — the
   // parts accessibility.md › Motion names, "zooming, scaling, and peripheral
   // motion". Text still arrives; it just stops moving to get there.
-  const from = reduce ? { opacity: 0 } : FADE_THROUGH.from;
+  const from = React.useMemo(() => (reduce ? { opacity: 0 } : FADE_THROUGH.from), [reduce]);
+  const wrapAnswerBlock = React.useCallback(
+    (block: React.ReactNode) => (
+      <motion.div initial={live ? from : false} animate={FADE_THROUGH.to} transition={FADE_THROUGH.enter}>
+        {block}
+      </motion.div>
+    ),
+    [from, live],
+  );
 
   return (
     <section
@@ -161,11 +169,7 @@ export const AgentTurn = React.memo(function AgentTurn({
               // Only while the turn is live, and only on mount: a block of the
               // answer arrives once, and the text streaming into it afterwards is
               // already motion enough. A loaded history renders standing still.
-              wrapBlock={(block) => (
-                <motion.div initial={live ? from : false} animate={FADE_THROUGH.to} transition={FADE_THROUGH.enter}>
-                  {block}
-                </motion.div>
-              )}
+              wrapBlock={wrapAnswerBlock}
             />
           </div>
         </MessageHoverCard>

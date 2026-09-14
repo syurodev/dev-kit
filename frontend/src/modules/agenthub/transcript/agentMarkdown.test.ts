@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { parseInline, parseMarkdown } from "./agentMarkdown";
+import { parseInline, parseMarkdown, parseMarkdownIncremental } from "./agentMarkdown";
 
 describe("agentMarkdown", () => {
   it("reads the blocks Agent / Message Rich draws", () => {
@@ -68,6 +68,39 @@ describe("agentMarkdown", () => {
     const blocks = parseMarkdown("run `grep foo | wc -l` to count");
     expect(blocks).toHaveLength(1);
     expect(blocks[0].type).toBe("paragraph");
+  });
+
+  it("matches one-shot parsing while code, tables, and lists stream", () => {
+    const source = [
+      "Introductory paragraph.",
+      "",
+      "```ts",
+      "const answer = await run();",
+      "",
+      "return answer;",
+      "```",
+      "",
+      "| Name | Status |",
+      "| --- | :---: |",
+      "| stream | passed |",
+      "",
+      "- keep old blocks",
+      "- update the tail",
+    ].join("\n");
+    let state;
+    for (let offset = 1; offset <= source.length; offset += 3) {
+      const prefix = source.slice(0, offset);
+      state = parseMarkdownIncremental(prefix, state);
+      expect(state.blocks).toEqual(parseMarkdown(prefix));
+    }
+    state = parseMarkdownIncremental(source, state);
+    expect(state.blocks).toEqual(parseMarkdown(source));
+  });
+
+  it("keeps the active block key while its text grows", () => {
+    const first = parseMarkdownIncremental("A paragraph that is still streaming");
+    const second = parseMarkdownIncremental(`${first.source} with another token`, first);
+    expect(second.blockKeys).toEqual(first.blockKeys);
   });
 
   it("reads inline code, links and emphasis", () => {

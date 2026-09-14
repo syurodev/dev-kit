@@ -28,6 +28,16 @@ export type MarkdownBlock =
   | { type: "code"; language?: string; code: string }
   | { type: "table"; head: string[]; rows: string[][]; align: TableAlign[] };
 
+export type IncrementalMarkdownState = {
+  source: string;
+  blocks: MarkdownBlock[];
+  /** The prefix ends at a safe block boundary; only the suffix is provisional. */
+  closedPrefixLength: number;
+  closedBlocks: MarkdownBlock[];
+  blockKeys: string[];
+  closedKeys: string[];
+};
+
 /** A column's alignment, as its divider cell spells it: `:---`, `:---:`, `---:`. */
 export type TableAlign = "left" | "center" | "right";
 
@@ -43,6 +53,38 @@ const BULLET = /^\s*[-*+]\s+(.*)$/;
 const ORDERED = /^\s*\d+[.)]\s+(.*)$/;
 const FENCE = /^```(\w*)\s*$/;
 const TABLE_DIVIDER = /^\s*\|?[\s:-]*-[\s|:-]*\|?\s*$/;
+let nextBlockKey = 0;
+
+function newBlockKey(): string {
+  nextBlockKey += 1;
+  return `agent-block-${nextBlockKey}`;
+}
+
+/** Find the longest prefix that cannot be changed by more incoming lines. */
+function closedPrefixOf(source: string): number {
+  const lines = source.split("\n");
+  let offset = 0;
+  let closed = 0;
+  let inFence = false;
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const end = offset + line.length + (index < lines.length - 1 ? 1 : 0);
+    if (FENCE.test(line)) {
+      if (inFence) closed = end;
+      inFence = !inFence;
+    } else if (!inFence && !line.trim()) {
+      closed = end;
+    }
+    offset = end;
+  }
+  return closed;
+}
+
+function tailKeys(blocks: MarkdownBlock[], previousBlocks: MarkdownBlock[], previousKeys: string[]): string[] {
+  return blocks.map((block, index) =>
+    previousBlocks[index]?.type === block.type && previousKeys[index] ? previousKeys[index] : newBlockKey(),
+  );
+}
 
 function splitRow(line: string): string[] {
   return line
@@ -148,6 +190,67 @@ export function parseMarkdown(source: string): MarkdownBlock[] {
   }
 
   return blocks;
+}
+
+/**
+ * Parses a growing answer by retaining blocks before the last safe boundary.
+ * A code fence only becomes safe at its closing fence; blank lines are safe
+ * for the line-based blocks this renderer supports. The remaining tail is
+ * deliberately reparsed because it may still become a table, list, or fence.
+ */
+export function parseMarkdownIncremental(
+  source: string,
+  previous?: IncrementalMarkdownState,
+): IncrementalMarkdownState {
+  const normalized = source.replace(/\r\n?/g, "\n");
+  const closedPrefixLength = closedPrefixOf(normalized);
+  const canExtend = previous && normalized.startsWith(previous.source);
+
+  if (!canExtend) {
+    const closedBlocks = parseMarkdown(normalized.slice(0, closedPrefixLength));
+    const tailBlocks = parseMarkdown(normalized.slice(closedPrefixLength));
+    const closedKeys = closedBlocks.map(() => newBlockKey());
+    const tailBlockKeys = tailBlocks.map(() => newBlockKey());
+    return {
+      source: normalized,
+      blocks: [...closedBlocks, ...tailBlocks],
+      closedPrefixLength,
+      closedBlocks,
+      blockKeys: [...closedKeys, ...tailBlockKeys],
+      closedKeys,
+    };
+  }
+
+  const oldClosedCount = previous.closedBlocks.length;
+  const oldTailBlocks = previous.blocks.slice(oldClosedCount);
+  const oldTailKeys = previous.blockKeys.slice(oldClosedCount);
+  let closedBlocks = previous.closedBlocks;
+  let closedKeys = previous.closedKeys;
+
+  if (closedPrefixLength > previous.closedPrefixLength) {
+    const newlyClosed = parseMarkdown(normalized.slice(previous.closedPrefixLength, closedPrefixLength));
+    const newlyClosedKeys = newlyClosed.map((block, index) => {
+      const old = oldTailBlocks[index];
+      return old?.type === block.type && oldTailKeys[index] ? oldTailKeys[index] : newBlockKey();
+    });
+    closedBlocks = [...closedBlocks, ...newlyClosed];
+    closedKeys = [...closedKeys, ...newlyClosedKeys];
+  }
+
+  const tailStart = closedPrefixLength;
+  const tailBlocks = parseMarkdown(normalized.slice(tailStart));
+  const tailBlockKeys =
+    closedPrefixLength > previous.closedPrefixLength
+      ? tailBlocks.map(() => newBlockKey())
+      : tailKeys(tailBlocks, oldTailBlocks, oldTailKeys);
+  return {
+    source: normalized,
+    blocks: [...closedBlocks, ...tailBlocks],
+    closedPrefixLength,
+    closedBlocks,
+    blockKeys: [...closedKeys, ...tailBlockKeys],
+    closedKeys,
+  };
 }
 
 const INLINE =

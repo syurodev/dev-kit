@@ -52,7 +52,9 @@ export const CONTENT_FADE_DELAY = 0.06;
  * answer a click and have to be quick; this is text someone is reading, and at
  * 180ms a 2px blur resolves too fast to register as anything but a flicker.
  * The values are the spec's, from
- * .agents/skills/animate-text/assets/specs/fade-through.json.
+ * .agents/skills/animate-text/assets/specs/fade-through.json. The entry keeps
+ * to opacity, travel, and a small scale change: blur made a streamed answer
+ * pay for a filter layer on every new block.
  *
  * `delay` is the swap: the spec starts the new text at exit − overlap(20ms) +
  * micro-delay(60ms). AnimatePresence's "wait" already holds the new text for
@@ -62,7 +64,7 @@ export const FADE_THROUGH = {
   enter: { duration: 0.42, ease: [0.2, 0, 0, 1] as const },
   exit: { duration: 0.26, ease: [0.4, 0, 1, 1] as const },
   delay: 0.04,
-  from: { opacity: 0, y: 6, scale: 0.99, filter: "blur(2px)" },
-  to: { opacity: 1, y: 0, scale: 1, filter: "blur(0px)" },
+  from: { opacity: 0, y: 6, scale: 0.99 },
+  to: { opacity: 1, y: 0, scale: 1 },
   out: { opacity: 0, y: -4 },
 } as const;

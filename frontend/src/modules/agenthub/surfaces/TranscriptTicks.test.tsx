@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { renderToString } from "react-dom/server";
 import { TranscriptTicks, ticksOf } from "./TranscriptTicks";
+import { groupTurns } from "../turns";
 
 describe("ticksOf", () => {
   it("makes one tick per prompt, with the answer as plain text", () => {
@@ -23,6 +24,22 @@ describe("ticksOf", () => {
       { id: "t3", prompt: "table", answer: "./gradlew build A B x 1" },
       { id: "t2", prompt: "run tests", answer: undefined },
     ]);
+  });
+
+  it("retains ticks for turns whose identity did not change", () => {
+    const rows = [
+      { id: "prompt-1", kind: "user_message_chunk", text: "first" },
+      { id: "answer-1", kind: "agent_message_chunk", text: "one" },
+      { id: "prompt-2", kind: "user_message_chunk", text: "second" },
+      { id: "answer-2", kind: "agent_message_chunk", text: "two" },
+    ];
+    const previousTurns = groupTurns(rows);
+    const previousTicks = ticksOf(previousTurns);
+    const currentTurns = groupTurns([...rows.slice(0, -1), { ...rows[3], text: "two more" }], previousTurns);
+    const currentTicks = ticksOf(currentTurns, previousTurns, previousTicks);
+
+    expect(currentTicks[0]).toBe(previousTicks[0]);
+    expect(currentTicks[1]).not.toBe(previousTicks[1]);
   });
 });
 
