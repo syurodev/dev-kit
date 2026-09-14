@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { anchoredScrollTop } from "./surfaces/TranscriptStream";
-import { initTranscript, prependTranscriptEntries } from "./transcript";
+import { initTranscript, modelFromNewestPage, prependTranscriptEntries } from "./transcript";
 import { EMPTY_TRANSCRIPT_MODEL } from "../../stores/agentSessions";
 import type { TranscriptModel } from "./types";
 
@@ -82,6 +82,65 @@ describe("prependTranscriptEntries", () => {
       }),
     ]);
     expect(merged.usage?.used).toBe(99);
+  });
+});
+
+describe("modelFromNewestPage", () => {
+  const chunk = (kind: string, messageId: string, text: string) => ({
+    kind,
+    messageId,
+    content: { type: "text", text },
+  });
+
+  test("restores session state that sits above the newest window", () => {
+    // A long session: the state rows keep the seq their kind first appeared
+    // at, far above the 200 rows the newest page holds.
+    const entries = Array.from({ length: 200 }, (_, i) =>
+      pageEntry(301 + i, { Kind: "agent_message_chunk", Text: `row ${i}`, Payload: { messageId: `m${i}` } }),
+    );
+    const state = [
+      pageEntry(3, { Kind: "current_mode_update", Payload: { mode: "plan" } }),
+      pageEntry(4, { Kind: "config_option_update", Payload: { configOptions: [{ id: "model", name: "Model" }] } }),
+      pageEntry(5, { Kind: "available_commands_update", Payload: { commands: [{ name: "review" }] } }),
+      pageEntry(6, { Kind: "usage_update", Payload: { usage: { used: 10, size: 100, amount: 0.1 } } }),
+    ];
+    const model = modelFromNewestPage({ entries, state }, [], "s1");
+    expect(model.mode).toBe("plan");
+    expect(model.configOptions.map((option) => option.id)).toEqual(["model"]);
+    expect(model.commands.map((command) => command.name)).toEqual(["review"]);
+    expect(model.usage?.used).toBe(10);
+    expect(model.items).toHaveLength(200);
+  });
+
+  test("does not append chunks the page already stored", () => {
+    // The backend flushed "Hello wor" before reading; "ld" was still in flight.
+    const entries = [
+      pageEntry(1, { Kind: "user_message_chunk", Text: "hi", Payload: { messageId: "u1" } }),
+      pageEntry(2, { Kind: "agent_message_chunk", Text: "Hello wor", Payload: { messageId: "m1" } }),
+    ];
+    const buffered = [
+      chunk("user_message_chunk", "u1", "hi"),
+      chunk("agent_message_chunk", "m1", "Hel"),
+      chunk("agent_message_chunk", "m1", "lo "),
+      chunk("agent_message_chunk", "m1", "wor"),
+      chunk("agent_message_chunk", "m1", "ld"),
+      chunk("agent_message_chunk", "m2", "Next"),
+    ];
+    const model = modelFromNewestPage({ entries, state: [] }, buffered, "s1");
+    expect(model.items.map((item) => item.text)).toEqual(["hi", "Hello world", "Next"]);
+  });
+});
+
+describe("prependTranscriptEntries state", () => {
+  test("takes session state from an older page when the model has none", () => {
+    const current = initTranscript([pageEntry(9, { Kind: "agent_message_chunk", Text: "newest" })]);
+    const merged = prependTranscriptEntries(current, [
+      pageEntry(1, { Kind: "current_mode_update", Payload: { mode: "plan" } }),
+      pageEntry(2, { Kind: "available_commands_update", Payload: { commands: [{ name: "review" }] } }),
+    ]);
+    expect(merged.mode).toBe("plan");
+    expect(merged.commands.map((command) => command.name)).toEqual(["review"]);
+    expect(merged.items.map((item) => item.text)).toEqual(["newest"]);
   });
 });
 

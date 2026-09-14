@@ -552,11 +552,33 @@ export function initTranscript(
 }
 
 /**
+ * Session-level values the model lacks, filled from another page. Values the
+ * model already holds win: they came from the newest page or a live update,
+ * and nothing an older page carries is newer than either.
+ */
+function fillSessionState(model: TranscriptModel, page: TranscriptModel): TranscriptModel {
+  const usage = model.usage ?? page.usage;
+  const mode = model.mode ?? page.mode;
+  const commands = model.commands.length > 0 || page.commands.length === 0 ? model.commands : page.commands;
+  const configOptions =
+    model.configOptions.length > 0 || page.configOptions.length === 0 ? model.configOptions : page.configOptions;
+  if (
+    usage === model.usage &&
+    mode === model.mode &&
+    commands === model.commands &&
+    configOptions === model.configOptions
+  ) {
+    return model;
+  }
+  return { ...model, usage, mode, commands, configOptions };
+}
+
+/**
  * Prepends one older page onto the front of a model. The backend snaps page
  * boundaries to turn starts, so no chunk run is ever split across the seam
  * and the two item lists concatenate; the tool call index is rebuilt with the
- * older page's offsets underneath. Session-level values (usage, commands,
- * mode) stay the current ones — the page's are older by definition.
+ * older page's offsets underneath. Session-level values the model already
+ * holds stay; ones it lacks are taken from the page.
  */
 export function prependTranscriptEntries(
   model: TranscriptModel,
@@ -564,16 +586,73 @@ export function prependTranscriptEntries(
   sessionId?: string,
 ): TranscriptModel {
   const page = initTranscript(entries, sessionId);
-  if (page.items.length === 0) return model;
+  const base = fillSessionState(model, page);
+  if (page.items.length === 0) return base;
   const toolCallIndex = new Map(page.toolCallIndex);
-  for (const [id, index] of model.toolCallIndex) {
+  for (const [id, index] of base.toolCallIndex) {
     toolCallIndex.set(id, index + page.items.length);
   }
   return {
-    ...model,
-    items: [...page.items, ...model.items],
+    ...base,
+    items: [...page.items, ...base.items],
     toolCallIndex,
   };
+}
+
+/**
+ * Chunk updates that arrived while the newest page was loading are usually in
+ * that page already — the backend flushes the recorder before it reads — and
+ * appending them again doubled the tail of a streaming reply. Tool calls,
+ * plans and session state merge idempotently; chunks do not. So for each
+ * message the page holds, the longest leading run of its buffered chunks that
+ * the stored text already ends with is dropped: the recorder writes chunks in
+ * arrival order, so what it has is always a prefix of what was buffered.
+ *
+ * ponytail: a text-suffix match, not a cursor. A chunk still between emit and
+ * record when the page was read, whose text also happens to repeat the end of
+ * the stored text, is dropped too; an exact answer needs a per-update sequence
+ * on the live event.
+ */
+export function dropRecordedChunks(model: TranscriptModel, updates: SessionUpdate[]): SessionUpdate[] {
+  const stored = new Map<string, string>();
+  for (const item of model.items) {
+    if (isChunkKind(item.kind) && item.messageId) stored.set(`${item.kind} ${item.messageId}`, item.text ?? "");
+  }
+  const buffered = new Map<string, number[]>();
+  updates.forEach((update, index) => {
+    const key = `${update.kind} ${update.messageId ?? ""}`;
+    if (!isChunkKind(update.kind) || !update.messageId || !stored.has(key)) return;
+    buffered.set(key, [...(buffered.get(key) ?? []), index]);
+  });
+  const dropped = new Set<number>();
+  for (const [key, indexes] of buffered) {
+    const text = stored.get(key) ?? "";
+    for (let run = indexes.length; run > 0; run -= 1) {
+      const joined = indexes.slice(0, run).map((index) => extractChunkText(updates[index])).join("");
+      if (text.endsWith(joined)) {
+        for (const index of indexes.slice(0, run)) dropped.add(index);
+        break;
+      }
+    }
+  }
+  return dropped.size === 0 ? updates : updates.filter((_, index) => !dropped.has(index));
+}
+
+/**
+ * The model a session opens on: the newest page, the session state from above
+ * its window, and whatever arrived live while it loaded that the page does not
+ * already hold.
+ */
+export function modelFromNewestPage(
+  page: {
+    entries: (TranscriptEntry | Record<string, any>)[];
+    state: (TranscriptEntry | Record<string, any>)[];
+  },
+  loadingUpdates: SessionUpdate[],
+  sessionId?: string,
+): TranscriptModel {
+  const model = initTranscript([...page.state, ...page.entries], sessionId);
+  return applySessionUpdates(model, dropRecordedChunks(model, loadingUpdates));
 }
 
 /**
@@ -800,7 +879,7 @@ async function loadTranscriptRuntime(sessionId: string, runtime: TranscriptRunti
     // reader scrolls up (loadOlderTranscript).
     const page = await agentHubTranscriptPage(sessionId, 0, 0);
     if (runtimes.get(sessionId) !== runtime) return;
-    const model = applySessionUpdates(initTranscript(page.entries, sessionId), runtime.loadingUpdates);
+    const model = modelFromNewestPage(page, runtime.loadingUpdates, sessionId);
     runtime.loadingUpdates = [];
     runtime.model = model;
     runtime.buffer = makeBuffer(sessionId, model);

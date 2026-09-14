@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -333,13 +334,10 @@ func retireTail(s *recordSession) {
 // notification carries the entire set of options, and the agent republishes it
 // on every model switch, effort change and plan-mode exit.
 func isSessionState(kind UpdateKind) bool {
-	switch kind {
-	case UpdateUsage, UpdateAvailableCommands, UpdateCurrentMode, UpdateConfigOptions:
-		return true
-	default:
-		return false
-	}
+	return slices.Contains(sessionStateKinds, kind)
 }
+
+var sessionStateKinds = []UpdateKind{UpdateCurrentMode, UpdateConfigOptions, UpdateAvailableCommands, UpdateUsage}
 
 // recordSessionState keeps exactly one row per session-level kind so a reload
 // can restore the value without the transcript carrying its whole history.

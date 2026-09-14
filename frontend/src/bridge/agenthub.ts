@@ -290,6 +290,9 @@ export function agentHubDeleteSession(sessionId: string): Promise<void> {
 export type TranscriptPage = {
   entries: TranscriptEntry[];
   hasMore: boolean;
+  /** Session-level rows (mode, config options, commands, usage) from above
+   * the newest page's window; empty on older pages. */
+  state: TranscriptEntry[];
 };
 
 /**
@@ -308,6 +311,7 @@ export function agentHubTranscriptPage(
     return {
       entries: page?.entries ?? [],
       hasMore: Boolean(page?.hasMore),
+      state: page?.state ?? [],
     };
   });
 }

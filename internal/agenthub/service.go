@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -453,12 +454,46 @@ func (s *Service) TranscriptPage(ctx context.Context, sessionID string, beforeSe
 	if limit > MaxTranscriptPageSize {
 		limit = MaxTranscriptPageSize
 	}
+	newest := beforeSeq <= 0
+	if newest {
+		// Opening a session mid-stream: land the tail the recorder still holds,
+		// or the page ends at the first chunk of the reply being streamed and
+		// the live events carry on from a gap. A failed flush is reported, not
+		// fatal — the rows already on disk are still worth showing.
+		if err := s.recorder.Flush(ctx, sessionID); err != nil && s.OnRecordError != nil {
+			s.OnRecordError(sessionID, err)
+		}
+	}
 	page, err := s.store.ListTranscriptPage(ctx, sessionID, beforeSeq, limit)
 	if err != nil {
 		return TranscriptPage{}, err
 	}
 	page.Entries = previewToolPayloads(page.Entries)
+	if newest {
+		if page.State, err = s.sessionStateAbove(ctx, sessionID, page.Entries); err != nil {
+			return TranscriptPage{}, err
+		}
+	}
 	return page, nil
+}
+
+// sessionStateAbove returns the session-level rows a page's entries do not
+// hold. There is at most one per kind, so this is a handful of indexed reads.
+func (s *Service) sessionStateAbove(ctx context.Context, sessionID string, entries []TranscriptEntry) ([]TranscriptEntry, error) {
+	var state []TranscriptEntry
+	for _, kind := range sessionStateKinds {
+		if slices.ContainsFunc(entries, func(e TranscriptEntry) bool { return e.Kind == kind }) {
+			continue
+		}
+		entry, ok, err := s.store.FindTranscriptKind(ctx, sessionID, kind)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			state = append(state, entry)
+		}
+	}
+	return state, nil
 }
 
 // previewToolPayloads bounds what a page carries for each tool row: rawInput,

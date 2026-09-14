@@ -65,6 +65,12 @@ type NormalizedUsage struct {
 type TranscriptPage struct {
 	Entries []TranscriptEntry `json:"entries"`
 	HasMore bool              `json:"hasMore"`
+	// State is the session-level rows (mode, config options, commands, usage)
+	// that sit above the window. They are upserted in place and keep the seq
+	// their kind first appeared at, so a long session's newest page did not
+	// carry them and reopening it lost the mode and model pickers and the
+	// command menu. Newest page only, and only kinds Entries does not hold.
+	State []TranscriptEntry `json:"state,omitempty"`
 }
 
 // ContextFile is one bounded file suggestion for the prompt composer.

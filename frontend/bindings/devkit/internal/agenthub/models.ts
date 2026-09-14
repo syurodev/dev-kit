@@ -208,6 +208,15 @@ export interface TranscriptEntry {
 export interface TranscriptPage {
     "entries": TranscriptEntry[] | null;
     "hasMore": boolean;
+
+    /**
+     * State is the session-level rows (mode, config options, commands, usage)
+     * that sit above the window. They are upserted in place and keep the seq
+     * their kind first appeared at, so a long session's newest page did not
+     * carry them and reopening it lost the mode and model pickers and the
+     * command menu. Newest page only, and only kinds Entries does not hold.
+     */
+    "state"?: TranscriptEntry[] | null;
 }
 
 /**

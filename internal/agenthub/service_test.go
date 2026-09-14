@@ -1095,3 +1095,105 @@ func TestShutdownLandsTheTailOfAStreamingTurn(t *testing.T) {
 		t.Fatalf("reply on disk after shutdown = %q, want the whole streamed text", reply)
 	}
 }
+
+// Opening a session mid-stream read the rows as they sat in SQLite, without
+// the tail the recorder was still holding — the page showed a reply cut off
+// at its first chunk until the next cadence, and live events only continued
+// from there.
+func TestTranscriptPageIncludesTheUnflushedTail(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	rt := &stallingRuntime{streamed: make(chan struct{}), release: make(chan struct{})}
+	reg := agenthub.NewRegistry()
+	reg.Register(stallingAdapter{rt: rt})
+	svc := agenthub.NewService(reg, store, nil)
+
+	sess, err := svc.CreateSession(ctx, agenthub.CreateInput{AgentType: agenthub.AgentType("titling"), Cwd: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = svc.Invoke(ctx, agenthub.InvokeInput{SessionID: sess.ID, Prompt: "go"})
+	}()
+	t.Cleanup(func() { close(rt.release); <-done })
+	<-rt.streamed
+
+	page, err := svc.TranscriptPage(ctx, sess.ID, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reply string
+	for _, entry := range page.Entries {
+		if entry.Kind == agenthub.UpdateAgentMessageChunk {
+			reply = entry.Text
+		}
+	}
+	if reply != "hello world" {
+		t.Fatalf("reply on the newest page = %q, want everything streamed so far", reply)
+	}
+}
+
+// Mode, config options, commands and usage are upserted in place, so their row
+// keeps the seq where the kind first appeared. A session longer than one page
+// reopened without them: no mode picker, no model picker, no command menu.
+func TestNewestTranscriptPageCarriesSessionStateFromAboveTheWindow(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	sid := seedSession(t, store)
+	svc := agenthub.NewService(agenthub.NewRegistry(), store, nil)
+
+	rows := 0
+	appendRow := func(kind agenthub.UpdateKind, payload string) {
+		t.Helper()
+		rows++
+		if err := store.AppendTranscript(ctx, agenthub.TranscriptEntry{
+			ID: fmt.Sprintf("row-%d", rows), SessionID: sid, Kind: kind, Payload: json.RawMessage(payload),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	appendRow(agenthub.UpdateUserMessageChunk, `{"kind":"user_message_chunk"}`)
+	appendRow(agenthub.UpdateAgentMessageChunk, `{"kind":"agent_message_chunk"}`)
+	appendRow(agenthub.UpdateCurrentMode, `{"kind":"current_mode_update","mode":"plan"}`)
+	appendRow(agenthub.UpdateConfigOptions, `{"kind":"config_option_update","configOptions":[{"id":"model"}]}`)
+	appendRow(agenthub.UpdateAvailableCommands, `{"kind":"available_commands_update","commands":[{"name":"review"}]}`)
+	for i := 0; i < 500; i++ {
+		kind := agenthub.UpdateAgentMessageChunk
+		if i%2 == 0 {
+			kind = agenthub.UpdateUserMessageChunk
+		}
+		appendRow(kind, fmt.Sprintf(`{"kind":%q,"n":%d}`, kind, i))
+	}
+	// Usage last: inside the window, so it must not be repeated in State.
+	appendRow(agenthub.UpdateUsage, `{"kind":"usage_update","usage":{"used":1,"size":2}}`)
+
+	page, err := svc.TranscriptPage(ctx, sid, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !page.HasMore {
+		t.Fatal("precondition: the session must be longer than one page")
+	}
+	got := map[agenthub.UpdateKind]int{}
+	for _, entry := range page.State {
+		got[entry.Kind]++
+	}
+	for _, kind := range []agenthub.UpdateKind{agenthub.UpdateCurrentMode, agenthub.UpdateConfigOptions, agenthub.UpdateAvailableCommands} {
+		if got[kind] != 1 {
+			t.Fatalf("newest page state = %v, want one %s row", got, kind)
+		}
+	}
+	if got[agenthub.UpdateUsage] != 0 {
+		t.Fatalf("usage is already in the window but was repeated in state: %v", got)
+	}
+
+	older, err := svc.TranscriptPage(ctx, sid, page.Entries[0].Seq, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(older.State) != 0 {
+		t.Fatalf("an older page carried state %v; only the newest page does", older.State)
+	}
+}
