@@ -320,7 +320,13 @@ export function AgentSidebarTree({
         id: key,
         label: session.title || `Session ${session.id.slice(0, 8)}`,
         title: session.title || undefined,
-        icon: <VendorIcon vendor={session.agentType} className="size-3 text-icon-secondary" />,
+        icon: (
+          <VendorIcon
+            vendor={session.agentType}
+            working={session.status === "running"}
+            className="size-3 text-icon-secondary"
+          />
+        ),
         count: turnCounts[session.id],
         trailing: (
           <span className="flex shrink-0 items-center gap-1">

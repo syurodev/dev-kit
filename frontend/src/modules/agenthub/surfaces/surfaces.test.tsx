@@ -468,6 +468,43 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       expect(html).toContain('data-status="running"');
     });
 
+    it("colours the vendor's mark only while that agent is working", () => {
+      // A rail of grey marks says which vendor each row is and nothing about
+      // which of them is doing something. The dot at the far end says it in
+      // 6px; the mark is where the eye already is.
+      const running = renderSidebar(
+        <AgentSidebarTree
+          sessions={[mockSession]}
+          onSelectSession={() => {}}
+          onNewSession={() => {}}
+        />,
+      );
+      expect(running).toContain("text-vendor-claude");
+      expect(running).toContain('data-working="true"');
+
+      // Idle, awaiting, closed and error all stay on the text tier: the colour
+      // means "working", not "Claude".
+      const idle = renderSidebar(
+        <AgentSidebarTree
+          sessions={[{ ...mockSession, status: "idle" }]}
+          onSelectSession={() => {}}
+          onNewSession={() => {}}
+        />,
+      );
+      expect(idle).not.toContain("text-vendor-claude");
+
+      // Codex's mark is monochrome by design; no colour is invented for it.
+      const codex = renderSidebar(
+        <AgentSidebarTree
+          sessions={[{ ...mockSession, agentType: "codex" }]}
+          onSelectSession={() => {}}
+          onNewSession={() => {}}
+        />,
+      );
+      expect(codex).toContain('data-working="true"');
+      expect(codex).not.toContain("text-vendor-");
+    });
+
     it("renders sidebar swarm tree with session count", () => {
       const html = renderSidebar(
         <AgentSidebarTree

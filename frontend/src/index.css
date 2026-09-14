@@ -67,6 +67,8 @@
     --color-status-recovery: var(--status-recovery);
     --color-status-danger: var(--status-danger);
 
+    --color-vendor-claude: var(--vendor-claude);
+
     --color-border-subtle: var(--border-subtle);
     --color-glass-border: var(--glass-border);
 
@@ -276,6 +278,17 @@
     --status-permission: var(--status-warning);
     --status-permission-soft: color-mix(in srgb, var(--status-warning) 14%, transparent);
 
+    /* The vendor's own colour, worn by its mark only while that agent is
+       working. Figma bound the mark to icon/secondary because the nearest
+       token, derived/coral, is byte-identical to status/danger and a vendor in
+       the error colour misreads — this is the brand's actual value, not that
+       token, so the collision it warned about does not arise.
+       Claude's coral as Anthropic draws it. It clears 3:1 (accessibility.md ›
+       Vision, non-text) on every dark palette — 3.78:1 at worst, on Dracula's
+       raised surface. See theme/themeContrast.test.ts, which measures it
+       against all ten rather than trusting this comment. */
+    --vendor-claude: #d97757;
+
     --border-default: color-mix(in srgb, var(--tint-border) 16%, transparent);
     --border-subtle: color-mix(in srgb, var(--tint-border) 8%, transparent);
     --border-focus: var(--palette-candy-blue);
@@ -449,6 +462,12 @@
     --status-warning: #915f00;
     --status-recovery: #9b4e8e;
     --status-danger: #b3374a;
+
+    /* Claude's coral, darkened in its own hue until it clears 3:1 on a light
+       ground — the brand value itself lands on 2.36:1 against Catppuccin
+       Latte's app fill, a tangerine smear on off-white. Same treatment the
+       status colours above get in this block, and the same reason. */
+    --vendor-claude: #b4552f;
 
     /* Ink, not the accent: a hairline on white recesses, and candy-blue at 12%
        on white is a blue smudge. The percentages are higher than dark's for

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "bun:test";
 import { FAMILIES } from "./families";
 
@@ -211,6 +212,48 @@ describe("the solid danger button is legible on every theme", () => {
           expect(
             fillRatio,
             `fill ${fill} on ${name} ${ground} is ${fillRatio.toFixed(2)}:1, floor 3:1`,
+          ).toBeGreaterThanOrEqual(3);
+        }
+      });
+    }
+  }
+});
+
+/**
+ * The vendor mark, while its agent is working.
+ *
+ * A brand colour is not the app's to adjust — except that this one has to be
+ * visible on ten palettes in two modes. Claude's own coral holds on every dark
+ * ground and lands on 2.36:1 against Catppuccin Latte's, so the light block
+ * carries the same hue taken darker. Both values live in index.css and are
+ * read from it here: a copy of them in this file would pass forever after
+ * someone edited the stylesheet.
+ *
+ * accessibility.md › Vision puts non-text interface elements at 3:1. The mark
+ * is not text and never carries meaning alone — the status dot and the
+ * vendor's own shape both say what it says.
+ */
+describe("a working agent's mark is visible on every theme", () => {
+  const css = readFileSync(new URL("../index.css", import.meta.url), "utf8");
+  const found = [...css.matchAll(/--vendor-claude:\s*(#[0-9a-f]{6})/g)].map((m) => m[1]);
+
+  it("is defined once per mode, dark first", () => {
+    expect(found).toHaveLength(2);
+  });
+
+  const [dark, light] = found;
+  for (const family of Object.values(FAMILIES)) {
+    for (const [mode, colour] of [
+      ["dark", dark],
+      ["light", light],
+    ] as const) {
+      const palette = family[mode] as Record<string, string>;
+      it(`${family.id}/${mode}`, () => {
+        for (const [name, ground] of Object.entries(groundsOf(palette, mode))) {
+          const ratio = contrast(colour, ground);
+          expect(
+            ratio,
+            `${colour} on ${name} ${ground} is ${ratio.toFixed(2)}:1, floor 3:1`,
           ).toBeGreaterThanOrEqual(3);
         }
       });

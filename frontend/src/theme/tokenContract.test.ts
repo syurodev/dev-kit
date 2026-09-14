@@ -43,12 +43,21 @@ describe("the base theme implements the contract", () => {
   // The reverse: a token that exists in CSS but not in the contract is one a
   // theme will silently fail to set. Derived tokens are exempt — they follow
   // their parent by construction.
+  //
+  // So are `--vendor-*`. They are another company's colour, and a theme moving
+  // Claude's coral to fit its own palette would be repainting someone's logo.
+  // They still answer to themeContrast.test.ts, which measures them against
+  // every family's grounds — theme-invariant is not the same as unchecked.
   test("no colour token exists outside the contract without being derived", () => {
     const derived = (value: string) => value.startsWith("var(") || value.startsWith("color-mix(");
     const shape = (name: string) =>
       /blur|saturate|radius|motion|ease|font|spring/.test(name) || name.startsWith("--palette-");
+    const brand = (name: string) => name.startsWith("--vendor-");
     const orphans = [...dark]
-      .filter(([name, value]) => !shape(name) && !derived(value) && !CONTRACT.includes(name as never))
+      .filter(
+        ([name, value]) =>
+          !shape(name) && !brand(name) && !derived(value) && !CONTRACT.includes(name as never),
+      )
       .map(([name]) => name);
     expect(orphans, `${orphans.join(", ")} is a literal colour no theme can reach`).toEqual([]);
   });
