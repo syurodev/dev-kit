@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/context-menu";
 import { TreeView, type TreeNodeData } from "@/components/tree-view";
 import { AgentState, type AgentStatus } from "./AgentState";
+import { heldChoice } from "./AgentComposer";
 import { VendorIcon } from "./VendorIcon";
 import type { AgentSession } from "@/bridge/agenthub";
 import type { Subagent } from "../types";
@@ -214,6 +215,9 @@ export function AgentSidebarTree({
 }: AgentSidebarTreeProps) {
   const descendantCounts = React.useMemo(() => countDescendants(sessions), [sessions]);
   const collapsed = React.useMemo(() => new Set(collapsedKeys), [collapsedKeys]);
+  // Delete opens a confirmation from the context menu, so it waits for the
+  // menu to close; see heldChoice.
+  const [heldDelete] = React.useState(heldChoice);
 
   const nodes = React.useMemo<TreeNodeData[]>(() => {
     const childrenOf = new Map<string, AgentSession[]>();
@@ -227,7 +231,7 @@ export function AgentSidebarTree({
     const menu = (session: AgentSession) => (row: React.ReactNode) => (
       <ContextMenu>
         <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
-        <ContextMenuContent className="w-56">
+        <ContextMenuContent className="w-56" onCloseAutoFocus={() => heldDelete.release((apply) => apply())}>
           <ContextMenuLabel className="truncate">
             {session.title || session.id.slice(0, 8)}
           </ContextMenuLabel>
@@ -290,7 +294,7 @@ export function AgentSidebarTree({
             <ContextMenuItem
               icon={<Trash2 />}
               variant="destructive"
-              onSelect={() => onDeleteSession(session, descendantCounts[session.id] ?? 0)}
+              onSelect={() => heldDelete.hold(() => onDeleteSession(session, descendantCounts[session.id] ?? 0))}
             >
               {/* Says what will actually go. Deleting a parent takes its
                   subtree, and finding that out afterwards is the one thing

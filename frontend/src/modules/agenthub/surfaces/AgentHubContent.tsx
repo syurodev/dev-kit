@@ -25,7 +25,7 @@ import type { QueuedAgentPrompt } from "@/stores/agentSessions";
 import type { AvailableCommand, ConfigOption, SessionMode, TranscriptItem, Usage } from "../types";
 import type { ContextFileItem } from "./AgentMenu";
 import { TranscriptStream } from "./TranscriptStream";
-import { AgentComposer } from "./AgentComposer";
+import { AgentComposer, heldChoice } from "./AgentComposer";
 import { AgentSessionError, type SessionErrorCause } from "./AgentSessionError";
 import { AgentState, type AgentStatus } from "./AgentState";
 import { VendorIcon } from "./VendorIcon";
@@ -224,6 +224,8 @@ export function AgentHubContent({
   const [renameOpen, setRenameOpen] = React.useState(false);
   const [renameValue, setRenameValue] = React.useState("");
   const [renameError, setRenameError] = React.useState("");
+  // Picked in the ⋯ menu, so the dialog waits for that menu to close; see heldChoice.
+  const [heldRename] = React.useState(heldChoice);
   const effectiveState: AgentHubContentState = explicitState
     ? explicitState
     : draft
@@ -373,7 +375,11 @@ export function AgentHubContent({
                   <Ellipsis aria-hidden="true" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-64">
+              <DropdownMenuContent
+                align="end"
+                className="w-64"
+                onCloseAutoFocus={() => heldRename.release((apply) => apply())}
+              >
                 <DropdownMenuLabel className="truncate">{session.projectPath || "."}</DropdownMenuLabel>
                 {onCopy ? (
                   <>
@@ -386,10 +392,12 @@ export function AgentHubContent({
                   </>
                 ) : null}
                 {onRenameSession ? (
-                  <DropdownMenuItem icon={<Pencil />} data-testid="content-rename-session" onSelect={() => {
-                    setRenameValue(displayTitle);
-                    setRenameOpen(true);
-                  }}>
+                  <DropdownMenuItem icon={<Pencil />} data-testid="content-rename-session" onSelect={() =>
+                    heldRename.hold(() => {
+                      setRenameValue(displayTitle);
+                      setRenameOpen(true);
+                    })
+                  }>
                     Rename session
                   </DropdownMenuItem>
                 ) : null}
