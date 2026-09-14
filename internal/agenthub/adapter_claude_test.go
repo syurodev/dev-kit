@@ -516,6 +516,11 @@ func TestUnknownMethodIsRefusedAndReportedOnce(t *testing.T) {
 	// would be worse than an error. What was wrong is that the error went only
 	// to the agent, so an ACP surface DevKit is specified to serve could have
 	// been requested every turn since Phase 4 without leaving a trace.
+	//
+	// The dedupe is process-wide on purpose; start from a clean slate so a
+	// second run in the same process (-count=N) asserts the same thing.
+	unknownMethodSeen.Clear()
+	t.Cleanup(unknownMethodSeen.Clear)
 	var got []string
 	h := &claudeConnHandler{onUnknownMethod: func(method string, _ json.RawMessage) {
 		got = append(got, method)
