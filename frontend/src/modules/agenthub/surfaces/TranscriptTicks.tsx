@@ -104,21 +104,31 @@ export function ticksOf(
     previousIndex += 1;
   }
 
-  return turns.flatMap((turn) => {
+  const ticks: TranscriptTick[] = [];
+  for (const turn of turns) {
     const prompt = turn.prompt?.text?.trim();
-    if (!prompt) return [];
-    const previous = previousByTurn.get(turn);
-    if (previous) return [previous];
-    const answer = turn.answer.map((item) => item.text ?? "").join("\n");
-    // Markdown marks read as noise in a two-line preview. Hyphens inside
-    // words stay: only a list bullet's dash goes.
-    const plain = answer
-      .replace(/^```.*$/gm, "")
-      .replace(/^\s*\|?[\s:|-]*-[\s:|-]*\|?\s*$/gm, "")
-      .replace(/^\s*[-+]\s+/gm, "")
-      .replace(/[#*`|>]+/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-    return [{ id: turn.id, prompt: prompt.replace(/\s+/g, " "), answer: plain || undefined }];
-  });
+    if (!prompt) continue;
+    let tick = previousByTurn.get(turn);
+    if (!tick) {
+      const answer = turn.answer.map((item) => item.text ?? "").join("\n");
+      // Markdown marks read as noise in a two-line preview. Hyphens inside
+      // words stay: only a list bullet's dash goes.
+      const plain = answer
+        .replace(/^```.*$/gm, "")
+        .replace(/^\s*\|?[\s:|-]*-[\s:|-]*\|?\s*$/gm, "")
+        .replace(/^\s*[-+]\s+/gm, "")
+        .replace(/[#*`|>]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+      const fresh = { id: turn.id, prompt: prompt.replace(/\s+/g, " "), answer: plain || undefined };
+      // A turn whose work changed (a tool call finishing) reads the same.
+      const slot = previousTicks[ticks.length];
+      tick =
+        slot && slot.id === fresh.id && slot.prompt === fresh.prompt && slot.answer === fresh.answer ? slot : fresh;
+    }
+    ticks.push(tick);
+  }
+  // Nothing new: the same array, so whatever is keyed on it stays put.
+  const unchanged = ticks.length === previousTicks.length && ticks.every((tick, index) => tick === previousTicks[index]);
+  return unchanged ? previousTicks : ticks;
 }

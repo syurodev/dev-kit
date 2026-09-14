@@ -264,6 +264,9 @@ export function TranscriptStream({
     ? virtualItems.map((item) => `${item.index}:${turns[item.index]?.id ?? ""}`).join(",")
     : turns.map((turn) => turn.id).join(",");
   const tickIndexById = useMemo(() => new Map(ticks.map((tick, index) => [tick.id, index])), [ticks]);
+  // Read by the section observer, which must not be rebuilt when only a tick's preview changes.
+  const tickIndexByIdRef = useRef(tickIndexById);
+  tickIndexByIdRef.current = tickIndexById;
 
   function setActiveTickIfChanged(next: number) {
     if (activeTickRef.current === next) return;
@@ -371,14 +374,15 @@ export function TranscriptStream({
           if (entry.isIntersecting) visible.set(id, entry.boundingClientRect.top);
           else visible.delete(id);
         }
-        if (isAtBottomRef.current && ticks.length > 0) {
-          setActiveTickIfChanged(ticks.length - 1);
+        const indexById = tickIndexByIdRef.current;
+        if (isAtBottomRef.current && indexById.size > 0) {
+          setActiveTickIfChanged(indexById.size - 1);
           return;
         }
         let next = activeTickRef.current;
         let top = Number.POSITIVE_INFINITY;
         for (const [id, value] of visible) {
-          const index = tickIndexById.get(id);
+          const index = indexById.get(id);
           if (index !== undefined && value < top) {
             top = value;
             next = index;
@@ -390,7 +394,7 @@ export function TranscriptStream({
     );
     el.querySelectorAll<HTMLElement>("[data-turn-id]").forEach((section) => observer.observe(section));
     return () => observer.disconnect();
-  }, [mountedTurnKey, ticks.length, tickIndexById]);
+  }, [mountedTurnKey]);
 
   useEffect(() => {
     const id = pendingJumpRef.current;

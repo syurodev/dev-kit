@@ -41,6 +41,31 @@ describe("ticksOf", () => {
     expect(currentTicks[0]).toBe(previousTicks[0]);
     expect(currentTicks[1]).not.toBe(previousTicks[1]);
   });
+
+  // The stream observes its sections keyed on this array; a new one every
+  // flush disconnected and re-observed every mounted section per token.
+  it("returns the previous array when no tick changed", () => {
+    const rows = [
+      { id: "prompt-1", kind: "user_message_chunk", text: "first" },
+      { id: "answer-1", kind: "agent_message_chunk", text: "one" },
+      { id: "prompt-2", kind: "user_message_chunk", text: "second" },
+      { id: "tool-2", kind: "tool_call", toolCall: { id: "t", status: "in_progress" } },
+      { id: "answer-2", kind: "agent_message_chunk", text: "two" },
+    ];
+    const previousTurns = groupTurns(rows);
+    const previousTicks = ticksOf(previousTurns);
+
+    const regrouped = groupTurns([...rows], previousTurns);
+    expect(ticksOf(regrouped, previousTurns, previousTicks)).toBe(previousTicks);
+
+    // A tool call finishing changes the turn, not its prompt or answer preview.
+    const toolDone = groupTurns(
+      [...rows.slice(0, 3), { ...rows[3], toolCall: { id: "t", status: "completed" } }, rows[4]],
+      previousTurns,
+    );
+    expect(toolDone[1]).not.toBe(previousTurns[1]);
+    expect(ticksOf(toolDone, previousTurns, previousTicks)).toBe(previousTicks);
+  });
 });
 
 describe("TranscriptTicks", () => {
