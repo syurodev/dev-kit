@@ -344,14 +344,10 @@ export function SidebarSurface({ activeModuleId }: { activeModuleId: string | nu
             card. glass-rail is the most transparent material — borderless,
             near-clear tint so the native vibrancy backdrop carries it, the way
             Finder/Notes sidebars sit closest to the desktop. */}
-        {/* Figma sidebar-surface 116:1367 is the one docked surface with no
-            material at all: no fill, no border, no radius — just p-2. Its
-            description says the shell wrapper "owns the background/app fill
-            shared with the titlebar", so the rail shows that through rather
-            than painting its own. glass-rail resolves to transparent, which is
-            why the fill was already right; the radius and the missing pad were
-            not. The 8px pad is what makes a 280 rail hold 264 of content. */}
-        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden p-2 glass-rail">
+        {/* Keep the shared titlebar background visible through the rail.
+            A compact horizontal inset leaves more room for long labels;
+            vertical spacing and the user's sidebar width stay unchanged. */}
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden px-(--space-sidebar-edge) py-2 glass-rail">
           {visited.map((moduleId) => (
             // `contents` keeps the rail a direct flex child of the column, as
             // it was before it had a wrapper; `hidden` takes a background one

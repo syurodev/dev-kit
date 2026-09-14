@@ -707,7 +707,7 @@ export function DatabaseSidebar() {
           ActionTooltip is for: a Radix tooltip alone sets aria-describedby,
           and a control with no name is one a screen reader calls "button".
         */}
-        <div className="px-2 pt-2">
+        <div className="px-(--space-sidebar-edge) pt-2">
           <TabsList className="w-full">
             {PANES.map(({ value, label, Icon }) => (
               <ActionTooltip key={value} label={label}>
@@ -778,18 +778,18 @@ export function DatabaseSidebar() {
           </Empty>
         </div>
       ) : (
-        <TreeView nodes={tree} className="flex-1 scrollbar-gutter-symmetric" />
+        <TreeView nodes={tree} className="flex-1 scrollbar-gutter-stable" />
       )}
         </TabsContent>
 
         <TabsContent value="consoles" className="flex min-h-0 flex-col">
-          <div className="min-h-0 flex-1 overflow-y-auto scrollbar-gutter-symmetric px-1 pb-2">
+          <div className="min-h-0 flex-1 overflow-y-auto scrollbar-gutter-stable px-1 pb-2">
             <ConsoleFilesPanel />
           </div>
         </TabsContent>
 
         <TabsContent value="saved" className="flex min-h-0 flex-col">
-          <div className="min-h-0 flex-1 overflow-y-auto scrollbar-gutter-symmetric px-1 pt-2 pb-2">
+          <div className="min-h-0 flex-1 overflow-y-auto scrollbar-gutter-stable px-1 pt-2 pb-2">
             <SavedQueriesPanel />
           </div>
         </TabsContent>

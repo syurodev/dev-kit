@@ -150,7 +150,7 @@ export function KafkaSidebar() {
           </Empty>
         </div>
       ) : (
-        <TreeView nodes={nodes} className="flex-1 scrollbar-gutter-symmetric" />
+        <TreeView nodes={nodes} className="flex-1 scrollbar-gutter-stable" />
       )}
 
       {/* The one fact the rail must always answer: am I connected, and to what. */}
