@@ -1,4 +1,6 @@
-import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ScrollArea as ScrollAreaPrimitive } from "radix-ui";
+import { ScrollBar } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import type { TranscriptItem } from "../types";
 import { groupTurns } from "../turns";
@@ -46,18 +48,6 @@ export function TranscriptStream({
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showJump, setShowJump] = useState(false);
   const [activeTick, setActiveTick] = useState(0);
-  // The scrollbar's width: 0 with overlay scrollbars. A scrollbar appearing
-  // shrinks the content box, which is what the observer sees.
-  const [scrollbar, setScrollbar] = useState(0);
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const measure = () => setScrollbar(el.offsetWidth - el.clientWidth);
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
   // Figma 951:2270 is opened from a message footer, so the transcript owns it:
   // one panel for whichever turn you asked about, not one per message.
   const [inspecting, setInspecting] = useState<TranscriptItem | null>(null);
@@ -130,35 +120,31 @@ export function TranscriptStream({
       className={cn("relative flex size-full min-h-0 flex-col overflow-hidden", className)}
       data-testid="transcript-stream"
     >
-      <div
+      {/* An overlay scrollbar (Radix ScrollArea) rather than the native one.
+          A native scrollbar takes width whenever the OS shows it permanently —
+          macOS "Show scroll bars: Always", a mouse plugged in, Windows, most
+          Linux themes — and CSS cannot turn that off: the column lost that
+          width and slid off-centre from the composer, which is centred in the
+          whole pane. This one floats over the content's right edge and takes
+          none, on every platform, and shows while scrolling or hovered. */}
+      <ScrollAreaPrimitive.Root type="hover" className="size-full min-h-0">
+      <ScrollAreaPrimitive.Viewport
         ref={scrollRef}
         onScroll={handleScroll}
         data-testid="transcript-viewport"
-        className="flex size-full min-h-0 flex-col overflow-y-auto px-6 scroll-smooth"
+        // Radix wraps the content in a display:table div so it can scroll
+        // sideways too; as a table it widens to fit a long code line and drags
+        // the column past the pane. Block keeps it to the viewport's width.
+        className="size-full px-6 scroll-smooth [&>div]:block!"
         // Clear of the glass header above and the floating composer below: both
         // sit over this scroller, and AgentHubContent measures each into a
         // variable so the first and last lines can scroll out from under them.
         style={{
-          // Measured scrollbar width, for the column's re-centring below.
-          "--scrollbar": `${scrollbar}px`,
           paddingTop: "calc(var(--header-inset, 0px) + var(--space-section))",
           paddingBottom: "calc(var(--composer-inset, 0px) + var(--space-section))",
-        } as CSSProperties}
+        }}
       >
-        <div
-          className="relative mx-auto flex w-full max-w-180 flex-col gap-6"
-          // A classic scrollbar (macOS "Show scroll bars: Always", a mouse
-          // plugged in, Windows) takes its width off the right only, so a
-          // capped column centres half a scrollbar left of the composer, which
-          // centres in the whole pane. Shift it back by that half — but only
-          // out of the slack beside a capped column. A column filling a narrow
-          // pane (the agent rail) stays put and keeps every pixel.
-          // `both-edges` gutters did the centring by reserving the width on the
-          // left too, which in a narrow panel was pure lost space.
-          style={{
-            left: "clamp(0px, calc((100% - var(--spacing) * 180) / 2), calc(var(--scrollbar, 0px) / 2))",
-          }}
-        >
+        <div className="mx-auto flex w-full max-w-180 flex-col gap-6">
           {items.length === 0 && !loading ? (
             <div className="flex h-48 flex-col items-center justify-center text-center">
               <p className="text-body-13 text-text-secondary">No messages yet</p>
@@ -184,7 +170,14 @@ export function TranscriptStream({
             );
           })}
         </div>
-      </div>
+      </ScrollAreaPrimitive.Viewport>
+      {/* Clear of the header and composer, which float over both ends. Top and
+          bottom rather than margins: Radix positions the bar absolutely and
+          the class gives it full height, so a margin only slid it down. */}
+      <ScrollBar
+        style={{ top: "var(--header-inset, 0px)", bottom: "var(--composer-inset, 0px)", height: "auto" }}
+      />
+      </ScrollAreaPrimitive.Root>
 
       <TranscriptTicks
         ticks={ticks}
