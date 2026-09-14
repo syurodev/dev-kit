@@ -1,14 +1,21 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"os/user"
+	"path/filepath"
+	"runtime"
 	"strings"
+	"unicode"
 
 	"devkit/internal/agenthub"
 )
+
+const maxHookPayloadBytes = 4 << 20
 
 // runPreToolUseHook is the PreToolUse hook Agent Hub installs into every Claude
 // session. It reads one hook payload on stdin and writes one decision on stdout.
@@ -26,63 +33,95 @@ import (
 // OAuth token can put it in a transcript, and DevKit stores transcripts. The
 // process keeps its access; the tool surface does not.
 //
-// Everything else returns an empty decision so the normal flow — including
-// DevKit's own permission gate — still runs. This hook is a floor, not a gate.
+// Valid, unrelated inputs return an empty decision so the normal flow —
+// including DevKit's own permission gate — still runs. Inputs the hook cannot
+// safely inspect are denied because the hook is the only check before the
+// vendor's earlier allow rules. This hook is defense-in-depth, not a complete
+// security boundary against arbitrary command/path construction.
 func runPreToolUseHook() error {
-	raw, err := io.ReadAll(io.LimitReader(os.Stdin, 4<<20))
+	// Read one byte beyond the limit so an exact-size payload is accepted but a
+	// truncated or oversized payload is never mistaken for a complete one.
+	raw, err := io.ReadAll(io.LimitReader(os.Stdin, maxHookPayloadBytes+1))
 	if err != nil {
-		return fmt.Errorf("read hook payload: %w", err)
+		return emitHookDecision(hookDenyDecision("DevKit could not safely inspect the Claude Code tool payload (payload read failed); the tool call was denied."))
 	}
-
-	var payload struct {
-		ToolName  string         `json:"tool_name"`
-		ToolInput map[string]any `json:"tool_input"`
-	}
-	// A payload this build cannot parse must not block the turn: an unparseable
-	// hook that failed closed would break every session on a schema change.
-	// Deferring is the same answer as "nothing to say".
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		return emitHookDecision(nil)
-	}
-
-	if hit := protectedPathHit(payload.ToolInput); hit != "" {
-		return emitHookDecision(map[string]any{
-			"hookSpecificOutput": map[string]any{
-				"hookEventName":            "PreToolUse",
-				"permissionDecision":       "deny",
-				"permissionDecisionReason": agenthub.HookDenyReason + " (" + hit + "). The agent process authenticates with them; tools may not read them.",
-			},
-		})
-	}
-	return emitHookDecision(nil)
+	return emitHookDecision(preToolUseDecision(raw))
 }
 
-// protectedPaths are the grants claudeCredentialPaths widens the jail by, and
-// only those: $HOME/.claude and $HOME/.claude.json.
-//
-// Deliberately anchored to home rather than matching ".claude/" anywhere. A
-// project of its own can have a .claude directory — this repo does — holding
-// settings, skills and hooks the agent has every reason to read. Blocking that
-// would make DevKit unable to work on projects that use Claude Code, which is
-// most of the ones it exists for.
-//
-// Both the absolute path and the tilde form are matched: a Bash command names
-// it "~/.claude", a Read tool names it "/Users/x/.claude", and the check has to
-// hold for tool shapes this build does not know about.
-// One prefix per spelling, not one per file: "$HOME/.claude" already covers
-// the directory, everything under it, and .claude.json, because the filename
-// starts with the same characters. "$HOME/.claude-backup" matches too, which
-// is the right side to err on.
-func protectedPaths() []string {
-	out := []string{"~/.claude"}
-	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		out = append(out, strings.TrimSuffix(home, "/")+"/.claude")
+func preToolUseDecision(raw []byte) map[string]any {
+	if len(raw) > maxHookPayloadBytes {
+		return hookDenyDecision("DevKit could not safely inspect the Claude Code tool payload (payload too large); the tool call was denied.")
 	}
-	return out
+
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
+		return hookDenyDecision("DevKit could not safely inspect the Claude Code tool payload (malformed JSON); the tool call was denied.")
+	}
+
+	toolNameRaw, hasToolName := fields["tool_name"]
+	toolInputRaw, hasToolInput := fields["tool_input"]
+	if !hasToolName || !hasToolInput || bytes.Equal(bytes.TrimSpace(toolInputRaw), []byte("null")) {
+		return hookDenyDecision("DevKit could not safely inspect the Claude Code tool payload (missing required fields); the tool call was denied.")
+	}
+
+	var toolName string
+	var toolInput map[string]any
+	if err := json.Unmarshal(toolNameRaw, &toolName); err != nil || strings.TrimSpace(toolName) == "" {
+		return hookDenyDecision("DevKit could not safely inspect the Claude Code tool payload (invalid tool_name); the tool call was denied.")
+	}
+	if err := json.Unmarshal(toolInputRaw, &toolInput); err != nil || toolInput == nil {
+		return hookDenyDecision("DevKit could not safely inspect the Claude Code tool payload (invalid tool_input); the tool call was denied.")
+	}
+
+	if hit := protectedPathHit(toolName, toolInput); hit != "" {
+		return hookDenyDecision(agenthub.HookDenyReason + " (" + hit + "). The agent process authenticates with them; tools may not read them.")
+	}
+	return nil
 }
 
-func protectedPathHit(input map[string]any) string {
-	paths := protectedPaths()
+func hookDenyDecision(reason string) map[string]any {
+	return map[string]any{
+		"hookSpecificOutput": map[string]any{
+			"hookEventName":            "PreToolUse",
+			"permissionDecision":       "deny",
+			"permissionDecisionReason": reason,
+		},
+	}
+}
+
+func currentUsername() (string, error) {
+	if value := os.Getenv("USER"); value != "" {
+		return value, nil
+	}
+	if current, err := user.Current(); err == nil {
+		return current.Username, nil
+	}
+	return "", fmt.Errorf("current user unavailable")
+}
+
+func protectedPathHit(toolName string, input map[string]any) string {
+	// Built-in tools have documented, stable path/command fields. Inspect only
+	// those fields so source code, prompts, and replacement text may discuss
+	// Claude configuration without being mistaken for an attempted read.
+	var values []any
+	switch toolName {
+	case "Bash", "PowerShell":
+		values = []any{input["command"]}
+	case "Read", "Edit", "Write":
+		values = []any{input["file_path"]}
+	case "Glob", "Grep":
+		values = []any{input["path"]}
+	case "NotebookEdit":
+		values = []any{input["notebook_path"]}
+	case "WebFetch", "WebSearch", "Agent", "Workflow", "AskUserQuestion", "ExitPlanMode", "Skill":
+		return ""
+	default:
+		// MCP and future tools have vendor-defined shapes. Keep the conservative
+		// recursive behavior for those unknown surfaces until their semantics are
+		// known; false positives there are preferable to silently exposing auth.
+		values = []any{input}
+	}
+
 	var hit string
 	var walk func(any)
 	walk = func(v any) {
@@ -91,11 +130,9 @@ func protectedPathHit(input map[string]any) string {
 		}
 		switch t := v.(type) {
 		case string:
-			for _, p := range paths {
-				if strings.Contains(t, p) {
-					hit = p
-					return
-				}
+			if matched := protectedReferenceHit(t); matched != "" {
+				hit = matched
+				return
 			}
 		case []any:
 			for _, item := range t {
@@ -107,13 +144,88 @@ func protectedPathHit(input map[string]any) string {
 			}
 		}
 	}
-	walk(input)
+	for _, value := range values {
+		walk(value)
+	}
 	return hit
 }
 
-// emitHookDecision writes the decision, or "{}" to defer. Exit status stays 0
-// either way: a non-zero exit is how a hook reports its own failure, and this
-// hook failing is not a reason to block the agent's work.
+// protectedReferenceHit recognizes direct paths and the common shell spellings
+// Claude emits. It intentionally does not try to interpret arbitrary shell
+// programs. Complete isolation requires keeping vendor credentials outside the
+// tool process; this hook only reduces exposure while that is not yet possible.
+func protectedReferenceHit(value string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	home = filepath.ToSlash(filepath.Clean(home))
+
+	for _, token := range referenceTokens(value) {
+		expanded := expandHomeReferences(token, home)
+		// Options such as --file=/Users/x/.claude.json retain the path in the
+		// same shell word. Test each suffix beginning at the effective home.
+		for offset := indexPath(expanded, home); offset >= 0; {
+			candidate := strings.TrimRight(expanded[offset:], ",:]}\"")
+			candidate = filepath.ToSlash(filepath.Clean(strings.ReplaceAll(candidate, "\\", "/")))
+			if isProtectedHomePath(candidate, home) {
+				return candidate
+			}
+			next := indexPath(expanded[offset+1:], home)
+			if next < 0 {
+				break
+			}
+			offset += next + 1
+		}
+	}
+	return ""
+}
+
+func expandHomeReferences(value, home string) string {
+	value = strings.NewReplacer(
+		"${HOME}", home,
+		"$HOME", home,
+		"~/", home+"/",
+	).Replace(value)
+	if username, err := currentUsername(); err == nil && username != "" {
+		parent := filepath.ToSlash(filepath.Dir(home))
+		value = strings.NewReplacer(
+			parent+"/${USER}", home,
+			parent+"/$USER", home,
+		).Replace(value)
+	}
+	return filepath.ToSlash(value)
+}
+
+func referenceTokens(value string) []string {
+	// Quotes group shell words but do not become part of the resulting path.
+	// Removing them also joins common concatenated spellings such as
+	// "$HOME"/.claude.json before tokenization.
+	value = strings.NewReplacer("\"", "", "'", "").Replace(value)
+	return strings.FieldsFunc(value, func(r rune) bool {
+		return unicode.IsSpace(r) || strings.ContainsRune(";&|<>()`", r)
+	})
+}
+
+func indexPath(value, path string) int {
+	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
+		return strings.Index(strings.ToLower(value), strings.ToLower(path))
+	}
+	return strings.Index(value, path)
+}
+
+func isProtectedHomePath(candidate, home string) bool {
+	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
+		candidate = strings.ToLower(candidate)
+		home = strings.ToLower(home)
+	}
+	dir := home + "/.claude"
+	return candidate == home+"/.claude.json" || candidate == dir || strings.HasPrefix(candidate, dir+"/")
+}
+
+// emitHookDecision writes the decision, or "{}" to defer. A deny is emitted
+// as a normal successful hook response so Claude can apply it even when the
+// payload itself was malformed or oversized.
 func emitHookDecision(decision map[string]any) error {
 	if decision == nil {
 		_, err := os.Stdout.WriteString("{}\n")
