@@ -174,9 +174,7 @@ func (s *Service) RecoverStaleSessions(ctx context.Context) error {
 		if sess.Status != SessionStatusRunning && sess.Status != SessionStatusAwaitingPermission {
 			continue
 		}
-		sess.Status = SessionStatusIdle
-		sess.UpdatedAt = time.Now().UTC()
-		if err := s.store.UpdateSession(ctx, sess); err != nil {
+		if err := s.store.UpdateSessionStatus(ctx, sess.ID, SessionStatusIdle, time.Now().UTC()); err != nil {
 			return err
 		}
 	}
@@ -655,8 +653,7 @@ func (s *Service) CloseSession(ctx context.Context, id string) error {
 	if err := s.authorizeTarget(ctx, id); err != nil {
 		return err
 	}
-	sess, err := s.store.GetSession(ctx, id)
-	if err != nil {
+	if _, err := s.store.GetSession(ctx, id); err != nil {
 		return err
 	}
 
@@ -687,9 +684,7 @@ func (s *Service) CloseSession(ctx context.Context, id string) error {
 		return err
 	}
 
-	sess.Status = SessionStatusClosed
-	sess.UpdatedAt = time.Now().UTC()
-	if err := s.store.UpdateSession(ctx, sess); err != nil {
+	if err := s.store.UpdateSessionStatus(ctx, id, SessionStatusClosed, time.Now().UTC()); err != nil {
 		return err
 	}
 	if s.OnSessionClosed != nil {
@@ -708,13 +703,7 @@ func (s *Service) RenameSession(ctx context.Context, id, title string) error {
 	if title == "" || len([]rune(title)) > 120 {
 		return fmt.Errorf("%w: title must be between 1 and 120 characters", ErrInvalidSessionTitle)
 	}
-	sess, err := s.store.GetSession(ctx, id)
-	if err != nil {
-		return err
-	}
-	sess.Title = &title
-	sess.UpdatedAt = time.Now().UTC()
-	return s.store.UpdateSession(ctx, sess)
+	return s.store.UpdateSessionTitle(ctx, id, title, time.Now().UTC())
 }
 
 // DeleteSession permanently removes a session, its turns and its transcript,
@@ -1068,19 +1057,10 @@ func userEchoUpdate(text, messageID string) json.RawMessage {
 // drifts; letting the later guess overwrite the deliberate choice would make a
 // named session quietly rename itself.
 func (s *Service) adoptSessionTitle(ctx context.Context, sessionID, title string) error {
-	sess, err := s.store.GetSession(ctx, sessionID)
-	if err != nil {
-		return err
-	}
-	if sess.Title != nil && strings.TrimSpace(*sess.Title) != "" {
-		return nil
-	}
-	sess.Title = &title
-	sess.UpdatedAt = time.Now().UTC()
 	// No event of its own: the same update is already emitted to the UI on the
 	// line below this call, carrying the title in its parsed form. A second
 	// channel for one string would be a second thing to keep in sync.
-	return s.store.UpdateSession(ctx, sess)
+	return s.store.AdoptSessionTitle(ctx, sessionID, title, time.Now().UTC())
 }
 
 // markUnknownSeen reports whether this is the first time the session has seen
@@ -1294,13 +1274,7 @@ func (s *Service) configurator(ctx context.Context, id string) (RuntimeConfigura
 }
 
 func (s *Service) setSessionStatus(ctx context.Context, id string, status SessionStatus) error {
-	sess, err := s.store.GetSession(ctx, id)
-	if err != nil {
-		return err
-	}
-	sess.Status = status
-	sess.UpdatedAt = time.Now().UTC()
-	return s.store.UpdateSession(ctx, sess)
+	return s.store.UpdateSessionStatus(ctx, id, status, time.Now().UTC())
 }
 
 func statusForInvokeErr(err error) string {

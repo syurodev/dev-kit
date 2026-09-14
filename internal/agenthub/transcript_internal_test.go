@@ -3,6 +3,7 @@ package agenthub
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 // memStore is the least of a Store CloseSession needs; the recorder's writes
@@ -13,6 +14,9 @@ func (memStore) GetSession(_ context.Context, id string) (AgentSession, error) {
 	return AgentSession{ID: id}, nil
 }
 func (memStore) UpdateSession(context.Context, AgentSession) error         { return nil }
+func (memStore) UpdateSessionStatus(context.Context, string, SessionStatus, time.Time) error {
+	return nil
+}
 func (memStore) AppendTranscript(context.Context, TranscriptEntry) error { return nil }
 func (memStore) UpdateTranscript(context.Context, TranscriptEntry) error { return nil }
 

@@ -19,6 +19,9 @@ const (
 type Store interface {
 	InsertSession(ctx context.Context, s AgentSession) error
 	UpdateSession(ctx context.Context, s AgentSession) error
+	UpdateSessionStatus(ctx context.Context, id string, status SessionStatus, at time.Time) error
+	UpdateSessionTitle(ctx context.Context, id, title string, at time.Time) error
+	AdoptSessionTitle(ctx context.Context, id, title string, at time.Time) error
 	GetSession(ctx context.Context, id string) (AgentSession, error)
 	ListSessions(ctx context.Context) ([]AgentSession, error)
 	InsertTurn(ctx context.Context, t TurnRecord) error
@@ -105,6 +108,50 @@ func (st *SQLStore) UpdateSession(ctx context.Context, s AgentSession) error {
 		WHERE id = ?`,
 		string(s.AgentType), s.ProjectPath, string(s.Status), nullString(s.ParentSessionID),
 		s.Depth, nullString(s.Title), s.ACPSessionID, formatStoreTime(s.UpdatedAt), s.ID,
+	)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return ErrSessionNotFound
+	}
+	return nil
+}
+
+// UpdateSessionStatus writes the status alone. Status and title have separate
+// writers — a turn ending, the user renaming, the agent naming its session —
+// and a whole-row write from any of them put back whatever the others had
+// changed since it read the row.
+func (st *SQLStore) UpdateSessionStatus(ctx context.Context, id string, status SessionStatus, at time.Time) error {
+	return st.updateSessionColumn(ctx, `status = ?`, id, string(status), at)
+}
+
+// UpdateSessionTitle writes the title alone, for the same reason.
+func (st *SQLStore) UpdateSessionTitle(ctx context.Context, id, title string, at time.Time) error {
+	return st.updateSessionColumn(ctx, `title = ?`, id, title, at)
+}
+
+// AdoptSessionTitle sets the title only while the session has none, in the same
+// statement that checks, so an agent-announced title cannot overwrite a name
+// the user gave between the check and the write. A session that already has a
+// title is not an error.
+func (st *SQLStore) AdoptSessionTitle(ctx context.Context, id, title string, at time.Time) error {
+	_, err := st.db.ExecContext(ctx, `
+		UPDATE `+tableAgentSessions+` SET title = ?, updated_at = ?
+		WHERE id = ? AND (title IS NULL OR TRIM(title) = '')`,
+		title, formatStoreTime(at), id,
+	)
+	return err
+}
+
+func (st *SQLStore) updateSessionColumn(ctx context.Context, set, id string, value any, at time.Time) error {
+	result, err := st.db.ExecContext(ctx,
+		`UPDATE `+tableAgentSessions+` SET `+set+`, updated_at = ? WHERE id = ?`,
+		value, formatStoreTime(at), id,
 	)
 	if err != nil {
 		return err
