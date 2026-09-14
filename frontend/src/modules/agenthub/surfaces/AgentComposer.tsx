@@ -30,8 +30,40 @@ import type { AgentImageAttachment } from "@/bridge/agenthub";
 export type ComposerSize = "wide" | "rail";
 export type ComposerState = "idle" | "streaming" | "attached";
 
-export function shouldCancelComposerOnEscape(key: string, streaming: boolean): boolean {
-  return key === "Escape" && streaming;
+export function shouldCancelComposerOnEscape(key: string, streaming: boolean, composing = false): boolean {
+  return key === "Escape" && streaming && !composing;
+}
+
+type ComposerKeyEvent = {
+  key: string;
+  shiftKey: boolean;
+  keyCode: number;
+  nativeEvent: { isComposing?: boolean };
+  preventDefault: () => void;
+};
+
+/**
+ * The textarea's shortcuts. While an IME composition is open (Vietnamese,
+ * Japanese, Chinese input) Enter picks the candidate and Escape drops it, so
+ * neither may send or cancel the turn. WebKit — the webview on macOS — reports
+ * the keydown that commits a composition as keyCode 229 with isComposing
+ * already false, so both are checked.
+ */
+export function handleComposerKeyDown(
+  e: ComposerKeyEvent,
+  { streaming, onSend, onCancel }: { streaming: boolean; onSend: () => void; onCancel: () => void },
+): void {
+  const composing = Boolean(e.nativeEvent.isComposing) || e.keyCode === 229;
+  if (composing) return;
+  if (shouldCancelComposerOnEscape(e.key, streaming, composing)) {
+    e.preventDefault();
+    onCancel();
+    return;
+  }
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    onSend();
+  }
 }
 
 export type AgentComposerProps = {
@@ -332,17 +364,7 @@ export function AgentComposer({
           onDragOver={(e) => {
             if (Array.from(e.dataTransfer.types).includes("Files")) e.preventDefault();
           }}
-          onKeyDown={(e) => {
-            if (shouldCancelComposerOnEscape(e.key, isStreaming)) {
-              e.preventDefault();
-              onCancel();
-              return;
-            }
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              onSend();
-            }
-          }}
+          onKeyDown={(e) => handleComposerKeyDown(e, { streaming: isStreaming, onSend, onCancel })}
           className={cn(
             "w-full resize-none overflow-y-auto bg-transparent px-2 pt-1 text-body-14 text-text-primary placeholder:text-text-tertiary outline-none disabled:opacity-60",
             // Floor is the old fixed height; ceiling is about eleven lines wide
