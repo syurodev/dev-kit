@@ -175,54 +175,6 @@ func TestStoreInsertListTurns(t *testing.T) {
 	}
 }
 
-// agent_transcript had no delete path of any kind: append-plus-upsert only, no
-// session delete cascading into it, and one row per streamed chunk. The table
-// was unbounded by construction, so this pins that it can now be bounded.
-func TestPruneTranscriptsBeforeKeepsRecentRows(t *testing.T) {
-	store := newTestStore(t)
-	sql, ok := store.(*agenthub.SQLStore)
-	if !ok {
-		t.Fatalf("want *agenthub.SQLStore, got %T", store)
-	}
-	ctx := context.Background()
-
-	if err := sql.InsertSession(ctx, sampleSession("s1")); err != nil {
-		t.Fatal(err)
-	}
-
-	old := time.Now().AddDate(0, 0, -120)
-	recent := time.Now()
-	for i, at := range []time.Time{old, old, recent} {
-		if err := sql.AppendTranscript(ctx, agenthub.TranscriptEntry{
-			ID:        fmt.Sprintf("t%d", i+1),
-			SessionID: "s1",
-			Seq:       int64(i + 1),
-			Kind:      agenthub.UpdateAgentMessageChunk,
-			Text:      "x",
-			CreatedAt: at,
-			UpdatedAt: at,
-		}); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	removed, err := sql.PruneTranscriptsBefore(ctx, time.Now().AddDate(0, 0, -90))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if removed != 2 {
-		t.Fatalf("want 2 rows pruned, got %d", removed)
-	}
-
-	rows, err := sql.ListTranscript(ctx, "s1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(rows) != 1 {
-		t.Fatalf("want 1 row kept, got %d", len(rows))
-	}
-}
-
 // pageFixture seeds three turns — a user_message_chunk row opens each turn —
 // so the page tests can pin both the window and the turn-boundary snap.
 func pageFixture(t *testing.T) agenthub.Store {
@@ -407,6 +359,75 @@ func TestListTranscriptPageSnapIsBounded(t *testing.T) {
 	for seq := int64(1); seq <= 10; seq++ {
 		if !seen[seq] {
 			t.Fatalf("seq %d unreachable by pagination", seq)
+		}
+	}
+}
+
+// Retention used to be a created_at cut, which sawed the HEAD off any session
+// old enough to span the cutoff — the exact middle-loss the ListTranscript
+// comment promises cannot happen. The rule is now whole-session: a transcript
+// goes only when its session has been silent past the window, and an active
+// session keeps every row no matter how old they are.
+func TestPruneAbandonedTranscriptsKeepsActiveSessionsWhole(t *testing.T) {
+	store := newTestStore(t)
+	sql, ok := store.(*agenthub.SQLStore)
+	if !ok {
+		t.Fatalf("want *agenthub.SQLStore, got %T", store)
+	}
+	ctx := context.Background()
+
+	old := time.Now().AddDate(0, 0, -120)
+
+	abandoned := sampleSession("abandoned")
+	abandoned.CreatedAt = old
+	abandoned.UpdatedAt = old
+	if err := sql.InsertSession(ctx, abandoned); err != nil {
+		t.Fatal(err)
+	}
+	// Active yesterday, but its transcript rows are months old: the head cut
+	// used to take them; an active conversation must keep its history.
+	active := sampleSession("active")
+	active.CreatedAt = old
+	active.UpdatedAt = time.Now().AddDate(0, 0, -1)
+	if err := sql.InsertSession(ctx, active); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, sessionID := range []string{"abandoned", "active"} {
+		for i := 0; i < 3; i++ {
+			if err := sql.AppendTranscript(ctx, agenthub.TranscriptEntry{
+				ID:        fmt.Sprintf("%s-t%d", sessionID, i+1),
+				SessionID: sessionID,
+				Seq:       int64(i + 1),
+				Kind:      agenthub.UpdateAgentMessageChunk,
+				Text:      "x",
+				CreatedAt: old,
+				UpdatedAt: old,
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	removed, err := sql.PruneAbandonedTranscripts(ctx, time.Now().AddDate(0, 0, -90))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed != 3 {
+		t.Fatalf("removed %d rows, want the abandoned session's 3", removed)
+	}
+
+	for _, sessionID := range []string{"abandoned", "active"} {
+		rows, err := sql.ListTranscript(ctx, sessionID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := 0
+		if sessionID == "active" {
+			want = 3
+		}
+		if len(rows) != want {
+			t.Fatalf("session %s kept %d rows, want %d", sessionID, len(rows), want)
 		}
 	}
 }

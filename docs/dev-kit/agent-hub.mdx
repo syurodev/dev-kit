@@ -445,6 +445,44 @@ Là thay đổi code kèm phép đo, không phải cấu hình:
    [Kế hoạch ACP](#kế-hoạch-acp--phần-surface-còn-thiếu) T0/T1/T2 — rồi cập nhật
    số hoặc ghi rõ phiên bản đã đo.
 
+### Transcript: ghi theo nhịp, phân trang, retention (Implemented 2026-09-14)
+
+Ba quyết định về `agent_transcript`, mỗi cái sửa một chiều của cùng một vấn đề
+— transcript là workload dài sống duy nhất của module:
+
+**Ghi theo nhịp.** Recorder giữ phần đuôi mỗi session trong bộ nhớ
+(strings.Builder của tin đang stream + trạng thái tool call đã gộp) và ghi
+SQLite theo nhịp 250 ms, khi tin đổi (kind/messageId), khi lượt kết thúc
+(`Invoke` flush bằng `context.WithoutCancel`) và khi đóng session. Việc ghi
+từng token là SELECT-cả-dòng-cuối + UPDATE-toàn-bộ-text mỗi token — O(len) mỗi
+token, O(len²) mỗi tin; 10.000 token mất 21,17 s, sau batching 7,39 ms kể cả
+flush cuối (số đo: [Performance / Baseline — backend
+transcript](/dev-kit/frontend-performance)). Row được INSERT ngay khi tin bắt
+đầu nên thứ tự seq vẫn là thứ tự đến; một crash giữa lượt mất tối đa ~250 ms
+đuôi cuối. Emit tới UI đi TRƯỚC ghi — màn hình không chờ SQLite.
+
+**Phân trang.** `ListTranscriptPage(sessionID, beforeSeq, limit)` trả cửa sổ
+mới nhất (mặc định 200, trần 500) + `hasMore`; UI mở ở trang cuối và cuộn lên
+tải trang trước, giữ vị trí đọc (bù scrollTop đúng chiều cao chèn thêm, trong
+layout effect trước paint) và nói rõ khi còn lịch sử phía trên. Trang bắt đầu
+giữa turn được snap về `user_message_chunk` mở turn đó để đường nối trang
+không cắt giữa một chunk-run (hai bubble khỏi một tin); snap có giới hạn một
+trang nữa — vượt thì giữ nguyên chỗ cắt thay vì tạo gap với tới không được.
+`agenthub:sessionUpdate` chỉ mang `parsed` (một nguồn); Raw bị bỏ cho kind
+chunk/tool vì dạng chuẩn hoá đã mang đủ từng byte — unknown kind vẫn giữ Raw
+(nội dung duy nhất của nó, Meta Inspector đọc đó). Tool call có
+rawInput/rawOutput lớn được cắt preview 8 KiB + cờ `truncated` ở mức trang;
+`AgentHubToolCallDetail` trả nguyên bản theo id.
+
+**Retention theo session, không theo row.** `PruneAbandonedTranscripts` xóa
+transcript của những session im lặng quá 90 ngày (cả session, session row giữ
+nguyên). Quy tắc cũ cắt theo `created_at` của từng row — nghĩa là cưa mất PHẦN
+ĐẦU của bất kỳ session nào đủ cũ để vạch qua vạch cắt: một cuộc hội thoại dùng
+hàng ngày bốn tháng âm thầm mất tháng đầu tiên, đúng điều store hứa là không
+bao giờ xảy ra. Session đang hoạt động giữ mọi row dù cũ bao nhiêu; trần tăng
+trưởng của một session hoạt động là việc của phân trang + virtualize phía UI,
+không phải của retention.
+
 ### UI — ba bề mặt (Design)
 
 Thiết kế: [Figma page 17 · Agent Hub](https://www.figma.com/design/3dOzSZBYY7QtzANFTCfEe8/DevKit?node-id=904-2).

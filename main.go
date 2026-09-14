@@ -321,15 +321,20 @@ func main() {
 	// only grows while the app runs, and a boot is the one moment where a short
 	// blocking sweep costs nothing a user can perceive.
 	//
+	// The rule is whole-session: a transcript goes only when its session has
+	// been silent for the window. The first cut was row-wise on created_at,
+	// which sawed the head off any conversation old enough to span it — a
+	// session in daily use for four months silently lost its first month.
+	//
 	// POLICY, not a measurement: 90 days is a deliberately conservative default
 	// so this cannot surprise anyone by eating recent work. Set it to whatever
 	// the product actually wants transcripts to live for.
 	// Same shape as the audit prune above: best-effort, logged, never fatal.
-	cutoff := time.Now().AddDate(0, 0, -transcriptRetentionDays)
-	if removed, err := agentStore.PruneTranscriptsBefore(context.Background(), cutoff); err != nil {
+	silentBefore := time.Now().AddDate(0, 0, -transcriptRetentionDays)
+	if removed, err := agentStore.PruneAbandonedTranscripts(context.Background(), silentBefore); err != nil {
 		log.Printf("agenthub: transcript prune: %v", err)
 	} else if removed > 0 {
-		log.Printf("agenthub: pruned %d transcript rows older than %d days", removed, transcriptRetentionDays)
+		log.Printf("agenthub: pruned %d transcript rows of sessions silent for %d days", removed, transcriptRetentionDays)
 	}
 
 	agentSvc := agenthub.NewService(agentReg, agentStore, func(sessionID string, update json.RawMessage) {

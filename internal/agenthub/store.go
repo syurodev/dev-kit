@@ -286,21 +286,24 @@ func (st *SQLStore) FindTranscriptKind(ctx context.Context, sessionID string, ki
 	return scanOptionalTranscript(row)
 }
 
-// PruneTranscriptsBefore deletes transcript rows created before cutoff and
-// reports how many went.
+// PruneAbandonedTranscripts deletes every transcript row of sessions whose
+// last activity is older than inactiveBefore, and reports how many went.
 //
 // Nothing ever deleted from this table: it is append-plus-upsert only, no
 // session delete cascades into it, and a single long-running agent session
 // writes a row per chunk. The table was unbounded by construction.
 //
-// Deliberately time-based rather than "keep the last N rows per session":
-// trimming inside a session would make a transcript silently lose its middle,
-// and a reload would then show the user a different conversation than the one
-// they watched arrive.
-func (st *SQLStore) PruneTranscriptsBefore(ctx context.Context, cutoff time.Time) (int64, error) {
+// The rule is whole-session on purpose. The first cut was row-wise on
+// created_at, which sawed the HEAD off any session old enough to span the
+// cutoff — a conversation in daily use for four months silently lost its
+// first month, the exact middle-loss this store promises cannot happen. A
+// session that was silent past the window loses its transcript entire (the
+// session row itself stays); an active one keeps every row however old.
+func (st *SQLStore) PruneAbandonedTranscripts(ctx context.Context, inactiveBefore time.Time) (int64, error) {
 	res, err := st.db.ExecContext(ctx,
-		`DELETE FROM `+tableAgentTranscript+` WHERE created_at < ?`,
-		formatStoreTime(cutoff),
+		`DELETE FROM `+tableAgentTranscript+`
+		WHERE session_id IN (SELECT id FROM `+tableAgentSessions+` WHERE updated_at < ?)`,
+		formatStoreTime(inactiveBefore),
 	)
 	if err != nil {
 		return 0, err

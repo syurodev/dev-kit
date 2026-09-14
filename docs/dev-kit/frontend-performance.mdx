@@ -366,6 +366,26 @@ giữ 5.000 section trong DOM; cùng fixture hiện chỉ render 11 section ở 
 (overscan 6, budget kiểm thử 32). Auto-scroll và scroll handler đều đi qua một
 frame gate; tick active dùng IntersectionObserver trên các section đang mount.
 
+#### Baseline — backend transcript (2026-09-14)
+
+Đo trên cùng máy (macOS 27.0 arm64), Go bench
+`go test ./internal/agenthub/ -bench BenchmarkRecordTenThousandTokens -benchtime=1x`
+và các test đếm statement trong `recorder_batch_test.go` / `payload_diet_test.go`.
+SQLite thật trong thư mục tạm, một tin nhắn 10.000 token (cùng messageId).
+
+| Metric | Trước | Sau | Evidence |
+|---|---:|---:|---|
+| Ghi 10.000 token vào SQLite (cả flush cuối) | 21.170 ms | 7,39 ms | bench trước/sau cùng lệnh; O(len²) → O(len) |
+| Câu lệnh SQLite cho 100 token của một tin | 100 SELECT + 100 UPDATE | 1 INSERT + 1 UPDATE mỗi flush | `countingStore` trong `TestRecorderBatchesChunkWritesUntilFlush` |
+| Bản copy rawOutput mỗi `tool_call_update` qua bridge | ~3 (event `update` + `parsed.raw` + `parsed.toolCall`) | 1 (`parsed.toolCall`) | `TestParseSessionUpdateDropsRedundantRawForStreamedKinds`; golden fixture −141 dòng |
+| Trả transcript lúc mở session | toàn bộ row của session | cửa sổ mới nhất ≤ 200 entry (mặc định) + `hasMore` | `ListTranscriptPage`; snap về đầu turn, có giới hạn |
+| rawOutput lớn trong trang | nguyên bản | preview ≤ 8 KiB + cờ `truncated`; detail theo id đủ | `TestTranscriptPagePreviewsOversizedToolRaw` |
+
+Điều kiện đo của hàng đầu: trước là write-through mỗi token (SELECT cả dòng
+cuối + UPDATE toàn bộ text tích lũy), sau là tail in-memory với flush 250 ms /
+đổi tin / hết lượt / đóng session. Một crash giữa lượt mất tối đa ~250 ms tail
+cuối — Status: [Agent Hub](/dev-kit/agent-hub) mục Transcript.
+
 ### Code Graph
 
 Code Graph hiện **Design only** trong checkout app: chưa có
