@@ -83,6 +83,22 @@ export function isTranscriptAtBottom(
   return scrollHeight - scrollTop - clientHeight < tolerance;
 }
 
+/**
+ * Whether the stream keeps following new output after a scroll sample. A
+ * flush can grow the transcript past the tolerance before the auto-scroll
+ * frame catches up, and a sample taken in between (often the previous
+ * auto-scroll's own scroll event) reads that as "not at the bottom". Growth
+ * moves nobody, so only the reader turns following off: input — wheel, touch,
+ * keyboard, the scrollbar — that moved the view up.
+ */
+export function keepsFollowing(
+  following: boolean,
+  sample: { atBottom: boolean; scrollTop: number; previousScrollTop: number; userScrolled: boolean },
+): boolean {
+  if (sample.atBottom) return true;
+  return following && !(sample.userScrolled && sample.scrollTop < sample.previousScrollTop);
+}
+
 export function transcriptBottomScrollTop(scrollHeight: number, clientHeight: number): number {
   return Math.max(0, scrollHeight - clientHeight);
 }
@@ -218,6 +234,12 @@ export function TranscriptStream({
   // one panel for whichever turn you asked about, not one per message.
   const [inspecting, setInspecting] = useState<TranscriptItem | null>(null);
   const isAtBottomRef = useRef(true);
+  // Reader input since the last scroll sample, and where that sample was (keepsFollowing).
+  const userScrollRef = useRef(false);
+  const lastScrollTopRef = useRef(0);
+  const markUserScroll = () => {
+    userScrollRef.current = true;
+  };
   const activeTickRef = useRef(0);
   const scrollFrameRef = useRef<(() => void) | null>(null);
   const autoScrollFrameRef = useRef<(() => void) | null>(null);
@@ -257,10 +279,18 @@ export function TranscriptStream({
       scrollFrameRef.current = null;
       const el = scrollRef.current;
       if (!el) return;
-      const atBottom = isTranscriptAtBottom(el.scrollHeight, el.scrollTop, el.clientHeight);
-      isAtBottomRef.current = atBottom;
-      setShowJump((previous) => (previous === !atBottom ? previous : !atBottom));
-      if (atBottom && ticks.length > 0) setActiveTickIfChanged(ticks.length - 1);
+      const scrollTop = el.scrollTop;
+      const following = keepsFollowing(isAtBottomRef.current, {
+        atBottom: isTranscriptAtBottom(el.scrollHeight, scrollTop, el.clientHeight),
+        scrollTop,
+        previousScrollTop: lastScrollTopRef.current,
+        userScrolled: userScrollRef.current,
+      });
+      lastScrollTopRef.current = scrollTop;
+      userScrollRef.current = false;
+      isAtBottomRef.current = following;
+      setShowJump((previous) => (previous === !following ? previous : !following));
+      if (following && ticks.length > 0) setActiveTickIfChanged(ticks.length - 1);
       const anchor = prependAnchorRef.current;
       if (anchor) {
         // Waiting on a page: the reader is still reading, so the anchor moves with them.
@@ -314,6 +344,9 @@ export function TranscriptStream({
   function jumpTo(id: string) {
     const index = turns.findIndex((turn) => turn.id === id);
     if (index < 0) return;
+    // A jump back to an earlier prompt is the reader leaving the bottom; the
+    // next scroll sample turns following back on if the target is the bottom.
+    isAtBottomRef.current = false;
     pendingJumpRef.current = id;
     if (virtualized) {
       rowVirtualizer.scrollToIndex(index, { align: "start", behavior: "auto" });
@@ -376,6 +409,7 @@ export function TranscriptStream({
       const el = scrollRef.current;
       if (!el || !isAtBottomRef.current) return;
       el.scrollTo({ top: transcriptBottomScrollTop(el.scrollHeight, el.clientHeight), behavior: "instant" });
+      lastScrollTopRef.current = el.scrollTop;
       if (ticks.length > 0) setActiveTickIfChanged(ticks.length - 1);
     });
     return () => {
@@ -459,6 +493,9 @@ export function TranscriptStream({
       <ScrollAreaPrimitive.Viewport
         ref={scrollRef}
         onScroll={handleScroll}
+        onWheel={markUserScroll}
+        onTouchMove={markUserScroll}
+        onKeyDown={markUserScroll}
         data-testid="transcript-viewport"
         // Radix wraps the content in a display:table div so it can scroll
         // sideways too; as a table it widens to fit a long code line and drags
@@ -534,6 +571,10 @@ export function TranscriptStream({
           bottom rather than margins: Radix positions the bar absolutely and
           the class gives it full height, so a margin only slid it down. */}
       <ScrollBar
+        // Radix captures the pointer on the bar while its thumb is dragged.
+        onPointerMove={(event) => {
+          if (event.buttons) markUserScroll();
+        }}
         style={{ top: "var(--header-inset, 0px)", bottom: "var(--composer-inset, 0px)", height: "auto" }}
       />
       </ScrollAreaPrimitive.Root>
