@@ -1,6 +1,13 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 
-import { handleAgentTurnFinished } from "./AgentSessionsSubscriber";
+import { createElement } from "react";
+import { renderToString } from "react-dom/server";
+import {
+  AgentSessionsSubscriber,
+  handleAgentTurnFinished,
+  statusAnnouncement,
+  turnFinishedAnnouncement,
+} from "./AgentSessionsSubscriber";
 import { useAgentSessionsStore } from "../stores/agentSessions";
 import { useWorkbenchTabsStore } from "../stores/workbenchTabs";
 
@@ -58,5 +65,38 @@ describe("an Agent Hub tab when a turn finishes", () => {
     handleAgentTurnFinished({ sessionId: "s1", status: "error", outcome: "error" });
 
     expect(tabStatus()).toBe("error");
+  });
+});
+
+describe("what the shell's live region says", () => {
+  // Go resets a failed or cancelled turn to idle, and a turn that asked for
+  // permission ends awaiting_permission → idle: the status transition says
+  // "answer ready" for the wrong turns and nothing for that one.
+  it("says how a turn ended, from its outcome", () => {
+    expect(turnFinishedAnnouncement("cancelled", [])).toBe("Stopped.");
+    expect(turnFinishedAnnouncement("error", [])).toBe("The agent stopped with an error.");
+    expect(turnFinishedAnnouncement("completed", [])).toBe("Answer ready.");
+  });
+
+  it("adds how long the finished turn worked when its rows carry times", () => {
+    const items = [
+      { id: "p0", kind: "user_message_chunk", text: "earlier", createdAt: "2026-09-15T09:00:00Z" },
+      { id: "p1", kind: "user_message_chunk", text: "go", createdAt: "2026-09-15T10:00:00Z", updatedAt: "2026-09-15T10:00:00Z" },
+      { id: "a1", kind: "agent_message_chunk", text: "done", createdAt: "2026-09-15T10:00:05Z", updatedAt: "2026-09-15T10:04:07Z" },
+    ];
+    expect(turnFinishedAnnouncement("completed", items)).toBe("Answer ready. Worked for 4m 7s");
+  });
+
+  it("announces running and waiting, and nothing for the rest", () => {
+    expect(statusAnnouncement("running")).toBe("Running…");
+    expect(statusAnnouncement("awaiting_permission")).toBe("Waiting for permission.");
+    expect(statusAnnouncement("idle")).toBe("");
+    expect(statusAnnouncement(undefined)).toBe("");
+  });
+
+  it("is one polite region, mounted once by the shell", () => {
+    const html = renderToString(createElement(AgentSessionsSubscriber));
+    expect(html.match(/aria-live=/g)).toHaveLength(1);
+    expect(html).toContain('aria-live="polite"');
   });
 });

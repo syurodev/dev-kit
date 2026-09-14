@@ -58,7 +58,6 @@ export type AgentHubContentProps = {
   mode?: string | null;
   onSetMode?: (mode: string) => void;
   onSetConfigOption?: (optionId: string, value: string) => void;
-  sessionStatus?: string;
   focusComposerRequest?: number;
   /** Older transcript pages exist above the ones held (see useAgentTranscript). */
   hasMore?: boolean;
@@ -176,7 +175,6 @@ export function AgentHubContent({
   mode = null,
   onSetMode,
   onSetConfigOption,
-  sessionStatus,
   focusComposerRequest = 0,
   hasMore = false,
   loadingOlder = false,
@@ -485,7 +483,6 @@ export function AgentHubContent({
                 streamKey={session?.id}
                 vendor={vendor}
                 streaming={!isError && streaming}
-                sessionStatus={session?.status ?? sessionStatus}
                 onCopy={isError ? undefined : onCopy}
                 // The error card replaces the composer, so there is nowhere to edit into.
                 onEditPrompt={isError ? undefined : onPromptChange}

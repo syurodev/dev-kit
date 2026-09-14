@@ -674,7 +674,6 @@ export function AgentHubView() {
           {/* Surface: Agent Hub / Content (1136×804) */}
           <AgentHubContent
             session={activeSession}
-            sessionStatus={activeSession?.status}
             parentSession={parentSession}
             items={transcriptModel.items}
             usage={transcriptModel.usage}

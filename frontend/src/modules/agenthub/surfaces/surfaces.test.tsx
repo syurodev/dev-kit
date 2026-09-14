@@ -27,12 +27,12 @@ import type { TranscriptItem } from "../types";
 const renderToString = (node: React.ReactNode) => renderRaw(<TooltipProvider>{node}</TooltipProvider>);
 
 describe("Agent Hub Phase 3 Surfaces", () => {
-  it("exposes one polite transcript status live region without token-level content", () => {
-    const html = renderToString(<TranscriptStream items={[]} sessionStatus="running" />);
+  it("leaves status announcements to the shell's one live region", () => {
+    // The hub and the companion each mount a stream; a region in each read
+    // every status twice (AgentSessionsSubscriber owns the one region).
+    const html = renderToString(<TranscriptStream items={[]} />);
 
-    expect(html).toContain('aria-live="polite"');
-    expect(html).toContain('data-testid="transcript-live-region"');
-    expect(html).toContain("Running…");
+    expect(html).not.toContain("aria-live");
   });
 
   it("offers the companion rail the older pages the hub offers", () => {

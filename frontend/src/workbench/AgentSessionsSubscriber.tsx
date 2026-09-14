@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Window } from "@wailsio/runtime";
 import {
   agentHubGetStatus,
@@ -12,9 +12,46 @@ import {
 } from "../bridge/agenthub";
 import { useAgentSessionsStore } from "../stores/agentSessions";
 import { startAgentTranscriptStream } from "../modules/agenthub/transcript";
+import { groupTurns, workedFor } from "../modules/agenthub/turns";
+import type { TranscriptItem } from "../modules/agenthub/types";
 import { moduleTabs, useWorkbenchTabsStore, type TabStatus } from "../stores/workbenchTabs";
 import { UpdateKind } from "../../bindings/devkit/internal/agenthub/models";
 import { drainQueuedPrompt, type TurnBridge } from "./agentPromptQueue";
+
+/** Someone is looking at this session: the hub open on it, or the companion. */
+function sessionVisible(sessionId: string): boolean {
+  const { activeSessionId, chatOpen } = useAgentSessionsStore.getState();
+  return activeSessionId === sessionId && (useWorkbenchTabsStore.getState().activeModuleId === "agenthub" || chatOpen);
+}
+
+/** The live region's line for a status a turn passes through; its end is turnFinishedAnnouncement's. */
+export function statusAnnouncement(status: string | undefined): string {
+  if (status === "running") return "Running…";
+  if (status === "awaiting_permission") return "Waiting for permission.";
+  return "";
+}
+
+/**
+ * How a turn ended, from Go's outcome rather than the status: Go resets a
+ * failed or cancelled turn to idle, and a turn that asked for permission ends
+ * awaiting_permission → idle, so the transition said "Answer ready." for turns
+ * that failed and nothing for ones that answered. Never token by token.
+ */
+export function turnFinishedAnnouncement(
+  outcome: AgentTurnFinishedEvent["outcome"],
+  items: TranscriptItem[],
+): string {
+  if (outcome === "cancelled") return "Stopped.";
+  if (outcome === "error") return "The agent stopped with an error.";
+  if (outcome !== "completed") return "";
+  // Only the last turn is grouped: from the last prompt to the end.
+  let start = items.length - 1;
+  while (start > 0 && String(items[start].kind) !== "user_message_chunk") start -= 1;
+  const turns = groupTurns(items.slice(Math.max(start, 0)));
+  const worked = turns.length > 0 ? workedFor(turns[turns.length - 1]) : "";
+  // "Worked" alone means the rows carry no times; there is nothing to add.
+  return worked.startsWith("Worked for") ? `Answer ready. ${worked}` : "Answer ready.";
+}
 
 /**
  * What a finished turn changes outside the turn itself: the session row, the
@@ -35,7 +72,7 @@ export function handleAgentTurnFinished(
     state.upsertSession({ ...session, status: nextStatus });
   }
 
-  const { modules, activeModuleId, setTabStatus } = useWorkbenchTabsStore.getState();
+  const { modules, setTabStatus } = useWorkbenchTabsStore.getState();
   const targetTabs = moduleTabs(modules, "agenthub").openTabs.filter(
     (tab) => !tab.params?.sessionId || tab.params.sessionId === sessionId,
   );
@@ -46,10 +83,7 @@ export function handleAgentTurnFinished(
     setTabStatus(tab.id, nextStatus === "error" ? "error" : "idle");
   }
 
-  const visible =
-    (activeModuleId === "agenthub" && state.activeSessionId === sessionId) ||
-    (state.chatOpen && state.activeSessionId === sessionId);
-  if (visible) state.markCompletedRead(sessionId);
+  if (sessionVisible(sessionId)) state.markCompletedRead(sessionId);
   else state.markCompletedUnread(sessionId);
 
   if (ours) return;
@@ -69,6 +103,15 @@ export function AgentSessionsSubscriber() {
   const upsertSession = useAgentSessionsStore((state) => state.upsertSession);
   const enqueuePending = useAgentSessionsStore((state) => state.enqueuePending);
   const trackSubagent = useAgentSessionsStore((state) => state.trackSubagent);
+
+  // The one live region for Agent Hub. The hub and the companion each mount a
+  // transcript, and a region in each read every status twice.
+  const [announcement, setAnnouncement] = useState("");
+  const activeStatus = useAgentSessionsStore((state) => state.sessionsById[state.activeSessionId]?.status);
+  useEffect(() => {
+    const line = statusAnnouncement(activeStatus);
+    if (line && sessionVisible(useAgentSessionsStore.getState().activeSessionId)) setAnnouncement(line);
+  }, [activeStatus]);
 
   useEffect(() => {
     let mounted = true;
@@ -158,7 +201,17 @@ export function AgentSessionsSubscriber() {
     });
   }, [trackSubagent]);
 
-  useEffect(() => onAgentHubTurnFinished((event) => handleAgentTurnFinished(event)), []);
+  useEffect(
+    () =>
+      onAgentHubTurnFinished((event) => {
+        handleAgentTurnFinished(event);
+        if (!sessionVisible(event.sessionId)) return;
+        const items = useAgentSessionsStore.getState().transcriptsById[event.sessionId]?.items ?? [];
+        const line = turnFinishedAnnouncement(event.outcome, items);
+        if (line) setAnnouncement(line);
+      }),
+    [],
+  );
 
   useEffect(() => {
     return onAgentHubNotificationAction((sessionId) => {
@@ -200,5 +253,9 @@ export function AgentSessionsSubscriber() {
     });
   }, [upsertSession, enqueuePending]);
 
-  return null;
+  return (
+    <div aria-live="polite" aria-atomic="true" className="sr-only" data-testid="agent-live-region">
+      {announcement}
+    </div>
+  );
 }

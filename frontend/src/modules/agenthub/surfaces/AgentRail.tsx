@@ -240,7 +240,6 @@ export function AgentRail({
               items={items}
               streamKey={activeSession?.id}
               vendor={vendor}
-              sessionStatus={activeSession?.status}
               hasMore={hasMore}
               loadingOlder={loadingOlder}
               onLoadOlder={onLoadOlder}
