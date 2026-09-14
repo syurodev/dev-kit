@@ -30,6 +30,25 @@ import type { AgentImageAttachment } from "@/bridge/agenthub";
 export type ComposerSize = "wide" | "rail";
 export type ComposerState = "idle" | "streaming" | "attached";
 
+/**
+ * The modes the picker offers: the session's current mode and whatever a mode
+ * config option lists — only what the agent advertised. A fixed default /
+ * acceptEdits / plan / bypassPermissions list offered modes an agent may not
+ * have. ACP's session/new `modes.availableModes` would be the full list, but
+ * the hub does not forward it yet (internal/acp SessionLoadResult keeps it raw).
+ */
+export function composerModeChoices(mode: string | null, configOptions: ConfigOption[]) {
+  const modeOption = configOptions.find((option) => {
+    const id = option.id.toLowerCase();
+    return option.category === "mode" || id.includes("permission") || id === "mode" || id.endsWith("_mode");
+  });
+  const current = mode ?? (typeof modeOption?.currentValue === "string" ? modeOption.currentValue : null);
+  const choices = Array.from(
+    new Set([current, ...(modeOption?.options?.map((choice) => choice.value) ?? [])].filter((c): c is string => Boolean(c))),
+  );
+  return { modeOption, current, choices };
+}
+
 export function shouldCancelComposerOnEscape(key: string, streaming: boolean, composing = false): boolean {
   return key === "Escape" && streaming && !composing;
 }
@@ -240,20 +259,7 @@ export function AgentComposer({
   const isStreaming = streaming || state === "streaming";
   const effectiveState: ComposerState =
     state ?? (isStreaming ? "streaming" : attachedFiles.length > 0 || imageAttachments.length > 0 ? "attached" : "idle");
-  const modeOption = configOptions.find((option) => {
-    const id = option.id.toLowerCase();
-    return id.includes("permission") || id === "mode" || id.endsWith("_mode");
-  });
-  const modeChoices = mode
-    ? Array.from(new Set([
-        mode,
-        ...(modeOption?.options?.map((choice) => choice.value) ?? []),
-        "default",
-        "acceptEdits",
-        "plan",
-        "bypassPermissions",
-      ]))
-    : [];
+  const { modeOption, current: currentMode, choices: modeChoices } = composerModeChoices(mode, configOptions);
   const selectableOptions = configOptions.filter(
     (option) => option !== modeOption && option.options && option.options.length > 0,
   );
@@ -446,7 +452,7 @@ export function AgentComposer({
               <DropdownMenuTrigger asChild>
                 <Button type="button" variant="ghost" size="sm" data-testid="composer-mode" className="gap-1 px-2 text-text-secondary">
                   <SlidersHorizontal className="size-3.5" aria-hidden="true" />
-                  <span className="max-w-24 truncate text-body-13">{mode}</span>
+                  <span className="max-w-24 truncate text-body-13">{currentMode}</span>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent side="top" align="start" className="w-48">
@@ -455,7 +461,7 @@ export function AgentComposer({
                   <DropdownMenuItem
                     key={choice}
                     data-testid="composer-mode-option"
-                    detail={choice === mode ? <Check className="size-3" aria-hidden="true" /> : undefined}
+                    detail={choice === currentMode ? <Check className="size-3" aria-hidden="true" /> : undefined}
                     onSelect={() => {
                       if (choice.toLowerCase().includes("bypass") && !window.confirm("Enable bypass permission mode? The agent will not ask before protected actions.")) return;
                       onSetMode(choice);
