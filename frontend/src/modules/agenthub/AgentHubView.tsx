@@ -37,7 +37,6 @@ import {
   AgentHubContent,
   AgentNewSession,
 } from "./surfaces";
-import { TranscriptGallery } from "./transcript/TranscriptGallery";
 import { useAgentSessionsStore } from "../../stores/agentSessions";
 import { useAgentPinsStore } from "../../stores/agentPins";
 import {
@@ -59,13 +58,6 @@ type TurnInput = { sessionId: string; text: string; attachments: string[] };
 type AuthRetry = { kind: "create"; params: CreateParams } | ({ kind: "turn" } & TurnInput);
 
 export function AgentHubView() {
-  const [showGallery, setShowGallery] = useState(() => {
-    if (typeof window !== "undefined") {
-      return new URLSearchParams(window.location.search).get("gallery") === "1";
-    }
-    return false;
-  });
-
   const sessions = useAgentSessionsStore((state) => state.sessions);
   const activeSessionId = useAgentSessionsStore((state) => state.activeSessionId);
   const setActiveSessionId = useAgentSessionsStore((state) => state.setActiveSessionId);
@@ -420,26 +412,6 @@ export function AgentHubView() {
       data-testid="agenthub-view"
       className="relative flex size-full min-h-0 flex-1 overflow-hidden bg-surface-base"
     >
-      {/* Dev-only toggle for the leaf showcase gallery. Top centre, not top
-          right: the header's session menu lives in that corner, and the toggle
-          sat on top of it. Not in a release build at all — a button labelled
-          "Leaf Gallery" means nothing to someone using the app. */}
-      {import.meta.env.DEV ? (
-        <button
-          type="button"
-          onClick={() => setShowGallery((prev) => !prev)}
-          data-testid="toggle-transcript-gallery"
-          className="absolute top-2 left-1/2 z-40 -translate-x-1/2 rounded-sm border border-border-subtle bg-surface-base/90 px-2 py-0.5 text-caption-11 text-text-tertiary shadow-sm hover:text-text-primary hover:bg-surface-tinted cursor-pointer"
-        >
-          {showGallery ? "Show Swarm" : "Leaf Gallery"}
-        </button>
-      ) : null}
-
-      {showGallery ? (
-        <div className="size-full overflow-y-auto pt-8">
-          <TranscriptGallery />
-        </div>
-      ) : (
         <div className="flex size-full min-h-0 flex-1 overflow-hidden">
           {/* The swarm tree is NOT drawn here — useAgentHubSidebar publishes it
               into the shell rail, which is where Figma's _Slot / Sidebar Content
@@ -481,7 +453,6 @@ export function AgentHubView() {
             onRemoveAttachment={handleRemoveAttachment}
           />
         </div>
-      )}
 
       {/* Surface: Agent / New Session. The hand-rolled backdrop this replaced
           had role="dialog" and aria-modal but none of what those promise — no
