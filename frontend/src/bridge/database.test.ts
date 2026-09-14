@@ -108,7 +108,11 @@ describe("listActivity mapping", () => {
 
   beforeEach(() => {
     mock.module("../../bindings/devkit/internal/bridge", () => ({
-      AppService: { DBListActivity: async () => payload },
+      AppService: {
+        DBListActivity: async () => payload,
+        UIStateGet: async () => "",
+        UIStateSet: async () => undefined,
+      },
     }));
   });
 
