@@ -189,6 +189,52 @@ func (s *AppService) AgentHubTranscript(id string) ([]agenthub.TranscriptEntry, 
 	return result.([]agenthub.TranscriptEntry), nil
 }
 
+// AgentHubTranscriptPage is AgentHubTranscript bounded to the newest window of
+// a session: beforeSeq walks backwards from the page already held (0 starts
+// from the end), limit is clamped server-side. The unbounded listing this
+// replaces made a session with months of history pay for all of it on open.
+func (s *AppService) AgentHubTranscriptPage(id string, beforeSeq int64, limit int) (agenthub.TranscriptPage, error) {
+	opaqueID := hubSessionID(id)
+	result, err := s.call(context.Background(), "builtin.agenthub", "agenthub:read", "session:"+opaqueID, map[string]any{
+		"action":     "transcript_page",
+		"session_id": opaqueID,
+		"before_seq": beforeSeq,
+		"limit":      limit,
+	}, func(ctx context.Context) (any, error) {
+		svc, err := s.agentHubService()
+		if err != nil {
+			return nil, err
+		}
+		return svc.TranscriptPage(ctx, id, beforeSeq, limit)
+	})
+	if err != nil {
+		return agenthub.TranscriptPage{}, err
+	}
+	return result.(agenthub.TranscriptPage), nil
+}
+
+// AgentHubToolCallDetail returns one stored tool call, payload intact — the
+// page reader shortens oversized raw fields to a preview, and this is the
+// "show me the whole output" behind it.
+func (s *AppService) AgentHubToolCallDetail(id string, toolCallID string) (agenthub.TranscriptEntry, error) {
+	opaqueID := hubSessionID(id)
+	result, err := s.call(context.Background(), "builtin.agenthub", "agenthub:read", "session:"+opaqueID, map[string]any{
+		"action":       "tool_call_detail",
+		"session_id":   opaqueID,
+		"tool_call_id": toolCallID,
+	}, func(ctx context.Context) (any, error) {
+		svc, err := s.agentHubService()
+		if err != nil {
+			return nil, err
+		}
+		return svc.ToolCallDetail(ctx, id, toolCallID)
+	})
+	if err != nil {
+		return agenthub.TranscriptEntry{}, err
+	}
+	return result.(agenthub.TranscriptEntry), nil
+}
+
 func (s *AppService) AgentHubInvoke(ctx context.Context, input agenthub.InvokeInput) (agenthub.InvokeResult, error) {
 	opaqueID := hubSessionID(input.SessionID)
 	result, err := s.call(ctx, "builtin.agenthub", "agenthub:execute", "session:"+opaqueID, map[string]any{

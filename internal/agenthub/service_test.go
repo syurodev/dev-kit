@@ -10,6 +10,7 @@ import (
 
 	"devkit/internal/acp"
 	"devkit/internal/agenthub"
+	"devkit/internal/identity"
 	"devkit/internal/storage"
 )
 
@@ -807,3 +808,136 @@ func (a deletableAdapter) NormalizeToolSummary(json.RawMessage, json.RawMessage)
 	return nil, "", nil
 }
 func (a deletableAdapter) Extensions() []string { return nil }
+
+func TestServiceTranscriptPageClampsAndAuthorizes(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	sess, err := svc.CreateSession(ctx, agenthub.CreateInput{
+		AgentType: agenthub.AgentTypeMock,
+		Cwd:       t.TempDir(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Drive a couple of real turns so the rows carry the recorder's shapes.
+	for _, prompt := range []string{"one", "two", "three"} {
+		if _, err := svc.Invoke(ctx, agenthub.InvokeInput{SessionID: sess.ID, Prompt: prompt}); err != nil {
+			t.Fatalf("invoke %q: %v", prompt, err)
+		}
+	}
+
+	page, err := svc.TranscriptPage(ctx, sess.ID, 0, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Entries) == 0 || page.Entries[len(page.Entries)-1].Seq == 0 {
+		t.Fatalf("page = %+v, want entries carrying seq", page.Entries)
+	}
+	if !page.HasMore {
+		t.Fatal("hasMore = false with three turns of history above")
+	}
+	// The page ends on the newest row and is oldest-first.
+	if page.Entries[0].Seq >= page.Entries[len(page.Entries)-1].Seq {
+		t.Fatalf("page not oldest-first: %v", page.Entries)
+	}
+
+	// limit <= 0 falls back to the default page size rather than an unbounded
+	// listing — that unbounded call is exactly what this API exists to retire.
+	page, err = svc.TranscriptPage(ctx, sess.ID, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Entries) == 0 {
+		t.Fatal("default-size page came back empty")
+	}
+
+	// Walking with the oldest seq eventually ends with hasMore=false.
+	before := int64(0)
+	for range 10 {
+		page, err = svc.TranscriptPage(ctx, sess.ID, before, 2)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page.Entries) == 0 {
+			t.Fatal("walk ended before reaching the start of the transcript")
+		}
+		before = page.Entries[0].Seq
+		if !page.HasMore {
+			break
+		}
+	}
+	if page.HasMore {
+		t.Fatal("walk did not terminate")
+	}
+
+	// Same descendant rule as every other read: an agent may not page through
+	// a session outside its subtree.
+	other, err := svc.CreateSession(ctx, agenthub.CreateInput{
+		AgentType: agenthub.AgentTypeMock,
+		Cwd:       t.TempDir(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentCtx := identity.WithCaller(ctx, identity.Agent(other.ID))
+	if _, err := svc.TranscriptPage(agentCtx, sess.ID, 0, 2); !errors.Is(err, agenthub.ErrNotDescendant) {
+		t.Fatalf("err = %v, want ErrNotDescendant", err)
+	}
+}
+
+func TestServiceToolCallDetailReturnsTheStoredRow(t *testing.T) {
+	ctx := context.Background()
+	db, err := storage.Open(filepath.Join(t.TempDir(), "devkit.db"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if err := storage.Migrate(ctx, db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	store := agenthub.NewSQLStore(db)
+	reg := agenthub.NewRegistry()
+	reg.Register(agenthub.NewMockAdapter())
+	svc := agenthub.NewService(reg, store, func(string, json.RawMessage) {})
+
+	sess, err := svc.CreateSession(ctx, agenthub.CreateInput{
+		AgentType: agenthub.AgentTypeMock,
+		Cwd:       t.TempDir(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	call, err := json.Marshal(agenthub.SessionUpdate{
+		Kind: agenthub.UpdateToolCall,
+		ToolCall: &agenthub.ToolCall{
+			ID:    "tool-1",
+			Title: "Read file",
+			Kind:  "read",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AppendTranscript(ctx, agenthub.TranscriptEntry{
+		ID:         "e1",
+		SessionID:  sess.ID,
+		Seq:        1,
+		Kind:       agenthub.UpdateToolCall,
+		ToolCallID: "tool-1",
+		Payload:    call,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	entry, err := svc.ToolCallDetail(ctx, sess.ID, "tool-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry.ToolCallID != "tool-1" || entry.ID != "e1" {
+		t.Fatalf("entry = %+v, want the stored tool-1 row", entry)
+	}
+	if _, err := svc.ToolCallDetail(ctx, sess.ID, "no-such-call"); !errors.Is(err, agenthub.ErrTranscriptEntryNotFound) {
+		t.Fatalf("err = %v, want ErrTranscriptEntryNotFound", err)
+	}
+}

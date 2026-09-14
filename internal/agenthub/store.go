@@ -350,8 +350,8 @@ func (st *SQLStore) DeleteSessions(ctx context.Context, ids []string) error {
 }
 
 func (st *SQLStore) ListTranscript(ctx context.Context, sessionID string) ([]TranscriptEntry, error) {
-	rows, err := st.db.QueryContext(ctx, `
-		SELECT `+transcriptColumns+`
+	rows, err := st.db.QueryContext(ctx,
+		`SELECT `+transcriptColumns+`
 		FROM `+tableAgentTranscript+`
 		WHERE session_id = ?
 		ORDER BY seq ASC`, sessionID)
@@ -369,6 +369,149 @@ func (st *SQLStore) ListTranscript(ctx context.Context, sessionID string) ([]Tra
 		out = append(out, e)
 	}
 	return out, rows.Err()
+}
+
+// Page size bounds for transcript reads. The default is what a session open
+// asks for; the ceiling is what any single call may return regardless of what
+// the caller asked.
+const (
+	DefaultTranscriptPageSize = 200
+	MaxTranscriptPageSize     = 500
+)
+
+// ListTranscriptPage returns the newest `limit` entries older than beforeSeq
+// (0 = no bound), oldest-first, plus whether older rows exist above the page.
+//
+// A page that starts mid-turn is snapped back to the turn's user_message_chunk
+// row when one exists above it, so a prepend never lands between a prompt and
+// its reply — the loader coalesces consecutive chunk rows, and a cut inside a
+// run would render one bubble as two. The snap is bounded to one extra
+// page-worth: a turn longer than that keeps the page's original mid-turn cut,
+// visibly, because cutting again would leave the skipped rows unreachable.
+func (st *SQLStore) ListTranscriptPage(ctx context.Context, sessionID string, beforeSeq int64, limit int) (TranscriptPage, error) {
+	if limit <= 0 {
+		limit = DefaultTranscriptPageSize
+	}
+
+	newestFirst, hasMore, err := st.transcriptWindow(ctx, sessionID, beforeSeq, limit)
+	if err != nil {
+		return TranscriptPage{}, err
+	}
+	entries := reverseTranscript(newestFirst)
+
+	// Snap to the turn start: only worth it when the page is full (a partial
+	// page already reaches the top of the window) and older rows exist.
+	if hasMore && len(entries) == limit && entries[0].Kind != UpdateUserMessageChunk {
+		older, snapped, err := st.prependPartialTurn(ctx, sessionID, entries[0].Seq, limit)
+		if err != nil {
+			return TranscriptPage{}, err
+		}
+		if snapped {
+			entries = append(older, entries...)
+			// The boundary row is part of the turn; re-check what is above it.
+			hasMore, err = st.hasOlderThan(ctx, sessionID, entries[0].Seq)
+			if err != nil {
+				return TranscriptPage{}, err
+			}
+		}
+	}
+
+	return TranscriptPage{Entries: entries, HasMore: hasMore}, nil
+}
+
+// transcriptWindow reads the newest `limit` rows strictly below beforeSeq,
+// newest-first. Its own function on purpose: the pool holds one connection,
+// so the result set must be closed (by returning from here) before the snap
+// queries below it can run — querying with it still open waits forever.
+func (st *SQLStore) transcriptWindow(ctx context.Context, sessionID string, beforeSeq int64, limit int) ([]TranscriptEntry, bool, error) {
+	rows, err := st.db.QueryContext(ctx,
+		`SELECT `+transcriptColumns+`
+		FROM `+tableAgentTranscript+`
+		WHERE session_id = ? AND (? <= 0 OR seq < ?)
+		ORDER BY seq DESC
+		LIMIT ?`, sessionID, beforeSeq, beforeSeq, limit+1)
+	if err != nil {
+		return nil, false, err
+	}
+	defer rows.Close()
+
+	newestFirst := make([]TranscriptEntry, 0, limit)
+	hasMore := false
+	for rows.Next() {
+		e, err := scanTranscript(rows)
+		if err != nil {
+			return nil, false, err
+		}
+		if len(newestFirst) == limit {
+			hasMore = true
+			break
+		}
+		newestFirst = append(newestFirst, e)
+	}
+	return newestFirst, hasMore, rows.Err()
+}
+
+// prependPartialTurn returns the rows from the previous user_message_chunk
+// (inclusive) up to oldestSeq (exclusive) — the head of the turn a page cut
+// into. Bounded to `limit` rows; returns snapped=false when no turn start
+// exists above, or when the bound would cut the turn again — a second cut
+// would leave the skipped rows unreachable (every later walk keys off the
+// page's new oldest seq), so the page keeps its original mid-turn cut instead:
+// visible, but nothing is silently unreachable.
+func (st *SQLStore) prependPartialTurn(ctx context.Context, sessionID string, oldestSeq int64, limit int) ([]TranscriptEntry, bool, error) {
+	var boundary sql.NullInt64
+	if err := st.db.QueryRowContext(ctx,
+		`SELECT MAX(seq) FROM `+tableAgentTranscript+`
+		WHERE session_id = ? AND kind = ? AND seq < ?`,
+		sessionID, string(UpdateUserMessageChunk), oldestSeq,
+	).Scan(&boundary); err != nil {
+		return nil, false, err
+	}
+	if !boundary.Valid {
+		return nil, false, nil
+	}
+
+	rows, err := st.db.QueryContext(ctx,
+		`SELECT `+transcriptColumns+`
+		FROM `+tableAgentTranscript+`
+		WHERE session_id = ? AND seq >= ? AND seq < ?
+		ORDER BY seq ASC
+		LIMIT ?`, sessionID, boundary.Int64, oldestSeq, limit+1)
+	if err != nil {
+		return nil, false, err
+	}
+	defer rows.Close()
+
+	out := []TranscriptEntry{}
+	for rows.Next() {
+		e, err := scanTranscript(rows)
+		if err != nil {
+			return nil, false, err
+		}
+		if len(out) == limit {
+			// The bound cut the turn: the rows near oldestSeq would be
+			// skipped by every later walk. Keep the original cut instead.
+			return nil, false, nil
+		}
+		out = append(out, e)
+	}
+	return out, true, rows.Err()
+}
+
+func (st *SQLStore) hasOlderThan(ctx context.Context, sessionID string, seq int64) (bool, error) {
+	var exists bool
+	err := st.db.QueryRowContext(ctx,
+		`SELECT EXISTS(SELECT 1 FROM `+tableAgentTranscript+` WHERE session_id = ? AND seq < ?)`,
+		sessionID, seq).Scan(&exists)
+	return exists, err
+}
+
+func reverseTranscript(in []TranscriptEntry) []TranscriptEntry {
+	out := make([]TranscriptEntry, len(in))
+	for i, e := range in {
+		out[len(in)-1-i] = e
+	}
+	return out
 }
 
 type transcriptScanner interface {

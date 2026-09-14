@@ -14,5 +14,6 @@ export type {
     InvokeInput,
     InvokeResult,
     PendingPermission,
-    TranscriptEntry
+    TranscriptEntry,
+    TranscriptPage
 } from "./models.js";

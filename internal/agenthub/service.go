@@ -356,6 +356,41 @@ func (s *Service) Transcript(ctx context.Context, id string) ([]TranscriptEntry,
 	return s.store.ListTranscript(ctx, id)
 }
 
+// TranscriptPage is Transcript, bounded: the newest window of a session rather
+// than the whole of it. A session with months of history used to pay for all
+// of it on every open; the UI opens on the last page and walks backwards with
+// beforeSeq from the page it holds.
+func (s *Service) TranscriptPage(ctx context.Context, sessionID string, beforeSeq int64, limit int) (TranscriptPage, error) {
+	if err := s.authorizeTarget(ctx, sessionID); err != nil {
+		return TranscriptPage{}, err
+	}
+	if limit <= 0 {
+		limit = DefaultTranscriptPageSize
+	}
+	if limit > MaxTranscriptPageSize {
+		limit = MaxTranscriptPageSize
+	}
+	return s.store.ListTranscriptPage(ctx, sessionID, beforeSeq, limit)
+}
+
+// ToolCallDetail returns the stored row of one tool call, payload intact. The
+// page reader shortens oversized raw fields to a bounded preview so one huge
+// terminal dump cannot make a page heavy; this is where the full output still
+// lives for the surface that asked to see it.
+func (s *Service) ToolCallDetail(ctx context.Context, sessionID, toolCallID string) (TranscriptEntry, error) {
+	if err := s.authorizeTarget(ctx, sessionID); err != nil {
+		return TranscriptEntry{}, err
+	}
+	entry, ok, err := s.store.FindTranscriptToolCall(ctx, sessionID, toolCallID)
+	if err != nil {
+		return TranscriptEntry{}, err
+	}
+	if !ok {
+		return TranscriptEntry{}, ErrTranscriptEntryNotFound
+	}
+	return entry, nil
+}
+
 // CloseSession closes the live runtime (if any) and marks the session closed.
 func (s *Service) CloseSession(ctx context.Context, id string) error {
 	if err := s.authorizeTarget(ctx, id); err != nil {

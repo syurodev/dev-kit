@@ -42,6 +42,7 @@ type TranscriptStore interface {
 	FindTranscriptToolCall(ctx context.Context, sessionID, toolCallID string) (TranscriptEntry, bool, error)
 	FindTranscriptKind(ctx context.Context, sessionID string, kind UpdateKind) (TranscriptEntry, bool, error)
 	ListTranscript(ctx context.Context, sessionID string) ([]TranscriptEntry, error)
+	ListTranscriptPage(ctx context.Context, sessionID string, beforeSeq int64, limit int) (TranscriptPage, error)
 }
 
 // Recorder folds a stream of session/update notifications into transcript rows.

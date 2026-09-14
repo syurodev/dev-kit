@@ -55,3 +55,14 @@ type NormalizedUsage struct {
 	OutputTokens int
 	RawMeta      json.RawMessage // always set to input meta copy
 }
+
+// TranscriptPage is one bounded window of a session's transcript, oldest
+// entry first so a page can feed the same loader a full listing does.
+//
+// HasMore says older entries exist above the window — the transcript used to
+// travel as one unbounded array, and a session with months of history paid
+// for all of it on every open.
+type TranscriptPage struct {
+	Entries []TranscriptEntry `json:"entries"`
+	HasMore bool              `json:"hasMore"`
+}

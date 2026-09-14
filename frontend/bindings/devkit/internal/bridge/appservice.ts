@@ -150,12 +150,31 @@ export function AgentHubStartSignIn(agent: string, methodID: string, rows: numbe
 }
 
 /**
+ * AgentHubToolCallDetail returns one stored tool call, payload intact — the
+ * page reader shortens oversized raw fields to a preview, and this is the
+ * "show me the whole output" behind it.
+ */
+export function AgentHubToolCallDetail(id: string, toolCallID: string): $CancellablePromise<agenthub$0.TranscriptEntry> {
+    return $Call.ByID(448854889, id, toolCallID);
+}
+
+/**
  * AgentHubTranscript returns what was said in a session, oldest first. It goes
  * through the same capability gateway as every other read — an agent asking for
  * another agent's transcript is refused by authorizeTarget, not by the UI.
  */
 export function AgentHubTranscript(id: string): $CancellablePromise<agenthub$0.TranscriptEntry[] | null> {
     return $Call.ByID(3296505716, id);
+}
+
+/**
+ * AgentHubTranscriptPage is AgentHubTranscript bounded to the newest window of
+ * a session: beforeSeq walks backwards from the page already held (0 starts
+ * from the end), limit is clamped server-side. The unbounded listing this
+ * replaces made a session with months of history pay for all of it on open.
+ */
+export function AgentHubTranscriptPage(id: string, beforeSeq: number, limit: number): $CancellablePromise<agenthub$0.TranscriptPage> {
+    return $Call.ByID(2357985039, id, beforeSeq, limit);
 }
 
 /**

@@ -176,6 +176,19 @@ export interface TranscriptEntry {
 }
 
 /**
+ * TranscriptPage is one bounded window of a session's transcript, oldest
+ * entry first so a page can feed the same loader a full listing does.
+ * 
+ * HasMore says older entries exist above the window — the transcript used to
+ * travel as one unbounded array, and a session with months of history paid
+ * for all of it on every open.
+ */
+export interface TranscriptPage {
+    "entries": TranscriptEntry[] | null;
+    "hasMore": boolean;
+}
+
+/**
  * UpdateKind is the `sessionUpdate` discriminator of an ACP session/update
  * notification. The transport keeps the notification a raw blob (see
  * acp.SessionUpdateParams); this is where it becomes something the hub and the

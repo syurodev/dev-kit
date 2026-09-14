@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -219,5 +220,193 @@ func TestPruneTranscriptsBeforeKeepsRecentRows(t *testing.T) {
 	}
 	if len(rows) != 1 {
 		t.Fatalf("want 1 row kept, got %d", len(rows))
+	}
+}
+
+// pageFixture seeds three turns — a user_message_chunk row opens each turn —
+// so the page tests can pin both the window and the turn-boundary snap.
+func pageFixture(t *testing.T) agenthub.Store {
+	t.Helper()
+	store := newTestStore(t)
+	ctx := context.Background()
+	if err := store.InsertSession(ctx, sampleSession("s1")); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 8, 12, 10, 0, 0, 0, time.UTC)
+	kinds := []agenthub.UpdateKind{
+		agenthub.UpdateUserMessageChunk,  // 1 turn 1 opens
+		agenthub.UpdateAgentMessageChunk, // 2
+		agenthub.UpdateToolCall,          // 3
+		agenthub.UpdateUserMessageChunk,  // 4 turn 2 opens
+		agenthub.UpdateAgentMessageChunk, // 5
+		agenthub.UpdateToolCall,          // 6
+		agenthub.UpdateUserMessageChunk,  // 7 turn 3 opens
+		agenthub.UpdateAgentMessageChunk, // 8
+		agenthub.UpdateAgentMessageChunk, // 9
+	}
+	for i, kind := range kinds {
+		if err := store.AppendTranscript(ctx, agenthub.TranscriptEntry{
+			ID:        fmt.Sprintf("t%d", i+1),
+			SessionID: "s1",
+			Seq:       int64(i + 1),
+			Kind:      kind,
+			Text:      "x",
+			CreatedAt: now,
+			UpdatedAt: now,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return store
+}
+
+func seqs(entries []agenthub.TranscriptEntry) []int64 {
+	out := make([]int64, len(entries))
+	for i, e := range entries {
+		out[i] = e.Seq
+	}
+	return out
+}
+
+func TestListTranscriptPageWindowsAndHasMore(t *testing.T) {
+	store := pageFixture(t)
+	ctx := context.Background()
+
+	// Last four entries; the oldest (6) is mid-turn and older rows exist, so
+	// the page snaps back to the turn start at 4. A window already beginning
+	// on a turn start (seq 7) stays as-is — that boundary falls between turns.
+	page, err := store.ListTranscriptPage(ctx, "s1", 0, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := seqs(page.Entries), []int64{4, 5, 6, 7, 8, 9}; !slices.Equal(got, want) {
+		t.Fatalf("page = %v, want %v", got, want)
+	}
+	if !page.HasMore {
+		t.Fatal("hasMore = false, want true (seq 1-3 are older)")
+	}
+
+	// Walking backwards from the previous page's oldest seq: seq<4 is the
+	// whole first turn, and nothing is older.
+	page, err = store.ListTranscriptPage(ctx, "s1", 4, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := seqs(page.Entries), []int64{1, 2, 3}; !slices.Equal(got, want) {
+		t.Fatalf("page = %v, want %v", got, want)
+	}
+	if page.HasMore {
+		t.Fatal("hasMore = true, want false at the start of the transcript")
+	}
+
+	// A window that already begins on a turn start must not snap further back.
+	page, err = store.ListTranscriptPage(ctx, "s1", 7, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := seqs(page.Entries), []int64{4, 5, 6}; !slices.Equal(got, want) {
+		t.Fatalf("page = %v, want %v", got, want)
+	}
+	if !page.HasMore {
+		t.Fatal("hasMore = false, want true (seq 1-3 are older)")
+	}
+
+	// A page larger than the transcript returns everything there is.
+	page, err = store.ListTranscriptPage(ctx, "s1", 0, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Entries) != 9 || page.HasMore {
+		t.Fatalf("full page len=%d hasMore=%v, want 9 and false", len(page.Entries), page.HasMore)
+	}
+
+	// Before the first row is empty, not an error.
+	page, err = store.ListTranscriptPage(ctx, "s1", 1, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Entries) != 0 || page.HasMore {
+		t.Fatalf("page before seq 1 = %v hasMore=%v, want empty and false", seqs(page.Entries), page.HasMore)
+	}
+
+	// Unknown session reads empty, like ListTranscript.
+	page, err = store.ListTranscriptPage(ctx, "no-such", 0, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Entries) != 0 || page.HasMore {
+		t.Fatalf("unknown session = %d entries hasMore=%v, want empty and false", len(page.Entries), page.HasMore)
+	}
+}
+
+// A single turn longer than a page cannot be snapped to its start without
+// unbounded growth. The snap is abandoned when its bound would cut the turn
+// again — the skipped rows would be unreachable — so the page keeps its
+// original mid-turn cut, visible, and hasMore still says what is above.
+func TestListTranscriptPageSnapIsBounded(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	if err := store.InsertSession(ctx, sampleSession("s1")); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 8, 12, 10, 0, 0, 0, time.UTC)
+	kinds := []agenthub.UpdateKind{agenthub.UpdateUserMessageChunk}
+	for i := 0; i < 9; i++ {
+		kinds = append(kinds, agenthub.UpdateAgentMessageChunk)
+	}
+	for i, kind := range kinds {
+		if err := store.AppendTranscript(ctx, agenthub.TranscriptEntry{
+			ID:        fmt.Sprintf("t%d", i+1),
+			SessionID: "s1",
+			Seq:       int64(i + 1),
+			Kind:      kind,
+			Text:      "x",
+			CreatedAt: now,
+			UpdatedAt: now,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	page, err := store.ListTranscriptPage(ctx, "s1", 0, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := seqs(page.Entries), []int64{8, 9, 10}; !slices.Equal(got, want) {
+		t.Fatalf("page = %v, want the un-snapped window %v", got, want)
+	}
+	if !page.HasMore {
+		t.Fatal("hasMore = false with rows still above")
+	}
+
+	// Walking back through the un-snappable turn must still reach every row.
+	seen := map[int64]bool{}
+	for _, e := range page.Entries {
+		seen[e.Seq] = true
+	}
+	before := page.Entries[0].Seq
+	for {
+		page, err = store.ListTranscriptPage(ctx, "s1", before, 3)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page.Entries) == 0 {
+			break
+		}
+		for _, e := range page.Entries {
+			if seen[e.Seq] {
+				t.Fatalf("seq %d served twice", e.Seq)
+			}
+			seen[e.Seq] = true
+		}
+		before = page.Entries[0].Seq
+		if !page.HasMore {
+			break
+		}
+	}
+	for seq := int64(1); seq <= 10; seq++ {
+		if !seen[seq] {
+			t.Fatalf("seq %d unreachable by pagination", seq)
+		}
 	}
 }
