@@ -92,13 +92,13 @@ func TestAgentRuntimeStatusThroughTheGateway(t *testing.T) {
 
 func TestAgentHubIdentityErrorsMap(t *testing.T) {
 	cases := map[error]string{
-		agenthub.ErrNotDescendant:    codePermissionDenied,
-		agenthub.ErrCwdOutsideParent: codeValidationFailed,
-		agenthub.ErrInvalidCwd:       codeValidationFailed,
+		agenthub.ErrNotDescendant:       codePermissionDenied,
+		agenthub.ErrCwdOutsideParent:    codeValidationFailed,
+		agenthub.ErrInvalidCwd:          codeValidationFailed,
 		agenthub.ErrInvalidConfigOption: codeValidationFailed,
 		agenthub.ErrInvalidPrompt:       codeValidationFailed,
-		agenthub.ErrCallerMismatch:   codeValidationFailed,
-		agenthub.ErrProxyNotFound:    codeConnectionFailed,
+		agenthub.ErrCallerMismatch:      codeValidationFailed,
+		agenthub.ErrProxyNotFound:       codeConnectionFailed,
 	}
 	for in, want := range cases {
 		got := publicError("builtin.agenthub", in)

@@ -22,9 +22,9 @@ var (
 	ErrInvalidConfigOption     = errors.New("agenthub.invalidConfigOption")
 	// ErrInvalidPrompt is a prompt DevKit refuses to send: empty, or with an
 	// attachment or pasted image that is unreadable, unsupported or too large.
-	ErrInvalidPrompt = errors.New("agenthub.invalidPrompt")
-	ErrCallerMismatch          = errors.New("agenthub.callerMismatch")
-	ErrProxyNotFound           = errors.New("agenthub.proxyNotFound")
+	ErrInvalidPrompt  = errors.New("agenthub.invalidPrompt")
+	ErrCallerMismatch = errors.New("agenthub.callerMismatch")
+	ErrProxyNotFound  = errors.New("agenthub.proxyNotFound")
 	// ErrAgentAuthRequired is an agent with no working sign-in: an expired or
 	// missing Claude login, or no API key. DevKit never signs anyone in; the
 	// user does that in Claude Code itself.
