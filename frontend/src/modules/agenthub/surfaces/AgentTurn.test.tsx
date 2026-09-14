@@ -89,11 +89,13 @@ describe("message hover cards", () => {
 
     // The prompt and the answer are hover-card triggers…
     expect((html.match(/data-slot="hover-card-trigger"/g) ?? []).length).toBe(2);
-    // …and nothing of the card is on the page while it is closed: no inline
-    // meta line under a reply, no time, no buttons.
+    // …and nothing of the card is on the page while it is closed.
     expect(html).not.toContain('data-testid="message-hover-card"');
-    expect(html).not.toContain('data-testid="message-open-meta"');
-    expect(html).not.toContain('data-testid="message-copy"');
+    // The keyboard's inline copy of the actions is there, but display:none
+    // until focus-visible is inside the message — no line under every reply.
+    const rows = html.match(/<div[^>]*data-testid="message-actions"[^>]*>/g) ?? [];
+    expect(rows.length).toBe(2);
+    for (const row of rows) expect(row).toMatch(/\bhidden\b/);
   });
 
   it("makes message actions reachable from a keyboard-focused message", () => {

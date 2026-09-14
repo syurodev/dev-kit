@@ -1,6 +1,7 @@
 import * as React from "react";
 import { Check, Copy, Pencil } from "lucide-react";
 
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 
@@ -39,8 +40,13 @@ function timeOf(at?: string): string {
  * into it. The short open delay keeps a pointer passing down the column from
  * lighting a card on every message it crosses.
  *
- * The message is also a focusable trigger, so keyboard and screen-reader users
- * can reach the same actions without needing a pointer.
+ * The keyboard gets the same actions as an inline row, not the card. The card
+ * lives in a portal, so Tab from the focused message went on to the next
+ * message, the trigger blurred and the card closed before Copy or Edit could
+ * be reached. The row sits in the page right after the message and shows only
+ * while focus-visible is inside this message — so Tab lands on it next, a
+ * pointer hovering or clicking moves no layout, and the card does not also
+ * open on that focus.
  */
 export function MessageHoverCard({
   children,
@@ -61,60 +67,74 @@ export function MessageHoverCard({
     "aria-label": child.props["aria-label"] ?? `Message: ${text.slice(0, 120)}`,
   });
 
+  const actions = (
+    <>
+      {time ? <span className="px-2 text-caption-11 whitespace-nowrap text-text-tertiary">{time}</span> : null}
+      {meta ? (
+        onDetails ? (
+          <button
+            type="button"
+            onClick={onDetails}
+            data-testid="message-open-meta"
+            className="h-(--control-height-sm) cursor-pointer rounded-sm px-2 text-caption-11 whitespace-nowrap text-text-tertiary hover:text-text-primary"
+          >
+            {meta}
+          </button>
+        ) : (
+          <span className="px-2 text-caption-11 whitespace-nowrap text-text-tertiary">{meta}</span>
+        )
+      ) : null}
+      {onCopy ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label={copied ? "Copied" : "Copy message"}
+          data-testid="message-copy"
+          onClick={() => {
+            onCopy(text);
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 1500);
+          }}
+        >
+          {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
+        </Button>
+      ) : null}
+      {onEdit ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Edit in composer"
+          data-testid="message-edit"
+          onClick={() => onEdit(text)}
+        >
+          <Pencil aria-hidden="true" />
+        </Button>
+      ) : null}
+    </>
+  );
+
   return (
-    <HoverCard openDelay={300} closeDelay={120}>
-      <HoverCardTrigger asChild>{trigger}</HoverCardTrigger>
-      <HoverCardContent
-        side="bottom"
-        align={align}
-        sideOffset={4}
-        data-testid="message-hover-card"
-        className="flex w-auto items-center gap-1 p-1"
-      >
-        {time ? <span className="px-2 text-caption-11 whitespace-nowrap text-text-tertiary">{time}</span> : null}
-        {meta ? (
-          onDetails ? (
-            <button
-              type="button"
-              onClick={onDetails}
-              data-testid="message-open-meta"
-              className="cursor-pointer rounded-sm px-2 text-caption-11 whitespace-nowrap text-text-tertiary hover:text-text-primary"
-            >
-              {meta}
-            </button>
-          ) : (
-            <span className="px-2 text-caption-11 whitespace-nowrap text-text-tertiary">{meta}</span>
-          )
-        ) : null}
-        {onCopy ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-xs"
-            aria-label={copied ? "Copied" : "Copy message"}
-            data-testid="message-copy"
-            onClick={() => {
-              onCopy(text);
-              setCopied(true);
-              window.setTimeout(() => setCopied(false), 1500);
-            }}
-          >
-            {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
-          </Button>
-        ) : null}
-        {onEdit ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-xs"
-            aria-label="Edit in composer"
-            data-testid="message-edit"
-            onClick={() => onEdit(text)}
-          >
-            <Pencil aria-hidden="true" />
-          </Button>
-        ) : null}
-      </HoverCardContent>
-    </HoverCard>
+    <div className={cn("group/message flex w-full flex-col gap-1", align === "end" ? "items-end" : "items-start")}>
+      <HoverCard openDelay={300} closeDelay={120}>
+        {/* Focus is the inline row's job; preventDefault stops Radix opening the card too. */}
+        <HoverCardTrigger asChild onFocus={(e) => e.preventDefault()}>
+          {trigger}
+        </HoverCardTrigger>
+        <HoverCardContent
+          side="bottom"
+          align={align}
+          sideOffset={4}
+          data-testid="message-hover-card"
+          className="flex w-auto items-center gap-1 p-1"
+        >
+          {actions}
+        </HoverCardContent>
+      </HoverCard>
+      <div data-testid="message-actions" className="hidden items-center gap-1 group-has-[:focus-visible]/message:flex">
+        {actions}
+      </div>
+    </div>
   );
 }
