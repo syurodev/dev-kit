@@ -32,6 +32,7 @@ export type AgentToolCallProps = {
    * row on demand.
    */
   sessionId?: string;
+  onOpenFile?: (path: string, line?: number) => void;
   className?: string;
 };
 
@@ -126,6 +127,7 @@ export function AgentToolCall({
   defaultExpanded = false,
   variant = "card",
   sessionId,
+  onOpenFile,
   className,
 }: AgentToolCallProps) {
   const KindIcon = kindIcon(call.kind);
@@ -227,7 +229,7 @@ export function AgentToolCall({
       {locations.length > 0 ? (
         <div className="flex w-full flex-wrap items-center gap-1">
           {locations.map((loc, idx) => (
-            <AgentFileChip key={`${loc.path}-${loc.line ?? idx}`} path={loc.path} line={loc.line} />
+            <AgentFileChip key={`${loc.path}-${loc.line ?? idx}`} path={loc.path} line={loc.line} onClick={onOpenFile ? () => onOpenFile(loc.path, loc.line) : undefined} />
           ))}
         </div>
       ) : null}

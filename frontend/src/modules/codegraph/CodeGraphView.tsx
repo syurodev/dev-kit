@@ -283,7 +283,7 @@ async function openFile(path: string) {
   set({ fileError: "" });
   try {
     const content = await readCodeGraphFile(path);
-    set({ selectedFile: path, fileContent: content, fileDirty: false });
+    set({ selectedFile: path, selectedLine: null, fileContent: content, fileDirty: false });
   } catch (e) {
     set({ fileError: errorMessage(e) });
   }
@@ -325,6 +325,7 @@ export function CodeGraphView() {
   const activeTab = useCodeGraphStore((s) => s.activeTab);
   const files = useCodeGraphStore((s) => s.files);
   const selectedFile = useCodeGraphStore((s) => s.selectedFile);
+  const selectedLine = useCodeGraphStore((s) => s.selectedLine);
   const fileContent = useCodeGraphStore((s) => s.fileContent);
   const fileDirty = useCodeGraphStore((s) => s.fileDirty);
   const fileError = useCodeGraphStore((s) => s.fileError);
@@ -687,6 +688,7 @@ export function CodeGraphView() {
               <div className="flex-1 overflow-hidden">
                 <CodeEditor
                   value={fileContent}
+                  revealLine={selectedLine}
                   onChange={(v) => set({ fileContent: v, fileDirty: true })}
                   extensions={editorExtensions}
                 />

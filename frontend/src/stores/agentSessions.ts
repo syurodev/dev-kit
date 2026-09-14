@@ -12,6 +12,7 @@ export const EMPTY_TRANSCRIPT_MODEL: TranscriptModel = {
   usage: null,
   commands: [],
   mode: null,
+  configOptions: [],
   toolCallIndex: new Map(),
 };
 

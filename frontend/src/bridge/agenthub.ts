@@ -7,6 +7,7 @@ import type {
   AgentType as RawAgentType,
   InvokeResult as RawInvokeResult,
   TranscriptEntry,
+  ContextFile as RawContextFile,
 } from "../../bindings/devkit/internal/agenthub/models";
 import type { SessionUpdate } from "../modules/agenthub/types";
 
@@ -60,6 +61,13 @@ export type InvokeSessionInput = {
   /** Absolute paths DevKit reads and sends with the prompt. */
   attachments?: string[];
   callerSessionId?: string;
+};
+
+export type AgentContextFile = {
+  path: string;
+  name: string;
+  description?: string;
+  kind?: "file" | "folder" | "agent";
 };
 
 export type SessionUpdateEvent = {
@@ -147,6 +155,33 @@ export function agentHubListVendorTypes(): Promise<string[]> {
   return callBridge(async () => {
     const list = await AppService.AgentHubListVendorTypes();
     return (list ?? []).map((t: RawAgentType) => String(t));
+  });
+}
+
+export function agentHubSetMode(sessionId: string, modeId: string): Promise<void> {
+  return callBridge(() => AppService.AgentHubSetMode(sessionId, modeId) as Promise<void>);
+}
+
+export function agentHubSetConfigOption(
+  sessionId: string,
+  optionId: string,
+  value: string,
+): Promise<void> {
+  return callBridge(() => AppService.AgentHubSetConfigOption(sessionId, optionId, value) as Promise<void>);
+}
+
+export function agentHubListContextFiles(
+  sessionId: string,
+  query = "",
+): Promise<AgentContextFile[]> {
+  return callBridge(async () => {
+    const files = await AppService.AgentHubListContextFiles(sessionId, query);
+    return (files ?? []).map((file: RawContextFile) => ({
+      path: file.path,
+      name: file.name,
+      description: file.description ?? undefined,
+      kind: (file.kind as AgentContextFile["kind"]) ?? undefined,
+    }));
   });
 }
 

@@ -18,6 +18,18 @@ export function AgentFileChip({
   onClick,
   className,
 }: AgentFileChipProps) {
+  if (!onClick) {
+    return (
+      <span
+        data-testid="agent-file-chip"
+        className={cn("inline-flex h-6 max-w-full shrink-0 items-center gap-1 rounded-sm bg-(--state-soft) px-2 py-1 select-none", className)}
+      >
+        <FileCode className="size-(--icon-12) shrink-0 text-text-tertiary" />
+        <span className="truncate text-code-12 text-text-secondary">{path}</span>
+        {typeof line === "number" ? <span className="shrink-0 text-code-12 text-text-tertiary">{`:${line}`}</span> : null}
+      </span>
+    );
+  }
   return (
     <button
       type="button"

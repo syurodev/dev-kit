@@ -23,17 +23,23 @@ import {
   agentHubGetStatus,
   agentHubInvoke,
   agentHubListVendorTypes,
+  agentHubListContextFiles,
+  agentHubSetMode,
+  agentHubSetConfigOption,
   CLAUDE_VENDOR,
   isSandboxUnavailableError,
   sandboxUnavailableMessage,
   type AgentSession,
   type AgentVendor,
+  type AgentContextFile,
 } from "../../bridge/agenthub";
-import { codeGraphProjectRoot } from "../../bridge/codegraph";
+import { codeGraphProjectRoot, openCodeGraphProject, readCodeGraphFile } from "../../bridge/codegraph";
+import { useCodeGraphStore } from "../codegraph/codegraphStore";
+import { useWorkbenchTabsStore } from "../../stores/workbenchTabs";
 import { copyText } from "../../bridge/clipboard";
 import { toAppError } from "../../bridge/errors";
 import { useAgentHubSidebar } from "./useAgentHubSidebar";
-import { forgetAgentTranscript, useAgentTranscript } from "./transcript";
+import { forgetAgentTranscript, updateTranscriptControls, useAgentTranscript } from "./transcript";
 import { AgentHubContent } from "./surfaces";
 import { useAgentSessionList, useAgentSessionsStore } from "../../stores/agentSessions";
 import { useAgentPinsStore } from "../../stores/agentPins";
@@ -70,6 +76,7 @@ export function AgentHubView() {
   const sessions = useAgentSessionList();
   const activeSessionId = useAgentSessionsStore((state) => state.activeSessionId);
   const setActiveSessionId = useAgentSessionsStore((state) => state.setActiveSessionId);
+  const openTab = useWorkbenchTabsStore((state) => state.openTab);
   const upsertSession = useAgentSessionsStore((state) => state.upsertSession);
   const removeSession = useAgentSessionsStore((state) => state.removeSession);
   const setPrompt = useAgentSessionsStore((state) => state.setPrompt);
@@ -122,6 +129,7 @@ export function AgentHubView() {
   // Per session: attachments belong to the turn you are composing, and
   // switching tabs must not carry someone else's files into your prompt.
   const [attachments, setAttachments] = useState<Record<string, string[]>>({});
+  const [contextFiles, setContextFiles] = useState<Record<string, AgentContextFile[]>>({});
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -143,6 +151,22 @@ export function AgentHubView() {
 
   // Live typed transcript model powered by useAgentTranscript
   const transcriptModel = useAgentTranscript(activeSession?.id ?? "", { enabled: visible });
+
+  useEffect(() => {
+    const sessionId = activeSession?.id;
+    if (!visible || !sessionId) return;
+    let mounted = true;
+    agentHubListContextFiles(sessionId)
+      .then((files) => {
+        if (mounted) setContextFiles((current) => ({ ...current, [sessionId]: files }));
+      })
+      .catch(() => {
+        // The native picker remains available when a project cannot be walked.
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [activeSession?.id, visible]);
 
   // Auto-select first session if none active
   useEffect(() => {
@@ -278,6 +302,83 @@ export function AgentHubView() {
       ...prev,
       [activeSession.id]: (prev[activeSession.id] ?? []).filter((p) => p !== path),
     }));
+  }
+
+  function handleSelectContext(path: string) {
+    if (!activeSession) return;
+    setAttachments((prev) => {
+      const current = prev[activeSession.id] ?? [];
+      return current.includes(path)
+        ? prev
+        : { ...prev, [activeSession.id]: [...current, path] };
+    });
+  }
+
+  async function handleOpenFile(path: string, line?: number) {
+    if (!activeSession) return;
+    const root = activeSession.projectPath.replace(/[\\/]+$/, "");
+    const normalizedPath = path.split("\\").join("/");
+    const normalizedRoot = root.split("\\").join("/");
+    const relative = normalizedPath.startsWith(`${normalizedRoot}/`)
+      ? normalizedPath.slice(normalizedRoot.length + 1)
+      : normalizedPath;
+    try {
+      await openCodeGraphProject(root);
+      const content = await readCodeGraphFile(relative);
+      useCodeGraphStore.getState().set({
+        projectPath: root,
+        activeTab: "files",
+        selectedFile: relative,
+        selectedLine: line ?? null,
+        fileContent: content,
+        fileDirty: false,
+        fileError: "",
+      });
+      openTab({ moduleId: "codegraph", viewId: "codegraph.explorer", title: "Code Graph" });
+    } catch (e) {
+      reportError(e);
+    }
+  }
+
+  function handleSelectCommand(name: string) {
+    if (!activeSession) return;
+    const command = transcriptModel.commands.find((item) => item.name.replace(/^\//, "") === name.replace(/^\//, ""));
+    const commandName = name.startsWith("/") ? name : `/${name}`;
+    if (command?.input) {
+      const current = useAgentSessionsStore.getState().promptBySession[activeSession.id] ?? "";
+      setPrompt(activeSession.id, `${current}${current && !/\s$/.test(current) ? " " : ""}${commandName} `);
+      return;
+    }
+    void handleSend({ sessionId: activeSession.id, text: commandName, attachments: [] });
+  }
+
+  async function handleSetMode(nextMode: string) {
+    if (!activeSession) return;
+    const previous = transcriptModel;
+    updateTranscriptControls(activeSession.id, (model) => ({ ...model, mode: nextMode }));
+    try {
+      await agentHubSetMode(activeSession.id, nextMode);
+    } catch (e) {
+      updateTranscriptControls(activeSession.id, () => previous);
+      reportError(e);
+    }
+  }
+
+  async function handleSetConfigOption(optionId: string, value: string) {
+    if (!activeSession) return;
+    const previous = transcriptModel;
+    updateTranscriptControls(activeSession.id, (model) => ({
+      ...model,
+      configOptions: model.configOptions.map((option) =>
+        option.id === optionId ? { ...option, currentValue: value } : option,
+      ),
+    }));
+    try {
+      await agentHubSetConfigOption(activeSession.id, optionId, value);
+    } catch (e) {
+      updateTranscriptControls(activeSession.id, () => previous);
+      reportError(e);
+    }
   }
 
   /** Sends the composer's prompt, or `retry` — a turn that already failed once. */
@@ -465,6 +566,14 @@ export function AgentHubView() {
             items={transcriptModel.items}
             usage={transcriptModel.usage}
             commands={transcriptModel.commands}
+            contextFiles={contextFiles[activeSession?.id ?? ""] ?? []}
+            onSelectCommand={handleSelectCommand}
+            onSelectContext={handleSelectContext}
+            onOpenFile={(path, line) => void handleOpenFile(path, line)}
+            configOptions={transcriptModel.configOptions}
+            mode={transcriptModel.mode}
+            onSetMode={(mode) => void handleSetMode(mode)}
+            onSetConfigOption={(optionId, value) => void handleSetConfigOption(optionId, value)}
             hasMore={transcriptModel.hasMore}
             loadingOlder={transcriptModel.loadingOlder}
             onLoadOlder={transcriptModel.loadOlder}

@@ -23,6 +23,7 @@ export type TranscriptStreamProps = {
   onCopy?: (text: string) => void;
   /** Edit, in your own prompts' hover cards: the text goes back in the composer. */
   onEditPrompt?: (text: string) => void;
+  onOpenFile?: (path: string, line?: number) => void;
   loading?: boolean;
   /** Older pages exist above the ones held (see useAgentTranscript). */
   hasMore?: boolean;
@@ -109,6 +110,7 @@ export function TranscriptStream({
   streaming = false,
   onCopy,
   onEditPrompt,
+  onOpenFile,
   loading = false,
   hasMore = false,
   loadingOlder = false,
@@ -339,6 +341,7 @@ export function TranscriptStream({
         onInspect={setInspecting}
         onCopy={stableOnCopy}
         onEditPrompt={stableOnEditPrompt}
+        onOpenFile={onOpenFile}
       />
     );
   }

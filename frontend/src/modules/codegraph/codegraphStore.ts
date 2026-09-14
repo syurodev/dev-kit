@@ -53,6 +53,7 @@ type CodeGraphState = {
   planError: string;
   files: CodeGraphFileEntry[];
   selectedFile: string | null;
+  selectedLine: number | null;
   fileContent: string;
   fileDirty: boolean;
   fileError: string;
@@ -110,6 +111,7 @@ export const useCodeGraphStore = create<CodeGraphState>((set) => ({
   planError: "",
   files: [],
   selectedFile: null,
+  selectedLine: null,
   fileContent: "",
   fileDirty: false,
   fileError: "",

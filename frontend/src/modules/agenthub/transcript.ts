@@ -21,6 +21,7 @@ export type {
   ToolCall,
   ToolCallContent,
   ToolCallLocation,
+  ConfigOption,
   TranscriptAction,
   TranscriptItem,
   TranscriptModel,
@@ -41,6 +42,7 @@ export function createInitialTranscriptModel(): TranscriptModel {
     usage: null,
     commands: [],
     mode: null,
+    configOptions: [],
     toolCallIndex: new Map(),
   };
 }
@@ -182,6 +184,7 @@ export function applySessionUpdates(
   let usage = model.usage;
   let commands = model.commands;
   let mode = model.mode;
+  let configOptions = model.configOptions;
   let changed = false;
 
   const copyItems = () => {
@@ -220,6 +223,14 @@ export function applySessionUpdates(
     if (kind === UpdateKind.UpdateCurrentMode || kind === "current_mode_update") {
       if (update.mode !== undefined) {
         mode = update.mode;
+        changed = true;
+      }
+      continue;
+    }
+
+    if (kind === UpdateKind.UpdateConfigOptions || kind === "config_option_update") {
+      if (update.configOptions) {
+        configOptions = update.configOptions.map((option) => ({ ...option, options: option.options ? [...option.options] : [] }));
         changed = true;
       }
       continue;
@@ -366,6 +377,7 @@ export function applySessionUpdates(
     usage,
     commands,
     mode,
+    configOptions,
     toolCallIndex,
   };
 }
@@ -415,6 +427,11 @@ export function initTranscript(
       if (payload.mode) {
         model.mode = payload.mode;
       }
+      continue;
+    }
+
+    if (kind === UpdateKind.UpdateConfigOptions || kind === "config_option_update") {
+      if (payload.configOptions) model.configOptions = payload.configOptions;
       continue;
     }
 
@@ -635,6 +652,10 @@ export class TranscriptEventBuffer {
     return this.model;
   }
 
+  replaceModel(model: TranscriptModel): void {
+    this.model = model;
+  }
+
   dispose(): void {
     this.cancelScheduledFlush?.();
     this.cancelScheduledFlush = null;
@@ -678,6 +699,19 @@ type TranscriptRuntime = {
 
 const runtimes = new Map<string, TranscriptRuntime>();
 let streamStarted = false;
+
+export function updateTranscriptControls(
+  sessionId: string,
+  update: (model: TranscriptModel) => TranscriptModel,
+): TranscriptModel | null {
+  const runtime = runtimes.get(sessionId);
+  if (!runtime) return null;
+  const next = update(runtime.model);
+  runtime.model = next;
+  runtime.buffer?.replaceModel(next);
+  publishTranscript(sessionId, next);
+  return next;
+}
 
 const NO_MORE_PAGES = { hasMore: false, loadingOlder: false };
 

@@ -6,7 +6,8 @@ import {
 } from "@/components/ui/empty";
 import { cn } from "@/lib/utils";
 import type { AgentSession, PendingPermission } from "@/bridge/agenthub";
-import type { AvailableCommand, TranscriptItem, Usage } from "../types";
+import type { AvailableCommand, ConfigOption, TranscriptItem, Usage } from "../types";
+import type { ContextFileItem } from "./AgentMenu";
 import { TranscriptStream } from "./TranscriptStream";
 import { AgentComposer } from "./AgentComposer";
 import { AgentPermissionRequest } from "./AgentPermissionRequest";
@@ -24,6 +25,17 @@ export type AgentRailProps = {
   items?: TranscriptItem[];
   usage?: Usage | null;
   commands?: AvailableCommand[];
+  contextFiles?: ContextFileItem[];
+  onSelectCommand?: (name: string) => void;
+  onSelectContext?: (path: string) => void;
+  onBrowseContext?: () => void;
+  attachedFiles?: string[];
+  onRemoveAttachment?: (path: string) => void;
+  configOptions?: ConfigOption[];
+  mode?: string | null;
+  onSetMode?: (mode: string) => void;
+  onSetConfigOption?: (optionId: string, value: string) => void;
+  onOpenFile?: (path: string, line?: number) => void;
   promptValue: string;
   onPromptChange: (value: string) => void;
   onSend: () => void;
@@ -74,6 +86,17 @@ export function AgentRail({
   items = [],
   usage,
   commands = [],
+  contextFiles = [],
+  onSelectCommand,
+  onSelectContext,
+  onBrowseContext,
+  attachedFiles = [],
+  onRemoveAttachment,
+  configOptions = [],
+  mode = null,
+  onSetMode,
+  onSetConfigOption,
+  onOpenFile,
   promptValue,
   onPromptChange,
   onSend,
@@ -184,7 +207,7 @@ export function AgentRail({
 
           {/* Transcript Area */}
           <div className="flex-1 min-h-0 overflow-hidden">
-            <TranscriptStream items={items} streamKey={activeSession?.id} vendor={vendor} />
+            <TranscriptStream items={items} streamKey={activeSession?.id} vendor={vendor} onOpenFile={onOpenFile} />
           </div>
 
           {errorMessage ? (
@@ -203,6 +226,16 @@ export function AgentRail({
               usage={usage}
               vendor={vendor}
               commands={commands}
+              contextFiles={contextFiles}
+              onSelectCommand={onSelectCommand}
+              onSelectContext={onSelectContext}
+              onBrowseContext={onBrowseContext}
+              attachedFiles={attachedFiles}
+              onRemoveAttachment={onRemoveAttachment}
+              configOptions={configOptions}
+              mode={mode}
+              onSetMode={onSetMode}
+              onSetConfigOption={onSetConfigOption}
             />
           </div>
         </div>

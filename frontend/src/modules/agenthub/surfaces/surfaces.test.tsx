@@ -131,6 +131,23 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       expect(html).toContain("src/index.ts");
       expect(html).toContain("schema.sql");
     });
+
+    it("renders the session controls only when the agent advertises them", () => {
+      const html = renderToString(
+        <AgentComposer
+          value=""
+          onChange={() => {}}
+          onSend={() => {}}
+          onCancel={() => {}}
+          mode="default"
+          onSetMode={() => {}}
+          configOptions={[{ id: "model", name: "Model", options: [{ value: "sonnet", name: "Sonnet" }] }]}
+          onSetConfigOption={() => {}}
+        />,
+      );
+      expect(html).toContain('data-testid="composer-mode"');
+      expect(html).toContain('data-testid="composer-config"');
+    });
   });
 
   describe("AgentMenu (Figma 1044:3178)", () => {

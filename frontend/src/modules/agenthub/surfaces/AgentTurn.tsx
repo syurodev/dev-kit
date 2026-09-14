@@ -36,6 +36,7 @@ export type AgentTurnProps = {
   onCopy?: (text: string) => void;
   /** Edit, in your own prompt's hover card: its text goes back in the composer. */
   onEditPrompt?: (text: string) => void;
+  onOpenFile?: (path: string, line?: number) => void;
 };
 
 /**
@@ -70,6 +71,7 @@ export const AgentTurn = React.memo(function AgentTurn({
   onInspect,
   onCopy,
   onEditPrompt,
+  onOpenFile,
 }: AgentTurnProps) {
   const reduce = useReducedMotion() ?? false;
   const [open, setOpen] = React.useState(false);
@@ -146,7 +148,7 @@ export const AgentTurn = React.memo(function AgentTurn({
                 if (segment.kind === "plan") {
                   return <AgentPlan key={segment.item.id} entries={segment.item.plan ?? []} />;
                 }
-                return <StepGroup key={segment.id} items={segment.items} />;
+                return <StepGroup key={segment.id} items={segment.items} onOpenFile={onOpenFile} />;
               })}
           </AnimatedCollapse>
         </div>
@@ -193,12 +195,12 @@ export const AgentTurn = React.memo(function AgentTurn({
  */
 const LONG_RUN = 8;
 
-export function StepGroup({ items }: { items: TranscriptItem[] }) {
+export function StepGroup({ items, onOpenFile }: { items: TranscriptItem[]; onOpenFile?: (path: string, line?: number) => void }) {
   const [open, setOpen] = React.useState(true);
   const long = items.length > LONG_RUN;
   // One step needs no summary: "Thought" over a row reading "Thought" says the
   // same thing twice, and a fold around a single line hides nothing.
-  if (items.length === 1) return <StepRow item={items[0]} />;
+  if (items.length === 1) return <StepRow item={items[0]} onOpenFile={onOpenFile} />;
   return (
     <div data-testid="step-group" data-state={open ? "expanded" : "collapsed"} className="flex w-full flex-col">
       <button
@@ -230,7 +232,7 @@ export function StepGroup({ items }: { items: TranscriptItem[] }) {
         >
           <div className={cn("flex w-full flex-col gap-2", long && "pb-8")}>
             {items.map((item) => (
-              <StepRow key={item.id} item={item} />
+              <StepRow key={item.id} item={item} onOpenFile={onOpenFile} />
             ))}
           </div>
         </div>
@@ -240,7 +242,7 @@ export function StepGroup({ items }: { items: TranscriptItem[] }) {
 }
 
 /** One step, as a row. */
-function StepRow({ item }: { item: TranscriptItem }) {
+function StepRow({ item, onOpenFile }: { item: TranscriptItem; onOpenFile?: (path: string, line?: number) => void }) {
   switch (String(item.kind)) {
     case "agent_thought_chunk": {
       const raw = item.raw as Record<string, unknown> | undefined;
@@ -260,6 +262,7 @@ function StepRow({ item }: { item: TranscriptItem }) {
         <AgentToolCall
           variant="row"
           sessionId={item.sessionId}
+          onOpenFile={onOpenFile}
           call={item.toolCall ?? { id: item.toolCallId || item.id, title: "Tool execution", status: "completed" }}
         />
       );

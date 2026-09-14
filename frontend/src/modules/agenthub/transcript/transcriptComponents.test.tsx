@@ -332,6 +332,15 @@ describe("Agent Hub Transcript Leaves", () => {
       expect(htmlWithoutLine).not.toContain(":undefined");
       expect(htmlWithoutLine).not.toContain(":null");
     });
+
+    it("does not make a location look clickable without an opener", () => {
+      const html = renderToString(<AgentFileChip path="src/main.ts" line={8} />);
+      expect(html).not.toContain("<button");
+      const actionable = renderToString(
+        <AgentFileChip path="src/main.ts" line={8} onClick={() => {}} />,
+      );
+      expect(actionable).toContain("<button");
+    });
   });
 
   describe("AgentPlan", () => {

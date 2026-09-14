@@ -19,7 +19,8 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import type { AgentSession } from "@/bridge/agenthub";
-import type { AvailableCommand, TranscriptItem, Usage } from "../types";
+import type { AvailableCommand, ConfigOption, TranscriptItem, Usage } from "../types";
+import type { ContextFileItem } from "./AgentMenu";
 import { TranscriptStream } from "./TranscriptStream";
 import { AgentComposer } from "./AgentComposer";
 import { AgentSessionError, type SessionErrorCause } from "./AgentSessionError";
@@ -35,6 +36,13 @@ export type AgentHubContentProps = {
   items?: TranscriptItem[];
   usage?: Usage | null;
   commands?: AvailableCommand[];
+  contextFiles?: ContextFileItem[];
+  onSelectCommand?: (name: string) => void;
+  onSelectContext?: (path: string) => void;
+  configOptions?: ConfigOption[];
+  mode?: string | null;
+  onSetMode?: (mode: string) => void;
+  onSetConfigOption?: (optionId: string, value: string) => void;
   /** Older transcript pages exist above the ones held (see useAgentTranscript). */
   hasMore?: boolean;
   loadingOlder?: boolean;
@@ -57,6 +65,7 @@ export type AgentHubContentProps = {
   attachments?: string[];
   onBrowseContext?: () => void;
   onRemoveAttachment?: (path: string) => void;
+  onOpenFile?: (path: string, line?: number) => void;
   /** Copies a string for the header's session menu — the path, the id. */
   onCopy?: (text: string) => void;
   /** Sends /compact. Offered in the context popover only when the agent lists the command. */
@@ -132,6 +141,13 @@ export function AgentHubContent({
   items = [],
   usage,
   commands = [],
+  contextFiles = [],
+  onSelectCommand,
+  onSelectContext,
+  configOptions = [],
+  mode = null,
+  onSetMode,
+  onSetConfigOption,
   hasMore = false,
   loadingOlder = false,
   onLoadOlder,
@@ -150,6 +166,7 @@ export function AgentHubContent({
   attachments = [],
   onBrowseContext,
   onRemoveAttachment,
+  onOpenFile,
   onCopy,
   onCompact,
   draft,
@@ -383,6 +400,7 @@ export function AgentHubContent({
               hasMore={hasMore}
               loadingOlder={loadingOlder}
               onLoadOlder={onLoadOlder}
+              onOpenFile={onOpenFile}
             />
           </div>
           <div className="w-full shrink-0 px-6 pb-6">
@@ -446,6 +464,7 @@ export function AgentHubContent({
                 hasMore={hasMore}
                 loadingOlder={loadingOlder}
                 onLoadOlder={onLoadOlder}
+                onOpenFile={onOpenFile}
               />
             )}
           </div>
@@ -482,6 +501,13 @@ export function AgentHubContent({
               // that will answer — "Ask Claude…", not "Ask New session…".
               agentName={draft ? agent.charAt(0).toUpperCase() + agent.slice(1) : displayTitle}
               commands={commands}
+              contextFiles={contextFiles}
+              onSelectCommand={onSelectCommand}
+              onSelectContext={onSelectContext}
+              configOptions={configOptions}
+              mode={mode}
+              onSetMode={onSetMode}
+              onSetConfigOption={onSetConfigOption}
               onCompact={canCompact ? onCompact : undefined}
               agents={draft ? agents : undefined}
               agent={draft ? agent : undefined}

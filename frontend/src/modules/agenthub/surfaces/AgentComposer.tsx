@@ -1,5 +1,6 @@
+import * as React from "react";
 import { useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
-import { AtSign, Check, ChevronDown, Command as CommandIcon } from "lucide-react";
+import { AtSign, Check, ChevronDown, Command as CommandIcon, SlidersHorizontal } from "lucide-react";
 // Icon DATA, not components: morphicons interpolates path geometry, which a
 // lucide-react component does not expose. Same version as lucide-react.
 import { ArrowUp, Square } from "lucide";
@@ -21,7 +22,7 @@ import { onThemeChange } from "@/theme/themeColors";
 import { AgentFileChip } from "../transcript/AgentFileChip";
 import { AgentMenu, type ContextFileItem } from "./AgentMenu";
 import { AgentContextMeter } from "./AgentContextMeter";
-import type { AvailableCommand, Usage } from "../types";
+import type { AvailableCommand, ConfigOption, Usage } from "../types";
 
 export type ComposerSize = "wide" | "rail";
 export type ComposerState = "idle" | "streaming" | "attached";
@@ -55,6 +56,10 @@ export type AgentComposerProps = {
   onAgentChange?: (agent: string) => void;
   commands?: AvailableCommand[];
   contextFiles?: ContextFileItem[];
+  configOptions?: ConfigOption[];
+  mode?: string | null;
+  onSetMode?: (mode: string) => void;
+  onSetConfigOption?: (optionId: string, value: string) => void;
   disabled?: boolean;
   placeholder?: string;
   agentName?: string;
@@ -124,6 +129,10 @@ export function AgentComposer({
   onAgentChange,
   commands = [],
   contextFiles = [],
+  configOptions = [],
+  mode = null,
+  onSetMode,
+  onSetConfigOption,
   disabled = false,
   placeholder,
   agentName,
@@ -165,6 +174,23 @@ export function AgentComposer({
   const isStreaming = streaming || state === "streaming";
   const effectiveState: ComposerState =
     state ?? (isStreaming ? "streaming" : attachedFiles.length > 0 ? "attached" : "idle");
+  const modeOption = configOptions.find((option) => {
+    const id = option.id.toLowerCase();
+    return id.includes("permission") || id === "mode" || id.endsWith("_mode");
+  });
+  const modeChoices = mode
+    ? Array.from(new Set([
+        mode,
+        ...(modeOption?.options?.map((choice) => choice.value) ?? []),
+        "default",
+        "acceptEdits",
+        "plan",
+        "bypassPermissions",
+      ]))
+    : [];
+  const selectableOptions = configOptions.filter(
+    (option) => option !== modeOption && option.options && option.options.length > 0,
+  );
 
   const inputPlaceholder =
     placeholder ??
@@ -293,6 +319,59 @@ export function AgentComposer({
               </Button>
             </ActionTooltip>
           </AgentMenu>
+          {onSetMode && modeChoices.length > 0 ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" variant="ghost" size="sm" data-testid="composer-mode" className="gap-1 px-2 text-text-secondary">
+                  <SlidersHorizontal className="size-3.5" aria-hidden="true" />
+                  <span className="max-w-24 truncate text-body-13">{mode}</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent side="top" align="start" className="w-48">
+                <DropdownMenuLabel>Permission mode</DropdownMenuLabel>
+                {modeChoices.map((choice) => (
+                  <DropdownMenuItem
+                    key={choice}
+                    data-testid="composer-mode-option"
+                    detail={choice === mode ? <Check className="size-3" aria-hidden="true" /> : undefined}
+                    onSelect={() => {
+                      if (choice.toLowerCase().includes("bypass") && !window.confirm("Enable bypass permission mode? The agent will not ask before protected actions.")) return;
+                      onSetMode(choice);
+                    }}
+                  >
+                    {choice}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
+          {onSetConfigOption && selectableOptions.length > 0 ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" variant="ghost" size="icon-sm" data-testid="composer-config" className="text-text-secondary">
+                  <SlidersHorizontal aria-hidden="true" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent side="top" align="start" className="w-64">
+                <DropdownMenuLabel>Agent settings</DropdownMenuLabel>
+                {selectableOptions.map((option) => (
+                  <React.Fragment key={option.id}>
+                    <DropdownMenuLabel className="pt-2 text-body-13">{option.name || option.id}</DropdownMenuLabel>
+                    {option.options?.map((choice) => (
+                      <DropdownMenuItem
+                        key={`${option.id}-${choice.value}`}
+                        data-testid="composer-config-option"
+                        detail={String(option.currentValue) === choice.value ? <Check className="size-3" aria-hidden="true" /> : undefined}
+                        onSelect={() => onSetConfigOption(option.id, choice.value)}
+                      >
+                        {choice.name || choice.value}
+                      </DropdownMenuItem>
+                    ))}
+                  </React.Fragment>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
           <span className="min-w-0 flex-1" />
           <AgentContextMeter usage={usage} turnCount={turnCount} onCompact={onCompact} />
           <BorderBeam

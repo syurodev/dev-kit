@@ -79,6 +79,7 @@ export type PlanEntry = {
 export type AvailableCommand = {
   name: string;
   description?: string;
+  input?: { hint?: string } | null;
 };
 
 /**
@@ -227,6 +228,7 @@ export type TranscriptModel = {
   usage: Usage | null;
   commands: AvailableCommand[];
   mode: string | null;
+  configOptions: ConfigOption[];
   /** O(1) lookup for tool_call_update; maintained with the item snapshot. */
   toolCallIndex: Map<string, number>;
 };

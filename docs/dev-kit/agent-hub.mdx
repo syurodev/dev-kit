@@ -81,6 +81,8 @@ Dev dùng nhiều agent CLI khác nhau (Claude Code, Codex, Gemini CLI...) nhưn
 | FR-6 | `invokeAgent` có depth/cycle guard — chặn agent A gọi B gọi lại A vô hạn. |
 | FR-7 | Mỗi agent vendor (Claude/Codex/Gemini...) có 1 adapter riêng implement chung 1 interface; core orchestration không đọc trực tiếp field riêng của vendor nào. |
 | FR-8 | Field mở rộng (`_meta`) của mọi message luôn được lưu nguyên dạng raw JSON song song với field đã normalize — không silently drop dữ liệu vendor chưa được adapter xử lý. |
+| FR-9 | Composer nối được available slash commands, context suggestions theo project (tối đa 100 file), và file location mở trong Code Graph editor tới đúng dòng. |
+| FR-10 | Composer đọc config/mode từ transcript và đổi model, effort, permission mode qua `session/set_config_option` / `session/set_mode`; bypass permissions luôn cần xác nhận rõ ràng. |
 
 ### Non-functional requirements
 
@@ -671,6 +673,19 @@ Kết luận ở trên đúng với một version của một vendor, nên hai c
 - `DEVKIT_CLAUDE_CAPTURE_PROMPT` mở khoá prompt của `TestClaudeACPCapture`, vốn hardcode một kịch bản read/edit/shell. Kind chưa model chỉ xuất hiện khi turn làm việc khác, và sửa test mỗi lần đổi câu hỏi thì câu hỏi sau lại phải sửa nữa.
 
 ### T1 — Đã đặc tả, agent hỗ trợ, vá bug đang tồn tại (Implemented 2026-09-06)
+
+- **Composer controls (Implemented 2026-09-14).** Slash commands đi qua cả
+  Agent Hub và rail: command có `input` được chèn vào composer, command không
+  có input được gửi ngay. Context suggestions được backend walk bounded theo
+  project (100 file, bỏ `.git`, dependency/build output); Browse vẫn dùng native
+  picker. Location chip chỉ là button khi có handler và mở file qua Code Graph
+  editor, cuộn tới line được agent gửi.
+- **Model / mode / effort (Implemented 2026-09-14).** Runtime Claude gọi
+  `session/set_mode` và `session/set_config_option` qua Capability Gateway;
+  adapter không hỗ trợ trả lỗi `agenthub.unsupported`. UI đọc snapshot
+  `current_mode_update` / `config_option_update`, cập nhật lạc quan rồi rollback
+  nếu bridge lỗi. `bypass` luôn có xác nhận trước khi gọi backend. DevKit không
+  có và không cần form đăng nhập Claude.
 
 - **`clientCapabilities`** — `devkitClientCapabilities()` trong `internal/agenthub/adapter_claude.go`. Khai `subagents`; **không** khai `fs`/`terminal` vì `ClientHandler` không implement chúng và `UnknownMethod` từ chối — khai thứ mình từ chối phục vụ là mời một request để trả lỗi. Đo qua chính adapter, cùng prompt spawn hai subagent: `agent_message_chunk` **7 → 20**. Cơ chế là `forwardSubagentText` trong adapter của vendor, gate đúng vào field này; số lượng dao động theo lượt, chiều thì không.
 - **`session/load`** — `acp.SessionLoadRequest`/`SessionLoadResult`, `SessionLoader` (optional interface, vì `loadSession` là sự thật về từng vendor chứ không phải mọi vendor), `ClaudeAdapter.Load`, và `Service.resumeRuntime` gọi khi `Invoke` gặp session không còn runtime. Vendor replay lịch sử trong lúc load; DevKit **bỏ** phần replay đó vì handler còn `nil` cho tới khi Service cài — transcript đã nằm trong SQLite, resume mà ghi lại là mỗi lần khởi động cuộc hội thoại dài thêm một lần.

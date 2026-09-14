@@ -28,6 +28,7 @@ export type CodeEditorProps = {
    * wrapped line.
    */
   wrap?: boolean;
+  revealLine?: number | null;
 };
 
 // Headless CodeMirror 6 wrapper — no language or schema knowledge of its
@@ -36,7 +37,7 @@ export type CodeEditorProps = {
 // remounting the EditorView, which would lose undo history and cursor
 // position — the doc's explicit requirement, and CodeMirror's own
 // documented pattern for dynamic reconfiguration, not a DevKit invention.
-export function CodeEditor({ value, onChange, extensions, readOnly, wrap }: CodeEditorProps) {
+export function CodeEditor({ value, onChange, extensions, readOnly, wrap, revealLine }: CodeEditorProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
   const languageCompartment = useRef(new Compartment()).current;
@@ -95,6 +96,13 @@ export function CodeEditor({ value, onChange, extensions, readOnly, wrap }: Code
     if (!view || view.state.doc.toString() === value) return;
     view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: value } });
   }, [value]);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view || !revealLine || revealLine < 1) return;
+    const line = view.state.doc.line(Math.min(revealLine, view.state.doc.lines));
+    view.dispatch({ effects: EditorView.scrollIntoView(line.from, { y: "start" }) });
+  }, [revealLine]);
 
   useEffect(() => {
     viewRef.current?.dispatch({ effects: languageCompartment.reconfigure(extensions ?? []) });
