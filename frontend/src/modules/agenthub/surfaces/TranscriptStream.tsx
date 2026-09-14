@@ -46,6 +46,19 @@ export function anchoredScrollTop(
   return prevScrollTop + (nextScrollHeight - prevScrollHeight);
 }
 
+export function isTranscriptAtBottom(
+  scrollHeight: number,
+  scrollTop: number,
+  clientHeight: number,
+  tolerance = 80,
+): boolean {
+  return scrollHeight - scrollTop - clientHeight < tolerance;
+}
+
+export function transcriptBottomScrollTop(scrollHeight: number, clientHeight: number): number {
+  return Math.max(0, scrollHeight - clientHeight);
+}
+
 /** How close to the top the older page is asked for. */
 const PRELOAD_MARGIN_PX = 120;
 
@@ -177,7 +190,7 @@ export function TranscriptStream({
       scrollFrameRef.current = null;
       const el = scrollRef.current;
       if (!el) return;
-      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+      const atBottom = isTranscriptAtBottom(el.scrollHeight, el.scrollTop, el.clientHeight);
       isAtBottomRef.current = atBottom;
       setShowJump((previous) => (previous === !atBottom ? previous : !atBottom));
       if (atBottom && ticks.length > 0) setActiveTickIfChanged(ticks.length - 1);
@@ -288,7 +301,7 @@ export function TranscriptStream({
       autoScrollFrameRef.current = null;
       const el = scrollRef.current;
       if (!el || !isAtBottomRef.current) return;
-      el.scrollTo({ top: el.scrollHeight, behavior: "instant" });
+      el.scrollTo({ top: transcriptBottomScrollTop(el.scrollHeight, el.clientHeight), behavior: "instant" });
       if (ticks.length > 0) setActiveTickIfChanged(ticks.length - 1);
     });
     return () => {
@@ -306,7 +319,10 @@ export function TranscriptStream({
     const el = scrollRef.current;
     if (!el) return;
     isAtBottomRef.current = true;
-    el.scrollTo({ top: el.scrollHeight, behavior: reduce ? "instant" : "smooth" });
+    el.scrollTo({
+      top: transcriptBottomScrollTop(el.scrollHeight, el.clientHeight),
+      behavior: reduce ? "instant" : "smooth",
+    });
     setShowJump((previous) => (previous ? false : previous));
     if (ticks.length > 0) setActiveTickIfChanged(ticks.length - 1);
   }
