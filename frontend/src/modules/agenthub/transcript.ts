@@ -816,15 +816,15 @@ const NO_MORE_PAGES = { hasMore: false, loadingOlder: false };
 type AgentSessionsStoreState = ReturnType<typeof useAgentSessionsStore.getState>;
 const noopSubscribe = () => () => {};
 
-function useTranscriptStoreValue<T>(
-  enabled: boolean,
-  selector: (state: AgentSessionsStoreState) => T,
-  fallback: T,
-): T {
-  const getSnapshot = useCallback(
-    () => (enabled ? selector(useAgentSessionsStore.getState()) : fallback),
-    [enabled, fallback, selector],
-  );
+/**
+ * A store value, subscribed to only while enabled. Disabled, a token flush no
+ * longer renders the surface, but the value is still the store's own: an
+ * empty stand-in unmounted every turn (and its open/closed state) when the
+ * Agent Hub tab was hidden, and returning re-grouped the whole history. On
+ * re-enable the current snapshot is read in the same render, so nothing flashes.
+ */
+function useTranscriptStoreValue<T>(enabled: boolean, selector: (state: AgentSessionsStoreState) => T): T {
+  const getSnapshot = useCallback(() => selector(useAgentSessionsStore.getState()), [selector]);
   return useSyncExternalStore(
     enabled ? useAgentSessionsStore.subscribe : noopSubscribe,
     getSnapshot,
@@ -1021,10 +1021,10 @@ export function useAgentTranscript(sessionId: string, options: { enabled?: boole
     () => (state: AgentSessionsStoreState) => state.transcriptPagingById[sessionId] ?? NO_MORE_PAGES,
     [sessionId],
   );
-  const model = useTranscriptStoreValue(enabled, modelSelector, EMPTY_TRANSCRIPT_MODEL);
-  const loading = useTranscriptStoreValue(enabled, loadingSelector, false);
-  const error = useTranscriptStoreValue(enabled, errorSelector, null);
-  const paging = useTranscriptStoreValue(enabled, pagingSelector, NO_MORE_PAGES);
+  const model = useTranscriptStoreValue(enabled, modelSelector);
+  const loading = useTranscriptStoreValue(enabled, loadingSelector);
+  const error = useTranscriptStoreValue(enabled, errorSelector);
+  const paging = useTranscriptStoreValue(enabled, pagingSelector);
 
   useEffect(() => {
     if (!enabled) return;

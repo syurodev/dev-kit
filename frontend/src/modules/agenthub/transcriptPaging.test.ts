@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { anchoredScrollTop, settlePrependAnchor, type PrependAnchor } from "./surfaces/TranscriptStream";
-import { initTranscript, modelFromNewestPage, prependTranscriptEntries } from "./transcript";
-import { EMPTY_TRANSCRIPT_MODEL } from "../../stores/agentSessions";
+import { createElement } from "react";
+import { renderToString } from "react-dom/server";
+import { initTranscript, modelFromNewestPage, prependTranscriptEntries, useAgentTranscript } from "./transcript";
+import { EMPTY_TRANSCRIPT_MODEL, useAgentSessionsStore } from "../../stores/agentSessions";
 import type { TranscriptModel } from "./types";
 
 const pageEntry = (seq: number, body: Record<string, unknown>) => ({
@@ -180,6 +182,22 @@ describe("prependTranscriptEntries state", () => {
     expect(merged.mode).toBe("plan");
     expect(merged.commands.map((command) => command.name)).toEqual(["review"]);
     expect(merged.items.map((item) => item.text)).toEqual(["newest"]);
+  });
+});
+
+describe("useAgentTranscript while its surface is hidden", () => {
+  // Hiding the Agent Hub tab disables the hook. An empty model there unmounted
+  // every turn (open/closed state gone) and re-grouped the whole history on return.
+  test("renders the model the store holds, not an empty one", () => {
+    useAgentSessionsStore.getState().setTranscript("hidden-1", {
+      ...EMPTY_TRANSCRIPT_MODEL,
+      items: [{ id: "a", kind: "agent_message_chunk", text: "kept" }],
+    });
+    function Probe() {
+      const transcript = useAgentTranscript("hidden-1", { enabled: false });
+      return createElement("span", null, transcript.items.map((item) => item.text).join(","));
+    }
+    expect(renderToString(createElement(Probe))).toContain("kept");
   });
 });
 
