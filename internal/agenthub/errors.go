@@ -14,6 +14,7 @@ var (
 	ErrProcessFailed           = errors.New("agenthub.processFailed")
 	ErrSandboxUnavailable      = errors.New("agenthub.sandboxUnavailable")
 	ErrUnavailable             = errors.New("agenthub.unavailable")
+	ErrUnsupported             = errors.New("agenthub.unsupported")
 	ErrNotDescendant           = errors.New("agenthub.notDescendant")
 	ErrCwdOutsideParent        = errors.New("agenthub.cwdOutsideParent")
 	ErrInvalidCwd              = errors.New("agenthub.invalidCwd")

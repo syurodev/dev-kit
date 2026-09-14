@@ -44,6 +44,14 @@ type SessionRuntime interface {
 	SetHandlers(h RuntimeHandlers)
 }
 
+// RuntimeConfigurator is optional because ACP agents advertise these controls
+// independently. The service reports an explicit unsupported error when an
+// agent exposes no corresponding method.
+type RuntimeConfigurator interface {
+	SetConfigOption(ctx context.Context, optionID, value string) error
+	SetMode(ctx context.Context, modeID string) error
+}
+
 // SessionLoader is implemented by adapters whose vendor can resume a session
 // that outlived the process that created it.
 //

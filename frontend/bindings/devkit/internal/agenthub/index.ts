@@ -10,6 +10,7 @@ export {
 export type {
     AgentSession,
     AuthMethod,
+    ContextFile,
     CreateInput,
     InvokeInput,
     InvokeResult,

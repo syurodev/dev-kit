@@ -66,3 +66,11 @@ type TranscriptPage struct {
 	Entries []TranscriptEntry `json:"entries"`
 	HasMore bool              `json:"hasMore"`
 }
+
+// ContextFile is one bounded file suggestion for the prompt composer.
+type ContextFile struct {
+	Path        string `json:"path"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Kind        string `json:"kind,omitempty"`
+}

@@ -115,6 +115,13 @@ export function AgentHubListAgents(): $CancellablePromise<agenthub$0.AgentSessio
     return $Call.ByID(3384951636);
 }
 
+/**
+ * AgentHubListContextFiles returns bounded prompt suggestions for one project.
+ */
+export function AgentHubListContextFiles(id: string, query: string): $CancellablePromise<agenthub$0.ContextFile[] | null> {
+    return $Call.ByID(3957701360, id, query);
+}
+
 export function AgentHubListVendorTypes(): $CancellablePromise<agenthub$0.AgentType[] | null> {
     return $Call.ByID(1235244657);
 }
@@ -133,6 +140,20 @@ export function AgentHubPendingPermissions(): $CancellablePromise<agenthub$0.Pen
  */
 export function AgentHubResolvePermission(id: string, outcome: json$0.RawMessage): $CancellablePromise<void> {
     return $Call.ByID(953872769, id, outcome);
+}
+
+/**
+ * AgentHubSetConfigOption changes one setting of a live agent session.
+ */
+export function AgentHubSetConfigOption(id: string, optionID: string, value: string): $CancellablePromise<void> {
+    return $Call.ByID(1489269769, id, optionID, value);
+}
+
+/**
+ * AgentHubSetMode changes the mode of a live agent session.
+ */
+export function AgentHubSetMode(id: string, modeID: string): $CancellablePromise<void> {
+    return $Call.ByID(2776585725, id, modeID);
 }
 
 /**

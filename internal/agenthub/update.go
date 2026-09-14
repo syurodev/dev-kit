@@ -110,8 +110,14 @@ type PlanEntry struct {
 
 // AvailableCommand is one entry of an available_commands_update.
 type AvailableCommand struct {
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
+	Name        string                 `json:"name"`
+	Description string                 `json:"description,omitempty"`
+	Input       *AvailableCommandInput `json:"input,omitempty"`
+}
+
+// AvailableCommandInput is present when a command expects text after its name.
+type AvailableCommandInput struct {
+	Hint string `json:"hint,omitempty"`
 }
 
 // Usage is the context/cost snapshot carried by a usage_update. Shape taken

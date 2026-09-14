@@ -955,6 +955,34 @@ func (r *claudeRuntime) Dead() (bool, error) {
 
 func (r *claudeRuntime) ACPSessionID() string { return r.acpSessionID }
 
+func (r *claudeRuntime) SetMode(ctx context.Context, modeID string) error {
+	r.mu.Lock()
+	conn, sid, closed := r.conn, r.acpSessionID, r.closed
+	r.mu.Unlock()
+	if closed {
+		return ErrSessionNotFound
+	}
+	var result json.RawMessage
+	if err := conn.Call(ctx, "session/set_mode", acp.SessionSetModeRequest{SessionID: sid, ModeID: modeID}, &result); err != nil {
+		return fmt.Errorf("%w: session/set_mode: %v", ErrProcessFailed, err)
+	}
+	return nil
+}
+
+func (r *claudeRuntime) SetConfigOption(ctx context.Context, optionID, value string) error {
+	r.mu.Lock()
+	conn, sid, closed := r.conn, r.acpSessionID, r.closed
+	r.mu.Unlock()
+	if closed {
+		return ErrSessionNotFound
+	}
+	var result json.RawMessage
+	if err := conn.Call(ctx, "session/set_config_option", acp.SessionSetConfigOptionRequest{SessionID: sid, OptionID: optionID, Value: value}, &result); err != nil {
+		return fmt.Errorf("%w: session/set_config_option: %v", ErrProcessFailed, err)
+	}
+	return nil
+}
+
 func (r *claudeRuntime) SetHandlers(h RuntimeHandlers) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

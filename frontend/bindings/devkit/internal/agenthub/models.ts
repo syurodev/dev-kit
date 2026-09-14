@@ -54,6 +54,16 @@ export interface AuthMethod {
 }
 
 /**
+ * ContextFile is one bounded file suggestion for the prompt composer.
+ */
+export interface ContextFile {
+    "path": string;
+    "name": string;
+    "description"?: string;
+    "kind"?: string;
+}
+
+/**
  * CreateInput is the request to open a new agent session.
  */
 export interface CreateInput {

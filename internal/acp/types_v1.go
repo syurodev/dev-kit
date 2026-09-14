@@ -83,6 +83,19 @@ type SessionDeleteRequest struct {
 	Meta      json.RawMessage `json:"_meta,omitempty"`
 }
 
+// SessionSetModeRequest is the params object for session/set_mode.
+type SessionSetModeRequest struct {
+	SessionID string `json:"sessionId"`
+	ModeID    string `json:"modeId"`
+}
+
+// SessionSetConfigOptionRequest is the params object for session/set_config_option.
+type SessionSetConfigOptionRequest struct {
+	SessionID string `json:"sessionId"`
+	OptionID  string `json:"optionId"`
+	Value     string `json:"value"`
+}
+
 // PromptRequest is the params object for session/prompt// PromptRequest is the params object for session/prompt// PromptRequest is the params object for session/prompt.
 type PromptRequest struct {
 	SessionID string          `json:"sessionId"`

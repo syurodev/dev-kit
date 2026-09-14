@@ -15,8 +15,9 @@ var mockSessionSeq atomic.Uint64
 
 // MockAdapter is an in-process VendorAdapter (no sandbox, no real CLI).
 type MockAdapter struct {
-	mu       sync.Mutex
-	lastSpec OpenSpec
+	mu          sync.Mutex
+	lastSpec    OpenSpec
+	lastRuntime *mockRuntime
 }
 
 // NewMockAdapter returns the built-in mock vendor adapter.
@@ -34,7 +35,11 @@ func (a *MockAdapter) Open(ctx context.Context, spec OpenSpec) (SessionRuntime, 
 	a.lastSpec = spec
 	a.mu.Unlock()
 	id := fmt.Sprintf("mock-acp-%d", mockSessionSeq.Add(1))
-	return &mockRuntime{acpSessionID: id}, nil
+	runtime := &mockRuntime{acpSessionID: id}
+	a.mu.Lock()
+	a.lastRuntime = runtime
+	a.mu.Unlock()
+	return runtime, nil
 }
 
 // LastSpec returns the spec of the most recent Open (tests).
@@ -42,6 +47,13 @@ func (a *MockAdapter) LastSpec() OpenSpec {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.lastSpec
+}
+
+// LastRuntime returns the most recently opened runtime (tests only).
+func (a *MockAdapter) LastRuntime() *mockRuntime {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.lastRuntime
 }
 
 type mockMeta struct {
@@ -85,9 +97,52 @@ type mockRuntime struct {
 	handlers     RuntimeHandlers
 	closed       bool
 	cancelCh     chan struct{}
+	setMode      string
+	setOptions   map[string]string
 }
 
 func (r *mockRuntime) ACPSessionID() string { return r.acpSessionID }
+
+func (r *mockRuntime) SetMode(ctx context.Context, modeID string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed {
+		return ErrSessionNotFound
+	}
+	r.setMode = modeID
+	return nil
+}
+
+func (r *mockRuntime) SetConfigOption(ctx context.Context, optionID, value string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed {
+		return ErrSessionNotFound
+	}
+	if r.setOptions == nil {
+		r.setOptions = make(map[string]string)
+	}
+	r.setOptions[optionID] = value
+	return nil
+}
+
+func (r *mockRuntime) SetModeValue() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.setMode
+}
+
+func (r *mockRuntime) SetOptionValue(optionID string) string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.setOptions[optionID]
+}
 
 func (r *mockRuntime) SetHandlers(h RuntimeHandlers) {
 	r.mu.Lock()

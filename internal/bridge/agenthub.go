@@ -168,6 +168,54 @@ func (s *AppService) AgentHubGetStatus(id string) (agenthub.AgentSession, error)
 	return result.(agenthub.AgentSession), nil
 }
 
+// AgentHubSetMode changes the mode of a live agent session.
+func (s *AppService) AgentHubSetMode(ctx context.Context, id, modeID string) error {
+	opaqueID := hubSessionID(id)
+	_, err := s.call(ctx, "builtin.agenthub", "agenthub:execute", "session:"+opaqueID, map[string]any{
+		"action": "set_mode", "session_id": opaqueID, "mode_id": modeID,
+	}, func(callCtx context.Context) (any, error) {
+		svc, err := s.agentHubService()
+		if err != nil {
+			return nil, err
+		}
+		return nil, svc.SetMode(callCtx, id, modeID)
+	})
+	return err
+}
+
+// AgentHubSetConfigOption changes one setting of a live agent session.
+func (s *AppService) AgentHubSetConfigOption(ctx context.Context, id, optionID, value string) error {
+	opaqueID := hubSessionID(id)
+	_, err := s.call(ctx, "builtin.agenthub", "agenthub:execute", "session:"+opaqueID, map[string]any{
+		"action": "set_config_option", "session_id": opaqueID, "option_id": optionID,
+	}, func(callCtx context.Context) (any, error) {
+		svc, err := s.agentHubService()
+		if err != nil {
+			return nil, err
+		}
+		return nil, svc.SetConfigOption(callCtx, id, optionID, value)
+	})
+	return err
+}
+
+// AgentHubListContextFiles returns bounded prompt suggestions for one project.
+func (s *AppService) AgentHubListContextFiles(ctx context.Context, id, query string) ([]agenthub.ContextFile, error) {
+	opaqueID := hubSessionID(id)
+	result, err := s.call(ctx, "builtin.agenthub", "agenthub:read", "session:"+opaqueID, map[string]any{
+		"action": "list_context_files", "session_id": opaqueID,
+	}, func(callCtx context.Context) (any, error) {
+		svc, err := s.agentHubService()
+		if err != nil {
+			return nil, err
+		}
+		return svc.ListContextFiles(callCtx, id, query)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]agenthub.ContextFile), nil
+}
+
 // AgentHubTranscriptPage is the transcript read: the newest bounded window of
 // a session, oldest first. It goes through the same capability gateway as
 // every other read — an agent asking for another agent's transcript is

@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -339,6 +341,62 @@ func (s *Service) ListSessions(ctx context.Context) ([]AgentSession, error) {
 		if item.ID == caller.SessionID || ancestorContains(byID, item.ID, caller.SessionID) {
 			out = append(out, item)
 		}
+	}
+	return out, nil
+}
+
+const maxContextSuggestions = 100
+
+// ListContextFiles returns a small, deterministic set of files below the
+// session project. It is deliberately not a repository listing: the composer
+// needs useful nearby suggestions, while the native picker remains the escape
+// hatch for an exact path.
+func (s *Service) ListContextFiles(ctx context.Context, id, query string) ([]ContextFile, error) {
+	if err := s.authorizeTarget(ctx, id); err != nil {
+		return nil, err
+	}
+	sess, err := s.store.GetSession(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	root := filepath.Clean(sess.ProjectPath)
+	needle := strings.ToLower(strings.TrimSpace(query))
+	paths := make([]string, 0, maxContextSuggestions)
+	err = filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			name := entry.Name()
+			if path != root && (name == ".git" || name == "node_modules" || name == "vendor" || name == "target" || name == "dist" || name == "build") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if len(paths) >= maxContextSuggestions {
+			return filepath.SkipDir
+		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil || rel == "." {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		if needle != "" && !strings.Contains(strings.ToLower(rel), needle) {
+			return nil
+		}
+		paths = append(paths, rel)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(paths)
+	out := make([]ContextFile, 0, len(paths))
+	for _, rel := range paths {
+		out = append(out, ContextFile{Path: filepath.Join(root, filepath.FromSlash(rel)), Name: filepath.Base(rel), Description: rel, Kind: "file"})
 	}
 	return out, nil
 }
@@ -970,6 +1028,40 @@ func (s *Service) Cancel(ctx context.Context, id string) error {
 		return ErrUnavailable
 	}
 	return rt.Cancel(ctx)
+}
+
+// SetMode changes the live agent's mode without routing it through prompt.
+func (s *Service) SetMode(ctx context.Context, id, modeID string) error {
+	if err := s.authorizeTarget(ctx, id); err != nil {
+		return err
+	}
+	sess, err := s.store.GetSession(ctx, id)
+	if err != nil {
+		return err
+	}
+	rt := s.liveRuntime(ctx, id)
+	configurator, ok := rt.(RuntimeConfigurator)
+	if !ok {
+		return fmt.Errorf("%w: agent %q does not support session mode", ErrUnsupported, sess.AgentType)
+	}
+	return configurator.SetMode(ctx, modeID)
+}
+
+// SetConfigOption changes one of the live agent's advertised settings.
+func (s *Service) SetConfigOption(ctx context.Context, id, optionID, value string) error {
+	if err := s.authorizeTarget(ctx, id); err != nil {
+		return err
+	}
+	sess, err := s.store.GetSession(ctx, id)
+	if err != nil {
+		return err
+	}
+	rt := s.liveRuntime(ctx, id)
+	configurator, ok := rt.(RuntimeConfigurator)
+	if !ok {
+		return fmt.Errorf("%w: agent %q does not support config option", ErrUnsupported, sess.AgentType)
+	}
+	return configurator.SetConfigOption(ctx, optionID, value)
 }
 
 func (s *Service) setSessionStatus(ctx context.Context, id string, status SessionStatus) error {

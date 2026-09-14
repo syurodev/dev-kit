@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -54,6 +56,76 @@ func TestCreateAndListSession(t *testing.T) {
 	list, err := svc.ListSessions(context.Background())
 	if err != nil || len(list) != 1 {
 		t.Fatalf("list=%v err=%v", list, err)
+	}
+}
+
+func TestSetModeAndConfigOptionUseRuntime(t *testing.T) {
+	db, err := storage.Open(filepath.Join(t.TempDir(), "devkit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if err := storage.Migrate(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	adapter := agenthub.NewMockAdapter()
+	reg := agenthub.NewRegistry()
+	reg.Register(adapter)
+	svc := agenthub.NewService(reg, agenthub.NewSQLStore(db), nil)
+	sess, err := svc.CreateSession(context.Background(), agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetMode(context.Background(), sess.ID, "plan"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetConfigOption(context.Background(), sess.ID, "model", "sonnet"); err != nil {
+		t.Fatal(err)
+	}
+	if got := adapter.LastRuntime(); got == nil || got.SetModeValue() != "plan" || got.SetOptionValue("model") != "sonnet" {
+		t.Fatalf("runtime did not receive controls: %+v", got)
+	}
+}
+
+func TestListContextFilesIsBoundedAndSkipsBuildTrees(t *testing.T) {
+	root := t.TempDir()
+	for i := 0; i < 120; i++ {
+		if err := os.WriteFile(filepath.Join(root, fmt.Sprintf("file-%03d.ts", i)), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Mkdir(filepath.Join(root, "node_modules"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "node_modules", "hidden.ts"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reg := agenthub.NewRegistry()
+	reg.Register(agenthub.NewMockAdapter())
+	db, err := storage.Open(filepath.Join(t.TempDir(), "devkit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if err := storage.Migrate(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	svc := agenthub.NewService(reg, agenthub.NewSQLStore(db), nil)
+	sess, err := svc.CreateSession(context.Background(), agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, err := svc.ListContextFiles(context.Background(), sess.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 100 {
+		t.Fatalf("got %d suggestions, want 100", len(files))
+	}
+	for _, file := range files {
+		if filepath.Base(filepath.Dir(file.Path)) == "node_modules" {
+			t.Fatalf("build tree leaked into suggestions: %s", file.Path)
+		}
 	}
 }
 
