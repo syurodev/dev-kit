@@ -676,6 +676,89 @@ func (r *deletableRuntime) Delete(context.Context) error {
 	return nil
 }
 
+// crashingRuntime stands in for a Claude process that died between turns:
+// Dead() reports it, and Prompt refuses the way a closed pipe does.
+type crashingRuntime struct {
+	titlingRuntime
+	dead bool
+}
+
+func (r *crashingRuntime) Dead() (bool, error) { return r.dead, nil }
+
+func (r *crashingRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock) (agenthub.PromptOutcome, error) {
+	if r.dead {
+		return agenthub.PromptOutcome{}, agenthub.ErrSessionNotFound
+	}
+	return r.titlingRuntime.Prompt(ctx, prompt)
+}
+
+// crashResumeAdapter is a crashingRuntime plus SessionLoader: the vendor can
+// resume, so the test drives the replace-on-death path the real adapter takes.
+type crashResumeAdapter struct {
+	rt    *crashingRuntime
+	loads chan string
+}
+
+func (a *crashResumeAdapter) Type() agenthub.AgentType { return agenthub.AgentType("crashy") }
+func (a *crashResumeAdapter) Open(context.Context, agenthub.OpenSpec) (agenthub.SessionRuntime, error) {
+	return a.rt, nil
+}
+func (a *crashResumeAdapter) Load(_ context.Context, _ agenthub.OpenSpec, acpSessionID string) (agenthub.SessionRuntime, error) {
+	a.loads <- acpSessionID
+	return &titlingRuntime{}, nil
+}
+func (a *crashResumeAdapter) NormalizeUsage(json.RawMessage) (agenthub.NormalizedUsage, error) {
+	return agenthub.NormalizedUsage{}, nil
+}
+func (a *crashResumeAdapter) NormalizeToolSummary(json.RawMessage, json.RawMessage) ([]string, string, error) {
+	return nil, "", nil
+}
+func (a *crashResumeAdapter) Extensions() []string { return nil }
+
+func TestInvokeReplacesADeadRuntimeInsteadOfReusingIt(t *testing.T) {
+	ctx := context.Background()
+	db, err := storage.Open(filepath.Join(t.TempDir(), "devkit.db"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if err := storage.Migrate(ctx, db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	adapter := &crashResumeAdapter{
+		rt:    &crashingRuntime{},
+		loads: make(chan string, 1),
+	}
+	reg := agenthub.NewRegistry()
+	reg.Register(adapter)
+	svc := agenthub.NewService(reg, agenthub.NewSQLStore(db), func(string, json.RawMessage) {})
+
+	sess, err := svc.CreateSession(ctx, agenthub.CreateInput{
+		AgentType: agenthub.AgentType("crashy"), Cwd: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	// The agent process crashed after its last turn. The runtime stays
+	// registered — only CloseSession ever removed one — so every retry used
+	// to prompt the corpse and fail with the crash's error, forever.
+	adapter.rt.dead = true
+
+	if _, err := svc.Invoke(ctx, agenthub.InvokeInput{SessionID: sess.ID, Prompt: "retry"}); err != nil {
+		t.Fatalf("invoke after crash: %v", err)
+	}
+	select {
+	case got := <-adapter.loads:
+		if got != sess.ACPSessionID {
+			t.Fatalf("resumed %q, want the vendor id from the store %q", got, sess.ACPSessionID)
+		}
+	default:
+		t.Fatal("dead runtime was never replaced via session/load")
+	}
+}
+
 func TestDeleteSessionAsksTheVendorToForgetItToo(t *testing.T) {
 	ctx := context.Background()
 	db, err := storage.Open(filepath.Join(t.TempDir(), "devkit.db"))

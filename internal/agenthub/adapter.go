@@ -71,6 +71,18 @@ type RuntimeDeleter interface {
 	Delete(ctx context.Context) error
 }
 
+// RuntimeLiveness is implemented by runtimes whose process can die under them
+// (subprocess-backed ones; an in-process runtime cannot).
+//
+// Optional for the same reason SessionLoader is: whether a runtime can crash
+// out from under the session is a fact about how it is built. Service treats
+// a dead runtime as absent, so the session resumes on a fresh process instead
+// of prompting a corpse on every retry.
+type RuntimeLiveness interface {
+	// Dead reports whether the process exited unexpectedly, and why.
+	Dead() (bool, error)
+}
+
 // RuntimeHandlers wires permission + update callbacks before Prompt.// RuntimeHandlers wires permission + update callbacks before Prompt.// RuntimeHandlers wires permission + update callbacks before Prompt.
 type RuntimeHandlers struct {
 	OnUpdate     func(update json.RawMessage, meta json.RawMessage)

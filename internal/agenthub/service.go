@@ -441,9 +441,7 @@ func (s *Service) DeleteSession(ctx context.Context, id string) error {
 // process already died keeps its vendor-side copy, which is recorded rather
 // than hidden.
 func (s *Service) deleteVendorCopy(ctx context.Context, sessionID string) {
-	s.mu.Lock()
-	rt := s.runtimes[sessionID]
-	s.mu.Unlock()
+	rt := s.liveRuntime(ctx, sessionID)
 
 	deleter, ok := rt.(RuntimeDeleter)
 	if !ok {
@@ -515,14 +513,15 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 		s.mu.Unlock()
 		return InvokeResult{}, ErrSessionBusy
 	}
-	rt := s.runtimes[in.SessionID]
 	s.mu.Unlock()
+	rt := s.liveRuntime(ctx, in.SessionID)
 
 	if rt == nil {
 		// An orphan: the row outlived the process that served it, which is
-		// what every restart does to every open session. This used to be the
-		// end of the conversation — ErrUnavailable, and the only way forward
-		// was to start again somewhere else and lose the context.
+		// what every restart does to every open session — and what a mid-turn
+		// crash does too, since liveRuntime evicts the corpse. This used to
+		// be the end of the conversation — ErrUnavailable, and the only way
+		// forward was to start again somewhere else and lose the context.
 		var err error
 		if rt, err = s.resumeRuntime(ctx, sess); err != nil {
 			return InvokeResult{}, err
@@ -766,6 +765,41 @@ func (s *Service) markUnknownSeen(sessionID, wireKind string) bool {
 	return true
 }
 
+// liveRuntime returns the session's runtime unless its process has died, in
+// which case the corpse is evicted — runtime and MCP endpoint both — and nil
+// is reported, which sends Invoke down the resume path.
+//
+// Only CloseSession ever removed a runtime before, so a session whose agent
+// crashed kept answering from the map forever: Retry prompted the dead process
+// and failed with the crash's error, every time. Dead() is an optional
+// interface (RuntimeLiveness) because an in-process runtime cannot die this
+// way; one that cannot say simply stays.
+func (s *Service) liveRuntime(ctx context.Context, id string) SessionRuntime {
+	s.mu.Lock()
+	rt := s.runtimes[id]
+	liveness, canDie := rt.(RuntimeLiveness)
+	dead := false
+	if canDie {
+		dead, _ = liveness.Dead()
+	}
+	if !dead {
+		s.mu.Unlock()
+		return rt
+	}
+	delete(s.runtimes, id)
+	closeEndpoint := s.endpoints[id]
+	delete(s.endpoints, id)
+	s.mu.Unlock()
+
+	// Outside the lock, same shape as CloseSession: Close parks the process
+	// and the endpoint close tears down a socket; neither belongs under s.mu.
+	_ = rt.Close(ctx)
+	if closeEndpoint != nil {
+		closeEndpoint()
+	}
+	return nil
+}
+
 // resumeRuntime reopens a session whose process is gone, using the vendor's own
 // session id from the store.
 //
@@ -834,9 +868,7 @@ func (s *Service) Cancel(ctx context.Context, id string) error {
 	if _, err := s.store.GetSession(ctx, id); err != nil {
 		return err
 	}
-	s.mu.Lock()
-	rt := s.runtimes[id]
-	s.mu.Unlock()
+	rt := s.liveRuntime(ctx, id)
 	if rt == nil {
 		return ErrUnavailable
 	}

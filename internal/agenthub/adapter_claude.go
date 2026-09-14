@@ -945,8 +945,8 @@ type claudeRuntime struct {
 }
 
 // Dead reports whether the agent process exited unexpectedly (crash, pipe
-// EOF). A dead runtime rejects further calls; the owning session should
-// surface status error.
+// EOF). Service.LiveRuntime evicts a dead runtime and resumes the session on a
+// fresh process, so Retry never prompts the corpse.
 func (r *claudeRuntime) Dead() (bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
