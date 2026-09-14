@@ -821,6 +821,17 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 		}
 	}
 
+	// Validate the whole input before anything records the turn. This used to
+	// run after the user echo was written and emitted and the session marked
+	// running, so a refused attachment left its prompt in the transcript — and
+	// the frontend, which puts a refused prompt back in the queue, showed it
+	// twice once it was sent again.
+	invoker, _ := identity.FromContext(ctx)
+	prompt, err := buildPromptWithImages(in.Prompt, in.Attachments, in.Images, sess.ProjectPath, callerIsAgent(invoker))
+	if err != nil {
+		return InvokeResult{Status: "error"}, err
+	}
+
 	// Claim the session before anything slow. The claim used to come after the
 	// resume, so two prompts on a dead or orphaned session both resumed it:
 	// two processes onto one MCP socket path, where the second failed with
@@ -948,13 +959,6 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 			s.OnRecordError(in.SessionID, err)
 		}
 		s.emit(in.SessionID, userEchoUpdate(in.Prompt, userEcho.MessageID))
-	}
-
-	invoker, _ := identity.FromContext(ctx)
-	prompt, err := buildPromptWithImages(in.Prompt, in.Attachments, in.Images, sess.ProjectPath, callerIsAgent(invoker))
-	if err != nil {
-		_ = s.setSessionStatus(recordCtx, in.SessionID, SessionStatusIdle)
-		return InvokeResult{Status: "error"}, err
 	}
 
 	outcome, promptErr := rt.Prompt(ctx, prompt)
