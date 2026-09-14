@@ -135,9 +135,7 @@ function untokenisedAnimateIn(): number {
 // Baseline as of the second smoothness pass. Lower it when you convert
 // something; it must never go up.
 const BASELINE = {
-  // Draft image preview adds one local list state; this coarse measure counts
-  // the syntax even though it is not a fetch list.
-  emptyListState: 7,
+  emptyListState: 6,
   unvirtualizedTables: 2,
   // 48 → 44 with the glass button already in it: four of the old 48 were
   // `backdrop-filter: none` opt-outs that the exclusion above never actually

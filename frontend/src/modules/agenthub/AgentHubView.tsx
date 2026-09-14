@@ -130,10 +130,14 @@ export function AgentHubView() {
   // the first message is sent, because an agent is a process bound to its
   // session and there is nothing to bind yet. This replaced a dialog that asked
   // for the agent up front, before anyone had said what they wanted from it.
-  const [draft, setDraft] = useState<{ cwd: string; parent: AgentSession | null } | null>(null);
+  // Images pasted into the draft belong to it: they go when it is sent or left.
+  const [draft, setDraft] = useState<{
+    cwd: string;
+    parent: AgentSession | null;
+    images: AgentImageAttachment[];
+  } | null>(null);
   const [draftAgent, setDraftAgent] = useState<string>(CLAUDE_VENDOR);
   const [draftPrompt, setDraftPrompt] = useState("");
-  const [draftImages, setDraftImages] = useState<AgentImageAttachment[]>([]);
   // Figma 948:2204 writes the reason as "agenthub.processFailed — the agent
   // exited after …": the DevKit code AND what happened. errorMessage() gives
   // only the humanised half, so the card was saying "Agent process failed."
@@ -273,9 +277,8 @@ export function AgentHubView() {
 
   /** Starts a draft in a folder that is already known — a project row, a parent. */
   function startDraft(cwd: string, parent: AgentSession | null) {
-    setDraft({ cwd, parent });
+    setDraft({ cwd, parent, images: [] });
     setDraftPrompt("");
-    setDraftImages([]);
     setError("");
     setErrorReason("");
     setErrorCause(undefined);
@@ -314,7 +317,6 @@ export function AgentHubView() {
       setActiveSessionId(session.id);
       setDraft(null);
       setDraftPrompt("");
-      setDraftImages([]);
       if (params.prompt || params.attachments?.length || params.images?.length) {
         // The message was written before the session existed and is the reason
         // it was created. Passed the session itself: the list this closure
@@ -391,7 +393,7 @@ export function AgentHubView() {
       const image = await imageAttachmentFromFile(file);
       setImageError("");
       if (activeSession) setImages((prev) => ({ ...prev, [activeSession.id]: [...(prev[activeSession.id] ?? []), image] }));
-      else if (draft) setDraftImages((current) => [...current, image]);
+      else if (draft) setDraft((current) => current && { ...current, images: [...current.images, image] });
     } catch (e) {
       setImageError(e instanceof Error ? e.message : "Could not attach image");
     }
@@ -401,7 +403,7 @@ export function AgentHubView() {
     if (activeSession) {
       setImages((prev) => ({ ...prev, [activeSession.id]: (prev[activeSession.id] ?? []).filter((image) => image.id !== id) }));
     } else {
-      setDraftImages((current) => current.filter((image) => image.id !== id));
+      setDraft((current) => current && { ...current, images: current.images.filter((image) => image.id !== id) });
     }
   }
 
@@ -703,13 +705,13 @@ export function AgentHubView() {
             }}
             onSend={() => {
               if (!draft) return void handleSend();
-              if (!draftPrompt.trim() && draftImages.length === 0) return;
+              if (!draftPrompt.trim() && draft.images.length === 0) return;
               void handleCreateSession({
                 vendor: draftAgent,
                 cwd: draft.cwd,
                 parentSessionId: draft.parent?.id,
                 prompt: draftPrompt.trim(),
-                images: draftImages,
+                images: draft.images,
               });
             }}
             onCancel={() => void handleCancel()}
@@ -742,7 +744,7 @@ export function AgentHubView() {
               ) : undefined
             }
             attachments={activeSession ? attachments[activeSession.id] ?? [] : []}
-            imageAttachments={draft ? draftImages : activeSession ? images[activeSession.id] ?? [] : []}
+            imageAttachments={draft ? draft.images : activeSession ? images[activeSession.id] ?? [] : []}
             onRemoveImage={handleRemoveImage}
             onPasteImage={(file) => void handleAddImage(file)}
             onDropImage={(file) => void handleAddImage(file)}
