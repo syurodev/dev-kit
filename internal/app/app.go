@@ -77,7 +77,7 @@ func RegisterBuiltins(container *Container) error {
 			Title:        "Agent Hub",
 			Version:      "1.0.0",
 			APIVersion:   modules.CurrentAPIVersion,
-			Commands:     []string{"agenthub.create", "agenthub.invoke", "agenthub.cancel"},
+			Commands:     appmenu.ModuleCommandIDs("agenthub"),
 			Views:        []string{"agenthub.sessions"},
 			Capabilities: []string{"agenthub:read", "agenthub:execute"},
 		},

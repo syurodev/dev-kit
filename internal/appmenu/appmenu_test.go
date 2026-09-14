@@ -104,9 +104,11 @@ func TestModuleCommandIDsIsTheModulesOwn(t *testing.T) {
 			t.Errorf("%q is reported as a database command", id)
 		}
 	}
-	if len(ids) != len(CommandIDs()) {
-		t.Fatalf("database has %d of %d commands; split the assertion once a second module has a menu",
-			len(ids), len(CommandIDs()))
+	if len(ids) != len(DatabaseCommands) {
+		t.Fatalf("database has %d commands, want %d", len(ids), len(DatabaseCommands))
+	}
+	if got := ModuleCommandIDs("agenthub"); len(got) != len(AgentCommands) {
+		t.Fatalf("agenthub has %d commands, want %d", len(got), len(AgentCommands))
 	}
 	// A module with no menu gets an empty slice, not nil: this goes straight
 	// into JSON the frontend reads, where null and [] are different answers.

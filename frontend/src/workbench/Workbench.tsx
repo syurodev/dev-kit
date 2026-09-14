@@ -353,6 +353,7 @@ export function Workbench() {
   const setBottomOpen = useBottomSlotStore((s) => s.setOpen);
   const chatOpen = useAgentSessionsStore((s) => s.chatOpen);
   const setChatOpen = useAgentSessionsStore((s) => s.setChatOpen);
+  const pendingAgentHubCommand = useAgentSessionsStore((s) => s.pendingAgentHubCommand);
 
   const moduleActions = useModuleActionsStore((s) => s.actions);
   const activeModuleId = useWorkbenchTabsStore((state) => state.activeModuleId);
@@ -601,6 +602,18 @@ export function Workbench() {
     // the app jumping to whichever module happens to be first in the list.
   }, [availableModules, activeModuleId]);
   useMenuCommands();
+
+  // Palette and native-menu Agent commands may be chosen while another module
+  // is visible. Open the Agent Hub view first; AgentHubView consumes the
+  // pending command after it is mounted, so "New agent session" can still
+  // start its folder picker without moving that ownership into the shell.
+  useEffect(() => {
+    if (!pendingAgentHubCommand) return;
+    const agentTabs = moduleTabs(tabModules, "agenthub").openTabs;
+    if (activeModuleId !== "agenthub" || agentTabs.length === 0) {
+      openTab({ moduleId: "agenthub", viewId: "agenthub.sessions", title: "Agent Hub" });
+    }
+  }, [activeModuleId, openTab, pendingAgentHubCommand, tabModules]);
 
   const commands = availableModules.flatMap((module) => module.commands);
   const hasMetadataWarning = metadataError || parityIssues.length > 0;

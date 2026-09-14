@@ -76,6 +76,9 @@ export function AgentHubView() {
   const sessions = useAgentSessionList();
   const activeSessionId = useAgentSessionsStore((state) => state.activeSessionId);
   const setActiveSessionId = useAgentSessionsStore((state) => state.setActiveSessionId);
+  const pendingAgentHubCommand = useAgentSessionsStore((state) => state.pendingAgentHubCommand);
+  const consumeAgentHubCommand = useAgentSessionsStore((state) => state.consumeAgentHubCommand);
+  const markCompletedRead = useAgentSessionsStore((state) => state.markCompletedRead);
   const openTab = useWorkbenchTabsStore((state) => state.openTab);
   const upsertSession = useAgentSessionsStore((state) => state.upsertSession);
   const removeSession = useAgentSessionsStore((state) => state.removeSession);
@@ -134,6 +137,7 @@ export function AgentHubView() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [sandboxHint, setSandboxHint] = useState("");
+  const [focusComposerRequest, setFocusComposerRequest] = useState(0);
 
   const activeSession = useMemo(
     () => sessions.find((s) => s.id === activeSessionId) ?? sessions[0] ?? null,
@@ -151,6 +155,42 @@ export function AgentHubView() {
 
   // Live typed transcript model powered by useAgentTranscript
   const transcriptModel = useAgentTranscript(activeSession?.id ?? "", { enabled: visible });
+
+  useEffect(() => {
+    if (!visible || !pendingAgentHubCommand) return;
+    consumeAgentHubCommand(pendingAgentHubCommand);
+    if (pendingAgentHubCommand === "create") {
+      void chooseFolderForDraft();
+    } else if (pendingAgentHubCommand === "cancel") {
+      void handleCancel();
+    } else {
+      setFocusComposerRequest((request) => request + 1);
+    }
+  }, [consumeAgentHubCommand, pendingAgentHubCommand, visible]);
+
+  useEffect(() => {
+    if (visible && activeSession?.id) markCompletedRead(activeSession.id);
+  }, [activeSession?.id, markCompletedRead, visible]);
+
+  useEffect(() => {
+    if (!visible) return;
+    function handleKeyDown(event: KeyboardEvent) {
+      if (
+        event.isComposing ||
+        event.repeat ||
+        event.altKey ||
+        event.shiftKey ||
+        !(event.metaKey || event.ctrlKey) ||
+        event.key.toLowerCase() !== "n"
+      ) {
+        return;
+      }
+      event.preventDefault();
+      void chooseFolderForDraft();
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [visible]);
 
   useEffect(() => {
     const sessionId = activeSession?.id;
@@ -562,6 +602,7 @@ export function AgentHubView() {
           {/* Surface: Agent Hub / Content (1136×804) */}
           <AgentHubContent
             session={activeSession}
+            sessionStatus={activeSession?.status}
             parentSession={parentSession}
             items={transcriptModel.items}
             usage={transcriptModel.usage}
@@ -574,6 +615,7 @@ export function AgentHubView() {
             mode={transcriptModel.mode}
             onSetMode={(mode) => void handleSetMode(mode)}
             onSetConfigOption={(optionId, value) => void handleSetConfigOption(optionId, value)}
+            focusComposerRequest={focusComposerRequest}
             hasMore={transcriptModel.hasMore}
             loadingOlder={transcriptModel.loadingOlder}
             onLoadOlder={transcriptModel.loadOlder}

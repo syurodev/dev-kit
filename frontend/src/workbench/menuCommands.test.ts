@@ -2,6 +2,8 @@ import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { databaseModule } from "@/modules/database/manifest";
+import { agenthubModule } from "@/modules/agenthub/manifest";
+import { useAgentSessionsStore } from "@/stores/agentSessions";
 
 /**
  * The menu bar is built in Go, at startup, from a list of ids — it cannot ask
@@ -25,7 +27,7 @@ describe("the native menu and the module commands describe the same actions", ()
 
   it("every menu item resolves to a command that can run", () => {
     const runnable = new Map(
-      databaseModule.commands.map((command) => [command.id, command]),
+      [...databaseModule.commands, ...agenthubModule.commands].map((command) => [command.id, command]),
     );
     for (const id of menuIDs()) {
       const command = runnable.get(id);
@@ -35,9 +37,18 @@ describe("the native menu and the module commands describe the same actions", ()
   });
 
   it("every declared command can run", () => {
-    for (const command of databaseModule.commands) {
+    for (const command of [...databaseModule.commands, ...agenthubModule.commands]) {
       expect(typeof command.run, `"${command.id}" has no handler`).toBe("function");
     }
+  });
+
+  it("routes Agent Hub palette commands through the shared command bus", () => {
+    const command = agenthubModule.commands.find((item) => item.id === "agenthub.create");
+    expect(typeof command?.run).toBe("function");
+    useAgentSessionsStore.getState().consumeAgentHubCommand("create");
+    command?.run?.();
+    expect(useAgentSessionsStore.getState().pendingAgentHubCommand).toBe("create");
+    useAgentSessionsStore.getState().consumeAgentHubCommand("create");
   });
 
   /**
@@ -52,7 +63,7 @@ describe("the native menu and the module commands describe the same actions", ()
    */
   it("names exactly the same set as the manifest, both ways", () => {
     expect(menuIDs().slice().sort()).toEqual(
-      databaseModule.commands.map((command) => command.id).sort(),
+      [...databaseModule.commands, ...agenthubModule.commands].map((command) => command.id).sort(),
     );
   });
 });

@@ -43,6 +43,8 @@ export type AgentHubContentProps = {
   mode?: string | null;
   onSetMode?: (mode: string) => void;
   onSetConfigOption?: (optionId: string, value: string) => void;
+  sessionStatus?: string;
+  focusComposerRequest?: number;
   /** Older transcript pages exist above the ones held (see useAgentTranscript). */
   hasMore?: boolean;
   loadingOlder?: boolean;
@@ -148,6 +150,8 @@ export function AgentHubContent({
   mode = null,
   onSetMode,
   onSetConfigOption,
+  sessionStatus,
+  focusComposerRequest = 0,
   hasMore = false,
   loadingOlder = false,
   onLoadOlder,
@@ -397,6 +401,7 @@ export function AgentHubContent({
               items={items}
               streamKey={session?.id}
               vendor={vendor}
+              sessionStatus={session?.status ?? sessionStatus}
               hasMore={hasMore}
               loadingOlder={loadingOlder}
               onLoadOlder={onLoadOlder}
@@ -459,6 +464,7 @@ export function AgentHubContent({
                 streamKey={session?.id}
                 vendor={vendor}
                 streaming={streaming}
+                sessionStatus={session?.status ?? sessionStatus}
                 onCopy={onCopy}
                 onEditPrompt={onPromptChange}
                 hasMore={hasMore}
@@ -508,6 +514,7 @@ export function AgentHubContent({
               mode={mode}
               onSetMode={onSetMode}
               onSetConfigOption={onSetConfigOption}
+              focusRequest={focusComposerRequest}
               onCompact={canCompact ? onCompact : undefined}
               agents={draft ? agents : undefined}
               agent={draft ? agent : undefined}

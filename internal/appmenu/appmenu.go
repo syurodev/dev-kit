@@ -85,12 +85,22 @@ var DatabaseCommands = []Command{
 	{Module: "database", Label: "Saved Queries", ID: "database.saved", Accelerator: "CmdOrCtrl+Shift+B"},
 }
 
+// AgentCommands are deliberately menu-visible without an accelerator. Cmd/Ctrl+N
+// remains the platform's New action outside Agent Hub; the webview claims that
+// chord only while Agent Hub is active, where it means a new agent session.
+var AgentCommands = []Command{
+	{Module: "agenthub", Label: "New agent session", ID: "agenthub.create"},
+	{Module: "agenthub", Label: "Focus composer", ID: "agenthub.invoke"},
+	{Module: "agenthub", Label: "Cancel turn", ID: "agenthub.cancel"},
+}
+
 // Submenus is every menu DevKit adds to the platform defaults, in bar order.
 var Submenus = []struct {
 	Title    string
 	Commands []Command
 }{
 	{Title: "Database", Commands: DatabaseCommands},
+	{Title: "Agent", Commands: AgentCommands},
 }
 
 // CommandIDs is every id the menu can emit, for the parity check that keeps

@@ -1,6 +1,11 @@
 import { Bot } from "lucide-react";
 import { lazyModuleView, type ModuleManifest } from "../registry";
 import { AgentHubBadge, AgentHubPeek } from "./AgentHubSwitcher";
+import { useAgentSessionsStore } from "../../stores/agentSessions";
+
+function requestAgentHubCommand(command: "create" | "cancel" | "focus") {
+  useAgentSessionsStore.getState().requestAgentHubCommand(command);
+}
 
 export const agenthubModule: ModuleManifest = {
   id: "agenthub",
@@ -20,9 +25,21 @@ export const agenthubModule: ModuleManifest = {
   peek: AgentHubPeek,
   badge: AgentHubBadge,
   commands: [
-    { id: "agenthub.create", title: "New agent session" },
-    { id: "agenthub.invoke", title: "Send prompt" },
-    { id: "agenthub.cancel", title: "Cancel turn" },
+    {
+      id: "agenthub.create",
+      title: "New agent session",
+      run: () => requestAgentHubCommand("create"),
+    },
+    {
+      id: "agenthub.invoke",
+      title: "Focus composer",
+      run: () => requestAgentHubCommand("focus"),
+    },
+    {
+      id: "agenthub.cancel",
+      title: "Cancel turn",
+      run: () => requestAgentHubCommand("cancel"),
+    },
   ],
   views: [
     {

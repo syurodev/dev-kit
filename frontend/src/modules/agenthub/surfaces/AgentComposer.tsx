@@ -1,5 +1,6 @@
 import * as React from "react";
 import { useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
+import { useReducedMotion } from "framer-motion";
 import { AtSign, Check, ChevronDown, Command as CommandIcon, SlidersHorizontal } from "lucide-react";
 // Icon DATA, not components: morphicons interpolates path geometry, which a
 // lucide-react component does not expose. Same version as lucide-react.
@@ -26,6 +27,10 @@ import type { AvailableCommand, ConfigOption, Usage } from "../types";
 
 export type ComposerSize = "wide" | "rail";
 export type ComposerState = "idle" | "streaming" | "attached";
+
+export function shouldCancelComposerOnEscape(key: string, streaming: boolean): boolean {
+  return key === "Escape" && streaming;
+}
 
 export type AgentComposerProps = {
   size?: ComposerSize;
@@ -60,6 +65,7 @@ export type AgentComposerProps = {
   mode?: string | null;
   onSetMode?: (mode: string) => void;
   onSetConfigOption?: (optionId: string, value: string) => void;
+  focusRequest?: number;
   disabled?: boolean;
   placeholder?: string;
   agentName?: string;
@@ -133,6 +139,7 @@ export function AgentComposer({
   mode = null,
   onSetMode,
   onSetConfigOption,
+  focusRequest = 0,
   disabled = false,
   placeholder,
   agentName,
@@ -140,6 +147,7 @@ export function AgentComposer({
 }: AgentComposerProps) {
   const theme = useAppTheme();
   const rail = size === "rail";
+  const reduce = useReducedMotion() ?? false;
 
   // The field grows with what is typed, from one line up to its max height,
   // then scrolls. Measured rather than `field-sizing: content`: that is
@@ -154,6 +162,9 @@ export function AgentComposer({
     el.style.height = `${el.scrollHeight}px`;
   };
   useLayoutEffect(fit, [value, rail]);
+  useEffect(() => {
+    if (focusRequest > 0) textareaRef.current?.focus();
+  }, [focusRequest]);
   // And again when the field's width changes. The split panel opens by
   // animating from zero width, and a field measured mid-slide wrapped its
   // placeholder a word a line — an empty composer stuck at its ceiling until
@@ -238,6 +249,11 @@ export function AgentComposer({
           data-testid="agent-composer-textarea"
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={(e) => {
+            if (shouldCancelComposerOnEscape(e.key, isStreaming)) {
+              e.preventDefault();
+              onCancel();
+              return;
+            }
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
               if (!isStreaming) onSend();
@@ -375,7 +391,7 @@ export function AgentComposer({
           <span className="min-w-0 flex-1" />
           <AgentContextMeter usage={usage} turnCount={turnCount} onCompact={onCompact} />
           <BorderBeam
-            active={isStreaming}
+            active={isStreaming && !reduce}
             size="sm"
             colorVariant={vendor.toLowerCase().startsWith("claude") ? "sunset" : "ocean"}
             theme={theme}
