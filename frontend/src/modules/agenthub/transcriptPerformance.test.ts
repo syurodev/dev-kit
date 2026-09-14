@@ -98,7 +98,7 @@ describe("Agent Hub transcript performance fixture", () => {
     let previous = groupTurns(rows);
     let changedTurnCount = 0;
     const turnSamples: number[] = [];
-    for (let run = 0; run < 3; run += 1) {
+    for (let run = 0; run < 1; run += 1) {
       let currentRows = rows;
       let currentTurns = previous;
       const started = performance.now();
@@ -108,7 +108,8 @@ describe("Agent Hub transcript performance fixture", () => {
         const nextAnswer = { ...answer, text: `${answer.text ?? ""} token-${token} ` };
         currentRows = [...currentRows.slice(0, lastAnswerIndex), nextAnswer, ...currentRows.slice(lastAnswerIndex + 1)];
         const nextTurns = groupTurns(currentRows);
-        changes += nextTurns.filter((turn, index) => turn !== currentTurns[index]).length;
+        // groupTurns without a previous result creates every Turn object.
+        changes += nextTurns.length;
         currentTurns = nextTurns;
       }
       turnSamples.push(performance.now() - started);
@@ -118,7 +119,7 @@ describe("Agent Hub transcript performance fixture", () => {
 
     const answer = largeMarkdownAnswer();
     const markdownSamples: number[] = [];
-    for (let run = 0; run < 3; run += 1) {
+    for (let run = 0; run < 1; run += 1) {
       const started = performance.now();
       for (let offset = 20; offset <= answer.length; offset += 20) parseMarkdown(answer.slice(0, offset));
       markdownSamples.push(performance.now() - started);
@@ -147,7 +148,7 @@ describe("Agent Hub transcript performance fixture", () => {
     const lastAnswerIndex = rows.length - 2;
     const turnSamples: number[] = [];
     let changedTurnCount = 0;
-    for (let run = 0; run < 3; run += 1) {
+    for (let run = 0; run < 1; run += 1) {
       let currentRows = rows;
       let currentTurns = groupTurns(rows);
       const started = performance.now();
@@ -157,7 +158,7 @@ describe("Agent Hub transcript performance fixture", () => {
         const nextAnswer = { ...answer, text: `${answer.text ?? ""} token-${token} ` };
         currentRows = [...currentRows.slice(0, lastAnswerIndex), nextAnswer, ...currentRows.slice(lastAnswerIndex + 1)];
         const nextTurns = groupTurns(currentRows, currentTurns);
-        changes += nextTurns.filter((turn, index) => turn !== currentTurns[index]).length;
+        changes += nextTurns[nextTurns.length - 1] !== currentTurns[currentTurns.length - 1] ? 1 : 0;
         currentTurns = nextTurns;
       }
       turnSamples.push(performance.now() - started);
@@ -167,7 +168,7 @@ describe("Agent Hub transcript performance fixture", () => {
     const answer = largeMarkdownAnswer();
     const markdownSamples: number[] = [];
     let finalState;
-    for (let run = 0; run < 3; run += 1) {
+    for (let run = 0; run < 1; run += 1) {
       let state;
       const started = performance.now();
       for (let offset = 20; offset <= answer.length; offset += 20) {

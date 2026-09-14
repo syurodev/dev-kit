@@ -346,13 +346,15 @@ phải budget cho mọi máy.
 | Reducer work cho 1.000 token | 1,35 ms tuần tự | 0,23 ms cho một batch/frame | benchmark test median |
 | `initTranscript` trên 50.000 row | 1.293,39 ms | 16,47 ms | cùng fixture, Map tool-call index |
 | Identity thay đổi của `AgentTurn` cho 1.000 token / 5.000 turn | 5.000.000 | 1.000 | benchmark test: `agentTurnIdentityChanges` |
-| Vòng `groupTurns` cho 1.000 token / 5.000 turn | 1.123,17 ms | 1.561,28 ms | cùng fixture, median 3 lượt; chi phí scan tăng để giữ structural sharing |
-| Parse markdown 20.000 byte theo 1.000 prefix chunk | 55,38 ms | 19,63 ms | benchmark test: `markdownMsMedian`, incremental tail |
+| Vòng `groupTurns` cho 1.000 token / 5.000 turn | 4.049,55 ms | 5.604,09 ms | cùng fixture, một pass đầy đủ; chi phí scan tăng để giữ structural sharing |
+| Parse markdown 20.000 byte theo 1.000 prefix chunk | 383,38 ms | 73,49 ms | cùng fixture, một pass đầy đủ; benchmark `markdownMsMedian`, incremental tail |
 
 Con số của đợt này được đo trong cùng một lần chạy test: trước là
-`agentTurnIdentityChanges=5000000`, `groupTurnsMsMedian=1123.17`,
-`markdownMsMedian=55.38`; sau là `agentTurnIdentityChanges=1000`,
-`groupTurnsMsMedian=1561.28`, `markdownMsMedian=19.63`. Store snapshot được chuẩn
+`agentTurnIdentityChanges=5000000`, `groupTurnsMsMedian=4049.55`,
+`markdownMsMedian=383.38`; sau là `agentTurnIdentityChanges=1000`,
+`groupTurnsMsMedian=5604.09`, `markdownMsMedian=73.49`. Hai metric này chạy một
+pass đầy đủ để không làm scheduler của full suite bị đói; fixture và chunk size
+vẫn cố định nên có thể lặp lại độc lập. Store snapshot được chuẩn
 hóa theo session nên event của session B không đổi identity model của A. Chưa
 đo được React Profiler trên Wails/WKWebView thật trong lượt này; benchmark cũng
 không thay thế kiểm tra DOM/paint hoặc memory của transcript lớn.
