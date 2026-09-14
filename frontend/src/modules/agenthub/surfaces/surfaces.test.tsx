@@ -35,6 +35,31 @@ describe("Agent Hub Phase 3 Surfaces", () => {
     expect(html).toContain("Running…");
   });
 
+  it("offers the companion rail the older pages the hub offers", () => {
+    const html = renderToString(
+      <AgentRail
+        activeSession={{
+          id: "s1",
+          agentType: "claude",
+          projectPath: "/p",
+          status: "idle",
+          parentSessionId: null,
+          depth: 0,
+          title: "s1",
+          acpSessionId: "acp-s1",
+        }}
+        items={[{ id: "p1", kind: "user_message_chunk", text: "hi" }]}
+        hasMore
+        onLoadOlder={() => {}}
+        promptValue=""
+        onPromptChange={() => {}}
+        onSend={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    expect(html).toContain('data-testid="transcript-load-older"');
+  });
+
   it("cancels a running composer only for Escape", () => {
     expect(shouldCancelComposerOnEscape("Escape", true)).toBe(true);
     expect(shouldCancelComposerOnEscape("Escape", false)).toBe(false);

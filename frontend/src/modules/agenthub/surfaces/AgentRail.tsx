@@ -25,6 +25,10 @@ export type AgentRailProps = {
   activeSession?: AgentSession | null;
   onSelectSession?: (id: string) => void;
   items?: TranscriptItem[];
+  /** Older transcript pages exist above the ones held (see useAgentTranscript). */
+  hasMore?: boolean;
+  loadingOlder?: boolean;
+  onLoadOlder?: () => void;
   usage?: Usage | null;
   commands?: AvailableCommand[];
   contextFiles?: ContextFileItem[];
@@ -96,6 +100,9 @@ export function AgentRail({
   activeSession,
   onSelectSession,
   items = [],
+  hasMore = false,
+  loadingOlder = false,
+  onLoadOlder,
   usage,
   commands = [],
   contextFiles = [],
@@ -234,6 +241,9 @@ export function AgentRail({
               streamKey={activeSession?.id}
               vendor={vendor}
               sessionStatus={activeSession?.status}
+              hasMore={hasMore}
+              loadingOlder={loadingOlder}
+              onLoadOlder={onLoadOlder}
               onOpenFile={onOpenFile}
             />
           </div>

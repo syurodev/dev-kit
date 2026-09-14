@@ -193,6 +193,9 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
       activeSession={session}
       onSelectSession={(id) => setActiveSessionId(id)}
       items={transcriptModel.items}
+      hasMore={transcriptModel.hasMore}
+      loadingOlder={transcriptModel.loadingOlder}
+      onLoadOlder={transcriptModel.loadOlder}
       usage={transcriptModel.usage}
       commands={transcriptModel.commands}
       contextFiles={contextFiles}
