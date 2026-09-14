@@ -24,7 +24,10 @@ export type AgentMessageRichProps = {
  * weight, not by a jump in size. It used to be Body/16 prose, Heading/24 for
  * `##` and Body/12 in tables, so a short reply with a heading and a table
  * printed at three sizes and read as uneven, and 16px sat a size above
- * everything else in the window. List markers use the tertiary tier
+ * everything else in the window. Paragraphs, lists and quotes run at the prose
+ * leading (24) rather than body's 20: inline code carries its own padding, and
+ * at 20 the chips of two wrapped lines sat a pixel apart and read as one
+ * block. Tables keep 20 — they are scanned, not read. List markers use the tertiary tier
  * so the text column stays clean, inline code on surface/base (the same well
  * the code block and terminal use, one step down from the bubble), links in
  * status/info, and the blockquote marked by a 2px border/default rule rather
@@ -97,7 +100,7 @@ function Block({ block }: { block: MarkdownBlock }) {
 
     case "list":
       return (
-        <div className="flex w-full flex-col gap-1 text-body-14 text-text-primary">
+        <div className="flex w-full flex-col gap-1 text-body-14 leading-(--type-prose-leading) text-text-primary">
           {block.items.map((item, idx) => (
             <div key={idx} className="flex w-full items-start gap-2">
               <span
@@ -121,7 +124,7 @@ function Block({ block }: { block: MarkdownBlock }) {
             aria-hidden="true"
             className="w-0.5 shrink-0 self-stretch bg-border-default"
           />
-          <p className="min-w-0 flex-1 text-body-14 text-text-secondary">
+          <p className="min-w-0 flex-1 text-body-14 leading-(--type-prose-leading) text-text-secondary">
             <Inline text={block.text} />
           </p>
         </div>
@@ -166,7 +169,7 @@ function Block({ block }: { block: MarkdownBlock }) {
 
     default:
       return (
-        <p className="w-full text-body-14 break-words text-text-primary">
+        <p className="w-full text-body-14 leading-(--type-prose-leading) break-words text-text-primary">
           <Inline text={block.text} />
         </p>
       );
