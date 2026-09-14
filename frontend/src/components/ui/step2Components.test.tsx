@@ -17,7 +17,7 @@ import { join } from "node:path";
 
 describe("Step 2 Form Controls Reconciliation", () => {
   describe("Input (Figma 28:62)", () => {
-    it("renders field with shared glass recipe and body-13 typography", () => {
+    it("renders field with shared glass recipe and body-14 typography", () => {
       const html = renderToString(
         <Input placeholder="Enter username..." defaultValue="dev-kit" />,
       )
@@ -26,7 +26,7 @@ describe("Step 2 Form Controls Reconciliation", () => {
       expect(html).toContain("rounded-md")
       expect(html).toContain("border-status-info/16")
       expect(html).toContain("bg-white/6")
-      expect(html).toContain("text-body-13")
+      expect(html).toContain("text-body-14")
       expect(html).toContain("text-text-primary")
       expect(html).toContain("placeholder:text-text-tertiary")
     })

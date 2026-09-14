@@ -613,7 +613,7 @@ export function ResultGrid({
                             isSelected && !isFocused && "bg-(--feedback-selected)",
                             isFocused &&
                               "outline outline-1 -outline-offset-1 outline-status-info",
-                            columnIndex === order[0] ? "text-text-primary" : "text-text-secondary",
+                            "text-text-primary",
                             // The row's hover tint has to reach a pinned cell
                             // too, or half the row lights up — and it has to
                             // stack ON the ground frozenStyle painted rather
@@ -851,7 +851,7 @@ function HeaderCell({
       // than data-cell — see Target.
       data-column={index}
       {...listeners}
-      className="group/th relative h-7 border-r border-b border-border-subtle bg-surface-raised p-0 text-code-12-medium text-text-secondary last:border-r-0"
+      className="group/th relative h-7 border-r border-b border-border-subtle bg-surface-raised p-0 text-code-12-medium text-text-primary last:border-r-0"
     >
       <button
         type="button"

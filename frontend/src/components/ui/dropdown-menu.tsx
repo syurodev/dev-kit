@@ -262,7 +262,7 @@ export function ShellMenuItemSpec({
       data-tone={tone}
       data-state={state}
       className={cn(
-        "grid w-[200px] h-7 grid-cols-[var(--icon-14)_minmax(0,1fr)_auto] items-center gap-x-2 rounded-[6px] px-2 text-body-13 select-none cursor-pointer transition-colors",
+        "grid w-[200px] h-7 grid-cols-[var(--icon-14)_minmax(0,1fr)_auto] items-center gap-x-2 rounded-sm px-2 text-body-13 select-none cursor-pointer transition-colors",
         !isDanger && !isHover && "bg-transparent text-text-primary",
         !isDanger && isHover && "bg-state-soft text-text-primary",
         isDanger && !isHover && "bg-transparent text-status-danger",

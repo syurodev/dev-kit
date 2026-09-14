@@ -18,6 +18,7 @@ import {
 } from 'platejs/react';
 
 import { cn } from '@/lib/utils';
+import { spacingPx } from '@/lib/design-metrics';
 
 import { Toolbar } from './toolbar';
 
@@ -41,7 +42,7 @@ export function FloatingToolbar({
     ...state,
     floatingOptions: {
       middleware: [
-        offset(12),
+        offset(spacingPx('control')),
         flip({
           fallbackPlacements: [
             'top-start',
@@ -49,7 +50,7 @@ export function FloatingToolbar({
             'bottom-start',
             'bottom-end',
           ],
-          padding: 12,
+          padding: spacingPx('control'),
         }),
       ],
       placement: 'top',

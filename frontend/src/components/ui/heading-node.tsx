@@ -10,12 +10,12 @@ const headingVariants = cva(
   {
     variants: {
       variant: {
-        h1: 'mt-[1.6em] pb-1 text-display-32',
-        h2: 'mt-[1.4em] pb-px text-heading-24',
-        h3: 'mt-[1em] pb-px text-title-16',
-        h4: 'mt-[0.75em] text-title-16',
-        h5: 'mt-[0.75em] text-body-13-medium',
-        h6: 'mt-[0.75em] text-body-13-medium',
+        h1: 'mt-(--space-heading-1) pb-1 text-display-32',
+        h2: 'mt-(--space-heading-2) pb-px text-heading-24',
+        h3: 'mt-(--space-heading-3) pb-px text-title-16',
+        h4: 'mt-(--space-heading-minor) text-title-16',
+        h5: 'mt-(--space-heading-minor) text-body-13-medium',
+        h6: 'mt-(--space-heading-minor) text-body-13-medium',
       },
     },
   }

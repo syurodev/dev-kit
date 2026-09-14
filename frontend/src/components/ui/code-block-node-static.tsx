@@ -1,4 +1,5 @@
 import type { TCodeBlockElement } from 'platejs';
+import { DOCX_CODE_METRICS } from '@/lib/design-metrics';
 
 import {
   type SlateElementProps,
@@ -167,8 +168,8 @@ export function CodeBlockElementDocx(
         style={{
           backgroundColor: '#f5f5f5',
           border: '1px solid #e0e0e0',
-          margin: '8pt 0',
-          padding: '12pt',
+          margin: DOCX_CODE_METRICS.margin,
+          padding: DOCX_CODE_METRICS.padding,
         }}
       >
         {props.children}
@@ -184,7 +185,7 @@ export function CodeLineElementDocx(props: SlateElementProps) {
       as="p"
       style={{
         fontFamily: "'Courier New', Consolas, monospace",
-        fontSize: '10pt',
+        fontSize: DOCX_CODE_METRICS.fontSize,
         margin: 0,
         padding: 0,
       }}
@@ -267,7 +268,7 @@ export function CodeSyntaxLeafDocx(props: SlateLeafProps) {
       style={{
         color,
         fontFamily: "'Courier New', Consolas, monospace",
-        fontSize: '10pt',
+        fontSize: DOCX_CODE_METRICS.fontSize,
         fontStyle,
         fontWeight,
       }}

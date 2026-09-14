@@ -16,7 +16,7 @@ function LoadingStatus({
     <div
       data-slot="loading-status"
       className={cn(
-        "flex h-12 w-[320px] items-center gap-3 rounded-[12px] border border-glass-border bg-glass-float pl-[14px] pr-4 backdrop-blur-[12px] shadow-[inset_0px_1px_0px_0px_rgba(255,255,255,0.06),0_6px_10px_0_rgba(0,0,0,0.3)] select-none",
+        "flex h-12 w-[320px] items-center gap-3 rounded-lg border border-glass-border bg-glass-float pl-3.5 pr-4 backdrop-blur-[12px] shadow-[inset_0px_1px_0px_0px_rgba(255,255,255,0.06),0_6px_10px_0_rgba(0,0,0,0.3)] select-none",
         className
       )}
       {...props}

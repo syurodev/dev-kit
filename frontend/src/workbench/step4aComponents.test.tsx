@@ -112,11 +112,11 @@ describe("Step 4a Shell Chrome Reconciliation", () => {
     it("verifies 3 distinct shapes exception: Neutral has radius 8, Attention/Active have no radius wrapper", () => {
       // EXCEPTION: Neutral is a rounded-8 28x28 wrapper with 16px glyph.
       // Attention and Active are full-bleed 28x28 graphics with no radius wrapper.
-      const neutralClass = "size-7 shrink-0 rounded-[8px]";
+      const neutralClass = "size-7 shrink-0 rounded-md";
       const attentionClass = "size-7 shrink-0 rounded-none p-0";
       const activeClass = "size-7 shrink-0 rounded-none p-0";
 
-      expect(neutralClass).toContain("rounded-[8px]");
+      expect(neutralClass).toContain("rounded-md");
       expect(attentionClass).toContain("rounded-none");
       expect(activeClass).toContain("rounded-none");
     });
@@ -206,7 +206,7 @@ describe("Step 4a Shell Chrome Reconciliation", () => {
 
       // 200x32, radius 6, px-3, gap-2
       expect(html).toContain("h-8");
-      expect(html).toContain("rounded-[6px]");
+      expect(html).toContain("rounded-sm");
       expect(html).toContain("px-3");
       expect(html).toContain("gap-2");
       // Active styling
@@ -276,7 +276,7 @@ describe("Step 4a Shell Chrome Reconciliation", () => {
       );
 
       // Separate layer at radius 8, drawn outside pill (-inset-[2px]), border-2
-      expect(html).toContain("rounded-[8px]");
+      expect(html).toContain("rounded-md");
       expect(html).toContain("-inset-[2px]");
       expect(html).toContain("border-[var(--border-focus,#b2d5e5)]");
     });

@@ -77,8 +77,8 @@ const editorVariants = cva(
           'max-h-[min(70vh,320px)] w-full overflow-y-auto px-3 py-2 text-body-16 md:text-body-13',
         comment: cn('rounded-none border-none bg-transparent text-body-13'),
         default:
-          'size-full px-16 pt-4 pb-72 text-body-16 sm:px-[max(64px,calc(50%-350px))]',
-        demo: 'size-full px-16 pt-4 pb-72 text-body-16 sm:px-[max(64px,calc(50%-350px))]',
+          'size-full px-16 pt-4 pb-72 text-body-16 sm:px-(--space-editor-gutter)',
+        demo: 'size-full px-16 pt-4 pb-72 text-body-16 sm:px-(--space-editor-gutter)',
         fullWidth: 'size-full px-16 pt-4 pb-72 text-body-16 sm:px-24',
         none: '',
         select: 'px-3 py-2 text-body-16 data-readonly:w-fit',

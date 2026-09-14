@@ -61,11 +61,11 @@ const buttonVariants = cva(
         link: "text-status-info underline-offset-4 hover:underline",
       },
       size: {
-        xs: "h-(--control-height-sm) gap-1.5 rounded-md px-2.5 text-label-12 [&_svg:not([class*='size-'])]:size-(--icon-14)",
+        xs: "h-(--control-height-sm) gap-1.5 rounded-md px-3 text-label-12 [&_svg:not([class*='size-'])]:size-(--icon-14)",
         sm: "h-(--control-height-sm) gap-1.5 rounded-md px-3 text-label-12 [&_svg:not([class*='size-'])]:size-(--icon-14)",
-        default: "h-(--control-height-md) gap-2 rounded-md px-4 text-body-13-medium",
-        md: "h-(--control-height-md) gap-2 rounded-md px-4 text-body-13-medium",
-        lg: "h-(--control-height-xl) gap-2 rounded-control px-4.5 text-body-13-medium",
+        default: "h-(--control-height-md) gap-2 rounded-md px-4 text-body-14-medium",
+        md: "h-(--control-height-md) gap-2 rounded-md px-4 text-body-14-medium",
+        lg: "h-(--control-height-xl) gap-2 rounded-control px-4 text-body-14-medium",
         "icon-xs": "size-(--control-height-xs) rounded-sm p-0 [&_svg:not([class*='size-'])]:size-(--icon-12)",
         "icon-sm": "size-(--control-height-sm) rounded-md p-0 [&_svg:not([class*='size-'])]:size-(--icon-14)",
         icon: "size-(--control-height-md) rounded-md p-0 [&_svg:not([class*='size-'])]:size-(--icon-16)",
@@ -107,4 +107,3 @@ function Button({
 }
 
 export { Button, buttonVariants }
-

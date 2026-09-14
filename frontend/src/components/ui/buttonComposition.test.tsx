@@ -6,6 +6,17 @@ import { Button } from "./button";
 import { cn } from "@/lib/utils";
 import { CraftButton, CraftButtonIcon, CraftButtonLabel } from "./craft-button";
 
+describe("reading typography composition", () => {
+  for (const type of ["text-body-14", "text-caption-12"]) {
+    it(`${type} overrides size without stripping foreground colour`, () => {
+      const merged = cn("text-body-13 text-text-primary", type);
+      expect(merged).not.toContain("text-body-13");
+      expect(merged).toContain(type);
+      expect(merged).toContain("text-text-primary");
+    });
+  }
+});
+
 /**
  * Where a look belongs: a variant when it is only a look, a component when it
  * is a structure. Both of these came in as components; only one had a reason

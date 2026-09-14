@@ -230,7 +230,7 @@ function PlanNodeItem({
   const isSlow = percentOfTotal >= 25;
 
   return (
-    <div className="space-y-1" style={{ marginLeft: `${node.depth * 18}px` }}>
+    <div className="space-y-1" style={{ marginLeft: `calc(${node.depth} * var(--space-query-indent))` }}>
       <div
         className={`p-2.5 rounded-lg border text-body-12 flex flex-col gap-1.5 transition-colors ${
           hasHighDeviation

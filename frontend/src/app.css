@@ -1,21 +1,41 @@
+/* Legacy views share the same metrics as the component-based forms. */
+.ssh-view,
+.database-view,
+.agenthub-tab,
+.vault-gate {
+  font-family: var(--font-sans);
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-leading);
+}
+
+.ssh-view input,
+.ssh-view select,
+.ssh-view textarea,
+.agenthub-composer textarea,
+.vault-gate input,
+.vault-gate button {
+  font-size: inherit;
+  line-height: inherit;
+}
+
 .database-view {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-control);
   max-width: 900px;
 }
 
 .db-create {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 8px;
+  gap: var(--space-inline);
 }
 
 .db-create input,
 .db-profiles select,
 .db-query textarea {
-  padding: 8px 10px;
-  border-radius: 6px;
+  padding: var(--space-inline) var(--space-control);
+  border-radius: var(--radius-sm);
   border: 1px solid var(--input);
   background: var(--card);
   color: inherit;
@@ -24,25 +44,25 @@
 .db-profiles {
   display: flex;
   align-items: flex-end;
-  gap: 8px;
+  gap: var(--space-inline);
 }
 
 .db-profiles label {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-micro);
   flex: 1;
 }
 
 .db-query {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-inline);
 }
 
 .db-query textarea {
   min-height: 80px;
-  font-family: ui-monospace, monospace;
+  font-family: var(--font-mono);
 }
 
 .db-result table {
@@ -53,7 +73,7 @@
 .db-result th,
 .db-result td {
   border: 1px solid var(--border);
-  padding: 6px 10px;
+  padding: var(--space-inline) var(--space-control);
   text-align: left;
 }
 
@@ -64,14 +84,14 @@
 .ssh-view {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-control);
   max-width: 900px;
 }
 
 .ssh-create {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 8px;
+  gap: var(--space-inline);
 }
 
 .ssh-create input,
@@ -79,8 +99,8 @@
 .ssh-create textarea,
 .ssh-profiles select,
 .ssh-command input {
-  padding: 8px 10px;
-  border-radius: 6px;
+  padding: var(--space-inline) var(--space-control);
+  border-radius: var(--radius-sm);
   border: 1px solid var(--input);
   background: var(--card);
   color: inherit;
@@ -89,50 +109,50 @@
 .ssh-create textarea {
   grid-column: 1 / -1;
   min-height: 60px;
-  font-family: ui-monospace, monospace;
+  font-family: var(--font-mono);
 }
 
 .ssh-profiles {
   display: flex;
   align-items: flex-end;
-  gap: 8px;
+  gap: var(--space-inline);
 }
 
 .ssh-profiles label {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-micro);
   flex: 1;
 }
 
 .ssh-command {
   display: flex;
-  gap: 8px;
+  gap: var(--space-inline);
 }
 
 .ssh-command input {
   flex: 1;
-  font-family: ui-monospace, monospace;
+  font-family: var(--font-mono);
 }
 
 .ssh-view pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   background: var(--muted);
-  padding: 12px;
-  border-radius: 6px;
+  padding: var(--space-control);
+  border-radius: var(--radius-sm);
 }
 
 
 .vault-gate {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-control);
   max-width: 420px;
-  margin: 120px auto;
-  padding: 24px;
+  margin: var(--space-vault-offset) auto;
+  padding: var(--space-section);
   border: 1px solid var(--glass-border);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: var(--surface-glass-modal);
   -webkit-backdrop-filter: blur(var(--glass-blur));
   backdrop-filter: blur(var(--glass-blur));
@@ -140,16 +160,16 @@
 }
 
 .vault-gate input {
-  padding: 10px 12px;
-  border-radius: 6px;
+  padding: var(--space-control) var(--space-control);
+  border-radius: var(--radius-sm);
   border: 1px solid var(--input);
   background: var(--background);
   color: inherit;
 }
 
 .vault-gate button {
-  padding: 10px 12px;
-  border-radius: 6px;
+  padding: var(--space-control) var(--space-control);
+  border-radius: var(--radius-sm);
   border: none;
   background: var(--brand);
   color: var(--primary-foreground);
@@ -157,27 +177,27 @@
 }
 
 .vault-recovery {
-  margin: 16px;
-  padding: 12px 16px;
+  margin: var(--space-group);
+  padding: var(--space-control) var(--space-group);
   border: 1px solid var(--brand);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--muted);
   color: var(--foreground);
 }
 
 .vault-recovery code {
   display: block;
-  margin: 8px 0;
-  padding: 8px;
+  margin: var(--space-inline) 0;
+  padding: var(--space-inline);
   background: var(--background);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   overflow-wrap: anywhere;
 }
 
 .agenthub-view {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-control);
   height: 100%;
   min-height: 0;
 }
@@ -185,23 +205,24 @@
 .agenthub-header {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-inline);
   align-items: end;
 }
 
 .agenthub-header label {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  font-size: 12px;
+  gap: var(--space-micro);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-leading);
   color: var(--muted-foreground);
 }
 
 .agenthub-header select,
 .agenthub-header input,
 .agenthub-composer textarea {
-  padding: 8px 10px;
-  border-radius: 6px;
+  padding: var(--space-inline) var(--space-control);
+  border-radius: var(--radius-sm);
   border: 1px solid var(--input);
   background: var(--card);
   color: inherit;
@@ -215,15 +236,15 @@
 .agenthub-tabstrip {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--space-inline);
 }
 
 .agenthub-tabstrip button {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  border-radius: 6px;
+  gap: var(--space-inline);
+  padding: var(--space-inline) var(--space-control);
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   background: var(--secondary);
   color: inherit;
@@ -238,7 +259,7 @@
 .agenthub-tab {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-control);
   min-height: 0;
   flex: 1;
 }
@@ -246,9 +267,10 @@
 .agenthub-tab-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-inline);
   align-items: center;
-  font-size: 12px;
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-leading);
   color: var(--muted-foreground);
 }
 
@@ -262,10 +284,11 @@
 .agenthub-status {
   display: inline-flex;
   align-items: center;
-  padding: 2px 8px;
-  border-radius: 999px;
+  padding: var(--space-micro) var(--space-inline);
+  border-radius: var(--radius-full);
   border: 1px solid var(--input);
-  font-size: 11px;
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-leading);
   text-transform: lowercase;
 }
 
@@ -294,23 +317,24 @@
   max-height: 420px;
   overflow: auto;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--card);
-  padding: 10px;
+  padding: var(--space-control);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-inline);
 }
 
 .agenthub-line {
   display: grid;
   grid-template-columns: 64px 1fr;
-  gap: 8px;
+  gap: var(--space-inline);
   align-items: start;
 }
 
 .agenthub-line-role {
-  font-size: 11px;
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-leading);
   color: var(--muted-foreground);
   text-transform: uppercase;
 }
@@ -325,7 +349,7 @@
 .agenthub-composer {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-inline);
 }
 
 .agenthub-composer textarea {
@@ -335,7 +359,7 @@
 
 .agenthub-composer-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--space-inline);
 }
 
 .agenthub-empty {
@@ -345,11 +369,11 @@
 .agenthub-sandbox-error {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: var(--space-control);
   align-items: center;
-  padding: 10px 12px;
+  padding: var(--space-control) var(--space-control);
   border: 1px solid var(--status-permission);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--status-permission-soft);
 }
 
@@ -372,28 +396,29 @@
   width: min(480px, calc(100vw - 32px));
   max-height: calc(100vh - 48px);
   overflow: auto;
-  padding: 16px;
-  border-radius: 10px;
+  padding: var(--space-group);
+  border-radius: var(--radius-control);
   border: 1px solid var(--border);
   background: var(--card);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-control);
 }
 
 .agenthub-permission-params {
   margin: 0;
   max-height: 180px;
   overflow: auto;
-  padding: 8px;
-  border-radius: 6px;
+  padding: var(--space-inline);
+  border-radius: var(--radius-sm);
   background: var(--background);
-  font-size: 12px;
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-leading);
 }
 
 .agenthub-permission-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-inline);
   justify-content: flex-end;
 }

@@ -17,7 +17,8 @@ import { TabStrip } from "../workbench/tabs/TabStrip";
 import { ShellResizeHandle } from "@/components/ui/resize-handle";
 import { ScrollRuler, useScrollRulerMetrics } from "@/components/ui/scroll-ruler";
 import { Titlebar } from "@/components/ui/titlebar";
-import { ToastSpecCard } from "@/components/ui/sonner";
+import { ToastSpecCard, Toaster } from "@/components/ui/sonner";
+import { toast } from "sonner";
 import { CommandPaletteStaticCard } from "@/workbench/CommandPalette";
 import { ShellMenuItemSpec } from "@/components/ui/dropdown-menu";
 import {
@@ -134,7 +135,21 @@ export default function ComponentGallery() {
           Static props only — the Wails bridge is not available in a browser.
           Compare each entry against the Figma node in its label.
         </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {(["info", "success", "warning", "error", "loading"] as const).map((tone) => (
+            <Button key={tone} variant="secondary" onClick={() => toast[tone]("Theme-aware notification", {
+              id: "gallery-live-toast",
+              description: "Geist typography, shared spacing and the active palette.",
+              duration: Infinity,
+              closeButton: true,
+              action: { label: "Done", onClick: () => {} },
+            })}>
+              Toast {tone}
+            </Button>
+          ))}
+        </div>
       </header>
+      <Toaster />
 
       <Section title="03 Button & Icon Button">
         <Spec node="27:54" label="Button — Size=default, 112×32, r=8, label 13 Medium">
@@ -440,15 +455,15 @@ export default function ComponentGallery() {
           <div className="flex flex-col gap-4 w-full bg-background-app p-2 rounded-lg border border-border-subtle">
             <div className="text-caption-11 text-text-tertiary">Windowed Mode (traffic lights reserved at left, x=88 sidebar toggle):</div>
             <Titlebar id="measure-titlebar-windowed" className="w-full">
-              <div className="mx-1 size-7 shrink-0 rounded-[8px] flex items-center justify-center hover:bg-state-soft">
+              <div className="mx-1 size-7 shrink-0 rounded-md flex items-center justify-center hover:bg-state-soft">
                 <PanelLeft className="size-4 text-text-secondary" />
               </div>
               <div className="flex h-full min-w-0 flex-1 items-center gap-1">
                 <div id="measure-module-actions" className="flex min-w-0 items-center gap-1">
-                  <div className="size-7 shrink-0 rounded-[8px] flex items-center justify-center hover:bg-state-soft">
+                  <div className="size-7 shrink-0 rounded-md flex items-center justify-center hover:bg-state-soft">
                     <FileText className="size-4 text-text-secondary" />
                   </div>
-                  <div className="size-7 shrink-0 rounded-[8px] flex items-center justify-center hover:bg-state-soft">
+                  <div className="size-7 shrink-0 rounded-md flex items-center justify-center hover:bg-state-soft">
                     <Terminal className="size-4 text-text-secondary" />
                   </div>
                 </div>
@@ -456,20 +471,20 @@ export default function ComponentGallery() {
                   dev-kit-app
                 </div>
                 <div id="measure-app-actions" className="flex shrink-0 items-center gap-1">
-                  <div id="measure-system-status-neutral-spec" className="size-7 shrink-0 rounded-[8px] flex items-center justify-center hover:bg-state-soft text-text-secondary">
+                  <div id="measure-system-status-neutral-spec" className="size-7 shrink-0 rounded-md flex items-center justify-center hover:bg-state-soft text-text-secondary">
                     <Activity className="size-4" />
                   </div>
                   <span className="mx-1 h-4 w-px shrink-0 bg-border" aria-hidden />
-                  <div className="size-7 shrink-0 rounded-[8px] flex items-center justify-center hover:bg-state-soft text-text-secondary">
+                  <div className="size-7 shrink-0 rounded-md flex items-center justify-center hover:bg-state-soft text-text-secondary">
                     <Search className="size-4" />
                   </div>
-                  <div className="size-7 shrink-0 rounded-[8px] flex items-center justify-center hover:bg-state-soft text-text-secondary">
+                  <div className="size-7 shrink-0 rounded-md flex items-center justify-center hover:bg-state-soft text-text-secondary">
                     <SettingsIcon className="size-4" />
                   </div>
-                  <div className="size-7 shrink-0 rounded-[8px] flex items-center justify-center hover:bg-state-soft text-text-secondary">
+                  <div className="size-7 shrink-0 rounded-md flex items-center justify-center hover:bg-state-soft text-text-secondary">
                     <PanelBottom className="size-4" />
                   </div>
-                  <div className="size-7 shrink-0 rounded-[8px] flex items-center justify-center hover:bg-state-soft text-text-secondary">
+                  <div className="size-7 shrink-0 rounded-md flex items-center justify-center hover:bg-state-soft text-text-secondary">
                     <MessageSquare className="size-4" />
                   </div>
                 </div>
@@ -478,12 +493,12 @@ export default function ComponentGallery() {
 
             <div className="text-caption-11 text-text-tertiary">Fullscreen Mode (no traffic lights, pl-4 = 16px):</div>
             <Titlebar id="measure-titlebar-fullscreen" fullscreen className="w-full">
-              <div className="size-7 shrink-0 rounded-[8px] flex items-center justify-center hover:bg-state-soft">
+              <div className="size-7 shrink-0 rounded-md flex items-center justify-center hover:bg-state-soft">
                 <PanelLeft className="size-4 text-text-secondary" />
               </div>
               <div className="flex h-full min-w-0 flex-1 items-center gap-1">
                 <div className="flex min-w-0 items-center gap-1">
-                  <div className="size-7 shrink-0 rounded-[8px] flex items-center justify-center hover:bg-state-soft">
+                  <div className="size-7 shrink-0 rounded-md flex items-center justify-center hover:bg-state-soft">
                     <FileText className="size-4 text-text-secondary" />
                   </div>
                 </div>
@@ -511,7 +526,7 @@ export default function ComponentGallery() {
               <button
                 id="measure-titlebar-action-hover"
                 type="button"
-                className="size-7 shrink-0 rounded-[8px] flex items-center justify-center bg-state-soft text-text-primary transition-colors cursor-pointer"
+                className="size-7 shrink-0 rounded-md flex items-center justify-center bg-state-soft text-text-primary transition-colors cursor-pointer"
               >
                 <Search className="size-4" />
               </button>
@@ -521,7 +536,7 @@ export default function ComponentGallery() {
               <button
                 id="measure-titlebar-action-active"
                 type="button"
-                className="size-7 shrink-0 rounded-[8px] flex items-center justify-center bg-accent text-foreground transition-colors cursor-pointer"
+                className="size-7 shrink-0 rounded-md flex items-center justify-center bg-accent text-foreground transition-colors cursor-pointer"
               >
                 <Search className="size-4" />
               </button>
@@ -534,7 +549,7 @@ export default function ComponentGallery() {
             <div className="flex flex-col gap-1 items-center">
               <span className="text-caption-11 text-text-tertiary">Neutral (r=8 wrapper, 16px glyph)</span>
               <div
-                className="size-7 shrink-0 rounded-[8px] flex items-center justify-center text-text-secondary hover:bg-state-soft cursor-pointer"
+                className="size-7 shrink-0 rounded-md flex items-center justify-center text-text-secondary hover:bg-state-soft cursor-pointer"
               >
                 <Activity className="size-4" />
               </div>
@@ -593,7 +608,7 @@ export default function ComponentGallery() {
               <span className="text-caption-11 text-text-tertiary">Active (surface-raised, solid border, 6px dot, 12px close)</span>
               <div
                 id="measure-tab-pill-active"
-                className="group relative flex h-8 max-w-[200px] shrink-0 items-center rounded-[6px] border border-border bg-surface-raised px-3 gap-2 text-label-12 text-text-primary"
+                className="group relative flex h-8 max-w-[200px] shrink-0 items-center rounded-sm border border-border bg-surface-raised px-3 gap-2 text-label-12 text-text-primary"
               >
                 <Wrench className="size-3.5 shrink-0 opacity-85" />
                 <span className="truncate flex-1 min-w-0">Active Pill</span>
@@ -609,7 +624,7 @@ export default function ComponentGallery() {
               <span className="text-caption-11 text-text-tertiary">Inactive (state-soft, subtle border, 12px close, no dot)</span>
               <div
                 id="measure-tab-pill-inactive"
-                className="group relative flex h-8 max-w-[200px] shrink-0 items-center rounded-[6px] border border-solid border-border-subtle bg-state-soft px-3 gap-2 text-label-12 text-text-secondary"
+                className="group relative flex h-8 max-w-[200px] shrink-0 items-center rounded-sm border border-solid border-border-subtle bg-state-soft px-3 gap-2 text-label-12 text-text-secondary"
               >
                 <Wrench className="size-3.5 shrink-0 opacity-85" />
                 <span className="truncate flex-1 min-w-0">Inactive Pill</span>
@@ -624,7 +639,7 @@ export default function ComponentGallery() {
               <span className="text-caption-11 text-text-tertiary">Preview (state-soft, subtle dashed border, body-12, no close)</span>
               <div
                 id="measure-tab-pill-preview"
-                className="group relative flex h-8 max-w-[200px] shrink-0 items-center rounded-[6px] border border-dashed border-border-subtle bg-state-soft px-3 gap-2 text-body-12 text-text-secondary"
+                className="group relative flex h-8 max-w-[200px] shrink-0 items-center rounded-sm border border-dashed border-border-subtle bg-state-soft px-3 gap-2 text-body-12 text-text-secondary"
               >
                 <Wrench className="size-3.5 shrink-0 opacity-85" />
                 <span className="truncate flex-1 min-w-0 font-normal">Preview Pill</span>
@@ -636,11 +651,11 @@ export default function ComponentGallery() {
               <span className="text-caption-11 text-text-tertiary">Focused (Separate radius 8 ring, 2px border-focus)</span>
               <div
                 id="measure-tab-pill-focused"
-                className="group relative flex h-8 max-w-[200px] shrink-0 items-center rounded-[6px] border border-border bg-surface-raised px-3 gap-2 text-label-12 text-text-primary"
+                className="group relative flex h-8 max-w-[200px] shrink-0 items-center rounded-sm border border-border bg-surface-raised px-3 gap-2 text-label-12 text-text-primary"
               >
                 <span
                   id="measure-tab-pill-focus-ring"
-                  className="pointer-events-none absolute -inset-[2px] rounded-[8px] border-2 border-[var(--border-focus,#b2d5e5)]"
+                  className="pointer-events-none absolute -inset-[2px] rounded-md border-2 border-[var(--border-focus,#b2d5e5)]"
                   aria-hidden="true"
                 />
                 <Wrench className="size-3.5 shrink-0 opacity-85" />
@@ -674,7 +689,7 @@ export default function ComponentGallery() {
               {/* Titlebar: 0,0 1440×40 -> scaled 720×20 */}
               <div
                 id="measure-shell-diagram-titlebar"
-                className="flex h-5 w-full shrink-0 items-center justify-between border-b border-border-subtle bg-surface-base px-2 text-[9px] font-mono text-text-tertiary"
+                className="flex h-5 w-full shrink-0 items-center justify-between border-b border-border-subtle bg-surface-base px-2 text-(length:--type-diagram-title-size) font-mono text-text-tertiary"
               >
                 <span>titlebar (1440×40)</span>
                 <span>x=88 moduleActions · x=1236 appActions</span>
@@ -689,7 +704,7 @@ export default function ComponentGallery() {
                 <div
                   id="measure-shell-diagram-sidebar"
                   style={{ width: 140 }}
-                  className="relative flex shrink-0 flex-col justify-between rounded border border-border-subtle bg-[rgba(29,29,29,0.4)] p-1 text-[8px] font-mono text-text-tertiary"
+                  className="relative flex shrink-0 flex-col justify-between rounded border border-border-subtle bg-[rgba(29,29,29,0.4)] p-1 text-(length:--type-diagram-size) font-mono text-text-tertiary"
                 >
                   <div className="flex flex-col gap-0.5">
                     <span className="font-semibold text-text-secondary">sidebar-surface</span>
@@ -714,7 +729,7 @@ export default function ComponentGallery() {
                   className="flex min-w-0 flex-1 flex-col gap-1"
                 >
                   {/* Content Surface: 808×624 (Bottom=Open) or 808×852 (Closed) */}
-                  <div className="relative flex flex-1 flex-col rounded border border-border bg-surface-base p-1 text-[8px] font-mono text-text-tertiary">
+                  <div className="relative flex flex-1 flex-col rounded border border-border bg-surface-base p-1 text-(length:--type-diagram-size) font-mono text-text-tertiary">
                     <div className="flex h-6 items-center justify-between border-b border-border-subtle px-1">
                       <span className="font-semibold text-text-secondary">tab-strip (808×48)</span>
                       <span>Tab Pill 200×32</span>
@@ -725,7 +740,7 @@ export default function ComponentGallery() {
                   </div>
 
                   {/* Bottom Slot Split (Bottom=Open: 204:428) */}
-                  <div className="relative flex h-24 shrink-0 flex-col rounded border border-border bg-surface-base p-1 text-[8px] font-mono text-text-tertiary">
+                  <div className="relative flex h-24 shrink-0 flex-col rounded border border-border bg-surface-base p-1 text-(length:--type-diagram-size) font-mono text-text-tertiary">
                     <div className="flex h-5 items-center justify-between border-b border-border-subtle px-1">
                       <span className="font-semibold text-text-secondary">terminal-tabs (808×48)</span>
                       <span className="text-action-primary">Tab Pill 190×30 (EXCEPTION)</span>
@@ -749,7 +764,7 @@ export default function ComponentGallery() {
                 <div
                   id="measure-shell-diagram-panel"
                   style={{ width: 160 }}
-                  className="relative flex shrink-0 flex-col justify-between rounded border border-border bg-surface-base p-1 text-[8px] font-mono text-text-tertiary"
+                  className="relative flex shrink-0 flex-col justify-between rounded border border-border bg-surface-base p-1 text-(length:--type-diagram-size) font-mono text-text-tertiary"
                 >
                   <div className="flex flex-col gap-0.5">
                     <span className="font-semibold text-text-secondary">panel-surface</span>
@@ -1002,7 +1017,7 @@ export default function ComponentGallery() {
             <span className="text-caption-11 text-text-tertiary">Terminal Tab Pill (190×30, r6, label-12)</span>
             <div
               id="measure-shell-terminal-pill"
-              className="flex h-(--control-height-sm) w-[190px] items-center gap-1 rounded-[6px] border border-border-subtle bg-surface-raised px-2 text-label-12 text-text-primary"
+              className="flex h-(--control-height-sm) w-[190px] items-center gap-1 rounded-sm border border-border-subtle bg-surface-raised px-2 text-label-12 text-text-primary"
             >
               <Terminal className="size-3.5 shrink-0 opacity-80" />
               <span className="truncate flex-1">zsh (terminal 1)</span>
@@ -1342,6 +1357,4 @@ function Step4bMeasurementsInspector() {
     </div>
   );
 }
-
-
 

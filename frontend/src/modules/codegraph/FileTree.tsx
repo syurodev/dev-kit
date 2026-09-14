@@ -86,7 +86,7 @@ export function FileTree({ entries, selectedPath, onSelectFile }: FileTreeProps)
               style={{
                 height: item.size,
                 transform: `translateY(${item.start}px)`,
-                paddingLeft: `${depth * 16 + 8}px`,
+                paddingLeft: `calc(${depth} * var(--space-tree-indent) + var(--space-inline))`,
               }}
               onClick={() => (entry.isDir ? toggle(entry.path) : onSelectFile(entry.path))}
             >

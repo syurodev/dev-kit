@@ -109,7 +109,7 @@ export function DataFlowTab({ nodeId, onJump }: { nodeId: string; onJump: (id: s
                 row.type === "header" ? (
                   <li
                     key={row.key}
-                    style={{ paddingLeft: row.depth * 12 }}
+                    style={{ paddingLeft: `calc(${row.depth} * var(--space-flow-indent))` }}
                     className="mt-1.5 flex items-baseline gap-1.5 text-label-12 text-text-primary"
                   >
                     <span className="truncate">{shortLabel(row.label, "method")}</span>
@@ -118,7 +118,7 @@ export function DataFlowTab({ nodeId, onJump }: { nodeId: string; onJump: (id: s
                     </span>
                   </li>
                 ) : (
-                  <li key={row.key} style={{ paddingLeft: row.depth * 12 + 10 }}>
+                  <li key={row.key} style={{ paddingLeft: `calc(${row.depth} * var(--space-flow-indent) + var(--space-flow-leaf))` }}>
                     <button
                       type="button"
                       disabled={!row.targetId}

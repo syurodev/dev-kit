@@ -348,7 +348,7 @@ const Row = memo(function Row({ row, copy = false }: { row: FlatRow; copy?: bool
             // ink alpha where light recesses.
             : "border-transparent text-text-secondary hover:bg-state-soft hover:text-text-primary",
         )}
-        style={{ left: contentX(level) - 2, paddingLeft: 1 }}
+        style={{ left: contentX(level) - 2, paddingLeft: 'var(--space-tree-guide)' }}
       >
         {/* One button for the whole row, chevron included: a separate chevron
             target would be a button inside a button. Clicking a row both
@@ -371,7 +371,13 @@ const Row = memo(function Row({ row, copy = false }: { row: FlatRow; copy?: bool
             )}
           </span>
           {node.icon}
-          <span data-slot="tree-label" className="min-w-0 truncate text-body-13">
+          <span
+            data-slot="tree-label"
+            className={cn(
+              "min-w-0 truncate text-text-primary",
+              node.selected ? "text-body-13-medium" : "text-body-13",
+            )}
+          >
             {node.label}
           </span>
           {/* Gives way first: at 240 a column's type kept its width and the

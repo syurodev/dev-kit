@@ -19,7 +19,7 @@ export type AgentMessageRichProps = {
  * a heading, some lists, a table of before/after values — which the plain bubble
  * can only print as markdown source.
  *
- * Tones are Figma's: body at Body/13 primary, list markers in the tertiary tier
+ * Prose uses Body/16; dense tables keep Body/12. List markers use the tertiary tier
  * so the text column stays clean, inline code on surface/base (the same well
  * the code block and terminal use, one step down from the bubble), links in
  * status/info, and the blockquote marked by a 2px border/default rule rather
@@ -78,9 +78,8 @@ function Block({ block }: { block: MarkdownBlock }) {
         <p
           className={cn(
             "w-full text-text-primary",
-            // Figma draws one heading size in a bubble; deeper levels step down
-            // to the body weight rather than inventing sizes the design has not.
-            block.level <= 2 ? "text-title-16" : "text-body-14-medium",
+            // Keep headings at least as large as prose; weight marks deeper levels.
+            block.level <= 2 ? "text-heading-24" : "text-title-16",
           )}
         >
           <Inline text={block.text} />
@@ -89,7 +88,7 @@ function Block({ block }: { block: MarkdownBlock }) {
 
     case "list":
       return (
-        <div className="flex w-full flex-col gap-1 text-body-13 text-text-primary">
+        <div className="flex w-full flex-col gap-1 text-body-16 text-text-primary">
           {block.items.map((item, idx) => (
             <div key={idx} className="flex w-full items-start gap-2">
               <span
@@ -113,7 +112,7 @@ function Block({ block }: { block: MarkdownBlock }) {
             aria-hidden="true"
             className="w-0.5 shrink-0 self-stretch bg-border-default"
           />
-          <p className="min-w-0 flex-1 text-body-13 text-text-secondary">
+          <p className="min-w-0 flex-1 text-body-16 text-text-secondary">
             <Inline text={block.text} />
           </p>
         </div>
@@ -144,7 +143,7 @@ function Block({ block }: { block: MarkdownBlock }) {
                   {row.map((cell, idx) => (
                     <td
                       key={idx}
-                      className="px-3 py-2 text-left text-body-13 text-text-primary"
+                      className="px-3 py-2 text-left text-body-12 text-text-primary"
                     >
                       <Inline text={cell} />
                     </td>
@@ -158,7 +157,7 @@ function Block({ block }: { block: MarkdownBlock }) {
 
     default:
       return (
-        <p className="w-full text-body-13 break-words text-text-primary">
+        <p className="w-full text-body-16 break-words text-text-primary">
           <Inline text={block.text} />
         </p>
       );
@@ -176,7 +175,7 @@ export function AgentMessageRich({ text, author, className }: AgentMessageRichPr
       {author ? (
         <p className="text-caption-11 whitespace-nowrap text-text-tertiary">{author}</p>
       ) : null}
-      <div className="flex w-full flex-col gap-3 rounded-control bg-surface-raised p-3 select-text">
+      <div className="flex w-full flex-col gap-4 rounded-lg bg-surface-raised p-4 select-text">
         {blocks.map((block, idx) => (
           <Block key={idx} block={block} />
         ))}

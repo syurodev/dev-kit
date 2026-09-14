@@ -76,7 +76,7 @@ export function CommandPaletteStaticCard({
       data-slot="command-palette-static"
       data-state={state}
       className={cn(
-        "flex w-[640px] max-w-[640px] flex-col overflow-hidden rounded-[14px] bg-glass-float backdrop-blur-[20px] border border-glass-border shadow-none text-text-primary select-none",
+        "flex w-[640px] max-w-[640px] flex-col overflow-hidden rounded-float bg-glass-float backdrop-blur-[20px] border border-glass-border shadow-none text-text-primary select-none",
         className
       )}
     >
@@ -86,7 +86,7 @@ export function CommandPaletteStaticCard({
         <span className="flex-1 text-title-16 text-text-primary">
           {state === "results" ? "git status" : "nonexistent-command"}
         </span>
-        <kbd className="rounded-[6px] border border-border-subtle bg-surface-raised p-1 text-code-11 text-text-tertiary">
+        <kbd className="rounded-sm border border-border-subtle bg-surface-raised p-1 text-code-11 text-text-tertiary">
           esc
         </kbd>
       </div>
@@ -99,18 +99,18 @@ export function CommandPaletteStaticCard({
           {/* Active row: --surface-raised + label 13 Medium --text-primary */}
           <div
             data-active="true"
-            className="flex h-10 items-center gap-3 rounded-[8px] bg-surface-raised px-3 text-body-13-medium text-text-primary cursor-pointer"
+            className="flex h-10 items-center gap-3 rounded-md bg-surface-raised px-3 text-body-13-medium text-text-primary cursor-pointer"
           >
             <span>Git: Status</span>
-            <span className="ml-auto rounded-[6px] border border-border-subtle bg-surface-raised p-1 text-code-11 text-text-tertiary">⌘⇧G</span>
+            <span className="ml-auto rounded-sm border border-border-subtle bg-surface-raised p-1 text-code-11 text-text-tertiary">⌘⇧G</span>
           </div>
           {/* Inactive row: NO background at all + label 13 Regular --text-secondary */}
           <div
             data-active="false"
-            className="flex h-10 items-center gap-3 rounded-[8px] bg-transparent px-3 text-body-13 text-text-secondary cursor-pointer"
+            className="flex h-10 items-center gap-3 rounded-md bg-transparent px-3 text-body-13 text-text-secondary cursor-pointer"
           >
             <span>Git: Commit Changes</span>
-            <span className="ml-auto rounded-[6px] border border-border-subtle bg-surface-raised p-1 text-code-11 text-text-tertiary">⌘K</span>
+            <span className="ml-auto rounded-sm border border-border-subtle bg-surface-raised p-1 text-code-11 text-text-tertiary">⌘K</span>
           </div>
         </div>
       ) : (

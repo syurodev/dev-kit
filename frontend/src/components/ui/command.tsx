@@ -40,7 +40,7 @@ function Command({
     <CommandPrimitive
       data-slot="command"
       className={cn(
-        "flex w-[640px] max-w-[640px] flex-col overflow-hidden rounded-[14px] bg-glass-float backdrop-blur-[20px] border border-glass-border shadow-none text-text-primary select-none",
+        "flex w-[640px] max-w-[640px] flex-col overflow-hidden rounded-float bg-glass-float backdrop-blur-[20px] border border-glass-border shadow-none text-text-primary select-none",
         className
       )}
       {...props}
@@ -69,7 +69,7 @@ function CommandDialog({
       </DialogHeader>
       <DialogContent
         className={cn(
-          "top-1/3 translate-y-0 overflow-hidden rounded-[14px]! p-0 border-none bg-transparent shadow-none w-[640px] max-w-[640px]",
+          "top-1/3 translate-y-0 overflow-hidden rounded-float! p-0 border-none bg-transparent shadow-none w-[640px] max-w-[640px]",
           className
         )}
         showCloseButton={showCloseButton}
@@ -102,7 +102,7 @@ function CommandInput({
         {...props}
       />
       {shortcut ? (
-        <kbd className="rounded-[6px] border border-border-subtle bg-surface-raised p-1 text-code-11 text-text-tertiary">
+        <kbd className="rounded-sm border border-border-subtle bg-surface-raised p-1 text-code-11 text-text-tertiary">
           {shortcut}
         </kbd>
       ) : null}
@@ -187,7 +187,7 @@ function CommandItem({
     <CommandPrimitive.Item
       data-slot="command-item"
       className={cn(
-        "group/command-item relative flex h-10 cursor-pointer items-center gap-3 rounded-[8px] px-3 text-body-13 text-text-secondary outline-none select-none transition-colors",
+        "group/command-item relative flex h-10 cursor-pointer items-center gap-3 rounded-md px-3 text-body-13 text-text-secondary outline-none select-none transition-colors",
         // Inactive: NO background at all (EXCEPTION)
         "bg-transparent",
         // Active: --surface-raised + text-body-13-medium text-text-primary
@@ -215,7 +215,7 @@ function CommandShortcut({
         // Figma 719:1475: every row's shortcut is a kbd chip on surface/raised
         // with a border/subtle hairline, and it stays text/tertiary even on the
         // selected row — only the row label steps up to text/primary.
-        "ml-auto rounded-[6px] border border-border-subtle bg-surface-raised p-1 text-code-11 text-text-tertiary",
+        "ml-auto rounded-sm border border-border-subtle bg-surface-raised p-1 text-code-11 text-text-tertiary",
         className
       )}
       {...props}

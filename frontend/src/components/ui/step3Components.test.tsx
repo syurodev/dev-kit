@@ -87,7 +87,7 @@ describe("Step 3 Feedback & Security Reconciliation", () => {
       // Completed milestone is 32px (w-8)
       expect(html).toContain("w-8")
       // Milestone to label gap is 15px
-      expect(html).toContain("gap-[15px]")
+      expect(html).toContain("gap-(--space-step-label)")
       // Glowing shadow must NOT exist
       expect(html).not.toContain("shadow-[0_0_8px")
     })
@@ -102,7 +102,7 @@ describe("Step 3 Feedback & Security Reconciliation", () => {
       expect(html).toContain('data-slot="loading-status"')
       expect(html).toContain("w-[320px]")
       expect(html).toContain("h-12")
-      expect(html).toContain("rounded-[12px]")
+      expect(html).toContain("rounded-lg")
       expect(html).toContain("bg-glass-float")
       expect(html).toContain("border-glass-border")
       expect(html).toContain("backdrop-blur-[12px]")
@@ -120,7 +120,7 @@ describe("Step 3 Feedback & Security Reconciliation", () => {
 
       expect(html).toContain('data-slot="recovery-key-field"')
       expect(html).toContain("h-[132px]")
-      expect(html).toContain("rounded-[14px]")
+      expect(html).toContain("rounded-float")
       expect(html).toContain("bg-glass-panel")
       expect(html).toContain("backdrop-blur-[20px]")
       expect(html).toContain("border-glass-border")
@@ -152,7 +152,7 @@ describe("Step 3 Feedback & Security Reconciliation", () => {
       expect(html).toContain('data-slot="security-notice-accent-bar"')
       expect(html).toContain("h-10")
       expect(html).toContain("w-[3px]")
-      expect(html).toContain("rounded-[2px]")
+      expect(html).toContain("rounded-2xs")
       expect(html).toContain("bg-status-recovery")
     })
   })

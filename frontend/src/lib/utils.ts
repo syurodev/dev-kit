@@ -2,7 +2,7 @@ import { clsx, type ClassValue } from "clsx"
 import { extendTailwindMerge } from "tailwind-merge"
 
 /**
- * The 18 type utilities declared in index.css. tailwind-merge has to be told
+ * The type utilities declared in index.css. tailwind-merge has to be told
  * they are font sizes.
  *
  * Without this it reads an unrecognised `text-*` as a colour, treats
@@ -20,6 +20,7 @@ const TYPE_UTILITIES = [
   "title-13",
   "title-11",
   "body-16",
+  "body-14",
   "body-14-medium",
   "body-13",
   "body-13-medium",
@@ -27,6 +28,7 @@ const TYPE_UTILITIES = [
   "label-12",
   "label-11-caps",
   "caption-11",
+  "caption-12",
   "caption-11-medium",
   "code-12",
   "code-12-medium",

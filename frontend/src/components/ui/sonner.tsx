@@ -1,4 +1,4 @@
-import { useTheme } from "next-themes";
+import { useTheme } from "@/theme/ThemeProvider";
 import { Toaster as Sonner, type ToasterProps } from "sonner";
 import { CircleCheck, Info, AlertTriangle, OctagonX, Loader2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -67,7 +67,7 @@ export function ToastSpecCard({
       data-slot="toast"
       data-tone={tone}
       className={cn(
-        "relative flex w-[380px] items-start gap-3 rounded-[14px] bg-glass-float p-3 pl-4 backdrop-blur-[20px] border border-glass-border shadow-[0_12px_16px_0_rgba(0,0,0,0.45)] select-none",
+        "relative flex w-[380px] items-start gap-3 rounded-float bg-glass-float p-3 pl-4 backdrop-blur-[20px] border border-glass-border shadow-[0_12px_16px_0_rgba(0,0,0,0.45)] select-none",
         className
       )}
     >
@@ -80,7 +80,7 @@ export function ToastSpecCard({
         <button
           type="button"
           onClick={onAction}
-          className="h-7 shrink-0 rounded-[8px] border border-border-subtle bg-surface-raised px-2 text-label-12 text-text-primary hover:bg-surface-raised/80 cursor-pointer"
+          className="h-7 shrink-0 rounded-md border border-border-subtle bg-surface-raised px-2 text-label-12 text-text-primary hover:bg-surface-raised/80 cursor-pointer"
         >
           {actionLabel}
         </button>
@@ -107,13 +107,15 @@ export function ToastSpecCard({
 const TOAST_DURATION_MS = 4000;
 
 const Toaster = ({ ...props }: ToasterProps) => {
-  const { theme = "system" } = useTheme();
+  const { resolvedTheme } = useTheme();
 
   return (
     <Sonner
-      theme={theme as ToasterProps["theme"]}
+      theme={resolvedTheme}
       position="bottom-right"
       duration={TOAST_DURATION_MS}
+      offset="var(--space-section)"
+      mobileOffset="var(--space-group)"
       className="toaster group"
       icons={{
         success: <CircleCheck className="size-5 shrink-0 text-status-success" />,
@@ -123,16 +125,20 @@ const Toaster = ({ ...props }: ToasterProps) => {
         loading: <Loader2 className="size-5 shrink-0 animate-spin text-text-tertiary" />,
       }}
       toastOptions={{
+        // Keep Sonner's stacking, swipe and lifetime; the app owns appearance.
+        unstyled: true,
         classNames: {
           toast:
-            "w-[380px] rounded-[14px] bg-glass-float backdrop-blur-[20px] border border-glass-border shadow-[0_12px_16px_0_rgba(0,0,0,0.45)] pl-4 pr-3 py-3 gap-3 items-start text-text-primary",
+            "app-toast flex w-[380px] rounded-float bg-glass-float backdrop-blur-[20px] border border-glass-border shadow-[0_12px_16px_0_rgba(0,0,0,0.45)] pl-4 pr-3 py-3 gap-3 items-start text-text-primary",
+          content: "flex min-w-0 flex-1 flex-col gap-0",
+          icon: "relative flex size-5 shrink-0 items-center justify-center text-text-tertiary",
           title: "text-body-13-medium text-text-primary",
           description: "text-body-12 text-text-tertiary mt-0",
           actionButton:
-            "h-7 rounded-[8px] bg-surface-raised border border-border-subtle px-2 text-label-12 text-text-primary",
+            "h-7 shrink-0 rounded-md bg-surface-raised border border-border-subtle px-2 text-label-12 text-text-primary cursor-pointer hover:bg-state-soft focus-visible:outline-status-info",
           cancelButton:
-            "h-7 rounded-[8px] bg-surface-raised border border-border-subtle px-2 text-label-12 text-text-secondary",
-          closeButton: "size-4 text-text-tertiary hover:text-text-primary",
+            "h-7 shrink-0 rounded-md bg-surface-raised border border-border-subtle px-2 text-label-12 text-text-secondary cursor-pointer hover:bg-state-soft focus-visible:outline-status-info",
+          closeButton: "order-last flex size-4 shrink-0 items-center justify-center p-0 text-text-tertiary hover:text-text-primary cursor-pointer focus-visible:outline-status-info",
         },
       }}
       {...props}

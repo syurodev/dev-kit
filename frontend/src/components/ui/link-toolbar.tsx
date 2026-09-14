@@ -1,5 +1,7 @@
 'use client';
 
+import { spacingPx } from '@/lib/design-metrics';
+
 import * as React from 'react';
 
 import type { TLinkElement } from 'platejs';
@@ -53,10 +55,10 @@ export function LinkFloatingToolbar({
   const floatingOptions: UseVirtualFloatingOptions = React.useMemo(
     () => ({
       middleware: [
-        offset(8),
+        offset(spacingPx('inline')),
         flip({
           fallbackPlacements: ['bottom-end', 'top-start', 'top-end'],
-          padding: 12,
+          padding: spacingPx('control'),
         }),
       ],
       placement:

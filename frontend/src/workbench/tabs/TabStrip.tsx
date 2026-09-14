@@ -271,7 +271,7 @@ function TabItem({
       }}
       onKeyDown={(event) => onKeyDown(event, tab.id)}
       className={cn(
-        "group relative flex h-8 items-center rounded-[6px] border px-3 gap-2 outline-none transition-[border-color,background-color] select-none [--wails-draggable:no-drag] focus-visible:border-status-info",
+        "group relative flex h-8 items-center rounded-sm border px-3 gap-2 outline-none transition-[border-color,background-color] select-none [--wails-draggable:no-drag] focus-visible:border-status-info",
         // The same two marks the selected row in a tree carries — a
         // --status-info hairline and a fill. The hairline carries it (floored
         // at 3:1 in themeContrast.test); an inactive tab keeps a quiet
@@ -286,7 +286,7 @@ function TabItem({
       {/* Focus ring: separate layer at radius 8, not the pill's radius 6 (Figma 448:343 exception) */}
       {showFocusRing && (
         <span
-          className="pointer-events-none absolute -inset-[2px] rounded-[8px] border-2 border-[var(--border-focus,#b2d5e5)]"
+          className="pointer-events-none absolute -inset-[2px] rounded-md border-2 border-[var(--border-focus,#b2d5e5)]"
           aria-hidden="true"
         />
       )}
@@ -295,7 +295,9 @@ function TabItem({
         <span
           className={cn(
             "truncate flex-1 min-w-0",
-            tab.preview ? "text-body-12 font-normal text-text-secondary" : "text-label-12",
+            isActive
+              ? "text-label-12 text-text-primary"
+              : tab.preview ? "text-body-12 font-normal text-text-secondary" : "text-label-12",
           )}
         >
           {tab.title}

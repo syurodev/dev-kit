@@ -12,7 +12,7 @@ import { wrapIndent } from "./wrapIndent";
 const fontTheme = EditorView.theme({
   ".cm-scroller": {
     fontFamily: "var(--code-font-family, var(--font-mono))",
-    fontSize: "var(--code-font-size, 13px)",
+    fontSize: "var(--code-font-size, var(--type-compact-size))",
   },
 });
 

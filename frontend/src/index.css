@@ -125,13 +125,79 @@
     --stroke-1-5: 1.5px;
     --stroke-2: 2px;
 
-    /* Radius system */
+    /* Geometry: keep the 4px base fixed; widths and virtual rows depend on it. */
+    --spacing: 0.25rem;
+    --space-micro: 4px;
+    --space-inline: 8px;
+    --space-control: 12px;
+    --space-group: 16px;
+    --space-section: 24px;
+    --space-page: 32px;
+
+    /* Reading and UI typography; code keeps its independent density. */
+    --type-body-size: 14px;
+    --type-body-leading: 20px;
+    --type-prose-size: 16px;
+    --type-prose-leading: 24px;
+    --type-caption-size: 12px;
+    --type-caption-leading: 18px;
+
+
+    /* Exceptional metrics retain their original dimensions; consumers never
+       embed these literals. Standard Tailwind spacing uses --spacing above. */
+    --space-step-label: 15px;
+    --space-recovery-x: 17px;
+    --space-inline-code-x: 0.3em;
+    --space-inline-code-y: 0.2em;
+    --space-heading-1: 1.6em;
+    --space-heading-2: 1.4em;
+    --space-heading-3: 1em;
+    --space-heading-minor: 0.75em;
+    --space-editor-gutter: max(64px, calc(50% - 350px));
+    --space-input-button-overlap: -0.3rem;
+    --space-input-kbd-overlap: -0.15rem;
+    --space-vault-offset: 120px;
+    --space-code-lens: 1.5ch;
+    --space-code-line: 6px;
+    --space-tree-guide: 1px;
+    --space-tree-indent: 16px;
+    --space-flow-indent: 12px;
+    --space-flow-leaf: 10px;
+    --space-query-indent: 18px;
+    --space-graph-bottom: 42px;
+
+    --type-diagram-size: 8px;
+    --type-diagram-title-size: 9px;
+    --type-micro-size: 11px;
+    --type-dense-size: 12px;
+    --type-compact-size: 13px;
+    --type-display-size: 32px;
+    --type-heading-size: 24px;
+    --type-dense-leading: 16px;
+    --type-heading-leading: 32px;
+    --type-display-leading: 40px;
+    --type-completion-leading: 1.4;
+    --type-code-lens-size: 0.85em;
+    --type-tracking-display: -0.015em;
+    --type-tracking-heading: -0.01em;
+    --type-tracking-title: -0.005em;
+    --type-tracking-caption: 0.01em;
+    --type-tracking-label: 0.02em;
+    --type-tracking-caps: 0.05em;
+    --radius-2xs: 2px;
+    --radius-float: 14px;
+    --radius-input-kbd: calc(var(--radius) - 5px);
+    --radius-input-action: calc(var(--radius) - 3px);
+    --radius-toggle-small: min(var(--radius-md), 10px);
+
+    /* Radius system: control / card / dialog, with explicit small steps. */
     --radius-none: 0;
+    --radius-xs: 4px;
     --radius-sm: 6px;
     --radius-md: 8px;
     --radius-control: 10px;
-    --radius-lg: 14px;
-    --radius-xl: 18px;
+    --radius-lg: 12px;
+    --radius-xl: 16px;
     --radius-full: 9999px;
 }
 
@@ -332,7 +398,7 @@
     --border: var(--border-default);
     --input: var(--border-default);
     --ring: var(--status-info);
-    --radius: 10px;
+    --radius: var(--radius-control);
 
     /* Scrollbar. Not a Foundations token — Figma draws no scrollbar — so it
        is pinned to the same neutral the hairlines use rather than invented:
@@ -777,149 +843,190 @@
   background-color: transparent !important;
 }
 
-/* Figma Typography Scale (13 styles: 6 sizes, Geist + Geist Mono) */
+/* Sonner injects unlayered CSS, including a dark-description colour even in
+   unstyled mode. Scope these overrides to our toast and beat that selector;
+   do not touch its transforms, positioning, swipe or lifetime animations. */
+.toaster[data-sonner-toaster] .app-toast [data-description] {
+  @apply text-body-12 text-text-tertiary;
+}
+
+.toaster[data-sonner-toaster] .app-toast {
+  font-family: var(--font-sans);
+}
+
+/* The close button has the same unstyled-mode exception in Sonner's dark CSS. */
+.toaster[data-sonner-toaster][data-sonner-theme] .app-toast [data-close-button] {
+  background: transparent;
+  border: none;
+  color: var(--text-tertiary);
+}
+
+.toaster[data-sonner-toaster][data-sonner-theme] .app-toast [data-close-button]:hover {
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+}
+
+/* Geist typography. Numeric names retain their actual size so dense UI can
+   coexist with larger reading surfaces without silently changing geometry. */
+@utility text-body-14 {
+  font-family: var(--font-sans);
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-leading);
+  font-weight: var(--font-weight-normal);
+  letter-spacing: 0;
+}
+
+@utility text-caption-12 {
+  font-family: var(--font-sans);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-leading);
+  font-weight: var(--font-weight-normal);
+  letter-spacing: 0;
+}
+
 @utility text-display-32 {
   font-family: var(--font-sans);
-  font-size: 32px;
-  line-height: 40px;
-  font-weight: 600;
-  letter-spacing: -0.015em;
+  font-size: var(--type-display-size);
+  line-height: var(--type-display-leading);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--type-tracking-display);
 }
 
 @utility text-heading-24 {
   font-family: var(--font-sans);
-  font-size: 24px;
-  line-height: 32px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-size: var(--type-heading-size);
+  line-height: var(--type-heading-leading);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--type-tracking-heading);
 }
 
 @utility text-title-16 {
   font-family: var(--font-sans);
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 600;
-  letter-spacing: -0.005em;
+  font-size: var(--type-prose-size);
+  line-height: var(--type-prose-leading);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--type-tracking-title);
 }
 
 @utility text-title-14 {
   font-family: var(--font-sans);
-  font-size: 14px;
-  line-height: 20px;
-  font-weight: 600;
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-leading);
+  font-weight: var(--font-weight-semibold);
   letter-spacing: 0;
 }
 
 @utility text-title-13 {
   font-family: var(--font-sans);
-  font-size: 13px;
-  line-height: 20px;
-  font-weight: 600;
+  font-size: var(--type-compact-size);
+  line-height: var(--type-body-leading);
+  font-weight: var(--font-weight-semibold);
   letter-spacing: 0;
 }
 
 @utility text-title-11 {
   font-family: var(--font-sans);
-  font-size: 11px;
-  line-height: 16px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
+  font-size: var(--type-micro-size);
+  line-height: var(--type-dense-leading);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--type-tracking-caption);
 }
 
 @utility text-body-14-medium {
   font-family: var(--font-sans);
-  font-size: 14px;
-  line-height: 20px;
-  font-weight: 500;
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-leading);
+  font-weight: var(--font-weight-medium);
   letter-spacing: 0;
 }
 
 @utility text-body-16 {
   font-family: var(--font-sans);
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 400;
+  font-size: var(--type-prose-size);
+  line-height: var(--type-prose-leading);
+  font-weight: var(--font-weight-normal);
   letter-spacing: 0;
 }
 
 @utility text-body-13 {
   font-family: var(--font-sans);
-  font-size: 13px;
-  line-height: 20px;
-  font-weight: 400;
+  font-size: var(--type-compact-size);
+  line-height: var(--type-body-leading);
+  font-weight: var(--font-weight-normal);
   letter-spacing: 0;
 }
 
 @utility text-body-13-medium {
   font-family: var(--font-sans);
-  font-size: 13px;
-  line-height: 20px;
-  font-weight: 500;
+  font-size: var(--type-compact-size);
+  line-height: var(--type-body-leading);
+  font-weight: var(--font-weight-medium);
   letter-spacing: 0;
 }
 
 @utility text-body-12 {
   font-family: var(--font-sans);
-  font-size: 12px;
-  line-height: 16px;
-  font-weight: 400;
+  font-size: var(--type-dense-size);
+  line-height: var(--type-dense-leading);
+  font-weight: var(--font-weight-normal);
   letter-spacing: 0;
 }
 
 @utility text-label-12 {
   font-family: var(--font-sans);
-  font-size: 12px;
-  line-height: 16px;
-  font-weight: 500;
-  letter-spacing: 0.02em;
+  font-size: var(--type-dense-size);
+  line-height: var(--type-dense-leading);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: var(--type-tracking-label);
 }
 
 @utility text-label-11-caps {
   font-family: var(--font-sans);
-  font-size: 11px;
-  line-height: 16px;
-  font-weight: 500;
-  letter-spacing: 0.05em;
+  font-size: var(--type-micro-size);
+  line-height: var(--type-dense-leading);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: var(--type-tracking-caps);
   text-transform: uppercase;
 }
 
 @utility text-caption-11 {
   font-family: var(--font-sans);
-  font-size: 11px;
-  line-height: 16px;
-  font-weight: 400;
-  letter-spacing: 0.01em;
+  font-size: var(--type-micro-size);
+  line-height: var(--type-dense-leading);
+  font-weight: var(--font-weight-normal);
+  letter-spacing: var(--type-tracking-caption);
 }
 
 @utility text-caption-11-medium {
   font-family: var(--font-sans);
-  font-size: 11px;
-  line-height: 16px;
-  font-weight: 500;
-  letter-spacing: 0.01em;
+  font-size: var(--type-micro-size);
+  line-height: var(--type-dense-leading);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: var(--type-tracking-caption);
 }
 
 @utility text-code-12 {
   font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 16px;
-  font-weight: 400;
+  font-size: var(--type-dense-size);
+  line-height: var(--type-dense-leading);
+  font-weight: var(--font-weight-normal);
   letter-spacing: 0;
 }
 
 @utility text-code-12-medium {
   font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 16px;
-  font-weight: 500;
+  font-size: var(--type-dense-size);
+  line-height: var(--type-dense-leading);
+  font-weight: var(--font-weight-medium);
   letter-spacing: 0;
 }
 
 @utility text-code-11 {
   font-family: var(--font-mono);
-  font-size: 11px;
-  line-height: 16px;
-  font-weight: 400;
+  font-size: var(--type-micro-size);
+  line-height: var(--type-dense-leading);
+  font-weight: var(--font-weight-normal);
   letter-spacing: 0;
 }
 
@@ -930,8 +1037,8 @@
 }
 
 .notes-font-scope {
-  font-family: 'Inter Variable', sans-serif;
-  font-feature-settings: "calt", "kern", "liga", "ss03";
+  font-family: var(--font-sans);
+  font-feature-settings: "calt", "kern", "liga";
 }
 
 /* CodeMirror surface overrides.
@@ -1036,9 +1143,9 @@
  * answer: which of them is the slow one. Tertiary and a size down, past the
  * end of the SQL — present when looked for, out of the way when not. */
 .cm-surfaceless .cm-statement-timing {
-  margin-left: 1.5ch;
+  margin-left: var(--space-code-lens);
   color: var(--text-tertiary);
-  font-size: 0.85em;
+  font-size: var(--type-code-lens-size);
   font-variant-numeric: tabular-nums;
   user-select: none;
 }
@@ -1055,7 +1162,7 @@
  * silently reflow the non-wrapping editor.
  */
 .cm-surfaceless .cm-line {
-  padding-left: calc(6px + var(--cm-wrap-indent, 0ch));
+  padding-left: calc(var(--space-code-line) + var(--cm-wrap-indent, 0ch));
   text-indent: calc(-1 * var(--cm-wrap-indent, 0ch));
 }
 

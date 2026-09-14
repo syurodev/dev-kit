@@ -52,7 +52,7 @@ function StepProgress({
             data-slot="step-progress-item"
             data-step={stepNum}
             className={cn(
-              "flex flex-col items-center gap-[15px] relative group w-full",
+              "flex flex-col items-center gap-(--space-step-label) relative group w-full",
               onStepClick && isCompleted && "cursor-pointer"
             )}
             onClick={() => {

@@ -89,7 +89,7 @@ export function AgentMessage({
 
         <BubbleContent
           className={cn(
-            "max-w-[85%] rounded-control px-3 py-2 text-body-12 text-text-primary",
+            "max-w-[85%] rounded-lg px-4 py-3 text-body-16 text-text-primary",
             "whitespace-pre-wrap break-words select-text",
             isAgent ? "bg-surface-raised" : "bg-surface-tinted",
           )}

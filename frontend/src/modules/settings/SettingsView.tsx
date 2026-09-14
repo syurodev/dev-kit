@@ -215,10 +215,10 @@ function NavItem({
       onClick={onClick}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "flex h-8 w-full items-center gap-2.5 rounded-md border px-3 text-left outline-none transition-colors",
+        "flex h-8 w-full items-center gap-3 rounded-md border px-3 text-left outline-none transition-colors",
         active
-          ? "border-border-subtle bg-surface-raised text-body-13-medium text-text-primary"
-          : "border-transparent text-body-13 text-text-secondary hover:bg-state-soft hover:text-text-primary",
+          ? "border-border-subtle bg-surface-raised text-body-14-medium text-text-primary"
+          : "border-transparent text-body-14 text-text-secondary hover:bg-state-soft hover:text-text-primary",
       )}
     >
       <Icon className="size-4 shrink-0" strokeWidth={1.5} />
@@ -249,7 +249,7 @@ function SectionHeader({ title, description }: { title: string; description: str
   return (
     <div className="flex flex-col gap-1.5">
       <h2 className="text-heading-24 text-text-primary">{title}</h2>
-      <p className="text-body-13 text-text-tertiary">{description}</p>
+      <p className="text-body-14 text-text-tertiary">{description}</p>
     </div>
   );
 }
@@ -310,7 +310,7 @@ function AccountTab() {
       {/* identity (765:2004): a raised card — 40px avatar on surface/well,
           the address in Body/14 Medium, the session line in Code/12, and the
           sign-out as a destructive control on the right. */}
-      <div className="flex items-center gap-3.5 rounded-control border border-border-subtle bg-surface-raised px-4 py-3.5">
+      <div className="flex items-center gap-4 rounded-control border border-border-subtle bg-surface-raised px-4 py-4">
         <div className="flex size-10 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-surface-well text-code-12-medium text-text-secondary select-none">
           SY
         </div>
@@ -389,7 +389,7 @@ function SizeStepper({
         type="button"
         aria-label={label ? `${label}: smaller` : "Smaller"}
         onClick={() => step(-1)}
-        className="w-8 text-body-13 text-text-secondary hover:bg-state-soft hover:text-text-primary"
+        className="w-8 text-body-14 text-text-secondary hover:bg-state-soft hover:text-text-primary"
       >
         −
       </button>
@@ -400,7 +400,7 @@ function SizeStepper({
         type="button"
         aria-label={label ? `${label}: larger` : "Larger"}
         onClick={() => step(1)}
-        className="w-8 text-body-13 text-text-secondary hover:bg-state-soft hover:text-text-primary"
+        className="w-8 text-body-14 text-text-secondary hover:bg-state-soft hover:text-text-primary"
       >
         +
       </button>
@@ -502,7 +502,7 @@ function AppearanceTab() {
         description="Theme follows your explicit choice, or the OS when set to System."
       />
 
-      <div className="flex flex-col gap-2.5">
+      <div className="flex flex-col gap-3">
         <GroupLabel>Theme</GroupLabel>
         {/* segmented/theme (763:1799): a surface/well trough with 4px of
             padding; the chosen segment is raised with a subtle stroke. */}
@@ -527,8 +527,8 @@ function AppearanceTab() {
                 className={cn(
                   "h-8 rounded-sm border px-4.5 capitalize transition-colors",
                   active
-                    ? "border-border-subtle bg-surface-raised text-body-13-medium text-text-primary"
-                    : "border-transparent text-body-13 text-text-secondary hover:text-text-primary",
+                    ? "border-border-subtle bg-surface-raised text-body-14-medium text-text-primary"
+                    : "border-transparent text-body-14 text-text-secondary hover:text-text-primary",
                 )}
               >
                 {option}
@@ -538,7 +538,7 @@ function AppearanceTab() {
         </div>
       </div>
 
-      <div className="flex flex-col gap-2.5">
+      <div className="flex flex-col gap-3">
         <GroupLabel>Palette</GroupLabel>
         {/* Swatches, not a dropdown: a palette is the one setting where the
             value IS what it looks like, and a list of names makes you pick
@@ -587,7 +587,7 @@ function AppearanceTab() {
         </div>
       </div>
 
-      <div className="flex flex-col gap-2.5">
+      <div className="flex flex-col gap-3">
         <GroupLabel>Code &amp; terminal</GroupLabel>
         <div className="flex flex-col gap-4">
           <FontSettingRow
@@ -607,7 +607,7 @@ function AppearanceTab() {
         </div>
         {/* preview (763:1843): the chosen face at the chosen size, on a well. */}
         <p
-          className="mt-1.5 rounded-md border border-border-subtle bg-surface-well px-3.5 py-3 text-text-secondary"
+          className="mt-1.5 rounded-md border border-border-subtle bg-surface-well px-4 py-3 text-text-secondary"
           style={{ fontFamily: monoFontStack(codeFont), fontSize: codeSize }}
         >
           {`const vault = unlock(masterKey); // ${codeSize}px preview`}
@@ -615,7 +615,7 @@ function AppearanceTab() {
       </div>
 
       {/* Where the tab strip's "Configure Tabs…" lands. */}
-      <div className="flex flex-col gap-2.5">
+      <div className="flex flex-col gap-3">
         <GroupLabel>Tabs</GroupLabel>
         <div className="flex items-end gap-4">
           <div className="flex flex-col gap-1.5">
@@ -763,7 +763,7 @@ function DatabaseTab() {
         title="Database"
         description="Where the Database module keeps the files it writes. Connections and saved queries are not files — they live in the vault and sync."
       />
-      <div className="flex flex-col gap-2.5">
+      <div className="flex flex-col gap-3">
         <GroupLabel>QUERY CONSOLES</GroupLabel>
         <ConsoleStorageSetting />
       </div>
@@ -778,7 +778,7 @@ function AgentsTab() {
         title="Agents"
         description="The agents Agent Hub runs. DevKit installs each into its own folder — never on your PATH — at a version it has tested."
       />
-      <div className="flex flex-col gap-2.5">
+      <div className="flex flex-col gap-3">
         <GroupLabel>CLAUDE AGENT</GroupLabel>
         <AgentRuntimeSetting />
       </div>
@@ -847,7 +847,7 @@ function EnvironmentsTab() {
         {tags.map((tag) => (
           <div
             key={tag.id}
-            className="flex items-center gap-2.5 rounded-control border border-border-subtle bg-surface-raised py-2.5 pr-3 pl-3.5"
+            className="flex items-center gap-3 rounded-control border border-border-subtle bg-surface-raised py-3 pr-3 pl-3.5"
           >
             <span className="text-code-12-medium text-text-primary">{tag.name}</span>
             <span className="flex-1" />
@@ -913,12 +913,12 @@ function EnvironmentsTab() {
                 Lowercase, no spaces. Must be unique.
               </span>
             </div>
-            <label className="mt-4.5 flex cursor-pointer items-center gap-2.5">
+            <label className="mt-4.5 flex cursor-pointer items-center gap-3">
               <Checkbox
                 checked={newRequiresConfirmation}
                 onCheckedChange={(checked) => setNewRequiresConfirmation(Boolean(checked))}
               />
-              <span className="text-body-13 text-text-secondary">
+              <span className="text-body-14 text-text-secondary">
                 Requires confirmation before MCP tools can use this tag
               </span>
             </label>

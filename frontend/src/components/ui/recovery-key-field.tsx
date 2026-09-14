@@ -56,7 +56,7 @@ function RecoveryKeyField({
       <div
         data-slot="recovery-key-field"
         className={cn(
-          "flex flex-col justify-between w-full max-w-[640px] h-[132px] min-h-[132px] rounded-[14px] border border-glass-border bg-glass-panel px-[17px] py-[15px] backdrop-blur-[20px] shadow-[inset_0px_1px_0px_0px_rgba(255,255,255,0.06)] transition-colors",
+          "flex flex-col justify-between w-full max-w-[640px] h-[132px] min-h-[132px] rounded-float border border-glass-border bg-glass-panel px-(--space-recovery-x) py-(--space-step-label) backdrop-blur-[20px] shadow-[inset_0px_1px_0px_0px_rgba(255,255,255,0.06)] transition-colors",
           className
         )}
         {...props}

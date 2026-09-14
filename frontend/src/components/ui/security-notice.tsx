@@ -41,11 +41,11 @@ function SecurityNotice({
       )}
       {...props}
     >
-      {/* Consequence accent bar for irreversible notice: h 40, w3, rounded-[2px], --status-recovery */}
+      {/* Consequence accent bar for irreversible notice: h 40, w3, rounded-2xs, --status-recovery */}
       {isIrreversible && (
         <div
           data-slot="security-notice-accent-bar"
-          className="h-10 w-[3px] shrink-0 rounded-[2px] bg-status-recovery"
+          className="h-10 w-[3px] shrink-0 rounded-2xs bg-status-recovery"
         />
       )}
 

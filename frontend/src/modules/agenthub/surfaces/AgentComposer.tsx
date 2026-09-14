@@ -182,7 +182,7 @@ export function AgentComposer({
                 if (!isStreaming) onSend();
               }
             }}
-            className="h-full min-w-0 flex-1 resize-none bg-transparent text-body-13 text-text-primary placeholder:text-text-tertiary outline-none disabled:opacity-60"
+            className="h-full min-w-0 flex-1 resize-none bg-transparent text-body-14 text-text-primary placeholder:text-text-tertiary outline-none disabled:opacity-60"
           />
           <Button
             type="button"

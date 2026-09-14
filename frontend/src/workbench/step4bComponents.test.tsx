@@ -217,7 +217,7 @@ describe("Step 4b Shell Overlays & Composition Reconciliation", () => {
         />
       );
       expect(html).toContain("w-[380px]");
-      expect(html).toContain("rounded-[14px]");
+      expect(html).toContain("rounded-float");
       expect(html).toContain("backdrop-blur-[20px]");
       expect(html).toContain("bg-glass-float");
       expect(html).toContain("shadow-[0_12px_16px_0_rgba(0,0,0,0.45)]");
@@ -284,7 +284,7 @@ describe("Step 4b Shell Overlays & Composition Reconciliation", () => {
         />
       );
       expect(html).toContain("h-7"); // 28px tall
-      expect(html).toContain("rounded-[8px]");
+      expect(html).toContain("rounded-md");
       expect(html).toContain("bg-surface-raised");
       expect(html).toContain("text-label-12");
     });
@@ -294,7 +294,7 @@ describe("Step 4b Shell Overlays & Composition Reconciliation", () => {
     it("verifies dimensions and glass material: 640 wide, rounded-14, blur 20, NO shadow, NO inset highlight", () => {
       const html = renderToString(<CommandPaletteStaticCard state="results" />);
       expect(html).toContain("w-[640px]");
-      expect(html).toContain("rounded-[14px]");
+      expect(html).toContain("rounded-float");
       expect(html).toContain("backdrop-blur-[20px]");
       expect(html).toContain("bg-glass-float");
       expect(html).toContain("shadow-none");
@@ -323,7 +323,7 @@ describe("Step 4b Shell Overlays & Composition Reconciliation", () => {
       expect(html).toContain("bg-surface-raised"); // active row
       expect(html).toContain("bg-transparent"); // inactive row
       expect(html).toContain("h-10"); // 40px row
-      expect(html).toContain("rounded-[8px]");
+      expect(html).toContain("rounded-md");
     });
 
     it("verifies footer: h40, px-5, gap-4, text-code-11 text-text-tertiary", () => {
@@ -356,7 +356,7 @@ describe("Step 4b Shell Overlays & Composition Reconciliation", () => {
       );
       expect(html).toContain("w-[200px]");
       expect(html).toContain("h-7"); // 28px
-      expect(html).toContain("rounded-[6px]");
+      expect(html).toContain("rounded-sm");
       expect(html).toContain("px-2");
       expect(html).toContain("gap-x-2");
       expect(html).toContain("text-body-13");
@@ -398,7 +398,7 @@ describe("Step 4b Shell Overlays & Composition Reconciliation", () => {
   describe("Terminal Tab Pill (Figma 204:428)", () => {
     it("EXCEPTION: Terminal tab pill is 190×30, NOT 200×32", () => {
       // Figma 204:428 explicitly sizes terminal tab pills as 190×30.
-      const terminalPillClass = "w-[190px] h-[30px] rounded-[6px] px-2 text-label-12";
+      const terminalPillClass = "w-[190px] h-[30px] rounded-sm px-2 text-label-12";
       expect(terminalPillClass).toContain("w-[190px]");
       expect(terminalPillClass).toContain("h-[30px]");
       expect(terminalPillClass).not.toContain("w-[200px]");

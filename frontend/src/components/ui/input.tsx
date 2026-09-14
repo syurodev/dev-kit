@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils"
  * Typography:
  * - Label: text-label-12 text-text-secondary (#c6c8c2)
  * - Helper: text-caption-11 text-text-tertiary (#8b8e8a), on error turns text-status-danger (#d87886)
- * - Value: text-body-13 text-text-primary (#f0f1eb) — snapped from retired 14px
+ * - Value: text-body-14 text-text-primary (#f0f1eb)
  * - Placeholder: text-text-tertiary (#8b8e8a)
  *
  * Type=Password includes a built-in Visibility action (16×16 eye toggle) inside the field.
@@ -63,14 +63,14 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
           data-slot="input"
           aria-invalid={isError ? true : props["aria-invalid"]}
           className={cn(
-            "w-full min-w-0 rounded-md border border-status-info/16 bg-white/6 px-3 text-body-13 text-text-primary transition-colors outline-none",
+            "w-full min-w-0 rounded-md border border-status-info/16 bg-white/6 px-3 text-body-14 text-text-primary transition-colors outline-none",
             "placeholder:text-text-tertiary",
             "focus-visible:border-(--stroke-1-5) focus-visible:border-status-info focus-visible:outline-none focus-visible:ring-0",
             "disabled:pointer-events-none disabled:cursor-not-allowed disabled:text-text-tertiary disabled:placeholder:text-text-tertiary/60",
             "aria-invalid:border-status-danger aria-invalid:ring-0",
-            inputSize === "sm" && "h-(--control-height-md) text-body-12 px-2.5",
+            inputSize === "sm" && "h-(--control-height-md) text-body-12 px-3",
             inputSize === "default" && "h-(--control-height-xl)",
-            inputSize === "lg" && "h-(--control-height-2xl) text-body-16 px-3.5",
+            inputSize === "lg" && "h-(--control-height-2xl) text-body-16 px-4",
             isPassword && "pr-9",
             className,
           )}

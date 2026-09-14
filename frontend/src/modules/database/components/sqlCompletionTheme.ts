@@ -36,26 +36,26 @@ const ICONS = {
 export const sqlCompletionTheme = EditorView.theme({
   ".cm-tooltip.cm-tooltip-autocomplete": {
     border: "1px solid var(--border-subtle)",
-    borderRadius: "var(--radius-control, 8px)",
+    borderRadius: "var(--radius-control)",
     backgroundColor: "var(--surface-raised)",
     boxShadow: "var(--shadow-popover, 0 8px 24px rgb(0 0 0 / 0.32))",
     overflow: "hidden",
-    padding: "4px",
+    padding: "var(--space-micro)",
   },
   // The editor's own font and size. Left to inherit, the list took the app's
   // UI font while the text it completes renders in the code face.
   ".cm-tooltip.cm-tooltip-autocomplete > ul": {
     fontFamily: "var(--code-font-family, var(--font-mono))",
-    fontSize: "var(--code-font-size, 13px)",
-    lineHeight: "1.4",
+    fontSize: "var(--code-font-size, var(--type-compact-size))",
+    lineHeight: "var(--type-completion-leading)",
     maxHeight: "16rem",
   },
   ".cm-tooltip.cm-tooltip-autocomplete > ul > li": {
     display: "flex",
     alignItems: "center",
-    gap: "8px",
-    padding: "4px 8px",
-    borderRadius: "6px",
+    gap: "var(--space-inline)",
+    padding: "var(--space-micro) var(--space-inline)",
+    borderRadius: "var(--radius-sm)",
     color: "var(--text-secondary)",
     cursor: "pointer",
   },
@@ -80,7 +80,7 @@ export const sqlCompletionTheme = EditorView.theme({
   },
   ".cm-completionDetail": {
     marginLeft: "auto",
-    paddingLeft: "12px",
+    paddingLeft: "var(--space-control)",
     fontStyle: "normal",
     color: "var(--text-tertiary)",
   },

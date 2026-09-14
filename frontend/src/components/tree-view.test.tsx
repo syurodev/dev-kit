@@ -8,6 +8,19 @@ function chevrons(html: string): number {
 }
 
 describe("TreeView", () => {
+  it("keeps names primary and gives only the selected name medium weight", () => {
+    const html = renderToString(<TreeView nodes={[
+      { id: "selected", label: "Selected connection", selected: true },
+      { id: "rest", label: "Other table" },
+    ]} />);
+    const labels = [...html.matchAll(/data-slot="tree-label" class="([^"]+)"/g)]
+      .map((match) => match[1]);
+    expect(labels).toHaveLength(2);
+    expect(labels[0]).toContain("text-body-13-medium");
+    expect(labels[1]).not.toContain("text-body-13-medium");
+    for (const label of labels) expect(label).toContain("text-text-primary");
+  });
+
   it("draws a chevron for a node whose children have not arrived yet", () => {
     // The whole point of `expandable` being separate from `children`: a table
     // gets its columns only once it is opened, so a tree that infers "leaf"
@@ -62,7 +75,7 @@ describe("TreeView", () => {
     );
     // The step, not the literals: density gets tuned, and what must hold is
     // that depth still reads as depth.
-    const lefts = [...html.matchAll(/left:(\d+)px;padding-left:1px/g)].map((m) => Number(m[1]));
+    const lefts = [...html.matchAll(/left:(\d+)px;padding-left:var\(--space-tree-guide\)/g)].map((m) => Number(m[1]));
     expect(lefts.length).toBe(2);
     expect(lefts[1] - lefts[0]).toBeGreaterThan(6);
     expect(lefts[1] - lefts[0]).toBeLessThan(20);
