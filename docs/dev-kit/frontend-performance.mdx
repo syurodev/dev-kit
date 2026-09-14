@@ -327,6 +327,8 @@ fail-closed.
   record cho mỗi token.
 - Tab ẩn vẫn nhận status/permission qua shell subscriber; view presentation có
   thể suspend sau khi ownership được tách.
+- Trạng thái hoàn tất được giữ thành unread badge theo session; notification nền
+  native gộp theo session và không thay thế permission event/control-plane.
 - Có ring/buffer ceiling cho live output, nhưng không làm mất durable history
   hoặc audit cần thiết.
 - Thêm vendor mới không được kéo UI/runtime SDK của mọi vendor vào initial chunk.

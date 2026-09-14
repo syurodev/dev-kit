@@ -130,7 +130,13 @@ export const AgentTurn = React.memo(function AgentTurn({
             className="flex w-full min-w-0 cursor-pointer items-center gap-2 border-b border-border-subtle pb-2 text-left text-body-13 text-text-tertiary hover:text-text-secondary"
           >
             {activity ? (
-              <ThinkingOrb state={activity.orb} size={20} aria-label={activity.label} className="shrink-0" />
+              <ThinkingOrb
+                state={activity.orb}
+                size={20}
+                paused={reduce}
+                aria-label={activity.label}
+                className="shrink-0"
+              />
             ) : null}
             <SwapText text={activity ? activity.label : worked} animate={latest} reduce={reduce} />
             <ChevronRight

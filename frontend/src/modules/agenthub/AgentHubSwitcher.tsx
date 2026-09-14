@@ -62,11 +62,15 @@ export function AgentHubPeek({ focusModule }: ModulePeekProps) {
 export function AgentHubBadge() {
   const sessions = useAgentSessionList();
   const pendingCount = useAgentSessionsStore((state) => state.pendingQueue.length);
+  const unreadCompleted = useAgentSessionsStore(
+    (state) => Object.keys(state.unreadCompletedBySession).length,
+  );
   const waiting = pendingCount || sessions.filter((s) => s.status === "awaiting_permission").length;
   const running = useAgentSessionsStore((state) =>
     state.sessionIds.some((id) => state.sessionsById[id].status === "running"),
   );
   if (waiting > 0) return <AgentDockBadge state="waiting" count={waiting} />;
+  if (unreadCompleted > 0) return <AgentDockBadge state="success" count={unreadCompleted} />;
   if (running) return <AgentDockBadge state="running" />;
   return null;
 }

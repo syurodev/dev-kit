@@ -14,6 +14,8 @@ import {
   AgentPermissionRequest,
   AgentPermissionToast,
   AgentDockBadge,
+  TranscriptStream,
+  shouldCancelComposerOnEscape,
 } from "./index";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { AgentSession } from "@/bridge/agenthub";
@@ -25,6 +27,20 @@ import type { TranscriptItem } from "../types";
 const renderToString = (node: React.ReactNode) => renderRaw(<TooltipProvider>{node}</TooltipProvider>);
 
 describe("Agent Hub Phase 3 Surfaces", () => {
+  it("exposes one polite transcript status live region without token-level content", () => {
+    const html = renderToString(<TranscriptStream items={[]} sessionStatus="running" />);
+
+    expect(html).toContain('aria-live="polite"');
+    expect(html).toContain('data-testid="transcript-live-region"');
+    expect(html).toContain("Running…");
+  });
+
+  it("cancels a running composer only for Escape", () => {
+    expect(shouldCancelComposerOnEscape("Escape", true)).toBe(true);
+    expect(shouldCancelComposerOnEscape("Escape", false)).toBe(false);
+    expect(shouldCancelComposerOnEscape("Enter", true)).toBe(false);
+  });
+
   describe("AgentComposer (Figma 963:2634)", () => {
     it("is one glass surface with its numbers behind a context ring", () => {
       // It floats over the transcript, so it is glass; the meta band above the
@@ -1283,6 +1299,15 @@ describe("Agent Hub Phase 3 Surfaces", () => {
         expect(html).not.toContain("animate-ping");
         // The ring is what attaches the badge to the icon underneath it.
         expect(html).toContain("border-bg-app");
+      });
+
+      it("renders completed turns as a review badge", () => {
+        const html = renderToString(<AgentDockBadge state="success" count={2} />);
+
+        expect(html).toContain('data-testid="agent-dock-badge-success"');
+        expect(html).toContain('data-state="success"');
+        expect(html).toContain("2");
+        expect(html).toContain("bg-status-success");
       });
     });
   });

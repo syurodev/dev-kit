@@ -4,6 +4,7 @@ export * from "./AgentSessionError";
 export * from "./AgentState";
 export * from "./AgentSidebarTree";
 export * from "./AgentComposer";
+export * from "./MessageHoverCard";
 export * from "./TranscriptStream";
 export * from "./AgentHubContent";
 export * from "./AgentRail";

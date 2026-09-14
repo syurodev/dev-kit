@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 
-export type DockBadgeState = "waiting" | "running";
+export type DockBadgeState = "waiting" | "running" | "success";
 
 export type AgentDockBadgeProps = {
   state: DockBadgeState;
@@ -35,6 +35,24 @@ export function AgentDockBadge({ state, count = 1, className }: AgentDockBadgePr
           className,
         )}
       />
+    );
+  }
+
+  if (state === "success") {
+    return (
+      <span
+        data-testid="agent-dock-badge-success"
+        data-state="success"
+        title={`${count} agent ${count === 1 ? "turn" : "turns"} ready to review`}
+        className={cn(
+          "absolute -top-1 -right-1 flex size-4 min-w-4 items-center justify-center rounded-full px-1",
+          "border-2 border-bg-app bg-status-success",
+          "text-caption-11-medium whitespace-nowrap text-action-primary-foreground select-none",
+          className,
+        )}
+      >
+        {count}
+      </span>
     );
   }
 

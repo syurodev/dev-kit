@@ -39,9 +39,8 @@ function timeOf(at?: string): string {
  * into it. The short open delay keeps a pointer passing down the column from
  * lighting a card on every message it crosses.
  *
- * Hover is the only way in. Copying stays possible without it — the text is
- * selectable — and Edit is a convenience for retyping, so nothing becomes
- * unreachable from the keyboard; it is just slower.
+ * The message is also a focusable trigger, so keyboard and screen-reader users
+ * can reach the same actions without needing a pointer.
  */
 export function MessageHoverCard({
   children,
@@ -56,10 +55,15 @@ export function MessageHoverCard({
   const [copied, setCopied] = React.useState(false);
   const time = timeOf(at);
   if (!time && !meta && !onCopy && !onEdit) return children;
+  const child = children as React.ReactElement<React.HTMLAttributes<HTMLElement>>;
+  const trigger = React.cloneElement(child, {
+    tabIndex: child.props.tabIndex ?? 0,
+    "aria-label": child.props["aria-label"] ?? `Message: ${text.slice(0, 120)}`,
+  });
 
   return (
     <HoverCard openDelay={300} closeDelay={120}>
-      <HoverCardTrigger asChild>{children}</HoverCardTrigger>
+      <HoverCardTrigger asChild>{trigger}</HoverCardTrigger>
       <HoverCardContent
         side="bottom"
         align={align}

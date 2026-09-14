@@ -5,7 +5,7 @@ import { ScrollArea as ScrollAreaPrimitive } from "radix-ui";
 import { ScrollBar } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import type { TranscriptItem } from "../types";
-import { groupTurns, type Turn } from "../turns";
+import { groupTurns, workedFor, type Turn } from "../turns";
 import { AgentJumpToLatest } from "./AgentJumpToLatest";
 import { AgentMetaInspector } from "./AgentMetaInspector";
 import { AgentTurn } from "./AgentTurn";
@@ -19,6 +19,8 @@ export type TranscriptStreamProps = {
   vendor?: string;
   /** A turn is in flight. The newest turn runs its orb and follows its steps. */
   streaming?: boolean;
+  /** Shell session status, used for one announcement per status transition. */
+  sessionStatus?: string;
   /** Copy, in each message's hover card. */
   onCopy?: (text: string) => void;
   /** Edit, in your own prompts' hover cards: the text goes back in the composer. */
@@ -67,6 +69,12 @@ const PRELOAD_MARGIN_PX = 120;
 export const TRANSCRIPT_VIRTUALIZE_THRESHOLD = 300;
 export const TRANSCRIPT_OVERSCAN = 6;
 
+function initialStatusAnnouncement(status?: string): string {
+  if (status === "running") return "Running…";
+  if (status === "awaiting_permission") return "Waiting for permission.";
+  return "";
+}
+
 function scheduleTranscriptFrame(callback: () => void): () => void {
   let active = true;
   let frameId: number | undefined;
@@ -108,6 +116,7 @@ export function TranscriptStream({
   streamKey,
   vendor = "Claude",
   streaming = false,
+  sessionStatus,
   onCopy,
   onEditPrompt,
   onOpenFile,
@@ -132,6 +141,31 @@ export function TranscriptStream({
     previousTicksRef.current = next;
     return next;
   }, [turns]);
+  const latestTurnRef = useRef<Turn | undefined>(undefined);
+  const previousStatusRef = useRef<string | undefined>(sessionStatus);
+  const [liveAnnouncement, setLiveAnnouncement] = useState(() => initialStatusAnnouncement(sessionStatus));
+  latestTurnRef.current = turns[turns.length - 1];
+
+  useEffect(() => {
+    previousStatusRef.current = sessionStatus;
+    setLiveAnnouncement(initialStatusAnnouncement(sessionStatus));
+  }, [streamKey]);
+
+  useEffect(() => {
+    if (!sessionStatus || previousStatusRef.current === sessionStatus) return;
+    const previous = previousStatusRef.current;
+    previousStatusRef.current = sessionStatus;
+    if (sessionStatus === "running") {
+      setLiveAnnouncement("Running…");
+    } else if (sessionStatus === "awaiting_permission") {
+      setLiveAnnouncement("Waiting for permission.");
+    } else if (previous === "running" && sessionStatus === "idle") {
+      const worked = latestTurnRef.current ? workedFor(latestTurnRef.current) : "";
+      setLiveAnnouncement(worked ? `Answer ready. ${worked}` : "Answer ready.");
+    } else if (previous === "running" && sessionStatus === "error") {
+      setLiveAnnouncement("The agent stopped with an error.");
+    }
+  }, [sessionStatus]);
 
   const onCopyRef = useRef(onCopy);
   const onEditPromptRef = useRef(onEditPrompt);
@@ -368,6 +402,14 @@ export function TranscriptStream({
       className={cn("relative flex size-full min-h-0 flex-col overflow-hidden", className)}
       data-testid="transcript-stream"
     >
+      <div
+        aria-live="polite"
+        aria-atomic="true"
+        className="sr-only"
+        data-testid="transcript-live-region"
+      >
+        {liveAnnouncement}
+      </div>
       {/* An overlay scrollbar (Radix ScrollArea) rather than the native one.
           A native scrollbar takes width whenever the OS shows it permanently —
           macOS "Show scroll bars: Always", a mouse plugged in, Windows, most

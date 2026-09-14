@@ -77,6 +77,11 @@ export type SessionUpdateEvent = {
   parsed: SessionUpdate | null;
 };
 
+export type AgentTurnFinishedEvent = {
+  sessionId: string;
+  status: SessionStatus;
+};
+
 export type PendingPermission = {
   id: string;
   sessionId: string;
@@ -103,6 +108,8 @@ export type PermissionOption = {
 
 const SESSION_UPDATE_EVENT = "agenthub:sessionUpdate";
 const PERMISSION_EVENT = "agenthub:permission";
+const TURN_FINISHED_EVENT = "agenthub:turnFinished";
+const NOTIFICATION_ACTION_EVENT = "agenthub:notificationAction";
 
 function asVendor(value: string): AgentVendor | string {
   return value;
@@ -414,6 +421,35 @@ export function onAgentHubPermission(
     if (parsed) {
       handler(parsed);
     }
+  });
+}
+
+function parseSessionEvent(data: unknown): { sessionId: string; status?: SessionStatus } | null {
+  const record = Array.isArray(data) ? data[0] : data;
+  if (!record || typeof record !== "object") return null;
+  const value = record as Record<string, unknown>;
+  if (typeof value.sessionId !== "string" || value.sessionId.length === 0) return null;
+  return {
+    sessionId: value.sessionId,
+    status: typeof value.status === "string" ? asStatus(value.status) : undefined,
+  };
+}
+
+export function onAgentHubTurnFinished(
+  handler: (event: AgentTurnFinishedEvent) => void,
+): () => void {
+  return Events.On(TURN_FINISHED_EVENT, (ev) => {
+    const parsed = parseSessionEvent(ev?.data);
+    if (parsed) handler({ sessionId: parsed.sessionId, status: parsed.status ?? "idle" });
+  });
+}
+
+export function onAgentHubNotificationAction(
+  handler: (sessionId: string) => void,
+): () => void {
+  return Events.On(NOTIFICATION_ACTION_EVENT, (ev) => {
+    const parsed = parseSessionEvent(ev?.data);
+    if (parsed) handler(parsed.sessionId);
   });
 }
 

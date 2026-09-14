@@ -95,4 +95,12 @@ describe("message hover cards", () => {
     expect(html).not.toContain('data-testid="message-open-meta"');
     expect(html).not.toContain('data-testid="message-copy"');
   });
+
+  it("makes message actions reachable from a keyboard-focused message", () => {
+    const [turn] = groupTurns(items);
+    const html = renderToString(<AgentTurn turn={turn} onCopy={() => {}} onEditPrompt={() => {}} />);
+
+    expect(html).toContain('tabindex="0"');
+    expect(html).toContain('aria-label="Message: explain the repo"');
+  });
 });

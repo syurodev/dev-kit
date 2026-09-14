@@ -16,6 +16,8 @@ export const EMPTY_TRANSCRIPT_MODEL: TranscriptModel = {
   toolCallIndex: new Map(),
 };
 
+export type AgentHubCommand = "create" | "cancel" | "focus";
+
 /**
  * The subagent end states that mean "stopped", not "finished".
  *
@@ -61,6 +63,8 @@ type AgentSessionsState = {
   pendingQueue: PendingPermission[];
   /** Whether the shell is showing the conversation in the companion slot. */
   chatOpen: boolean;
+  pendingAgentHubCommand: AgentHubCommand | null;
+  unreadCompletedBySession: Record<string, boolean>;
   setSessions: (sessions: AgentSession[]) => void;
   upsertSession: (session: AgentSession) => void;
   removeSession: (id: string) => void;
@@ -82,6 +86,10 @@ type AgentSessionsState = {
   enqueuePending: (pending: PendingPermission) => void;
   dequeuePending: (id: string) => void;
   setChatOpen: (open: boolean) => void;
+  requestAgentHubCommand: (command: AgentHubCommand) => void;
+  consumeAgentHubCommand: (command: AgentHubCommand) => void;
+  markCompletedUnread: (sessionId: string) => void;
+  markCompletedRead: (sessionId: string) => void;
 };
 
 export const useAgentSessionsStore = create<AgentSessionsState>((set) => ({
@@ -97,6 +105,8 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set) => ({
   pending: null,
   pendingQueue: [],
   chatOpen: false,
+  pendingAgentHubCommand: null,
+  unreadCompletedBySession: {},
   setSessions: (sessions) =>
     set({
       sessionsById: Object.fromEntries(sessions.map((session) => [session.id, session])),
@@ -123,6 +133,7 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set) => ({
       const { [id]: _transcriptError, ...transcriptErrorsById } = state.transcriptErrorsById;
       const { [id]: _paging, ...transcriptPagingById } = state.transcriptPagingById;
       const { [id]: _prompt, ...promptBySession } = state.promptBySession;
+      const { [id]: _unread, ...unreadCompletedBySession } = state.unreadCompletedBySession;
       return {
         sessionIds: state.sessionIds.filter((sessionId) => sessionId !== id),
         sessionsById,
@@ -131,6 +142,7 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set) => ({
         transcriptErrorsById,
         transcriptPagingById,
         promptBySession,
+        unreadCompletedBySession,
         subagents,
       };
     }),
@@ -179,6 +191,23 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set) => ({
       return { pendingQueue, pending: pendingQueue[0] ?? null };
     }),
   setChatOpen: (open) => set({ chatOpen: open }),
+  requestAgentHubCommand: (command) => set({ pendingAgentHubCommand: command }),
+  consumeAgentHubCommand: (command) =>
+    set((state) =>
+      state.pendingAgentHubCommand === command ? { pendingAgentHubCommand: null } : state,
+    ),
+  markCompletedUnread: (sessionId) =>
+    set((state) =>
+      state.unreadCompletedBySession[sessionId]
+        ? state
+        : { unreadCompletedBySession: { ...state.unreadCompletedBySession, [sessionId]: true } },
+    ),
+  markCompletedRead: (sessionId) =>
+    set((state) => {
+      if (!state.unreadCompletedBySession[sessionId]) return state;
+      const { [sessionId]: _read, ...unreadCompletedBySession } = state.unreadCompletedBySession;
+      return { unreadCompletedBySession };
+    }),
 }));
 
 export function useAgentSessionList(): AgentSession[] {

@@ -83,6 +83,7 @@ Dev dùng nhiều agent CLI khác nhau (Claude Code, Codex, Gemini CLI...) nhưn
 | FR-8 | Field mở rộng (`_meta`) của mọi message luôn được lưu nguyên dạng raw JSON song song với field đã normalize — không silently drop dữ liệu vendor chưa được adapter xử lý. |
 | FR-9 | Composer nối được available slash commands, context suggestions theo project (tối đa 100 file), và file location mở trong Code Graph editor tới đúng dòng. |
 | FR-10 | Composer đọc config/mode từ transcript và đổi model, effort, permission mode qua `session/set_config_option` / `session/set_mode`; bypass permissions luôn cần xác nhận rõ ràng. |
+| FR-11 | Agent Hub dùng được bằng bàn phím và screen reader; trạng thái/hoàn tất được announce không theo từng token, permission và lượt hoàn tất có notification nền khi cửa sổ không focus. |
 
 ### Non-functional requirements
 

@@ -5,6 +5,7 @@ import (
 	"embed"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -43,6 +44,7 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
+	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 )
 
 // Wails uses Go's `embed` package to embed the frontend files into the binary.
@@ -65,6 +67,79 @@ const (
 const transcriptRetentionDays = 90
 
 func main() {
+	var mainWindow application.Window
+	notificationService := notifications.New()
+	var notificationMu sync.Mutex
+	notificationsAuthorized := false
+	notificationsDisabled := false
+	var notificationGate agenthub.NotificationGate
+	requestNotificationAuthorization := func() (allowed bool, err error) {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				err = fmt.Errorf("notification authorization panic: %v", recovered)
+			}
+		}()
+		return notificationService.RequestNotificationAuthorization()
+	}
+	writeNotification := func(options notifications.NotificationOptions, update bool) (err error) {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				err = fmt.Errorf("notification delivery panic: %v", recovered)
+			}
+		}()
+		if update {
+			return notificationService.UpdateNotification(options)
+		}
+		return notificationService.SendNotification(options)
+	}
+	notifyAgent := func(sessionID, title, body string) {
+		if application.System.IsServer() {
+			return
+		}
+		notificationMu.Lock()
+		defer notificationMu.Unlock()
+		if mainWindow == nil || mainWindow.IsFocused() || notificationsDisabled {
+			return
+		}
+		if !notificationsAuthorized {
+			allowed, err := requestNotificationAuthorization()
+			if err != nil || !allowed {
+				notificationsDisabled = true
+				if err != nil {
+					log.Printf("agenthub: desktop notifications unavailable: %v", err)
+				}
+				return
+			}
+			notificationsAuthorized = true
+		}
+		options := notifications.NotificationOptions{
+			ID:       "agenthub-" + sessionID,
+			Title:    title,
+			Body:     body,
+			ThreadID: "agenthub-" + sessionID,
+			Data: map[string]interface{}{
+				"sessionId": sessionID,
+			},
+		}
+		update := notificationGate.Next(sessionID)
+		err := writeNotification(options, update)
+		if err != nil {
+			if !update {
+				notificationGate.Reset(sessionID)
+			}
+			log.Printf("agenthub: send desktop notification for session %s: %v", sessionID, err)
+		}
+	}
+	notificationService.OnNotificationResponse(func(result notifications.NotificationResult) {
+		if result.Error != nil {
+			log.Printf("agenthub: desktop notification response: %v", result.Error)
+			return
+		}
+		if sessionID, ok := result.Response.UserInfo["sessionId"].(string); ok && sessionID != "" {
+			emitAppEvent("agenthub:notificationAction", map[string]any{"sessionId": sessionID})
+		}
+	})
+
 	// Before anything can bring up GTK/WebKit: the webview process inherits
 	// this environment, and WebKitGTK reads it once, at startup.
 	configureWebviewEnv()
@@ -312,6 +387,7 @@ func main() {
 			}
 		}
 		emitAppEvent("agenthub:permission", payload)
+		notifyAgent(p.SessionID, "Permission needed", "The agent is waiting for your approval.")
 	})
 	agentStore := agenthub.NewSQLStore(db)
 
@@ -357,6 +433,15 @@ func main() {
 	}
 	// Keep the stamped deadline and the enforced one from drifting apart.
 	agentWaiter.Timeout = agentSvc.PermissionTimeoutOrDefault()
+	agentSvc.OnTurnFinished = func(sessionID string, status agenthub.SessionStatus) {
+		emitAppEvent("agenthub:turnFinished", map[string]any{
+			"sessionId": sessionID,
+			"status":    string(status),
+		})
+		if status == agenthub.SessionStatusIdle {
+			notifyAgent(sessionID, "Answer ready", "The agent finished its turn.")
+		}
+	}
 	agentSvc.OnRecordError = func(sessionID string, err error) {
 		log.Printf("agenthub: transcript write failed for session %s: %v", sessionID, err)
 	}
@@ -452,7 +537,6 @@ func main() {
 	hub := interaction.NewHub(interaction.NoopPrompter{})
 	container.Interaction = hub
 	agentSvc.OnSessionClosed = func(id string) { hub.ForgetCaller(identity.Agent(id).String()) }
-	var mainWindow application.Window
 	appService := bridge.NewAppService(container, func(theme preferences.Theme) error {
 		return applyNativeTheme(mainWindow, theme)
 	})
@@ -496,12 +580,14 @@ func main() {
 	agentSvc.MCPEndpoints = sessionHost
 	auditSQL.PruneLoop(mcpCtx, time.Hour)
 
+	services := []application.Service{application.NewService(appService)}
+	if !application.System.IsServer() {
+		services = append(services, application.NewService(notificationService))
+	}
 	wailsApp := application.New(application.Options{
 		Name:        "DevKit",
 		Description: "Local-first developer toolkit",
-		Services: []application.Service{
-			application.NewService(appService),
-		},
+		Services:    services,
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
 		},
