@@ -19,7 +19,12 @@ export type AgentMessageRichProps = {
  * a heading, some lists, a table of before/after values — which the plain bubble
  * can only print as markdown source.
  *
- * Prose uses Body/16; dense tables keep Body/12. List markers use the tertiary tier
+ * One reading size for everything an answer contains — paragraphs, lists,
+ * quotes, table cells — at the app's own body, 14/20; headings step up by
+ * weight, not by a jump in size. It used to be Body/16 prose, Heading/24 for
+ * `##` and Body/12 in tables, so a short reply with a heading and a table
+ * printed at three sizes and read as uneven, and 16px sat a size above
+ * everything else in the window. List markers use the tertiary tier
  * so the text column stays clean, inline code on surface/base (the same well
  * the code block and terminal use, one step down from the bubble), links in
  * status/info, and the blockquote marked by a 2px border/default rule rather
@@ -79,7 +84,7 @@ function Block({ block }: { block: MarkdownBlock }) {
           className={cn(
             "w-full text-text-primary",
             // Keep headings at least as large as prose; weight marks deeper levels.
-            block.level <= 2 ? "text-heading-24" : "text-title-16",
+            block.level <= 2 ? "text-title-16" : "text-title-14",
           )}
         >
           <Inline text={block.text} />
@@ -88,7 +93,7 @@ function Block({ block }: { block: MarkdownBlock }) {
 
     case "list":
       return (
-        <div className="flex w-full flex-col gap-1 text-body-16 text-text-primary">
+        <div className="flex w-full flex-col gap-1 text-body-14 text-text-primary">
           {block.items.map((item, idx) => (
             <div key={idx} className="flex w-full items-start gap-2">
               <span
@@ -112,7 +117,7 @@ function Block({ block }: { block: MarkdownBlock }) {
             aria-hidden="true"
             className="w-0.5 shrink-0 self-stretch bg-border-default"
           />
-          <p className="min-w-0 flex-1 text-body-16 text-text-secondary">
+          <p className="min-w-0 flex-1 text-body-14 text-text-secondary">
             <Inline text={block.text} />
           </p>
         </div>
@@ -130,7 +135,7 @@ function Block({ block }: { block: MarkdownBlock }) {
                 {block.head.map((cell, idx) => (
                   <th
                     key={idx}
-                    className="px-3 py-2 text-left text-label-12 text-text-tertiary"
+                    className="px-3 py-2 text-left text-body-14 text-text-tertiary"
                   >
                     {cell}
                   </th>
@@ -143,7 +148,7 @@ function Block({ block }: { block: MarkdownBlock }) {
                   {row.map((cell, idx) => (
                     <td
                       key={idx}
-                      className="px-3 py-2 text-left text-body-12 text-text-primary"
+                      className="px-3 py-2 text-left text-body-14 text-text-primary"
                     >
                       <Inline text={cell} />
                     </td>
@@ -157,7 +162,7 @@ function Block({ block }: { block: MarkdownBlock }) {
 
     default:
       return (
-        <p className="w-full text-body-16 break-words text-text-primary">
+        <p className="w-full text-body-14 break-words text-text-primary">
           <Inline text={block.text} />
         </p>
       );

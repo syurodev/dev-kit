@@ -74,7 +74,7 @@ export function AgentTurn({ turn, live = false, latest = false, vendor, onInspec
         <div className="flex w-full justify-end">
           <p
             data-testid="turn-prompt"
-            className="max-w-[80%] rounded-xl bg-surface-tinted px-4 py-3 text-body-16 whitespace-pre-wrap break-words text-text-primary select-text"
+            className="max-w-[80%] rounded-xl bg-surface-tinted px-4 py-2 text-body-14 whitespace-pre-wrap break-words text-text-primary select-text"
           >
             {turn.prompt.text}
           </p>
