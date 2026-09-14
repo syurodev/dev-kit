@@ -178,6 +178,38 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       expect(html).toContain("Edit queued prompt");
     });
 
+    it("draws queue and image controls at the 28px control size with real icons", () => {
+      const html = renderToString(
+        <AgentComposer
+          value=""
+          onChange={() => {}}
+          onSend={() => {}}
+          onCancel={() => {}}
+          imageAttachments={[{
+            id: "image-1",
+            name: "screenshot.png",
+            mimeType: "image/png",
+            data: "aW1hZ2U=",
+            previewUrl: "data:image/png;base64,aW1hZ2U=",
+            size: 5,
+          }]}
+          onRemoveImage={() => {}}
+          queuedPrompts={[{ id: "queued-1", text: "Run the tests", attachments: [], images: [] }]}
+          onCancelQueued={() => {}}
+          onEditQueued={() => {}}
+        />,
+      );
+
+      for (const label of ["Remove screenshot.png", "Edit queued prompt", "Cancel queued prompt"]) {
+        const button = html.match(new RegExp(`<button[^>]*aria-label="${label}"[^>]*>.*?</button>`))?.[0] ?? "";
+        expect(button, label).toContain('data-size="icon-sm"');
+        expect(button, label).toContain("<svg");
+      }
+      expect(html).toContain("lucide-pencil");
+      expect(html).not.toContain("✎");
+      expect(html).not.toContain("×");
+    });
+
     it("offers Resume only while the queue is paused", () => {
       const composer = (queuePaused: boolean) =>
         renderToString(

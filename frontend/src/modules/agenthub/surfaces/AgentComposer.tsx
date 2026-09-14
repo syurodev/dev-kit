@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import { useReducedMotion } from "framer-motion";
-import { AtSign, Check, ChevronDown, Command as CommandIcon, Play, SlidersHorizontal } from "lucide-react";
+import { AtSign, Check, ChevronDown, Command as CommandIcon, Pencil, Play, SlidersHorizontal, X } from "lucide-react";
 // Icon DATA, not components: morphicons interpolates path geometry, which a
 // lucide-react component does not expose. Same version as lucide-react.
 import { ArrowUp, Square } from "lucide";
@@ -260,8 +260,8 @@ export function AgentComposer({
                 <img src={image.previewUrl} alt={image.name} className="size-8 rounded-sm object-cover" />
                 <span className="max-w-32 truncate text-caption-11 text-text-secondary">{image.name}</span>
                 {onRemoveImage ? (
-                  <Button type="button" variant="ghost" size="icon-xs" aria-label={`Remove ${image.name}`} onClick={() => onRemoveImage(image.id)}>
-                    <span aria-hidden="true">×</span>
+                  <Button type="button" variant="ghost" size="icon-sm" aria-label={`Remove ${image.name}`} onClick={() => onRemoveImage(image.id)}>
+                    <X aria-hidden="true" />
                   </Button>
                 ) : null}
               </div>
@@ -286,8 +286,16 @@ export function AgentComposer({
               <div key={queued.id} className="flex max-w-full items-center gap-1 rounded-sm bg-(--state-soft) px-2 py-1 text-caption-11 text-text-secondary">
                 <span className="shrink-0">Queued</span>
                 <span className="min-w-0 truncate">{queued.text || `${queued.images.length} image${queued.images.length === 1 ? "" : "s"}`}</span>
-                {onEditQueued ? <Button type="button" variant="ghost" size="icon-xs" aria-label="Edit queued prompt" onClick={() => onEditQueued(queued)}>✎</Button> : null}
-                {onCancelQueued ? <Button type="button" variant="ghost" size="icon-xs" aria-label="Cancel queued prompt" onClick={() => onCancelQueued(queued.id)}>×</Button> : null}
+                {onEditQueued ? (
+                  <Button type="button" variant="ghost" size="icon-sm" aria-label="Edit queued prompt" onClick={() => onEditQueued(queued)}>
+                    <Pencil aria-hidden="true" />
+                  </Button>
+                ) : null}
+                {onCancelQueued ? (
+                  <Button type="button" variant="ghost" size="icon-sm" aria-label="Cancel queued prompt" onClick={() => onCancelQueued(queued.id)}>
+                    <X aria-hidden="true" />
+                  </Button>
+                ) : null}
               </div>
             ))}
           </div>
