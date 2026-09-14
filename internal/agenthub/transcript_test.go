@@ -18,6 +18,11 @@ func recordAll(t *testing.T, store agenthub.Store, sessionID string, raws ...str
 			t.Fatalf("record %s: %v", raw, err)
 		}
 	}
+	// The turn ends here, the way Invoke ends it — these tests assert what a
+	// reload sees, and a reload lands after the tail has been flushed.
+	if err := rec.Flush(context.Background(), sessionID); err != nil {
+		t.Fatalf("flush: %v", err)
+	}
 }
 
 // Chunks arrive per token. One row each would make this table grow faster than

@@ -106,7 +106,7 @@ func NewService(reg *Registry, store Store, emit func(sessionID string, update j
 	if emit == nil {
 		emit = func(string, json.RawMessage) {}
 	}
-	return &Service{
+	s := &Service{
 		reg:       reg,
 		store:     store,
 		recorder:  NewRecorder(store),
@@ -115,6 +115,15 @@ func NewService(reg *Registry, store Store, emit func(sessionID string, update j
 		invoking:  make(map[string]struct{}),
 		emit:      emit,
 	}
+	// A cadence flush has no caller to return its error to; route it to the
+	// same hook Record errors take, read at call time because callers set
+	// OnRecordError after NewService.
+	s.recorder.OnWriteError = func(sessionID string, err error) {
+		if s.OnRecordError != nil {
+			s.OnRecordError(sessionID, err)
+		}
+	}
+	return s
 }
 
 // RecoverStaleSessions resets sessions whose row still claims a turn is in
@@ -408,6 +417,12 @@ func (s *Service) CloseSession(ctx context.Context, id string) error {
 	delete(s.endpoints, id)
 	s.mu.Unlock()
 
+	// The conversation must be complete on disk before the session becomes
+	// history: closing is the one path after which no turn will ever flush.
+	if err := s.recorder.Flush(ctx, id); err != nil {
+		return err
+	}
+
 	if rt != nil {
 		if err := rt.Close(ctx); err != nil {
 			return err
@@ -574,6 +589,13 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 		s.mu.Lock()
 		delete(s.invoking, in.SessionID)
 		s.mu.Unlock()
+		// The turn is over however it went: land the tail the recorder is
+		// still holding. WithoutCancel because the error paths reach here on
+		// a context that is already gone — the transcript of a failed turn is
+		// exactly the one worth keeping.
+		if err := s.recorder.Flush(context.WithoutCancel(ctx), in.SessionID); err != nil && s.OnRecordError != nil {
+			s.OnRecordError(in.SessionID, err)
+		}
 	}()
 
 	adapter, ok := s.reg.Get(sess.AgentType)
@@ -602,10 +624,9 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 			lastUpdateMu.Lock()
 			lastUpdate = append(json.RawMessage(nil), update...)
 			lastUpdateMu.Unlock()
-			// Persist before emitting: a UI that reloads mid-turn must find
-			// the same transcript the live event described. Recording is
-			// best-effort — a write failure must not abort a turn the agent is
-			// already running, so the error rides the audit trail, not Prompt.
+			// Emit before persisting: the screen must never wait on SQLite,
+			// and the recorder batches its writes anyway — a reload lands
+			// within one flush cadence of what the live event said.
 			//
 			// recordCtx, not ctx: the turn's context is cancelled the moment
 			// the turn goes wrong, and the update that says *why* is the last
@@ -613,6 +634,7 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 			// keeping was the one guaranteed to be dropped — the log read
 			// "transcript write failed: context canceled" and the UI drew an
 			// empty bubble where the agent's error should have been.
+			s.emit(in.SessionID, update)
 			parsed := ParseSessionUpdate(update)
 			if parsed.Kind == UpdateSessionInfo && parsed.Title != "" {
 				if err := s.adoptSessionTitle(recordCtx, in.SessionID, parsed.Title); err != nil && s.OnRecordError != nil {
@@ -629,7 +651,6 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 			if err := s.recorder.Record(recordCtx, in.SessionID, parsed); err != nil && s.OnRecordError != nil {
 				s.OnRecordError(in.SessionID, err)
 			}
-			s.emit(in.SessionID, update)
 		},
 		OnPermission: func(ctx context.Context, params json.RawMessage) (json.RawMessage, error) {
 			outcome, err := s.mediatePermission(ctx, in.SessionID, params)
