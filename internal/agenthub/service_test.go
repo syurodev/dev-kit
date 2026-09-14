@@ -1029,3 +1029,69 @@ func TestServiceToolCallDetailReturnsTheStoredRow(t *testing.T) {
 		t.Fatalf("err = %v, want ErrTranscriptEntryNotFound", err)
 	}
 }
+
+// stallingRuntime streams part of a reply and then waits, the way a turn is
+// still running when the user quits.
+type stallingRuntime struct {
+	titlingRuntime
+	streamed chan struct{}
+	release  chan struct{}
+}
+
+func (r *stallingRuntime) Prompt(context.Context, []acp.ContentBlock) (agenthub.PromptOutcome, error) {
+	for _, token := range []string{"hello ", "wor", "ld"} {
+		r.handlers.OnUpdate([]byte(`{"sessionUpdate":"agent_message_chunk","messageId":"m1","content":{"type":"text","text":"`+token+`"}}`), nil)
+	}
+	close(r.streamed)
+	<-r.release
+	return agenthub.PromptOutcome{StopReason: "end_turn"}, nil
+}
+
+type stallingAdapter struct {
+	titlingAdapter
+	rt *stallingRuntime
+}
+
+func (a stallingAdapter) Open(context.Context, agenthub.OpenSpec) (agenthub.SessionRuntime, error) {
+	return a.rt, nil
+}
+
+// Quitting mid-stream used to lose whatever the recorder still held: nothing
+// on the quit path flushed it before the database closed.
+func TestShutdownLandsTheTailOfAStreamingTurn(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	rt := &stallingRuntime{streamed: make(chan struct{}), release: make(chan struct{})}
+	reg := agenthub.NewRegistry()
+	reg.Register(stallingAdapter{rt: rt})
+	svc := agenthub.NewService(reg, store, nil)
+
+	sess, err := svc.CreateSession(ctx, agenthub.CreateInput{AgentType: agenthub.AgentType("titling"), Cwd: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = svc.Invoke(ctx, agenthub.InvokeInput{SessionID: sess.ID, Prompt: "go"})
+	}()
+	t.Cleanup(func() { close(rt.release); <-done })
+	<-rt.streamed
+
+	if err := svc.Shutdown(ctx); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := store.ListTranscript(ctx, sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reply string
+	for _, row := range rows {
+		if row.Kind == agenthub.UpdateAgentMessageChunk {
+			reply = row.Text
+		}
+	}
+	if reply != "hello world" {
+		t.Fatalf("reply on disk after shutdown = %q, want the whole streamed text", reply)
+	}
+}

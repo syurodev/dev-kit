@@ -3,6 +3,7 @@ package agenthub
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 	"time"
@@ -70,6 +71,10 @@ type Recorder struct {
 
 	mu       sync.Mutex
 	sessions map[string]*recordSession
+	// closed is set by FlushAll. The database goes away right after it, so a
+	// late update or a cadence timer that was already waiting on mu must not
+	// reach the store.
+	closed bool
 }
 
 // recordSession is the per-session write state. One mutex on the Recorder
@@ -80,6 +85,10 @@ type Recorder struct {
 type recordSession struct {
 	tail      *chunkTail
 	tailDirty bool
+	// unflushed holds retired tails whose last write failed. Their rows are
+	// already in place, so seq order is safe; only the text is late, and the
+	// next flush retries it rather than dropping it with the tail.
+	unflushed []*chunkTail
 	// tools holds only the calls with unflushed updates; a flushed call is
 	// dropped and a late update re-reads the row, which bounds memory to the
 	// in-flight calls instead of the session's whole history of big outputs.
@@ -131,10 +140,46 @@ func (r *Recorder) Flush(ctx context.Context, sessionID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	s := r.sessions[sessionID]
-	if s == nil {
+	if s == nil || r.closed {
 		return nil
 	}
 	return r.flushLocked(ctx, sessionID, s)
+}
+
+// Forget flushes one session and drops its write state. CloseSession calls it
+// once the runtime is gone, so a hub that opens and closes sessions all day
+// does not hold an entry for every one it ever saw. State that fails to write
+// is kept, not forgotten: losing the tail is worse than keeping the entry.
+func (r *Recorder) Forget(ctx context.Context, sessionID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s := r.sessions[sessionID]
+	if s == nil || r.closed {
+		return nil
+	}
+	if err := r.flushLocked(ctx, sessionID, s); err != nil {
+		return err
+	}
+	delete(r.sessions, sessionID)
+	return nil
+}
+
+// FlushAll writes out every session's buffered state and stops the recorder.
+// It is the app-quit path: a Cmd+Q mid-stream otherwise lost the last cadence
+// of text and left buffered tool calls "in progress" forever. After it, Record,
+// Flush and any cadence timer still pending are no-ops — the database closes
+// next.
+func (r *Recorder) FlushAll(ctx context.Context) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var errs []error
+	for id, s := range r.sessions {
+		if err := r.flushLocked(ctx, id, s); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	r.closed = true
+	return errors.Join(errs...)
 }
 
 func (r *Recorder) flushLocked(ctx context.Context, sessionID string, s *recordSession) error {
@@ -143,19 +188,26 @@ func (r *Recorder) flushLocked(ctx context.Context, sessionID string, s *recordS
 		s.timer = nil
 	}
 	var firstErr error
+	kept := s.unflushed[:0]
+	for _, tail := range s.unflushed {
+		if err := r.writeTail(ctx, sessionID, tail); err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			kept = append(kept, tail)
+		}
+	}
+	s.unflushed = kept
 	if s.tail != nil && s.tailDirty {
-		entry := TranscriptEntry{
-			ID:        s.tail.id,
-			SessionID: sessionID,
-			Kind:      s.tail.kind,
-			Text:      s.tail.text.String(),
-			Payload:   s.tail.payload,
-			UpdatedAt: r.now(),
+		// Dirty stays set on failure: the next flush retries the write
+		// instead of believing a text that never reached the row.
+		if err := r.writeTail(ctx, sessionID, s.tail); err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+		} else {
+			s.tailDirty = false
 		}
-		if err := r.store.UpdateTranscript(ctx, entry); err != nil && firstErr == nil {
-			firstErr = err
-		}
-		s.tailDirty = false
 	}
 	for id, tt := range s.tools {
 		payload, err := json.Marshal(SessionUpdate{Kind: tt.kind, ToolCall: &tt.call, Raw: tt.lastRaw})
@@ -182,6 +234,17 @@ func (r *Recorder) flushLocked(ctx context.Context, sessionID string, s *recordS
 	return firstErr
 }
 
+func (r *Recorder) writeTail(ctx context.Context, sessionID string, tail *chunkTail) error {
+	return r.store.UpdateTranscript(ctx, TranscriptEntry{
+		ID:        tail.id,
+		SessionID: sessionID,
+		Kind:      tail.kind,
+		Text:      tail.text.String(),
+		Payload:   tail.payload,
+		UpdatedAt: r.now(),
+	})
+}
+
 // armTimerLocked schedules the cadence flush. One timer per session, armed on
 // the first dirty write after a flush.
 func (r *Recorder) armTimerLocked(sessionID string, s *recordSession) {
@@ -196,7 +259,12 @@ func (r *Recorder) armTimerLocked(sessionID string, s *recordSession) {
 	})
 }
 
+// sessionLocked returns the session's write state, creating it on first use,
+// or nil once FlushAll has stopped the recorder.
 func (r *Recorder) sessionLocked(sessionID string) *recordSession {
+	if r.closed {
+		return nil
+	}
 	s := r.sessions[sessionID]
 	if s == nil {
 		s = &recordSession{tools: map[string]*toolTail{}}
@@ -223,29 +291,33 @@ func (r *Recorder) Record(ctx context.Context, sessionID string, update SessionU
 	}
 }
 
-// recordPlain flushes first on purpose: a plain row's seq must not overtake a
-// still-buffered tail, or the transcript reorders itself on reload.
+// recordPlain flushes first so the buffered tail lands with the row that ends
+// it. A failed flush does not stop the row: the tail's row already holds its
+// seq, so only its text is late — and returning early here used to drop this
+// update for good.
 func (r *Recorder) recordPlain(ctx context.Context, sessionID string, update SessionUpdate) error {
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	s := r.sessionLocked(sessionID)
-	if err := r.flushLocked(ctx, sessionID, s); err != nil {
-		r.mu.Unlock()
-		return err
+	if s == nil {
+		return nil
 	}
+	flushErr := r.flushLocked(ctx, sessionID, s)
 	if err := r.store.AppendTranscript(ctx, r.newEntry(sessionID, update)); err != nil {
-		r.mu.Unlock()
-		return err
+		return errors.Join(flushErr, err)
 	}
 	retireTail(s)
-	r.mu.Unlock()
-	return nil
+	return flushErr
 }
 
-// retireTail drops the chunk tail after a non-chunk row has been appended
-// behind it. The tail's row is no longer the session's last row, and folding a
-// later chunk into it would move that text above rows the user already saw
-// below it. The caller must have flushed first — the buffered text is real.
+// retireTail drops the chunk tail after a row has been appended behind it. The
+// tail's row is no longer the session's last row, and folding a later chunk
+// into it would move that text above rows the user already saw below it. A
+// tail whose text never reached its row is kept for the next flush to retry.
 func retireTail(s *recordSession) {
+	if s.tail != nil && s.tailDirty {
+		s.unflushed = append(s.unflushed, s.tail)
+	}
 	s.tail = nil
 	s.tailDirty = false
 }
@@ -273,62 +345,58 @@ func isSessionState(kind UpdateKind) bool {
 // can restore the value without the transcript carrying its whole history.
 func (r *Recorder) recordSessionState(ctx context.Context, sessionID string, update SessionUpdate) error {
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	s := r.sessionLocked(sessionID)
-	if err := r.flushLocked(ctx, sessionID, s); err != nil {
-		r.mu.Unlock()
-		return err
+	if s == nil {
+		return nil
 	}
+	flushErr := r.flushLocked(ctx, sessionID, s)
 	prev, ok, err := r.store.FindTranscriptKind(ctx, sessionID, update.Kind)
 	if err != nil {
-		r.mu.Unlock()
-		return err
+		return errors.Join(flushErr, err)
 	}
 	if !ok {
 		if err := r.store.AppendTranscript(ctx, r.newEntry(sessionID, update)); err != nil {
-			r.mu.Unlock()
-			return err
+			return errors.Join(flushErr, err)
 		}
 		// The state row now sits below any chunk that follows; the tail's row
 		// is no longer the last one.
 		retireTail(s)
-		r.mu.Unlock()
-		return nil
+		return flushErr
 	}
 	payload, err := json.Marshal(update)
 	if err != nil {
-		r.mu.Unlock()
-		return err
+		return errors.Join(flushErr, err)
 	}
 	prev.Payload = payload
 	prev.UpdatedAt = r.now()
-	err = r.store.UpdateTranscript(ctx, prev)
-	r.mu.Unlock()
-	return err
+	return errors.Join(flushErr, r.store.UpdateTranscript(ctx, prev))
 }
 
 func (r *Recorder) recordChunk(ctx context.Context, sessionID string, update SessionUpdate) error {
 	text := update.Text()
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	s := r.sessionLocked(sessionID)
+	if s == nil {
+		return nil
+	}
 	if s.tail != nil && s.tail.kind == update.Kind && sameMessageID(s.tail.messageID, update.MessageID) {
 		s.tail.text.WriteString(text)
 		s.tail.updatedAt = r.now()
 		s.tailDirty = true
 		r.armTimerLocked(sessionID, s)
-		r.mu.Unlock()
 		return nil
 	}
 	// A new message starts: the old tail lands first, because its row already
-	// holds an earlier seq and only its text is still growing in memory.
-	if err := r.flushLocked(ctx, sessionID, s); err != nil {
-		r.mu.Unlock()
-		return err
-	}
+	// holds an earlier seq and only its text is still growing in memory. If
+	// that write fails the new message is still recorded — the old tail waits
+	// in unflushed for the next flush instead of taking this chunk down too.
+	flushErr := r.flushLocked(ctx, sessionID, s)
 	entry := r.newEntry(sessionID, update)
 	entry.Text = text
 	if err := r.store.AppendTranscript(ctx, entry); err != nil {
-		r.mu.Unlock()
-		return err
+		return errors.Join(flushErr, err)
 	}
 	tail := &chunkTail{
 		id:        entry.ID,
@@ -338,16 +406,20 @@ func (r *Recorder) recordChunk(ctx context.Context, sessionID string, update Ses
 		updatedAt: entry.UpdatedAt,
 	}
 	tail.text.WriteString(text)
+	retireTail(s)
 	s.tail = tail
 	s.tailDirty = true
 	r.armTimerLocked(sessionID, s)
-	r.mu.Unlock()
-	return nil
+	return flushErr
 }
 
 func (r *Recorder) recordToolCall(ctx context.Context, sessionID string, update SessionUpdate) error {
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	s := r.sessionLocked(sessionID)
+	if s == nil {
+		return nil
+	}
 	if tt, ok := s.tools[update.ToolCall.ID]; ok {
 		tt.call = *mergeToolCall(&tt.call, update.ToolCall)
 		if len(update.Raw) > 0 {
@@ -355,11 +427,9 @@ func (r *Recorder) recordToolCall(ctx context.Context, sessionID string, update 
 		}
 		tt.updatedAt = r.now()
 		r.armTimerLocked(sessionID, s)
-		r.mu.Unlock()
 		return nil
 	}
 	if prev, ok, err := r.store.FindTranscriptToolCall(ctx, sessionID, update.ToolCall.ID); err != nil {
-		r.mu.Unlock()
 		return err
 	} else if ok {
 		// A call whose tail was already flushed: continue its row from the
@@ -376,28 +446,21 @@ func (r *Recorder) recordToolCall(ctx context.Context, sessionID string, update 
 		}
 		payload, err := json.Marshal(stored)
 		if err != nil {
-			r.mu.Unlock()
 			return err
 		}
 		prev.Payload = payload
 		prev.UpdatedAt = r.now()
-		err = r.store.UpdateTranscript(ctx, prev)
-		r.mu.Unlock()
-		return err
+		return r.store.UpdateTranscript(ctx, prev)
 	}
 	// First sighting: flush the chunk tail, insert the row so seq order is
 	// arrival order, and retire the tail — its row is no longer the session's
 	// last, so a later chunk must not fold back into it. The updates that
 	// follow this call are what gets batched.
-	if err := r.flushLocked(ctx, sessionID, s); err != nil {
-		r.mu.Unlock()
-		return err
-	}
+	flushErr := r.flushLocked(ctx, sessionID, s)
 	entry := r.newEntry(sessionID, update)
 	entry.ToolCallID = update.ToolCall.ID
 	if err := r.store.AppendTranscript(ctx, entry); err != nil {
-		r.mu.Unlock()
-		return err
+		return errors.Join(flushErr, err)
 	}
 	retireTail(s)
 	s.tools[update.ToolCall.ID] = &toolTail{
@@ -408,8 +471,7 @@ func (r *Recorder) recordToolCall(ctx context.Context, sessionID string, update 
 		updatedAt: entry.UpdatedAt,
 	}
 	r.armTimerLocked(sessionID, s)
-	r.mu.Unlock()
-	return nil
+	return flushErr
 }
 
 // sameMessageID keeps two assistant messages from folding into one bubble.

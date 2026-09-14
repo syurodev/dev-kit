@@ -457,7 +457,11 @@ Ba quyết định về `agent_transcript`, mỗi cái sửa một chiều của
 **Ghi theo nhịp.** Recorder giữ phần đuôi mỗi session trong bộ nhớ
 (strings.Builder của tin đang stream + trạng thái tool call đã gộp) và ghi
 SQLite theo nhịp 250 ms, khi tin đổi (kind/messageId), khi lượt kết thúc
-(`Invoke` flush bằng `context.WithoutCancel`) và khi đóng session. Việc ghi
+(`Invoke` flush bằng `context.WithoutCancel`), khi đóng session (rồi quên state
+của session đó) và khi thoát app (`Service.Shutdown` trong `OnShutdown`, trước
+khi DB đóng — sau đó recorder không ghi gì nữa). Ghi lỗi không làm mất dữ
+liệu: đuôi vẫn "dirty" và lần flush sau thử lại; tin mới vẫn được ghi dù flush
+đuôi cũ lỗi. Việc ghi
 từng token là SELECT-cả-dòng-cuối + UPDATE-toàn-bộ-text mỗi token — O(len) mỗi
 token, O(len²) mỗi tin; 10.000 token mất 21,17 s, sau batching 7,39 ms kể cả
 flush cuối (số đo: [Performance / Baseline — backend

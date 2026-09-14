@@ -141,6 +141,14 @@ func NewService(reg *Registry, store Store, emit func(sessionID string, update j
 	return s
 }
 
+// Shutdown lands every session's buffered transcript and stops the recorder.
+// The app calls it on quit, before the database closes: the recorder batches
+// its writes, so without it a quit mid-stream lost the last cadence of text
+// and left buffered tool calls "in progress" on reload.
+func (s *Service) Shutdown(ctx context.Context) error {
+	return s.recorder.FlushAll(ctx)
+}
+
 // RecoverStaleSessions resets sessions whose row still claims a turn is in
 // flight (running / awaiting_permission). No ACP process survives the restart
 // that runs this, so those rows describe turns that can never finish — and
@@ -541,6 +549,11 @@ func (s *Service) CloseSession(ctx context.Context, id string) error {
 	}
 	if closeEndpoint != nil {
 		closeEndpoint()
+	}
+	// With the runtime gone nothing records for this session any more; land
+	// whatever arrived during the close and drop its write state.
+	if err := s.recorder.Forget(ctx, id); err != nil {
+		return err
 	}
 
 	sess.Status = SessionStatusClosed

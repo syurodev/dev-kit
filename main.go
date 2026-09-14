@@ -428,8 +428,10 @@ func main() {
 	// no ACP process survives the restart that could finish those turns —
 	// without this reset, Invoke refuses the sessions with ErrSessionBusy
 	// forever. Same startup contract as outbox.RecoverStaleSyncing above.
+	// Logged, not fatal, like the prune above: a failed reset leaves some
+	// sessions refusing prompts, which is no reason to refuse to start DevKit.
 	if err := agentSvc.RecoverStaleSessions(context.Background()); err != nil {
-		log.Fatal(err)
+		log.Printf("agenthub: recover stale sessions: %v", err)
 	}
 	// Keep the stamped deadline and the enforced one from drifting apart.
 	agentWaiter.Timeout = agentSvc.PermissionTimeoutOrDefault()
@@ -614,7 +616,15 @@ func main() {
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: true,
 		},
-		OnShutdown: mcpCancel,
+		// The transcript recorder batches writes; land every buffered tail
+		// while the database is still open (it closes in main's defers,
+		// after Run returns).
+		OnShutdown: func() {
+			if err := agentSvc.Shutdown(context.Background()); err != nil {
+				log.Printf("agenthub: flush transcripts on quit: %v", err)
+			}
+			mcpCancel()
+		},
 		ShouldQuit: quitAfterFlush(),
 	})
 	openBrowser = wailsApp.Browser.OpenURL

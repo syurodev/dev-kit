@@ -3,6 +3,7 @@ package agenthub_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -178,19 +179,151 @@ func TestRecorderFlushesOnTheCadence(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// Wait for the end state, not for the first write: under -race a timer
+	// can fire between two Records and land only part of the tail, and the
+	// next cadence brings the rest.
+	var rows []agenthub.TranscriptEntry
 	deadline := time.Now().Add(2 * time.Second)
-	for store.updates.Load() == 0 && time.Now().Before(deadline) {
+	for time.Now().Before(deadline) {
+		var err error
+		if rows, err = store.ListTranscript(ctx, sid); err != nil {
+			t.Fatal(err)
+		}
+		if len(rows) == 1 && rows[0].Text == "xxxxxxxxxx" {
+			return
+		}
 		time.Sleep(2 * time.Millisecond)
 	}
-	if got := store.updates.Load(); got == 0 {
-		t.Fatal("cadence flush never wrote the tail")
+	t.Fatalf("row after cadence = %+v, want the full tail", rows)
+}
+
+// flakyStore fails the next n transcript updates, the way a briefly locked
+// database does.
+type flakyStore struct {
+	agenthub.Store
+	failUpdates atomic.Int64
+}
+
+func (s *flakyStore) UpdateTranscript(ctx context.Context, e agenthub.TranscriptEntry) error {
+	if s.failUpdates.Add(-1) >= 0 {
+		return errors.New("database is locked")
+	}
+	return s.Store.UpdateTranscript(ctx, e)
+}
+
+// A failed flush used to mark the tail clean anyway, so the retry had nothing
+// to write — and a new message starting behind a failed flush returned early
+// and dropped its own first chunk.
+func TestRecorderRetriesATailWhoseWriteFailed(t *testing.T) {
+	store := &flakyStore{Store: newTestStore(t)}
+	ctx := context.Background()
+	sid := seedSession(t, store)
+	rec := agenthub.NewRecorder(store)
+	rec.FlushInterval = 0
+
+	for _, token := range []string{"a", "b"} {
+		if err := rec.Record(ctx, sid, chunkUpdate("m1", token)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store.failUpdates.Store(1)
+	if err := rec.Flush(ctx, sid); err == nil {
+		t.Fatal("flush against a failing store reported success")
+	}
+	if err := rec.Flush(ctx, sid); err != nil {
+		t.Fatalf("retry: %v", err)
 	}
 	rows, err := store.ListTranscript(ctx, sid)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 1 || rows[0].Text != "xxxxxxxxxx" {
-		t.Fatalf("row after cadence = %+v, want the full tail", rows)
+	if len(rows) != 1 || rows[0].Text != "ab" {
+		t.Fatalf("rows after retry = %+v, want the whole tail", rows)
+	}
+
+	if err := rec.Record(ctx, sid, chunkUpdate("m1", "c")); err != nil {
+		t.Fatal(err)
+	}
+	store.failUpdates.Store(1)
+	// The error is reported, but the chunk that triggered the flush is kept.
+	_ = rec.Record(ctx, sid, chunkUpdate("m2", "x"))
+	if err := rec.Record(ctx, sid, chunkUpdate("m2", "y")); err != nil {
+		t.Fatal(err)
+	}
+	if err := rec.Flush(ctx, sid); err != nil {
+		t.Fatal(err)
+	}
+	rows, err = store.ListTranscript(ctx, sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 || rows[0].Text != "abc" || rows[1].Text != "xy" {
+		t.Fatalf("rows = %+v, want m1 %q and m2 %q", rows, "abc", "xy")
+	}
+}
+
+// FlushAll is the quit path: every session's buffered tail and tool state
+// lands without waiting for a cadence, and nothing writes after it — the
+// database closes right behind it.
+func TestRecorderFlushAllLandsEverySessionAndStops(t *testing.T) {
+	store := &countingStore{Store: newTestStore(t)}
+	ctx := context.Background()
+	chat := seedSession(t, store)
+	tools := seedSession(t, store)
+	rec := agenthub.NewRecorder(store)
+	rec.FlushInterval = time.Hour // only FlushAll can land anything
+
+	for _, token := range []string{"hello ", "world"} {
+		if err := rec.Record(ctx, chat, chunkUpdate("m1", token)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, status := range []string{"in_progress", "completed"} {
+		if err := rec.Record(ctx, tools, agenthub.SessionUpdate{
+			Kind:     agenthub.UpdateToolCallUpdate,
+			ToolCall: &agenthub.ToolCall{ID: "c1", Title: "Run", Status: status},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := rec.FlushAll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := store.ListTranscript(ctx, chat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Text != "hello world" {
+		t.Fatalf("chat rows = %+v, want the whole streamed text", rows)
+	}
+	entry, ok, err := store.FindTranscriptToolCall(ctx, tools, "c1")
+	if err != nil || !ok {
+		t.Fatalf("find tool call: ok=%v err=%v", ok, err)
+	}
+	var stored agenthub.SessionUpdate
+	if err := json.Unmarshal(entry.Payload, &stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored.ToolCall == nil || stored.ToolCall.Status != "completed" {
+		t.Fatalf("tool call = %+v, want the buffered completed status", stored.ToolCall)
+	}
+
+	appends, updates := store.appends.Load(), store.updates.Load()
+	rec.FlushInterval = time.Millisecond
+	if err := rec.Record(ctx, chat, chunkUpdate("m1", " again")); err != nil {
+		t.Fatal(err)
+	}
+	if err := rec.Record(ctx, chat, chunkUpdate("m2", "late")); err != nil {
+		t.Fatal(err)
+	}
+	if err := rec.Flush(ctx, chat); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(20 * time.Millisecond) // long enough for any cadence timer to fire
+	if store.appends.Load() != appends || store.updates.Load() != updates {
+		t.Fatalf("writes after FlushAll: appends %d→%d, updates %d→%d",
+			appends, store.appends.Load(), updates, store.updates.Load())
 	}
 }
 
