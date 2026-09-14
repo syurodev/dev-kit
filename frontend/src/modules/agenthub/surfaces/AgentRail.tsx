@@ -107,9 +107,10 @@ export function AgentRail({
       data-testid="agent-rail"
       data-state={effectiveState}
       className={cn(
-        // No fill: panel-surface behind the rail is the ground. pl-3 pr-5
-        // leaves the right margin the shell's scroll ruler occupies.
-        "flex h-full w-80 flex-col overflow-hidden pt-0 pr-5 pb-3 pl-3 select-none",
+        // No fill: panel-surface behind the rail is the ground. No side
+        // padding: the transcript scrolls edge to edge so its scrollbar sits on
+        // the panel's edge, and each band below pads itself.
+        "flex h-full w-80 flex-col overflow-hidden pt-0 pb-3 select-none",
         className,
       )}
     >
@@ -118,6 +119,7 @@ export function AgentRail({
           sessions={sessions}
           activeSessionId={activeSession?.id}
           onSelectSession={onSelectSession}
+          className="px-3"
         />
       ) : null}
 
@@ -128,7 +130,8 @@ export function AgentRail({
       {activeSession ? (
         <header
           data-testid="agent-rail-header"
-          className="flex w-full shrink-0 flex-col gap-1 px-2 py-3"
+          // pr-10 clears the split panel's close button, pinned top-right.
+          className="flex w-full shrink-0 flex-col gap-1 py-3 pr-10 pl-5"
         >
           <div className="flex w-full items-center gap-2">
             <VendorIcon
@@ -148,7 +151,7 @@ export function AgentRail({
 
       {/* 3. Rail Body */}
       {effectiveState === "Empty" ? (
-        <Empty data-testid="agent-rail-empty" className="gap-2 px-3 py-3 pr-5">
+        <Empty data-testid="agent-rail-empty" className="gap-2 px-6 py-3">
           <EmptyHeader className="w-58 max-w-full gap-2">
             <EmptyTitle className="text-text-secondary">No agents running</EmptyTitle>
             <EmptyDescription className="text-caption-11 text-text-tertiary">
@@ -166,7 +169,7 @@ export function AgentRail({
           {isPendingForActiveSession && pendingPermission ? (
             <div
               data-testid="rail-inline-permission"
-              className="px-3 pt-2 shrink-0"
+              className="px-6 pt-2 shrink-0"
             >
               <AgentPermissionRequest
                 pending={pendingPermission}
@@ -183,11 +186,11 @@ export function AgentRail({
           </div>
 
           {errorMessage ? (
-            <p className="px-3 pb-1 text-caption-11 text-status-danger">{errorMessage}</p>
+            <p className="px-6 pb-1 text-caption-11 text-status-danger">{errorMessage}</p>
           ) : null}
 
           {/* Rail Composer at bottom */}
-          <div className="shrink-0 p-3 pt-1">
+          <div className="shrink-0 px-4 pt-1">
             <AgentComposer
               size="rail"
               value={promptValue}

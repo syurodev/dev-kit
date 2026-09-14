@@ -339,8 +339,9 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       // ground. A fill *here* would be a second opaque layer on an opaque one.
       const rootClass = html.slice(html.indexOf('class="'), html.indexOf('">'));
       expect(rootClass).not.toContain("bg-");
-      // pl-3 pr-5: the right margin is where the shell's scroll ruler lives.
-      expect(rootClass).toContain("pr-5");
+      // No side padding on the root: it would inset the transcript's scrollbar
+      // from the panel's edge. The bands inside pad themselves.
+      expect(rootClass).not.toMatch(/\bp[lrx]-/);
     });
 
     it("carries depth and cwd in the header, not a status pill", () => {

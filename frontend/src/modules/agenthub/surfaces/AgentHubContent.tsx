@@ -226,7 +226,10 @@ export function AgentHubContent({
         // Relative, no top padding and no gap: the header floats over the body
         // rather than taking a row above it, so the body starts at the top edge
         // and pads itself by the header's measured height instead.
-        "relative flex size-full min-h-0 min-w-0 flex-col overflow-hidden px-4 pb-4",
+        // No side or bottom padding either: the transcript scrolls, and padding
+        // out here put its scrollbar 16px in from the card's edge. Each body
+        // pads its own content (the stream's px-6, the composer's px-6 pb-3).
+        "relative flex size-full min-h-0 min-w-0 flex-col overflow-hidden",
         className,
       )}
       style={{ "--header-inset": `${headerHeight}px` } as React.CSSProperties}

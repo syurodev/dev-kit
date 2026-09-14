@@ -346,8 +346,13 @@ export function SidebarSurface({ activeModuleId }: { activeModuleId: string | nu
             Finder/Notes sidebars sit closest to the desktop. */}
         {/* Keep the shared titlebar background visible through the rail.
             A compact horizontal inset leaves more room for long labels;
-            vertical spacing and the user's sidebar width stay unchanged. */}
-        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden px-(--space-sidebar-edge) py-2 glass-rail">
+            vertical spacing and the user's sidebar width stay unchanged.
+
+            Inset on the left only. Every module's list scrolls inside this
+            wrapper, so a right inset put each rail's scrollbar that far in from
+            its edge, with the 8px sash beyond it. On the right the sash is the
+            margin, and a scrollbar belongs against the edge it scrolls. */}
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden pl-(--space-sidebar-edge) py-2 glass-rail">
           {visited.map((moduleId) => (
             // `contents` keeps the rail a direct flex child of the column, as
             // it was before it had a wrapper; `hidden` takes a background one
