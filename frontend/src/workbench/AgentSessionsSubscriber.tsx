@@ -39,8 +39,11 @@ export function handleAgentTurnFinished(
   const targetTabs = moduleTabs(modules, "agenthub").openTabs.filter(
     (tab) => !tab.params?.sessionId || tab.params.sessionId === sessionId,
   );
+  // The turn is over, so the dot stops saying anything is happening. Whether
+  // anyone has seen the answer is the unread badge's job (below); a "success"
+  // dot never went away again.
   for (const tab of targetTabs) {
-    setTabStatus(tab.id, nextStatus === "error" ? "error" : "success");
+    setTabStatus(tab.id, nextStatus === "error" ? "error" : "idle");
   }
 
   const visible =
@@ -97,7 +100,7 @@ export function AgentSessionsSubscriber() {
    * Session metadata and tab status synchronization.
    * The shell-owned transcript stream is started alongside this listener;
    * `agenthub:sessionUpdate` marks a tab running; the separate turn-finished
-   * event below clears it to success/error and records an unread result.
+   * event below puts it back to idle (or error) and records an unread result.
    *
    * Subscribed globally so turns continue streaming when working in another module.
    * Synchronizes tab status with ACP update stream ('running' during turns,
