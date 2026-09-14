@@ -4,6 +4,7 @@ import { useReducedMotion } from "framer-motion";
 import { ScrollArea as ScrollAreaPrimitive } from "radix-ui";
 import { ScrollBar } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
+import { scheduleTranscriptFrame } from "../transcript";
 import type { TranscriptItem } from "../types";
 import { groupTurns, workedFor, type Turn } from "../turns";
 import { AgentJumpToLatest } from "./AgentJumpToLatest";
@@ -114,31 +115,6 @@ function initialStatusAnnouncement(status?: string): string {
   if (status === "running") return "Running…";
   if (status === "awaiting_permission") return "Waiting for permission.";
   return "";
-}
-
-function scheduleTranscriptFrame(callback: () => void): () => void {
-  let active = true;
-  let frameId: number | undefined;
-  const timeoutId = setTimeout(run, 50);
-
-  function run() {
-    if (!active) return;
-    active = false;
-    if (frameId !== undefined && typeof cancelAnimationFrame === "function") {
-      cancelAnimationFrame(frameId);
-    }
-    clearTimeout(timeoutId);
-    callback();
-  }
-
-  if (typeof requestAnimationFrame === "function") frameId = requestAnimationFrame(run);
-  return () => {
-    active = false;
-    if (frameId !== undefined && typeof cancelAnimationFrame === "function") {
-      cancelAnimationFrame(frameId);
-    }
-    clearTimeout(timeoutId);
-  };
 }
 
 /**

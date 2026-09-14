@@ -230,6 +230,7 @@ export function AgentHubContent({
       : session.status === "error"
         ? "Error"
         : "Conversation";
+  const isError = effectiveState === "Error";
 
   // The floating composer's height, measured, so the transcript can pad its
   // foot by exactly that much. A fixed guess is wrong the moment a file is
@@ -437,46 +438,18 @@ export function AgentHubContent({
             </EmptyContent>
           ) : null}
         </Empty>
-      ) : effectiveState === "Error" ? (
-        // Not centred: Figma keeps the transcript that led here above the card,
-        // because the failed tool call is the evidence for the error.
-        <div
-          data-testid="agent-hub-content-error"
-          className="flex min-h-0 w-full flex-1 flex-col gap-6"
-        >
-          <div className="min-h-0 flex-1">
-            <TranscriptStream
-              items={items}
-              streamKey={session?.id}
-              vendor={vendor}
-              sessionStatus={session?.status ?? sessionStatus}
-              hasMore={hasMore}
-              loadingOlder={loadingOlder}
-              onLoadOlder={onLoadOlder}
-              onOpenFile={onOpenFile}
-            />
-          </div>
-          <div className="w-full shrink-0 px-6 pb-6">
-            <AgentSessionError
-              cause={errorCause}
-              agentName={displayTitle || "Agent"}
-              reason={errorMessage}
-              onRetry={onRetrySession}
-              onOpenSettings={onOpenSettings}
-              onClose={onCloseSession}
-              className="w-full max-w-none"
-            >
-              {errorDetail}
-            </AgentSessionError>
-          </div>
-        </div>
       ) : (
+        // Error and Conversation share one container and one TranscriptStream,
+        // so a session failing does not remount the transcript and lose its
+        // scroll position and folded turns. Error is not centred: Figma keeps
+        // the transcript that led here above the card, because the failed tool
+        // call is the evidence for the error.
         <div
-          data-testid="agent-hub-content-conversation"
-          className="relative flex min-h-0 w-full min-w-0 flex-1 flex-col"
+          data-testid={isError ? "agent-hub-content-error" : "agent-hub-content-conversation"}
+          className={cn("relative flex min-h-0 w-full min-w-0 flex-1 flex-col", isError && "gap-6")}
           // How much of the transcript's foot the composer covers; the stream
           // pads by it so the last line of an answer scrolls clear.
-          style={{ "--composer-inset": `${composerHeight}px` } as React.CSSProperties}
+          style={isError ? undefined : ({ "--composer-inset": `${composerHeight}px` } as React.CSSProperties)}
         >
           <div className="min-h-0 flex-1 overflow-hidden">
             {draft ? (
@@ -511,10 +484,11 @@ export function AgentHubContent({
                 items={items}
                 streamKey={session?.id}
                 vendor={vendor}
-                streaming={streaming}
+                streaming={!isError && streaming}
                 sessionStatus={session?.status ?? sessionStatus}
-                onCopy={onCopy}
-                onEditPrompt={onPromptChange}
+                onCopy={isError ? undefined : onCopy}
+                // The error card replaces the composer, so there is nowhere to edit into.
+                onEditPrompt={isError ? undefined : onPromptChange}
                 hasMore={hasMore}
                 loadingOlder={loadingOlder}
                 onLoadOlder={onLoadOlder}
@@ -523,10 +497,25 @@ export function AgentHubContent({
             )}
           </div>
 
-          {/* Floats over the transcript's foot, in its reading column, so what
-              you write lines up with what you are answering. Only the composer
-              takes the pointer; the strip either side of it lets clicks through
-              to the text scrolling underneath. */}
+          {isError ? (
+            <div className="w-full shrink-0 px-6 pb-6">
+              <AgentSessionError
+                cause={errorCause}
+                agentName={displayTitle || "Agent"}
+                reason={errorMessage}
+                onRetry={onRetrySession}
+                onOpenSettings={onOpenSettings}
+                onClose={onCloseSession}
+                className="w-full max-w-none"
+              >
+                {errorDetail}
+              </AgentSessionError>
+            </div>
+          ) : (
+          // Floats over the transcript's foot, in its reading column, so what
+          // you write lines up with what you are answering. Only the composer
+          // takes the pointer; the strip either side of it lets clicks through
+          // to the text scrolling underneath.
           <div
             ref={composerRef}
             className="pointer-events-none absolute inset-x-0 bottom-0 flex w-full px-6 pb-3"
@@ -585,6 +574,7 @@ export function AgentHubContent({
             />
           </div>
           </div>
+          )}
         </div>
       )}
       <Dialog
