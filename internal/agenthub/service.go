@@ -81,18 +81,18 @@ type MCPEndpoints interface {
 
 // Service orchestrates vendor adapters, session persistence, and live runtimes.
 type Service struct {
-	reg               *Registry
-	store             Store
-	recorder          *Recorder
-	unknownSeen       map[string]struct{}
-	runtimes          map[string]SessionRuntime
-	endpoints         map[string]func() // per-session MCP socket close
-	invoking          map[string]struct{}
+	reg         *Registry
+	store       Store
+	recorder    *Recorder
+	unknownSeen map[string]struct{}
+	runtimes    map[string]SessionRuntime
+	endpoints   map[string]func() // per-session MCP socket close
+	invoking    map[string]struct{}
 	// resuming marks a session whose runtime is being reopened. A second
 	// caller waits on the channel rather than spawning a second process onto
 	// the same MCP socket path.
-	resuming map[string]chan struct{}
-	mu       sync.Mutex
+	resuming          map[string]chan struct{}
+	mu                sync.Mutex
 	emit              func(sessionID string, update json.RawMessage)
 	ResolvePermission PermissionResolver // nil = fail closed (no auto-approve)
 	PermissionTimeout time.Duration      // 0 = interaction.DefaultTimeout (60s)
@@ -1054,12 +1054,39 @@ func (s *Service) handleUpdate(ctx context.Context, sessionID string, update jso
 //
 // No permission handler: outside a turn there is nobody to ask, and a runtime
 // without one refuses, which is the fail-closed answer.
+//
+// A mode set from the handshake goes through the same handler, so the picker
+// gets it live and a reload gets it from the stored state row.
 func (s *Service) attachUpdates(sessionID string, rt SessionRuntime) {
 	rt.SetHandlers(RuntimeHandlers{
 		OnUpdate: func(update json.RawMessage, _ json.RawMessage) {
 			s.handleUpdate(context.Background(), sessionID, update)
 		},
 	})
+	if withModes, ok := rt.(RuntimeModes); ok {
+		if update := modeStateUpdate(withModes.Modes()); update != nil {
+			s.handleUpdate(context.Background(), sessionID, update)
+		}
+	}
+}
+
+// modeStateUpdate turns a handshake's mode set into a current_mode_update that
+// also lists the modes — the agent's own update shape plus the one field only
+// the handshake has, so every reader already handling the kind picks it up.
+// nil when the agent advertised no modes.
+func modeStateUpdate(modes *acp.SessionModeState) json.RawMessage {
+	if modes == nil || len(modes.AvailableModes) == 0 {
+		return nil
+	}
+	body, err := json.Marshal(map[string]any{
+		"sessionUpdate":  string(UpdateCurrentMode),
+		"currentModeId":  modes.CurrentModeID,
+		"availableModes": modes.AvailableModes,
+	})
+	if err != nil {
+		return nil
+	}
+	return body
 }
 
 // userEchoUpdate is the same echo in ACP's own wire shape, for the live event.

@@ -79,6 +79,17 @@ type RuntimeDeleter interface {
 	Delete(ctx context.Context) error
 }
 
+// RuntimeModes is implemented by runtimes whose vendor answered session/new or
+// session/load with a mode set.
+//
+// Optional for the same reason SessionLoader is: whether an agent has modes at
+// all is a fact about the vendor. The answer arrives before the service has
+// attached any handler, so the runtime keeps it and the service asks.
+type RuntimeModes interface {
+	// Modes returns the mode set from the handshake, or nil for none.
+	Modes() *acp.SessionModeState
+}
+
 // RuntimeLiveness is implemented by runtimes whose process can die under them
 // (subprocess-backed ones; an in-process runtime cannot).
 //

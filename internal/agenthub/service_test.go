@@ -1383,6 +1383,87 @@ func TestSettingsUpdateAfterResumeIsRecordedAndEmittedOnce(t *testing.T) {
 	}
 }
 
+// modesRuntime answers session/new with a mode set, as claude-agent-acp does,
+// and answers set_mode with the bare current_mode_update the agent sends.
+type modesRuntime struct{ titlingRuntime }
+
+func (r *modesRuntime) Modes() *acp.SessionModeState {
+	return &acp.SessionModeState{CurrentModeID: "default", AvailableModes: []acp.SessionMode{
+		{ID: "default", Name: "Default"},
+		{ID: "plan", Name: "Plan", Description: "Read only"},
+	}}
+}
+
+func (r *modesRuntime) SetMode(_ context.Context, modeID string) error {
+	r.handlers.OnUpdate([]byte(`{"sessionUpdate":"current_mode_update","currentModeId":"`+modeID+`"}`), nil)
+	return nil
+}
+
+func (r *modesRuntime) SetConfigOption(context.Context, string, string) error { return nil }
+
+type modesAdapter struct{ titlingAdapter }
+
+func (modesAdapter) Type() agenthub.AgentType { return agenthub.AgentType("modes") }
+func (modesAdapter) Open(context.Context, agenthub.OpenSpec) (agenthub.SessionRuntime, error) {
+	return &modesRuntime{}, nil
+}
+
+// The modes an agent advertises came back from session/new and were dropped
+// there, so the picker could offer only the mode the session was already in.
+func TestAdvertisedModesBecomeSessionState(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	reg := agenthub.NewRegistry()
+	reg.Register(modesAdapter{})
+	var mu sync.Mutex
+	var emitted []agenthub.SessionUpdate
+	svc := agenthub.NewService(reg, store, func(_ string, update json.RawMessage) {
+		mu.Lock()
+		emitted = append(emitted, agenthub.ParseSessionUpdate(update))
+		mu.Unlock()
+	})
+	sess, err := svc.CreateSession(ctx, agenthub.CreateInput{AgentType: agenthub.AgentType("modes"), Cwd: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	modeState := func() agenthub.SessionUpdate {
+		t.Helper()
+		page, err := svc.TranscriptPage(ctx, sess.ID, 0, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, entry := range append(page.State, page.Entries...) {
+			if entry.Kind == agenthub.UpdateCurrentMode {
+				var stored agenthub.SessionUpdate
+				if err := json.Unmarshal(entry.Payload, &stored); err != nil {
+					t.Fatal(err)
+				}
+				return stored
+			}
+		}
+		t.Fatal("no mode state recorded")
+		return agenthub.SessionUpdate{}
+	}
+
+	got := modeState()
+	if got.Mode != "default" || len(got.AvailableModes) != 2 || got.AvailableModes[1] != (acp.SessionMode{ID: "plan", Name: "Plan", Description: "Read only"}) {
+		t.Fatalf("recorded mode state = %+v", got)
+	}
+	mu.Lock()
+	if len(emitted) != 1 || emitted[0].Kind != agenthub.UpdateCurrentMode || len(emitted[0].AvailableModes) != 2 {
+		t.Fatalf("emitted %+v, want the mode set once", emitted)
+	}
+	mu.Unlock()
+
+	if err := svc.SetMode(ctx, sess.ID, "plan"); err != nil {
+		t.Fatal(err)
+	}
+	// The agent's update names only the new mode; the list must survive it.
+	if got := modeState(); got.Mode != "plan" || len(got.AvailableModes) != 2 {
+		t.Fatalf("after current_mode_update, mode state = %+v", got)
+	}
+}
+
 func TestSettingsOnAnOrphanThatCannotResumeSayUnavailable(t *testing.T) {
 	ctx := context.Background()
 	store := newTestStore(t)

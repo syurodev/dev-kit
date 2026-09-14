@@ -130,6 +130,24 @@ func TestParseSessionUpdateAvailableCommands(t *testing.T) {
 	}
 }
 
+// The agent's own current_mode_update names only the mode; the one the hub
+// makes from a session/new or session/load answer carries the list too.
+func TestParseSessionUpdateCurrentMode(t *testing.T) {
+	bare := agenthub.ParseSessionUpdate(json.RawMessage(`{"sessionUpdate":"current_mode_update","currentModeId":"plan"}`))
+	if bare.Kind != agenthub.UpdateCurrentMode || bare.Mode != "plan" || bare.AvailableModes != nil {
+		t.Fatalf("bare update = %+v", bare)
+	}
+
+	full := agenthub.ParseSessionUpdate(json.RawMessage(`{"sessionUpdate":"current_mode_update","currentModeId":"default",` +
+		`"availableModes":[{"id":"default","name":"Default"},{"id":"plan","name":"Plan","description":"Read only"}]}`))
+	if full.Mode != "default" || len(full.AvailableModes) != 2 {
+		t.Fatalf("full update = %+v", full)
+	}
+	if m := full.AvailableModes[1]; m.ID != "plan" || m.Name != "Plan" || m.Description != "Read only" {
+		t.Fatalf("mode = %+v", m)
+	}
+}
+
 // A kind this build does not model must keep its blob rather than vanish: the
 // Meta Inspector reads Raw, and a dropped notification is unrecoverable.
 func TestParseSessionUpdateUnknownKeepsRaw(t *testing.T) {

@@ -362,6 +362,15 @@ func (r *Recorder) recordSessionState(ctx context.Context, sessionID string, upd
 		retireTail(s)
 		return flushErr
 	}
+	if update.Kind == UpdateCurrentMode && len(update.AvailableModes) == 0 {
+		// The agent's current_mode_update names only the new mode; the list
+		// came once, from session/new or session/load, and replacing the row
+		// wholesale would lose it on the first mode change.
+		var stored SessionUpdate
+		if json.Unmarshal(prev.Payload, &stored) == nil {
+			update.AvailableModes = stored.AvailableModes
+		}
+	}
 	payload, err := json.Marshal(update)
 	if err != nil {
 		return errors.Join(flushErr, err)

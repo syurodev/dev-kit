@@ -49,8 +49,24 @@ type SessionNewRequest struct {
 // SessionNewResult is the result object for session/new
 // (schema: NewSessionResponse).
 type SessionNewResult struct {
-	SessionID string          `json:"sessionId"`
-	Meta      json.RawMessage `json:"_meta,omitempty"`
+	SessionID string            `json:"sessionId"`
+	Modes     *SessionModeState `json:"modes,omitempty"`
+	Meta      json.RawMessage   `json:"_meta,omitempty"`
+}
+
+// SessionModeState is the mode set session/new and session/load answer with
+// (schema: SessionModeState). It is the only place the agent lists its modes:
+// current_mode_update later names the new current one and nothing else.
+type SessionModeState struct {
+	CurrentModeID  string        `json:"currentModeId"`
+	AvailableModes []SessionMode `json:"availableModes"`
+}
+
+// SessionMode is one mode the agent can run in (schema: SessionMode).
+type SessionMode struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
 }
 
 // SessionLoadRequest is the params object for session/load (schema:
@@ -65,14 +81,11 @@ type SessionLoadRequest struct {
 }
 
 // SessionLoadResult is the result object for session/load. Measured against
-// claude-agent-acp 0.74.0: it echoes the session id and the mode set. Modes
-// stay a raw blob for the same reason _meta does — the hub has no session-mode
-// surface yet, and inventing structs for a field nothing reads is how a core
-// type drifts from the wire.
+// claude-agent-acp 0.74.0: it echoes the session id and the mode set.
 type SessionLoadResult struct {
-	SessionID string          `json:"sessionId"`
-	Modes     json.RawMessage `json:"modes,omitempty"`
-	Meta      json.RawMessage `json:"_meta,omitempty"`
+	SessionID string            `json:"sessionId"`
+	Modes     *SessionModeState `json:"modes,omitempty"`
+	Meta      json.RawMessage   `json:"_meta,omitempty"`
 }
 
 // SessionDeleteRequest is the params object for session/delete. The agent

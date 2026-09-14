@@ -621,6 +621,7 @@ func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, resume string) 
 				ErrProcessFailed, loadRes.SessionID, resume)
 		}
 		rt.acpSessionID = resume
+		rt.modes = loadRes.Modes
 		return rt, nil
 	}
 
@@ -639,6 +640,7 @@ func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, resume string) 
 		return nil, fmt.Errorf("%w: empty sessionId from session/new", ErrProcessFailed)
 	}
 	rt.acpSessionID = newRes.SessionID
+	rt.modes = newRes.Modes
 	return rt, nil
 }
 
@@ -934,9 +936,12 @@ type claudeRuntime struct {
 	proc         *sandbox.Proc
 	killer       acp.ProcessKiller
 	acpSessionID string
-	cwd          string
-	cancelServe  context.CancelFunc
-	serveDone    chan struct{}
+	// modes is the handshake's answer; set before the runtime is returned and
+	// never written again.
+	modes       *acp.SessionModeState
+	cwd         string
+	cancelServe context.CancelFunc
+	serveDone   chan struct{}
 
 	mu       sync.Mutex
 	handlers RuntimeHandlers
@@ -954,6 +959,9 @@ func (r *claudeRuntime) Dead() (bool, error) {
 }
 
 func (r *claudeRuntime) ACPSessionID() string { return r.acpSessionID }
+
+// Modes satisfies RuntimeModes.
+func (r *claudeRuntime) Modes() *acp.SessionModeState { return r.modes }
 
 func (r *claudeRuntime) SetMode(ctx context.Context, modeID string) error {
 	r.mu.Lock()

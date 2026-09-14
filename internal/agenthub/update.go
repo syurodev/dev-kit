@@ -63,6 +63,10 @@ const (
 // UI. Alias, so there is one shape and one place to widen it.
 type ContentBlock = acp.ContentBlock
 
+// SessionMode is one mode the agent advertised. The wire type, for the same
+// reason ContentBlock is.
+type SessionMode = acp.SessionMode
+
 // ToolCallLocation is a file the tool call touched. ACP says clients should
 // render these to implement follow-along.
 type ToolCallLocation struct {
@@ -205,6 +209,12 @@ type SessionUpdate struct {
 	Plan     []PlanEntry        `json:"plan,omitempty"`
 	Commands []AvailableCommand `json:"commands,omitempty"`
 	Mode     string             `json:"mode,omitempty"`
+	// AvailableModes is the agent's whole mode list, on a current_mode_update.
+	// The agent's own update never carries it — only session/new and
+	// session/load list modes, and the service turns that answer into this
+	// update (see modeStateUpdate). The recorder keeps the list across the
+	// bare updates that follow.
+	AvailableModes []SessionMode `json:"availableModes,omitempty"`
 	// Title is the vendor's own name for the session, generated after the
 	// first exchange. Empty on the goal-carrying shape of the same kind.
 	Title string `json:"title,omitempty"`
@@ -285,6 +295,7 @@ type wireUpdate struct {
 	Entries           json.RawMessage `json:"entries"`
 	Commands          json.RawMessage `json:"availableCommands"`
 	CurrentMode       string          `json:"currentModeId"`
+	AvailableModes    json.RawMessage `json:"availableModes"`
 	SubagentSessionID string          `json:"subagentSessionId"`
 	Name              string          `json:"name"`
 	Task              string          `json:"task"`
@@ -366,6 +377,7 @@ func ParseSessionUpdate(raw json.RawMessage) SessionUpdate {
 	case UpdateCurrentMode:
 		out.Kind = UpdateCurrentMode
 		out.Mode = wire.CurrentMode
+		_ = json.Unmarshal(wire.AvailableModes, &out.AvailableModes)
 	case UpdateSubagentSpawned, UpdateSubagentState:
 		out.Kind = UpdateKind(wire.SessionUpdate)
 		out.Subagent = &Subagent{

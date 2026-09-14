@@ -86,3 +86,27 @@ func TestSessionNewAlwaysSendsMcpServers(t *testing.T) {
 		t.Fatalf("wire = %s\nwant %s", got, want)
 	}
 }
+
+// session/new and session/load both answer with the session's mode set
+// (schema: SessionModeState); kept raw, nothing downstream could offer it.
+func TestSessionResultsCarryTheModeSet(t *testing.T) {
+	modes := `"modes":{"currentModeId":"default","availableModes":[` +
+		`{"id":"default","name":"Default","description":"Ask before edits"},` +
+		`{"id":"bypassPermissions","name":"Bypass Permissions"}]}`
+	var created SessionNewResult
+	if err := json.Unmarshal([]byte(`{"sessionId":"s1",`+modes+`}`), &created); err != nil {
+		t.Fatal(err)
+	}
+	var loaded SessionLoadResult
+	if err := json.Unmarshal([]byte(`{"sessionId":"s1",`+modes+`}`), &loaded); err != nil {
+		t.Fatal(err)
+	}
+	for name, got := range map[string]*SessionModeState{"session/new": created.Modes, "session/load": loaded.Modes} {
+		if got == nil || got.CurrentModeID != "default" || len(got.AvailableModes) != 2 {
+			t.Fatalf("%s modes = %+v", name, got)
+		}
+		if m := got.AvailableModes[0]; m.ID != "default" || m.Name != "Default" || m.Description != "Ask before edits" {
+			t.Fatalf("%s first mode = %+v", name, m)
+		}
+	}
+}
