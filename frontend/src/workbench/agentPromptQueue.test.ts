@@ -206,6 +206,42 @@ describe("one send path for every turn", () => {
     expect(b.sent()).toEqual(["hello", "hello"]);
   });
 
+  it("sends a busy-refused prompt when the turn that held the session finished before the refusal arrived", async () => {
+    // Another agent's turn holds the session; this window still shows it idle.
+    reset(session("s1"));
+    const b = backend();
+
+    const manual = sendAgentTurn("s1", queued("typed"), b.bridge);
+    // That turn's turnFinished reaches the webview before the RPC's rejection.
+    handleAgentTurnFinished({ sessionId: "s1", status: "idle", outcome: "completed" }, b.bridge);
+    b.statusAfter("idle");
+    b.turns[0].reject(busy());
+    expect(await manual).toBeNull();
+    await settle();
+
+    expect(b.sent()).toEqual(["typed", "typed"]);
+    expect(queue()).toEqual([]);
+    b.turns[1].resolve(completed);
+    await settle();
+    expect(b.sent()).toEqual(["typed", "typed"]);
+  });
+
+  it("does not retry a busy refusal until a turn is seen to finish", async () => {
+    // Go also refuses while another invoke is still resuming, before its status says running.
+    reset(session("s1"));
+    const b = backend();
+
+    const manual = sendAgentTurn("s1", queued("typed"), b.bridge);
+    b.turns[0].reject(busy());
+    await manual;
+    await settle();
+    expect(b.sent()).toEqual(["typed"]);
+    expect(queue()).toEqual(["typed"]);
+
+    handleAgentTurnFinished({ sessionId: "s1", status: "idle", outcome: "completed" }, b.bridge);
+    expect(b.sent()).toEqual(["typed", "typed"]);
+  });
+
   it("clears the pause once the last queued prompt is removed", () => {
     reset(session("s1"));
     store().enqueuePrompt("s1", queued("first"));

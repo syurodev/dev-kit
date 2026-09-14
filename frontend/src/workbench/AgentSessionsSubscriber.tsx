@@ -16,7 +16,7 @@ import { groupTurns, workedFor } from "../modules/agenthub/turns";
 import type { TranscriptItem } from "../modules/agenthub/types";
 import { moduleTabs, useWorkbenchTabsStore, type TabStatus } from "../stores/workbenchTabs";
 import { UpdateKind } from "../../bindings/devkit/internal/agenthub/models";
-import { drainQueuedPrompt, type TurnBridge } from "./agentPromptQueue";
+import { drainQueuedPrompt, noteTurnFinishedDuringOurs, type TurnBridge } from "./agentPromptQueue";
 
 /** Someone is looking at this session: the hub open on it, or the companion. */
 function sessionVisible(sessionId: string): boolean {
@@ -86,7 +86,10 @@ export function handleAgentTurnFinished(
   if (sessionVisible(sessionId)) state.markCompletedRead(sessionId);
   else state.markCompletedUnread(sessionId);
 
-  if (ours) return;
+  if (ours) {
+    noteTurnFinishedDuringOurs(sessionId);
+    return;
+  }
   // A turn this window did not send — another agent's invoke — ends the same way.
   if (outcome === "completed") void drainQueuedPrompt(sessionId, bridge);
   else if (outcome === "error" || outcome === "cancelled") state.pauseQueue(sessionId);

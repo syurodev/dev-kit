@@ -106,6 +106,20 @@ export function resumeQueuedPrompts(sessionId: string, bridge: TurnBridge = agen
   void drainQueuedPrompt(sessionId, bridge);
 }
 
+/**
+ * Sessions where some turn finished while one of ours was in flight. The
+ * handler leaves the drain to that turn; if ours is then refused as busy, the
+ * turn that held the session may be the one that finished, and no later event
+ * will drain what the refusal queued. Only a finish seen: Go also refuses while
+ * another invoke is resuming with its status still idle, and retrying on the
+ * status alone would spin until it says running.
+ */
+const finishedDuringTurn = new Set<string>();
+
+export function noteTurnFinishedDuringOurs(sessionId: string): void {
+  finishedDuringTurn.add(sessionId);
+}
+
 /** Runs a turn already marked in flight (beginTurn / claimQueuedPrompt). */
 async function runTurn(
   sessionId: string,
@@ -114,6 +128,7 @@ async function runTurn(
   bridge: TurnBridge,
 ): Promise<InvokeResult | null> {
   const store = useAgentSessionsStore.getState();
+  finishedDuringTurn.delete(sessionId);
   setStatus(sessionId, "running");
   let result: InvokeResult;
   try {
@@ -132,7 +147,11 @@ async function runTurn(
     if (!busy) store.pauseQueue(sessionId);
     const code = toAppError(error).code;
     await refreshStatus(sessionId, bridge, busy ? "running" : code === "operation_cancelled" ? "idle" : "error");
-    if (busy) return null;
+    if (busy) {
+      // claimQueuedPrompt sends only if the fresh status can take it.
+      if (finishedDuringTurn.delete(sessionId)) void drainQueuedPrompt(sessionId, bridge);
+      return null;
+    }
     throw error;
   }
   store.finishTurn(sessionId);
