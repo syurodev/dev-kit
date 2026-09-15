@@ -4,6 +4,7 @@ import (
 	"context"
 	"devkit/internal/capabilities"
 	"errors"
+	"log"
 
 	"devkit/internal/agenthub"
 	"devkit/internal/agentruntime"
@@ -119,7 +120,7 @@ func publicError(subject string, err error) *apperrors.AppError {
 	}
 	var existing *apperrors.AppError
 	if errors.As(err, &existing) {
-		return publicErrorForCode(existing.Code)
+		return publicErrorForCode(subject, err, existing.Code)
 	}
 	if subject == "builtin.sync" {
 		switch {
@@ -315,10 +316,10 @@ func publicError(subject string, err error) *apperrors.AppError {
 	if subject == "builtin.database" || subject == "builtin.ssh" || subject == "builtin.kafka" {
 		return apperrors.New(codeConnectionFailed, "Connection failed.", true)
 	}
-	return apperrors.New(codeInternalError, "An unexpected error occurred.", false)
+	return unexpectedError(subject, err)
 }
 
-func publicErrorForCode(code string) *apperrors.AppError {
+func publicErrorForCode(subject string, err error, code string) *apperrors.AppError {
 	switch code {
 	case codeValidationFailed:
 		return apperrors.New(codeValidationFailed, "Validation failed.", true)
@@ -327,6 +328,18 @@ func publicErrorForCode(code string) *apperrors.AppError {
 	case codeConnectionFailed:
 		return apperrors.New(codeConnectionFailed, "Connection failed.", true)
 	default:
-		return apperrors.New(codeInternalError, "An unexpected error occurred.", false)
+		return unexpectedError(subject, err)
 	}
+}
+
+// unexpectedError is the bottom of publicError's funnel: every cause that
+// reaches it is about to be redacted into "An unexpected error occurred.",
+// the one public message with nothing — no code, no detail — for whoever
+// hits it to act on. Logging the real cause here, once, is the only place
+// left where it is not simply gone: without it, a real failure (an analyzer
+// subprocess crash, a corrupt store) is invisible to the user AND to
+// whoever has to debug their report afterward.
+func unexpectedError(subject string, err error) *apperrors.AppError {
+	log.Printf("bridge: %s: unclassified error: %v", subject, err)
+	return apperrors.New(codeInternalError, "An unexpected error occurred.", false)
 }
