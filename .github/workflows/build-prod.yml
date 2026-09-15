@@ -1,0 +1,248 @@
+name: Build prod
+
+# Production packaging for Linux (amd64) and macOS (arm64).
+#
+# The runners do exactly what a developer does locally — `wails3 task
+# <os>:package` — so a green run here means the same Taskfile path that ships
+# from a laptop still works. Everything below is setup for that one command:
+# Go, bun (the Taskfile's default PACKAGE_MANAGER), a JDK for the CodeGraph
+# analyzer, and on Linux the GTK4/WebKitGTK headers cgo links against.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-prod-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Must match github.com/wailsapp/wails/v3 in go.mod. The CLI generates the
+  # frontend bindings that the runtime of the same version consumes; a skew
+  # between them fails at bundle time, or worse, silently at runtime.
+  WAILS3_VERSION: v3.0.0-beta.20
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      # One platform failing must not cancel the other: a macOS-only breakage
+      # should still leave the Linux packages downloadable from the run.
+      fail-fast: false
+      matrix:
+        include:
+          # Pinned, not ubuntu-latest: the glibc the binary links against is
+          # whatever the runner ships, and that becomes the floor for everyone
+          # installing the .deb or .rpm. When the `latest` label rolls forward
+          # the floor would silently rise and users on the previous LTS would
+          # get "GLIBC_2.xx not found" from a release that changed nothing.
+          # 24.04 is also the oldest Ubuntu carrying libwebkitgtk-6.0-dev, which
+          # matches the depends in build/linux/nfpm/nfpm.yaml.
+          - os: ubuntu-24.04
+            target: linux-amd64
+          # macos-latest is arm64, and the deployment target is pinned to 12.0
+          # by the darwin Taskfile regardless of which SDK the runner has, so
+          # the same drift does not apply here.
+          - os: macos-latest
+            target: macos-arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        # Empty on workflow_dispatch: a manual run has no tag to take a version
+        # from, and stamping something invented would put a fake version on a
+        # package. The stamping steps below are skipped in that case and the
+        # values committed in the repo stand.
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Cache bun store
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('frontend/bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+
+      - uses: actions/setup-java@v4
+        # The analyzer jar is not optional: every packaging task depends on
+        # common:build:analyzer, and both the .app bundle and nfpm.yaml copy
+        # target/codegraph-analyzer.jar into the payload. Without a JDK the
+        # package build fails its precondition rather than shipping a CodeGraph
+        # that falls back to its "install a JDK" setup panel.
+        #
+        # 25 here, release 21 in analyzer/pom.xml — the jar stays runnable on
+        # any Java 21+ the user already has.
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        # gtk4 + webkitgtk-6.0 headers are needed twice over: to compile the
+        # wails3 CLI itself, and for the cgo build of the app. The rest is what
+        # linuxdeploy's gtk plugin shells out to while assembling the AppImage.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-4-dev \
+            libwebkitgtk-6.0-dev \
+            pkg-config \
+            patchelf \
+            librsvg2-dev \
+            desktop-file-utils
+
+      - name: Ensure Maven is present
+        if: runner.os == 'macOS'
+        run: command -v mvn >/dev/null 2>&1 || brew install maven
+
+      - name: Install wails3 CLI
+        run: |
+          go install "github.com/wailsapp/wails/v3/cmd/wails3@${WAILS3_VERSION}"
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Stamp version into nfpm config
+        if: runner.os == 'Linux' && steps.version.outputs.version != ''
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        # build/linux/nfpm/nfpm.yaml carries a hardcoded version, so without
+        # this every tag would produce dev-kit_0.1.0_amd64.deb. Edited in the
+        # runner's checkout only — nothing is committed back.
+        run: |
+          sed -i -E "s/^version: .*/version: \"${VERSION}\"/" build/linux/nfpm/nfpm.yaml
+          grep -E '^version:' build/linux/nfpm/nfpm.yaml
+
+      - name: Stamp version into Info.plist
+        if: runner.os == 'macOS' && steps.version.outputs.version != ''
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        # plutil rather than a regen via common:update:build-assets: that task
+        # would overwrite the customised Info.plist wholesale.
+        run: |
+          plutil -replace CFBundleVersion -string "$VERSION" build/darwin/Info.plist
+          plutil -replace CFBundleShortVersionString -string "$VERSION" build/darwin/Info.plist
+
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        env:
+          # nfpm.yaml interpolates these three. Unset, the package lands with
+          # an empty arch and an empty maintainer field.
+          GOARCH: amd64
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: github-actions[bot]@users.noreply.github.com
+        # One invocation per format. `wails3 task` runs a single task and reads
+        # every further argument as a KEY=VALUE variable, silently dropping the
+        # ones that are not — so passing all three names on one line would build
+        # the .deb alone and still exit 0. The repeated `build` dep costs a
+        # relink each time; the frontend, bindings and analyzer are fingerprinted
+        # and skip.
+        run: |
+          wails3 task linux:create:deb
+          wails3 task linux:create:rpm
+          wails3 task linux:create:aur
+
+      - name: Package AppImage (Linux)
+        if: runner.os == 'Linux'
+        # Split out and allowed to fail: this step downloads linuxdeploy from
+        # the AppImage project's rolling "continuous" release, so a bad day on
+        # their end would otherwise take the .deb and .rpm down with it. A red
+        # cross here means no AppImage in the release, not a failed build.
+        continue-on-error: true
+        env:
+          GOARCH: amd64
+        run: wails3 task linux:create:appimage
+
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        # Native arm64. darwin:package ad-hoc signs the bundle on the way out,
+        # which is enough to launch locally but not to distribute without a
+        # Gatekeeper warning — see darwin:sign / darwin:sign:notarize for that.
+        run: wails3 task darwin:package
+
+      - name: Collect Linux artifacts
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          shopt -s nullglob
+          mkdir -p dist
+          for f in bin/*.deb bin/*.rpm bin/*.pkg.tar.zst bin/*.AppImage; do
+            cp "$f" dist/
+          done
+          if [ -z "$(ls -A dist)" ]; then
+            echo "::error::no Linux package was produced"
+            exit 1
+          fi
+          ls -lh dist
+
+      - name: Collect macOS artifact
+        if: runner.os == 'macOS'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        # ditto, not zip and not a bare upload of the directory: upload-artifact
+        # flattens symlinks and drops the executable bit, which would hand the
+        # user an .app that cannot launch.
+        run: |
+          mkdir -p dist
+          ditto -c -k --sequesterRsrc --keepParent \
+            bin/dev-kit.app \
+            "dist/dev-kit-macos-arm64${VERSION:+-$VERSION}.zip"
+          ls -lh dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dev-kit-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    # Tags only. A manual run stops at downloadable artifacts.
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # Create on the first run; on a re-run of the same tag the release
+        # already exists, so fall back to replacing the assets in place.
+        run: |
+          ls -lh dist
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            dist/* \
+          || gh release upload "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber \
+            dist/*
