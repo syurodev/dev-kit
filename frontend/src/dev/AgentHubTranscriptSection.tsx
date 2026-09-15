@@ -61,6 +61,71 @@ const items: TranscriptItem[] = [
     updatedAt: at(247),
   },
   {
+    id: "tc2b",
+    kind: "tool_call",
+    toolCallId: "c2b",
+    toolCall: {
+      id: "c2b",
+      kind: "read",
+      title: "Read ArbitrationPolicy.java",
+      status: "completed",
+      locations: [{ path: "/Users/syuro/Workspace/PERSONAL/dev-kit/dev-kit-backend/src/main/java/com/synx/devkit/replication/domain/service/ArbitrationPolicy.java", line: 1 }],
+      content: [
+        {
+          type: "content",
+          content: {
+            type: "text",
+            // The shape Claude's Read sends: a fence, every line numbered with a tab.
+            text: [
+              "```",
+              "1\tpackage com.synx.devkit.replication.domain.service;",
+              "2\t",
+              "3\timport java.util.Optional;",
+              "4\t",
+              "5\t/** Stateless version arbitration shared by unit tests and the push use case. */",
+              "6\tpublic final class ArbitrationPolicy {",
+              "7\t    public ArbitrationDecision decide(Optional<EntityHead> head, ReplicationOperation incoming) {",
+              '8\t        if (head.isEmpty()) return ArbitrationDecision.accept("first write", 1);',
+              "9\t        return head.get().version() >= incoming.version() ? ArbitrationDecision.reject() : ArbitrationDecision.accept();",
+              "10\t    }",
+              "11\t}",
+              "```",
+            ].join("\n"),
+          },
+        },
+      ],
+    },
+    createdAt: at(247),
+    updatedAt: at(247),
+  },
+  {
+    id: "tc2c",
+    kind: "tool_call",
+    toolCallId: "c2c",
+    toolCall: {
+      id: "c2c",
+      kind: "other",
+      title: "mcp__devkit__codegraph_searchSymbol",
+      status: "completed",
+      content: [
+        {
+          type: "content",
+          content: {
+            type: "text",
+            text: JSON.stringify({
+              result: [
+                { nodeId: "com.synx.devkit.bootstrap.configuration.ApplicationConfiguration.arbitrationPolicy", kind: "method", file: "ApplicationConfiguration.java", line: 113 },
+                { nodeId: "com.synx.devkit.replication.domain.service.ArbitrationPolicy", kind: "class", file: "ArbitrationPolicy.java", line: 15 },
+              ],
+            }),
+          },
+        },
+      ],
+    },
+    createdAt: at(247),
+    updatedAt: at(248),
+  },
+  {
     id: "a2",
     kind: "agent_message_chunk",
     text:

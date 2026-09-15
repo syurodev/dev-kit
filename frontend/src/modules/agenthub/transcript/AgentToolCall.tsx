@@ -11,6 +11,7 @@ import { AgentFileChip } from "./AgentFileChip";
 import { AgentToolDiff } from "./AgentToolDiff";
 import { AgentToolTerminal } from "./AgentToolTerminal";
 import { AgentCodeBlock } from "./AgentCodeBlock";
+import { languageForPath, normalizeLanguage, parseListing } from "./syntax";
 
 export type AgentToolCallProps = {
   call: ToolCall;
@@ -140,32 +141,45 @@ export function toolOutputText(raw: unknown): string {
   return typeof raw === "string" ? raw : JSON.stringify(raw, null, 2);
 }
 
+export type ToolOutputView = { code: string; language: string; wrap: boolean; startLine?: number };
+
 /**
- * Tool output as it should read: a JSON document indented, anything else as it
- * came. MCP tools answer with one minified line of JSON, which is the common
- * case here. A preview cut mid-document does not parse and stays as text.
+ * Tool output as it should read.
+ *
+ * - A JSON document, indented and wrapped. MCP tools answer with one minified
+ *   line of it; a preview cut mid-document does not parse and stays as text.
+ * - A listing (Claude's Read: a fenced file with every line numbered), as the
+ *   code alone with its numbers in a gutter, in the file's language.
+ * - Anything else as it came, wrapped.
  */
-export function formatToolOutput(text: string): { code: string; language: "json" | "text" } {
+export function formatToolOutput(text: string, path?: string): ToolOutputView {
   const trimmed = text.trim();
   if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
     try {
-      return { code: JSON.stringify(JSON.parse(trimmed), null, 2), language: "json" };
+      return { code: JSON.stringify(JSON.parse(trimmed), null, 2), language: "json", wrap: true };
     } catch {
       // Not JSON after all, or a truncated preview of it.
     }
   }
-  return { code: text, language: "text" };
+  const listing = parseListing(text);
+  if (listing) {
+    const language = normalizeLanguage(listing.info) ?? languageForPath(path) ?? "text";
+    return listing.startLine === undefined
+      ? { code: listing.code, language, wrap: true }
+      : { code: listing.code, language, wrap: false, startLine: listing.startLine };
+  }
+  return { code: text, language: "text", wrap: true };
 }
 
 /**
  * Its own component so the formatting runs when the disclosure is open, not
  * for every closed row on every render: full output can be megabytes.
  */
-function ToolOutput({ text, testId }: { text: string; testId?: string }) {
-  const { code, language } = React.useMemo(() => formatToolOutput(text), [text]);
+function ToolOutput({ text, path, testId }: { text: string; path?: string; testId?: string }) {
+  const view = React.useMemo(() => formatToolOutput(text, path), [text, path]);
   return (
     <div data-testid={testId} className="w-full min-w-0">
-      <AgentCodeBlock code={code} language={language} wrap />
+      <AgentCodeBlock code={view.code} language={view.language} wrap={view.wrap} startLine={view.startLine} />
     </div>
   );
 }
@@ -292,12 +306,14 @@ export function AgentToolCall({
             return <AgentToolTerminal key={idx} terminalId={item.terminalId} />;
           }
           if (item.content?.text) {
-            return <ToolOutput key={idx} text={item.content.text} />;
+            return <ToolOutput key={idx} text={item.content.text} path={locations[0]?.path} />;
           }
           return null;
         })}
 
-      {fullOutput ? <ToolOutput text={fullOutput} testId="tool-call-full-output" /> : null}
+      {fullOutput ? (
+        <ToolOutput text={fullOutput} path={locations[0]?.path} testId="tool-call-full-output" />
+      ) : null}
       {fullCall === null && canLoadFull ? (
         <button
           type="button"

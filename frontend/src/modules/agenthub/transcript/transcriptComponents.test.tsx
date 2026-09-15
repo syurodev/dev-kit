@@ -299,9 +299,14 @@ describe("Agent Hub Transcript Leaves", () => {
       expect(formatToolOutput(blob)).toEqual({
         code: '{\n  "result": [\n    {\n      "nodeId": "com.synx.devkit.ApplicationConfiguration.arbitrationPolicy"\n    }\n  ]\n}',
         language: "json",
+        wrap: true,
       });
       // A preview cut mid-document is not JSON; it stays as it came.
-      expect(formatToolOutput('{"result":[{"nodeId":"com.syn')).toEqual({ code: '{"result":[{"nodeId":"com.syn', language: "text" });
+      expect(formatToolOutput('{"result":[{"nodeId":"com.syn')).toEqual({
+        code: '{"result":[{"nodeId":"com.syn',
+        language: "text",
+        wrap: true,
+      });
       expect(formatToolOutput("./deploy\n./docs").language).toBe("text");
 
       const html = renderToString(
@@ -319,6 +324,35 @@ describe("Agent Hub Transcript Leaves", () => {
       expect(html).toContain("whitespace-pre-wrap");
       expect(html).toContain("max-h-80");
       expect(html).toContain('data-testid="code-block-copy"');
+    });
+
+    it("shows a file a tool read as code in its language, numbers in a gutter, no fence", () => {
+      const text = "```\n1\tpackage com.synx.devkit.replication;\n2\t\n3\tpublic final class ArbitrationPolicy {}\n```";
+      expect(formatToolOutput(text, "/repo/src/ArbitrationPolicy.java")).toEqual({
+        code: "package com.synx.devkit.replication;\n\npublic final class ArbitrationPolicy {}",
+        language: "java",
+        wrap: false,
+        startLine: 1,
+      });
+
+      const html = renderToString(
+        <AgentToolCall
+          call={{
+            id: "c-read",
+            kind: "read",
+            title: "Read ArbitrationPolicy.java",
+            status: "completed",
+            locations: [{ path: "/repo/src/ArbitrationPolicy.java", line: 1 }],
+            content: [{ type: "content", content: { type: "text", text } }],
+          }}
+          defaultExpanded
+        />,
+      );
+      expect(html).not.toContain("```");
+      expect(html).toContain('data-testid="code-block-gutter"');
+      expect(html).toMatch(/aria-hidden="true"[^>]*>1\n2\n3</);
+      expect(html).toContain("public final class ArbitrationPolicy {}");
+      expect(html).toContain(">java<");
     });
   });
 
