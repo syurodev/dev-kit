@@ -7,6 +7,12 @@ export type AgentCodeBlockProps = {
   code: string;
   path?: string;
   language?: string;
+  /**
+   * Wraps long lines and caps the height, scrolling inside. For tool output: a
+   * one-line JSON document from an MCP tool otherwise showed as a single cut-off
+   * line with a scrollbar on each axis. Code an agent writes keeps its lines.
+   */
+  wrap?: boolean;
   className?: string;
 };
 
@@ -25,6 +31,7 @@ export function AgentCodeBlock({
   code,
   path,
   language,
+  wrap = false,
   className,
 }: AgentCodeBlockProps) {
   const [copied, setCopied] = React.useState(false);
@@ -70,7 +77,12 @@ export function AgentCodeBlock({
         </button>
       </div>
 
-      <pre className="w-full overflow-x-auto bg-surface-base p-3 text-code-12 text-text-primary select-text">
+      <pre
+        className={cn(
+          "w-full bg-surface-base p-3 text-code-12 text-text-primary select-text",
+          wrap ? "max-h-80 overflow-y-auto whitespace-pre-wrap wrap-anywhere" : "overflow-x-auto",
+        )}
+      >
         <code>{code}</code>
       </pre>
     </div>

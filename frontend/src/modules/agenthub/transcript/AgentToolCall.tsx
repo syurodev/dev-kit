@@ -10,6 +10,7 @@ import { stepLabel } from "../turns";
 import { AgentFileChip } from "./AgentFileChip";
 import { AgentToolDiff } from "./AgentToolDiff";
 import { AgentToolTerminal } from "./AgentToolTerminal";
+import { AgentCodeBlock } from "./AgentCodeBlock";
 
 export type AgentToolCallProps = {
   call: ToolCall;
@@ -139,6 +140,36 @@ export function toolOutputText(raw: unknown): string {
   return typeof raw === "string" ? raw : JSON.stringify(raw, null, 2);
 }
 
+/**
+ * Tool output as it should read: a JSON document indented, anything else as it
+ * came. MCP tools answer with one minified line of JSON, which is the common
+ * case here. A preview cut mid-document does not parse and stays as text.
+ */
+export function formatToolOutput(text: string): { code: string; language: "json" | "text" } {
+  const trimmed = text.trim();
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    try {
+      return { code: JSON.stringify(JSON.parse(trimmed), null, 2), language: "json" };
+    } catch {
+      // Not JSON after all, or a truncated preview of it.
+    }
+  }
+  return { code: text, language: "text" };
+}
+
+/**
+ * Its own component so the formatting runs when the disclosure is open, not
+ * for every closed row on every render: full output can be megabytes.
+ */
+function ToolOutput({ text, testId }: { text: string; testId?: string }) {
+  const { code, language } = React.useMemo(() => formatToolOutput(text), [text]);
+  return (
+    <div data-testid={testId} className="w-full min-w-0">
+      <AgentCodeBlock code={code} language={language} wrap />
+    </div>
+  );
+}
+
 export function AgentToolCall({
   call,
   defaultExpanded = false,
@@ -261,26 +292,12 @@ export function AgentToolCall({
             return <AgentToolTerminal key={idx} terminalId={item.terminalId} />;
           }
           if (item.content?.text) {
-            return (
-              <pre
-                key={idx}
-                className="w-full overflow-x-auto rounded-md bg-surface-base p-2 text-code-11 whitespace-pre text-text-secondary select-text"
-              >
-                <code>{item.content.text}</code>
-              </pre>
-            );
+            return <ToolOutput key={idx} text={item.content.text} />;
           }
           return null;
         })}
 
-      {fullOutput ? (
-        <pre
-          data-testid="tool-call-full-output"
-          className="w-full max-w-full overflow-x-auto rounded-md bg-surface-base p-2 text-code-11 whitespace-pre text-text-secondary select-text"
-        >
-          <code>{fullOutput}</code>
-        </pre>
-      ) : null}
+      {fullOutput ? <ToolOutput text={fullOutput} testId="tool-call-full-output" /> : null}
       {fullCall === null && canLoadFull ? (
         <button
           type="button"

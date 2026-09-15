@@ -15,7 +15,7 @@ import {
   AgentPlan,
   AgentSubagent,
 } from "./index";
-import { toolCallFromDetail, toolOutputText } from "./AgentToolCall";
+import { formatToolOutput, toolCallFromDetail, toolOutputText } from "./AgentToolCall";
 
 describe("Agent Hub Transcript Leaves", () => {
   describe("AgentMessage", () => {
@@ -292,6 +292,33 @@ describe("Agent Hub Transcript Leaves", () => {
         <AgentToolCall call={{ id: "c2", title: "Read", status: "completed", rawOutput: "42 lines" }} />,
       );
       expect(short).toContain("42 lines");
+    });
+
+    it("shows an MCP tool's JSON indented, wrapped and capped instead of one cut-off line", () => {
+      const blob = JSON.stringify({ result: [{ nodeId: "com.synx.devkit.ApplicationConfiguration.arbitrationPolicy" }] });
+      expect(formatToolOutput(blob)).toEqual({
+        code: '{\n  "result": [\n    {\n      "nodeId": "com.synx.devkit.ApplicationConfiguration.arbitrationPolicy"\n    }\n  ]\n}',
+        language: "json",
+      });
+      // A preview cut mid-document is not JSON; it stays as it came.
+      expect(formatToolOutput('{"result":[{"nodeId":"com.syn')).toEqual({ code: '{"result":[{"nodeId":"com.syn', language: "text" });
+      expect(formatToolOutput("./deploy\n./docs").language).toBe("text");
+
+      const html = renderToString(
+        <AgentToolCall
+          call={{
+            id: "c-mcp",
+            title: "mcp__devkit__codegraph_searchSymbol",
+            status: "completed",
+            content: [{ type: "content", content: { type: "text", text: blob } }],
+          }}
+          defaultExpanded
+        />,
+      );
+      expect(html).toContain("&quot;result&quot;: [");
+      expect(html).toContain("whitespace-pre-wrap");
+      expect(html).toContain("max-h-80");
+      expect(html).toContain('data-testid="code-block-copy"');
     });
   });
 
