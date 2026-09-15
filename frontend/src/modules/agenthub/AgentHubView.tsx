@@ -45,6 +45,7 @@ import { useAgentSessionList, useAgentSessionsStore } from "../../stores/agentSe
 import { useAgentPinsStore } from "../../stores/agentPins";
 import { useModuleVisibility } from "@/components/ui/module-visibility";
 import { detectPlatform } from "@/lib/platform";
+import { EMPTY_ARRAY } from "@/lib/stableEmpty";
 import { imageAttachmentFromFile } from "./imageAttachments";
 import type { QueuedAgentPrompt } from "../../stores/agentSessions";
 import { queuedPrompt, resumeQueuedPrompts, sendAgentTurn } from "../../workbench/agentPromptQueue";
@@ -199,7 +200,9 @@ export function AgentHubView() {
     (state) => state.promptBySession[activeSession?.id ?? ""] ?? "",
   );
   const queuedPrompts = useAgentSessionsStore(
-    (state) => state.queuedPromptsBySession[activeSession?.id ?? ""] ?? [],
+    // EMPTY_ARRAY, not []: a fresh [] per read is a new snapshot every time,
+    // and React renders forever for any session with nothing queued.
+    (state) => state.queuedPromptsBySession[activeSession?.id ?? ""] ?? EMPTY_ARRAY,
   );
   const queuePaused = useAgentSessionsStore((state) =>
     Boolean(state.queuePausedBySession[activeSession?.id ?? ""]),

@@ -117,6 +117,25 @@ function unstableQueryDefaults(): number {
   return total;
 }
 
+/**
+ * The same allocation in a store selector: `useStore((s) => s.byId[id] ?? [])`
+ * returns a new array on every read while the key is missing, so zustand's
+ * useSyncExternalStore sees a changed snapshot each time and React renders
+ * forever ("The result of getSnapshot should be cached"). Agent Hub's queued
+ * prompts did exactly this for any session with an empty queue. Use
+ * lib/stableEmpty, or wrap the selector in useShallow. At 0 this is a guard.
+ */
+function unstableStoreSelectors(): number {
+  let total = 0;
+  for (const dir of ["modules", "components", "workbench", "dev", "stores"]) {
+    for (const file of files(join(ROOT, dir), [".tsx", ".ts"])) {
+      if (file.includes(".test.")) continue;
+      total += count(/use\w*Store\(\s*\(?\s*\w+\s*\)?\s*=>[^;]{0,200}?\?\?\s*(\[\]|\{\})/, readFileSync(file, "utf8"));
+    }
+  }
+  return total;
+}
+
 /** 4.1: an animation whose duration is not one of the three tokens. */
 function untokenisedAnimateIn(): number {
   let total = 0;
@@ -148,6 +167,7 @@ const BASELINE = {
   blurSurfaces: 36,
   untokenisedAnimateIn: 3,
   unstableQueryDefaults: 0,
+  unstableStoreSelectors: 0,
 };
 
 const MEASURES = {
@@ -156,6 +176,7 @@ const MEASURES = {
   blurSurfaces,
   untokenisedAnimateIn,
   unstableQueryDefaults,
+  unstableStoreSelectors,
 } as const;
 
 describe("smoothness ratchet", () => {

@@ -17,6 +17,7 @@ import { useAgentSessionList, useAgentSessionsStore } from "@/stores/agentSessio
 import { openCodeGraphProject, readCodeGraphFile } from "@/bridge/codegraph";
 import { useCodeGraphStore } from "@/modules/codegraph/codegraphStore";
 import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
+import { EMPTY_ARRAY } from "@/lib/stableEmpty";
 import { imageAttachmentFromFile } from "@/modules/agenthub/imageAttachments";
 import type { QueuedAgentPrompt } from "@/stores/agentSessions";
 import { queuedPrompt, resumeQueuedPrompts, sendAgentTurn } from "./agentPromptQueue";
@@ -54,7 +55,8 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
 
   const session = sessions.find((s) => s.id === activeSessionId) ?? sessions[0] ?? null;
   const prompt = useAgentSessionsStore((s) => s.promptBySession[session?.id ?? ""] ?? "");
-  const queuedPrompts = useAgentSessionsStore((s) => s.queuedPromptsBySession[session?.id ?? ""] ?? []);
+  // EMPTY_ARRAY, not []: a fresh [] is a new snapshot on every read (see AgentHubView).
+  const queuedPrompts = useAgentSessionsStore((s) => s.queuedPromptsBySession[session?.id ?? ""] ?? EMPTY_ARRAY);
   const queuePaused = useAgentSessionsStore((s) => Boolean(s.queuePausedBySession[session?.id ?? ""]));
   const queuePausedReason = useAgentSessionsStore((s) => s.queuePauseReasonBySession[session?.id ?? ""] ?? "");
 
