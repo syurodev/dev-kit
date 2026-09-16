@@ -29,6 +29,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { MENU_ROW } from "@/components/ui/menu-row";
+import { Command, CommandItem, CommandList } from "@/components/ui/command";
+import { commandName, commandQuery, filterCommands } from "../slashCommands";
 import { VendorIcon } from "./VendorIcon";
 import { onThemeChange } from "@/theme/themeColors";
 import { AgentFileChip } from "../transcript/AgentFileChip";
@@ -142,6 +144,15 @@ type ComposerKeyEvent = {
   preventDefault: () => void;
 };
 
+/** The open slash-command list, as the textarea's key handler sees it. */
+export type ComposerCommandList = {
+  open: boolean;
+  /** Moves the highlight by one, wrapping at both ends. */
+  onMove: (delta: number) => void;
+  onAccept: () => void;
+  onClose: () => void;
+};
+
 /**
  * The textarea's shortcuts. While an IME composition is open (Vietnamese,
  * Japanese, Chinese input) Enter picks the candidate and Escape drops it, so
@@ -151,10 +162,47 @@ type ComposerKeyEvent = {
  */
 export function handleComposerKeyDown(
   e: ComposerKeyEvent,
-  { streaming, onSend, onCancel }: { streaming: boolean; onSend: () => void; onCancel: () => void },
+  {
+    streaming,
+    onSend,
+    onCancel,
+    commandList,
+  }: {
+    streaming: boolean;
+    onSend: () => void;
+    onCancel: () => void;
+    /** The slash-command list, while it is open over the field. */
+    commandList?: ComposerCommandList;
+  },
 ): void {
   const composing = Boolean(e.nativeEvent.isComposing) || e.keyCode === 229;
   if (composing) return;
+  // An open list owns these keys, and has to be asked before anything else:
+  // Enter picks the command instead of sending a half-typed "/comp", and
+  // Escape closes the list instead of cancelling the turn that is running
+  // behind it. Both would otherwise do something the user cannot undo.
+  if (commandList?.open) {
+    switch (e.key) {
+      case "ArrowDown":
+        e.preventDefault();
+        commandList.onMove(1);
+        return;
+      case "ArrowUp":
+        e.preventDefault();
+        commandList.onMove(-1);
+        return;
+      case "Enter":
+      case "Tab":
+        if (e.key === "Enter" && e.shiftKey) break; // Shift+Enter is still a newline
+        e.preventDefault();
+        commandList.onAccept();
+        return;
+      case "Escape":
+        e.preventDefault();
+        commandList.onClose();
+        return;
+    }
+  }
   if (shouldCancelComposerOnEscape(e.key, streaming, composing)) {
     e.preventDefault();
     onCancel();
@@ -326,6 +374,7 @@ export function AgentComposer({
   useEffect(() => {
     if (focusRequest > 0) textareaRef.current?.focus();
   }, [focusRequest]);
+
   // And again when the field's width changes. The split panel opens by
   // animating from zero width, and a field measured mid-slide wrapped its
   // placeholder a word a line — an empty composer stuck at its ceiling until
@@ -343,6 +392,29 @@ export function AgentComposer({
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
+
+  // The slash-command list. What is typed decides whether it is open, so there
+  // is no "opened" flag to fall out of step with the field — only the highlight
+  // is state, and it is reset by the query it belongs to. dismissedQuery is the
+  // one thing typing cannot express: Escape has to be able to put the list away
+  // without also deleting what was typed.
+  const [dismissedQuery, setDismissedQuery] = useState<string | null>(null);
+  const [highlight, setHighlight] = useState(0);
+  const query = disabled ? null : commandQuery(value);
+  const matches = query === null ? [] : filterCommands(commands, query);
+  const commandListOpen = query !== null && query !== dismissedQuery && matches.length > 0;
+  useEffect(() => {
+    setHighlight(0);
+  }, [query]);
+  const highlighted = matches[Math.min(highlight, matches.length - 1)];
+
+  function acceptCommand(command: AvailableCommand | undefined) {
+    if (!command) return;
+    setDismissedQuery(null);
+    onSelectCommand?.(command.name);
+    textareaRef.current?.focus();
+  }
+
   const isStreaming = streaming || state === "streaming";
   const effectiveState: ComposerState =
     state ?? (isStreaming ? "streaming" : attachedFiles.length > 0 || imageAttachments.length > 0 ? "attached" : "idle");
@@ -377,7 +449,8 @@ export function AgentComposer({
         data-size={size}
         data-state={effectiveState}
         className={cn(
-          "glass-float flex w-full flex-col gap-2 rounded-xl p-2",
+          // relative: the slash-command list hangs off the top of this box.
+          "glass-float relative flex w-full flex-col gap-2 rounded-xl p-2",
           // The rail's composer fills its panel, which the user sizes.
           !rail && "max-w-274",
           className,
@@ -448,6 +521,48 @@ export function AgentComposer({
         ) : null}
         {imageError ? <p data-testid="composer-image-error" className="px-1 text-caption-11 text-status-danger">{imageError}</p> : null}
 
+        {/* The list of commands the agent advertised, over the field while one
+            is being typed. Anchored to the composer rather than shown in a
+            popover: the field keeps focus throughout — the user is still
+            typing the name — and a popover would take it. onMouseDown is
+            prevented for the same reason, so clicking a command does not blur
+            the field underneath. Arrow keys, Enter and Escape are handled in
+            the textarea's own key handler; cmdk never sees them, so the
+            highlight is driven here rather than by its own value logic. */}
+        {commandListOpen ? (
+          <Command
+            shouldFilter={false}
+            value={highlighted?.name ?? ""}
+            data-testid="composer-command-list"
+            onMouseDown={(e) => e.preventDefault()}
+            className="absolute bottom-full left-0 z-10 mb-1 w-full max-w-full"
+          >
+            <CommandList>
+              {matches.map((command) => (
+                <CommandItem
+                  key={command.name}
+                  value={command.name}
+                  data-testid="composer-command-item"
+                  onSelect={() => acceptCommand(command)}
+                >
+                  <CommandIcon aria-hidden="true" />
+                  <span className="shrink-0 text-code-12">{commandName(command.name)}</span>
+                  {/* The description takes the free space so every hint lines
+                      up on the right. Not ml-auto: CommandItem's own check is
+                      already pushed that way, and two of them split the gap
+                      between themselves (same trap as TabSwitcher's). */}
+                  <span className="min-w-0 flex-1 truncate text-caption-11 text-text-tertiary">
+                    {command.description}
+                  </span>
+                  {command.input?.hint ? (
+                    <span className="shrink-0 text-caption-11 text-text-tertiary">{command.input.hint}</span>
+                  ) : null}
+                </CommandItem>
+              ))}
+            </CommandList>
+          </Command>
+        ) : null}
+
         {/* A bare textarea, not the shared Textarea: that one brings a border,
             a fill, a focus ring and its own radius, all of which this field
             already provides around it. Overriding six properties to get back
@@ -478,7 +593,23 @@ export function AgentComposer({
           onDragOver={(e) => {
             if (Array.from(e.dataTransfer.types).includes("Files")) e.preventDefault();
           }}
-          onKeyDown={(e) => handleComposerKeyDown(e, { streaming: isStreaming, onSend, onCancel })}
+          onKeyDown={(e) =>
+            handleComposerKeyDown(e, {
+              streaming: isStreaming,
+              onSend,
+              onCancel,
+              commandList: {
+                open: commandListOpen,
+                onMove: (delta) =>
+                  setHighlight((current) => {
+                    const next = (current + delta) % matches.length;
+                    return next < 0 ? next + matches.length : next;
+                  }),
+                onAccept: () => acceptCommand(highlighted),
+                onClose: () => setDismissedQuery(query),
+              },
+            })
+          }
           className={cn(
             "w-full resize-none overflow-y-auto bg-transparent px-2 pt-1 text-body-14 text-text-primary placeholder:text-text-tertiary outline-none disabled:opacity-60",
             // Floor is the old fixed height; ceiling is about eleven lines wide

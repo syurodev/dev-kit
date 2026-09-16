@@ -40,6 +40,7 @@ import { toAppError } from "../../bridge/errors";
 import { useAgentHubSidebar } from "./useAgentHubSidebar";
 import { forgetAgentTranscript, useAgentTranscript } from "./transcript";
 import { setSessionConfigOption, setSessionMode } from "./transcriptControls";
+import { commandName, promptWithCommand, promptWithoutCommand } from "./slashCommands";
 import { AgentHubContent } from "./surfaces";
 import { useAgentSessionList, useAgentSessionsStore } from "../../stores/agentSessions";
 import { useAgentPinsStore } from "../../stores/agentPins";
@@ -467,13 +468,20 @@ export function AgentHubView() {
   function handleSelectCommand(name: string) {
     if (!activeSession) return;
     const command = transcriptModel.commands.find((item) => item.name.replace(/^\//, "") === name.replace(/^\//, ""));
-    const commandName = name.startsWith("/") ? name : `/${name}`;
+    const current = useAgentSessionsStore.getState().promptBySession[activeSession.id] ?? "";
     if (command?.input) {
-      const current = useAgentSessionsStore.getState().promptBySession[activeSession.id] ?? "";
-      setPrompt(activeSession.id, `${current}${current && !/\s$/.test(current) ? " " : ""}${commandName} `);
+      // Left in the field for the argument to be typed after it. Replaces a
+      // half-typed name rather than appending to it: picking /review after
+      // typing "/rev" has to leave "/review ", not "/rev /review ".
+      setPrompt(activeSession.id, promptWithCommand(current, name));
       return;
     }
-    void handleSend({ sessionId: activeSession.id, text: commandName, attachments: [], images: [] });
+    // No argument: the command is the whole turn. handleSend with an explicit
+    // turn deliberately does not clear the field — a retry must not — so the
+    // half-typed name that opened the list is taken out here, and only it: a
+    // message already in the box is not ours to throw away.
+    setPrompt(activeSession.id, promptWithoutCommand(current));
+    void handleSend({ sessionId: activeSession.id, text: commandName(name), attachments: [], images: [] });
   }
 
   async function handleSetMode(nextMode: string) {
