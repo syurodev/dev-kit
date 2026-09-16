@@ -58,6 +58,40 @@ func TestStoreReplaceIndexThenListEndpoints(t *testing.T) {
 	}
 }
 
+// A Feign-style client interface declaring the same route its own controller
+// serves — or any other analyzer producing two entry points for one HTTP
+// method + path — must not abort the whole index over one endpoints.id
+// collision.
+func TestStoreReplaceIndexDedupesCollidingEndpointIDs(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	result := AnalysisResult{
+		Nodes: []Node{
+			{ID: "n1", Label: "OrderController.create", Kind: "method", Layer: "controller", FilePath: "Order.java", Line: 10, EndLine: 15},
+			{ID: "n2", Label: "OrderClient.create", Kind: "method", Layer: "client", FilePath: "OrderClient.java", Line: 5, EndLine: 8},
+		},
+		Endpoints: []Endpoint{
+			{ID: "POST /orders", HTTPMethod: "POST", Path: "/orders", EntryNode: "n1"},
+			{ID: "POST /orders", HTTPMethod: "POST", Path: "/orders", EntryNode: "n2"},
+		},
+	}
+	if err := store.ReplaceIndex(ctx, result); err != nil {
+		t.Fatalf("ReplaceIndex: %v", err)
+	}
+
+	endpoints, err := store.ListEndpoints(ctx)
+	if err != nil {
+		t.Fatalf("ListEndpoints: %v", err)
+	}
+	if len(endpoints) != 1 {
+		t.Fatalf("expected the colliding endpoint deduped to one, got: %+v", endpoints)
+	}
+	if endpoints[0].EntryNode != "n1" {
+		t.Fatalf("expected the first-seen entry node to win, got: %+v", endpoints[0])
+	}
+}
+
 func TestStoreReplaceIndexIsWholesale(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
