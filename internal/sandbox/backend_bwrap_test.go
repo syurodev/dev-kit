@@ -178,6 +178,116 @@ func TestBwrapCanWriteWorkDirUnderHome(t *testing.T) {
 	}
 }
 
+// TMPDIR is set to /tmp for every private-home jail (withPrivateHomeEnv), so
+// /tmp inside the jail must actually exist and be writable — a Node CLI
+// reaching for os.tmpdir() early in its own startup (lockfiles, IPC sockets,
+// npm/V8 caches) can hang rather than error when it doesn't, which from the
+// outside looks exactly like a session stuck on "starting" forever.
+//
+// WorkDir deliberately lives under $HOME, not under t.TempDir(): a WorkDir
+// under /tmp would make bwrap auto-create /tmp as a bind-mount ancestor
+// directory anyway, passing this test even with the /tmp grant missing
+// entirely — hiding the exact bug this guards (a real project checkout,
+// like an agent session's actual WorkDir, is never under /tmp).
+func TestBwrapCanWriteTmpDir(t *testing.T) {
+	backend := NewBwrapBackend()
+	if err := backend.Available(context.Background()); err != nil {
+		t.Skipf("bwrap unavailable: %v", err)
+	}
+
+	realHome, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	workDir := filepath.Join(realHome, "devkit-bwrap-tmp-test-"+time.Now().Format("20060102150405"))
+	if err := os.MkdirAll(workDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(workDir)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	proc, err := backend.Start(ctx, Policy{
+		WorkDir: workDir,
+	}, Cmd{Path: "/bin/sh", Args: []string{"-c", "printf hello > \"$TMPDIR/probe.txt\" && cat \"$TMPDIR/probe.txt\""}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := proc.Wait(); err != nil {
+		stdout, stderr := proc.Output()
+		t.Fatalf("write to $TMPDIR failed: %v; stdout=%q stderr=%q", err, stdout, stderr)
+	}
+
+	stdout, _ := proc.Output()
+	if got := strings.TrimSpace(string(stdout)); got != "hello" {
+		t.Fatalf("$TMPDIR/probe.txt contents = %q, want %q", got, "hello")
+	}
+}
+
+// On a systemd-resolved host /etc/resolv.conf is a symlink into /run, which
+// nothing binds — so the jail gets a dangling resolv.conf, no nameservers, and
+// every DNS lookup inside it fails (measured: `getent hosts github.com` returns
+// nothing in a jail built exactly like this one). The file the symlink resolves
+// to has to come along.
+func TestBwrapArgsBindsResolvConfTargetOutsideEtc(t *testing.T) {
+	root := t.TempDir()
+	stub := filepath.Join(root, "run", "systemd", "resolve", "stub-resolv.conf")
+	if err := os.MkdirAll(filepath.Dir(stub), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stub, []byte("nameserver 127.0.0.53\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "resolv.conf")
+	if err := os.Symlink(stub, link); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := filepath.EvalSymlinks(stub)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	original := resolvConfPath
+	resolvConfPath = link
+	t.Cleanup(func() { resolvConfPath = original })
+
+	args := buildBwrapArgs(Policy{
+		WorkDir: t.TempDir(),
+		Network: NetworkHost,
+	}, Cmd{Path: "/bin/sh", Args: []string{"-c", "true"}})
+	assertArgsContain(t, args, "--ro-bind", resolved, resolved)
+
+	// A jail with no network has no names to resolve, so it stays out.
+	offline := buildBwrapArgs(Policy{
+		WorkDir: t.TempDir(),
+		Network: NetworkNone,
+	}, Cmd{Path: "/bin/sh", Args: []string{"-c", "true"}})
+	for i := 0; i+2 < len(offline); i++ {
+		if offline[i] == "--ro-bind" && offline[i+1] == resolved {
+			t.Fatalf("offline jail bound resolv.conf target %q", resolved)
+		}
+	}
+}
+
+// A resolv.conf that is a real file needs nothing extra: the /etc bind already
+// carries it, and a second bind of the same path is noise.
+func TestBwrapArgsSkipsResolvConfInsideEtc(t *testing.T) {
+	original := resolvConfPath
+	resolvConfPath = "/etc/hostname" // a real file under /etc, whatever the host
+	t.Cleanup(func() { resolvConfPath = original })
+
+	args := buildBwrapArgs(Policy{
+		WorkDir: t.TempDir(),
+		Network: NetworkHost,
+	}, Cmd{Path: "/bin/sh", Args: []string{"-c", "true"}})
+
+	for i := 0; i+2 < len(args); i++ {
+		if args[i] == "--ro-bind" && args[i+1] == "/etc/hostname" {
+			t.Fatal("bound a resolv.conf that /etc already covers")
+		}
+	}
+}
+
 func boolPtr(v bool) *bool {
 	return &v
 }
