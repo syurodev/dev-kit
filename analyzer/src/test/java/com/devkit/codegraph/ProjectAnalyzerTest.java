@@ -39,6 +39,37 @@ class ProjectAnalyzerTest {
     }
 
     @Test
+    void feignClientDeclaringTheSameRouteAsItsControllerIsNotADuplicateEndpoint(@TempDir Path root) throws IOException {
+        Files.createDirectories(root.resolve("example"));
+        Files.writeString(root.resolve("example/ProductsController.java"), """
+                package example;
+                import org.springframework.web.bind.annotation.RestController;
+                import org.springframework.web.bind.annotation.GetMapping;
+                @RestController
+                class ProductsController {
+                    @GetMapping("/v1/internal/tenants/{orgId}/products")
+                    void list() {}
+                }
+                """);
+        Files.writeString(root.resolve("example/ProductsClient.java"), """
+                package example;
+                import org.springframework.cloud.openfeign.FeignClient;
+                import org.springframework.web.bind.annotation.GetMapping;
+                @FeignClient(name = "products-service")
+                interface ProductsClient {
+                    @GetMapping("/v1/internal/tenants/{orgId}/products")
+                    void list();
+                }
+                """);
+
+        AnalysisResult result = new ProjectAnalyzer(root).analyze();
+
+        assertEquals(1, result.endpoints.size(),
+                "the Feign client's declared route must not be counted as a second endpoint: " + result.endpoints);
+        assertEquals("example.ProductsController.list()", result.endpoints.get(0).entryNode);
+    }
+
+    @Test
     void indexesTypeDependenciesWithoutCalls(@TempDir Path root) throws IOException {
         Files.writeString(root.resolve("Model.java"), "package model; public class Model {}");
         Files.writeString(root.resolve("Consumer.java"), "package consumer; import model.Model; class Consumer { Model value; }");

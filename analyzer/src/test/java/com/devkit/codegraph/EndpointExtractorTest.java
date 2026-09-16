@@ -115,6 +115,36 @@ class EndpointExtractorTest {
     }
 
     @Test
+    void feignClientInterfaceIsNotAnEndpoint() {
+        var cu = StaticJavaParser.parse("""
+                @FeignClient(name = "products-service")
+                interface ProductsClient {
+                    @GetMapping("/v1/internal/tenants/{orgId}/products")
+                    List<Product> list(@PathVariable String orgId);
+                }
+                """);
+        ClassOrInterfaceDeclaration classDecl = cu.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow();
+        MethodDeclaration methodDecl = cu.findFirst(MethodDeclaration.class).orElseThrow();
+
+        assertTrue(EndpointExtractor.extract(classDecl, methodDecl).isEmpty());
+    }
+
+    @Test
+    void httpExchangeClientInterfaceIsNotAnEndpoint() {
+        var cu = StaticJavaParser.parse("""
+                @HttpExchange("/v1/internal/tenants")
+                interface TenantsClient {
+                    @GetMapping("/{orgId}/products")
+                    List<Product> list(@PathVariable String orgId);
+                }
+                """);
+        ClassOrInterfaceDeclaration classDecl = cu.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow();
+        MethodDeclaration methodDecl = cu.findFirst(MethodDeclaration.class).orElseThrow();
+
+        assertTrue(EndpointExtractor.extract(classDecl, methodDecl).isEmpty());
+    }
+
+    @Test
     void methodWithoutHttpMappingAnnotationIsNotAnEndpoint() {
         var cu = StaticJavaParser.parse("""
                 @RestController

@@ -17,6 +17,17 @@ import java.util.Optional;
  * plain @RequestMapping which defaults to GET when it carries no method
  * detail this best-effort extractor bothers parsing). Matches by simple
  * annotation name, same reasoning as LayerClassifier.
+ *
+ * A class marked as a declarative HTTP client (@FeignClient, or Spring 6's
+ * own @HttpExchange) is skipped entirely, even if its methods carry the same
+ * mapping annotations a controller would: those annotations there describe a
+ * route this class *calls*, on some other service, not one this project
+ * serves. Left unchecked, a client interface declaring the exact route its
+ * own controller implements collides on the endpoint's id (method + path)
+ * and used to take down the whole index (see ReplaceIndex's dedup, the
+ * belt-and-suspenders half of this fix) — this half stops the false
+ * "endpoint" from being extracted at all, which a shared spec interface
+ * reused by both a controller and a client makes more likely than it sounds.
  */
 public class EndpointExtractor {
 
@@ -30,7 +41,15 @@ public class EndpointExtractor {
             "PatchMapping", "PATCH"
     );
 
+    private static boolean isDeclarativeClient(TypeDeclaration<?> classDecl) {
+        return classDecl.getAnnotationByName("FeignClient").isPresent()
+                || classDecl.getAnnotationByName("HttpExchange").isPresent();
+    }
+
     public static Optional<HttpMapping> extract(TypeDeclaration<?> classDecl, MethodDeclaration methodDecl) {
+        if (isDeclarativeClient(classDecl)) {
+            return Optional.empty();
+        }
         for (var entry : MAPPING_ANNOTATION_TO_HTTP_METHOD.entrySet()) {
             Optional<AnnotationExpr> annotation = methodDecl.getAnnotationByName(entry.getKey());
             if (annotation.isPresent()) {
