@@ -493,6 +493,11 @@ func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, resume string) 
 	if err != nil {
 		return nil, mapSandboxErr(err)
 	}
+	// Confirms the jail actually exec'd the agent, not just that bwrap itself
+	// forked — a "starting" that never leaves that state and never logs
+	// anything else again is otherwise indistinguishable from bwrap silently
+	// failing to reach the exec at all.
+	log.Printf("agenthub: claude: sandboxed process started, pid=%d", proc.PID())
 
 	stdin := proc.StdinWriter()
 	stdout := proc.StdoutReader()
@@ -572,6 +577,13 @@ func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, resume string) 
 			logStderrTail("claude "+stage, proc)
 			return fmt.Errorf("%w: %s: agent process exited during handshake%s", ErrProcessFailed, stage, reason)
 		default:
+			// The process is still alive: this is handshakeTimeout firing on a
+			// vendor that started but never answered. Whatever it wrote to
+			// stderr before going silent — a keyring/D-Bus error, a missing
+			// path inside the jail — is otherwise lost the moment cleanup()
+			// kills it below, and "starting" forever with no further log line
+			// is exactly what that loss looks like from the outside.
+			logStderrTail("claude "+stage+" (still running, "+err.Error()+")", proc)
 			return fmt.Errorf("%w: %s: %v", ErrProcessFailed, stage, err)
 		}
 	}
