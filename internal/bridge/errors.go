@@ -5,6 +5,7 @@ import (
 	"devkit/internal/capabilities"
 	"errors"
 	"log"
+	"os"
 
 	"devkit/internal/agenthub"
 	"devkit/internal/agentruntime"
@@ -253,6 +254,8 @@ func publicError(subject string, err error) *apperrors.AppError {
 		switch {
 		case errors.Is(err, codegraph.ErrNoActiveProject):
 			return apperrors.Wrap(codeValidationFailed, "No active CodeGraph project.", true, codegraph.ErrNoActiveProject)
+		case errors.Is(err, codegraph.ErrIndexNotReady):
+			return apperrors.Wrap(codeValidationFailed, "CodeGraph index not ready. Wait for indexing to finish or reopen the project to retry.", true, err)
 		case errors.Is(err, codegraph.ErrNodeNotFound):
 			return apperrors.Wrap(codeValidationFailed, "CodeGraph node not found.", true, codegraph.ErrNodeNotFound)
 		case errors.Is(err, codegraph.ErrAnalyzerNotConfigured):
@@ -274,6 +277,10 @@ func publicError(subject string, err error) *apperrors.AppError {
 			return apperrors.Wrap(codeValidationFailed, "Plan node not found.", true, codegraph.ErrPlanNodeNotFound)
 		case errors.Is(err, codegraph.ErrInvalidPlan):
 			return apperrors.Wrap(codeValidationFailed, "Invalid plan.", true, codegraph.ErrInvalidPlan)
+		case errors.Is(err, codegraph.ErrPathOutsideProject):
+			return apperrors.Wrap(codeValidationFailed, "File path must stay inside the active CodeGraph project.", true, err)
+		case errors.Is(err, os.ErrNotExist):
+			return apperrors.Wrap(codeValidationFailed, "CodeGraph file or directory not found.", true, err)
 		case errors.Is(err, codegraph.ErrBinaryFile):
 			return apperrors.Wrap(codeValidationFailed, "This file is not text and cannot be opened in the editor.", true, codegraph.ErrBinaryFile)
 		}

@@ -17,7 +17,8 @@ var (
 	ErrNoActiveProject = errors.New("codegraph: no active project")
 	// ErrNodeNotFound is returned when a node/endpoint ID does not exist in
 	// the active project's index.
-	ErrNodeNotFound = errors.New("codegraph: node not found")
+	ErrNodeNotFound  = errors.New("codegraph: node not found")
+	ErrIndexNotReady = errors.New("codegraph: index not ready")
 	// ErrPathOutsideProject is returned by ReadFile/WriteFile/GetCodeSnippet
 	// when the resolved path (symlinks included) falls outside the active
 	// project's root.
@@ -220,11 +221,9 @@ type DataFlowStep struct {
 	Depth    int    `json:"depth"`
 	// TargetID is the callee for kind=="call", empty otherwise.
 	TargetID string `json:"targetId"`
-	// Unresolved is empty when nothing was lost. Otherwise it names the wall the
-	// trace hit: "library" (bytecode — there is no body to read, ever),
-	// "interface" (the implementation is not knowable statically), "unresolved"
-	// (the solver could not resolve the call), "depth" (the ceiling below) or
-	// "cycle" (this method is already on the current path).
+	// Unresolved marks "depth" (the traversal ceiling) or "cycle" (a method
+	// already on the current path). Unresolved library/interface call sites
+	// remain in the index, but lack field evidence and are omitted here.
 	Unresolved string `json:"unresolved"`
 }
 
@@ -298,6 +297,7 @@ type Analyzer interface {
 // Store persists one project's index. Each project gets its own SQLite file;
 // ReplaceIndex overwrites it wholesale on every (re-)index.
 type Store interface {
+	IndexVersion(ctx context.Context) (int, error)
 	ReplaceIndex(ctx context.Context, result AnalysisResult) error
 	// IndexedProject / SetIndexedProject say which project the stored index
 	// describes, so an open can tell "this project's index" from "an index".

@@ -1,3 +1,4 @@
+import { Shimmer } from "@/components/ui/shimmer";
 import * as React from "react";
 import { BookOpen, Bot, ChevronRight, FileEdit, Globe, Search, Terminal, Wrench } from "lucide-react";
 
@@ -326,7 +327,7 @@ export function AgentToolCall({
             "disabled:cursor-default disabled:opacity-70",
           )}
         >
-          {loadingFull ? "Loading full output…" : "Show full output"}
+          <Shimmer active={loadingFull}>{loadingFull ? "Loading full output…" : "Show full output"}</Shimmer>
         </button>
       ) : null}
       </AnimatedCollapse>
@@ -364,7 +365,7 @@ export function AgentToolCall({
                 </span>
               ) : null}
             </span>
-            {pending ? <span className="shrink-0 text-text-tertiary">{FALLBACK[state]}</span> : null}
+            {pending ? <Shimmer active={state === "running"} className="shrink-0 text-text-tertiary">{FALLBACK[state]}</Shimmer> : null}
             {chevron}
           </>,
         )}
@@ -396,7 +397,7 @@ export function AgentToolCall({
           {/* Truncates rather than holding its width: a shell command is a title
               too, and at nowrap/shrink-0 a long one pushed the row past the
               column. The full command is in the output once opened. */}
-          <span className="min-w-0 truncate text-body-12 text-text-secondary">{title}</span>
+          <Shimmer active={state === "running"} className="min-w-0 truncate text-body-12 text-text-secondary">{title}</Shimmer>
           <span className="min-w-0 flex-1" />
           {result ? (
             <span

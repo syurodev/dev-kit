@@ -26,6 +26,11 @@ contents:
   # the other.
   - src: "./analyzer/target/codegraph-analyzer.jar"
     dst: "/usr/local/share/dev-kit/codegraph-analyzer.jar"
+  # The devkit-mcp stdio proxy, built by the `build:mcp` task the packaging
+  # depends on. Beside dev-kit in /usr/local/bin: where ResolveCommand in
+  # internal/mcp/install/install.go looks first (filepath.Dir(exe)).
+  - src: "./bin/devkit-mcp"
+    dst: "/usr/local/bin/devkit-mcp"
   - src: "./build/appicon.png"
     dst: "/usr/share/icons/hicolor/128x128/apps/dev-kit.png"
   - src: "./build/linux/dev-kit.desktop"

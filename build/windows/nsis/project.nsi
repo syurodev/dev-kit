@@ -99,6 +99,12 @@ Section
     ; Change one, change the other. The uninstaller's RMDir /r below takes it.
     File "..\..\..\analyzer\target\codegraph-analyzer.jar"
 
+    ; The devkit-mcp stdio proxy, built by the `build:mcp` task the installer
+    ; target depends on. It sits beside the executable, which is where
+    ; ResolveCommand in internal/mcp/install/install.go looks first. Change
+    ; one, change the other.
+    File "..\..\..\bin\devkit-mcp.exe"
+
     CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
     CreateShortCut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
 

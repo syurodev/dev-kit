@@ -113,3 +113,21 @@ func TestServiceRejectsBlankComment(t *testing.T) {
 		t.Fatalf("err = %v, want the blank-body check first", err)
 	}
 }
+
+func TestServiceReplyIsPersisted(t *testing.T) {
+	svc := newTestService(t, fakeAnalyzer{})
+	ctx := t.Context()
+	if err := svc.OpenProject(ctx, "/fake/project"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ReplyPlanNode(ctx, "pn-001", "Verified reply", "smoke"); err != nil {
+		t.Fatal(err)
+	}
+	comments, err := svc.ListPlanNodeComments(ctx, "pn-001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(comments) != 1 || comments[0].Body != "Verified reply" || comments[0].Author != "agent" {
+		t.Fatalf("reply not persisted: %+v", comments)
+	}
+}

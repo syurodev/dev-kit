@@ -3,6 +3,9 @@ package mcp
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"path/filepath"
 
 	"devkit/internal/codegraph"
 
@@ -10,6 +13,11 @@ import (
 )
 
 func (s *Server) registerCodeGraph(ms *sdk.Server) {
+	sdk.AddTool(ms, &sdk.Tool{
+		Name:        "codegraph.openProject",
+		Description: "Point CodeGraph at a project directory and index it — pass the absolute path of the directory you are working in. Refreshes a matching on-disk index in the background; otherwise indexes synchronously. Call waitForIndexReady before graph queries.",
+	}, s.toolCodeGraphOpenProject)
+
 	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "codegraph.listEndpoints",
 		Description: "List HTTP endpoints detected in the active CodeGraph project",
@@ -54,7 +62,7 @@ func (s *Server) registerCodeGraph(ms *sdk.Server) {
 
 	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "codegraph.waitForIndexReady",
-		Description: "Block until any pending or in-progress re-index finishes, then return the current index version",
+		Description: "Wait for cold-start indexing, startup refresh, and queued/running re-indexes. Returns the persistent per-project revision only after success; failed indexing returns index not ready.",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolCodeGraphWaitForIndexReady)
 
@@ -75,6 +83,42 @@ func (s *Server) registerCodeGraph(ms *sdk.Server) {
 		Description: "List the fields a class or method touches, with read/write counts — use it to find a field name for codegraph.traceDataFlow",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolCodeGraphListFields)
+}
+
+type codeGraphOpenProjectInput struct {
+	Path string `json:"path"`
+}
+
+// toolCodeGraphOpenProject is the MCP counterpart of
+// bridge.AppService.CodeGraphOpenProject — same atomic OpenProjectAt call
+// under the same codegraph:index/project:new capability,
+// documented in docs/dev-kit/codegraph.mdx's MCP tool surface table.
+//
+// path must be absolute: the MCP host runs inside the DevKit desktop
+// process, so a relative path would resolve against that process's working
+// directory, not the caller agent's — there is no cwd to make it meaningful.
+func (s *Server) toolCodeGraphOpenProject(ctx context.Context, _ *sdk.CallToolRequest, in codeGraphOpenProjectInput) (*sdk.CallToolResult, any, error) {
+	if in.Path == "" {
+		return nil, nil, fmt.Errorf("codegraph: path is required")
+	}
+	if !filepath.IsAbs(in.Path) {
+		return nil, nil, fmt.Errorf("codegraph: path must be absolute (got %q) — pass the directory you are working in", in.Path)
+	}
+	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:index", "project:new", meta("open_project", map[string]any{"path": in.Path}), func(ctx context.Context) (any, error) {
+		configDir, err := os.UserConfigDir()
+		if err != nil {
+			return nil, fmt.Errorf("codegraph: resolve config dir: %w", err)
+		}
+		dbPath := codegraph.ProjectDBPath(configDir, in.Path)
+		if err := s.deps.CodeGraph.OpenProjectAt(ctx, dbPath, in.Path); err != nil {
+			return nil, err
+		}
+		return s.deps.CodeGraph.ActiveDetection(), nil
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, structured(v), nil
 }
 
 func (s *Server) toolCodeGraphListEndpoints(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {

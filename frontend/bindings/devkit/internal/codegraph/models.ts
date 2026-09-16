@@ -54,11 +54,9 @@ export interface DataFlowStep {
     "targetId": string;
 
     /**
-     * Unresolved is empty when nothing was lost. Otherwise it names the wall the
-     * trace hit: "library" (bytecode — there is no body to read, ever),
-     * "interface" (the implementation is not knowable statically), "unresolved"
-     * (the solver could not resolve the call), "depth" (the ceiling below) or
-     * "cycle" (this method is already on the current path).
+     * Unresolved marks "depth" (the traversal ceiling) or "cycle" (a method
+     * already on the current path). Unresolved library/interface call sites
+     * remain in the index, but lack field evidence and are omitted here.
      */
     "unresolved": string;
 }

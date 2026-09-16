@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -319,6 +320,50 @@ func TestResolveCommandFallback(t *testing.T) {
 	}
 	if !errors.Is(err, ErrProxyNotFound) && !strings.Contains(err.Error(), "devkit-mcp") {
 		t.Fatalf("error = %v, want proxy-not-found", err)
+	}
+}
+
+func TestResolveNextToExecutable(t *testing.T) {
+	// Mirrors what a packaged build ships: the proxy sits directly beside the
+	// app binary (create:app:bundle / nfpm.yaml / project.nsi), not in a bin/
+	// subdirectory (that layout is the cwd fallback for a source checkout).
+	dir := t.TempDir()
+	name := proxyBinaryName()
+	binPath := filepath.Join(dir, name)
+	if err := os.WriteFile(binPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := resolveNextToExecutable(dir, name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := filepath.Abs(binPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("resolveNextToExecutable() = %q, want %q", got, want)
+	}
+}
+
+func TestResolveNextToExecutableMissing(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := resolveNextToExecutable(dir, proxyBinaryName()); !errors.Is(err, ErrProxyNotFound) {
+		t.Fatalf("error = %v, want ErrProxyNotFound", err)
+	}
+}
+
+func TestProxyBinaryName(t *testing.T) {
+	name := proxyBinaryName()
+	if runtime.GOOS == "windows" {
+		if name != "devkit-mcp.exe" {
+			t.Fatalf("proxyBinaryName() = %q, want devkit-mcp.exe on windows", name)
+		}
+		return
+	}
+	if name != "devkit-mcp" {
+		t.Fatalf("proxyBinaryName() = %q, want devkit-mcp", name)
 	}
 }
 

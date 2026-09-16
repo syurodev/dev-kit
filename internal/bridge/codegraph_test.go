@@ -63,6 +63,10 @@ func TestCodeGraphOpenProjectTwiceReusesSameStore(t *testing.T) {
 		t.Fatalf("second CodeGraphOpenProject: %v", err)
 	}
 
+	if _, err := s.CodeGraphWaitForIndexReady(); err != nil {
+		t.Fatal(err)
+	}
+
 	endpoints, err := s.CodeGraphListEndpoints()
 	if err != nil {
 		t.Fatalf("CodeGraphListEndpoints: %v", err)

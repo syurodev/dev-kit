@@ -81,9 +81,9 @@ type CodeGraphState = {
  * in the view would come back as an empty "Open Java project…" screen even
  * though Go still has the project indexed and watched.
  *
- * Deliberately not persisted: the Go service holds the active project in
- * memory too, so this dying with the process keeps the two sides consistent.
- * Persisting it would resurrect a project path that Go no longer has open.
+ * The Go service restores the last selected project on startup. The view
+ * reads that selection on mount and waits for its index before loading data;
+ * graph results themselves are never restored from frontend storage.
  */
 export const useCodeGraphStore = create<CodeGraphState>((set) => ({
   projectPath: "",

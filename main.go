@@ -489,6 +489,9 @@ func main() {
 		container.CodeGraph.SetAnalyzer(toolchain.Analyzer())
 	}
 
+	if err := container.CodeGraph.RestoreLastProject(context.Background(), container.ConfigDir); err != nil {
+		log.Printf("codegraph: could not restore last project: %v", err)
+	}
 	defer container.Database.Close()
 	defer container.SSH.Close()
 	defer container.Kafka.Close()

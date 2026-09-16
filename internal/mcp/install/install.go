@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -42,9 +43,24 @@ func ListAgents() []Agent {
 	return []Agent{AgentClaudeCode, AgentCodex}
 }
 
+// proxyBinaryName is "devkit-mcp" with the platform's executable suffix
+// (".exe" on Windows). exec.LookPath already resolves PATHEXT on its own;
+// this only matters for the os.Stat-based candidates below, which compare
+// exact file names against what the packaging tasks actually place beside
+// the app binary (see build/windows/nsis/project.nsi).
+func proxyBinaryName() string {
+	if runtime.GOOS == "windows" {
+		return "devkit-mcp.exe"
+	}
+	return "devkit-mcp"
+}
+
 // ResolveCommand finds an absolute path to the devkit-mcp proxy binary.
-// Prefer PATH (LookPath), then bin/devkit-mcp under cwd, then next to a non-temp executable.
+// Prefer PATH (LookPath), then bin/devkit-mcp under cwd (source checkout /
+// `task mcp:install`), then beside a non-temp executable — where a packaged
+// build ships it (see build/*/Taskfile.yml: build:mcp / build:mcp tasks).
 func ResolveCommand() (string, error) {
+	name := proxyBinaryName()
 	if p, err := exec.LookPath("devkit-mcp"); err == nil {
 		if abs, err := absCommandPath(p); err != nil {
 			return "", err
@@ -53,7 +69,7 @@ func ResolveCommand() (string, error) {
 		}
 	}
 	if cwd, err := os.Getwd(); err == nil {
-		if abs, err := resolveBuiltBinary(filepath.Join(cwd, "bin", "devkit-mcp")); err != nil {
+		if abs, err := resolveBuiltBinary(filepath.Join(cwd, "bin", name)); err != nil {
 			return "", err
 		} else if abs != "" {
 			return abs, nil
@@ -70,13 +86,22 @@ func ResolveCommand() (string, error) {
 	if isEphemeralPath(exe) {
 		return "", ErrProxyNotFound
 	}
-	if abs, err := resolveBuiltBinary(filepath.Join(filepath.Dir(exe), "bin", "devkit-mcp")); err != nil {
+	return resolveNextToExecutable(filepath.Dir(exe), name)
+}
+
+// resolveNextToExecutable checks the two places a packaged build might have
+// put the proxy relative to the running app's own directory: a bin/
+// subdirectory (mirrors the source-checkout layout), then directly beside it
+// (where build/*/Taskfile.yml's build:mcp tasks actually place it — see
+// create:app:bundle, nfpm.yaml, project.nsi). Split out from ResolveCommand
+// so it can be tested without a real packaged install on disk.
+func resolveNextToExecutable(exeDir, name string) (string, error) {
+	if abs, err := resolveBuiltBinary(filepath.Join(exeDir, "bin", name)); err != nil {
 		return "", err
 	} else if abs != "" {
 		return abs, nil
 	}
-	candidate := filepath.Join(filepath.Dir(exe), "devkit-mcp")
-	if abs, err := resolveBuiltBinary(candidate); err != nil {
+	if abs, err := resolveBuiltBinary(filepath.Join(exeDir, name)); err != nil {
 		return "", err
 	} else if abs != "" {
 		return abs, nil

@@ -110,6 +110,8 @@ type KafkaAPI interface {
 
 // CodeGraphAPI is the codegraph domain surface MCP tools invoke.
 type CodeGraphAPI interface {
+	OpenProjectAt(ctx context.Context, dbPath, projectPath string) error
+	ActiveDetection() codegraph.DetectedProject
 	ListEndpoints(ctx context.Context) ([]codegraph.Endpoint, error)
 	GetApiFlow(ctx context.Context, endpointID string) (codegraph.ApiFlow, error)
 	SearchSymbol(ctx context.Context, query string) ([]codegraph.SymbolMatch, error)

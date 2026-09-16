@@ -75,8 +75,8 @@ func TestServiceOpenProjectSurfacesAnalyzerError(t *testing.T) {
 		t.Fatalf("expected wrapped analyzer error, got %v", err)
 	}
 	// A failed OpenProject must not leave a stale/partial index queryable.
-	if _, err := svc.ListEndpoints(context.Background()); !errors.Is(err, ErrNoActiveProject) {
-		t.Fatalf("expected ErrNoActiveProject after failed OpenProject, got %v", err)
+	if _, err := svc.ListEndpoints(context.Background()); !errors.Is(err, ErrIndexNotReady) {
+		t.Fatalf("expected ErrIndexNotReady after failed OpenProject, got %v", err)
 	}
 }
 
@@ -1706,7 +1706,7 @@ func TestTraceDataFlowFollowsCallsAndDeepens(t *testing.T) {
 	}
 }
 
-func TestTraceDataFlowSaysWhereItLostTheFlow(t *testing.T) {
+func TestTraceDataFlowOmitsCallsWithoutFieldEvidence(t *testing.T) {
 	svc := newTestService(t, fakeAnalyzer{result: traceFixture()})
 	if err := svc.OpenProject(context.Background(), "/fake/project"); err != nil {
 		t.Fatalf("OpenProject: %v", err)
@@ -1717,16 +1717,10 @@ func TestTraceDataFlowSaysWhereItLostTheFlow(t *testing.T) {
 		t.Fatalf("TraceDataFlow: %v", err)
 	}
 
-	// The whole reason unresolved calls are recorded: silence here would read as
-	// "the flow ends", when the truth is "we cannot see any further".
-	var found bool
-	for _, s := range trace.Steps {
-		if s.Kind == "call" && s.Unresolved == "library" && s.Line == 32 {
-			found = true
+	for _, step := range trace.Steps {
+		if step.Kind == "call" && step.TargetID == "" {
+			t.Fatalf("unrelated unresolved call in field trace: %+v", step)
 		}
-	}
-	if !found {
-		t.Error("no step marks the library call at Repository.java:32 as a wall")
 	}
 }
 
@@ -1883,7 +1877,10 @@ func TestOpenProjectReusesThisProjectsStoredIndex(t *testing.T) {
 		t.Fatalf("reopen: %v", err)
 	}
 
-	// Usable immediately, from the stored index, without waiting on an analyze.
+	// A cached index is not ready until the startup refresh has completed.
+	if _, err := reopened.WaitForIndexReady(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	endpoints, err := reopened.ListEndpoints(context.Background())
 	if err != nil {
 		t.Fatalf("ListEndpoints straight after reopen: %v", err)
@@ -1927,5 +1924,57 @@ func TestOpenProjectDoesNotReuseAnotherProjectsIndex(t *testing.T) {
 	}
 	if calls.Load() == callsAfterA {
 		t.Fatal("a different project must be analyzed, not read from another project's index")
+	}
+}
+
+func TestGetNeighborsExpandsClassMethods(t *testing.T) {
+	fixture := traceFixture()
+	fixture.Nodes = append(fixture.Nodes, Node{ID: "a.Service", Label: "Service", Kind: "class", FilePath: "Service.java"})
+	svc := newTestService(t, fakeAnalyzer{result: fixture})
+	ctx := context.Background()
+	if err := svc.OpenProject(ctx, "/fake/project"); err != nil {
+		t.Fatal(err)
+	}
+	graph, err := svc.GetNeighbors(ctx, "a.Service", 1, NeighborFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(graph.Nodes) < 3 || len(graph.Edges) < 2 {
+		t.Fatalf("class graph missing methods/callees: %+v", graph)
+	}
+}
+
+func TestBlastRadiusNormalizesAbsolutePath(t *testing.T) {
+	svc := newTestService(t, fakeAnalyzer{result: AnalysisResult{
+		FileDependencies: []FileDependency{{FilePath: "Consumer.java", DependsOnFilePath: "Model.java"}},
+	}})
+	ctx := context.Background()
+	if err := svc.OpenProject(ctx, "/fake/project"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := svc.GetBlastRadius(ctx, "/fake/project/Model.java")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != "Consumer.java" {
+		t.Fatalf("radius: %v", got)
+	}
+}
+
+func TestTraceDataFlowDeduplicatesIndexedEvents(t *testing.T) {
+	fixture := traceFixture()
+	fixture.CallSites = append(fixture.CallSites, fixture.CallSites[1])
+	fixture.FieldAccesses = append(fixture.FieldAccesses, fixture.FieldAccesses[0])
+	svc := newTestService(t, fakeAnalyzer{result: fixture})
+	ctx := context.Background()
+	if err := svc.OpenProject(ctx, "/fake/project"); err != nil {
+		t.Fatal(err)
+	}
+	trace, err := svc.TraceDataFlow(ctx, "a.Refund", "status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(trace.Steps) != 4 {
+		t.Fatalf("duplicate or unrelated events: %+v", trace.Steps)
 	}
 }

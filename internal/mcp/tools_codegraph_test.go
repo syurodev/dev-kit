@@ -3,29 +3,48 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"devkit/internal/codegraph"
 )
 
 type fakeCodeGraphAPI struct {
-	endpoints     []codegraph.Endpoint
-	flow          codegraph.ApiFlow
-	matches       []codegraph.SymbolMatch
-	files         []codegraph.FileEntry
-	fileContent   string
-	snippet       codegraph.CodeSnippet
-	blastRadius   []string
-	indexVersion  int
-	subgraph      codegraph.Subgraph
-	dataFlowTrace codegraph.DataFlowTrace
-	fieldRefs     []codegraph.FieldRef
-	comments      []codegraph.PlanComment
-	plan          codegraph.Plan
-	planProgress  codegraph.PlanProgress
-	err           error
+	setProjectPathErr error
+	openProjectErr    error
+	detection         codegraph.DetectedProject
+	endpoints         []codegraph.Endpoint
+	flow              codegraph.ApiFlow
+	matches           []codegraph.SymbolMatch
+	files             []codegraph.FileEntry
+	fileContent       string
+	snippet           codegraph.CodeSnippet
+	blastRadius       []string
+	indexVersion      int
+	subgraph          codegraph.Subgraph
+	dataFlowTrace     codegraph.DataFlowTrace
+	fieldRefs         []codegraph.FieldRef
+	comments          []codegraph.PlanComment
+	plan              codegraph.Plan
+	planProgress      codegraph.PlanProgress
+	err               error
 }
 
+func (f fakeCodeGraphAPI) OpenProjectAt(ctx context.Context, dbPath, projectPath string) error {
+	if err := f.SetProjectPath(dbPath); err != nil {
+		return err
+	}
+	return f.OpenProject(ctx, projectPath)
+}
+func (f fakeCodeGraphAPI) SetProjectPath(dbPath string) error {
+	return f.setProjectPathErr
+}
+func (f fakeCodeGraphAPI) OpenProject(ctx context.Context, projectPath string) error {
+	return f.openProjectErr
+}
+func (f fakeCodeGraphAPI) ActiveDetection() codegraph.DetectedProject {
+	return f.detection
+}
 func (f fakeCodeGraphAPI) ListEndpoints(ctx context.Context) ([]codegraph.Endpoint, error) {
 	return f.endpoints, f.err
 }
@@ -76,6 +95,49 @@ func (f fakeCodeGraphAPI) GetPlanProgress(ctx context.Context) (codegraph.PlanPr
 }
 func (f fakeCodeGraphAPI) RelinkPlanNode(ctx context.Context, planNodeID, fqn string) error {
 	return f.err
+}
+
+func TestToolCodeGraphOpenProject(t *testing.T) {
+	deps := Deps{
+		Caller:    &fakeCaller{},
+		CodeGraph: fakeCodeGraphAPI{detection: codegraph.DetectedProject{Language: "java", Label: "Maven", Modules: []string{"."}}},
+	}
+	s := NewServer(deps)
+	_, v, err := s.toolCodeGraphOpenProject(context.Background(), nil, codeGraphOpenProjectInput{Path: "/abs/project"})
+	if err != nil {
+		t.Fatalf("toolCodeGraphOpenProject: %v", err)
+	}
+	detected, ok := unwrap(v).(codegraph.DetectedProject)
+	if !ok || detected.Language != "java" {
+		t.Fatalf("unexpected result: %#v", v)
+	}
+}
+
+func TestToolCodeGraphOpenProjectRequiresAbsolutePath(t *testing.T) {
+	s := NewServer(Deps{Caller: &fakeCaller{}, CodeGraph: fakeCodeGraphAPI{}})
+	if _, _, err := s.toolCodeGraphOpenProject(context.Background(), nil, codeGraphOpenProjectInput{Path: "relative/dir"}); err == nil {
+		t.Fatal("expected error for relative path")
+	}
+}
+
+func TestToolCodeGraphOpenProjectRequiresPath(t *testing.T) {
+	s := NewServer(Deps{Caller: &fakeCaller{}, CodeGraph: fakeCodeGraphAPI{}})
+	if _, _, err := s.toolCodeGraphOpenProject(context.Background(), nil, codeGraphOpenProjectInput{}); err == nil {
+		t.Fatal("expected error for empty path")
+	}
+}
+
+func TestToolCodeGraphOpenProjectPropagatesError(t *testing.T) {
+	wantErr := codegraph.ErrUnsupportedProject
+	deps := Deps{
+		Caller:    &fakeCaller{},
+		CodeGraph: fakeCodeGraphAPI{openProjectErr: wantErr},
+	}
+	s := NewServer(deps)
+	_, _, err := s.toolCodeGraphOpenProject(context.Background(), nil, codeGraphOpenProjectInput{Path: "/abs/project"})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("error = %v, want %v", err, wantErr)
+	}
 }
 
 func TestToolCodeGraphListEndpoints(t *testing.T) {

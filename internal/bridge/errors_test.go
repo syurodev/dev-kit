@@ -1,7 +1,11 @@
 package bridge
 
 import (
+	"devkit/internal/codegraph"
 	"errors"
+	"fmt"
+	"os"
+	"strings"
 	"testing"
 
 	"devkit/internal/app"
@@ -57,5 +61,14 @@ func TestSyncDependencyErrFallsBackToInvalidDependencies(t *testing.T) {
 	service := NewAppService(app.NewContainer())
 	if !errors.Is(service.syncDependencyErr(), syncclient.ErrInvalidDependencies) {
 		t.Fatalf("syncDependencyErr = %v", service.syncDependencyErr())
+	}
+}
+
+func TestPublicErrorMapsCodeGraphFileInputs(t *testing.T) {
+	for _, cause := range []error{codegraph.ErrPathOutsideProject, os.ErrNotExist, codegraph.ErrIndexNotReady} {
+		got := publicError("builtin.codegraph", fmt.Errorf("read: %w", cause))
+		if !strings.HasPrefix(got.Error(), "validation_failed:") {
+			t.Fatalf("%v: %v", cause, got)
+		}
 	}
 }
