@@ -31,6 +31,34 @@ func buildBwrapArgs(p Policy, c Cmd) []string {
 		}
 	}
 
+	// withPrivateHomeEnv (below) sets TMPDIR=/tmp whenever it isn't already
+	// overridden, but bwrap starts from an empty mount namespace, so without
+	// this the jail promises a temp directory that plainly does not exist.
+	// A fresh tmpfs, not a bind of the host's real /tmp: unlike
+	// WorkDir/ReadWritePaths, /tmp is a shared, unauthenticated dump
+	// everything on the host uses, and binding it for real would leak every
+	// other process's temp files into the jail (a canary file written
+	// straight to the host's /tmp, same as t.TempDir() defaults to, would
+	// suddenly be readable — measured via TestSmokeAgentShapedProcess
+	// catching exactly that). A private, empty /tmp is the same tradeoff
+	// the seatbelt backend already makes by a different mechanism (see
+	// writeSBPLSubpath in seatbelt_profile.go).
+	//
+	// Placed before WorkDir/ReadWritePaths/ReadOnlyPaths/sockets, not after:
+	// any of those that happen to resolve under /tmp (t.TempDir() again, or
+	// a project genuinely checked out under /tmp) must still bind on top of
+	// this tmpfs, the same "punch a hole through the blanket mount" order
+	// the private-home tmpfs below already relies on.
+	//
+	// Measured: a Node CLI that reaches for os.tmpdir() early in startup
+	// (lockfiles, IPC sockets, npm/V8 caches) doesn't necessarily surface
+	// the ENOENT as a visible error — it can sit retrying, which reads from
+	// the outside as a session stuck on "starting" forever with no further
+	// log line.
+	if p.EffectivePrivateHome() {
+		args = append(args, "--tmpfs", "/tmp")
+	}
+
 	args = append(args, "--bind", p.WorkDir, p.WorkDir)
 	for _, path := range p.ReadWritePaths {
 		if pathExists(path) {
