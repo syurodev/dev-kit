@@ -196,7 +196,21 @@ func (s *sqliteStore) ReplaceIndex(ctx context.Context, result AnalysisResult) e
 			return fmt.Errorf("codegraph: insert edge %q->%q: %w", e.From, e.To, err)
 		}
 	}
+	// An endpoint's ID is its HTTP method and path, the same string the UI
+	// addresses it by — so two entry points that map to the identical route
+	// collide on insert. That is not always an analyzer bug: a Feign-style
+	// client interface declaring the same route its own controller serves,
+	// or a content-negotiation overload (same path, different `produces`)
+	// this best-effort extractor does not distinguish, both produce it on
+	// an entirely valid project. First-seen wins, in the analyzer's own file
+	// order — deterministic, and losing one entry from the endpoint list
+	// beats losing the whole index over it.
+	seenEndpoints := make(map[string]bool, len(result.Endpoints))
 	for _, ep := range result.Endpoints {
+		if seenEndpoints[ep.ID] {
+			continue
+		}
+		seenEndpoints[ep.ID] = true
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO endpoints (id, http_method, path, entry_node) VALUES (?, ?, ?, ?)`,
 			ep.ID, ep.HTTPMethod, ep.Path, ep.EntryNode); err != nil {
