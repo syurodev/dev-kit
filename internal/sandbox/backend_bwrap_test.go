@@ -224,6 +224,70 @@ func TestBwrapCanWriteTmpDir(t *testing.T) {
 	}
 }
 
+// On a systemd-resolved host /etc/resolv.conf is a symlink into /run, which
+// nothing binds — so the jail gets a dangling resolv.conf, no nameservers, and
+// every DNS lookup inside it fails (measured: `getent hosts github.com` returns
+// nothing in a jail built exactly like this one). The file the symlink resolves
+// to has to come along.
+func TestBwrapArgsBindsResolvConfTargetOutsideEtc(t *testing.T) {
+	root := t.TempDir()
+	stub := filepath.Join(root, "run", "systemd", "resolve", "stub-resolv.conf")
+	if err := os.MkdirAll(filepath.Dir(stub), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stub, []byte("nameserver 127.0.0.53\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "resolv.conf")
+	if err := os.Symlink(stub, link); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := filepath.EvalSymlinks(stub)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	original := resolvConfPath
+	resolvConfPath = link
+	t.Cleanup(func() { resolvConfPath = original })
+
+	args := buildBwrapArgs(Policy{
+		WorkDir: t.TempDir(),
+		Network: NetworkHost,
+	}, Cmd{Path: "/bin/sh", Args: []string{"-c", "true"}})
+	assertArgsContain(t, args, "--ro-bind", resolved, resolved)
+
+	// A jail with no network has no names to resolve, so it stays out.
+	offline := buildBwrapArgs(Policy{
+		WorkDir: t.TempDir(),
+		Network: NetworkNone,
+	}, Cmd{Path: "/bin/sh", Args: []string{"-c", "true"}})
+	for i := 0; i+2 < len(offline); i++ {
+		if offline[i] == "--ro-bind" && offline[i+1] == resolved {
+			t.Fatalf("offline jail bound resolv.conf target %q", resolved)
+		}
+	}
+}
+
+// A resolv.conf that is a real file needs nothing extra: the /etc bind already
+// carries it, and a second bind of the same path is noise.
+func TestBwrapArgsSkipsResolvConfInsideEtc(t *testing.T) {
+	original := resolvConfPath
+	resolvConfPath = "/etc/hostname" // a real file under /etc, whatever the host
+	t.Cleanup(func() { resolvConfPath = original })
+
+	args := buildBwrapArgs(Policy{
+		WorkDir: t.TempDir(),
+		Network: NetworkHost,
+	}, Cmd{Path: "/bin/sh", Args: []string{"-c", "true"}})
+
+	for i := 0; i+2 < len(args); i++ {
+		if args[i] == "--ro-bind" && args[i+1] == "/etc/hostname" {
+			t.Fatal("bound a resolv.conf that /etc already covers")
+		}
+	}
+}
+
 func boolPtr(v bool) *bool {
 	return &v
 }

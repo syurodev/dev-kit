@@ -11,6 +11,42 @@ import (
 
 var bwrapSystemReadOnlyPaths = []string{"/usr", "/bin", "/lib", "/lib64", "/etc"}
 
+// resolvConfPath is where glibc reads its nameservers. A var so a test can
+// point it at a fixture rather than the machine's real one.
+var resolvConfPath = "/etc/resolv.conf"
+
+// appendResolvConf binds the file /etc/resolv.conf actually resolves to, when
+// that is somewhere the jail cannot otherwise see.
+//
+// /etc is bound, which looks like enough until the host runs systemd-resolved:
+// there /etc/resolv.conf is a symlink to /run/systemd/resolve/stub-resolv.conf,
+// /run is bound nowhere, and the symlink dangles. glibc then finds no
+// nameserver at all and every lookup in the jail fails — measured: `getent
+// hosts github.com` returns nothing inside a jail built exactly like this one,
+// and an agent that starts perfectly well sits retrying a name it can never
+// resolve, producing no output and no error anyone can see.
+//
+// Only the resolved file is bound, at its own path, rather than /run wholesale:
+// /run also carries the session bus, the keyring and every pid file on the
+// machine, which this jail has no business seeing. A resolv.conf that is a real
+// file (or a symlink within /etc) is already covered by the /etc bind and adds
+// nothing here.
+func appendResolvConf(args *[]string, p Policy) {
+	if p.Network == NetworkNone {
+		return // no network, no names to resolve
+	}
+	target, err := filepath.EvalSymlinks(resolvConfPath)
+	if err != nil {
+		return
+	}
+	for _, root := range bwrapSystemReadOnlyPaths {
+		if target == root || pathIsUnder(target, root) {
+			return
+		}
+	}
+	*args = append(*args, "--ro-bind", target, target)
+}
+
 func buildBwrapArgs(p Policy, c Cmd) []string {
 	p = p.withDefaults()
 
@@ -30,6 +66,7 @@ func buildBwrapArgs(p Policy, c Cmd) []string {
 			args = append(args, "--ro-bind", path, path)
 		}
 	}
+	appendResolvConf(&args, p)
 
 	// withPrivateHomeEnv (below) sets TMPDIR=/tmp whenever it isn't already
 	// overridden, but bwrap starts from an empty mount namespace, so without
