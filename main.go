@@ -541,7 +541,7 @@ func main() {
 	mcp.SweepStaleSockets(agentsDir)
 	proxyPath, err := install.ResolveCommand()
 	if err != nil {
-		log.Printf("agenthub: devkit-mcp proxy not found; agent sessions will fail to open until it is built (task mcp): %v", err)
+		log.Printf("agenthub: devkit-mcp proxy not found; agent sessions will fail to open until it is built (task mcp:install, or go build -o bin/devkit-mcp ./cmd/devkit-mcp): %v", err)
 		proxyPath = ""
 	}
 	sessionHost := mcp.NewSessionHost(mcpCtx, mcpServer, agentsDir, proxyPath)

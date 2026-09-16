@@ -303,6 +303,10 @@ tasks:
         vars:
           BUILD_FLAGS:
             ref: .BUILD_FLAGS
+      # Without this, Agent Hub sessions fail with ErrProxyNotFound the
+      # moment someone opens one — nothing else in this task's own build path
+      # produces bin/devkit-mcp.
+      - task: build:mcp
     cmds:
       - go build -tags server {{.BUILD_FLAGS}} -o {{.BIN_DIR}}/{{.APP_NAME}}-server{{exeExt}}
     vars:

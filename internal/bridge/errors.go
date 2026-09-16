@@ -244,7 +244,7 @@ func publicError(subject string, err error) *apperrors.AppError {
 		case errors.Is(err, agenthub.ErrCallerMismatch):
 			return apperrors.New(codeValidationFailed, "callerSessionId does not match the calling agent.", true)
 		case errors.Is(err, agenthub.ErrProxyNotFound):
-			return apperrors.New(codeConnectionFailed, "DevKit MCP proxy (devkit-mcp) was not found; build it first.", true)
+			return apperrors.New(codeConnectionFailed, "DevKit MCP proxy (devkit-mcp) was not found. Build it with: task mcp:install", true)
 		}
 	}
 	if _, safe := safeValidationMessages[err.Error()]; safe {

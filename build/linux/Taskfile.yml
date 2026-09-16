@@ -53,6 +53,13 @@ tasks:
             ref: .DEV
       - task: common:generate:icons
       - task: generate:dotdesktop
+      # Without this, `task build && task run` leaves bin/devkit-mcp missing —
+      # only the packaging tasks (create:deb/rpm/aur) built it — and every
+      # Agent Hub session fails with ErrProxyNotFound the moment someone opens
+      # it from a plain dev build.
+      - task: build:mcp
+        vars:
+          ARCH: '{{.ARCH}}'
     preconditions:
       - sh: '{{if eq .OBFUSCATED "true"}}command -v garble >/dev/null 2>&1{{else}}true{{end}}'
         msg: "garble is required for obfuscated builds. Install it with: go install mvdan.cc/garble@v0.16.0 (requires Go 1.24+). See https://github.com/burrowers/garble/releases for version/toolchain compatibility."
@@ -77,6 +84,14 @@ tasks:
             ref: .OBFUSCATED
       - task: common:generate:icons
       - task: generate:dotdesktop
+      # Same reasoning as build:native's dep on this: a plain build must not
+      # skip the one binary Agent Hub needs at runtime just because the main
+      # app went through the Docker cross-compile path. Pure Go — needs no
+      # Docker of its own — so it's built directly, matching DOCKER_ARCH's own
+      # default so it targets the same arch as the app it ships beside.
+      - task: build:mcp
+        vars:
+          ARCH: '{{.ARCH | default "amd64"}}'
     preconditions:
       - sh: docker info > /dev/null 2>&1
         msg: "Docker is required for cross-compilation to Linux. Please install Docker."
