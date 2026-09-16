@@ -269,3 +269,94 @@ describe("composer keys under an IME", () => {
     expect(shouldCancelComposerOnEscape("Escape", true, false)).toBe(true);
   });
 });
+
+describe("the slash-command list over the field", () => {
+  const commands = [
+    { name: "compact", description: "summarise the turn" },
+    { name: "review", input: { hint: "path" } },
+    { name: "init" },
+  ];
+
+  it("offers the commands the typed name matches, and nothing else", () => {
+    const html = renderToString(<AgentComposer {...base} value="/c" commands={commands} onSelectCommand={() => {}} />);
+    expect(html).toContain('data-testid="composer-command-list"');
+    expect(html).toContain("/compact");
+    expect(html).toContain("summarise the turn");
+    expect(html).not.toContain("/review");
+  });
+
+  it("says what a command expects after its name", () => {
+    const html = renderToString(<AgentComposer {...base} value="/rev" commands={commands} onSelectCommand={() => {}} />);
+    // The hint is the argument's, so the field says what to type next.
+    expect(html).toContain("path");
+  });
+
+  it("stays shut when the prompt is not naming a command", () => {
+    for (const value of ["", "hello", "/compact "]) {
+      const html = renderToString(<AgentComposer {...base} value={value} commands={commands} onSelectCommand={() => {}} />);
+      expect(html).not.toContain('data-testid="composer-command-list"');
+    }
+  });
+
+  it("stays shut when nothing matches, rather than showing an empty box", () => {
+    const html = renderToString(<AgentComposer {...base} value="/zzz" commands={commands} onSelectCommand={() => {}} />);
+    expect(html).not.toContain('data-testid="composer-command-list"');
+  });
+});
+
+function runWithList(
+  key: string,
+  init: Parameters<typeof keyDown>[1],
+  { streaming = false, open = true }: { streaming?: boolean; open?: boolean } = {},
+) {
+  const calls: string[] = [];
+  const k = keyDown(key, init);
+  handleComposerKeyDown(k.event, {
+    streaming,
+    onSend: () => calls.push("send"),
+    onCancel: () => calls.push("cancel"),
+    commandList: {
+      open,
+      onMove: (delta) => calls.push(`move:${delta}`),
+      onAccept: () => calls.push("accept"),
+      onClose: () => calls.push("close"),
+    },
+  });
+  return { calls, prevented: k.prevented() };
+}
+
+describe("composer keys while the slash-command list is open", () => {
+  it("picks the command instead of sending the half-typed name", () => {
+    expect(runWithList("Enter", {})).toEqual({ calls: ["accept"], prevented: true });
+    expect(runWithList("Tab", {})).toEqual({ calls: ["accept"], prevented: true });
+  });
+
+  it("closes the list instead of cancelling the turn running behind it", () => {
+    // The turn is streaming: without the list taking Escape first, one keypress
+    // would kill a turn the user only meant to stop naming a command for.
+    expect(runWithList("Escape", {}, { streaming: true })).toEqual({ calls: ["close"], prevented: true });
+  });
+
+  it("moves the highlight with the arrows", () => {
+    expect(runWithList("ArrowDown", {})).toEqual({ calls: ["move:1"], prevented: true });
+    expect(runWithList("ArrowUp", {})).toEqual({ calls: ["move:-1"], prevented: true });
+  });
+
+  it("leaves Shift+Enter as a newline", () => {
+    expect(runWithList("Enter", { shiftKey: true })).toEqual({ calls: [], prevented: false });
+  });
+
+  it("still leaves every key to an open IME composition", () => {
+    // The list is open and a candidate is being picked: Enter is the IME's.
+    expect(runWithList("Enter", { isComposing: true })).toEqual({ calls: [], prevented: false });
+    expect(runWithList("Enter", { keyCode: 229 })).toEqual({ calls: [], prevented: false });
+  });
+
+  it("hands the keys back once the list is closed", () => {
+    expect(runWithList("Enter", {}, { open: false })).toEqual({ calls: ["send"], prevented: true });
+    expect(runWithList("Escape", {}, { streaming: true, open: false })).toEqual({
+      calls: ["cancel"],
+      prevented: true,
+    });
+  });
+});
