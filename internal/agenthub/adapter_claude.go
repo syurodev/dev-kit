@@ -493,6 +493,11 @@ func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, resume string) 
 	if err != nil {
 		return nil, mapSandboxErr(err)
 	}
+	// Confirms the jail actually exec'd the agent, not just that bwrap itself
+	// forked — a "starting" that never leaves that state and never logs
+	// anything else again is otherwise indistinguishable from bwrap silently
+	// failing to reach the exec at all.
+	log.Printf("agenthub: claude: sandboxed process started, pid=%d", proc.PID())
 
 	stdin := proc.StdinWriter()
 	stdout := proc.StdoutReader()
@@ -572,6 +577,13 @@ func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, resume string) 
 			logStderrTail("claude "+stage, proc)
 			return fmt.Errorf("%w: %s: agent process exited during handshake%s", ErrProcessFailed, stage, reason)
 		default:
+			// The process is still alive: this is handshakeTimeout firing on a
+			// vendor that started but never answered. Whatever it wrote to
+			// stderr before going silent — a keyring/D-Bus error, a missing
+			// path inside the jail — is otherwise lost the moment cleanup()
+			// kills it below, and "starting" forever with no further log line
+			// is exactly what that loss looks like from the outside.
+			logStderrTail("claude "+stage+" (still running, "+err.Error()+")", proc)
 			return fmt.Errorf("%w: %s: %v", ErrProcessFailed, stage, err)
 		}
 	}
@@ -639,6 +651,11 @@ func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, resume string) 
 		cleanup()
 		return nil, fmt.Errorf("%w: empty sessionId from session/new", ErrProcessFailed)
 	}
+	// The handshake is the half of "starting" DevKit can see. Without this
+	// line, a UI still showing "Starting" is unreadable: a session that never
+	// opened and one that opened and is waiting on its first prompt reply
+	// look identical in the log.
+	log.Printf("agenthub: claude: session ready (acp session %s)", newRes.SessionID)
 	rt.acpSessionID = newRes.SessionID
 	rt.modes = newRes.Modes
 	return rt, nil
@@ -1040,11 +1057,20 @@ func (r *claudeRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock) (
 	sid := r.acpSessionID
 	r.mu.Unlock()
 
+	// session/prompt has no timeout on purpose — a turn takes as long as the
+	// work does — so a turn that never answers is indistinguishable from one
+	// still thinking. These two lines bracket the call: "sent" with nothing
+	// after it says the agent has the prompt and is not replying, which is a
+	// different bug from never having sent it at all.
+	log.Printf("agenthub: claude session/prompt sent (session %s)", sid)
 	var res acp.PromptResult
 	err := conn.Call(ctx, "session/prompt", acp.PromptRequest{
 		SessionID: sid,
 		Prompt:    prompt,
 	}, &res)
+	if err == nil {
+		log.Printf("agenthub: claude session/prompt returned (session %s, stop %q)", sid, res.StopReason)
+	}
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return PromptOutcome{}, ErrCancelled

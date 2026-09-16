@@ -11,6 +11,42 @@ import (
 
 var bwrapSystemReadOnlyPaths = []string{"/usr", "/bin", "/lib", "/lib64", "/etc"}
 
+// resolvConfPath is where glibc reads its nameservers. A var so a test can
+// point it at a fixture rather than the machine's real one.
+var resolvConfPath = "/etc/resolv.conf"
+
+// appendResolvConf binds the file /etc/resolv.conf actually resolves to, when
+// that is somewhere the jail cannot otherwise see.
+//
+// /etc is bound, which looks like enough until the host runs systemd-resolved:
+// there /etc/resolv.conf is a symlink to /run/systemd/resolve/stub-resolv.conf,
+// /run is bound nowhere, and the symlink dangles. glibc then finds no
+// nameserver at all and every lookup in the jail fails — measured: `getent
+// hosts github.com` returns nothing inside a jail built exactly like this one,
+// and an agent that starts perfectly well sits retrying a name it can never
+// resolve, producing no output and no error anyone can see.
+//
+// Only the resolved file is bound, at its own path, rather than /run wholesale:
+// /run also carries the session bus, the keyring and every pid file on the
+// machine, which this jail has no business seeing. A resolv.conf that is a real
+// file (or a symlink within /etc) is already covered by the /etc bind and adds
+// nothing here.
+func appendResolvConf(args *[]string, p Policy) {
+	if p.Network == NetworkNone {
+		return // no network, no names to resolve
+	}
+	target, err := filepath.EvalSymlinks(resolvConfPath)
+	if err != nil {
+		return
+	}
+	for _, root := range bwrapSystemReadOnlyPaths {
+		if target == root || pathIsUnder(target, root) {
+			return
+		}
+	}
+	*args = append(*args, "--ro-bind", target, target)
+}
+
 func buildBwrapArgs(p Policy, c Cmd) []string {
 	p = p.withDefaults()
 
@@ -29,6 +65,35 @@ func buildBwrapArgs(p Policy, c Cmd) []string {
 		if pathExists(path) {
 			args = append(args, "--ro-bind", path, path)
 		}
+	}
+	appendResolvConf(&args, p)
+
+	// withPrivateHomeEnv (below) sets TMPDIR=/tmp whenever it isn't already
+	// overridden, but bwrap starts from an empty mount namespace, so without
+	// this the jail promises a temp directory that plainly does not exist.
+	// A fresh tmpfs, not a bind of the host's real /tmp: unlike
+	// WorkDir/ReadWritePaths, /tmp is a shared, unauthenticated dump
+	// everything on the host uses, and binding it for real would leak every
+	// other process's temp files into the jail (a canary file written
+	// straight to the host's /tmp, same as t.TempDir() defaults to, would
+	// suddenly be readable — measured via TestSmokeAgentShapedProcess
+	// catching exactly that). A private, empty /tmp is the same tradeoff
+	// the seatbelt backend already makes by a different mechanism (see
+	// writeSBPLSubpath in seatbelt_profile.go).
+	//
+	// Placed before WorkDir/ReadWritePaths/ReadOnlyPaths/sockets, not after:
+	// any of those that happen to resolve under /tmp (t.TempDir() again, or
+	// a project genuinely checked out under /tmp) must still bind on top of
+	// this tmpfs, the same "punch a hole through the blanket mount" order
+	// the private-home tmpfs below already relies on.
+	//
+	// Measured: a Node CLI that reaches for os.tmpdir() early in startup
+	// (lockfiles, IPC sockets, npm/V8 caches) doesn't necessarily surface
+	// the ENOENT as a visible error — it can sit retrying, which reads from
+	// the outside as a session stuck on "starting" forever with no further
+	// log line.
+	if p.EffectivePrivateHome() {
+		args = append(args, "--tmpfs", "/tmp")
 	}
 
 	args = append(args, "--bind", p.WorkDir, p.WorkDir)
