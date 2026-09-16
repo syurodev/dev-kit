@@ -44,6 +44,13 @@ tasks:
           DEV:
             ref: .DEV
       - task: common:generate:icons
+      # Without this, `task build && task run` leaves bin/devkit-mcp.exe
+      # missing — only the NSIS/MSIX packaging tasks built it — and every
+      # Agent Hub session fails with ErrProxyNotFound the moment someone
+      # opens it from a plain dev build.
+      - task: build:mcp
+        vars:
+          ARCH: '{{.ARCH}}'
     preconditions:
       - sh: '{{if eq .OBFUSCATED "true"}}command -v garble >/dev/null 2>&1{{else}}true{{end}}'
         msg: "garble is required for obfuscated builds. Install it with: go install mvdan.cc/garble@v0.16.0 (requires Go 1.24+). See https://github.com/burrowers/garble/releases for version/toolchain compatibility."
@@ -72,6 +79,11 @@ tasks:
           OBFUSCATED:
             ref: .OBFUSCATED
       - task: common:generate:icons
+      # Same reasoning as build:native's dep on this: pure Go, needs no
+      # Docker/Zig of its own.
+      - task: build:mcp
+        vars:
+          ARCH: '{{.ARCH | default "amd64"}}'
     preconditions:
       - sh: docker info > /dev/null 2>&1
         msg: "Docker is required for CGO cross-compilation. Please install Docker."
