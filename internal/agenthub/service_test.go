@@ -1576,3 +1576,93 @@ func TestListContextFilesSkipsAnUnreadableFolder(t *testing.T) {
 		t.Fatalf("files = %+v, want the readable file", files)
 	}
 }
+
+// TestAClosedSessionReopensOnTheNextPrompt pins what Close means now.
+//
+// It used to mean "gone": Invoke answered ErrSessionNotFound for a closed
+// session, so the button the error card put next to Retry ended the
+// conversation for good. Closing parks the process; the row still carries the
+// vendor's session id, and resuming it is the same path a restart takes.
+func TestAClosedSessionReopensOnTheNextPrompt(t *testing.T) {
+	ctx := context.Background()
+	db, err := storage.Open(filepath.Join(t.TempDir(), "devkit.db"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if err := storage.Migrate(ctx, db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	adapter := &crashResumeAdapter{rt: &crashingRuntime{}, loads: make(chan string, 1)}
+	reg := agenthub.NewRegistry()
+	reg.Register(adapter)
+	svc := agenthub.NewService(reg, agenthub.NewSQLStore(db), func(string, json.RawMessage) {})
+
+	sess, err := svc.CreateSession(ctx, agenthub.CreateInput{
+		AgentType: agenthub.AgentType("crashy"), Cwd: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if err := svc.CloseSession(ctx, sess.ID); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	if _, err := svc.Invoke(ctx, agenthub.InvokeInput{SessionID: sess.ID, Prompt: "carry on"}); err != nil {
+		t.Fatalf("prompting a closed session: %v", err)
+	}
+	select {
+	case got := <-adapter.loads:
+		if got != sess.ACPSessionID {
+			t.Fatalf("resumed %q, want the vendor id from the store %q", got, sess.ACPSessionID)
+		}
+	default:
+		t.Fatal("a closed session must reopen through session/load, not stay closed")
+	}
+
+	after, err := svc.GetStatus(ctx, sess.ID)
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if after.Status == agenthub.SessionStatusClosed {
+		t.Fatal("a session that just answered a prompt is not closed any more")
+	}
+}
+
+// A settings change does not wake a parked process — and says so, rather than
+// claiming the session does not exist.
+func TestSettingsOnAClosedSessionSayItIsClosed(t *testing.T) {
+	ctx := context.Background()
+	db, err := storage.Open(filepath.Join(t.TempDir(), "devkit.db"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if err := storage.Migrate(ctx, db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	adapter := &crashResumeAdapter{rt: &crashingRuntime{}, loads: make(chan string, 1)}
+	reg := agenthub.NewRegistry()
+	reg.Register(adapter)
+	svc := agenthub.NewService(reg, agenthub.NewSQLStore(db), func(string, json.RawMessage) {})
+
+	sess, err := svc.CreateSession(ctx, agenthub.CreateInput{
+		AgentType: agenthub.AgentType("crashy"), Cwd: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if err := svc.CloseSession(ctx, sess.ID); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	err = svc.SetMode(ctx, sess.ID, "plan")
+	if !errors.Is(err, agenthub.ErrSessionClosed) {
+		t.Fatalf("SetMode on a closed session = %v, want ErrSessionClosed", err)
+	}
+	if len(adapter.loads) != 0 {
+		t.Fatal("a settings call must not spawn a process for a session nobody is using")
+	}
+}

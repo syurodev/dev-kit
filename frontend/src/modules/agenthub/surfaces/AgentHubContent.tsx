@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Copy, Ellipsis, FolderOpen, Pencil, Square } from "lucide-react";
+import { Copy, Ellipsis, FileText, FolderOpen, Pencil, Square } from "lucide-react";
 import { UpdateKind } from "../../../../bindings/devkit/internal/agenthub/models";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -18,7 +18,7 @@ import {
   EmptyHeader,
   EmptyTitle,
 } from "@/components/ui/empty";
-import type { AgentSession } from "@/bridge/agenthub";
+import type { AgentSession, ElicitationResponse, PendingElicitation, PendingPermission } from "@/bridge/agenthub";
 import type { AgentImageAttachment } from "@/bridge/agenthub";
 import { errorMessage as describeError } from "@/bridge/errors";
 import type { QueuedAgentPrompt } from "@/stores/agentSessions";
@@ -27,6 +27,9 @@ import type { ContextFileItem } from "./AgentMenu";
 import { TranscriptStream } from "./TranscriptStream";
 import { AgentComposer, heldChoice } from "./AgentComposer";
 import { AgentSessionError, type SessionErrorCause } from "./AgentSessionError";
+import { AgentPermissionRequest } from "./AgentPermissionRequest";
+import { AgentQuestionCard } from "./AgentQuestionCard";
+import { PermissionPresence } from "./permissionCard";
 import { AgentState, type AgentStatus } from "./AgentState";
 import { VendorIcon } from "./VendorIcon";
 import { Input } from "@/components/ui/input";
@@ -98,8 +101,27 @@ export type AgentHubContentProps = {
   onOpenFile?: (path: string, line?: number) => void;
   /** Copies a string for the header's session menu — the path, the id. */
   onCopy?: (text: string) => void;
+  /** Copies the whole conversation as Markdown; see exportMarkdown. */
+  onCopyTranscript?: () => void;
   /** Sends /compact. Offered in the context popover only when the agent lists the command. */
   onCompact?: () => void;
+  /**
+   * A permission this session is waiting on, asked here rather than in a toast.
+   * You are looking at the conversation the request came out of, so the answer
+   * belongs in it — a card floating in the corner of the same screen makes you
+   * look away from the evidence to answer.
+   */
+  pendingPermission?: PendingPermission | null;
+  onResolvePermission?: (optionId: string | null) => void | Promise<void>;
+  permissionBusy?: boolean;
+  /**
+   * A question this session's agent is waiting on, asked here for the same
+   * reason as the permission: the conversation it came out of is on screen.
+   */
+  pendingElicitation?: PendingElicitation | null;
+  onRespondElicitation?: (response: ElicitationResponse) => void | Promise<void>;
+  elicitationBusy?: boolean;
+  elicitationError?: string;
   /**
    * A session being started. Its folder (and parent) are known; its agent is
    * picked in the composer; nothing exists on the backend until the first
@@ -144,6 +166,24 @@ export type AgentHubContentProps = {
  */
 
 /** The last segment of a path — the folder a developer calls the project. */
+/**
+ * What the field says when nothing is typed, by the session's state. Only the
+ * states where sending does something other than "ask" get a line: a parked
+ * session wakes up, and a session waiting on a permission is not going to
+ * read a prompt until that is answered — the field still takes one, into the
+ * queue, but it should not say the agent is working when it is waiting on you.
+ */
+export function composerPlaceholder(status: string | undefined): string | undefined {
+  switch (status) {
+    case "closed":
+      return "Send to reopen this session…";
+    case "awaiting_permission":
+      return "Waiting for your answer above — anything you send is queued…";
+    default:
+      return undefined;
+  }
+}
+
 function projectLabel(path: string): string {
   return path.split("/").filter(Boolean).pop() ?? path;
 }
@@ -212,7 +252,15 @@ export function AgentHubContent({
   onEditQueued,
   onOpenFile,
   onCopy,
+  onCopyTranscript,
   onCompact,
+  pendingPermission,
+  onResolvePermission,
+  permissionBusy = false,
+  pendingElicitation,
+  onRespondElicitation,
+  elicitationBusy = false,
+  elicitationError,
   draft,
   agents = [],
   agent = "claude",
@@ -362,7 +410,7 @@ export function AgentHubContent({
             ) : null}
           </div>
           <AgentState status={toAgentStatus(session.status)} />
-          {onCopy || onCloseSession || onRenameSession ? (
+          {onCopy || onCopyTranscript || onCloseSession || onRenameSession ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -390,6 +438,15 @@ export function AgentHubContent({
                       Copy session ID
                     </DropdownMenuItem>
                   </>
+                ) : null}
+                {onCopyTranscript ? (
+                  <DropdownMenuItem
+                    icon={<FileText />}
+                    data-testid="content-copy-transcript"
+                    onSelect={onCopyTranscript}
+                  >
+                    Copy transcript as Markdown
+                  </DropdownMenuItem>
                 ) : null}
                 {onRenameSession ? (
                   <DropdownMenuItem icon={<Pencil />} data-testid="content-rename-session" onSelect={() =>
@@ -457,10 +514,10 @@ export function AgentHubContent({
         // call is the evidence for the error.
         <div
           data-testid={isError ? "agent-hub-content-error" : "agent-hub-content-conversation"}
-          className={cn("relative flex min-h-0 w-full min-w-0 flex-1 flex-col", isError && "gap-6")}
+          className="relative flex min-h-0 w-full min-w-0 flex-1 flex-col"
           // How much of the transcript's foot the composer covers; the stream
           // pads by it so the last line of an answer scrolls clear.
-          style={isError ? undefined : ({ "--composer-inset": `${composerHeight}px` } as React.CSSProperties)}
+          style={{ "--composer-inset": `${composerHeight}px` } as React.CSSProperties}
         >
           <div className="min-h-0 flex-1 overflow-hidden">
             {draft ? (
@@ -496,9 +553,8 @@ export function AgentHubContent({
                 streamKey={session?.id}
                 vendor={vendor}
                 streaming={!isError && streaming}
-                onCopy={isError ? undefined : onCopy}
-                // The error card replaces the composer, so there is nowhere to edit into.
-                onEditPrompt={isError ? undefined : onPromptChange}
+                onCopy={onCopy}
+                onEditPrompt={onPromptChange}
                 hasMore={hasMore}
                 loadingOlder={loadingOlder}
                 onLoadOlder={onLoadOlder}
@@ -507,29 +563,88 @@ export function AgentHubContent({
             )}
           </div>
 
+          {/* Floats over the transcript's foot, in its reading column, so what
+              you write lines up with what you are answering. Only the composer
+              takes the pointer; the strip either side of it lets clicks through
+              to the text scrolling underneath. */}
+          <div
+            ref={composerRef}
+            // No gap: the cards above the composer carry their own spacing
+            // inside the box that animates, so a card closing takes its gap
+            // with it instead of leaving 12px to snap shut at the end.
+            className="pointer-events-none absolute inset-x-0 bottom-0 flex w-full flex-col px-6 pb-3"
+          >
+          {/* A failed session keeps its composer. The card used to replace it,
+              which left Retry as the only way forward: the same prompt again,
+              or nothing. A turn that failed is often one you want to answer
+              with different words, and the rail — the same session by another
+              route — never took the field away. So the card sits where the
+              permission card does, above the field, and the transcript pads
+              for both. */}
           {isError ? (
-            <div className="w-full shrink-0 px-6 pb-6">
+            // An opaque base under the card: its danger wash is translucent,
+            // which is right on a surface and wrong floating over a transcript,
+            // where the rows read straight through it.
+            <div className="pointer-events-auto mx-auto mb-3 w-full max-w-180 rounded-control bg-surface-base">
               <AgentSessionError
                 cause={errorCause}
                 agentName={displayTitle || "Agent"}
                 reason={errorMessage}
                 onRetry={onRetrySession}
                 onOpenSettings={onOpenSettings}
-                onClose={onCloseSession}
+                // No Close here. The thing to do with a failed turn is retry
+                // it, and a button that parks the session sat right beside the
+                // one that retries it — which is how a session people meant to
+                // retry got closed instead. Close stays in the ⋯ menu, where it
+                // is chosen rather than reached for.
                 className="w-full max-w-none"
               >
                 {errorDetail}
               </AgentSessionError>
             </div>
-          ) : (
-          // Floats over the transcript's foot, in its reading column, so what
-          // you write lines up with what you are answering. Only the composer
-          // takes the pointer; the strip either side of it lets clicks through
-          // to the text scrolling underneath.
-          <div
-            ref={composerRef}
-            className="pointer-events-none absolute inset-x-0 bottom-0 flex w-full px-6 pb-3"
+          ) : null}
+          {/* Above the composer, in the same reading column: the request is
+              answered where the conversation that raised it is, and the
+              transcript pads by this whole block (composerRef measures it), so
+              nothing it covers is unreachable. */}
+          <PermissionPresence
+            pendingId={onResolvePermission ? pendingPermission?.id : null}
+            className="pointer-events-auto mx-auto w-full max-w-180"
           >
+            {pendingPermission && onResolvePermission ? (
+              <div className="pb-3">
+                <AgentPermissionRequest
+                  pending={pendingPermission}
+                  session={session}
+                  onResolve={onResolvePermission}
+                  busy={permissionBusy}
+                  size="wide"
+                />
+              </div>
+            ) : null}
+          </PermissionPresence>
+          {/* The question waits behind a permission rather than beside it: the
+              permission is the one with a clock, and two cards stacked over a
+              composer leave no transcript to read the evidence in. */}
+          <PermissionPresence
+            pendingId={onRespondElicitation && !(pendingPermission && onResolvePermission) ? pendingElicitation?.id : null}
+            className="pointer-events-auto mx-auto w-full max-w-180"
+          >
+            {pendingElicitation && onRespondElicitation ? (
+              // Capped and scrolled: four questions with previews would
+              // otherwise push the composer off the bottom of the window.
+              <div className="max-h-[60vh] overflow-y-auto pb-3">
+                <AgentQuestionCard
+                  pending={pendingElicitation}
+                  session={session}
+                  onRespond={onRespondElicitation}
+                  busy={elicitationBusy}
+                  error={elicitationError}
+                  size="wide"
+                />
+              </div>
+            ) : null}
+          </PermissionPresence>
           <div className="pointer-events-auto mx-auto flex w-full max-w-180 items-center gap-3">
             <AgentComposer
               size="wide"
@@ -553,6 +668,9 @@ export function AgentHubContent({
               // A draft is not named yet; its placeholder addresses the agent
               // that will answer — "Ask Claude…", not "Ask New session…".
               agentName={draft ? agent.charAt(0).toUpperCase() + agent.slice(1) : displayTitle}
+              // A closed session says what sending will do, since it does one
+              // thing more than usual: it wakes the agent's process back up.
+              placeholder={composerPlaceholder(session?.status)}
               commands={commands}
               contextFiles={contextFiles}
               onSelectCommand={onSelectCommand}
@@ -586,7 +704,6 @@ export function AgentHubContent({
             />
           </div>
           </div>
-          )}
         </div>
       )}
       <Dialog

@@ -1,12 +1,20 @@
 import { usePermissionDeadline } from "./usePermissionDeadline";
-import { AgentState } from "./AgentState";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import type { AgentSession, PendingPermission } from "@/bridge/agenthub";
-import { parsePermissionOptions, permissionToolTitle } from "@/bridge/agenthub";
+import { parsePermissionOptions } from "@/bridge/agenthub";
+import {
+  PermissionAsk,
+  PermissionIdentity,
+  PermissionLockedNote,
+  URGENT_SECONDS,
+  permissionChoices,
+  permissionEnv,
+  type PermissionEnv,
+} from "./permissionCard";
 
-export type ToastEnv = "open" | "locked";
+export type ToastEnv = PermissionEnv;
 
 export type AgentPermissionToastProps = {
   pending: PendingPermission;
@@ -32,11 +40,13 @@ export type AgentPermissionToastProps = {
  * with no trace. Deliberately has no allow-always: a grant that outlives the
  * turn should not be given from the surface with the least context."
  *
- * Two things the rail card lacks, both because this is the surface you are NOT
- * looking at: a queue pill counting what is waiting, and the deadline bar.
+ * Identity and ask are the inline card's, from permissionCard. What is only
+ * here belongs to the surface you are NOT looking at: a queue pill counting
+ * what is behind this one, a deadline hairline along the bottom edge that fills
+ * as the time is spent, and Open rail for the transcript this came out of.
  *
- * The action row escalates left to right: "Open rail" for the full transcript,
- * then Deny, then Allow once. No allow-always, per the note.
+ * Material is the shell's float tier (`glass-float`), the same as every other
+ * toast in the app.
  */
 export function AgentPermissionToast({
   pending,
@@ -50,43 +60,15 @@ export function AgentPermissionToast({
   className,
 }: AgentPermissionToastProps) {
   const { secondsLeft, expired } = usePermissionDeadline(pending, timeoutSeconds);
-
-  const isLocked =
-    explicitEnv === "locked" ||
-    (typeof pending.params === "object" &&
-      pending.params !== null &&
-      Boolean(
-        (pending.params as Record<string, unknown>).locked ||
-          (pending.params as Record<string, unknown>).env === "prod" ||
-          (pending.params as Record<string, unknown>).environment === "prod",
-      ));
-  const env: ToastEnv = isLocked ? "locked" : "open";
-
-  const toolTitle = permissionToolTitle(pending.params);
-  const options = parsePermissionOptions(pending.params);
-  const agentTitle =
-    session?.title || pending.title || pending.sessionId.slice(0, 8);
-  const cwd = session?.projectPath || ".";
-  const depth = pending.depth ?? session?.depth ?? 0;
-
-  const command =
-    typeof pending.params === "object" && pending.params !== null
-      ? ((pending.params as Record<string, unknown>).command as string | undefined)
-      : undefined;
-
-  const allowOnceOption =
-    options.find(
-      (o) =>
-        o.optionId.includes("once") ||
-        o.name.toLowerCase().includes("once") ||
-        o.kind.includes("once"),
-    ) ?? options[0];
+  const env = permissionEnv(pending.params, explicitEnv);
+  const { once } = permissionChoices(parsePermissionOptions(pending.params));
 
   // Elapsed, not remaining: Figma fills the track as the deadline is consumed.
   const elapsedPercent =
     timeoutSeconds > 0
       ? Math.min(100, Math.max(0, ((timeoutSeconds - secondsLeft) / timeoutSeconds) * 100))
       : 0;
+  const urgent = !expired && secondsLeft <= URGENT_SECONDS;
 
   return (
     <div
@@ -94,78 +76,42 @@ export function AgentPermissionToast({
       data-testid="agent-permission-toast"
       data-env={env}
       className={cn(
-        "flex w-full max-w-105 flex-col gap-3 rounded-control p-4",
-        "border border-(--glass-border) bg-(--glass-float-bg) backdrop-blur-md",
-        "shadow-[0px_12px_32px_-4px_rgba(0,0,0,0.45),inset_0px_1px_0px_0px_rgba(255,255,255,0.06)]",
+        "glass-float relative flex w-full max-w-105 flex-col gap-3 overflow-hidden rounded-float p-4",
         className,
       )}
     >
-      <div className="flex w-full items-center gap-2">
-        <AgentState status="awaiting" />
-        <p className="min-w-0 flex-1 truncate text-body-13-medium text-text-primary">
-          {agentTitle}
-        </p>
-        <p className="shrink-0 text-caption-11 text-text-tertiary whitespace-nowrap">
-          {`depth ${depth}`}
-        </p>
-        {queued > 0 ? (
-          <span
-            data-testid="toast-queue"
-            className="shrink-0 rounded-full bg-(--state-soft) px-2 py-1 text-caption-11-medium text-text-secondary whitespace-nowrap"
-          >
-            {`+${queued} waiting`}
-          </span>
-        ) : null}
-      </div>
+      <PermissionIdentity
+        pending={pending}
+        session={session}
+        env={env}
+        secondsLeft={secondsLeft}
+        expired={expired}
+        testIdPrefix="toast"
+        trailing={
+          queued > 0 ? (
+            <span
+              data-testid="toast-queue"
+              className="shrink-0 rounded-full bg-state-soft px-2 py-0.5 text-caption-11-medium text-text-secondary whitespace-nowrap"
+            >
+              {`+${queued} waiting`}
+            </span>
+          ) : undefined
+        }
+      />
 
-      <p className="w-full text-caption-11 text-text-tertiary">{cwd}</p>
+      <PermissionAsk pending={pending} />
+      <PermissionLockedNote env={env} />
 
-      <div className="flex w-full items-center gap-2">
-        <p className="min-w-0 flex-1 truncate text-label-12 text-text-secondary">
-          {toolTitle}
-        </p>
-        <span
-          data-testid={env === "locked" ? "toast-env-locked" : "toast-env-open"}
-          className={cn(
-            "shrink-0 rounded-full px-2 py-1 text-caption-11-medium",
-            env === "locked"
-              ? "bg-(--feedback-danger-soft) text-status-danger"
-              : "bg-(--state-soft) text-text-secondary",
-          )}
-        >
-          {env === "locked" ? "prod" : "dev"}
-        </span>
-      </div>
-
-      {command ? (
-        <p className="w-full text-body-12 text-text-primary break-all">{command}</p>
-      ) : null}
-
-      {env === "locked" ? (
-        <p className="w-full text-caption-11 text-text-tertiary">
-          prod requires confirmation every time
-        </p>
-      ) : null}
-
-      <div className="flex w-full items-center gap-2">
-        <Progress
-          value={elapsedPercent}
-          aria-label="Time left to answer"
-          data-testid="toast-deadline"
-          className="h-0.75 min-w-0 flex-1 bg-(--state-soft) [&_[data-slot=progress-indicator]]:bg-text-tertiary"
-        />
-        <span className="shrink-0 text-caption-11 text-text-tertiary whitespace-nowrap">
-          {expired ? "expired" : `${secondsLeft}s left`}
-        </span>
-      </div>
-
+      {/* The action row escalates left to right: Open rail for the full
+          transcript, then Deny, then Allow once. No allow-always, per the note. */}
       <div className="flex w-full items-center gap-2">
         <Button
           type="button"
-          variant="link"
+          variant="ghost"
+          size="sm"
           data-testid="toast-open-rail"
           onClick={onOpenRail}
-          className="h-auto min-w-0 flex-1 justify-start p-0 text-caption-11-medium text-text-tertiary no-underline hover:text-text-primary"
+          className="-ml-2 min-w-0 flex-1 justify-start px-2 text-text-tertiary hover:text-text-primary"
         >
           Open rail
         </Button>
@@ -176,7 +122,7 @@ export function AgentPermissionToast({
           disabled={busy || expired}
           data-testid="toast-deny"
           onClick={() => void onResolve(null)}
-          className="h-8 border-(--glass-border) px-3 text-text-secondary"
+          className="border-border-subtle text-text-secondary"
         >
           Deny
         </Button>
@@ -185,14 +131,23 @@ export function AgentPermissionToast({
           size="sm"
           disabled={busy || expired}
           data-testid="toast-allow-once"
-          onClick={() =>
-            void onResolve(allowOnceOption ? allowOnceOption.optionId : "allow_once")
-          }
-          className="h-8 px-3"
+          onClick={() => void onResolve(once ? once.optionId : "allow_once")}
         >
           Allow once
         </Button>
       </div>
+
+      <Progress
+        value={elapsedPercent}
+        aria-label="Time left to answer"
+        data-testid="toast-deadline"
+        className={cn(
+          "absolute inset-x-0 bottom-0 h-0.5 rounded-none bg-transparent",
+          urgent
+            ? "[&_[data-slot=progress-indicator]]:bg-status-warning"
+            : "[&_[data-slot=progress-indicator]]:bg-text-tertiary/40",
+        )}
+      />
     </div>
   );
 }

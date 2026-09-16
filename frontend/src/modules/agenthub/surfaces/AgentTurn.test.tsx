@@ -82,27 +82,26 @@ describe("StepGroup", () => {
   });
 });
 
-describe("message hover cards", () => {
-  it("keeps a message's time and actions off the transcript until it is hovered", () => {
+describe("message actions", () => {
+  it("gives the prompt and the answer an inline row that shows only when pointed at", () => {
     const [turn] = groupTurns(items);
     const html = renderToString(<AgentTurn turn={turn} onCopy={() => {}} onEditPrompt={() => {}} />);
 
-    // The prompt and the answer are hover-card triggers…
-    expect((html.match(/data-slot="hover-card-trigger"/g) ?? []).length).toBe(2);
-    // …and nothing of the card is on the page while it is closed.
-    expect(html).not.toContain('data-testid="message-hover-card"');
-    // The keyboard's inline copy of the actions is there, but display:none
-    // until focus-visible is inside the message — no line under every reply.
+    // No floating card anywhere; each message carries its own row.
+    expect(html).not.toContain("hover-card");
     const rows = html.match(/<div[^>]*data-testid="message-actions"[^>]*>/g) ?? [];
     expect(rows.length).toBe(2);
-    for (const row of rows) expect(row).toMatch(/\bhidden\b/);
+    // Invisible until hovered or focused, but holding its place.
+    for (const row of rows) expect(row).toContain("opacity-0");
   });
 
-  it("makes message actions reachable from a keyboard-focused message", () => {
+  it("reaches the actions from the keyboard through the buttons themselves", () => {
     const [turn] = groupTurns(items);
     const html = renderToString(<AgentTurn turn={turn} onCopy={() => {}} onEditPrompt={() => {}} />);
 
-    expect(html).toContain('tabindex="0"');
-    expect(html).toContain('aria-label="Message: explain the repo"');
+    // The message is no longer a tab stop that does nothing; Copy and Edit are.
+    expect(html).not.toContain('aria-label="Message: explain the repo"');
+    expect(html).toContain('aria-label="Copy message"');
+    expect(html).toContain('aria-label="Edit in composer"');
   });
 });

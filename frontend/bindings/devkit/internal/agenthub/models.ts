@@ -127,6 +127,42 @@ export interface InvokeResult {
 }
 
 /**
+ * PendingElicitation is a question an agent is waiting for a person to answer.
+ * 
+ * No ExpiresAt, unlike PendingPermission, and that is the whole difference in
+ * one field. A permission is an authorization boundary: silence has to mean no,
+ * so it fails closed after a deadline. A question grants nothing. A deadline on
+ * it would protect nothing and throw away an answer someone was halfway through
+ * typing, and the vendor keeps none either — it waits until it is answered,
+ * skipped, or cancelled.
+ */
+export interface PendingElicitation {
+    "id": string;
+    "sessionId": string;
+
+    /**
+     * ToolCallID ties the question to the tool call the agent emitted just
+     * before asking (AskUserQuestion). Empty for an MCP server's question and
+     * for the refusal-fallback prompt, which belong to no tool call.
+     */
+    "toolCallId"?: string;
+
+    /**
+     * Mode is "form" — the only mode DevKit declares.
+     */
+    "mode": string;
+    "message": string;
+
+    /**
+     * Params is the request as the agent sent it, requestedSchema included. The
+     * UI reads the schema; this package only reads enough of it to refuse to
+     * send back what the agent would silently throw away.
+     */
+    "params": json$0.RawMessage;
+    "createdAt": string;
+}
+
+/**
  * PendingPermission is a permission prompt awaiting UI resolution.
  */
 export interface PendingPermission {

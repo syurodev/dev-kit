@@ -60,7 +60,7 @@ type Notifier struct {
 	// Focused reports whether the user is already looking at the app, in which
 	// case nothing is shown. nil means never focused.
 	Focused func() bool
-	// Busy reports a permission waiting on the user. Authorization is not
+	// Busy reports a permission or a question waiting on the user. Authorization is not
 	// asked for then: the OS dialog would land on top of the prompt the user
 	// has to answer. nil means never busy.
 	Busy func() bool

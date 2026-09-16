@@ -345,8 +345,46 @@ func main() {
 		// after this callback, so nothing here may wait on the OS.
 		agentNotifier.Notify(p.SessionID, "Permission needed", "The agent is waiting for your approval.")
 	})
+	agentElicitations := agenthub.NewElicitationWaiter(func(e agenthub.PendingElicitation) {
+		// Its own event, not agenthub:sessionUpdate: that channel runs
+		// ParseSessionUpdate, and a question is not an update. No expiresAt —
+		// a question has no deadline; the turn waits for as long as the user
+		// takes, and Stop is the way out.
+		payload := map[string]any{
+			"id":        e.ID,
+			"sessionId": e.SessionID,
+			"mode":      e.Mode,
+			"message":   e.Message,
+			"params":    rawJSON(e.Params),
+			"caller":    identity.Agent(e.SessionID).String(),
+			"createdAt": e.CreatedAt.Format(time.RFC3339Nano),
+		}
+		if e.ToolCallID != "" {
+			payload["toolCallId"] = e.ToolCallID
+		}
+		if container.AgentHub != nil {
+			if sess, err := container.AgentHub.GetStatus(context.Background(), e.SessionID); err == nil {
+				if sess.Title != nil {
+					payload["title"] = *sess.Title
+				}
+				payload["depth"] = sess.Depth
+			}
+		}
+		emitAppEvent("agenthub:elicitation", payload)
+		agentNotifier.Notify(e.SessionID, "Question from the agent", "The agent is waiting for your answer.")
+	}, func(c agenthub.ElicitationClosed) {
+		// Answered here, answered elsewhere, taken back by the agent, or the
+		// turn was stopped: every open card for this id goes away.
+		emitAppEvent("agenthub:elicitationClosed", map[string]any{
+			"id":        c.ID,
+			"sessionId": c.SessionID,
+			"reason":    c.Reason,
+		})
+	})
 	if agentNotifier != nil {
-		agentNotifier.Busy = func() bool { return agentWaiter.Pending() != nil }
+		agentNotifier.Busy = func() bool {
+			return agentWaiter.Pending() != nil || agentElicitations.Pending() != nil
+		}
 	}
 	agentStore := agenthub.NewSQLStore(db)
 
@@ -385,6 +423,9 @@ func main() {
 		})
 	})
 	agentSvc.ResolvePermission = agentWaiter.Resolve
+	agentSvc.CancelPendingPermissions = agentWaiter.CancelSession
+	agentSvc.ResolveElicitation = agentElicitations.Resolve
+	agentSvc.CancelPendingElicitations = agentElicitations.CancelSession
 	// A crash mid-turn leaves rows saying running/awaiting_permission, and
 	// no ACP process survives the restart that could finish those turns —
 	// without this reset, Invoke refuses the sessions with ErrSessionBusy
@@ -421,6 +462,7 @@ func main() {
 	}
 	container.AgentHub = agentSvc
 	container.AgentHubPermissions = agentWaiter
+	container.AgentHubElicitations = agentElicitations
 
 	terminalRegistry := terminal.NewRegistry(func(sessionID string, chunk []byte) {
 		// Base64 explicitly rather than letting encoding/json decide what a

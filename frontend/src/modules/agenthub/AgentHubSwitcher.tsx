@@ -58,10 +58,10 @@ export function AgentHubPeek({ focusModule }: ModulePeekProps) {
   );
 }
 
-/** Waiting for permission outranks running: one must be answered, the other needs nothing. */
+/** Waiting on the user — a permission or a question — outranks running: one must be answered, the other needs nothing. */
 export function AgentHubBadge() {
   const sessions = useAgentSessionList();
-  const pendingCount = useAgentSessionsStore((state) => state.pendingQueue.length);
+  const pendingCount = useAgentSessionsStore((state) => state.pendingQueue.length + state.elicitationQueue.length);
   const unreadCompleted = useAgentSessionsStore(
     (state) => Object.keys(state.unreadCompletedBySession).length,
   );

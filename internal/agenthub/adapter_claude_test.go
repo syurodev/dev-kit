@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"os"
 
 	"devkit/internal/acp"
@@ -542,6 +543,32 @@ func TestUnknownMethodIsRefusedAndReportedOnce(t *testing.T) {
 	}
 }
 
+func TestClientCapabilitiesDeclareFormElicitationOnly(t *testing.T) {
+	// Marshalled, because the agent reads JSON: `form` must arrive as an object
+	// (truthy), and `url` must not arrive at all — DevKit serves no browser
+	// handoff and no elicitation/complete, and declaring it would send MCP URL
+	// elicitations to a client that cannot finish them.
+	body, err := json.Marshal(devkitClientCapabilities())
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var caps struct {
+		Elicitation map[string]json.RawMessage `json:"elicitation"`
+	}
+	if err := json.Unmarshal(body, &caps); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if string(caps.Elicitation["form"]) != "{}" {
+		t.Fatalf("elicitation.form = %s, want {}; without it AskUserQuestion is disallowed", caps.Elicitation["form"])
+	}
+	if _, ok := caps.Elicitation["url"]; ok {
+		t.Fatal("elicitation.url declared, which DevKit does not serve")
+	}
+	if len(caps.Elicitation) != 1 {
+		t.Fatalf("elicitation = %v, want form only", caps.Elicitation)
+	}
+}
+
 func TestClientCapabilitiesDeclareOnlyWhatDevKitServes(t *testing.T) {
 	caps := devkitClientCapabilities()
 
@@ -580,4 +607,256 @@ func TestClientCapabilitiesDeclareOnlyWhatDevKitServes(t *testing.T) {
 	if meta["terminal-auth"] != true {
 		t.Fatalf(`_meta["terminal-auth"] not declared: %v`, caps["_meta"])
 	}
+}
+
+// TestRuntimeIsDeadWhenTheProcessLeavesOnItsOwn pins the meaning of Dead.
+//
+// The regression it guards: Dead used to read the serve loop's error, and
+// acp.Conn.Serve reports a clean EOF — an agent process that exited, was killed
+// by Cancel's shutdown ladder, or was reaped by the OS — as no error at all. So
+// a session whose process was gone kept a runtime that answered every prompt
+// with agenthub.sessionNotFound, and nothing evicted it: reopening the session
+// and retrying hit the same corpse.
+func TestRuntimeIsDeadWhenTheProcessLeavesOnItsOwn(t *testing.T) {
+	t.Run("clean EOF still means the process is gone", func(t *testing.T) {
+		rt := &claudeRuntime{}
+		if dead, _ := rt.Dead(); dead {
+			t.Fatal("a runtime whose serve loop is still running is not dead")
+		}
+
+		rt.noteServeExit(nil) // what Serve returns on EOF
+
+		dead, err := rt.Dead()
+		if !dead {
+			t.Fatal("serve loop ended without Close asking: the session must resume on a fresh process")
+		}
+		if err != nil {
+			t.Fatalf("no error to report for a clean exit, got %v", err)
+		}
+	})
+
+	t.Run("an exit we asked for is not a death", func(t *testing.T) {
+		rt := &claudeRuntime{serveDone: closedChan()}
+		_ = rt.Close(context.Background())
+		rt.noteServeExit(context.Canceled)
+
+		if dead, _ := rt.Dead(); dead {
+			t.Fatal("Close parks the process on purpose; nothing should resume behind it")
+		}
+	})
+
+	t.Run("a crash keeps its reason", func(t *testing.T) {
+		rt := &claudeRuntime{}
+		boom := errors.New("read |0: file already closed")
+		rt.noteServeExit(boom)
+
+		dead, err := rt.Dead()
+		if !dead || !errors.Is(err, boom) {
+			t.Fatalf("Dead() = %v, %v; want true with the crash's reason", dead, err)
+		}
+	})
+}
+
+func closedChan() chan struct{} {
+	ch := make(chan struct{})
+	close(ch)
+	return ch
+}
+
+// wireProbe is the agent end of a pipe: it reads one request, hands the raw
+// params to the test, and answers so the caller unblocks.
+type wireProbe struct {
+	method string
+	params map[string]any
+	err    error
+}
+
+func (p *wireProbe) serve(t *testing.T, agent net.Conn, done chan<- struct{}) {
+	t.Helper()
+	go func() {
+		defer close(done)
+		msg, err := acp.ReadMessage(agent)
+		if err != nil {
+			p.err = err
+			return
+		}
+		p.method = msg.Method
+		if err := json.Unmarshal(msg.Params, &p.params); err != nil {
+			p.err = err
+			return
+		}
+		var id any
+		if err := json.Unmarshal(msg.ID, &id); err != nil {
+			p.err = err
+			return
+		}
+		p.err = acp.WriteMessage(agent, acp.Response{JSONRPC: "2.0", ID: id, Result: json.RawMessage(`{}`)})
+	}()
+}
+
+// silentHandler is a ClientHandler for a runtime that will not be called back.
+type silentHandler struct{}
+
+func (silentHandler) RequestPermission(context.Context, json.RawMessage) (json.RawMessage, error) {
+	return nil, nil
+}
+func (silentHandler) SessionUpdate(context.Context, json.RawMessage) error { return nil }
+func (silentHandler) UnknownMethod(context.Context, string, json.RawMessage) (json.RawMessage, error) {
+	return nil, nil
+}
+
+// TestSessionSettingsUseTheFieldNamesTheAgentReads pins the wire shape of the
+// two settings calls, which is the one thing every test above this mocked.
+//
+// The regression: session/set_config_option carried `optionId`. The agent
+// reads `params.configId` — the asymmetry is the vendor's, since it *emits*
+// options under `id` — so every request resolved to "Unknown config option:
+// undefined". Model and effort changes had never worked, and nothing said so:
+// the picker moved on click, the call was refused, and the optimistic update
+// put the old value back before anyone could read the error.
+func TestSessionSettingsUseTheFieldNamesTheAgentReads(t *testing.T) {
+	call := func(t *testing.T, invoke func(rt *claudeRuntime) error) *wireProbe {
+		t.Helper()
+		client, agent := net.Pipe()
+		t.Cleanup(func() { client.Close(); agent.Close() })
+
+		rt := &claudeRuntime{acpSessionID: "acp-1"}
+		rt.conn = acp.NewConn(client, silentHandler{})
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		t.Cleanup(cancel)
+		go rt.conn.Serve(ctx)
+
+		probe := &wireProbe{}
+		done := make(chan struct{})
+		probe.serve(t, agent, done)
+		if err := invoke(rt); err != nil {
+			t.Fatalf("call: %v", err)
+		}
+		<-done
+		if probe.err != nil {
+			t.Fatalf("probe: %v", probe.err)
+		}
+		return probe
+	}
+
+	t.Run("set_config_option says configId", func(t *testing.T) {
+		probe := call(t, func(rt *claudeRuntime) error {
+			return rt.SetConfigOption(context.Background(), "model", "opus")
+		})
+
+		if probe.method != "session/set_config_option" {
+			t.Fatalf("method = %q", probe.method)
+		}
+		if probe.params["configId"] != "model" {
+			t.Fatalf("configId = %v, want \"model\" — the agent reads this field and nothing else", probe.params["configId"])
+		}
+		if _, wrong := probe.params["optionId"]; wrong {
+			t.Fatal("optionId is the permission outcome's field, not this one")
+		}
+		if probe.params["value"] != "opus" || probe.params["sessionId"] != "acp-1" {
+			t.Fatalf("params = %v", probe.params)
+		}
+	})
+
+	t.Run("set_mode says modeId", func(t *testing.T) {
+		probe := call(t, func(rt *claudeRuntime) error {
+			return rt.SetMode(context.Background(), "plan")
+		})
+
+		if probe.method != "session/set_mode" || probe.params["modeId"] != "plan" {
+			t.Fatalf("method = %q, params = %v", probe.method, probe.params)
+		}
+	})
+}
+
+// TestElicitationAnswerUsesTheShapeTheAgentReads pins the response DevKit writes
+// to elicitation/create, end to end through the real transport: acp.Conn,
+// claudeConnHandler, the runtime's OnElicit, and the normalisation in between.
+//
+// Every assertion is a fact that is invisible when wrong. The agent does not
+// reject a malformed answer — it reads it as no answer — so a mistake here shows
+// up only as a model that insists the user said nothing.
+func TestElicitationAnswerUsesTheShapeTheAgentReads(t *testing.T) {
+	ask := func(t *testing.T, resolver ElicitationResolver) map[string]json.RawMessage {
+		t.Helper()
+		client, agent := net.Pipe()
+		t.Cleanup(func() { client.Close(); agent.Close() })
+
+		svc := &Service{ResolveElicitation: resolver}
+		rt := &claudeRuntime{}
+		rt.SetHandlers(RuntimeHandlers{OnElicit: svc.elicitHandler("sess-1")})
+		conn := acp.NewConn(client, &claudeConnHandler{rt: rt})
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		t.Cleanup(cancel)
+		go conn.Serve(ctx)
+
+		req := `{"jsonrpc":"2.0","id":42,"method":"elicitation/create","params":` + compactJSON(t, askUserQuestionRequest) + "}\n"
+		go func() { _, _ = agent.Write([]byte(req)) }()
+
+		msg, err := acp.ReadMessage(agent)
+		if err != nil {
+			t.Fatalf("read response: %v", err)
+		}
+		if string(msg.ID) != "42" {
+			t.Fatalf("response id = %s, want the request's 42", msg.ID)
+		}
+		if msg.Error != nil {
+			t.Fatalf("an answer went out as a JSON-RPC error: %v", msg.Error)
+		}
+		var result map[string]json.RawMessage
+		if err := json.Unmarshal(msg.Result, &result); err != nil {
+			t.Fatalf("result %s: %v", msg.Result, err)
+		}
+		return result
+	}
+
+	t.Run("accept", func(t *testing.T) {
+		result := ask(t, func(context.Context, string, json.RawMessage) (json.RawMessage, error) {
+			return json.RawMessage(`{"action":"accept","content":{"question_0":"date-fns","question_1":["Caching"],"retries":3}}`), nil
+		})
+
+		if string(result["action"]) != `"accept"` {
+			t.Fatalf("action = %s", result["action"])
+		}
+		// Permission's answer is {"outcome":{...}}; the two are one copy-paste apart.
+		if _, wrong := result["outcome"]; wrong {
+			t.Fatal("an elicitation answer carries permission's outcome wrapper")
+		}
+		var content map[string]json.RawMessage
+		if err := json.Unmarshal(result["content"], &content); err != nil {
+			t.Fatalf("content %s: %v", result["content"], err)
+		}
+		if string(content["question_0"]) != `"date-fns"` {
+			t.Fatalf("question_0 = %s, want a JSON string", content["question_0"])
+		}
+		// A multi-select is an array of strings. The agent joins it itself; a
+		// joined string sent from here fails its guard and the answer is lost.
+		if string(content["question_1"]) != `["Caching"]` {
+			t.Fatalf("question_1 = %s, want a JSON array of strings", content["question_1"])
+		}
+		if string(content["retries"]) != `3` {
+			t.Fatalf("retries = %s, want a JSON number, not text", content["retries"])
+		}
+	})
+
+	t.Run("decline has no content key at all", func(t *testing.T) {
+		result := ask(t, func(context.Context, string, json.RawMessage) (json.RawMessage, error) {
+			return json.RawMessage(`{"action":"decline","content":{"question_0":"date-fns"}}`), nil
+		})
+		if string(result["action"]) != `"decline"` {
+			t.Fatalf("action = %s", result["action"])
+		}
+		if _, has := result["content"]; has {
+			t.Fatalf("decline carried content %s", result["content"])
+		}
+	})
+}
+
+func compactJSON(t *testing.T, raw json.RawMessage) string {
+	t.Helper()
+	var buf bytes.Buffer
+	if err := json.Compact(&buf, raw); err != nil {
+		t.Fatalf("compact: %v", err)
+	}
+	return buf.String()
 }

@@ -84,7 +84,8 @@ Dev dùng nhiều agent CLI khác nhau (Claude Code, Codex, Gemini CLI...) nhưn
 | FR-9 | Composer nối được available slash commands, context suggestions theo project (tối đa 100 file), file location mở trong Code Graph editor tới đúng dòng, và paste/drop ảnh giới hạn 3,75 MiB (tức 5 MiB base64 — giới hạn mỗi ảnh của Claude trên Bedrock/Vertex). |
 | FR-10 | Composer đọc config/mode từ transcript và đổi model, effort, permission mode qua `session/set_config_option` / `session/set_mode`; bypass permissions luôn cần xác nhận rõ ràng. |
 | FR-11 | Agent Hub dùng được bằng bàn phím và screen reader; trạng thái/hoàn tất được announce không theo từng token. Permission và lượt completed có notification OS khi cửa sổ không focus: một notification cho mỗi session (sự kiện sau thay notification trước), bấm vào mở đúng session; bật/tắt ở Settings → Agents → "Notify when an agent needs you or finishes" (mặc định bật). Gửi notification không bao giờ chặn permission, cancel hay kết thúc lượt: `agenthub.Notifier` chỉ xếp vào hàng đợi nền (tối đa 32, đầy thì bỏ) và gọi OS trên goroutine riêng. Quyền OS chỉ được xin khi cửa sổ nhận focus (lần đầu thường là lúc mở app) hoặc khi bật tuỳ chọn, không bao giờ khi đang có permission chờ — trước khi được cấp quyền thì không hiện gì. Service thông báo không đăng ký trực tiếp làm Wails service; một wrapper (`notificationStartup`) khởi động nó đúng chỗ Wails khởi động service — trong `app.Run`, trước run loop — để click vào notification mở/kích hoạt app trước lần focus đầu vẫn tới được delegate macOS và activation callback Windows, và wrapper luôn trả nil: không khởi động được (Linux không có session D-Bus — WSL, WM tối giản, container; macOS binary không có bundle identifier, như `go build` thường) thì notification tắt cho cả lần chạy, log một lần, app vẫn chạy. Caveat: macOS đã từ chối thì không hiện gì cho tới khi cho phép trong System Settings (lần focus sau tự nhận); Windows "update" là gửi toast mới (giới hạn wintoast); Shutdown của service được gọi khi thoát nếu nó đã khởi động được. |
-| FR-12 | Prompt nhập trong lúc session bận được xếp hàng theo session. Mọi lượt (composer, companion, Retry, hàng đợi) đi qua một đường gửi (`sendAgentTurn`): session chuyển running trước khi invoke. Prompt rời hàng đợi ngay khi lượt của nó bắt đầu và không bao giờ bị gửi lại; chỉ khi backend từ chối trước khi lượt bắt đầu (busy, validation, chưa cài/chưa đăng nhập) nó mới về lại đầu hàng đợi. Backend kiểm tra toàn bộ input (prompt, attachment, ảnh) trước khi claim session, ghi/emit transcript hay đổi status, nên prompt bị từ chối không để lại dòng `user_message_chunk` nào và gửi lại không hiện trùng; status giữ nguyên. Hàng đợi tự gửi tiếp sau mỗi lượt completed, bất kể `agenthub:turnFinished` hay RPC về trước. Lượt lỗi/huỷ khi còn prompt chờ thì hàng đợi tạm dừng cho tới khi người dùng bấm Resume; gửi tay không tự resume. Không gửi vào session đã xoá, đã đóng, đang chạy hoặc đang chờ permission. Gửi tay bị backend báo busy thì prompt vào hàng đợi, không mất text. Plan sống cập nhật tại chỗ; session đóng vẫn đọc và đổi tên được. Đổi tên, đổi status và title agent tự đặt mỗi thứ chỉ ghi cột của mình, nên đổi tên giữa lượt không ghi đè status và kết thúc lượt không ghi đè tên. |
+| FR-12 | Prompt nhập trong lúc session bận được xếp hàng theo session. Mọi lượt (composer, companion, Retry, hàng đợi) đi qua một đường gửi (`sendAgentTurn`): session chuyển running trước khi invoke. Prompt rời hàng đợi ngay khi lượt của nó bắt đầu và không bao giờ bị gửi lại; chỉ khi backend từ chối trước khi lượt bắt đầu (busy, validation, chưa cài/chưa đăng nhập) nó mới về lại đầu hàng đợi. Backend kiểm tra toàn bộ input (prompt, attachment, ảnh) trước khi claim session, ghi/emit transcript hay đổi status, nên prompt bị từ chối không để lại dòng `user_message_chunk` nào và gửi lại không hiện trùng; status giữ nguyên. Hàng đợi tự gửi tiếp sau mỗi lượt completed, bất kể `agenthub:turnFinished` hay RPC về trước. Lượt lỗi/huỷ khi còn prompt chờ thì hàng đợi tạm dừng cho tới khi người dùng bấm Resume; gửi tay không tự resume. Hàng đợi không gửi vào session đã xoá, đã đóng, đang chạy hoặc đang chờ permission (gửi tay vào session đã đóng thì mở lại nó). Gửi tay bị backend báo busy thì prompt vào hàng đợi, không mất text. Plan sống cập nhật tại chỗ; session đóng vẫn đọc, đổi tên và mở lại được. Đổi tên, đổi status và title agent tự đặt mỗi thứ chỉ ghi cột của mình, nên đổi tên giữa lượt không ghi đè status và kết thúc lượt không ghi đè tên. |
+| FR-13 | Agent đặt được câu hỏi cho người dùng qua ACP form elicitation (`elicitation/create`). DevKit khai `clientCapabilities.elicitation.form` — thiếu nó `claude-agent-acp` 0.74 đưa `AskUserQuestion` vào `disallowedTools` và model chỉ viết câu hỏi thành văn xuôi; `url` cố ý không khai. Cùng một method phục vụ `AskUserQuestion`, elicitation của MCP server và lời nhắc refusal-fallback. `acp.Conn` chạy riêng method này ngoài read loop (mọi thứ khác vẫn đồng bộ, để `tool_call` luôn tới trước thẻ) và nhận `$/cancel_request`. `agenthub.ElicitationWaiter` xếp hàng nhiều câu hỏi mỗi session, **không có hạn giờ** và không đổi status session (lượt vẫn đang chạy); câu trả lời chỉ giữ key có trong schema với đúng kiểu, hỏng thì thành `decline`. Bridge: `AgentHubRespondElicitation` (`agenthub:execute`/`elicitation:respond`), `AgentHubPendingElicitations` (`agenthub:read`/`elicitation:list`); event `agenthub:elicitation`, `agenthub:elicitationClosed`. UI: thẻ `AgentQuestionCard` trong hội thoại (≤2 câu hiện cùng lúc, ≥3 câu và ở rail thì từng bước), toast `AgentQuestionToast` chỉ có Answer/Skip, dùng chung một góc với permission toast và permission được ưu tiên. Submit → `accept` (chỉ key đã trả lời; text "Other" không rỗng chỉ gửi `question_N_custom`), Skip → `decline` (tool chạy với câu trả lời rỗng), Stop → `cancel` (huỷ tool call). Field không render được vẫn bỏ qua được, nên câu hỏi không bao giờ thành ngõ cụt. Chưa làm: `elicitation.url`/`elicitation/complete`; elicitation của MCP không để lại dấu trong transcript. |
 
 ### Non-functional requirements
 
@@ -529,6 +530,18 @@ Toast là **sự kiện**, badge là **trạng thái**. Thiếu badge thì một
 lúc bạn rời máy sẽ không để lại dấu vết nào — mà gate fail-closed sau 60 giây,
 nên "không dấu vết" nghĩa là lượt của agent đã bị từ chối và không ai biết vì sao.
 
+**Thẻ permission vào ra có animation, dùng chung một `PermissionPresence`**
+(`frontend/src/modules/agenthub/surfaces/permissionCard.tsx`), key theo id của
+request nên trả lời cái này trong khi cái khác đang chờ sẽ thấy một cú đổi thẻ,
+không phải thẻ tự đổi nội dung giữa chừng. Thẻ inline (rail và cột composer của
+module) animate cả chiều cao vì nó nằm trong luồng phía trên ô nhập; toast ở góc
+màn hình thì trượt lên và mờ dần, không có gì để đẩy. Mở trong `--motion-slow`,
+đóng trong `--motion-base` — câu hỏi đến thì đáng chú ý, câu đã trả lời thì nên
+biến đi nhanh. Reduce Motion thì cả hai snap, giống `AnimatedCollapse`.
+`AgentPermissionToastHost` giữ lại request vừa được trả lời cho tới khi
+`onExitComplete`: không giữ thì host trả `null` ngay trong khung hình câu trả lời
+landing, kéo `AnimatePresence` xuống theo và thẻ tắt ngóm giữa động tác.
+
 **Permission không bao giờ là modal.** Request chặn *agent*, không chặn *người*.
 Modal cướp mất module đang làm dở, đúng thứ swarm sinh ra để tránh. Thẻ nằm
 inline trong rail; khi rail đóng thì thành toast.
@@ -659,9 +672,20 @@ Không cái nào bị protocol bắt buộc; thêm khi có nhu cầu thật.
   có một agent cài được (`claude-acp`); Codex/Gemini dùng lại `agentruntime` khi có
   adapter. UI Settings → Agents cho runtime đang làm.
 - UI runtime đã có `Agent / Rail`, permission toast, dock badge và companion;
-  subscriber shell giữ transcript chạy khi đổi module. Session đóng vẫn hiện như
-  lịch sử và có thể đổi tên; prompt mới khi agent bận vào queue, chỉ drain sau
-  lượt completed; lượt lỗi/huỷ tạm dừng queue tới khi bấm Resume (FR-12).
+  subscriber shell giữ transcript chạy khi đổi module. **Đóng là cất đi, không
+  phải khoá:** session đóng vẫn đọc và đổi tên được, và prompt gửi tay mở lại nó
+  qua `session/load` (hàng đợi thì không tự mở — đánh thức một tiến trình là
+  quyết định của người dùng). Đổi settings trên session đóng trả
+  `agenthub.sessionClosed`, nói rõ là gửi tin sẽ mở lại. Thẻ lỗi không còn nút
+  Close cạnh Retry: đó là cách một session người ta định thử lại bị đóng nhầm.
+  Prompt mới khi agent bận vào queue, chỉ drain sau lượt completed; lượt lỗi/huỷ
+  tạm dừng queue tới khi bấm Resume (FR-12). Session lỗi giữ nguyên ô nhập (thẻ
+  lỗi nằm trên ô nhập như thẻ permission) — Retry không còn là lối đi duy nhất.
+  Việc chạy nền (`async_task_*`) và subagent hiện thành một dòng mỗi thứ trong
+  phần work của lượt, và sống sót qua reload. Cây swarm có nút ẩn session đã
+  đóng (giữ session đang chọn và cha của nhánh còn sống) và dòng "N agents
+  waiting on you" bấm được để nhảy tới session đang chờ. Menu ⋯ có "Copy
+  transcript as Markdown" — kéo toàn bộ trang, không chỉ cửa sổ đang xem.
 - Composer hỗ trợ file picker/context bounded và paste/drop PNG, JPEG, GIF, WebP
   tối đa 3,75 MiB (5 MiB khi base64: giới hạn mỗi ảnh của Claude trên Bedrock/Vertex; API trực tiếp cho 10 MB, DevKit không biết agent đăng nhập qua đâu nên theo mức thấp). Ảnh được gửi transient như ACP image block, không lưu transcript.
 - **Sandbox vendor phải tắt khi spawn qua DevKit.** Trên macOS sandbox không
@@ -709,6 +733,17 @@ Kết luận ở trên đúng với một version của một vendor, nên hai c
   `current_mode_update` / `config_option_update`, cập nhật lạc quan rồi rollback
   nếu bridge lỗi. `bypass` luôn có xác nhận trước khi gọi backend. DevKit không
   có và không cần form đăng nhập Claude.
+
+  **Tên field của `set_config_option` là `configId`, không phải `optionId`** —
+  và đây là bất đối xứng của chính vendor: `config_option_update` liệt kê option
+  dưới `id`, còn request đổi nó đọc `params.configId`
+  (`claude-agent-acp` 0.74, `acp-agent.js`), trả
+  `Unknown config option: undefined` cho mọi tên khác. DevKit gửi `optionId` từ
+  đầu nên **đổi model/effort chưa bao giờ chạy**, và không ai thấy: picker nhảy
+  theo cập nhật lạc quan, call bị từ chối, rollback trả lại giá trị cũ trong
+  cùng một khung hình. Mọi test trước đó dừng ở `SessionRuntime` giả — ranh giới
+  sai là ranh giới không test nào đi qua. `TestSessionSettingsUseTheFieldNamesTheAgentReads`
+  giờ chạy đúng dây (`net.Pipe` + `acp.Conn`) và khoá cả `configId` lẫn `modeId`.
 
 - **`clientCapabilities`** — `devkitClientCapabilities()` trong `internal/agenthub/adapter_claude.go`. Khai `subagents`; **không** khai `fs`/`terminal` vì `ClientHandler` không implement chúng và `UnknownMethod` từ chối — khai thứ mình từ chối phục vụ là mời một request để trả lỗi. Đo qua chính adapter, cùng prompt spawn hai subagent: `agent_message_chunk` **7 → 20**. Cơ chế là `forwardSubagentText` trong adapter của vendor, gate đúng vào field này; số lượng dao động theo lượt, chiều thì không.
 - **`session/load`** — `acp.SessionLoadRequest`/`SessionLoadResult`, `SessionLoader` (optional interface, vì `loadSession` là sự thật về từng vendor chứ không phải mọi vendor), `ClaudeAdapter.Load`, và `Service.resumeRuntime` gọi khi `Invoke` gặp session không còn runtime. Vendor replay lịch sử trong lúc load; DevKit **bỏ** phần replay đó vì handler còn `nil` cho tới khi Service cài — transcript đã nằm trong SQLite, resume mà ghi lại là mỗi lần khởi động cuộc hội thoại dài thêm một lần.

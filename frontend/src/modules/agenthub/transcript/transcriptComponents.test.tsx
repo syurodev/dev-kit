@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
   applySessionUpdate,
   createInitialTranscriptModel,
+  initTranscript,
 } from "../transcript";
 import { renderToString } from "react-dom/server";
 import {
@@ -14,6 +15,7 @@ import {
   AgentFileChip,
   AgentPlan,
   AgentSubagent,
+  AgentAsyncTask,
 } from "./index";
 import { formatToolOutput, toolCallFromDetail, toolOutputText } from "./AgentToolCall";
 
@@ -491,6 +493,59 @@ describe("Agent Hub Transcript Leaves", () => {
       const html = renderToString(<AgentSubagent subagent={{ id: "x" }} />);
       expect(html).toContain('data-state="running"');
       expect(html).toContain("Subagent");
+    });
+  });
+
+  describe("AgentAsyncTask", () => {
+    it("folds spawn, progress and state into one row that says what it cost", () => {
+      // Three kinds, three partial messages, one thing. Progress arrives many
+      // times; drawing each one gave a turn full of the same task counting up.
+      let model = createInitialTranscriptModel();
+      model = applySessionUpdate(model, {
+        kind: "async_task_spawned",
+        asyncTask: { id: "t1", name: "Run the test suite", taskType: "bash", canStop: true },
+      } as never);
+      model = applySessionUpdate(model, {
+        kind: "async_task_progress",
+        asyncTask: { id: "t1", lastToolName: "Bash", usage: { totalTokens: 10, toolUses: 3, durationMs: 72_000 } },
+      } as never);
+      model = applySessionUpdate(model, {
+        kind: "async_task_progress",
+        asyncTask: { id: "t1", lastToolName: "Read", usage: { totalTokens: 12, toolUses: 4, durationMs: 80_000 } },
+      } as never);
+      expect(model.items).toHaveLength(1);
+      expect(model.items[0].asyncTask?.name).toBe("Run the test suite");
+      expect(model.items[0].asyncTask?.canStop).toBe(true);
+
+      const running = renderToString(<AgentAsyncTask variant="row" task={model.items[0].asyncTask!} />);
+      expect(running).toContain("Run the test suite");
+      expect(running).toContain("Read"); // what it is doing now
+      expect(running).toContain("4 tools · 1m 20s");
+      expect(running).toContain('data-state="running"');
+
+      model = applySessionUpdate(model, {
+        kind: "async_task_state_update",
+        asyncTask: { id: "t1", state: "completed", summary: "212 passed" },
+      } as never);
+      const done = renderToString(<AgentAsyncTask task={model.items[0].asyncTask!} />);
+      expect(done).toContain('data-state="completed"');
+      expect(done).toContain("212 passed"); // once done, what it found
+      expect(done).not.toContain(">Read<");
+    });
+
+    it("comes back as one row after a reload, and so does a subagent", () => {
+      // Stored one row per event; a reload used to file every one of them
+      // under "unmodelled", so the card on screen a moment ago rendered as
+      // nothing after a restart.
+      const model = initTranscript([
+        { ID: "1", Seq: 1, Kind: "async_task_spawned", Payload: { asyncTask: { id: "t1", name: "Lint" } } },
+        { ID: "2", Seq: 2, Kind: "async_task_state_update", Payload: { asyncTask: { id: "t1", state: "failed" } } },
+        { ID: "3", Seq: 3, Kind: "subagent_spawned", Payload: { subagent: { id: "s1", name: "Explore", task: "Map the repo" } } },
+        { ID: "4", Seq: 4, Kind: "subagent_state_update", Payload: { subagent: { id: "s1", state: "completed" } } },
+      ]);
+      expect(model.items).toHaveLength(2);
+      expect(model.items[0].asyncTask).toMatchObject({ id: "t1", name: "Lint", state: "failed" });
+      expect(model.items[1].subagent).toEqual({ id: "s1", name: "Explore", task: "Map the repo", state: "completed" });
     });
   });
 });

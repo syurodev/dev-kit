@@ -6,6 +6,9 @@ import {
   AgentMenu,
   AgentSessionError,
   AgentSidebarTree,
+  PermissionPresence,
+  nextWaiting,
+  visibleSessions,
   countDescendants,
   groupByProject,
   AgentHubContent,
@@ -13,12 +16,14 @@ import {
   AgentRail,
   AgentPermissionRequest,
   AgentPermissionToast,
+  AgentQuestionCard,
+  AgentQuestionToast,
   AgentDockBadge,
   TranscriptStream,
   shouldCancelComposerOnEscape,
 } from "./index";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import type { AgentSession } from "@/bridge/agenthub";
+import type { AgentSession, PendingElicitation } from "@/bridge/agenthub";
 import type { TranscriptItem } from "../types";
 
 // Surfaces use the app's tooltips (the composer's icon-only actions, the
@@ -421,6 +426,94 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       expect(renderToString(<AgentComposer {...base} />)).not.toContain('data-testid="composer-agent"');
     });
 
+    it("offers Retry and no Close on a failed session, and lets a closed one be typed into", () => {
+      const base = {
+        id: "sess-1",
+        agentType: "claude",
+        projectPath: "/workspace/app",
+        parentSessionId: null,
+        depth: 0,
+        title: "Planner",
+        acpSessionId: "acp-1",
+      };
+      const failed = renderToString(
+        <AgentHubContent
+          session={{ ...base, status: "error" }}
+          errorCause="crashed"
+          promptValue=""
+          onPromptChange={() => {}}
+          onSend={() => {}}
+          onCancel={() => {}}
+          onRetrySession={() => {}}
+          onCloseSession={() => {}}
+        />,
+      );
+      // Close used to sit beside Retry on this card, and that is how a session
+      // someone meant to retry got parked instead.
+      expect(failed).toContain('data-testid="session-error-retry"');
+      expect(failed).not.toContain('data-testid="session-error-close"');
+
+      const closed = renderToString(
+        <AgentHubContent
+          session={{ ...base, status: "closed" }}
+          promptValue=""
+          onPromptChange={() => {}}
+          onSend={() => {}}
+          onCancel={() => {}}
+        />,
+      );
+      // A parked session is answerable: the prompt reopens it, and the field
+      // says so instead of being greyed out.
+      expect(closed).toContain('data-testid="agent-composer"');
+      expect(closed).toContain("Send to reopen this session");
+      // The attribute, not the word: "disabled:opacity-60" is a Tailwind class
+      // every composer carries.
+      expect(closed).not.toContain('disabled=""');
+    });
+
+    it("asks a pending permission inside the conversation, above the composer", () => {
+      // Not a toast in the corner: you are looking at the transcript the
+      // request came out of, and the evidence for the answer is in it.
+      const html = renderToString(
+        <AgentHubContent
+          session={{
+            id: "sess-1",
+            agentType: "claude",
+            projectPath: "/workspace/app",
+            status: "awaiting_permission",
+            parentSessionId: null,
+            depth: 0,
+            title: "Planner",
+            acpSessionId: "acp-1",
+          }}
+          promptValue=""
+          onPromptChange={() => {}}
+          onSend={() => {}}
+          onCancel={() => {}}
+          pendingPermission={{
+            id: "perm-inline",
+            sessionId: "sess-1",
+            caller: "agent:claude",
+            title: "Planner",
+            depth: 0,
+            createdAt: new Date().toISOString(),
+            expiresAt: new Date(Date.now() + 60_000).toISOString(),
+            params: { command: "rm -rf build", options: [{ optionId: "allow_once", name: "Allow once" }] },
+          }}
+          onResolvePermission={() => {}}
+        />,
+      );
+
+      expect(html).toContain('data-testid="agent-permission-request"');
+      // Wide: the ask and the answer share a line. Stacked, the card was a
+      // panel of empty space over a 720-wide column.
+      expect(html).toContain('data-size="wide"');
+      expect(html).toContain("rm -rf build");
+      // The composer is still there: a queued prompt can be written while the
+      // agent waits on this answer.
+      expect(html).toContain('data-testid="agent-composer"');
+    });
+
     it("draws a draft as the folder it will work in, with the composer ready", () => {
       const html = renderToString(
         <AgentHubContent
@@ -552,6 +645,101 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       expect(html).toContain('data-slot="agent-state"');
       expect(html).toContain('data-status="awaiting"');
       expect(html).toContain('aria-selected="true"');
+    });
+
+    it("shimmers a running row's name and gives a waiting one the warning colour", () => {
+      // Two states, two ways of saying so, both already in the app's vocabulary:
+      // the transcript shimmers a turn in flight, and awaiting is the only
+      // status with a deadline behind it.
+      const html = renderSidebar(
+        <AgentSidebarTree
+          sessions={[mockSession, mockChildSession]}
+          onSelectSession={() => {}}
+          onNewSession={() => {}}
+        />,
+      );
+
+      const runningRow = html.slice(html.indexOf("Task Planner") - 400, html.indexOf("Task Planner"));
+      expect(runningRow).toContain('data-slot="shimmer"');
+      expect(runningRow).toContain("data-active");
+
+      const waitingRow = html.slice(html.indexOf("Sub-worker") - 400, html.indexOf("Sub-worker"));
+      expect(waitingRow).toContain("text-status-warning");
+      // The dot is trailing, so it is after the name in the markup: the beat
+      // belongs to the waiting row and to no other.
+      const waitingTrailing = html.slice(html.indexOf("Sub-worker"), html.indexOf("Sub-worker") + 600);
+      expect(waitingTrailing).toContain("animate-pulse");
+      const runningTrailing = html.slice(html.indexOf("Task Planner"), html.indexOf("Task Planner") + 600);
+      expect(runningTrailing).not.toContain("animate-pulse");
+    });
+
+    it("treats a session with a queued request as waiting, whatever its status says", () => {
+      // The status column can still read running while a request is queued for
+      // it: the row has to follow the queue, which is what the user answers.
+      const html = renderSidebar(
+        <AgentSidebarTree
+          sessions={[mockSession]}
+          pendingCounts={{ "sess-abc12345": 1 }}
+          onSelectSession={() => {}}
+          onNewSession={() => {}}
+        />,
+      );
+      expect(html).toContain('data-status="awaiting"');
+      expect(html).toContain("text-status-warning");
+    });
+
+    it("makes the waiting footer a way to get there, walking on with each press", () => {
+      // The count said something needed you and left you to find it. Now the
+      // footer selects the next waiting agent after the one you are on.
+      const selected: string[] = [];
+      const html = renderSidebar(
+        <AgentSidebarTree
+          sessions={[mockSession, mockChildSession]}
+          activeSessionId="sess-abc12345"
+          onSelectSession={(id) => selected.push(id)}
+          onNewSession={() => {}}
+        />,
+      );
+      expect(html).toContain('<button type="button" data-testid="agent-tree-attention"');
+      expect(html).toContain("1 agent waiting on you");
+
+      expect(nextWaiting(["a", "b", "c"], "b")).toBe("c");
+      expect(nextWaiting(["a", "b", "c"], "c")).toBe("a"); // wraps
+      expect(nextWaiting(["a", "b"], "zzz")).toBe("a"); // not on one: the first
+      expect(nextWaiting([], "a")).toBeUndefined();
+    });
+
+    it("hides closed sessions on request, except the selected one and a live subtree's parent", () => {
+      const closedRoot: AgentSession = { ...mockSession, id: "closed-root", title: "Old", status: "closed" };
+      const closedParent: AgentSession = { ...mockSession, id: "closed-parent", title: "Parent", status: "closed" };
+      const liveChild: AgentSession = {
+        ...mockChildSession,
+        id: "live-child",
+        parentSessionId: "closed-parent",
+        status: "running",
+      };
+      const all = [mockSession, closedRoot, closedParent, liveChild];
+
+      expect(visibleSessions(all, false).map((s) => s.id)).toEqual(all.map((s) => s.id));
+      // Hidden: the closed root. Kept: the closed parent (its child is alive —
+      // hiding it would hoist the child and have the indentation lie).
+      expect(visibleSessions(all, true).map((s) => s.id)).toEqual(["sess-abc12345", "closed-parent", "live-child"]);
+      // The selected session always shows, closed or not.
+      expect(visibleSessions(all, true, "closed-root").map((s) => s.id)).toContain("closed-root");
+
+      const html = renderSidebar(
+        <AgentSidebarTree
+          sessions={all}
+          hideClosed
+          onToggleHideClosed={() => {}}
+          onSelectSession={() => {}}
+          onNewSession={() => {}}
+        />,
+      );
+      expect(html).toContain('data-testid="agent-tree-toggle-closed"');
+      expect(html).toContain('aria-pressed="true"');
+      expect(html).not.toContain(">Old<");
+      expect(html).toContain(">Parent<");
     });
 
     it("carries no pending-permission count", () => {
@@ -910,7 +1098,10 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       expect(html).toContain("data-state=\"Error\"");
       expect(html).toContain("data-testid=\"agent-hub-content-error\"");
       expect(html).toContain("data-testid=\"agent-session-error\"");
-      expect(html).not.toContain("data-testid=\"agent-composer\"");
+      // The composer stays. The card used to replace it, leaving Retry — the
+      // same prompt again — as the only way forward; the rail, showing the
+      // same session, never took the field away.
+      expect(html).toContain("data-testid=\"agent-composer\"");
     });
 
     it("renders Conversation state with breadcrumbs, transcript and composer", () => {
@@ -1276,13 +1467,11 @@ describe("Agent Hub Phase 3 Surfaces", () => {
 
         expect(html).toContain('data-testid="agent-permission-request"');
         expect(html).toContain('data-env="open"');
-        expect(html).toContain('data-testid="permission-env-open"');
-        // Figma 909:28 labels the pill by environment, not by lock state.
-        expect(html).toContain("dev");
-        // The countdown now sits on the metadata row beside depth, which is
-        // where Figma 909:28 puts session metadata — it has no element of
-        // its own any more.
-        expect(html).toContain("depth");
+        // DEVIATION from Figma 909:28: no "dev" pill. It said the same thing on
+        // every request in the ordinary case; only the locked one is worth a
+        // pill, and it is the one that survives.
+        expect(html).not.toContain('data-testid="permission-env-open"');
+        expect(html).toContain('data-testid="permission-seconds"');
         expect(html).toContain("60s");
         expect(html).toContain("Subagent Alpha");
         expect(html).toContain("depth 1");
@@ -1363,6 +1552,51 @@ describe("Agent Hub Phase 3 Surfaces", () => {
 
         // CRITICAL SAFETY REQUIREMENT: Toast has NO "Allow always"
         expect(html).not.toContain("Allow always");
+      });
+
+      it("arrives and leaves under one presence, keyed by the request", () => {
+        // All three surfaces share it, so a request cannot fade in the rail and
+        // snap in the module. Keyed by id: answering one while another waits
+        // shows a swap, not a card that changes its mind mid-blink.
+        const shown = renderToString(
+          <PermissionPresence pendingId="perm-1" variant="toast">
+            <p>card</p>
+          </PermissionPresence>,
+        );
+        expect(shown).toContain('data-slot="permission-presence"');
+        expect(shown).toContain("card");
+
+        // Nothing pending renders nothing: a closed disclosure costs no DOM,
+        // and server output shows exactly what is open.
+        expect(
+          renderToString(
+            <PermissionPresence pendingId={null}>
+              <p>card</p>
+            </PermissionPresence>,
+          ),
+        ).toBe("");
+      });
+
+      it("reads the command off an ACP tool call and does not repeat it as the title", () => {
+        const html = renderToString(
+          <AgentPermissionToast
+            pending={{
+              ...mockPending,
+              params: {
+                toolCall: { title: "`git push --force`", rawInput: { command: "git push --force" } },
+                options: [{ optionId: "allow_once", name: "Allow once" }],
+              },
+            }}
+            session={mockSession}
+            onResolve={() => {}}
+            onOpenRail={() => {}}
+          />,
+        );
+
+        // Once as text (the well); the title attribute on it is not a second line.
+        expect(html.split(">git push --force<").length - 1).toBe(1);
+        // Env=Open draws no pill.
+        expect(html).not.toContain("toast-env-open");
       });
 
       it("renders locked environment variant with warning badge", () => {
@@ -1458,6 +1692,171 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       expect(html).toContain('aria-label="Scroll to bottom"');
       expect(html).toContain("bg-surface-glass-floating");
       expect(html).not.toContain("new message");
+    });
+  });
+  describe("Agent / Question (ACP form elicitation)", () => {
+    const session: AgentSession = {
+      id: "sess-q",
+      agentType: "claude",
+      projectPath: "/Users/test/project",
+      status: "running",
+      parentSessionId: null,
+      depth: 0,
+      title: "Asking Agent",
+      acpSessionId: "acp-q",
+    };
+    const choiceField = (n: number) => ({
+      [`question_${n}`]: {
+        type: "string",
+        title: `Q${n}`,
+        description: `Question number ${n}?`,
+        oneOf: [
+          { const: "Alpha", title: "Alpha", description: "The first" },
+          { const: "Beta", title: "Beta" },
+        ],
+      },
+      [`question_${n}_custom`]: {
+        type: "string",
+        title: "Other",
+        _meta: { _askUserQuestionCustomAnswer: { questionId: `question_${n}`, isCustomAnswer: true } },
+      },
+    });
+    const question = (count: number, extra: Record<string, unknown> = {}): PendingElicitation => ({
+      id: `q-${count}`,
+      sessionId: "sess-q",
+      toolCallId: "toolu_1",
+      message: count === 1 ? "Question number 0?" : "Please answer the following questions.",
+      params: {
+        mode: "form",
+        message: count === 1 ? "Question number 0?" : "Please answer the following questions.",
+        requestedSchema: {
+          type: "object",
+          properties: Object.assign({}, ...Array.from({ length: count }, (_, n) => choiceField(n)), extra),
+        },
+      },
+      caller: "agent:sess-q",
+      title: "Asking Agent",
+      depth: 1,
+      createdAt: new Date().toISOString(),
+    });
+
+    it("shows up to two questions together in the wide card, with one Submit and a Skip", () => {
+      const html = renderToString(<AgentQuestionCard pending={question(2)} session={session} onRespond={() => {}} />);
+      expect(html).toContain('data-testid="agent-question-card"');
+      expect(html).toContain('data-layout="all"');
+      expect(html).toContain("Asking Agent");
+      expect(html).toContain("Question number 0?");
+      expect(html).toContain("Question number 1?");
+      // One Root per question, because the primitive shows only its active
+      // item. (Which item is active is decided in a layout effect, so a server
+      // render cannot show it; one form each is what makes both visible.)
+      expect(html.match(/data-slot="questionnaire"/g)).toHaveLength(2);
+      expect(html.match(/data-testid="question-other"/g)).toHaveLength(2);
+      expect(html).toContain('data-testid="question-skip-all"');
+      expect(html).toContain('data-testid="question-submit"');
+      // A question has no deadline, so the identity block draws no clock.
+      expect(html).not.toContain('data-testid="question-seconds"');
+      expect(html).not.toContain("questionnaire-progress");
+    });
+
+    it("goes one question at a time from three, with progress and a way to skip everything", () => {
+      const html = renderToString(<AgentQuestionCard pending={question(3)} session={session} onRespond={() => {}} />);
+      expect(html).toContain('data-layout="stepwise"');
+      expect(html).toContain('data-slot="questionnaire-progress"');
+      expect(html).toContain('data-testid="question-skip-all"');
+    });
+
+    it("is always stepwise in the rail, even for one question", () => {
+      const html = renderToString(
+        <AgentQuestionCard pending={question(1)} session={session} onRespond={() => {}} size="rail" />,
+      );
+      expect(html).toContain('data-size="rail"');
+      expect(html).toContain('data-layout="stepwise"');
+      expect(html).toContain("max-w-68");
+    });
+
+    it("keeps Skip when nothing in the schema can be rendered, so the turn is never stuck", () => {
+      const pending: PendingElicitation = {
+        ...question(0),
+        params: {
+          message: "Fill the nested config",
+          requestedSchema: {
+            type: "object",
+            required: ["config"],
+            properties: { config: { type: "object", properties: {} } },
+          },
+        },
+      };
+      const html = renderToString(<AgentQuestionCard pending={pending} session={session} onRespond={() => {}} />);
+      expect(html).toContain('data-testid="question-unsupported"');
+      expect(html).toContain('data-testid="question-skip-all"');
+    });
+
+    it("the toast names the asker and counts the questions, but carries no form", () => {
+      const html = renderToString(
+        <AgentQuestionToast pending={question(3)} session={session} onRespond={() => {}} onAnswer={() => {}} queued={1} />,
+      );
+      expect(html).toContain('data-testid="agent-question-toast"');
+      expect(html).toContain("Asking Agent");
+      expect(html).toContain("3 questions");
+      expect(html).toContain('data-testid="question-toast-answer"');
+      expect(html).toContain('data-testid="question-toast-skip"');
+      expect(html).toContain("+1 waiting");
+      expect(html).not.toContain("questionnaire");
+      expect(html).not.toContain("Alpha");
+      expect(html).not.toContain('data-testid="toast-deadline"');
+      expect(html).not.toContain('data-testid="question-toast-seconds"');
+    });
+
+    it("asks inline in the module and the rail, behind a waiting permission", () => {
+      const pending = question(1);
+      const content = (withPermission: boolean) =>
+        renderToString(
+          <AgentHubContent
+            session={session}
+            items={[]}
+            promptValue=""
+            onPromptChange={() => {}}
+            onSend={() => {}}
+            onCancel={() => {}}
+            pendingElicitation={pending}
+            onRespondElicitation={() => {}}
+            {...(withPermission
+              ? {
+                  pendingPermission: {
+                    id: "perm-q",
+                    sessionId: "sess-q",
+                    caller: "agent:sess-q",
+                    title: "Asking Agent",
+                    depth: 0,
+                    params: {},
+                    createdAt: new Date().toISOString(),
+                    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+                  },
+                  onResolvePermission: () => {},
+                }
+              : {})}
+          />,
+        );
+      expect(content(false)).toContain('data-testid="agent-question-card"');
+      const both = content(true);
+      expect(both).toContain('data-testid="agent-permission-request"');
+      expect(both).not.toContain('data-testid="agent-question-card"');
+
+      const rail = renderToString(
+        <AgentRail
+          sessions={[session]}
+          activeSession={session}
+          promptValue=""
+          onPromptChange={() => {}}
+          onSend={() => {}}
+          onCancel={() => {}}
+          pendingElicitation={pending}
+          onRespondElicitation={() => {}}
+        />,
+      );
+      expect(rail).toContain('data-testid="rail-inline-question"');
+      expect(rail).toContain('data-size="rail"');
     });
   });
 });

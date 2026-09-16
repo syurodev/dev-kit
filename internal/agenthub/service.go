@@ -95,7 +95,17 @@ type Service struct {
 	mu                sync.Mutex
 	emit              func(sessionID string, update json.RawMessage)
 	ResolvePermission PermissionResolver // nil = fail closed (no auto-approve)
-	PermissionTimeout time.Duration      // 0 = interaction.DefaultTimeout (60s)
+	// CancelPendingPermissions drops what a session is waiting on when its turn
+	// is stopped. Set in main.go to PermissionWaiter.CancelSession; nil means a
+	// stop leaves pending requests alone, which is the old behaviour.
+	CancelPendingPermissions func(sessionID string) int
+	// ResolveElicitation puts an agent's question to the person. nil declines
+	// every question: the tool runs with no answers, the turn carries on.
+	ResolveElicitation ElicitationResolver
+	// CancelPendingElicitations cancels a session's open questions when its turn
+	// is stopped. Set in main.go to ElicitationWaiter.CancelSession.
+	CancelPendingElicitations func(sessionID string) int
+	PermissionTimeout         time.Duration // 0 = interaction.DefaultTimeout (60s)
 	// MCPEndpoints opens the per-session MCP socket before the vendor spawns.
 	MCPEndpoints MCPEndpoints
 	// OnSessionClosed fires after a session is closed (interaction.Hub forgets its allow_always).
@@ -816,9 +826,15 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 		}
 		in.CallerSessionID = caller.SessionID // CheckCycle below runs on the real caller
 	}
-	if sess.Status == SessionStatusClosed {
-		return InvokeResult{}, ErrSessionNotFound
-	}
+	// A closed session reopens on the next prompt. Closing parks the process
+	// and keeps the conversation; it is not a delete, and the row still carries
+	// the vendor's own session id, so resumeRuntime can pick the conversation up
+	// exactly as it does after a restart.
+	//
+	// This used to answer ErrSessionNotFound, which made Close a one-way door:
+	// a user whose turn failed pressed Close — the button the error card put
+	// next to Retry — and lost the conversation for good. The refusal predates
+	// session/load; there is no longer anything to protect.
 	if sess.Status == SessionStatusRunning || sess.Status == SessionStatusAwaitingPermission {
 		return InvokeResult{}, ErrSessionBusy
 	}
@@ -939,6 +955,10 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 			}
 			return outcome, nil
 		},
+		// The same handler attachUpdates installs. SetHandlers replaces the set
+		// wholesale, so leaving it out here would take the ability to ask away
+		// for exactly the time the agent is most likely to use it.
+		OnElicit: s.elicitHandler(in.SessionID),
 	})
 
 	// Record what the human said before the agent gets a chance to answer.
@@ -1068,6 +1088,10 @@ func (s *Service) handleUpdate(ctx context.Context, sessionID string, update jso
 // No permission handler: outside a turn there is nobody to ask, and a runtime
 // without one refuses, which is the fail-closed answer.
 //
+// A question handler, though. A question authorises nothing, and the agent can
+// ask one between turns — a background task, an MCP server — so a missing
+// handler here would turn "ask the person" into "decline without asking".
+//
 // A mode set from the handshake goes through the same handler, so the picker
 // gets it live and a reload gets it from the stored state row.
 func (s *Service) attachUpdates(sessionID string, rt SessionRuntime) {
@@ -1075,6 +1099,7 @@ func (s *Service) attachUpdates(sessionID string, rt SessionRuntime) {
 		OnUpdate: func(update json.RawMessage, _ json.RawMessage) {
 			s.handleUpdate(context.Background(), sessionID, update)
 		},
+		OnElicit: s.elicitHandler(sessionID),
 	})
 	if withModes, ok := rt.(RuntimeModes); ok {
 		if update := modeStateUpdate(withModes.Modes()); update != nil {
@@ -1288,7 +1313,7 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 	return rt, nil
 }
 
-// Cancel requests cancellation of the in-flight prompt on a session.// Cancel requests cancellation of the in-flight prompt on a session.// Cancel requests cancellation of the in-flight prompt on a session.
+// Cancel requests cancellation of the in-flight prompt on a session.
 func (s *Service) Cancel(ctx context.Context, id string) error {
 	if err := s.authorizeTarget(ctx, id); err != nil {
 		return err
@@ -1296,9 +1321,27 @@ func (s *Service) Cancel(ctx context.Context, id string) error {
 	if _, err := s.store.GetSession(ctx, id); err != nil {
 		return err
 	}
+	// The question goes first. Cancelling the runtime kills the process that
+	// asked it, and a card left counting down over a dead agent is the state
+	// this used to leave behind.
+	if s.CancelPendingPermissions != nil {
+		s.CancelPendingPermissions(id)
+	}
+	// Questions too, for the same reason and in the same place: a card asking
+	// something of an agent that is about to be killed. Cancel, not decline —
+	// see ElicitationWaiter.CancelSession.
+	if s.CancelPendingElicitations != nil {
+		s.CancelPendingElicitations(id)
+	}
+
 	rt := s.liveRuntime(ctx, id)
 	if rt == nil {
-		return ErrUnavailable
+		// Nothing is running, which is what the caller asked for. This used to
+		// answer ErrUnavailable — surfaced as "Agent Hub is not available", a
+		// sentence about the module when the truth was about one session — and
+		// that is what a second press of Stop always got, because the first
+		// press kills the process and the runtime is evicted with it.
+		return nil
 	}
 	return rt.Cancel(ctx)
 }
@@ -1348,8 +1391,12 @@ func (s *Service) configurator(ctx context.Context, id string) (RuntimeConfigura
 	if err != nil {
 		return nil, err
 	}
+	// A prompt reopens a closed session; a settings change does not. Waking a
+	// process to set a mode nobody is about to use spends a spawn on nothing,
+	// and the mode the reopened session will carry is read from its own
+	// snapshot when it starts.
 	if sess.Status == SessionStatusClosed {
-		return nil, ErrSessionNotFound
+		return nil, ErrSessionClosed
 	}
 	rt, err := s.runtimeFor(ctx, sess)
 	if err != nil {

@@ -5,14 +5,17 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { cn } from "@/lib/utils";
-import type { AgentSession, PendingPermission } from "@/bridge/agenthub";
+import type { AgentSession, ElicitationResponse, PendingElicitation, PendingPermission } from "@/bridge/agenthub";
 import type { AgentImageAttachment } from "@/bridge/agenthub";
 import type { QueuedAgentPrompt } from "@/stores/agentSessions";
 import type { AvailableCommand, ConfigOption, SessionMode, TranscriptItem, Usage } from "../types";
 import type { ContextFileItem } from "./AgentMenu";
 import { TranscriptStream } from "./TranscriptStream";
 import { AgentComposer } from "./AgentComposer";
+import { composerPlaceholder } from "./AgentHubContent";
 import { AgentPermissionRequest } from "./AgentPermissionRequest";
+import { AgentQuestionCard } from "./AgentQuestionCard";
+import { PermissionPresence } from "./permissionCard";
 import { AgentState, type AgentStatus } from "./AgentState";
 import { AgentSwarmStrip } from "./AgentSwarmStrip";
 import { VendorIcon } from "./VendorIcon";
@@ -63,6 +66,10 @@ export type AgentRailProps = {
   pendingPermission?: PendingPermission | null;
   onResolvePermission?: (optionId: string | null) => void | Promise<void>;
   permissionBusy?: boolean;
+  pendingElicitation?: PendingElicitation | null;
+  onRespondElicitation?: (response: ElicitationResponse) => void | Promise<void>;
+  elicitationBusy?: boolean;
+  elicitationError?: string;
   errorMessage?: string;
   sendDisabled?: boolean;
   className?: string;
@@ -139,6 +146,10 @@ export function AgentRail({
   pendingPermission,
   onResolvePermission,
   permissionBusy = false,
+  pendingElicitation,
+  onRespondElicitation,
+  elicitationBusy = false,
+  elicitationError,
   errorMessage,
   sendDisabled = false,
   className,
@@ -156,6 +167,11 @@ export function AgentRail({
 
   const isPendingForActiveSession =
     pendingPermission && activeSession && pendingPermission.sessionId === activeSession.id;
+  const isQuestionForActiveSession =
+    !isPendingForActiveSession &&
+    pendingElicitation &&
+    activeSession &&
+    pendingElicitation.sessionId === activeSession.id;
 
   return (
     <section
@@ -225,19 +241,39 @@ export function AgentRail({
           className="flex flex-1 flex-col min-h-0 min-w-0"
         >
           {/* Inline Permission Request if pending */}
-          {isPendingForActiveSession && pendingPermission ? (
-            <div
-              data-testid="rail-inline-permission"
-              className="px-6 pt-2 shrink-0"
-            >
-              <AgentPermissionRequest
-                pending={pendingPermission}
-                session={activeSession}
-                onResolve={onResolvePermission ?? (() => {})}
-                busy={permissionBusy}
-              />
-            </div>
-          ) : null}
+          <PermissionPresence
+            pendingId={isPendingForActiveSession ? pendingPermission?.id : null}
+            className="shrink-0"
+          >
+            {isPendingForActiveSession && pendingPermission ? (
+              <div data-testid="rail-inline-permission" className="px-6 pt-2">
+                <AgentPermissionRequest
+                  pending={pendingPermission}
+                  session={activeSession}
+                  onResolve={onResolvePermission ?? (() => {})}
+                  busy={permissionBusy}
+                />
+              </div>
+            ) : null}
+          </PermissionPresence>
+
+          <PermissionPresence
+            pendingId={isQuestionForActiveSession ? pendingElicitation?.id : null}
+            className="shrink-0"
+          >
+            {isQuestionForActiveSession && pendingElicitation ? (
+              <div data-testid="rail-inline-question" className="max-h-[60vh] overflow-y-auto px-6 pt-2">
+                <AgentQuestionCard
+                  pending={pendingElicitation}
+                  session={activeSession}
+                  onRespond={onRespondElicitation ?? (() => {})}
+                  busy={elicitationBusy}
+                  error={elicitationError}
+                  size="rail"
+                />
+              </div>
+            ) : null}
+          </PermissionPresence>
 
           {/* Transcript Area */}
           <div className="flex-1 min-h-0 overflow-hidden">
@@ -267,6 +303,7 @@ export function AgentRail({
               streaming={streaming}
               usage={usage}
               vendor={vendor}
+              placeholder={composerPlaceholder(activeSession?.status)}
               commands={commands}
               contextFiles={contextFiles}
               onSelectCommand={onSelectCommand}

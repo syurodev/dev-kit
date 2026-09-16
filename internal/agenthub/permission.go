@@ -134,6 +134,37 @@ func (w *PermissionWaiter) Complete(id string, outcome json.RawMessage) error {
 	}
 }
 
+// CancelSession answers every permission this session is waiting on with the
+// denied outcome, and reports how many there were.
+//
+// Stopping a turn has to reach these. A pending request holds three things at
+// once: the agent, blocked in session/request_permission; the card on screen,
+// counting down; and the session's status. Killing the process alone left all
+// three — the agent was gone, but its question stayed on screen with a live
+// clock, and the only way out was to answer a request nobody was listening to.
+//
+// Denied rather than dropped: the outcome is what Wait already sends on a
+// timeout, and it is the fail-closed answer. A tool call that was never
+// approved must not run because the turn behind it was stopped.
+func (w *PermissionWaiter) CancelSession(sessionID string) int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	cancelled := 0
+	for id, p := range w.pending {
+		if p.SessionID != sessionID || p.finished {
+			continue
+		}
+		select {
+		case p.result <- append(json.RawMessage(nil), deniedPermissionOutcome...):
+			cancelled++
+		default:
+		}
+		p.finished = true
+		delete(w.pending, id)
+	}
+	return cancelled
+}
+
 // PendingList returns every pending prompt, oldest first.
 func (w *PermissionWaiter) PendingList() []PendingPermission {
 	w.mu.Lock()

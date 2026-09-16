@@ -111,6 +111,40 @@ export type PendingPermission = {
   expiresAt: string;
 };
 
+/**
+ * A question an agent is waiting for the user to answer (ACP
+ * elicitation/create, form mode). AskUserQuestion, an MCP server's question
+ * and the refusal-fallback prompt all arrive as this.
+ *
+ * No `expiresAt`, unlike PendingPermission: a question has no deadline — the
+ * turn waits for as long as the user takes, and Skip or Stop is the way out.
+ */
+export type PendingElicitation = {
+  id: string;
+  sessionId: string;
+  /** The tool call the agent emitted before asking; empty for an MCP server's question. */
+  toolCallId: string;
+  message: string;
+  /** The request as the agent sent it, `requestedSchema` included. */
+  params: unknown;
+  caller: string;
+  title: string;
+  depth: number;
+  createdAt: string;
+};
+
+export type ElicitationClosedEvent = {
+  id: string;
+  sessionId: string;
+  reason: "answered" | "cancelled" | "turn_stopped" | string;
+};
+
+/** The three answers ACP has for a question; the hub keeps only what was asked. */
+export type ElicitationResponse =
+  | { action: "accept"; content: Record<string, string | number | boolean | string[]> }
+  | { action: "decline" }
+  | { action: "cancel" };
+
 export type PermissionOption = {
   optionId: string;
   name: string;
@@ -119,6 +153,8 @@ export type PermissionOption = {
 
 const SESSION_UPDATE_EVENT = "agenthub:sessionUpdate";
 const PERMISSION_EVENT = "agenthub:permission";
+const ELICITATION_EVENT = "agenthub:elicitation";
+const ELICITATION_CLOSED_EVENT = "agenthub:elicitationClosed";
 const TURN_FINISHED_EVENT = "agenthub:turnFinished";
 const NOTIFICATION_ACTION_EVENT = "agenthub:notificationAction";
 
@@ -344,6 +380,25 @@ export function cancelledPermissionOutcome(): unknown {
   return { outcome: { outcome: "cancelled" } };
 }
 
+export function agentHubRespondElicitation(id: string, response: ElicitationResponse): Promise<void> {
+  return callBridge(() => AppService.AgentHubRespondElicitation(id, response) as Promise<void>);
+}
+
+/** Submit: only the keys that were answered. */
+export function acceptElicitation(content: Record<string, string | number | boolean | string[]>): ElicitationResponse {
+  return { action: "accept", content };
+}
+
+/** Skip the whole question: the tool runs on with no answers and the turn continues. */
+export function declineElicitation(): ElicitationResponse {
+  return { action: "decline" };
+}
+
+/** Abandon it: the tool call that asked is aborted. */
+export function cancelElicitation(): ElicitationResponse {
+  return { action: "cancel" };
+}
+
 export function isSandboxUnavailableError(error: unknown): boolean {
   const app = toAppError(error);
   const msg = app.message.toLowerCase();
@@ -399,6 +454,67 @@ function parsePermission(data: unknown): PendingPermission | null {
     createdAt: isoString(record.createdAt ?? record.CreatedAt),
     expiresAt: isoString(record.expiresAt ?? record.ExpiresAt),
   };
+}
+
+export function parseElicitation(data: unknown): PendingElicitation | null {
+  if (!data || typeof data !== "object") {
+    return null;
+  }
+  const record = data as Record<string, unknown>;
+  const id = typeof record.id === "string" ? record.id : typeof record.ID === "string" ? record.ID : "";
+  const sessionId =
+    typeof record.sessionId === "string"
+      ? record.sessionId
+      : typeof record.SessionID === "string"
+        ? record.SessionID
+        : "";
+  if (!id || !sessionId) {
+    return null;
+  }
+  const params = record.params ?? record.Params ?? null;
+  const paramsRecord = params && typeof params === "object" ? (params as Record<string, unknown>) : {};
+  const message = record.message ?? record.Message ?? paramsRecord.message;
+  const toolCallId = record.toolCallId ?? record.ToolCallID ?? paramsRecord.toolCallId;
+  return {
+    id,
+    sessionId,
+    toolCallId: typeof toolCallId === "string" ? toolCallId : "",
+    message: typeof message === "string" ? message : "",
+    params,
+    caller: typeof record.caller === "string" ? record.caller : `agent:${sessionId}`,
+    title: typeof record.title === "string" ? record.title : "",
+    depth: typeof record.depth === "number" ? record.depth : 0,
+    createdAt: isoString(record.createdAt ?? record.CreatedAt),
+  };
+}
+
+export function agentHubPendingElicitations(): Promise<PendingElicitation[]> {
+  return callBridge(async () => {
+    const list = (await AppService.AgentHubPendingElicitations()) ?? [];
+    return list.map((raw) => parseElicitation(raw)).filter((e): e is PendingElicitation => e !== null);
+  });
+}
+
+export function onAgentHubElicitation(handler: (pending: PendingElicitation) => void): () => void {
+  return Events.On(ELICITATION_EVENT, (ev) => {
+    const parsed = parseElicitation(Array.isArray(ev?.data) ? ev.data[0] : ev?.data);
+    if (parsed) handler(parsed);
+  });
+}
+
+/** Answered (here or in another window), taken back by the agent, or its turn was stopped. */
+export function onAgentHubElicitationClosed(handler: (event: ElicitationClosedEvent) => void): () => void {
+  return Events.On(ELICITATION_CLOSED_EVENT, (ev) => {
+    const data = Array.isArray(ev?.data) ? ev.data[0] : ev?.data;
+    if (!data || typeof data !== "object") return;
+    const record = data as Record<string, unknown>;
+    if (typeof record.id !== "string" || !record.id) return;
+    handler({
+      id: record.id,
+      sessionId: typeof record.sessionId === "string" ? record.sessionId : "",
+      reason: typeof record.reason === "string" ? record.reason : "",
+    });
+  });
 }
 
 function isoString(value: unknown): string {
@@ -520,4 +636,21 @@ export function permissionToolTitle(params: unknown): string {
     }
   }
   return "Agent permission request";
+}
+
+/**
+ * The literal command a permission request would run, when it has one. ACP
+ * carries it on `toolCall.rawInput.command` (claude-agent-acp's Bash); a flat
+ * `command` is kept for callers that already build requests that way.
+ */
+export function permissionCommand(params: unknown): string | undefined {
+  if (!params || typeof params !== "object") return undefined;
+  const record = params as Record<string, unknown>;
+  if (typeof record.command === "string" && record.command.trim()) return record.command;
+  const toolCall = record.toolCall;
+  if (!toolCall || typeof toolCall !== "object") return undefined;
+  const rawInput = (toolCall as Record<string, unknown>).rawInput;
+  if (!rawInput || typeof rawInput !== "object") return undefined;
+  const command = (rawInput as Record<string, unknown>).command;
+  return typeof command === "string" && command.trim() ? command : undefined;
 }

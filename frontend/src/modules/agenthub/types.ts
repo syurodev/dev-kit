@@ -231,6 +231,8 @@ export type TranscriptItem = {
   toolCall?: ToolCall;
   plan?: PlanEntry[];
   subagent?: Subagent;
+  /** One row per background task, merged from the three async_task_* kinds. */
+  asyncTask?: AsyncTask;
   raw?: unknown;
   createdAt?: string;
   updatedAt?: string;

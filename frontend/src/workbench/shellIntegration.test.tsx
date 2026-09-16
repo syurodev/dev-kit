@@ -61,6 +61,8 @@ describe("Phase 4 Shell Integration", () => {
       chatOpen: false,
       pending: null,
       pendingQueue: [],
+      elicitation: null,
+      elicitationQueue: [],
     });
   });
 
@@ -109,6 +111,132 @@ describe("Phase 4 Shell Integration", () => {
       expect(html).toContain("Root Agent");
       expect(html).toContain("Open rail");
       expect(html).not.toContain("Allow always");
+    });
+
+    it("floats when the module shows a different session than the one asking", () => {
+      // The gap this closes: inside Agent Hub, looking at session A, a request
+      // from B was asked nowhere at all — no inline card (wrong session), no
+      // toast (right module) — and the gate denies it after 60s.
+      useAgentSessionsStore.setState({
+        chatOpen: false,
+        activeSessionId: "sess-1",
+        pending: {
+          id: "perm-other",
+          sessionId: "sess-2",
+          caller: "agent:claude",
+          createdAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          title: "Other Agent",
+          depth: 1,
+          params: {},
+        },
+      });
+
+      const html = renderToString(<AgentPermissionToastHost activeModuleId="agenthub" />);
+      expect(html).toContain('data-testid="agent-permission-toast"');
+      expect(html).toContain("Other Agent");
+    });
+
+    it("stays away when the module is showing the session that is asking", () => {
+      useAgentSessionsStore.setState({
+        chatOpen: false,
+        activeSessionId: "sess-1",
+        pending: {
+          id: "perm-inline",
+          sessionId: "sess-1",
+          caller: "agent:claude",
+          createdAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          title: "Root Agent",
+          depth: 0,
+          params: {},
+        },
+      });
+
+      // AgentHubContent asks it above the composer instead.
+      expect(renderToString(<AgentPermissionToastHost activeModuleId="agenthub" />)).toBe("");
+    });
+
+    it("sits above the z-50 modal tier, marked so a dialog does not dismiss on its clicks", () => {
+      const pending = (id: string) => ({
+        id,
+        sessionId: "sess-1",
+        caller: "agent:claude",
+        createdAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        title: "Root Agent",
+        depth: 0,
+        params: {},
+      });
+      useAgentSessionsStore.setState({
+        chatOpen: false,
+        pending: pending("perm-a"),
+        pendingQueue: [pending("perm-a"), pending("perm-b"), pending("perm-c")],
+      });
+
+      const html = renderToString(<AgentPermissionToastHost activeModuleId="notes" />);
+      expect(html).toContain("z-60");
+      expect(html).toContain("data-shell-float");
+      // The queue holds the request on screen too; the pill counts the other two.
+      expect(html).toContain('data-testid="toast-queue"');
+      expect(html).toContain("+2 waiting");
+    });
+
+    const question = (id: string, sessionId: string) => ({
+      id,
+      sessionId,
+      toolCallId: "",
+      message: "Which region?",
+      params: {
+        message: "Which region?",
+        requestedSchema: { type: "object", properties: { region: { type: "string", enum: ["us", "eu"] } } },
+      },
+      caller: `agent:${sessionId}`,
+      title: "Question Agent",
+      depth: 0,
+      createdAt: new Date().toISOString(),
+    });
+
+    it("floats a question from a session nobody is looking at, without its form", () => {
+      useAgentSessionsStore.setState({ chatOpen: false, elicitationQueue: [question("q-1", "sess-1")] });
+
+      const html = renderToString(<AgentPermissionToastHost activeModuleId="notes" />);
+      expect(html).toContain('data-testid="agent-question-toast"');
+      expect(html).toContain("Which region?");
+      expect(html).toContain("1 question");
+      expect(html).not.toContain("questionnaire");
+    });
+
+    it("gives the one corner to the permission when a question is waiting too", () => {
+      useAgentSessionsStore.setState({
+        chatOpen: false,
+        pending: {
+          id: "perm-both",
+          sessionId: "sess-1",
+          caller: "agent:claude",
+          createdAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          title: "Root Agent",
+          depth: 0,
+          params: {},
+        },
+        elicitationQueue: [question("q-both", "sess-1")],
+      });
+
+      const html = renderToString(<AgentPermissionToastHost activeModuleId="notes" />);
+      expect(html).toContain('data-testid="agent-permission-toast"');
+      expect(html).not.toContain('data-testid="agent-question-toast"');
+    });
+
+    it("leaves a question to the inline card when its session is on screen, but floats another session's", () => {
+      useAgentSessionsStore.setState({ activeSessionId: "sess-1", elicitationQueue: [question("q-here", "sess-1")] });
+      expect(renderToString(<AgentPermissionToastHost activeModuleId="agenthub" />)).toBe("");
+
+      useAgentSessionsStore.setState({
+        elicitationQueue: [question("q-here", "sess-1"), question("q-there", "sess-2")],
+      });
+      const html = renderToString(<AgentPermissionToastHost activeModuleId="agenthub" />);
+      expect(html).toContain('data-testid="agent-question-toast"');
     });
 
     it("hides toast when rail is already open and displaying that session", () => {

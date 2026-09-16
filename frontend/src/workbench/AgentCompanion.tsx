@@ -5,13 +5,12 @@ import {
   agentHubChooseFiles,
   agentHubListContextFiles,
   type AgentImageAttachment,
-  agentHubResolvePermission,
-  cancelledPermissionOutcome,
-  selectedPermissionOutcome,
 } from "@/bridge/agenthub";
 import { errorMessage } from "@/bridge/errors";
 import { AgentRail } from "@/modules/agenthub/surfaces";
 import { useAgentTranscript } from "@/modules/agenthub/transcript";
+import { useResolvePermission } from "@/modules/agenthub/permissions";
+import { elicitationForSession, useRespondElicitation } from "@/modules/agenthub/elicitations";
 import { setSessionConfigOption, setSessionMode } from "@/modules/agenthub/transcriptControls";
 import { useAgentSessionList, useAgentSessionsStore } from "@/stores/agentSessions";
 import { openCodeGraphProject, readCodeGraphFile } from "@/bridge/codegraph";
@@ -41,19 +40,25 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
   const upsertSession = useAgentSessionsStore((s) => s.upsertSession);
   const setPrompt = useAgentSessionsStore((s) => s.setPrompt);
   const pending = useAgentSessionsStore((s) => s.pending);
-  const dequeuePending = useAgentSessionsStore((s) => s.dequeuePending);
+  const { busy: permBusy, resolve: resolvePermission } = useResolvePermission(pending);
   const enqueuePrompt = useAgentSessionsStore((s) => s.enqueuePrompt);
   const removeQueuedPrompt = useAgentSessionsStore((s) => s.removeQueuedPrompt);
 
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [permBusy, setPermBusy] = useState(false);
   const [attachments, setAttachments] = useState<string[]>([]);
   const [images, setImages] = useState<AgentImageAttachment[]>([]);
   const [imageError, setImageError] = useState("");
   const [contextFiles, setContextFiles] = useState<Awaited<ReturnType<typeof agentHubListContextFiles>>>([]);
 
   const session = sessions.find((s) => s.id === activeSessionId) ?? sessions[0] ?? null;
+  const elicitationQueue = useAgentSessionsStore((s) => s.elicitationQueue);
+  const question = elicitationForSession(elicitationQueue, session?.id);
+  const {
+    busy: questionBusy,
+    error: questionError,
+    respond: respondQuestion,
+  } = useRespondElicitation(question);
   const prompt = useAgentSessionsStore((s) => s.promptBySession[session?.id ?? ""] ?? "");
   // EMPTY_ARRAY, not []: a fresh [] is a new snapshot on every read (see AgentHubView).
   const queuedPrompts = useAgentSessionsStore((s) => s.queuedPromptsBySession[session?.id ?? ""] ?? EMPTY_ARRAY);
@@ -72,27 +77,9 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
     return () => { mounted = false; };
   }, [session?.id, visible]);
 
-  async function resolvePermission(optionId: string | null) {
-    if (!pending) return;
-    setPermBusy(true);
-    setError("");
-    try {
-      await agentHubResolvePermission(
-        pending.id,
-        optionId === null ? cancelledPermissionOutcome() : selectedPermissionOutcome(optionId),
-      );
-      dequeuePending(pending.id);
-      upsertSession(await agentHubGetStatus(pending.sessionId));
-    } catch (e) {
-      setError(errorMessage(e));
-    } finally {
-      setPermBusy(false);
-    }
-  }
 
   async function handleSend(inputText?: string) {
     if (!session) return;
-    if (session.status === "closed") return;
     const text = inputText ?? prompt.trim();
     if (!text && attachments.length === 0 && images.length === 0) return;
     const turn = queuedPrompt(text, attachments, images);
@@ -184,6 +171,8 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
     if (!session) return;
     try {
       await agentHubCancel(session.id);
+      useAgentSessionsStore.getState().dequeuePendingForSession(session.id);
+      useAgentSessionsStore.getState().dequeueElicitationForSession(session.id);
       upsertSession(await agentHubGetStatus(session.id));
     } catch (e) {
       setError(errorMessage(e));
@@ -237,8 +226,12 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
       pendingPermission={pending}
       onResolvePermission={resolvePermission}
       permissionBusy={permBusy}
+      pendingElicitation={question}
+      onRespondElicitation={respondQuestion}
+      elicitationBusy={questionBusy}
+      elicitationError={questionError}
       errorMessage={error}
-      sendDisabled={session?.status === "closed"}
+      sendDisabled={false}
     />
   );
 }

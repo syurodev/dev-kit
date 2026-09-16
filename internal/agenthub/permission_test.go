@@ -254,3 +254,80 @@ func TestPendingPermissionDeadlineDefaultsToInteractionTimeout(t *testing.T) {
 		t.Fatalf("window = %v, want interaction.DefaultTimeout", got)
 	}
 }
+
+// TestCancelSessionAnswersWhatTheSessionWasWaitingOn covers the state a stop
+// used to leave behind: the agent killed, its question still on screen with a
+// live countdown, and the only way out an answer nobody was listening for.
+func TestCancelSessionAnswersWhatTheSessionWasWaitingOn(t *testing.T) {
+	waiter := agenthub.NewPermissionWaiter(nil)
+
+	type answer struct {
+		outcome json.RawMessage
+		err     error
+	}
+	answers := make(chan answer, 2)
+	for _, sessionID := range []string{"sess-stopped", "sess-other"} {
+		go func(id string) {
+			outcome, err := waiter.Wait(context.Background(), id, json.RawMessage(`{"toolCall":{"title":"rm -rf /"}}`))
+			if id == "sess-stopped" {
+				answers <- answer{outcome, err}
+			}
+		}(sessionID)
+	}
+
+	// Both registrations have to land before the stop, or the test proves
+	// nothing about the one it leaves alone.
+	deadline := time.After(2 * time.Second)
+	for len(waiter.PendingList()) < 2 {
+		select {
+		case <-deadline:
+			t.Fatal("permissions never registered")
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+
+	if got := waiter.CancelSession("sess-stopped"); got != 1 {
+		t.Fatalf("cancelled %d permissions, want 1", got)
+	}
+
+	select {
+	case got := <-answers:
+		if !errors.Is(got.err, agenthub.ErrPermissionDenied) {
+			t.Fatalf("err = %v, want ErrPermissionDenied — a stopped turn must not approve a tool", got.err)
+		}
+		if !json.Valid(got.outcome) || string(got.outcome) == "" {
+			t.Fatalf("outcome = %q, want the denied outcome", got.outcome)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the agent was left blocked on a request nobody will answer")
+	}
+
+	// The other session's turn is still going and still needs its answer.
+	rest := waiter.PendingList()
+	if len(rest) != 1 || rest[0].SessionID != "sess-other" {
+		t.Fatalf("pending after cancel = %+v, want only sess-other", rest)
+	}
+}
+
+// Stopping when nothing is running is not a failure. It used to answer
+// ErrUnavailable, which the bridge showed as "Agent Hub is not available" — and
+// that is what the second press of Stop always got, since the first press kills
+// the process the third would have cancelled.
+func TestCancelWithNothingRunningIsNotAnError(t *testing.T) {
+	svc := newTestService(t)
+	sess, err := svc.CreateSession(context.Background(), agenthub.CreateInput{
+		AgentType: agenthub.AgentTypeMock,
+		Cwd:       t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if err := svc.CloseSession(context.Background(), sess.ID); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	if err := svc.Cancel(context.Background(), sess.ID); err != nil {
+		t.Fatalf("cancel with no runtime = %v, want nil", err)
+	}
+}

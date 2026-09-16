@@ -163,8 +163,9 @@ const BASELINE = {
   // gallery specs went; modules switch from the title bar. 39 → 37: Settings
   // drew its own blurred scrim and panel and is a Dialog now. 37 → 36: Agent
   // Hub's new-session dialog went — the agent is picked in the composer and
-  // the folder comes from the project row or the native picker.
-  blurSurfaces: 36,
+  // the folder comes from the project row or the native picker. 36 → 35: the
+  // permission toast wore a hand-rolled backdrop-blur and now wears glass-float.
+  blurSurfaces: 35,
   untokenisedAnimateIn: 3,
   unstableQueryDefaults: 0,
   unstableStoreSelectors: 0,

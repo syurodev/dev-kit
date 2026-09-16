@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"devkit/internal/agenthub"
 	"devkit/internal/app"
@@ -28,8 +29,12 @@ func newBridgeWithAgentHub(t *testing.T) *AppService {
 	waiter := agenthub.NewPermissionWaiter(nil)
 	svc := agenthub.NewService(reg, agenthub.NewSQLStore(db), nil)
 	svc.ResolvePermission = waiter.Resolve
+	questions := agenthub.NewElicitationWaiter(nil, nil)
+	svc.ResolveElicitation = questions.Resolve
+	svc.CancelPendingElicitations = questions.CancelSession
 	container.AgentHub = svc
 	container.AgentHubPermissions = waiter
+	container.AgentHubElicitations = questions
 	return NewAppService(container)
 }
 
@@ -112,6 +117,53 @@ func TestAgentHubResolvePermissionNoPending(t *testing.T) {
 	err := svc.AgentHubResolvePermission("0123456789abcdef01234567", json.RawMessage(`{"outcome":{"outcome":"cancelled"}}`))
 	if err == nil {
 		t.Fatal("expected error when no pending permission")
+	}
+}
+
+// TestElicitationScopesAreGranted goes through the real gateway: a missing
+// grant is not a compile error, it is every answer the user gives failing at
+// runtime with permission_denied.
+func TestElicitationScopesAreGranted(t *testing.T) {
+	svc := newBridgeWithAgentHub(t)
+	waiter := svc.container.AgentHubElicitations
+
+	answered := make(chan json.RawMessage, 1)
+	go func() {
+		response, _ := waiter.Wait(context.Background(), "s1", json.RawMessage(`{"mode":"form","sessionId":"s1","message":"Pick","requestedSchema":{"type":"object","properties":{"question_0":{"type":"string"}}}}`))
+		answered <- response
+	}()
+
+	var pending []agenthub.PendingElicitation
+	deadline := time.Now().Add(2 * time.Second)
+	for len(pending) == 0 && time.Now().Before(deadline) {
+		list, err := svc.AgentHubPendingElicitations()
+		if err != nil {
+			t.Fatalf("AgentHubPendingElicitations: %v", err)
+		}
+		pending = list
+		time.Sleep(5 * time.Millisecond)
+	}
+	if len(pending) != 1 {
+		t.Fatalf("pending = %v, want one question", pending)
+	}
+	if err := svc.AgentHubRespondElicitation(pending[0].ID, json.RawMessage(`{"action":"accept","content":{"question_0":"yes"}}`)); err != nil {
+		t.Fatalf("AgentHubRespondElicitation: %v", err)
+	}
+	select {
+	case got := <-answered:
+		if string(got) != `{"action":"accept","content":{"question_0":"yes"}}` {
+			t.Fatalf("agent got %s", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the answer never reached the agent")
+	}
+}
+
+func TestAgentHubRespondElicitationNoPending(t *testing.T) {
+	svc := newBridgeWithAgentHub(t)
+	err := svc.AgentHubRespondElicitation("0123456789abcdef01234567", json.RawMessage(`{"action":"decline"}`))
+	if err == nil || err.Error() != "validation_failed: agenthub: no pending elicitation" {
+		t.Fatalf("error = %v, want the waiter's own message", err)
 	}
 }
 

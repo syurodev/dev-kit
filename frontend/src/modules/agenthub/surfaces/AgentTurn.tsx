@@ -12,11 +12,12 @@ import { activityOf, stepSummary, workedFor, workSegments, type Turn } from "../
 import {
   AgentPlan,
   AgentSubagent,
+  AgentAsyncTask,
   AgentThinking,
   AgentToolCall,
 } from "../transcript/index";
 import { AgentProse } from "../transcript/AgentMessageRich";
-import { MessageHoverCard } from "./MessageHoverCard";
+import { MessageActions } from "./MessageActions";
 
 export type AgentTurnProps = {
   turn: Turn;
@@ -103,7 +104,7 @@ export const AgentTurn = React.memo(function AgentTurn({
     >
       {turn.prompt?.text?.trim() ? (
         <div className="flex w-full justify-end">
-          <MessageHoverCard
+          <MessageActions
             align="end"
             text={turn.prompt.text}
             at={turn.prompt.createdAt}
@@ -116,7 +117,7 @@ export const AgentTurn = React.memo(function AgentTurn({
             >
               {turn.prompt.text}
             </p>
-          </MessageHoverCard>
+          </MessageActions>
         </div>
       ) : null}
 
@@ -151,7 +152,7 @@ export const AgentTurn = React.memo(function AgentTurn({
       ) : null}
 
       {answer.map((item) => (
-        <MessageHoverCard
+        <MessageActions
           key={item.id}
           align="start"
           text={item.text ?? ""}
@@ -160,7 +161,6 @@ export const AgentTurn = React.memo(function AgentTurn({
           onDetails={onInspect ? () => onInspect(item) : undefined}
           onCopy={onCopy}
         >
-          {/* AgentProse is not a DOM element; the trigger needs one to measure. */}
           <div className="w-full">
             <AgentProse
               text={item.text ?? ""}
@@ -170,7 +170,7 @@ export const AgentTurn = React.memo(function AgentTurn({
               wrapBlock={wrapAnswerBlock}
             />
           </div>
-        </MessageHoverCard>
+        </MessageActions>
       ))}
 
       {activity ? (
@@ -266,6 +266,10 @@ function StepRow({ item, onOpenFile }: { item: TranscriptItem; onOpenFile?: (pat
     case "subagent_spawned":
     case "subagent_state_update":
       return item.subagent ? <AgentSubagent variant="row" subagent={item.subagent} /> : null;
+    case "async_task_spawned":
+    case "async_task_progress":
+    case "async_task_state_update":
+      return item.asyncTask ? <AgentAsyncTask variant="row" task={item.asyncTask} /> : null;
     default:
       return (
         <AgentToolCall

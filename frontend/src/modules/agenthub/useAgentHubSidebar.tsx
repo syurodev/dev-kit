@@ -41,6 +41,8 @@ export function useAgentHubSidebar(args: {
   const togglePin = useAgentPinsStore((state) => state.togglePin);
   const collapsed = useAgentPinsStore((state) => state.collapsed);
   const toggleCollapsed = useAgentPinsStore((state) => state.toggleCollapsed);
+  const hideClosed = useAgentPinsStore((state) => state.hideClosed);
+  const toggleHideClosed = useAgentPinsStore((state) => state.toggleHideClosed);
   // Every session's subagents, not the open one's: the rail draws them all.
   const subagents = useAgentSessionsStore((state) => state.subagents);
 
@@ -89,6 +91,8 @@ export function useAgentHubSidebar(args: {
         onTogglePin={togglePin}
         collapsedKeys={collapsed}
         onToggleCollapsed={toggleCollapsed}
+        hideClosed={hideClosed}
+        onToggleHideClosed={toggleHideClosed}
         onSelectSession={onSelectSession}
         onNewSession={onNewSession}
         onNewSessionIn={onNewSessionIn}
@@ -108,6 +112,8 @@ export function useAgentHubSidebar(args: {
       togglePin,
       collapsed,
       toggleCollapsed,
+      hideClosed,
+      toggleHideClosed,
       onSelectSession,
       onNewSession,
       onNewSessionIn,

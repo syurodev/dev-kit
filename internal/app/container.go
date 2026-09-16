@@ -101,6 +101,9 @@ type Container struct {
 	// AgentHubPermissions completes UI permission prompts for AgentHub.
 	// Nil when AgentHub is unset.
 	AgentHubPermissions *agenthub.PermissionWaiter
+	// AgentHubElicitations answers the questions agents put to the user.
+	// Nil when AgentHub is unset.
+	AgentHubElicitations *agenthub.ElicitationWaiter
 	// AgentNotifications raises Agent Hub's OS notifications. Nil in server
 	// mode and in tests that do not set it.
 	AgentNotifications *agenthub.Notifier
@@ -229,9 +232,11 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "session:*"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "vendor:list"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "permission:list"},
+		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "elicitation:list"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "session:new"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "session:*"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "permission:complete"},
+		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "elicitation:respond"},
 		// Agent runtimes: reading status and the registry, and installing,
 		// switching or removing an adapter version. Scoped per agent id.
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "runtime:*"},

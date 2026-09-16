@@ -38,7 +38,12 @@ import { useWorkbenchTabsStore } from "../../stores/workbenchTabs";
 import { copyText } from "../../bridge/clipboard";
 import { toAppError } from "../../bridge/errors";
 import { useAgentHubSidebar } from "./useAgentHubSidebar";
-import { forgetAgentTranscript, useAgentTranscript } from "./transcript";
+import { forgetAgentTranscript, loadWholeTranscript, useAgentTranscript } from "./transcript";
+import { transcriptToMarkdown } from "./exportMarkdown";
+import { groupTurns } from "./turns";
+import { toast } from "sonner";
+import { pendingForSession, useResolvePermission } from "./permissions";
+import { elicitationForSession, useRespondElicitation } from "./elicitations";
 import { setSessionConfigOption, setSessionMode } from "./transcriptControls";
 import { commandName, promptWithCommand, promptWithoutCommand } from "./slashCommands";
 import { AgentHubContent } from "./surfaces";
@@ -125,6 +130,9 @@ export function AgentHubView() {
   const enqueuePrompt = useAgentSessionsStore((state) => state.enqueuePrompt);
   const removeQueuedPrompt = useAgentSessionsStore((state) => state.removeQueuedPrompt);
   const pendingQueue = useAgentSessionsStore((state) => state.pendingQueue);
+  const dequeuePendingForSession = useAgentSessionsStore((state) => state.dequeuePendingForSession);
+  const elicitationQueue = useAgentSessionsStore((state) => state.elicitationQueue);
+  const dequeueElicitationForSession = useAgentSessionsStore((state) => state.dequeueElicitationForSession);
 
   const [vendors, setVendors] = useState<string[]>(DEFAULT_VENDORS);
   // A session being started. Its folder and parent are known when it begins;
@@ -506,7 +514,6 @@ export function AgentHubView() {
   async function handleSend(retry?: TurnInput, known?: AgentSession) {
     const session = known ?? (retry ? sessions.find((s) => s.id === retry.sessionId) : activeSession);
     if (!session) return;
-    if (session.status === "closed") return;
     const attached = retry ? retry.attachments : attachments[session.id] ?? [];
     const attachedImages = retry ? retry.images : images[session.id] ?? [];
     const text = retry ? retry.text : activePrompt.trim();
@@ -543,6 +550,8 @@ export function AgentHubView() {
     if (!activeSession) return;
     try {
       await agentHubCancel(activeSession.id);
+      dequeuePendingForSession(activeSession.id);
+      dequeueElicitationForSession(activeSession.id);
       upsertSession(await agentHubGetStatus(activeSession.id));
     } catch (e) {
       reportError(e);
@@ -554,6 +563,8 @@ export function AgentHubView() {
   async function handleCancelFor(session: AgentSession) {
     try {
       await agentHubCancel(session.id);
+      dequeuePendingForSession(session.id);
+      dequeueElicitationForSession(session.id);
       upsertSession(await agentHubGetStatus(session.id));
     } catch (e) {
       reportError(e);
@@ -564,10 +575,6 @@ export function AgentHubView() {
     try {
       await agentHubCloseSession(session.id);
       upsertSession(await agentHubGetStatus(session.id));
-      if (session.id === activeSession?.id) {
-        const next = sessions.find((s) => s.id !== session.id && s.status !== "closed");
-        setActiveSessionId(next ? next.id : "");
-      }
     } catch (e) {
       reportError(e);
     }
@@ -607,6 +614,26 @@ export function AgentHubView() {
     }
   }
 
+  // Every page, not the window on screen: a copy that stopped where the scroll
+  // did would be the newest half of a conversation with no sign it was half.
+  async function handleCopyTranscript() {
+    if (!activeSession) return;
+    try {
+      const model = await loadWholeTranscript(activeSession.id);
+      await copyText(
+        transcriptToMarkdown(model.items, {
+          title: activeSession.title,
+          projectPath: activeSession.projectPath,
+          vendor: activeSession.agentType,
+        }),
+      );
+      const turns = groupTurns(model.items).length;
+      toast.success(`Copied ${turns} turn${turns === 1 ? "" : "s"} as Markdown`);
+    } catch (e) {
+      reportError(e);
+    }
+  }
+
   async function handleCloseSession() {
     if (!activeSession) return;
     const closedId = activeSession.id;
@@ -614,11 +641,10 @@ export function AgentHubView() {
     try {
       await agentHubCloseSession(closedId);
       upsertSession(await agentHubGetStatus(closedId));
-      // The session stays in the tree as history, but selecting it would show
-      // a dead transcript under a live composer. Move to the next agent that
-      // can still be talked to, or to the empty state if there is none.
-      const next = sessions.find((s) => s.id !== closedId && s.status !== "closed");
-      setActiveSessionId(next ? next.id : "");
+      // Stays selected. Closing parks the agent's process; the conversation is
+      // still readable and still answerable — the next prompt reopens it — so
+      // there is nothing to move away from. Jumping to another agent was right
+      // while closing was final.
     } catch (e) {
       reportError(e);
     } finally {
@@ -650,14 +676,32 @@ export function AgentHubView() {
     </div>
   ) : null;
 
-  // Group pending permission counts per session
+  // The request this session is waiting on is asked inside the conversation,
+  // not in the corner: see AgentHubContent's pendingPermission.
+  const activePending = useMemo(
+    () => pendingForSession(pendingQueue, activeSession?.id),
+    [pendingQueue, activeSession?.id],
+  );
+  const { busy: permissionBusy, resolve: resolvePermission } = useResolvePermission(activePending);
+  const activeQuestion = useMemo(
+    () => elicitationForSession(elicitationQueue, activeSession?.id),
+    [elicitationQueue, activeSession?.id],
+  );
+  const {
+    busy: elicitationBusy,
+    error: elicitationError,
+    respond: respondElicitation,
+  } = useRespondElicitation(activeQuestion);
+
+  // What each session is waiting on the user for: permissions and questions
+  // alike, since either one stops the agent until someone answers.
   const pendingCounts = useMemo(() => {
     const map: Record<string, number> = {};
-    for (const p of pendingQueue) {
+    for (const p of [...pendingQueue, ...elicitationQueue]) {
       map[p.sessionId] = (map[p.sessionId] ?? 0) + 1;
     }
     return map;
-  }, [pendingQueue]);
+  }, [pendingQueue, elicitationQueue]);
 
   useAgentHubSidebar({
     sessions,
@@ -712,7 +756,7 @@ export function AgentHubView() {
             agent={draftAgent}
             onAgentChange={setDraftAgent}
             draftNotice={draftNotice}
-            sendDisabled={draft ? busy || draftBlocked : activeSession?.status === "closed"}
+            sendDisabled={draft ? busy || draftBlocked : false}
             promptValue={draft ? draftPrompt : activePrompt}
             onPromptChange={(val) => {
               if (draft) setDraftPrompt(val);
@@ -732,7 +776,15 @@ export function AgentHubView() {
             onCancel={() => void handleCancel()}
             onCloseSession={() => void handleCloseSession()}
             onRenameSession={(title) => handleRenameSession(title)}
+            onCopyTranscript={() => void handleCopyTranscript()}
             onCopy={(text) => void copyText(text)}
+            pendingPermission={activePending}
+            onResolvePermission={resolvePermission}
+            permissionBusy={permissionBusy}
+            pendingElicitation={activeQuestion}
+            onRespondElicitation={respondElicitation}
+            elicitationBusy={elicitationBusy}
+            elicitationError={elicitationError}
             onCompact={() => {
               // Through the same path as a typed prompt, so a compact is a turn
               // like any other: it shows, it can fail, it can be retried. Not

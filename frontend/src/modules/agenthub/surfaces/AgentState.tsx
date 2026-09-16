@@ -41,6 +41,12 @@ export type AgentStateProps = {
   status: AgentStatus;
   /** Hides the word, for places that only have room for the dot. */
   labelHidden?: boolean;
+  /**
+   * Beats the dot. For a row in the swarm tree that is waiting on the user:
+   * five still dots down a rail all read as decoration, and this one is the
+   * only one with a deadline behind it.
+   */
+  pulse?: boolean;
   className?: string;
   id?: string;
 };
@@ -48,6 +54,7 @@ export type AgentStateProps = {
 export function AgentState({
   status,
   labelHidden = false,
+  pulse = false,
   className,
   id,
 }: AgentStateProps) {
@@ -60,7 +67,11 @@ export function AgentState({
     >
       <span
         aria-hidden="true"
-        className={cn("size-1.5 shrink-0 rounded-full", DOT_CLASS[status])}
+        className={cn(
+          "size-1.5 shrink-0 rounded-full",
+          DOT_CLASS[status],
+          pulse && "animate-pulse motion-reduce:animate-none",
+        )}
       />
       {labelHidden ? (
         <span className="sr-only">{status}</span>

@@ -103,9 +103,17 @@ type SessionSetModeRequest struct {
 }
 
 // SessionSetConfigOptionRequest is the params object for session/set_config_option.
+//
+// `configId`, and it is not a typo for the `id` the agent emits. A
+// config_option_update lists options under `id`; the request that changes one
+// names it `configId` — claude-agent-acp 0.74 reads `params.configId` and
+// answers "Unknown config option: undefined" to anything else, which is what
+// DevKit sent for as long as this said `optionId`. Every model and effort
+// change failed, silently: the picker moved, the call was refused, and the
+// optimistic update put the old value straight back.
 type SessionSetConfigOptionRequest struct {
 	SessionID string `json:"sessionId"`
-	OptionID  string `json:"optionId"`
+	ConfigID  string `json:"configId"`
 	Value     string `json:"value"`
 }
 

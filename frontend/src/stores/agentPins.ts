@@ -19,6 +19,13 @@ type AgentPinsState = {
    */
   collapsed: string[];
   toggleCollapsed: (key: string) => void;
+  /**
+   * Closed sessions left out of the tree. Off by default: a session you just
+   * closed vanishing from under the pointer is a worse surprise than a long
+   * list, and the list is what the toggle is for.
+   */
+  hideClosed: boolean;
+  toggleHideClosed: () => void;
 };
 
 /**
@@ -52,11 +59,17 @@ export const useAgentPinsStore = create<AgentPinsState>()(
             ? state.collapsed.filter((k) => k !== key)
             : [...state.collapsed, key],
         })),
+      hideClosed: false,
+      toggleHideClosed: () => set((state) => ({ hideClosed: !state.hideClosed })),
     }),
     {
       name: "agentPins",
       storage: uiStateStorage,
-      partialize: (state) => ({ pinned: state.pinned, collapsed: state.collapsed }),
+      partialize: (state) => ({
+        pinned: state.pinned,
+        collapsed: state.collapsed,
+        hideClosed: state.hideClosed,
+      }),
     },
   ),
 );

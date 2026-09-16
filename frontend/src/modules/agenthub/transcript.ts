@@ -12,6 +12,7 @@ import type {
   TranscriptModel,
   TranscriptItem,
   Subagent,
+  AsyncTask,
 } from "./types";
 
 export type {
@@ -142,6 +143,27 @@ export function mergeToolCall(
   if (next.rawOutput !== undefined && next.rawOutput !== null && next.rawOutput !== "") {
     merged.rawOutput = next.rawOutput;
   }
+  return merged;
+}
+
+/**
+ * A later async_task_* message onto the task already held. Every field is
+ * spawn-only, progress-only or state-only, so an absent field means "this
+ * message did not say", never "cleared".
+ */
+export function mergeAsyncTask(previous: AsyncTask | undefined, incoming: AsyncTask): AsyncTask {
+  const merged: AsyncTask = { ...previous, ...incoming };
+  merged.name = incoming.name || previous?.name;
+  merged.taskType = incoming.taskType || previous?.taskType;
+  merged.description = incoming.description || previous?.description;
+  merged.summary = incoming.summary || previous?.summary;
+  merged.state = incoming.state || previous?.state;
+  merged.lastToolName = incoming.lastToolName || previous?.lastToolName;
+  merged.outputFilePath = incoming.outputFilePath || previous?.outputFilePath;
+  merged.toolCallId = incoming.toolCallId || previous?.toolCallId;
+  merged.showInTranscript = incoming.showInTranscript || previous?.showInTranscript;
+  merged.canStop = incoming.canStop || previous?.canStop;
+  merged.usage = incoming.usage ?? previous?.usage ?? null;
   return merged;
 }
 
@@ -380,6 +402,48 @@ export function applySessionUpdates(
       }
     }
 
+    // Background tasks: one row per task, for the same reason subagents get
+    // one card. Spawn names it, progress reports what it is doing and what it
+    // has spent, the state update says how it ended — and progress can arrive
+    // many times, so drawing one row per event would fill a turn with the
+    // same task counting up. They are merged here rather than in Go so the
+    // stored transcript keeps every event the vendor sent.
+    if (
+      kind === UpdateKind.UpdateAsyncTaskSpawned ||
+      kind === UpdateKind.UpdateAsyncTaskProgress ||
+      kind === UpdateKind.UpdateAsyncTaskState ||
+      kind === "async_task_spawned" ||
+      kind === "async_task_progress" ||
+      kind === "async_task_state_update"
+    ) {
+      const incoming = update.asyncTask;
+      if (incoming?.id) {
+        const index = items.findIndex((item) => item.asyncTask?.id === incoming.id);
+        copyItems();
+        if (index >= 0) {
+          const previous = items[index];
+          const merged = mergeAsyncTask(previous.asyncTask, incoming);
+          items[index] = {
+            ...previous,
+            asyncTask: merged,
+            raw: update.raw ?? previous.raw,
+            updatedAt: now(),
+          };
+        } else {
+          items.push({
+            id: generateId(),
+            kind: UpdateKind.UpdateAsyncTaskSpawned,
+            asyncTask: { ...incoming },
+            raw: update.raw,
+            createdAt: now(),
+            updatedAt: now(),
+          });
+        }
+        changed = true;
+        continue;
+      }
+    }
+
     // Unknown / unmodelled kinds: kept intact with raw payload.
     copyItems();
     items.push({
@@ -543,6 +607,76 @@ export function initTranscript(
       if (existingIndex >= 0) model.items[existingIndex] = next;
       else model.items.push(next);
       continue;
+    }
+
+    // Subagents and background tasks, stored one row per event, come back as
+    // one row per thing — the same pairing the live path does. Without this a
+    // reload put every stored event under "unmodelled": the row kept its raw
+    // payload but lost its `subagent`, so the card that was on screen a moment
+    // ago rendered as nothing after a restart.
+    if (
+      kind === UpdateKind.UpdateSubagentSpawned ||
+      kind === UpdateKind.UpdateSubagentState ||
+      kind === "subagent_spawned" ||
+      kind === "subagent_state_update"
+    ) {
+      const incoming = payload.subagent;
+      if (incoming?.id) {
+        const index = model.items.findIndex((item) => item.subagent?.id === incoming.id);
+        if (index >= 0) {
+          const previous = model.items[index];
+          const merged: Subagent = { ...previous.subagent, ...incoming };
+          merged.name = incoming.name || previous.subagent?.name;
+          merged.task = incoming.task || previous.subagent?.task;
+          model.items[index] = { ...previous, subagent: merged, raw: payload.raw ?? previous.raw, updatedAt };
+        } else {
+          model.items.push({
+            id,
+            kind: UpdateKind.UpdateSubagentSpawned,
+            seq,
+            sessionId,
+            subagent: { ...incoming },
+            raw: payload.raw,
+            createdAt,
+            updatedAt,
+          });
+        }
+        continue;
+      }
+    }
+    if (
+      kind === UpdateKind.UpdateAsyncTaskSpawned ||
+      kind === UpdateKind.UpdateAsyncTaskProgress ||
+      kind === UpdateKind.UpdateAsyncTaskState ||
+      kind === "async_task_spawned" ||
+      kind === "async_task_progress" ||
+      kind === "async_task_state_update"
+    ) {
+      const incoming = payload.asyncTask;
+      if (incoming?.id) {
+        const index = model.items.findIndex((item) => item.asyncTask?.id === incoming.id);
+        if (index >= 0) {
+          const previous = model.items[index];
+          model.items[index] = {
+            ...previous,
+            asyncTask: mergeAsyncTask(previous.asyncTask, incoming),
+            raw: payload.raw ?? previous.raw,
+            updatedAt,
+          };
+        } else {
+          model.items.push({
+            id,
+            kind: UpdateKind.UpdateAsyncTaskSpawned,
+            seq,
+            sessionId,
+            asyncTask: { ...incoming },
+            raw: payload.raw,
+            createdAt,
+            updatedAt,
+          });
+        }
+        continue;
+      }
     }
 
     // Unmodelled / unknown kinds: preserved intact with raw payload
@@ -877,6 +1011,28 @@ function receiveTranscriptUpdate(sessionId: string, update: SessionUpdate): void
   runtime.buffer ??= makeBuffer(sessionId, runtime.model);
   if (isImmediateTranscriptUpdate(update)) runtime.buffer.applyImmediate(update);
   else runtime.buffer.enqueue(update);
+}
+
+/**
+ * The whole conversation, oldest first, for an export. Walks the same pages
+ * the reader would by scrolling up, largest page the backend allows, until
+ * there is nothing above. Not cached and not published: the on-screen model
+ * keeps its window, and a session with months of history pays for all of it
+ * only when someone asks for all of it.
+ */
+export async function loadWholeTranscript(sessionId: string): Promise<TranscriptModel> {
+  const pages: (TranscriptEntry | Record<string, any>)[][] = [];
+  let state: (TranscriptEntry | Record<string, any>)[] = [];
+  let beforeSeq = 0;
+  for (;;) {
+    const page = await agentHubTranscriptPage(sessionId, beforeSeq, 500);
+    if (beforeSeq === 0) state = page.state;
+    pages.unshift(page.entries);
+    const oldest = page.entries.length > 0 ? entrySeq(page.entries[0]) : null;
+    if (!page.hasMore || oldest === null || oldest <= 1) break;
+    beforeSeq = oldest;
+  }
+  return initTranscript([...state, ...pages.flat()], sessionId);
 }
 
 /** Starts the one shell-level event listener; repeated calls are harmless. */

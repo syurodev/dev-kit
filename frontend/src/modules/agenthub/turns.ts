@@ -30,6 +30,9 @@ const WORK_KINDS = new Set([
   "tool_call_update",
   "subagent_spawned",
   "subagent_state_update",
+  "async_task_spawned",
+  "async_task_progress",
+  "async_task_state_update",
   "plan",
 ]);
 
@@ -180,6 +183,12 @@ export function activityOf(turn: Turn): { label: string; orb: OrbState } {
       const name = last.subagent?.name;
       return { label: name ? `Running ${name}` : "Running a subagent", orb: "connecting" };
     }
+    case "async_task_spawned":
+    case "async_task_progress":
+    case "async_task_state_update": {
+      const name = last.asyncTask?.name || last.asyncTask?.description;
+      return { label: name ? `${name} in the background` : "Working in the background", orb: "connecting" };
+    }
     default: {
       const call = last.toolCall;
       const kind = call?.kind?.toLowerCase() ?? "";
@@ -254,6 +263,8 @@ export function stepSummary(items: TranscriptItem[]): string {
         ? "thought"
         : kind.startsWith("subagent_")
           ? "ran subagents"
+          : kind.startsWith("async_task_")
+            ? "ran background tasks"
           : (STEP_PHRASES[item.toolCall?.kind?.toLowerCase() ?? ""] ?? "used tools");
     if (!phrases.includes(phrase)) phrases.push(phrase);
   }

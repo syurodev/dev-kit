@@ -71,6 +71,8 @@ var safeValidationMessages = map[string]struct{}{
 	"unsupported security protocol":                          {},
 	"agenthub: no pending permission":                        {},
 	"agenthub: invalid permission id":                        {},
+	"agenthub: no pending elicitation":                       {},
+	"agenthub: invalid elicitation id":                       {},
 }
 
 func publicError(subject string, err error) *apperrors.AppError {
@@ -207,6 +209,8 @@ func publicError(subject string, err error) *apperrors.AppError {
 		switch {
 		case errors.Is(err, errAgentHubUnavailable), errors.Is(err, agenthub.ErrUnavailable):
 			return apperrors.New(codeInternalError, "Agent Hub is not available.", true)
+		case errors.Is(err, agenthub.ErrSessionClosed):
+			return apperrors.New(codeValidationFailed, "This session is closed. Send a message to reopen it.", true)
 		case errors.Is(err, agenthub.ErrSessionNotFound):
 			return apperrors.New(codeValidationFailed, "Agent session not found.", true)
 		case errors.Is(err, agenthub.ErrSessionBusy):

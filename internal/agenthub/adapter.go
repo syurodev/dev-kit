@@ -102,10 +102,16 @@ type RuntimeLiveness interface {
 	Dead() (bool, error)
 }
 
-// RuntimeHandlers wires permission + update callbacks before Prompt.// RuntimeHandlers wires permission + update callbacks before Prompt.// RuntimeHandlers wires permission + update callbacks before Prompt.
+// RuntimeHandlers wires the callbacks a runtime calls when the agent sends
+// something to the client.
 type RuntimeHandlers struct {
 	OnUpdate     func(update json.RawMessage, meta json.RawMessage)
 	OnPermission func(ctx context.Context, params json.RawMessage) (json.RawMessage, error)
+	// OnElicit answers a question the agent puts to the person (elicitation/create).
+	// Unlike OnPermission it is installed outside a turn as well: nothing is
+	// authorised by answering, so "nobody to ask" is a worse answer than asking.
+	// ctx ends when the agent takes the question back.
+	OnElicit func(ctx context.Context, params json.RawMessage) (json.RawMessage, error)
 }
 
 // PromptOutcome is the result of a single Prompt turn.

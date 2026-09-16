@@ -127,6 +127,15 @@ export function AgentHubListVendorTypes(): $CancellablePromise<agenthub$0.AgentT
 }
 
 /**
+ * AgentHubPendingElicitations lists every agent question awaiting the user,
+ * oldest first, so the frontend can rebuild its queue on mount; live arrivals
+ * come through the agenthub:elicitation event.
+ */
+export function AgentHubPendingElicitations(): $CancellablePromise<agenthub$0.PendingElicitation[] | null> {
+    return $Call.ByID(344069575);
+}
+
+/**
  * AgentHubPendingPermissions lists every ACP permission prompt awaiting the
  * user, oldest first. The frontend uses it to rebuild its queue on mount;
  * live arrivals still come through the agenthub:permission event.
@@ -147,6 +156,16 @@ export function AgentHubRenameSession(id: string, title: string): $CancellablePr
  */
 export function AgentHubResolvePermission(id: string, outcome: json$0.RawMessage): $CancellablePromise<void> {
     return $Call.ByID(953872769, id, outcome);
+}
+
+/**
+ * AgentHubRespondElicitation answers a question an agent put to the user
+ * (elicitation/create). response is the ACP body — {"action":"accept",
+ * "content":{...}}, {"action":"decline"} or {"action":"cancel"}; the hub keeps
+ * only what the question asked for before it reaches the agent.
+ */
+export function AgentHubRespondElicitation(id: string, response: json$0.RawMessage): $CancellablePromise<void> {
+    return $Call.ByID(3217368980, id, response);
 }
 
 /**

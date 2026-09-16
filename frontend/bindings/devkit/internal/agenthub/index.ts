@@ -15,6 +15,7 @@ export type {
     ImageAttachment,
     InvokeInput,
     InvokeResult,
+    PendingElicitation,
     PendingPermission,
     TranscriptEntry,
     TranscriptPage

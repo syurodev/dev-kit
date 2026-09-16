@@ -3,7 +3,10 @@ import { Window } from "@wailsio/runtime";
 import {
   agentHubGetStatus,
   agentHubListAgents,
+  agentHubPendingElicitations,
   agentHubPendingPermissions,
+  onAgentHubElicitation,
+  onAgentHubElicitationClosed,
   onAgentHubPermission,
   onAgentHubSessionUpdate,
   onAgentHubNotificationAction,
@@ -118,6 +121,8 @@ export function AgentSessionsSubscriber() {
   const setSessions = useAgentSessionsStore((state) => state.setSessions);
   const upsertSession = useAgentSessionsStore((state) => state.upsertSession);
   const enqueuePending = useAgentSessionsStore((state) => state.enqueuePending);
+  const enqueueElicitation = useAgentSessionsStore((state) => state.enqueueElicitation);
+  const dequeueElicitation = useAgentSessionsStore((state) => state.dequeueElicitation);
   const trackSubagent = useAgentSessionsStore((state) => state.trackSubagent);
 
   // The one live region for Agent Hub. The hub and the companion each mount a
@@ -154,10 +159,17 @@ export function AgentSessionsSubscriber() {
       .catch(() => {
         // Hub unavailable — no prompts to restore.
       });
+    agentHubPendingElicitations()
+      .then((list) => {
+        if (mounted) list.forEach((e) => enqueueElicitation(e));
+      })
+      .catch(() => {
+        // Hub unavailable — no questions to restore.
+      });
     return () => {
       mounted = false;
     };
-  }, [setSessions, enqueuePending]);
+  }, [setSessions, enqueuePending, enqueueElicitation]);
 
   /**
    * Session metadata and tab status synchronization.
@@ -272,6 +284,12 @@ export function AgentSessionsSubscriber() {
       }
     });
   }, [upsertSession, enqueuePending]);
+
+  // Questions do not touch the session's status: the turn is still running
+  // (awaiting_permission would say the agent is blocked on an authorization,
+  // and would stop the stream's running dot). The queue alone drives the cards.
+  useEffect(() => onAgentHubElicitation(enqueueElicitation), [enqueueElicitation]);
+  useEffect(() => onAgentHubElicitationClosed((event) => dequeueElicitation(event.id)), [dequeueElicitation]);
 
   return (
     <div aria-live="polite" aria-atomic="true" className="sr-only" data-testid="agent-live-region">

@@ -9,3 +9,4 @@ export * from "./AgentPlan";
 export * from "./AgentMessageRich";
 export * from "./agentMarkdown";
 export * from "./AgentSubagent";
+export * from "./AgentAsyncTask";

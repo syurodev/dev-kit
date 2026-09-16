@@ -4,6 +4,7 @@ import { Dialog as DialogPrimitive } from "radix-ui"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { XIcon } from "lucide-react"
+import { ignoreShellFloatInteraction } from "@/lib/shellFloat"
 
 function Dialog({
   ...props
@@ -125,6 +126,7 @@ function DialogContent({
   children,
   showCloseButton = true,
   portal = true,
+  onInteractOutside,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
@@ -137,6 +139,7 @@ function DialogContent({
           "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-surface-glass-modal glass-modal p-4 text-body-14 text-popover-foreground ring-1 ring-foreground/10 outline-none sm:max-w-sm duration-(--motion-base) data-[state=closed]:duration-(--motion-fast) data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95",
           className
         )}
+        onInteractOutside={(event) => ignoreShellFloatInteraction(event, onInteractOutside)}
         {...props}
       >
         <div

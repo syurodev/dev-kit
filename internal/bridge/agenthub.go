@@ -96,6 +96,13 @@ func (s *AppService) agentHubPermissions() (*agenthub.PermissionWaiter, error) {
 	return s.container.AgentHubPermissions, nil
 }
 
+func (s *AppService) agentHubElicitations() (*agenthub.ElicitationWaiter, error) {
+	if s.container.AgentHubElicitations == nil {
+		return nil, errAgentHubUnavailable
+	}
+	return s.container.AgentHubElicitations, nil
+}
+
 // hubSessionID validates a hub session UUID for capability scopes / audit metadata.
 // Agent hub sessions use google/uuid strings, not vaultitem 24-char hex ids.
 func hubSessionID(value string) string {
@@ -399,6 +406,44 @@ func (s *AppService) AgentHubPendingPermissions() ([]agenthub.PendingPermission,
 		return nil, err
 	}
 	return result.([]agenthub.PendingPermission), nil
+}
+
+// AgentHubRespondElicitation answers a question an agent put to the user
+// (elicitation/create). response is the ACP body — {"action":"accept",
+// "content":{...}}, {"action":"decline"} or {"action":"cancel"}; the hub keeps
+// only what the question asked for before it reaches the agent.
+func (s *AppService) AgentHubRespondElicitation(id string, response json.RawMessage) error {
+	opaqueID := recordID(id)
+	_, err := s.call(context.Background(), "builtin.agenthub", "agenthub:execute", "elicitation:respond", map[string]any{
+		"action": "respond_elicitation",
+		"id":     opaqueID,
+	}, func(context.Context) (any, error) {
+		waiter, err := s.agentHubElicitations()
+		if err != nil {
+			return nil, err
+		}
+		return nil, waiter.Complete(id, response)
+	})
+	return err
+}
+
+// AgentHubPendingElicitations lists every agent question awaiting the user,
+// oldest first, so the frontend can rebuild its queue on mount; live arrivals
+// come through the agenthub:elicitation event.
+func (s *AppService) AgentHubPendingElicitations() ([]agenthub.PendingElicitation, error) {
+	result, err := s.call(context.Background(), "builtin.agenthub", "agenthub:read", "elicitation:list", map[string]any{
+		"action": "pending_elicitations",
+	}, func(context.Context) (any, error) {
+		waiter, err := s.agentHubElicitations()
+		if err != nil {
+			return nil, err
+		}
+		return waiter.PendingList(), nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]agenthub.PendingElicitation), nil
 }
 
 // defaultOpenDirectoryDialog is the native folder picker. Same shape as

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { AgentImageAttachment, AgentSession, PendingPermission } from "../bridge/agenthub";
+import type { AgentImageAttachment, AgentSession, PendingElicitation, PendingPermission } from "../bridge/agenthub";
 import type {
   Subagent,
   TranscriptModel,
@@ -39,7 +39,14 @@ export type QueuedAgentPrompt = {
  */
 const KILLED_STATES = new Set(["cancelled", "disconnected"]);
 
-/** The statuses Go's Invoke refuses a prompt in. */
+/**
+ * The statuses the queue will not drain into.
+ *
+ * Closed is here although Invoke now accepts it: a prompt you send by hand
+ * reopens a parked session on purpose, but the queue draining on its own would
+ * spawn an agent process for a conversation the user put away — and do it with
+ * nobody watching. Waking it is a decision, so it stays a keystroke.
+ */
 const CANNOT_TAKE_PROMPT = new Set(["running", "awaiting_permission", "closed"]);
 
 type AgentSessionsState = {
@@ -72,6 +79,14 @@ type AgentSessionsState = {
   subagents: Record<string, Subagent[]>;
   pending: PendingPermission | null;
   pendingQueue: PendingPermission[];
+  /**
+   * Questions agents are waiting for the user to answer, oldest first. Kept
+   * apart from permissions: a question has no deadline, several can be open
+   * for one session, and the session's status does not change while one waits
+   * — the turn is still running.
+   */
+  elicitation: PendingElicitation | null;
+  elicitationQueue: PendingElicitation[];
   /** Whether the shell is showing the conversation in the companion slot. */
   chatOpen: boolean;
   pendingAgentHubCommand: AgentHubCommand | null;
@@ -108,6 +123,12 @@ type AgentSessionsState = {
   trackSubagent: (sessionId: string, subagent: Subagent) => void;
   enqueuePending: (pending: PendingPermission) => void;
   dequeuePending: (id: string) => void;
+  /** Drops every pending permission of one session — its turn was stopped. */
+  dequeuePendingForSession: (sessionId: string) => void;
+  enqueueElicitation: (pending: PendingElicitation) => void;
+  dequeueElicitation: (id: string) => void;
+  /** Drops every question of one session — its turn was stopped. */
+  dequeueElicitationForSession: (sessionId: string) => void;
   setChatOpen: (open: boolean) => void;
   requestAgentHubCommand: (command: AgentHubCommand) => void;
   consumeAgentHubCommand: (command: AgentHubCommand) => void;
@@ -121,7 +142,7 @@ type AgentSessionsState = {
   /**
    * Takes the next waiting prompt out of the queue and marks its turn in
    * flight — only when the session exists, can take a prompt, has no
-   * permission request waiting, and its queue is not paused.
+   * permission request or question waiting, and its queue is not paused.
    */
   claimQueuedPrompt: (sessionId: string) => QueuedAgentPrompt | null;
   /** Puts back, at the head, a prompt the backend refused before its turn began. */
@@ -144,6 +165,8 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set, get) => ({
   subagents: {},
   pending: null,
   pendingQueue: [],
+  elicitation: null,
+  elicitationQueue: [],
   chatOpen: false,
   pendingAgentHubCommand: null,
   unreadCompletedBySession: {},
@@ -242,6 +265,37 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set, get) => ({
       const pendingQueue = state.pendingQueue.filter((p) => p.id !== id);
       return { pendingQueue, pending: pendingQueue[0] ?? null };
     }),
+  // Stopping a turn answers whatever it was waiting on (Go's
+  // PermissionWaiter.CancelSession), so the cards for that session go with it.
+  // Without this the request stayed on screen, counting down, over an agent
+  // that is no longer there to hear the answer.
+  dequeuePendingForSession: (sessionId) =>
+    set((state) => {
+      const pendingQueue = state.pendingQueue.filter((p) => p.sessionId !== sessionId);
+      if (pendingQueue.length === state.pendingQueue.length) return state;
+      return { pendingQueue, pending: pendingQueue[0] ?? null };
+    }),
+  enqueueElicitation: (pending) =>
+    set((state) => {
+      if (state.elicitationQueue.some((e) => e.id === pending.id)) return state;
+      const elicitationQueue = [...state.elicitationQueue, pending];
+      return { elicitationQueue, elicitation: state.elicitation ?? pending };
+    }),
+  dequeueElicitation: (id) =>
+    set((state) => {
+      const elicitationQueue = state.elicitationQueue.filter((e) => e.id !== id);
+      if (elicitationQueue.length === state.elicitationQueue.length) return state;
+      return { elicitationQueue, elicitation: elicitationQueue[0] ?? null };
+    }),
+  // Stop answers every question the session had open with cancel (Go's
+  // ElicitationWaiter.CancelSession); the closed events say so too, but the
+  // card should not wait on an event to disappear under the user's click.
+  dequeueElicitationForSession: (sessionId) =>
+    set((state) => {
+      const elicitationQueue = state.elicitationQueue.filter((e) => e.sessionId !== sessionId);
+      if (elicitationQueue.length === state.elicitationQueue.length) return state;
+      return { elicitationQueue, elicitation: elicitationQueue[0] ?? null };
+    }),
   setChatOpen: (open) => set({ chatOpen: open }),
   requestAgentHubCommand: (command) => set({ pendingAgentHubCommand: command }),
   consumeAgentHubCommand: (command) =>
@@ -308,7 +362,8 @@ export const useAgentSessionsStore = create<AgentSessionsState>((set, get) => ({
       state.turnInFlightBySession[sessionId] ||
       state.queuePausedBySession[sessionId] ||
       // The agent is waiting on a person; a queued prompt must not jump that.
-      state.pendingQueue.some((pending) => pending.sessionId === sessionId)
+      state.pendingQueue.some((pending) => pending.sessionId === sessionId) ||
+      state.elicitationQueue.some((question) => question.sessionId === sessionId)
     ) {
       return null;
     }

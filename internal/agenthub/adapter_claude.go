@@ -307,6 +307,18 @@ func devkitClientCapabilities() map[string]any {
 		// full command line to each method (resolveAuthMethods decides whether
 		// to trust that).
 		"auth": map[string]any{"terminal": true},
+		// Questions: elicitation/create is answered by claudeConnHandler.Elicit.
+		// Without `form`, claude-agent-acp 0.74.0 puts AskUserQuestion in
+		// disallowedTools (acp-agent.js, where it reads
+		// clientCapabilities.elicitation.form) — the model never sees the tool
+		// and writes its question as prose that ends the turn. The same gate
+		// forwards MCP servers' elicitations and the refusal-fallback prompt, all
+		// through the one method, so the UI has to render any flat form schema,
+		// not just AskUserQuestion's.
+		//
+		// `url` is deliberately absent: DevKit serves neither the browser
+		// handoff nor elicitation/complete.
+		"elicitation": map[string]any{"form": map[string]any{}},
 		// The structured subagent events sit behind a second gate: an
 		// extension declared under _meta.jetbrains.air, which claude-agent-acp
 		// honours. Declaring `subagents` alone forwards a subagent's text but
@@ -521,18 +533,7 @@ func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, resume string) 
 	rt.serveDone = make(chan struct{})
 	go func() {
 		defer close(rt.serveDone)
-		serveErr := conn.Serve(serveCtx)
-		// Unexpected exit (agent process death, pipe EOF): mark the runtime
-		// dead so later Prompt/Cancel calls fail fast instead of hanging on a
-		// broken pipe. A deliberate Close() has already set rt.closed.
-		rt.mu.Lock()
-		rt.closed = true
-		// A deliberate Close cancels the serve context first; only record the
-		// exit as abnormal when Serve failed for another reason.
-		if serveErr != nil && !errors.Is(serveErr, context.Canceled) && rt.exitErr == nil {
-			rt.exitErr = serveErr
-		}
-		rt.mu.Unlock()
+		rt.noteServeExit(conn.Serve(serveCtx))
 	}()
 
 	cleanup := func() {
@@ -963,16 +964,42 @@ type claudeRuntime struct {
 	mu       sync.Mutex
 	handlers RuntimeHandlers
 	closed   bool
-	exitErr  error
+	// closing records that Close asked the serve loop to stop. Without it the
+	// only evidence of a deliberate shutdown was Serve's error, and Serve
+	// reports a clean EOF as no error at all.
+	closing bool
+	exitErr error
 }
 
-// Dead reports whether the agent process exited unexpectedly (crash, pipe
-// EOF). Service.LiveRuntime evicts a dead runtime and resumes the session on a
-// fresh process, so Retry never prompts the corpse.
+// noteServeExit records that the serve loop ended. Everything after this is a
+// runtime with no process behind it: Prompt and the settings calls refuse, and
+// Dead tells Service to resume the session on a fresh one.
+func (r *claudeRuntime) noteServeExit(serveErr error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.closed = true
+	// A deliberate Close cancels the serve context first; only record the exit
+	// as abnormal when Serve failed for another reason.
+	if serveErr != nil && !errors.Is(serveErr, context.Canceled) && r.exitErr == nil {
+		r.exitErr = serveErr
+	}
+}
+
+// Dead reports whether the agent process went away without Close asking it to
+// — a crash, an OOM kill, the shutdown ladder Cancel runs, or the agent simply
+// exiting. Service.liveRuntime evicts a dead runtime and resumes the session on
+// a fresh process, so Retry never prompts the corpse.
+//
+// The test is "the serve loop ended and nobody asked it to", NOT "it ended with
+// an error": acp.Conn.Serve reports a clean EOF as a nil error, which is what a
+// process exiting on its own looks like from here. Reading the error instead
+// left the corpse in the live map for good — every later prompt on that session
+// answered agenthub.sessionNotFound, and no retry could clear it, because
+// nothing ever evicted the runtime that was refusing.
 func (r *claudeRuntime) Dead() (bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.closed && r.exitErr != nil, r.exitErr
+	return r.closed && !r.closing, r.exitErr
 }
 
 func (r *claudeRuntime) ACPSessionID() string { return r.acpSessionID }
@@ -1002,7 +1029,7 @@ func (r *claudeRuntime) SetConfigOption(ctx context.Context, optionID, value str
 		return ErrSessionNotFound
 	}
 	var result json.RawMessage
-	if err := conn.Call(ctx, "session/set_config_option", acp.SessionSetConfigOptionRequest{SessionID: sid, OptionID: optionID, Value: value}, &result); err != nil {
+	if err := conn.Call(ctx, "session/set_config_option", acp.SessionSetConfigOptionRequest{SessionID: sid, ConfigID: optionID, Value: value}, &result); err != nil {
 		return fmt.Errorf("%w: session/set_config_option: %v", ErrProcessFailed, err)
 	}
 	return nil
@@ -1133,6 +1160,7 @@ func (r *claudeRuntime) Close(ctx context.Context) error {
 		return nil
 	}
 	r.closed = true
+	r.closing = true
 	cancel := r.cancelServe
 	conn := r.conn
 	proc := r.proc
@@ -1169,6 +1197,20 @@ func (h *claudeConnHandler) RequestPermission(ctx context.Context, params json.R
 		return nil, ErrPermissionDenied
 	}
 	return handlers.OnPermission(ctx, params)
+}
+
+// Elicit implements acp.ElicitationHandler, so Conn answers elicitation/create
+// off its read loop.
+//
+// A runtime with no OnElicit declines: the person skipped. Never an error — the
+// vendor would read that as a failure to present the question and abort the
+// tool — and never a wait, because nothing would ever end it.
+func (h *claudeConnHandler) Elicit(ctx context.Context, params json.RawMessage) (json.RawMessage, error) {
+	handlers := h.rt.handlersSnapshot()
+	if handlers.OnElicit == nil {
+		return append(json.RawMessage(nil), declinedElicitation...), nil
+	}
+	return handlers.OnElicit(ctx, params)
 }
 
 func (h *claudeConnHandler) SessionUpdate(ctx context.Context, params json.RawMessage) error {
