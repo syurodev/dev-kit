@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { databaseModule } from "@/modules/database/manifest";
 import { agenthubModule } from "@/modules/agenthub/manifest";
 import { useAgentSessionsStore } from "@/stores/agentSessions";
+import { isCloseTabShortcut } from "./menuCommands";
 
 /**
  * The menu bar is built in Go, at startup, from a list of ids — it cannot ask
@@ -65,5 +66,46 @@ describe("the native menu and the module commands describe the same actions", ()
     expect(menuIDs().slice().sort()).toEqual(
       [...databaseModule.commands, ...agenthubModule.commands].map((command) => command.id).sort(),
     );
+  });
+});
+
+describe("Close Tab's shortcut where there is no menu bar to carry it", () => {
+  const press = (over: Partial<KeyboardEvent> = {}) =>
+    ({
+      key: "w",
+      ctrlKey: true,
+      metaKey: false,
+      altKey: false,
+      shiftKey: false,
+      repeat: false,
+      isComposing: false,
+      defaultPrevented: false,
+      ...over,
+    }) as KeyboardEvent;
+
+  it("answers Ctrl+W on Linux, which has no menu bar", () => {
+    expect(isCloseTabShortcut(press(), "linux")).toBe(true);
+  });
+
+  it("stands aside everywhere the menu already carries the accelerator", () => {
+    // Bound on both, one keypress would close two tabs.
+    expect(isCloseTabShortcut(press(), "mac")).toBe(false);
+    expect(isCloseTabShortcut(press(), "windows")).toBe(false);
+    expect(isCloseTabShortcut(press({ metaKey: true, ctrlKey: false }), "mac")).toBe(false);
+  });
+
+  it("leaves Ctrl+Shift+W to the window manager", () => {
+    expect(isCloseTabShortcut(press({ shiftKey: true }), "linux")).toBe(false);
+  });
+
+  it("stands aside for a key something else already handled, a repeat or an IME", () => {
+    expect(isCloseTabShortcut(press({ defaultPrevented: true }), "linux")).toBe(false);
+    expect(isCloseTabShortcut(press({ repeat: true }), "linux")).toBe(false);
+    expect(isCloseTabShortcut(press({ isComposing: true }), "linux")).toBe(false);
+  });
+
+  it("is only W", () => {
+    expect(isCloseTabShortcut(press({ key: "q" }), "linux")).toBe(false);
+    expect(isCloseTabShortcut(press({ ctrlKey: false }), "linux")).toBe(false);
   });
 });
