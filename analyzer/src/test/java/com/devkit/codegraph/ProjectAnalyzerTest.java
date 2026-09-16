@@ -16,6 +16,38 @@ import static org.junit.jupiter.api.Assertions.*;
 class ProjectAnalyzerTest {
 
     @Test
+    void keepsMethodsAndEndpointsWithMissingLibraryParameters(@TempDir Path root) throws IOException {
+        Files.createDirectories(root.resolve("example"));
+        Files.writeString(root.resolve("example/Controller.java"), """
+                package example;
+                import org.springframework.security.oauth2.jwt.Jwt;
+                import jakarta.servlet.http.HttpServletRequest;
+                import org.springframework.web.bind.annotation.PostMapping;
+                class Controller {
+                    @PostMapping("/push") void push(Jwt jwt, String id) { Helper.run(); }
+                    void request(HttpServletRequest request) {}
+                    void request(String request) {}
+                }
+                """);
+        Files.writeString(root.resolve("example/Helper.java"), "package example; class Helper { static void run() {} }");
+        AnalysisResult result = new ProjectAnalyzer(root).analyze();
+        assertTrue(result.nodes.stream().anyMatch(n -> n.id.equals(
+                "example.Controller.push(org.springframework.security.oauth2.jwt.Jwt, java.lang.String)")));
+        assertEquals(3, result.nodes.stream().filter(n -> n.label.startsWith("example.Controller.")).count());
+        assertEquals(1, result.endpoints.size());
+        assertTrue(result.edges.stream().anyMatch(e -> e.to.equals("example.Helper.run()")));
+    }
+
+    @Test
+    void indexesTypeDependenciesWithoutCalls(@TempDir Path root) throws IOException {
+        Files.writeString(root.resolve("Model.java"), "package model; public class Model {}");
+        Files.writeString(root.resolve("Consumer.java"), "package consumer; import model.Model; class Consumer { Model value; }");
+        AnalysisResult result = new ProjectAnalyzer(root).analyze();
+        assertTrue(result.fileDependencies.stream().anyMatch(d ->
+                d.filePath.equals("Consumer.java") && d.dependsOnFilePath.equals("Model.java")));
+    }
+
+    @Test
     void findsClassAndMethodNodesInSampleProject() throws IOException {
         Path projectRoot = Path.of("src/test/resources/sample-project");
         AnalysisResult result = new ProjectAnalyzer(projectRoot).analyze();

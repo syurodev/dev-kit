@@ -28,6 +28,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { MENU_ROW } from "@/components/ui/menu-row";
 import { VendorIcon } from "./VendorIcon";
 import { onThemeChange } from "@/theme/themeColors";
 import { AgentFileChip } from "../transcript/AgentFileChip";
@@ -564,21 +565,28 @@ export function AgentComposer({
               </DropdownMenuTrigger>
               <DropdownMenuContent side="top" align="start" className="w-64" onCloseAutoFocus={openHeldBypass}>
                 <DropdownMenuLabel>Permission mode</DropdownMenuLabel>
+                {/* Descriptions come from the agent (ACP modes.availableModes) as
+                    full sentences, not the short trailing text DropdownMenuItem's
+                    `detail` is for — cramming one into a single h-7 row wrapped and
+                    overflowed onto the rows below it. Each choice gets its own
+                    two-line row instead: label, then a wrapped, muted description. */}
                 {modeChoices.map((choice) => (
                   <DropdownMenuItem
                     key={choice.value}
                     data-testid="composer-mode-option"
-                    title={choice.description}
-                    detail={
-                      choice.value === currentMode ? (
-                        <Check className="size-3" aria-hidden="true" />
-                      ) : choice.description ? (
-                        <span className="text-caption-11">{choice.description}</span>
-                      ) : undefined
-                    }
+                    bare
+                    className={cn(MENU_ROW, "h-auto items-start py-1.5")}
                     onSelect={() => selectComposerMode(choice, onSetMode, askBypass)}
                   >
-                    {modeLabel(choice)}
+                    <span aria-hidden className="flex size-(--icon-14) items-center justify-center pt-0.5">
+                      {choice.value === currentMode ? <Check className="size-3" aria-hidden="true" /> : null}
+                    </span>
+                    <span className="min-w-0 py-0.5">
+                      <div className="truncate">{modeLabel(choice)}</div>
+                      {choice.description ? (
+                        <div className="text-caption-11 text-text-tertiary">{choice.description}</div>
+                      ) : null}
+                    </span>
                   </DropdownMenuItem>
                 ))}
               </DropdownMenuContent>

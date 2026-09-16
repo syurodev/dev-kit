@@ -1,3 +1,4 @@
+import { Shimmer } from "@/components/ui/shimmer";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useReducedMotion } from "framer-motion";
@@ -492,7 +493,7 @@ export function TranscriptStream({
                 "disabled:cursor-default disabled:opacity-70",
               )}
             >
-              {loadingOlder ? "Loading earlier messages…" : "Load earlier messages"}
+              <Shimmer active={loadingOlder}>{loadingOlder ? "Loading earlier messages…" : "Load earlier messages"}</Shimmer>
             </button>
           ) : null}
 
@@ -511,7 +512,7 @@ export function TranscriptStream({
                 "disabled:cursor-default disabled:opacity-70",
               )}
             >
-              {loadingOlder ? "Loading earlier messages…" : "Load earlier messages"}
+              <Shimmer active={loadingOlder}>{loadingOlder ? "Loading earlier messages…" : "Load earlier messages"}</Shimmer>
             </button>
           ) : null}
 

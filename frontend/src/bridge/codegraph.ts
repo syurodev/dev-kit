@@ -42,6 +42,7 @@ export type CodeGraphDetectedProject = {
 export async function openCodeGraphProject(path: string): Promise<CodeGraphDetectedProject> {
   return callBridge(async () => {
     const detected = await AppService.CodeGraphOpenProject(path);
+    await AppService.CodeGraphWaitForIndexReady();
     return {
       language: detected.language,
       label: detected.label,

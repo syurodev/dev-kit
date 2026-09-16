@@ -1,3 +1,4 @@
+import { Shimmer } from "@/components/ui/shimmer";
 import { GitBranch } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -49,7 +50,7 @@ export function AgentSubagent({ subagent, variant = "card", className }: AgentSu
         {subagent.task ? <span className="min-w-0 truncate text-text-tertiary">{subagent.task}</span> : null}
         {/* The state as a word, not a dot: a coloured dot on its own is a
             meaning only some people can read. */}
-        <span className="ml-auto shrink-0 text-text-tertiary">{state}</span>
+        <Shimmer active={state === "running"} className="ml-auto shrink-0 text-text-tertiary">{state}</Shimmer>
       </div>
     );
   }
@@ -75,9 +76,9 @@ export function AgentSubagent({ subagent, variant = "card", className }: AgentSu
         <span className="min-w-0 flex-1 truncate text-caption-11-medium text-text-secondary">
           {subagent.name || "Subagent"}
         </span>
-        <span className="shrink-0 text-caption-11 whitespace-nowrap text-text-tertiary">
+        <Shimmer active={state === "running"} className="shrink-0 text-caption-11 whitespace-nowrap text-text-tertiary">
           {state}
-        </span>
+        </Shimmer>
       </div>
       {subagent.task ? (
         // What it was actually told to do. Without this the row says a

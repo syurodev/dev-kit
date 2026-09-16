@@ -201,6 +201,9 @@ public class ProjectAnalyzer {
             addFieldAccesses(site, result);
         }
 
+        for (ParsedFile file : files) {
+            addTypeDependencies(file, classFile, result);
+        }
         result.edges = dedupeEdges(result.edges);
         result.fileDependencies = dedupeFileDependencies(result.fileDependencies);
         return result;
@@ -242,7 +245,7 @@ public class ProjectAnalyzer {
             result.nodes.add(classNode(classDecl, className, layer, file.relativePath(), classDecl.getRange()));
 
             for (MethodDeclaration methodDecl : classDecl.getMethods()) {
-                Optional<String> methodId = addMethodNode(methodDecl, layer, file.relativePath(), result);
+                Optional<String> methodId = addMethodNode(methodDecl, className, layer, file.relativePath(), result);
                 if (methodId.isPresent()) {
                     callSites.add(new MethodCallSite(methodDecl, methodId.get(), file.relativePath()));
                     EndpointExtractor.extract(classDecl, methodDecl).ifPresent(mapping -> {
@@ -258,18 +261,24 @@ public class ProjectAnalyzer {
         }
     }
 
-    private Optional<String> addMethodNode(MethodDeclaration methodDecl, String layer, String relativePath, AnalysisResult result) {
+    private Optional<String> addMethodNode(MethodDeclaration methodDecl, String className, String layer, String relativePath, AnalysisResult result) {
         String methodId;
         String methodLabel;
         try {
             ResolvedMethodDeclaration resolved = methodDecl.resolve();
             // Note: getSignature() and getQualifiedName() can lazily trigger type resolution
             // for parameters and return types. If a parameter type is not on the classpath,
-            // getSignature() throws UnsolvedSymbolException. We catch Throwable to handle this safely (FR-8).
+            // getSignature() throws UnsolvedSymbolException. Fall back to the declaration AST (FR-8).
             methodId = resolved.declaringType().getQualifiedName() + "." + resolved.getSignature();
             methodLabel = resolved.getQualifiedName();
         } catch (RuntimeException | StackOverflowError e) {
-            return Optional.empty(); // can't resolve this method's declaration or signature — skip it, not fatal
+            // Declaration discovery must not depend on the target project's classpath.
+            // Resolve each parameter independently; preserve source spelling when
+            // even imports cannot identify a missing type unambiguously.
+            methodLabel = className + "." + methodDecl.getNameAsString();
+            methodId = methodLabel + "(" + methodDecl.getParameters().stream()
+                    .map(p -> signatureType(p.getType()) + (p.isVarArgs() ? "[]" : ""))
+                    .collect(java.util.stream.Collectors.joining(", ")) + ")";
         }
 
         Node node = new Node();
@@ -292,6 +301,62 @@ public class ProjectAnalyzer {
         result.nodes.add(node);
 
         return Optional.of(node.id);
+    }
+
+    private String signatureType(com.github.javaparser.ast.type.Type type) {
+        try {
+            return type.resolve().describe();
+        } catch (RuntimeException | StackOverflowError ignored) {
+            if (type.isArrayType()) {
+                return signatureType(type.asArrayType().getComponentType()) + "[]";
+            }
+            if (type.isClassOrInterfaceType()) {
+                var ref = type.asClassOrInterfaceType();
+                String name = ref.getNameWithScope();
+                var cu = type.findCompilationUnit();
+                if (cu.isPresent()) {
+                    for (var imp : cu.get().getImports()) {
+                        if (!imp.isAsterisk() && !imp.isStatic()
+                                && imp.getName().getIdentifier().equals(name.split("\\.")[0])) {
+                            name = imp.getNameAsString() + name.substring(name.split("\\.")[0].length());
+                            break;
+                        }
+                    }
+                }
+                if (ref.getTypeArguments().isPresent()) {
+                    name += "<" + ref.getTypeArguments().get().stream()
+                            .map(this::signatureType).collect(java.util.stream.Collectors.joining(", ")) + ">";
+                }
+                return name;
+            }
+            return type.asString();
+        }
+    }
+
+    // Imports and type uses are dependencies even when no method call resolves.
+    private void addTypeDependencies(ParsedFile file, Map<String, String> classFile, AnalysisResult result) {
+        Set<String> targets = new HashSet<>();
+        for (var imp : file.cu().getImports()) {
+            if (!imp.isAsterisk() && !imp.isStatic()) {
+                targets.add(imp.getNameAsString());
+            } else if (imp.isStatic()) {
+                String name = imp.getNameAsString();
+                targets.add(imp.isAsterisk() ? name : name.substring(0, name.lastIndexOf('.')));
+            }
+        }
+        for (var type : file.cu().findAll(com.github.javaparser.ast.type.ClassOrInterfaceType.class)) {
+            try {
+                targets.add(type.resolve().asReferenceType().getQualifiedName());
+            } catch (RuntimeException | StackOverflowError ignored) {
+                // An unresolved external type has no project file to depend on.
+            }
+        }
+        for (String target : targets) {
+            String targetFile = classFile.get(target);
+            if (targetFile != null && !targetFile.equals(file.relativePath())) {
+                result.fileDependencies.add(new FileDependency(file.relativePath(), targetFile));
+            }
+        }
     }
 
     private void addCallEdges(MethodCallSite site, Map<String, String> classFile, Set<String> nodeIds,

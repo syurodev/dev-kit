@@ -29,6 +29,7 @@ const maxFlowDepth = 32
 // Service is the CodeGraph domain service. It owns exactly one active
 // project's index at a time (FR-1: no multi-project registry in v1).
 type Service struct {
+	openMu      sync.Mutex
 	mu          sync.RWMutex
 	store       Store
 	analyzer    Analyzer
@@ -50,6 +51,12 @@ type Service struct {
 	// modules" instead of leaving a monorepo looking like a single project.
 	detected DetectedProject
 
+	opening      bool
+	indexErr     error
+	generation   uint64
+	request      uint64
+	reindexCount int
+	sessionPath  string
 	indexVersion int
 	reindexing   bool
 
@@ -85,6 +92,13 @@ func NewService(store Store, analyzer Analyzer) *Service {
 // previous one. Call this once per OpenProject, before running the analyzer,
 // so a fresh analyze always starts from a clean per-project store.
 func (s *Service) SetProjectPath(dbPath string) error {
+	s.openMu.Lock()
+	defer s.openMu.Unlock()
+	return s.setProjectPath(dbPath)
+}
+
+func (s *Service) setProjectPath(dbPath string) error {
+	s.stopWatcher()
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
 		return fmt.Errorf("codegraph: create project store dir: %w", err)
 	}
@@ -95,6 +109,10 @@ func (s *Service) SetProjectPath(dbPath string) error {
 	s.mu.Lock()
 	old := s.store
 	s.store = store
+	s.generation++
+	s.reindexCount = 0
+	s.reindexing = false
+	s.indexVersion = 0
 	s.active = false
 	s.mu.Unlock()
 	if old != nil {
@@ -118,10 +136,8 @@ func (s *Service) SetTerminalRegistry(reg *terminal.Registry) {
 // once the real Java analyzer jar's location is resolved, replacing the
 // zero-value stub container.go constructs Service with. Like
 // SetTerminalRegistry, this must only be called during startup wiring,
-// before the app begins serving requests — OpenProject reads s.analyzer
-// without taking s.mu (it runs the potentially-long Analyze call outside
-// the lock on purpose), so a call racing an in-flight OpenProject would be
-// a genuine data race, not just a logical inconsistency.
+// before the app begins serving requests. Each indexing request captures
+// its analyzer under mu, so a running request keeps the instance it started with.
 func (s *Service) SetAnalyzer(analyzer Analyzer) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -175,9 +191,49 @@ func (s *Service) StartTerminal(rows, cols int) (string, error) {
 // already on disk.
 //
 // And having reused it, it re-indexes in the background, through the same
-// lenient path the file watcher uses: a stale index is worth showing
-// immediately, but only if it stops being stale on its own.
+// path the file watcher uses. Queries are gated until that refresh commits;
+// persisted rows alone are not evidence that the current analyzer has run.
 func (s *Service) OpenProject(ctx context.Context, projectPath string) error {
+	s.openMu.Lock()
+	defer s.openMu.Unlock()
+	if err := s.openProject(ctx, projectPath); err != nil {
+		return err
+	}
+	return s.saveProject(projectPath)
+}
+
+// OpenProjectAt serializes the store switch and open as a single operation.
+func (s *Service) OpenProjectAt(ctx context.Context, dbPath, projectPath string) error {
+	s.openMu.Lock()
+	defer s.openMu.Unlock()
+	if err := s.setProjectPath(dbPath); err != nil {
+		return err
+	}
+	if err := s.openProject(ctx, projectPath); err != nil {
+		return err
+	}
+	return s.saveProject(projectPath)
+}
+
+func (s *Service) openProject(ctx context.Context, projectPath string) (openErr error) {
+	s.stopWatcher()
+	s.mu.Lock()
+	s.generation++
+	s.opening = true
+	s.active = false
+	s.reindexCount = 0
+	s.reindexing = false
+	s.indexErr = nil
+	analyzer := s.analyzer
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		s.opening = false
+		if openErr != nil {
+			s.indexErr = openErr
+		}
+		s.mu.Unlock()
+	}()
 	// Only where there is something to detect with. A Service with no
 	// toolchains registered — an ephemeral one, a test with its own analyzer —
 	// has no vocabulary for recognising a project, and refusing every folder on
@@ -207,15 +263,14 @@ func (s *Service) OpenProject(ctx context.Context, projectPath string) error {
 		s.mu.Unlock()
 
 		_ = s.restartWatcher(projectPath) // non-fatal: see restartWatcher's doc comment
-		// Background, and deliberately not awaited: the point is that the user
-		// gets the stored index now. runReindex leaves the old index in place
-		// if the fresh one fails, and fires OnIndexUpdated only if anything
-		// actually changed — so the UI either stays as it is or refreshes once.
-		go s.runReindex(context.Background())
+		// Reserve the refresh before returning. Neither queries nor readiness
+		// may observe the cached graph as ready before this run commits.
+		run := s.prepareReindex(context.Background())
+		go run()
 		return nil
 	}
 
-	result, err := s.analyzer.Analyze(ctx, projectPath)
+	result, err := analyzer.Analyze(ctx, projectPath)
 	if err != nil {
 		s.stopWatcher()
 		return fmt.Errorf("codegraph: analyze %q: %w", projectPath, err)
@@ -229,7 +284,13 @@ func (s *Service) OpenProject(ctx context.Context, projectPath string) error {
 	}
 	s.active = true
 	s.projectRoot = projectPath
-	s.indexVersion++
+	version, err := s.store.IndexVersion(ctx)
+	if err != nil {
+		s.active = false
+		s.mu.Unlock()
+		return err
+	}
+	s.indexVersion = version
 	s.mu.Unlock()
 
 	// Stamp the index with the project it describes, so the next open can
@@ -292,6 +353,23 @@ func (s *Service) ProjectRoot() string {
 func (s *Service) activeProject() (Store, string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if s.opening || s.reindexing || s.reindexPending || s.indexErr != nil {
+		return nil, "", ErrIndexNotReady
+	}
+	if !s.active {
+		return nil, "", ErrNoActiveProject
+	}
+	return s.store, s.projectRoot, nil
+}
+
+// File operations use the selected directory, not the derived graph. They
+// remain available while the watcher rebuilds after an editor save.
+func (s *Service) projectFiles() (Store, string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.opening {
+		return nil, "", ErrIndexNotReady
+	}
 	if !s.active {
 		return nil, "", ErrNoActiveProject
 	}
@@ -395,13 +473,23 @@ const maxBlastRadiusDepth = 32
 // one-hop Store.GetDependents lookups. filePath itself is never included in
 // the result even if a cycle routes back to it.
 func (s *Service) GetBlastRadius(ctx context.Context, filePath string) ([]string, error) {
-	store, err := s.activeStore()
+	store, root, err := s.activeProject()
 	if err != nil {
 		return nil, err
 	}
 
+	if filepath.IsAbs(filePath) {
+		filePath, err = filepath.Rel(root, filePath)
+		if err != nil {
+			return nil, ErrPathOutsideProject
+		}
+	}
+	filePath = filepath.Clean(filePath)
+	if filePath == ".." || strings.HasPrefix(filePath, ".."+string(filepath.Separator)) {
+		return nil, ErrPathOutsideProject
+	}
 	visited := map[string]bool{filePath: true}
-	var result []string
+	result := []string{}
 	frontier := []string{filePath}
 	for depth := 0; len(frontier) > 0 && depth <= maxBlastRadiusDepth; depth++ {
 		var next []string
@@ -528,16 +616,24 @@ func (s *Service) TraceDataFlow(ctx context.Context, symbolID, fieldName string)
 			events = append(events, event{line: a.Line, kind: a.Kind})
 		}
 		for _, c := range sites {
-			// Calls that lead nowhere useful are still worth a step when they
-			// were lost; a resolved call to a method that never touches the
-			// field is just noise.
-			if c.Unresolved == "" && !touching[c.To] {
+			// An unresolved call has no evidence of touching this field.
+			// Only connect methods with indexed accesses to the requested field.
+			if !touching[c.To] {
 				continue
 			}
 			events = append(events, event{line: c.Line, kind: "call", targetID: c.To, unresolved: c.Unresolved})
 		}
 		sort.SliceStable(events, func(i, j int) bool { return events[i].line < events[j].line })
 
+		unique := make(map[event]bool)
+		deduped := events[:0]
+		for _, e := range events {
+			if !unique[e] {
+				unique[e] = true
+				deduped = append(deduped, e)
+			}
+		}
+		events = deduped
 		onPath[nodeID] = true
 		defer delete(onPath, nodeID)
 
@@ -645,6 +741,36 @@ func (s *Service) GetNeighbors(ctx context.Context, rootID string, depth int, fi
 	var allEdges []Edge
 	frontier := []string{rootID}
 
+	// Class nodes have no call edges of their own. Seed the walk with their
+	// declared methods and expose containment so the result stays connected.
+	if root.Kind == "class" && depth > 0 {
+		matches, err := store.SearchSymbol(ctx, root.Label+".")
+		if err != nil {
+			return Subgraph{}, err
+		}
+		for _, match := range matches {
+			if match.Kind != "method" {
+				continue
+			}
+			signature := strings.SplitN(match.NodeID, "(", 2)[0]
+			dot := strings.LastIndex(signature, ".")
+			if dot < 0 || signature[:dot] != rootID {
+				continue
+			}
+			child, err := store.GetNode(ctx, match.NodeID)
+			if err != nil {
+				return Subgraph{}, err
+			}
+			if !allowedLayer(child) {
+				continue
+			}
+			visited[child.ID] = child
+			frontier = append(frontier, child.ID)
+			allEdges = append(allEdges, Edge{From: rootID, To: child.ID, Kind: "contains"})
+			edgeSeen[rootID+"->"+child.ID] = true
+		}
+	}
+
 	for d := 0; d < depth && len(frontier) > 0; d++ {
 		sort.Strings(frontier)
 		var next []string
@@ -747,7 +873,7 @@ func (s *Service) GetNeighbors(ctx context.Context, rootID string, depth int, fi
 // target, matching the same "don't silently trust symlinks" stance resolvePath
 // enforces for individual reads/writes.
 func (s *Service) ListFiles(ctx context.Context) ([]FileEntry, error) {
-	_, root, err := s.activeProject()
+	_, root, err := s.projectFiles()
 	if err != nil {
 		return nil, err
 	}
@@ -863,6 +989,7 @@ func (s *Service) watchLoop(ctx context.Context, w *fsnotify.Watcher, done chan 
 	resetDebounce := func() {
 		s.mu.Lock()
 		s.reindexPending = true
+		s.request++
 		interval := s.debounceInterval
 		s.mu.Unlock()
 		if timer == nil {
@@ -911,7 +1038,8 @@ func (s *Service) watchLoop(ctx context.Context, w *fsnotify.Watcher, done chan 
 			}
 			reindexCtx, cancel := context.WithCancel(ctx)
 			reindexCancel = cancel
-			go s.runReindex(reindexCtx)
+			run := s.prepareReindex(reindexCtx)
+			go run()
 
 		case _, ok := <-w.Errors:
 			if !ok {
@@ -923,53 +1051,51 @@ func (s *Service) watchLoop(ctx context.Context, w *fsnotify.Watcher, done chan 
 	}
 }
 
-// runReindex is the background counterpart to OpenProject's analyze+replace
-// — deliberately more lenient on failure. OpenProject (an explicit, foreground
-// user action) marks the project inactive on any error, per its own existing
-// contract. A background trigger must not do that: a transient failure (e.g.
-// catching a file mid-save with temporarily invalid syntax, or ctx cancelled
-// by a newer event) should silently leave the last known-good index in
-// place, not blow away an already-working project out from under the user.
-// The next debounced trigger (or a manual re-index) gets another chance.
-func (s *Service) runReindex(ctx context.Context) {
+// Failed refreshes keep the stored graph for recovery but never expose it
+// as ready. A later watcher event or explicit open retries the analysis.
+// Register work synchronously, before launching its goroutine. Readiness must
+// include queued work, and older runs must never publish over newer requests.
+func (s *Service) prepareReindex(ctx context.Context) func() {
 	s.mu.Lock()
+	s.reindexCount++
 	s.reindexing = true
 	s.reindexPending = false
-	root := s.projectRoot
-	startVersion := s.indexVersion
+	s.request++
+	generation, request := s.generation, s.request
+	root, store, analyzer := s.projectRoot, s.store, s.analyzer
 	s.mu.Unlock()
-
-	// Notifying from the cleanup covers every success path without repeating
-	// itself at each early return, and it runs AFTER reindexing is cleared, so
-	// a listener that immediately asks whether the index is ready gets the
-	// truthful answer. The call itself is made outside the lock: a listener
-	// that blocked, or that called back into the service, would otherwise
-	// deadlock the watch loop.
-	defer func() {
+	return func() {
+		result, err := analyzer.Analyze(ctx, root)
 		s.mu.Lock()
-		s.reindexing = false
+		if s.generation != generation {
+			s.mu.Unlock()
+			return
+		}
+		changed := false
+		if s.request == request && s.active {
+			if err == nil {
+				err = ctx.Err()
+			}
+			if err == nil {
+				err = store.ReplaceIndex(ctx, result)
+			}
+			if err == nil {
+				s.indexVersion, err = store.IndexVersion(ctx)
+				changed = err == nil
+			}
+			s.indexErr = err
+		}
+		s.reindexCount--
+		s.reindexing = s.reindexCount > 0
 		notify, version := s.OnIndexUpdated, s.indexVersion
 		s.mu.Unlock()
-		if notify != nil && version != startVersion {
+		if changed && notify != nil {
 			notify(version)
 		}
-	}()
-
-	result, err := s.analyzer.Analyze(ctx, root)
-	if err != nil {
-		return
 	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !s.active || s.projectRoot != root {
-		return
-	}
-	if err := s.store.ReplaceIndex(ctx, result); err != nil {
-		return
-	}
-	s.indexVersion++
 }
+
+func (s *Service) runReindex(ctx context.Context) { s.prepareReindex(ctx)() }
 
 // Close stops the background file watcher, if one is running, and waits for
 // its goroutine to fully exit. Safe to call even if no project was ever
@@ -977,12 +1103,20 @@ func (s *Service) runReindex(ctx context.Context) {
 // container that constructed this Service owns that lifecycle separately
 // (see internal/app/container.go's existing Database/SSH/Kafka Close calls).
 func (s *Service) Close() error {
+	s.openMu.Lock()
+	defer s.openMu.Unlock()
 	s.stopWatcher()
+	s.mu.Lock()
+	s.generation++ // A late analyzer result cannot publish after shutdown.
+	s.active = false
+	s.reindexing = false
+	s.reindexCount = 0
+	s.mu.Unlock()
 	return nil
 }
 
-// WaitForIndexReady blocks until no background re-index is pending or
-// running, then returns the current index version. Callers that just wrote
+// WaitForIndexReady blocks through cold analysis, cached startup refresh,
+// and queued/running re-indexes, then returns the persistent project revision. Callers that just wrote
 // a file (or otherwise expect a re-index) should call this before trusting
 // any other query's result — see this plan's "Known limitation" note for the
 // one narrow timing edge this does not close.
@@ -995,14 +1129,18 @@ func (s *Service) WaitForIndexReady(ctx context.Context) (int, error) {
 	for {
 		s.mu.RLock()
 		active := s.active
-		busy := s.reindexing || s.reindexPending
+		busy := s.opening || s.reindexing || s.reindexPending
+		indexErr := s.indexErr
 		version := s.indexVersion
 		s.mu.RUnlock()
 
-		if !active {
-			return 0, ErrNoActiveProject
-		}
 		if !busy {
+			if indexErr != nil {
+				return 0, fmt.Errorf("%w: %v", ErrIndexNotReady, indexErr)
+			}
+			if !active {
+				return 0, ErrNoActiveProject
+			}
 			return version, nil
 		}
 
@@ -1015,7 +1153,7 @@ func (s *Service) WaitForIndexReady(ctx context.Context) (int, error) {
 }
 
 func (s *Service) ReadFile(ctx context.Context, relativePath string) (string, error) {
-	_, root, err := s.activeProject()
+	_, root, err := s.projectFiles()
 	if err != nil {
 		return "", err
 	}
@@ -1037,7 +1175,7 @@ func (s *Service) ReadFile(ctx context.Context, relativePath string) (string, er
 // (not whatever was active when the file was opened for editing) — the
 // active project can change between a UI open and a Ctrl+S save.
 func (s *Service) WriteFile(ctx context.Context, relativePath, content string) error {
-	_, root, err := s.activeProject()
+	_, root, err := s.projectFiles()
 	if err != nil {
 		return err
 	}
@@ -1275,6 +1413,8 @@ func (s *Service) RelinkPlanNode(ctx context.Context, planNodeID, fqn string) er
 // s.active first — but a safe zero-value beats a nil-pointer panic if that
 // invariant is ever broken by a future change.
 type nilStore struct{}
+
+func (nilStore) IndexVersion(context.Context) (int, error) { return 0, nil }
 
 func (nilStore) ReplaceIndex(context.Context, AnalysisResult) error { return ErrNoActiveProject }
 func (nilStore) IndexedProject(context.Context) (string, error)     { return "", nil }

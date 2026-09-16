@@ -224,10 +224,24 @@ func (s *sqliteStore) ReplaceIndex(ctx context.Context, result AnalysisResult) e
 			return fmt.Errorf("codegraph: insert call site %q->%q: %w", c.From, c.To, err)
 		}
 	}
+	// Commit the revision atomically with the graph, including empty indexes.
+	if _, err := tx.ExecContext(ctx, `INSERT INTO index_meta(key, value) VALUES ('version', '1')
+        ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + 1`); err != nil {
+		return fmt.Errorf("codegraph: increment index version: %w", err)
+	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("codegraph: commit replace: %w", err)
 	}
 	return nil
+}
+
+func (s *sqliteStore) IndexVersion(ctx context.Context) (int, error) {
+	var version int
+	err := s.db.QueryRowContext(ctx, `SELECT CAST(value AS INTEGER) FROM index_meta WHERE key = 'version'`).Scan(&version)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	return version, err
 }
 
 func (s *sqliteStore) HasIndex(ctx context.Context) (bool, error) {

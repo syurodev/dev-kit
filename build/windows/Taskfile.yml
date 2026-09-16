@@ -112,12 +112,23 @@ tasks:
     vars:
       ARCH: '{{.ARCH | default ARCH}}'
 
+  build:mcp:
+    summary: Builds devkit-mcp for this installer
+    internal: true
+    cmds:
+      - task: common:build:mcp
+        vars:
+          GOOS: windows
+          GOARCH: '{{.ARCH | default ARCH}}'
+          OUTPUT: "{{.BIN_DIR}}/devkit-mcp.exe"
+
   create:nsis:installer:
     summary: Creates an NSIS installer
     dir: build/windows/nsis
     deps:
       - task: build
       - task: common:build:analyzer
+      - task: build:mcp
     preconditions:
       - sh: '[ "{{.INSTALL_SCOPE}}" = "user" ] || [ "{{.INSTALL_SCOPE}}" = "machine" ]'
         msg: "INSTALL_SCOPE must be 'user' or 'machine', got '{{.INSTALL_SCOPE}}'"

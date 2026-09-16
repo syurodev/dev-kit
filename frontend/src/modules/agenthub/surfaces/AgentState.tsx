@@ -1,3 +1,4 @@
+import { Shimmer } from "@/components/ui/shimmer";
 import { cn } from "@/lib/utils";
 
 export type AgentStatus =
@@ -64,7 +65,7 @@ export function AgentState({
       {labelHidden ? (
         <span className="sr-only">{status}</span>
       ) : (
-        <span className="text-body-12 text-text-secondary">{status}</span>
+        <Shimmer active={status === "running"} className="text-body-12 text-text-secondary">{status}</Shimmer>
       )}
     </span>
   );

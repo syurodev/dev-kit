@@ -1,3 +1,4 @@
+import { Shimmer } from "@/components/ui/shimmer";
 import * as React from "react";
 import { ChevronRight } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
@@ -44,8 +45,8 @@ export type AgentTurnProps = {
  * The work is folded by default. A turn that runs forty tool calls used to put
  * forty cards between a question and its answer, each with its output open,
  * and the answer was the thing you scrolled to find. Folded, the line still
- * says what is happening while it happens — the tool's own title beside an orb
- * whose motion matches the kind of step — and what it came to once it is done.
+ * summarises the work and what it came to once done. The live activity sits
+ * after the answer so it stays visible while following a long response.
  *
  * Opened, the work reads as an account rather than a log: what the agent said
  * as prose, and each run of steps between two sentences under one summary —
@@ -76,7 +77,7 @@ export const AgentTurn = React.memo(function AgentTurn({
 
   const activity = React.useMemo(() => (live ? activityOf(turn) : null), [live, turn]);
   const answer = React.useMemo(() => turn.answer.filter((item) => item.text?.trim()), [turn.answer]);
-  const worked = React.useMemo(() => (live ? "Worked" : workedFor(turn)), [live, turn]);
+  const worked = React.useMemo(() => (live ? "Working" : workedFor(turn)), [live, turn]);
   const segments = React.useMemo(() => (open ? workSegments(turn.work) : []), [open, turn.work]);
   // Reduce Motion keeps the fade and drops the travel and scale — the
   // parts accessibility.md › Motion names, "zooming, scaling, and peripheral
@@ -119,7 +120,7 @@ export const AgentTurn = React.memo(function AgentTurn({
         </div>
       ) : null}
 
-      {live || turn.work.length > 0 ? (
+      {turn.work.length > 0 ? (
         <div data-testid="turn-work" data-state={open ? "expanded" : "collapsed"} className="flex w-full flex-col">
           <button
             type="button"
@@ -127,16 +128,7 @@ export const AgentTurn = React.memo(function AgentTurn({
             aria-expanded={open}
             className="flex w-full min-w-0 cursor-pointer items-center gap-2 border-b border-border-subtle pb-2 text-left text-body-13 text-text-tertiary hover:text-text-secondary"
           >
-            {activity ? (
-              <ThinkingOrb
-                state={activity.orb}
-                size={20}
-                paused={reduce}
-                aria-label={activity.label}
-                className="shrink-0"
-              />
-            ) : null}
-            <SwapText text={activity ? activity.label : worked} animate={latest} reduce={reduce} />
+            <SwapText text={worked} animate={latest} reduce={reduce} active={false} />
             <ChevronRight
               aria-hidden="true"
               className={cn("size-3.5 shrink-0 transition-transform duration-(--motion-fast)", open && "rotate-90")}
@@ -181,6 +173,22 @@ export const AgentTurn = React.memo(function AgentTurn({
         </MessageHoverCard>
       ))}
 
+      {activity ? (
+        <div
+          data-testid="turn-activity"
+          role="status"
+          className="flex w-full min-w-0 items-center gap-2 text-body-13 text-text-tertiary"
+        >
+          <ThinkingOrb
+            state={activity.orb}
+            size={20}
+            paused={reduce}
+            aria-hidden="true"
+            className="shrink-0"
+          />
+          <SwapText text={activity.label} animate={latest} reduce={reduce} active />
+        </div>
+      ) : null}
     </section>
   );
 });
@@ -277,8 +285,8 @@ function StepRow({ item, onOpenFile }: { item: TranscriptItem; onOpenFile?: (pat
  * Only the newest turn animates, and not on first mount (`initial={false}`):
  * opening a session replays nothing.
  */
-function SwapText({ text, animate, reduce }: { text: string; animate: boolean; reduce: boolean }) {
-  if (!animate) return <span className="min-w-0 truncate">{text}</span>;
+function SwapText({ text, animate, reduce, active }: { text: string; animate: boolean; reduce: boolean; active: boolean }) {
+  if (!animate) return <Shimmer active={active} className="min-w-0 truncate">{text}</Shimmer>;
   return (
     <span className="flex min-w-0">
       <AnimatePresence mode="wait" initial={false}>
@@ -293,7 +301,7 @@ function SwapText({ text, animate, reduce }: { text: string; animate: boolean; r
               : { ...FADE_THROUGH.out, transition: FADE_THROUGH.exit }
           }
         >
-          {text}
+          <Shimmer active={active} className="block truncate">{text}</Shimmer>
         </motion.span>
       </AnimatePresence>
     </span>

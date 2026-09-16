@@ -18,10 +18,7 @@ func (s *AppService) CodeGraphOpenProject(path string) (codegraph.DetectedProjec
 		"action": "open_project",
 	}, func(ctx context.Context) (any, error) {
 		dbPath := codegraph.ProjectDBPath(s.container.ConfigDir, path)
-		if err := s.container.CodeGraph.SetProjectPath(dbPath); err != nil {
-			return nil, err
-		}
-		if err := s.container.CodeGraph.OpenProject(ctx, path); err != nil {
+		if err := s.container.CodeGraph.OpenProjectAt(ctx, dbPath, path); err != nil {
 			return nil, err
 		}
 		return s.container.CodeGraph.ActiveDetection(), nil

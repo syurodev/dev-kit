@@ -598,9 +598,12 @@ mục này:
 | `interface` | Callee là method của interface | `ResolvedReferenceTypeDeclaration` chỉ có `getAncestors`/`getAllAncestors` — đi lên. Không có API tìm lớp con; Spring proxy còn sinh lúc runtime |
 | `unresolved` | Solver không resolve nổi | Thiếu jar trong cache local, dynamic dispatch, kiểu tham số không resolve được |
 
-Trace **im lặng thì không phân biệt được** "luồng kết thúc ở đây" với "tôi mất
-dấu ở đây". Hai câu đó dẫn tới hai hành động khác hẳn nhau của người đọc, nên
-mỗi bức tường đều thành một step có `unresolved`, không phải một khoảng trống.
+Các lý do này vẫn được lưu trong index để chẩn đoán call graph. Riêng
+`traceDataFlow` chỉ trả access của field được yêu cầu và call nối hai method
+có access đó. Call không resolve không chứng minh được liên quan tới field,
+nên không xuất hiện trong trace. Kết quả là các access đã biết, không phải
+cam kết luồng dữ liệu đầy đủ qua thư viện/interface. Các event trùng nhau
+trong cùng method được gộp theo line, kind, target và unresolved.
 
 Cộng thêm hai lý do do chính vòng duyệt sinh ra: `cycle` (method đã nằm trên
 đường đi hiện tại) và `depth` (chạm trần `maxDataFlowDepth = 6`, cùng kiểu trần
@@ -1080,3 +1083,23 @@ import { Cards, Card } from 'fumadocs-ui/components/card';
   <Card title="Technical contracts" href="/dev-kit/technical-contracts" description="Bridge/Capability Gateway boundary hiện có" />
   <Card title="Implementation status" href="/dev-kit/implementation-status" description="Trạng thái thật của từng module theo checkout" />
 </Cards>
+
+
+### Index readiness và khôi phục session
+
+- `openProject` đăng ký trạng thái indexing trước khi bắt đầu cold build hoặc
+  lên lịch refresh index đã lưu. `waitForIndexReady` chờ cả hai đường này,
+  cùng debounce và các lần chạy nền còn chưa kết thúc.
+- Trong lúc đó, query dựa trên index trả `validation_failed: CodeGraph index not ready`.
+  Đọc/ghi/list file trực tiếp vẫn hoạt động trong lúc re-index.
+  Refresh thất bại giữ bản index cũ trên đĩa nhưng không công bố nó là ready;
+  mở lại project để retry. Timeout của caller không làm index thành ready.
+- Version tăng trong cùng SQLite transaction với mỗi lần thay index thành công,
+  kể cả index rỗng. Version được lưu **theo project**, tồn tại qua process restart;
+  không dùng để so sánh hai project khác nhau. Build thất bại không tăng version.
+- Request cũ không được ghi đè kết quả của request mới hoặc của project khác.
+- Desktop lưu project được chọn và khôi phục lúc startup. Nếu folder không còn
+  tồn tại hoặc analyzer lỗi, startup vẫn tiếp tục; không có kết quả ready giả.
+- File watcher vẫn cần nhận sự kiện filesystem: gọi wait ngay sau external write
+  trước khi OS giao event không đảm bảo đã thấy thay đổi. Gọi `openProject` trước
+  `waitForIndexReady` khi cần chủ động bảo đảm refresh được đăng ký.

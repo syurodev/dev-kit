@@ -118,6 +118,9 @@ tasks:
     deps:
       - task: build
     cmds:
+      - task: build:mcp
+        vars:
+          GOARCH: '{{.ARCH | default ARCH}}'
       - task: create:app:bundle
 
   package:universal:
@@ -125,8 +128,47 @@ tasks:
     deps:
       - task: build:universal
     cmds:
+      - task: build:mcp:universal
       - task: create:app:bundle
 
+  build:mcp:
+    summary: Builds devkit-mcp for this app bundle
+    internal: true
+    cmds:
+      - task: common:build:mcp
+        vars:
+          GOOS: darwin
+          GOARCH: '{{.GOARCH}}'
+          OUTPUT: "{{.BIN_DIR}}/devkit-mcp"
+
+  build:mcp:universal:
+    summary: Builds a universal (arm64 + amd64) devkit-mcp binary
+    internal: true
+    deps:
+      - task: build:mcp
+        vars:
+          GOARCH: amd64
+          OUTPUT: "{{.BIN_DIR}}/devkit-mcp-amd64"
+      - task: build:mcp
+        vars:
+          GOARCH: arm64
+          OUTPUT: "{{.BIN_DIR}}/devkit-mcp-arm64"
+    cmds:
+      - task: '{{if eq OS "darwin"}}lipo:mcp:native{{else}}lipo:mcp:go{{end}}'
+
+  lipo:mcp:native:
+    summary: Creates a universal devkit-mcp binary using native lipo (macOS)
+    internal: true
+    cmds:
+      - lipo -create -output "{{.BIN_DIR}}/devkit-mcp" "{{.BIN_DIR}}/devkit-mcp-amd64" "{{.BIN_DIR}}/devkit-mcp-arm64"
+      - rm "{{.BIN_DIR}}/devkit-mcp-amd64" "{{.BIN_DIR}}/devkit-mcp-arm64"
+
+  lipo:mcp:go:
+    summary: Creates a universal devkit-mcp binary using wails3 tool lipo (Linux/Windows)
+    internal: true
+    cmds:
+      - wails3 tool lipo -output "{{.BIN_DIR}}/devkit-mcp" -input "{{.BIN_DIR}}/devkit-mcp-amd64" -input "{{.BIN_DIR}}/devkit-mcp-arm64"
+      - rm -f "{{.BIN_DIR}}/devkit-mcp-amd64" "{{.BIN_DIR}}/devkit-mcp-arm64"
 
   create:app:bundle:
     summary: Creates an `.app` bundle
@@ -145,6 +187,10 @@ tasks:
       # and across. Change one, change the other.
       - cp analyzer/target/codegraph-analyzer.jar "{{.BIN_DIR}}/{{.APP_NAME}}.app/Contents/Resources"
       - cp "{{.BIN_DIR}}/{{.APP_NAME}}" "{{.BIN_DIR}}/{{.APP_NAME}}.app/Contents/MacOS"
+      # Contents/MacOS, alongside the app binary: where ResolveCommand in
+      # internal/mcp/install/install.go looks first (filepath.Dir(exe)).
+      # Built by build:mcp / build:mcp:universal above.
+      - cp "{{.BIN_DIR}}/devkit-mcp" "{{.BIN_DIR}}/{{.APP_NAME}}.app/Contents/MacOS"
       - cp build/darwin/Info.plist "{{.BIN_DIR}}/{{.APP_NAME}}.app/Contents"
       - task: '{{if eq OS "darwin"}}codesign:adhoc{{else}}codesign:skip{{end}}'
 

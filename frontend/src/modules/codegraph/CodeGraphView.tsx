@@ -26,6 +26,8 @@ import { methodChipClass } from "./graph/tokens";
 import { cn } from "@/lib/utils";
 import {
   codeGraphAnalyzerStatus,
+  codeGraphProjectRoot,
+  waitForCodeGraphIndexReady,
   openCodeGraphProject,
   listCodeGraphEndpoints,
   getCodeGraphNeighbors,
@@ -266,6 +268,7 @@ async function relinkPlanNode(planNodeID: string, fqn: string) {
 async function refreshAfterReindex() {
   const { rootId, activeTab } = snapshot();
   try {
+    await waitForCodeGraphIndexReady();
     set({ endpoints: await listCodeGraphEndpoints() });
     await loadFiles();
     if (rootId) {
@@ -400,6 +403,14 @@ export function CodeGraphView() {
   // without someone installing a JDK, which is not something to poll for.
   useEffect(() => {
     void loadAnalyzerStatus();
+    let cancelled = false;
+    void codeGraphProjectRoot().then(async (root) => {
+      if (cancelled || !root || snapshot().projectPath) return;
+      set({ projectPath: root, status: "Indexing…" });
+      await refreshAfterReindex();
+      if (!cancelled && snapshot().projectPath === root) set({ status: "" });
+    }).catch(() => { /* A locked vault will restore on the next mount. */ });
+    return () => { cancelled = true; };
   }, []);
 
   const { openPanel, closePanel } = useSplitPanel();
