@@ -54,6 +54,193 @@ export interface AuthMethod {
 }
 
 /**
+ * ChangedFile is one path a checkpoint's two trees disagree about.
+ */
+export interface ChangedFile {
+    "path": string;
+    "kind": string;
+    "added": number;
+    "removed": number;
+    "binary": boolean;
+
+    /**
+     * Source is the attribution above.
+     */
+    "source": ChangedSource;
+
+    /**
+     * SourceSession is the sub-session's id when Source is SourceChild.
+     */
+    "sourceSession"?: string;
+}
+
+/**
+ * ChangedSource is how much DevKit could work out about who wrote a file.
+ * 
+ * Honest rather than confident: the jail lets several sessions share a project
+ * and a Bash script writes files no tool call names, so "the agent did it" is a
+ * claim that can only be made where there is evidence for it.
+ */
+export enum ChangedSource {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    /**
+     * SourceAgent: the vendor's own report named the file, or a tool call in
+     * this turn did.
+     */
+    SourceAgent = "agent",
+
+    /**
+     * SourceChild: the file falls inside a sub-session's own checkpoint, taken
+     * while it ran nested in this turn.
+     */
+    SourceChild = "child",
+
+    /**
+     * SourceUnattributed: something changed it during the turn and nothing says
+     * what. A Bash script, an MCP server, an async task — or another session,
+     * which is what Overlap is for.
+     */
+    SourceUnattributed = "unattributed",
+};
+
+/**
+ * CheckpointAvailability is what Settings shows about file checkpoints.
+ * 
+ * Two separate facts, deliberately not collapsed into one: whether the machine
+ * can do this, and whether the user wants it. "Off" with no reason reads as
+ * broken, and "on" on a machine with no git would be a lie.
+ */
+export interface CheckpointAvailability {
+    /**
+     * Available says a usable git was found.
+     */
+    "available": boolean;
+    "gitPath"?: string;
+    "gitVersion"?: string;
+
+    /**
+     * Reason explains an unavailable git, in a sentence that names the fix.
+     */
+    "reason"?: string;
+
+    /**
+     * Enabled is the user's switch. A machine can be able and switched off.
+     */
+    "enabled": boolean;
+
+    /**
+     * Root is where the shadow repositories live, so a user can see what the
+     * feature costs them on disk and delete it if they want to.
+     */
+    "root": string;
+
+    /**
+     * Problems are the projects a checkpoint could not be taken for, with the
+     * reason. Without these a project that is simply too large looks identical
+     * to the feature quietly not working.
+     */
+    "problems"?: CheckpointProblem[] | null;
+}
+
+/**
+ * CheckpointKind says why a checkpoint exists.
+ */
+export enum CheckpointKind {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    /**
+     * CheckpointTurn is the pair of trees around one prompt.
+     */
+    CheckpointTurn = "turn",
+
+    /**
+     * CheckpointRestoreSafety is the state of the project immediately before a
+     * restore, so the restore itself can be undone.
+     */
+    CheckpointRestoreSafety = "restore_safety",
+
+    /**
+     * CheckpointRewindSafety is the same for a rewind, and doubles as its
+     * recovery log: a row still pending after a crash says the rewind was
+     * interrupted part-way.
+     */
+    CheckpointRewindSafety = "rewind_safety",
+};
+
+/**
+ * CheckpointProblem is one project that cannot be checkpointed, and why.
+ */
+export interface CheckpointProblem {
+    "project": string;
+    "reason": string;
+}
+
+/**
+ * CheckpointRecord is one stored checkpoint.
+ */
+export interface CheckpointRecord {
+    "id": string;
+    "sessionId": string;
+    "projectKey": string;
+    "promptMessageId": string;
+    "kind": CheckpointKind;
+    "beforeTree": string;
+    "afterTree": string;
+    "status": CheckpointStatus;
+    "outcome": string;
+
+    /**
+     * Changed is the classified diff between the two trees.
+     */
+    "changed"?: ChangedFile[] | null;
+
+    /**
+     * Skipped is what neither tree holds, so a restore knows never to touch it.
+     */
+    "skipped"?: json$0.RawMessage;
+
+    /**
+     * AgentReport is the vendor's own list of files it changed, as it sent it.
+     */
+    "agentReport"?: json$0.RawMessage;
+
+    /**
+     * Overlap names the other sessions that were running in this project at the
+     * same time — the honest half of an unattributed file.
+     */
+    "overlap"?: json$0.RawMessage;
+
+    /**
+     * Detail is per-kind extra: a reason for an unavailable checkpoint, the
+     * fork's state for a rewind.
+     */
+    "detail"?: json$0.RawMessage;
+    "createdAt": string;
+    "finishedAt"?: string | null;
+}
+
+/**
+ * CheckpointStatus is where a checkpoint got to.
+ */
+export enum CheckpointStatus {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    CheckpointPending = "pending",
+    CheckpointDone = "done",
+    CheckpointFailed = "failed",
+};
+
+/**
  * ContextFile is one bounded file suggestion for the prompt composer.
  */
 export interface ContextFile {
@@ -75,6 +262,28 @@ export interface CreateInput {
      */
     "ParentSessionID": string;
     "Title": string | null;
+}
+
+/**
+ * FileDiff is one path's two versions, for the drawer behind a changed file.
+ */
+export interface FileDiff {
+    "path": string;
+
+    /**
+     * Before and After are the file's bytes as text. A file git called binary
+     * is not sent at all.
+     */
+    "before": string;
+    "after": string;
+    "binary": boolean;
+
+    /**
+     * Missing is a side the checkpoint does not hold — the file was added
+     * (no before) or deleted (no after), or the snapshot on that side failed.
+     */
+    "beforeMissing": boolean;
+    "afterMissing": boolean;
 }
 
 export interface ImageAttachment {
@@ -179,6 +388,206 @@ export interface PendingPermission {
      * time that no longer exists.
      */
     "expiresAt": string;
+}
+
+/**
+ * RestoreAction is one path a restore would change.
+ */
+export interface RestoreAction {
+    "path": string;
+
+    /**
+     * Kind is "write" or "delete".
+     */
+    "kind": string;
+}
+
+/**
+ * RestoreConflict is one path a restore will not change, and why.
+ */
+export interface RestoreConflict {
+    "path": string;
+    "kind": string;
+    "reason": string;
+
+    /**
+     * Overridable says the user may force past it. False for a path no tree
+     * holds the content of, and for one whose directory is now a symlink.
+     */
+    "overridable": boolean;
+}
+
+/**
+ * RestoreMode is which of the three restores is being asked for.
+ */
+export enum RestoreMode {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    /**
+     * RestoreUndoTurn reverses one turn, leaving later turns alone.
+     */
+    RestoreUndoTurn = "undo",
+
+    /**
+     * RestoreToBeforeTurn rewinds the project's files to before a turn,
+     * reversing everything since.
+     */
+    RestoreToBeforeTurn = "toBefore",
+
+    /**
+     * RestoreUndoRestore puts back what a restore itself changed, from the
+     * safety snapshot it took first.
+     */
+    RestoreUndoRestore = "undoRestore",
+};
+
+/**
+ * RestorePreview is the read-only answer to "what would this restore do".
+ */
+export interface RestorePreview {
+    /**
+     * Token is what ApplyRestore takes. Opaque, single-use, and checked again
+     * at apply time: the dialog the user read described a particular state of
+     * the project, and a plan that went stale must not be carried out.
+     */
+    "token": string;
+    "sessionId": string;
+    "mode": RestoreMode;
+    "actions": RestoreAction[] | null;
+    "conflicts": RestoreConflict[] | null;
+
+    /**
+     * Warnings are things the user should know before agreeing: another
+     * session writing in the same project, a turn recorded on one side only.
+     */
+    "warnings": string[] | null;
+}
+
+/**
+ * RestoreRequest names what to restore.
+ */
+export interface RestoreRequest {
+    "sessionId": string;
+    "mode": RestoreMode;
+
+    /**
+     * PromptMessageID names the turn, for undo and toBefore.
+     */
+    "promptMessageId"?: string;
+
+    /**
+     * CheckpointID names the safety row, for undoRestore.
+     */
+    "checkpointId"?: string;
+}
+
+/**
+ * RestoreResult is what a restore actually did.
+ */
+export interface RestoreResult {
+    "written": string[] | null;
+    "deleted": string[] | null;
+
+    /**
+     * SafetyCheckpointID is the snapshot taken before the restore, which is
+     * what "Undo restore" goes back to.
+     */
+    "safetyCheckpointId": string;
+}
+
+/**
+ * RewindMode is how much of a turn to take back.
+ */
+export enum RewindMode {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    /**
+     * RewindBoth takes back the conversation and the files.
+     */
+    RewindBoth = "both",
+
+    /**
+     * RewindConversation takes back only what the agent remembers.
+     */
+    RewindConversation = "conversation",
+
+    /**
+     * RewindCode takes back only the files. Identical to a restore, and
+     * answered by the restore path.
+     */
+    RewindCode = "code",
+};
+
+/**
+ * RewindPreview is the read-only answer to "what would this rewind do".
+ */
+export interface RewindPreview {
+    "token": string;
+    "sessionId": string;
+    "mode": RewindMode;
+
+    /**
+     * PromptText is the message being rewound, for the composer when the user
+     * asked to edit and re-run it.
+     */
+    "promptText": string;
+
+    /**
+     * ExtraTurnsDropped is how many turns beyond the one named also go,
+     * because they left no message the vendor can branch at — a turn that
+     * failed or was cancelled before the agent replied.
+     */
+    "extraTurnsDropped": number;
+
+    /**
+     * StartsFresh says there is nothing before this turn to branch from, so the
+     * session starts a new conversation rather than a branch of this one.
+     */
+    "startsFresh": boolean;
+
+    /**
+     * Files is the file half, when the mode includes it. Nil when it does not,
+     * or when this session has no checkpoint for the turn.
+     */
+    "files"?: RestorePreview | null;
+
+    /**
+     * Warnings are things to say before the user agrees.
+     */
+    "warnings": string[] | null;
+}
+
+/**
+ * RewindRequest names what to rewind.
+ */
+export interface RewindRequest {
+    "sessionId": string;
+    "promptMessageId": string;
+    "mode": RewindMode;
+}
+
+/**
+ * RewindResult is what a rewind did.
+ */
+export interface RewindResult {
+    "sessionId": string;
+
+    /**
+     * PromptText is the message that was rewound, so the composer can offer it
+     * back.
+     */
+    "promptText": string;
+
+    /**
+     * Files is the file half's outcome, when there was one.
+     */
+    "files"?: RestoreResult | null;
 }
 
 /**

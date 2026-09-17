@@ -250,6 +250,168 @@ func (s *AppService) AgentHubTranscriptPage(id string, beforeSeq int64, limit in
 	return result.(agenthub.TranscriptPage), nil
 }
 
+// AgentHubListCheckpoints returns a session's file checkpoints — one per turn,
+// keyed on the prompt that started it, so the transcript can show a turn's
+// "N files changed" without a call per turn.
+func (s *AppService) AgentHubListCheckpoints(id string) ([]agenthub.CheckpointRecord, error) {
+	opaqueID := hubSessionID(id)
+	result, err := s.call(context.Background(), "builtin.agenthub", "agenthub:read", "session:"+opaqueID, map[string]any{
+		"action":     "list_checkpoints",
+		"session_id": opaqueID,
+	}, func(ctx context.Context) (any, error) {
+		svc, err := s.agentHubService()
+		if err != nil {
+			return nil, err
+		}
+		return svc.ListCheckpoints(ctx, id)
+	})
+	if err != nil {
+		return nil, err
+	}
+	if records, _ := result.([]agenthub.CheckpointRecord); records != nil {
+		return records, nil
+	}
+	return []agenthub.CheckpointRecord{}, nil
+}
+
+// AgentHubCheckpointFileDiff returns one changed file's two versions out of a
+// checkpoint. The path is checked against the checkpoint's own list of changed
+// files, so this cannot be used to read an arbitrary file out of a project.
+func (s *AppService) AgentHubCheckpointFileDiff(checkpointID, path string) (agenthub.FileDiff, error) {
+	result, err := s.call(context.Background(), "builtin.agenthub", "agenthub:read", "checkpoint:"+checkpointID, map[string]any{
+		"action":        "checkpoint_file_diff",
+		"checkpoint_id": checkpointID,
+		"path":          path,
+	}, func(ctx context.Context) (any, error) {
+		svc, err := s.agentHubService()
+		if err != nil {
+			return nil, err
+		}
+		return svc.CheckpointFileDiff(ctx, checkpointID, path)
+	})
+	if err != nil {
+		return agenthub.FileDiff{}, err
+	}
+	return result.(agenthub.FileDiff), nil
+}
+
+// AgentHubPlanRestore works out what putting a turn's files back would do,
+// without touching anything. The returned token is what AgentHubApplyRestore
+// takes; the plan itself stays on the backend, so a client cannot name a tree
+// of its own.
+func (s *AppService) AgentHubPlanRestore(req agenthub.RestoreRequest) (agenthub.RestorePreview, error) {
+	opaqueID := hubSessionID(req.SessionID)
+	result, err := s.call(context.Background(), "builtin.agenthub", "agenthub:execute", "session:"+opaqueID, map[string]any{
+		"action":     "plan_restore",
+		"session_id": opaqueID,
+		"mode":       string(req.Mode),
+	}, func(ctx context.Context) (any, error) {
+		svc, err := s.agentHubService()
+		if err != nil {
+			return nil, err
+		}
+		return svc.PlanRestore(ctx, req)
+	})
+	if err != nil {
+		return agenthub.RestorePreview{}, err
+	}
+	return result.(agenthub.RestorePreview), nil
+}
+
+// AgentHubApplyRestore carries out a plan. overwrite names the conflicts the
+// user chose to force; the backend honours only the ones that can be forced.
+func (s *AppService) AgentHubApplyRestore(token string, overwrite []string) (agenthub.RestoreResult, error) {
+	result, err := s.call(context.Background(), "builtin.agenthub", "agenthub:execute", "restore:"+token, map[string]any{
+		"action":    "apply_restore",
+		"overwrite": len(overwrite),
+	}, func(ctx context.Context) (any, error) {
+		svc, err := s.agentHubService()
+		if err != nil {
+			return nil, err
+		}
+		return svc.ApplyRestore(ctx, token, overwrite)
+	})
+	if err != nil {
+		return agenthub.RestoreResult{}, err
+	}
+	return result.(agenthub.RestoreResult), nil
+}
+
+// AgentHubPlanRewind works out what taking a session back to a message would
+// do — to the conversation, the files, or both — without touching anything.
+func (s *AppService) AgentHubPlanRewind(req agenthub.RewindRequest) (agenthub.RewindPreview, error) {
+	opaqueID := hubSessionID(req.SessionID)
+	result, err := s.call(context.Background(), "builtin.agenthub", "agenthub:execute", "session:"+opaqueID, map[string]any{
+		"action":     "plan_rewind",
+		"session_id": opaqueID,
+		"mode":       string(req.Mode),
+	}, func(ctx context.Context) (any, error) {
+		svc, err := s.agentHubService()
+		if err != nil {
+			return nil, err
+		}
+		return svc.PlanRewind(ctx, req)
+	})
+	if err != nil {
+		return agenthub.RewindPreview{}, err
+	}
+	return result.(agenthub.RewindPreview), nil
+}
+
+// AgentHubApplyRewind carries out a rewind.
+func (s *AppService) AgentHubApplyRewind(token string, overwrite []string) (agenthub.RewindResult, error) {
+	result, err := s.call(context.Background(), "builtin.agenthub", "agenthub:execute", "restore:"+token, map[string]any{
+		"action":    "apply_rewind",
+		"overwrite": len(overwrite),
+	}, func(ctx context.Context) (any, error) {
+		svc, err := s.agentHubService()
+		if err != nil {
+			return nil, err
+		}
+		return svc.ApplyRewind(ctx, token, overwrite)
+	})
+	if err != nil {
+		return agenthub.RewindResult{}, err
+	}
+	return result.(agenthub.RewindResult), nil
+}
+
+// AgentHubInterruptedRewinds lists the rewinds that never finished, so the
+// session can offer to put its files back.
+func (s *AppService) AgentHubInterruptedRewinds() ([]agenthub.CheckpointRecord, error) {
+	result, err := s.call(context.Background(), "builtin.agenthub", "agenthub:read", "session:list", map[string]any{
+		"action": "interrupted_rewinds",
+	}, func(ctx context.Context) (any, error) {
+		svc, err := s.agentHubService()
+		if err != nil {
+			return nil, err
+		}
+		return svc.InterruptedRewinds(ctx)
+	})
+	if err != nil {
+		return nil, err
+	}
+	if records, _ := result.([]agenthub.CheckpointRecord); records != nil {
+		return records, nil
+	}
+	return []agenthub.CheckpointRecord{}, nil
+}
+
+// AgentHubDismissInterruptedRewind closes the banner without touching files.
+func (s *AppService) AgentHubDismissInterruptedRewind(checkpointID string) error {
+	_, err := s.call(context.Background(), "builtin.agenthub", "agenthub:execute", "restore:"+checkpointID, map[string]any{
+		"action":        "dismiss_interrupted_rewind",
+		"checkpoint_id": checkpointID,
+	}, func(ctx context.Context) (any, error) {
+		svc, err := s.agentHubService()
+		if err != nil {
+			return nil, err
+		}
+		return nil, svc.DismissInterruptedRewind(ctx, checkpointID)
+	})
+	return err
+}
+
 // AgentHubToolCallDetail returns one stored tool call, payload intact — the
 // page reader shortens oversized raw fields to a preview, and this is the
 // "show me the whole output" behind it.

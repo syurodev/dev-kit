@@ -3,6 +3,7 @@ package preferences
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"strconv"
 )
 
@@ -10,6 +11,7 @@ const (
 	themeKey              = "theme"
 	themeFamilyKey        = "theme_family"
 	agentNotificationsKey = "agent_notifications"
+	agentCheckpointsKey   = "agent_checkpoints"
 )
 
 // GetAgentNotifications treats a value it cannot read as unset, so the default
@@ -35,6 +37,46 @@ func (r *SQLRepository) SetAgentNotifications(enabled bool) error {
 	_, err := r.db.ExecContext(context.Background(),
 		`INSERT INTO app_preferences (key, value) VALUES (?, ?)
 		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`, agentNotificationsKey, strconv.FormatBool(enabled))
+	return err
+}
+
+// GetAgentCheckpoints reads the settings back, treating anything it cannot
+// parse as unset so the defaults apply rather than the feature becoming
+// unreadable.
+//
+// A bare "true"/"false" is accepted as well: the switch shipped on its own
+// before the numbers joined it, and a row written then still means what it
+// said.
+func (r *SQLRepository) GetAgentCheckpoints() (preferences AgentCheckpointSettings, found bool, err error) {
+	var value string
+	scanErr := r.db.QueryRowContext(context.Background(),
+		"SELECT value FROM app_preferences WHERE key = ?", agentCheckpointsKey).Scan(&value)
+	if scanErr == sql.ErrNoRows {
+		return AgentCheckpointSettings{}, false, nil
+	}
+	if scanErr != nil {
+		return AgentCheckpointSettings{}, false, scanErr
+	}
+	if enabled, parseErr := strconv.ParseBool(value); parseErr == nil {
+		settings := DefaultAgentCheckpoints()
+		settings.Enabled = enabled
+		return settings, true, nil
+	}
+	var settings AgentCheckpointSettings
+	if jsonErr := json.Unmarshal([]byte(value), &settings); jsonErr != nil {
+		return AgentCheckpointSettings{}, false, nil
+	}
+	return settings.Normalized(), true, nil
+}
+
+func (r *SQLRepository) SetAgentCheckpoints(settings AgentCheckpointSettings) error {
+	body, err := json.Marshal(settings.Normalized())
+	if err != nil {
+		return err
+	}
+	_, err = r.db.ExecContext(context.Background(),
+		`INSERT INTO app_preferences (key, value) VALUES (?, ?)
+		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`, agentCheckpointsKey, string(body))
 	return err
 }
 

@@ -3,6 +3,11 @@
 
 export {
     AgentType,
+    ChangedSource,
+    CheckpointKind,
+    CheckpointStatus,
+    RestoreMode,
+    RewindMode,
     SessionStatus,
     UpdateKind
 } from "./models.js";
@@ -10,13 +15,26 @@ export {
 export type {
     AgentSession,
     AuthMethod,
+    ChangedFile,
+    CheckpointAvailability,
+    CheckpointProblem,
+    CheckpointRecord,
     ContextFile,
     CreateInput,
+    FileDiff,
     ImageAttachment,
     InvokeInput,
     InvokeResult,
     PendingElicitation,
     PendingPermission,
+    RestoreAction,
+    RestoreConflict,
+    RestorePreview,
+    RestoreRequest,
+    RestoreResult,
+    RewindPreview,
+    RewindRequest,
+    RewindResult,
     TranscriptEntry,
     TranscriptPage
 } from "./models.js";

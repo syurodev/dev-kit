@@ -5,3 +5,7 @@ export {
     Theme,
     ThemeFamily
 } from "./models.js";
+
+export type {
+    AgentCheckpointSettings
+} from "./models.js";

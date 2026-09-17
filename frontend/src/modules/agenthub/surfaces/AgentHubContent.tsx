@@ -25,6 +25,8 @@ import type { QueuedAgentPrompt } from "@/stores/agentSessions";
 import type { AvailableCommand, ConfigOption, SessionMode, TranscriptItem, Usage } from "../types";
 import type { ContextFileItem } from "./AgentMenu";
 import { TranscriptStream } from "./TranscriptStream";
+import { loadCheckpointFileDiff, useSessionCheckpoints } from "../useSessionCheckpoints";
+import { RewindDialog } from "./RewindDialog";
 import { AgentComposer, heldChoice } from "./AgentComposer";
 import { AgentSessionError, type SessionErrorCause } from "./AgentSessionError";
 import { AgentPermissionRequest } from "./AgentPermissionRequest";
@@ -269,6 +271,17 @@ export function AgentHubContent({
   sendDisabled = false,
   className,
 }: AgentHubContentProps) {
+  // Loaded here rather than in TranscriptStream: the stream is a presentational
+  // component that tests render with fixed items, and a fetch inside it would
+  // make every one of those hit the bridge.
+  const checkpoints = useSessionCheckpoints(session?.id ?? "");
+  // Which turn the rewind confirmation is about, and whether the user came in
+  // through the pencil. "" means closed; the dialog plans for itself, so
+  // nothing is planned for a turn nobody asked about.
+  const [rewinding, setRewinding] = React.useState<{ promptMessageId: string; editAfter: boolean }>({
+    promptMessageId: "",
+    editAfter: false,
+  });
   const [renameOpen, setRenameOpen] = React.useState(false);
   const [renameValue, setRenameValue] = React.useState("");
   const [renameError, setRenameError] = React.useState("");
@@ -552,6 +565,9 @@ export function AgentHubContent({
                 items={items}
                 streamKey={session?.id}
                 vendor={vendor}
+                checkpoints={checkpoints}
+                loadFileDiff={loadCheckpointFileDiff}
+                onRewind={(promptMessageId, editAfter) => setRewinding({ promptMessageId, editAfter })}
                 streaming={!isError && streaming}
                 onCopy={onCopy}
                 onEditPrompt={onPromptChange}
@@ -706,6 +722,23 @@ export function AgentHubContent({
           </div>
         </div>
       )}
+      {/* Mounted beside the session dialogs rather than inside the turn: the
+          turn is virtualised, and a dialog whose host can be unmounted by a
+          scroll is a dialog that closes when the user scrolls. */}
+      <RewindDialog
+        open={Boolean(rewinding.promptMessageId)}
+        onOpenChange={(open) => setRewinding((previous) => (open ? previous : { promptMessageId: "", editAfter: false }))}
+        sessionId={session?.id ?? ""}
+        promptMessageId={rewinding.promptMessageId}
+        checkpoint={rewinding.promptMessageId ? checkpoints.get(rewinding.promptMessageId) : undefined}
+        queuedPrompts={queuedPrompts?.length ?? 0}
+        editAfter={rewinding.editAfter}
+        onRewound={(result, editAfter) => {
+          // The message goes back in the composer only when they asked for it
+          // there. A plain rewind leaves the composer alone.
+          if (editAfter && result.promptText) onPromptChange(result.promptText);
+        }}
+      />
       <Dialog
         open={renameOpen}
         onOpenChange={(open) => {

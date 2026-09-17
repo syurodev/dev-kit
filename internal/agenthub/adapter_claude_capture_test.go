@@ -106,7 +106,7 @@ func TestClaudeACPCapture(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	out, promptErr := rt.Prompt(ctx, agenthub.TextPrompt(capturePrompt()))
+	out, promptErr := rt.Prompt(ctx, agenthub.TextPrompt(capturePrompt()), nil)
 	if promptErr != nil {
 		t.Logf("Prompt returned error (still writing whatever was captured): %v", promptErr)
 	} else {

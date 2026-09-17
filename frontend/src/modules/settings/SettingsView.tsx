@@ -35,6 +35,7 @@ import { McpInstallPanel } from "./McpInstallPanel";
 import { ConsoleStorageSetting } from "./ConsoleStorageSetting";
 import { AgentRuntimeSetting } from "./AgentRuntimeSetting";
 import { AgentNotificationSetting } from "./AgentNotificationSetting";
+import { AgentCheckpointSetting } from "./AgentCheckpointSetting";
 import {
   Select,
   SelectContent,
@@ -782,6 +783,10 @@ function AgentsTab() {
       <div className="flex flex-col gap-3">
         <GroupLabel>CLAUDE AGENT</GroupLabel>
         <AgentRuntimeSetting />
+      </div>
+      <div className="flex flex-col gap-3">
+        <GroupLabel>FILE CHECKPOINTS</GroupLabel>
+        <AgentCheckpointSetting />
       </div>
       <div className="flex flex-col gap-3">
         <GroupLabel>NOTIFICATIONS</GroupLabel>

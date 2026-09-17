@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   Empty,
   EmptyDescription,
@@ -11,6 +12,8 @@ import type { QueuedAgentPrompt } from "@/stores/agentSessions";
 import type { AvailableCommand, ConfigOption, SessionMode, TranscriptItem, Usage } from "../types";
 import type { ContextFileItem } from "./AgentMenu";
 import { TranscriptStream } from "./TranscriptStream";
+import { loadCheckpointFileDiff, useSessionCheckpoints } from "../useSessionCheckpoints";
+import { RewindDialog } from "./RewindDialog";
 import { AgentComposer } from "./AgentComposer";
 import { composerPlaceholder } from "./AgentHubContent";
 import { AgentPermissionRequest } from "./AgentPermissionRequest";
@@ -60,6 +63,8 @@ export type AgentRailProps = {
   onOpenFile?: (path: string, line?: number) => void;
   promptValue: string;
   onPromptChange: (value: string) => void;
+  /** Copy, in each message's hover card. The rail had none; the module always had.  */
+  onCopy?: (text: string) => void;
   onSend: () => void;
   onCancel: () => void;
   streaming?: boolean;
@@ -140,6 +145,7 @@ export function AgentRail({
   onOpenFile,
   promptValue,
   onPromptChange,
+  onCopy,
   onSend,
   onCancel,
   streaming = false,
@@ -154,6 +160,14 @@ export function AgentRail({
   sendDisabled = false,
   className,
 }: AgentRailProps) {
+  const checkpoints = useSessionCheckpoints(activeSession?.id ?? "");
+  // Which turn's files the confirmation is about, or "" for closed. The dialog
+  // plans for itself, so opening it costs one call and nothing is planned for a
+  // turn nobody asked about.
+  const [rewinding, setRewinding] = useState<{ promptMessageId: string; editAfter: boolean }>({
+    promptMessageId: "",
+    editAfter: false,
+  });
   const effectiveState: AgentRailState = explicitState
     ? explicitState
     : !activeSession
@@ -281,12 +295,32 @@ export function AgentRail({
               items={items}
               streamKey={activeSession?.id}
               vendor={vendor}
+              checkpoints={checkpoints}
+              loadFileDiff={loadCheckpointFileDiff}
+              onCopy={onCopy}
+              onEditPrompt={onPromptChange}
+              onRewind={(promptMessageId, editAfter) => setRewinding({ promptMessageId, editAfter })}
               hasMore={hasMore}
               loadingOlder={loadingOlder}
               onLoadOlder={onLoadOlder}
               onOpenFile={onOpenFile}
             />
           </div>
+
+          <RewindDialog
+            open={Boolean(rewinding.promptMessageId)}
+            onOpenChange={(open) =>
+              setRewinding((previous) => (open ? previous : { promptMessageId: "", editAfter: false }))
+            }
+            sessionId={activeSession?.id ?? ""}
+            promptMessageId={rewinding.promptMessageId}
+            checkpoint={rewinding.promptMessageId ? checkpoints.get(rewinding.promptMessageId) : undefined}
+            queuedPrompts={queuedPrompts?.length ?? 0}
+            editAfter={rewinding.editAfter}
+            onRewound={(result, editAfter) => {
+              if (editAfter && result.promptText) onPromptChange(result.promptText);
+            }}
+          />
 
           {errorMessage ? (
             <p className="px-6 pb-1 text-caption-11 text-status-danger">{errorMessage}</p>

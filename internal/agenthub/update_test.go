@@ -413,7 +413,7 @@ func TestParseSubagentUpdates(t *testing.T) {
 func TestClientCapabilitiesCarryTheAirExtension(t *testing.T) {
 	// Two gates, not one: `subagents` forwards a subagent's text, the air
 	// extension is what makes the vendor say a subagent exists at all.
-	body, err := json.Marshal(agenthub.DevkitClientCapabilitiesForTest())
+	body, err := json.Marshal(agenthub.DevkitClientCapabilitiesForTest(false))
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}

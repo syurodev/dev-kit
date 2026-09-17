@@ -44,6 +44,21 @@ import * as json$0 from "../../../encoding/json/models.js";
 import * as $models from "./models.js";
 
 /**
+ * AgentHubApplyRestore carries out a plan. overwrite names the conflicts the
+ * user chose to force; the backend honours only the ones that can be forced.
+ */
+export function AgentHubApplyRestore(token: string, overwrite: string[] | null): $CancellablePromise<agenthub$0.RestoreResult> {
+    return $Call.ByID(3554222884, token, overwrite);
+}
+
+/**
+ * AgentHubApplyRewind carries out a rewind.
+ */
+export function AgentHubApplyRewind(token: string, overwrite: string[] | null): $CancellablePromise<agenthub$0.RewindResult> {
+    return $Call.ByID(2180414301, token, overwrite);
+}
+
+/**
  * AgentHubAuthMethods lists the sign-ins an agent offers ("claude"), each with
  * the command DevKit would run for it. No session is needed: the list comes
  * from a sandboxed initialize, so it works for a user who has never signed in.
@@ -54,6 +69,23 @@ export function AgentHubAuthMethods(agent: string): $CancellablePromise<agenthub
 
 export function AgentHubCancel(id: string): $CancellablePromise<void> {
     return $Call.ByID(952653156, id);
+}
+
+/**
+ * AgentHubCheckpointAvailability is what Settings shows beside the switch:
+ * whether the machine can do this at all, and which projects it could not.
+ */
+export function AgentHubCheckpointAvailability(): $CancellablePromise<agenthub$0.CheckpointAvailability> {
+    return $Call.ByID(3910234867);
+}
+
+/**
+ * AgentHubCheckpointFileDiff returns one changed file's two versions out of a
+ * checkpoint. The path is checked against the checkpoint's own list of changed
+ * files, so this cannot be used to read an arbitrary file out of a project.
+ */
+export function AgentHubCheckpointFileDiff(checkpointID: string, path: string): $CancellablePromise<agenthub$0.FileDiff> {
+    return $Call.ByID(1454694981, checkpointID, path);
 }
 
 /**
@@ -103,8 +135,23 @@ export function AgentHubDeleteSession(id: string): $CancellablePromise<void> {
     return $Call.ByID(4173780955, id);
 }
 
+/**
+ * AgentHubDismissInterruptedRewind closes the banner without touching files.
+ */
+export function AgentHubDismissInterruptedRewind(checkpointID: string): $CancellablePromise<void> {
+    return $Call.ByID(1236878807, checkpointID);
+}
+
 export function AgentHubGetStatus(id: string): $CancellablePromise<agenthub$0.AgentSession> {
     return $Call.ByID(2289470436, id);
+}
+
+/**
+ * AgentHubInterruptedRewinds lists the rewinds that never finished, so the
+ * session can offer to put its files back.
+ */
+export function AgentHubInterruptedRewinds(): $CancellablePromise<agenthub$0.CheckpointRecord[] | null> {
+    return $Call.ByID(2888715112);
 }
 
 export function AgentHubInvoke(input: agenthub$0.InvokeInput): $CancellablePromise<agenthub$0.InvokeResult> {
@@ -113,6 +160,15 @@ export function AgentHubInvoke(input: agenthub$0.InvokeInput): $CancellablePromi
 
 export function AgentHubListAgents(): $CancellablePromise<agenthub$0.AgentSession[] | null> {
     return $Call.ByID(3384951636);
+}
+
+/**
+ * AgentHubListCheckpoints returns a session's file checkpoints — one per turn,
+ * keyed on the prompt that started it, so the transcript can show a turn's
+ * "N files changed" without a call per turn.
+ */
+export function AgentHubListCheckpoints(id: string): $CancellablePromise<agenthub$0.CheckpointRecord[] | null> {
+    return $Call.ByID(7569693, id);
 }
 
 /**
@@ -142,6 +198,24 @@ export function AgentHubPendingElicitations(): $CancellablePromise<agenthub$0.Pe
  */
 export function AgentHubPendingPermissions(): $CancellablePromise<agenthub$0.PendingPermission[] | null> {
     return $Call.ByID(85207799);
+}
+
+/**
+ * AgentHubPlanRestore works out what putting a turn's files back would do,
+ * without touching anything. The returned token is what AgentHubApplyRestore
+ * takes; the plan itself stays on the backend, so a client cannot name a tree
+ * of its own.
+ */
+export function AgentHubPlanRestore(req: agenthub$0.RestoreRequest): $CancellablePromise<agenthub$0.RestorePreview> {
+    return $Call.ByID(3716551105, req);
+}
+
+/**
+ * AgentHubPlanRewind works out what taking a session back to a message would
+ * do — to the conversation, the files, or both — without touching anything.
+ */
+export function AgentHubPlanRewind(req: agenthub$0.RewindRequest): $CancellablePromise<agenthub$0.RewindPreview> {
+    return $Call.ByID(1720588606, req);
 }
 
 /**
@@ -942,6 +1016,14 @@ export function NotesUpdate(id: string, title: string, body: string): $Cancellab
 }
 
 /**
+ * PreferencesGetAgentCheckpoints reads how Agent Hub snapshots a project's
+ * files around each turn.
+ */
+export function PreferencesGetAgentCheckpoints(): $CancellablePromise<preferences$0.AgentCheckpointSettings> {
+    return $Call.ByID(1285465844);
+}
+
+/**
  * PreferencesGetAgentNotifications reports whether Agent Hub notifies when an
  * agent needs the user or finishes. On by default.
  */
@@ -962,6 +1044,20 @@ export function PreferencesGetTheme(): $CancellablePromise<preferences$0.Theme> 
  */
 export function PreferencesGetThemeFamily(): $CancellablePromise<preferences$0.ThemeFamily> {
     return $Call.ByID(2641332005);
+}
+
+/**
+ * PreferencesSetAgentCheckpoints stores the settings and applies them to the
+ * running engine.
+ * 
+ * Applied rather than left for the next restart, because the numbers are what a
+ * user reaches for when a project is not being checkpointed — raising the file
+ * ceiling and having to quit DevKit to find out whether it helped is not a
+ * setting, it is a guess. The engine keeps the shadow repositories it has
+ * already warmed, so a change costs nothing.
+ */
+export function PreferencesSetAgentCheckpoints(settings: preferences$0.AgentCheckpointSettings): $CancellablePromise<void> {
+    return $Call.ByID(512870456, settings);
 }
 
 /**

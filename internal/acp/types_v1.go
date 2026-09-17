@@ -89,6 +89,27 @@ type SessionLoadResult struct {
 	Meta      json.RawMessage   `json:"_meta,omitempty"`
 }
 
+// SessionForkRequest is the params object for session/fork.
+//
+// Not in the ACP schema: it is claude-agent-acp's own, and the message to
+// branch at rides `_meta.jetbrains.air.fork` rather than a named field. Same
+// shape as session/new otherwise, because the fork IS a new session — it just
+// starts with a copy of another one's history up to a point.
+type SessionForkRequest struct {
+	SessionID  string          `json:"sessionId"`
+	Cwd        string          `json:"cwd"`
+	McpServers []any           `json:"mcpServers"`
+	Meta       json.RawMessage `json:"_meta,omitempty"`
+}
+
+// SessionForkResult carries the new session's id. Measured (spike S1): the fork
+// works from a process that never loaded the source session, the new session
+// remembers only up to the named message, and the source stays usable.
+type SessionForkResult struct {
+	SessionID string          `json:"sessionId"`
+	Meta      json.RawMessage `json:"_meta,omitempty"`
+}
+
 // SessionDeleteRequest is the params object for session/delete. The agent
 // tears down whatever it still holds in memory and removes the session's file
 // from its own store; the result is empty.

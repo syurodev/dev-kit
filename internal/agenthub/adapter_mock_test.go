@@ -64,7 +64,7 @@ func TestMockPromptEmitsUpdateAndPermission(t *testing.T) {
 		},
 	})
 
-	out, err := rt.Prompt(context.Background(), agenthub.TextPrompt("please NEED_PERMISSION to continue"))
+	out, err := rt.Prompt(context.Background(), agenthub.TextPrompt("please NEED_PERMISSION to continue"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func TestMockPromptWithoutPermission(t *testing.T) {
 		},
 	})
 
-	out, err := rt.Prompt(context.Background(), agenthub.TextPrompt("hello"))
+	out, err := rt.Prompt(context.Background(), agenthub.TextPrompt("hello"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

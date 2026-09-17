@@ -18,6 +18,21 @@ type MockAdapter struct {
 	mu          sync.Mutex
 	lastSpec    OpenSpec
 	lastRuntime *mockRuntime
+	// forks records every branch asked for, and forkErr fails the next one.
+	// A rewind is a sequence whose steps have to unwind correctly when a later
+	// one fails, and the fork is the first step that can fail for real reasons
+	// — so a test needs to be able to make it.
+	forks     []MockFork
+	forkErr   error
+	deleted   []string
+	deleteErr error
+}
+
+// MockFork is one branch the mock was asked for.
+type MockFork struct {
+	SourceACPSessionID string
+	MessageID          string
+	NewACPSessionID    string
 }
 
 // NewMockAdapter returns the built-in mock vendor adapter.
@@ -27,6 +42,63 @@ func NewMockAdapter() *MockAdapter {
 
 func (a *MockAdapter) Type() AgentType { return AgentTypeMock }
 
+// Fork satisfies RuntimeForker.
+//
+// Deliberately without a Load beside it: two tests pin that a vendor with no
+// SessionLoader stays unavailable to a session whose process died, and the mock
+// is what they use. Forking and resuming are separate vendor facts, and this
+// keeps them separate here too.
+func (a *MockAdapter) Fork(ctx context.Context, spec OpenSpec, srcACPSessionID, messageID string) (SessionRuntime, error) {
+	a.mu.Lock()
+	failWith := a.forkErr
+	a.forkErr = nil
+	a.mu.Unlock()
+	if failWith != nil {
+		return nil, failWith
+	}
+	rt, err := a.Open(ctx, spec)
+	if err != nil {
+		return nil, err
+	}
+	a.mu.Lock()
+	a.forks = append(a.forks, MockFork{
+		SourceACPSessionID: srcACPSessionID,
+		MessageID:          messageID,
+		NewACPSessionID:    rt.ACPSessionID(),
+	})
+	a.mu.Unlock()
+	return rt, nil
+}
+
+// FailNextFork makes the next Fork fail, so a test can watch the steps taken
+// before it unwind.
+func (a *MockAdapter) FailNextFork(err error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.forkErr = err
+}
+
+// Forks returns every branch the mock was asked for.
+func (a *MockAdapter) Forks() []MockFork {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return append([]MockFork(nil), a.forks...)
+}
+
+// Deleted returns the vendor sessions the mock was told to destroy.
+func (a *MockAdapter) Deleted() []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return append([]string(nil), a.deleted...)
+}
+
+func (a *MockAdapter) noteDeleted(id string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.deleted = append(a.deleted, id)
+	return a.deleteErr
+}
+
 func (a *MockAdapter) Open(ctx context.Context, spec OpenSpec) (SessionRuntime, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -35,7 +107,7 @@ func (a *MockAdapter) Open(ctx context.Context, spec OpenSpec) (SessionRuntime, 
 	a.lastSpec = spec
 	a.mu.Unlock()
 	id := fmt.Sprintf("mock-acp-%d", mockSessionSeq.Add(1))
-	runtime := &mockRuntime{acpSessionID: id}
+	runtime := &mockRuntime{acpSessionID: id, adapter: a}
 	a.mu.Lock()
 	a.lastRuntime = runtime
 	a.mu.Unlock()
@@ -93,12 +165,66 @@ func (a *MockAdapter) Extensions() []string { return nil }
 
 type mockRuntime struct {
 	acpSessionID string
-	mu           sync.Mutex
-	handlers     RuntimeHandlers
-	closed       bool
-	cancelCh     chan struct{}
-	setMode      string
-	setOptions   map[string]string
+	// adapter is set so a runtime can report its own deletion back to the
+	// adapter the test holds.
+	adapter    *MockAdapter
+	mu         sync.Mutex
+	handlers   RuntimeHandlers
+	closed     bool
+	cancelCh   chan struct{}
+	setMode    string
+	setOptions map[string]string
+	// promptMetas is every `_meta` a prompt carried, in order. The mock is what
+	// the service's tests run against, and what DevKit asks the vendor for on a
+	// turn is part of the turn's contract.
+	promptMetas []json.RawMessage
+}
+
+func (r *mockRuntime) recordPromptMeta(meta json.RawMessage) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.promptMetas = append(r.promptMetas, append(json.RawMessage(nil), meta...))
+}
+
+// Delete satisfies RuntimeDeleter: a rewind drops the vendor session it left
+// behind, and a test needs to see that it did.
+func (r *mockRuntime) Delete(ctx context.Context) error {
+	return r.DeleteSession(ctx, r.acpSessionID)
+}
+
+// DeleteSession satisfies VendorSessionDeleter.
+func (r *mockRuntime) DeleteSession(ctx context.Context, acpSessionID string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if r.adapter == nil || acpSessionID == "" {
+		return nil
+	}
+	return r.adapter.noteDeleted(acpSessionID)
+}
+
+// MockPromptMetas returns the `_meta` of every prompt a mock runtime has been
+// sent. Exported for the service tests, which hold the runtime through the
+// adapter rather than directly.
+func MockPromptMetas(rt SessionRuntime) []json.RawMessage {
+	// Tests wrap the runtime to hook a prompt; unwrap until the mock shows.
+	for {
+		if _, ok := rt.(*mockRuntime); ok {
+			break
+		}
+		wrapper, ok := rt.(interface{ Unwrap() SessionRuntime })
+		if !ok {
+			return nil
+		}
+		rt = wrapper.Unwrap()
+	}
+	mock, ok := rt.(*mockRuntime)
+	if !ok {
+		return nil
+	}
+	mock.mu.Lock()
+	defer mock.mu.Unlock()
+	return append([]json.RawMessage(nil), mock.promptMetas...)
 }
 
 func (r *mockRuntime) ACPSessionID() string { return r.acpSessionID }
@@ -171,10 +297,11 @@ func (r *mockRuntime) SetHandlers(h RuntimeHandlers) {
 	r.handlers = h
 }
 
-func (r *mockRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock) (PromptOutcome, error) {
+func (r *mockRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock, promptMeta json.RawMessage) (PromptOutcome, error) {
 	// The mock's behaviour is driven by markers in the text; attachments are
 	// carried but not interpreted, which is what a stand-in should do.
 	text := PromptText(prompt)
+	r.recordPromptMeta(promptMeta)
 	if err := ctx.Err(); err != nil {
 		return PromptOutcome{}, err
 	}

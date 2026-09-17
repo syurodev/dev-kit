@@ -57,11 +57,22 @@ type ClaudeOptions struct {
 	// Gateway sees no file access at all and nobody knows whether that is
 	// because the agent never asks or because we never answered.
 	OnUnknownMethod func(method string, params json.RawMessage)
+	// FileChangeReports says whether to declare the agentFileChangeReport
+	// capability. Read on every Open and Load, never captured, because the user
+	// can turn checkpoints off between two sessions.
+	//
+	// Behind a switch because declaring it is not free: it turns on Claude's
+	// own native checkpointing for every session in the process, which writes
+	// file history under ~/.claude. A user who turned checkpoints off should
+	// get no file history at all, from DevKit or from the vendor.
+	FileChangeReports func() bool
 }
 
 var (
-	_ SessionLoader  = (*ClaudeAdapter)(nil)
-	_ RuntimeDeleter = (*claudeRuntime)(nil)
+	_ SessionLoader        = (*ClaudeAdapter)(nil)
+	_ RuntimeForker        = (*ClaudeAdapter)(nil)
+	_ RuntimeDeleter       = (*claudeRuntime)(nil)
+	_ VendorSessionDeleter = (*claudeRuntime)(nil)
 )
 
 // ClaudeAdapter is a VendorAdapter that speaks ACP to Claude inside a sandbox.
@@ -290,9 +301,30 @@ func claudeEnvAllowlist() map[string]string {
 // DevkitClientCapabilitiesForTest exposes the declaration to the external test
 // package. The capabilities themselves stay unexported: nothing outside this
 // adapter should be choosing what DevKit claims to support.
-func DevkitClientCapabilitiesForTest() map[string]any { return devkitClientCapabilities() }
+func DevkitClientCapabilitiesForTest(withFileChangeReport bool) map[string]any {
+	return devkitClientCapabilities(withFileChangeReport)
+}
 
-func devkitClientCapabilities() map[string]any {
+// fileChangeReports reports whether this adapter should ask for the vendor's
+// file-change report. Absent hook means no: a build that never wired
+// checkpoints must not switch on the vendor's file history.
+func (a *ClaudeAdapter) fileChangeReports() bool {
+	return a.opts.FileChangeReports != nil && a.opts.FileChangeReports()
+}
+
+// devkitClientCapabilities is the declaration with the optional extensions
+// resolved. withFileChangeReport adds the one capability that has a side effect
+// on the user's disk, so it is passed in rather than read from anywhere.
+func devkitClientCapabilities(withFileChangeReport bool) map[string]any {
+	caps := devkitBaseCapabilities()
+	if withFileChangeReport {
+		air := caps["_meta"].(map[string]any)["jetbrains"].(map[string]any)["air"].(map[string]any)
+		air["capabilities"] = append(air["capabilities"].([]string), "agentFileChangeReport")
+	}
+	return caps
+}
+
+func devkitBaseCapabilities() map[string]any {
 	return map[string]any{
 		// The client understands updates that come from a subagent. DevKit
 		// renders them in the parent transcript rather than as their own
@@ -457,9 +489,37 @@ func mapSandboxErr(err error) error {
 	return fmt.Errorf("%w: %v", ErrProcessFailed, err)
 }
 
+// openPlan is which of the three ways a process gets a session: a fresh one, a
+// resumed one, or a branch of another one. They share everything up to the last
+// call or two of the handshake — same jail, same credentials, same _meta —
+// because a session that came back a different way must still run under the
+// policy the original did.
+type openPlan struct {
+	// resume is a vendor session id to load.
+	resume string
+	// forkFrom and forkAt branch that session at that message, then load the
+	// branch. Both empty means no fork.
+	forkFrom string
+	forkAt   string
+}
+
 // Open starts a sandboxed Claude ACP process, connects over stdio, and creates a session.
 func (a *ClaudeAdapter) Open(ctx context.Context, spec OpenSpec) (SessionRuntime, error) {
-	return a.open(ctx, spec, "")
+	return a.open(ctx, spec, openPlan{})
+}
+
+// Fork branches a session at one of its messages, satisfying RuntimeForker.
+//
+// One process does both calls. session/fork does not leave the new session
+// loaded — measured (spike S1): forking from a process that never saw the
+// source works, and the branch has to be loaded before it will take a prompt.
+// Doing it here rather than in two adapter calls means a failed load kills the
+// same process that made the fork, instead of leaving one running.
+func (a *ClaudeAdapter) Fork(ctx context.Context, spec OpenSpec, srcACPSessionID, messageID string) (SessionRuntime, error) {
+	if srcACPSessionID == "" || messageID == "" {
+		return nil, fmt.Errorf("%w: fork needs a session and a message", ErrSessionNotFound)
+	}
+	return a.open(ctx, spec, openPlan{forkFrom: srcACPSessionID, forkAt: messageID})
 }
 
 // Load reopens a session that outlived the process that created it, satisfying
@@ -479,10 +539,11 @@ func (a *ClaudeAdapter) Load(ctx context.Context, spec OpenSpec, acpSessionID st
 	if acpSessionID == "" {
 		return nil, fmt.Errorf("%w: load needs the vendor session id", ErrSessionNotFound)
 	}
-	return a.open(ctx, spec, acpSessionID)
+	return a.open(ctx, spec, openPlan{resume: acpSessionID})
 }
 
-func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, resume string) (SessionRuntime, error) {
+func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, plan openPlan) (SessionRuntime, error) {
+	resume := plan.resume
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -497,6 +558,9 @@ func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, resume string) 
 	// carries API keys and is never logged.
 	log.Printf("agenthub: claude: starting %s %s in %s (read-only %v, sockets %v, resume %q)",
 		cmd.Path, strings.Join(cmd.Args, " "), pol.WorkDir, pol.ReadOnlyPaths, pol.AllowUnixSockets, resume)
+	if plan.forkFrom != "" {
+		log.Printf("agenthub: claude: forking session %s at message %s", plan.forkFrom, plan.forkAt)
+	}
 
 	// The sandbox process outlives the caller's request: sessions opened over
 	// MCP derive ctx from the client connection, and a client disconnect would
@@ -594,7 +658,7 @@ func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, resume string) 
 	var initRes acp.InitializeResult
 	if err := conn.Call(hsCtx, "initialize", acp.InitializeRequest{
 		ProtocolVersion:    1,
-		ClientCapabilities: devkitClientCapabilities(),
+		ClientCapabilities: devkitClientCapabilities(a.fileChangeReports()),
 		ClientInfo:         map[string]any{"name": "devkit", "version": "0.0.0"},
 	}, &initRes); err != nil {
 		herr := handshakeErr("initialize", err)
@@ -611,6 +675,28 @@ func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, resume string) 
 		mcpServers = append(mcpServers, srv)
 	}
 	meta := sessionNewMeta(devkitHookCommand(spec))
+
+	if plan.forkFrom != "" {
+		var forkRes acp.SessionForkResult
+		if err := conn.Call(hsCtx, "session/fork", acp.SessionForkRequest{
+			SessionID:  plan.forkFrom,
+			Cwd:        pol.WorkDir,
+			McpServers: mcpServers,
+			Meta:       withForkMeta(meta, plan.forkAt),
+		}, &forkRes); err != nil {
+			herr := handshakeErr("session/fork", err)
+			cleanup()
+			return nil, herr
+		}
+		if forkRes.SessionID == "" || forkRes.SessionID == plan.forkFrom {
+			// A vendor that answered with the source id has not branched
+			// anything, and loading it would attach this session to the
+			// conversation the rewind is trying to leave behind.
+			cleanup()
+			return nil, fmt.Errorf("%w: session/fork returned %q", ErrProcessFailed, forkRes.SessionID)
+		}
+		resume = forkRes.SessionID
+	}
 
 	if resume != "" {
 		var loadRes acp.SessionLoadResult
@@ -662,6 +748,31 @@ func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, resume string) 
 	rt.acpSessionID = newRes.SessionID
 	rt.modes = newRes.Modes
 	return rt, nil
+}
+
+// withForkMeta adds the branch point to the session `_meta`.
+//
+// Merged into what session/new would send rather than sent alone: a fork makes
+// a new vendor session, so it needs the same settingSources cut-off every other
+// session gets. The two live under different top-level keys — `claudeCode` and
+// `jetbrains` — so neither has to know about the other.
+func withForkMeta(base json.RawMessage, messageID string) json.RawMessage {
+	body := map[string]any{}
+	if len(base) > 0 {
+		if err := json.Unmarshal(base, &body); err != nil {
+			body = map[string]any{}
+		}
+	}
+	body["jetbrains"] = map[string]any{
+		"air": map[string]any{
+			"fork": map[string]any{"version": 1, "messageId": messageID},
+		},
+	}
+	merged, err := json.Marshal(body)
+	if err != nil {
+		return base
+	}
+	return merged
 }
 
 // probeTimeout bounds Probe's initialize. Shorter than handshakeTimeout:
@@ -779,7 +890,7 @@ func (a *ClaudeAdapter) initialize(ctx context.Context, l launch) (acp.Initializ
 	var res acp.InitializeResult
 	err = conn.Call(callCtx, "initialize", acp.InitializeRequest{
 		ProtocolVersion:    1,
-		ClientCapabilities: devkitClientCapabilities(),
+		ClientCapabilities: devkitClientCapabilities(a.fileChangeReports()),
 		ClientInfo:         map[string]any{"name": "devkit", "version": "0.0.0"},
 	}, &res)
 	if err == nil {
@@ -1055,12 +1166,19 @@ func (r *claudeRuntime) SetHandlers(h RuntimeHandlers) {
 // process is gone would mean spawning one to clean up after it — resumeRuntime
 // makes that possible if the leftovers ever matter more than the cost.
 func (r *claudeRuntime) Delete(ctx context.Context) error {
-	if r.acpSessionID == "" {
+	return r.DeleteSession(ctx, r.acpSessionID)
+}
+
+// DeleteSession asks this process's agent to forget any session, not just its
+// own — what a rewind needs for the conversation it replaced, whose own process
+// is already gone.
+func (r *claudeRuntime) DeleteSession(ctx context.Context, acpSessionID string) error {
+	if acpSessionID == "" {
 		return nil
 	}
 	var out json.RawMessage
 	if err := r.conn.Call(ctx, "session/delete", acp.SessionDeleteRequest{
-		SessionID: r.acpSessionID,
+		SessionID: acpSessionID,
 	}, &out); err != nil {
 		return fmt.Errorf("%w: session/delete: %v", ErrProcessFailed, err)
 	}
@@ -1073,7 +1191,7 @@ func (r *claudeRuntime) handlersSnapshot() RuntimeHandlers {
 	return r.handlers
 }
 
-func (r *claudeRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock) (PromptOutcome, error) {
+func (r *claudeRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock, meta json.RawMessage) (PromptOutcome, error) {
 	if err := ctx.Err(); err != nil {
 		return PromptOutcome{}, err
 	}
@@ -1096,6 +1214,7 @@ func (r *claudeRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock) (
 	err := conn.Call(ctx, "session/prompt", acp.PromptRequest{
 		SessionID: sid,
 		Prompt:    prompt,
+		Meta:      meta,
 	}, &res)
 	if err == nil {
 		log.Printf("agenthub: claude session/prompt returned (session %s, stop %q)", sid, res.StopReason)

@@ -367,10 +367,8 @@ func startSpikeAgent(t *testing.T, bin string) *spikeAgent {
 	a.conn = acp.NewConn(spikeRW{stdout, stdin}, a)
 	go func() { _ = a.conn.Serve(ctx) }()
 
-	caps := devkitClientCapabilities()
-	meta := caps["_meta"].(map[string]any)
-	air := meta["jetbrains"].(map[string]any)["air"].(map[string]any)
-	air["capabilities"] = append(air["capabilities"].([]string), "agentFileChangeReport")
+	// The spike always asks for the report: measuring S7 is the point of it.
+	caps := devkitClientCapabilities(true)
 	var init json.RawMessage
 	if err := a.conn.Call(ctx, "initialize", map[string]any{"protocolVersion": 1, "clientCapabilities": caps}, &init); err != nil {
 		a.close()

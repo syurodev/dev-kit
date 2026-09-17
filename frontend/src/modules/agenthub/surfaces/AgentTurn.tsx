@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { AnimatedCollapse } from "@/components/ui/animated-collapse";
 import { FADE_THROUGH } from "@/lib/motion";
 import type { TranscriptItem } from "../types";
+import type { CheckpointRecord, FileDiff } from "../../../../bindings/devkit/internal/agenthub/models";
 import { activityOf, stepSummary, workedFor, workSegments, type Turn } from "../turns";
 import {
   AgentPlan,
@@ -18,6 +19,7 @@ import {
 } from "../transcript/index";
 import { AgentProse } from "../transcript/AgentMessageRich";
 import { MessageActions } from "./MessageActions";
+import { AgentTurnChanges } from "./AgentTurnChanges";
 import { AgentFileChip } from "../transcript/AgentFileChip";
 
 export type AgentTurnProps = {
@@ -31,6 +33,23 @@ export type AgentTurnProps = {
    */
   latest?: boolean;
   vendor?: string;
+  /**
+   * What this turn changed on disk, if it was checkpointed. Absent for a turn
+   * that was not — which is not the same as a turn that changed nothing, so the
+   * count is simply not drawn rather than drawn as a zero.
+   */
+  checkpoint?: CheckpointRecord;
+  /** Loads one changed file's two versions, when its row is opened. */
+  loadFileDiff?: (checkpointId: string, path: string) => Promise<FileDiff>;
+  /**
+   * Opens the confirmation for taking the session back to this message.
+   * `editAfter` is the pencil: the same rewind, and then the message goes back
+   * in the composer to be changed and sent again.
+   *
+   * Offered only on a turn that can be rewound — the button is not a disabled
+   * affordance on every message, it is simply absent.
+   */
+  onRewind?: (promptMessageId: string, editAfter: boolean) => void;
   /** Opens the inspector for a reply that carries cost and timing. */
   onInspect?: (item: TranscriptItem) => void;
   /** Copy, in a message's hover card. */
@@ -69,6 +88,9 @@ export const AgentTurn = React.memo(function AgentTurn({
   live = false,
   latest = false,
   vendor,
+  checkpoint,
+  loadFileDiff,
+  onRewind,
   onInspect,
   onCopy,
   onEditPrompt,
@@ -76,6 +98,11 @@ export const AgentTurn = React.memo(function AgentTurn({
 }: AgentTurnProps) {
   const reduce = useReducedMotion() ?? false;
   const [open, setOpen] = React.useState(false);
+  // The prompt's own message id, when this turn can be rewound at all. Unlike
+  // the file half, a conversation rewind needs no checkpoint — the message id
+  // is the whole requirement — so this is offered on any prompt DevKit gave an
+  // id to, which since the checkpoint work is every prompt.
+  const rewindable = onRewind && turn.prompt?.messageId ? turn.prompt.messageId : "";
 
   const activity = React.useMemo(() => (live ? activityOf(turn) : null), [live, turn]);
   const answer = React.useMemo(() => turn.answer.filter((item) => item.text?.trim()), [turn.answer]);
@@ -110,7 +137,16 @@ export const AgentTurn = React.memo(function AgentTurn({
             text={turn.prompt.text ?? ""}
             at={turn.prompt.createdAt}
             onCopy={onCopy}
-            onEdit={onEditPrompt}
+            // The pencil means "edit and run again from here" once a rewind is
+            // possible: putting the old text in the composer without taking the
+            // conversation back would send it into a session that already
+            // answered it.
+            onEdit={
+              rewindable
+                ? () => onRewind?.(rewindable, true)
+                : onEditPrompt
+            }
+            onRewind={rewindable ? () => onRewind?.(rewindable, false) : undefined}
           >
             <div className="flex max-w-[80%] flex-col items-end gap-1.5">
               {/* What the prompt carried besides words, by name: an image-only
@@ -167,6 +203,14 @@ export const AgentTurn = React.memo(function AgentTurn({
               })}
           </AnimatedCollapse>
         </div>
+      ) : null}
+
+      {/* What the project looks like after, beside what the agent said it did.
+          Outside the work fold on purpose: the fold is the account of the work,
+          and this is the result — a turn whose only visible act was one shell
+          command can still have changed twenty files. */}
+      {checkpoint ? (
+        <AgentTurnChanges checkpoint={checkpoint} loadDiff={loadFileDiff} />
       ) : null}
 
       {answer.map((item) => (

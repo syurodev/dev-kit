@@ -8,6 +8,14 @@ import type {
   InvokeResult as RawInvokeResult,
   TranscriptEntry,
   ContextFile as RawContextFile,
+  CheckpointRecord,
+  FileDiff,
+  RestorePreview,
+  RestoreRequest,
+  RestoreResult,
+  RewindPreview,
+  RewindRequest,
+  RewindResult,
 } from "../../bindings/devkit/internal/agenthub/models";
 import type { SessionUpdate } from "../modules/agenthub/types";
 
@@ -157,6 +165,9 @@ const ELICITATION_EVENT = "agenthub:elicitation";
 const ELICITATION_CLOSED_EVENT = "agenthub:elicitationClosed";
 const TURN_FINISHED_EVENT = "agenthub:turnFinished";
 const NOTIFICATION_ACTION_EVENT = "agenthub:notificationAction";
+const CHECKPOINT_EVENT = "agenthub:checkpoint";
+const FILES_RESTORED_EVENT = "agenthub:filesRestored";
+const SESSION_REWOUND_EVENT = "agenthub:sessionRewound";
 
 function asVendor(value: string): AgentVendor | string {
   return value;
@@ -578,6 +589,132 @@ export function onAgentHubTurnFinished(
   return Events.On(TURN_FINISHED_EVENT, (ev) => {
     const parsed = parseSessionEvent(ev?.data);
     if (parsed) handler({ sessionId: parsed.sessionId, status: parsed.status ?? "idle", outcome: parsed.outcome ?? "" });
+  });
+}
+
+/**
+ * A turn's file checkpoint, once it is settled.
+ *
+ * It arrives after the turn has finished — the diff and the row are written off
+ * the turn's path — and again if the agent's own report of what it changed
+ * lands late, which re-attributes files the first pass could not account for.
+ */
+export function onAgentHubCheckpoint(
+  handler: (sessionId: string, checkpoint: CheckpointRecord) => void,
+): () => void {
+  return Events.On(CHECKPOINT_EVENT, (ev) => {
+    const record = Array.isArray(ev?.data) ? ev.data[0] : ev?.data;
+    if (!record || typeof record !== "object") return;
+    const value = record as Record<string, unknown>;
+    const sessionId = typeof value.sessionId === "string" ? value.sessionId : "";
+    const checkpoint = value.checkpoint;
+    if (!sessionId || !checkpoint || typeof checkpoint !== "object") return;
+    handler(sessionId, checkpoint as CheckpointRecord);
+  });
+}
+
+export function agentHubListCheckpoints(sessionId: string): Promise<CheckpointRecord[]> {
+  return callBridge(async () => {
+    const records = await AppService.AgentHubListCheckpoints(sessionId);
+    return (records ?? []) as CheckpointRecord[];
+  });
+}
+
+/**
+ * One changed file's two versions. The path is checked against the
+ * checkpoint's own list on the backend, so this cannot read an arbitrary file
+ * out of a project.
+ */
+export function agentHubCheckpointFileDiff(checkpointId: string, path: string): Promise<FileDiff> {
+  return callBridge(async () => {
+    const diff = await AppService.AgentHubCheckpointFileDiff(checkpointId, path);
+    return diff as FileDiff;
+  });
+}
+
+/**
+ * Works out what putting a turn's files back would do, without touching
+ * anything. The token it returns is the only handle on the plan — the plan
+ * itself stays on the backend, so nothing a client says can name a tree.
+ */
+export function agentHubPlanRestore(request: RestoreRequest): Promise<RestorePreview> {
+  return callBridge(async () => {
+    const preview = await AppService.AgentHubPlanRestore(request);
+    return preview as RestorePreview;
+  });
+}
+
+/** Carries out a plan. `overwrite` names the conflicts the user chose to force. */
+export function agentHubApplyRestore(token: string, overwrite: string[]): Promise<RestoreResult> {
+  return callBridge(async () => {
+    const result = await AppService.AgentHubApplyRestore(token, overwrite);
+    return result as RestoreResult;
+  });
+}
+
+/** Files on disk changed under whatever else is showing them. */
+export function onAgentHubFilesRestored(
+  handler: (sessionId: string, result: { written: string[]; deleted: string[]; safetyCheckpointId: string }) => void,
+): () => void {
+  return Events.On(FILES_RESTORED_EVENT, (ev) => {
+    const record = Array.isArray(ev?.data) ? ev.data[0] : ev?.data;
+    if (!record || typeof record !== "object") return;
+    const value = record as Record<string, unknown>;
+    const sessionId = typeof value.sessionId === "string" ? value.sessionId : "";
+    if (!sessionId) return;
+    handler(sessionId, {
+      written: Array.isArray(value.written) ? (value.written as string[]) : [],
+      deleted: Array.isArray(value.deleted) ? (value.deleted as string[]) : [],
+      safetyCheckpointId: typeof value.safetyCheckpointId === "string" ? value.safetyCheckpointId : "",
+    });
+  });
+}
+
+/**
+ * Works out what taking a session back to a message would do — to the
+ * conversation, the files, or both — without touching anything.
+ */
+export function agentHubPlanRewind(request: RewindRequest): Promise<RewindPreview> {
+  return callBridge(async () => {
+    const preview = await AppService.AgentHubPlanRewind(request);
+    return preview as RewindPreview;
+  });
+}
+
+export function agentHubApplyRewind(token: string, overwrite: string[]): Promise<RewindResult> {
+  return callBridge(async () => {
+    const result = await AppService.AgentHubApplyRewind(token, overwrite);
+    return result as RewindResult;
+  });
+}
+
+/** The rewinds that never finished, so a session can offer to put its files back. */
+export function agentHubInterruptedRewinds(): Promise<CheckpointRecord[]> {
+  return callBridge(async () => {
+    const records = await AppService.AgentHubInterruptedRewinds();
+    return (records ?? []) as CheckpointRecord[];
+  });
+}
+
+export function agentHubDismissInterruptedRewind(checkpointId: string): Promise<void> {
+  return callBridge(() => AppService.AgentHubDismissInterruptedRewind(checkpointId) as Promise<void>);
+}
+
+/**
+ * A session's conversation was cut. The transcript on screen now holds messages
+ * the session no longer has, which no other event would explain — so this is a
+ * reload, not a patch.
+ */
+export function onAgentHubSessionRewound(
+  handler: (sessionId: string, promptText: string) => void,
+): () => void {
+  return Events.On(SESSION_REWOUND_EVENT, (ev) => {
+    const record = Array.isArray(ev?.data) ? ev.data[0] : ev?.data;
+    if (!record || typeof record !== "object") return;
+    const value = record as Record<string, unknown>;
+    const sessionId = typeof value.sessionId === "string" ? value.sessionId : "";
+    if (!sessionId) return;
+    handler(sessionId, typeof value.promptText === "string" ? value.promptText : "");
   });
 }
 

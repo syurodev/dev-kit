@@ -2,7 +2,9 @@ import { AppService } from "../../bindings/devkit/internal/bridge";
 import {
   Theme as NativeTheme,
   ThemeFamily as NativeThemeFamily,
+  type AgentCheckpointSettings,
 } from "../../bindings/devkit/internal/preferences/models";
+import type { CheckpointAvailability } from "../../bindings/devkit/internal/agenthub/models";
 import { callBridge } from "./client";
 
 export const themePreferences = ["system", "light", "dark"] as const;
@@ -72,4 +74,28 @@ export function getAgentNotifications(): Promise<boolean> {
 
 export function saveAgentNotifications(enabled: boolean): Promise<void> {
   return callBridge(() => AppService.PreferencesSetAgentNotifications(enabled));
+}
+
+/** How Agent Hub snapshots a project's files around each turn. */
+export function getAgentCheckpoints(): Promise<AgentCheckpointSettings> {
+  return callBridge(async () => {
+    const settings = await AppService.PreferencesGetAgentCheckpoints();
+    return settings as AgentCheckpointSettings;
+  });
+}
+
+export function saveAgentCheckpoints(settings: AgentCheckpointSettings): Promise<void> {
+  return callBridge(() => AppService.PreferencesSetAgentCheckpoints(settings) as Promise<void>);
+}
+
+/**
+ * Whether this machine can take checkpoints at all, and which projects it could
+ * not. Separate from the setting: a machine can be able and switched off, and
+ * "off" with no reason reads as broken.
+ */
+export function getAgentCheckpointAvailability(): Promise<CheckpointAvailability> {
+  return callBridge(async () => {
+    const status = await AppService.AgentHubCheckpointAvailability();
+    return status as CheckpointAvailability;
+  });
 }

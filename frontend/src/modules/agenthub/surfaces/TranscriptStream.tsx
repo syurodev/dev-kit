@@ -11,6 +11,8 @@ import { groupTurns, type Turn } from "../turns";
 import { AgentJumpToLatest } from "./AgentJumpToLatest";
 import { AgentMetaInspector } from "./AgentMetaInspector";
 import { AgentTurn } from "./AgentTurn";
+import { EMPTY_CHECKPOINTS, type CheckpointIndex } from "../checkpoints";
+import type { FileDiff } from "../../../../bindings/devkit/internal/agenthub/models";
 import { TranscriptTicks, ticksOf } from "./TranscriptTicks";
 
 export type TranscriptStreamProps = {
@@ -19,6 +21,15 @@ export type TranscriptStreamProps = {
   streamKey?: string;
   /** The vendor, for marks and metadata — not what a message is signed with. */
   vendor?: string;
+  /**
+   * The session's file checkpoints, keyed on the prompt that started each turn.
+   * Turns with no entry draw no count.
+   */
+  checkpoints?: CheckpointIndex;
+  /** Loads one changed file's two versions, when its row is opened. */
+  loadFileDiff?: (checkpointId: string, path: string) => Promise<FileDiff>;
+  /** Opens the confirmation for taking the session back to a message. */
+  onRewind?: (promptMessageId: string, editAfter: boolean) => void;
   /** A turn is in flight. The newest turn runs its orb and follows its steps. */
   streaming?: boolean;
   /** Copy, in each message's hover card. */
@@ -125,6 +136,9 @@ export function TranscriptStream({
   items,
   streamKey,
   vendor = "Claude",
+  checkpoints = EMPTY_CHECKPOINTS,
+  loadFileDiff,
+  onRewind,
   streaming = false,
   onCopy,
   onEditPrompt,
@@ -412,6 +426,9 @@ export function TranscriptStream({
         latest={latest}
         live={latest && streaming}
         vendor={vendor}
+        checkpoint={turn.prompt?.messageId ? checkpoints.get(turn.prompt.messageId) : undefined}
+        loadFileDiff={loadFileDiff}
+        onRewind={onRewind}
         onInspect={setInspecting}
         onCopy={stableOnCopy}
         onEditPrompt={stableOnEditPrompt}

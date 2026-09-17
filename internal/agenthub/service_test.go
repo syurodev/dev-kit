@@ -428,7 +428,7 @@ func (r *dyingRuntime) SetHandlers(h agenthub.RuntimeHandlers) { r.handlers = h 
 func (r *dyingRuntime) Cancel(context.Context) error           { return nil }
 func (r *dyingRuntime) Close(context.Context) error            { return nil }
 
-func (r *dyingRuntime) Prompt(ctx context.Context, _ []acp.ContentBlock) (agenthub.PromptOutcome, error) {
+func (r *dyingRuntime) Prompt(ctx context.Context, _ []acp.ContentBlock, _ json.RawMessage) (agenthub.PromptOutcome, error) {
 	r.cancel() // the process died; whoever was waiting on this turn gave up
 	update, _ := json.Marshal(map[string]any{
 		"sessionUpdate": "agent_message_chunk",
@@ -526,7 +526,7 @@ func (r *titlingRuntime) SetHandlers(h agenthub.RuntimeHandlers) { r.handlers = 
 func (r *titlingRuntime) Cancel(context.Context) error           { return nil }
 func (r *titlingRuntime) Close(context.Context) error            { return nil }
 
-func (r *titlingRuntime) Prompt(context.Context, []acp.ContentBlock) (agenthub.PromptOutcome, error) {
+func (r *titlingRuntime) Prompt(context.Context, []acp.ContentBlock, json.RawMessage) (agenthub.PromptOutcome, error) {
 	if r.handlers.OnUpdate != nil {
 		r.handlers.OnUpdate([]byte(`{"sessionUpdate":"session_info_update","title":"Dev-kit-backend"}`), nil)
 	}
@@ -778,11 +778,11 @@ type crashingRuntime struct {
 
 func (r *crashingRuntime) Dead() (bool, error) { return r.dead, nil }
 
-func (r *crashingRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock) (agenthub.PromptOutcome, error) {
+func (r *crashingRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock, _ json.RawMessage) (agenthub.PromptOutcome, error) {
 	if r.dead {
 		return agenthub.PromptOutcome{}, agenthub.ErrSessionNotFound
 	}
-	return r.titlingRuntime.Prompt(ctx, prompt)
+	return r.titlingRuntime.Prompt(ctx, prompt, nil)
 }
 
 // crashResumeAdapter is a crashingRuntime plus SessionLoader: the vendor can
@@ -1042,7 +1042,7 @@ type stallingRuntime struct {
 	release  chan struct{}
 }
 
-func (r *stallingRuntime) Prompt(context.Context, []acp.ContentBlock) (agenthub.PromptOutcome, error) {
+func (r *stallingRuntime) Prompt(context.Context, []acp.ContentBlock, json.RawMessage) (agenthub.PromptOutcome, error) {
 	for _, token := range []string{"hello ", "wor", "ld"} {
 		r.handlers.OnUpdate([]byte(`{"sessionUpdate":"agent_message_chunk","messageId":"m1","content":{"type":"text","text":"`+token+`"}}`), nil)
 	}

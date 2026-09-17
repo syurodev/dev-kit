@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Check, Copy, Pencil } from "lucide-react";
+import { Check, Copy, Pencil, Undo2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,12 @@ export type MessageActionsProps = {
   onCopy?: (text: string) => void;
   /** Your own prompt only: puts its text back in the composer. */
   onEdit?: (text: string) => void;
+  /**
+   * Your own prompt only: opens the confirmation for taking the session back
+   * to this message. Absent when this turn cannot be rewound, so the button is
+   * never there to be pressed on a message nothing can be done with.
+   */
+  onRewind?: () => void;
 };
 
 /** "2:56 PM" in the viewer's own locale; nothing for a row without a clock. */
@@ -43,10 +49,20 @@ function timeOf(at?: string): string {
  * next message instead. Hidden rows are still not a line of chrome under every
  * message: they are empty space until pointed at.
  */
-export function MessageActions({ children, align, text, at, meta, onDetails, onCopy, onEdit }: MessageActionsProps) {
+export function MessageActions({
+  children,
+  align,
+  text,
+  at,
+  meta,
+  onDetails,
+  onCopy,
+  onEdit,
+  onRewind,
+}: MessageActionsProps) {
   const [copied, setCopied] = React.useState(false);
   const time = timeOf(at);
-  if (!time && !meta && !onCopy && !onEdit) return <>{children}</>;
+  if (!time && !meta && !onCopy && !onEdit && !onRewind) return <>{children}</>;
 
   return (
     <div
@@ -92,6 +108,18 @@ export function MessageActions({ children, align, text, at, meta, onDetails, onC
             }}
           >
             {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
+          </Button>
+        ) : null}
+        {onRewind ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Rewind to this message"
+            data-testid="message-rewind"
+            onClick={onRewind}
+          >
+            <Undo2 aria-hidden="true" />
           </Button>
         ) : null}
         {onEdit ? (

@@ -1,7 +1,10 @@
 // Package preferences owns local, non-secret application preferences.
 package preferences
 
-import "errors"
+import (
+	"errors"
+	"strings"
+)
 
 type Theme string
 
@@ -40,6 +43,89 @@ var ErrInvalidThemeFamily = errors.New("unsupported theme family")
 // switched away is not left waiting on an agent that is waiting on them.
 const DefaultAgentNotifications = true
 
+// AgentCheckpointSettings is how Agent Hub's file checkpoints behave.
+//
+// One value rather than four keys: the three numbers only make sense against
+// the switch — a retention of 30 days on a feature that is off means nothing —
+// and reading them apart would let the UI show a half-applied state while two
+// writes were in flight.
+type AgentCheckpointSettings struct {
+	// Enabled is the user's switch. A machine with no usable git reports the
+	// feature off whatever this says; the two are separate facts and the
+	// Settings row shows both.
+	Enabled bool `json:"enabled"`
+	// MaxFileSizeMiB is the per-file ceiling. A file over it is left out of
+	// every snapshot, and a restore will not touch it: no tree holds its
+	// content, so acting on one would be a guess.
+	MaxFileSizeMiB int `json:"maxFileSizeMiB"`
+	// RetentionDays is how long a checkpoint outlives its turn.
+	RetentionDays int `json:"retentionDays"`
+	// ExtraExcludes are gitignore-syntax patterns on top of the built-in deny
+	// list, for a project with a large generated directory DevKit does not know
+	// about.
+	ExtraExcludes []string `json:"extraExcludes,omitempty"`
+}
+
+// The bounds a stored value is clamped into. Not validation that refuses — a
+// number outside them is a number the user typed, and refusing the write would
+// leave the setting showing something that is not what is stored.
+const (
+	minCheckpointFileSizeMiB = 1
+	maxCheckpointFileSizeMiB = 1024
+	minCheckpointRetention   = 1
+	maxCheckpointRetention   = 3650
+	maxCheckpointExcludes    = 64
+)
+
+// DefaultAgentCheckpoints is on, with the numbers Phase C measured against.
+//
+// On by default because a user who never finds the setting still gets the undo,
+// and a machine without a usable git falls back to off on its own — the
+// availability check, not the preference, is what turns it off there.
+func DefaultAgentCheckpoints() AgentCheckpointSettings {
+	return AgentCheckpointSettings{Enabled: true, MaxFileSizeMiB: 10, RetentionDays: 30}
+}
+
+// Normalized returns the settings with every value inside its bounds and the
+// patterns trimmed. Applied on the way in and on the way out, so a value
+// written by an older build — or by hand — still reads as something usable.
+func (s AgentCheckpointSettings) Normalized() AgentCheckpointSettings {
+	defaults := DefaultAgentCheckpoints()
+	if s.MaxFileSizeMiB == 0 {
+		s.MaxFileSizeMiB = defaults.MaxFileSizeMiB
+	}
+	if s.RetentionDays == 0 {
+		s.RetentionDays = defaults.RetentionDays
+	}
+	s.MaxFileSizeMiB = clamp(s.MaxFileSizeMiB, minCheckpointFileSizeMiB, maxCheckpointFileSizeMiB)
+	s.RetentionDays = clamp(s.RetentionDays, minCheckpointRetention, maxCheckpointRetention)
+
+	patterns := make([]string, 0, len(s.ExtraExcludes))
+	seen := map[string]bool{}
+	for _, pattern := range s.ExtraExcludes {
+		pattern = strings.TrimSpace(pattern)
+		// An empty pattern is not "exclude nothing" to git — it is a line git
+		// ignores, and keeping it would make the list look longer than it is.
+		if pattern == "" || seen[pattern] || len(patterns) == maxCheckpointExcludes {
+			continue
+		}
+		seen[pattern] = true
+		patterns = append(patterns, pattern)
+	}
+	s.ExtraExcludes = patterns
+	return s
+}
+
+func clamp(value, low, high int) int {
+	if value < low {
+		return low
+	}
+	if value > high {
+		return high
+	}
+	return value
+}
+
 type Repository interface {
 	GetTheme() (Theme, bool, error)
 	SetTheme(theme Theme) error
@@ -47,6 +133,8 @@ type Repository interface {
 	SetThemeFamily(family ThemeFamily) error
 	GetAgentNotifications() (bool, bool, error)
 	SetAgentNotifications(enabled bool) error
+	GetAgentCheckpoints() (AgentCheckpointSettings, bool, error)
+	SetAgentCheckpoints(settings AgentCheckpointSettings) error
 }
 
 type Service struct {
@@ -129,4 +217,23 @@ func (s *Service) AgentNotifications() (bool, error) {
 
 func (s *Service) SetAgentNotifications(enabled bool) error {
 	return s.repo.SetAgentNotifications(enabled)
+}
+
+// AgentCheckpoints reports how Agent Hub snapshots a project's files around
+// each turn. Off also means DevKit never asks the agent for its own file-change
+// report, which is what keeps the vendor's native file history off the user's
+// disk when they have said no.
+func (s *Service) AgentCheckpoints() (AgentCheckpointSettings, error) {
+	settings, found, err := s.repo.GetAgentCheckpoints()
+	if err != nil {
+		return AgentCheckpointSettings{}, err
+	}
+	if !found {
+		return DefaultAgentCheckpoints(), nil
+	}
+	return settings.Normalized(), nil
+}
+
+func (s *Service) SetAgentCheckpoints(settings AgentCheckpointSettings) error {
+	return s.repo.SetAgentCheckpoints(settings.Normalized())
 }

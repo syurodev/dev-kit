@@ -6,11 +6,11 @@
 |---|---|
 | A — Nâng adapter 0.78 + spike | **Xong** (2026-09-17) |
 | B — Tiền đề trong code hiện có | **Xong** (2026-09-17) |
-| C — Engine `internal/checkpoint` | Chưa làm |
-| D — Chụp mỗi lượt + report + UI "file đã đổi" | Chưa làm |
-| E — Khôi phục code | Chưa làm |
-| F — Rewind hội thoại + code | Chưa làm |
-| G — Settings + tài liệu | Chưa làm |
+| C — Engine `internal/checkpoint` | **Xong** (2026-09-17) |
+| D — Chụp mỗi lượt + report + UI "file đã đổi" | **Xong** (2026-09-17) |
+| E — Khôi phục code | **Xong** (2026-09-17) |
+| F — Rewind hội thoại + code | **Xong** (2026-09-17) |
+| G — Settings + tài liệu | **Xong** (2026-09-17) |
 
 **Đã có sau A:** pin `0.78.0`; test live đều qua (install, `_meta` channel, integration, resume,
 auth); builder AskUserQuestion gửi cả lựa chọn lẫn `question_N_custom`; `ToolCall.Name` (top-level
@@ -24,6 +24,91 @@ S4 chunk subagent tới dưới `params.sessionId` của subagent với `msg_…
 `/compact` — chạy (không cần chặn); S6 `session/delete` session chưa load — chạy; S7 report ở
 `update._meta.jetbrains.air.agentFileChangeReport` của `session_info_update`, cùng lúc prompt
 response, **không** có file do Bash tạo, lượt huỷ → `unavailable/cancelled`.
+
+**Đã có sau G:** preference `agent_checkpoints` thành **một giá trị JSON**
+`{enabled, maxFileSizeMiB, retentionDays, extraExcludes}` — `Normalized()` **kẹp** số ngoài biên chứ
+không từ chối, bỏ pattern rỗng/trùng, và đọc được cả giá trị boolean thuần của bản trước;
+`Engine.SetLimits` đổi limits tại chỗ (giữ shadow repo đã warm); `EngineCheckpoints.ApplySettings`
+là chỗ duy nhất map setting → limit; `CheckpointAvailability` + `noteProblem` (project nào không
+chụp được, vì sao); bridge `PreferencesGet/SetAgentCheckpoints` + `AgentHubCheckpointAvailability`,
+đổi setting **áp dụng ngay**; UI Settings → Agents → FILE CHECKPOINTS (công tắc, dòng trạng thái tách
+"máy làm được không" khỏi "người dùng có bật không", ba ô số/pattern lưu khi rời ô, danh sách project
+có vấn đề); tài liệu FR-14…19 trong `agent-hub.mdx` + `implementation-status.mdx`.
+
+**Đã có sau F:** `acp.SessionForkRequest/Result`; `RuntimeForker` + `ClaudeAdapter.Fork` (một
+process: initialize → `session/fork` → `session/load(newId)`, `_meta` **gộp** `claudeCode.options`
+với `jetbrains.air.fork`, từ chối khi vendor trả về chính id nguồn); `VendorSessionDeleter` để xoá
+session vendor khác của chính mình; mock có `Fork`/`FailNextFork`/`Forks`/`Deleted`;
+`planRewindCut` (fork point = message `msg_…` **mới nhất** của luồng chính, bỏ qua subagent theo
+`origin`; cut lùi về prompt đầu tiên **sau** fork point nên lượt không có trả lời bị cắt theo, và
+`ExtraTurnsDropped` nói rõ); `RewindStore.RewindSession` một transaction (acp_session_id, cắt
+transcript giữ mode/config/commands **và đánh số lại**, xoá usage, xoá turns/checkpoints của prompt
+bị cắt, safety row → done); `PlanRewind`/`ApplyRewind` đủ 10 bước; `reapplySessionSettings` (S2);
+`InterruptedRewinds`/`DismissInterruptedRewind`; bridge + event `agenthub:sessionRewound`; UI
+`RewindDialog` (chọn phạm vi → re-plan, cảnh báo hàng đợi, ghi chú "ảnh/file không khôi phục được"),
+nút Rewind + bút chì "sửa và chạy lại từ đây" trên bong bóng prompt, subscriber reload transcript +
+xoá thẻ permission/câu hỏi, `AgentRail` nay có `onCopy`/`onEditPrompt`.
+
+**Lệch khỏi plan ở F:** (1) menu ba mode **không** nằm trên nút — nằm trong dialog, vì đằng nào
+dialog cũng phải hỏi lại khi đổi phạm vi (mỗi phạm vi là một plan khác); nút mở dialog, bút chì mở
+cùng dialog với `editAfter`. (2) `ApplyRestore` tách thành `applyRestoreClaimed` — rewind đã giữ
+claim, gọi lại `ApplyRestore` sẽ tự khoá chính mình. (3) S5 đã qua ở Phase A nên **không** chặn
+rewind vượt compaction. (4) Lỗi thật tìm thấy: payload transcript lưu `SessionUpdate` **đã chuẩn
+hoá**, không phải wire frame — `ParseSessionUpdate` trên nó im lặng trả về kind unknown, nên
+`reapplySessionSettings` sẽ âm thầm không áp lại gì.
+
+**Đã có sau E:** engine `PlanRestore(target, expected, only, protected)` — thêm lọc `only`, vì
+"hoàn tác lượt này" và "về trước lượt N" **cùng đích, cùng expected**, chỉ khác tập path (`nil` =
+mọi path, `[]` = không path nào); service `PlanRestore(RestoreRequest)` → `RestorePreview{token,…}`
+và `ApplyRestore(token, overwrite)`, ba mode `undo` / `toBefore` / `undoRestore`; plan giữ ở backend
+(token không mang quyền), TTL 15 phút, **dùng một lần**; từ chối caller là agent ở **cả hai** hàm,
+từ chối session đang chạy/chờ permission/giữ claim, claim session suốt lúc apply; luôn ghi safety row
+trước khi ghi gì, `activity.Begin(KindRestore)`; cảnh báo: session khác đang chạy cùng project, lượt
+chỉ ghi được một nửa, không có snapshot đầy đủ nào; bridge `AgentHubPlanRestore`/`AgentHubApplyRestore`
++ grant `restore:*`, event `agenthub:filesRestored`; UI `RestoreFilesDialog` (chọn phạm vi → tự
+re-plan, danh sách ghi/xoá, xung đột có checkbox chỉ cho cái ép được, cảnh báo, nút chết khi không có
+gì để làm) + nút undo trên bong bóng prompt **chỉ hiện khi thật sự hoàn tác được**.
+
+**Lệch khỏi plan ở E:** "hiện tại mong đợi" **không** tính per-path là "after của lượt cuối chạm path
+đó" — snapshot là cây đầy đủ chứ không phải delta, nên after tree của checkpoint **mới nhất** đã mang
+nội dung cuối cùng đã biết của mọi path. Một cây, cùng ngữ nghĩa, không cần API per-path.
+
+**Đã có sau D:** store `CheckpointStore` (`CheckpointRecord`, `ChangedFile`, kind/status/outcome);
+`Checkpoints` interface + `noCheckpoints` (nil = tắt, `Invoke` không rẽ nhánh) + `EngineCheckpoints`;
+`Invoke` mở checkpoint ngay sau claim (chụp **before** song song `runtimeFor`, `Wait()` trước
+`rt.Prompt`), `Prompt(ctx, prompt, meta)` mang
+`_meta.jetbrains.air.agentFileChangeReportRequest{version:1,requestId}`, chụp **after** ngay sau
+`rt.Prompt` **trên một chỗ duy nhất** (trước mọi nhánh đổi status), diff + gán nguồn chạy nền;
+gán nguồn `agent` (report vendor **hoặc** `tool_call.locations`, đường tuyệt đối → tương đối) /
+`child` / `unattributed` + `overlap`; `AttachReport` xử lý cả report tới **sau** lượt (sửa lại dòng đã
+ghi); capability `agentFileChangeReport` chỉ khai báo khi bật (`ClaudeOptions.FileChangeReports`);
+preference `agent_checkpoints` (mặc định bật, tắt theo availability); bridge
+`AgentHubListCheckpoints`/`AgentHubCheckpointFileDiff` + grant `checkpoint:*`, event
+`agenthub:checkpoint`; baseline nền lúc tạo/resume; `Maintain` chạy nền lúc khởi động; UI
+`AgentTurnChanges` ("N file đã đổi", +/- , nhãn nguồn, drawer diff từng file, cảnh báo
+"không hoàn tác được" **ngoài** fold), hook `useSessionCheckpoints`.
+
+**Lệch khỏi plan ở D:** (1) khoá project trong engine đổi từ `sync.Mutex` sang semaphore theo
+context — ngân sách 5s của snapshot đầu lượt không bỏ được `Mutex` khi session khác đang giữ;
+(2) report đọc ngay trong `Service` (handler `OnUpdate` đã có cả `update` lẫn `meta`) thay vì trong
+adapter, nên adapter không phải biết gì về checkpoint; (3) `Maintain` nằm trên `EngineCheckpoints`
+chứ không gọi thẳng `engine.Maintain(store)` — hai bên có hình dạng Record khác nhau, dịch là việc
+của `agenthub` chứ không phải `main.go`.
+
+**Đã có sau C:** `internal/checkpoint` (leaf, có luật trong `internal/arch`): `Locate` (Homebrew →
+`/usr/local` → `LookPath` → shim macOS **không bao giờ chạy** khi thiếu CLT, sàn 2.26, đọc được banner
+Apple); `Engine`/`Repo` shadow repo `<root>/<sha256(EvalSymlinks(project))[:16]>` 0700 + marker
+`devkit-project`, env sạch, mutex mỗi project, `WaitDelay` giết git quá hạn; `Snapshot` (`ls-files -x`
++ lọc Go, `Skipped`, ref `refs/devkit/cp/<id>/{before,after}`); `Diff` (`--raw` + `--numstat`),
+`FileContent`; `PlanRestore`/`ApplyRestore` (+`ErrPlanStale`); `Activity`; `Maintain`.
+
+**Lệch khỏi plan, có lý do đo được:** (1) `info/attributes` bỏ `-diff -merge` — `-diff` làm `--numstat`
+coi mọi file là binary nên mất số +/-, mà hai cái đó không đổi byte lúc checkout; (2) snapshot phải
+xoá index **trước** khi thêm, và file-thành-thư-mục phải `--force-remove`, nếu không `update-index`
+gãy "appears as both a file and as a directory" khi thư mục ↔ symlink; (3) `ENOTDIR` phải tính là
+"không có file" (thư mục thành symlink-tới-file), nếu không lượt mất checkpoint; (4) `ApplyRestore`
+tự chụp lại và từ chối `ErrPlanStale` — khe thời gian của dialog restore giống hệt rewind.
+Đo thêm: `update-ref` trỏ thẳng vào tree được và `gc --prune=now` giữ tree đó, không cần `commit-tree`.
 
 **Đã có sau B:** `Invoke` sinh một `promptMessageID` sau claim — echo mang nó, `TurnRecord.PromptMessageID`
 lưu nó; **luôn** echo kể cả prompt chỉ ảnh/file (`SessionUpdate.Attachments`, wire `_devkit.attachments`,

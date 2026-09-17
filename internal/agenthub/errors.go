@@ -5,7 +5,19 @@ import "errors"
 var (
 	ErrSessionNotFound         = errors.New("agenthub.sessionNotFound")
 	ErrTranscriptEntryNotFound = errors.New("agenthub.transcriptEntryNotFound")
-	ErrSessionBusy             = errors.New("agenthub.sessionBusy")
+	// ErrCheckpointNotFound is a checkpoint id that is not in the table —
+	// retention swept it, or a session it belonged to was deleted.
+	ErrCheckpointNotFound = errors.New("agenthub.checkpointNotFound")
+	// ErrRestorePlanStale is an Apply whose preview is gone: already used,
+	// expired, or from a process that has since restarted. The dialog the user
+	// read described a project that may have moved on, so it is made again
+	// rather than carried out.
+	ErrRestorePlanStale = errors.New("agenthub.restorePlanStale")
+	// ErrRestoreNotPermitted is an agent asking to restore files. Undoing a
+	// turn is the person's, not the agent's: an agent that could reverse its
+	// own work could hide it.
+	ErrRestoreNotPermitted = errors.New("agenthub.restoreNotPermitted")
+	ErrSessionBusy         = errors.New("agenthub.sessionBusy")
 	// ErrSessionClosed is a settings call on a session whose process is parked.
 	// Not sessionNotFound: the conversation is there and a prompt brings it
 	// back, so the message has to say that rather than deny the session exists.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"devkit/internal/agenthub"
 	"devkit/internal/preferences"
 )
 
@@ -115,6 +116,93 @@ func (s *AppService) PreferencesSetAgentNotifications(enabled bool) error {
 		return nil, nil
 	})
 	return err
+}
+
+// PreferencesGetAgentCheckpoints reads how Agent Hub snapshots a project's
+// files around each turn.
+func (s *AppService) PreferencesGetAgentCheckpoints() (preferences.AgentCheckpointSettings, error) {
+	result, err := s.call(context.Background(), "builtin.settings", "preferences:read", "agent_checkpoints", map[string]any{
+		"action": "get_agent_checkpoints",
+	}, func(context.Context) (any, error) {
+		if s.container.Preferences == nil {
+			return nil, errPreferencesUnavailable
+		}
+		return s.container.Preferences.AgentCheckpoints()
+	})
+	if err != nil {
+		return preferences.AgentCheckpointSettings{}, err
+	}
+	return result.(preferences.AgentCheckpointSettings), nil
+}
+
+// PreferencesSetAgentCheckpoints stores the settings and applies them to the
+// running engine.
+//
+// Applied rather than left for the next restart, because the numbers are what a
+// user reaches for when a project is not being checkpointed — raising the file
+// ceiling and having to quit DevKit to find out whether it helped is not a
+// setting, it is a guess. The engine keeps the shadow repositories it has
+// already warmed, so a change costs nothing.
+func (s *AppService) PreferencesSetAgentCheckpoints(settings preferences.AgentCheckpointSettings) error {
+	_, err := s.call(context.Background(), "builtin.settings", "preferences:write", "agent_checkpoints", map[string]any{
+		"action":  "set_agent_checkpoints",
+		"enabled": settings.Enabled,
+	}, func(context.Context) (any, error) {
+		if s.container.Preferences == nil {
+			return nil, errPreferencesUnavailable
+		}
+		if err := s.container.Preferences.SetAgentCheckpoints(settings); err != nil {
+			return nil, err
+		}
+		s.applyCheckpointSettings(settings)
+		return nil, nil
+	})
+	return err
+}
+
+// applyCheckpointSettings makes a stored preference true of the running engine.
+//
+// Both halves: the numbers go to the engine, and the switch goes to the hub —
+// an engine with new limits that the hub is not calling would be a setting that
+// looks applied and is not.
+func (s *AppService) applyCheckpointSettings(settings preferences.AgentCheckpointSettings) {
+	checkpoints := s.container.AgentCheckpoints
+	if checkpoints == nil {
+		return
+	}
+	checkpoints.ApplySettings(settings.MaxFileSizeMiB, settings.RetentionDays, settings.ExtraExcludes)
+	if s.container.AgentHub == nil {
+		return
+	}
+	if settings.Enabled {
+		s.container.AgentHub.SetCheckpoints(checkpoints)
+		return
+	}
+	// nil, not a disabled engine: the shadow repositories stay on disk and stay
+	// warm, so turning it back on does not re-pay the first snapshot of every
+	// project.
+	s.container.AgentHub.SetCheckpoints(nil)
+}
+
+// AgentHubCheckpointAvailability is what Settings shows beside the switch:
+// whether the machine can do this at all, and which projects it could not.
+func (s *AppService) AgentHubCheckpointAvailability() (agenthub.CheckpointAvailability, error) {
+	result, err := s.call(context.Background(), "builtin.settings", "preferences:read", "agent_checkpoints", map[string]any{
+		"action": "checkpoint_availability",
+	}, func(context.Context) (any, error) {
+		if s.container.Preferences == nil {
+			return nil, errPreferencesUnavailable
+		}
+		settings, err := s.container.Preferences.AgentCheckpoints()
+		if err != nil {
+			return nil, err
+		}
+		return s.container.AgentCheckpoints.Availability(settings.Enabled), nil
+	})
+	if err != nil {
+		return agenthub.CheckpointAvailability{}, err
+	}
+	return result.(agenthub.CheckpointAvailability), nil
 }
 
 func (s *AppService) PreferencesSetThemeFamily(family preferences.ThemeFamily) error {
