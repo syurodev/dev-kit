@@ -105,3 +105,23 @@ describe("message actions", () => {
     expect(html).toContain('aria-label="Edit in composer"');
   });
 });
+
+describe("a prompt of only attachments", () => {
+  it("is still its own turn, and its bubble names what it carried", () => {
+    const turns = groupTurns([
+      { id: "u1", kind: "user_message_chunk", text: "first", messageId: "p1" },
+      { id: "a1", kind: "agent_message_chunk", text: "ok", messageId: "msg_1" },
+      { id: "u2", kind: "user_message_chunk", text: "", messageId: "p2", attachments: [{ name: "screen.png", kind: "image" }, { name: "notes.md", kind: "file" }] },
+      { id: "a2", kind: "agent_message_chunk", text: "I see a screenshot", messageId: "msg_2" },
+    ]);
+    expect(turns).toHaveLength(2);
+    expect(turns[1].prompt?.messageId).toBe("p2");
+
+    const html = renderToString(<AgentTurn turn={turns[1]} onCopy={() => {}} />);
+    expect(html).toContain('data-testid="turn-prompt-attachments"');
+    expect(html).toContain("screen.png");
+    expect(html).toContain("notes.md");
+    // No empty text bubble for a prompt that had no words.
+    expect(html).not.toContain('data-testid="turn-prompt"');
+  });
+});

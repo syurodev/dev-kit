@@ -2,6 +2,7 @@ package agenthub_test
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1664,5 +1665,54 @@ func TestSettingsOnAClosedSessionSayItIsClosed(t *testing.T) {
 	}
 	if len(adapter.loads) != 0 {
 		t.Fatal("a settings call must not spawn a process for a session nobody is using")
+	}
+}
+
+func TestEveryPromptStartsATurnUnderOneName(t *testing.T) {
+	// A prompt of only an image used to leave no echo: its reply folded into
+	// the turn before, and nothing named the turn a rewind would go back to.
+	db, err := storage.Open(filepath.Join(t.TempDir(), "devkit.db"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if err := storage.Migrate(context.Background(), db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	reg := agenthub.NewRegistry()
+	reg.Register(agenthub.NewMockAdapter())
+	store := agenthub.NewSQLStore(db)
+	svc := agenthub.NewService(reg, store, func(string, json.RawMessage) {})
+	ctx := context.Background()
+	sess, err := svc.CreateSession(ctx, agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: t.TempDir()})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	image := agenthub.ImageAttachment{Name: "screen.png", MimeType: "image/png", Data: base64.StdEncoding.EncodeToString([]byte("png bytes"))}
+	if _, err := svc.Invoke(ctx, agenthub.InvokeInput{SessionID: sess.ID, Images: []agenthub.ImageAttachment{image}}); err != nil {
+		t.Fatalf("invoke: %v", err)
+	}
+
+	page, err := svc.TranscriptPage(ctx, sess.ID, 0, 0)
+	if err != nil {
+		t.Fatalf("transcript: %v", err)
+	}
+	if len(page.Entries) == 0 || page.Entries[0].Kind != agenthub.UpdateUserMessageChunk {
+		t.Fatalf("entries = %+v, want the prompt's echo first", page.Entries)
+	}
+	var echo agenthub.SessionUpdate
+	if err := json.Unmarshal(page.Entries[0].Payload, &echo); err != nil {
+		t.Fatalf("payload: %v", err)
+	}
+	if echo.MessageID == "" || len(echo.Attachments) != 1 || echo.Attachments[0] != (agenthub.PromptAttachment{Name: "screen.png", Kind: "image"}) {
+		t.Fatalf("echo = %+v, want a message id and the image named", echo)
+	}
+
+	turns, err := store.ListTurns(ctx, sess.ID)
+	if err != nil || len(turns) != 1 {
+		t.Fatalf("turns = %v, %v", turns, err)
+	}
+	if turns[0].PromptMessageID != echo.MessageID {
+		t.Fatalf("turn prompt id = %q, echo id = %q: one turn, two names", turns[0].PromptMessageID, echo.MessageID)
 	}
 }

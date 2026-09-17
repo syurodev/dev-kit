@@ -22,7 +22,7 @@ const (
 	UpdateAvailableCommands UpdateKind = "available_commands_update"
 	UpdateCurrentMode       UpdateKind = "current_mode_update"
 	// UpdateUsage was not in the spec text this parser was written from; it
-	// turned up in a real claude-agent-acp 0.74 capture and is the source of
+	// turned up in real claude-agent-acp captures (0.74, 0.78) and is the source of
 	// the context counter and running cost the composer shows.
 	UpdateUsage UpdateKind = "usage_update"
 	// UpdateSessionInfo carries what the vendor knows about the session as a
@@ -95,9 +95,14 @@ type ToolCallContent struct {
 
 // ToolCall is the normalized form of a tool_call / tool_call_update payload.
 type ToolCall struct {
-	ID        string             `json:"id"`
-	Title     string             `json:"title,omitempty"`
-	Kind      string             `json:"kind,omitempty"`
+	ID    string `json:"id"`
+	Title string `json:"title,omitempty"`
+	Kind  string `json:"kind,omitempty"`
+	// Name is the tool itself ("Read", "Agent", "compact"). Kind cannot tell a
+	// subagent from a compaction: claude-agent-acp 0.78 sends both as `think`.
+	// The top-level `name` arrived in 0.77; compaction carries only
+	// _meta.claudeCode.toolName, which is read when `name` is absent.
+	Name      string             `json:"name,omitempty"`
 	Status    string             `json:"status,omitempty"`
 	Content   []ToolCallContent  `json:"content,omitempty"`
 	Locations []ToolCallLocation `json:"locations,omitempty"`
@@ -229,6 +234,16 @@ type SessionUpdate struct {
 	// sends it on every chunk; it is a stricter coalescing key than "same kind"
 	// because two consecutive messages would otherwise fold into one bubble.
 	MessageID string `json:"messageId,omitempty"`
+	// Origin is the vendor session an update came from when it is not the
+	// session itself — a subagent, which claude-agent-acp streams under the
+	// subagent's own sessionId and its own message ids (measured on 0.78).
+	// Empty for the session's own updates. Rewind forks at a message of the
+	// session's own thread; a subagent's id is not in that thread.
+	Origin string `json:"origin,omitempty"`
+	// Attachments names what a prompt carried besides its text, on DevKit's own
+	// echo of it. A prompt of only images or files is still a turn, and the echo
+	// is what starts one.
+	Attachments []PromptAttachment `json:"attachments,omitempty"`
 	// WireKind is the sessionUpdate string exactly as the vendor sent it, kept
 	// even when Kind degrades to UpdateUnknown. Without it an unmodelled kind
 	// is indistinguishable from a malformed one, and the whole point of
@@ -240,6 +255,26 @@ type SessionUpdate struct {
 	// nothing.
 	WireKind string          `json:"-"`
 	Raw      json.RawMessage `json:"raw,omitempty"`
+}
+
+// PromptAttachment is one file or image a prompt carried: its name only. The
+// content was sent to the agent and is not kept — images are transient by
+// design (InvokeInput.Images), and a file is still on disk under its path.
+type PromptAttachment struct {
+	Name string `json:"name"`
+	// Kind is "file" or "image".
+	Kind string `json:"kind"`
+}
+
+// DevKitWireKey is where DevKit annotates an update in transit: the adapter
+// marks a subagent's update with its origin, and the service's own prompt echo
+// carries the prompt's attachments. Neither is something the vendor sends, and
+// a key of DevKit's own keeps them from being mistaken for a vendor field.
+const DevKitWireKey = "_devkit"
+
+type wireDevKit struct {
+	Origin      string             `json:"origin"`
+	Attachments []PromptAttachment `json:"attachments"`
 }
 
 // Subagent is an agent the vendor ran inside its own process, as reported by
@@ -284,6 +319,8 @@ func (u SessionUpdate) Text() string {
 // unmarshal and degrade to UpdateUnknown.
 type wireUpdate struct {
 	SessionUpdate     string          `json:"sessionUpdate"`
+	Meta              json.RawMessage `json:"_meta"`
+	DevKit            *wireDevKit     `json:"_devkit"`
 	Content           json.RawMessage `json:"content"`
 	ToolCallID        string          `json:"toolCallId"`
 	Title             string          `json:"title"`
@@ -349,11 +386,17 @@ func ParseSessionUpdate(raw json.RawMessage) SessionUpdate {
 		return out
 	}
 	out.WireKind = wire.SessionUpdate
+	if wire.DevKit != nil {
+		out.Origin = wire.DevKit.Origin
+	}
 
 	switch UpdateKind(wire.SessionUpdate) {
 	case UpdateUserMessageChunk, UpdateAgentMessageChunk, UpdateAgentThoughtChunk:
 		out.Kind = UpdateKind(wire.SessionUpdate)
 		out.MessageID = wire.MessageID
+		if wire.DevKit != nil && out.Kind == UpdateUserMessageChunk {
+			out.Attachments = wire.DevKit.Attachments
+		}
 		var block ContentBlock
 		if err := json.Unmarshal(wire.Content, &block); err == nil {
 			out.Content = &block
@@ -482,6 +525,17 @@ func parseToolCall(wire wireUpdate) *ToolCall {
 		Status:    wire.Status,
 		RawInput:  wire.RawInput,
 		RawOutput: wire.RawOutput,
+		Name:      wire.Name,
+	}
+	if call.Name == "" && len(wire.Meta) > 0 {
+		var meta struct {
+			ClaudeCode struct {
+				ToolName string `json:"toolName"`
+			} `json:"claudeCode"`
+		}
+		if json.Unmarshal(wire.Meta, &meta) == nil {
+			call.Name = meta.ClaudeCode.ToolName
+		}
 	}
 	_ = json.Unmarshal(wire.Content, &call.Content)
 	_ = json.Unmarshal(wire.Locations, &call.Locations)

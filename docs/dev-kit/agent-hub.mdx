@@ -85,7 +85,7 @@ Dev dùng nhiều agent CLI khác nhau (Claude Code, Codex, Gemini CLI...) nhưn
 | FR-10 | Composer đọc config/mode từ transcript và đổi model, effort, permission mode qua `session/set_config_option` / `session/set_mode`; bypass permissions luôn cần xác nhận rõ ràng. |
 | FR-11 | Agent Hub dùng được bằng bàn phím và screen reader; trạng thái/hoàn tất được announce không theo từng token. Permission và lượt completed có notification OS khi cửa sổ không focus: một notification cho mỗi session (sự kiện sau thay notification trước), bấm vào mở đúng session; bật/tắt ở Settings → Agents → "Notify when an agent needs you or finishes" (mặc định bật). Gửi notification không bao giờ chặn permission, cancel hay kết thúc lượt: `agenthub.Notifier` chỉ xếp vào hàng đợi nền (tối đa 32, đầy thì bỏ) và gọi OS trên goroutine riêng. Quyền OS chỉ được xin khi cửa sổ nhận focus (lần đầu thường là lúc mở app) hoặc khi bật tuỳ chọn, không bao giờ khi đang có permission chờ — trước khi được cấp quyền thì không hiện gì. Service thông báo không đăng ký trực tiếp làm Wails service; một wrapper (`notificationStartup`) khởi động nó đúng chỗ Wails khởi động service — trong `app.Run`, trước run loop — để click vào notification mở/kích hoạt app trước lần focus đầu vẫn tới được delegate macOS và activation callback Windows, và wrapper luôn trả nil: không khởi động được (Linux không có session D-Bus — WSL, WM tối giản, container; macOS binary không có bundle identifier, như `go build` thường) thì notification tắt cho cả lần chạy, log một lần, app vẫn chạy. Caveat: macOS đã từ chối thì không hiện gì cho tới khi cho phép trong System Settings (lần focus sau tự nhận); Windows "update" là gửi toast mới (giới hạn wintoast); Shutdown của service được gọi khi thoát nếu nó đã khởi động được. |
 | FR-12 | Prompt nhập trong lúc session bận được xếp hàng theo session. Mọi lượt (composer, companion, Retry, hàng đợi) đi qua một đường gửi (`sendAgentTurn`): session chuyển running trước khi invoke. Prompt rời hàng đợi ngay khi lượt của nó bắt đầu và không bao giờ bị gửi lại; chỉ khi backend từ chối trước khi lượt bắt đầu (busy, validation, chưa cài/chưa đăng nhập) nó mới về lại đầu hàng đợi. Backend kiểm tra toàn bộ input (prompt, attachment, ảnh) trước khi claim session, ghi/emit transcript hay đổi status, nên prompt bị từ chối không để lại dòng `user_message_chunk` nào và gửi lại không hiện trùng; status giữ nguyên. Hàng đợi tự gửi tiếp sau mỗi lượt completed, bất kể `agenthub:turnFinished` hay RPC về trước. Lượt lỗi/huỷ khi còn prompt chờ thì hàng đợi tạm dừng cho tới khi người dùng bấm Resume; gửi tay không tự resume. Hàng đợi không gửi vào session đã xoá, đã đóng, đang chạy hoặc đang chờ permission (gửi tay vào session đã đóng thì mở lại nó). Gửi tay bị backend báo busy thì prompt vào hàng đợi, không mất text. Plan sống cập nhật tại chỗ; session đóng vẫn đọc, đổi tên và mở lại được. Đổi tên, đổi status và title agent tự đặt mỗi thứ chỉ ghi cột của mình, nên đổi tên giữa lượt không ghi đè status và kết thúc lượt không ghi đè tên. |
-| FR-13 | Agent đặt được câu hỏi cho người dùng qua ACP form elicitation (`elicitation/create`). DevKit khai `clientCapabilities.elicitation.form` — thiếu nó `claude-agent-acp` 0.74 đưa `AskUserQuestion` vào `disallowedTools` và model chỉ viết câu hỏi thành văn xuôi; `url` cố ý không khai. Cùng một method phục vụ `AskUserQuestion`, elicitation của MCP server và lời nhắc refusal-fallback. `acp.Conn` chạy riêng method này ngoài read loop (mọi thứ khác vẫn đồng bộ, để `tool_call` luôn tới trước thẻ) và nhận `$/cancel_request`. `agenthub.ElicitationWaiter` xếp hàng nhiều câu hỏi mỗi session, **không có hạn giờ** và không đổi status session (lượt vẫn đang chạy); câu trả lời chỉ giữ key có trong schema với đúng kiểu, hỏng thì thành `decline`. Bridge: `AgentHubRespondElicitation` (`agenthub:execute`/`elicitation:respond`), `AgentHubPendingElicitations` (`agenthub:read`/`elicitation:list`); event `agenthub:elicitation`, `agenthub:elicitationClosed`. UI: thẻ `AgentQuestionCard` trong hội thoại (≤2 câu hiện cùng lúc, ≥3 câu và ở rail thì từng bước), toast `AgentQuestionToast` chỉ có Answer/Skip, dùng chung một góc với permission toast và permission được ưu tiên. Submit → `accept` (chỉ key đã trả lời; text "Other" không rỗng chỉ gửi `question_N_custom`), Skip → `decline` (tool chạy với câu trả lời rỗng), Stop → `cancel` (huỷ tool call). Field không render được vẫn bỏ qua được, nên câu hỏi không bao giờ thành ngõ cụt. Chưa làm: `elicitation.url`/`elicitation/complete`; elicitation của MCP không để lại dấu trong transcript. |
+| FR-13 | Agent đặt được câu hỏi cho người dùng qua ACP form elicitation (`elicitation/create`). DevKit khai `clientCapabilities.elicitation.form` — thiếu nó `claude-agent-acp` 0.74 đưa `AskUserQuestion` vào `disallowedTools` và model chỉ viết câu hỏi thành văn xuôi; `url` cố ý không khai. Cùng một method phục vụ `AskUserQuestion`, elicitation của MCP server và lời nhắc refusal-fallback. `acp.Conn` chạy riêng method này ngoài read loop (mọi thứ khác vẫn đồng bộ, để `tool_call` luôn tới trước thẻ) và nhận `$/cancel_request`. `agenthub.ElicitationWaiter` xếp hàng nhiều câu hỏi mỗi session, **không có hạn giờ** và không đổi status session (lượt vẫn đang chạy); câu trả lời chỉ giữ key có trong schema với đúng kiểu, hỏng thì thành `decline`. Bridge: `AgentHubRespondElicitation` (`agenthub:execute`/`elicitation:respond`), `AgentHubPendingElicitations` (`agenthub:read`/`elicitation:list`); event `agenthub:elicitation`, `agenthub:elicitationClosed`. UI: thẻ `AgentQuestionCard` trong hội thoại (≤2 câu hiện cùng lúc, ≥3 câu và ở rail thì từng bước), toast `AgentQuestionToast` chỉ có Answer/Skip, dùng chung một góc với permission toast và permission được ưu tiên. Submit → `accept` (chỉ key đã trả lời; lựa chọn gửi ở `question_N`, text "Other" không rỗng gửi ở `question_N_custom` — từ 0.78 agent giữ lựa chọn làm câu trả lời và coi text là ghi chú, multi-select thì nối thêm), Skip → `decline` (tool chạy với câu trả lời rỗng), Stop → `cancel` (huỷ tool call). Field không render được vẫn bỏ qua được, nên câu hỏi không bao giờ thành ngõ cụt. Chưa làm: `elicitation.url`/`elicitation/complete`; elicitation của MCP không để lại dấu trong transcript. |
 
 ### Non-functional requirements
 
@@ -346,7 +346,7 @@ package. Giờ DevKit tự cài một bản đã khoá vào thư mục của nó
 **Nơi cài và phiên bản.** `<UserConfigDir>/DevKit/runtimes/claude-acp/<version>/`
 (cây `npm --prefix` + `install.json`), cạnh `current.json` (`version`,
 `previous`) và `settings.json` (file chạy Claude). Mặc định là `TestedVersion`
-khoá trong `internal/agentruntime/agentruntime.go` — hiện **0.74.0**. Bản mới
+khoá trong `internal/agentruntime/agentruntime.go` — hiện **0.78.0** (nâng từ 0.74.0 ngày 2026-09-17). Bản mới
 nhất đọc từ ACP registry (cache `runtimes/registry.json` kèm ETag, chỉ tải khi
 gọi `AgentRuntimeCheckLatest`, mất mạng thì dùng cache) và chỉ được đề nghị như
 một bản cập nhật chưa kiểm thử, người dùng tự chọn cài.
@@ -441,14 +441,46 @@ Là thay đổi code kèm phép đo, không phải cấu hình:
 1. Sửa `TestedVersion` của `claude-acp` trong `internal/agentruntime/agentruntime.go`.
 2. Cài thật và probe trong sandbox:
    `DEVKIT_AGENT_INSTALL_TEST=1 go test ./internal/agenthub/ -run TestAgentRuntimeLiveInstall -v -timeout 15m`
-   (cần mạng + Node; 0.74.0 nặng ~237 MB kể cả binary Claude đi kèm).
+   (cần mạng + Node; 0.78.0 nặng ~246 MB kể cả binary Claude đi kèm).
 3. Chạy guard của kênh `_meta` trên đúng bản mới: cài nó, rồi
    `DEVKIT_CLAUDE_ACP=1 DEVKIT_CLAUDE_ACP_BIN=<runtimes>/claude-acp/<version>/node_modules/.bin/claude-agent-acp go test ./internal/agenthub/ -run TestClaudeACPMetaChannelStillWorks -v -timeout 10m`.
    Đỏ thì không nâng — cách ly permission đã mất. (Qua `DEVKIT_CLAUDE_ACP_BIN`
    node do shebang tìm trên PATH phải đọc được trong jail.)
-4. Đo lại mọi thứ doc này ghi là đo trên 0.74.0 —
+4. `TestClaudeACPAuthMethodsLive` đọc runtime của app; `DEVKIT_RUNTIMES_ROOT=<root>` trỏ nó sang
+   một root khác để đo bản mới trước khi app dùng.
+5. Đo lại mọi thứ doc này ghi là đo trên 0.74.0 —
    [Kế hoạch ACP](#kế-hoạch-acp--phần-surface-còn-thiếu) T0/T1/T2 — rồi cập nhật
    số hoặc ghi rõ phiên bản đã đo.
+
+#### Nâng 0.74.0 → 0.78.0 (2026-09-17)
+
+SDK 0.3.257 → 0.3.270, Claude Code 2.1.257 → 2.1.270. Không package nào có install script
+(adapter, SDK, platform package, `zod`, `@agentclientprotocol/sdk`). Chạy trên 0.78.0 và qua:
+`TestAgentRuntimeLiveInstall` (246 MB, probe trong sandbox), `TestClaudeACPMetaChannelStillWorks`,
+`TestClaudeACPIntegration`, `TestClaudeACPResumeAcrossProcesses`, `TestClaudeACPAuthMethodsLive`,
+`TestClaudeACPCapture` (không kind lạ; tiêu đề tool call cùng dạng; chunk vẫn mang `messageId`).
+
+Thay đổi phải xử lý:
+
+- **AskUserQuestion**: lựa chọn + text "Other" nay đi cùng nhau (xem FR-13); builder gửi cả hai key.
+- **Compaction** thành `tool_call` "Compact conversation" kind `think` — trùng kind với Task/Agent.
+  `ToolCall.Name` (top-level `name` từ 0.77, hoặc `_meta.claudeCode.toolName`) phân biệt: turn tóm
+  tắt "compacted the conversation", icon riêng. `compaction_update` chỉ gửi khi client khai
+  `session.compaction`; DevKit không khai.
+- **`_auth/status_update`** (notification mới): nhận im lặng, không log là method lạ.
+- 0.77 bỏ config option `agent` — DevKit không dùng.
+
+Spike cho rewind (`TestClaudeACPForkSpike`, env-gated, chạy adapter ngoài jail, 2026-09-17 trên 0.78.0):
+
+| # | Câu hỏi | Kết quả |
+|---|---|---|
+| S1 | Fork tại `msg_…` từ process chưa load session nguồn, rồi `session/load` id mới | Chạy. Session fork chỉ nhớ tới message đó (APPLE, không BANANA); session gốc vẫn dùng được và nhớ đủ. Response chỉ `{sessionId}`; load trả `modes` + `configOptions` |
+| S2 | Mode sau fork | **Mất**: `acceptEdits` của nguồn thành `default` → DevKit phải áp lại mode/model/effort |
+| S3 | Fork tại message cuối của lượt bị kill giữa `sleep 30` | Chạy, prompt tiếp không lỗi, nhớ đúng |
+| S4 | messageId của subagent | Chunk subagent tới với `params.sessionId` = id **của subagent** và `msg_…` riêng; luồng chính không có marker. DevKit hiện bỏ `params.sessionId` nên ghi lẫn vào transcript cha → phải lưu nguồn để fork point không trúng subagent |
+| S5 | Fork tới message trước `/compact` | Chạy, nhớ đúng phần trước |
+| S6 | `session/delete` session chưa load | Chạy (`{}`); load sau đó `-32002 Resource not found` |
+| S7 | `agentFileChangeReport` | Trong `update._meta.jetbrains.air.agentFileChangeReport` của `session_info_update` không title, tới trước/cùng lúc prompt response. Chỉ liệt kê file sửa bằng tool của Claude (a.txt), **không** có file tạo bằng Bash (b.txt). Lượt huỷ → `unavailable/cancelled` |
 
 ### Transcript: ghi theo nhịp, phân trang, retention (Implemented 2026-09-14)
 

@@ -18,7 +18,8 @@ import (
 )
 
 // The shape claude-agent-acp 0.74.0 answers initialize with when
-// _meta["terminal-auth"] is declared (measured against the managed runtime).
+// _meta["terminal-auth"] is declared (measured against the managed runtime;
+// 0.78.0 offers the same two methods, TestClaudeACPAuthMethodsLive).
 func measuredAuthMethods(node, entry string) []acp.AuthMethod {
 	meta := func(label string, flags ...string) json.RawMessage {
 		body, _ := json.Marshal(map[string]any{"terminal-auth": map[string]any{

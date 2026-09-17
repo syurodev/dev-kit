@@ -278,7 +278,7 @@ export enum UpdateKind {
 
     /**
      * UpdateUsage was not in the spec text this parser was written from; it
-     * turned up in a real claude-agent-acp 0.74 capture and is the source of
+     * turned up in real claude-agent-acp captures (0.74, 0.78) and is the source of
      * the context counter and running cost the composer shows.
      */
     UpdateUsage = "usage_update",

@@ -192,7 +192,8 @@ func TestAgentTakingTheQuestionBackAnswersCancel(t *testing.T) {
 	}
 }
 
-// askUserQuestionRequest is the request claude-agent-acp 0.74 sends for an
+// askUserQuestionRequest is the request claude-agent-acp 0.74 (field names
+// unchanged in 0.78) sends for an
 // AskUserQuestion with one single-select and one multi-select question
 // (elicitation.js askUserQuestionsToCreateRequest).
 var askUserQuestionRequest = json.RawMessage(`{

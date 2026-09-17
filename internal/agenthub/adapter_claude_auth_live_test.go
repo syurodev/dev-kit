@@ -18,15 +18,22 @@ import (
 // the login.
 //
 //	DEVKIT_CLAUDE_ACP=1 go test ./internal/agenthub/ -run TestClaudeACPAuthMethodsLive -v
+//
+// DEVKIT_RUNTIMES_ROOT points it at another runtimes root, so a version can be
+// measured before it replaces the one the app is using.
 func TestClaudeACPAuthMethodsLive(t *testing.T) {
 	if os.Getenv("DEVKIT_CLAUDE_ACP") != "1" {
 		t.Skip("set DEVKIT_CLAUDE_ACP=1 to probe the installed claude-agent-acp")
 	}
-	config, err := os.UserConfigDir()
-	if err != nil {
-		t.Fatal(err)
+	root := os.Getenv("DEVKIT_RUNTIMES_ROOT")
+	if root == "" {
+		config, err := os.UserConfigDir()
+		if err != nil {
+			t.Fatal(err)
+		}
+		root = filepath.Join(config, "DevKit", "runtimes")
 	}
-	manager := agentruntime.New(filepath.Join(config, "DevKit", "runtimes"))
+	manager := agentruntime.New(root)
 	rt, err := manager.Resolve(agentruntime.ClaudeACP)
 	if err != nil {
 		t.Skipf("no managed Claude runtime: %v", err)

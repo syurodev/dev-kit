@@ -452,8 +452,8 @@ func main() {
 		log.Printf("agenthub: transcript write failed for session %s: %v", sessionID, err)
 	}
 	agentSvc.OnUnknownUpdate = func(sessionID, wireKind string, raw json.RawMessage) {
-		// Once per kind per session. claude-agent-acp emits fifteen
-		// sessionUpdate kinds and this build parses six; the rest were
+		// Once per kind per session. claude-agent-acp 0.74 emitted sixteen
+		// sessionUpdate kinds and this build once parsed six; the rest were
 		// degrading to "unknown" and disappearing, so a vendor adding one
 		// looked exactly like nothing happening. Logged with a slice of the
 		// payload because the kind alone rarely says what it carries.

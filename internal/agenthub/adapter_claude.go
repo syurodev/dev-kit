@@ -300,7 +300,8 @@ func devkitClientCapabilities() map[string]any {
 		"subagents": map[string]any{},
 		// Terminal sign-in: DevKit runs the agent's own login command in a
 		// terminal tab (AuthMethods → AgentHubStartSignIn), so it is served now.
-		// Without it claude-agent-acp 0.74.0 offers no authMethods at all, and a
+		// Without it claude-agent-acp offers no authMethods at all (measured on
+		// 0.74.0; the same gate is in 0.78.0's initialize), and a
 		// signed-out user had no way in but typing a command DevKit had to
 		// describe. `auth.terminal` is the ACP field the adapter reads;
 		// _meta["terminal-auth"] is the older gate that also makes it attach the
@@ -308,7 +309,7 @@ func devkitClientCapabilities() map[string]any {
 		// to trust that).
 		"auth": map[string]any{"terminal": true},
 		// Questions: elicitation/create is answered by claudeConnHandler.Elicit.
-		// Without `form`, claude-agent-acp 0.74.0 puts AskUserQuestion in
+		// Without `form`, claude-agent-acp (0.74.0 and 0.78.0) puts AskUserQuestion in
 		// disallowedTools (acp-agent.js, where it reads
 		// clientCapabilities.elicitation.form) — the model never sees the tool
 		// and writes its question as prose that ends the turn. The same gate
@@ -470,7 +471,8 @@ func (a *ClaudeAdapter) Open(ctx context.Context, spec OpenSpec) (SessionRuntime
 // while this runs. They are discarded, because the runtime's handlers are still
 // nil until Service installs them: the transcript is already in SQLite, and a
 // resume that re-recorded it would grow the conversation every restart.
-// Measured against claude-agent-acp 0.74.0: the replay arrives as
+// Measured against claude-agent-acp 0.74.0 and again on 0.78.0
+// (TestClaudeACPResumeAcrossProcesses): the replay arrives as
 // user_message_chunk and agent_message_chunk, and a prompt afterwards recalls
 // what was said before the process died.
 func (a *ClaudeAdapter) Load(ctx context.Context, spec OpenSpec, acpSessionID string) (SessionRuntime, error) {
@@ -1225,8 +1227,37 @@ func (h *claudeConnHandler) SessionUpdate(ctx context.Context, params json.RawMe
 		handlers.OnUpdate(params, nil)
 		return nil
 	}
-	handlers.OnUpdate(p.Update, p.Meta)
+	update := p.Update
+	// Handlers are only installed after open() has set acpSessionID, so reading
+	// it here — after the non-nil snapshot above — is ordered behind that write.
+	if p.SessionID != "" && p.SessionID != h.rt.acpSessionID {
+		update = markOrigin(update, p.SessionID)
+	}
+	handlers.OnUpdate(update, p.Meta)
 	return nil
+}
+
+// markOrigin tags an update that came from a session other than the runtime's
+// own. claude-agent-acp streams a subagent's messages on the same connection
+// under the subagent's sessionId; without the tag they are recorded exactly
+// like the parent's, and a rewind that picked one of their message ids would
+// fork at a message the parent thread does not contain. An update that is not
+// a JSON object is passed on unchanged.
+func markOrigin(update json.RawMessage, origin string) json.RawMessage {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(update, &fields); err != nil || fields == nil {
+		return update
+	}
+	tag, err := json.Marshal(map[string]string{"origin": origin})
+	if err != nil {
+		return update
+	}
+	fields[DevKitWireKey] = tag
+	out, err := json.Marshal(fields)
+	if err != nil {
+		return update
+	}
+	return out
 }
 
 // UnknownMethod refuses agent→client methods this build does not implement,
@@ -1238,10 +1269,26 @@ func (h *claudeConnHandler) SessionUpdate(ctx context.Context, params json.RawMe
 // been requested on every turn since Phase 4 without leaving a trace.
 func (h *claudeConnHandler) UnknownMethod(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
 	_ = ctx
+	if _, known := knownUnservedNotifications[method]; known {
+		return nil, fmt.Errorf("unsupported method %q", method)
+	}
 	if h.onUnknownMethod != nil && markMethodSeen(method) {
 		h.onUnknownMethod(method, params)
 	}
 	return nil, fmt.Errorf("unsupported method %q", method)
+}
+
+// knownUnservedNotifications are methods DevKit has looked at and decided not
+// to act on, so they are not reported as unknown. A notification's error goes
+// nowhere; the entry only keeps the "unimplemented ACP method" log for things
+// nobody has looked at yet.
+//
+//   - _auth/status_update (claude-agent-acp 0.75+): the adapter re-checks the
+//     sign-in in the background and pushes the result. DevKit learns a lapsed
+//     sign-in from the error the next session/new or prompt returns
+//     (ErrAgentAuthRequired), which is when it can do something about it.
+var knownUnservedNotifications = map[string]struct{}{
+	"_auth/status_update": {},
 }
 
 // unknownMethodSeen dedupes the report. Process-wide rather than per session:

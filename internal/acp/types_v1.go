@@ -81,7 +81,8 @@ type SessionLoadRequest struct {
 }
 
 // SessionLoadResult is the result object for session/load. Measured against
-// claude-agent-acp 0.74.0: it echoes the session id and the mode set.
+// claude-agent-acp 0.74.0, re-checked on 0.78.0: it echoes the session id and
+// the mode set.
 type SessionLoadResult struct {
 	SessionID string            `json:"sessionId"`
 	Modes     *SessionModeState `json:"modes,omitempty"`
@@ -106,7 +107,7 @@ type SessionSetModeRequest struct {
 //
 // `configId`, and it is not a typo for the `id` the agent emits. A
 // config_option_update lists options under `id`; the request that changes one
-// names it `configId` — claude-agent-acp 0.74 reads `params.configId` and
+// names it `configId` — claude-agent-acp 0.74 (and still 0.78) reads `params.configId` and
 // answers "Unknown config option: undefined" to anything else, which is what
 // DevKit sent for as long as this said `optionId`. Every model and effort
 // change failed, silently: the picker moved, the call was refused, and the

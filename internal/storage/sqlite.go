@@ -34,8 +34,13 @@ const (
 	// which is deliberate — a transcript is operational, project data lives in
 	// Tasks instead.
 	TableAgentTranscript = "agent_transcript"
-	TableAppPreferences  = "app_preferences"
-	TableUIState         = "ui_state"
+	// TableAgentCheckpoints indexes the file snapshots taken around agent
+	// turns. The snapshots themselves live in a shadow git repository under the
+	// data directory; a row is what makes one reachable, and deleting the row
+	// is what lets maintenance collect it. Device-local like the transcript.
+	TableAgentCheckpoints = "agent_checkpoints"
+	TableAppPreferences   = "app_preferences"
+	TableUIState          = "ui_state"
 	// TableDBQueryHistory is deliberately outside vault_items: sync has no
 	// path to this table, which is what keeps query history on one device.
 	TableDBQueryHistory = "db_query_history"
@@ -720,7 +725,54 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		},
 	}
 
-	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21})
+	m22 := Migration{
+		Version: 22,
+		Name:    "agent hub checkpoints",
+		Up: func(ctx context.Context) error {
+			// A turn row is written when the turn completes, long after the prompt
+			// that started it; the prompt's message id is what ties the two, and
+			// the transcript row, and the checkpoint, together.
+			if err := addColumnIfNotExists(ctx, db, TableAgentTurns, "prompt_message_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
+				return err
+			}
+			if _, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE TABLE IF NOT EXISTS %s (
+					id TEXT PRIMARY KEY,
+					session_id TEXT NOT NULL,
+					project_key TEXT NOT NULL,
+					prompt_message_id TEXT NOT NULL DEFAULT '',
+					kind TEXT NOT NULL,
+					before_tree TEXT NOT NULL DEFAULT '',
+					after_tree TEXT NOT NULL DEFAULT '',
+					status TEXT NOT NULL,
+					outcome TEXT NOT NULL DEFAULT '',
+					changed TEXT,
+					skipped TEXT,
+					agent_report TEXT,
+					overlap TEXT,
+					detail TEXT,
+					created_at TEXT NOT NULL,
+					finished_at TEXT,
+					FOREIGN KEY(session_id) REFERENCES %s(id)
+				)`, TableAgentCheckpoints, TableAgentSessions,
+			)); err != nil {
+				return err
+			}
+			if _, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE INDEX IF NOT EXISTS idx_agent_checkpoints_session_created ON %s (session_id, created_at)`,
+				TableAgentCheckpoints,
+			)); err != nil {
+				return err
+			}
+			_, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE INDEX IF NOT EXISTS idx_agent_checkpoints_session_prompt ON %s (session_id, prompt_message_id)`,
+				TableAgentCheckpoints,
+			))
+			return err
+		},
+	}
+
+	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22})
 	if err != nil {
 		return err
 	}

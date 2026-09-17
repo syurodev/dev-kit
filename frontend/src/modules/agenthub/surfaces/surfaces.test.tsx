@@ -86,7 +86,7 @@ describe("Agent Hub Phase 3 Surfaces", () => {
           turnCount={4}
           usage={{ used: 24503, size: 1000000, amount: 0.21 }}
           vendor="claude-agent-acp"
-          version="0.74"
+          version="0.78"
         />,
       );
 
@@ -152,7 +152,7 @@ describe("Agent Hub Phase 3 Surfaces", () => {
           onCancel={() => {}}
           usage={{ used: 24500, size: 1000000, amount: 0 }}
           vendor="claude"
-          version="0.74"
+          version="0.78"
         />,
       );
 

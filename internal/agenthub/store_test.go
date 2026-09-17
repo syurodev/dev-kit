@@ -445,3 +445,72 @@ func TestPruneClosedSessionsKeepsEverySessionStillInUse(t *testing.T) {
 		}
 	}
 }
+
+func TestStoreNamesATurnByItsPromptAndForgetsItsCheckpoints(t *testing.T) {
+	db, err := storage.Open(filepath.Join(t.TempDir(), "devkit.db"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if err := storage.Migrate(context.Background(), db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	store := agenthub.NewSQLStore(db)
+	ctx := context.Background()
+	at := time.Now().UTC()
+	if err := store.InsertSession(ctx, sampleSession("s1")); err != nil {
+		t.Fatal(err)
+	}
+
+	for i, id := range []string{"p1", "p2"} {
+		payload, _ := json.Marshal(agenthub.SessionUpdate{Kind: agenthub.UpdateUserMessageChunk, MessageID: id})
+		if err := store.AppendTranscript(ctx, agenthub.TranscriptEntry{
+			ID: fmt.Sprintf("row-%d", i), SessionID: "s1", Kind: agenthub.UpdateUserMessageChunk,
+			Text: id, Payload: payload, CreatedAt: at, UpdatedAt: at,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	entry, ok, err := store.FindPromptEntry(ctx, "s1", "p2")
+	if err != nil || !ok || entry.ID != "row-1" {
+		t.Fatalf("FindPromptEntry(p2) = %+v, %v, %v; want row-1", entry, ok, err)
+	}
+	if _, ok, _ := store.FindPromptEntry(ctx, "s1", "nope"); ok {
+		t.Fatal("found a prompt that was never sent")
+	}
+
+	if err := store.InsertTurn(ctx, agenthub.TurnRecord{ID: "t1", SessionID: "s1", PromptMessageID: "p2", CreatedAt: at}); err != nil {
+		t.Fatal(err)
+	}
+	turns, err := store.ListTurns(ctx, "s1")
+	if err != nil || len(turns) != 1 || turns[0].PromptMessageID != "p2" {
+		t.Fatalf("turns = %+v, %v", turns, err)
+	}
+
+	if err := store.UpdateSessionStatus(ctx, "s1", agenthub.SessionStatusRunning, at); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateSessionACPID(ctx, "s1", "acp-forked", at); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.GetSession(ctx, "s1")
+	if err != nil || got.ACPSessionID != "acp-forked" || got.Status != agenthub.SessionStatusRunning {
+		t.Fatalf("session = %+v, %v; want the new acp id and the status left alone", got, err)
+	}
+	if err := store.UpdateSessionACPID(ctx, "missing", "x", at); !errors.Is(err, agenthub.ErrSessionNotFound) {
+		t.Fatalf("missing session: %v", err)
+	}
+
+	// A checkpoint row declares a foreign key onto the session; deleting the
+	// session has to take it along or the delete fails.
+	if _, err := db.ExecContext(ctx, `INSERT INTO agent_checkpoints (id, session_id, project_key, kind, status, created_at) VALUES ('c1', 's1', 'k', 'turn', 'done', ?)`, at.Format(time.RFC3339Nano)); err != nil {
+		t.Fatalf("insert checkpoint: %v", err)
+	}
+	if err := store.DeleteSessions(ctx, []string{"s1"}); err != nil {
+		t.Fatalf("DeleteSessions: %v", err)
+	}
+	var left int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM agent_checkpoints`).Scan(&left); err != nil || left != 0 {
+		t.Fatalf("checkpoints left = %d, %v", left, err)
+	}
+}

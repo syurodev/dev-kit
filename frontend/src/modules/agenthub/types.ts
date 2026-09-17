@@ -55,6 +55,8 @@ export type ToolCall = {
   id: string;
   title?: string;
   kind?: string;
+  /** The tool itself ("Read", "Agent", "compact"); tells a subagent from a compaction, which share the `think` kind. */
+  name?: string;
   status?: string;
   content?: ToolCallContent[];
   locations?: ToolCallLocation[];
@@ -127,7 +129,17 @@ export type SessionUpdate = {
   title?: string;
   usage?: Usage | null;
   messageId?: string;
+  /** The subagent session an update came from; empty for the session's own. */
+  origin?: string;
+  /** What a prompt carried besides text, on DevKit's echo of it. */
+  attachments?: PromptAttachment[];
   raw?: unknown;
+};
+
+/** One file or image a prompt carried, by name. Mirrors update.go: PromptAttachment. */
+export type PromptAttachment = {
+  name: string;
+  kind: "file" | "image" | string;
 };
 
 /**
@@ -227,6 +239,10 @@ export type TranscriptItem = {
   sessionId?: string;
   text?: string;
   messageId?: string;
+  /** Set when the row came from a subagent rather than the session itself. */
+  origin?: string;
+  /** A prompt's attachments, by name. */
+  attachments?: PromptAttachment[];
   toolCallId?: string;
   toolCall?: ToolCall;
   plan?: PlanEntry[];

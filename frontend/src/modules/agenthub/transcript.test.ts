@@ -562,3 +562,26 @@ describe("Agent Hub Transcript Reducer & Coalescing", () => {
     });
   });
 });
+
+describe("prompt attachments and subagent origin", () => {
+  const attachments = [{ name: "screen.png", kind: "image" }];
+
+  it("keeps them on the live item", () => {
+    let model = createInitialTranscriptModel();
+    model = applySessionUpdate(model, { kind: "user_message_chunk", messageId: "p1", content: { type: "text", text: "" }, attachments });
+    model = applySessionUpdate(model, { kind: "agent_message_chunk", messageId: "msg_sub", origin: "a0549d", content: { type: "text", text: "from the subagent" } });
+    expect(model.items[0]).toMatchObject({ messageId: "p1", attachments });
+    expect(model.items[1]).toMatchObject({ messageId: "msg_sub", origin: "a0549d" });
+  });
+
+  it("keeps them on a reloaded page, so live and reload agree", () => {
+    const model = initTranscript([
+      { ID: "r1", Seq: 1, Kind: "user_message_chunk", Text: "", Payload: { messageId: "p1", attachments }, CreatedAt: "2026-09-17T00:00:00Z" },
+      { ID: "r2", Seq: 2, Kind: "agent_message_chunk", Text: "hi", Payload: { messageId: "msg_sub", origin: "a0549d" }, CreatedAt: "2026-09-17T00:00:01Z" },
+    ]);
+    expect(model.items[0]).toMatchObject({ messageId: "p1", attachments });
+    expect(model.items[1]).toMatchObject({ origin: "a0549d" });
+    // The session's own rows carry no origin key at all.
+    expect("origin" in model.items[0]).toBe(false);
+  });
+});

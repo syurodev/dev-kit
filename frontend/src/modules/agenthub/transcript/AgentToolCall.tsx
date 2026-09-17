@@ -1,13 +1,13 @@
 import { Shimmer } from "@/components/ui/shimmer";
 import * as React from "react";
-import { BookOpen, Bot, ChevronRight, FileEdit, Globe, Search, Terminal, Wrench } from "lucide-react";
+import { BookOpen, Bot, ChevronRight, FileEdit, Globe, Search, Shrink, Terminal, Wrench } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { AnimatedCollapse } from "@/components/ui/animated-collapse";
 import { agentHubToolCallDetail } from "../../../bridge/agenthub";
 import { parsePayload } from "../transcript";
 import type { ToolCall } from "../types";
-import { stepLabel } from "../turns";
+import { isCompaction, stepLabel } from "../turns";
 import { AgentFileChip } from "./AgentFileChip";
 import { AgentToolDiff } from "./AgentToolDiff";
 import { AgentToolTerminal } from "./AgentToolTerminal";
@@ -61,8 +61,9 @@ export type AgentToolCallProps = {
  * text/tertiary, failed status/danger. Done is deliberately grey: a
  * finished tool call is not good news, it is just finished.
  */
-function kindIcon(kind?: string) {
-  const k = kind?.toLowerCase() ?? "";
+function kindIcon(call: ToolCall) {
+  if (isCompaction(call)) return Shrink;
+  const k = call.kind?.toLowerCase() ?? "";
   if (k.includes("read") || k.includes("view") || k.includes("cat")) return BookOpen;
   if (k.includes("edit") || k.includes("write") || k.includes("patch")) return FileEdit;
   if (k.includes("exec") || k.includes("bash") || k.includes("run") || k.includes("command"))
@@ -71,6 +72,7 @@ function kindIcon(kind?: string) {
     return Search;
   if (k.includes("fetch")) return Globe;
   // claude-agent-acp gives its Task/Agent tool the `think` kind: a subagent.
+  // (Compaction shares the kind and is caught above by its name.)
   if (k.includes("think")) return Bot;
   return Wrench;
 }
@@ -193,7 +195,7 @@ export function AgentToolCall({
   onOpenFile,
   className,
 }: AgentToolCallProps) {
-  const KindIcon = kindIcon(call.kind);
+  const KindIcon = kindIcon(call);
   const state = toToolState(call.status);
   const title = call.title || call.kind || call.id || "Tool execution";
   const [expanded, setExpanded] = React.useState(defaultExpanded);

@@ -51,7 +51,7 @@ var agents = map[string]Agent{
 	ClaudeACP: {
 		ID:            ClaudeACP,
 		Package:       "@agentclientprotocol/claude-agent-acp",
-		TestedVersion: "0.74.0",
+		TestedVersion: "0.78.0",
 		Entry:         "node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js",
 		SDKPackage:    "@anthropic-ai/claude-agent-sdk",
 		BundledClaude: []string{

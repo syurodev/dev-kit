@@ -251,6 +251,14 @@ const STEP_PHRASES: Record<string, string> = {
 };
 
 /**
+ * A compaction, which claude-agent-acp 0.78 reports as a `think` tool call —
+ * the kind its Task/Agent tool uses too. Only the tool name tells them apart.
+ */
+export function isCompaction(call?: ToolCall | null): boolean {
+  return call?.name?.toLowerCase() === "compact";
+}
+
+/**
  * "Read files, ran commands, searched the web" — what a run of steps did, one
  * phrase per kind of step, in the order each kind first appeared.
  */
@@ -265,7 +273,9 @@ export function stepSummary(items: TranscriptItem[]): string {
           ? "ran subagents"
           : kind.startsWith("async_task_")
             ? "ran background tasks"
-          : (STEP_PHRASES[item.toolCall?.kind?.toLowerCase() ?? ""] ?? "used tools");
+          : isCompaction(item.toolCall)
+            ? "compacted the conversation"
+            : (STEP_PHRASES[item.toolCall?.kind?.toLowerCase() ?? ""] ?? "used tools");
     if (!phrases.includes(phrase)) phrases.push(phrase);
   }
   const text = phrases.join(", ");
@@ -275,7 +285,8 @@ export function stepSummary(items: TranscriptItem[]): string {
 /**
  * One step as a verb and what it acted on: "Read" + "hook.go".
  *
- * Built on the titles claude-agent-acp 0.74 writes (tools.js): "Read <path>",
+ * Built on the titles claude-agent-acp writes (tools.js; 0.74, unchanged in a
+ * 0.78 capture): "Read <path>",
  * with " (1 - 50)" when it read a range; "Write <path>"; "Edit <path>";
  * "Find …" and "grep …" for Glob and Grep; "Fetch <url>"; `Search "<query>"`;
  * and a Bash call titled with the command itself. A file is named by its last

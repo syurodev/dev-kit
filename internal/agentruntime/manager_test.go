@@ -231,48 +231,50 @@ func leftovers(t *testing.T, dir string) []string {
 }
 
 func TestInstallActivateRemoveKeepsPrevious(t *testing.T) {
+	// The default install is whatever DevKit is measured against.
+	tested := agents[ClaudeACP].TestedVersion
 	tm := newTestManager(t)
 	ctx := context.Background()
 
 	if err := tm.Install(ctx, ClaudeACP, ""); err != nil {
 		t.Fatal(err)
 	}
-	if got := tm.current(t); got != (currentFile{Version: "0.74.0"}) {
+	if got := tm.current(t); got != (currentFile{Version: tested}) {
 		t.Fatalf("after first install current = %+v", got)
 	}
 	if err := tm.Install(ctx, ClaudeACP, "0.76.0"); err != nil {
 		t.Fatal(err)
 	}
-	if got := tm.current(t); got != (currentFile{Version: "0.76.0", Previous: "0.74.0"}) {
+	if got := tm.current(t); got != (currentFile{Version: "0.76.0", Previous: tested}) {
 		t.Fatalf("after update current = %+v", got)
 	}
 	// Reinstalling the current version must not make it its own previous.
 	if err := tm.Install(ctx, ClaudeACP, "0.76.0"); err != nil {
 		t.Fatal(err)
 	}
-	if got := tm.current(t); got != (currentFile{Version: "0.76.0", Previous: "0.74.0"}) {
+	if got := tm.current(t); got != (currentFile{Version: "0.76.0", Previous: tested}) {
 		t.Fatalf("after reinstall current = %+v", got)
 	}
 
-	if err := tm.Activate(ClaudeACP, "0.74.0"); err != nil {
+	if err := tm.Activate(ClaudeACP, tested); err != nil {
 		t.Fatal(err)
 	}
-	if got := tm.current(t); got != (currentFile{Version: "0.74.0", Previous: "0.76.0"}) {
+	if got := tm.current(t); got != (currentFile{Version: tested, Previous: "0.76.0"}) {
 		t.Fatalf("after rollback current = %+v", got)
 	}
-	if err := tm.Remove(ClaudeACP, "0.74.0"); !errors.Is(err, ErrVersionInUse) {
+	if err := tm.Remove(ClaudeACP, tested); !errors.Is(err, ErrVersionInUse) {
 		t.Fatalf("removing current: %v", err)
 	}
 	if err := tm.Remove(ClaudeACP, "0.76.0"); err != nil {
 		t.Fatal(err)
 	}
-	if got := tm.current(t); got != (currentFile{Version: "0.74.0"}) {
+	if got := tm.current(t); got != (currentFile{Version: tested}) {
 		t.Fatalf("after removing previous current = %+v", got)
 	}
 	if err := tm.Activate(ClaudeACP, "0.76.0"); !errors.Is(err, ErrNotInstalled) {
 		t.Fatalf("activating a removed version: %v", err)
 	}
-	if err := tm.Activate(ClaudeACP, "../0.74.0"); !errors.Is(err, ErrInvalidInput) {
+	if err := tm.Activate(ClaudeACP, "../"+tested); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("activating a path: %v", err)
 	}
 	if got := leftovers(t, tm.agentDir(ClaudeACP)); len(got) != 0 {
@@ -326,6 +328,8 @@ func TestInstallFailureCleansUpAndRedacts(t *testing.T) {
 }
 
 func TestInstallVerifyFailureKeepsCurrent(t *testing.T) {
+	// The default install is whatever DevKit is measured against.
+	tested := agents[ClaudeACP].TestedVersion
 	tm := newTestManager(t)
 	if err := tm.Install(context.Background(), ClaudeACP, ""); err != nil {
 		t.Fatal(err)
@@ -342,7 +346,7 @@ func TestInstallVerifyFailureKeepsCurrent(t *testing.T) {
 	if !strings.Contains(verified.Args[0], ".staging-0.76.0-") {
 		t.Fatalf("Verify ran against %v, want the staging tree", verified.Args)
 	}
-	if got := tm.current(t); got != (currentFile{Version: "0.74.0"}) {
+	if got := tm.current(t); got != (currentFile{Version: tested}) {
 		t.Fatalf("current = %+v", got)
 	}
 	if _, err := os.Stat(filepath.Join(tm.agentDir(ClaudeACP), "0.76.0")); !errors.Is(err, os.ErrNotExist) {
@@ -416,6 +420,8 @@ func TestInstallSingleFlightAndCancel(t *testing.T) {
 }
 
 func TestResolve(t *testing.T) {
+	// The default install is whatever DevKit is measured against.
+	tested := agents[ClaudeACP].TestedVersion
 	tm := newTestManager(t)
 	if _, err := tm.Resolve(ClaudeACP); !errors.Is(err, ErrNotInstalled) {
 		t.Fatalf("before install: %v", err)
@@ -431,9 +437,9 @@ func TestResolve(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	versionDir := resolved(t, filepath.Join(tm.agentDir(ClaudeACP), "0.74.0"))
+	versionDir := resolved(t, filepath.Join(tm.agentDir(ClaudeACP), tested))
 	node := resolved(t, tm.node)
-	if rt.Command != node || rt.Version != "0.74.0" {
+	if rt.Command != node || rt.Version != tested {
 		t.Fatalf("resolved = %+v", rt)
 	}
 	if len(rt.Args) != 1 || rt.Args[0] != filepath.Join(versionDir, filepath.FromSlash(agents[ClaudeACP].Entry)) {

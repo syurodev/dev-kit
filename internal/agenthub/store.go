@@ -9,10 +9,11 @@ import (
 )
 
 const (
-	tableAgentSessions   = "agent_sessions"
-	tableAgentTurns      = "agent_turns"
-	tableAgentTranscript = "agent_transcript"
-	storeTimeLayout      = time.RFC3339Nano
+	tableAgentSessions    = "agent_sessions"
+	tableAgentTurns       = "agent_turns"
+	tableAgentTranscript  = "agent_transcript"
+	tableAgentCheckpoints = "agent_checkpoints"
+	storeTimeLayout       = time.RFC3339Nano
 )
 
 // Store persists hub-owned agent sessions and turn records.
@@ -21,6 +22,9 @@ type Store interface {
 	UpdateSession(ctx context.Context, s AgentSession) error
 	UpdateSessionStatus(ctx context.Context, id string, status SessionStatus, at time.Time) error
 	UpdateSessionTitle(ctx context.Context, id, title string, at time.Time) error
+	// UpdateSessionACPID points a session at another vendor session — the
+	// fork a rewind made. Its own writer, like status and title.
+	UpdateSessionACPID(ctx context.Context, id, acpSessionID string, at time.Time) error
 	AdoptSessionTitle(ctx context.Context, id, title string, at time.Time) error
 	GetSession(ctx context.Context, id string) (AgentSession, error)
 	ListSessions(ctx context.Context) ([]AgentSession, error)
@@ -135,6 +139,11 @@ func (st *SQLStore) UpdateSessionTitle(ctx context.Context, id, title string, at
 	return st.updateSessionColumn(ctx, `title = ?`, id, title, at)
 }
 
+// UpdateSessionACPID writes the vendor session id alone, for the same reason.
+func (st *SQLStore) UpdateSessionACPID(ctx context.Context, id, acpSessionID string, at time.Time) error {
+	return st.updateSessionColumn(ctx, `acp_session_id = ?`, id, acpSessionID, at)
+}
+
 // AdoptSessionTitle sets the title only while the session has none, in the same
 // statement that checks, so an agent-announced title cannot overwrite a name
 // the user gave between the check and the write. A session that already has a
@@ -199,9 +208,9 @@ func (st *SQLStore) ListSessions(ctx context.Context) ([]AgentSession, error) {
 
 func (st *SQLStore) InsertTurn(ctx context.Context, t TurnRecord) error {
 	_, err := st.db.ExecContext(ctx, `
-		INSERT INTO `+tableAgentTurns+` (id, session_id, stop_reason, usage_json, raw_meta, created_at)
-		VALUES (?, ?, ?, ?, ?, ?)`,
-		t.ID, t.SessionID, nullEmptyString(t.StopReason), nullRawJSON(t.UsageJSON), nullRawJSON(t.RawMeta),
+		INSERT INTO `+tableAgentTurns+` (id, session_id, prompt_message_id, stop_reason, usage_json, raw_meta, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		t.ID, t.SessionID, t.PromptMessageID, nullEmptyString(t.StopReason), nullRawJSON(t.UsageJSON), nullRawJSON(t.RawMeta),
 		formatStoreTime(t.CreatedAt),
 	)
 	return err
@@ -223,7 +232,7 @@ func nullRawJSON(b []byte) sql.NullString {
 
 func (st *SQLStore) ListTurns(ctx context.Context, sessionID string) ([]TurnRecord, error) {
 	rows, err := st.db.QueryContext(ctx, `
-		SELECT id, session_id, stop_reason, usage_json, raw_meta, created_at
+		SELECT id, session_id, prompt_message_id, stop_reason, usage_json, raw_meta, created_at
 		FROM `+tableAgentTurns+`
 		WHERE session_id = ?
 		ORDER BY created_at ASC, id ASC`, sessionID,
@@ -238,7 +247,7 @@ func (st *SQLStore) ListTurns(ctx context.Context, sessionID string) ([]TurnReco
 		var t TurnRecord
 		var stopReason, usageJSON, rawMeta sql.NullString
 		var createdAt string
-		if err := rows.Scan(&t.ID, &t.SessionID, &stopReason, &usageJSON, &rawMeta, &createdAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.SessionID, &t.PromptMessageID, &stopReason, &usageJSON, &rawMeta, &createdAt); err != nil {
 			return nil, err
 		}
 		if stopReason.Valid {
@@ -321,6 +330,23 @@ func (st *SQLStore) FindTranscriptToolCall(ctx context.Context, sessionID, toolC
 	return scanOptionalTranscript(row)
 }
 
+// FindPromptEntry returns the transcript row of one prompt, by the message id
+// DevKit gave its echo. Rewind and restore name a turn by that id: it is the
+// one key the live stream, a reloaded page, the turn row and the checkpoint
+// all share.
+func (st *SQLStore) FindPromptEntry(ctx context.Context, sessionID, messageID string) (TranscriptEntry, bool, error) {
+	if messageID == "" {
+		return TranscriptEntry{}, false, nil
+	}
+	row := st.db.QueryRowContext(ctx, `
+		SELECT `+transcriptColumns+`
+		FROM `+tableAgentTranscript+`
+		WHERE session_id = ? AND kind = ? AND json_extract(payload, '$.messageId') = ?
+		ORDER BY seq ASC
+		LIMIT 1`, sessionID, string(UpdateUserMessageChunk), messageID)
+	return scanOptionalTranscript(row)
+}
+
 // FindTranscriptKind returns the session-level row for one kind, if any. Used
 // to upsert usage / commands / mode instead of appending them.
 func (st *SQLStore) FindTranscriptKind(ctx context.Context, sessionID string, kind UpdateKind) (TranscriptEntry, bool, error) {
@@ -385,8 +411,9 @@ func (st *SQLStore) PruneClosedSessions(ctx context.Context, closedBefore time.T
 	return len(ids), nil
 }
 
-// DeleteSessions removes the given sessions along with their turns and
-// transcripts, permanently.
+// DeleteSessions removes the given sessions along with their turns,
+// transcripts and checkpoint rows, permanently. (A checkpoint's snapshot is in
+// the shadow repository; without its row, maintenance collects it.)
 //
 // Children first, then the sessions themselves: agent_turns and
 // agent_transcript both declare a foreign key onto agent_sessions and the
@@ -409,7 +436,7 @@ func (st *SQLStore) DeleteSessions(ctx context.Context, ids []string) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	for _, table := range []string{tableAgentTranscript, tableAgentTurns} {
+	for _, table := range []string{tableAgentTranscript, tableAgentTurns, tableAgentCheckpoints} {
 		for _, id := range ids {
 			if _, err := tx.ExecContext(ctx,
 				`DELETE FROM `+table+` WHERE session_id = ?`, id); err != nil {

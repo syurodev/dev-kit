@@ -195,10 +195,19 @@ describe("stepSummary", () => {
       "Thought, used tools",
     );
   });
+
+  it("does not call a compaction a subagent, though claude-agent-acp 0.78 gives both the think kind", () => {
+    expect(
+      stepSummary([
+        row("tool_call", { toolCall: { id: "c", kind: "think", name: "compact", title: "Compact conversation" } }),
+        row("tool_call", { toolCall: { id: "t", kind: "think", name: "Agent" } }),
+      ]),
+    ).toBe("Compacted the conversation, ran subagents");
+  });
 });
 
 describe("stepLabel", () => {
-  // The titles claude-agent-acp 0.74 writes, verbatim in shape.
+  // The titles claude-agent-acp writes (measured on 0.74, unchanged on 0.78), verbatim in shape.
   it.each([
     [{ kind: "read", title: "Read internal/agenthub/hook.go" }, "Read", "hook.go"],
     [{ kind: "read", title: "Read docs/agent-hub.mdx (1 - 50)" }, "Read", "agent-hub.mdx"],

@@ -40,12 +40,15 @@ type AgentSession struct {
 
 // TurnRecord is one completed (or failed) prompt turn on a session.
 type TurnRecord struct {
-	ID         string
-	SessionID  string
-	StopReason string
-	UsageJSON  json.RawMessage
-	RawMeta    json.RawMessage
-	CreatedAt  time.Time
+	ID        string
+	SessionID string
+	// PromptMessageID is the message id of the prompt that started the turn —
+	// the echo's id. Empty on rows written before migration 22.
+	PromptMessageID string
+	StopReason      string
+	UsageJSON       json.RawMessage
+	RawMeta         json.RawMessage
+	CreatedAt       time.Time
 }
 
 // NormalizedUsage is adapter-normalized cost/token info from vendor _meta.

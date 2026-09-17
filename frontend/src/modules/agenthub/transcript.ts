@@ -128,6 +128,9 @@ export function mergeToolCall(
   if (next.kind) {
     merged.kind = next.kind;
   }
+  if (next.name) {
+    merged.name = next.name;
+  }
   if (next.status) {
     merged.status = next.status;
   }
@@ -292,6 +295,8 @@ export function applySessionUpdates(
           kind,
           text: chunkText,
           messageId: update.messageId,
+          ...(update.origin ? { origin: update.origin } : {}),
+          ...(update.attachments?.length ? { attachments: update.attachments } : {}),
           raw: update.raw,
           createdAt: now(),
           updatedAt: now(),
@@ -543,6 +548,8 @@ export function initTranscript(
           sessionId,
           text: chunkText,
           messageId,
+          ...(payload.origin ? { origin: payload.origin } : {}),
+          ...(payload.attachments?.length ? { attachments: payload.attachments } : {}),
           raw: payload.raw,
           createdAt,
           updatedAt,

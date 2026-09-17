@@ -165,7 +165,7 @@ func TestMigrateCreatesVaultItemsTable(t *testing.T) {
 		TableSyncAccountBinding, TableSyncEntityVersions, TableSyncAppliedOps,
 		TableSyncLocalEntities, TableSyncLocalMutations, TableSyncConflicts,
 		TableAppPreferences, TableUIState, TableDBQueryHistory, TableDBSchemaCache,
-		TableAuditEvents,
+		TableAuditEvents, TableAgentCheckpoints,
 	} {
 		if !tableExists(table) {
 			t.Fatalf("expected %s table to exist", table)
@@ -176,8 +176,8 @@ func TestMigrateCreatesVaultItemsTable(t *testing.T) {
 	if err := db.QueryRow("SELECT MAX(version) FROM schema_migrations").Scan(&version); err != nil {
 		t.Fatalf("read migration version: %v", err)
 	}
-	if version != 21 {
-		t.Fatalf("migration version = %d, want 21", version)
+	if version != 22 {
+		t.Fatalf("migration version = %d, want 22", version)
 	}
 
 	if err := Migrate(context.Background(), db); err != nil {
@@ -439,5 +439,42 @@ func TestMigrateCreatesUIStateTable(t *testing.T) {
 
 	if _, err := db.Exec("SELECT key, value FROM ui_state LIMIT 0"); err != nil {
 		t.Fatalf("expected ui_state table to exist with key, value columns: %v", err)
+	}
+}
+
+func TestMigration22KeepsTurnsWrittenBeforeIt(t *testing.T) {
+	// The column is added to a table that already holds turns. Rolling the
+	// version back to 21 and migrating again replays m22 on a database that has
+	// half of it — the column but not the table — which is what an interrupted
+	// upgrade leaves.
+	db, err := Open(filepath.Join(t.TempDir(), "devkit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO agent_sessions (id, agent_type, project_path, status, depth, created_at, updated_at) VALUES ('s1', 'mock', '/p', 'idle', 0, 'x', 'x')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO agent_turns (id, session_id, created_at) VALUES ('old-turn', 's1', 'x')`); err != nil {
+		t.Fatal(err)
+	}
+	for _, stmt := range []string{`DROP TABLE agent_checkpoints`, `DELETE FROM schema_migrations WHERE version = 22`} {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatalf("replaying m22: %v", err)
+	}
+	var promptID string
+	if err := db.QueryRowContext(ctx, `SELECT prompt_message_id FROM agent_turns WHERE id = 'old-turn'`).Scan(&promptID); err != nil || promptID != "" {
+		t.Fatalf("old turn prompt_message_id = %q, %v; want empty", promptID, err)
+	}
+	if _, err := db.ExecContext(ctx, `SELECT id FROM agent_checkpoints LIMIT 1`); err != nil {
+		t.Fatalf("checkpoints table after replay: %v", err)
 	}
 }

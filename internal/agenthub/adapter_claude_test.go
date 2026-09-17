@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 
@@ -543,6 +544,22 @@ func TestUnknownMethodIsRefusedAndReportedOnce(t *testing.T) {
 	}
 }
 
+func TestAuthStatusNotificationsAreNotReportedAsUnknown(t *testing.T) {
+	// claude-agent-acp 0.75+ pushes _auth/status_update after every background
+	// sign-in check. Reporting it would put an "unimplemented ACP method" line
+	// in the log of every session for something DevKit chose to ignore.
+	unknownMethodSeen.Clear()
+	t.Cleanup(unknownMethodSeen.Clear)
+	var got []string
+	h := &claudeConnHandler{onUnknownMethod: func(method string, _ json.RawMessage) {
+		got = append(got, method)
+	}}
+	_, _ = h.UnknownMethod(context.Background(), "_auth/status_update", json.RawMessage(`{"authStatus":{}}`))
+	if len(got) != 0 {
+		t.Fatalf("reported %v, want nothing", got)
+	}
+}
+
 func TestClientCapabilitiesDeclareFormElicitationOnly(t *testing.T) {
 	// Marshalled, because the agent reads JSON: `form` must arrive as an object
 	// (truthy), and `url` must not arrive at all — DevKit serves no browser
@@ -859,4 +876,53 @@ func compactJSON(t *testing.T, raw json.RawMessage) string {
 		t.Fatalf("compact: %v", err)
 	}
 	return buf.String()
+}
+
+func TestToolCallNameTellsACompactionFromASubagent(t *testing.T) {
+	// claude-agent-acp 0.78 sends both as kind "think". A tool call carries its
+	// name at the top level (0.77+); the compaction only in _meta.claudeCode.
+	agent := ParseSessionUpdate(json.RawMessage(`{"sessionUpdate":"tool_call","toolCallId":"toolu_1","title":"Explore the repo","kind":"think","name":"Agent","_meta":{"claudeCode":{"toolName":"Agent"}}}`))
+	compact := ParseSessionUpdate(json.RawMessage(`{"sessionUpdate":"tool_call","toolCallId":"c1","title":"Compact conversation","kind":"think","status":"in_progress","_meta":{"contextCompaction":{"version":1},"claudeCode":{"toolName":"compact"}}}`))
+	if agent.ToolCall == nil || agent.ToolCall.Name != "Agent" {
+		t.Fatalf("agent tool call = %+v, want name Agent", agent.ToolCall)
+	}
+	if compact.ToolCall == nil || compact.ToolCall.Name != "compact" {
+		t.Fatalf("compaction tool call = %+v, want name compact from _meta", compact.ToolCall)
+	}
+
+	// An update without a name keeps the one the call started with.
+	merged := mergeToolCall(compact.ToolCall, &ToolCall{ID: "c1", Status: "completed"})
+	if merged.Name != "compact" || merged.Status != "completed" {
+		t.Fatalf("merged = %+v, want the name kept and the status updated", merged)
+	}
+}
+
+func TestSubagentUpdatesCarryTheirOrigin(t *testing.T) {
+	// Measured on claude-agent-acp 0.78: a subagent's messages arrive on the
+	// parent's connection under the subagent's sessionId, with message ids of
+	// their own. Recorded untagged, a rewind could pick one as a fork point.
+	rt := &claudeRuntime{acpSessionID: "parent"}
+	var got []json.RawMessage
+	rt.SetHandlers(RuntimeHandlers{OnUpdate: func(update json.RawMessage, _ json.RawMessage) {
+		got = append(got, update)
+	}})
+	h := &claudeConnHandler{rt: rt}
+
+	chunk := `{"sessionUpdate":"agent_message_chunk","messageId":"msg_%s","content":{"type":"text","text":"hi"}}`
+	for _, sid := range []string{"parent", "a0549d5cb1bae7c3b"} {
+		params, _ := json.Marshal(map[string]any{"sessionId": sid, "update": json.RawMessage(fmt.Sprintf(chunk, sid))})
+		if err := h.SessionUpdate(context.Background(), params); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(got) != 2 {
+		t.Fatalf("updates = %d, want 2", len(got))
+	}
+	own, sub := ParseSessionUpdate(got[0]), ParseSessionUpdate(got[1])
+	if own.Origin != "" {
+		t.Fatalf("the session's own chunk has origin %q", own.Origin)
+	}
+	if sub.Origin != "a0549d5cb1bae7c3b" || sub.MessageID != "msg_a0549d5cb1bae7c3b" || sub.Text() != "hi" {
+		t.Fatalf("subagent chunk = %+v, want its origin and the rest intact", sub)
+	}
 }

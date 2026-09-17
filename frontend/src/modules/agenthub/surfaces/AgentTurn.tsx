@@ -18,6 +18,7 @@ import {
 } from "../transcript/index";
 import { AgentProse } from "../transcript/AgentMessageRich";
 import { MessageActions } from "./MessageActions";
+import { AgentFileChip } from "../transcript/AgentFileChip";
 
 export type AgentTurnProps = {
   turn: Turn;
@@ -102,21 +103,38 @@ export const AgentTurn = React.memo(function AgentTurn({
       // A jump from the transcript's ticks lands the prompt clear of the glass header.
       style={{ scrollMarginTop: "calc(var(--header-inset, 0px) + var(--space-section))" }}
     >
-      {turn.prompt?.text?.trim() ? (
+      {turn.prompt && (turn.prompt.text?.trim() || turn.prompt.attachments?.length) ? (
         <div className="flex w-full justify-end">
           <MessageActions
             align="end"
-            text={turn.prompt.text}
+            text={turn.prompt.text ?? ""}
             at={turn.prompt.createdAt}
             onCopy={onCopy}
             onEdit={onEditPrompt}
           >
-            <p
-              data-testid="turn-prompt"
-              className="max-w-[80%] rounded-lg bg-surface-tinted px-3 py-2 text-body-14 whitespace-pre-wrap break-words text-text-primary select-text"
-            >
-              {turn.prompt.text}
-            </p>
+            <div className="flex max-w-[80%] flex-col items-end gap-1.5">
+              {/* What the prompt carried besides words, by name: an image-only
+                  prompt is still a turn, and the bubble says what it was. */}
+              {turn.prompt.attachments?.length ? (
+                <div data-testid="turn-prompt-attachments" className="flex max-w-full flex-wrap justify-end gap-1">
+                  {turn.prompt.attachments.map((attachment, index) => (
+                    <AgentFileChip
+                      key={`${attachment.kind}:${attachment.name}:${index}`}
+                      path={attachment.name}
+                      kind={attachment.kind === "image" ? "image" : "file"}
+                    />
+                  ))}
+                </div>
+              ) : null}
+              {turn.prompt.text?.trim() ? (
+                <p
+                  data-testid="turn-prompt"
+                  className="rounded-lg bg-surface-tinted px-3 py-2 text-body-14 whitespace-pre-wrap break-words text-text-primary select-text"
+                >
+                  {turn.prompt.text}
+                </p>
+              ) : null}
+            </div>
           </MessageActions>
         </div>
       ) : null}

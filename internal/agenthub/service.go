@@ -120,6 +120,9 @@ type Service struct {
 	// among them — degraded to UpdateUnknown and vanished without a trace, so
 	// nothing on screen or in the log said the vendor was sending something new.
 	// All sixteen are modelled now; this stays for the next version's additions.
+	// 0.78 has two more — compaction_update and compaction_summary_chunk — but
+	// sends them only to a client that declares session.compaction, which
+	// DevKit does not; it reports compaction as a `compact` tool call instead.
 	//
 	// A hook rather than a log call for the same reason OnRecordError is one:
 	// internal/agenthub owns no logger.
@@ -881,6 +884,11 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 		delete(s.invoking, in.SessionID)
 		s.mu.Unlock()
 	}
+	// The turn's one name, from here to the row written when it ends: the
+	// prompt's echo carries it, the turn row stores it, and a checkpoint or a
+	// rewind names the turn by it. The live stream and a reloaded page agree on
+	// nothing else — a transcript item's own id differs between the two.
+	promptMessageID := uuid.NewString()
 
 	// An orphan — the row outlived the process that served it, which is what
 	// every restart does to every open session, and what a mid-turn crash does
@@ -967,16 +975,22 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 	// transcript reloaded from the store showed the replies with nothing to
 	// reply to. Written under recordCtx like every other transcript write, and
 	// best-effort for the same reason: losing the echo must not fail the turn.
-	if text := strings.TrimSpace(in.Prompt); text != "" {
+	//
+	// Every prompt, including one of only images or files. The echo is what
+	// starts a turn in the transcript; a prompt without one folded into the turn
+	// before it and had no name to rewind to.
+	attachments := promptAttachments(in)
+	if strings.TrimSpace(in.Prompt) != "" || len(attachments) > 0 {
 		userEcho := SessionUpdate{
-			Kind:      UpdateUserMessageChunk,
-			Content:   &ContentBlock{Type: "text", Text: in.Prompt},
-			MessageID: uuid.NewString(),
+			Kind:        UpdateUserMessageChunk,
+			Content:     &ContentBlock{Type: "text", Text: in.Prompt},
+			MessageID:   promptMessageID,
+			Attachments: attachments,
 		}
 		if err := s.recorder.Record(recordCtx, in.SessionID, userEcho); err != nil && s.OnRecordError != nil {
 			s.OnRecordError(in.SessionID, err)
 		}
-		s.emit(in.SessionID, userEchoUpdate(in.Prompt, userEcho.MessageID))
+		s.emit(in.SessionID, userEchoUpdate(in.Prompt, promptMessageID, attachments))
 	}
 
 	outcome, promptErr := rt.Prompt(ctx, prompt)
@@ -1021,12 +1035,13 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 	}
 
 	turn := TurnRecord{
-		ID:         uuid.NewString(),
-		SessionID:  in.SessionID,
-		StopReason: outcome.StopReason,
-		UsageJSON:  usageJSON,
-		RawMeta:    append(json.RawMessage(nil), outcome.Meta...),
-		CreatedAt:  time.Now().UTC(),
+		ID:              uuid.NewString(),
+		SessionID:       in.SessionID,
+		PromptMessageID: promptMessageID,
+		StopReason:      outcome.StopReason,
+		UsageJSON:       usageJSON,
+		RawMeta:         append(json.RawMessage(nil), outcome.Meta...),
+		CreatedAt:       time.Now().UTC(),
 	}
 	if err := s.store.InsertTurn(recordCtx, turn); err != nil {
 		_ = s.setSessionStatus(recordCtx, in.SessionID, SessionStatusError)
@@ -1131,16 +1146,38 @@ func modeStateUpdate(modes *acp.SessionModeState) json.RawMessage {
 // The UI parses session/update notifications, not SessionUpdate values, so the
 // echo has to arrive looking like one or the open rail would show the prompt
 // only after a reload.
-func userEchoUpdate(text, messageID string) json.RawMessage {
-	body, err := json.Marshal(map[string]any{
+func userEchoUpdate(text, messageID string, attachments []PromptAttachment) json.RawMessage {
+	update := map[string]any{
 		"sessionUpdate": string(UpdateUserMessageChunk),
 		"content":       map[string]any{"type": "text", "text": text},
 		"messageId":     messageID,
-	})
+	}
+	if len(attachments) > 0 {
+		update[DevKitWireKey] = map[string]any{"attachments": attachments}
+	}
+	body, err := json.Marshal(update)
 	if err != nil {
 		return nil
 	}
 	return body
+}
+
+// promptAttachments names what a prompt carried besides text, in the order it
+// was given: files by their base name, images by the name they were pasted or
+// dropped with. The content is never kept.
+func promptAttachments(in InvokeInput) []PromptAttachment {
+	var out []PromptAttachment
+	for _, path := range in.Attachments {
+		out = append(out, PromptAttachment{Name: filepath.Base(path), Kind: "file"})
+	}
+	for _, image := range in.Images {
+		name := strings.TrimSpace(image.Name)
+		if name == "" {
+			name = "image"
+		}
+		out = append(out, PromptAttachment{Name: name, Kind: "image"})
+	}
+	return out
 }
 
 // adoptSessionTitle takes the vendor's generated name for a session that has

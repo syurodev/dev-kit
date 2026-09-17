@@ -174,7 +174,7 @@ func (m *Manager) installed(agent, version string) *InstalledRuntime {
 // It runs outside the sandbox — npm needs the network and somewhere to write —
 // which is why --ignore-scripts is not optional: no code from the package runs
 // until Verify starts it inside the jail. Neither the adapter nor its SDK has
-// an install script (checked for 0.74.0 and SDK 0.3.257); the Claude binary
+// an install script (checked for 0.78.0 and SDK 0.3.270, including zod and @agentclientprotocol/sdk); the Claude binary
 // arrives as an optionalDependency picked by os/cpu.
 //
 // Cancelling ctx kills npm and deletes the staging tree; a failure at any step

@@ -192,9 +192,11 @@ export const BOOLEAN_CHOICES: ElicitationChoice[] = [
  *
  * A choice field's controls share its key, the free-text "Other" box included,
  * so its values are sorted back out here: a value that is one of the choices is
- * a selection, anything else is typed text. Typed text that is not blank goes
- * to the companion key alone — the agent lets it override the selection, so
- * sending both would say something the person did not.
+ * a selection, anything else is typed text. Both are sent, each under its own
+ * key. claude-agent-acp 0.78 reads them together: a pick stays the answer and
+ * the text becomes its note, a multi-select gets the text appended, and text
+ * with no pick is the answer. (0.74 let the text override the pick, which is
+ * why this once sent the text alone.)
  */
 export function buildElicitationContent(form: ElicitationForm, answers: ElicitationAnswers): ElicitationContent {
   const content: ElicitationContent = {};
@@ -206,12 +208,13 @@ export function buildElicitationContent(form: ElicitationForm, answers: Elicitat
         const known = new Set(field.choices.map((c) => c.value));
         const picked = values.filter((v) => known.has(v));
         const typed = values.filter((v) => !known.has(v) && v.trim()).map((v) => v.trim()).join(", ");
-        if (typed && field.customKey) {
-          content[field.customKey] = typed;
-        } else if (field.kind === "single" && picked.length > 0) {
+        if (field.kind === "single" && picked.length > 0) {
           content[field.key] = picked[0];
         } else if (field.kind === "multi" && picked.length > 0) {
           content[field.key] = [...new Set(picked)];
+        }
+        if (typed && field.customKey) {
+          content[field.customKey] = typed;
         }
         break;
       }

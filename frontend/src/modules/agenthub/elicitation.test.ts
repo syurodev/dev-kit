@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import { buildElicitationContent, parseElicitationForm, questionCountLabel } from "./elicitation";
 
-// Shapes copied from claude-agent-acp 0.74.0's elicitation.js
+// Shapes copied from claude-agent-acp 0.74.0's elicitation.js (field names unchanged in 0.78.0)
 // (askUserQuestionsToCreateRequest, refusalFallbackToCreateRequest), not
 // invented: the point of these tests is that the wire the agent sends parses.
 const custom = (questionId: string) => ({
@@ -163,10 +163,15 @@ describe("buildElicitationContent", () => {
     });
   });
 
-  it("sends typed text to the Other key alone, because the agent lets it override the selection", () => {
+  it("sends typed text under the Other key beside the pick, which 0.78 keeps as the answer", () => {
     expect(buildElicitationContent(form, { question_0: ["  Magic link "], question_1: ["Caching", "Webhooks"] })).toEqual({
       question_0_custom: "Magic link",
+      question_1: ["Caching"],
       question_1_custom: "Webhooks",
+    });
+    expect(buildElicitationContent(form, { question_0: ["OAuth", "via SSO"] })).toEqual({
+      question_0: "OAuth",
+      question_0_custom: "via SSO",
     });
   });
 

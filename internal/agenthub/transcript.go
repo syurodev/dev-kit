@@ -46,6 +46,7 @@ type TranscriptStore interface {
 	LastTranscriptEntry(ctx context.Context, sessionID string) (TranscriptEntry, bool, error)
 	FindTranscriptToolCall(ctx context.Context, sessionID, toolCallID string) (TranscriptEntry, bool, error)
 	FindTranscriptKind(ctx context.Context, sessionID string, kind UpdateKind) (TranscriptEntry, bool, error)
+	FindPromptEntry(ctx context.Context, sessionID, messageID string) (TranscriptEntry, bool, error)
 	ListTranscript(ctx context.Context, sessionID string) ([]TranscriptEntry, error)
 	ListTranscriptPage(ctx context.Context, sessionID string, beforeSeq int64, limit int) (TranscriptPage, error)
 }
@@ -524,7 +525,7 @@ func (r *Recorder) recordToolCall(ctx context.Context, sessionID string, update 
 
 // sameMessageID keeps two assistant messages from folding into one bubble.
 // Claude tags every chunk with a messageId (measured on claude-agent-acp
-// 0.74); when the vendor sends none, kind alone is the best key available and
+// 0.74 and 0.78); when the vendor sends none, kind alone is the best key available and
 // the old behaviour stands.
 func sameMessageID(tailMsgID, updateMsgID string) bool {
 	if updateMsgID == "" {
@@ -570,6 +571,9 @@ func mergeToolCall(prev, next *ToolCall) *ToolCall {
 	}
 	if next.Kind != "" {
 		merged.Kind = next.Kind
+	}
+	if next.Name != "" {
+		merged.Name = next.Name
 	}
 	if next.Status != "" {
 		merged.Status = next.Status
