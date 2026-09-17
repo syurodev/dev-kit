@@ -133,6 +133,13 @@ type Service struct {
 	// already running, but it must not be silent either.
 	OnRecordError func(sessionID string, err error)
 
+	// OnFilesRestored fires after a restore has written. The UI reloads what it
+	// is showing of the project; nothing in the transcript changes.
+	OnFilesRestored func(sessionID string, result RestoreResult)
+
+	// restores holds the previews waiting between PlanRestore and ApplyRestore.
+	restores restorePlans
+
 	// checkpoints takes the file snapshots around a turn. Never nil — an
 	// unconfigured service holds a no-op, so Invoke has one code path rather
 	// than a nil check at each of the four places it would need one. Set with

@@ -344,6 +344,114 @@ export interface PendingPermission {
 }
 
 /**
+ * RestoreAction is one path a restore would change.
+ */
+export interface RestoreAction {
+    "path": string;
+
+    /**
+     * Kind is "write" or "delete".
+     */
+    "kind": string;
+}
+
+/**
+ * RestoreConflict is one path a restore will not change, and why.
+ */
+export interface RestoreConflict {
+    "path": string;
+    "kind": string;
+    "reason": string;
+
+    /**
+     * Overridable says the user may force past it. False for a path no tree
+     * holds the content of, and for one whose directory is now a symlink.
+     */
+    "overridable": boolean;
+}
+
+/**
+ * RestoreMode is which of the three restores is being asked for.
+ */
+export enum RestoreMode {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    /**
+     * RestoreUndoTurn reverses one turn, leaving later turns alone.
+     */
+    RestoreUndoTurn = "undo",
+
+    /**
+     * RestoreToBeforeTurn rewinds the project's files to before a turn,
+     * reversing everything since.
+     */
+    RestoreToBeforeTurn = "toBefore",
+
+    /**
+     * RestoreUndoRestore puts back what a restore itself changed, from the
+     * safety snapshot it took first.
+     */
+    RestoreUndoRestore = "undoRestore",
+};
+
+/**
+ * RestorePreview is the read-only answer to "what would this restore do".
+ */
+export interface RestorePreview {
+    /**
+     * Token is what ApplyRestore takes. Opaque, single-use, and checked again
+     * at apply time: the dialog the user read described a particular state of
+     * the project, and a plan that went stale must not be carried out.
+     */
+    "token": string;
+    "sessionId": string;
+    "mode": RestoreMode;
+    "actions": RestoreAction[] | null;
+    "conflicts": RestoreConflict[] | null;
+
+    /**
+     * Warnings are things the user should know before agreeing: another
+     * session writing in the same project, a turn recorded on one side only.
+     */
+    "warnings": string[] | null;
+}
+
+/**
+ * RestoreRequest names what to restore.
+ */
+export interface RestoreRequest {
+    "sessionId": string;
+    "mode": RestoreMode;
+
+    /**
+     * PromptMessageID names the turn, for undo and toBefore.
+     */
+    "promptMessageId"?: string;
+
+    /**
+     * CheckpointID names the safety row, for undoRestore.
+     */
+    "checkpointId"?: string;
+}
+
+/**
+ * RestoreResult is what a restore actually did.
+ */
+export interface RestoreResult {
+    "written": string[] | null;
+    "deleted": string[] | null;
+
+    /**
+     * SafetyCheckpointID is the snapshot taken before the restore, which is
+     * what "Undo restore" goes back to.
+     */
+    "safetyCheckpointId": string;
+}
+
+/**
  * SessionStatus is the hub-visible lifecycle state of an AgentSession.
  */
 export enum SessionStatus {

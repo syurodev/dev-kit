@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   Empty,
   EmptyDescription,
@@ -12,6 +13,7 @@ import type { AvailableCommand, ConfigOption, SessionMode, TranscriptItem, Usage
 import type { ContextFileItem } from "./AgentMenu";
 import { TranscriptStream } from "./TranscriptStream";
 import { loadCheckpointFileDiff, useSessionCheckpoints } from "../useSessionCheckpoints";
+import { RestoreFilesDialog } from "./RestoreFilesDialog";
 import { AgentComposer } from "./AgentComposer";
 import { composerPlaceholder } from "./AgentHubContent";
 import { AgentPermissionRequest } from "./AgentPermissionRequest";
@@ -156,6 +158,10 @@ export function AgentRail({
   className,
 }: AgentRailProps) {
   const checkpoints = useSessionCheckpoints(activeSession?.id ?? "");
+  // Which turn's files the confirmation is about, or "" for closed. The dialog
+  // plans for itself, so opening it costs one call and nothing is planned for a
+  // turn nobody asked about.
+  const [restoringPrompt, setRestoringPrompt] = useState("");
   const effectiveState: AgentRailState = explicitState
     ? explicitState
     : !activeSession
@@ -285,12 +291,20 @@ export function AgentRail({
               vendor={vendor}
               checkpoints={checkpoints}
               loadFileDiff={loadCheckpointFileDiff}
+              onRestoreFiles={setRestoringPrompt}
               hasMore={hasMore}
               loadingOlder={loadingOlder}
               onLoadOlder={onLoadOlder}
               onOpenFile={onOpenFile}
             />
           </div>
+
+          <RestoreFilesDialog
+            open={Boolean(restoringPrompt)}
+            onOpenChange={(open) => setRestoringPrompt(open ? restoringPrompt : "")}
+            sessionId={activeSession?.id ?? ""}
+            promptMessageId={restoringPrompt}
+          />
 
           {errorMessage ? (
             <p className="px-6 pb-1 text-caption-11 text-status-danger">{errorMessage}</p>

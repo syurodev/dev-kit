@@ -52,7 +52,7 @@ func TestRestoreKeepsSymlinksAndExecutableBit(t *testing.T) {
 	}
 	after := snap(t, repo, "cp1", SlotAfter)
 
-	plan, err := repo.PlanRestore(context.Background(), before.Tree, after.Tree, nil)
+	plan, err := repo.PlanRestore(context.Background(), before.Tree, after.Tree, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func TestRestoreIsByteExactUnderProjectGitattributes(t *testing.T) {
 	}
 	after := snap(t, repo, "cp1", SlotAfter)
 
-	plan, err := repo.PlanRestore(context.Background(), before.Tree, after.Tree, nil)
+	plan, err := repo.PlanRestore(context.Background(), before.Tree, after.Tree, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +139,7 @@ func TestRestoreRefusesToWriteThroughASymlinkedDirectory(t *testing.T) {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
 
-	plan, err := repo.PlanRestore(context.Background(), before.Tree, after.Tree, nil)
+	plan, err := repo.PlanRestore(context.Background(), before.Tree, after.Tree, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +177,7 @@ func TestRestoreNeverTouchesASkippedPath(t *testing.T) {
 	write(t, repo, "other.txt", "two\n")
 	after := snap(t, repo, "cp1", SlotAfter)
 
-	plan, err := repo.PlanRestore(context.Background(), before.Tree, after.Tree, nil)
+	plan, err := repo.PlanRestore(context.Background(), before.Tree, after.Tree, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +215,7 @@ func TestRestoreRemovesOnlyTheDirectoriesItEmptied(t *testing.T) {
 	// empty.
 	write(t, repo, "mixed/.DS_Store", "junk")
 
-	plan, err := repo.PlanRestore(context.Background(), before.Tree, after.Tree, nil)
+	plan, err := repo.PlanRestore(context.Background(), before.Tree, after.Tree, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -246,7 +246,7 @@ func TestRestoreReportsAndCanOverrideAConflict(t *testing.T) {
 	// The user's own edit, after the turn, that DevKit never snapshotted.
 	write(t, repo, "file.txt", "three\n")
 
-	plan, err := repo.PlanRestore(context.Background(), before.Tree, after.Tree, nil)
+	plan, err := repo.PlanRestore(context.Background(), before.Tree, after.Tree, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +281,7 @@ func TestApplyRefusesAStalePlan(t *testing.T) {
 	write(t, repo, "file.txt", "two\n")
 	after := snap(t, repo, "cp1", SlotAfter)
 
-	plan, err := repo.PlanRestore(context.Background(), before.Tree, after.Tree, nil)
+	plan, err := repo.PlanRestore(context.Background(), before.Tree, after.Tree, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -319,5 +319,66 @@ func TestDecomposedFilenamesRoundTrip(t *testing.T) {
 	}
 	if len(changes) != 1 || changes[0].Kind != ChangeModified {
 		t.Fatalf("changes = %+v, want one modification", changes)
+	}
+}
+
+// "Undo this turn" and "go back to before this turn" target the same tree and
+// check against the same expectation. The only difference is which paths are in
+// scope, so narrowing has to be exact: a path outside the scope must be left
+// alone even though it differs from the target.
+func TestPlanRestoreNarrowsToTheGivenPaths(t *testing.T) {
+	_, repo := testEngine(t, Limits{})
+	write(t, repo, "mine.txt", "one\n")
+	write(t, repo, "theirs.txt", "one\n")
+	before := snap(t, repo, "cp1", SlotBefore)
+
+	write(t, repo, "mine.txt", "two\n")
+	write(t, repo, "theirs.txt", "two\n")
+	after := snap(t, repo, "cp1", SlotAfter)
+
+	narrowed, err := repo.PlanRestore(context.Background(), before.Tree, after.Tree, []string{"mine.txt"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(narrowed.Actions) != 1 || narrowed.Actions[0].Path != "mine.txt" {
+		t.Fatalf("actions = %+v, want only mine.txt", narrowed.Actions)
+	}
+
+	// nil is every path that differs — what "go back to before" asks for.
+	wide, err := repo.PlanRestore(context.Background(), before.Tree, after.Tree, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(wide.Actions) != 2 {
+		t.Fatalf("actions = %+v, want both", wide.Actions)
+	}
+
+	if _, err := repo.ApplyRestore(context.Background(), narrowed, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, repo, "mine.txt"); got != "one\n" {
+		t.Errorf("mine.txt = %q, want restored", got)
+	}
+	if got := read(t, repo, "theirs.txt"); got != "two\n" {
+		t.Errorf("theirs.txt = %q, want untouched", got)
+	}
+}
+
+// An empty (non-nil) scope is "no paths", not "every path". The two spellings
+// mean opposite things and a restore that read one as the other would rewrite
+// the whole project instead of nothing.
+func TestPlanRestoreTreatsAnEmptyScopeAsNothing(t *testing.T) {
+	_, repo := testEngine(t, Limits{})
+	write(t, repo, "a.txt", "one\n")
+	before := snap(t, repo, "cp1", SlotBefore)
+	write(t, repo, "a.txt", "two\n")
+	after := snap(t, repo, "cp1", SlotAfter)
+
+	plan, err := repo.PlanRestore(context.Background(), before.Tree, after.Tree, []string{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !plan.Empty() || len(plan.Conflicts) != 0 {
+		t.Fatalf("plan = %+v, want nothing", plan)
 	}
 }

@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Check, Copy, Pencil } from "lucide-react";
+import { Check, Copy, Pencil, Undo2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,12 @@ export type MessageActionsProps = {
   onCopy?: (text: string) => void;
   /** Your own prompt only: puts its text back in the composer. */
   onEdit?: (text: string) => void;
+  /**
+   * Your own prompt only, and only when the turn changed files: opens the
+   * confirmation for putting them back. Absent when there is nothing to undo,
+   * so the button is never there to be pressed on a turn that changed nothing.
+   */
+  onRestoreFiles?: () => void;
 };
 
 /** "2:56 PM" in the viewer's own locale; nothing for a row without a clock. */
@@ -43,10 +49,20 @@ function timeOf(at?: string): string {
  * next message instead. Hidden rows are still not a line of chrome under every
  * message: they are empty space until pointed at.
  */
-export function MessageActions({ children, align, text, at, meta, onDetails, onCopy, onEdit }: MessageActionsProps) {
+export function MessageActions({
+  children,
+  align,
+  text,
+  at,
+  meta,
+  onDetails,
+  onCopy,
+  onEdit,
+  onRestoreFiles,
+}: MessageActionsProps) {
   const [copied, setCopied] = React.useState(false);
   const time = timeOf(at);
-  if (!time && !meta && !onCopy && !onEdit) return <>{children}</>;
+  if (!time && !meta && !onCopy && !onEdit && !onRestoreFiles) return <>{children}</>;
 
   return (
     <div
@@ -92,6 +108,18 @@ export function MessageActions({ children, align, text, at, meta, onDetails, onC
             }}
           >
             {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
+          </Button>
+        ) : null}
+        {onRestoreFiles ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Undo this turn's file changes"
+            data-testid="message-restore-files"
+            onClick={onRestoreFiles}
+          >
+            <Undo2 aria-hidden="true" />
           </Button>
         ) : null}
         {onEdit ? (

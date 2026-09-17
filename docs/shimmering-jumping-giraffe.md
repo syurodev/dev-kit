@@ -8,7 +8,7 @@
 | B — Tiền đề trong code hiện có | **Xong** (2026-09-17) |
 | C — Engine `internal/checkpoint` | **Xong** (2026-09-17) |
 | D — Chụp mỗi lượt + report + UI "file đã đổi" | **Xong** (2026-09-17) |
-| E — Khôi phục code | Chưa làm |
+| E — Khôi phục code | **Xong** (2026-09-17) |
 | F — Rewind hội thoại + code | Chưa làm |
 | G — Settings + tài liệu | Chưa làm |
 
@@ -24,6 +24,22 @@ S4 chunk subagent tới dưới `params.sessionId` của subagent với `msg_…
 `/compact` — chạy (không cần chặn); S6 `session/delete` session chưa load — chạy; S7 report ở
 `update._meta.jetbrains.air.agentFileChangeReport` của `session_info_update`, cùng lúc prompt
 response, **không** có file do Bash tạo, lượt huỷ → `unavailable/cancelled`.
+
+**Đã có sau E:** engine `PlanRestore(target, expected, only, protected)` — thêm lọc `only`, vì
+"hoàn tác lượt này" và "về trước lượt N" **cùng đích, cùng expected**, chỉ khác tập path (`nil` =
+mọi path, `[]` = không path nào); service `PlanRestore(RestoreRequest)` → `RestorePreview{token,…}`
+và `ApplyRestore(token, overwrite)`, ba mode `undo` / `toBefore` / `undoRestore`; plan giữ ở backend
+(token không mang quyền), TTL 15 phút, **dùng một lần**; từ chối caller là agent ở **cả hai** hàm,
+từ chối session đang chạy/chờ permission/giữ claim, claim session suốt lúc apply; luôn ghi safety row
+trước khi ghi gì, `activity.Begin(KindRestore)`; cảnh báo: session khác đang chạy cùng project, lượt
+chỉ ghi được một nửa, không có snapshot đầy đủ nào; bridge `AgentHubPlanRestore`/`AgentHubApplyRestore`
++ grant `restore:*`, event `agenthub:filesRestored`; UI `RestoreFilesDialog` (chọn phạm vi → tự
+re-plan, danh sách ghi/xoá, xung đột có checkbox chỉ cho cái ép được, cảnh báo, nút chết khi không có
+gì để làm) + nút undo trên bong bóng prompt **chỉ hiện khi thật sự hoàn tác được**.
+
+**Lệch khỏi plan ở E:** "hiện tại mong đợi" **không** tính per-path là "after của lượt cuối chạm path
+đó" — snapshot là cây đầy đủ chứ không phải delta, nên after tree của checkpoint **mới nhất** đã mang
+nội dung cuối cùng đã biết của mọi path. Một cây, cùng ngữ nghĩa, không cần API per-path.
 
 **Đã có sau D:** store `CheckpointStore` (`CheckpointRecord`, `ChangedFile`, kind/status/outcome);
 `Checkpoints` interface + `noCheckpoints` (nil = tắt, `Invoke` không rẽ nhánh) + `EngineCheckpoints`;

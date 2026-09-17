@@ -2,6 +2,8 @@ import { describe, expect, it } from "bun:test";
 import { renderToString } from "react-dom/server";
 
 import { AgentTurnChanges, ChangedFileRow } from "./AgentTurnChanges";
+import { AgentTurn } from "./AgentTurn";
+import { groupTurns } from "../turns";
 import {
   ChangedSource,
   CheckpointKind,
@@ -132,5 +134,45 @@ describe("a changed file's row", () => {
       />,
     );
     expect(html).toContain("disabled");
+  });
+});
+
+// The undo button on a prompt is offered only when there is something to undo.
+// A disabled affordance on every message would teach people to ignore it, and a
+// live one on a turn with no opening snapshot would promise something DevKit
+// cannot do.
+describe("the undo affordance on a prompt", () => {
+  function turnWith(checkpoint: CheckpointRecord | undefined) {
+    const [turn] = groupTurns([
+      { id: "u", kind: "user_message_chunk", text: "do the thing", messageId: "p1", createdAt: "2026-09-17T10:00:00Z" },
+      { id: "a", kind: "agent_message_chunk", text: "done" },
+    ]);
+    return renderToString(
+      <AgentTurn turn={turn} checkpoint={checkpoint} onRestoreFiles={() => {}} />,
+    );
+  }
+
+  it("is there when the turn changed files and both sides were recorded", () => {
+    expect(turnWith(record({ promptMessageId: "p1", changed: [file()] }))).toContain(
+      'data-testid="message-restore-files"',
+    );
+  });
+
+  it("is absent for a turn with no checkpoint at all", () => {
+    expect(turnWith(undefined)).not.toContain('data-testid="message-restore-files"');
+  });
+
+  it("is absent for a turn that changed nothing", () => {
+    expect(turnWith(record({ promptMessageId: "p1", changed: [] }))).not.toContain(
+      'data-testid="message-restore-files"',
+    );
+  });
+
+  // Nothing to go back to: the button would open a dialog that could only
+  // refuse.
+  it("is absent for a turn whose opening snapshot never finished", () => {
+    expect(
+      turnWith(record({ promptMessageId: "p1", beforeTree: "", outcome: "before_missing", changed: [file()] })),
+    ).not.toContain('data-testid="message-restore-files"');
   });
 });

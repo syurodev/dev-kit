@@ -295,6 +295,48 @@ func (s *AppService) AgentHubCheckpointFileDiff(checkpointID, path string) (agen
 	return result.(agenthub.FileDiff), nil
 }
 
+// AgentHubPlanRestore works out what putting a turn's files back would do,
+// without touching anything. The returned token is what AgentHubApplyRestore
+// takes; the plan itself stays on the backend, so a client cannot name a tree
+// of its own.
+func (s *AppService) AgentHubPlanRestore(req agenthub.RestoreRequest) (agenthub.RestorePreview, error) {
+	opaqueID := hubSessionID(req.SessionID)
+	result, err := s.call(context.Background(), "builtin.agenthub", "agenthub:execute", "session:"+opaqueID, map[string]any{
+		"action":     "plan_restore",
+		"session_id": opaqueID,
+		"mode":       string(req.Mode),
+	}, func(ctx context.Context) (any, error) {
+		svc, err := s.agentHubService()
+		if err != nil {
+			return nil, err
+		}
+		return svc.PlanRestore(ctx, req)
+	})
+	if err != nil {
+		return agenthub.RestorePreview{}, err
+	}
+	return result.(agenthub.RestorePreview), nil
+}
+
+// AgentHubApplyRestore carries out a plan. overwrite names the conflicts the
+// user chose to force; the backend honours only the ones that can be forced.
+func (s *AppService) AgentHubApplyRestore(token string, overwrite []string) (agenthub.RestoreResult, error) {
+	result, err := s.call(context.Background(), "builtin.agenthub", "agenthub:execute", "restore:"+token, map[string]any{
+		"action":    "apply_restore",
+		"overwrite": len(overwrite),
+	}, func(ctx context.Context) (any, error) {
+		svc, err := s.agentHubService()
+		if err != nil {
+			return nil, err
+		}
+		return svc.ApplyRestore(ctx, token, overwrite)
+	})
+	if err != nil {
+		return agenthub.RestoreResult{}, err
+	}
+	return result.(agenthub.RestoreResult), nil
+}
+
 // AgentHubToolCallDetail returns one stored tool call, payload intact — the
 // page reader shortens oversized raw fields to a preview, and this is the
 // "show me the whole output" behind it.

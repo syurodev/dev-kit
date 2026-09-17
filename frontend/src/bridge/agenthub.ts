@@ -10,6 +10,9 @@ import type {
   ContextFile as RawContextFile,
   CheckpointRecord,
   FileDiff,
+  RestorePreview,
+  RestoreRequest,
+  RestoreResult,
 } from "../../bindings/devkit/internal/agenthub/models";
 import type { SessionUpdate } from "../modules/agenthub/types";
 
@@ -160,6 +163,7 @@ const ELICITATION_CLOSED_EVENT = "agenthub:elicitationClosed";
 const TURN_FINISHED_EVENT = "agenthub:turnFinished";
 const NOTIFICATION_ACTION_EVENT = "agenthub:notificationAction";
 const CHECKPOINT_EVENT = "agenthub:checkpoint";
+const FILES_RESTORED_EVENT = "agenthub:filesRestored";
 
 function asVendor(value: string): AgentVendor | string {
   return value;
@@ -621,6 +625,44 @@ export function agentHubCheckpointFileDiff(checkpointId: string, path: string): 
   return callBridge(async () => {
     const diff = await AppService.AgentHubCheckpointFileDiff(checkpointId, path);
     return diff as FileDiff;
+  });
+}
+
+/**
+ * Works out what putting a turn's files back would do, without touching
+ * anything. The token it returns is the only handle on the plan — the plan
+ * itself stays on the backend, so nothing a client says can name a tree.
+ */
+export function agentHubPlanRestore(request: RestoreRequest): Promise<RestorePreview> {
+  return callBridge(async () => {
+    const preview = await AppService.AgentHubPlanRestore(request);
+    return preview as RestorePreview;
+  });
+}
+
+/** Carries out a plan. `overwrite` names the conflicts the user chose to force. */
+export function agentHubApplyRestore(token: string, overwrite: string[]): Promise<RestoreResult> {
+  return callBridge(async () => {
+    const result = await AppService.AgentHubApplyRestore(token, overwrite);
+    return result as RestoreResult;
+  });
+}
+
+/** Files on disk changed under whatever else is showing them. */
+export function onAgentHubFilesRestored(
+  handler: (sessionId: string, result: { written: string[]; deleted: string[]; safetyCheckpointId: string }) => void,
+): () => void {
+  return Events.On(FILES_RESTORED_EVENT, (ev) => {
+    const record = Array.isArray(ev?.data) ? ev.data[0] : ev?.data;
+    if (!record || typeof record !== "object") return;
+    const value = record as Record<string, unknown>;
+    const sessionId = typeof value.sessionId === "string" ? value.sessionId : "";
+    if (!sessionId) return;
+    handler(sessionId, {
+      written: Array.isArray(value.written) ? (value.written as string[]) : [],
+      deleted: Array.isArray(value.deleted) ? (value.deleted as string[]) : [],
+      safetyCheckpointId: typeof value.safetyCheckpointId === "string" ? value.safetyCheckpointId : "",
+    });
   });
 }
 

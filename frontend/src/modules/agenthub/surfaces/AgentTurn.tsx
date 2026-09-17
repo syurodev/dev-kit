@@ -41,6 +41,12 @@ export type AgentTurnProps = {
   checkpoint?: CheckpointRecord;
   /** Loads one changed file's two versions, when its row is opened. */
   loadFileDiff?: (checkpointId: string, path: string) => Promise<FileDiff>;
+  /**
+   * Opens the confirmation for putting this turn's files back. Offered only
+   * when the turn actually changed something — the button is not a disabled
+   * affordance on every message, it is simply absent.
+   */
+  onRestoreFiles?: (promptMessageId: string) => void;
   /** Opens the inspector for a reply that carries cost and timing. */
   onInspect?: (item: TranscriptItem) => void;
   /** Copy, in a message's hover card. */
@@ -81,6 +87,7 @@ export const AgentTurn = React.memo(function AgentTurn({
   vendor,
   checkpoint,
   loadFileDiff,
+  onRestoreFiles,
   onInspect,
   onCopy,
   onEditPrompt,
@@ -88,6 +95,16 @@ export const AgentTurn = React.memo(function AgentTurn({
 }: AgentTurnProps) {
   const reduce = useReducedMotion() ?? false;
   const [open, setOpen] = React.useState(false);
+  // The prompt's own message id, but only when this turn has files worth
+  // putting back: a checkpoint that recorded nothing has nothing to undo, and
+  // one recorded on one side only cannot be undone at all.
+  const restorable =
+    onRestoreFiles &&
+    turn.prompt?.messageId &&
+    (checkpoint?.changed?.length ?? 0) > 0 &&
+    checkpoint?.beforeTree
+      ? turn.prompt.messageId
+      : "";
 
   const activity = React.useMemo(() => (live ? activityOf(turn) : null), [live, turn]);
   const answer = React.useMemo(() => turn.answer.filter((item) => item.text?.trim()), [turn.answer]);
@@ -123,6 +140,7 @@ export const AgentTurn = React.memo(function AgentTurn({
             at={turn.prompt.createdAt}
             onCopy={onCopy}
             onEdit={onEditPrompt}
+            onRestoreFiles={restorable ? () => onRestoreFiles?.(restorable) : undefined}
           >
             <div className="flex max-w-[80%] flex-col items-end gap-1.5">
               {/* What the prompt carried besides words, by name: an image-only

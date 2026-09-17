@@ -248,6 +248,11 @@ func NewContainerWithStores(
 		// behind it is still authorised — CheckpointFileDiff resolves the
 		// checkpoint's session and runs authorizeTarget on that.
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "checkpoint:*"},
+		// Putting a turn's files back. Planning is per session; applying is
+		// named by the plan's own token, which the backend issued and holds —
+		// the session it belongs to is re-checked from that plan, so the token
+		// carries no authority a client could forge.
+		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "restore:*"},
 		// Agent runtimes: reading status and the registry, and installing,
 		// switching or removing an adapter version. Scoped per agent id.
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "runtime:*"},

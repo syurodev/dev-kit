@@ -6,6 +6,7 @@ export {
     ChangedSource,
     CheckpointKind,
     CheckpointStatus,
+    RestoreMode,
     SessionStatus,
     UpdateKind
 } from "./models.js";
@@ -23,6 +24,11 @@ export type {
     InvokeResult,
     PendingElicitation,
     PendingPermission,
+    RestoreAction,
+    RestoreConflict,
+    RestorePreview,
+    RestoreRequest,
+    RestoreResult,
     TranscriptEntry,
     TranscriptPage
 } from "./models.js";

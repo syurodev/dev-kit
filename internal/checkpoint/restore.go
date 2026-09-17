@@ -86,10 +86,16 @@ func (p RestorePlan) Empty() bool { return len(p.Actions) == 0 }
 // PlanRestore works out what it would take to make the project's files match
 // target, for the paths that differ between expected and target.
 //
+// only, when non-nil, narrows the plan to those paths. It is what separates
+// "undo this turn" from "go back to before it": both target the same tree and
+// check against the same expectation, and the difference is entirely which
+// paths are in scope — one turn's, or every turn's since. A nil `only` means
+// every path that differs.
+//
 // protected is the union of every path any relevant snapshot skipped. Those are
 // refused outright: the trees do not hold their content, so "restoring" one
 // would either delete a file nobody checkpointed or write a stale version of it.
-func (r *Repo) PlanRestore(ctx context.Context, target, expected string, protected []string) (RestorePlan, error) {
+func (r *Repo) PlanRestore(ctx context.Context, target, expected string, only, protected []string) (RestorePlan, error) {
 	target, expected = orEmptyTree(target), orEmptyTree(expected)
 	plan := RestorePlan{Target: target, Expected: expected}
 	protected = append([]string(nil), protected...)
@@ -97,6 +103,19 @@ func (r *Repo) PlanRestore(ctx context.Context, target, expected string, protect
 	wanted, err := r.Diff(ctx, expected, target)
 	if err != nil {
 		return RestorePlan{}, err
+	}
+	if only != nil {
+		inScope := make(map[string]bool, len(only))
+		for _, path := range only {
+			inScope[path] = true
+		}
+		kept := wanted[:0]
+		for _, change := range wanted {
+			if inScope[change.Path] {
+				kept = append(kept, change)
+			}
+		}
+		wanted = kept
 	}
 	if len(wanted) == 0 {
 		return plan, nil

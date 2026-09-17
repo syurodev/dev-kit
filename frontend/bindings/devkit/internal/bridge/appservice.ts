@@ -44,6 +44,14 @@ import * as json$0 from "../../../encoding/json/models.js";
 import * as $models from "./models.js";
 
 /**
+ * AgentHubApplyRestore carries out a plan. overwrite names the conflicts the
+ * user chose to force; the backend honours only the ones that can be forced.
+ */
+export function AgentHubApplyRestore(token: string, overwrite: string[] | null): $CancellablePromise<agenthub$0.RestoreResult> {
+    return $Call.ByID(3554222884, token, overwrite);
+}
+
+/**
  * AgentHubAuthMethods lists the sign-ins an agent offers ("claude"), each with
  * the command DevKit would run for it. No session is needed: the list comes
  * from a sandboxed initialize, so it works for a user who has never signed in.
@@ -160,6 +168,16 @@ export function AgentHubPendingElicitations(): $CancellablePromise<agenthub$0.Pe
  */
 export function AgentHubPendingPermissions(): $CancellablePromise<agenthub$0.PendingPermission[] | null> {
     return $Call.ByID(85207799);
+}
+
+/**
+ * AgentHubPlanRestore works out what putting a turn's files back would do,
+ * without touching anything. The returned token is what AgentHubApplyRestore
+ * takes; the plan itself stays on the backend, so a client cannot name a tree
+ * of its own.
+ */
+export function AgentHubPlanRestore(req: agenthub$0.RestoreRequest): $CancellablePromise<agenthub$0.RestorePreview> {
+    return $Call.ByID(3716551105, req);
 }
 
 /**

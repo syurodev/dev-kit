@@ -481,6 +481,17 @@ func main() {
 	agentSvc.OnRecordError = func(sessionID string, err error) {
 		log.Printf("agenthub: transcript write failed for session %s: %v", sessionID, err)
 	}
+	agentSvc.OnFilesRestored = func(sessionID string, result agenthub.RestoreResult) {
+		// The project's files moved under whatever else is showing them. The
+		// transcript is untouched: a restore undoes what an agent did on disk,
+		// not what it said.
+		emitAppEvent("agenthub:filesRestored", map[string]any{
+			"sessionId":          sessionID,
+			"written":            result.Written,
+			"deleted":            result.Deleted,
+			"safetyCheckpointId": result.SafetyCheckpointID,
+		})
+	}
 	agentCheckpoints := agenthub.NewEngineCheckpoints(checkpointEngine, agentStore, agentStore)
 	agentCheckpoints.OnCheckpoint = func(sessionID string, record agenthub.CheckpointRecord) {
 		// The turn header is drawn while the turn is still running, before
