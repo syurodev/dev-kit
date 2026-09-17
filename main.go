@@ -492,6 +492,15 @@ func main() {
 			"safetyCheckpointId": result.SafetyCheckpointID,
 		})
 	}
+	agentSvc.OnSessionRewound = func(sessionID, promptText string) {
+		// The transcript on screen now holds messages the session no longer
+		// has. No event the UI already listens to would explain that, so it
+		// reloads from the store rather than trying to patch what it has.
+		emitAppEvent("agenthub:sessionRewound", map[string]any{
+			"sessionId":  sessionID,
+			"promptText": promptText,
+		})
+	}
 	agentCheckpoints := agenthub.NewEngineCheckpoints(checkpointEngine, agentStore, agentStore)
 	agentCheckpoints.OnCheckpoint = func(sessionID string, record agenthub.CheckpointRecord) {
 		// The turn header is drawn while the turn is still running, before

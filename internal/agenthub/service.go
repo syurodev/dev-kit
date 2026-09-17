@@ -137,8 +137,14 @@ type Service struct {
 	// is showing of the project; nothing in the transcript changes.
 	OnFilesRestored func(sessionID string, result RestoreResult)
 
-	// restores holds the previews waiting between PlanRestore and ApplyRestore.
+	// OnSessionRewound fires after a session's conversation has been cut. The
+	// transcript on screen is now wrong in a way no other event explains, so
+	// the UI reloads it from the store.
+	OnSessionRewound func(sessionID, promptText string)
+
+	// restores and rewinds hold the previews waiting between plan and apply.
 	restores restorePlans
+	rewinds  rewindPlans
 
 	// checkpoints takes the file snapshots around a turn. Never nil — an
 	// unconfigured service holds a no-op, so Invoke has one code path rather

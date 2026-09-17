@@ -13,7 +13,7 @@ import type { AvailableCommand, ConfigOption, SessionMode, TranscriptItem, Usage
 import type { ContextFileItem } from "./AgentMenu";
 import { TranscriptStream } from "./TranscriptStream";
 import { loadCheckpointFileDiff, useSessionCheckpoints } from "../useSessionCheckpoints";
-import { RestoreFilesDialog } from "./RestoreFilesDialog";
+import { RewindDialog } from "./RewindDialog";
 import { AgentComposer } from "./AgentComposer";
 import { composerPlaceholder } from "./AgentHubContent";
 import { AgentPermissionRequest } from "./AgentPermissionRequest";
@@ -63,6 +63,8 @@ export type AgentRailProps = {
   onOpenFile?: (path: string, line?: number) => void;
   promptValue: string;
   onPromptChange: (value: string) => void;
+  /** Copy, in each message's hover card. The rail had none; the module always had.  */
+  onCopy?: (text: string) => void;
   onSend: () => void;
   onCancel: () => void;
   streaming?: boolean;
@@ -143,6 +145,7 @@ export function AgentRail({
   onOpenFile,
   promptValue,
   onPromptChange,
+  onCopy,
   onSend,
   onCancel,
   streaming = false,
@@ -161,7 +164,10 @@ export function AgentRail({
   // Which turn's files the confirmation is about, or "" for closed. The dialog
   // plans for itself, so opening it costs one call and nothing is planned for a
   // turn nobody asked about.
-  const [restoringPrompt, setRestoringPrompt] = useState("");
+  const [rewinding, setRewinding] = useState<{ promptMessageId: string; editAfter: boolean }>({
+    promptMessageId: "",
+    editAfter: false,
+  });
   const effectiveState: AgentRailState = explicitState
     ? explicitState
     : !activeSession
@@ -291,7 +297,9 @@ export function AgentRail({
               vendor={vendor}
               checkpoints={checkpoints}
               loadFileDiff={loadCheckpointFileDiff}
-              onRestoreFiles={setRestoringPrompt}
+              onCopy={onCopy}
+              onEditPrompt={onPromptChange}
+              onRewind={(promptMessageId, editAfter) => setRewinding({ promptMessageId, editAfter })}
               hasMore={hasMore}
               loadingOlder={loadingOlder}
               onLoadOlder={onLoadOlder}
@@ -299,11 +307,19 @@ export function AgentRail({
             />
           </div>
 
-          <RestoreFilesDialog
-            open={Boolean(restoringPrompt)}
-            onOpenChange={(open) => setRestoringPrompt(open ? restoringPrompt : "")}
+          <RewindDialog
+            open={Boolean(rewinding.promptMessageId)}
+            onOpenChange={(open) =>
+              setRewinding((previous) => (open ? previous : { promptMessageId: "", editAfter: false }))
+            }
             sessionId={activeSession?.id ?? ""}
-            promptMessageId={restoringPrompt}
+            promptMessageId={rewinding.promptMessageId}
+            checkpoint={rewinding.promptMessageId ? checkpoints.get(rewinding.promptMessageId) : undefined}
+            queuedPrompts={queuedPrompts?.length ?? 0}
+            editAfter={rewinding.editAfter}
+            onRewound={(result, editAfter) => {
+              if (editAfter && result.promptText) onPromptChange(result.promptText);
+            }}
           />
 
           {errorMessage ? (

@@ -103,8 +103,16 @@ export function toggleForced(forced: ReadonlySet<string>, path: string): Set<str
   return next;
 }
 
-/** Only the overridable ones are worth sending; the backend ignores the rest. */
-export function forcedPaths(preview: RestorePreview | null | undefined, forced: ReadonlySet<string>): string[] {
+/**
+ * Only the overridable ones are worth sending; the backend ignores the rest.
+ *
+ * Takes anything holding a conflict list, so a rewind's file half goes through
+ * the same rule as a plain restore rather than a second copy of it.
+ */
+export function forcedPaths(
+  preview: { conflicts?: RestoreConflict[] | null } | null | undefined,
+  forced: ReadonlySet<string>,
+): string[] {
   return (preview?.conflicts ?? [])
     .filter((conflict) => conflict.overridable && forced.has(conflict.path))
     .map((conflict) => conflict.path);

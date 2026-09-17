@@ -20,11 +20,11 @@ export type MessageActionsProps = {
   /** Your own prompt only: puts its text back in the composer. */
   onEdit?: (text: string) => void;
   /**
-   * Your own prompt only, and only when the turn changed files: opens the
-   * confirmation for putting them back. Absent when there is nothing to undo,
-   * so the button is never there to be pressed on a turn that changed nothing.
+   * Your own prompt only: opens the confirmation for taking the session back
+   * to this message. Absent when this turn cannot be rewound, so the button is
+   * never there to be pressed on a message nothing can be done with.
    */
-  onRestoreFiles?: () => void;
+  onRewind?: () => void;
 };
 
 /** "2:56 PM" in the viewer's own locale; nothing for a row without a clock. */
@@ -58,11 +58,11 @@ export function MessageActions({
   onDetails,
   onCopy,
   onEdit,
-  onRestoreFiles,
+  onRewind,
 }: MessageActionsProps) {
   const [copied, setCopied] = React.useState(false);
   const time = timeOf(at);
-  if (!time && !meta && !onCopy && !onEdit && !onRestoreFiles) return <>{children}</>;
+  if (!time && !meta && !onCopy && !onEdit && !onRewind) return <>{children}</>;
 
   return (
     <div
@@ -110,14 +110,14 @@ export function MessageActions({
             {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
           </Button>
         ) : null}
-        {onRestoreFiles ? (
+        {onRewind ? (
           <Button
             type="button"
             variant="ghost"
             size="icon-sm"
-            aria-label="Undo this turn's file changes"
-            data-testid="message-restore-files"
-            onClick={onRestoreFiles}
+            aria-label="Rewind to this message"
+            data-testid="message-rewind"
+            onClick={onRewind}
           >
             <Undo2 aria-hidden="true" />
           </Button>

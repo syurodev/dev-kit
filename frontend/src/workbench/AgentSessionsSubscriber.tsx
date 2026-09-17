@@ -10,11 +10,12 @@ import {
   onAgentHubPermission,
   onAgentHubSessionUpdate,
   onAgentHubNotificationAction,
+  onAgentHubSessionRewound,
   onAgentHubTurnFinished,
   type AgentTurnFinishedEvent,
 } from "../bridge/agenthub";
 import { useAgentSessionsStore } from "../stores/agentSessions";
-import { startAgentTranscriptStream } from "../modules/agenthub/transcript";
+import { reloadTranscript, startAgentTranscriptStream } from "../modules/agenthub/transcript";
 import { groupTurns, workedFor } from "../modules/agenthub/turns";
 import type { TranscriptItem } from "../modules/agenthub/types";
 import { moduleTabs, useWorkbenchTabsStore, type TabStatus } from "../stores/workbenchTabs";
@@ -284,6 +285,23 @@ export function AgentSessionsSubscriber() {
       }
     });
   }, [upsertSession, enqueuePending]);
+
+  // A rewound session's transcript on screen holds messages the session no
+  // longer has. Reloading rather than patching, because the cut can reach
+  // further back than the message the user named — a turn the agent never
+  // replied to goes with it — and a patch would have to guess how far.
+  //
+  // The cards go too: a permission or a question belongs to a turn that has
+  // been cut, and answering it would resolve something in a conversation that
+  // no longer exists.
+  useEffect(() => {
+    return onAgentHubSessionRewound((sessionId) => {
+      const state = useAgentSessionsStore.getState();
+      state.dequeuePendingForSession(sessionId);
+      state.dequeueElicitationForSession(sessionId);
+      reloadTranscript(sessionId);
+    });
+  }, []);
 
   // Questions do not touch the session's status: the turn is still running
   // (awaiting_permission would say the agent is blocked on an authorization,

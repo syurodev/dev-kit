@@ -7,6 +7,7 @@ export {
     CheckpointKind,
     CheckpointStatus,
     RestoreMode,
+    RewindMode,
     SessionStatus,
     UpdateKind
 } from "./models.js";
@@ -29,6 +30,9 @@ export type {
     RestorePreview,
     RestoreRequest,
     RestoreResult,
+    RewindPreview,
+    RewindRequest,
+    RewindResult,
     TranscriptEntry,
     TranscriptPage
 } from "./models.js";

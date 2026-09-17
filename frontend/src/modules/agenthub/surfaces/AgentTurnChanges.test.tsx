@@ -137,42 +137,60 @@ describe("a changed file's row", () => {
   });
 });
 
-// The undo button on a prompt is offered only when there is something to undo.
-// A disabled affordance on every message would teach people to ignore it, and a
-// live one on a turn with no opening snapshot would promise something DevKit
-// cannot do.
-describe("the undo affordance on a prompt", () => {
-  function turnWith(checkpoint: CheckpointRecord | undefined) {
+// The rewind button on a prompt, and what the pencil means once it is there.
+//
+// Unlike the file half, a conversation rewind needs no checkpoint — the
+// message id is the whole requirement — so the button is on any prompt DevKit
+// gave an id to. Which of the three rewinds are actually on offer is the
+// dialog's question, and is pinned in rewind.test.ts.
+describe("the rewind affordance on a prompt", () => {
+  function turnWith(checkpoint: CheckpointRecord | undefined, messageId = "p1", onRewind?: () => void) {
     const [turn] = groupTurns([
-      { id: "u", kind: "user_message_chunk", text: "do the thing", messageId: "p1", createdAt: "2026-09-17T10:00:00Z" },
+      { id: "u", kind: "user_message_chunk", text: "do the thing", messageId, createdAt: "2026-09-17T10:00:00Z" },
       { id: "a", kind: "agent_message_chunk", text: "done" },
     ]);
     return renderToString(
-      <AgentTurn turn={turn} checkpoint={checkpoint} onRestoreFiles={() => {}} />,
+      <AgentTurn turn={turn} checkpoint={checkpoint} onRewind={onRewind ?? (() => {})} onEditPrompt={() => {}} />,
     );
   }
 
-  it("is there when the turn changed files and both sides were recorded", () => {
-    expect(turnWith(record({ promptMessageId: "p1", changed: [file()] }))).toContain(
-      'data-testid="message-restore-files"',
-    );
+  it("is there on a turn that changed files", () => {
+    expect(turnWith(record({ promptMessageId: "p1", changed: [file()] }))).toContain('data-testid="message-rewind"');
   });
 
-  it("is absent for a turn with no checkpoint at all", () => {
-    expect(turnWith(undefined)).not.toContain('data-testid="message-restore-files"');
+  // The conversation can be rewound whether or not anything was written to
+  // disk: forgetting a message is not a file operation.
+  it("is there on a turn with no checkpoint at all", () => {
+    expect(turnWith(undefined)).toContain('data-testid="message-rewind"');
   });
 
-  it("is absent for a turn that changed nothing", () => {
-    expect(turnWith(record({ promptMessageId: "p1", changed: [] }))).not.toContain(
-      'data-testid="message-restore-files"',
-    );
-  });
-
-  // Nothing to go back to: the button would open a dialog that could only
-  // refuse.
-  it("is absent for a turn whose opening snapshot never finished", () => {
+  it("is there on a turn whose opening snapshot never finished", () => {
     expect(
       turnWith(record({ promptMessageId: "p1", beforeTree: "", outcome: "before_missing", changed: [file()] })),
-    ).not.toContain('data-testid="message-restore-files"');
+    ).toContain('data-testid="message-rewind"');
+  });
+
+  // Nothing to name: a prompt with no message id is one no rewind could point
+  // at, and the button would open a dialog that could only fail.
+  it("is absent on a prompt with no message id", () => {
+    expect(turnWith(undefined, "")).not.toContain('data-testid="message-rewind"');
+  });
+
+  it("is absent when nothing is listening for it", () => {
+    const [turn] = groupTurns([
+      { id: "u", kind: "user_message_chunk", text: "do the thing", messageId: "p1" },
+    ]);
+    expect(renderToString(<AgentTurn turn={turn} onEditPrompt={() => {}} />)).not.toContain(
+      'data-testid="message-rewind"',
+    );
+  });
+
+  // The pencil becomes "edit and run again from here": putting the old text in
+  // the composer without taking the conversation back would send it into a
+  // session that has already answered it.
+  it("keeps the pencil, which now goes through the rewind", () => {
+    const html = turnWith(record({ promptMessageId: "p1", changed: [file()] }));
+    expect(html).toContain('data-testid="message-edit"');
+    expect(html).toContain('data-testid="message-rewind"');
   });
 });

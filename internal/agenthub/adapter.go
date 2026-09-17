@@ -72,6 +72,23 @@ type SessionLoader interface {
 	Load(ctx context.Context, spec OpenSpec, acpSessionID string) (SessionRuntime, error)
 }
 
+// RuntimeForker is implemented by adapters whose vendor can branch a session at
+// one of its messages.
+//
+// Optional like SessionLoader, and for the same reason: whether a conversation
+// can be rewound at all is a fact about the vendor. A hub whose adapter cannot
+// fork still restores files — the two halves of a rewind are independent, which
+// is why the user can ask for either on its own.
+type RuntimeForker interface {
+	// Fork makes a new vendor session holding srcACPSessionID's history up to
+	// and including messageID, and returns a runtime attached to it. The source
+	// session is left alone.
+	//
+	// Like Load, the vendor replays the forked history as updates during the
+	// call and the runtime's handlers are still nil, so nothing is re-recorded.
+	Fork(ctx context.Context, spec OpenSpec, srcACPSessionID, messageID string) (SessionRuntime, error)
+}
+
 // RuntimeDeleter is implemented by runtimes whose vendor keeps its own copy of
 // the conversation and can be told to destroy it.
 //
@@ -82,6 +99,17 @@ type RuntimeDeleter interface {
 	// Delete asks the vendor to forget the session. Called before Close,
 	// because after Close there is no connection to ask on.
 	Delete(ctx context.Context) error
+}
+
+// VendorSessionDeleter is implemented by runtimes that can ask their vendor to
+// forget a session other than their own.
+//
+// A rewind needs exactly this: the conversation it left behind belongs to a
+// process that has already been closed, so the only connection left to ask on
+// is the forked session's. Measured (spike S6): claude-agent-acp deletes a
+// session the asking process never loaded.
+type VendorSessionDeleter interface {
+	DeleteSession(ctx context.Context, acpSessionID string) error
 }
 
 // RuntimeModes is implemented by runtimes whose vendor answered session/new or

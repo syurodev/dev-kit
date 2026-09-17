@@ -452,6 +452,98 @@ export interface RestoreResult {
 }
 
 /**
+ * RewindMode is how much of a turn to take back.
+ */
+export enum RewindMode {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    /**
+     * RewindBoth takes back the conversation and the files.
+     */
+    RewindBoth = "both",
+
+    /**
+     * RewindConversation takes back only what the agent remembers.
+     */
+    RewindConversation = "conversation",
+
+    /**
+     * RewindCode takes back only the files. Identical to a restore, and
+     * answered by the restore path.
+     */
+    RewindCode = "code",
+};
+
+/**
+ * RewindPreview is the read-only answer to "what would this rewind do".
+ */
+export interface RewindPreview {
+    "token": string;
+    "sessionId": string;
+    "mode": RewindMode;
+
+    /**
+     * PromptText is the message being rewound, for the composer when the user
+     * asked to edit and re-run it.
+     */
+    "promptText": string;
+
+    /**
+     * ExtraTurnsDropped is how many turns beyond the one named also go,
+     * because they left no message the vendor can branch at — a turn that
+     * failed or was cancelled before the agent replied.
+     */
+    "extraTurnsDropped": number;
+
+    /**
+     * StartsFresh says there is nothing before this turn to branch from, so the
+     * session starts a new conversation rather than a branch of this one.
+     */
+    "startsFresh": boolean;
+
+    /**
+     * Files is the file half, when the mode includes it. Nil when it does not,
+     * or when this session has no checkpoint for the turn.
+     */
+    "files"?: RestorePreview | null;
+
+    /**
+     * Warnings are things to say before the user agrees.
+     */
+    "warnings": string[] | null;
+}
+
+/**
+ * RewindRequest names what to rewind.
+ */
+export interface RewindRequest {
+    "sessionId": string;
+    "promptMessageId": string;
+    "mode": RewindMode;
+}
+
+/**
+ * RewindResult is what a rewind did.
+ */
+export interface RewindResult {
+    "sessionId": string;
+
+    /**
+     * PromptText is the message that was rewound, so the composer can offer it
+     * back.
+     */
+    "promptText": string;
+
+    /**
+     * Files is the file half's outcome, when there was one.
+     */
+    "files"?: RestoreResult | null;
+}
+
+/**
  * SessionStatus is the hub-visible lifecycle state of an AgentSession.
  */
 export enum SessionStatus {

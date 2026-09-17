@@ -254,10 +254,6 @@ func (s *Service) ApplyRestore(ctx context.Context, token string, overwrite []st
 	if err := s.restorableNow(session); err != nil {
 		return RestoreResult{}, err
 	}
-	engine, ok := s.currentCheckpoints().(*EngineCheckpoints)
-	if !ok || !engine.Enabled() {
-		return RestoreResult{}, ErrUnavailable
-	}
 
 	// Hold the session for the length of the restore, the same claim a turn
 	// takes. Without it a prompt could start while files are being written and
@@ -275,6 +271,29 @@ func (s *Service) ApplyRestore(ctx context.Context, token string, overwrite []st
 		s.mu.Unlock()
 	}()
 
+	return s.applyRestoreClaimed(ctx, held, session, overwrite)
+}
+
+// applyRestoreHeld runs a restore whose plan is already in hand and whose
+// session is already claimed — what a rewind needs at its file step. Split out
+// rather than re-entering ApplyRestore, which would deadlock on the claim the
+// rewind is holding, and re-checking it there would be a lie: the whole point
+// of the rewind's claim is that nothing else may touch this session.
+func (s *Service) applyRestoreHeld(ctx context.Context, token string, session AgentSession, overwrite []string) (RestoreResult, error) {
+	held, ok := s.restores.take(token)
+	if !ok {
+		return RestoreResult{}, ErrRestorePlanStale
+	}
+	return s.applyRestoreClaimed(ctx, held, session, overwrite)
+}
+
+// applyRestoreClaimed is the restore itself. Callers have already authorised it
+// and taken the session's claim.
+func (s *Service) applyRestoreClaimed(ctx context.Context, held heldRestorePlan, session AgentSession, overwrite []string) (RestoreResult, error) {
+	engine, ok := s.currentCheckpoints().(*EngineCheckpoints)
+	if !ok || !engine.Enabled() {
+		return RestoreResult{}, ErrUnavailable
+	}
 	repo, err := engine.engine.Open(ctx, session.ProjectPath)
 	if err != nil {
 		return RestoreResult{}, err

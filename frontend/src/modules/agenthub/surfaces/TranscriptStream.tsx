@@ -28,8 +28,8 @@ export type TranscriptStreamProps = {
   checkpoints?: CheckpointIndex;
   /** Loads one changed file's two versions, when its row is opened. */
   loadFileDiff?: (checkpointId: string, path: string) => Promise<FileDiff>;
-  /** Opens the confirmation for putting a turn's files back. */
-  onRestoreFiles?: (promptMessageId: string) => void;
+  /** Opens the confirmation for taking the session back to a message. */
+  onRewind?: (promptMessageId: string, editAfter: boolean) => void;
   /** A turn is in flight. The newest turn runs its orb and follows its steps. */
   streaming?: boolean;
   /** Copy, in each message's hover card. */
@@ -138,7 +138,7 @@ export function TranscriptStream({
   vendor = "Claude",
   checkpoints = EMPTY_CHECKPOINTS,
   loadFileDiff,
-  onRestoreFiles,
+  onRewind,
   streaming = false,
   onCopy,
   onEditPrompt,
@@ -428,7 +428,7 @@ export function TranscriptStream({
         vendor={vendor}
         checkpoint={turn.prompt?.messageId ? checkpoints.get(turn.prompt.messageId) : undefined}
         loadFileDiff={loadFileDiff}
-        onRestoreFiles={onRestoreFiles}
+        onRewind={onRewind}
         onInspect={setInspecting}
         onCopy={stableOnCopy}
         onEditPrompt={stableOnEditPrompt}

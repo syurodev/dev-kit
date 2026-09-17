@@ -337,6 +337,81 @@ func (s *AppService) AgentHubApplyRestore(token string, overwrite []string) (age
 	return result.(agenthub.RestoreResult), nil
 }
 
+// AgentHubPlanRewind works out what taking a session back to a message would
+// do — to the conversation, the files, or both — without touching anything.
+func (s *AppService) AgentHubPlanRewind(req agenthub.RewindRequest) (agenthub.RewindPreview, error) {
+	opaqueID := hubSessionID(req.SessionID)
+	result, err := s.call(context.Background(), "builtin.agenthub", "agenthub:execute", "session:"+opaqueID, map[string]any{
+		"action":     "plan_rewind",
+		"session_id": opaqueID,
+		"mode":       string(req.Mode),
+	}, func(ctx context.Context) (any, error) {
+		svc, err := s.agentHubService()
+		if err != nil {
+			return nil, err
+		}
+		return svc.PlanRewind(ctx, req)
+	})
+	if err != nil {
+		return agenthub.RewindPreview{}, err
+	}
+	return result.(agenthub.RewindPreview), nil
+}
+
+// AgentHubApplyRewind carries out a rewind.
+func (s *AppService) AgentHubApplyRewind(token string, overwrite []string) (agenthub.RewindResult, error) {
+	result, err := s.call(context.Background(), "builtin.agenthub", "agenthub:execute", "restore:"+token, map[string]any{
+		"action":    "apply_rewind",
+		"overwrite": len(overwrite),
+	}, func(ctx context.Context) (any, error) {
+		svc, err := s.agentHubService()
+		if err != nil {
+			return nil, err
+		}
+		return svc.ApplyRewind(ctx, token, overwrite)
+	})
+	if err != nil {
+		return agenthub.RewindResult{}, err
+	}
+	return result.(agenthub.RewindResult), nil
+}
+
+// AgentHubInterruptedRewinds lists the rewinds that never finished, so the
+// session can offer to put its files back.
+func (s *AppService) AgentHubInterruptedRewinds() ([]agenthub.CheckpointRecord, error) {
+	result, err := s.call(context.Background(), "builtin.agenthub", "agenthub:read", "session:list", map[string]any{
+		"action": "interrupted_rewinds",
+	}, func(ctx context.Context) (any, error) {
+		svc, err := s.agentHubService()
+		if err != nil {
+			return nil, err
+		}
+		return svc.InterruptedRewinds(ctx)
+	})
+	if err != nil {
+		return nil, err
+	}
+	if records, _ := result.([]agenthub.CheckpointRecord); records != nil {
+		return records, nil
+	}
+	return []agenthub.CheckpointRecord{}, nil
+}
+
+// AgentHubDismissInterruptedRewind closes the banner without touching files.
+func (s *AppService) AgentHubDismissInterruptedRewind(checkpointID string) error {
+	_, err := s.call(context.Background(), "builtin.agenthub", "agenthub:execute", "restore:"+checkpointID, map[string]any{
+		"action":        "dismiss_interrupted_rewind",
+		"checkpoint_id": checkpointID,
+	}, func(ctx context.Context) (any, error) {
+		svc, err := s.agentHubService()
+		if err != nil {
+			return nil, err
+		}
+		return nil, svc.DismissInterruptedRewind(ctx, checkpointID)
+	})
+	return err
+}
+
 // AgentHubToolCallDetail returns one stored tool call, payload intact — the
 // page reader shortens oversized raw fields to a preview, and this is the
 // "show me the whole output" behind it.

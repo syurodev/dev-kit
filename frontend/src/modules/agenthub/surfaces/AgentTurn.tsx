@@ -42,11 +42,14 @@ export type AgentTurnProps = {
   /** Loads one changed file's two versions, when its row is opened. */
   loadFileDiff?: (checkpointId: string, path: string) => Promise<FileDiff>;
   /**
-   * Opens the confirmation for putting this turn's files back. Offered only
-   * when the turn actually changed something — the button is not a disabled
+   * Opens the confirmation for taking the session back to this message.
+   * `editAfter` is the pencil: the same rewind, and then the message goes back
+   * in the composer to be changed and sent again.
+   *
+   * Offered only on a turn that can be rewound — the button is not a disabled
    * affordance on every message, it is simply absent.
    */
-  onRestoreFiles?: (promptMessageId: string) => void;
+  onRewind?: (promptMessageId: string, editAfter: boolean) => void;
   /** Opens the inspector for a reply that carries cost and timing. */
   onInspect?: (item: TranscriptItem) => void;
   /** Copy, in a message's hover card. */
@@ -87,7 +90,7 @@ export const AgentTurn = React.memo(function AgentTurn({
   vendor,
   checkpoint,
   loadFileDiff,
-  onRestoreFiles,
+  onRewind,
   onInspect,
   onCopy,
   onEditPrompt,
@@ -95,16 +98,11 @@ export const AgentTurn = React.memo(function AgentTurn({
 }: AgentTurnProps) {
   const reduce = useReducedMotion() ?? false;
   const [open, setOpen] = React.useState(false);
-  // The prompt's own message id, but only when this turn has files worth
-  // putting back: a checkpoint that recorded nothing has nothing to undo, and
-  // one recorded on one side only cannot be undone at all.
-  const restorable =
-    onRestoreFiles &&
-    turn.prompt?.messageId &&
-    (checkpoint?.changed?.length ?? 0) > 0 &&
-    checkpoint?.beforeTree
-      ? turn.prompt.messageId
-      : "";
+  // The prompt's own message id, when this turn can be rewound at all. Unlike
+  // the file half, a conversation rewind needs no checkpoint — the message id
+  // is the whole requirement — so this is offered on any prompt DevKit gave an
+  // id to, which since the checkpoint work is every prompt.
+  const rewindable = onRewind && turn.prompt?.messageId ? turn.prompt.messageId : "";
 
   const activity = React.useMemo(() => (live ? activityOf(turn) : null), [live, turn]);
   const answer = React.useMemo(() => turn.answer.filter((item) => item.text?.trim()), [turn.answer]);
@@ -139,8 +137,16 @@ export const AgentTurn = React.memo(function AgentTurn({
             text={turn.prompt.text ?? ""}
             at={turn.prompt.createdAt}
             onCopy={onCopy}
-            onEdit={onEditPrompt}
-            onRestoreFiles={restorable ? () => onRestoreFiles?.(restorable) : undefined}
+            // The pencil means "edit and run again from here" once a rewind is
+            // possible: putting the old text in the composer without taking the
+            // conversation back would send it into a session that already
+            // answered it.
+            onEdit={
+              rewindable
+                ? () => onRewind?.(rewindable, true)
+                : onEditPrompt
+            }
+            onRewind={rewindable ? () => onRewind?.(rewindable, false) : undefined}
           >
             <div className="flex max-w-[80%] flex-col items-end gap-1.5">
               {/* What the prompt carried besides words, by name: an image-only

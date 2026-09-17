@@ -52,6 +52,13 @@ export function AgentHubApplyRestore(token: string, overwrite: string[] | null):
 }
 
 /**
+ * AgentHubApplyRewind carries out a rewind.
+ */
+export function AgentHubApplyRewind(token: string, overwrite: string[] | null): $CancellablePromise<agenthub$0.RewindResult> {
+    return $Call.ByID(2180414301, token, overwrite);
+}
+
+/**
  * AgentHubAuthMethods lists the sign-ins an agent offers ("claude"), each with
  * the command DevKit would run for it. No session is needed: the list comes
  * from a sandboxed initialize, so it works for a user who has never signed in.
@@ -120,8 +127,23 @@ export function AgentHubDeleteSession(id: string): $CancellablePromise<void> {
     return $Call.ByID(4173780955, id);
 }
 
+/**
+ * AgentHubDismissInterruptedRewind closes the banner without touching files.
+ */
+export function AgentHubDismissInterruptedRewind(checkpointID: string): $CancellablePromise<void> {
+    return $Call.ByID(1236878807, checkpointID);
+}
+
 export function AgentHubGetStatus(id: string): $CancellablePromise<agenthub$0.AgentSession> {
     return $Call.ByID(2289470436, id);
+}
+
+/**
+ * AgentHubInterruptedRewinds lists the rewinds that never finished, so the
+ * session can offer to put its files back.
+ */
+export function AgentHubInterruptedRewinds(): $CancellablePromise<agenthub$0.CheckpointRecord[] | null> {
+    return $Call.ByID(2888715112);
 }
 
 export function AgentHubInvoke(input: agenthub$0.InvokeInput): $CancellablePromise<agenthub$0.InvokeResult> {
@@ -178,6 +200,14 @@ export function AgentHubPendingPermissions(): $CancellablePromise<agenthub$0.Pen
  */
 export function AgentHubPlanRestore(req: agenthub$0.RestoreRequest): $CancellablePromise<agenthub$0.RestorePreview> {
     return $Call.ByID(3716551105, req);
+}
+
+/**
+ * AgentHubPlanRewind works out what taking a session back to a message would
+ * do — to the conversation, the files, or both — without touching anything.
+ */
+export function AgentHubPlanRewind(req: agenthub$0.RewindRequest): $CancellablePromise<agenthub$0.RewindPreview> {
+    return $Call.ByID(1720588606, req);
 }
 
 /**

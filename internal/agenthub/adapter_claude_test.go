@@ -12,6 +12,7 @@ import (
 	"devkit/internal/acp"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -978,10 +979,19 @@ func TestFileChangeReportCapabilityIsDeclaredOnlyWhenAsked(t *testing.T) {
 // byte count: a byte count would block waiting for frames that never come, and
 // the hang TestOpenFailsFastWhenVendorDiesDuringHandshake exists to prevent
 // would be back in the test rather than in the code.
-type capturingRunner struct{ path string }
+type capturingRunner struct {
+	path string
+	// lines is how many frames to keep before closing. One is enough to see the
+	// initialize; a fork needs the call after it too.
+	lines int
+}
 
 func (r capturingRunner) StartPiped(context.Context, sandbox.Policy, sandbox.Cmd) (*sandbox.Proc, error) {
-	cmd := exec.Command("sh", "-c", `head -n 1 > "$0"`, r.path)
+	lines := r.lines
+	if lines <= 0 {
+		lines = 1
+	}
+	cmd := exec.Command("sh", "-c", `head -n "$1" > "$0"`, r.path, strconv.Itoa(lines))
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -1034,5 +1044,185 @@ func TestOpenAsksForTheFileChangeReportOnlyWhenCheckpointsAreOn(t *testing.T) {
 				t.Fatalf("declared = %v, want %v: %s", got, tc.want, sent)
 			}
 		})
+	}
+}
+
+// scriptedVendor answers the handshake instead of dying in the middle of it.
+//
+// A runner that only records cannot see past the first frame: the handshake is
+// sequential, so the second call is never sent if the first is never answered.
+// This one replies per method, which is what lets a test watch a whole sequence
+// rather than its opening move.
+type scriptedVendor struct{ capture string }
+
+func (v scriptedVendor) StartPiped(context.Context, sandbox.Policy, sandbox.Cmd) (*sandbox.Proc, error) {
+	script := `
+while IFS= read -r line; do
+  printf '%s\n' "$line" >> "$0"
+  id=$(printf '%s' "$line" | sed -n 's/^{"jsonrpc":"2.0","id":\([0-9]*\).*/\1/p')
+  [ -z "$id" ] && continue
+  case "$line" in
+    *'"method":"initialize"'*)   printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":1}}\n' "$id" ;;
+    *'"method":"session/fork"'*) printf '{"jsonrpc":"2.0","id":%s,"result":{"sessionId":"forked-1"}}\n' "$id" ;;
+    *'"method":"session/load"'*) printf '{"jsonrpc":"2.0","id":%s,"result":{"sessionId":"forked-1"}}\n' "$id" ;;
+    *'"method":"session/new"'*)  printf '{"jsonrpc":"2.0","id":%s,"result":{"sessionId":"fresh-1"}}\n' "$id" ;;
+    *)                           printf '{"jsonrpc":"2.0","id":%s,"result":{}}\n' "$id" ;;
+  esac
+done
+`
+	cmd := exec.Command("sh", "-c", script, v.capture)
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, err
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	return sandbox.NewProcPiped(cmd, stdin, stdout, &bytes.Buffer{}), nil
+}
+
+// sentFrames reads back what the adapter sent, one JSON-RPC frame per line.
+func sentFrames(t *testing.T, path string) []string {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("nothing was sent: %v", err)
+	}
+	return strings.Split(strings.TrimSpace(string(raw)), "\n")
+}
+
+// Fork is two calls in one process: branch, then load the branch. The wire
+// shape is the vendor's own — the message to branch at rides
+// `_meta.jetbrains.air.fork`, not a named field — so what goes out is pinned
+// here rather than left to the next reader to rediscover from a spike log.
+func TestForkSendsInitializeThenSessionFork(t *testing.T) {
+	dir := t.TempDir()
+	capture := filepath.Join(dir, "sent.jsonl")
+	bin := filepath.Join(dir, "claude-agent-acp")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	adapter := NewClaudeAdapter(ClaudeOptions{Command: bin, Runner: scriptedVendor{capture: capture}})
+	rt, err := adapter.Fork(context.Background(), OpenSpec{Cwd: t.TempDir()}, "src-session", "msg_abc")
+	if err != nil {
+		t.Fatalf("Fork: %v", err)
+	}
+	defer rt.Close(context.Background())
+
+	// The branch, not the source: a runtime attached to the session the rewind
+	// is leaving behind would answer every later prompt with the history the
+	// user just asked to drop.
+	if got := rt.ACPSessionID(); got != "forked-1" {
+		t.Fatalf("ACPSessionID = %q, want the forked session", got)
+	}
+
+	frames := sentFrames(t, capture)
+	var methods []string
+	for _, frame := range frames {
+		var call struct {
+			Method string `json:"method"`
+		}
+		if err := json.Unmarshal([]byte(frame), &call); err == nil && call.Method != "" {
+			methods = append(methods, call.Method)
+		}
+	}
+	// Both calls in one process: session/fork does not leave the branch loaded
+	// (spike S1), and doing the load from a second process would leave the
+	// first one running after a failure.
+	if len(methods) != 3 || methods[0] != "initialize" || methods[1] != "session/fork" || methods[2] != "session/load" {
+		t.Fatalf("methods = %v, want initialize, session/fork, session/load", methods)
+	}
+
+	var fork struct {
+		Params struct {
+			SessionID  string `json:"sessionId"`
+			Cwd        string `json:"cwd"`
+			McpServers []any  `json:"mcpServers"`
+			Meta       struct {
+				ClaudeCode struct {
+					Options struct {
+						SettingSources []string `json:"settingSources"`
+					} `json:"options"`
+				} `json:"claudeCode"`
+				JetBrains struct {
+					Air struct {
+						Fork struct {
+							Version   int    `json:"version"`
+							MessageID string `json:"messageId"`
+						} `json:"fork"`
+					} `json:"air"`
+				} `json:"jetbrains"`
+			} `json:"_meta"`
+		} `json:"params"`
+	}
+	if err := json.Unmarshal([]byte(frames[1]), &fork); err != nil {
+		t.Fatalf("fork frame = %s: %v", frames[1], err)
+	}
+	if fork.Params.SessionID != "src-session" {
+		t.Errorf("sessionId = %q, want the source session", fork.Params.SessionID)
+	}
+	if fork.Params.Cwd == "" || fork.Params.McpServers == nil {
+		t.Errorf("params = %+v, want cwd and a non-nil mcpServers", fork.Params)
+	}
+	// The branch point rides `_meta.jetbrains.air.fork`, not a named field.
+	if got := fork.Params.Meta.JetBrains.Air.Fork; got.Version != 1 || got.MessageID != "msg_abc" {
+		t.Errorf("fork meta = %+v, want version 1 at msg_abc", got)
+	}
+	// A fork makes a new vendor session, so it needs the same cut-off from the
+	// user's own ~/.claude settings that session/new gets. Dropping it would
+	// make a rewound session the one place a permissions.allow rule applies
+	// inside the jail.
+	if sources := fork.Params.Meta.ClaudeCode.Options.SettingSources; sources == nil || len(sources) != 0 {
+		t.Errorf("settingSources = %v, want an empty list", sources)
+	}
+
+	// And the load names the branch, not the source.
+	var load struct {
+		Params struct {
+			SessionID string `json:"sessionId"`
+		} `json:"params"`
+	}
+	if err := json.Unmarshal([]byte(frames[2]), &load); err != nil {
+		t.Fatal(err)
+	}
+	if load.Params.SessionID != "forked-1" {
+		t.Errorf("session/load asked for %q, want the branch", load.Params.SessionID)
+	}
+}
+
+// A vendor that answers a fork with the source's own id has branched nothing.
+// Loading it would attach the session to the conversation the rewind is trying
+// to leave behind, which is the one outcome worse than the fork failing.
+func TestForkRefusesAnEchoedSourceID(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "claude-agent-acp")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// The scripted vendor always answers "forked-1"; ask it to fork that.
+	adapter := NewClaudeAdapter(ClaudeOptions{
+		Command: bin,
+		Runner:  scriptedVendor{capture: filepath.Join(dir, "sent.jsonl")},
+	})
+	_, err := adapter.Fork(context.Background(), OpenSpec{Cwd: t.TempDir()}, "forked-1", "msg_abc")
+	if !errors.Is(err, ErrProcessFailed) {
+		t.Fatalf("err = %v, want ErrProcessFailed", err)
+	}
+}
+
+// Fork needs both halves. Neither is something a caller can be trusted to have
+// worked out: a missing message id would branch at the vendor's default, which
+// is not the point the user picked.
+func TestForkRefusesMissingArguments(t *testing.T) {
+	adapter := NewClaudeAdapter(ClaudeOptions{})
+	if _, err := adapter.Fork(context.Background(), OpenSpec{}, "", "msg"); !errors.Is(err, ErrSessionNotFound) {
+		t.Errorf("no session = %v, want ErrSessionNotFound", err)
+	}
+	if _, err := adapter.Fork(context.Background(), OpenSpec{}, "src", ""); !errors.Is(err, ErrSessionNotFound) {
+		t.Errorf("no message = %v, want ErrSessionNotFound", err)
 	}
 }

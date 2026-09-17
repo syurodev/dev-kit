@@ -13,6 +13,9 @@ import type {
   RestorePreview,
   RestoreRequest,
   RestoreResult,
+  RewindPreview,
+  RewindRequest,
+  RewindResult,
 } from "../../bindings/devkit/internal/agenthub/models";
 import type { SessionUpdate } from "../modules/agenthub/types";
 
@@ -164,6 +167,7 @@ const TURN_FINISHED_EVENT = "agenthub:turnFinished";
 const NOTIFICATION_ACTION_EVENT = "agenthub:notificationAction";
 const CHECKPOINT_EVENT = "agenthub:checkpoint";
 const FILES_RESTORED_EVENT = "agenthub:filesRestored";
+const SESSION_REWOUND_EVENT = "agenthub:sessionRewound";
 
 function asVendor(value: string): AgentVendor | string {
   return value;
@@ -663,6 +667,54 @@ export function onAgentHubFilesRestored(
       deleted: Array.isArray(value.deleted) ? (value.deleted as string[]) : [],
       safetyCheckpointId: typeof value.safetyCheckpointId === "string" ? value.safetyCheckpointId : "",
     });
+  });
+}
+
+/**
+ * Works out what taking a session back to a message would do — to the
+ * conversation, the files, or both — without touching anything.
+ */
+export function agentHubPlanRewind(request: RewindRequest): Promise<RewindPreview> {
+  return callBridge(async () => {
+    const preview = await AppService.AgentHubPlanRewind(request);
+    return preview as RewindPreview;
+  });
+}
+
+export function agentHubApplyRewind(token: string, overwrite: string[]): Promise<RewindResult> {
+  return callBridge(async () => {
+    const result = await AppService.AgentHubApplyRewind(token, overwrite);
+    return result as RewindResult;
+  });
+}
+
+/** The rewinds that never finished, so a session can offer to put its files back. */
+export function agentHubInterruptedRewinds(): Promise<CheckpointRecord[]> {
+  return callBridge(async () => {
+    const records = await AppService.AgentHubInterruptedRewinds();
+    return (records ?? []) as CheckpointRecord[];
+  });
+}
+
+export function agentHubDismissInterruptedRewind(checkpointId: string): Promise<void> {
+  return callBridge(() => AppService.AgentHubDismissInterruptedRewind(checkpointId) as Promise<void>);
+}
+
+/**
+ * A session's conversation was cut. The transcript on screen now holds messages
+ * the session no longer has, which no other event would explain — so this is a
+ * reload, not a patch.
+ */
+export function onAgentHubSessionRewound(
+  handler: (sessionId: string, promptText: string) => void,
+): () => void {
+  return Events.On(SESSION_REWOUND_EVENT, (ev) => {
+    const record = Array.isArray(ev?.data) ? ev.data[0] : ev?.data;
+    if (!record || typeof record !== "object") return;
+    const value = record as Record<string, unknown>;
+    const sessionId = typeof value.sessionId === "string" ? value.sessionId : "";
+    if (!sessionId) return;
+    handler(sessionId, typeof value.promptText === "string" ? value.promptText : "");
   });
 }
 

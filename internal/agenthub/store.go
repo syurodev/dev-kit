@@ -33,6 +33,10 @@ type Store interface {
 	DeleteSessions(ctx context.Context, ids []string) error
 	TranscriptStore
 	CheckpointStore
+	RewindStore
+	// ListInterruptedRewinds finds the safety rows of rewinds that never
+	// finished, so a restart can offer to put the files back.
+	ListInterruptedRewinds(ctx context.Context) ([]CheckpointRecord, error)
 }
 
 // SQLStore implements Store against SQLite tables created by storage migration 13.

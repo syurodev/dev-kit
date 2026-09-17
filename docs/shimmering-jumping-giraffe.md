@@ -9,7 +9,7 @@
 | C — Engine `internal/checkpoint` | **Xong** (2026-09-17) |
 | D — Chụp mỗi lượt + report + UI "file đã đổi" | **Xong** (2026-09-17) |
 | E — Khôi phục code | **Xong** (2026-09-17) |
-| F — Rewind hội thoại + code | Chưa làm |
+| F — Rewind hội thoại + code | **Xong** (2026-09-17) |
 | G — Settings + tài liệu | Chưa làm |
 
 **Đã có sau A:** pin `0.78.0`; test live đều qua (install, `_meta` channel, integration, resume,
@@ -24,6 +24,28 @@ S4 chunk subagent tới dưới `params.sessionId` của subagent với `msg_…
 `/compact` — chạy (không cần chặn); S6 `session/delete` session chưa load — chạy; S7 report ở
 `update._meta.jetbrains.air.agentFileChangeReport` của `session_info_update`, cùng lúc prompt
 response, **không** có file do Bash tạo, lượt huỷ → `unavailable/cancelled`.
+
+**Đã có sau F:** `acp.SessionForkRequest/Result`; `RuntimeForker` + `ClaudeAdapter.Fork` (một
+process: initialize → `session/fork` → `session/load(newId)`, `_meta` **gộp** `claudeCode.options`
+với `jetbrains.air.fork`, từ chối khi vendor trả về chính id nguồn); `VendorSessionDeleter` để xoá
+session vendor khác của chính mình; mock có `Fork`/`FailNextFork`/`Forks`/`Deleted`;
+`planRewindCut` (fork point = message `msg_…` **mới nhất** của luồng chính, bỏ qua subagent theo
+`origin`; cut lùi về prompt đầu tiên **sau** fork point nên lượt không có trả lời bị cắt theo, và
+`ExtraTurnsDropped` nói rõ); `RewindStore.RewindSession` một transaction (acp_session_id, cắt
+transcript giữ mode/config/commands **và đánh số lại**, xoá usage, xoá turns/checkpoints của prompt
+bị cắt, safety row → done); `PlanRewind`/`ApplyRewind` đủ 10 bước; `reapplySessionSettings` (S2);
+`InterruptedRewinds`/`DismissInterruptedRewind`; bridge + event `agenthub:sessionRewound`; UI
+`RewindDialog` (chọn phạm vi → re-plan, cảnh báo hàng đợi, ghi chú "ảnh/file không khôi phục được"),
+nút Rewind + bút chì "sửa và chạy lại từ đây" trên bong bóng prompt, subscriber reload transcript +
+xoá thẻ permission/câu hỏi, `AgentRail` nay có `onCopy`/`onEditPrompt`.
+
+**Lệch khỏi plan ở F:** (1) menu ba mode **không** nằm trên nút — nằm trong dialog, vì đằng nào
+dialog cũng phải hỏi lại khi đổi phạm vi (mỗi phạm vi là một plan khác); nút mở dialog, bút chì mở
+cùng dialog với `editAfter`. (2) `ApplyRestore` tách thành `applyRestoreClaimed` — rewind đã giữ
+claim, gọi lại `ApplyRestore` sẽ tự khoá chính mình. (3) S5 đã qua ở Phase A nên **không** chặn
+rewind vượt compaction. (4) Lỗi thật tìm thấy: payload transcript lưu `SessionUpdate` **đã chuẩn
+hoá**, không phải wire frame — `ParseSessionUpdate` trên nó im lặng trả về kind unknown, nên
+`reapplySessionSettings` sẽ âm thầm không áp lại gì.
 
 **Đã có sau E:** engine `PlanRestore(target, expected, only, protected)` — thêm lọc `only`, vì
 "hoàn tác lượt này" và "về trước lượt N" **cùng đích, cùng expected**, chỉ khác tập path (`nil` =
