@@ -108,6 +108,45 @@ export enum ChangedSource {
 };
 
 /**
+ * CheckpointAvailability is what Settings shows about file checkpoints.
+ * 
+ * Two separate facts, deliberately not collapsed into one: whether the machine
+ * can do this, and whether the user wants it. "Off" with no reason reads as
+ * broken, and "on" on a machine with no git would be a lie.
+ */
+export interface CheckpointAvailability {
+    /**
+     * Available says a usable git was found.
+     */
+    "available": boolean;
+    "gitPath"?: string;
+    "gitVersion"?: string;
+
+    /**
+     * Reason explains an unavailable git, in a sentence that names the fix.
+     */
+    "reason"?: string;
+
+    /**
+     * Enabled is the user's switch. A machine can be able and switched off.
+     */
+    "enabled": boolean;
+
+    /**
+     * Root is where the shadow repositories live, so a user can see what the
+     * feature costs them on disk and delete it if they want to.
+     */
+    "root": string;
+
+    /**
+     * Problems are the projects a checkpoint could not be taken for, with the
+     * reason. Without these a project that is simply too large looks identical
+     * to the feature quietly not working.
+     */
+    "problems"?: CheckpointProblem[] | null;
+}
+
+/**
  * CheckpointKind says why a checkpoint exists.
  */
 export enum CheckpointKind {
@@ -134,6 +173,14 @@ export enum CheckpointKind {
      */
     CheckpointRewindSafety = "rewind_safety",
 };
+
+/**
+ * CheckpointProblem is one project that cannot be checkpointed, and why.
+ */
+export interface CheckpointProblem {
+    "project": string;
+    "reason": string;
+}
 
 /**
  * CheckpointRecord is one stored checkpoint.

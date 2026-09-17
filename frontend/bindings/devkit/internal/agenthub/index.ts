@@ -16,6 +16,8 @@ export type {
     AgentSession,
     AuthMethod,
     ChangedFile,
+    CheckpointAvailability,
+    CheckpointProblem,
     CheckpointRecord,
     ContextFile,
     CreateInput,

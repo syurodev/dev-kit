@@ -178,7 +178,7 @@ func (r *Repo) Snapshot(ctx context.Context, id, slot string) (Snapshot, error) 
 func RefName(id, slot string) string { return "refs/devkit/cp/" + id + "/" + slot }
 
 func (r *Repo) snapshotLocked(ctx context.Context) (Snapshot, error) {
-	limits := r.engine.limits
+	limits := r.engine.Limits()
 	args := []string{"ls-files", "-z", "-m", "-o", "-d", "--exclude-standard"}
 	for _, pattern := range denyPatterns(limits.ExtraExcludes) {
 		args = append(args, "-x", pattern)

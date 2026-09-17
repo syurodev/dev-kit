@@ -119,11 +119,30 @@ func New(dir string, git Availability, limits Limits) *Engine {
 	}
 }
 
+// SetLimits replaces the engine's limits in place.
+//
+// In place rather than a new engine, because the engine's value is what it has
+// already warmed: the shadow repositories and their indexes are what make a
+// snapshot cost 0.04s instead of 0.86s, and throwing them away to change a file
+// ceiling would make the next turn in every open project slow.
+func (e *Engine) SetLimits(limits Limits) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.limits = limits.withDefaults()
+}
+
 func (e *Engine) Available() bool            { return e.git.OK() }
 func (e *Engine) Availability() Availability { return e.git }
-func (e *Engine) Limits() Limits             { return e.limits }
-func (e *Engine) Activity() *Activity        { return e.activity }
-func (e *Engine) Root() string               { return e.root }
+
+// Limits reads under the lock: SetLimits can swap them between two turns.
+func (e *Engine) Limits() Limits {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.limits
+}
+
+func (e *Engine) Activity() *Activity { return e.activity }
+func (e *Engine) Root() string        { return e.root }
 
 // Open returns the shadow repository for a project, creating it on first use.
 //
@@ -194,7 +213,7 @@ type Repo struct {
 func (r *Repo) Key() string      { return r.key }
 func (r *Repo) GitDir() string   { return r.gitDir }
 func (r *Repo) WorkTree() string { return r.work }
-func (r *Repo) Limits() Limits   { return r.engine.limits }
+func (r *Repo) Limits() Limits   { return r.engine.Limits() }
 
 // projectFileName records which project a shadow directory belongs to, so a
 // human staring at <dataDir>/checkpoints can tell, and so maintenance can
@@ -301,7 +320,7 @@ func (r *Repo) gitWithEnv(ctx context.Context, extraEnv []string, stdin []byte, 
 func (r *Repo) exec(ctx context.Context, extraEnv []string, stdin []byte, argv []string) ([]byte, error) {
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, r.engine.limits.CommandTimeout)
+		ctx, cancel = context.WithTimeout(ctx, r.engine.Limits().CommandTimeout)
 		defer cancel()
 	}
 	cmd := exec.CommandContext(ctx, r.engine.git.Path, argv...)

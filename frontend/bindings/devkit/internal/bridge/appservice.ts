@@ -72,6 +72,14 @@ export function AgentHubCancel(id: string): $CancellablePromise<void> {
 }
 
 /**
+ * AgentHubCheckpointAvailability is what Settings shows beside the switch:
+ * whether the machine can do this at all, and which projects it could not.
+ */
+export function AgentHubCheckpointAvailability(): $CancellablePromise<agenthub$0.CheckpointAvailability> {
+    return $Call.ByID(3910234867);
+}
+
+/**
  * AgentHubCheckpointFileDiff returns one changed file's two versions out of a
  * checkpoint. The path is checked against the checkpoint's own list of changed
  * files, so this cannot be used to read an arbitrary file out of a project.
@@ -1008,6 +1016,14 @@ export function NotesUpdate(id: string, title: string, body: string): $Cancellab
 }
 
 /**
+ * PreferencesGetAgentCheckpoints reads how Agent Hub snapshots a project's
+ * files around each turn.
+ */
+export function PreferencesGetAgentCheckpoints(): $CancellablePromise<preferences$0.AgentCheckpointSettings> {
+    return $Call.ByID(1285465844);
+}
+
+/**
  * PreferencesGetAgentNotifications reports whether Agent Hub notifies when an
  * agent needs the user or finishes. On by default.
  */
@@ -1028,6 +1044,20 @@ export function PreferencesGetTheme(): $CancellablePromise<preferences$0.Theme> 
  */
 export function PreferencesGetThemeFamily(): $CancellablePromise<preferences$0.ThemeFamily> {
     return $Call.ByID(2641332005);
+}
+
+/**
+ * PreferencesSetAgentCheckpoints stores the settings and applies them to the
+ * running engine.
+ * 
+ * Applied rather than left for the next restart, because the numbers are what a
+ * user reaches for when a project is not being checkpointed — raising the file
+ * ceiling and having to quit DevKit to find out whether it helped is not a
+ * setting, it is a guess. The engine keeps the shadow repositories it has
+ * already warmed, so a change costs nothing.
+ */
+export function PreferencesSetAgentCheckpoints(settings: preferences$0.AgentCheckpointSettings): $CancellablePromise<void> {
+    return $Call.ByID(512870456, settings);
 }
 
 /**

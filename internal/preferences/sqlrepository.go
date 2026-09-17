@@ -3,6 +3,7 @@ package preferences
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"strconv"
 )
 
@@ -39,37 +40,43 @@ func (r *SQLRepository) SetAgentNotifications(enabled bool) error {
 	return err
 }
 
-// GetAgentCheckpoints treats a value it cannot read as unset, like the
-// notifications flag above.
-func (r *SQLRepository) GetAgentCheckpoints() (bool, bool, error) {
-	return r.getBool(agentCheckpointsKey)
-}
-
-func (r *SQLRepository) SetAgentCheckpoints(enabled bool) error {
-	return r.setBool(agentCheckpointsKey, enabled)
-}
-
-func (r *SQLRepository) getBool(key string) (bool, bool, error) {
+// GetAgentCheckpoints reads the settings back, treating anything it cannot
+// parse as unset so the defaults apply rather than the feature becoming
+// unreadable.
+//
+// A bare "true"/"false" is accepted as well: the switch shipped on its own
+// before the numbers joined it, and a row written then still means what it
+// said.
+func (r *SQLRepository) GetAgentCheckpoints() (preferences AgentCheckpointSettings, found bool, err error) {
 	var value string
-	err := r.db.QueryRowContext(context.Background(),
-		"SELECT value FROM app_preferences WHERE key = ?", key).Scan(&value)
-	if err == sql.ErrNoRows {
-		return false, false, nil
+	scanErr := r.db.QueryRowContext(context.Background(),
+		"SELECT value FROM app_preferences WHERE key = ?", agentCheckpointsKey).Scan(&value)
+	if scanErr == sql.ErrNoRows {
+		return AgentCheckpointSettings{}, false, nil
 	}
-	if err != nil {
-		return false, false, err
+	if scanErr != nil {
+		return AgentCheckpointSettings{}, false, scanErr
 	}
-	enabled, parseErr := strconv.ParseBool(value)
-	if parseErr != nil {
-		return false, false, nil
+	if enabled, parseErr := strconv.ParseBool(value); parseErr == nil {
+		settings := DefaultAgentCheckpoints()
+		settings.Enabled = enabled
+		return settings, true, nil
 	}
-	return enabled, true, nil
+	var settings AgentCheckpointSettings
+	if jsonErr := json.Unmarshal([]byte(value), &settings); jsonErr != nil {
+		return AgentCheckpointSettings{}, false, nil
+	}
+	return settings.Normalized(), true, nil
 }
 
-func (r *SQLRepository) setBool(key string, enabled bool) error {
-	_, err := r.db.ExecContext(context.Background(),
+func (r *SQLRepository) SetAgentCheckpoints(settings AgentCheckpointSettings) error {
+	body, err := json.Marshal(settings.Normalized())
+	if err != nil {
+		return err
+	}
+	_, err = r.db.ExecContext(context.Background(),
 		`INSERT INTO app_preferences (key, value) VALUES (?, ?)
-		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`, key, strconv.FormatBool(enabled))
+		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`, agentCheckpointsKey, string(body))
 	return err
 }
 

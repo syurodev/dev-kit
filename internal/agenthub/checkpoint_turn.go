@@ -161,6 +161,15 @@ func (t *turnCheckpoint) Finish(ctx context.Context, result TurnResult) {
 		record.Detail = reasonDetail(afterErr)
 	}
 
+	// What Settings shows about this project: a checkpoint that could not be
+	// taken at all is the difference between "too large" and the feature
+	// silently doing nothing.
+	if record.Outcome == CheckpointOutcomeUnavailable {
+		c.noteProblem(t.spec.ProjectPath, firstErr(t.beforeErr, afterErr))
+	} else {
+		c.noteProblem(t.spec.ProjectPath, nil)
+	}
+
 	finishedAt := time.Now().UTC()
 	record.FinishedAt = &finishedAt
 	t.activity.End()

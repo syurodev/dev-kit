@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"sort"
 	"sync"
 	"time"
 
@@ -133,6 +134,8 @@ type EngineCheckpoints struct {
 	// the vendor sent without echoing the requestId back.
 	openTurns map[string]string
 	baselined map[string]bool
+	// problems is why each project has no checkpoints, if it has none.
+	problems map[string]string
 }
 
 // SessionLister is the slice of Store that attribution needs.
@@ -149,6 +152,7 @@ func NewEngineCheckpoints(engine *checkpoint.Engine, store CheckpointStore, sess
 		reports:   map[string]json.RawMessage{},
 		openTurns: map[string]string{},
 		baselined: map[string]bool{},
+		problems:  map[string]string{},
 	}
 }
 
@@ -322,4 +326,93 @@ func (r checkpointRecords) ListCheckpoints(ctx context.Context) ([]checkpoint.Re
 
 func (r checkpointRecords) DeleteCheckpoints(ctx context.Context, ids []string) error {
 	return r.store.DeleteCheckpoints(ctx, ids)
+}
+
+// CheckpointAvailability is what Settings shows about file checkpoints.
+//
+// Two separate facts, deliberately not collapsed into one: whether the machine
+// can do this, and whether the user wants it. "Off" with no reason reads as
+// broken, and "on" on a machine with no git would be a lie.
+type CheckpointAvailability struct {
+	// Available says a usable git was found.
+	Available  bool   `json:"available"`
+	GitPath    string `json:"gitPath,omitempty"`
+	GitVersion string `json:"gitVersion,omitempty"`
+	// Reason explains an unavailable git, in a sentence that names the fix.
+	Reason string `json:"reason,omitempty"`
+	// Enabled is the user's switch. A machine can be able and switched off.
+	Enabled bool `json:"enabled"`
+	// Root is where the shadow repositories live, so a user can see what the
+	// feature costs them on disk and delete it if they want to.
+	Root string `json:"root"`
+	// Problems are the projects a checkpoint could not be taken for, with the
+	// reason. Without these a project that is simply too large looks identical
+	// to the feature quietly not working.
+	Problems []CheckpointProblem `json:"problems,omitempty"`
+}
+
+// CheckpointProblem is one project that cannot be checkpointed, and why.
+type CheckpointProblem struct {
+	Project string `json:"project"`
+	Reason  string `json:"reason"`
+}
+
+// Status reports what Settings needs to show. Safe on a nil engine.
+func (c *EngineCheckpoints) Availability(enabled bool) CheckpointAvailability {
+	status := CheckpointAvailability{Enabled: enabled}
+	if c == nil || c.engine == nil {
+		status.Reason = "File checkpoints are not wired in this build."
+		return status
+	}
+	availability := c.engine.Availability()
+	status.Available = availability.OK()
+	status.GitPath = availability.Path
+	status.GitVersion = availability.Version
+	status.Reason = availability.Reason
+	status.Root = c.engine.Root()
+
+	c.mu.Lock()
+	for project, reason := range c.problems {
+		status.Problems = append(status.Problems, CheckpointProblem{Project: project, Reason: reason})
+	}
+	c.mu.Unlock()
+	sort.Slice(status.Problems, func(i, j int) bool { return status.Problems[i].Project < status.Problems[j].Project })
+	return status
+}
+
+// ApplySettings pushes the user's preference into the running engine.
+//
+// The mapping from a setting to a limit lives here rather than at the call
+// sites, because there are two of them — startup and the moment the user
+// changes it — and two copies of the same arithmetic is one chance for them to
+// disagree about what "10 MiB" means.
+func (c *EngineCheckpoints) ApplySettings(maxFileSizeMiB, retentionDays int, extraExcludes []string) {
+	if c == nil || c.engine == nil {
+		return
+	}
+	limits := c.engine.Limits()
+	limits.MaxFileBytes = int64(maxFileSizeMiB) << 20
+	limits.RetentionDays = retentionDays
+	limits.ExtraExcludes = append([]string(nil), extraExcludes...)
+	c.engine.SetLimits(limits)
+}
+
+// noteProblem remembers why a project could not be checkpointed, and forgets it
+// again the moment one succeeds. Per project rather than a running log: what a
+// user needs is the current state of their project, not its history of
+// failures.
+func (c *EngineCheckpoints) noteProblem(projectPath string, err error) {
+	if projectPath == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.problems == nil {
+		c.problems = map[string]string{}
+	}
+	if err == nil {
+		delete(c.problems, projectPath)
+		return
+	}
+	c.problems[projectPath] = err.Error()
 }

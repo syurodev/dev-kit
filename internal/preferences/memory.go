@@ -11,7 +11,7 @@ type MemoryRepository struct {
 
 	agentNotifications    bool
 	hasAgentNotifications bool
-	agentCheckpoints      bool
+	agentCheckpoints      AgentCheckpointSettings
 	hasAgentCheckpoints   bool
 }
 
@@ -21,16 +21,16 @@ func (r *MemoryRepository) GetAgentNotifications() (bool, bool, error) {
 	return r.agentNotifications, r.hasAgentNotifications, nil
 }
 
-func (r *MemoryRepository) GetAgentCheckpoints() (bool, bool, error) {
+func (r *MemoryRepository) GetAgentCheckpoints() (AgentCheckpointSettings, bool, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.agentCheckpoints, r.hasAgentCheckpoints, nil
 }
 
-func (r *MemoryRepository) SetAgentCheckpoints(enabled bool) error {
+func (r *MemoryRepository) SetAgentCheckpoints(settings AgentCheckpointSettings) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.agentCheckpoints = enabled
+	r.agentCheckpoints = settings
 	r.hasAgentCheckpoints = true
 	return nil
 }

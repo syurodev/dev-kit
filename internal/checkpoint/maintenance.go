@@ -80,7 +80,7 @@ func (e *Engine) Maintain(ctx context.Context, records Records) (MaintenanceRepo
 		return report, err
 	}
 	now := time.Now()
-	expired := expiredCheckpoints(all, now, e.root, e.limits)
+	expired := expiredCheckpoints(all, now, e.root, e.Limits())
 	if len(expired) > 0 {
 		if err := records.DeleteCheckpoints(ctx, expired); err != nil {
 			return report, err

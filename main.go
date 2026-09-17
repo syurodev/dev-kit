@@ -73,8 +73,8 @@ func agentCheckpointsOn(prefs *preferences.Service, engine *checkpoint.Engine) b
 	if engine == nil || !engine.Available() {
 		return false
 	}
-	enabled, err := prefs.AgentCheckpoints()
-	return err == nil && enabled
+	settings, err := prefs.AgentCheckpoints()
+	return err == nil && settings.Enabled
 }
 
 func main() {
@@ -513,10 +513,18 @@ func main() {
 	agentCheckpoints.OnError = func(sessionID string, err error) {
 		log.Printf("agenthub: checkpoint failed for session %s: %v", sessionID, err)
 	}
-	if agentCheckpointsOn(container.Preferences, checkpointEngine) {
-		agentSvc.SetCheckpoints(agentCheckpoints)
-	}
 	container.AgentCheckpoints = agentCheckpoints
+	// The stored preference, made true of the engine before any session runs.
+	// The same two steps the Settings write takes, so startup and a change in
+	// flight cannot disagree about what is applied.
+	if settings, err := container.Preferences.AgentCheckpoints(); err == nil {
+		agentCheckpoints.ApplySettings(settings.MaxFileSizeMiB, settings.RetentionDays, settings.ExtraExcludes)
+		if settings.Enabled {
+			agentSvc.SetCheckpoints(agentCheckpoints)
+		}
+	} else {
+		log.Printf("agenthub: reading the checkpoint preference: %v", err)
+	}
 	// Retention, once at startup: 30 days, 200 per session, a soft 1 GiB per
 	// project, and the shadow repositories of projects with nothing left. In
 	// the background because it walks every project directory and nothing is

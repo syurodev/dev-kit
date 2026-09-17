@@ -10,7 +10,7 @@
 | D — Chụp mỗi lượt + report + UI "file đã đổi" | **Xong** (2026-09-17) |
 | E — Khôi phục code | **Xong** (2026-09-17) |
 | F — Rewind hội thoại + code | **Xong** (2026-09-17) |
-| G — Settings + tài liệu | Chưa làm |
+| G — Settings + tài liệu | **Xong** (2026-09-17) |
 
 **Đã có sau A:** pin `0.78.0`; test live đều qua (install, `_meta` channel, integration, resume,
 auth); builder AskUserQuestion gửi cả lựa chọn lẫn `question_N_custom`; `ToolCall.Name` (top-level
@@ -24,6 +24,16 @@ S4 chunk subagent tới dưới `params.sessionId` của subagent với `msg_…
 `/compact` — chạy (không cần chặn); S6 `session/delete` session chưa load — chạy; S7 report ở
 `update._meta.jetbrains.air.agentFileChangeReport` của `session_info_update`, cùng lúc prompt
 response, **không** có file do Bash tạo, lượt huỷ → `unavailable/cancelled`.
+
+**Đã có sau G:** preference `agent_checkpoints` thành **một giá trị JSON**
+`{enabled, maxFileSizeMiB, retentionDays, extraExcludes}` — `Normalized()` **kẹp** số ngoài biên chứ
+không từ chối, bỏ pattern rỗng/trùng, và đọc được cả giá trị boolean thuần của bản trước;
+`Engine.SetLimits` đổi limits tại chỗ (giữ shadow repo đã warm); `EngineCheckpoints.ApplySettings`
+là chỗ duy nhất map setting → limit; `CheckpointAvailability` + `noteProblem` (project nào không
+chụp được, vì sao); bridge `PreferencesGet/SetAgentCheckpoints` + `AgentHubCheckpointAvailability`,
+đổi setting **áp dụng ngay**; UI Settings → Agents → FILE CHECKPOINTS (công tắc, dòng trạng thái tách
+"máy làm được không" khỏi "người dùng có bật không", ba ô số/pattern lưu khi rời ô, danh sách project
+có vấn đề); tài liệu FR-14…19 trong `agent-hub.mdx` + `implementation-status.mdx`.
 
 **Đã có sau F:** `acp.SessionForkRequest/Result`; `RuntimeForker` + `ClaudeAdapter.Fork` (một
 process: initialize → `session/fork` → `session/load(newId)`, `_meta` **gộp** `claudeCode.options`
