@@ -2,6 +2,7 @@ package checkpoint
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -422,5 +423,41 @@ func TestDenyPatternsAreDirectoryShaped(t *testing.T) {
 		if pattern == "" || strings.TrimSpace(pattern) != pattern {
 			t.Errorf("empty or padded pattern %q would match everything", pattern)
 		}
+	}
+}
+
+// A turn's opening snapshot has a budget, and another session in the same
+// project holding the lock must not spend it. A sync.Mutex cannot be given up,
+// so waiting for the lock has to honour the caller's deadline the same way
+// running git does.
+func TestWaitingForTheProjectLockHonoursTheDeadline(t *testing.T) {
+	_, repo := testEngine(t, Limits{})
+	write(t, repo, "a.txt", "one\n")
+
+	held := make(chan struct{})
+	release := make(chan struct{})
+	go func() {
+		_ = repo.runLocked(context.Background(), func() error {
+			close(held)
+			<-release
+			return nil
+		})
+	}()
+	<-held
+	defer close(release)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	_, err := repo.Snapshot(ctx, "cp1", SlotBefore)
+	elapsed := time.Since(started)
+	if err == nil {
+		t.Fatal("expected the snapshot to give up on the lock")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v, want a deadline error", err)
+	}
+	if elapsed > 3*time.Second {
+		t.Fatalf("waited %s for a lock it should have given up on", elapsed)
 	}
 }

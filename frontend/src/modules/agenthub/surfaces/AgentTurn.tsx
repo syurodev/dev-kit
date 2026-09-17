@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { AnimatedCollapse } from "@/components/ui/animated-collapse";
 import { FADE_THROUGH } from "@/lib/motion";
 import type { TranscriptItem } from "../types";
+import type { CheckpointRecord, FileDiff } from "../../../../bindings/devkit/internal/agenthub/models";
 import { activityOf, stepSummary, workedFor, workSegments, type Turn } from "../turns";
 import {
   AgentPlan,
@@ -18,6 +19,7 @@ import {
 } from "../transcript/index";
 import { AgentProse } from "../transcript/AgentMessageRich";
 import { MessageActions } from "./MessageActions";
+import { AgentTurnChanges } from "./AgentTurnChanges";
 import { AgentFileChip } from "../transcript/AgentFileChip";
 
 export type AgentTurnProps = {
@@ -31,6 +33,14 @@ export type AgentTurnProps = {
    */
   latest?: boolean;
   vendor?: string;
+  /**
+   * What this turn changed on disk, if it was checkpointed. Absent for a turn
+   * that was not — which is not the same as a turn that changed nothing, so the
+   * count is simply not drawn rather than drawn as a zero.
+   */
+  checkpoint?: CheckpointRecord;
+  /** Loads one changed file's two versions, when its row is opened. */
+  loadFileDiff?: (checkpointId: string, path: string) => Promise<FileDiff>;
   /** Opens the inspector for a reply that carries cost and timing. */
   onInspect?: (item: TranscriptItem) => void;
   /** Copy, in a message's hover card. */
@@ -69,6 +79,8 @@ export const AgentTurn = React.memo(function AgentTurn({
   live = false,
   latest = false,
   vendor,
+  checkpoint,
+  loadFileDiff,
   onInspect,
   onCopy,
   onEditPrompt,
@@ -167,6 +179,14 @@ export const AgentTurn = React.memo(function AgentTurn({
               })}
           </AnimatedCollapse>
         </div>
+      ) : null}
+
+      {/* What the project looks like after, beside what the agent said it did.
+          Outside the work fold on purpose: the fold is the account of the work,
+          and this is the result — a turn whose only visible act was one shell
+          command can still have changed twenty files. */}
+      {checkpoint ? (
+        <AgentTurnChanges checkpoint={checkpoint} loadDiff={loadFileDiff} />
       ) : null}
 
       {answer.map((item) => (

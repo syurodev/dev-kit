@@ -158,7 +158,7 @@ func (r *Repo) Snapshot(ctx context.Context, id, slot string) (Snapshot, error) 
 		return Snapshot{}, fmt.Errorf("checkpoint: bad slot %q", slot)
 	}
 	var out Snapshot
-	err := r.runLocked(func() error {
+	err := r.runLocked(ctx, func() error {
 		started := time.Now()
 		snap, err := r.snapshotLocked(ctx)
 		if err != nil {
@@ -279,7 +279,7 @@ func (r *Repo) countIndex(ctx context.Context) (int, error) {
 
 // DeleteRefs drops a checkpoint's anchors. The trees stay until gc runs.
 func (r *Repo) DeleteRefs(ctx context.Context, ids ...string) error {
-	return r.runLocked(func() error {
+	return r.runLocked(ctx, func() error {
 		for _, id := range ids {
 			for _, slot := range []string{SlotBefore, SlotAfter} {
 				// -d without an old value succeeds whether or not the ref is

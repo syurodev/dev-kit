@@ -10,6 +10,7 @@ const (
 	themeKey              = "theme"
 	themeFamilyKey        = "theme_family"
 	agentNotificationsKey = "agent_notifications"
+	agentCheckpointsKey   = "agent_checkpoints"
 )
 
 // GetAgentNotifications treats a value it cannot read as unset, so the default
@@ -35,6 +36,40 @@ func (r *SQLRepository) SetAgentNotifications(enabled bool) error {
 	_, err := r.db.ExecContext(context.Background(),
 		`INSERT INTO app_preferences (key, value) VALUES (?, ?)
 		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`, agentNotificationsKey, strconv.FormatBool(enabled))
+	return err
+}
+
+// GetAgentCheckpoints treats a value it cannot read as unset, like the
+// notifications flag above.
+func (r *SQLRepository) GetAgentCheckpoints() (bool, bool, error) {
+	return r.getBool(agentCheckpointsKey)
+}
+
+func (r *SQLRepository) SetAgentCheckpoints(enabled bool) error {
+	return r.setBool(agentCheckpointsKey, enabled)
+}
+
+func (r *SQLRepository) getBool(key string) (bool, bool, error) {
+	var value string
+	err := r.db.QueryRowContext(context.Background(),
+		"SELECT value FROM app_preferences WHERE key = ?", key).Scan(&value)
+	if err == sql.ErrNoRows {
+		return false, false, nil
+	}
+	if err != nil {
+		return false, false, err
+	}
+	enabled, parseErr := strconv.ParseBool(value)
+	if parseErr != nil {
+		return false, false, nil
+	}
+	return enabled, true, nil
+}
+
+func (r *SQLRepository) setBool(key string, enabled bool) error {
+	_, err := r.db.ExecContext(context.Background(),
+		`INSERT INTO app_preferences (key, value) VALUES (?, ?)
+		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`, key, strconv.FormatBool(enabled))
 	return err
 }
 

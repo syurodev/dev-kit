@@ -40,6 +40,11 @@ var ErrInvalidThemeFamily = errors.New("unsupported theme family")
 // switched away is not left waiting on an agent that is waiting on them.
 const DefaultAgentNotifications = true
 
+// DefaultAgentCheckpoints is on: a user who never finds the setting still gets
+// the undo, and a machine without a usable git falls back to off on its own —
+// the availability check, not the preference, is what turns it off there.
+const DefaultAgentCheckpoints = true
+
 type Repository interface {
 	GetTheme() (Theme, bool, error)
 	SetTheme(theme Theme) error
@@ -47,6 +52,8 @@ type Repository interface {
 	SetThemeFamily(family ThemeFamily) error
 	GetAgentNotifications() (bool, bool, error)
 	SetAgentNotifications(enabled bool) error
+	GetAgentCheckpoints() (bool, bool, error)
+	SetAgentCheckpoints(enabled bool) error
 }
 
 type Service struct {
@@ -129,4 +136,23 @@ func (s *Service) AgentNotifications() (bool, error) {
 
 func (s *Service) SetAgentNotifications(enabled bool) error {
 	return s.repo.SetAgentNotifications(enabled)
+}
+
+// AgentCheckpoints reports whether Agent Hub snapshots a project's files around
+// each turn. Off also means DevKit never asks the agent for its own file-change
+// report, which is what keeps the vendor's native file history off the user's
+// disk when they have said no.
+func (s *Service) AgentCheckpoints() (bool, error) {
+	enabled, found, err := s.repo.GetAgentCheckpoints()
+	if err != nil {
+		return false, err
+	}
+	if !found {
+		return DefaultAgentCheckpoints, nil
+	}
+	return enabled, nil
+}
+
+func (s *Service) SetAgentCheckpoints(enabled bool) error {
+	return s.repo.SetAgentCheckpoints(enabled)
 }

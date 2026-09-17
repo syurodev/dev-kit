@@ -105,7 +105,7 @@ func (r *Repo) PlanRestore(ctx context.Context, target, expected string, protect
 	// One snapshot of the project as it is now, compared against the same
 	// "expected" tree: every path in here has moved under us since.
 	var drifted map[string]bool
-	err = r.runLocked(func() error {
+	err = r.runLocked(ctx, func() error {
 		current, err := r.snapshotLocked(ctx)
 		if err != nil {
 			return err
@@ -186,7 +186,7 @@ func (r *Repo) ApplyRestore(ctx context.Context, plan RestorePlan, overwrite []s
 	}
 
 	var applied Applied
-	err := r.runLocked(func() error {
+	err := r.runLocked(ctx, func() error {
 		// The plan was made without the lock, and a dialog sits between the two
 		// calls. Anything that moved in between invalidates the answer the user
 		// was shown, except on the paths they explicitly chose to overwrite —

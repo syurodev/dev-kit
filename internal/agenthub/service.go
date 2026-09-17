@@ -132,6 +132,12 @@ type Service struct {
 	// an error return: losing a row must not abort a turn the vendor is
 	// already running, but it must not be silent either.
 	OnRecordError func(sessionID string, err error)
+
+	// checkpoints takes the file snapshots around a turn. Never nil — an
+	// unconfigured service holds a no-op, so Invoke has one code path rather
+	// than a nil check at each of the four places it would need one. Set with
+	// SetCheckpoints.
+	checkpoints Checkpoints
 }
 
 // NewService wires registry + store. emit may be nil (no-op).
@@ -148,6 +154,9 @@ func NewService(reg *Registry, store Store, emit func(sessionID string, update j
 		invoking:  make(map[string]struct{}),
 		resuming:  make(map[string]*resumeCall),
 		emit:      emit,
+		// Off until main.go says otherwise: a machine with no git, or a user
+		// who turned the feature off, runs the same Invoke as everyone else.
+		checkpoints: noCheckpoints{},
 	}
 	// A cadence flush has no caller to return its error to; route it to the
 	// same hook Record errors take, read at call time because callers set
@@ -158,6 +167,36 @@ func NewService(reg *Registry, store Store, emit func(sessionID string, update j
 		}
 	}
 	return s
+}
+
+// SetCheckpoints turns file checkpoints on. nil turns them off again, which is
+// what a preference change does: the engine and its shadow repositories stay,
+// so turning it back on does not re-pay the first snapshot.
+func (s *Service) SetCheckpoints(cp Checkpoints) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if cp == nil || !cp.Enabled() {
+		s.checkpoints = noCheckpoints{}
+		return
+	}
+	s.checkpoints = cp
+}
+
+// currentCheckpoints reads the engine under the lock. A preference change can
+// swap it between two turns.
+func (s *Service) currentCheckpoints() Checkpoints {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.checkpoints
+}
+
+// CheckpointsEnabled reports whether a turn would be checkpointed. The adapter
+// asks before declaring the vendor capability that switches on Claude's own
+// file history.
+func (s *Service) CheckpointsEnabled() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.checkpoints.Enabled()
 }
 
 // Shutdown lands every session's buffered transcript and stops the recorder.
@@ -281,6 +320,12 @@ func (s *Service) CreateSession(ctx context.Context, in CreateInput) (AgentSessi
 	// After the insert: a row recorded for a session the store does not have
 	// yet would have nowhere to belong.
 	s.attachUpdates(sess.ID, rt)
+
+	// Warm the project's shadow repository now, off any turn's path. The first
+	// snapshot of a project walks every file — 0.86s on this repository, far
+	// more on a monorepo — and every one after it costs 0.04s. Doing it here
+	// means the first prompt joins a snapshot that is already the cheap kind.
+	s.currentCheckpoints().Baseline(sess.ProjectPath)
 
 	s.mu.Lock()
 	s.runtimes[sess.ID] = rt
@@ -890,11 +935,25 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 	// nothing else — a transcript item's own id differs between the two.
 	promptMessageID := uuid.NewString()
 
+	// The opening snapshot starts here and is joined just before the prompt
+	// goes out, so it runs inside the time resuming a process already costs
+	// rather than on top of it. A checkpoint must never be the reason a user
+	// waits for their agent — if it has not finished by then it is killed and
+	// the turn runs without one.
+	checkpoints := s.currentCheckpoints()
+	cp := checkpoints.Begin(ctx, TurnCheckpointSpec{
+		SessionID:       in.SessionID,
+		ProjectPath:     sess.ProjectPath,
+		PromptMessageID: promptMessageID,
+		ParentSessionID: derefString(sess.ParentSessionID),
+	})
+
 	// An orphan — the row outlived the process that served it, which is what
 	// every restart does to every open session, and what a mid-turn crash does
 	// too — resumes here. This used to be the end of the conversation.
 	rt, err := s.runtimeFor(ctx, sess)
 	if err != nil {
+		cp.Finish(context.WithoutCancel(ctx), TurnResult{Cancelled: true})
 		release()
 		return InvokeResult{}, err
 	}
@@ -935,22 +994,37 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 		lastUpdateMu sync.Mutex
 		lastUpdate   json.RawMessage
 		permDenied   atomic.Bool
+		touched      touchedPaths
 	)
 	rt.SetHandlers(RuntimeHandlers{
 		// Replaces the handler attachUpdates installed rather than adding to
 		// it, so the turn's updates are still emitted and recorded once.
 		OnUpdate: func(update json.RawMessage, meta json.RawMessage) {
-			_ = meta
 			lastUpdateMu.Lock()
 			lastUpdate = append(json.RawMessage(nil), update...)
 			lastUpdateMu.Unlock()
+			// The vendor's own account of what it changed. It rides a
+			// session_info_update's `_meta` and lands at the same moment as the
+			// prompt response (spike S7), so which arrives first is not
+			// something this can depend on — AttachReport handles both.
+			if requestID, report := fileChangeReport(update, meta); report != nil {
+				checkpoints.AttachReport(in.SessionID, requestID, report)
+			}
 			// recordCtx, not ctx: the turn's context is cancelled the moment
 			// the turn goes wrong, and the update that says *why* is the last
 			// one to arrive. Writing it under ctx meant the one message worth
 			// keeping was the one guaranteed to be dropped — the log read
 			// "transcript write failed: context canceled" and the UI drew an
 			// empty bubble where the agent's error should have been.
-			s.handleUpdate(recordCtx, in.SessionID, update)
+			parsed := s.handleUpdate(recordCtx, in.SessionID, update)
+			// Where a tool call says it worked. This is the only evidence a
+			// changed file was the agent's doing rather than a Bash script's,
+			// short of the vendor's report.
+			if parsed.ToolCall != nil {
+				for _, location := range parsed.ToolCall.Locations {
+					touched.add(location.Path)
+				}
+			}
 		},
 		OnPermission: func(ctx context.Context, params json.RawMessage) (json.RawMessage, error) {
 			outcome, err := s.mediatePermission(ctx, in.SessionID, params)
@@ -993,7 +1067,22 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 		s.emit(in.SessionID, userEchoUpdate(in.Prompt, promptMessageID, attachments))
 	}
 
-	outcome, promptErr := rt.Prompt(ctx, prompt)
+	// Join the opening snapshot. Past this line the prompt is about to go out,
+	// so a snapshot still running is one the turn would be waiting on.
+	cp.Wait()
+
+	outcome, promptErr := rt.Prompt(ctx, prompt, fileChangeReportRequest(cp.ID()))
+
+	// The closing snapshot, before anything below decides the session's status.
+	// Not in a defer: every path out of here ends with the session idle, idle
+	// is the UI's signal that another prompt may be sent, and a tree taken
+	// after that point would hold the next turn's writes and blame them on
+	// this one.
+	cp.Finish(context.WithoutCancel(ctx), TurnResult{
+		ToolPaths: touched.list(),
+		Cancelled: promptErr != nil,
+	})
+
 	if permDenied.Load() {
 		_ = s.setSessionStatus(recordCtx, in.SessionID, SessionStatusError)
 		return InvokeResult{Status: "error"}, ErrPermissionDenied
@@ -1073,7 +1162,7 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 // Emit before persisting: the screen must never wait on SQLite, and the
 // recorder batches its writes anyway — a reload lands within one flush cadence
 // of what the live event said.
-func (s *Service) handleUpdate(ctx context.Context, sessionID string, update json.RawMessage) {
+func (s *Service) handleUpdate(ctx context.Context, sessionID string, update json.RawMessage) SessionUpdate {
 	s.emit(sessionID, update)
 	parsed := ParseSessionUpdate(update)
 	if parsed.Kind == UpdateSessionInfo && parsed.Title != "" {
@@ -1091,6 +1180,7 @@ func (s *Service) handleUpdate(ctx context.Context, sessionID string, update jso
 	if err := s.recorder.Record(ctx, sessionID, parsed); err != nil && s.OnRecordError != nil {
 		s.OnRecordError(sessionID, err)
 	}
+	return parsed
 }
 
 // attachUpdates gives a runtime its update handler the moment the service
@@ -1278,6 +1368,10 @@ func (s *Service) resumeRuntime(ctx context.Context, sess AgentSession) (rt Sess
 	if !ok {
 		return nil, ErrUnavailable
 	}
+	// A restart brings sessions back without going through CreateSession, so
+	// this is where an existing project's shadow repository gets warmed. A
+	// no-op once the project has been baselined in this process.
+	s.currentCheckpoints().Baseline(sess.ProjectPath)
 
 	// One resume per session at a time. Invoke and the settings calls all
 	// resume, and two at once would open two MCP endpoints on one socket path.

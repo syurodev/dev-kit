@@ -11,6 +11,7 @@ import type { QueuedAgentPrompt } from "@/stores/agentSessions";
 import type { AvailableCommand, ConfigOption, SessionMode, TranscriptItem, Usage } from "../types";
 import type { ContextFileItem } from "./AgentMenu";
 import { TranscriptStream } from "./TranscriptStream";
+import { loadCheckpointFileDiff, useSessionCheckpoints } from "../useSessionCheckpoints";
 import { AgentComposer } from "./AgentComposer";
 import { composerPlaceholder } from "./AgentHubContent";
 import { AgentPermissionRequest } from "./AgentPermissionRequest";
@@ -154,6 +155,7 @@ export function AgentRail({
   sendDisabled = false,
   className,
 }: AgentRailProps) {
+  const checkpoints = useSessionCheckpoints(activeSession?.id ?? "");
   const effectiveState: AgentRailState = explicitState
     ? explicitState
     : !activeSession
@@ -281,6 +283,8 @@ export function AgentRail({
               items={items}
               streamKey={activeSession?.id}
               vendor={vendor}
+              checkpoints={checkpoints}
+              loadFileDiff={loadCheckpointFileDiff}
               hasMore={hasMore}
               loadingOlder={loadingOlder}
               onLoadOlder={onLoadOlder}

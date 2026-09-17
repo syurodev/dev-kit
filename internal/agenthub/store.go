@@ -32,6 +32,7 @@ type Store interface {
 	ListTurns(ctx context.Context, sessionID string) ([]TurnRecord, error)
 	DeleteSessions(ctx context.Context, ids []string) error
 	TranscriptStore
+	CheckpointStore
 }
 
 // SQLStore implements Store against SQLite tables created by storage migration 13.

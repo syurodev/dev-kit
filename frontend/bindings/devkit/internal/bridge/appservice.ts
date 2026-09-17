@@ -57,6 +57,15 @@ export function AgentHubCancel(id: string): $CancellablePromise<void> {
 }
 
 /**
+ * AgentHubCheckpointFileDiff returns one changed file's two versions out of a
+ * checkpoint. The path is checked against the checkpoint's own list of changed
+ * files, so this cannot be used to read an arbitrary file out of a project.
+ */
+export function AgentHubCheckpointFileDiff(checkpointID: string, path: string): $CancellablePromise<agenthub$0.FileDiff> {
+    return $Call.ByID(1454694981, checkpointID, path);
+}
+
+/**
  * AgentHubChooseDirectory opens the native folder picker// AgentHubChooseDirectory opens the native folder picker and returns the chosen
  * path, or "" when the user cancelled. Cancelling is not an error: the dialog
  * that called this stays open with the field untouched, and an error there
@@ -113,6 +122,15 @@ export function AgentHubInvoke(input: agenthub$0.InvokeInput): $CancellablePromi
 
 export function AgentHubListAgents(): $CancellablePromise<agenthub$0.AgentSession[] | null> {
     return $Call.ByID(3384951636);
+}
+
+/**
+ * AgentHubListCheckpoints returns a session's file checkpoints — one per turn,
+ * keyed on the prompt that started it, so the transcript can show a turn's
+ * "N files changed" without a call per turn.
+ */
+export function AgentHubListCheckpoints(id: string): $CancellablePromise<agenthub$0.CheckpointRecord[] | null> {
+    return $Call.ByID(7569693, id);
 }
 
 /**

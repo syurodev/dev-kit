@@ -110,6 +110,11 @@ type Container struct {
 	// AgentRuntimes installs and resolves the ACP adapters Agent Hub runs.
 	// Nil in ephemeral tests; main roots it at <dataDir>/runtimes.
 	AgentRuntimes *agentruntime.Manager
+	// AgentCheckpoints snapshots a project's files around each turn. Held here
+	// so a preference change can switch it on the service without rebuilding
+	// the engine — the shadow repositories it has already warmed are what make
+	// the next turn cheap. Nil in ephemeral tests.
+	AgentCheckpoints *agenthub.EngineCheckpoints
 
 	// auth and syncBlocked are mutable after startup: the cloudconfig refresh
 	// goroutine rewrites them while bridge call handlers read them, so every
@@ -237,6 +242,12 @@ func NewContainerWithStores(
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "session:*"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "permission:complete"},
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:execute", Scope: "elicitation:respond"},
+		// File checkpoints. Listing is per session and covered by session:*;
+		// reading one changed file's two versions is named by the checkpoint,
+		// because that is the only id the transcript holds for it. The session
+		// behind it is still authorised — CheckpointFileDiff resolves the
+		// checkpoint's session and runs authorizeTarget on that.
+		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "checkpoint:*"},
 		// Agent runtimes: reading status and the registry, and installing,
 		// switching or removing an adapter version. Scoped per agent id.
 		{SubjectID: "builtin.agenthub", Capability: "agenthub:read", Scope: "runtime:*"},

@@ -7,7 +7,7 @@
 | A — Nâng adapter 0.78 + spike | **Xong** (2026-09-17) |
 | B — Tiền đề trong code hiện có | **Xong** (2026-09-17) |
 | C — Engine `internal/checkpoint` | **Xong** (2026-09-17) |
-| D — Chụp mỗi lượt + report + UI "file đã đổi" | Chưa làm |
+| D — Chụp mỗi lượt + report + UI "file đã đổi" | **Xong** (2026-09-17) |
 | E — Khôi phục code | Chưa làm |
 | F — Rewind hội thoại + code | Chưa làm |
 | G — Settings + tài liệu | Chưa làm |
@@ -24,6 +24,28 @@ S4 chunk subagent tới dưới `params.sessionId` của subagent với `msg_…
 `/compact` — chạy (không cần chặn); S6 `session/delete` session chưa load — chạy; S7 report ở
 `update._meta.jetbrains.air.agentFileChangeReport` của `session_info_update`, cùng lúc prompt
 response, **không** có file do Bash tạo, lượt huỷ → `unavailable/cancelled`.
+
+**Đã có sau D:** store `CheckpointStore` (`CheckpointRecord`, `ChangedFile`, kind/status/outcome);
+`Checkpoints` interface + `noCheckpoints` (nil = tắt, `Invoke` không rẽ nhánh) + `EngineCheckpoints`;
+`Invoke` mở checkpoint ngay sau claim (chụp **before** song song `runtimeFor`, `Wait()` trước
+`rt.Prompt`), `Prompt(ctx, prompt, meta)` mang
+`_meta.jetbrains.air.agentFileChangeReportRequest{version:1,requestId}`, chụp **after** ngay sau
+`rt.Prompt` **trên một chỗ duy nhất** (trước mọi nhánh đổi status), diff + gán nguồn chạy nền;
+gán nguồn `agent` (report vendor **hoặc** `tool_call.locations`, đường tuyệt đối → tương đối) /
+`child` / `unattributed` + `overlap`; `AttachReport` xử lý cả report tới **sau** lượt (sửa lại dòng đã
+ghi); capability `agentFileChangeReport` chỉ khai báo khi bật (`ClaudeOptions.FileChangeReports`);
+preference `agent_checkpoints` (mặc định bật, tắt theo availability); bridge
+`AgentHubListCheckpoints`/`AgentHubCheckpointFileDiff` + grant `checkpoint:*`, event
+`agenthub:checkpoint`; baseline nền lúc tạo/resume; `Maintain` chạy nền lúc khởi động; UI
+`AgentTurnChanges` ("N file đã đổi", +/- , nhãn nguồn, drawer diff từng file, cảnh báo
+"không hoàn tác được" **ngoài** fold), hook `useSessionCheckpoints`.
+
+**Lệch khỏi plan ở D:** (1) khoá project trong engine đổi từ `sync.Mutex` sang semaphore theo
+context — ngân sách 5s của snapshot đầu lượt không bỏ được `Mutex` khi session khác đang giữ;
+(2) report đọc ngay trong `Service` (handler `OnUpdate` đã có cả `update` lẫn `meta`) thay vì trong
+adapter, nên adapter không phải biết gì về checkpoint; (3) `Maintain` nằm trên `EngineCheckpoints`
+chứ không gọi thẳng `engine.Maintain(store)` — hai bên có hình dạng Record khác nhau, dịch là việc
+của `agenthub` chứ không phải `main.go`.
 
 **Đã có sau C:** `internal/checkpoint` (leaf, có luật trong `internal/arch`): `Locate` (Homebrew →
 `/usr/local` → `LookPath` → shim macOS **không bao giờ chạy** khi thiếu CLT, sàn 2.26, đọc được banner

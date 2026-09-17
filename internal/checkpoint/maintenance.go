@@ -219,7 +219,7 @@ func (e *Engine) sweepProject(ctx context.Context, key string, live map[string]b
 		return false, nil
 	}
 	var repacked bool
-	err = repo.runLocked(func() error {
+	err = repo.runLocked(ctx, func() error {
 		raw, err := repo.git(ctx, nil, "for-each-ref", "--format=%(refname)", "refs/devkit/cp/")
 		if err != nil {
 			return err

@@ -5,7 +5,10 @@ import "errors"
 var (
 	ErrSessionNotFound         = errors.New("agenthub.sessionNotFound")
 	ErrTranscriptEntryNotFound = errors.New("agenthub.transcriptEntryNotFound")
-	ErrSessionBusy             = errors.New("agenthub.sessionBusy")
+	// ErrCheckpointNotFound is a checkpoint id that is not in the table —
+	// retention swept it, or a session it belonged to was deleted.
+	ErrCheckpointNotFound = errors.New("agenthub.checkpointNotFound")
+	ErrSessionBusy        = errors.New("agenthub.sessionBusy")
 	// ErrSessionClosed is a settings call on a session whose process is parked.
 	// Not sessionNotFound: the conversation is there and a prompt brings it
 	// back, so the message has to say that rather than deny the session exists.

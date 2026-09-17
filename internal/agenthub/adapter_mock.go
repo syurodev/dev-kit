@@ -99,6 +99,40 @@ type mockRuntime struct {
 	cancelCh     chan struct{}
 	setMode      string
 	setOptions   map[string]string
+	// promptMetas is every `_meta` a prompt carried, in order. The mock is what
+	// the service's tests run against, and what DevKit asks the vendor for on a
+	// turn is part of the turn's contract.
+	promptMetas []json.RawMessage
+}
+
+func (r *mockRuntime) recordPromptMeta(meta json.RawMessage) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.promptMetas = append(r.promptMetas, append(json.RawMessage(nil), meta...))
+}
+
+// MockPromptMetas returns the `_meta` of every prompt a mock runtime has been
+// sent. Exported for the service tests, which hold the runtime through the
+// adapter rather than directly.
+func MockPromptMetas(rt SessionRuntime) []json.RawMessage {
+	// Tests wrap the runtime to hook a prompt; unwrap until the mock shows.
+	for {
+		if _, ok := rt.(*mockRuntime); ok {
+			break
+		}
+		wrapper, ok := rt.(interface{ Unwrap() SessionRuntime })
+		if !ok {
+			return nil
+		}
+		rt = wrapper.Unwrap()
+	}
+	mock, ok := rt.(*mockRuntime)
+	if !ok {
+		return nil
+	}
+	mock.mu.Lock()
+	defer mock.mu.Unlock()
+	return append([]json.RawMessage(nil), mock.promptMetas...)
 }
 
 func (r *mockRuntime) ACPSessionID() string { return r.acpSessionID }
@@ -171,10 +205,11 @@ func (r *mockRuntime) SetHandlers(h RuntimeHandlers) {
 	r.handlers = h
 }
 
-func (r *mockRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock) (PromptOutcome, error) {
+func (r *mockRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock, promptMeta json.RawMessage) (PromptOutcome, error) {
 	// The mock's behaviour is driven by markers in the text; attachments are
 	// carried but not interpreted, which is what a stand-in should do.
 	text := PromptText(prompt)
+	r.recordPromptMeta(promptMeta)
 	if err := ctx.Err(); err != nil {
 		return PromptOutcome{}, err
 	}

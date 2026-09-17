@@ -565,7 +565,7 @@ func TestClientCapabilitiesDeclareFormElicitationOnly(t *testing.T) {
 	// (truthy), and `url` must not arrive at all — DevKit serves no browser
 	// handoff and no elicitation/complete, and declaring it would send MCP URL
 	// elicitations to a client that cannot finish them.
-	body, err := json.Marshal(devkitClientCapabilities())
+	body, err := json.Marshal(devkitClientCapabilities(false))
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
@@ -587,7 +587,7 @@ func TestClientCapabilitiesDeclareFormElicitationOnly(t *testing.T) {
 }
 
 func TestClientCapabilitiesDeclareOnlyWhatDevKitServes(t *testing.T) {
-	caps := devkitClientCapabilities()
+	caps := devkitClientCapabilities(false)
 
 	// Measured: the agent reads this to decide what to send back. With a prompt
 	// that spawns two subagents, declaring `subagents` took agent_message_chunk
@@ -924,5 +924,115 @@ func TestSubagentUpdatesCarryTheirOrigin(t *testing.T) {
 	}
 	if sub.Origin != "a0549d5cb1bae7c3b" || sub.MessageID != "msg_a0549d5cb1bae7c3b" || sub.Text() != "hi" {
 		t.Fatalf("subagent chunk = %+v, want its origin and the rest intact", sub)
+	}
+}
+
+// Asking the agent for its own file-change report is not free: it switches on
+// Claude's native checkpointing for every session the process serves, which
+// writes file history under ~/.claude. A user who turned DevKit's checkpoints
+// off must get no file history from either side, so the capability has to be
+// absent, not merely unused.
+func TestFileChangeReportCapabilityIsDeclaredOnlyWhenAsked(t *testing.T) {
+	off, err := json.Marshal(devkitClientCapabilities(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(off), "agentFileChangeReport") {
+		t.Fatalf("declared with checkpoints off: %s", off)
+	}
+	on, err := json.Marshal(devkitClientCapabilities(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(on), "agentFileChangeReport") {
+		t.Fatalf("not declared with checkpoints on: %s", on)
+	}
+	// It belongs inside the vendor's own extension block, beside the other
+	// capabilities that gate on it — not at the top level, where the agent
+	// never looks.
+	var caps struct {
+		Meta struct {
+			JetBrains struct {
+				Air struct {
+					Capabilities []string `json:"capabilities"`
+				} `json:"air"`
+			} `json:"jetbrains"`
+		} `json:"_meta"`
+	}
+	if err := json.Unmarshal(on, &caps); err != nil {
+		t.Fatal(err)
+	}
+	if !contains(caps.Meta.JetBrains.Air.Capabilities, "agentFileChangeReport") {
+		t.Fatalf("air capabilities = %v", caps.Meta.JetBrains.Air.Capabilities)
+	}
+	// And asking for it must not drop what was already there.
+	for _, want := range []string{"nativeSubagentSessions", "asyncTasks", "sessionFailure"} {
+		if !contains(caps.Meta.JetBrains.Air.Capabilities, want) {
+			t.Errorf("%s went missing when the report was added", want)
+		}
+	}
+}
+
+// capturingRunner keeps the first frame DevKit sends and then exits, so the
+// handshake fails fast and what went out is still readable. One line, not a
+// byte count: a byte count would block waiting for frames that never come, and
+// the hang TestOpenFailsFastWhenVendorDiesDuringHandshake exists to prevent
+// would be back in the test rather than in the code.
+type capturingRunner struct{ path string }
+
+func (r capturingRunner) StartPiped(context.Context, sandbox.Policy, sandbox.Cmd) (*sandbox.Proc, error) {
+	cmd := exec.Command("sh", "-c", `head -n 1 > "$0"`, r.path)
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, err
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	return sandbox.NewProcPiped(cmd, stdin, stdout, &bytes.Buffer{}), nil
+}
+
+// The gate, on the wire. The unit above pins what the declaration holds; this
+// pins that the adapter consults the switch at all — a build that wired
+// checkpoints and then asked for the report regardless would turn on the
+// vendor's file history for a user who said no.
+func TestOpenAsksForTheFileChangeReportOnlyWhenCheckpointsAreOn(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		opts ClaudeOptions
+		want bool
+	}{
+		{"no hook at all", ClaudeOptions{}, false},
+		{"switched off", ClaudeOptions{FileChangeReports: func() bool { return false }}, false},
+		{"switched on", ClaudeOptions{FileChangeReports: func() bool { return true }}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			capture := filepath.Join(dir, "sent.jsonl")
+			bin := filepath.Join(dir, "claude-agent-acp")
+			if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			opts := tc.opts
+			opts.Command = bin
+			opts.Runner = capturingRunner{path: capture}
+			if _, err := NewClaudeAdapter(opts).Open(context.Background(), OpenSpec{Cwd: t.TempDir()}); err == nil {
+				t.Fatal("expected the handshake to fail against a runner that never answers")
+			}
+			sent, err := os.ReadFile(capture)
+			if err != nil {
+				t.Fatalf("nothing was sent: %v", err)
+			}
+			if !strings.Contains(string(sent), "initialize") {
+				t.Fatalf("no initialize went out: %s", sent)
+			}
+			if got := strings.Contains(string(sent), "agentFileChangeReport"); got != tc.want {
+				t.Fatalf("declared = %v, want %v: %s", got, tc.want, sent)
+			}
+		})
 	}
 }

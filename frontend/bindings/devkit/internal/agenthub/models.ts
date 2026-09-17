@@ -54,6 +54,146 @@ export interface AuthMethod {
 }
 
 /**
+ * ChangedFile is one path a checkpoint's two trees disagree about.
+ */
+export interface ChangedFile {
+    "path": string;
+    "kind": string;
+    "added": number;
+    "removed": number;
+    "binary": boolean;
+
+    /**
+     * Source is the attribution above.
+     */
+    "source": ChangedSource;
+
+    /**
+     * SourceSession is the sub-session's id when Source is SourceChild.
+     */
+    "sourceSession"?: string;
+}
+
+/**
+ * ChangedSource is how much DevKit could work out about who wrote a file.
+ * 
+ * Honest rather than confident: the jail lets several sessions share a project
+ * and a Bash script writes files no tool call names, so "the agent did it" is a
+ * claim that can only be made where there is evidence for it.
+ */
+export enum ChangedSource {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    /**
+     * SourceAgent: the vendor's own report named the file, or a tool call in
+     * this turn did.
+     */
+    SourceAgent = "agent",
+
+    /**
+     * SourceChild: the file falls inside a sub-session's own checkpoint, taken
+     * while it ran nested in this turn.
+     */
+    SourceChild = "child",
+
+    /**
+     * SourceUnattributed: something changed it during the turn and nothing says
+     * what. A Bash script, an MCP server, an async task — or another session,
+     * which is what Overlap is for.
+     */
+    SourceUnattributed = "unattributed",
+};
+
+/**
+ * CheckpointKind says why a checkpoint exists.
+ */
+export enum CheckpointKind {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    /**
+     * CheckpointTurn is the pair of trees around one prompt.
+     */
+    CheckpointTurn = "turn",
+
+    /**
+     * CheckpointRestoreSafety is the state of the project immediately before a
+     * restore, so the restore itself can be undone.
+     */
+    CheckpointRestoreSafety = "restore_safety",
+
+    /**
+     * CheckpointRewindSafety is the same for a rewind, and doubles as its
+     * recovery log: a row still pending after a crash says the rewind was
+     * interrupted part-way.
+     */
+    CheckpointRewindSafety = "rewind_safety",
+};
+
+/**
+ * CheckpointRecord is one stored checkpoint.
+ */
+export interface CheckpointRecord {
+    "id": string;
+    "sessionId": string;
+    "projectKey": string;
+    "promptMessageId": string;
+    "kind": CheckpointKind;
+    "beforeTree": string;
+    "afterTree": string;
+    "status": CheckpointStatus;
+    "outcome": string;
+
+    /**
+     * Changed is the classified diff between the two trees.
+     */
+    "changed"?: ChangedFile[] | null;
+
+    /**
+     * Skipped is what neither tree holds, so a restore knows never to touch it.
+     */
+    "skipped"?: json$0.RawMessage;
+
+    /**
+     * AgentReport is the vendor's own list of files it changed, as it sent it.
+     */
+    "agentReport"?: json$0.RawMessage;
+
+    /**
+     * Overlap names the other sessions that were running in this project at the
+     * same time — the honest half of an unattributed file.
+     */
+    "overlap"?: json$0.RawMessage;
+
+    /**
+     * Detail is per-kind extra: a reason for an unavailable checkpoint, the
+     * fork's state for a rewind.
+     */
+    "detail"?: json$0.RawMessage;
+    "createdAt": string;
+    "finishedAt"?: string | null;
+}
+
+/**
+ * CheckpointStatus is where a checkpoint got to.
+ */
+export enum CheckpointStatus {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    CheckpointPending = "pending",
+    CheckpointDone = "done",
+    CheckpointFailed = "failed",
+};
+
+/**
  * ContextFile is one bounded file suggestion for the prompt composer.
  */
 export interface ContextFile {
@@ -75,6 +215,28 @@ export interface CreateInput {
      */
     "ParentSessionID": string;
     "Title": string | null;
+}
+
+/**
+ * FileDiff is one path's two versions, for the drawer behind a changed file.
+ */
+export interface FileDiff {
+    "path": string;
+
+    /**
+     * Before and After are the file's bytes as text. A file git called binary
+     * is not sent at all.
+     */
+    "before": string;
+    "after": string;
+    "binary": boolean;
+
+    /**
+     * Missing is a side the checkpoint does not hold — the file was added
+     * (no before) or deleted (no after), or the snapshot on that side failed.
+     */
+    "beforeMissing": boolean;
+    "afterMissing": boolean;
 }
 
 export interface ImageAttachment {

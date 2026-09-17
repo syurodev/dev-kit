@@ -53,7 +53,7 @@ func (r *Repo) Diff(ctx context.Context, from, to string) ([]Change, error) {
 		return nil, nil
 	}
 	var changes []Change
-	err := r.runLocked(func() error {
+	err := r.runLocked(ctx, func() error {
 		var err error
 		changes, err = r.diffLocked(ctx, from, to)
 		return err
@@ -165,7 +165,7 @@ func applyNumstat(raw []byte, changes map[string]*Change) error {
 func (r *Repo) FileContent(ctx context.Context, tree, path string) ([]byte, error) {
 	tree = orEmptyTree(tree)
 	var out []byte
-	err := r.runLocked(func() error {
+	err := r.runLocked(ctx, func() error {
 		var err error
 		out, err = r.git(ctx, nil, "cat-file", "blob", tree+":"+path)
 		return err

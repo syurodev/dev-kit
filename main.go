@@ -19,6 +19,7 @@ import (
 	"devkit/internal/auth"
 	"devkit/internal/bridge"
 	"devkit/internal/capabilities"
+	"devkit/internal/checkpoint"
 	"devkit/internal/cloudconfig"
 	"devkit/internal/codegraph"
 	"devkit/internal/database"
@@ -63,6 +64,18 @@ const (
 
 // transcriptRetentionDays is how long agent transcript rows are kept.
 const transcriptRetentionDays = 90
+
+// agentCheckpointsOn is the one place the two conditions meet: the user's
+// preference, and whether the machine has a git the engine can use. Read on
+// every question rather than captured, so turning the setting off takes effect
+// without a restart.
+func agentCheckpointsOn(prefs *preferences.Service, engine *checkpoint.Engine) bool {
+	if engine == nil || !engine.Available() {
+		return false
+	}
+	enabled, err := prefs.AgentCheckpoints()
+	return err == nil && enabled
+}
 
 func main() {
 	var mainWindow application.Window
@@ -260,6 +273,16 @@ func main() {
 	// resolved per session, not here, so an install needs no restart. PATH and
 	// npx are never consulted: an app opened from the Dock cannot see an nvm
 	// install, and npx dies on EPERM inside the jail.
+	// File checkpoints: a shadow git per project under the data directory, used
+	// to snapshot the project at the boundary of every turn. Locating git is a
+	// few process spawns, done once here rather than per turn; a machine
+	// without a usable one gets an engine that reports why and does nothing.
+	checkpointGit := checkpoint.Locate(context.Background())
+	if !checkpointGit.OK() {
+		log.Printf("agenthub: file checkpoints are off: %s", checkpointGit.Reason)
+	}
+	checkpointEngine := checkpoint.New(filepath.Join(dataDir, "checkpoints"), checkpointGit, checkpoint.Limits{})
+
 	runtimes := agentruntime.New(filepath.Join(dataDir, "runtimes"))
 	runtimes.OnOutput = func(agent, line string) {
 		emitAppEvent("agenthub:runtimeInstallOutput", map[string]any{
@@ -276,6 +299,13 @@ func main() {
 		Runtime: func() (agentruntime.Resolved, error) {
 			return runtimes.Resolve(agentruntime.ClaudeACP)
 		},
+		// Declaring agentFileChangeReport switches on Claude's own native
+		// checkpointing for every session the process serves, which writes file
+		// history under ~/.claude. So it is asked for only while DevKit's own
+		// checkpoints are on — a user who turned them off gets no file history
+		// from either side. Read per session, so the switch takes effect on the
+		// next one rather than at the next restart.
+		FileChangeReports: func() bool { return agentCheckpointsOn(container.Preferences, checkpointEngine) },
 	}
 	// Development and CI only: an absolute adapter that bypasses the
 	// managed runtime entirely.
@@ -451,6 +481,39 @@ func main() {
 	agentSvc.OnRecordError = func(sessionID string, err error) {
 		log.Printf("agenthub: transcript write failed for session %s: %v", sessionID, err)
 	}
+	agentCheckpoints := agenthub.NewEngineCheckpoints(checkpointEngine, agentStore, agentStore)
+	agentCheckpoints.OnCheckpoint = func(sessionID string, record agenthub.CheckpointRecord) {
+		// The turn header is drawn while the turn is still running, before
+		// there is anything to count. This is what fills the number in.
+		emitAppEvent("agenthub:checkpoint", map[string]any{
+			"sessionId":  sessionID,
+			"checkpoint": record,
+		})
+	}
+	agentCheckpoints.OnError = func(sessionID string, err error) {
+		log.Printf("agenthub: checkpoint failed for session %s: %v", sessionID, err)
+	}
+	if agentCheckpointsOn(container.Preferences, checkpointEngine) {
+		agentSvc.SetCheckpoints(agentCheckpoints)
+	}
+	container.AgentCheckpoints = agentCheckpoints
+	// Retention, once at startup: 30 days, 200 per session, a soft 1 GiB per
+	// project, and the shadow repositories of projects with nothing left. In
+	// the background because it walks every project directory and nothing is
+	// waiting on it.
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+		report, err := agentCheckpoints.Maintain(ctx)
+		if err != nil {
+			log.Printf("agenthub: checkpoint maintenance: %v", err)
+			return
+		}
+		if len(report.Expired) > 0 || len(report.RemovedProjects) > 0 {
+			log.Printf("agenthub: checkpoint maintenance removed %d checkpoints and %d project repositories",
+				len(report.Expired), len(report.RemovedProjects))
+		}
+	}()
 	agentSvc.OnUnknownUpdate = func(sessionID, wireKind string, raw json.RawMessage) {
 		// Once per kind per session. claude-agent-acp 0.74 emitted sixteen
 		// sessionUpdate kinds and this build once parsed six; the rest were

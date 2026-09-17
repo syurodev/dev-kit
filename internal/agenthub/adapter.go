@@ -38,7 +38,12 @@ type SessionRuntime interface {
 	// always text: the agent advertises promptCapabilities.image and
 	// embeddedContext, and acp.PromptRequest has modelled []ContentBlock since
 	// this package was written — the string was the narrowing, not the wire.
-	Prompt(ctx context.Context, prompt []acp.ContentBlock) (PromptOutcome, error)
+	//
+	// meta is the request's `_meta`, or nil. It carries the vendor extensions a
+	// single turn opts into — today the file-change report a checkpoint asks
+	// the agent to tag with its id — which is per-prompt state, not per-session,
+	// so it belongs in the call rather than in the runtime.
+	Prompt(ctx context.Context, prompt []acp.ContentBlock, meta json.RawMessage) (PromptOutcome, error)
 	Cancel(ctx context.Context) error
 	Close(ctx context.Context) error
 	SetHandlers(h RuntimeHandlers)

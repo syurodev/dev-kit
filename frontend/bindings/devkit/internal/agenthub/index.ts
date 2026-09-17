@@ -3,6 +3,9 @@
 
 export {
     AgentType,
+    ChangedSource,
+    CheckpointKind,
+    CheckpointStatus,
     SessionStatus,
     UpdateKind
 } from "./models.js";
@@ -10,8 +13,11 @@ export {
 export type {
     AgentSession,
     AuthMethod,
+    ChangedFile,
+    CheckpointRecord,
     ContextFile,
     CreateInput,
+    FileDiff,
     ImageAttachment,
     InvokeInput,
     InvokeResult,

@@ -57,6 +57,15 @@ type ClaudeOptions struct {
 	// Gateway sees no file access at all and nobody knows whether that is
 	// because the agent never asks or because we never answered.
 	OnUnknownMethod func(method string, params json.RawMessage)
+	// FileChangeReports says whether to declare the agentFileChangeReport
+	// capability. Read on every Open and Load, never captured, because the user
+	// can turn checkpoints off between two sessions.
+	//
+	// Behind a switch because declaring it is not free: it turns on Claude's
+	// own native checkpointing for every session in the process, which writes
+	// file history under ~/.claude. A user who turned checkpoints off should
+	// get no file history at all, from DevKit or from the vendor.
+	FileChangeReports func() bool
 }
 
 var (
@@ -290,9 +299,30 @@ func claudeEnvAllowlist() map[string]string {
 // DevkitClientCapabilitiesForTest exposes the declaration to the external test
 // package. The capabilities themselves stay unexported: nothing outside this
 // adapter should be choosing what DevKit claims to support.
-func DevkitClientCapabilitiesForTest() map[string]any { return devkitClientCapabilities() }
+func DevkitClientCapabilitiesForTest(withFileChangeReport bool) map[string]any {
+	return devkitClientCapabilities(withFileChangeReport)
+}
 
-func devkitClientCapabilities() map[string]any {
+// fileChangeReports reports whether this adapter should ask for the vendor's
+// file-change report. Absent hook means no: a build that never wired
+// checkpoints must not switch on the vendor's file history.
+func (a *ClaudeAdapter) fileChangeReports() bool {
+	return a.opts.FileChangeReports != nil && a.opts.FileChangeReports()
+}
+
+// devkitClientCapabilities is the declaration with the optional extensions
+// resolved. withFileChangeReport adds the one capability that has a side effect
+// on the user's disk, so it is passed in rather than read from anywhere.
+func devkitClientCapabilities(withFileChangeReport bool) map[string]any {
+	caps := devkitBaseCapabilities()
+	if withFileChangeReport {
+		air := caps["_meta"].(map[string]any)["jetbrains"].(map[string]any)["air"].(map[string]any)
+		air["capabilities"] = append(air["capabilities"].([]string), "agentFileChangeReport")
+	}
+	return caps
+}
+
+func devkitBaseCapabilities() map[string]any {
 	return map[string]any{
 		// The client understands updates that come from a subagent. DevKit
 		// renders them in the parent transcript rather than as their own
@@ -594,7 +624,7 @@ func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, resume string) 
 	var initRes acp.InitializeResult
 	if err := conn.Call(hsCtx, "initialize", acp.InitializeRequest{
 		ProtocolVersion:    1,
-		ClientCapabilities: devkitClientCapabilities(),
+		ClientCapabilities: devkitClientCapabilities(a.fileChangeReports()),
 		ClientInfo:         map[string]any{"name": "devkit", "version": "0.0.0"},
 	}, &initRes); err != nil {
 		herr := handshakeErr("initialize", err)
@@ -779,7 +809,7 @@ func (a *ClaudeAdapter) initialize(ctx context.Context, l launch) (acp.Initializ
 	var res acp.InitializeResult
 	err = conn.Call(callCtx, "initialize", acp.InitializeRequest{
 		ProtocolVersion:    1,
-		ClientCapabilities: devkitClientCapabilities(),
+		ClientCapabilities: devkitClientCapabilities(a.fileChangeReports()),
 		ClientInfo:         map[string]any{"name": "devkit", "version": "0.0.0"},
 	}, &res)
 	if err == nil {
@@ -1073,7 +1103,7 @@ func (r *claudeRuntime) handlersSnapshot() RuntimeHandlers {
 	return r.handlers
 }
 
-func (r *claudeRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock) (PromptOutcome, error) {
+func (r *claudeRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock, meta json.RawMessage) (PromptOutcome, error) {
 	if err := ctx.Err(); err != nil {
 		return PromptOutcome{}, err
 	}
@@ -1096,6 +1126,7 @@ func (r *claudeRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock) (
 	err := conn.Call(ctx, "session/prompt", acp.PromptRequest{
 		SessionID: sid,
 		Prompt:    prompt,
+		Meta:      meta,
 	}, &res)
 	if err == nil {
 		log.Printf("agenthub: claude session/prompt returned (session %s, stop %q)", sid, res.StopReason)

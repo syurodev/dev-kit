@@ -140,13 +140,15 @@ func (e *Engine) Open(ctx context.Context, projectPath string) (*Repo, error) {
 	e.mu.Lock()
 	repo, ok := e.repos[key]
 	if !ok {
-		repo = &Repo{engine: e, key: key, work: work, gitDir: filepath.Join(e.root, key)}
+		repo = &Repo{engine: e, key: key, work: work, gitDir: filepath.Join(e.root, key), lock: make(chan struct{}, 1)}
 		e.repos[key] = repo
 	}
 	e.mu.Unlock()
 
-	repo.mu.Lock()
-	defer repo.mu.Unlock()
+	if err := repo.acquire(ctx); err != nil {
+		return nil, err
+	}
+	defer repo.release()
 	if err := repo.init(ctx); err != nil {
 		return nil, err
 	}
@@ -180,7 +182,12 @@ type Repo struct {
 	work   string
 	gitDir string
 
-	mu    sync.Mutex
+	// lock is a semaphore rather than a sync.Mutex because it has to be
+	// acquirable with a deadline. A turn's opening snapshot has five seconds
+	// before the prompt goes without it; if another session in the same project
+	// is mid-snapshot, a sync.Mutex would hold this one past that budget with
+	// no way to give up, and the turn would wait on git after all.
+	lock  chan struct{}
 	ready bool
 }
 
@@ -358,12 +365,26 @@ func cleanGitEnv() []string {
 	)
 }
 
-// runLocked runs fn with the project's mutex held. Snapshots and restores for
-// one project are serialised: two `update-index` runs against one index file
-// would interleave, and a restore reading the tree a snapshot is still writing
-// would see half of it.
-func (r *Repo) runLocked(fn func() error) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+// acquire takes the project lock, or gives up when the context does.
+func (r *Repo) acquire(ctx context.Context) error {
+	select {
+	case r.lock <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("checkpoint: waiting for the %s lock: %w", filepath.Base(r.work), ctx.Err())
+	}
+}
+
+func (r *Repo) release() { <-r.lock }
+
+// runLocked runs fn with the project lock held. Snapshots and restores for one
+// project are serialised: two `update-index` runs against one index file would
+// interleave, and a restore reading the tree a snapshot is still writing would
+// see half of it.
+func (r *Repo) runLocked(ctx context.Context, fn func() error) error {
+	if err := r.acquire(ctx); err != nil {
+		return err
+	}
+	defer r.release()
 	return fn()
 }

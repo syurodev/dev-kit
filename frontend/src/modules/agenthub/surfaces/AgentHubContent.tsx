@@ -25,6 +25,7 @@ import type { QueuedAgentPrompt } from "@/stores/agentSessions";
 import type { AvailableCommand, ConfigOption, SessionMode, TranscriptItem, Usage } from "../types";
 import type { ContextFileItem } from "./AgentMenu";
 import { TranscriptStream } from "./TranscriptStream";
+import { loadCheckpointFileDiff, useSessionCheckpoints } from "../useSessionCheckpoints";
 import { AgentComposer, heldChoice } from "./AgentComposer";
 import { AgentSessionError, type SessionErrorCause } from "./AgentSessionError";
 import { AgentPermissionRequest } from "./AgentPermissionRequest";
@@ -269,6 +270,10 @@ export function AgentHubContent({
   sendDisabled = false,
   className,
 }: AgentHubContentProps) {
+  // Loaded here rather than in TranscriptStream: the stream is a presentational
+  // component that tests render with fixed items, and a fetch inside it would
+  // make every one of those hit the bridge.
+  const checkpoints = useSessionCheckpoints(session?.id ?? "");
   const [renameOpen, setRenameOpen] = React.useState(false);
   const [renameValue, setRenameValue] = React.useState("");
   const [renameError, setRenameError] = React.useState("");
@@ -552,6 +557,8 @@ export function AgentHubContent({
                 items={items}
                 streamKey={session?.id}
                 vendor={vendor}
+                checkpoints={checkpoints}
+                loadFileDiff={loadCheckpointFileDiff}
                 streaming={!isError && streaming}
                 onCopy={onCopy}
                 onEditPrompt={onPromptChange}

@@ -250,6 +250,51 @@ func (s *AppService) AgentHubTranscriptPage(id string, beforeSeq int64, limit in
 	return result.(agenthub.TranscriptPage), nil
 }
 
+// AgentHubListCheckpoints returns a session's file checkpoints — one per turn,
+// keyed on the prompt that started it, so the transcript can show a turn's
+// "N files changed" without a call per turn.
+func (s *AppService) AgentHubListCheckpoints(id string) ([]agenthub.CheckpointRecord, error) {
+	opaqueID := hubSessionID(id)
+	result, err := s.call(context.Background(), "builtin.agenthub", "agenthub:read", "session:"+opaqueID, map[string]any{
+		"action":     "list_checkpoints",
+		"session_id": opaqueID,
+	}, func(ctx context.Context) (any, error) {
+		svc, err := s.agentHubService()
+		if err != nil {
+			return nil, err
+		}
+		return svc.ListCheckpoints(ctx, id)
+	})
+	if err != nil {
+		return nil, err
+	}
+	if records, _ := result.([]agenthub.CheckpointRecord); records != nil {
+		return records, nil
+	}
+	return []agenthub.CheckpointRecord{}, nil
+}
+
+// AgentHubCheckpointFileDiff returns one changed file's two versions out of a
+// checkpoint. The path is checked against the checkpoint's own list of changed
+// files, so this cannot be used to read an arbitrary file out of a project.
+func (s *AppService) AgentHubCheckpointFileDiff(checkpointID, path string) (agenthub.FileDiff, error) {
+	result, err := s.call(context.Background(), "builtin.agenthub", "agenthub:read", "checkpoint:"+checkpointID, map[string]any{
+		"action":        "checkpoint_file_diff",
+		"checkpoint_id": checkpointID,
+		"path":          path,
+	}, func(ctx context.Context) (any, error) {
+		svc, err := s.agentHubService()
+		if err != nil {
+			return nil, err
+		}
+		return svc.CheckpointFileDiff(ctx, checkpointID, path)
+	})
+	if err != nil {
+		return agenthub.FileDiff{}, err
+	}
+	return result.(agenthub.FileDiff), nil
+}
+
 // AgentHubToolCallDetail returns one stored tool call, payload intact — the
 // page reader shortens oversized raw fields to a preview, and this is the
 // "show me the whole output" behind it.
