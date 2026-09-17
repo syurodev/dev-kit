@@ -103,6 +103,14 @@ func TestLayering(t *testing.T) {
 		t.Errorf("layering violation: sandbox must not import %s", short(imp))
 	}
 
+	// checkpoint is a leaf too: it runs git against a project directory and
+	// knows nothing about sessions, transcripts or storage. agenthub consumes
+	// it through a locally-declared interface, never the reverse — the same
+	// boundary ssh/database keep from environments.
+	for _, imp := range graph[pkg("checkpoint")] {
+		t.Errorf("layering violation: checkpoint must not import %s", short(imp))
+	}
+
 	// Nothing but main may import the bridge; nothing but the bridge (and main)
 	// may import app. main is the module-root package "devkit".
 	for from, imports := range graph {

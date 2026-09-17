@@ -6,7 +6,7 @@
 |---|---|
 | A — Nâng adapter 0.78 + spike | **Xong** (2026-09-17) |
 | B — Tiền đề trong code hiện có | **Xong** (2026-09-17) |
-| C — Engine `internal/checkpoint` | Chưa làm |
+| C — Engine `internal/checkpoint` | **Xong** (2026-09-17) |
 | D — Chụp mỗi lượt + report + UI "file đã đổi" | Chưa làm |
 | E — Khôi phục code | Chưa làm |
 | F — Rewind hội thoại + code | Chưa làm |
@@ -24,6 +24,21 @@ S4 chunk subagent tới dưới `params.sessionId` của subagent với `msg_…
 `/compact` — chạy (không cần chặn); S6 `session/delete` session chưa load — chạy; S7 report ở
 `update._meta.jetbrains.air.agentFileChangeReport` của `session_info_update`, cùng lúc prompt
 response, **không** có file do Bash tạo, lượt huỷ → `unavailable/cancelled`.
+
+**Đã có sau C:** `internal/checkpoint` (leaf, có luật trong `internal/arch`): `Locate` (Homebrew →
+`/usr/local` → `LookPath` → shim macOS **không bao giờ chạy** khi thiếu CLT, sàn 2.26, đọc được banner
+Apple); `Engine`/`Repo` shadow repo `<root>/<sha256(EvalSymlinks(project))[:16]>` 0700 + marker
+`devkit-project`, env sạch, mutex mỗi project, `WaitDelay` giết git quá hạn; `Snapshot` (`ls-files -x`
++ lọc Go, `Skipped`, ref `refs/devkit/cp/<id>/{before,after}`); `Diff` (`--raw` + `--numstat`),
+`FileContent`; `PlanRestore`/`ApplyRestore` (+`ErrPlanStale`); `Activity`; `Maintain`.
+
+**Lệch khỏi plan, có lý do đo được:** (1) `info/attributes` bỏ `-diff -merge` — `-diff` làm `--numstat`
+coi mọi file là binary nên mất số +/-, mà hai cái đó không đổi byte lúc checkout; (2) snapshot phải
+xoá index **trước** khi thêm, và file-thành-thư-mục phải `--force-remove`, nếu không `update-index`
+gãy "appears as both a file and as a directory" khi thư mục ↔ symlink; (3) `ENOTDIR` phải tính là
+"không có file" (thư mục thành symlink-tới-file), nếu không lượt mất checkpoint; (4) `ApplyRestore`
+tự chụp lại và từ chối `ErrPlanStale` — khe thời gian của dialog restore giống hệt rewind.
+Đo thêm: `update-ref` trỏ thẳng vào tree được và `gc --prune=now` giữ tree đó, không cần `commit-tree`.
 
 **Đã có sau B:** `Invoke` sinh một `promptMessageID` sau claim — echo mang nó, `TurnRecord.PromptMessageID`
 lưu nó; **luôn** echo kể cả prompt chỉ ảnh/file (`SessionUpdate.Attachments`, wire `_devkit.attachments`,
