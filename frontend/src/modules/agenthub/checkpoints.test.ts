@@ -15,10 +15,10 @@ import {
   CheckpointKind,
   CheckpointStatus,
   type ChangedFile,
-  type CheckpointRecord,
+  type CheckpointSummary,
 } from "../../../bindings/devkit/internal/agenthub/models";
 
-function record(overrides: Partial<CheckpointRecord> = {}): CheckpointRecord {
+function record(overrides: Partial<CheckpointSummary> = {}): CheckpointSummary {
   return {
     id: "cp1",
     sessionId: "s1",
@@ -31,7 +31,7 @@ function record(overrides: Partial<CheckpointRecord> = {}): CheckpointRecord {
     outcome: "ok",
     createdAt: "2026-09-17T10:00:00Z",
     ...overrides,
-  } as CheckpointRecord;
+  } as CheckpointSummary;
 }
 
 function file(overrides: Partial<ChangedFile> = {}): ChangedFile {

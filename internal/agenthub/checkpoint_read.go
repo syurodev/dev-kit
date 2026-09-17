@@ -25,19 +25,34 @@ type FileDiff struct {
 	// (no before) or deleted (no after), or the snapshot on that side failed.
 	BeforeMissing bool `json:"beforeMissing"`
 	AfterMissing  bool `json:"afterMissing"`
+	// Truncated says the file is too big to preview. Not a shortened diff: half
+	// a file would draw a difference at the cut that is not in the file.
+	Truncated bool `json:"truncated"`
 }
 
-// ListCheckpoints returns a session's checkpoints, oldest first.
-func (s *Service) ListCheckpoints(ctx context.Context, sessionID string) ([]CheckpointRecord, error) {
+// maxFileDiffBytes is what a diff drawer will load per side.
+//
+// Separate from the checkpoint ceiling, which the user can raise to a gigabyte:
+// snapshotting a large file is cheap and useful, and pushing it through JSON
+// into a line diff in the renderer is neither.
+const maxFileDiffBytes = 1 << 20
+
+// ListCheckpoints returns a session's checkpoints, oldest first, narrowed to
+// what the transcript shows.
+//
+// Summaries rather than records: the vendor's own changed-file report, the skip
+// list and the detail blob are read by nothing on the other side of the bridge,
+// and this list travels on every session open.
+func (s *Service) ListCheckpoints(ctx context.Context, sessionID string) ([]CheckpointSummary, error) {
 	if err := s.authorizeTarget(ctx, sessionID); err != nil {
 		return nil, err
 	}
-	records, err := s.store.ListCheckpoints(ctx, sessionID)
+	records, err := s.store.ListCheckpointSummaries(ctx, sessionID)
 	if err != nil {
 		return nil, err
 	}
 	if records == nil {
-		records = []CheckpointRecord{}
+		records = []CheckpointSummary{}
 	}
 	return records, nil
 }
@@ -89,24 +104,35 @@ func (s *Service) CheckpointFileDiff(ctx context.Context, checkpointID, path str
 		return out, nil
 	}
 	if record.BeforeTree != "" && changed.Kind != string(changeAdded) {
-		body, err := repo.FileContent(ctx, record.BeforeTree, path)
-		if err != nil {
+		body, tooLarge, err := repo.FileContent(ctx, record.BeforeTree, path, maxFileDiffBytes)
+		switch {
+		case err != nil:
 			out.BeforeMissing = true
-		} else {
+		case tooLarge:
+			out.Truncated = true
+		default:
 			out.Before = string(body)
 		}
 	} else {
 		out.BeforeMissing = true
 	}
 	if record.AfterTree != "" && changed.Kind != string(changeDeleted) {
-		body, err := repo.FileContent(ctx, record.AfterTree, path)
-		if err != nil {
+		body, tooLarge, err := repo.FileContent(ctx, record.AfterTree, path, maxFileDiffBytes)
+		switch {
+		case err != nil:
 			out.AfterMissing = true
-		} else {
+		case tooLarge:
+			out.Truncated = true
+		default:
 			out.After = string(body)
 		}
 	} else {
 		out.AfterMissing = true
+	}
+	// One side over the ceiling makes the whole pair unusable: diffing a file
+	// against nothing would draw every line of it as added.
+	if out.Truncated {
+		out.Before, out.After = "", ""
 	}
 	return out, nil
 }
@@ -121,7 +147,7 @@ const (
 
 // CheckpointRepo is the slice of the engine's repository a read needs.
 type CheckpointRepo interface {
-	FileContent(ctx context.Context, tree, path string) ([]byte, error)
+	FileContent(ctx context.Context, tree, path string, maxBytes int64) ([]byte, bool, error)
 }
 
 // Repo opens the shadow repository for a project. On EngineCheckpoints so the

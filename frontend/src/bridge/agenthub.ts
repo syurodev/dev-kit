@@ -8,7 +8,7 @@ import type {
   InvokeResult as RawInvokeResult,
   TranscriptEntry,
   ContextFile as RawContextFile,
-  CheckpointRecord,
+  CheckpointSummary,
   FileDiff,
   RestorePreview,
   RestoreRequest,
@@ -600,7 +600,7 @@ export function onAgentHubTurnFinished(
  * lands late, which re-attributes files the first pass could not account for.
  */
 export function onAgentHubCheckpoint(
-  handler: (sessionId: string, checkpoint: CheckpointRecord) => void,
+  handler: (sessionId: string, checkpoint: CheckpointSummary) => void,
 ): () => void {
   return Events.On(CHECKPOINT_EVENT, (ev) => {
     const record = Array.isArray(ev?.data) ? ev.data[0] : ev?.data;
@@ -609,14 +609,14 @@ export function onAgentHubCheckpoint(
     const sessionId = typeof value.sessionId === "string" ? value.sessionId : "";
     const checkpoint = value.checkpoint;
     if (!sessionId || !checkpoint || typeof checkpoint !== "object") return;
-    handler(sessionId, checkpoint as CheckpointRecord);
+    handler(sessionId, checkpoint as CheckpointSummary);
   });
 }
 
-export function agentHubListCheckpoints(sessionId: string): Promise<CheckpointRecord[]> {
+export function agentHubListCheckpoints(sessionId: string): Promise<CheckpointSummary[]> {
   return callBridge(async () => {
     const records = await AppService.AgentHubListCheckpoints(sessionId);
-    return (records ?? []) as CheckpointRecord[];
+    return (records ?? []) as CheckpointSummary[];
   });
 }
 
@@ -689,10 +689,10 @@ export function agentHubApplyRewind(token: string, overwrite: string[]): Promise
 }
 
 /** The rewinds that never finished, so a session can offer to put its files back. */
-export function agentHubInterruptedRewinds(): Promise<CheckpointRecord[]> {
+export function agentHubInterruptedRewinds(): Promise<CheckpointSummary[]> {
   return callBridge(async () => {
     const records = await AppService.AgentHubInterruptedRewinds();
-    return (records ?? []) as CheckpointRecord[];
+    return (records ?? []) as CheckpointSummary[];
   });
 }
 

@@ -18,7 +18,7 @@ export type {
     ChangedFile,
     CheckpointAvailability,
     CheckpointProblem,
-    CheckpointRecord,
+    CheckpointSummary,
     ContextFile,
     CreateInput,
     FileDiff,

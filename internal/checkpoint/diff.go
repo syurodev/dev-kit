@@ -2,11 +2,10 @@
 package checkpoint
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
-
-	"context"
 )
 
 // Comparing two trees.
@@ -162,13 +161,37 @@ func applyNumstat(raw []byte, changes map[string]*Change) error {
 }
 
 // FileContent returns one path's bytes out of a tree, for the diff drawer.
-func (r *Repo) FileContent(ctx context.Context, tree, path string) ([]byte, error) {
+//
+// maxBytes is a ceiling, not a truncation: a file over it comes back as
+// (nil, true, nil). Half a file is not a diff — showing one would draw a
+// difference at the cut that is not in the file — and the size is asked for
+// first so a gigabyte is never read into memory to be thrown away. The
+// checkpoint ceiling can be raised to 1 GiB, so "the file is small enough to
+// snapshot" is not the same question as "small enough to render".
+func (r *Repo) FileContent(ctx context.Context, tree, path string, maxBytes int64) (content []byte, tooLarge bool, err error) {
 	tree = orEmptyTree(tree)
-	var out []byte
-	err := r.runLocked(ctx, func() error {
-		var err error
-		out, err = r.git(ctx, nil, "cat-file", "blob", tree+":"+path)
-		return err
+	spec := tree + ":" + path
+	err = r.runLocked(ctx, func() error {
+		if maxBytes > 0 {
+			raw, err := r.git(ctx, nil, "cat-file", "-s", spec)
+			if err != nil {
+				return err
+			}
+			size, convErr := strconv.ParseInt(strings.TrimSpace(string(raw)), 10, 64)
+			if convErr != nil {
+				return fmt.Errorf("checkpoint: unreadable size for %s: %w", path, convErr)
+			}
+			if size > maxBytes {
+				tooLarge = true
+				return nil
+			}
+		}
+		out, err := r.git(ctx, nil, "cat-file", "blob", spec)
+		if err != nil {
+			return err
+		}
+		content = out
+		return nil
 	})
-	return out, err
+	return content, tooLarge, err
 }

@@ -617,15 +617,16 @@ func (s *Service) reapplySessionSettings(ctx context.Context, sessionID string, 
 // Nothing is reverted automatically. The files may be half-restored, half-cut
 // or untouched depending on where it stopped, and only the person can say which
 // of those they want — so this reports, and the banner it feeds offers.
-func (s *Service) InterruptedRewinds(ctx context.Context) ([]CheckpointRecord, error) {
+func (s *Service) InterruptedRewinds(ctx context.Context) ([]CheckpointSummary, error) {
 	records, err := s.store.ListInterruptedRewinds(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if records == nil {
-		records = []CheckpointRecord{}
+	out := make([]CheckpointSummary, 0, len(records))
+	for _, record := range records {
+		out = append(out, record.Summary())
 	}
-	return records, nil
+	return out, nil
 }
 
 // DismissInterruptedRewind marks a pending safety row done without touching any

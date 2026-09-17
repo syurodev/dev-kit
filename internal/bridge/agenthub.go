@@ -253,7 +253,7 @@ func (s *AppService) AgentHubTranscriptPage(id string, beforeSeq int64, limit in
 // AgentHubListCheckpoints returns a session's file checkpoints — one per turn,
 // keyed on the prompt that started it, so the transcript can show a turn's
 // "N files changed" without a call per turn.
-func (s *AppService) AgentHubListCheckpoints(id string) ([]agenthub.CheckpointRecord, error) {
+func (s *AppService) AgentHubListCheckpoints(id string) ([]agenthub.CheckpointSummary, error) {
 	opaqueID := hubSessionID(id)
 	result, err := s.call(context.Background(), "builtin.agenthub", "agenthub:read", "session:"+opaqueID, map[string]any{
 		"action":     "list_checkpoints",
@@ -268,10 +268,10 @@ func (s *AppService) AgentHubListCheckpoints(id string) ([]agenthub.CheckpointRe
 	if err != nil {
 		return nil, err
 	}
-	if records, _ := result.([]agenthub.CheckpointRecord); records != nil {
+	if records, _ := result.([]agenthub.CheckpointSummary); records != nil {
 		return records, nil
 	}
-	return []agenthub.CheckpointRecord{}, nil
+	return []agenthub.CheckpointSummary{}, nil
 }
 
 // AgentHubCheckpointFileDiff returns one changed file's two versions out of a
@@ -378,7 +378,7 @@ func (s *AppService) AgentHubApplyRewind(token string, overwrite []string) (agen
 
 // AgentHubInterruptedRewinds lists the rewinds that never finished, so the
 // session can offer to put its files back.
-func (s *AppService) AgentHubInterruptedRewinds() ([]agenthub.CheckpointRecord, error) {
+func (s *AppService) AgentHubInterruptedRewinds() ([]agenthub.CheckpointSummary, error) {
 	result, err := s.call(context.Background(), "builtin.agenthub", "agenthub:read", "session:list", map[string]any{
 		"action": "interrupted_rewinds",
 	}, func(ctx context.Context) (any, error) {
@@ -391,10 +391,10 @@ func (s *AppService) AgentHubInterruptedRewinds() ([]agenthub.CheckpointRecord, 
 	if err != nil {
 		return nil, err
 	}
-	if records, _ := result.([]agenthub.CheckpointRecord); records != nil {
+	if records, _ := result.([]agenthub.CheckpointSummary); records != nil {
 		return records, nil
 	}
-	return []agenthub.CheckpointRecord{}, nil
+	return []agenthub.CheckpointSummary{}, nil
 }
 
 // AgentHubDismissInterruptedRewind closes the banner without touching files.

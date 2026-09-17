@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -380,5 +381,42 @@ func TestPlanRestoreTreatsAnEmptyScopeAsNothing(t *testing.T) {
 	}
 	if !plan.Empty() || len(plan.Conflicts) != 0 {
 		t.Fatalf("plan = %+v, want nothing", plan)
+	}
+}
+
+// A file a diff drawer would choke on comes back as "too large", not as half of
+// itself: half a file draws a difference at the cut that is not in the file.
+// The size is asked for first, so a huge blob is never read to be discarded.
+func TestFileContentRefusesAFileOverTheCeiling(t *testing.T) {
+	_, repo := testEngine(t, Limits{})
+	small := "one\ntwo\n"
+	write(t, repo, "small.txt", small)
+	write(t, repo, "big.txt", strings.Repeat("x", 4096))
+	snapshot := snap(t, repo, "cp1", SlotBefore)
+
+	body, tooLarge, err := repo.FileContent(context.Background(), snapshot.Tree, "small.txt", 1024)
+	if err != nil || tooLarge {
+		t.Fatalf("small.txt = %v, tooLarge=%v", err, tooLarge)
+	}
+	if string(body) != small {
+		t.Fatalf("small.txt = %q, want %q", body, small)
+	}
+
+	body, tooLarge, err = repo.FileContent(context.Background(), snapshot.Tree, "big.txt", 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !tooLarge {
+		t.Fatal("a file over the ceiling came back as content")
+	}
+	if len(body) != 0 {
+		t.Fatalf("a refused file still returned %d bytes", len(body))
+	}
+
+	// A ceiling of zero is no ceiling, for the callers that want the bytes
+	// whatever the size.
+	body, tooLarge, err = repo.FileContent(context.Background(), snapshot.Tree, "big.txt", 0)
+	if err != nil || tooLarge || len(body) != 4096 {
+		t.Fatalf("unbounded read = %d bytes, tooLarge=%v, %v", len(body), tooLarge, err)
 	}
 }

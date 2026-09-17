@@ -266,21 +266,25 @@ func (t *turnCheckpoint) childPaths(ctx context.Context, finishedAt time.Time) m
 	if err != nil {
 		return out
 	}
+	var children []string
 	for _, session := range sessions {
-		if session.ParentSessionID == nil || *session.ParentSessionID != t.spec.SessionID {
-			continue
+		if session.ParentSessionID != nil && *session.ParentSessionID == t.spec.SessionID {
+			children = append(children, session.ID)
 		}
-		records, err := t.engine.store.ListCheckpoints(ctx, session.ID)
-		if err != nil {
-			continue
-		}
-		for _, record := range records {
-			if record.CreatedAt.Before(t.startedAt) || record.CreatedAt.After(finishedAt) {
-				continue
-			}
-			for _, file := range record.Changed {
-				out[file.Path] = session.ID
-			}
+	}
+	if len(children) == 0 {
+		return out
+	}
+	// One query over the turn's own window, rather than every checkpoint each
+	// child ever took. The window usually holds nothing, and reading a child's
+	// whole history to discover that was the cost of asking.
+	records, err := t.engine.store.ListCheckpointsInWindow(ctx, children, t.startedAt, finishedAt)
+	if err != nil {
+		return out
+	}
+	for _, record := range records {
+		for _, file := range record.Changed {
+			out[file.Path] = record.SessionID
 		}
 	}
 	return out

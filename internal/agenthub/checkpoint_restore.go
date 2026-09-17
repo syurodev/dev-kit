@@ -170,18 +170,20 @@ func (s *Service) PlanRestore(ctx context.Context, req RestoreRequest) (RestoreP
 	if !ok || !engine.Enabled() {
 		return RestorePreview{}, ErrUnavailable
 	}
-	records, err := s.store.ListCheckpoints(ctx, req.SessionID)
+	target, scope, protected, warnings, err := s.restoreScope(ctx, req)
 	if err != nil {
 		return RestorePreview{}, err
 	}
-
-	target, scope, protected, warnings, err := restoreScope(req, records)
+	// What DevKit last saw of the whole project. One row, not the session's
+	// history: a snapshot is a full tree rather than a delta, so the newest one
+	// already carries every path's last known content.
+	expected, found, err := s.store.NewestCheckpointTree(ctx, req.SessionID)
 	if err != nil {
 		return RestorePreview{}, err
 	}
-	expected, expectedWarning := latestKnownTree(records)
-	if expectedWarning != "" {
-		warnings = append(warnings, expectedWarning)
+	if !found {
+		warnings = append(warnings,
+			"DevKit has no complete snapshot of this project, so every file will look changed.")
 	}
 
 	repo, err := engine.engine.Open(ctx, session.ProjectPath)
@@ -386,10 +388,17 @@ func (s *Service) restorableNow(session AgentSession) error {
 
 // restoreScope works out the target tree, which paths are in scope, which are
 // off limits, and what the user should be told.
-func restoreScope(req RestoreRequest, records []CheckpointRecord) (target string, scope, protected []string, warnings []string, err error) {
+//
+// The reads are bounded by what is being reversed rather than by how long the
+// session has run: the safety row is fetched by id, and "this turn and every
+// one after it" is a query from that turn's own moment.
+func (s *Service) restoreScope(ctx context.Context, req RestoreRequest) (target string, scope, protected []string, warnings []string, err error) {
 	if req.Mode == RestoreUndoRestore {
-		safety, ok := findCheckpoint(records, req.CheckpointID)
-		if !ok || !safety.IsSafety() {
+		safety, err := s.store.GetCheckpoint(ctx, req.CheckpointID)
+		if err != nil {
+			return "", nil, nil, nil, err
+		}
+		if safety.SessionID != req.SessionID || !safety.IsSafety() {
 			return "", nil, nil, nil, ErrCheckpointNotFound
 		}
 		if safety.BeforeTree == "" {
@@ -400,9 +409,9 @@ func restoreScope(req RestoreRequest, records []CheckpointRecord) (target string
 		return safety.BeforeTree, nil, skippedPaths(safety), nil, nil
 	}
 
-	turn, ok := findTurn(records, req.PromptMessageID)
-	if !ok {
-		return "", nil, nil, nil, ErrCheckpointNotFound
+	turn, err := s.findTurnCheckpoint(ctx, req.SessionID, req.PromptMessageID)
+	if err != nil {
+		return "", nil, nil, nil, err
 	}
 	if turn.BeforeTree == "" {
 		// Nothing to go back to. Refused rather than approximated: a restore
@@ -419,9 +428,13 @@ func restoreScope(req RestoreRequest, records []CheckpointRecord) (target string
 	case RestoreToBeforeTurn:
 		// This turn and every one after it: the union of what they changed is
 		// what has to move to put the project back to before this turn.
+		later, err := s.store.ListCheckpointsFrom(ctx, req.SessionID, turn.CreatedAt)
+		if err != nil {
+			return "", nil, nil, nil, err
+		}
 		seen := map[string]bool{}
-		for _, record := range records {
-			if record.Kind != CheckpointTurn || record.CreatedAt.Before(turn.CreatedAt) {
+		for _, record := range later {
+			if record.Kind != CheckpointTurn {
 				continue
 			}
 			for _, path := range changedPathsOf(record) {
@@ -447,46 +460,24 @@ func restoreScope(req RestoreRequest, records []CheckpointRecord) (target string
 	return target, scope, protected, warnings, nil
 }
 
+// findTurnCheckpoint looks one turn up by the prompt that started it.
+func (s *Service) findTurnCheckpoint(ctx context.Context, sessionID, promptMessageID string) (CheckpointRecord, error) {
+	records, err := s.store.ListCheckpoints(ctx, sessionID)
+	if err != nil {
+		return CheckpointRecord{}, err
+	}
+	turn, ok := CheckpointForPrompt(records, promptMessageID)
+	if !ok {
+		return CheckpointRecord{}, ErrCheckpointNotFound
+	}
+	return turn, nil
+}
+
 func partialTurnWarning(outcome string) string {
 	if outcome == CheckpointOutcomeAfterMissing {
 		return "This turn's closing snapshot did not finish, so what it changed is only partly known."
 	}
 	return "This turn's opening snapshot did not finish, so it cannot be fully undone."
-}
-
-// latestKnownTree is what DevKit last saw of the whole project.
-//
-// A snapshot is a full tree, not a delta, so the newest one carries every
-// path's last known content — which is exactly the expectation a restore has to
-// check the disk against, whichever turn it is reversing.
-func latestKnownTree(records []CheckpointRecord) (tree string, warning string) {
-	var newest *CheckpointRecord
-	for i := range records {
-		record := &records[i]
-		if record.AfterTree == "" {
-			continue
-		}
-		if newest == nil || record.CreatedAt.After(newest.CreatedAt) {
-			newest = record
-		}
-	}
-	if newest == nil {
-		return "", "DevKit has no complete snapshot of this project, so every file will look changed."
-	}
-	return newest.AfterTree, ""
-}
-
-func findTurn(records []CheckpointRecord, promptMessageID string) (CheckpointRecord, bool) {
-	return CheckpointForPrompt(records, promptMessageID)
-}
-
-func findCheckpoint(records []CheckpointRecord, id string) (CheckpointRecord, bool) {
-	for _, record := range records {
-		if record.ID == id {
-			return record, true
-		}
-	}
-	return CheckpointRecord{}, false
 }
 
 func changedPathsOf(record CheckpointRecord) []string {

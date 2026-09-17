@@ -352,6 +352,60 @@ func (st *SQLStore) FindPromptEntry(ctx context.Context, sessionID, messageID st
 	return scanOptionalTranscript(row)
 }
 
+// scanTranscriptRows drains a transcript query into entries.
+func scanTranscriptRows(rows *sql.Rows) ([]TranscriptEntry, error) {
+	out := []TranscriptEntry{}
+	for rows.Next() {
+		entry, err := scanTranscript(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, entry)
+	}
+	return out, rows.Err()
+}
+
+// ForkCandidates returns the branch points a rewind may use, newest first.
+//
+// The filter is in SQL rather than in Go so the LIMIT counts rows that qualify:
+// a session whose last hundred assistant messages all came from subagents would
+// otherwise return a hundred rows for the caller to throw away. The message id
+// and the origin live in the payload because they are the vendor's, not
+// columns of ours.
+func (st *SQLStore) ForkCandidates(ctx context.Context, sessionID string, beforeSeq int64, limit int) ([]TranscriptEntry, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	rows, err := st.db.QueryContext(ctx, `
+		SELECT `+transcriptColumns+`
+		FROM `+tableAgentTranscript+`
+		WHERE session_id = ? AND seq < ? AND kind = ?
+		  AND COALESCE(json_extract(payload, '$.messageId'), '') != ''
+		  AND COALESCE(json_extract(payload, '$.origin'), '') = ''
+		ORDER BY seq DESC
+		LIMIT ?`, sessionID, beforeSeq, string(UpdateAgentMessageChunk), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanTranscriptRows(rows)
+}
+
+// PromptsFrom returns the user messages at or after fromSeq, oldest first —
+// the prompts a cut at fromSeq would remove.
+func (st *SQLStore) PromptsFrom(ctx context.Context, sessionID string, fromSeq int64) ([]TranscriptEntry, error) {
+	rows, err := st.db.QueryContext(ctx, `
+		SELECT `+transcriptColumns+`
+		FROM `+tableAgentTranscript+`
+		WHERE session_id = ? AND seq >= ? AND kind = ?
+		ORDER BY seq ASC`, sessionID, fromSeq, string(UpdateUserMessageChunk))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanTranscriptRows(rows)
+}
+
 // FindTranscriptKind returns the session-level row for one kind, if any. Used
 // to upsert usage / commands / mode instead of appending them.
 func (st *SQLStore) FindTranscriptKind(ctx context.Context, sessionID string, kind UpdateKind) (TranscriptEntry, bool, error) {

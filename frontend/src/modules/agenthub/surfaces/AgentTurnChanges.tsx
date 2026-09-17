@@ -15,12 +15,12 @@ import {
 import {
   ChangedSource,
   type ChangedFile,
-  type CheckpointRecord,
+  type CheckpointSummary,
   type FileDiff as CheckpointFileDiff,
 } from "../../../../bindings/devkit/internal/agenthub/models";
 
 export type AgentTurnChangesProps = {
-  checkpoint: CheckpointRecord;
+  checkpoint: CheckpointSummary;
   /** Loads one file's two versions. Called once per file, when it is opened. */
   loadDiff?: (checkpointId: string, path: string) => Promise<CheckpointFileDiff>;
   className?: string;
@@ -189,7 +189,15 @@ export function ChangedFileRow({
         {error ? (
           <p className="px-2 text-caption-11 text-status-warning">{error}</p>
         ) : diff ? (
-          <AgentToolDiff path={diff.path} oldText={diff.before} newText={diff.after} />
+          // truncated, not a shortened diff: half a file draws a difference at
+          // the cut that is not in the file. AgentToolDiff already says "too
+          // large to preview" for exactly this.
+          <AgentToolDiff
+            path={diff.path}
+            oldText={diff.before}
+            newText={diff.after}
+            truncated={diff.truncated}
+          />
         ) : (
           <p className="px-2 text-caption-11 text-text-tertiary">Loading…</p>
         )}

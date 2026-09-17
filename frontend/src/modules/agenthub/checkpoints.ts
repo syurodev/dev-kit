@@ -3,7 +3,7 @@ import {
   CheckpointKind,
   CheckpointStatus,
   type ChangedFile,
-  type CheckpointRecord,
+  type CheckpointSummary,
 } from "../../../bindings/devkit/internal/agenthub/models";
 
 /**
@@ -19,7 +19,7 @@ import {
  * where the honest answer is "something did, and here is who else was running".
  */
 
-export type CheckpointIndex = ReadonlyMap<string, CheckpointRecord>;
+export type CheckpointIndex = ReadonlyMap<string, CheckpointSummary>;
 
 export const EMPTY_CHECKPOINTS: CheckpointIndex = new Map();
 
@@ -30,8 +30,8 @@ export const EMPTY_CHECKPOINTS: CheckpointIndex = new Map();
  * are not turns and have no header to sit in. A later row for the same prompt
  * wins — a report that arrived after the turn rewrites its checkpoint.
  */
-export function indexCheckpoints(records: readonly CheckpointRecord[] | null | undefined): CheckpointIndex {
-  const out = new Map<string, CheckpointRecord>();
+export function indexCheckpoints(records: readonly CheckpointSummary[] | null | undefined): CheckpointIndex {
+  const out = new Map<string, CheckpointSummary>();
   for (const record of records ?? []) {
     if (record.kind !== CheckpointKind.CheckpointTurn) continue;
     if (!record.promptMessageId) continue;
@@ -41,7 +41,7 @@ export function indexCheckpoints(records: readonly CheckpointRecord[] | null | u
 }
 
 /** One record landing on an index, as the live event delivers it. */
-export function applyCheckpoint(index: CheckpointIndex, record: CheckpointRecord | null | undefined): CheckpointIndex {
+export function applyCheckpoint(index: CheckpointIndex, record: CheckpointSummary | null | undefined): CheckpointIndex {
   if (!record || record.kind !== CheckpointKind.CheckpointTurn || !record.promptMessageId) return index;
   const next = new Map(index);
   next.set(record.promptMessageId, record);
@@ -66,7 +66,7 @@ export type ChangeSummary = {
  * should be silent. A failed checkpoint is also null — the row exists to
  * explain itself elsewhere, not to put "unknown" in a header.
  */
-export function changeSummary(record: CheckpointRecord | undefined | null): ChangeSummary | null {
+export function changeSummary(record: CheckpointSummary | undefined | null): ChangeSummary | null {
   if (!record || record.status !== CheckpointStatus.CheckpointDone) return null;
   const changed = record.changed ?? [];
   if (changed.length === 0) return null;
@@ -86,7 +86,7 @@ export function changeSummary(record: CheckpointRecord | undefined | null): Chan
 }
 
 /** Why a checkpoint cannot be restored from, in a sentence, or null. */
-export function partialReason(record: CheckpointRecord | undefined | null): string | null {
+export function partialReason(record: CheckpointSummary | undefined | null): string | null {
   if (!record) return null;
   switch (record.outcome) {
     case "before_missing":
@@ -125,7 +125,7 @@ export function sourceLabel(file: ChangedFile): SourceLabel {
  * The sentence under an unattributed file, when another session was running in
  * the same project while this turn ran. Null when nothing else was.
  */
-export function overlapNote(record: CheckpointRecord | undefined | null): string | null {
+export function overlapNote(record: CheckpointSummary | undefined | null): string | null {
   const overlap = parseOverlap(record);
   if (overlap.length === 0) return null;
   const count = overlap.length;
@@ -136,7 +136,7 @@ export function overlapNote(record: CheckpointRecord | undefined | null): string
 
 type OverlapEntry = { sessionId: string };
 
-function parseOverlap(record: CheckpointRecord | undefined | null): OverlapEntry[] {
+function parseOverlap(record: CheckpointSummary | undefined | null): OverlapEntry[] {
   const raw = record?.overlap;
   if (!raw) return [];
   try {

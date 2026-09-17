@@ -49,6 +49,12 @@ type TranscriptStore interface {
 	FindPromptEntry(ctx context.Context, sessionID, messageID string) (TranscriptEntry, bool, error)
 	ListTranscript(ctx context.Context, sessionID string) ([]TranscriptEntry, error)
 	ListTranscriptPage(ctx context.Context, sessionID string, beforeSeq int64, limit int) (TranscriptPage, error)
+	// ForkCandidates returns the newest assistant messages below beforeSeq that
+	// carry a vendor message id and did not come from a subagent — the points a
+	// rewind may branch at, newest first.
+	ForkCandidates(ctx context.Context, sessionID string, beforeSeq int64, limit int) ([]TranscriptEntry, error)
+	// PromptsFrom returns the user messages at or after fromSeq, oldest first.
+	PromptsFrom(ctx context.Context, sessionID string, fromSeq int64) ([]TranscriptEntry, error)
 }
 
 // Recorder folds a stream of session/update notifications into transcript rows.

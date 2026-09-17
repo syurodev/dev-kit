@@ -754,3 +754,102 @@ func TestTheBranchPointIsTheNewestMessageBeforeTheTurn(t *testing.T) {
 		t.Fatalf("prompts left = %v, want the first two", got)
 	}
 }
+
+// forkCandidateLimitForTest mirrors the engine's own candidate limit; the point
+// of the test below is that exactly this many useless rows do not exhaust it.
+const forkCandidateLimitForTest = 5
+
+// A subagent's message is not a branch point: the vendor keeps it in the
+// subagent's own session, so asking the parent to fork at it names a message
+// that session has never had.
+//
+// The filter runs in SQL, so the limit counts candidates rather than rows — a
+// session whose last hundred assistant messages all came from subagents must
+// not hand back a hundred rows for the caller to discard.
+func TestASubagentMessageIsNotABranchPoint(t *testing.T) {
+	svc, store, mock, sessionID, _, prompts := rewindHarness(t)
+	ctx := context.Background()
+	before, err := store.GetSession(ctx, sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Five assistant messages carrying no vendor message id — a streamed reply
+	// whose rows never got one. They sit between the branch point and the
+	// prompt, so a query that did not filter them would spend its whole limit
+	// on rows the caller must discard and find no branch point at all.
+	for i := range forkCandidateLimitForTest {
+		if err := store.AppendTranscript(ctx, agenthub.TranscriptEntry{
+			ID:        "idless-" + itoa(i),
+			SessionID: sessionID,
+			Kind:      agenthub.UpdateAgentMessageChunk,
+			Text:      "no id on this one",
+			Payload:   json.RawMessage(`{"kind":"agent_message_chunk"}`),
+			CreatedAt: time.Now().UTC(),
+			UpdatedAt: time.Now().UTC(),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// What a subagent's reply looks like in the parent's transcript: its own
+	// message id, tagged with the session it really came from. It lands after
+	// the reply to prompt 2, so a filter that ignored `origin` would branch
+	// here instead.
+	subagent := agenthub.SessionUpdate{
+		Kind:      agenthub.UpdateAgentMessageChunk,
+		MessageID: "msg_from_a_subagent",
+		Origin:    "vendor-session-of-the-child",
+	}
+	payload, err := json.Marshal(subagent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AppendTranscript(ctx, agenthub.TranscriptEntry{
+		ID:        "subagent-reply",
+		SessionID: sessionID,
+		Kind:      agenthub.UpdateAgentMessageChunk,
+		Text:      "the subagent said this",
+		Payload:   payload,
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// And the prompt the user will rewind, after it.
+	if err := store.AppendTranscript(ctx, agenthub.TranscriptEntry{
+		ID:        "after-subagent",
+		SessionID: sessionID,
+		Kind:      agenthub.UpdateUserMessageChunk,
+		Text:      "the one I am rewinding",
+		Payload:   json.RawMessage(`{"kind":"user_message_chunk","messageId":"p-after-subagent"}`),
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	preview, err := svc.PlanRewind(ctx, agenthub.RewindRequest{
+		SessionID:       sessionID,
+		PromptMessageID: "p-after-subagent",
+		Mode:            agenthub.RewindConversation,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.ApplyRewind(ctx, preview.Token, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	forks := mock.Forks()
+	if len(forks) != 1 {
+		t.Fatalf("forks = %+v, want one", forks)
+	}
+	if forks[0].MessageID == "msg_from_a_subagent" {
+		t.Fatal("branched at a subagent's message, which the parent session does not have")
+	}
+	if want := "msg_" + before.ACPSessionID + "_3"; forks[0].MessageID != want {
+		t.Fatalf("branched at %q, want %q — the last thing the main thread said", forks[0].MessageID, want)
+	}
+	_ = prompts
+}

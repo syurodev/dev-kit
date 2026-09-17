@@ -15,11 +15,11 @@ import {
   CheckpointKind,
   CheckpointStatus,
   RewindMode,
-  type CheckpointRecord,
+  type CheckpointSummary,
   type RewindPreview,
 } from "../../../bindings/devkit/internal/agenthub/models";
 
-function checkpoint(overrides: Partial<CheckpointRecord> = {}): CheckpointRecord {
+function checkpoint(overrides: Partial<CheckpointSummary> = {}): CheckpointSummary {
   return {
     id: "cp1",
     sessionId: "s1",
@@ -35,7 +35,7 @@ function checkpoint(overrides: Partial<CheckpointRecord> = {}): CheckpointRecord
       { path: "a.ts", kind: "modified", added: 1, removed: 0, binary: false, source: ChangedSource.SourceAgent },
     ],
     ...overrides,
-  } as CheckpointRecord;
+  } as CheckpointSummary;
 }
 
 function preview(overrides: Partial<RewindPreview> = {}): RewindPreview {
