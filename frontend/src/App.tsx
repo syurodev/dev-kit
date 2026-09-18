@@ -15,6 +15,7 @@ import { ThemeProvider } from "./theme/ThemeProvider";
 const ComponentGallery = lazy(() => import("./dev/ComponentGallery"));
 // SPIKE — docs/dev-kit/layout.mdx on dockview. Lazy for the same reason.
 const DockSpike = lazy(() => import("./dev/dockSpike/DockSpike"));
+const ShellHarness = lazy(() => import("./dev/ShellHarness"));
 
 // Lazy for the same reason: sonner is 36 KiB of the shell's initial JS for a
 // surface nothing can raise in the first frames. Mounting it behind Suspense
@@ -38,6 +39,17 @@ function App() {
         <Suspense fallback={null}>
           <DockSpike />
         </Suspense>
+      </ThemeProvider>
+    );
+  }
+  if (import.meta.env.DEV && typeof window !== "undefined" && new URLSearchParams(window.location.search).has("shell-harness")) {
+    return (
+      <ThemeProvider>
+        <TooltipProvider>
+          <Suspense fallback={null}>
+            <ShellHarness />
+          </Suspense>
+        </TooltipProvider>
       </ThemeProvider>
     );
   }

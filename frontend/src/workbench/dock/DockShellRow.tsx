@@ -5,6 +5,7 @@ import {
   type DockviewApi,
   type DockviewGroupPanel,
   type DockviewReadyEvent,
+  type DockviewTheme,
   type IDockviewHeaderActionsProps,
   type IDockviewPanelHeaderProps,
 } from "dockview-react";
@@ -15,7 +16,6 @@ import { useBottomSlotStore } from "@/stores/bottomSlot";
 import { useBottomContentStore } from "@/stores/bottomContent";
 import { TerminalWorkspace } from "@/workbench/TerminalWorkspace";
 import { getModule } from "@/modules/registry";
-import { cn } from "@/lib/utils";
 import { canDrop, groupKindOf, relativeDirection, type PaneParams, type Placement } from "./layoutRules";
 import { setDropHintElement, startLiftDrag } from "./liftDrag";
 import "./dock.css";
@@ -317,8 +317,14 @@ export function DockShellRow({ activeModuleId, children }: { activeModuleId: str
   return (
     <Ctx.Provider value={{ children, activeModuleId, close }}>
       {createPortal(<div ref={setDropHintElement} className="dk-drop-hint" aria-hidden />, document.body)}
+      {/* dockview 8 wraps its root in a .dv-shell (edge groups) that carries
+          the theme class, so the theme goes through `theme`, not className —
+          otherwise the shell keeps dockview's default abyss theme. The host
+          div is what the row sizes and what takes the negative margin. */}
+      <div className="dk-shell-host">
       <DockviewReact
-        className={cn("dockview-theme-devkit dk-shell min-w-0 flex-1")}
+        theme={DEVKIT_THEME}
+        className="dk-shell h-full w-full"
         components={COMPONENTS}
         tabComponents={{ tab: Tab }}
         rightHeaderActionsComponent={HeaderActions}
@@ -327,9 +333,12 @@ export function DockShellRow({ activeModuleId, children }: { activeModuleId: str
         disableDnd
         disableTabsOverflowList
       />
+      </div>
     </Ctx.Provider>
   );
 }
+
+const DEVKIT_THEME: DockviewTheme = { name: "devkit", className: "dockview-theme-devkit" };
 
 const FALLBACK_PANEL: Placement = { panelId: PANEL, reference: "document", direction: "right", size: 420 };
 const FALLBACK_AGENT: Placement = { panelId: AGENT, reference: "edge", direction: "right", size: 360 };

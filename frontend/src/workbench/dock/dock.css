@@ -52,7 +52,10 @@
 
 /* Cards with a gutter between them, like the shell's surfaces today: the
    view padding makes the gap, the group is the rounded card. */
-.dockview-theme-devkit .dv-split-view-container > .dv-view-container > .dv-view {
+/* Leaf views only — the ones holding a group. Branch views (a split inside a
+   split) padded too, so every level of nesting added another half gap and
+   the gaps came out 4px here, 6px there. */
+.dockview-theme-devkit .dv-split-view-container > .dv-view-container > .dv-view:has(> .dv-groupview) {
   /* Half the gap on each side of a sash. The spike page uses a roomier gap;
      the shell sets --dk-gap to GAP_WIDTH so panes sit exactly like its cards. */
   padding: calc(var(--dk-gap, calc(var(--space-micro) * 2)) / 2);
@@ -137,17 +140,11 @@ body.dk-lift-dragging * {
   white-space: nowrap;
 }
 
-/* In the shell: the shell's own gap and card radius, so panes sit exactly
-   where today's cards do. */
-.dockview-theme-devkit.dk-shell {
-  --dk-gap: var(--space-micro);
-  --dk-card-radius: var(--shell-radius);
-}
 .dockview-theme-devkit .dv-groupview[data-dk-kind="document"] {
   box-shadow: inset 0 1px 0 var(--glass-highlight);
 }
 /* One document group in the shell trial: nothing to tell apart, so no ring. */
-.dockview-theme-devkit.dk-shell .dv-groupview.dv-active-group[data-dk-kind="document"] {
+.dockview-theme-devkit:has(.dk-shell) .dv-groupview.dv-active-group[data-dk-kind="document"] {
   border-color: var(--glass-border);
 }
 
@@ -159,12 +156,27 @@ body.dk-lift-dragging * {
   background-color: transparent;
 }
 
-/* Each view carries half a gap of padding, which also lands on the outer edge
-   — 4px of row gutter + 2px of view padding, and 2px under the title bar where
-   the cards sit flush. Pull the dock out by that half so the outer edges match
-   the old shell exactly: 4px left/right/bottom, flush on top, 4px to the rail. */
-.dockview-theme-devkit.dk-shell {
-  margin: calc(var(--dk-gap) / -2);
+/* Each leaf view carries half a gap of padding, which also lands on the
+   outer edge — 4px of row gutter + 2px, and 2px under the title bar where the
+   cards sit flush. The host is pulled out by that half so the outer edges
+   match the old shell: 4px left/right/bottom, flush on top, 4px to the rail. */
+.dk-shell-host {
+  display: flex;
+  flex: 1 1 0%;
+  min-width: 0;
+  min-height: 0;
+  margin: calc(var(--space-micro) / -2);
+}
+.dk-shell-host > * {
+  flex: 1 1 0%;
+  min-width: 0;
+}
+/* The theme class sits on dockview's outer .dv-shell now; the shell's own gap
+   and card radius go with it. */
+.dockview-theme-devkit:has(.dk-shell) {
+  --dk-gap: var(--space-micro);
+  --dk-card-radius: var(--shell-radius);
+  background: transparent;
 }
 
 /* A tab is a drag handle, never text to select. */
