@@ -74,6 +74,7 @@
     "cmdk": "^1.1.1",
     "codemirror": "^6.0.2",
     "date-fns": "^4.4.0",
+    "dockview-react": "^8.3.1",
     "embla-carousel-react": "^8.6.0",
     "figma-squircle": "^1.1.0",
     "framer-motion": "^13.1.0",
