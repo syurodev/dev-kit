@@ -77,8 +77,14 @@ registerIntent("agent.attach", (refs: EntityRef[], prompt?: string) => …); // 
 registerIntent("task.create", (seed: { title: string; refs: EntityRef[] }) => …); // tasks
 registerIntent("codegraph.reveal", (ref: EntityRef) => …);    // codegraph
 
-dispatchIntent("api.fromEndpoint", ref);
+dispatchIntent("api.fromEndpoint", ref, { placement: "beside" });
 ```
+
+`placement` quyết định document đích mở ở đâu: `"replace"` (group đang focus)
+hoặc `"beside"` (document group bên cạnh — xem
+[Layout § Document group](/dev-kit/layout#document-group--nhiều-document-cạnh-nhau)).
+Mặc định do intent khai: *Try in API Client* mở `beside` để flow và response
+cùng hiện; *Reveal in Code Graph* từ một task mở `replace`.
 
 - Registry sống ở `frontend/src/workbench/intents.ts`, cạnh `openTab`. Module
   chưa cài / chưa bật ⇒ `dispatchIntent` trả `unavailable`, menu ẩn mục đó.

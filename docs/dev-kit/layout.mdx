@@ -60,7 +60,7 @@ flowchart LR
 | Vùng | Là gì | Ai sở hữu | Kéo-thả? |
 |---|---|---|---|
 | **Chrome** | Title bar, sidebar | Shell (sidebar: nội dung của module) | Không. Sidebar chỉ đóng/mở/resize như hôm nay |
-| **Document area** | Tab strip + view của module đang mở (`openTab`) | Module | **Anchor**: không đóng, không float, không gộp làm tab của pane khác. Luôn có bề rộng tối thiểu |
+| **Document area** | Một hoặc nhiều **document group**, mỗi group một tab strip (`openTab`) — xem [Document group](#document-group--nhiều-document-cạnh-nhau) | Module của từng group | **Anchor**: không đóng, không float, không gộp làm tab của pane. Luôn có bề rộng tối thiểu |
 | **Pane** | Mọi bề mặt phụ còn lại | Module *hoặc* shell (bên dưới) | Có |
 
 Sidebar **không** là pane: nó là điều hướng, và điều hướng phải luôn ở một chỗ.
@@ -76,6 +76,38 @@ Sidebar **không** là pane: nó là điều hướng, và điều hướng ph�
 | Sống bao lâu | Khi module **đang hiện**. Rời module ⇒ pane được **cất** (không phá), quay lại ⇒ về đúng chỗ | Xuyên mọi module, suốt phiên |
 | Vị trí nhớ theo | **Từng module** | **Toàn cục** |
 | Thay cho hôm nay | `openPanel` (slot `panel`), `useBottomContent` | `openCompanion`, bottom slot (terminal) |
+
+### Context pane là gì
+
+Context pane là **bề mặt phụ thuộc về một document**: nó cho xem hoặc sửa thứ
+*xung quanh* document, không phải chính document.
+
+| Document | Context pane của nó |
+|---|---|
+| Canvas flow `POST /refunds` | Code của node đang chọn, Data flow, Plan comments |
+| Một note | Metadata (tag, folder), History |
+| SQL console | Results, Cell inspector |
+| Topic Kafka | Message đang chọn |
+| Request API | Response |
+
+Ba dấu hiệu nhận ra một context pane, và cũng là ba luật của nó:
+
+1. **Nội dung đi theo document** — chọn node khác thì Code đổi; focus sang note
+   khác thì Metadata đổi. Mặc định nó phục vụ **document đang focus** của module
+   nó thuộc về.
+2. **Không có document thì vô nghĩa** — Metadata không đứng một mình được. Agent
+   và Terminal thì có ích ở bất kỳ đâu; đó là lý do chúng là companion.
+3. **Module khai báo** — chỉ Notes biết note có History, chỉ Code Graph biết node
+   có Data flow.
+
+**Ghim.** Header của context pane có nút ghim: pane đã ghim khoá vào document
+hiện tại và không đổi theo focus nữa (vd sửa note B trong khi xem History của
+note A). Pane đã ghim hiện tên document trong title ("History · Refund notes").
+
+Hôm nay chúng chính là những gì module mở qua `openPanel`: inspector của Code
+Graph, Message của Kafka, Metadata/History của Notes.
+
+### Vị trí nhớ
 
 Luật vị trí nhớ là thứ làm trải nghiệm liền mạch:
 
@@ -94,11 +126,15 @@ của **layout**, không phải của cleanup effect trong từng module.
 ```
 LayoutState
 ├── global                      ← companion panes: vị trí, kích thước, float, ẩn/hiện
-└── perModule[moduleId]         ← context panes của module đó + tỷ lệ với document
+├── documents                   ← cây document group, mỗi group một moduleId + tab của nó
+└── perModule[moduleId]         ← context panes của module đó + vị trí tương đối với group của nó
 ```
 
-Cái người dùng thấy = **ghép** tầng global với tầng của module đang hiện. Đổi
-module chỉ thay tầng thứ hai. Hệ quả cần giữ khi implement:
+Cái người dùng thấy = **ghép** tầng global, cây document group, và tầng
+`perModule` của **mọi module đang có ít nhất một group trên màn hình** (không
+chỉ module đang focus — xem [Document group](#document-group--nhiều-document-cạnh-nhau)).
+Đổi module trong một group chỉ thay tầng của module đó. Hệ quả cần giữ khi
+implement:
 
 - **Nguồn sự thật là `LayoutState` của DevKit**, không phải JSON của renderer.
   dockview có `toJSON`/`fromJSON` cho *toàn bộ* layout, nhưng không có khái niệm
@@ -107,6 +143,58 @@ module chỉ thay tầng thứ hai. Hệ quả cần giữ khi implement:
 - Một pane companion được thả vào **giữa** hai context pane của Code Graph: vị trí
   của nó tính theo cột/nhóm, và khi sang module khác không có hai pane đó, nó rơi
   về cột gần nhất còn tồn tại — **không** biến mất, **không** tự float.
+
+## Document group — nhiều document cạnh nhau
+
+Document area chia được thành nhiều **document group**, mỗi group có tab strip
+riêng — hai note song song, console `dev` cạnh console `prod`, hay một note cạnh
+canvas Code Graph.
+
+```
+┌ Sidebar ┬─ Code Graph ────┬─ Notes ──────────┬─ Context ───┐
+│ (theo   │ [POST /refunds] │ [Refund notes]   │ Code        │
+│  group  │                 │                  │ (Code Graph)│
+│  focus) │   canvas        │   editor         ├─────────────┤
+│         │                 │                  │ Metadata    │
+│         │                 │                  │ (Notes)     │
+└─────────┴─────────────────┴──────────────────┴─────────────┘
+```
+
+### Luật
+
+| Luật | Vì sao |
+|---|---|
+| **Mỗi group gắn với đúng một module.** Tab chỉ đi giữa các group *cùng module*; kéo tab note vào group Code Graph bị từ chối | Tab vẫn là của module như [Module tabs](/dev-kit/module-tabs) — không có tab strip trộn nhiều module |
+| **Module active = module của group đang focus.** Sidebar, title-bar actions, preset `⌃1`–`⌃4` đi theo group đó | Giữ nguyên giả định "một module active" mà mọi phần khác đang dựa vào |
+| **Focus chỉ đổi khi click hoặc dùng phím vào group**, không theo hover. Rail của module đã mount sẵn nên sidebar đổi trong cùng frame ([Smoothness](/dev-kit/smoothness)) | Sidebar không được nhảy khi chuột lướt qua |
+| **Context pane của mọi module đang hiện đều ở lại.** Chỉ header đổi trạng thái Focused/Idle | Nếu chỉ hiện pane của module focus, click qua lại hai group sẽ làm pane nhảy liên tục |
+| **Mỗi document chỉ ở một group.** Mở document đã mở ở group khác ⇒ focus group đó; *Split right* trên tab ⇒ **chuyển** tab sang group mới | Hai editor Plate cùng sửa một note là nguồn xung đột; view thứ hai trên cùng model để sau |
+| **Tối đa 3 group**, mỗi group rộng ≥ 360px | Đủ cho so sánh; hơn nữa thì document nào cũng hẹp tới mức không đọc được |
+| Group trống ⇒ tự đóng; group cuối cùng không bao giờ đóng | Document area là anchor |
+
+Mỗi group hiện **icon + tên module** ở đầu tab strip khi có hơn một module trên
+màn hình — người dùng luôn biết sidebar đang nói về group nào.
+
+### Mở một group
+
+- `⌘\` hoặc *Split right* trên tab: group mới cùng module, tab chuyển sang đó.
+- `⌘`-click một mục trong sidebar: mở "bên cạnh" (group khác cùng module, tạo nếu chưa có).
+- Kéo tab ra mép document area: group mới ở mép đó.
+- *Open beside* trên module switcher: mở module khác thành group mới cạnh group đang focus.
+- **Intent liên module** ([Liên module](/dev-kit/cross-module)) có tham số
+  `placement: "replace" | "beside"`. Ví dụ *Try in API Client* từ Code Graph mở
+  request **bên cạnh** canvas mặc định — bạn thấy flow và response cùng lúc thay
+  vì bị đưa sang module khác.
+
+`openTab({ moduleId, viewId, params, side?: boolean })`: không có `side` ⇒ mở vào
+group đang focus của module đó (hoặc group đang focus nếu cùng module); `side` ⇒
+group bên cạnh.
+
+### Agent Hub
+
+Agent Hub là một module có document là **phiên agent**. Nếu một group Agent Hub
+đang hiện đúng phiên mà companion *Agent* đang hiện, companion tự ẩn — cùng một
+hội thoại không vẽ hai lần. Phiên khác nhau thì cả hai cùng hiện.
 
 ## Pane: một primitive, một cái header
 
@@ -137,7 +225,10 @@ sẽ xảy ra (`Shell / Drop Target`):
 | Nửa trái / phải của một pane | Chia theo chiều ngang (tạo cột) |
 | Mép ngoài vùng dock | Cột mới ở mép đó |
 | Giữa một pane | Gộp làm **tab** trong cùng nhóm |
-| Document area | **Chỉ** chia cạnh document. Không bao giờ thành tab trong tab strip của document |
+| Document area (kéo một **pane**) | **Chỉ** chia cạnh document. Không bao giờ thành tab trong tab strip của document |
+| Mép document area (kéo một **tab**) | Document group mới ở mép đó |
+| Group của module khác (kéo một **tab**) | Từ chối — overlay không hiện |
+| Vùng pane (kéo một **tab**) | Từ chối — document không trở thành pane |
 
 Luật cuối giữ ranh giới "document vs pane": tab strip là của document (note,
 console, request…), pane không lẫn vào đó. Trong dockview đây là `locked` trên
@@ -191,7 +282,9 @@ thứ tự:
 2. Vẫn thiếu: **sidebar đóng** (nó mở lại được bằng `⌘B`, không mất gì).
 3. Vẫn thiếu: cột context pane ngoài cùng **gộp làm tab** vào cột bên cạnh. Không
    đóng, không float.
-4. Companion **không bao giờ** bị tự đóng.
+4. Vẫn thiếu: document group **không** focus co về dải hẹp (icon module + tên tab
+   đang mở), bấm vào là bung lại. Group đang focus không bao giờ co.
+5. Companion **không bao giờ** bị tự đóng.
 
 Nới cửa sổ ra thì chạy ngược lại, trả về đúng layout đã lưu. Cửa sổ tối thiểu
 vẫn là 1080×700.
@@ -259,7 +352,7 @@ Module **mở** pane bằng `openPane("codegraph.code", params)` thay cho
 | Hôm nay | Sau |
 |---|---|
 | Sidebar (`useSidebarContent`, `manifest.sidebar`) | Giữ nguyên, là chrome |
-| Tab strip + views (`openTab`) | Document area — giữ nguyên API |
+| Tab strip + views (`openTab`) | Document area — `openTab` giữ nguyên, thêm `side`. `workbenchTabs` thêm `groupId` cho tab, `activeTabId` theo group, và cây group trong state lưu |
 | `openPanel` (slot `panel`): Code Graph inspector, Kafka message, Notes meta/history | Context pane qua `openPane` |
 | `openCompanion` / `AgentCompanionSlot` | Companion pane *Agent* |
 | Bottom slot + `TerminalWorkspace` | Companion pane *Terminal* (mặc định `below`) |
@@ -279,6 +372,9 @@ mới, sidebar và document chưa đổi.
 | `⌘L` | Agent (và đưa thực thể đang chọn vào composer — xem [Liên module](/dev-kit/cross-module)) |
 | `` ⌃` `` | Terminal |
 | `⌃1`–`⌃4` | Preset của module |
+| `⌘\` | Split document group (chuyển tab đang mở sang group mới) |
+| `⌘1` / `⌘2` / `⌘3` | Focus document group 1 / 2 / 3 |
+| `⌘K` `←` / `→` | Chuyển tab đang mở sang group bên trái / phải (cùng module) |
 | `⌃Tab` / `⌃⇧Tab` | Chuyển focus giữa các pane |
 | `⌘⇧↩` | Maximize / restore pane đang focus |
 | `Esc` | Thoát maximize; từ pane float trả focus về document |
@@ -299,15 +395,19 @@ Chốt dockview chỉ khi branch thử nghiệm trả lời "có" cho cả danh 
 7. **Ngân sách**: bundle vẫn trong budget ([Frontend performance](/dev-kit/frontend-performance)),
    hoặc lazy-load được.
 8. **Hỏng thì hồi**: layout hỏng ⇒ về preset, không crash.
+9. **Document group**: phân biệt được group document và group pane (và module
+   của group document) để chặn thả chéo bằng `onWillShowOverlay`; kéo tab giữa
+   hai group cùng module chạy như native.
+10. **Hai canvas**: hai React Flow (hai flow Code Graph, hoặc canvas + ERD) cùng
+    hiện không vượt ngân sách frame khi pan/zoom.
 
-Trượt một trong 2, 3, 5 thì không dùng dockview; tự viết trên `useResizableSize`
+Trượt một trong 2, 3, 5, 9 thì không dùng dockview; tự viết trên `useResizableSize`
 hiện có với phạm vi nhỏ hơn (không float, không tab trong pane).
 
 ## Out of scope (v1)
 
 - Pop-out ra cửa sổ riêng (cần Wails multi-window).
-- Hai document cạnh nhau (split editor kiểu VS Code) — document area vẫn một nhóm.
-- Pane của module A hiện khi đang ở module B (trừ companion). Muốn thấy Response
-  của API Client cạnh canvas Code Graph thì chip/intent đưa bạn sang đó —
-  xem [Liên module](/dev-kit/cross-module).
+- Cùng một document trong hai group (hai view trên một model, kiểu VS Code).
+- Chia group theo chiều dọc (group chồng trên–dưới) — v1 chỉ xếp ngang.
+- Tab trộn nhiều module trong một group.
 - Đồng bộ layout giữa thiết bị — kích thước màn hình khác nhau, sync chỉ gây hại.
