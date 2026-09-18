@@ -55,7 +55,11 @@ export function MenuRow({
  */
 export function MenuTrailing({ shortcut, detail }: { shortcut?: string; detail?: React.ReactNode }) {
   if (shortcut) return <Kbd className="ml-4">{shortcut}</Kbd>
-  if (detail) return <span className="ml-4 text-body-12 text-text-tertiary">{detail}</span>
+  // Truncates: the trailing slot is one line at the end of a fixed-height row,
+  // and a caller that puts a sentence in it used to overflow the row and draw
+  // over its neighbours. Half the row at most, so the label keeps its own.
+  if (detail)
+    return <span className="ml-4 max-w-1/2 min-w-0 truncate text-body-12 text-text-tertiary">{detail}</span>
   return null
 }
 

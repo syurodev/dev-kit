@@ -173,7 +173,16 @@ export function AgentHubTranscriptSection() {
           }}
           goal={{ objective: "a green build on CI", status: "active" }}
           onSetGoal={() => {}}
-          commands={[{ name: "compact", description: "Clear history but keep a summary" }]}
+          commands={[
+            { name: "compact", description: "Clear history but keep a summary" },
+            {
+              name: "deep-research",
+              description:
+                "Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesise a cited report. This runs a converter that bundles the real composer code from your own codebase, so what you see is what ships, not a description of it.",
+            },
+            { name: "dataviz", description: "Use whenever you are about to create ANY chart, graph, plot, dashboard or data visualization, in ANY output medium." },
+            { name: "init", description: "" },
+          ]}
           onCompact={() => {}}
           streaming
           promptValue=""
