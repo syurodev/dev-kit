@@ -2,7 +2,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Progress } from "@/components/ui/progress";
-import type { Usage } from "../types";
+import type { RateLimit, Usage } from "../types";
 
 export type AgentContextMeterProps = {
   usage?: Usage | null;
@@ -51,6 +51,31 @@ const BAR = {
  * the auto-compact threshold and plan usage limits, and neither is on the
  * wire: a made-up "compacts at 97%" is worse than no line.
  */
+/** What the vendor's rate-limit status means, in the user's terms. */
+export function rateLimitLabel(status: string): string {
+  switch (status) {
+    case "rejected":
+      return "Usage limit reached";
+    case "allowed_warning":
+      return "Usage limit close";
+    default:
+      return "Usage limit";
+  }
+}
+
+/** The right-hand side of the rate-limit line: how much is used, and when it resets. */
+export function rateLimitDetail(limit: RateLimit, now = Date.now()): string {
+  const parts: string[] = [];
+  if (typeof limit.utilization === "number") parts.push(`${Math.round(limit.utilization)}%`);
+  if (limit.resetsAt) {
+    const minutes = Math.max(0, Math.round((limit.resetsAt * 1000 - now) / 60_000));
+    // Hours once it is far enough out that counting minutes says nothing: a
+    // five-hour window opens with 300 of them.
+    parts.push(minutes >= 90 ? `resets in ${Math.round(minutes / 60)}h` : `resets in ${minutes}m`);
+  }
+  return parts.join(" · ") || "no detail";
+}
+
 export function AgentContextMeter({ usage, turnCount = 0, onCompact, className }: AgentContextMeterProps) {
   const used = usage?.used ?? 0;
   const size = usage?.size ?? 0;
@@ -98,6 +123,20 @@ export function AgentContextMeter({ usage, turnCount = 0, onCompact, className }
           <span className="tabular-nums text-text-tertiary">{summary}</span>
         </div>
         <Progress value={percent} className={cn("h-1 bg-(--state-soft)", BAR[tone])} />
+        {/* The subscription's own ceiling. Separate from the context window
+            above it, and not derivable from it: a turn can fit and still be
+            refused, and the only thing that fixes that is waiting. */}
+        {usage?.rateLimit ? (
+          <>
+            <div className="h-px w-full bg-border-subtle" />
+            <div data-testid="composer-rate-limit" className="flex w-full items-baseline justify-between gap-3 text-body-13">
+              <span className={usage.rateLimit.status === "allowed" ? "text-text-secondary" : "text-status-warning"}>
+                {rateLimitLabel(usage.rateLimit.status)}
+              </span>
+              <span className="tabular-nums text-text-tertiary">{rateLimitDetail(usage.rateLimit)}</span>
+            </div>
+          </>
+        ) : null}
         <div className="h-px w-full bg-border-subtle" />
         <div className="flex w-full items-baseline justify-between gap-3 text-body-13">
           <span className="tabular-nums text-text-tertiary">

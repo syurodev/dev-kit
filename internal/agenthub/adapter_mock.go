@@ -179,6 +179,60 @@ type mockRuntime struct {
 	// the service's tests run against, and what DevKit asks the vendor for on a
 	// turn is part of the turn's contract.
 	promptMetas []json.RawMessage
+	// turnRunning says a prompt is in flight, which is the only state in which
+	// steering injects rather than reporting promptRequired — the same rule the
+	// real agent applies.
+	turnRunning bool
+	steered     []string
+	goal        string
+}
+
+// Steer implements SessionSteerer the way the vendor does: into the running
+// turn, or "promptRequired" when there is none.
+func (r *mockRuntime) Steer(ctx context.Context, prompt []acp.ContentBlock) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed {
+		return "", ErrSessionNotFound
+	}
+	if !r.turnRunning {
+		return "promptRequired", nil
+	}
+	for _, block := range prompt {
+		r.steered = append(r.steered, block.Text)
+	}
+	return "injected", nil
+}
+
+// SetGoal implements SessionSteerer; an empty objective clears.
+func (r *mockRuntime) SetGoal(ctx context.Context, objective string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed {
+		return ErrSessionNotFound
+	}
+	r.goal = objective
+	return nil
+}
+
+// Steered is what the mock was told mid-turn, for the tests.
+func (r *mockRuntime) Steered() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.steered...)
+}
+
+// Goal is the objective the mock holds, for the tests.
+func (r *mockRuntime) Goal() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.goal
 }
 
 func (r *mockRuntime) recordPromptMeta(meta json.RawMessage) {
@@ -311,6 +365,12 @@ func (r *mockRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock, pro
 		r.mu.Unlock()
 		return PromptOutcome{}, ErrSessionNotFound
 	}
+	r.turnRunning = true
+	defer func() {
+		r.mu.Lock()
+		r.turnRunning = false
+		r.mu.Unlock()
+	}()
 	h := r.handlers
 	sid := r.acpSessionID
 	r.cancelCh = make(chan struct{})

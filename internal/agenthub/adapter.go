@@ -57,6 +57,20 @@ type RuntimeConfigurator interface {
 	SetMode(ctx context.Context, modeID string) error
 }
 
+// SessionSteerer is implemented by runtimes whose agent advertises the
+// steering and goal extensions. Optional for the same reason
+// RuntimeConfigurator is: whether an agent takes a message mid-turn, or keeps
+// an objective, is a fact about the vendor, and an interface every adapter had
+// to satisfy would force the ones that cannot into stubs that lie.
+type SessionSteerer interface {
+	// Steer injects a message into the running turn. The outcome says what
+	// happened to it: "injected", "startedNewTurn", or "promptRequired" — the
+	// session was idle and the message is still the caller's to send.
+	Steer(ctx context.Context, prompt []acp.ContentBlock) (string, error)
+	// SetGoal sets the session's objective, or clears it when empty.
+	SetGoal(ctx context.Context, objective string) error
+}
+
 // SessionLoader is implemented by adapters whose vendor can resume a session
 // that outlived the process that created it.
 //

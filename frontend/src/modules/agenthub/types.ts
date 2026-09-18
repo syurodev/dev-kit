@@ -96,6 +96,52 @@ export type Usage = {
   size: number;
   amount: number;
   currency?: string;
+  /** The subscription's own ceiling, which the context window says nothing about. */
+  rateLimit?: RateLimit | null;
+};
+
+/**
+ * What a Claude subscription has left, from a usage_update's _meta.
+ * Mirrors internal/agenthub/update.go: RateLimit
+ */
+export type RateLimit = {
+  /** "allowed", "allowed_warning" (close to the ceiling) or "rejected". */
+  status: string;
+  /** Unix seconds; absent when the vendor did not say. */
+  resetsAt?: number;
+  limitType?: string;
+  /** Percentage of the window used. */
+  utilization?: number;
+};
+
+/**
+ * A session-scoped problem the vendor reports: a sign-in that expired, a usage
+ * limit reached, a provider outage. Actions are its own hints for the way out.
+ * Mirrors internal/agenthub/update.go: SessionFailure
+ */
+export type SessionFailure = {
+  id: string;
+  revision: number;
+  category: string;
+  /** "error" stops the session's work; "warning" is a notice. */
+  severity: string;
+  title: string;
+  details?: string;
+  reason?: string;
+  /** "login" | "retry" | "new_session", as the vendor names them. */
+  actions?: string[];
+};
+
+/**
+ * What a session is working towards, from the goal extension.
+ * Mirrors internal/agenthub/update.go: SessionGoal
+ */
+export type SessionGoal = {
+  objective: string;
+  status?: string;
+  iterations?: number;
+  lastReason?: string;
+  createdAt?: string;
 };
 
 /**
@@ -128,6 +174,12 @@ export type SessionUpdate = {
    */
   title?: string;
   usage?: Usage | null;
+  /** Both ride on a session_info_update's _meta; see their types. */
+  failure?: SessionFailure | null;
+  goal?: SessionGoal | null;
+  /** The goal was removed — which `goal: null` alone cannot say, since most
+   * session_info_updates carry no goal at all. */
+  goalCleared?: boolean;
   messageId?: string;
   /** The subagent session an update came from; empty for the session's own. */
   origin?: string;
@@ -260,6 +312,14 @@ export type TranscriptItem = {
 export type TranscriptModel = {
   items: TranscriptItem[];
   usage: Usage | null;
+  /**
+   * The vendor's last word on the session as a whole: a failure it reported
+   * (sign-in expired, usage limit, provider outage) and the objective it is
+   * working towards. Both arrive on session_info_update and are session state,
+   * not transcript rows — the latest one replaces the last.
+   */
+  failure: SessionFailure | null;
+  goal: SessionGoal | null;
   commands: AvailableCommand[];
   mode: string | null;
   /** The modes the agent advertised; empty when it listed none. */

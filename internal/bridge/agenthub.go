@@ -177,6 +177,46 @@ func (s *AppService) AgentHubGetStatus(id string) (agenthub.AgentSession, error)
 	return result.(agenthub.AgentSession), nil
 }
 
+// AgentHubSteer puts a message into the turn a session is running, instead of
+// queueing it behind that turn. Returns the outcome: "injected", or
+// "promptRequired" when nothing was running and the caller should send it as
+// an ordinary prompt.
+func (s *AppService) AgentHubSteer(ctx context.Context, id, text string) (string, error) {
+	opaqueID := hubSessionID(id)
+	result, err := s.call(ctx, "builtin.agenthub", "agenthub:execute", "session:"+opaqueID, map[string]any{
+		"action":     "steer",
+		"session_id": opaqueID,
+	}, func(ctx context.Context) (any, error) {
+		svc, err := s.agentHubService()
+		if err != nil {
+			return nil, err
+		}
+		outcome, err := svc.Steer(ctx, id, text)
+		return string(outcome), err
+	})
+	if err != nil {
+		return "", err
+	}
+	return result.(string), nil
+}
+
+// AgentHubSetGoal sets what a session is working towards, or clears it when the
+// objective is empty. The goal comes back on a session_info_update.
+func (s *AppService) AgentHubSetGoal(ctx context.Context, id, objective string) error {
+	opaqueID := hubSessionID(id)
+	_, err := s.call(ctx, "builtin.agenthub", "agenthub:execute", "session:"+opaqueID, map[string]any{
+		"action":     "set_goal",
+		"session_id": opaqueID,
+	}, func(ctx context.Context) (any, error) {
+		svc, err := s.agentHubService()
+		if err != nil {
+			return nil, err
+		}
+		return nil, svc.SetGoal(ctx, id, objective)
+	})
+	return err
+}
+
 // AgentHubSetMode changes the mode of a live agent session.
 func (s *AppService) AgentHubSetMode(ctx context.Context, id, modeID string) error {
 	opaqueID := hubSessionID(id)

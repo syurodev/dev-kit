@@ -282,6 +282,14 @@ export function AgentHubSetConfigOption(id: string, optionID: string, value: str
 }
 
 /**
+ * AgentHubSetGoal sets what a session is working towards, or clears it when the
+ * objective is empty. The goal comes back on a session_info_update.
+ */
+export function AgentHubSetGoal(id: string, objective: string): $CancellablePromise<void> {
+    return $Call.ByID(1361751337, id, objective);
+}
+
+/**
  * AgentHubSetMode changes the mode of a live agent session.
  */
 export function AgentHubSetMode(id: string, modeID: string): $CancellablePromise<void> {
@@ -300,6 +308,16 @@ export function AgentHubSetMode(id: string, modeID: string): $CancellablePromise
  */
 export function AgentHubStartSignIn(agent: string, methodID: string, rows: number, cols: number): $CancellablePromise<string> {
     return $Call.ByID(2026788472, agent, methodID, rows, cols);
+}
+
+/**
+ * AgentHubSteer puts a message into the turn a session is running, instead of
+ * queueing it behind that turn. Returns the outcome: "injected", or
+ * "promptRequired" when nothing was running and the caller should send it as
+ * an ordinary prompt.
+ */
+export function AgentHubSteer(id: string, text: string): $CancellablePromise<string> {
+    return $Call.ByID(1046454899, id, text);
 }
 
 /**

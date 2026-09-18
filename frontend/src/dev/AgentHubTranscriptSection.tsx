@@ -4,6 +4,7 @@ import { AgentHubContent } from "@/modules/agenthub/surfaces/AgentHubContent";
 import { AgentSidebarTree } from "@/modules/agenthub/surfaces/AgentSidebarTree";
 import { AgentPermissionRequest } from "@/modules/agenthub/surfaces/AgentPermissionRequest";
 import { AgentSessionError } from "@/modules/agenthub/surfaces/AgentSessionError";
+import { AgentSessionFailure } from "@/modules/agenthub/surfaces/AgentSessionFailure";
 import { AgentToolDiff } from "@/modules/agenthub/transcript/AgentToolDiff";
 import type { TranscriptItem } from "@/modules/agenthub/types";
 
@@ -164,7 +165,14 @@ export function AgentHubTranscriptSection() {
         <AgentHubContent
           session={session}
           items={items}
-          usage={{ used: 581_900, size: 1_000_000, amount: 0.91 }}
+          usage={{
+            used: 581_900,
+            size: 1_000_000,
+            amount: 0.91,
+            rateLimit: { status: "allowed_warning", resetsAt: Math.round(Date.now() / 1000) + 3 * 3600, utilization: 82 },
+          }}
+          goal={{ objective: "a green build on CI", status: "active" }}
+          onSetGoal={() => {}}
           commands={[{ name: "compact", description: "Clear history but keep a summary" }]}
           onCompact={() => {}}
           streaming
@@ -193,6 +201,35 @@ export function AgentHubTranscriptSection() {
           onPromptChange={setDraftPrompt}
           onSend={() => {}}
           onCancel={() => {}}
+        />
+      </div>
+      <h2 className="text-title-16 text-text-primary">Agent Hub — what the vendor reports</h2>
+      <div data-testid="gallery-agenthub-failure" className="flex w-full flex-col gap-3">
+        <AgentSessionFailure
+          failure={{
+            id: "f1",
+            revision: 1,
+            category: "access",
+            severity: "error",
+            title: "Sign in to continue using Claude.",
+            details: "The session's credentials expired.",
+            reason: "auth_required",
+            actions: ["login"],
+          }}
+          onAction={() => {}}
+          onDismiss={() => {}}
+        />
+        <AgentSessionFailure
+          failure={{
+            id: "f2",
+            revision: 1,
+            category: "limit",
+            severity: "warning",
+            title: "Claude is temporarily rate limited.",
+            details: "The five-hour window is 82% used.",
+            actions: ["retry", "new_session"],
+          }}
+          onAction={() => {}}
         />
       </div>
       <h2 className="text-title-16 text-text-primary">Agent Hub — a file a tool changed</h2>

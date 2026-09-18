@@ -43,6 +43,8 @@ export function createInitialTranscriptModel(): TranscriptModel {
   return {
     items: [],
     usage: null,
+    failure: null,
+    goal: null,
     commands: [],
     mode: null,
     availableModes: [],
@@ -219,6 +221,8 @@ export function applySessionUpdates(
   let toolCallIndex = model.toolCallIndex;
   let toolCallIndexCopied = false;
   let usage = model.usage;
+  let failure = model.failure;
+  let goal = model.goal;
   let commands = model.commands;
   let mode = model.mode;
   let availableModes = model.availableModes;
@@ -253,6 +257,25 @@ export function applySessionUpdates(
     if (kind === UpdateKind.UpdateAvailableCommands || kind === "available_commands_update") {
       if (update.commands) {
         commands = [...update.commands];
+        changed = true;
+      }
+      continue;
+    }
+
+    if (kind === UpdateKind.UpdateSessionInfo || kind === "session_info_update") {
+      // Three shapes share this kind, and the title is the view's business
+      // rather than the transcript's (it renames the session). What is left is
+      // the vendor's failure and the goal — both session state, both replacing
+      // whatever came before.
+      if (update.failure) {
+        failure = update.failure;
+        changed = true;
+      }
+      if (update.goal) {
+        goal = update.goal;
+        changed = true;
+      } else if (update.goalCleared) {
+        goal = null;
         changed = true;
       }
       continue;
@@ -466,6 +489,8 @@ export function applySessionUpdates(
     ...model,
     items,
     usage,
+    failure,
+    goal,
     commands,
     mode,
     availableModes,
@@ -512,6 +537,16 @@ export function initTranscript(
       if (payload.commands) {
         model.commands = payload.commands;
       }
+      continue;
+    }
+
+    // Reloading a session has to arrive at the same failure and goal the live
+    // stream would have left behind; the rows are replayed oldest first, so
+    // the last one wins here as it does there.
+    if (kind === UpdateKind.UpdateSessionInfo || kind === "session_info_update") {
+      if (payload.failure) model.failure = payload.failure;
+      if (payload.goal) model.goal = payload.goal;
+      else if (payload.goalCleared) model.goal = null;
       continue;
     }
 

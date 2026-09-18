@@ -379,6 +379,9 @@
     --status-danger-hover: color-mix(in srgb, var(--status-danger) 88%, var(--tint-veil));
     --status-danger-pressed: color-mix(in srgb, var(--status-danger) 78%, var(--tint-veil));
     --border-danger: color-mix(in srgb, var(--status-danger) 40%, transparent);
+    /* The same recipe in the warning tone, for a notice that is not a failure:
+       an agent's usage limit warning borders with this. */
+    --border-warning: color-mix(in srgb, var(--status-warning) 40%, transparent);
 
     /* Note/folder 9-color palette (Figma "Note Palette" collection).
        Consumed by modules/notes via var(--note-folder-<name>) — these were

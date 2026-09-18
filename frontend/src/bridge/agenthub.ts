@@ -380,6 +380,25 @@ export function agentHubScratchRoot(): Promise<string> {
 }
 
 /**
+ * Puts a message into the turn the session is running, instead of queueing it
+ * behind that turn — what the vendors' own apps do when you type while the
+ * agent works. Resolves to the outcome: "injected", or "promptRequired" when
+ * nothing was running and the caller should send it as an ordinary prompt.
+ */
+export function agentHubSteer(sessionId: string, text: string): Promise<string> {
+  return callBridge(() => AppService.AgentHubSteer(sessionId, text) as Promise<string>);
+}
+
+/**
+ * Sets what the session is working towards, or clears it when the objective is
+ * empty. The goal comes back on a session_info_update, so nothing is assumed
+ * here about whether it took.
+ */
+export function agentHubSetGoal(sessionId: string, objective: string): Promise<void> {
+  return callBridge(() => AppService.AgentHubSetGoal(sessionId, objective) as Promise<void>);
+}
+
+/**
  * Ends the session: the agent process is shut down and its MCP endpoint
  * released. Not the same as agentHubCancel, which stops the turn in flight and
  * leaves the agent running. Not undoable — the session stays as history.
