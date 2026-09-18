@@ -284,8 +284,7 @@ export function SidebarSurface({ activeModuleId }: { activeModuleId: string | nu
   const open = useSidebarOpenStore((s) => s.open);
   const sidebarWidth = usePanelWidthsStore((s) => s.sidebarWidth);
   const setSidebarWidth = usePanelWidthsStore((s) => s.setSidebarWidth);
-  const splitPanelWidth = usePanelWidthsStore((s) => s.splitPanelWidth);
-  const splitPanelOpen = usePanelWidthsStore((s) => s.splitPanelOpen);
+  const columnWidths = usePanelWidthsStore((s) => s.columnWidths);
   const windowWidth = useWindowWidth();
 
   const registered = useSidebarContentStore((s) => s.content);
@@ -302,9 +301,10 @@ export function SidebarSurface({ activeModuleId }: { activeModuleId: string | nu
 
   const max = maxPanelWidth({
     windowWidth,
-    // The split panel keeps its last width in the store while closed; only the
-    // space it is actually occupying may shrink this panel's ceiling.
-    otherEffectiveWidth: splitPanelOpen ? splitPanelWidth : 0,
+    // The columns keep their last width in the store while closed; only the
+    // space they actually occupy may shrink this panel's ceiling. Each drawn
+    // width carries its sash, and maxPanelWidth already counts one.
+    otherEffectiveWidth: Math.max(0, columnWidths.a + columnWidths.b - GAP_WIDTH),
     min: MIN_SIDEBAR_WIDTH,
     hardMax: MAX_SIDEBAR_WIDTH,
   });

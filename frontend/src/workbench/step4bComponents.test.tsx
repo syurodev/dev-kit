@@ -38,13 +38,9 @@ describe("Step 4b Shell Overlays & Composition Reconciliation", () => {
       const files = {
         // The content card lives in AppShell now, not Workbench — the split
         // that gave the shell's layout one file to compare against Figma 107:2.
-        "AppShell.tsx": new URL("./AppShell.tsx", import.meta.url),
-        "split-panel.tsx": new URL(
-          "../components/ui/split-panel.tsx",
-          import.meta.url
-        ),
-        "bottom-slot.tsx": new URL(
-          "../components/ui/bottom-slot.tsx",
+        // The content card and every pane card live in the slot layout now.
+        "pane-slots.tsx": new URL(
+          "../components/ui/pane-slots.tsx",
           import.meta.url
         ),
       };
@@ -121,12 +117,8 @@ describe("Step 4b Shell Overlays & Composition Reconciliation", () => {
           "../components/ui/sidebar-shell.tsx",
           import.meta.url,
         ),
-        "split-panel.tsx": new URL(
-          "../components/ui/split-panel.tsx",
-          import.meta.url,
-        ),
-        "bottom-slot.tsx": new URL(
-          "../components/ui/bottom-slot.tsx",
+        "pane-slots.tsx": new URL(
+          "../components/ui/pane-slots.tsx",
           import.meta.url,
         ),
       };
@@ -134,11 +126,13 @@ describe("Step 4b Shell Overlays & Composition Reconciliation", () => {
       for (const [name, url] of Object.entries(surfaces)) {
         // The size animation, not the opacity fade split-panel also has: the
         // one that resolves the surface's extent, so it carries GAP_WIDTH.
-        const animate = readFileSync(url, "utf8")
+        // Every sizing animation in the file: the slot layout has two, the
+        // columns' width and the bottom row's height.
+        const animates = readFileSync(url, "utf8")
           .split("\n")
-          .find((line) => line.includes("animate={{") && line.includes("GAP_WIDTH"));
-        if (!animate) throw new Error(`${name}: no sizing animate prop found`);
-        expect(animate).toContain("Math.min(");
+          .filter((line) => line.includes("animate={{") && line.includes("GAP_WIDTH"));
+        if (animates.length === 0) throw new Error(`${name}: no sizing animate prop found`);
+        for (const animate of animates) expect(animate).toContain("Math.min(");
       }
     });
 

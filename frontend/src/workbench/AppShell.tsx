@@ -1,19 +1,11 @@
-import { lazy, Profiler, Suspense, type ReactNode } from "react";
+import { Profiler, type ReactNode } from "react";
 import { recordCommit } from "@/lib/perfLog";
-import { shellSquircleRef } from "@/lib/shellSquircle";
 
 import { Titlebar } from "@/components/ui/titlebar";
 import { SidebarSurface } from "@/components/ui/sidebar-shell";
-import { BottomSlotSurface } from "@/components/ui/bottom-slot";
-import { SplitPanelProvider, SplitPanelSlot } from "@/components/ui/split-panel";
+import { SplitPanelProvider } from "@/components/ui/split-panel";
+import { PaneSlotsRow } from "@/components/ui/pane-slots";
 import { AgentCompanionSlot } from "./AgentCompanionSlot";
-import { isDockShellEnabled } from "./dock/dockShellFlag";
-
-// EXPERIMENT (docs/dev-kit/layout.mdx): the dockable right/bottom, behind
-// devkit.dockShell. Lazy so dockview stays out of the initial bundle, and
-// read once — flipping the flag reloads the window.
-const DOCK_SHELL = isDockShellEnabled();
-const LazyDockShellRow = lazy(() => import("./dock/DockShellRow"));
 
 /**
  * The App Shell — Figma `107:137`, whose every variant has exactly three
@@ -35,8 +27,12 @@ const LazyDockShellRow = lazy(() => import("./dock/DockShellRow"));
  *   sidebar         280 + 4 sash             sidebar-shell.tsx / panelWidths
  *   content-surface fills, opaque, radius    .shell-surface, index.css
  *                   window radius − gap (--shell-radius)
- *   panel           320 + 4 sash             split-panel.tsx / panelWidths
- *   bottom          under content only       bottom-slot.tsx
+ *   columns A, B    320 + 4 sash each        pane-slots.tsx / panelWidths
+ *   bottom          under content only       pane-slots.tsx
+ *
+ * Right of the sidebar is the slot layout (docs/dev-kit/layout.mdx): the
+ * document, a bottom row under it, and up to two columns — panes move between
+ * those slots by dragging their header or from its Move to… menu.
  *
  * Figma still draws a dock at 666,879. It is gone: modules switch from the
  * title bar (ModuleSwitcher.tsx).
@@ -105,48 +101,10 @@ export function AppShell({
             <SidebarSurface activeModuleId={activeModuleId} />
           </Profiler>
 
-          {DOCK_SHELL ? (
-            <>
-              {/* Publishes the conversation into the companion state; the
-                  dock row draws it as a pane. */}
-              <AgentCompanionSlot />
-              <Suspense
-                fallback={
-                  <div ref={shellSquircleRef} className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden shell-surface">
-                    {children}
-                  </div>
-                }
-              >
-                <LazyDockShellRow activeModuleId={activeModuleId}>{children}</LazyDockShellRow>
-              </Suspense>
-            </>
-          ) : (
-            <>
-              {/* The bottom slot stacks under the module content ONLY — the sidebar
-                  and the split panel keep their full height either side of it, so
-                  opening it never shortens them. min-w-0 because this column has no
-                  overflow-hidden of its own to zero its automatic minimum width,
-                  and without it the two side panels could not squeeze it. */}
-              <div className="flex min-w-0 min-h-0 flex-1 flex-col">
-                {/* One card holds the strip and the views, which is how Figma's
-                    content-surface is built: tab-strip at the top edge and
-                    content-slot below it, inside the same surface.
-
-                    It is opaque on purpose. Figma 116:1346 fills it with
-                    surface/base, and 01 Foundations calls a translucent content
-                    card a bug rather than a look — module content must not sit on
-                    the user's wallpaper. Same material as the side panel and the
-                    bottom slot; only the sidebar rail is transparent. */}
-                <div ref={shellSquircleRef} className="flex min-h-0 flex-1 flex-col overflow-hidden shell-surface">
-                  {children}
-                </div>
-                <BottomSlotSurface activeModuleId={activeModuleId} />
-              </div>
-
-              <AgentCompanionSlot />
-              <SplitPanelSlot />
-            </>
-          )}
+          {/* Publishes the conversation into the companion state; the slot
+              layout draws it as the Agent pane. */}
+          <AgentCompanionSlot />
+          <PaneSlotsRow activeModuleId={activeModuleId}>{children}</PaneSlotsRow>
         </div>
 
         {overlays}

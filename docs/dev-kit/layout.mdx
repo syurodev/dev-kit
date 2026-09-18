@@ -12,13 +12,12 @@ khi người dùng đi qua Code Graph, Database, Notes, Kafka, Agent Hub, API Cl
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-<Callout type="warn" title="Design only">
-Chưa có runtime. Shell hiện tại mô tả ở [Shell primitives](/dev-kit/shell-primitives),
-[Sidebar](/dev-kit/sidebar) và [Module tabs](/dev-kit/module-tabs) vẫn là sự thật
-đang chạy. Thiết kế UI:
-[Figma · Shell / Dockable panes](https://www.figma.com/design/3dOzSZBYY7QtzANFTCfEe8/DevKit?node-id=1204-2397).
-Renderer dự kiến là [dockview](https://dockview.dev) — **chưa chốt**, xem
-[Spike](#spike-dockview--những-gì-phải-chứng-minh).
+<Callout type="info" title="Đã chốt: bố cục vị trí (slot layout)">
+Sau spike, DevKit **không** dùng thư viện docking. Pane di chuyển giữa một số
+**vị trí cố định** quanh document — xem [Bố cục vị trí](#bố-cục-vị-trí-slot-layout).
+Float, chia lồng tuỳ ý và kéo vào giữa document là ngoài phạm vi. Các mục về
+dockview bên dưới giữ lại làm lịch sử quyết định. Thiết kế UI:
+[Figma · Shell / Slot layout — option B](https://www.figma.com/design/3dOzSZBYY7QtzANFTCfEe8/DevKit?node-id=1220-23683).
 </Callout>
 
 ## DevKit không phải Claude Desktop
@@ -216,6 +215,8 @@ và `⌘C` đang tác động lên pane nào.
 
 ## Kéo-thả có cấu trúc
 
+> Bản đang chạy: [bố cục vị trí](#bố-cục-vị-trí-slot-layout) — đích thả là các vị trí cố định, không chia tuỳ ý.
+
 Không có vị trí tự do theo toạ độ. Khi kéo, vùng thả dưới con trỏ nói trước điều
 sẽ xảy ra (`Shell / Drop Target`):
 
@@ -238,6 +239,8 @@ nhóm document và một handler `onWillShowOverlay` chặn vùng center.
 menu: *More → Move to → Right / Below / New column / Float / Into group…*.
 
 ## Float là một chế độ, không phải mặc định
+
+> **Bỏ** trong [bố cục vị trí](#bố-cục-vị-trí-slot-layout): không có pane nổi.
 
 - Pane chỉ nổi khi người dùng chọn Float (hoặc kéo ra ngoài mọi vùng thả).
 - Pane nổi bị giữ trong viewport (`floatingGroupBounds: 'boundedWithinViewport'`),
@@ -465,39 +468,67 @@ dùng DnD bằng pointer events), dockview-react **8.3.1**, đo trong Chromium �
    pane gộp vào group float, không vào grid bên dưới. Hợp luật nhưng dễ bất
    ngờ — cân nhắc làm mờ/khoá group float khi đang kéo.
 
-### Quyết định còn mở
+### Vì sao dừng dockview
 
-- **Phiên bản.** Nghiêng về **v4.13** (≈ 211 KB / 47 KB gzip): với kéo kiểu
-  "nhấc cả pane" (phát hiện 5), thứ duy nhất v8 có mà v4 thiếu —
-  `dndStrategy: "pointer"` — không còn cần. Cần chạy lại spike trên v4.13 để
-  xác nhận trước khi chốt.
-- **Document là gì trong dockview.** (a) Mỗi document là một panel — kéo tab
-  giữa group là native, nhưng đổi module phải gỡ/thêm panel (phát hiện 4). (b)
-  Mỗi *document group* là **một** panel "document host" tự vẽ tab strip của
-  module bằng `workbenchTabs` hiện có — giữ nguyên mount cache và tab strip đang
-  chạy, nhưng kéo tab giữa hai group phải tự làm. Nghiêng về (b): nó giữ nguyên
-  thứ đang chạy tốt, và dockview chỉ còn lo pane.
-- **Tải chậm.** Shell cần layout ở frame đầu, nên không lazy-load dockview đơn
-  giản được; có thể vẽ layout tĩnh từ `LayoutState` trước rồi hydrate dockview.
+Mọi hạng mục của spike đều đạt, nhưng trong shell thật thì card của pane không
+bao giờ khớp được với card của shell. dockview sở hữu DOM của pane: nội dung
+`renderer: "always"` nằm ở một lớp phủ riêng ngoài phần tử group, nên squircle
+và vòng viền SVG gắn vào group không phủ lên nó; cộng thêm `.dv-shell`, padding
+trên mọi view và theme mặc định phải ghi đè từng thứ một. Các thư viện docking
+khác (FlexLayout, rc-dock, Golden Layout) cũng sở hữu DOM của chúng, nên đổi thư
+viện sẽ gặp lại đúng vấn đề đó. Ngoài ra còn tốn ~47–93 KB gzip và cần API
+private để di chuyển group nổi.
 
-### Thử trong shell thật
+## Bố cục vị trí (slot layout)
 
-`frontend/src/workbench/dock/DockShellRow.tsx`, sau cờ `devkit.dockShell`
-(localStorage, tắt mặc định; bản dev bật/tắt bằng `⌘⌥⇧L`, reload cửa sổ).
-Lazy — initial JS vẫn 876 KiB khi cờ tắt. Phương án (b): content card
-(tab strip + views) là **một** pane document không header; `openPanel`, agent
-companion và bottom slot giữ nguyên API/store, chỉ đổi chỗ vẽ thành pane kéo
-được (kéo kiểu "nhấc cả pane"). Vị trí pane nhớ theo phiên (panel theo module);
-chưa lưu qua restart.
+```
+┌──────────┬──────────┬──────────┐
+│          │ a.top    │ b.top    │
+│ document ├──────────┼──────────┤
+│          │ a.bottom │ b.bottom │
+├──────────┼──────────┴──────────┘
+│ bottom   │
+└──────────┘
+```
 
-**Kiểm tay trong app** (mục 5): `task dev`, mở Web Inspector của cửa sổ, chạy
-`location.search = "?dock-spike"`, thử kéo tab ở cả chế độ mặc định và
-`?dock-spike&pointer`, trên macOS (WKWebView) và Windows (WebView2).
+- **Document** là trung tâm: luôn có, không di chuyển, không nhận pane. Nó vẫn
+  chứa các [document group](#document-group--nhiều-document-cạnh-nhau).
+- **Hàng dưới** chỉ nằm dưới document — hai cột bên phải giữ nguyên chiều cao.
+- **Tối đa hai cột** bên phải, mỗi cột chia trên/dưới. Vị trí trống không chiếm
+  chỗ: cột không có pane nào mở thì không vẽ, cột có một pane thì pane đó cao hết
+  cột.
+- **Pane nào cũng vào được vị trí nào**, kể cả companion vào chung cột với context
+  pane (vd. Code trên, Agent dưới).
+- **Thả vào vị trí đã có pane thì đổi chỗ** hai pane — kể cả với pane đang đóng,
+  để nó không mở lại đè lên pane mới.
+- **Mặc định** là shell cũ: context `a.top`, Agent `a.bottom`, Terminal ở hàng
+  dưới. Ai không kéo gì thì không thấy gì thay đổi.
+- **Nhớ vị trí:** context pane theo module, companion toàn cục; lưu qua restart
+  (`ui_state`, key `paneSlots`). Kích thước theo phiên, như trước.
+- **Tranh chấp:** context pane của module nhớ một vị trí mà companion đã chiếm
+  thì companion thắng; context pane sang nửa còn lại của cột đó.
+
+**Kéo:** nắm header pane, quá 5px thì chính card (cùng nội dung sống) nhấc lên,
+thu còn tối đa 480×320 quanh con trỏ và đi theo chuột. Chỗ cũ giữ nguyên kích
+thước, viền nét đứt. Chỉ các vị trí sáng lên: nửa trên/dưới của một cột, hàng
+dưới (hoặc dải chân document khi hàng dưới chưa có), và dải mép nơi cột còn
+thiếu sẽ mở. Thả ngoài vùng hoặc `Esc` thì trả về chỗ cũ. Menu **Move to…** trên
+header cho cùng các đích, không cần kéo.
+
+**Không remount:** thân mỗi pane được render một lần vào một phần tử tách rời;
+card của vị trí "nhận nuôi" phần tử đó. Chuyển pane là chuyển phần tử DOM, nên
+xterm, canvas hay tin nhắn đang gõ dở không mount lại.
+
+Code: luật thuần ở `frontend/src/workbench/slots/slotModel.ts` (có test),
+kéo ở `paneDrag.ts`, vẽ ở `frontend/src/components/ui/pane-slots.tsx`, vị trí ở
+`frontend/src/stores/paneSlots.ts`. Module không đổi gì: `openPanel`, companion
+và bottom slot giữ nguyên API.
 
 ## Out of scope (v1)
 
 - Pop-out ra cửa sổ riêng (cần Wails multi-window).
 - Cùng một document trong hai group (hai view trên một model, kiểu VS Code).
 - Chia group theo chiều dọc (group chồng trên–dưới) — v1 chỉ xếp ngang.
+- Pane nổi, chia lồng tuỳ ý, cột thứ ba, cột bên trái document.
 - Tab trộn nhiều module trong một group.
 - Đồng bộ layout giữa thiết bị — kích thước màn hình khác nhau, sync chỉ gây hại.

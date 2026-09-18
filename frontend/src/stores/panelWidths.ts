@@ -15,12 +15,13 @@ type PanelWidthsState = {
    * cross-clamp how much room is actually free — see panelLayout.maxPanelWidth.
    */
   sidebarOpen: boolean;
-  splitPanelOpen: boolean;
+  /** What each right column occupies now, sash included; 0 while it is not drawn. */
+  columnWidths: { a: number; b: number };
   setSplitTopHeight: (height: number) => void;
   setSidebarWidth: (width: number) => void;
   setSplitPanelWidth: (width: number) => void;
   setSidebarOpen: (open: boolean) => void;
-  setSplitPanelOpen: (open: boolean) => void;
+  setColumnWidth: (column: "a" | "b", width: number) => void;
 };
 
 /**
@@ -35,10 +36,11 @@ export const usePanelWidthsStore = create<PanelWidthsState>((set) => ({
   splitPanelWidth: 320,
   splitTopHeight: 430,
   sidebarOpen: false,
-  splitPanelOpen: false,
+  columnWidths: { a: 0, b: 0 },
   setSplitTopHeight: (height) => set({ splitTopHeight: height }),
   setSidebarWidth: (width) => set({ sidebarWidth: width }),
   setSplitPanelWidth: (width) => set({ splitPanelWidth: width }),
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
-  setSplitPanelOpen: (open) => set({ splitPanelOpen: open }),
+  setColumnWidth: (column, width) =>
+    set((s) => (s.columnWidths[column] === width ? s : { columnWidths: { ...s.columnWidths, [column]: width } })),
 }));

@@ -4,17 +4,18 @@ import { useSplitPanel } from "@/components/ui/split-panel";
 import { useBottomSlotStore } from "@/stores/bottomSlot";
 
 /**
- * DEV — the real AppShell without the vault gate, so its geometry (and the
- * dock shell trial behind devkit.dockShell) can be measured in a browser.
+ * DEV — the real AppShell without the vault gate, so its geometry and the
+ * slot layout's drag can be exercised in a browser.
  * `?shell-harness`. Fake content; no bridge calls of its own.
  */
 function OpenSlots() {
-  const { openPanel } = useSplitPanel();
+  const { openPanel, openCompanion } = useSplitPanel();
   const setBottom = useBottomSlotStore((s) => s.setOpen);
   useEffect(() => {
     openPanel(<div className="p-4 text-body-13 text-text-secondary">Module panel content</div>, { width: 420, onClose: () => undefined });
+    openCompanion(<div className="p-4 text-body-13 text-text-secondary">Agent conversation</div>, { onClose: () => undefined });
     setBottom(true);
-  }, [openPanel, setBottom]);
+  }, [openPanel, openCompanion, setBottom]);
   return null;
 }
 
