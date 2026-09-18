@@ -99,6 +99,8 @@ type CodeGraphState = {
   methodFilter: string[];
   /** Service and controller groups folded shut, by key. */
   collapsedGroups: string[];
+  /** Folders open in the Files tab. */
+  fileExpanded: string[];
   /** The Files tab's toggles. */
   fileFilter: { javaOnly: boolean; changed: boolean; inFlow: boolean };
 
@@ -159,6 +161,7 @@ export const useCodeGraphStore = create<CodeGraphState>((set, get) => ({
   gitStatus: {},
   methodFilter: [],
   collapsedGroups: [],
+  fileExpanded: [],
   fileFilter: { javaOnly: true, changed: false, inFlow: false },
 
   // Opening a file from outside this module (the agent companion sets

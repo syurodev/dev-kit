@@ -1,6 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { filterFileEntries } from "./fileSearch";
-import { visibleEntries } from "./FileTree";
+import { filterFileEntries, visibleEntries } from "./fileSearch";
 
 const tree = [
   { path: "src", isDir: true },

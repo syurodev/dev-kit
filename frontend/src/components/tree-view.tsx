@@ -491,7 +491,7 @@ const Row = memo(function Row({ row, copy = false }: { row: FlatRow; copy?: bool
         ) : null}
         {node.trailing ? (
           // Marks, not controls: small, quiet, the same size in every tree.
-          <span className="flex shrink-0 items-center gap-1 text-text-tertiary [&_svg]:size-3 [&_svg]:shrink-0">
+          <span className="flex shrink-0 items-center gap-1 text-code-11 text-text-tertiary [&_svg]:size-3 [&_svg]:shrink-0">
             {node.trailing}
           </span>
         ) : null}

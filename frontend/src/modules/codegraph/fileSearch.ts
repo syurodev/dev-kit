@@ -56,3 +56,24 @@ export function filterFileEntries(
   // Only a search opens folders: a toggle alone leaves the tree as it was folded.
   return { entries: entries.filter((e) => keep.has(e.path)), forceExpanded: needle ? forceExpanded : null };
 }
+
+function parentOf(path: string): string | null {
+  const idx = path.lastIndexOf("/");
+  return idx === -1 ? null : path.slice(0, idx);
+}
+
+/**
+ * Every entry whose full ancestor chain is in `expanded` — a depth-0 entry is
+ * always visible. The test that a search match can actually be seen, not
+ * merely that it survived the filter.
+ */
+export function visibleEntries(entries: CodeGraphFileEntry[], expanded: Set<string>): CodeGraphFileEntry[] {
+  return entries.filter((e) => {
+    let parent = parentOf(e.path);
+    while (parent !== null) {
+      if (!expanded.has(parent)) return false;
+      parent = parentOf(parent);
+    }
+    return true;
+  });
+}

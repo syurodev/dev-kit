@@ -1,12 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { getCodeGraphBlastRadius, type CodeGraphFileEntry, type CodeGraphGitState } from "@/bridge/codegraph";
-import { FileTree } from "../FileTree";
+import { FileCode2, Folder } from "lucide-react";
+import { TreeView, type TreeNodeData } from "@/components/tree-view";
 import { filterFileEntries } from "../fileSearch";
+import { nestFiles, type FileBranch } from "./treeNodes";
 
 const TOGGLE = "inline-flex h-5.5 shrink-0 items-center rounded-sm border px-2 text-code-11";
 
 const SOURCE = /\.(java|kt|groovy|scala)$/i;
+
+const MARK_TONE: Record<CodeGraphGitState, string> = {
+  M: "text-status-warning",
+  A: "text-status-success",
+  D: "text-status-danger",
+  R: "text-status-info",
+};
 
 const GIT_WORD: Record<CodeGraphGitState, string> = { M: "Modified", A: "New file", D: "Deleted", R: "Renamed" };
 
@@ -26,6 +35,8 @@ export function FilesTab({
   flowFiles,
   filter,
   onFilter,
+  expanded,
+  onToggleFolder,
   onSelectFile,
 }: {
   files: CodeGraphFileEntry[];
@@ -36,6 +47,9 @@ export function FilesTab({
   flowFiles: ReadonlySet<string>;
   filter: FileFilter;
   onFilter: (next: FileFilter) => void;
+  /** Folders the user opened. A search opens the ones holding its matches too. */
+  expanded: string[];
+  onToggleFolder: (path: string) => void;
   onSelectFile: (path: string) => void;
 }) {
   const changedCount = Object.keys(gitStatus).length;
@@ -47,6 +61,30 @@ export function FilesTab({
       (!filter.inFlow || flowFiles.has(path));
   }, [filter, gitStatus, flowFiles]);
   const shown = useMemo(() => filterFileEntries(files, query, keepFile), [files, query, keepFile]);
+  const nodes = useMemo(() => {
+    const open = new Set([...expanded, ...(shown.forceExpanded ?? [])]);
+    const toNode = (b: FileBranch): TreeNodeData =>
+      b.isDir
+        ? {
+            id: b.path,
+            label: b.name,
+            icon: <Folder />,
+            expandable: b.children.length > 0,
+            expanded: open.has(b.path),
+            onToggle: () => onToggleFolder(b.path),
+            children: b.children.map(toNode),
+          }
+        : {
+            id: b.path,
+            label: b.name,
+            title: b.path,
+            icon: <FileCode2 />,
+            selected: b.path === selectedFile,
+            onSelect: () => onSelectFile(b.path),
+            trailing: gitStatus[b.path] ? <span className={MARK_TONE[gitStatus[b.path]]}>{gitStatus[b.path]}</span> : null,
+          };
+    return nestFiles(shown.entries).map(toNode);
+  }, [shown, expanded, selectedFile, gitStatus, onToggleFolder, onSelectFile]);
 
   const toggle = (key: keyof FileFilter, label: string, disabled = false) => (
     <button
@@ -73,21 +111,13 @@ export function FilesTab({
         {toggle("changed", changedCount > 0 ? `CHANGED · ${changedCount}` : "CHANGED")}
         {toggle("inFlow", "IN FLOW", flowFiles.size === 0 && !filter.inFlow)}
       </div>
-      <div className="min-h-0 flex-1 overflow-hidden">
-        {shown.entries.length > 0 ? (
-          <FileTree
-            entries={shown.entries}
-            forceExpanded={shown.forceExpanded}
-            selectedPath={selectedFile}
-            onSelectFile={onSelectFile}
-            marks={gitStatus}
-          />
-        ) : (
-          <p className="px-2 py-3 text-center text-body-12 text-text-tertiary">
-            {files.length === 0 ? "No files yet — open a project." : "No files match."}
-          </p>
-        )}
-      </div>
+      {nodes.length > 0 ? (
+        <TreeView nodes={nodes} className="min-h-0 flex-1 scrollbar-gutter-stable" />
+      ) : (
+        <p className="min-h-0 flex-1 px-2 py-3 text-center text-body-12 text-text-tertiary">
+          {files.length === 0 ? "No files yet — open a project." : "No files match."}
+        </p>
+      )}
       {selectedFile ? (
         <FileContext path={selectedFile} git={gitStatus[selectedFile]} inFlow={flowFiles.has(selectedFile)} />
       ) : null}

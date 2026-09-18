@@ -140,6 +140,7 @@ function switchProject(root: string) {
     indexInfo: null,
     gitStatus: {},
     collapsedGroups: [],
+    fileExpanded: [],
     ...(fileDirty
       ? {}
       : { selectedFile: null, fileRoot: "", selectedLine: null, fileContent: "", fileDirty: false }),

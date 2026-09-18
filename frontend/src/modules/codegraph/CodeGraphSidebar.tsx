@@ -57,6 +57,12 @@ const onOpenSymbolGraph = (m: CodeGraphSymbolMatch) => {
   void viewSymbol(m);
 };
 const onClearQuery = () => set({ query: "" });
+// Module-level, so the trees' node lists are rebuilt only when their data is.
+const onToggleFolder = (path: string) => {
+  const { fileExpanded } = snapshot();
+  set({ fileExpanded: fileExpanded.includes(path) ? fileExpanded.filter((p) => p !== path) : [...fileExpanded, path] });
+};
+const onSelectFile = (path: string) => void openFile(path);
 
 /**
  * Figma `CodeGraph / Sidebar` (1192:69479): the project and how fresh its
@@ -78,6 +84,7 @@ export function CodeGraphSidebar() {
   const selectedFile = useCodeGraphStore((s) => s.selectedFile);
   const gitStatus = useCodeGraphStore((s) => s.gitStatus);
   const fileFilter = useCodeGraphStore((s) => s.fileFilter);
+  const fileExpanded = useCodeGraphStore((s) => s.fileExpanded);
   const subgraph = useCodeGraphStore((s) => s.subgraph);
   const plan = useCodeGraphStore((s) => s.plan);
   const planBusy = useCodeGraphStore((s) => s.planBusy);
@@ -181,7 +188,9 @@ export function CodeGraphSidebar() {
           flowFiles={flowFiles}
           filter={fileFilter}
           onFilter={(next) => set({ fileFilter: next })}
-          onSelectFile={(path) => void openFile(path)}
+          expanded={fileExpanded}
+          onToggleFolder={onToggleFolder}
+          onSelectFile={onSelectFile}
         />
       ) : (
         <PlanTab
