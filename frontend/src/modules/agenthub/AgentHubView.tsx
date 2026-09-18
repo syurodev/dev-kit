@@ -34,8 +34,8 @@ import {
   type AgentContextFile,
   type AgentImageAttachment,
 } from "../../bridge/agenthub";
-import { codeGraphProjectRoot, openCodeGraphProject, readCodeGraphFile } from "../../bridge/codegraph";
-import { useCodeGraphStore } from "../codegraph/codegraphStore";
+import { codeGraphProjectRoot } from "../../bridge/codegraph";
+import { openFileInProject } from "../codegraph/codegraphActions";
 import { useWorkbenchTabsStore } from "../../stores/workbenchTabs";
 import { copyText } from "../../bridge/clipboard";
 import { toAppError } from "../../bridge/errors";
@@ -474,30 +474,10 @@ export function AgentHubView() {
     });
   }
 
-  async function handleOpenFile(path: string, line?: number) {
+  function handleOpenFile(path: string, line?: number) {
     if (!activeSession) return;
-    const root = activeSession.projectPath.replace(/[\\/]+$/, "");
-    const normalizedPath = path.split("\\").join("/");
-    const normalizedRoot = root.split("\\").join("/");
-    const relative = normalizedPath.startsWith(`${normalizedRoot}/`)
-      ? normalizedPath.slice(normalizedRoot.length + 1)
-      : normalizedPath;
-    try {
-      await openCodeGraphProject(root);
-      const content = await readCodeGraphFile(relative);
-      useCodeGraphStore.getState().set({
-        projectPath: root,
-        activeTab: "files",
-        selectedFile: relative,
-        selectedLine: line ?? null,
-        fileContent: content,
-        fileDirty: false,
-        fileError: "",
-      });
-      openTab({ moduleId: "codegraph", viewId: "codegraph.explorer", title: "Code Graph" });
-    } catch (e) {
-      reportError(e);
-    }
+    openTab({ moduleId: "codegraph", viewId: "codegraph.explorer", title: "Code Graph" });
+    void openFileInProject(activeSession.projectPath, path, line);
   }
 
   function handleSelectCommand(name: string) {

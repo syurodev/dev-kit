@@ -71,6 +71,8 @@ type CodeGraphState = {
   fileRoot: string;
   /** A file the user asked to open while the current one had unsaved edits. */
   pendingOpenFile: string | null;
+  /** The line the parked open should reveal, if it came with one. */
+  pendingOpenLine: number | null;
   selectedLine: number | null;
   fileContent: string;
   fileDirty: boolean;
@@ -133,6 +135,7 @@ export const useCodeGraphStore = create<CodeGraphState>((set, get) => ({
   selectedFile: null,
   fileRoot: "",
   pendingOpenFile: null,
+  pendingOpenLine: null,
   selectedLine: null,
   fileContent: "",
   fileDirty: false,

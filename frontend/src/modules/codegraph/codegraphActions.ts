@@ -116,6 +116,7 @@ function switchProject(root: string) {
     commentsPlanNodeId: null,
     commentCounts: {},
     pendingOpenFile: null,
+    pendingOpenLine: null,
     fileError: "",
     ...(fileDirty
       ? {}
@@ -380,16 +381,16 @@ export async function refreshAfterReindex() {
   }
 }
 
-async function readFileIntoEditor(path: string) {
+async function readFileIntoEditor(path: string, line: number | null = null) {
   const current = begin("file");
-  set({ fileError: "", pendingOpenFile: null });
+  set({ fileError: "", pendingOpenFile: null, pendingOpenLine: null });
   try {
     const content = await readCodeGraphFile(path);
     if (!current()) return;
     set({
       selectedFile: path,
       fileRoot: snapshot().projectPath,
-      selectedLine: null,
+      selectedLine: line,
       fileContent: content,
       fileDirty: false,
     });
@@ -403,25 +404,54 @@ async function readFileIntoEditor(path: string) {
  * which case it parks the request for the view's confirm dialog. Every way in
  * (tree, blast radius, the inspector's Edit) goes through here.
  */
-export async function openFile(path: string) {
-  const { fileDirty, selectedFile } = snapshot();
+export async function openFile(path: string, line: number | null = null) {
+  const { fileDirty, selectedFile, fileRoot, projectPath } = snapshot();
   if (fileDirty) {
-    // Re-opening the file already being edited is a no-op, not a revert.
-    if (path !== selectedFile) set({ pendingOpenFile: path });
+    // Re-opening the file already being edited is a no-op, not a revert —
+    // unless the buffer is left over from another project.
+    const sameBuffer = path === selectedFile && (!fileRoot || fileRoot === projectPath);
+    if (sameBuffer) {
+      if (line !== null) set({ selectedLine: line });
+    } else {
+      set({ pendingOpenFile: path, pendingOpenLine: line });
+    }
     return;
   }
-  await readFileIntoEditor(path);
+  await readFileIntoEditor(path, line);
+}
+
+/**
+ * Opens a file an agent pointed at, in the agent's project: switches to that
+ * project the same way the picker does (so its state resets and an unsaved
+ * buffer is kept as the old project's), then goes through openFile, so the
+ * discard prompt applies here too. `path` may be absolute or project-relative.
+ */
+export async function openFileInProject(root: string, path: string, line?: number) {
+  const trimmedRoot = root.replace(/[\\/]+$/, "");
+  const normalizedRoot = trimmedRoot.split("\\").join("/");
+  const normalizedPath = path.split("\\").join("/");
+  const relative = normalizedPath.startsWith(`${normalizedRoot}/`)
+    ? normalizedPath.slice(normalizedRoot.length + 1)
+    : normalizedPath;
+  set({ activeTab: "files" });
+  if (trimmedRoot !== snapshot().projectPath) {
+    await reindex(trimmedRoot);
+    // A failed open is already on screen as the view's error; a superseded
+    // one belongs to whoever superseded it.
+    if (snapshot().projectPath !== trimmedRoot || snapshot().error) return;
+  }
+  await openFile(relative, line ?? null);
 }
 
 export async function confirmDiscardAndOpen() {
-  const path = snapshot().pendingOpenFile;
+  const { pendingOpenFile: path, pendingOpenLine: line } = snapshot();
   if (!path) return;
   set({ fileDirty: false });
-  await readFileIntoEditor(path);
+  await readFileIntoEditor(path, line);
 }
 
 export function cancelPendingOpen() {
-  set({ pendingOpenFile: null });
+  set({ pendingOpenFile: null, pendingOpenLine: null });
 }
 
 /** Closes a buffer left over from a project switch, edits and all. */
