@@ -357,6 +357,14 @@ export async function buildCodeGraphAnalyzer(language: string): Promise<void> {
   return callBridge(() => AppService.CodeGraphBuildAnalyzer(language));
 }
 
+/**
+ * Stops the analyzer build in flight, Maven and all. The build's own promise
+ * then rejects with operation_cancelled. A no-op when nothing is building.
+ */
+export async function cancelCodeGraphAnalyzerBuild(): Promise<void> {
+  return callBridge(() => AppService.CodeGraphCancelAnalyzerBuild());
+}
+
 const ANALYZER_BUILD_OUTPUT_EVENT = "codegraph:analyzerBuildOutput";
 
 /**

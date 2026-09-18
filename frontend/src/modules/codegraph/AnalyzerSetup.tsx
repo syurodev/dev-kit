@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { Check, Copy, Hammer, Loader2, TriangleAlert, Wrench } from "lucide-react";
+import { Check, Copy, Hammer, Loader2, Square, TriangleAlert, Wrench } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { errorMessage } from "@/bridge/errors";
+import { errorMessage, isCancelError, toAppError } from "@/bridge/errors";
 import { copyText } from "@/bridge/clipboard";
 import {
   buildCodeGraphAnalyzer,
+  cancelCodeGraphAnalyzerBuild,
   onCodeGraphAnalyzerBuildOutput,
   type CodeGraphInstallCommand,
   type CodeGraphRequirement,
@@ -71,7 +72,11 @@ function ToolchainCard({
 }) {
   const [lines, setLines] = useState<string[]>([]);
   const [error, setError] = useState("");
+  const [cancelled, setCancelled] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const logRef = useRef<HTMLPreElement>(null);
+  // Go reports a stop and a timeout with the same code; only the first is ours.
+  const cancelRequested = useRef(false);
 
   const buildMutation = useMutation({
     mutationFn: () => buildCodeGraphAnalyzer(status.language),
@@ -79,8 +84,14 @@ function ToolchainCard({
       onBuilt();
     },
     onError: (e) => {
+      // A build the user stopped is not a failure to explain.
+      if (cancelRequested.current && (isCancelError(e) || toAppError(e).code === "operation_cancelled")) {
+        setCancelled(true);
+        return;
+      }
       setError(errorMessage(e));
     },
+    onSettled: () => setCancelling(false),
   });
 
   const building = buildMutation.isPending;
@@ -115,8 +126,22 @@ function ToolchainCard({
 
   async function build() {
     setError("");
+    setCancelled(false);
+    cancelRequested.current = false;
     setLines([]);
-    await buildMutation.mutateAsync();
+    await buildMutation.mutateAsync().catch(() => {}); // surfaced by onError
+  }
+
+  async function cancel() {
+    setCancelling(true);
+    cancelRequested.current = true;
+    try {
+      await cancelCodeGraphAnalyzerBuild();
+    } catch (e) {
+      setCancelling(false);
+      cancelRequested.current = false;
+      setError(errorMessage(e));
+    }
   }
 
   return (
@@ -129,19 +154,27 @@ function ToolchainCard({
         {/* No build button when the artifact is already there: the problem is
             the runtime, and building again would not touch it. */}
         {!status.hasArtifact && (
-          <Button
-            size="sm"
-            disabled={building || !status.buildable}
-            onClick={() => void build()}
-            title={
-              status.buildable
-                ? status.buildCommand
-                : "Install what is missing below, then reload this panel."
-            }
-          >
-            {building ? <Loader2 className="animate-spin" /> : <Hammer />}
-            {building ? "Building…" : "Build analyzer"}
-          </Button>
+          <div className="flex items-center gap-2">
+            {building && (
+              <Button size="sm" variant="outline" disabled={cancelling} onClick={() => void cancel()}>
+                {cancelling ? <Loader2 className="animate-spin" /> : <Square />}
+                {cancelling ? "Stopping…" : "Cancel"}
+              </Button>
+            )}
+            <Button
+              size="sm"
+              disabled={building || !status.buildable}
+              onClick={() => void build()}
+              title={
+                status.buildable
+                  ? status.buildCommand
+                  : "Install what is missing below, then reload this panel."
+              }
+            >
+              {building ? <Loader2 className="animate-spin" /> : <Hammer />}
+              {building ? "Building…" : "Build analyzer"}
+            </Button>
+          </div>
         )}
       </div>
 
@@ -156,6 +189,10 @@ function ToolchainCard({
           Prefer your own terminal? <code className="text-code-11">{status.buildCommand}</code> in{" "}
           <code className="text-code-11">analyzer/</code> does the same thing.
         </p>
+      )}
+
+      {cancelled && !building && (
+        <p className="text-body-12 text-text-tertiary">Build cancelled. Nothing was installed.</p>
       )}
 
       {error && (
