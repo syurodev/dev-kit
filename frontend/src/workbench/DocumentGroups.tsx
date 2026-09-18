@@ -7,8 +7,8 @@ import { recordCommit } from "@/lib/perfLog";
 import { shellSquircleRef } from "@/lib/shellSquircle";
 import { cn } from "@/lib/utils";
 import type { ModuleManifest } from "@/modules/registry";
-import { GROUP_MIN_WIDTH, MAX_GROUPS, tabsOfGroup, type DocGroup } from "@/stores/documentGroups";
-import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
+import { GROUP_MIN_WIDTH, MAX_GROUPS, groupOfTab, tabsOfGroup, type DocGroup } from "@/stores/documentGroups";
+import { moduleOfTab, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
 import { GAP_WIDTH, GROUP_STRIP_WIDTH } from "./panelLayout";
 import { useLayoutPressure } from "./useLayoutPressure";
 import { ModuleEmptyState } from "./ModuleEmptyState";
@@ -57,6 +57,52 @@ export function DocumentGroups({
   // to a strip. Clicking a strip focuses it, which unfolds it and folds another.
   const { foldGroups } = useLayoutPressure();
   const isFolded = (g: DocGroup) => multi && foldGroups && g.id !== focusedGroupId;
+
+  // A tab dragged out of its strip: onto another group of its module it
+  // moves there; onto the right edge of its own group it splits off into a
+  // new group. Anywhere else the strip reorders as before.
+  const moveTabToGroup = useWorkbenchTabsStore((s) => s.moveTabToGroup);
+  const splitTab = useWorkbenchTabsStore((s) => s.splitTab);
+  const marked = useRef<HTMLElement | null>(null);
+  const tabDropTarget = useCallback(
+    (tabId: string, point: { x: number; y: number }): { kind: "move" | "split"; el: HTMLElement; groupId: string } | null => {
+      const el = document.elementsFromPoint(point.x, point.y).find((e): e is HTMLElement => e instanceof HTMLElement && e.dataset.docGroup !== undefined);
+      if (!el) return null;
+      const state = useWorkbenchTabsStore.getState();
+      const target = state.groups.find((g) => g.id === el.dataset.docGroup);
+      const tab = state.modules[moduleOfTab(tabId)]?.openTabs.find((t) => t.id === tabId);
+      if (!target || !tab) return null;
+      const home = groupOfTab(state.groups, tab);
+      if (target.moduleId !== tab.moduleId) return null;
+      if (home && target.id !== home.id) return { kind: "move", el, groupId: target.id };
+      const r = el.getBoundingClientRect();
+      const canSplit = state.groups.length < MAX_GROUPS && home !== null && tabsOfGroup(state, home).length > 1;
+      if (canSplit && point.x > r.right - Math.max(64, r.width * 0.3) && point.y > r.top + 48) {
+        return { kind: "split", el, groupId: target.id };
+      }
+      return null;
+    },
+    [],
+  );
+  const onTabDragOver = useCallback(
+    (tabId: string, point: { x: number; y: number } | null) => {
+      const hit = point ? tabDropTarget(tabId, point) : null;
+      if (marked.current && marked.current !== hit?.el) delete marked.current.dataset.tabDrop;
+      if (hit) hit.el.dataset.tabDrop = hit.kind;
+      marked.current = hit?.el ?? null;
+    },
+    [tabDropTarget],
+  );
+  const onTabDrop = useCallback(
+    (tabId: string, point: { x: number; y: number }) => {
+      const hit = tabDropTarget(tabId, point);
+      if (!hit) return false;
+      if (hit.kind === "move") moveTabToGroup(tabId, hit.groupId);
+      else splitTab(tabId);
+      return true;
+    },
+    [tabDropTarget, moveTabToGroup, splitTab],
+  );
   // Among the groups still open: a folded strip's share must go to them.
   const totalWeight = shown.filter((g) => !isFolded(g)).reduce((sum, g) => sum + g.weight, 0) || 1;
 
@@ -87,6 +133,8 @@ export function DocumentGroups({
             keyboardBrowsing={keyboardBrowsing && (group.id === focusedGroupId || shown.length === 1)}
             onExitBrowsing={onExitBrowsing}
             onConfigureTabs={onConfigureTabs}
+            onTabDragOver={onTabDragOver}
+            onTabDrop={onTabDrop}
           />
         </Fragment>
       ))}
@@ -107,6 +155,8 @@ function GroupCard({
   keyboardBrowsing,
   onExitBrowsing,
   onConfigureTabs,
+  onTabDragOver,
+  onTabDrop,
 }: {
   group: DocGroup;
   folded: boolean;
@@ -120,6 +170,8 @@ function GroupCard({
   keyboardBrowsing: boolean;
   onExitBrowsing: () => void;
   onConfigureTabs: () => void;
+  onTabDragOver: (tabId: string, point: { x: number; y: number } | null) => void;
+  onTabDrop: (tabId: string, point: { x: number; y: number }) => boolean;
 }) {
   // Selected with shallow equality over the tab objects: the store keeps a
   // tab's identity until it changes, so another group's edits do not reach here.
@@ -156,7 +208,7 @@ function GroupCard({
       data-focused={multi && focused ? "true" : undefined}
       onPointerDownCapture={focus}
       onFocusCapture={focus}
-      className="doc-group flex min-h-0 min-w-0 flex-col overflow-hidden shell-surface"
+      className="doc-group relative flex min-h-0 min-w-0 flex-col overflow-hidden shell-surface"
       style={
         folded
           ? { flex: `0 0 ${GROUP_STRIP_WIDTH}px` }
@@ -198,6 +250,8 @@ function GroupCard({
                 onSplitRight={canSplit && tabs.length > 1 ? splitTab : undefined}
                 moveTargets={moveTargets}
                 onMoveToGroup={moveTabToGroup}
+                onTabDragOver={onTabDragOver}
+                onTabDrop={onTabDrop}
                 keyboardBrowsing={keyboardBrowsing}
                 onExitBrowsing={onExitBrowsing}
               />

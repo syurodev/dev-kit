@@ -47,3 +47,22 @@
   color: var(--background-app);
   padding: var(--space-micro) var(--space-inline);
 }
+
+/* A tab dragged over a document group (workbench/DocumentGroups.tsx): the
+   whole card when it would move there, its right third when it would split
+   off into a new group. */
+.doc-group[data-tab-drop]::before {
+  content: "";
+  position: absolute;
+  z-index: 50;
+  pointer-events: none;
+  border-radius: var(--shell-radius);
+  background: color-mix(in srgb, var(--border-focus) 12%, transparent);
+  outline: var(--stroke-1) dashed var(--border-focus);
+  outline-offset: calc(var(--stroke-1) * -1);
+  inset: 0;
+}
+
+.doc-group[data-tab-drop="split"]::before {
+  left: 70%;
+}

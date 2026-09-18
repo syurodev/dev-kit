@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { shortcut } from "@/lib/shortcut";
 import {
   DndContext,
+  DragOverlay,
   PointerSensor,
   closestCenter,
   useSensor,
@@ -93,6 +94,14 @@ type TabStripProps = {
   /** Other groups showing this module, which a tab can move to. */
   moveTargets?: { id: string; label: string }[];
   onMoveToGroup?: (tabId: string, groupId: string) => void;
+  /**
+   * A tab dragged out of the strip, for the document groups to place
+   * (DocumentGroups.tsx): `over` as it moves (null when the drag ends), `drop`
+   * where it lands — true if it was placed there, else the strip reorders.
+   * Given, the dragged tab follows the pointer anywhere, not only sideways.
+   */
+  onTabDragOver?: (tabId: string, point: { x: number; y: number } | null) => void;
+  onTabDrop?: (tabId: string, point: { x: number; y: number }) => boolean;
   /** True while ⌘⇧E/Ctrl⇧E is held (Workbench.tsx): every tab goes full
    * width and ArrowLeft/Right + Enter/Escape navigate the strip. */
   keyboardBrowsing: boolean;
@@ -109,6 +118,18 @@ type TabStripProps = {
 function isHiddenHomePreview(tab: WorkbenchTab): boolean {
   return Boolean(
     tab.preview && getModule(tab.moduleId)?.views[0]?.id === tab.viewId,
+  );
+}
+
+/** The tab as it is carried out of its strip. */
+function TabDragGhost({ tab }: { tab: WorkbenchTab | undefined }) {
+  if (!tab) return null;
+  const Icon = tab.icon ?? getModule(tab.moduleId)?.icon ?? Wrench;
+  return (
+    <div className="flex h-(--control-height-sm) max-w-60 cursor-grabbing items-center gap-2 rounded-md border border-border-subtle bg-surface-raised px-2.5 text-label-12 text-text-primary shadow-lg">
+      <Icon className="size-3.5 shrink-0" />
+      <span className="truncate">{tab.title}</span>
+    </div>
   );
 }
 
@@ -434,9 +455,12 @@ export function TabStrip({
   onSplitRight,
   moveTargets,
   onMoveToGroup,
+  onTabDragOver,
+  onTabDrop,
   keyboardBrowsing,
   onExitBrowsing,
 }: TabStripProps) {
+  const [draggingId, setDraggingId] = useState<string | null>(null);
   const visibleTabs = useMemo(
     () => tabs.filter((tab) => !isHiddenHomePreview(tab)),
     [tabs],
@@ -581,8 +605,23 @@ export function TabStrip({
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
-        modifiers={[restrictToHorizontalAxis]}
-        onDragEnd={({ active, over }) => {
+        // Sideways only, unless the groups can take the tab somewhere else.
+        modifiers={onTabDrop ? [] : [restrictToHorizontalAxis]}
+        onDragStart={({ active }) => setDraggingId(String(active.id))}
+        onDragMove={({ active, delta, activatorEvent }) => {
+          const start = activatorEvent as PointerEvent;
+          onTabDragOver?.(String(active.id), { x: start.clientX + delta.x, y: start.clientY + delta.y });
+        }}
+        onDragCancel={({ active }) => {
+          setDraggingId(null);
+          onTabDragOver?.(String(active.id), null);
+        }}
+        onDragEnd={({ active, over, delta, activatorEvent }) => {
+          setDraggingId(null);
+          onTabDragOver?.(String(active.id), null);
+          const start = activatorEvent as PointerEvent;
+          const point = { x: start.clientX + delta.x, y: start.clientY + delta.y };
+          if (onTabDrop?.(String(active.id), point)) return;
           if (!over) return;
           const beforeId = beforeIdAfterMove(ids, String(active.id), String(over.id));
           if (beforeId !== undefined) onReorder(String(active.id), beforeId);
@@ -640,6 +679,13 @@ export function TabStrip({
             ))}
           </div>
         </SortableContext>
+        {/* Out of the strip the tab would be clipped by its scroller, so a
+            drag that may leave it is drawn in an overlay above everything. */}
+        {onTabDrop ? (
+          <DragOverlay dropAnimation={null}>
+            {draggingId ? <TabDragGhost tab={visibleTabs.find((t) => t.id === draggingId)} /> : null}
+          </DragOverlay>
+        ) : null}
       </DndContext>
       {/* New-tab button: 28x28, radius 8, plus glyph 13px (Figma 449:325) */}
       <Button type="button" variant="titlebar" size="icon-sm" aria-label="New tab" onClick={onNewTab}>
