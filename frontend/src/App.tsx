@@ -13,8 +13,6 @@ import { ThemeProvider } from "./theme/ThemeProvider";
 // all: VaultGate needs the Wails bridge, so without this every shared component
 // is unreachable outside the desktop app.
 const ComponentGallery = lazy(() => import("./dev/ComponentGallery"));
-// SPIKE — docs/dev-kit/layout.mdx on dockview. Lazy for the same reason.
-const DockSpike = lazy(() => import("./dev/dockSpike/DockSpike"));
 const ShellHarness = lazy(() => import("./dev/ShellHarness"));
 
 // Lazy for the same reason: sonner is 36 KiB of the shell's initial JS for a
@@ -33,15 +31,6 @@ function isGalleryRequested(): boolean {
 }
 
 function App() {
-  if (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("dock-spike")) {
-    return (
-      <ThemeProvider>
-        <Suspense fallback={null}>
-          <DockSpike />
-        </Suspense>
-      </ThemeProvider>
-    );
-  }
   if (import.meta.env.DEV && typeof window !== "undefined" && new URLSearchParams(window.location.search).has("shell-harness")) {
     return (
       <ThemeProvider>
