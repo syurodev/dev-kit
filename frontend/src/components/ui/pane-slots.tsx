@@ -40,6 +40,8 @@ import {
   type SlotId,
 } from "@/workbench/slots/slotModel";
 import { startPaneDrag } from "@/workbench/slots/paneDrag";
+import { useLayoutPressure } from "@/workbench/useLayoutPressure";
+import type { LayoutPressure } from "@/workbench/panelLayout";
 import { TerminalTabs, TerminalWorkspace } from "@/workbench/TerminalWorkspace";
 import { getModule } from "@/modules/registry";
 import { usePanelWidthsStore } from "@/stores/panelWidths";
@@ -61,6 +63,8 @@ type SlotsCtx = {
   titles: Record<PaneId, string>;
   /** The context pane of the focused module, when several are on screen. */
   focusedPane: PaneId | null;
+  /** What gives way while the window is too narrow (panelLayout.layoutPressure). */
+  pressure: LayoutPressure;
   /** Whether the active module put its own tab in the terminal pane. */
   terminalHasModule: boolean;
   resolved: ReturnType<typeof resolve>;
@@ -249,9 +253,17 @@ export function PaneSlotsRow({ activeModuleId, children }: { activeModuleId: str
   const contextCount = Object.keys(resolved).filter((s) => moduleOfPane(resolved[s as SlotId]!)).length;
   const focusedPane = contextCount > 1 && activeModuleId ? contextPane(activeModuleId) : null;
 
+  // The columns' count before any merge, for the pressure calculation every
+  // surface shares — published from here because only here is it known.
+  const visibleColumns = (["a", "b"] as const).filter((c) => columnVisible(resolved, c)).length;
+  const setVisibleColumns = usePanelWidthsStore((s) => s.setVisibleColumns);
+  React.useEffect(() => setVisibleColumns(visibleColumns), [visibleColumns, setVisibleColumns]);
+  const pressure = useLayoutPressure();
+
   const ctx = React.useMemo<SlotsCtx>(
     () => ({
       hostFor,
+      pressure,
       titles,
       focusedPane,
       terminalHasModule: moduleContent != null,
@@ -261,7 +273,7 @@ export function PaneSlotsRow({ activeModuleId, children }: { activeModuleId: str
       targets,
       beginDrag,
     }),
-    [hostFor, titles, focusedPane, moduleContent, resolved, close, moveTo, targets, beginDrag],
+    [hostFor, pressure, titles, focusedPane, moduleContent, resolved, close, moveTo, targets, beginDrag],
   );
 
   return (
@@ -348,12 +360,19 @@ function BottomRow({ pane }: { pane: PaneId | null }) {
  * pane takes the full height, two share it at a draggable split.
  */
 function SlotColumn({ column }: { column: ColumnId }) {
-  const { resolved } = useSlots();
+  const { resolved, pressure } = useSlots();
   const top = resolved[`${column}.top`] ?? null;
   const bottom = resolved[`${column}.bottom`] ?? null;
-  const open = columnVisible(resolved, column);
+  // Under pressure the second column stacks into the first rather than take a
+  // column of its own; its panes keep their slots, so they go back on widening.
+  const merged = pressure.mergeColumns;
+  const extras: [SlotId, PaneId][] =
+    merged && column === "a"
+      ? (["b.top", "b.bottom"] as const).flatMap((s) => (resolved[s] ? [[s, resolved[s]!] as [SlotId, PaneId]] : []))
+      : [];
+  const open = merged && column === "b" ? false : columnVisible(resolved, column) || extras.length > 0;
   const other: ColumnId = column === "a" ? "b" : "a";
-  const otherOpen = columnVisible(resolved, other);
+  const otherOpen = merged ? false : columnVisible(resolved, other);
 
   const widthA = usePanelWidthsStore((s) => s.splitPanelWidth);
   const setWidthA = usePanelWidthsStore((s) => s.setSplitPanelWidth);
@@ -377,6 +396,7 @@ function SlotColumn({ column }: { column: ColumnId }) {
     otherEffectiveWidth: (sidebarOpen ? sidebarWidth : 0) + (otherOpen ? Math.min(otherWidth, MAX_COLUMN_WIDTH) + GAP_WIDTH : 0),
     min: MIN_COLUMN_WIDTH,
     hardMax: MAX_COLUMN_WIDTH,
+    contentMin: pressure.contentMin,
   });
   const drawn = open ? Math.min(width, max) + GAP_WIDTH : 0;
 
@@ -437,7 +457,18 @@ function SlotColumn({ column }: { column: ColumnId }) {
         />
       ) : null}
       <div ref={columnRef} data-slot-column={column} className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {top ? (
+        {extras.length > 0 ? (
+          // Stacked: every pane an equal share, no split to drag — this is a
+          // temporary arrangement that the window's width will undo.
+          <div className="flex min-h-0 flex-1 flex-col" style={{ gap: GAP_WIDTH }}>
+            {([...(top ? [[`${column}.top`, top]] : []), ...(bottom ? [[`${column}.bottom`, bottom]] : []), ...extras] as [SlotId, PaneId][]).map(
+              ([slot, pane]) => (
+                <SlotCard key={slot} slot={slot} pane={pane} className="flex-1" />
+              ),
+            )}
+          </div>
+        ) : null}
+        {extras.length === 0 && top ? (
           <SlotCard
             slot={`${column}.top`}
             pane={top}
@@ -445,7 +476,7 @@ function SlotColumn({ column }: { column: ColumnId }) {
             style={both ? { height: sizes.top } : undefined}
           />
         ) : null}
-        {both ? (
+        {extras.length === 0 && both ? (
           <ShellResizeHandle
             orientation="horizontal"
             aria-label={`Resize column ${column.toUpperCase()} split`}
@@ -454,7 +485,7 @@ function SlotColumn({ column }: { column: ColumnId }) {
             style={{ height: GAP_WIDTH }}
           />
         ) : null}
-        {bottom ? (
+        {extras.length === 0 && bottom ? (
           <SlotCard
             slot={`${column}.bottom`}
             pane={bottom}

@@ -9,7 +9,8 @@ import { cn } from "@/lib/utils";
 import type { ModuleManifest } from "@/modules/registry";
 import { GROUP_MIN_WIDTH, MAX_GROUPS, tabsOfGroup, type DocGroup } from "@/stores/documentGroups";
 import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
-import { GAP_WIDTH } from "./panelLayout";
+import { GAP_WIDTH, GROUP_STRIP_WIDTH } from "./panelLayout";
+import { useLayoutPressure } from "./useLayoutPressure";
 import { ModuleEmptyState } from "./ModuleEmptyState";
 import { TabStrip } from "./tabs/TabStrip";
 import { useAdoptTab } from "./tabHosts";
@@ -49,16 +50,23 @@ export function DocumentGroups({
   // Shares, normalised: closing a group leaves the others' weights summing to
   // less than one, and flex-grow under one hands out only that fraction of the
   // row — the groups would shrink instead of filling it.
-  const totalWeight = shown.reduce((sum, g) => sum + g.weight, 0) || 1;
   const fallbackModule = availableModules[0];
 
   const rowRef = useRef<HTMLDivElement>(null);
+  // Last to give way on a narrow window: every group but the focused one folds
+  // to a strip. Clicking a strip focuses it, which unfolds it and folds another.
+  const { foldGroups } = useLayoutPressure();
+  const isFolded = (g: DocGroup) => multi && foldGroups && g.id !== focusedGroupId;
+  // Among the groups still open: a folded strip's share must go to them.
+  const totalWeight = shown.filter((g) => !isFolded(g)).reduce((sum, g) => sum + g.weight, 0) || 1;
 
   return (
     <div ref={rowRef} className="flex min-h-0 min-w-0 flex-1">
       {shown.map((group, i) => (
         <Fragment key={group.id || "initial"}>
-          {i > 0 ? (
+          {i > 0 && (isFolded(shown[i - 1]) || isFolded(group)) ? (
+            <div className="shrink-0" style={{ width: GAP_WIDTH }} aria-hidden />
+          ) : i > 0 ? (
             <GroupSash
               left={shown[i - 1]}
               right={group}
@@ -68,6 +76,7 @@ export function DocumentGroups({
           ) : null}
           <GroupCard
             group={group}
+            folded={isFolded(group)}
             share={group.weight / totalWeight}
             module={availableModules.find((m) => m.id === group.moduleId) ?? fallbackModule}
             focused={group.id === focusedGroupId || shown.length === 1}
@@ -87,6 +96,7 @@ export function DocumentGroups({
 
 function GroupCard({
   group,
+  folded,
   share,
   module,
   focused,
@@ -99,6 +109,7 @@ function GroupCard({
   onConfigureTabs,
 }: {
   group: DocGroup;
+  folded: boolean;
   share: number;
   module: ModuleManifest | undefined;
   focused: boolean;
@@ -146,14 +157,31 @@ function GroupCard({
       onPointerDownCapture={focus}
       onFocusCapture={focus}
       className="doc-group flex min-h-0 min-w-0 flex-col overflow-hidden shell-surface"
-      style={{ flex: `${share} 1 0%`, minWidth: multi ? GROUP_MIN_WIDTH : undefined }}
+      style={
+        folded
+          ? { flex: `0 0 ${GROUP_STRIP_WIDTH}px` }
+          : { flex: `${share} 1 0%`, minWidth: multi ? GROUP_MIN_WIDTH : undefined }
+      }
     >
+      {folded ? (
+        <button
+          type="button"
+          aria-label={`Show ${module?.title ?? "group"}: ${tabs.find((t) => t.id === group.activeTabId)?.title ?? ""}`}
+          className="flex min-h-0 flex-1 flex-col items-center gap-2 py-3 text-text-secondary hover:bg-state-soft hover:text-text-primary"
+          onClick={focus}
+        >
+          <Icon className="size-4 shrink-0" aria-hidden />
+          <span className="min-h-0 truncate text-label-12 [writing-mode:vertical-rl]">
+            {tabs.find((t) => t.id === group.activeTabId)?.title ?? module?.title}
+          </span>
+        </button>
+      ) : null}
       {/* The strip belongs to the module on screen and shows only its tabs.
           Drawn only for modules that opted in (ModuleManifest.tabs): a module
           with a single view has nothing to switch between. With more than one
           group, a module without a strip still gets a bar — its name, and the
           way to close the group. */}
-      {module?.tabs ? (
+      {folded ? null : module?.tabs ? (
         <Profiler id="tabs" onRender={recordCommit}>
           <div className="flex min-w-0 shrink-0 items-center">
             <div className="min-w-0 flex-1">
@@ -186,7 +214,9 @@ function GroupCard({
       ) : null}
       <section
         className={cn(
-          "flex min-h-0 flex-1 flex-col",
+          // Folded, the view stays adopted but out of sight — as a tab not
+          // on screen does — so unfolding shows it as it was.
+          folded ? "hidden" : "flex min-h-0 flex-1 flex-col",
           module?.padded
             ? // Half the gutter at the top when a tab strip is above, because
               // the strip already ends in 8px of its own. Without a strip the

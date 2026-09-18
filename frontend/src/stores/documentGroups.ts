@@ -27,7 +27,7 @@ export type DocGroup = {
 
 export const MAX_GROUPS = 3;
 /** Narrower than this and no document in the group is readable. */
-export const GROUP_MIN_WIDTH = 360;
+export { GROUP_MIN_WIDTH } from "@/workbench/panelLayout";
 
 export type GroupsSnapshot = {
   activeModuleId: string;

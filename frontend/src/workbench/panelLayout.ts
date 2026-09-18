@@ -66,14 +66,16 @@ export function maxPanelWidth(opts: {
   otherEffectiveWidth: number;
   min: number;
   hardMax: number;
+  /** The document area's floor; more than CONTENT_MIN_WIDTH with several groups. */
+  contentMin?: number;
 }): number {
-  const { windowWidth, otherEffectiveWidth, min, hardMax } = opts;
+  const { windowWidth, otherEffectiveWidth, min, hardMax, contentMin = CONTENT_MIN_WIDTH } = opts;
   // Both gutters come off the top: the row is inset from either window edge,
   // so that width was never the panels' to divide, and leaving it in would let
   // a panel grow until the centre content sat WINDOW_GUTTER * 2 under the floor
   // this function exists to hold.
   const available =
-    windowWidth - WINDOW_GUTTER * 2 - otherEffectiveWidth - CONTENT_MIN_WIDTH - GAP_WIDTH * 2;
+    windowWidth - WINDOW_GUTTER * 2 - otherEffectiveWidth - contentMin - GAP_WIDTH * 2;
   return Math.max(min, Math.min(hardMax, available));
 }
 
@@ -122,4 +124,68 @@ export function maxBottomHeight(opts: {
   const available =
     windowHeight - TITLE_BAR_HEIGHT - CONTENT_MIN_HEIGHT - GAP_WIDTH - WINDOW_GUTTER;
   return Math.max(min, Math.min(hardMax, available));
+}
+
+/** The narrowest a right-hand column goes. */
+export const COLUMN_MIN_WIDTH = 320;
+/** The narrowest a document group goes while it is open. */
+export const GROUP_MIN_WIDTH = 360;
+/** An unfocused group folded to a strip: its module's icon and its tab. */
+export const GROUP_STRIP_WIDTH = 40;
+
+/** How much width `groups` side-by-side document groups need, each open. */
+export function documentFloor(groups: number): number {
+  return Math.max(CONTENT_MIN_WIDTH, groups * GROUP_MIN_WIDTH + (groups - 1) * GAP_WIDTH);
+}
+
+export type LayoutPressure = {
+  /** The sidebar gives way, its open state untouched: it comes back with the room. */
+  sidebarYields: boolean;
+  /** Column B's panes stack into column A instead of taking a column of their own. */
+  mergeColumns: boolean;
+  /** Every group but the focused one folds to a strip. */
+  foldGroups: boolean;
+  /** The floor the columns clamp against, given what folded. */
+  contentMin: number;
+};
+
+/**
+ * What gives way when the window is too narrow for everything that is open
+ * (docs/dev-kit/layout.mdx § Khi cửa sổ nhỏ lại), in this order:
+ *
+ *   1. panes shrink to their minimum and the document to its floor — the
+ *      clamps elsewhere in this file already do that;
+ *   2. the sidebar gives way;
+ *   3. the second column stacks into the first;
+ *   4. unfocused document groups fold to strips — never the focused one.
+ *
+ * Companions are never closed. Nothing here is stored: widen the window and
+ * each step undoes itself, back to the layout that was saved.
+ */
+export function layoutPressure(opts: {
+  windowWidth: number;
+  sidebarOpen: boolean;
+  sidebarWidth: number;
+  columns: number;
+  groups: number;
+}): LayoutPressure {
+  const { windowWidth, sidebarOpen, sidebarWidth, columns, groups } = opts;
+  const room = windowWidth - WINDOW_GUTTER * 2;
+  const side = (open: boolean) => (open ? sidebarWidth + GAP_WIDTH : 0);
+  const cols = (n: number) => n * (COLUMN_MIN_WIDTH + GAP_WIDTH);
+  const folded = CONTENT_MIN_WIDTH + (groups - 1) * (GROUP_STRIP_WIDTH + GAP_WIDTH);
+  const fits = (sidebar: boolean, n: number, doc: number) => room - side(sidebar) - cols(n) >= doc;
+
+  const floor = documentFloor(groups);
+  if (fits(sidebarOpen, columns, floor)) {
+    return { sidebarYields: false, mergeColumns: false, foldGroups: false, contentMin: floor };
+  }
+  if (fits(false, columns, floor)) {
+    return { sidebarYields: sidebarOpen, mergeColumns: false, foldGroups: false, contentMin: floor };
+  }
+  const merged = Math.min(columns, 1);
+  if (fits(false, merged, floor)) {
+    return { sidebarYields: sidebarOpen, mergeColumns: columns > 1, foldGroups: false, contentMin: floor };
+  }
+  return { sidebarYields: sidebarOpen, mergeColumns: columns > 1, foldGroups: groups > 1, contentMin: folded };
 }

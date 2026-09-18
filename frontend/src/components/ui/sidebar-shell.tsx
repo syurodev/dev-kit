@@ -14,6 +14,7 @@ import { useSidebarContentStore } from "@/stores/sidebarContent";
 import { ModuleSidebar } from "./module-sidebar";
 import { useSidebarOpenStore } from "@/stores/sidebarShell";
 import { ShellResizeHandle } from "@/components/ui/resize-handle";
+import { useLayoutPressure } from "@/workbench/useLayoutPressure";
 
 /**
  * Identifies which module a mounted view belongs to. Provided once per module
@@ -281,7 +282,12 @@ const MAX_SIDEBAR_WIDTH = 480;
  * rounded-xl/border/bg-card, not a shared card with an internal divider).
  */
 export function SidebarSurface({ activeModuleId }: { activeModuleId: string | null }) {
-  const open = useSidebarOpenStore((s) => s.open);
+  const wantOpen = useSidebarOpenStore((s) => s.open);
+  // Too narrow for everything open, the sidebar is the first to give way — its
+  // open state untouched, so it comes back as the window widens
+  // (panelLayout.layoutPressure).
+  const pressure = useLayoutPressure();
+  const open = wantOpen && !pressure.sidebarYields;
   const sidebarWidth = usePanelWidthsStore((s) => s.sidebarWidth);
   const setSidebarWidth = usePanelWidthsStore((s) => s.setSidebarWidth);
   const columnWidths = usePanelWidthsStore((s) => s.columnWidths);
@@ -305,6 +311,7 @@ export function SidebarSurface({ activeModuleId }: { activeModuleId: string | nu
     // space they actually occupy may shrink this panel's ceiling. Each drawn
     // width carries its sash, and maxPanelWidth already counts one.
     otherEffectiveWidth: Math.max(0, columnWidths.a + columnWidths.b - GAP_WIDTH),
+    contentMin: pressure.contentMin,
     min: MIN_SIDEBAR_WIDTH,
     hardMax: MAX_SIDEBAR_WIDTH,
   });

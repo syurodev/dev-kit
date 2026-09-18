@@ -17,11 +17,14 @@ type PanelWidthsState = {
   sidebarOpen: boolean;
   /** What each right column occupies now, sash included; 0 while it is not drawn. */
   columnWidths: { a: number; b: number };
+  /** Right-hand columns holding a pane, before any merge under pressure. */
+  visibleColumns: number;
   setSplitTopHeight: (height: number) => void;
   setSidebarWidth: (width: number) => void;
   setSplitPanelWidth: (width: number) => void;
   setSidebarOpen: (open: boolean) => void;
   setColumnWidth: (column: "a" | "b", width: number) => void;
+  setVisibleColumns: (count: number) => void;
 };
 
 /**
@@ -37,10 +40,12 @@ export const usePanelWidthsStore = create<PanelWidthsState>((set) => ({
   splitTopHeight: 430,
   sidebarOpen: false,
   columnWidths: { a: 0, b: 0 },
+  visibleColumns: 0,
   setSplitTopHeight: (height) => set({ splitTopHeight: height }),
   setSidebarWidth: (width) => set({ sidebarWidth: width }),
   setSplitPanelWidth: (width) => set({ splitPanelWidth: width }),
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
+  setVisibleColumns: (count) => set((s) => (s.visibleColumns === count ? s : { visibleColumns: count })),
   setColumnWidth: (column, width) =>
     set((s) => (s.columnWidths[column] === width ? s : { columnWidths: { ...s.columnWidths, [column]: width } })),
 }));
