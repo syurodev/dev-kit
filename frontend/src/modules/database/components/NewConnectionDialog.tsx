@@ -101,8 +101,11 @@ export function NewConnectionDialog() {
   }
 
   async function handleCreate() {
-    if (!name.trim() || !database.trim()) {
-      setError("Please provide a connection name and database name.");
+    // The database is optional, as in any SQL client: Postgres falls back to
+    // the one named after the user, and MySQL connects with no default schema
+    // and lists them all.
+    if (!name.trim()) {
+      setError("Please provide a connection name.");
       return;
     }
 
@@ -255,11 +258,14 @@ export function NewConnectionDialog() {
 
           {/* Database */}
           <div className="space-y-1">
-            <label className={FIELD_LABEL}>Database Name</label>
+            <label className={FIELD_LABEL}>
+              <span>Database Name</span>
+              <span className="font-normal text-text-tertiary">optional</span>
+            </label>
             <Input
               value={database}
               onChange={(e) => setDatabase(e.target.value)}
-              placeholder="mydb"
+              placeholder={engine === "postgres" ? "defaults to the username" : "none: all schemas"}
               className="h-8 text-code-12"
             />
           </div>

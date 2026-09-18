@@ -489,7 +489,7 @@ export function DatabaseSidebar() {
         label: "Copy connection target",
         onSelect: () =>
           void copyText(
-            `${profile.username}@${profile.host}:${profile.port}/${profile.database}`,
+            `${profile.username}@${profile.host}:${profile.port}${profile.database ? `/${profile.database}` : ""}`,
           ),
       },
       { kind: "separator" },
@@ -544,7 +544,7 @@ export function DatabaseSidebar() {
       // Guarded: setSelectedProfileId clears the result grid, and collapsing
       // the connection you are working in must not throw away its rows.
       onSelect: isSelected ? undefined : () => setSelectedProfileId(profile.id),
-      title: `${profile.username}@${profile.host}:${profile.port}/${profile.database}${
+      title: `${profile.username}@${profile.host}:${profile.port}${profile.database ? `/${profile.database}` : ""}${
         isSelected && indexed ? ` · indexed ${indexed}` : ""
       }`,
       children: isSelected ? schemaNodes() : undefined,
