@@ -45,6 +45,13 @@ if (import.meta.env.DEV || localStorage.getItem('devkitPerf') === '1') {
 // dockview spike (docs/dev-kit/layout.mdx § Kết quả spike), so the drag test
 // can run in the real webview without opening an inspector. Dev builds only.
 if (import.meta.env.DEV) {
+  // EXPERIMENT — ⌘⌥⇧L / Ctrl+Alt+Shift+L turns the dockable shell on or off
+  // (workbench/dock/dockShellFlag.ts). Reloads the window.
+  window.addEventListener('keydown', (e) => {
+    if (e.key.toLowerCase() !== 'l' || !e.shiftKey || !e.altKey || !(e.metaKey || e.ctrlKey)) return
+    e.preventDefault()
+    void import('./workbench/dock/dockShellFlag').then((m) => m.toggleDockShell())
+  })
   window.addEventListener('keydown', (e) => {
     if (e.key.toLowerCase() !== 'd' || !e.shiftKey || !e.altKey || !(e.metaKey || e.ctrlKey)) return
     e.preventDefault()

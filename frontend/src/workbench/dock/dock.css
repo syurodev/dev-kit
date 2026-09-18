@@ -53,14 +53,17 @@
 /* Cards with a gutter between them, like the shell's surfaces today: the
    view padding makes the gap, the group is the rounded card. */
 .dockview-theme-devkit .dv-split-view-container > .dv-view-container > .dv-view {
-  padding: var(--space-micro);
+  /* Half the gap on each side of a sash. The spike page uses a roomier gap;
+     the shell sets --dk-gap to GAP_WIDTH so panes sit exactly like its cards. */
+  padding: calc(var(--dk-gap, calc(var(--space-micro) * 2)) / 2);
   box-sizing: border-box;
 }
 .dockview-theme-devkit .dv-groupview {
-  border-radius: var(--dv-border-radius);
+  border-radius: var(--dk-card-radius, var(--dv-border-radius));
   border: 1px solid var(--glass-border);
   overflow: hidden;
   background: var(--surface-base);
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
 }
 /* The focus ring of layout.mdx: the group that owns the sidebar. */
 .dockview-theme-devkit .dv-groupview.dv-active-group[data-dk-kind="document"] {
@@ -132,4 +135,18 @@ body.dk-lift-dragging * {
   color: var(--action-primary-foreground);
   font-size: var(--type-compact-size);
   white-space: nowrap;
+}
+
+/* In the shell: the shell's own gap and card radius, so panes sit exactly
+   where today's cards do. */
+.dockview-theme-devkit.dk-shell {
+  --dk-gap: var(--space-micro);
+  --dk-card-radius: var(--shell-radius);
+}
+.dockview-theme-devkit .dv-groupview[data-dk-kind="document"] {
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
+}
+/* One document group in the shell trial: nothing to tell apart, so no ring. */
+.dockview-theme-devkit.dk-shell .dv-groupview.dv-active-group[data-dk-kind="document"] {
+  border-color: var(--glass-border);
 }

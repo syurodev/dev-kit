@@ -3,7 +3,8 @@
  * be tested without dockview and kept if the renderer changes.
  */
 
-export type ModuleId = "codegraph" | "notes";
+/** A module id from the registry (`codegraph`, `notes`, …). */
+export type ModuleId = string;
 export type PaneKind = "document" | "context" | "companion";
 
 export type PaneParams = {

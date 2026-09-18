@@ -13,10 +13,10 @@ import "dockview-react/dist/styles/dockview.css";
 import { Bot, Braces, Columns2, FileText, GitBranch, Maximize2, Minimize2, MoveRight, PanelBottom, PictureInPicture2, SquareTerminal, Workflow, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PANEL_COMPONENTS } from "./panels";
-import { canDrop, groupKindOf, relativeDirection, type ModuleId, type PaneParams, type Placement } from "./layoutRules";
+import { canDrop, groupKindOf, relativeDirection, type ModuleId, type PaneParams, type Placement } from "@/workbench/dock/layoutRules";
 import { forgetMounts, updateProbes, useProbes } from "./probes";
-import { setDropHintElement, startLiftDrag } from "./liftDrag";
-import "./dockSpike.css";
+import { setDropHintElement, startLiftDrag } from "@/workbench/dock/liftDrag";
+import "@/workbench/dock/dock.css";
 
 /**
  * SPIKE — docs/dev-kit/layout.mdx on dockview. Reached at `?dock-spike`

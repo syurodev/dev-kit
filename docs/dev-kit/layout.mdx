@@ -480,6 +480,16 @@ dùng DnD bằng pointer events), dockview-react **8.3.1**, đo trong Chromium �
 - **Tải chậm.** Shell cần layout ở frame đầu, nên không lazy-load dockview đơn
   giản được; có thể vẽ layout tĩnh từ `LayoutState` trước rồi hydrate dockview.
 
+### Thử trong shell thật
+
+`frontend/src/workbench/dock/DockShellRow.tsx`, sau cờ `devkit.dockShell`
+(localStorage, tắt mặc định; bản dev bật/tắt bằng `⌘⌥⇧L`, reload cửa sổ).
+Lazy — initial JS vẫn 876 KiB khi cờ tắt. Phương án (b): content card
+(tab strip + views) là **một** pane document không header; `openPanel`, agent
+companion và bottom slot giữ nguyên API/store, chỉ đổi chỗ vẽ thành pane kéo
+được (kéo kiểu "nhấc cả pane"). Vị trí pane nhớ theo phiên (panel theo module);
+chưa lưu qua restart.
+
 **Kiểm tay trong app** (mục 5): `task dev`, mở Web Inspector của cửa sổ, chạy
 `location.search = "?dock-spike"`, thử kéo tab ở cả chế độ mặc định và
 `?dock-spike&pointer`, trên macOS (WKWebView) và Windows (WebView2).

@@ -6,7 +6,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { CodeEditor } from "@/components/code-editor/CodeEditor";
-import type { PaneParams } from "./layoutRules";
+import type { PaneParams } from "@/workbench/dock/layoutRules";
 import { countMount, nextInstance, updateProbes } from "./probes";
 
 type Props = IDockviewPanelProps<PaneParams>;
