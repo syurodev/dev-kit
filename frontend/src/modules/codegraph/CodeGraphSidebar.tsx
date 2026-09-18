@@ -52,11 +52,11 @@ type CodeGraphSidebarProps = {
 };
 
 /**
- * Figma `CodeGraph / Sidebar` (482:907, 862:33450, 862:33497): a project
- * picker (primary Open + Re-index, the path in Code/11 under them), a 40px
- * search field, a segmented Files / Endpoints / Plan strip, then the list
- * the tab names. Endpoint rows carry a 58×21 method chip; plan rows a status
- * badge over the FQN; files a 28px tree.
+ * Figma `CodeGraph / Sidebar` (1192:69479) is the redesign this component is
+ * moving towards: project switcher, grouped endpoints, symbol search, Files
+ * and Plan states, and the cross-module actions in docs/dev-kit/cross-module.
+ * Until then: a project picker, a search field, a segmented Files / Endpoints /
+ * Plan strip, then the list the tab names.
  */
 export function CodeGraphSidebar(props: CodeGraphSidebarProps) {
   const {

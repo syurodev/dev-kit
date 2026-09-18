@@ -1,0 +1,135 @@
+---
+title: Liên module
+description: Cách Code Graph, Agent Hub, Tasks và API Client nói chuyện với nhau — một kiểu tham chiếu thực thể dùng chung, một cơ chế intent, và luật "ai sở hữu fact nào".
+---
+
+# Liên module
+
+Các module của DevKit được thiết kế riêng lẻ, nhưng người dùng làm việc **xuyên
+qua** chúng: đọc flow `POST /refunds` trong [Code Graph](/dev-kit/codegraph),
+gọi thử nó trong [API Client](/dev-kit/api-client), nhờ agent trong
+[Agent Hub](/dev-kit/agent-hub) sửa, theo dõi việc đó trong
+[Tasks](/dev-kit/tasks). Trang này định nghĩa **hai primitive** để các bước đó
+liền mạch mà không module nào phải import ruột của module khác.
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+<Callout type="warn" title="Design only">
+Chưa có `EntityRef` hay intent registry trong code. Hôm nay module gọi nhau
+bằng import trực tiếp (vd `AgentCompanion` gọi `openFileInProject` của Code
+Graph) và hai window event lẻ (`settingsRequest`, `vaultUnlockRequest`). Thiết
+kế UI: [Figma · CodeGraph / Cross-module](https://www.figma.com/design/3dOzSZBYY7QtzANFTCfEe8/DevKit?node-id=1195-55294).
+</Callout>
+
+## Nguyên tắc
+
+1. **Tham chiếu, không sao chép.** Module A không lưu bản sao dữ liệu của
+   module B; nó lưu một `EntityRef` và hỏi B khi cần hiển thị. Đây là luật
+   Tasks ↔ Code Graph đã chốt (hai ID trỏ nhau, không FK, không copy status) —
+   áp dụng cho mọi cặp.
+2. **Ai sở hữu fact thì chỉ người đó ghi.** Code Graph sở hữu "code có tồn
+   tại / có khớp plan", Tasks sở hữu "việc đang ở bước nào", API Client sở hữu
+   "request gửi đi và response". Cần thêm dữ liệu thì thêm vào bên sở hữu.
+3. **Ở lại module đang đứng khi có thể.** Hỏi agent mở **rail** trên module
+   hiện tại thay vì chuyển sang Agent Hub; tạo task mở **peek** thay vì rời
+   Code Graph. Chỉ chuyển tab khi đích là một công cụ làm việc (API Client).
+4. **Một cửa cho agent.** Mọi thứ người làm được bằng chip/menu, agent làm
+   được bằng MCP tool của module sở hữu, qua cùng Capability Gateway và cùng
+   gate env — không có đường tắt vì "đây là agent gọi từ module khác".
+
+## Primitive 1 — `EntityRef`
+
+Một giá trị nhỏ, serialize được, mô tả "cái đó ở module nào":
+
+```ts
+type EntityRef = {
+  module: "codegraph" | "tasks" | "apiclient" | "agenthub" | "notes" | "database";
+  kind: string;      // "endpoint" | "planNode" | "node" | "file" | "task" | "request" | "session" | …
+  id: string;        // ID ổn định do module sở hữu cấp
+  label: string;     // hiển thị khi module sở hữu chưa trả lời (offline, chưa index)
+  project?: string;  // root project khi thực thể thuộc về một project
+};
+```
+
+Dạng chuỗi (để dán, để agent đọc): `devkit://codegraph/endpoint/POST%20%2Frefunds?project=…`.
+
+- Mỗi module đăng ký **resolver** cho `kind` của mình: `ref → {title, meta,
+  status, open()}`. Chip hiển thị gọi resolver; resolver trả `stale` khi thực
+  thể biến mất (endpoint bị xoá sau re-index) — chip vẫn hiện, gạch mờ.
+- UI dùng một component duy nhất: **`Shared / Entity Chip`** (Figma), biến thể
+  theo `kind`. Cùng chip xuất hiện trong composer của agent, header request của
+  API Client, dòng plan của Code Graph, description của task.
+- Kéo-thả chip giữa module là thao tác hợp lệ: thả chip endpoint vào composer
+  = attach; thả vào task description = link.
+
+Agent nhận `EntityRef` như **context có cấu trúc**, không phải text dán vào:
+chip endpoint trong composer trở thành một attachment mà agent resolve qua
+`codegraph.getApiFlow` — agent đọc flow mới nhất, không phải bản chụp lúc gửi.
+
+## Primitive 2 — Intent
+
+Module không import view của nhau; nó **dispatch intent**, module đích đăng ký
+handler:
+
+```ts
+registerIntent("api.fromEndpoint", (ref: EntityRef) => …);   // apiclient
+registerIntent("agent.attach", (refs: EntityRef[], prompt?: string) => …); // agenthub
+registerIntent("task.create", (seed: { title: string; refs: EntityRef[] }) => …); // tasks
+registerIntent("codegraph.reveal", (ref: EntityRef) => …);    // codegraph
+
+dispatchIntent("api.fromEndpoint", ref);
+```
+
+- Registry sống ở `frontend/src/workbench/intents.ts`, cạnh `openTab`. Module
+  chưa cài / chưa bật ⇒ `dispatchIntent` trả `unavailable`, menu ẩn mục đó.
+- Intent là **điều hướng UI**. Mọi ghi dữ liệu mà intent dẫn tới vẫn đi qua
+  bridge của module đích → Capability Gateway. Intent không mang quyền.
+- Thay dần các import chéo hiện có (`openFileInProject` từ AgentCompanion) và
+  hai window event lẻ bằng intent tương ứng.
+
+## Ma trận điểm nối
+
+| Từ → Tới | Điểm chạm trong UI | Intent / tool | Ai sở hữu dữ liệu |
+|---|---|---|---|
+| Code Graph → API Client | Hover/menu endpoint: **Try in API Client** (`⌘↵`) | `api.fromEndpoint` | API Client tạo nháp; Code Graph chỉ cung cấp endpoint + param |
+| Code Graph → Agent Hub | **Ask agent about this flow** (`⌘L`); banner lỗi index: **Ask agent** | `agent.attach([endpoint, planNode…])` | Agent Hub (session); Code Graph trả flow khi agent gọi tool |
+| Code Graph → Tasks | **New task from endpoint** (`⌘T`); plan đã duyệt: **Create tasks from plan** | `task.create`, `tasks.createFromPlan` | Tasks; link hai chiều `plan_node_id` ↔ `task_id` |
+| Tasks → Code Graph | Chip plan node / endpoint trong task detail | `codegraph.reveal` | Chỉ điều hướng |
+| API Client → Code Graph | Chip nguồn trên request: **View flow** | `codegraph.reveal` | Chỉ điều hướng |
+| API Client → Agent Hub | Response: **Attach to agent** | `agent.attach([request])` | Agent Hub; response đã cắt + che secret |
+| API Client → Tasks | Response: **Add to task** | `tasks.comment.add` với ref request | Tasks (comment) |
+| Agent Hub → mọi module | Agent tự gọi `codegraph.*`, `tasks.*`, `api.*` qua MCP | tool của module sở hữu | Module sở hữu, qua Gateway + gate env |
+| Mọi module → Agent Hub | Rail companion mở trên module hiện tại; permission hiện trong rail/toast | — | Agent Hub |
+
+## Code Graph là trạm trung tâm
+
+Code Graph biết cấu trúc code nên là nơi phát ra nhiều ref nhất. Sidebar mới
+([Figma · CodeGraph / Sidebar](https://www.figma.com/design/3dOzSZBYY7QtzANFTCfEe8/DevKit?node-id=1189-41340))
+đặt các điểm chạm như sau:
+
+- **Dòng endpoint**: hover hiện ba nút (Try, Ask agent, More); `More` mở menu
+  đầy đủ (Try in API Client, Ask agent, New task, Copy as cURL, Reveal handler).
+- **Tab Plan**: badge đếm node lệch; plan đã duyệt hiện chip task trên từng
+  dòng và nút *Create tasks from plan*.
+- **Tab Files**: marker thay đổi (`M`/`A`) và *blast radius* của file đang
+  chọn ("In 3 flows · 2 endpoints affected") — cùng dữ liệu agent đọc được
+  trước khi sửa.
+- **Banner lỗi index**: *Retry*, *View log*, *Ask agent* (attach log lỗi).
+
+## Phím tắt dùng chung
+
+| Phím | Ý nghĩa ở mọi module |
+|---|---|
+| `⌘↵` | Hành động chính của thực thể đang chọn (Send request, Try endpoint) |
+| `⌘L` | Đưa thực thể đang chọn vào composer của agent |
+| `⌘T` | Tạo task từ thực thể đang chọn |
+| `⌘K` rồi `@` | Tìm symbol / thực thể xuyên module |
+
+## Thứ tự triển khai gợi ý
+
+1. `EntityRef` + `Shared / Entity Chip` + resolver cho `codegraph` (endpoint,
+   planNode, file) — dùng ngay trong composer của Agent Hub (`agent.attach`).
+2. Intent registry; chuyển `openFileInProject` sang `codegraph.reveal`.
+3. API Client v1 với `api.fromEndpoint` (cần analyzer đọc `@RequestBody` /
+   `@PathVariable` — xem [API Client § Phụ thuộc](/dev-kit/api-client#phụ-thuộc-analyzer-phải-hiểu-tham-số-của-handler)).
+4. Tasks v1 — resolver `task` và `tasks.createFromPlan` cắm vào tab Plan.
