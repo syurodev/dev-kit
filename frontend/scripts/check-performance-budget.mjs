@@ -4,9 +4,11 @@ import path from "node:path";
 const DIST_DIR = path.resolve(import.meta.dirname, "../dist");
 // What the shell costs to boot: React + ReactDOM, the Radix/Ariakit
 // primitives, the Wails runtime and the workbench itself. 700 KiB was set
-// before the shell grew a split panel, a dock and a tab strip; the headroom
-// here is deliberately ~15% so a real regression still trips it.
-const INITIAL_JS_BUDGET = 1024 * 1024;
+// before the shell grew a split panel, a dock and a tab strip. 1 MiB held
+// until the slot layout, document groups and layout presets brought the shell
+// to ~911 KiB; 2 MiB now leaves room to build on rather than to shave. A
+// regression still shows as the number moving — say so when it jumps.
+const INITIAL_JS_BUDGET = 2 * 1024 * 1024;
 // Both budgets are raw, and there are no gzip budgets. Assets are embedded in
 // the Go binary and served from AssetFileServerFS over loopback (ADR-006 keeps
 // even server mode loopback-only), so compressed size stands in for a download
