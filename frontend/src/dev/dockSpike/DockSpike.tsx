@@ -404,6 +404,21 @@ export default function DockSpike() {
       <header className="flex h-10 shrink-0 items-center gap-2 border-b border-border-subtle px-3">
         <span className="text-title-13">Dockview spike</span>
         <span className="text-caption-11 text-text-tertiary">{pointer ? "dnd: pointer" : "dnd: auto (html5)"}</span>
+        <button
+          type="button"
+          className={btn}
+          onClick={() => {
+            const url = new URL(window.location.href);
+            if (pointer) url.searchParams.delete("pointer");
+            else url.searchParams.set("pointer", "");
+            window.location.href = url.toString();
+          }}
+        >
+          Switch to {pointer ? "HTML5" : "pointer"} DnD
+        </button>
+        <button type="button" className={btn} onClick={() => (window.location.href = window.location.pathname)}>
+          Back to app (⌘⌥⇧D)
+        </button>
         <div className="ml-4 flex items-center gap-1">
           {(["codegraph", "notes"] as const).map((m) => (
             <button key={m} type="button" className={cn(btn, activeModule === m && "border-status-info")} onClick={() => switchModule(m)}>{MODULE_LABEL[m]}</button>

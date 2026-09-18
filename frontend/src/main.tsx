@@ -41,6 +41,20 @@ if (import.meta.env.DEV || localStorage.getItem('devkitPerf') === '1') {
   void import('./lib/perfTrace').then((m) => m.installPerfTrace())
 }
 
+// SPIKE — ⌘⌥⇧D / Ctrl+Alt+Shift+D flips the window between the app and the
+// dockview spike (docs/dev-kit/layout.mdx § Kết quả spike), so the drag test
+// can run in the real webview without opening an inspector. Dev builds only.
+if (import.meta.env.DEV) {
+  window.addEventListener('keydown', (e) => {
+    if (e.key.toLowerCase() !== 'd' || !e.shiftKey || !e.altKey || !(e.metaKey || e.ctrlKey)) return
+    e.preventDefault()
+    const url = new URL(window.location.href)
+    if (url.searchParams.has('dock-spike')) url.searchParams.delete('dock-spike')
+    else url.searchParams.set('dock-spike', '')
+    window.location.href = url.toString()
+  })
+}
+
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
     <App />
