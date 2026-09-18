@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { indexedStatus } from "./CodeGraphView";
+import { indexedStatus } from "./codegraphActions";
 
 describe("indexedStatus", () => {
   it("names the module count for a repository holding several", () => {

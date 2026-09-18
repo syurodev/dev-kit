@@ -20,6 +20,10 @@ export type ApiNodeData = {
  * same hex as `--status-info`, so a focus-coloured ring is invisible on a
  * Controller node; and any layer-coloured ring would make "selected" and "which
  * layer" say the same thing. Layer meaning lives in the icon and label only.
+ *
+ * Keyboard: the React Flow wrapper around this card is the focusable element
+ * (a named role="button", see FlowCanvas), so the ring is drawn from its
+ * focus-visible state rather than by a second tab stop inside the card.
  */
 export function ApiNode({ data, selected }: NodeProps & { data: ApiNodeData }) {
   const visual = LAYERS[layerOf(data.layer)];
@@ -29,7 +33,7 @@ export function ApiNode({ data, selected }: NodeProps & { data: ApiNodeData }) {
   return (
     <div
       className={cn(
-        "group flex w-67 flex-col gap-2.5 rounded-lg bg-surface-raised p-3",
+        "group flex w-67 flex-col gap-2.5 rounded-lg bg-surface-raised p-3 in-focus-visible:ring-2 in-focus-visible:ring-text-primary",
         selected
           ? "border-2 border-text-primary shadow-[0_6px_8px_rgba(0,0,0,0.45)]"
           : "border border-border-subtle shadow-[0_1px_1.5px_rgba(0,0,0,0.18)] hover:border-text-tertiary hover:shadow-[0_4px_6px_rgba(0,0,0,0.35)]",

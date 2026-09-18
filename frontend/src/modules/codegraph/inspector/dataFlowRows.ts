@@ -11,6 +11,9 @@ export const WALL_LABELS = {
   unresolved: "unresolved — the solver could not resolve this call",
   depth: "depth limit reached",
   cycle: "cycle — already on this path",
+  lombok: "lombok — generated accessor, read as the field",
+  repeat: "repeat — this method was already traced above",
+  limit: "step limit reached — the trace was cut short",
 } as const;
 
 export type DataFlowRow =

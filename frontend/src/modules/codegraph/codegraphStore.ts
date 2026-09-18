@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { createRequestGuard } from "./requestGuard";
 import type {
   CodeGraphPlanEdge,
   CodeGraphPlanProgress,
@@ -16,6 +17,8 @@ type CodeGraphState = {
   endpoints: CodeGraphEndpoint[];
   subgraph: CodeGraphSubgraph | null;
   rootId: string | null;
+  /** The endpoint picked in the sidebar; several endpoints can share one entry node. */
+  rootEndpointId: string | null;
   status: string;
   error: string;
   /**
@@ -29,6 +32,12 @@ type CodeGraphState = {
 
   /** True while fetching the next page of a truncated subgraph. */
   loadingMore: boolean;
+  /**
+   * How many pages of the subgraph are on screen. A background re-index
+   * re-fetches this many, so an index update does not quietly undo every
+   * "Load more" the user clicked.
+   */
+  subgraphPages: number;
 
   /** The node whose inspector is open, or null. Replaces snippetOpen: the
    *  inspector is anchored to a specific node, so "which node" IS the
@@ -53,6 +62,15 @@ type CodeGraphState = {
   planError: string;
   files: CodeGraphFileEntry[];
   selectedFile: string | null;
+  /**
+   * The project root `selectedFile` was opened under. Saving sends it to Go,
+   * which refuses the write if the active project has moved since; the view
+   * compares it with `projectPath` to mark a buffer left over from a switch.
+   * Filled in by set() whenever selectedFile changes without it — see below.
+   */
+  fileRoot: string;
+  /** A file the user asked to open while the current one had unsaved edits. */
+  pendingOpenFile: string | null;
   selectedLine: number | null;
   fileContent: string;
   fileDirty: boolean;
@@ -85,16 +103,18 @@ type CodeGraphState = {
  * reads that selection on mount and waits for its index before loading data;
  * graph results themselves are never restored from frontend storage.
  */
-export const useCodeGraphStore = create<CodeGraphState>((set) => ({
+export const useCodeGraphStore = create<CodeGraphState>((set, get) => ({
   projectPath: "",
   endpoints: [],
   subgraph: null,
   rootId: null,
+  rootEndpointId: null,
   status: "",
   error: "",
   errorCode: "",
   busy: false,
   loadingMore: false,
+  subgraphPages: 0,
 
   inspectorNodeId: null,
   snippet: null,
@@ -111,6 +131,8 @@ export const useCodeGraphStore = create<CodeGraphState>((set) => ({
   planError: "",
   files: [],
   selectedFile: null,
+  fileRoot: "",
+  pendingOpenFile: null,
   selectedLine: null,
   fileContent: "",
   fileDirty: false,
@@ -118,5 +140,22 @@ export const useCodeGraphStore = create<CodeGraphState>((set) => ({
   query: "",
   analyzerStatuses: null,
 
-  set: (patch) => set(patch),
+  // Opening a file from outside this module (the agent companion sets
+  // selectedFile directly) must still record which project it belongs to, or a
+  // later save would carry the previous file's root. So a patch that changes
+  // the file without naming its root takes the project it lands in.
+  set: (patch) => {
+    if ("selectedFile" in patch && !("fileRoot" in patch)) {
+      set({ ...patch, fileRoot: patch.selectedFile ? (patch.projectPath ?? get().projectPath) : "" });
+      return;
+    }
+    set(patch);
+  },
 }));
+
+/**
+ * One guard for every CodeGraph request, module-level like the store itself:
+ * the actions outlive the view (see above), and so do their responses.
+ * Keys are per action; a project switch invalidates all of them.
+ */
+export const codeGraphRequests = createRequestGuard();
