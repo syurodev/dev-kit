@@ -3,6 +3,7 @@ import type { AgentSession } from "@/bridge/agenthub";
 import { AgentHubContent } from "@/modules/agenthub/surfaces/AgentHubContent";
 import { AgentSidebarTree } from "@/modules/agenthub/surfaces/AgentSidebarTree";
 import { AgentPermissionRequest } from "@/modules/agenthub/surfaces/AgentPermissionRequest";
+import { AgentSessionError } from "@/modules/agenthub/surfaces/AgentSessionError";
 import type { TranscriptItem } from "@/modules/agenthub/types";
 
 /**
@@ -192,6 +193,25 @@ export function AgentHubTranscriptSection() {
           onSend={() => {}}
           onCancel={() => {}}
         />
+      </div>
+      <h2 className="text-title-16 text-text-primary">Agent Hub — session error</h2>
+      <div data-testid="gallery-agenthub-error" className="flex w-full flex-col gap-4">
+        <AgentSessionError
+          cause="crashed"
+          agentName="Dev-kit-backend"
+          reason="agenthub.processFailed — the agent exited after session/cancel timed out."
+          onRetry={() => {}}
+        />
+        <AgentSessionError
+          cause="notInstalled"
+          agentName="Claude"
+          reason="agent_not_installed — Claude Agent is not installed. Install it in Settings → Agents."
+          onOpenSettings={() => {}}
+          onClose={() => {}}
+        />
+        <div className="w-62">
+          <AgentSessionError cause="crashed" agentName="docs-sweep" onRetry={() => {}} />
+        </div>
       </div>
       <h2 className="text-title-16 text-text-primary">Agent Hub — permission to edit a file</h2>
       <div data-testid="gallery-agenthub-permission-edit" className="w-180 max-w-full">

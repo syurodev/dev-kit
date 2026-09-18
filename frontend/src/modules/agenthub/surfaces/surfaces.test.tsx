@@ -401,6 +401,35 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       expect(html).not.toContain('data-testid="session-error-retry"');
     });
 
+    it("is one row on the app's own surface, not a filled red block", () => {
+      const html = renderToString(
+        <AgentSessionError
+          cause="crashed"
+          agentName="docs-sweep"
+          reason="agenthub.processFailed — the agent exited after session/cancel timed out."
+          onRetry={() => {}}
+        />,
+      );
+      // The wash went: a tinted panel over the transcript, beside a tinted
+      // composer, was one colour too many (see AgentPermissionRequest). The
+      // tone is the dot and the border.
+      expect(html).not.toContain("feedback-danger-soft");
+      expect(html).toContain("bg-status-danger");
+      expect(html).toContain("border-(--border-danger)");
+      // Title, reason and the action share one wrapping row instead of
+      // stacking three, the last of which held nothing but a button.
+      const card = html.slice(html.indexOf('data-testid="agent-session-error"'));
+      const row = card.indexOf("flex w-full flex-wrap items-center");
+      expect(row).toBeGreaterThan(-1);
+      // Everything is inside it: the row opens before the title and nothing
+      // closes it until after the action.
+      expect(card.indexOf("docs-sweep stopped")).toBeGreaterThan(row);
+      expect(card.indexOf("session-error-retry")).toBeGreaterThan(card.indexOf("agent-session-error-reason"));
+      // The whole reason stays reachable even though the line truncates.
+      expect(html).toContain('title="agenthub.processFailed');
+      expect(html).toContain("truncate");
+    });
+
     it("uses the shared Button rather than a hand-rolled one", () => {
       const html = renderToString(
         <AgentSessionError agentName="a" onRetry={() => {}} onClose={() => {}} />,

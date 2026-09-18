@@ -69,6 +69,22 @@ export type AgentSessionErrorProps = {
  * The two variants differ only in copy and in the primary action's label; the
  * surface, the structure and the tones are identical, so they are one layout
  * with two defaults rather than two branches.
+ *
+ * One row: dot, what happened, why, and the way out. It was a block — title
+ * row, reason on its own line, then a row holding nothing but a right-aligned
+ * button — three rows and a band of empty space for a sentence and a button,
+ * floating over the transcript right above the composer.
+ *
+ * The danger wash went with it, for the reason AgentPermissionRequest gives:
+ * a tinted panel over a transcript, beside a tinted composer, is one colour
+ * too many, and a filled red block reads as damage done rather than as the
+ * one thing to read. The tone is the dot and the border now — the same weight
+ * an agent's error state carries everywhere else in the app.
+ *
+ * The reason truncates rather than wrapping: a stack trace or a vendor
+ * message is often a paragraph, and the card would push the transcript off
+ * screen to show all of it. The whole text stays in `title` and in the DOM for
+ * anyone reading it aloud.
  */
 export function AgentSessionError({
   cause = "crashed",
@@ -88,6 +104,48 @@ export function AgentSessionError({
   const defaultReason = copy.reason;
   const setupCause = cause === "notInstalled" || cause === "requirement";
 
+  const reasonText = reason ?? defaultReason;
+  const actions = (
+    <div className="flex shrink-0 items-center gap-2">
+      {onClose ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          data-testid="session-error-close"
+          onClick={onClose}
+          // h-8 because Figma's button is px-3/py-2 on a 16px line box — 32
+          // tall, which is control-height-md while size="sm" is 28. Everything
+          // else about sm is right: px-3, radius/8, Label/12.
+          className="h-8 border-border-subtle text-text-secondary"
+        >
+          Close session
+        </Button>
+      ) : null}
+      {setupCause && onOpenSettings ? (
+        <Button
+          type="button"
+          size="sm"
+          data-testid="session-error-open-settings"
+          onClick={onOpenSettings}
+          className="h-8"
+        >
+          Open agent settings
+        </Button>
+      ) : onRetry ? (
+        <Button
+          type="button"
+          size="sm"
+          data-testid="session-error-retry"
+          onClick={onRetry}
+          className="h-8"
+        >
+          {retryLabel}
+        </Button>
+      ) : null}
+    </div>
+  );
+
   return (
     <div
       id={id}
@@ -95,76 +153,32 @@ export function AgentSessionError({
       data-testid="agent-session-error"
       data-cause={cause}
       className={cn(
-        "flex w-full max-w-134 flex-col gap-2 rounded-control p-3",
-        "bg-(--feedback-danger-soft) border border-(--border-danger)",
+        "flex w-full max-w-180 flex-col gap-2 rounded-control px-3 py-2",
+        "border border-(--border-danger) bg-surface-raised",
         className,
       )}
     >
-      <div className="flex w-full items-center gap-2">
+      {/* Wraps rather than truncating the title: in the rail the card is 248
+          wide, and there the actions take a line of their own. */}
+      <div className="flex w-full flex-wrap items-center gap-x-2 gap-y-1.5">
         {/* 6px dot. Figma exports it as an image so its fill cannot be read
             off the node; it takes the card's tone. */}
-        <span
-          aria-hidden="true"
-          className="size-1.5 shrink-0 rounded-full bg-status-danger"
-        />
-        <p className="min-w-0 flex-1 text-body-13-medium text-text-primary">
-          {title}
+        <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-status-danger" />
+        <p className="shrink-0 text-body-13-medium text-text-primary">{title}</p>
+        <p
+          data-testid="agent-session-error-reason"
+          title={reasonText}
+          className="min-w-30 flex-1 truncate text-caption-11 text-text-tertiary"
+        >
+          {reasonText}
         </p>
         {meta ? (
-          <p className="shrink-0 text-caption-11 text-text-tertiary whitespace-nowrap">
-            {meta}
-          </p>
+          <p className="shrink-0 text-caption-11 whitespace-nowrap text-text-tertiary">{meta}</p>
         ) : null}
+        {actions}
       </div>
-
-      <p
-        data-testid="agent-session-error-reason"
-        className="w-full text-body-12 text-text-secondary"
-      >
-        {reason ?? defaultReason}
-      </p>
 
       {children}
-
-      <div className="flex w-full items-center gap-2">
-        <span className="min-w-0 flex-1" />
-        {onClose ? (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            data-testid="session-error-close"
-            onClick={onClose}
-            // h-8 because Figma's button is px-3/py-2 on a 16px line box — 32
-            // tall, which is control-height-md while size="sm" is 28. Everything
-            // else about sm is right: px-3, radius/8, Label/12.
-            className="h-8 border-border-subtle text-text-secondary"
-          >
-            Close session
-          </Button>
-        ) : null}
-        {setupCause && onOpenSettings ? (
-          <Button
-            type="button"
-            size="sm"
-            data-testid="session-error-open-settings"
-            onClick={onOpenSettings}
-            className="h-8"
-          >
-            Open agent settings
-          </Button>
-        ) : onRetry ? (
-          <Button
-            type="button"
-            size="sm"
-            data-testid="session-error-retry"
-            onClick={onRetry}
-            className="h-8"
-          >
-            {retryLabel}
-          </Button>
-        ) : null}
-      </div>
     </div>
   );
 }
