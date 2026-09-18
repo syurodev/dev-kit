@@ -718,6 +718,14 @@
   column-rule-color: var(--glass-border);
 }
 
+/* The focused document group, when there is more than one
+   (workbench/DocumentGroups.tsx). The border carries it; on macOS the ring
+   does, which lib/shellSquircle.ts draws in column-rule-color. */
+.shell-surface[data-focused="true"] {
+  border-color: color-mix(in srgb, var(--border-focus) 50%, transparent);
+  column-rule-color: color-mix(in srgb, var(--border-focus) 50%, transparent);
+}
+
 /* macOS only: the card is clipped to the window's continuous corner
    (lib/useShellSquircle.ts sets clip-path and --shell-ring). The clip would cut
    the CSS border away at the corners, so the border becomes padding of the

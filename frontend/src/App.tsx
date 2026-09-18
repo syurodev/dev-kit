@@ -13,6 +13,7 @@ import { ThemeProvider } from "./theme/ThemeProvider";
 // all: VaultGate needs the Wails bridge, so without this every shared component
 // is unreachable outside the desktop app.
 const ComponentGallery = lazy(() => import("./dev/ComponentGallery"));
+const ShellHarness = lazy(() => import("./dev/ShellHarness"));
 
 // Lazy for the same reason: sonner is 36 KiB of the shell's initial JS for a
 // surface nothing can raise in the first frames. Mounting it behind Suspense
@@ -30,6 +31,26 @@ function isGalleryRequested(): boolean {
 }
 
 function App() {
+  if (import.meta.env.DEV && typeof window !== "undefined" && new URLSearchParams(window.location.search).has("shell-harness")) {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <TooltipProvider>
+            {/* `&workbench`: the real Workbench, still without the vault
+                gate — for document groups. Bridge calls fail in a browser;
+                modules show their error or empty states, enough for layout. */}
+            {new URLSearchParams(window.location.search).has("workbench") ? (
+              <Workbench />
+            ) : (
+              <Suspense fallback={null}>
+                <ShellHarness />
+              </Suspense>
+            )}
+          </TooltipProvider>
+        </ThemeProvider>
+      </QueryClientProvider>
+    );
+  }
   if (isGalleryRequested()) {
     return (
       <QueryClientProvider client={queryClient}>

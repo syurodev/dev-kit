@@ -1,17 +1,19 @@
-import { lazy, memo, Profiler, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, memo, Profiler, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { recordCommit, WORKBENCH_PROFILER } from "@/lib/perfLog";
 import { ModuleSkeleton } from "./ModuleSkeleton";
 import { Events, Window } from "@wailsio/runtime";
 import { MessageSquare, PanelBottom, PanelLeft, Search, Settings as SettingsIcon } from "lucide-react";
 import { listModules, type ModuleDTO } from "../bridge/commands";
 import { useMenuCommands } from "./menuCommands";
-import { ModuleEmptyState } from "./ModuleEmptyState";
 import { ModuleSwitcher } from "./ModuleSwitcher";
 import { moduleIndexFromEvent } from "./moduleShortcuts";
 import { AgentSessionsSubscriber } from "./AgentSessionsSubscriber";
 import { CommandPalette } from "./CommandPalette";
 import { SystemStatusMenu } from "./SystemStatusMenu";
-import { TabStrip } from "./tabs/TabStrip";
+import { DocumentGroups } from "./DocumentGroups";
+import { LayoutMenu } from "./LayoutMenu";
+import { setParking, syncTabHosts, tabHost } from "./tabHosts";
 import { TabSwitcher } from "./TabSwitcher";
 import { InteractionHost } from "./InteractionHost";
 import { onSettingsRequested } from "./settingsRequest";
@@ -21,7 +23,6 @@ import {
   getModule,
   listRegisteredModules,
   registerModule,
-  type ModuleManifest,
 } from "../modules/registry";
 import { toolsModule } from "../modules/tools/manifest";
 import { notesModule } from "../modules/notes/manifest";
@@ -41,7 +42,6 @@ const SettingsModal = lazy(() =>
   })),
 );
 import { Button } from "@/components/ui/button";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Kbd } from "@/components/ui/kbd";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { SidebarModuleIdContext } from "@/components/ui/sidebar-shell";
@@ -59,6 +59,7 @@ import { useAgentSessionsStore } from "../stores/agentSessions";
 import { AppShell } from "./AppShell";
 import { cn } from "@/lib/utils";
 import { haveSameTabMembers } from "./workbenchViewMemo";
+import { focusedGroup } from "../stores/documentGroups";
 
 const LazyAgentPermissionToastHost = lazy(() =>
   import("./AgentPermissionToastHost").then((m) => ({
@@ -93,13 +94,14 @@ registerModule(settingsModule);
 registerModule(codegraphModule);
 
 type WorkbenchViewsProps = {
-  availableModules: ModuleManifest[];
-  hasMetadataWarning: boolean;
   /** Every module's tabs — this layer keeps recently-left modules mounted. */
   openTabs: WorkbenchTab[];
-  /** The module on screen, and the active tab of that module. */
+  /** The module you are working in: the focused document group's. */
   activeModuleId: string;
-  activeTabId: string;
+  /** Modules on screen in some group, joined by "|" so the memo can compare. */
+  visibleModules: string;
+  /** The tab each group shows, joined by "|". */
+  shownTabs: string;
 };
 
 function areWorkbenchViewsPropsEqual(
@@ -107,10 +109,9 @@ function areWorkbenchViewsPropsEqual(
   next: WorkbenchViewsProps,
 ): boolean {
   return (
-    previous.availableModules === next.availableModules &&
-    previous.hasMetadataWarning === next.hasMetadataWarning &&
     previous.activeModuleId === next.activeModuleId &&
-    previous.activeTabId === next.activeTabId &&
+    previous.visibleModules === next.visibleModules &&
+    previous.shownTabs === next.shownTabs &&
     haveSameTabMembers(previous.openTabs, next.openTabs)
   );
 }
@@ -217,106 +218,50 @@ const TabBody = memo(function TabBody({ tab }: { tab: WorkbenchTab }) {
  * Heavy module trees are deliberately isolated from tab-strip ordering.
  * Tab dragging changes only TabStrip-local state and commits to the store once
  * on drop, so this subtree stays completely outside the high-frequency path.
- * The explicit props keep tab activation atomic: preview replacement and its
- * active id are rendered from the same Zustand snapshot.
+ *
+ * Every mounted tab renders here once, portalled into its own host
+ * (tabHosts.ts). The document groups adopt the hosts they show; the rest wait
+ * in the parking box below, display: none — what `hidden` was for inactive
+ * tabs before. So a tab moving between groups keeps its view mounted.
  */
 const WorkbenchViews = memo(
-  function WorkbenchViews({
-    availableModules,
-    hasMetadataWarning,
-    openTabs,
-    activeModuleId,
-    activeTabId,
-  }: WorkbenchViewsProps) {
-    // The module is state now, not something inferred from whichever tab is
-    // active: a module whose last tab was just closed is still the module on
-    // screen, and inferring it from a tab would have flashed the first
-    // module in the list for the frame before its home view reopens.
-    const activeModule =
-      availableModules.find((module) => module.id === activeModuleId) ??
-      availableModules[0];
+  function WorkbenchViews({ openTabs, activeModuleId, visibleModules, shownTabs }: WorkbenchViewsProps) {
     const recentModuleIds = useMountedModuleIds(activeModuleId, HEADER_ONLY_MODULE_IDS);
-    // The active module is unioned in directly (not only through
-    // recentModuleIds) because useMountedModuleIds only learns about it via
-    // an effect, which runs one render after activeTab already changed —
-    // without this, the just-activated tab would render null for that one
-    // frame. React Compiler memoizes this automatically; no manual useMemo
-    // needed (and the previous one didn't work anyway — recentModuleIds is a
-    // new Set identity every render, so its dependency never matched).
+    // Every module on screen is unioned in directly (not only through
+    // recentModuleIds) because useMountedModuleIds only learns about the
+    // active one via an effect, which runs one render after it changed —
+    // without this, the just-activated tab would render null for that frame.
     const mountedModuleIds = new Set([
       ...HEADER_ONLY_MODULE_IDS,
       ...(activeModuleId ? [activeModuleId] : []),
+      ...visibleModules.split("|").filter(Boolean),
       ...recentModuleIds,
     ]);
+    const shown = new Set(shownTabs.split("|"));
+
+    useLayoutEffect(() => {
+      syncTabHosts(new Set(openTabs.map((tab) => tab.id)));
+    });
 
     return (
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        {hasMetadataWarning ? (
-          <Alert variant="error" className="m-4 mb-0 w-auto">
-            <AlertDescription>
-              Module metadata is unavailable or out of sync.
-            </AlertDescription>
-          </Alert>
-        ) : null}
-        <section
-          className={cn(
-            "flex min-h-0 flex-1 flex-col",
-            activeModule?.padded
-              ? // Half the gutter at the top when a tab strip is above, because
-                // the strip already ends in 8px of its own. The full 16 made 18
-                // between the tab and the first control that acts on it, and a
-                // toolbar that far from its tab reads as a band of its own
-                // rather than as that document's controls. Without a strip the
-                // section touches the card's edge and owes the full gutter.
-                activeModule.tabs
-                ? "overflow-auto px-4 pb-4 pt-2"
-                : "overflow-auto p-4"
-              : "overflow-hidden p-0",
-          )}
-        >
-          {/* `openTabs` is EVERY module's tabs — the views layer keeps recently
-              left modules mounted. So "is anything open" has to be asked about
-              the module on screen, not about the list: with a Notes tab open
-              and no Database one, the old check fell through to the map, which
-              rendered nothing for Database at all. A blank card.
-
-              "No view is currently available" was also a status line for a
-              state that is not a problem: nothing is open because nothing was
-              left open. writing.md asks a blank screen to say what to do next
-              and to give a control for doing it. */}
-          {!openTabs.some((tab) => tab.moduleId === activeModule?.id) ? (
-            <ModuleEmptyState module={activeModule} />
-          ) : null}
-          {openTabs.length === 0 ? null : (
-            openTabs.map((tab) => {
-              // Tabs outside the active module's grace/cap window aren't
-              // mounted at all — see useMountedModuleIds above. Their tab
-              // stays in openTabs (visible, clickable) and remounts fresh
-              // when reactivated; background work belonging to that module
-              // (e.g. Agent Hub sessions) lives outside this render tree and
-              // is unaffected either way.
-              if (!mountedModuleIds.has(tab.moduleId)) {
-                return null;
-              }
-              // Keep same-module inactive tabs mounted so in-progress edits
-              // and scroll position survive switching between tabs of one
-              // module, while `contents` preserves the active view's flex
-              // participation without an extra layout wrapper.
-              return (
-                <div
-                  key={tab.id}
-                  className={tab.id === activeTabId ? "contents" : "hidden"}
-                >
-                  <ModuleVisibilityProvider
-                    visible={tab.moduleId === activeModuleId && tab.id === activeTabId}
-                  >
-                    <TabBody tab={tab} />
-                  </ModuleVisibilityProvider>
-                </div>
-              );
-            })
-          )}
-        </section>
+      <div ref={setParking} hidden aria-hidden>
+        {openTabs.map((tab) => {
+          // Tabs outside the grace/cap window aren't mounted at all — see
+          // useMountedModuleIds above. Their tab stays in openTabs (visible,
+          // clickable) and remounts fresh when reactivated; background work
+          // belonging to that module (e.g. Agent Hub sessions) lives outside
+          // this render tree and is unaffected either way.
+          if (!mountedModuleIds.has(tab.moduleId)) {
+            return null;
+          }
+          return createPortal(
+            <ModuleVisibilityProvider visible={shown.has(tab.id)}>
+              <TabBody tab={tab} />
+            </ModuleVisibilityProvider>,
+            tabHost(tab.id),
+            tab.id,
+          );
+        })}
       </div>
     );
   },
@@ -362,15 +307,13 @@ export function Workbench() {
   // sees everyone's, because it keeps recently-left modules mounted. Memoised
   // on the map's identity so a reorder inside one module still reaches
   // haveSameTabMembers and is recognised as a no-op for the heavy subtree.
-  const activeTabs = moduleTabs(tabModules, activeModuleId);
+  const groups = useWorkbenchTabsStore((state) => state.groups);
+  const visibleModules = groups.map((g) => g.moduleId).join("|");
+  const shownTabs = groups.map((g) => g.activeTabId).join("|");
   const allTabs = useMemo(() => allOpenTabs(tabModules), [tabModules]);
   const focusModuleInStore = useWorkbenchTabsStore((state) => state.focusModule);
+  const openModuleBeside = useWorkbenchTabsStore((state) => state.openModuleBeside);
   const openTab = useWorkbenchTabsStore((state) => state.openTab);
-  const setActiveTab = useWorkbenchTabsStore((state) => state.setActiveTab);
-  const closeTab = useWorkbenchTabsStore((state) => state.closeTab);
-  const reorderTab = useWorkbenchTabsStore((state) => state.reorderTab);
-  const pinTab = useWorkbenchTabsStore((state) => state.pinTab);
-  const togglePinTab = useWorkbenchTabsStore((state) => state.togglePinTab);
 
   useEffect(() => {
     // Accept either ⌘ or Ctrl rather than branching on navigator.platform:
@@ -409,6 +352,16 @@ export function Workbench() {
         // (⌘8 with seven modules) has no default worth suppressing — the
         // menu Wails installs binds ⌘0 but no ⌘1–⌘9, and ⌘0 never gets
         // here — so leave it for whatever else might want it.
+        return;
+      }
+      // ⌘\ / Ctrl+\: the focused group's tab into a new group beside it.
+      if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key === "\\") {
+        const state = useWorkbenchTabsStore.getState();
+        const group = focusedGroup(state);
+        if (group?.activeTabId) {
+          event.preventDefault();
+          state.splitTab(group.activeTabId);
+        }
         return;
       }
       if ((event.metaKey || event.ctrlKey) && event.key === ",") {
@@ -559,7 +512,7 @@ export function Workbench() {
     availableModules.find((module) => module.id === activeModuleId) ??
     availableModules[0];
 
-  function focusModule(moduleId: string) {
+  function focusModule(moduleId: string, opts?: { beside?: boolean }) {
     const module = getModule(moduleId);
     const view = module?.views[0];
     if (!module || !view) {
@@ -569,7 +522,9 @@ export function Workbench() {
     // The same cached promise is consumed by React.lazy in WorkbenchViews.
     const preload = view.preload?.();
     void preload?.catch(() => undefined);
-    focusModuleInStore(moduleId);
+    // ⌥-click: beside the focused group rather than in place of it.
+    if (opts?.beside) openModuleBeside(moduleId);
+    else focusModuleInStore(moduleId);
     // Sticky (module-tabs.mdx): a module that already has a tab active comes
     // back to exactly that tab — its tabs are its own and were never touched
     // by whatever happened in other modules meanwhile. Tabs are stored now, so
@@ -730,6 +685,7 @@ export function Workbench() {
               {metadataLoading ? "Loading module metadata..." : null}
             </div>
             <div className="flex shrink-0 items-center gap-1">
+              <LayoutMenu moduleId={activeModule?.id ?? null} />
               <SystemStatusMenu
                 onResolveConflicts={() => openTab({ moduleId: "sync", viewId: "sync.status", title: "Sync" })}
                 onOpenAgents={() => setChatOpen(true)}
@@ -818,38 +774,22 @@ export function Workbench() {
         </Profiler>
       }
     >
-      {/* The strip belongs to the module on screen and shows only its tabs.
-          It is drawn only for modules that opted in (ModuleManifest.tabs):
-          a module with a single view has nothing to switch between, and the
-          48px would sit under the 40px title bar as a second empty band —
-          which is exactly what read as "the title bar is too tall". */}
-      {activeModule?.tabs ? (
-        <Profiler id="tabs" onRender={recordCommit}>
-        <TabStrip
-          tabs={activeTabs.openTabs}
-          activeTabId={activeTabs.activeTabId}
-          onSelect={setActiveTab}
-          onClose={closeTab}
-          onReorder={reorderTab}
-          onPin={pinTab}
-          onTogglePin={togglePinTab}
-          onConfigureTabs={() => {
-            setSettingsTab("appearance");
-            setSettingsOpen(true);
-          }}
-          onNewTab={activeModule?.newTab}
-          keyboardBrowsing={switcher === "browsing"}
-          onExitBrowsing={() => setSwitcher("closed")}
-        />
-        </Profiler>
-      ) : null}
-      <Profiler id="views" onRender={recordCommit}>
-      <WorkbenchViews
+      <DocumentGroups
         availableModules={availableModules}
         hasMetadataWarning={hasMetadataWarning}
+        keyboardBrowsing={switcher === "browsing"}
+        onExitBrowsing={() => setSwitcher("closed")}
+        onConfigureTabs={() => {
+          setSettingsTab("appearance");
+          setSettingsOpen(true);
+        }}
+      />
+      <Profiler id="views" onRender={recordCommit}>
+      <WorkbenchViews
         openTabs={allTabs}
         activeModuleId={activeModule?.id ?? ""}
-        activeTabId={activeTabs.activeTabId}
+        visibleModules={visibleModules}
+        shownTabs={shownTabs}
       />
       </Profiler>
     </AppShell>

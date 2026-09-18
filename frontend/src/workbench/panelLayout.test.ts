@@ -1,5 +1,6 @@
-import { expect, test } from "bun:test";
+import { describe, expect, it, test } from "bun:test";
 import {
+  layoutPressure,
   maxPanelWidth,
   maxBottomHeight,
   CONTENT_MIN_WIDTH,
@@ -98,4 +99,31 @@ test("never returns below the slot's own minimum", () => {
   // down through its own minimum on the next pointer move.
   const max = maxBottomHeight({ windowHeight: 300, min: 120, hardMax: 600 });
   expect(max).toBe(120);
+});
+
+describe("layoutPressure", () => {
+  const base = { sidebarOpen: true, sidebarWidth: 280, columns: 2, groups: 2 };
+
+  it("gives nothing up when everything fits", () => {
+    expect(layoutPressure({ ...base, windowWidth: 2200 })).toMatchObject({
+      sidebarYields: false,
+      mergeColumns: false,
+      foldGroups: false,
+    });
+  });
+
+  it("lets the sidebar go first", () => {
+    // 2 groups need 724, 2 columns 648, sidebar 284: 1656 + gutters.
+    expect(layoutPressure({ ...base, windowWidth: 1500 })).toMatchObject({ sidebarYields: true, mergeColumns: false });
+  });
+
+  it("then stacks the second column into the first", () => {
+    expect(layoutPressure({ ...base, windowWidth: 1200 })).toMatchObject({ sidebarYields: true, mergeColumns: true, foldGroups: false });
+  });
+
+  it("folds unfocused groups last, and never with a single group", () => {
+    // Three groups at the 1080 minimum window.
+    expect(layoutPressure({ ...base, groups: 3, windowWidth: 1080 })).toMatchObject({ mergeColumns: true, foldGroups: true });
+    expect(layoutPressure({ ...base, groups: 1, windowWidth: 700 }).foldGroups).toBe(false);
+  });
 });

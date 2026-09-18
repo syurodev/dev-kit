@@ -110,6 +110,9 @@ func ValidateRecordSchema(itemType string, metadata json.RawMessage, payload *cr
 			// unknown fields are refused: without it such a profile failed
 			// validation on every write and every sync (#45).
 			CACert string `json:"ca_cert"`
+			// Declared for the same reason: a profile that says it is reached
+			// over Tailscale or a VPN carries it.
+			TrustedNetwork bool `json:"trusted_network"`
 		}
 		if decodeMetadataObject(metadata, &value) != nil || value.Name == "" || value.Host == "" || value.Port == 0 || value.SSLMode == "" || value.Env == "" {
 			return ErrInvalidRecordSchema

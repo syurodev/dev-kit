@@ -19,7 +19,10 @@ const (
 	itemType      = "db-profile"
 )
 
-var ErrInsecureTLSForRemoteHost = errors.New("insecure TLS is only allowed for loopback database hosts")
+// ErrInsecureTLSForRemoteHost names the way out, not only the refusal: a host
+// reached over an already-encrypted network may go without TLS if the profile
+// says so.
+var ErrInsecureTLSForRemoteHost = errors.New("insecure TLS is only allowed for loopback database hosts, or for a profile marked as reached over an encrypted network (Tailscale, VPN)")
 
 // ErrUnknownSSLMode is an SSL mode outside disable, require, verify-ca and
 // verify-full — including the ones that fall back to plaintext.
@@ -63,8 +66,13 @@ type ProfileSummary struct {
 	Database string `json:"database"`
 	Username string `json:"username"`
 	SSLMode  string `json:"ssl_mode"`
-	Env      string `json:"env"`
-	ReadOnly bool   `json:"read_only"`
+	// TrustedNetwork allows ssl_mode "disable" to a non-loopback host, for a
+	// network that is already encrypted end to end (Tailscale, WireGuard, a
+	// VPN). The app cannot tell such a network from the open internet, so it
+	// is the user's statement, made per profile, never a guess.
+	TrustedNetwork bool   `json:"trusted_network,omitempty"`
+	Env            string `json:"env"`
+	ReadOnly       bool   `json:"read_only"`
 	// SSHProfileID is optional. When set, Host/Port are addresses as seen from
 	// the SSH server, not from this machine.
 	SSHProfileID string `json:"ssh_profile_id,omitempty"`
@@ -89,7 +97,12 @@ type CreateProfileInput struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
 	SSLMode  string `json:"ssl_mode"`
-	Env      string `json:"env"`
+	// TrustedNetwork allows ssl_mode "disable" to a non-loopback host, for a
+	// network that is already encrypted end to end (Tailscale, WireGuard, a
+	// VPN). The app cannot tell such a network from the open internet, so it
+	// is the user's statement, made per profile, never a guess.
+	TrustedNetwork bool   `json:"trusted_network,omitempty"`
+	Env            string `json:"env"`
 	// SSHProfileID is accepted at creation so a tunnelled profile never exists
 	// with a direct connection path, however briefly.
 	SSHProfileID string `json:"ssh_profile_id"`
@@ -103,6 +116,10 @@ type CreateProfileInput struct {
 type UpdateProfileOptionsInput struct {
 	Env      string `json:"env"`
 	ReadOnly bool   `json:"read_only"`
+	// TrustedNetwork is the same statement CreateProfileInput carries. Editable
+	// here because a profile refused for sslmode=disable is fixed from this
+	// dialog, not by deleting it and typing it again.
+	TrustedNetwork bool `json:"trusted_network"`
 	// SSHProfileID empty means connect directly.
 	SSHProfileID string `json:"ssh_profile_id"`
 	// CACert is a PEM bundle used to verify the server certificate instead of
@@ -142,8 +159,13 @@ type metadata struct {
 	Database string `json:"database"`
 	Username string `json:"username"`
 	SSLMode  string `json:"ssl_mode"`
-	Env      string `json:"env"`
-	ReadOnly bool   `json:"read_only"`
+	// TrustedNetwork allows ssl_mode "disable" to a non-loopback host, for a
+	// network that is already encrypted end to end (Tailscale, WireGuard, a
+	// VPN). The app cannot tell such a network from the open internet, so it
+	// is the user's statement, made per profile, never a guess.
+	TrustedNetwork bool   `json:"trusted_network,omitempty"`
+	Env            string `json:"env"`
+	ReadOnly       bool   `json:"read_only"`
 	// SSHProfileID is optional. When set, Host/Port are addresses as seen from
 	// the SSH server, not from this machine.
 	SSHProfileID string `json:"ssh_profile_id,omitempty"`
@@ -210,7 +232,7 @@ func (s *Service) normalizeCreateInput(input CreateProfileInput) (CreateProfileI
 	if input.Port == 0 {
 		input.Port = DefaultPort(input.Engine)
 	}
-	sslMode, err := normalizeSSLMode(input.Host, input.SSLMode)
+	sslMode, err := normalizeSSLMode(input.Host, input.SSLMode, input.TrustedNetwork)
 	if err != nil {
 		return input, err
 	}
@@ -300,6 +322,9 @@ func (s *Service) CreateProfile(input CreateProfileInput) (ProfileSummary, error
 		SSLMode:      input.SSLMode,
 		Env:          input.Env,
 		CACert:       input.CACert,
+		// Kept only where it does something: on any other mode the path is
+		// encrypted anyway, and a stored flag would read as a promise.
+		TrustedNetwork: input.TrustedNetwork && input.SSLMode == "disable",
 	})
 	if err != nil {
 		return ProfileSummary{}, err
@@ -351,7 +376,9 @@ func (s *Service) UpdateProfileOptions(id string, opts UpdateProfileOptionsInput
 	// runs again; the tunnel needs the forward torn down with it.
 	// A changed CA bundle is a changed TLS config, which is built when the pool
 	// dials — so like read_only it has to drop the pool, not only the metadata.
+	trustedNetwork := opts.TrustedNetwork && meta.SSLMode == "disable"
 	poolChanged := meta.ReadOnly != opts.ReadOnly ||
+		meta.TrustedNetwork != trustedNetwork ||
 		meta.SSHProfileID != opts.SSHProfileID ||
 		meta.CACert != strings.TrimSpace(opts.CACert)
 
@@ -364,6 +391,7 @@ func (s *Service) UpdateProfileOptions(id string, opts UpdateProfileOptionsInput
 
 	meta.Env = opts.Env
 	meta.ReadOnly = opts.ReadOnly
+	meta.TrustedNetwork = trustedNetwork
 	meta.SSHProfileID = opts.SSHProfileID
 	meta.CACert = caCert
 
@@ -669,7 +697,7 @@ func (s *Service) target(id string) (connectionTarget, error) {
 	// Match the SSH/Kafka hygiene: wipe the decrypted bytes once the config
 	// copy is built.
 	defer zeroBytes(password)
-	sslmode, err := normalizeSSLMode(meta.Host, meta.SSLMode)
+	sslmode, err := normalizeSSLMode(meta.Host, meta.SSLMode, meta.TrustedNetwork)
 	if err != nil {
 		return connectionTarget{}, err
 	}
@@ -708,7 +736,11 @@ func (s *Service) pool(ctx context.Context, id string, target connectionTarget) 
 // "prefer" and "allow" — which the UI never offers but a synced profile or the
 // bridge can still send — try TLS and quietly carry on in plaintext when it is
 // refused, which is the downgrade an attacker on the path asks for.
-func normalizeSSLMode(host, sslMode string) (string, error) {
+//
+// trustedNetwork lets "disable" reach a remote host: the user has said the
+// path is already encrypted (Tailscale, a VPN), so TLS on top buys nothing.
+// It does not change the empty default — that still asks for verify-full.
+func normalizeSSLMode(host, sslMode string, trustedNetwork bool) (string, error) {
 	switch sslMode {
 	case "":
 		if isLoopbackHost(host) {
@@ -716,7 +748,7 @@ func normalizeSSLMode(host, sslMode string) (string, error) {
 		}
 		return "verify-full", nil
 	case "disable":
-		if !isLoopbackHost(host) {
+		if !isLoopbackHost(host) && !trustedNetwork {
 			return "", ErrInsecureTLSForRemoteHost
 		}
 		return sslMode, nil
@@ -762,15 +794,16 @@ func summaryFromRecord(record vaultitem.Record) (ProfileSummary, error) {
 		return ProfileSummary{}, err
 	}
 	return ProfileSummary{
-		ID:       record.ID,
-		Name:     meta.Name,
-		Host:     meta.Host,
-		Port:     meta.Port,
-		Database: meta.Database,
-		Username: meta.Username,
-		SSLMode:  meta.SSLMode,
-		Env:      meta.Env,
-		ReadOnly: meta.ReadOnly,
+		ID:             record.ID,
+		Name:           meta.Name,
+		Host:           meta.Host,
+		Port:           meta.Port,
+		Database:       meta.Database,
+		Username:       meta.Username,
+		SSLMode:        meta.SSLMode,
+		Env:            meta.Env,
+		ReadOnly:       meta.ReadOnly,
+		TrustedNetwork: meta.TrustedNetwork,
 		// Engine and the tunnel were stored but never returned, so every caller
 		// saw a Postgres profile with no tunnel no matter what was saved.
 		Engine:        meta.Engine,

@@ -14,6 +14,8 @@ import { useSidebarContentStore } from "@/stores/sidebarContent";
 import { ModuleSidebar } from "./module-sidebar";
 import { useSidebarOpenStore } from "@/stores/sidebarShell";
 import { ShellResizeHandle } from "@/components/ui/resize-handle";
+import { useLayoutPressure } from "@/workbench/useLayoutPressure";
+import { armBeside } from "@/stores/workbenchTabs";
 
 /**
  * Identifies which module a mounted view belongs to. Provided once per module
@@ -281,11 +283,15 @@ const MAX_SIDEBAR_WIDTH = 480;
  * rounded-xl/border/bg-card, not a shared card with an internal divider).
  */
 export function SidebarSurface({ activeModuleId }: { activeModuleId: string | null }) {
-  const open = useSidebarOpenStore((s) => s.open);
+  const wantOpen = useSidebarOpenStore((s) => s.open);
+  // Too narrow for everything open, the sidebar is the first to give way — its
+  // open state untouched, so it comes back as the window widens
+  // (panelLayout.layoutPressure).
+  const pressure = useLayoutPressure();
+  const open = wantOpen && !pressure.sidebarYields;
   const sidebarWidth = usePanelWidthsStore((s) => s.sidebarWidth);
   const setSidebarWidth = usePanelWidthsStore((s) => s.setSidebarWidth);
-  const splitPanelWidth = usePanelWidthsStore((s) => s.splitPanelWidth);
-  const splitPanelOpen = usePanelWidthsStore((s) => s.splitPanelOpen);
+  const columnWidths = usePanelWidthsStore((s) => s.columnWidths);
   const windowWidth = useWindowWidth();
 
   const registered = useSidebarContentStore((s) => s.content);
@@ -302,9 +308,11 @@ export function SidebarSurface({ activeModuleId }: { activeModuleId: string | nu
 
   const max = maxPanelWidth({
     windowWidth,
-    // The split panel keeps its last width in the store while closed; only the
-    // space it is actually occupying may shrink this panel's ceiling.
-    otherEffectiveWidth: splitPanelOpen ? splitPanelWidth : 0,
+    // The columns keep their last width in the store while closed; only the
+    // space they actually occupy may shrink this panel's ceiling. Each drawn
+    // width carries its sash, and maxPanelWidth already counts one.
+    otherEffectiveWidth: Math.max(0, columnWidths.a + columnWidths.b - GAP_WIDTH),
+    contentMin: pressure.contentMin,
     min: MIN_SIDEBAR_WIDTH,
     hardMax: MAX_SIDEBAR_WIDTH,
   });
@@ -352,7 +360,15 @@ export function SidebarSurface({ activeModuleId }: { activeModuleId: string | nu
             wrapper, so a right inset put each rail's scrollbar that far in from
             its edge, with the 8px sash beyond it. On the right the sash is the
             margin, and a scrollbar belongs against the edge it scrolls. */}
-        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden pl-(--space-sidebar-edge) py-2 glass-rail">
+        {/* ⌘-click (Ctrl-click) on anything in a rail opens what it opens
+            beside the focused group rather than in it. Armed on the way down,
+            consumed by the openTab that click makes — no rail had to change. */}
+        <div
+          className="relative flex min-h-0 flex-1 flex-col overflow-hidden pl-(--space-sidebar-edge) py-2 glass-rail"
+          onClickCapture={(e) => {
+            if (e.metaKey || e.ctrlKey) armBeside();
+          }}
+        >
           {visited.map((moduleId) => (
             // `contents` keeps the rail a direct flex child of the column, as
             // it was before it had a wrapper; `hidden` takes a background one

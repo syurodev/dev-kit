@@ -3,7 +3,7 @@ import { moduleTabs, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
 import { consoleIdFor, openNewConsoleTab, openTableTab } from "./documents";
 
 beforeEach(() => {
-  useWorkbenchTabsStore.setState({ activeModuleId: "", modules: {} });
+  useWorkbenchTabsStore.setState({ activeModuleId: "", modules: {}, groups: [], focusedGroupId: "" });
 });
 
 describe("table documents", () => {

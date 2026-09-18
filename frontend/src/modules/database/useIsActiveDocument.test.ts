@@ -3,7 +3,7 @@ import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
 import { isActiveDocument } from "./useIsActiveDocument";
 
 beforeEach(() => {
-  useWorkbenchTabsStore.setState({ activeModuleId: "", modules: {} });
+  useWorkbenchTabsStore.setState({ activeModuleId: "", modules: {}, groups: [], focusedGroupId: "" });
 });
 
 function openTab(viewId: string, params?: Record<string, unknown>) {

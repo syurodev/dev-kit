@@ -3,6 +3,19 @@ import { persist } from "zustand/middleware";
 import type { LucideIcon } from "lucide-react";
 import { uiStateStorage } from "@/bridge/uistate";
 import { viewIcon } from "@/modules/registry";
+import {
+  MAX_GROUPS,
+  dropIfEmpty,
+  focusedGroup,
+  groupOfTab,
+  neighbourIn,
+  newGroupId,
+  reconcile,
+  tabsOfGroup,
+  targetGroup,
+  withGroup,
+  type DocGroup,
+} from "./documentGroups";
 
 export type TabStatus = "idle" | "running" | "success" | "error";
 
@@ -20,6 +33,11 @@ export type WorkbenchTab = {
    * closes (Close Others, to the Left/Right, All) — VS Code's sticky tab.
    */
   pinned?: boolean;
+  /**
+   * The document group it sits in (stores/documentGroups.ts). Unset, or a
+   * group that is gone: the first group showing its module.
+   */
+  group?: string;
 };
 
 export type OpenTabInput = {
@@ -29,7 +47,28 @@ export type OpenTabInput = {
   params?: Record<string, unknown>;
   icon?: LucideIcon;
   preview?: boolean;
+  /**
+   * Open beside the focused group rather than in it: in another group showing
+   * the module, or a new one to its right (docs/dev-kit/layout.mdx § Mở một
+   * group). ⌘-click in a sidebar sets it through armBeside, and it is what a
+   * cross-module hand-off will pass as placement "beside".
+   */
+  beside?: boolean;
 };
+
+/**
+ * ⌘-click in a sidebar means "open beside" for whatever that click opens.
+ * The sidebar arms it in the capture phase of the click, and the openTab the
+ * same click makes consumes it — so no module's sidebar had to learn about it.
+ * Disarmed after the event either way.
+ */
+let besideArmed = false;
+export function armBeside() {
+  besideArmed = true;
+  setTimeout(() => {
+    besideArmed = false;
+  }, 0);
+}
 
 /**
  * Stable identity for a tab: same moduleId+viewId+params always resolves to
@@ -58,6 +97,22 @@ export function tabKey(
  */
 export function moduleOfTab(id: string): string {
   return id.slice(0, id.indexOf(":") === -1 ? id.length : id.indexOf(":"));
+}
+
+/**
+ * Where "beside" opens: another group already showing the module, else a new
+ * group right of the focused one — or, at the group limit, where a plain open
+ * would have gone.
+ */
+function besideGroup(s: WorkbenchTabsState, moduleId: string): { groups: DocGroup[]; group: DocGroup } {
+  const focus = focusedGroup(s);
+  const other = s.groups.find((g) => g.moduleId === moduleId && g.id !== focus?.id);
+  if (other) return { groups: s.groups, group: other };
+  if (!focus || s.groups.length >= MAX_GROUPS) return targetGroup(s, moduleId);
+  const created: DocGroup = { id: newGroupId(), moduleId, activeTabId: "", weight: focus.weight / 2 };
+  const groups = withGroup(s.groups, focus.id, { weight: focus.weight / 2 });
+  groups.splice(groups.findIndex((g) => g.id === focus.id) + 1, 0, created);
+  return { groups, group: created };
 }
 
 /** Moves `id` to the front of an MRU list, deduping any earlier entry. */
@@ -93,6 +148,10 @@ export type WorkbenchTabsState = {
   /** Tab state per module, keyed by moduleId. A module that has never opened
    * a tab has no entry; read through moduleTabs() for the empty default. */
   modules: Record<string, ModuleTabs>;
+  /** The document area's groups, left to right (stores/documentGroups.ts). */
+  groups: DocGroup[];
+  /** The group you are working in. activeModuleId is its module. */
+  focusedGroupId: string;
   /** Switch the content area to a module. Its own last-active tab stays
    * active (sticky). Does NOT open anything — a module with no tabs is the
    * caller's cue to open its home view. */
@@ -105,6 +164,17 @@ export type WorkbenchTabsState = {
   reorderTab: (fromId: string, beforeId: string | null) => void;
   /** Pins or unpins, moving the tab to the edge of the pinned run. */
   togglePinTab: (id: string) => void;
+  /** Make a group the one you are working in. */
+  focusGroup: (groupId: string) => void;
+  /** Move a tab into a new group to the right of its own (⌘\\). */
+  splitTab: (id: string) => void;
+  /** Move a tab into another group showing the same module. */
+  moveTabToGroup: (id: string, groupId: string) => void;
+  /** Show a module in a new group beside the focused one. */
+  openModuleBeside: (moduleId: string) => void;
+  /** Close a group; its tabs fall back to another group of their module. */
+  closeGroup: (groupId: string) => void;
+  setGroupWeights: (weights: Record<string, number>) => void;
 };
 
 /** Pinned tabs first, each group in its own order. */
@@ -180,9 +250,14 @@ export function restoreIcons(
 }
 
 /** What goes to storage: no functions, and no state that died with the app. */
-export function persistedTabs(state: Pick<WorkbenchTabsState, "activeModuleId" | "modules">) {
+export function persistedTabs(
+  state: Pick<WorkbenchTabsState, "activeModuleId" | "modules"> &
+    Partial<Pick<WorkbenchTabsState, "groups" | "focusedGroupId">>,
+) {
   return {
     activeModuleId: state.activeModuleId,
+    groups: state.groups ?? [],
+    focusedGroupId: state.focusedGroupId ?? "",
     modules: Object.fromEntries(
       Object.entries(state.modules).map(([moduleId, tabs]) => [
         moduleId,
@@ -202,13 +277,36 @@ export const useWorkbenchTabsStore = create<WorkbenchTabsState>()(
   activeModuleId: "",
   modules: {},
 
+  groups: [],
+  focusedGroupId: "",
+
+  // A module already on screen in some group is focused there; otherwise the
+  // focused group switches to it.
   focusModule: (moduleId) =>
-    set((state) => (state.activeModuleId === moduleId ? state : { activeModuleId: moduleId })),
+    set((state) => {
+      if (state.activeModuleId === moduleId && focusedGroup(state)?.moduleId === moduleId) return state;
+      const showing = state.groups.find((g) => g.moduleId === moduleId);
+      if (showing) return reconcile({ ...state, focusedGroupId: showing.id });
+      const placed = targetGroup(state, moduleId);
+      return reconcile({ ...state, groups: placed.groups, focusedGroupId: placed.group.id, activeModuleId: moduleId });
+    }),
 
   openTab: (input) => {
     const id = tabKey(input.moduleId, input.viewId, input.params);
-    set((state) =>
-      updateModule(
+    const beside = input.beside || besideArmed;
+    besideArmed = false;
+    set((state) => {
+      // An open tab is shown where it already is; a new one goes to the
+      // focused group if it shows this module, else to one that does — or,
+      // beside, to a group other than the focused one.
+      const existing = moduleTabs(state.modules, input.moduleId).openTabs.find((tab) => tab.id === id);
+      const home = existing ? groupOfTab(state.groups, existing) : null;
+      const placed = home
+        ? { groups: state.groups, group: home }
+        : beside
+          ? besideGroup(state, input.moduleId)
+          : targetGroup(state, input.moduleId);
+      const partial = updateModule(
         state,
         input.moduleId,
         (m) => {
@@ -235,6 +333,7 @@ export const useWorkbenchTabsStore = create<WorkbenchTabsState>()(
             params: input.params,
             icon: input.icon,
             preview: input.preview ?? false,
+            group: placed.group.id,
           };
 
           if (input.preview) {
@@ -262,14 +361,29 @@ export const useWorkbenchTabsStore = create<WorkbenchTabsState>()(
         // screen — same as before ownership was split, when a single global
         // activeTabId implied the module.
         { activeModuleId: input.moduleId },
-      ),
-    );
+      );
+      return reconcile({
+        ...state,
+        ...partial,
+        groups: withGroup(placed.groups, placed.group.id, { activeTabId: id }),
+        focusedGroupId: placed.group.id,
+      });
+    });
     return id;
   },
 
   closeTab: (id) =>
-    set((state) =>
-      updateModule(state, moduleOfTab(id), (m) => {
+    set((state) => {
+      const tab = moduleTabs(state.modules, moduleOfTab(id)).openTabs.find((t) => t.id === id);
+      if (!tab) return state;
+      // The group it leaves shows its own left neighbour, not whatever the
+      // partition would pick from another group.
+      const group = groupOfTab(state.groups, tab);
+      const groups =
+        group && group.activeTabId === id
+          ? withGroup(state.groups, group.id, { activeTabId: neighbourIn(tabsOfGroup(state, group), id) })
+          : state.groups;
+      const partial = updateModule(state, moduleOfTab(id), (m) => {
         const index = m.openTabs.findIndex((tab) => tab.id === id);
         if (index === -1) {
           return m;
@@ -285,13 +399,18 @@ export const useWorkbenchTabsStore = create<WorkbenchTabsState>()(
         // that as "show this module's home view", not "jump modules".
         const fallback = openTabs[index - 1] ?? openTabs[0];
         return { openTabs, tabMru, activeTabId: fallback?.id ?? "" };
-      }),
-    ),
+      });
+      const next = { ...state, ...partial, groups };
+      return reconcile(group ? dropIfEmpty(next, group.id) : next);
+    }),
 
   setActiveTab: (id) => {
     const moduleId = moduleOfTab(id);
-    set((state) =>
-      updateModule(
+    set((state) => {
+      const tab = moduleTabs(state.modules, moduleId).openTabs.find((t) => t.id === id);
+      const home = tab ? groupOfTab(state.groups, tab) : null;
+      const placed = home ? { groups: state.groups, group: home } : targetGroup(state, moduleId);
+      const partial = updateModule(
         state,
         moduleId,
         (m) => {
@@ -301,8 +420,20 @@ export const useWorkbenchTabsStore = create<WorkbenchTabsState>()(
           return { ...m, activeTabId: id, tabMru: pushMru(m.tabMru, id) };
         },
         { activeModuleId: moduleId },
-      ),
-    );
+      );
+      const settled =
+        state.groups.length === 0 ||
+        (placed.group.activeTabId === id && state.focusedGroupId === placed.group.id);
+      if (partial === state && settled) {
+        return state;
+      }
+      return reconcile({
+        ...state,
+        ...partial,
+        groups: withGroup(placed.groups, placed.group.id, { activeTabId: id }),
+        focusedGroupId: placed.group.id,
+      });
+    });
   },
 
   setTabStatus: (id, status) =>
@@ -382,6 +513,95 @@ export const useWorkbenchTabsStore = create<WorkbenchTabsState>()(
         return { ...m, openTabs: rest };
       }),
     ),
+
+  focusGroup: (groupId) =>
+    set((state) =>
+      state.focusedGroupId === groupId || !state.groups.some((g) => g.id === groupId)
+        ? state
+        : reconcile({ ...state, focusedGroupId: groupId }),
+    ),
+
+  splitTab: (id) =>
+    set((state) => {
+      const moduleId = moduleOfTab(id);
+      const tab = moduleTabs(state.modules, moduleId).openTabs.find((t) => t.id === id);
+      const group = tab ? groupOfTab(state.groups, tab) : null;
+      // One document lives in one group, so a group's only tab has nowhere
+      // to leave from.
+      if (!tab || !group || state.groups.length >= MAX_GROUPS) return state;
+      const own = tabsOfGroup(state, group);
+      if (own.length < 2) return state;
+      const created: DocGroup = { id: newGroupId(), moduleId, activeTabId: id, weight: group.weight / 2 };
+      const groups = withGroup(state.groups, group.id, {
+        activeTabId: group.activeTabId === id ? neighbourIn(own, id) : group.activeTabId,
+        weight: group.weight / 2,
+      });
+      groups.splice(groups.findIndex((g) => g.id === group.id) + 1, 0, created);
+      return reconcile({
+        ...state,
+        ...updateModule(state, moduleId, (m) => ({
+          ...m,
+          openTabs: m.openTabs.map((t) => (t.id === id ? { ...t, group: created.id } : t)),
+        })),
+        groups,
+        focusedGroupId: created.id,
+      });
+    }),
+
+  moveTabToGroup: (id, groupId) =>
+    set((state) => {
+      const moduleId = moduleOfTab(id);
+      const tab = moduleTabs(state.modules, moduleId).openTabs.find((t) => t.id === id);
+      const from = tab ? groupOfTab(state.groups, tab) : null;
+      const to = state.groups.find((g) => g.id === groupId);
+      if (!tab || !from || !to || from.id === to.id || to.moduleId !== moduleId) return state;
+      let groups = withGroup(state.groups, to.id, { activeTabId: id });
+      if (from.activeTabId === id) {
+        groups = withGroup(groups, from.id, { activeTabId: neighbourIn(tabsOfGroup(state, from), id) });
+      }
+      const next = {
+        ...state,
+        ...updateModule(state, moduleId, (m) => ({
+          ...m,
+          openTabs: m.openTabs.map((t) => (t.id === id ? { ...t, group: to.id } : t)),
+        })),
+        groups,
+        focusedGroupId: to.id,
+      };
+      return reconcile(dropIfEmpty(next, from.id));
+    }),
+
+  openModuleBeside: (moduleId) =>
+    set((state) => {
+      const showing = state.groups.find((g) => g.moduleId === moduleId);
+      if (showing) return reconcile({ ...state, focusedGroupId: showing.id });
+      const focus = focusedGroup(state);
+      if (!focus || state.groups.length >= MAX_GROUPS) {
+        const placed = targetGroup(state, moduleId);
+        return reconcile({ ...state, groups: placed.groups, focusedGroupId: placed.group.id });
+      }
+      const created: DocGroup = {
+        id: newGroupId(),
+        moduleId,
+        activeTabId: moduleTabs(state.modules, moduleId).activeTabId,
+        weight: focus.weight / 2,
+      };
+      const groups = withGroup(state.groups, focus.id, { weight: focus.weight / 2 });
+      groups.splice(groups.findIndex((g) => g.id === focus.id) + 1, 0, created);
+      return reconcile({ ...state, groups, focusedGroupId: created.id });
+    }),
+
+  closeGroup: (groupId) =>
+    set((state) =>
+      state.groups.length <= 1 || !state.groups.some((g) => g.id === groupId)
+        ? state
+        : reconcile({ ...state, groups: state.groups.filter((g) => g.id !== groupId) }),
+    ),
+
+  setGroupWeights: (weights) =>
+    set((state) => ({
+      groups: state.groups.map((g) => (weights[g.id] === undefined ? g : { ...g, weight: weights[g.id] })),
+    })),
     }),
     {
       name: "workbench.tabs",
@@ -401,11 +621,16 @@ export const useWorkbenchTabsStore = create<WorkbenchTabsState>()(
       partialize: (state) => persistedTabs(state),
       merge: (persisted, current) => {
         const saved = (persisted ?? {}) as Partial<WorkbenchTabsState>;
-        return {
+        const activeModuleId = saved.activeModuleId ?? current.activeModuleId;
+        return reconcile({
           ...current,
-          activeModuleId: saved.activeModuleId ?? current.activeModuleId,
+          activeModuleId,
           modules: restoreIcons(saved.modules ?? {}),
-        };
+          // Stores from before document groups have none: one group showing
+          // the module that was on screen.
+          groups: saved.groups ?? [],
+          focusedGroupId: saved.focusedGroupId ?? "",
+        });
       },
     },
   ),

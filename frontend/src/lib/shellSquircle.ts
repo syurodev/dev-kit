@@ -63,6 +63,8 @@ export function shellSquircleRef(el: HTMLElement | null): (() => void) | undefin
     attributes: true,
     attributeFilter: ["class", "data-theme", "data-theme-family", "style"],
   });
+  // The card's own state can recolour its ring: a focused document group.
+  theme.observe(el, { attributes: true, attributeFilter: ["data-focused"] });
   return () => {
     resize.disconnect();
     theme.disconnect();

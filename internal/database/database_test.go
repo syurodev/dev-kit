@@ -132,6 +132,88 @@ func TestCreateProfileRejectsExplicitInsecureTLSForRemoteHost(t *testing.T) {
 	}
 }
 
+// A tailnet or VPN address is remote to this machine but the path to it is
+// already encrypted, so the profile may say so and go without TLS.
+func TestCreateProfilePermitsInsecureTLSOverATrustedNetwork(t *testing.T) {
+	svc := newService(t)
+
+	summary, err := svc.CreateProfile(CreateProfileInput{
+		Name:           "tailnet",
+		Host:           "100.101.102.103",
+		SSLMode:        "disable",
+		TrustedNetwork: true,
+		Env:            "dev",
+	})
+	if err != nil {
+		t.Fatalf("CreateProfile: %v", err)
+	}
+	if summary.SSLMode != "disable" || !summary.TrustedNetwork {
+		t.Fatalf("summary = %+v, want disable over a trusted network", summary)
+	}
+	if _, err := svc.target(summary.ID); err != nil {
+		t.Fatalf("target: %v", err)
+	}
+}
+
+// The flag only means something without TLS; on any other mode it is dropped
+// rather than stored as a promise nothing reads.
+func TestTrustedNetworkIsNotKeptWhenTLSIsOn(t *testing.T) {
+	svc := newService(t)
+
+	summary, err := svc.CreateProfile(CreateProfileInput{
+		Name:           "tailnet",
+		Host:           "db.tail1234.ts.net",
+		SSLMode:        "require",
+		TrustedNetwork: true,
+		Env:            "dev",
+	})
+	if err != nil {
+		t.Fatalf("CreateProfile: %v", err)
+	}
+	if summary.TrustedNetwork {
+		t.Fatal("trusted_network was kept on a profile that uses TLS")
+	}
+}
+
+// A profile refused for sslmode=disable is fixed from the options dialog.
+func TestUpdateProfileOptionsCanMarkANetworkTrusted(t *testing.T) {
+	svc, store := newServiceWithStore(t)
+	summary, err := svc.CreateProfile(CreateProfileInput{Name: "tailnet", Host: "100.101.102.103", Password: "secret", Env: "dev"})
+	if err != nil {
+		t.Fatalf("CreateProfile: %v", err)
+	}
+	record, err := store.Get(summary.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	meta, err := decodeMetadata(record)
+	if err != nil {
+		t.Fatalf("decodeMetadata: %v", err)
+	}
+	meta.SSLMode = "disable"
+	raw, err := json.Marshal(meta)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if _, err := store.UpdateMetadata(summary.ID, raw); err != nil {
+		t.Fatalf("UpdateMetadata: %v", err)
+	}
+	if _, err := svc.target(summary.ID); !errors.Is(err, ErrInsecureTLSForRemoteHost) {
+		t.Fatalf("target error = %v, want ErrInsecureTLSForRemoteHost", err)
+	}
+
+	updated, err := svc.UpdateProfileOptions(summary.ID, UpdateProfileOptionsInput{Env: "dev", TrustedNetwork: true})
+	if err != nil {
+		t.Fatalf("UpdateProfileOptions: %v", err)
+	}
+	if !updated.TrustedNetwork {
+		t.Fatal("trusted_network was not saved")
+	}
+	if _, err := svc.target(summary.ID); err != nil {
+		t.Fatalf("target after marking trusted: %v", err)
+	}
+}
+
 func TestCreateProfilePermitsExplicitInsecureTLSForLoopbackHosts(t *testing.T) {
 	for _, host := range []string{"localhost", "127.0.0.1", "::1"} {
 		t.Run(host, func(t *testing.T) {

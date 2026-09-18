@@ -1,0 +1,68 @@
+/* The slot layout's drag states (components/ui/pane-slots.tsx, paneDrag.ts).
+   Tokens only: the design-metrics test forbids raw lengths here. */
+
+/* A lifted card: it is the pane itself, carried by the pointer. */
+.shell-surface[data-lifted="true"] {
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    0 var(--space-group) var(--space-page) color-mix(in srgb, black 55%, transparent);
+  opacity: 0.94;
+  cursor: grabbing;
+}
+
+/* The slot it left keeps its size and says where Esc puts it back. */
+.pane-slot[data-origin="true"] {
+  border-radius: var(--shell-radius);
+  outline: var(--stroke-1) dashed color-mix(in srgb, var(--border-focus) 40%, transparent);
+  outline-offset: calc(var(--stroke-1) * -1);
+}
+
+.pane-drop-hint {
+  position: fixed;
+  z-index: 55;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--shell-radius);
+  background: color-mix(in srgb, var(--border-focus) 14%, transparent);
+  outline: var(--stroke-1) dashed var(--border-focus);
+  outline-offset: calc(var(--stroke-1) * -1);
+  opacity: 0;
+  transition:
+    opacity var(--motion-fast) ease-out,
+    left var(--motion-fast) ease-out,
+    top var(--motion-fast) ease-out,
+    width var(--motion-fast) ease-out,
+    height var(--motion-fast) ease-out;
+}
+
+.pane-drop-hint[data-show="true"] {
+  opacity: 1;
+}
+
+.pane-drop-hint-label {
+  border-radius: var(--radius-full);
+  background: var(--border-focus);
+  color: var(--background-app);
+  padding: var(--space-micro) var(--space-inline);
+}
+
+/* A tab dragged over a document group (workbench/DocumentGroups.tsx): the
+   whole card when it would move there, its right third when it would split
+   off into a new group. */
+.doc-group[data-tab-drop]::before {
+  content: "";
+  position: absolute;
+  z-index: 50;
+  pointer-events: none;
+  border-radius: var(--shell-radius);
+  background: color-mix(in srgb, var(--border-focus) 12%, transparent);
+  outline: var(--stroke-1) dashed var(--border-focus);
+  outline-offset: calc(var(--stroke-1) * -1);
+  inset: 0;
+}
+
+.doc-group[data-tab-drop="split"]::before {
+  left: 70%;
+}

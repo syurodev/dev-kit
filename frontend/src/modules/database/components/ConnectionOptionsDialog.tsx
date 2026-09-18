@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Settings2, Shield, Radio, ShieldAlert, X, AlertTriangle } from "lucide-react";
+import { Settings2, Shield, Radio, ShieldAlert, X, AlertTriangle, Network } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
@@ -33,6 +33,7 @@ export function ConnectionOptionsDialog() {
 
   const [env, setEnv] = useState("dev");
   const [readOnly, setReadOnly] = useState(false);
+  const [trustedNetwork, setTrustedNetwork] = useState(false);
   const [sshProfileId, setSshProfileId] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -41,6 +42,7 @@ export function ConnectionOptionsDialog() {
     if (profile) {
       setEnv(profile.env || "dev");
       setReadOnly(Boolean(profile.readOnly));
+      setTrustedNetwork(Boolean(profile.trustedNetwork));
       setSshProfileId(profile.sshProfileId || "");
       setError("");
     }
@@ -58,7 +60,11 @@ export function ConnectionOptionsDialog() {
       await updateProfileOptions(selectedProfileId, {
         env,
         readOnly,
+        trustedNetwork,
         sshProfileId,
+        // Sent back as it is: this dialog does not edit the bundle, and an
+        // omitted one reads as "remove it" on the Go side.
+        caCert: profile?.caCert,
       });
       await fetchProfiles();
       setShowConnectionOptionsDialog(false);
@@ -147,6 +153,23 @@ export function ConnectionOptionsDialog() {
             </div>
             <Switch checked={readOnly} onCheckedChange={setReadOnly} />
           </div>
+
+          {/* Only a plaintext profile has anything to decide here; the
+              backend drops the flag on any other mode. */}
+          {profile.sslMode === "disable" && (
+            <div className="p-3 rounded-lg border border-border bg-surface-raised flex items-center justify-between">
+              <div className="space-y-0.5 max-w-sm">
+                <div className="flex items-center gap-1.5 font-semibold text-text-primary">
+                  <Network className="w-3.5 h-3.5 text-status-info" />
+                  <span>Network is already encrypted</span>
+                </div>
+                <p className="text-caption-11 text-text-tertiary">
+                  Tailscale, WireGuard or a VPN. Allows <code className="font-mono bg-surface-base px-1 py-0.5 rounded">sslmode=disable</code> to a remote host. Toggling will recreate the connection pool.
+                </p>
+              </div>
+              <Switch checked={trustedNetwork} onCheckedChange={setTrustedNetwork} />
+            </div>
+          )}
 
           {/* SSH Tunnel Routing */}
           <div className="p-3 rounded-lg border border-border bg-surface-raised space-y-2">

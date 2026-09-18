@@ -65,7 +65,7 @@ export function TLSRefusedState({
     <ContentState
       icon={<ShieldAlert className="w-6 h-6 text-status-danger" />}
       title="Refused: insecure TLS on a remote host"
-      body="This profile points at a remote host with sslmode=disable. DevKit only allows unverified TLS on loopback, so the connection was never attempted."
+      body="This profile points at a remote host with sslmode=disable, so the connection was never attempted. If the host is reached over Tailscale or a VPN, mark the network as encrypted in the connection options."
       detail={`ErrInsecureTLSForRemoteHost · ${target}`}
       actions={
         <Button variant="outline" size="sm" onClick={onEditConnection}>

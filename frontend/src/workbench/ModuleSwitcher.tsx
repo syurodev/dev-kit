@@ -1,6 +1,13 @@
 import { useState } from "react";
-import { Wrench } from "lucide-react";
+import { Columns2, Plus, SquareArrowOutUpRight, Wrench, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Kbd } from "@/components/ui/kbd";
 import { MENU_ROW, MenuRow } from "@/components/ui/menu-row";
@@ -9,13 +16,15 @@ import { modKey, shortcut } from "@/lib/shortcut";
 import { cn } from "@/lib/utils";
 import { getModule, viewIcon, type ModulePeekProps } from "@/modules/registry";
 import { moduleTabs, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
+import { MAX_GROUPS } from "@/stores/documentGroups";
 
 export type SwitcherModule = { id: string; title: string; unavailable?: boolean };
 
 type ModuleSwitcherProps = {
   modules: SwitcherModule[];
   activeModuleId: string;
-  onSelectModule: (moduleId: string) => void;
+  /** `beside`: ⌥-click, open the module in a new group beside the focused one. */
+  onSelectModule: (moduleId: string, opts?: { beside?: boolean }) => void;
 };
 
 /**
@@ -36,7 +45,7 @@ export function ModuleSwitcher({ modules, activeModuleId, onSelectModule }: Modu
           // There is no ⌘10. The handler is in Workbench.tsx.
           digit={index < 9 ? String(index + 1) : null}
           active={module.id === activeModuleId}
-          onSelect={() => onSelectModule(module.id)}
+          onSelect={(beside) => onSelectModule(module.id, { beside })}
         />
       ))}
     </nav>
@@ -52,7 +61,7 @@ function ModuleButton({
   module: SwitcherModule;
   digit: string | null;
   active: boolean;
-  onSelect: () => void;
+  onSelect: (beside?: boolean) => void;
 }) {
   const [peekOpen, setPeekOpen] = useState(false);
   const manifest = getModule(module.id);
@@ -85,9 +94,9 @@ function ModuleButton({
         // speculative hover must never leave an unhandled rejection.
         void manifest?.views[0]?.preload?.().catch(() => undefined);
       }}
-      onClick={() => {
+      onClick={(event) => {
         setPeekOpen(false);
-        onSelect();
+        onSelect(event.altKey);
       }}
     >
       <Icon className="size-4" />
@@ -95,10 +104,21 @@ function ModuleButton({
     </Button>
   );
 
+  const menu = (
+    <ModuleContextMenu moduleId={module.id} digit={digit} unavailable={module.unavailable} onSelect={onSelect} />
+  );
+
+  // Roots first, triggers after, as on a tab: a Radix Root is a provider with
+  // no element, so the two triggers nest directly and both land on the button.
   if (!peeks) {
     return (
       <Tooltip>
-        <TooltipTrigger asChild>{button}</TooltipTrigger>
+        <ContextMenu>
+          <TooltipTrigger asChild>
+            <ContextMenuTrigger asChild>{button}</ContextMenuTrigger>
+          </TooltipTrigger>
+          {menu}
+        </ContextMenu>
         <TooltipContent side="bottom">{label}</TooltipContent>
       </Tooltip>
     );
@@ -111,7 +131,13 @@ function ModuleButton({
 
   return (
     <HoverCard open={peekOpen} onOpenChange={setPeekOpen} openDelay={250} closeDelay={120}>
-      <HoverCardTrigger asChild>{button}</HoverCardTrigger>
+      {/* The peek gives way to the menu: both would open from the one button. */}
+      <ContextMenu onOpenChange={(open) => open && setPeekOpen(false)}>
+        <HoverCardTrigger asChild>
+          <ContextMenuTrigger asChild>{button}</ContextMenuTrigger>
+        </HoverCardTrigger>
+        {menu}
+      </ContextMenu>
       <HoverCardContent side="bottom" align="center" className="flex w-80 flex-col p-1">
         <div className="flex items-center justify-between px-2 py-1 text-caption-11-medium text-text-tertiary">
           {label}
@@ -123,6 +149,73 @@ function ModuleButton({
         )}
       </HoverCardContent>
     </HoverCard>
+  );
+}
+
+/** ⌥-click on a Mac, Alt+Click elsewhere — the same modifier the click reads. */
+const altClickLabel = () => (modKey() === "⌘" ? "⌥ Click" : "Alt+Click");
+
+/**
+ * Right-click on a module: where to open it. The same choices as a click and
+ * an ⌥-click, said out loud, plus what only makes sense once it is on screen.
+ */
+function ModuleContextMenu({
+  moduleId,
+  digit,
+  unavailable,
+  onSelect,
+}: {
+  moduleId: string;
+  digit: string | null;
+  unavailable?: boolean;
+  onSelect: (beside?: boolean) => void;
+}) {
+  const groups = useWorkbenchTabsStore((s) => s.groups);
+  const closeGroup = useWorkbenchTabsStore((s) => s.closeGroup);
+  const shownIn = groups.find((g) => g.moduleId === moduleId);
+  const manifest = getModule(moduleId);
+  const newTab = manifest?.newTab;
+
+  return (
+    <ContextMenuContent className="w-60">
+      <ContextMenuItem
+        disabled={unavailable}
+        icon={<SquareArrowOutUpRight />}
+        shortcut={digit ? shortcut(digit) : undefined}
+        onSelect={() => onSelect(false)}
+      >
+        {shownIn ? "Go to Group" : "Open"}
+      </ContextMenuItem>
+      <ContextMenuItem
+        // Already on screen: beside would only focus it, which Open does.
+        disabled={unavailable || Boolean(shownIn) || groups.length >= MAX_GROUPS}
+        icon={<Columns2 />}
+        shortcut={altClickLabel()}
+        onSelect={() => onSelect(true)}
+      >
+        Open Beside
+      </ContextMenuItem>
+      {newTab ? (
+        <ContextMenuItem
+          disabled={unavailable}
+          icon={<Plus />}
+          onSelect={() => {
+            onSelect(false);
+            newTab();
+          }}
+        >
+          New Tab
+        </ContextMenuItem>
+      ) : null}
+      {shownIn && groups.length > 1 ? (
+        <>
+          <ContextMenuSeparator />
+          <ContextMenuItem icon={<X />} onSelect={() => closeGroup(shownIn.id)}>
+            Close Group
+          </ContextMenuItem>
+        </>
+      ) : null}
+    </ContextMenuContent>
   );
 }
 
