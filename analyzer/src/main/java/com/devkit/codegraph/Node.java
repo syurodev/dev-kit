@@ -6,7 +6,7 @@ import java.util.List;
 public class Node {
     public String id;
     public String label;
-    public String kind;   // "class" | "method"
+    public String kind;   // "class" | "method" (constructors are "method" too)
     public String layer;  // "controller" | "service" | "repository" | "unknown"
     public String filePath;
     public int line;

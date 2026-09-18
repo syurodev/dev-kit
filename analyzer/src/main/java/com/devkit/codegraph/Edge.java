@@ -3,7 +3,7 @@ package com.devkit.codegraph;
 public class Edge {
     public String from;
     public String to;
-    public String kind; // "call"
+    public String kind; // "call" — also interface/abstract method -> its project implementation
 
     public Edge() {}
 

@@ -6,6 +6,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -32,5 +33,27 @@ class MainTest {
         Path outputFile = tempDir.resolve("index.json");
 
         assertThrows(IllegalArgumentException.class, () -> Main.run(nonExistent.toString(), outputFile.toString()));
+    }
+
+    @Test
+    void replacesAnExistingIndexWholeAndLeavesNoTemporaryFileBehind(@TempDir Path tempDir) throws IOException {
+        Path outputFile = tempDir.resolve("index.json");
+        Files.writeString(outputFile, "stale content that is longer than the new index will be ".repeat(100));
+
+        AnalysisResult result = new AnalysisResult();
+        Node node = new Node();
+        node.id = "a.B";
+        node.label = "a.B";
+        node.kind = "class";
+        node.layer = "unknown";
+        result.nodes.add(node);
+        AnalysisResultWriter.write(outputFile, result);
+
+        String content = Files.readString(outputFile);
+        assertTrue(content.startsWith("{") && content.endsWith("}"), "a whole JSON document: " + content);
+        assertTrue(content.contains("\"a.B\""), content);
+        try (var files = Files.list(tempDir)) {
+            assertEquals(List.of(outputFile), files.toList(), "only the index itself may remain");
+        }
     }
 }

@@ -6,24 +6,25 @@ import com.github.javaparser.symbolsolver.resolution.typesolvers.JavaParserTypeS
 import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeSolver;
 
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.stream.Stream;
 
 /**
  * Builds a best-effort CombinedTypeSolver: the JDK (reflection), the
- * project's own source (so cross-file resolution works), and every .jar
- * found under the user's local Maven/Gradle caches. This deliberately never
- * runs `mvn`/`gradle` to compute the real dependency tree (NFR-1) — some
- * calls into third-party libraries the project doesn't happen to have
- * locally cached will be unresolved, and that's an accepted v1 limitation,
- * not a bug (see codegraph.mdx's Known ceiling).
+ * project's own source (so cross-file resolution works), and the jars from
+ * the user's local Maven/Gradle caches that the project's build files name
+ * (see DependencyJars — not the whole cache, which is tens of thousands of
+ * jars). This deliberately never runs `mvn`/`gradle` to compute the real
+ * dependency tree (NFR-1) — some calls into third-party libraries the
+ * project doesn't happen to have locally cached will be unresolved, and
+ * that's an accepted v1 limitation, not a bug (see codegraph.mdx's Known
+ * ceiling).
  */
 public class TypeSolverFactory {
 
+    /** One source root and no jars: the JDK and the source alone. */
     public static CombinedTypeSolver build(Path projectSourceRoot) throws IOException {
-        return build(List.of(projectSourceRoot));
+        return build(null, List.of(projectSourceRoot));
     }
 
     /**
@@ -33,34 +34,26 @@ public class TypeSolverFactory {
      * in the same solver rather than in one solver each: that is what lets a
      * call from one service into a shared module resolve to a real declaration
      * instead of going unresolved.
+     *
+     * projectRoot is where the build files are read from; null adds no jars.
      */
-    public static CombinedTypeSolver build(List<Path> projectSourceRoots) throws IOException {
+    public static CombinedTypeSolver build(Path projectRoot, List<Path> projectSourceRoots) throws IOException {
         CombinedTypeSolver typeSolver = new CombinedTypeSolver();
         typeSolver.add(new ReflectionTypeSolver());
         for (Path sourceRoot : projectSourceRoots) {
             typeSolver.add(new JavaParserTypeSolver(sourceRoot));
         }
-
-        addJarsUnder(typeSolver, Path.of(System.getProperty("user.home"), ".m2", "repository"));
-        addJarsUnder(typeSolver, Path.of(System.getProperty("user.home"), ".gradle", "caches", "modules-2", "files-2.1"));
-
+        if (projectRoot == null) {
+            return typeSolver;
+        }
+        for (Path jar : DependencyJars.find(projectRoot)) {
+            try {
+                typeSolver.add(new JarTypeSolver(jar));
+            } catch (IOException | RuntimeException e) {
+                // A single unreadable/corrupt jar must not abort the whole
+                // analysis — skip it and keep going.
+            }
+        }
         return typeSolver;
-    }
-
-    private static void addJarsUnder(CombinedTypeSolver typeSolver, Path root) throws IOException {
-        if (!Files.isDirectory(root)) {
-            return; // no local Maven/Gradle cache at this path — fine, just fewer resolvable jars
-        }
-        try (Stream<Path> walk = Files.walk(root)) {
-            walk.filter(p -> p.toString().endsWith(".jar"))
-                .forEach(jar -> {
-                    try {
-                        typeSolver.add(new JarTypeSolver(jar));
-                    } catch (IOException e) {
-                        // A single unreadable/corrupt jar in a huge local cache must not
-                        // abort the whole analysis — skip it and keep going.
-                    }
-                });
-        }
     }
 }

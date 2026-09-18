@@ -53,4 +53,33 @@ class LayerClassifierTest {
         var decl = parseClass("@RestController class C {}");
         assertEquals("controller", LayerClassifier.classify(decl));
     }
+
+    @Test
+    void classifiesAnUnannotatedSpringDataRepositoryInterface() {
+        // Spring finds these by what they extend, and most carry no annotation.
+        var decl = parseClass("interface OrderRepository extends JpaRepository<Order, Long> {}");
+        assertEquals("repository", LayerClassifier.classify(decl));
+        var mongo = parseClass("interface EventRepository extends org.springframework.data.mongodb.repository.MongoRepository<Event, String> {}");
+        assertEquals("repository", LayerClassifier.classify(mongo));
+    }
+
+    @Test
+    void anInterfaceExtendingSomethingElseIsNotARepository() {
+        var decl = parseClass("interface Named extends Comparable<Named> {}");
+        assertEquals("unknown", LayerClassifier.classify(decl));
+    }
+
+    @Test
+    void seesThroughTheProjectsOwnMetaAnnotations() {
+        // @UseCase is the project's own wrapper around @Service, one level
+        // further wrapped by @ApplicationService.
+        var cu = StaticJavaParser.parse("""
+                @Service @interface UseCase {}
+                @UseCase @interface ApplicationService {}
+                @ApplicationService class PlaceOrder {}
+                """);
+        var decl = cu.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow();
+        assertEquals("service", LayerClassifier.classify(decl, Annotations.of(java.util.List.of(cu))));
+        assertEquals("unknown", LayerClassifier.classify(decl), "without the project index only direct annotations count");
+    }
 }

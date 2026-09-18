@@ -331,13 +331,14 @@ class ProjectAnalyzerTest {
 
         AnalysisResult result = new ProjectAnalyzer(projectRoot).analyze();
 
-        assertEquals(4, result.fieldAccesses.size(), "field accesses size = " + result.fieldAccesses.size());
+        // count++ reads the old value as well as writing a new one.
+        assertEquals(5, result.fieldAccesses.size(), "field accesses size = " + result.fieldAccesses.size());
 
-        FieldAccess inc = result.fieldAccesses.stream()
+        List<String> incKinds = result.fieldAccesses.stream()
                 .filter(fa -> fa.fieldName.equals("count") && fa.nodeId.contains("increment"))
-                .findFirst().orElseThrow();
-        assertEquals("com.acme.data.Counter", inc.classId);
-        assertEquals("write", inc.kind);
+                .peek(fa -> assertEquals("com.acme.data.Counter", fa.classId))
+                .map(fa -> fa.kind).sorted().toList();
+        assertEquals(List.of("read", "write"), incKinds);
 
         FieldAccess resetCount = result.fieldAccesses.stream()
                 .filter(fa -> fa.fieldName.equals("count") && fa.nodeId.contains("reset"))
@@ -627,6 +628,387 @@ class ProjectAnalyzerTest {
         assertEquals(1, callEdges.size(), "edges collapse the repeated call, as they always have");
         assertEquals(2, sites.size(), "call sites must keep both, or the second line is lost");
         assertNotEquals(sites.get(0).line, sites.get(1).line, "the two call sites must be on different lines");
+    }
+
+    // --- Unique ids ------------------------------------------------------------
+
+    private static void assertIdsUniqueAndReferenced(AnalysisResult result) {
+        Set<String> ids = new java.util.HashSet<>();
+        for (Node n : result.nodes) {
+            assertTrue(ids.add(n.id), "duplicate node id " + n.id);
+        }
+        for (Edge e : result.edges) {
+            assertTrue(ids.contains(e.from) && ids.contains(e.to), "edge to unknown node: " + e.from + " -> " + e.to);
+        }
+        for (Endpoint ep : result.endpoints) {
+            assertTrue(ids.contains(ep.entryNode), "endpoint to unknown node: " + ep.entryNode);
+        }
+        for (CallSite c : result.callSites) {
+            assertTrue(ids.contains(c.from) && (c.to.isEmpty() || ids.contains(c.to)), "call site to unknown node: " + c.to);
+        }
+        Set<String> endpointIds = new java.util.HashSet<>();
+        for (Endpoint ep : result.endpoints) {
+            assertTrue(endpointIds.add(ep.id), "duplicate endpoint id " + ep.id);
+        }
+    }
+
+    @Test
+    void twoServicesDeclaringTheSameClassGetDistinctIds(@TempDir Path tempDir) throws IOException {
+        // Every service in a folder of services has its own
+        // com.acme.Application. Both became one node id, the store's primary
+        // key refused the second, and nothing at all was indexed.
+        Path root = tempDir.resolve("services");
+        for (String service : List.of("billing", "orders")) {
+            writeJava(root, service + "/src/main/java/com/acme/Application.java", """
+                    package com.acme;
+                    public class Application {
+                        public static void main(String[] args) { new Application().start(); }
+                        void start() { Health.check(); }
+                    }
+                    """);
+            writeJava(root, service + "/src/main/java/com/acme/Health.java", """
+                    package com.acme;
+                    @RestController
+                    public class Health {
+                        @GetMapping("/health")
+                        public static String check() { return "ok"; }
+                    }
+                    """);
+        }
+
+        AnalysisResult result = new ProjectAnalyzer(root).analyze();
+
+        assertIdsUniqueAndReferenced(result);
+        Set<String> classIds = result.nodes.stream().filter(n -> n.kind.equals("class"))
+                .map(n -> n.id).collect(Collectors.toSet());
+        assertEquals(Set.of("com.acme.Application", "com.acme.Application [orders]",
+                "com.acme.Health", "com.acme.Health [orders]"), classIds);
+
+        // Each service's call lands in its own copy, not the first one the
+        // solver happened to see.
+        assertTrue(result.edges.stream().anyMatch(e -> e.from.equals("com.acme.Application [orders].start()")
+                && e.to.equals("com.acme.Health [orders].check()")), "orders must call its own Health: " + result.edges);
+        assertTrue(result.edges.stream().anyMatch(e -> e.from.equals("com.acme.Application.start()")
+                && e.to.equals("com.acme.Health.check()")), "billing must call its own Health: " + result.edges);
+
+        // The same route served twice: the first keeps the plain id the UI
+        // addresses it by, the second is told apart by its service.
+        Set<String> endpointIds = result.endpoints.stream().map(ep -> ep.id).collect(Collectors.toSet());
+        assertEquals(Set.of("GET /health", "GET /health [orders]"), endpointIds);
+        Endpoint orders = result.endpoints.stream().filter(ep -> ep.id.endsWith("[orders]")).findFirst().orElseThrow();
+        assertEquals("/health", orders.path);
+        assertEquals("com.acme.Health [orders].check()", orders.entryNode);
+    }
+
+    @Test
+    void localClassesOfOneNameInTwoMethodsGetDistinctIdsAndTheirOwnCalls(@TempDir Path tempDir) throws IOException {
+        Path root = tempDir.resolve("project");
+        writeJava(root, "src/main/java/com/acme/Outer.java", """
+                package com.acme;
+                public class Outer {
+                    static void target() {}
+                    void first() {
+                        class Helper { void go() { target(); } }
+                        new Helper().go();
+                    }
+                    void second() {
+                        class Helper { void go() {} }
+                    }
+                }
+                """);
+
+        AnalysisResult result = new ProjectAnalyzer(root).analyze();
+
+        assertIdsUniqueAndReferenced(result);
+        Set<String> classIds = result.nodes.stream().filter(n -> n.kind.equals("class"))
+                .map(n -> n.id).collect(Collectors.toSet());
+        assertEquals(Set.of("com.acme.Outer", "com.acme.Outer.first$Helper", "com.acme.Outer.second$Helper"), classIds);
+
+        // target() is called inside Helper.go, and only there: counting it
+        // against first() as well put it in the graph twice.
+        List<CallSite> toTarget = result.callSites.stream().filter(c -> c.to.equals("com.acme.Outer.target()")).toList();
+        assertEquals(1, toTarget.size(), "one call, one call site: " + toTarget.stream().map(c -> c.from).toList());
+        assertEquals("com.acme.Outer.first$Helper.go()", toTarget.get(0).from);
+        assertTrue(result.edges.stream().anyMatch(e -> e.from.equals("com.acme.Outer.first()")
+                && e.to.equals("com.acme.Outer.first$Helper.go()")), "first() calls the local class: " + result.edges);
+    }
+
+    // --- Interfaces and inherited routes ------------------------------------------
+
+    @Test
+    void callsThroughAServiceInterfaceReachTheImplementation(@TempDir Path tempDir) throws IOException {
+        Path root = tempDir.resolve("project");
+        writeJava(root, "src/main/java/com/acme/OrderService.java", """
+                package com.acme;
+                public interface OrderService { String create(String id); }
+                """);
+        writeJava(root, "src/main/java/com/acme/OrderServiceImpl.java", """
+                package com.acme;
+                public class OrderServiceImpl implements OrderService {
+                    public String create(String id) { return Ids.next(); }
+                }
+                """);
+        writeJava(root, "src/main/java/com/acme/Ids.java", """
+                package com.acme;
+                public class Ids { public static String next() { return "x"; } }
+                """);
+        writeJava(root, "src/main/java/com/acme/Notifier.java", """
+                package com.acme;
+                public interface Notifier { void send(String message); }
+                """);
+        writeJava(root, "src/main/java/com/acme/OrderController.java", """
+                package com.acme;
+                public class OrderController {
+                    private final OrderService orders;
+                    private final Notifier notifier;
+                    OrderController(OrderService orders, Notifier notifier) { this.orders = orders; this.notifier = notifier; }
+                    String post(String id) {
+                        notifier.send(id);
+                        return orders.create(id);
+                    }
+                }
+                """);
+
+        AnalysisResult result = new ProjectAnalyzer(root).analyze();
+
+        assertIdsUniqueAndReferenced(result);
+        assertTrue(hasCallEdge(result, "com.acme.OrderController.post", "com.acme.OrderService.create"), result.edges.toString());
+        assertTrue(hasCallEdge(result, "com.acme.OrderService.create", "com.acme.OrderServiceImpl.create"),
+                "the interface method must lead on to its implementation: " + result.edges);
+        assertTrue(hasCallEdge(result, "com.acme.OrderServiceImpl.create", "com.acme.Ids.next"), result.edges.toString());
+
+        // Notifier has no implementation anywhere in the project: the flow
+        // cannot go on from it, and the call site says so.
+        CallSite send = result.callSites.stream()
+                .filter(c -> c.from.startsWith("com.acme.OrderController.post") && c.line == 7)
+                .findFirst().orElseThrow(() -> new AssertionError(result.callSites.toString()));
+        assertEquals("interface", send.unresolved);
+        CallSite create = result.callSites.stream()
+                .filter(c -> c.from.startsWith("com.acme.OrderController.post") && c.line == 8)
+                .findFirst().orElseThrow();
+        assertEquals("", create.unresolved, "an interface with an implementation is not a wall");
+    }
+
+    @Test
+    void routesDeclaredOnAnImplementedInterfaceEnterAtTheController(@TempDir Path tempDir) throws IOException {
+        // The shape an OpenAPI generator produces: the routes live on an
+        // interface, the controller only implements it.
+        Path root = tempDir.resolve("project");
+        writeJava(root, "src/main/java/com/acme/api/UsersApi.java", """
+                package com.acme.api;
+                @RequestMapping("/v1")
+                public interface UsersApi {
+                    @GetMapping(Paths.USERS + "/{id}")
+                    String getUser(String id);
+                    @PostMapping(value = {Paths.USERS, "/people"})
+                    String createUser(String body);
+                }
+                """);
+        writeJava(root, "src/main/java/com/acme/api/Paths.java", """
+                package com.acme.api;
+                public final class Paths {
+                    public static final String ROOT = "/users";
+                    public static final String USERS = ROOT;
+                }
+                """);
+        writeJava(root, "src/main/java/com/acme/web/UsersController.java", """
+                package com.acme.web;
+                import com.acme.api.UsersApi;
+                @RestController
+                public class UsersController implements UsersApi {
+                    @Override public String getUser(String id) { return id; }
+                    @Override public String createUser(String body) { return body; }
+                }
+                """);
+
+        AnalysisResult result = new ProjectAnalyzer(root).analyze();
+
+        assertIdsUniqueAndReferenced(result);
+        Map<String, String> entryById = result.endpoints.stream()
+                .collect(Collectors.toMap(ep -> ep.id, ep -> ep.entryNode));
+        assertEquals(Map.of(
+                "GET /v1/users/{id}", "com.acme.web.UsersController.getUser(java.lang.String)",
+                "POST /v1/users", "com.acme.web.UsersController.createUser(java.lang.String)",
+                "POST /v1/people", "com.acme.web.UsersController.createUser(java.lang.String)"), entryById);
+    }
+
+    @Test
+    void aControllerInheritsItsBaseClassPrefixAndHandlers(@TempDir Path tempDir) throws IOException {
+        Path root = tempDir.resolve("project");
+        writeJava(root, "src/main/java/com/acme/CrudController.java", """
+                package com.acme;
+                @RequestMapping("/api")
+                public abstract class CrudController {
+                    @GetMapping("/{id}")
+                    public String get(String id) { return id; }
+                    @DeleteMapping("/{id}")
+                    public void delete(String id) {}
+                }
+                """);
+        writeJava(root, "src/main/java/com/acme/OrderController.java", """
+                package com.acme;
+                @RestController
+                public class OrderController extends CrudController {
+                    @GetMapping("/orders")
+                    public String list() { return ""; }
+                    @Override public void delete(String id) {}
+                }
+                """);
+
+        AnalysisResult result = new ProjectAnalyzer(root).analyze();
+
+        assertIdsUniqueAndReferenced(result);
+        Map<String, String> entryById = result.endpoints.stream()
+                .collect(Collectors.toMap(ep -> ep.id, ep -> ep.entryNode));
+        assertEquals(Map.of(
+                "GET /api/orders", "com.acme.OrderController.list()",
+                "DELETE /api/{id}", "com.acme.OrderController.delete(java.lang.String)",
+                "GET /api/{id}", "com.acme.CrudController.get(java.lang.String)"), entryById);
+    }
+
+    @Test
+    void customStereotypeAnnotationsAreSeenThrough(@TempDir Path tempDir) throws IOException {
+        Path root = tempDir.resolve("project");
+        writeJava(root, "src/main/java/com/acme/ApiController.java", """
+                package com.acme;
+                @RestController
+                @RequestMapping("/api")
+                public @interface ApiController {}
+                """);
+        writeJava(root, "src/main/java/com/acme/Ping.java", """
+                package com.acme;
+                @ApiController
+                public class Ping {
+                    @GetMapping("/ping") public String ping() { return "pong"; }
+                }
+                """);
+
+        AnalysisResult result = new ProjectAnalyzer(root).analyze();
+
+        Node ping = result.nodes.stream().filter(n -> n.id.equals("com.acme.Ping")).findFirst().orElseThrow();
+        assertEquals("controller", ping.layer);
+        assertEquals(List.of("GET /api/ping"), result.endpoints.stream().map(ep -> ep.id).toList());
+    }
+
+    // --- Walking the tree -----------------------------------------------------------
+
+    @Test
+    void aFolderWithNoBuildLayoutStillSkipsBuildOutput(@TempDir Path tempDir) throws IOException {
+        Path root = tempDir.resolve("loose");
+        writeJava(root, "app/Real.java", "package app; public class Real {}");
+        writeJava(root, "target/classes/app/Real.java", "package app; public class Real {}");
+        writeJava(root, "node_modules/pkg/Vendored.java", "public class Vendored {}");
+        writeJava(root, "build/generated/Generated.java", "public class Generated {}");
+
+        AnalysisResult result = new ProjectAnalyzer(root).analyze();
+
+        assertEquals(List.of("app.Real"), result.nodes.stream().map(n -> n.id).toList());
+    }
+
+    @Test
+    void findsSourceRootsNestedDeeperThanSixLevels(@TempDir Path tempDir) throws IOException {
+        Path root = tempDir.resolve("mono");
+        writeJava(root, "a/b/c/d/e/f/g/service/src/main/java/com/acme/Deep.java", "package com.acme; public class Deep {}");
+
+        AnalysisResult result = new ProjectAnalyzer(root).analyze();
+
+        assertTrue(result.nodes.stream().anyMatch(n -> n.id.equals("com.acme.Deep")), result.nodes.toString());
+    }
+
+    // --- Constructors, initializers, field accesses, Lombok ----------------------------
+
+    @Test
+    void indexesConstructorsAndTheCallsThatRunThem(@TempDir Path tempDir) throws IOException {
+        Path root = tempDir.resolve("project");
+        writeJava(root, "src/main/java/com/acme/Clock.java", """
+                package com.acme;
+                public class Clock {
+                    public Clock(String zone) {}
+                    static long now() { return 0; }
+                }
+                """);
+        writeJava(root, "src/main/java/com/acme/Scheduler.java", """
+                package com.acme;
+                public class Scheduler {
+                    private final long started = Clock.now();
+                    static { Clock.now(); }
+                    public Scheduler() {}
+                    public Scheduler(int n) { this(); }
+                    Clock make() { return new Clock("UTC"); }
+                }
+                """);
+
+        AnalysisResult result = new ProjectAnalyzer(root).analyze();
+
+        assertIdsUniqueAndReferenced(result);
+        Node ctor = result.nodes.stream().filter(n -> n.id.equals("com.acme.Clock.Clock(java.lang.String)"))
+                .findFirst().orElseThrow(() -> new AssertionError("constructor node missing: " + result.nodes));
+        assertEquals("method", ctor.kind);
+        assertTrue(result.edges.stream().anyMatch(e -> e.from.equals("com.acme.Scheduler.make()")
+                && e.to.equals("com.acme.Clock.Clock(java.lang.String)")), "new Clock(...) calls its constructor: " + result.edges);
+        assertTrue(result.edges.stream().anyMatch(e -> e.from.equals("com.acme.Scheduler.Scheduler(int)")
+                && e.to.equals("com.acme.Scheduler.Scheduler()")), "this() calls the other constructor: " + result.edges);
+        // The field initializer runs in the constructor that does not
+        // delegate; the static block runs once, for the class.
+        Set<String> nowCallers = result.edges.stream().filter(e -> e.to.equals("com.acme.Clock.now()"))
+                .map(e -> e.from).collect(Collectors.toSet());
+        assertEquals(Set.of("com.acme.Scheduler.Scheduler()", "com.acme.Scheduler"), nowCallers);
+    }
+
+    @Test
+    void compoundAssignmentReadsAndWrites(@TempDir Path tempDir) throws IOException {
+        Path root = tempDir.resolve("project");
+        writeJava(root, "src/main/java/com/acme/Total.java", """
+                package com.acme;
+                public class Total {
+                    private int sum;
+                    void add(int n) { sum += n; }
+                }
+                """);
+
+        AnalysisResult result = new ProjectAnalyzer(root).analyze();
+
+        assertEquals(List.of("read", "write"), result.fieldAccesses.stream()
+                .filter(fa -> fa.fieldName.equals("sum")).map(fa -> fa.kind).sorted().toList());
+    }
+
+    @Test
+    void lombokAccessorsAndLoggerAreNotUnresolvedNoise(@TempDir Path tempDir) throws IOException {
+        Path root = tempDir.resolve("project");
+        writeJava(root, "src/main/java/com/acme/Order.java", """
+                package com.acme;
+                import lombok.Data;
+                @Data
+                public class Order {
+                    private String status;
+                }
+                """);
+        writeJava(root, "src/main/java/com/acme/OrderFlow.java", """
+                package com.acme;
+                import lombok.extern.slf4j.Slf4j;
+                @Slf4j
+                public class OrderFlow {
+                    void run(Order order) {
+                        log.info("start");
+                        String s = order.getStatus();
+                        order.setStatus("done");
+                        mystery.call();
+                    }
+                }
+                """);
+
+        AnalysisResult result = new ProjectAnalyzer(root).analyze();
+
+        Map<Integer, String> reasonByLine = result.callSites.stream()
+                .filter(c -> c.from.startsWith("com.acme.OrderFlow.run"))
+                .collect(Collectors.toMap(c -> c.line, c -> c.unresolved));
+        assertEquals(Map.of(6, "lombok", 7, "lombok", 8, "lombok", 9, "unresolved"), reasonByLine);
+        // The accessors are the field accesses they stand for.
+        List<String> statusAccesses = result.fieldAccesses.stream()
+                .filter(fa -> fa.classId.equals("com.acme.Order") && fa.fieldName.equals("status")
+                        && fa.nodeId.startsWith("com.acme.OrderFlow.run"))
+                .map(fa -> fa.line + ":" + fa.kind).sorted().toList();
+        assertEquals(List.of("7:read", "8:write"), statusAccesses);
     }
 
     private static Path sampleProjectRoot() {
