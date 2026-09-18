@@ -6,40 +6,31 @@ import (
 	"errors"
 	"testing"
 
+	"devkit/internal/capabilities"
 	"devkit/internal/codegraph"
 )
 
 type fakeCodeGraphAPI struct {
-	setProjectPathErr error
-	openProjectErr    error
-	detection         codegraph.DetectedProject
-	endpoints         []codegraph.Endpoint
-	flow              codegraph.ApiFlow
-	matches           []codegraph.SymbolMatch
-	files             []codegraph.FileEntry
-	fileContent       string
-	snippet           codegraph.CodeSnippet
-	blastRadius       []string
-	indexVersion      int
-	subgraph          codegraph.Subgraph
-	dataFlowTrace     codegraph.DataFlowTrace
-	fieldRefs         []codegraph.FieldRef
-	comments          []codegraph.PlanComment
-	plan              codegraph.Plan
-	planProgress      codegraph.PlanProgress
-	err               error
+	openProjectErr error
+	detection      codegraph.DetectedProject
+	endpoints      []codegraph.Endpoint
+	flow           codegraph.ApiFlow
+	matches        []codegraph.SymbolMatch
+	files          []codegraph.FileEntry
+	fileContent    string
+	snippet        codegraph.CodeSnippet
+	blastRadius    []string
+	indexVersion   int
+	subgraph       codegraph.Subgraph
+	dataFlowTrace  codegraph.DataFlowTrace
+	fieldRefs      []codegraph.FieldRef
+	comments       []codegraph.PlanComment
+	plan           codegraph.Plan
+	planProgress   codegraph.PlanProgress
+	err            error
 }
 
-func (f fakeCodeGraphAPI) OpenProjectAt(ctx context.Context, dbPath, projectPath string) error {
-	if err := f.SetProjectPath(dbPath); err != nil {
-		return err
-	}
-	return f.OpenProject(ctx, projectPath)
-}
-func (f fakeCodeGraphAPI) SetProjectPath(dbPath string) error {
-	return f.setProjectPathErr
-}
-func (f fakeCodeGraphAPI) OpenProject(ctx context.Context, projectPath string) error {
+func (f fakeCodeGraphAPI) OpenProjectDir(ctx context.Context, projectPath string) error {
 	return f.openProjectErr
 }
 func (f fakeCodeGraphAPI) ActiveDetection() codegraph.DetectedProject {
@@ -238,5 +229,40 @@ func TestToolCodeGraphTraceDataFlow(t *testing.T) {
 	trace, ok := unwrap(v).(codegraph.DataFlowTrace)
 	if !ok || len(trace.Steps) != 1 || trace.Steps[0].Kind != "write" {
 		t.Fatalf("unexpected result: %#v", v)
+	}
+}
+
+type gatewayCtxKey struct{}
+
+// stampingCaller hands its handler a context the tool's own ctx does not
+// carry — the way the real gateway attaches the caller's identity and the
+// call's deadline.
+type stampingCaller struct{}
+
+func (stampingCaller) Call(ctx context.Context, _, _, _ string, _ map[string]any, handler capabilities.Handler) (any, error) {
+	return handler(context.WithValue(ctx, gatewayCtxKey{}, "gateway"))
+}
+
+type ctxRecordingCodeGraph struct {
+	fakeCodeGraphAPI
+	seen *any
+}
+
+func (f ctxRecordingCodeGraph) ListEndpoints(ctx context.Context) ([]codegraph.Endpoint, error) {
+	*f.seen = ctx.Value(gatewayCtxKey{})
+	return nil, nil
+}
+
+// The handler must run on the context the gateway gives it, not the one the
+// tool was called with — otherwise the gateway's deadline and identity never
+// reach the service.
+func TestCodeGraphToolsRunOnTheGatewayContext(t *testing.T) {
+	var seen any
+	s := NewServer(Deps{Caller: stampingCaller{}, CodeGraph: ctxRecordingCodeGraph{seen: &seen}})
+	if _, _, err := s.toolCodeGraphListEndpoints(context.Background(), nil, struct{}{}); err != nil {
+		t.Fatal(err)
+	}
+	if seen != "gateway" {
+		t.Fatalf("handler ran on the tool's own ctx, not the gateway's (saw %v)", seen)
 	}
 }

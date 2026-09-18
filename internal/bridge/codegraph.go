@@ -13,8 +13,14 @@ import (
 // how many modules were found. A repository of microservices is the case that
 // needs it: it indexes as one graph, and without a count it is indistinguishable
 // on screen from a single project that happens to have a lot of endpoints.
-func (s *AppService) CodeGraphOpenProject(path string) (codegraph.DetectedProject, error) {
-	result, err := s.call(context.Background(), "builtin.codegraph", "codegraph:index", "project:new", map[string]any{
+//
+// ctx is the call's own context: cancelling the frontend's promise cancels it
+// (the same mechanism DBQuery uses), and with it the analysis — an open of a
+// large project is minutes, and "never mind" has to stop the JVM, not just the
+// spinner. A newer open or the app quitting cancels it too, reported as
+// codegraph.ErrProjectChanged.
+func (s *AppService) CodeGraphOpenProject(ctx context.Context, path string) (codegraph.DetectedProject, error) {
+	result, err := s.call(ctx, "builtin.codegraph", "codegraph:index", "project:new", map[string]any{
 		"action": "open_project",
 	}, func(ctx context.Context) (any, error) {
 		dbPath := codegraph.ProjectDBPath(s.container.ConfigDir, path)
@@ -131,12 +137,17 @@ func (s *AppService) CodeGraphReadFile(relativePath string) (string, error) {
 	return result.(string), nil
 }
 
-func (s *AppService) CodeGraphWriteFile(relativePath, content string) error {
+// CodeGraphWriteFile saves an editor buffer. expectedRoot is the project root
+// the buffer was opened under: if the active project has changed since — an
+// agent can switch it over MCP while the buffer is open — the save is refused
+// with project_changed instead of landing, as a new or overwritten file, in a
+// project the user was not editing. Empty skips the check.
+func (s *AppService) CodeGraphWriteFile(relativePath, content, expectedRoot string) error {
 	_, err := s.call(context.Background(), "builtin.codegraph", "codegraph:fs", "file:"+relativePath, map[string]any{
 		"action":        "write_file",
 		"relative_path": relativePath,
 	}, func(ctx context.Context) (any, error) {
-		return nil, s.container.CodeGraph.WriteFile(ctx, relativePath, content)
+		return nil, s.container.CodeGraph.WriteFile(ctx, relativePath, content, expectedRoot)
 	})
 	return err
 }
@@ -250,8 +261,11 @@ func (s *AppService) CodeGraphAnalyzerStatus() ([]codegraph.ToolchainStatus, err
 // Its own capability: this is the one CodeGraph call that runs a build tool
 // against the user's machine, and a grant that covers reading an index should
 // not silently also cover that.
-func (s *AppService) CodeGraphBuildAnalyzer(language string) error {
-	_, err := s.call(context.Background(), "builtin.codegraph", "codegraph:toolchain", "analyzer:build", map[string]any{
+//
+// ctx cancels the build (promise cancel), as does CodeGraphCancelAnalyzerBuild
+// for a caller that no longer holds the promise.
+func (s *AppService) CodeGraphBuildAnalyzer(ctx context.Context, language string) error {
+	_, err := s.call(ctx, "builtin.codegraph", "codegraph:toolchain", "analyzer:build", map[string]any{
 		"action":   "build_analyzer",
 		"language": language,
 	}, func(ctx context.Context) (any, error) {
@@ -259,6 +273,24 @@ func (s *AppService) CodeGraphBuildAnalyzer(language string) error {
 			return nil, codegraph.ErrUnknownToolchain
 		}
 		return nil, s.container.CodeGraph.BuildAnalyzer(ctx, language)
+	})
+	return err
+}
+
+// CodeGraphCancelAnalyzerBuild stops the analyzer build in flight — Maven and
+// every process it started — so the setup panel's Cancel works even after the
+// view that started the build has gone. The build's own call then fails with
+// operation_cancelled. A no-op when nothing is building.
+//
+// Same capability as the build: stopping one is part of running one.
+func (s *AppService) CodeGraphCancelAnalyzerBuild() error {
+	_, err := s.call(context.Background(), "builtin.codegraph", "codegraph:toolchain", "analyzer:build", map[string]any{
+		"action": "cancel_analyzer_build",
+	}, func(context.Context) (any, error) {
+		if s.container.CodeGraph != nil {
+			s.container.CodeGraph.CancelAnalyzerBuild()
+		}
+		return nil, nil
 	})
 	return err
 }

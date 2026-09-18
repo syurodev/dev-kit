@@ -9,6 +9,12 @@ type FileTreeProps = {
   entries: CodeGraphFileEntry[];
   selectedPath: string | null;
   onSelectFile: (path: string) => void;
+  /**
+   * Folders to render open regardless of what the user toggled — the
+   * ancestors of search matches (see fileSearch.ts). Null when no search is
+   * active; the user's own expansion is untouched either way.
+   */
+  forceExpanded?: Set<string> | null;
 };
 
 function depthOf(path: string): number {
@@ -22,10 +28,8 @@ function parentOf(path: string): string | null {
 
 // visibleEntries returns, in order, every entry whose full ancestor chain is
 // in expanded — a depth-0 entry (no "/" in its path) is always visible.
-// Exported as a plain function (not inlined in the component) so its logic
-// can be read and reasoned about on its own — there is no test runner in
-// this frontend to exercise it automatically, so this is deliberately kept
-// simple enough to verify by inspection.
+// Exported as a plain function so fileSearch.test.ts can check a search match
+// is actually visible, not merely present in the filtered list.
 export function visibleEntries(entries: CodeGraphFileEntry[], expanded: Set<string>): CodeGraphFileEntry[] {
   return entries.filter((e) => {
     let parent = parentOf(e.path);
@@ -42,8 +46,12 @@ export function visibleEntries(entries: CodeGraphFileEntry[], expanded: Set<stri
 // here as well as in the class below.
 const ROW_HEIGHT = 24;
 
-export function FileTree({ entries, selectedPath, onSelectFile }: FileTreeProps) {
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+export function FileTree({ entries, selectedPath, onSelectFile, forceExpanded }: FileTreeProps) {
+  const [userExpanded, setExpanded] = useState<Set<string>>(new Set());
+  const expanded = useMemo(
+    () => (forceExpanded ? new Set([...userExpanded, ...forceExpanded]) : userExpanded),
+    [userExpanded, forceExpanded],
+  );
   const rows = useMemo(() => visibleEntries(entries, expanded), [entries, expanded]);
 
   const parentRef = useRef<HTMLDivElement | null>(null);
@@ -67,8 +75,11 @@ export function FileTree({ entries, selectedPath, onSelectFile }: FileTreeProps)
   }
 
   return (
-    <div ref={parentRef} className="h-full overflow-y-auto">
-      <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
+    // A flat, virtualised list, so the hierarchy is told through aria-level on
+    // each treeitem rather than nested role="group" elements — ARIA allows
+    // either, and nesting is impossible when only the visible rows exist.
+    <div ref={parentRef} role="tree" aria-label="Project files" className="h-full overflow-y-auto">
+      <div role="presentation" style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
         {virtualizer.getVirtualItems().map((item) => {
           const entry = rows[item.index];
           const depth = depthOf(entry.path);
@@ -77,6 +88,10 @@ export function FileTree({ entries, selectedPath, onSelectFile }: FileTreeProps)
           return (
             <button
               key={entry.path}
+              role="treeitem"
+              aria-level={depth + 1}
+              aria-expanded={entry.isDir ? expanded.has(entry.path) : undefined}
+              aria-selected={entry.isDir ? undefined : selected}
               className={cn(
                 "absolute top-0 left-0 flex w-full items-center gap-1.5 rounded-md border pr-2 text-left",
                 selected

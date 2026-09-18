@@ -35,6 +35,10 @@ const (
 	// "try again", and offering a retry on a folder that will never analyze is
 	// a button that cannot work.
 	codeUnsupportedProject = "unsupported_project"
+	// codeProjectChanged: the CodeGraph project is not the one the caller
+	// thinks is open. Its own code because the UI's answer is to re-read which
+	// project is open (and keep the unsaved buffer), never to retry the call.
+	codeProjectChanged = "project_changed"
 	// A statement the engine refused. Not connection_failed: the connection is
 	// fine, and the frontend tells the two apart to decide whether to offer a
 	// reconnect or just show what the engine said.
@@ -287,6 +291,10 @@ func publicError(subject string, err error) *apperrors.AppError {
 			return apperrors.Wrap(codeValidationFailed, "CodeGraph file or directory not found.", true, err)
 		case errors.Is(err, codegraph.ErrBinaryFile):
 			return apperrors.Wrap(codeValidationFailed, "This file is not text and cannot be opened in the editor.", true, codegraph.ErrBinaryFile)
+		case errors.Is(err, codegraph.ErrFileTooLarge):
+			return apperrors.Wrap(codeValidationFailed, "This file is too large to open in the editor.", true, codegraph.ErrFileTooLarge)
+		case errors.Is(err, codegraph.ErrProjectChanged):
+			return apperrors.Wrap(codeProjectChanged, "The open CodeGraph project changed. Nothing was written; reopen the file from the current project.", true, codegraph.ErrProjectChanged)
 		}
 	}
 	if subject == "builtin.mcpinstall" {

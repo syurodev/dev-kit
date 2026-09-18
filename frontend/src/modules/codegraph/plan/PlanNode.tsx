@@ -30,7 +30,7 @@ export function PlanNode({ data, selected }: NodeProps & { data: PlanNodeData })
     <div
       title={status.hint}
       className={cn(
-        "group relative flex w-67 flex-col gap-2.5 rounded-lg border bg-surface-raised p-3",
+        "group relative flex w-67 flex-col gap-2.5 rounded-lg border bg-surface-raised p-3 in-focus-visible:ring-2 in-focus-visible:ring-text-primary",
         status.border,
         selected
           ? "shadow-[0_6px_8px_rgba(0,0,0,0.45)]"

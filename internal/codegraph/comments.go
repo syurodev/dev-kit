@@ -96,10 +96,11 @@ func (s *Service) CommentPlanNode(ctx context.Context, planNodeID, body string) 
 	if body == "" {
 		return fmt.Errorf("codegraph: comment body is empty")
 	}
-	store, err := s.activeStore()
+	store, release, err := s.projectStore()
 	if err != nil {
 		return err
 	}
+	defer release()
 	return store.AddComment(ctx, PlanComment{
 		PlanNodeID: planNodeID,
 		CommentID:  newCommentID(),
@@ -117,10 +118,11 @@ func (s *Service) ReplyPlanNode(ctx context.Context, planNodeID, body, sessionID
 	if body == "" {
 		return fmt.Errorf("codegraph: reply body is empty")
 	}
-	store, err := s.activeStore()
+	store, release, err := s.projectStore()
 	if err != nil {
 		return err
 	}
+	defer release()
 	return store.AddComment(ctx, PlanComment{
 		PlanNodeID: planNodeID,
 		CommentID:  newCommentID(),
@@ -132,18 +134,20 @@ func (s *Service) ReplyPlanNode(ctx context.Context, planNodeID, body, sessionID
 }
 
 func (s *Service) ListPlanNodeComments(ctx context.Context, planNodeID string) ([]PlanComment, error) {
-	store, err := s.activeStore()
+	store, release, err := s.projectStore()
 	if err != nil {
 		return nil, err
 	}
+	defer release()
 	return store.ListComments(ctx, planNodeID)
 }
 
 func (s *Service) CountPlanNodeComments(ctx context.Context) (map[string]int, error) {
-	store, err := s.activeStore()
+	store, release, err := s.projectStore()
 	if err != nil {
 		return nil, err
 	}
+	defer release()
 	return store.CountComments(ctx)
 }
 

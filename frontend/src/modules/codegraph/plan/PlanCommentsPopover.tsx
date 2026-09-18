@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Bot, MessageSquare, Send, User, X } from "lucide-react";
 import { NodeToolbar, Panel, Position, useInternalNode, useStore, useViewport } from "@xyflow/react";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import {
 } from "@/bridge/codegraphPlan";
 import { errorMessage } from "@/bridge/errors";
 import { DOCK_TOP_RESERVE, placeInspector } from "../inspector/placeInspector";
+import { codeGraphRequests } from "../codegraphStore";
 
 /** "14m ago" — the thread is short-lived, so an absolute time says less. */
 function ago(unixSeconds: number): string {
@@ -35,6 +36,9 @@ function ago(unixSeconds: number): string {
  *
  * placeInspector keeps it on screen — it flips sides, picks the vertical align
  * that does not clip, and gives up on anchoring entirely when no side has room.
+ *
+ * Keyboard: focus moves into the composer when it opens and back to whatever
+ * had it (the node card) when it closes; Escape closes it.
  */
 export function PlanCommentsPopover({
   planNodeId,
@@ -45,7 +49,8 @@ export function PlanCommentsPopover({
   planNodeId: string;
   label: string;
   onClose: () => void;
-  onCountChange?: (n: number) => void;
+  /** Named by node: a count must land on the node it was counted for. */
+  onCountChange?: (planNodeId: string, n: number) => void;
 }) {
   const [thread, setThread] = useState<CodeGraphPlanComment[] | null>(null);
   const [draft, setDraft] = useState("");
@@ -56,26 +61,55 @@ export function PlanCommentsPopover({
   const canvasHeight = useStore((s) => s.height);
   const viewport = useViewport();
   const node = useInternalNode(planNodeId);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
+
+  // Whatever had focus when the popover opened gets it back on close.
+  useEffect(() => {
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      e.preventDefault();
+      onCloseRef.current();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      if (previous?.isConnected) previous.focus();
+    };
+  }, []);
 
   useEffect(() => {
-    let live = true;
+    // A comment load and a send share one key, and a project switch
+    // invalidates both: a thread must never render under another node.
+    const current = codeGraphRequests.begin("comments");
     setThread(null);
     setDraft("");
     setError("");
     listCodeGraphPlanNodeComments(planNodeId)
       .then((next) => {
-        if (!live) return;
+        if (!current()) return;
         setThread(next);
-        onCountChange?.(next.length);
+        onCountChange?.(planNodeId, next.length);
       })
-      .catch((e) => live && setError(errorMessage(e)));
+      .catch((e) => current() && setError(errorMessage(e)));
     return () => {
-      live = false;
+      codeGraphRequests.begin("comments"); // supersede on unmount/change
     };
     // onCountChange is called, never read as state.
   }, [planNodeId]);
 
-  if (!node || !canvasWidth || !canvasHeight) return null;
+  const ready = !!node && !!canvasWidth && !!canvasHeight;
+  // Focus moves in once the card exists — it renders nothing until the node
+  // has been measured, so a mount-time focus would find no composer.
+  useEffect(() => {
+    if (ready) composerRef.current?.focus({ preventScroll: true });
+  }, [ready, planNodeId]);
+
+  if (!ready) return null;
 
   const placement = placeInspector(
     {
@@ -90,16 +124,20 @@ export function PlanCommentsPopover({
   async function send() {
     const body = draft.trim();
     if (!body) return;
+    const current = codeGraphRequests.begin("comments");
+    const target = planNodeId;
     setSending(true);
     setError("");
     try {
-      await commentCodeGraphPlanNode(planNodeId, body);
+      await commentCodeGraphPlanNode(target, body);
+      if (!current()) return;
       setDraft("");
-      const next = await listCodeGraphPlanNodeComments(planNodeId);
+      const next = await listCodeGraphPlanNodeComments(target);
+      if (!current()) return;
       setThread(next);
-      onCountChange?.(next.length);
+      onCountChange?.(target, next.length);
     } catch (e) {
-      setError(errorMessage(e));
+      if (current()) setError(errorMessage(e));
     } finally {
       setSending(false);
     }
@@ -107,6 +145,8 @@ export function PlanCommentsPopover({
 
   const card = (
     <div
+      role="dialog"
+      aria-label={`Comments on ${label}`}
       style={{ width: placement.width, height: placement.height }}
       className="nowheel nopan flex flex-col overflow-hidden rounded-lg border border-glass-border bg-surface-raised shadow-[0_12px_32px_rgba(0,0,0,0.45)]"
     >
@@ -161,6 +201,8 @@ export function PlanCommentsPopover({
 
       <div className="flex shrink-0 items-start gap-2 px-5 pb-3">
         <textarea
+          ref={composerRef}
+          aria-label="New comment"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           rows={2}

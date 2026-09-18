@@ -1,4 +1,5 @@
-import { FolderOpen, RefreshCw } from "lucide-react";
+import { useMemo } from "react";
+import { FolderOpen, RefreshCw, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -14,6 +15,7 @@ import {
 } from "@/components/ui/sidebar-shell";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FileTree } from "./FileTree";
+import { filterFileEntries } from "./fileSearch";
 import { methodChipClass } from "./graph/tokens";
 import { PLAN_BADGE, PLAN_STATUS, planStatusOrder } from "./plan/planStatus";
 import { cn } from "@/lib/utils";
@@ -43,16 +45,18 @@ type CodeGraphSidebarProps = {
   selectedFile: string | null;
   onSelectFile: (path: string) => void;
   plan: CodeGraphPlanProgress | null;
+  planBusy: boolean;
   planError: string;
+  onRetryPlan: () => void;
   onSelectPlanNode: (planNodeId: string) => void;
 };
 
 /**
- * Figma `CodeGraph / Sidebar` (482:907, 862:33450, 862:33497): a project
- * picker (primary Open + Re-index, the path in Code/11 under them), a 40px
- * search field, a segmented Files / Endpoints / Plan strip, then the list
- * the tab names. Endpoint rows carry a 58×21 method chip; plan rows a status
- * badge over the FQN; files a 28px tree.
+ * Figma `CodeGraph / Sidebar` (1192:69479) is the redesign this component is
+ * moving towards: project switcher, grouped endpoints, symbol search, Files
+ * and Plan states, and the cross-module actions in docs/dev-kit/cross-module.
+ * Until then: a project picker, a search field, a segmented Files / Endpoints /
+ * Plan strip, then the list the tab names.
  */
 export function CodeGraphSidebar(props: CodeGraphSidebarProps) {
   const {
@@ -73,7 +77,9 @@ export function CodeGraphSidebar(props: CodeGraphSidebarProps) {
     selectedFile,
     onSelectFile,
     plan,
+    planBusy,
     planError,
+    onRetryPlan,
     onSelectPlanNode,
   } = props;
 
@@ -89,9 +95,9 @@ export function CodeGraphSidebar(props: CodeGraphSidebarProps) {
           ep.httpMethod.toLowerCase().includes(needle),
       )
     : endpoints;
-  const shownFiles = needle
-    ? files.filter((f) => f.path.toLowerCase().includes(needle))
-    : files;
+  // Matches bring their ancestor folders, forced open — the tree only shows
+  // an entry whose every parent is expanded, so a bare filter hid them.
+  const fileSearch = useMemo(() => filterFileEntries(files, query), [files, query]);
 
   // Diverged first, done last — the sidebar is a worklist, not a plan dump.
   // Filtered by the same needle as the other two tabs, so the search box means
@@ -178,7 +184,7 @@ export function CodeGraphSidebar(props: CodeGraphSidebarProps) {
           <SidebarSection label="Endpoints" count={shownEndpoints.length} />
           <ul className="flex min-h-0 flex-1 flex-col overflow-y-auto">
             {shownEndpoints.map((ep) => {
-              const selected = selectedEndpointId === ep.entryNode;
+              const selected = selectedEndpointId === ep.id;
               return (
                 <li key={ep.id}>
                   <button
@@ -222,7 +228,12 @@ export function CodeGraphSidebar(props: CodeGraphSidebarProps) {
 
       {activeTab === "files" && (
         <div className="min-h-0 flex-1 overflow-hidden">
-          <FileTree entries={shownFiles} selectedPath={selectedFile} onSelectFile={onSelectFile} />
+          <FileTree
+            entries={fileSearch.entries}
+            forceExpanded={fileSearch.forceExpanded}
+            selectedPath={selectedFile}
+            onSelectFile={onSelectFile}
+          />
         </div>
       )}
 
@@ -251,11 +262,27 @@ export function CodeGraphSidebar(props: CodeGraphSidebarProps) {
               </button>
             </li>
           ))}
-          {planNodes.length === 0 && (
+          {planNodes.length === 0 && !plan && planError && (
+            // A failed read is not "no plan": saying so would hide a broken
+            // plan store behind the normal empty state.
+            <li role="alert" className="flex flex-col items-center gap-2 py-2 text-center text-body-12">
+              <span className="text-status-danger">Could not load the plan: {planError}</span>
+              <Button size="xs" variant="outline" className="bg-surface-raised" onClick={onRetryPlan} disabled={planBusy}>
+                Retry
+                <RotateCcw />
+              </Button>
+            </li>
+          )}
+          {planNodes.length === 0 && !plan && !planError && (
             <li className="py-2 text-center text-body-12 text-text-tertiary">
-              {planError
-                ? "No plan for this project yet."
-                : "No plan nodes. An agent creates one with codegraph.proposeFlow."}
+              {planBusy
+                ? "Loading plan…"
+                : "No plan for this project yet. An agent creates one with codegraph.proposeFlow."}
+            </li>
+          )}
+          {planNodes.length === 0 && plan && (
+            <li className="py-2 text-center text-body-12 text-text-tertiary">
+              {needle ? "No plan nodes match the search." : "This plan has no nodes."}
             </li>
           )}
         </ul>

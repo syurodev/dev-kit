@@ -4,6 +4,7 @@ package codegraph
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 )
 
@@ -55,31 +56,52 @@ func TestStoreListCommentsEmptyThread(t *testing.T) {
 	}
 }
 
-// A new plan replaces the old one, and its threads go with it — comments do
-// NOT migrate to a same-FQN node in the new plan (codegraph.mdx § Non-goals).
-func TestStoreSavePlanClearsComments(t *testing.T) {
+// A new plan replaces the old one. A thread survives only on a node the new
+// plan still has — same ID and same FQN; a node that was dropped, renumbered
+// onto something else, or repointed loses it. Comments never migrate by FQN
+// alone (codegraph.mdx § Non-goals).
+func TestStoreSavePlanKeepsThreadsOnlyForNodesThatSurvive(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 
-	if err := store.AddComment(ctx, PlanComment{
-		PlanNodeID: "pn-001", CommentID: "c1", Author: "user", Body: "x", CreatedAt: 1,
+	if err := store.SavePlan(ctx, Plan{
+		Description: "first",
+		State:       PlanStateDraft,
+		Nodes: []PlanNode{
+			{PlanNodeID: "pn-001", Label: "A", FQN: "com.A", Kind: "class"},
+			{PlanNodeID: "pn-002", Label: "B", FQN: "com.B", Kind: "class"},
+			{PlanNodeID: "pn-003", Label: "C", FQN: "com.C", Kind: "class"},
+		},
 	}); err != nil {
-		t.Fatalf("AddComment: %v", err)
+		t.Fatalf("SavePlan: %v", err)
+	}
+	for i, id := range []string{"pn-001", "pn-002", "pn-003"} {
+		if err := store.AddComment(ctx, PlanComment{
+			PlanNodeID: id, CommentID: fmt.Sprintf("c%d", i), Author: "user", Body: "x", CreatedAt: 1,
+		}); err != nil {
+			t.Fatalf("AddComment: %v", err)
+		}
 	}
 	if err := store.SavePlan(ctx, Plan{
-		Description: "next",
+		Description: "revised",
 		State:       PlanStateDraft,
-		Nodes:       []PlanNode{{PlanNodeID: "pn-001", Label: "A", FQN: "com.A", Kind: "class"}},
+		Nodes: []PlanNode{
+			{PlanNodeID: "pn-001", Label: "A", FQN: "com.A", Kind: "class"},     // kept as-is
+			{PlanNodeID: "pn-002", Label: "Z", FQN: "com.Other", Kind: "class"}, // same number, different node
+			// pn-003 dropped
+		},
 	}); err != nil {
 		t.Fatalf("SavePlan: %v", err)
 	}
 
-	thread, err := store.ListComments(ctx, "pn-001")
-	if err != nil {
-		t.Fatalf("ListComments: %v", err)
-	}
-	if len(thread) != 0 {
-		t.Fatalf("thread = %+v, want empty after a new plan replaced the old one", thread)
+	for id, want := range map[string]int{"pn-001": 1, "pn-002": 0, "pn-003": 0} {
+		thread, err := store.ListComments(ctx, id)
+		if err != nil {
+			t.Fatalf("ListComments(%s): %v", id, err)
+		}
+		if len(thread) != want {
+			t.Fatalf("%s thread = %+v, want %d comments", id, thread, want)
+		}
 	}
 }
 

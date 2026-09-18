@@ -60,7 +60,9 @@ type Plan struct {
 // used for routing.
 //
 // Threads are read-only history: no resolve, reopen, edit or delete
-// (codegraph.mdx § Non-goals). A thread dies with the plan it belongs to.
+// (codegraph.mdx § Non-goals). A thread lives as long as its plan node: a new
+// proposal that keeps the node (same ID and FQN) keeps the thread, one that
+// drops or changes the node drops it (see SavePlan).
 type PlanComment struct {
 	PlanNodeID string `json:"planNodeId"`
 	CommentID  string `json:"commentId"`

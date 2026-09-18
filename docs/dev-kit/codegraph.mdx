@@ -115,7 +115,7 @@ sequenceDiagram
   User->>UI: Chọn project folder + Re-index
   UI->>GW: codegraph.openProject(path)
   GW->>Svc: forward (allowed, effect=execute)
-  Svc->>CLI: exec analyzer --project <path> --out index.json --timeout <n>
+  Svc->>CLI: exec java -Xmx2g -jar codegraph-analyzer.jar <projectPath> <outputPath> (timeout do Go áp qua context)
   CLI->>CLI: parse .java, resolve symbol, dò annotation Spring, build node/edge
   CLI-->>Svc: index.json (hoặc lỗi/timeout)
   Svc->>DB: replace index cũ (transactional swap)

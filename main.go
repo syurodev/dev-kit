@@ -587,6 +587,14 @@ func main() {
 	container.CodeGraph.OnIndexUpdated = func(version int) {
 		emitAppEvent("codegraph:indexUpdated", map[string]any{"version": version})
 	}
+	// The active project can change without the UI asking — an agent's
+	// codegraph.openProject over MCP, or the restore at startup finishing after
+	// the window is up — and an editor holding a buffer from the old folder has
+	// to know before its next save lands in the new one.
+	container.CodeGraph.OnProjectChanged = func(root string) {
+		emitAppEvent("codegraph:projectChanged", map[string]any{"root": root})
+	}
+	container.CodeGraph.SetConfigDir(container.ConfigDir)
 	container.CodeGraph.SetTerminalRegistry(terminalRegistry)
 	defer terminalRegistry.CloseAll()
 
@@ -624,6 +632,9 @@ func main() {
 		container.CodeGraph.SetAnalyzer(toolchain.Analyzer())
 	}
 
+	// Returns once the project is marked as opening; the analysis runs in the
+	// background and reports through the events above, so it never holds the
+	// window back.
 	if err := container.CodeGraph.RestoreLastProject(context.Background(), container.ConfigDir); err != nil {
 		log.Printf("codegraph: could not restore last project: %v", err)
 	}

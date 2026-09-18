@@ -48,6 +48,17 @@ export function TerminalPane({
   // that must be rebuilt, not patched.
   const [attempt, setAttempt] = useState(0);
   const retry = useCallback(() => setAttempt((n) => n + 1), []);
+  // The effect is keyed on [attempt] only — re-running it would kill the
+  // shell — so it reads the callbacks through refs. Captured directly, onExit
+  // would be whichever function the FIRST render passed, and a parent that
+  // re-rendered with a new handler (new tab id, new closure over state) would
+  // never hear the exit.
+  const onExitRef = useRef(onExit);
+  const startRef = useRef(start);
+  useEffect(() => {
+    onExitRef.current = onExit;
+    startRef.current = start;
+  });
 
   useEffect(() => {
     const host = hostRef.current;
@@ -115,7 +126,7 @@ export function TerminalPane({
     void (async () => {
       try {
         const attached = await attachTerminal(
-          () => start(term.rows, term.cols),
+          () => startRef.current(term.rows, term.cols),
           (chunk) => {
             if (!disposed) term.write(chunk);
           },
@@ -125,7 +136,7 @@ export function TerminalPane({
             // Said in the pane as well: otherwise a finished command's tab just
             // stops, and looks the same as one still waiting for input.
             term.write(`\r\n[Process exited with code ${code}]\r\n`);
-            onExit?.(code);
+            onExitRef.current?.(code);
           },
         );
         const id = attached.sessionId;
@@ -157,7 +168,7 @@ export function TerminalPane({
       if (sessionId) {
         // Already gone when the process exited on its own; nothing to close.
         void closeTerminal(sessionId).catch(() => {});
-        if (!exited) onExit?.(-1);
+        if (!exited) onExitRef.current?.(-1);
       }
       // Last: nothing may write into a disposed terminal.
       term.dispose();

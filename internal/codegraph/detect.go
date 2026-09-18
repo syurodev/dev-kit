@@ -44,17 +44,6 @@ const (
 	maxDetectDirs = 20000
 )
 
-// skipDirs are never descended into: dependency caches, build output and VCS
-// metadata. They hold no source the user wrote, they are where the file count
-// explodes, and a build directory full of generated sources would otherwise
-// register as a module of its own.
-var skipDirs = map[string]bool{
-	".git": true, ".hg": true, ".svn": true,
-	"node_modules": true, "vendor": true, "venv": true, ".venv": true,
-	"target": true, "build": true, "out": true, "dist": true, "bin": true,
-	".gradle": true, ".idea": true, ".vscode": true, ".devkit": true,
-}
-
 // Detect reports whether root holds a project this toolchain can analyze, and
 // where its modules are.
 //
@@ -110,7 +99,9 @@ func (t Toolchain) Detect(root string) (DetectedProject, bool) {
 				return nil
 			}
 			name := entry.Name()
-			if skipDirs[name] || (strings.HasPrefix(name, ".") && name != ".") {
+			// Hidden directories too, beyond the shared list: a module is never
+			// declared inside one.
+			if ignoredDir(name) || (strings.HasPrefix(name, ".") && name != ".") {
 				return fs.SkipDir
 			}
 			if depth >= maxDetectDepth {

@@ -13,8 +13,7 @@ import { useResolvePermission } from "@/modules/agenthub/permissions";
 import { elicitationForSession, useRespondElicitation } from "@/modules/agenthub/elicitations";
 import { setSessionConfigOption, setSessionMode } from "@/modules/agenthub/transcriptControls";
 import { useAgentSessionList, useAgentSessionsStore } from "@/stores/agentSessions";
-import { openCodeGraphProject, readCodeGraphFile } from "@/bridge/codegraph";
-import { useCodeGraphStore } from "@/modules/codegraph/codegraphStore";
+import { openFileInProject } from "@/modules/codegraph/codegraphActions";
 import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
 import { EMPTY_ARRAY } from "@/lib/stableEmpty";
 import { imageAttachmentFromFile } from "@/modules/agenthub/imageAttachments";
@@ -139,20 +138,10 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
     setAttachments((current) => current.includes(path) ? current : [...current, path]);
   }
 
-  async function openFile(path: string, line?: number) {
+  function openFile(path: string, line?: number) {
     if (!session) return;
-    const root = session.projectPath.replace(/[\\/]+$/, "");
-    const normalizedPath = path.split("\\").join("/");
-    const normalizedRoot = root.split("\\").join("/");
-    const relative = normalizedPath.startsWith(`${normalizedRoot}/`) ? normalizedPath.slice(normalizedRoot.length + 1) : normalizedPath;
-    try {
-      await openCodeGraphProject(root);
-      const content = await readCodeGraphFile(relative);
-      useCodeGraphStore.getState().set({ projectPath: root, activeTab: "files", selectedFile: relative, selectedLine: line ?? null, fileContent: content, fileDirty: false, fileError: "" });
-      openTab({ moduleId: "codegraph", viewId: "codegraph.explorer", title: "Code Graph" });
-    } catch (e) {
-      setError(errorMessage(e));
-    }
+    openTab({ moduleId: "codegraph", viewId: "codegraph.explorer", title: "Code Graph" });
+    void openFileInProject(session.projectPath, path, line);
   }
 
   async function setMode(nextMode: string) {

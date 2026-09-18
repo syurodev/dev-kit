@@ -106,8 +106,18 @@ export async function readCodeGraphFile(relativePath: string): Promise<string> {
   return callBridge(() => AppService.CodeGraphReadFile(relativePath));
 }
 
-export async function writeCodeGraphFile(relativePath: string, content: string): Promise<void> {
-  return callBridge(() => AppService.CodeGraphWriteFile(relativePath, content));
+/**
+ * Saves a file of the open project. `expectedRoot` is the project root the
+ * file was opened under: Go refuses the write (an error naming
+ * "codegraph.projectChanged") when the active project has moved since, so a
+ * buffer from project A can never land at the same relative path in project B.
+ */
+export async function writeCodeGraphFile(
+  relativePath: string,
+  content: string,
+  expectedRoot: string,
+): Promise<void> {
+  return callBridge(() => AppService.CodeGraphWriteFile(relativePath, content, expectedRoot));
 }
 
 export type CodeGraphNode = {
@@ -184,7 +194,7 @@ export type CodeGraphDataFlowStep = {
   /** The callee, for kind === "call". Empty otherwise. */
   targetId: string;
   /** Empty when nothing was lost; otherwise the wall the trace hit. */
-  unresolved: "" | "library" | "interface" | "unresolved" | "depth" | "cycle";
+  unresolved: "" | "library" | "interface" | "unresolved" | "lombok" | "depth" | "cycle" | "repeat" | "limit";
 };
 
 export type CodeGraphDataFlowTrace = {
@@ -252,6 +262,19 @@ const INDEX_UPDATED_EVENT = "codegraph:indexUpdated";
 export function onCodeGraphIndexUpdated(handler: (version: number) => void): () => void {
   return Events.On(INDEX_UPDATED_EVENT, (ev) => {
     handler(Number(ev.data?.version ?? 0));
+  });
+}
+
+const PROJECT_CHANGED_EVENT = "codegraph:projectChanged";
+
+/**
+ * Fires whenever the active project changes — from this window's picker, or
+ * from an agent switching it over MCP, which the view otherwise has no way to
+ * notice. Returns an unsubscribe function.
+ */
+export function onCodeGraphProjectChanged(handler: (root: string) => void): () => void {
+  return Events.On(PROJECT_CHANGED_EVENT, (ev) => {
+    handler(String(ev.data?.root ?? ""));
   });
 }
 
@@ -332,6 +355,14 @@ export async function codeGraphAnalyzerStatus(): Promise<CodeGraphToolchainStatu
  */
 export async function buildCodeGraphAnalyzer(language: string): Promise<void> {
   return callBridge(() => AppService.CodeGraphBuildAnalyzer(language));
+}
+
+/**
+ * Stops the analyzer build in flight, Maven and all. The build's own promise
+ * then rejects with operation_cancelled. A no-op when nothing is building.
+ */
+export async function cancelCodeGraphAnalyzerBuild(): Promise<void> {
+  return callBridge(() => AppService.CodeGraphCancelAnalyzerBuild());
 }
 
 const ANALYZER_BUILD_OUTPUT_EVENT = "codegraph:analyzerBuildOutput";

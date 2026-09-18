@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sync"
 	"time"
 )
 
@@ -82,13 +83,22 @@ func (a toolchainAnalyzer) Analyze(ctx context.Context, projectPath string) (Ana
 	// CommandContext kills the process on cancellation but then waits on the
 	// output pipes, which a grandchild holding them open can keep open forever.
 	// WaitDelay puts a bound on that second wait, so a cancelled analysis
-	// actually returns.
+	// actually returns; killing the process group means there is no such
+	// grandchild left to wait for in the first place.
 	cmd.WaitDelay = 5 * time.Second
-	if out, err := cmd.CombinedOutput(); err != nil {
+	killProcessGroup(cmd)
+	// Only the tail of what the analyzer prints is kept, for the error. The
+	// index goes to the output file; a chatty analyzer logging a line per file
+	// on a large project would otherwise be buffered whole, and then pasted
+	// whole into an error message.
+	output := newTailBuffer(maxAnalyzerOutput)
+	cmd.Stdout = output
+	cmd.Stderr = output
+	if err := cmd.Run(); err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return AnalysisResult{}, fmt.Errorf("codegraph: %s analyzer gave up after %s: %w (output: %s)", a.toolchain.Language, analyzerTimeout, ctxErr, out)
+			return AnalysisResult{}, fmt.Errorf("codegraph: %s analyzer stopped: %w (output: %s)", a.toolchain.Language, ctxErr, output)
 		}
-		return AnalysisResult{}, fmt.Errorf("codegraph: %s analyzer subprocess failed: %w (output: %s)", a.toolchain.Language, err, out)
+		return AnalysisResult{}, fmt.Errorf("codegraph: %s analyzer subprocess failed: %w (output: %s)", a.toolchain.Language, err, output)
 	}
 
 	data, err := os.ReadFile(outputPath)
@@ -101,4 +111,47 @@ func (a toolchainAnalyzer) Analyze(ctx context.Context, projectPath string) (Ana
 		return AnalysisResult{}, fmt.Errorf("codegraph: parse analyzer output: %w", err)
 	}
 	return result, nil
+}
+
+// maxAnalyzerOutput is how much of a subprocess's output is kept for an error
+// message — the end of it, where the failure is.
+const maxAnalyzerOutput = 64 << 10
+
+// tailBuffer keeps the last max bytes written to it. Safe for the concurrent
+// writes exec makes when Stdout and Stderr are the same writer.
+type tailBuffer struct {
+	mu        sync.Mutex
+	buf       []byte
+	max       int
+	truncated bool
+}
+
+func newTailBuffer(max int) *tailBuffer {
+	return &tailBuffer{max: max}
+}
+
+func (t *tailBuffer) Write(p []byte) (int, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	n := len(p)
+	if len(p) >= t.max {
+		t.buf = append(t.buf[:0], p[len(p)-t.max:]...)
+		t.truncated = true
+		return n, nil
+	}
+	if over := len(t.buf) + len(p) - t.max; over > 0 {
+		t.buf = append(t.buf[:0], t.buf[over:]...)
+		t.truncated = true
+	}
+	t.buf = append(t.buf, p...)
+	return n, nil
+}
+
+func (t *tailBuffer) String() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.truncated {
+		return "…" + string(t.buf)
+	}
+	return string(t.buf)
 }

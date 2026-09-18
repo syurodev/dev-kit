@@ -11,6 +11,17 @@ import (
 // SavePlan replaces the project's single active plan wholesale — same
 // "swap, don't merge" contract as ReplaceIndex, matching the doc's "đề xuất
 // plan mới trong lúc plan cũ chưa xong thì thay thế".
+//
+// Comment threads are the one thing carried over, and only for a node the
+// new plan still has: the same planNodeId AND the same FQN. An agent
+// re-proposing a revised plan keeps its unchanged nodes, and wiping every
+// thread on that — including the human's review notes the revision was
+// answering — lost the conversation the revision was part of. Both halves are
+// required. An ID alone is not identity: agents number nodes "pn-001",
+// "pn-002" afresh in every proposal, and a thread saying "not this table"
+// must not reappear on whatever unrelated node took the number. An FQN alone
+// is the migration codegraph.mdx § Non-goals rules out. A node whose ID or
+// FQN changed is a new node, and starts with no thread.
 func (s *sqliteStore) SavePlan(ctx context.Context, plan Plan) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -18,10 +29,39 @@ func (s *sqliteStore) SavePlan(ctx context.Context, plan Plan) error {
 	}
 	defer tx.Rollback()
 
-	// plan_node_comments goes with them: a thread belongs to the node it was
-	// written on, not to a name that happens to reappear in the next plan
-	// (codegraph.mdx § Non-goals).
-	for _, table := range []string{"plan_meta", "plan_nodes", "plan_edges", "plan_node_comments"} {
+	previous := map[string]string{}
+	rows, err := tx.QueryContext(ctx, `SELECT plan_node_id, fqn FROM plan_nodes`)
+	if err != nil {
+		return fmt.Errorf("codegraph: read previous plan nodes: %w", err)
+	}
+	for rows.Next() {
+		var id, fqn string
+		if err := rows.Scan(&id, &fqn); err != nil {
+			rows.Close()
+			return fmt.Errorf("codegraph: scan previous plan node: %w", err)
+		}
+		previous[id] = fqn
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("codegraph: read previous plan nodes: %w", err)
+	}
+	rows.Close()
+
+	var keep []string
+	for _, n := range plan.Nodes {
+		if fqn, ok := previous[n.PlanNodeID]; ok && fqn == n.FQN {
+			keep = append(keep, n.PlanNodeID)
+		}
+	}
+	dropComments := `DELETE FROM plan_node_comments`
+	if len(keep) > 0 {
+		dropComments += ` WHERE plan_node_id NOT IN (` + placeholders(len(keep)) + `)`
+	}
+	if _, err := tx.ExecContext(ctx, dropComments, stringArgs(keep)...); err != nil {
+		return fmt.Errorf("codegraph: clear dropped plan node comments: %w", err)
+	}
+	for _, table := range []string{"plan_meta", "plan_nodes", "plan_edges"} {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table); err != nil {
 			return fmt.Errorf("codegraph: clear %s: %w", table, err)
 		}
@@ -110,19 +150,42 @@ func (s *sqliteStore) SetPlanState(ctx context.Context, state string) error {
 	return nil
 }
 
-func (s *sqliteStore) SetPlanNodeFQN(ctx context.Context, planNodeID, fqn string) error {
-	res, err := s.db.ExecContext(ctx, `UPDATE plan_nodes SET fqn = ? WHERE plan_node_id = ?`, fqn, planNodeID)
+// SetPlanNodeFQN repoints one plan node, and reports whether that took an
+// approved plan back to draft (see Service.RelinkPlanNode). Setting the FQN a
+// node already has changes nothing, approval included.
+func (s *sqliteStore) SetPlanNodeFQN(ctx context.Context, planNodeID, fqn string) (bool, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("codegraph: SetPlanNodeFQN: %w", err)
+		return false, fmt.Errorf("codegraph: SetPlanNodeFQN: %w", err)
 	}
-	affected, err := res.RowsAffected()
+	defer tx.Rollback()
+
+	var current string
+	err = tx.QueryRowContext(ctx, `SELECT fqn FROM plan_nodes WHERE plan_node_id = ?`, planNodeID).Scan(&current)
+	if err == sql.ErrNoRows {
+		return false, ErrPlanNodeNotFound
+	}
 	if err != nil {
-		return fmt.Errorf("codegraph: SetPlanNodeFQN: %w", err)
+		return false, fmt.Errorf("codegraph: SetPlanNodeFQN: %w", err)
 	}
-	if affected == 0 {
-		return ErrPlanNodeNotFound
+	if current == fqn {
+		return false, nil
 	}
-	return nil
+	if _, err := tx.ExecContext(ctx, `UPDATE plan_nodes SET fqn = ? WHERE plan_node_id = ?`, fqn, planNodeID); err != nil {
+		return false, fmt.Errorf("codegraph: SetPlanNodeFQN: %w", err)
+	}
+	res, err := tx.ExecContext(ctx, `UPDATE plan_meta SET state = ? WHERE id = 1 AND state = ?`, PlanStateDraft, PlanStateApproved)
+	if err != nil {
+		return false, fmt.Errorf("codegraph: SetPlanNodeFQN: reset approval: %w", err)
+	}
+	reset, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("codegraph: SetPlanNodeFQN: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("codegraph: SetPlanNodeFQN: commit: %w", err)
+	}
+	return reset > 0, nil
 }
 
 // ResolveFQN finds the indexed node a plan FQN refers to. An FQN carrying

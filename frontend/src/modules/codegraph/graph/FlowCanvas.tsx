@@ -1,14 +1,23 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
+import {
+  applyNodeChanges,
   Background,
   MarkerType,
   Panel,
   ReactFlow,
   ReactFlowProvider,
-  useNodesInitialized,
   useReactFlow,
   type Edge,
   type Node,
+  type NodeChange,
   type NodeTypes,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -54,6 +63,22 @@ function fitPadding(planLegend: boolean | undefined, legend: boolean) {
   } as const;
 }
 
+export type CanvasCounts = {
+  /** Nodes drawn: reachable from the root. */
+  shown: number;
+  /** Nodes given but not drawn, because the root cannot reach them. */
+  hidden: number;
+  edges: number;
+};
+
+/** "12 nodes · 14 edges", plus the unreachable ones the canvas left out. */
+export function describeCounts({ shown, hidden, edges }: CanvasCounts): string {
+  const base = `${shown} nodes · ${edges} edges`;
+  return hidden > 0 ? `${base} (${hidden} unreachable hidden)` : base;
+}
+
+const HIDDEN_STYLE = { opacity: 0 };
+
 export type FlowCanvasProps = {
   rootId: string;
   nodes: CodeGraphNode[];
@@ -75,9 +100,13 @@ export type FlowCanvasProps = {
   nodeTypes?: NodeTypes;
   /** The layer legend. Off where the cards are not controllers and services. */
   legend?: boolean;
-  /** Builds the node's `data`. Defaults to the API-node shape. */
+  /**
+   * Builds the node's `data`. Defaults to the API-node shape. An `ariaLabel`
+   * string in the result names the card for a screen reader. Pass a stable
+   * function (module-level or useCallback): a new one rebuilds every card.
+   */
   buildData?: (node: CodeGraphNode) => Record<string, unknown>;
-  /** Per-edge label text, for plan conditions. */
+  /** Per-edge label text, for plan conditions. Stable, like buildData. */
   edgeLabel?: (edge: CodeGraphEdge) => string | undefined;
   /**
    * Marks one node selected from outside the canvas — picking a row in the
@@ -90,8 +119,12 @@ export type FlowCanvasProps = {
    * method chip and a path, or the PLAN chip and its name.
    */
   header?: ReactNode;
-  /** Right of the header, before the toolbar: "4 nodes · 3 edges" and friends. */
-  meta?: ReactNode;
+  /**
+   * Right of the header, before the toolbar: "4 nodes · 3 edges" and friends.
+   * As a function it gets what the canvas actually draws — nodes the root
+   * cannot reach are dropped, so the caller's own count would overstate it.
+   */
+  meta?: ReactNode | ((counts: CanvasCounts) => ReactNode);
   /** `canvas-hint` (482:4564): the one-line glass card in the bottom-right. */
   hint?: ReactNode;
   /** Adds the dashed-border legend the plan canvas needs. */
@@ -123,9 +156,7 @@ function Canvas({
   hint,
   planLegend,
 }: FlowCanvasProps) {
-  const { getNodes, setNodes, fitView } = useReactFlow();
-  const nodesInitialized = useNodesInitialized();
-  const [placed, setPlaced] = useState(false);
+  const { fitView } = useReactFlow();
 
   const ranks = useMemo(
     () => rankGraph({ rootId, nodeIds: nodes.map((n) => n.id), edges }),
@@ -138,16 +169,13 @@ function Canvas({
     [nodes, ranks],
   );
 
-  // Everything starts at the origin and stays invisible until it has been
-  // measured and placed — that is what lets place() refuse to guess a size.
-  const initialNodes: Node[] = useMemo(
+  // What each card should say. Positions are NOT here: they belong to the
+  // layout below, and a data-only change (a plan node's status, a comment
+  // count) must reach the card without moving it.
+  const desiredNodes = useMemo(
     () =>
-      reachableNodes.map((n) => ({
-        id: n.id,
-        type: nodeType,
-        selected: n.id === selectedNodeId,
-        position: { x: 0, y: 0 },
-        data: buildData?.(n) ?? {
+      reachableNodes.map((n) => {
+        const data = buildData?.(n) ?? {
           layer: n.layer,
           // Short name on the card, fully-qualified name in the tooltip — the
           // card is too narrow to show an FQN without truncating away the only
@@ -156,9 +184,100 @@ function Canvas({
           titleTooltip: n.label,
           detail: `${n.filePath.split("/").pop()}:${n.line}`,
           detailTooltip: `${n.filePath}:${n.line}`,
-        },
-      })),
-    [reachableNodes, nodeType, buildData, selectedNodeId],
+          ariaLabel: `${n.layer || n.kind} ${n.label}`,
+        };
+        return {
+          id: n.id,
+          type: nodeType,
+          data,
+          // React Flow's own node wrapper is the focusable element (it already
+          // has tabIndex=0); making it a named button, rather than nesting a
+          // second focusable inside the card, keeps one tab stop per node.
+          ariaRole: "button" as const,
+          ariaLabel: typeof data.ariaLabel === "string" ? data.ariaLabel : n.label,
+        };
+      }),
+    [reachableNodes, nodeType, buildData],
+  );
+
+  // Controlled, not defaultNodes: React Flow reads defaultNodes once, so a
+  // "Load more" page, a background re-index or a plan status change never
+  // reached the canvas — and the new ids were never measured, so the canvas
+  // stayed hidden for good. Every node starts at the origin until placed.
+  const [rfNodes, setRfNodes] = useState<Node[]>(() =>
+    desiredNodes.map((d) => ({ ...d, selected: d.id === selectedNodeId, position: { x: 0, y: 0 } })),
+  );
+  const onNodesChange = useCallback(
+    (changes: NodeChange[]) => setRfNodes((current) => applyNodeChanges(changes, current)),
+    [],
+  );
+
+  useEffect(() => {
+    setRfNodes((previous) => {
+      const byId = new Map(previous.map((n) => [n.id, n]));
+      return desiredNodes.map((d) => {
+        const old = byId.get(d.id);
+        const selected =
+          selectedNodeId === undefined ? (old?.selected ?? false) : d.id === selectedNodeId;
+        // An existing node keeps its position and measurements; only what it
+        // says changes.
+        return old ? { ...old, ...d, selected } : { ...d, selected, position: { x: 0, y: 0 } };
+      });
+    });
+  }, [desiredNodes, selectedNodeId]);
+
+  const fitOptions = useMemo(
+    () => ({ padding: fitPadding(planLegend, legend), duration: 200 }),
+    [planLegend, legend],
+  );
+
+  // The layout is a function of the ranking alone, so it re-runs when the
+  // ranking does (a new node, a new edge) and never on a data-only update.
+  const layoutKey = useMemo(
+    () => [...ranks].map(([id, r]) => `${id}:${r.rank}:${r.order}`).join("|"),
+    [ranks],
+  );
+  const [placedKey, setPlacedKey] = useState<string | null>(null);
+  const [placedIds, setPlacedIds] = useState<ReadonlySet<string>>(() => new Set());
+  const lastPlacedIds = useRef<ReadonlySet<string> | null>(null);
+  const placing = placedKey !== layoutKey;
+
+  useEffect(() => {
+    if (!placing) return;
+    const sizes = new Map(
+      rfNodes.flatMap((n) =>
+        n.measured?.width && n.measured?.height
+          ? [[n.id, { width: n.measured.width, height: n.measured.height }] as const]
+          : [],
+      ),
+    );
+    // Null until every ranked node exists and has been measured.
+    const positions = place(ranks, sizes);
+    if (!positions) return;
+    setRfNodes((current) =>
+      current.map((n) => {
+        const p = positions.get(n.id);
+        return p && (p.x !== n.position.x || p.y !== n.position.y) ? { ...n, position: p } : n;
+      }),
+    );
+    const ids = new Set(positions.keys());
+    const previous = lastPlacedIds.current;
+    const nodeSetChanged =
+      !previous || previous.size !== ids.size || [...ids].some((id) => !previous.has(id));
+    lastPlacedIds.current = ids;
+    setPlacedIds(ids);
+    setPlacedKey(layoutKey);
+    // Fit on the first placement and when the node set changed; a re-layout
+    // of the same nodes keeps whatever pan and zoom the user chose. fitView is
+    // queued by React Flow until the new positions have reached its store.
+    if (nodeSetChanged) void fitView(fitOptions);
+  }, [placing, rfNodes, ranks, layoutKey, fitView, fitOptions]);
+
+  // A node not yet placed sits at the origin: drawn invisibly (so it can be
+  // measured) and with no edges, instead of flashing over the graph.
+  const shownNodes = useMemo(
+    () => rfNodes.map((n) => (placedIds.has(n.id) ? n : { ...n, style: HIDDEN_STYLE })),
+    [rfNodes, placedIds],
   );
 
   const flowEdges: Edge[] = useMemo(
@@ -172,6 +291,7 @@ function Canvas({
         // ranks is a branch and enters from the left to avoid crossing intermediate cards.
         const isDirectNextRank = to.rank - from.rank === 1;
         const sameColumn = from.order === to.order && isDirectNextRank;
+        const label = edgeLabel?.(e);
         return [
           {
             id: `${e.from}->${e.to}`,
@@ -182,8 +302,8 @@ function Canvas({
             type: "connector",
             data: {
               kind: e.kind,
-              label: edgeLabel?.(e),
-              showLabel: e.kind === "di" || !!edgeLabel?.(e),
+              label,
+              showLabel: e.kind === "di" || !!label,
             },
             markerEnd: { type: MarkerType.Arrow, color: "var(--icon-secondary)" },
           },
@@ -191,31 +311,29 @@ function Canvas({
       }),
     [edges, ranks, edgeLabel],
   );
-
-  useEffect(() => setPlaced(false), [initialNodes, flowEdges]);
-
-  const fitOptions = useMemo(
-    () => ({ padding: fitPadding(planLegend, legend), duration: 200 }),
-    [planLegend, legend],
+  const shownEdges = useMemo(
+    () => flowEdges.filter((e) => placedIds.has(e.source) && placedIds.has(e.target)),
+    [flowEdges, placedIds],
   );
 
-  useEffect(() => {
-    if (!nodesInitialized || placed) return;
-    const sizes = new Map(
-      getNodes().flatMap((n) =>
-        n.measured?.width && n.measured?.height
-          ? [[n.id, { width: n.measured.width, height: n.measured.height }] as const]
-          : [],
-      ),
-    );
-    const positions = place(ranks, sizes);
-    if (!positions) return;
-    setNodes((current) =>
-      current.map((n) => ({ ...n, position: positions.get(n.id) ?? n.position })),
-    );
-    setPlaced(true);
-    void fitView(fitOptions);
-  }, [nodesInitialized, placed, ranks, getNodes, setNodes, fitView, fitOptions]);
+  const counts: CanvasCounts = {
+    shown: reachableNodes.length,
+    hidden: nodes.length - reachableNodes.length,
+    edges: flowEdges.length,
+  };
+
+  // Enter/Space on a focused card does what a click does. React Flow's own
+  // key handler on the node only selects it, and node wrappers take no
+  // onKeyDown of ours, so this listens where the event bubbles to.
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const target = e.target as HTMLElement;
+    if (!target.classList?.contains("react-flow__node")) return;
+    const id = target.getAttribute("data-id");
+    if (!id) return;
+    e.preventDefault();
+    onSelect?.(id);
+  };
 
   return (
     <div className="flex size-full flex-col px-6 pt-5">
@@ -224,7 +342,7 @@ function Canvas({
       <div className="flex shrink-0 items-center justify-between gap-4 pb-1">
         <div className="flex min-w-0 items-center gap-2.5">{header}</div>
         <div className="flex shrink-0 items-center gap-3.5">
-          {meta}
+          {typeof meta === "function" ? meta(counts) : meta}
           <CanvasToolbar
             onSearch={() => {}}
             onFit={() => void fitView(fitOptions)}
@@ -235,17 +353,23 @@ function Canvas({
       </div>
       <div className="h-px shrink-0 bg-border-subtle" />
 
-      <div className={placed ? "min-h-0 flex-1" : "min-h-0 flex-1 opacity-0"}>
+      <div
+        className={placedIds.size > 0 || !placing ? "min-h-0 flex-1" : "min-h-0 flex-1 opacity-0"}
+        onKeyDown={onKeyDown}
+      >
         <ReactFlow
-          defaultNodes={initialNodes}
-          defaultEdges={flowEdges}
+          nodes={shownNodes}
+          edges={shownEdges}
+          onNodesChange={onNodesChange}
           nodeTypes={types}
           edgeTypes={edgeTypes}
           // Read-only view: positions come from the layout, and nobody authors
           // edges by hand, so both editing affordances are off.
           nodesDraggable={false}
           nodesConnectable={false}
-          onlyRenderVisibleElements
+          // Off while placing: a node outside the viewport is not rendered,
+          // so it is never measured, and place() would wait for it forever.
+          onlyRenderVisibleElements={!placing}
           onNodeClick={(_, node) => onSelect?.(node.id)}
           proOptions={{ hideAttribution: false }}
         >
