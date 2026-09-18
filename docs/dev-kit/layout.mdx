@@ -455,6 +455,12 @@ dùng DnD bằng pointer events), dockview-react **8.3.1**, đo trong Chromium �
    phụ thuộc HTML5 DnD của webview, cũng không cần `dndStrategy: "pointer"`** —
    dockview 4.13 có đủ mọi API cách này dùng (`disableDnd`, `addFloatingGroup`,
    `moveTo`, `addGroup`, `toJSON`/`fromJSON` + `reuseExistingPanels`).
+   Bẫy: panel `renderer: "always"` (terminal, canvas, agent) nằm trong
+   *render overlay* riêng mà dockview chỉ căn lại theo sự kiện layout của nó —
+   dời container bằng CSS thì khung đi, nội dung ở lại. Phải dời qua
+   `DockviewFloatingGroupPanel.position()`, thứ **không** có trên `DockviewApi`
+   công khai (spike gọi qua component private); bản thật cần wrapper chính thức
+   hoặc patch.
 6. **Group float nằm đè vùng thả.** Thả vào vùng có group float phía trên thì
    pane gộp vào group float, không vào grid bên dưới. Hợp luật nhưng dễ bất
    ngờ — cân nhắc làm mờ/khoá group float khi đang kéo.
