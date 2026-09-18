@@ -23,16 +23,23 @@ export type SlotId = "bottom" | `${ColumnId}.${"top" | "bottom"}`;
 export const SLOTS: readonly SlotId[] = ["a.top", "a.bottom", "b.top", "b.bottom", "bottom"];
 
 /**
- * `context` is whatever the active module passed to openPanel — its place is
- * remembered per module. `agent` and `terminal` are companions: their place is
- * global, and a module switch never moves them.
+ * `agent` and `terminal` are companions: their place is global, and a module
+ * switch never moves them. Every other pane is a module's context pane —
+ * whatever that module passed to openPanel — named `context:<moduleId>`
+ * (contextPane), one per module on screen, its place remembered per module.
  */
-export type PaneId = "context" | "agent" | "terminal";
-export const PANES: readonly PaneId[] = ["context", "agent", "terminal"];
+export type PaneId = string;
 export const COMPANIONS: readonly PaneId[] = ["agent", "terminal"];
+export const contextPane = (moduleId: string): PaneId => `context:${moduleId}`;
+export const moduleOfPane = (pane: PaneId): string | null =>
+  pane.startsWith("context:") ? pane.slice("context:".length) : null;
 
 export type Placement = Record<PaneId, SlotId>;
-export type OpenPanes = Partial<Record<PaneId, boolean>>;
+export type OpenPanes = Record<PaneId, boolean | undefined>;
+
+/** Where a pane goes before anyone has moved it: today's shell. */
+export const DEFAULT_SLOT: Record<string, SlotId> = { agent: "a.bottom", terminal: "bottom" };
+export const defaultSlotOf = (pane: PaneId): SlotId => DEFAULT_SLOT[pane] ?? "a.top";
 
 /** Today's shell, so nothing moves for someone who never drags a pane. */
 export const DEFAULT_PLACEMENT: Placement = { context: "a.top", agent: "a.bottom", terminal: "bottom" };
@@ -47,15 +54,17 @@ export type Resolved = Partial<Record<SlotId, PaneId>>;
 /**
  * Seats the open panes. Two can claim one slot — a context pane remembered for
  * a module can point where a companion has since been moved — and companions
- * win, because they are the ones that must not move on a module switch. The
- * loser takes the nearest free slot: its column's other half first.
+ * win, because they are the ones that must not move on a module switch. Among
+ * context panes, the one listed first in `open` wins (the caller lists the
+ * focused module's first). The loser takes the nearest free slot: its
+ * column's other half first.
  */
 export function resolve(placement: Placement, open: OpenPanes): Resolved {
   const out: Resolved = {};
-  const order: PaneId[] = ["agent", "terminal", "context"];
+  const order: PaneId[] = [...COMPANIONS, ...Object.keys(open).filter((p) => !COMPANIONS.includes(p))];
   for (const pane of order) {
     if (!open[pane]) continue;
-    const want = placement[pane];
+    const want = placement[pane] ?? defaultSlotOf(pane);
     const fallbacks = [want, sibling(want), ...SLOTS].filter((s): s is SlotId => s !== null);
     const slot = fallbacks.find((s) => out[s] === undefined);
     if (slot) out[slot] = pane;
@@ -76,10 +85,10 @@ export function columnVisible(resolved: Resolved, column: ColumnId): boolean {
  * replaced it.
  */
 export function move(placement: Placement, pane: PaneId, to: SlotId): Placement {
-  const from = placement[pane];
+  const from = placement[pane] ?? defaultSlotOf(pane);
   if (from === to) return placement;
   const next = { ...placement, [pane]: to };
-  for (const other of PANES) {
+  for (const other of Object.keys(placement)) {
     if (other !== pane && placement[other] === to) next[other] = from;
   }
   return next;
@@ -123,6 +132,7 @@ const NEW_COLUMN_WIDTH = 0.28;
 const NEW_ROW_HEIGHT = 0.3;
 
 export const PANE_TITLES: Record<PaneId, string> = { context: "Panel", agent: "Agent", terminal: "Terminal" };
+const titleOf = (titles: Partial<Record<PaneId, string>>, pane: PaneId) => titles[pane] ?? pane;
 
 const inside = (r: Rect, x: number, y: number) => x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
 const upper = (r: Rect): Rect => ({ ...r, bottom: r.top + (r.bottom - r.top) / 2 });
@@ -154,7 +164,7 @@ export function dropTarget(opts: {
     changesLayout(placement, open, pane, slot) ? { slot, rect, label } : null;
   const occupantLabel = (slot: SlotId, fallback: string) => {
     const at = resolved[slot];
-    return at && at !== pane ? `Swap with ${titles[at]}` : fallback;
+    return at && at !== pane ? `Swap with ${titleOf(titles, at)}` : fallback;
   };
 
   // 1. A new column. The missing one opens where it will be drawn: B after A
@@ -215,7 +225,7 @@ export function menuTargets(
     const current = slot === here;
     if (!current && !changesLayout(placement, open, pane, slot)) return;
     const at = resolved[slot];
-    out.push({ slot, current, label: at && at !== pane ? `${label} · swap with ${t[at]}` : label });
+    out.push({ slot, current, label: at && at !== pane ? `${label} · swap with ${titleOf(t, at)}` : label });
   };
   add("bottom", "Below the document");
   visible.forEach((c, i) => {

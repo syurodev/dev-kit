@@ -28,6 +28,25 @@ describe("resolve", () => {
   });
 });
 
+describe("context panes of two modules on screen", () => {
+  const p: Placement = { agent: "a.bottom", terminal: "bottom", "context:notes": "a.top", "context:codegraph": "a.top" };
+  const open = { agent: true, terminal: true, "context:notes": true, "context:codegraph": true };
+
+  it("gives the first listed (the focused module's) its slot, and the other the next free one", () => {
+    expect(resolve(p, open)).toEqual({
+      "a.top": "context:notes",
+      "a.bottom": "agent",
+      "b.top": "context:codegraph",
+      bottom: "terminal",
+    });
+  });
+
+  it("swaps two modules' panes like any others", () => {
+    const next = move(p, "context:codegraph", "a.top");
+    expect(next["context:codegraph"]).toBe("a.top");
+  });
+});
+
 describe("move", () => {
   it("swaps with whatever held the target slot", () => {
     expect(move(DEFAULT_PLACEMENT, "terminal", "a.top")).toEqual({ context: "bottom", agent: "a.bottom", terminal: "a.top" });

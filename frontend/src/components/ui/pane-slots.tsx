@@ -1,9 +1,12 @@
 import * as React from "react";
 import { createPortal } from "react-dom";
 import { LazyMotion, domAnimation, m } from "framer-motion";
-import { Bot, GripVertical, PanelRight, PanelsTopLeft, SquareTerminal, X } from "lucide-react";
-import { useSplitPanel } from "@/components/ui/split-panel";
+import { Bot, PanelRight, PanelsTopLeft, SquareTerminal, X } from "lucide-react";
+import { SHELL_PANEL_OWNER, useSplitPanel } from "@/components/ui/split-panel";
+import { useShallow } from "zustand/react/shallow";
+import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
 import { ShellResizeHandle } from "@/components/ui/resize-handle";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,14 +24,17 @@ import {
 } from "@/workbench/panelLayout";
 import { SPLIT_MIN_HEIGHT, splitColumn } from "@/workbench/splitColumn";
 import {
-  PANES,
   columnVisible,
+  contextPane,
+  moduleOfPane,
+  move,
   dropTarget,
   menuTargets,
   resolve,
   slotOf,
   type ColumnId,
   type Geometry,
+  type OpenPanes,
   type PaneId,
   type Rect,
   type SlotId,
@@ -51,8 +57,10 @@ const MIN_BOTTOM_HEIGHT = 120;
 const MAX_BOTTOM_HEIGHT = 600;
 
 type SlotsCtx = {
-  hosts: Record<PaneId, HTMLDivElement>;
+  hostFor: (pane: PaneId) => HTMLDivElement;
   titles: Record<PaneId, string>;
+  /** The context pane of the focused module, when several are on screen. */
+  focusedPane: PaneId | null;
   /** Whether the active module put its own tab in the terminal pane. */
   terminalHasModule: boolean;
   resolved: ReturnType<typeof resolve>;
@@ -64,7 +72,13 @@ type SlotsCtx = {
 const Ctx = React.createContext<SlotsCtx | null>(null);
 const useSlots = () => React.useContext(Ctx)!;
 
-const ICONS: Record<PaneId, typeof Bot> = { context: PanelRight, agent: Bot, terminal: SquareTerminal };
+/** A companion's glyph, or the module's own for its context pane. */
+function iconFor(pane: PaneId): typeof Bot {
+  if (pane === "agent") return Bot;
+  if (pane === "terminal") return SquareTerminal;
+  const m = moduleOfPane(pane);
+  return (m && getModule(m)?.icon) || PanelRight;
+}
 
 const rectOf = (el: Element | null): Rect | undefined => {
   if (!el) return undefined;
@@ -91,70 +105,92 @@ const rectOf = (el: Element | null): Rect | undefined => {
  * terminal's xterm, a canvas or a half-written message never remount.
  */
 export function PaneSlotsRow({ activeModuleId, children }: { activeModuleId: string | null; children: React.ReactNode }) {
-  const { panel, companion } = useSplitPanel();
+  const { panels, companion } = useSplitPanel();
   const bottomOpen = useBottomSlotStore((s) => s.open);
   const setBottomOpen = useBottomSlotStore((s) => s.setOpen);
   const moduleContent = useBottomContentStore((s) => (activeModuleId ? s.content[activeModuleId] : undefined));
 
+  // Modules on screen: one per document group, the focused one first so its
+  // context pane wins a contested slot.
+  const groupModules = useWorkbenchTabsStore(useShallow((s) => s.groups.map((g) => g.moduleId)));
+  const visibleModules = React.useMemo(() => {
+    const list = activeModuleId ? [activeModuleId] : [];
+    for (const m of groupModules) if (m && !list.includes(m)) list.push(m);
+    // The dev harness and anything else outside a module.
+    list.push(SHELL_PANEL_OWNER);
+    return list;
+  }, [activeModuleId, groupModules]);
+
   const agentSlot = usePaneSlotsStore((s) => s.agent);
   const terminalSlot = usePaneSlotsStore((s) => s.terminal);
   const contextByModule = usePaneSlotsStore((s) => s.contextByModule);
-  const movePane = usePaneSlotsStore((s) => s.movePane);
+  const applyPlacement = usePaneSlotsStore((s) => s.applyPlacement);
 
   const placement = React.useMemo(
-    () => placementFor({ agent: agentSlot, terminal: terminalSlot, contextByModule }, activeModuleId),
-    [agentSlot, terminalSlot, contextByModule, activeModuleId],
+    () => placementFor({ agent: agentSlot, terminal: terminalSlot, contextByModule }, visibleModules),
+    [agentSlot, terminalSlot, contextByModule, visibleModules],
   );
-  const open = React.useMemo(
-    () => ({ context: panel !== null, agent: companion !== null, terminal: bottomOpen }),
-    [panel, companion, bottomOpen],
-  );
+  const open = React.useMemo(() => {
+    const o: OpenPanes = { agent: companion !== null, terminal: bottomOpen };
+    for (const m of visibleModules) o[contextPane(m)] = m in panels;
+    return o;
+  }, [panels, companion, bottomOpen, visibleModules]);
   const resolved = React.useMemo(() => resolve(placement, open), [placement, open]);
 
-  const titles = React.useMemo<Record<PaneId, string>>(
-    () => ({
-      context: (activeModuleId && getModule(activeModuleId)?.title) || "Panel",
-      agent: "Agent",
-      terminal: "Terminal",
-    }),
-    [activeModuleId],
-  );
+  const titles = React.useMemo(() => {
+    const t: Record<PaneId, string> = { agent: "Agent", terminal: "Terminal" };
+    for (const m of visibleModules) t[contextPane(m)] = getModule(m)?.title ?? "Panel";
+    return t;
+  }, [visibleModules]);
 
-  const [hosts] = React.useState<Record<PaneId, HTMLDivElement>>(() => {
-    const make = (pane: PaneId) => {
-      const el = document.createElement("div");
+  // One detached host per pane, made on first use and kept: a pane that comes
+  // back finds the same element.
+  const hostsRef = React.useRef(new Map<PaneId, HTMLDivElement>());
+  const hostFor = React.useCallback((pane: PaneId) => {
+    let el = hostsRef.current.get(pane);
+    if (!el) {
+      el = document.createElement("div");
       el.className = "flex min-h-0 flex-1 flex-col";
       el.dataset.paneHost = pane;
-      return el;
-    };
-    return { context: make("context"), agent: make("agent"), terminal: make("terminal") };
-  });
+      hostsRef.current.set(pane, el);
+    }
+    return el;
+  }, []);
 
-  const bodies: Record<PaneId, React.ReactNode> = {
-    context: panel ? <div className="flex min-h-0 flex-1 flex-col overflow-auto">{panel.content}</div> : null,
-    agent: companion ? <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{companion.content}</div> : null,
-    terminal: bottomOpen ? (
-      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-        <TerminalWorkspace moduleContent={moduleContent ?? undefined} />
-      </div>
-    ) : null,
-  };
+  const bodies: [PaneId, React.ReactNode][] = [
+    ["agent", companion ? <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{companion.content}</div> : null],
+    [
+      "terminal",
+      bottomOpen ? (
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+          <TerminalWorkspace moduleContent={moduleContent ?? undefined} />
+        </div>
+      ) : null,
+    ],
+    ...visibleModules.map((m): [PaneId, React.ReactNode] => [
+      contextPane(m),
+      panels[m] ? <div className="flex min-h-0 flex-1 flex-col overflow-auto">{panels[m].content}</div> : null,
+    ]),
+  ];
 
-  // The module asks for a width when it opens its panel — honoured for the
+  // A module asks for a width when it opens its panel — honoured for the
   // column the panel lands in, as the split panel always did, and only on the
   // closed → open edge, so re-pushed content (NoteEditor does it on every
   // edit) never undoes a drag. Not in the bottom row: that has no width.
   const setWidthA = usePanelWidthsStore((s) => s.setSplitPanelWidth);
   const setWidthB = usePaneSlotsStore((s) => s.setColumnBWidth);
-  const panelWasOpen = React.useRef(false);
+  const wasOpen = React.useRef(new Set<string>());
   React.useEffect(() => {
-    if (panel && !panelWasOpen.current) {
-      const slot = slotOf(resolved, "context");
-      const col = slot && slot !== "bottom" ? (slot[0] as ColumnId) : null;
-      if (col) (col === "a" ? setWidthA : setWidthB)(panel.width);
+    for (const m of visibleModules) {
+      const panel = panels[m];
+      if (panel && !wasOpen.current.has(m)) {
+        const slot = slotOf(resolved, contextPane(m));
+        const col = slot && slot !== "bottom" ? (slot[0] as ColumnId) : null;
+        if (col) (col === "a" ? setWidthA : setWidthB)(panel.width);
+      }
     }
-    panelWasOpen.current = panel !== null;
-  }, [panel, resolved, setWidthA, setWidthB]);
+    wasOpen.current = new Set(visibleModules.filter((m) => m in panels));
+  }, [panels, visibleModules, resolved, setWidthA, setWidthB]);
 
   const rowRef = React.useRef<HTMLDivElement>(null);
   const docRef = React.useRef<HTMLDivElement | null>(null);
@@ -162,16 +198,17 @@ export function PaneSlotsRow({ activeModuleId, children }: { activeModuleId: str
 
   const close = React.useCallback(
     (pane: PaneId) => {
-      if (pane === "context") panel?.onClose();
+      const m = moduleOfPane(pane);
+      if (m) panels[m]?.onClose();
       else if (pane === "agent") companion?.onClose();
       else setBottomOpen(false);
     },
-    [panel, companion, setBottomOpen],
+    [panels, companion, setBottomOpen],
   );
 
   const moveTo = React.useCallback(
-    (pane: PaneId, slot: SlotId) => movePane(pane, slot, activeModuleId),
-    [movePane, activeModuleId],
+    (pane: PaneId, slot: SlotId) => applyPlacement(move(placement, pane, slot)),
+    [applyPlacement, placement],
   );
 
   const targets = React.useCallback(
@@ -207,9 +244,24 @@ export function PaneSlotsRow({ activeModuleId, children }: { activeModuleId: str
     [placement, open, titles, moveTo],
   );
 
+  // With more than one context pane on screen, the focused module's reads as
+  // focused and the others as idle — the only cue for where keys will go.
+  const contextCount = Object.keys(resolved).filter((s) => moduleOfPane(resolved[s as SlotId]!)).length;
+  const focusedPane = contextCount > 1 && activeModuleId ? contextPane(activeModuleId) : null;
+
   const ctx = React.useMemo<SlotsCtx>(
-    () => ({ hosts, titles, terminalHasModule: moduleContent != null, resolved, close, moveTo, targets, beginDrag }),
-    [hosts, titles, moduleContent, resolved, close, moveTo, targets, beginDrag],
+    () => ({
+      hostFor,
+      titles,
+      focusedPane,
+      terminalHasModule: moduleContent != null,
+      resolved,
+      close,
+      moveTo,
+      targets,
+      beginDrag,
+    }),
+    [hostFor, titles, focusedPane, moduleContent, resolved, close, moveTo, targets, beginDrag],
   );
 
   return (
@@ -235,7 +287,7 @@ export function PaneSlotsRow({ activeModuleId, children }: { activeModuleId: str
         </div>
       </LazyMotion>
 
-      {PANES.map((pane) => (bodies[pane] ? createPortal(bodies[pane], hosts[pane], pane) : null))}
+      {bodies.map(([pane, body]) => (body ? createPortal(body, hostFor(pane), pane) : null))}
 
       {createPortal(
         <div ref={hintRef} data-show="false" className="pane-drop-hint" aria-hidden>
@@ -430,14 +482,14 @@ function SlotCard({
   className?: string;
   style?: React.CSSProperties;
 }) {
-  const { hosts } = useSlots();
+  const { hostFor } = useSlots();
   const originRef = React.useRef<HTMLDivElement>(null);
   const cardRef = React.useRef<HTMLDivElement | null>(null);
   const bodyRef = React.useRef<HTMLDivElement>(null);
 
   React.useLayoutEffect(() => {
     const body = bodyRef.current;
-    const host = hosts[pane];
+    const host = hostFor(pane);
     if (!body) return;
     body.appendChild(host);
     return () => {
@@ -445,7 +497,7 @@ function SlotCard({
       // already have adopted it.
       if (host.parentNode === body) body.removeChild(host);
     };
-  }, [hosts, pane]);
+  }, [hostFor, pane]);
 
   const setCard = React.useCallback((el: HTMLDivElement | null) => {
     cardRef.current = el;
@@ -478,9 +530,10 @@ function PaneHeader({
   cardRef: React.RefObject<HTMLDivElement | null>;
   originRef: React.RefObject<HTMLDivElement | null>;
 }) {
-  const { titles, terminalHasModule, close, moveTo, targets, beginDrag } = useSlots();
+  const { titles, focusedPane, terminalHasModule, close, moveTo, targets, beginDrag } = useSlots();
   const ref = React.useRef<HTMLDivElement>(null);
-  const Icon = ICONS[pane];
+  const Icon = iconFor(pane);
+  const idle = focusedPane !== null && moduleOfPane(pane) !== null && pane !== focusedPane;
   const title = titles[pane];
 
   // Native, not onPointerDown: the drag needs the raw event's button and a
@@ -505,9 +558,27 @@ function PaneHeader({
   return (
     <div
       ref={ref}
-      className="flex h-8 shrink-0 cursor-grab items-center gap-1.5 border-b border-border-subtle pr-1 pl-1.5 text-text-secondary active:cursor-grabbing"
+      data-idle={idle || undefined}
+      className={cn(
+        "group/pane-header relative flex h-8 shrink-0 items-center gap-1.5 border-b border-border-subtle pr-1 pl-2.5",
+        idle ? "text-text-tertiary" : "text-text-secondary",
+      )}
     >
-      <GripVertical className="size-3.5 shrink-0 text-text-tertiary" aria-hidden />
+      {/* The handle: a short bar centred on the top edge, shown while the
+          pointer is over the header. The whole header still drags; the bar is
+          what says so, without a grip icon taking a place in the title row. */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div
+            data-pane-handle
+            aria-label={`Move ${title}`}
+            className="absolute top-0 left-1/2 z-10 flex h-3 w-12 -translate-x-1/2 cursor-grab items-center justify-center active:cursor-grabbing"
+          >
+            <span className="h-1 w-8 rounded-full bg-text-tertiary opacity-0 transition-opacity duration-150 group-hover/pane-header:opacity-60 hover:opacity-100!" />
+          </div>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">Move</TooltipContent>
+      </Tooltip>
       <Icon className="size-3.5 shrink-0" aria-hidden />
       {/* The terminal's tabs are its title: one header, not a header over a
           strip. The empty stretch of the strip still drags the pane. */}

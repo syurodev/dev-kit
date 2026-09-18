@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { uiStateStorage } from "@/bridge/uistate";
-import { DEFAULT_PLACEMENT, move, type PaneId, type Placement, type SlotId } from "@/workbench/slots/slotModel";
+import { DEFAULT_SLOT, contextPane, moduleOfPane, type Placement, type SlotId } from "@/workbench/slots/slotModel";
 
 type PaneSlotsState = {
   /** Companions: one place each, whichever module is active. */
@@ -13,17 +13,20 @@ type PaneSlotsState = {
   columnBWidth: number;
   /** Column B's top slot height when split; A's is splitTopHeight. */
   columnBTopHeight: number;
-  movePane: (pane: PaneId, to: SlotId, moduleId: string | null) => void;
+  /** Writes back a placement: companions globally, context panes per module. */
+  applyPlacement: (placement: Placement) => void;
   setColumnBWidth: (width: number) => void;
   setColumnBTopHeight: (height: number) => void;
 };
 
-export function placementFor(s: Pick<PaneSlotsState, "agent" | "terminal" | "contextByModule">, moduleId: string | null): Placement {
-  return {
-    context: (moduleId && s.contextByModule[moduleId]) || DEFAULT_PLACEMENT.context,
-    agent: s.agent,
-    terminal: s.terminal,
-  };
+/** The placement of the companions and of the context panes of `modules`. */
+export function placementFor(
+  s: Pick<PaneSlotsState, "agent" | "terminal" | "contextByModule">,
+  modules: readonly string[],
+): Placement {
+  const out: Placement = { agent: s.agent, terminal: s.terminal };
+  for (const m of modules) out[contextPane(m)] = s.contextByModule[m] ?? DEFAULT_SLOT.context ?? "a.top";
+  return out;
 }
 
 /**
@@ -35,21 +38,19 @@ export function placementFor(s: Pick<PaneSlotsState, "agent" | "terminal" | "con
 export const usePaneSlotsStore = create<PaneSlotsState>()(
   persist(
     (set) => ({
-      agent: DEFAULT_PLACEMENT.agent,
-      terminal: DEFAULT_PLACEMENT.terminal,
+      agent: DEFAULT_SLOT.agent,
+      terminal: DEFAULT_SLOT.terminal,
       contextByModule: {},
       columnBWidth: 360,
       columnBTopHeight: 430,
-      movePane: (pane, to, moduleId) =>
+      applyPlacement: (placement) =>
         set((s) => {
-          const next = move(placementFor(s, moduleId), pane, to);
-          return {
-            agent: next.agent,
-            terminal: next.terminal,
-            // Only the active module's context pane is on screen, so only its
-            // place can have been dragged.
-            contextByModule: moduleId ? { ...s.contextByModule, [moduleId]: next.context } : s.contextByModule,
-          };
+          const contextByModule = { ...s.contextByModule };
+          for (const [pane, slot] of Object.entries(placement)) {
+            const m = moduleOfPane(pane);
+            if (m) contextByModule[m] = slot;
+          }
+          return { agent: placement.agent ?? s.agent, terminal: placement.terminal ?? s.terminal, contextByModule };
         }),
       setColumnBWidth: (width) => set({ columnBWidth: width }),
       setColumnBTopHeight: (height) => set({ columnBTopHeight: height }),
