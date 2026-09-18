@@ -452,6 +452,28 @@ export default function DockSpike() {
         <button type="button" className={btn} onClick={() => (window.location.href = window.location.pathname)}>
           Back to app (⌘⌥⇧D)
         </button>
+        <button
+          type="button"
+          className={cn(btn, "border-status-info")}
+          onClick={() => {
+            // The shell trial reads this flag at startup (workbench/dock/dockShellFlag.ts).
+            try {
+              if (localStorage.getItem("devkit.dockShell") === "1") localStorage.removeItem("devkit.dockShell");
+              else localStorage.setItem("devkit.dockShell", "1");
+            } catch {
+              return;
+            }
+            window.location.href = window.location.pathname;
+          }}
+        >
+          {(() => {
+            try {
+              return localStorage.getItem("devkit.dockShell") === "1" ? "Dock shell: ON → turn off" : "Dock shell: OFF → turn on & open app";
+            } catch {
+              return "Dock shell";
+            }
+          })()}
+        </button>
         <div className="ml-4 flex items-center gap-1">
           {(["codegraph", "notes"] as const).map((m) => (
             <button key={m} type="button" className={cn(btn, activeModule === m && "border-status-info")} onClick={() => switchModule(m)}>{MODULE_LABEL[m]}</button>
