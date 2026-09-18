@@ -150,3 +150,25 @@ body.dk-lift-dragging * {
 .dockview-theme-devkit.dk-shell .dv-groupview.dv-active-group[data-dk-kind="document"] {
   border-color: var(--glass-border);
 }
+
+/* dockview paints .dv-dockview with the group colour, so every gap between
+   panes showed surface/base instead of the app background behind the cards. */
+.dockview-theme-devkit .dv-dockview,
+.dockview-theme-devkit .dv-split-view-container,
+.dockview-theme-devkit .dv-view {
+  background-color: transparent;
+}
+
+/* Each view carries half a gap of padding, which also lands on the outer edge
+   — 4px of row gutter + 2px of view padding, and 2px under the title bar where
+   the cards sit flush. Pull the dock out by that half so the outer edges match
+   the old shell exactly: 4px left/right/bottom, flush on top, 4px to the rail. */
+.dockview-theme-devkit.dk-shell {
+  margin: calc(var(--dk-gap) / -2);
+}
+
+/* A tab is a drag handle, never text to select. */
+.dockview-theme-devkit .dv-tab {
+  -webkit-user-select: none;
+  user-select: none;
+}

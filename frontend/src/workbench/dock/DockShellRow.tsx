@@ -88,6 +88,9 @@ function Tab({ api, containerApi }: IDockviewPanelHeaderProps<PaneParams>) {
     if (!el) return;
     const onDown = (e: PointerEvent) => {
       if ((e.target as HTMLElement).closest("button")) return;
+      // Before the 5px threshold the pointer would otherwise start a text
+      // selection across whatever it crosses (Safari keeps it after the drag).
+      e.preventDefault();
       const panel = containerApi.getPanel(api.id);
       if (panel) startLiftDrag(containerApi, panel, e);
     };
