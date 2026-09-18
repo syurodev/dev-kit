@@ -309,6 +309,62 @@ export function agentHubChooseDirectory(startIn = ""): Promise<string> {
   );
 }
 
+/** What a pending permission would do to one file; see AgentHubPermissionFileDiff. */
+export type PermissionFileDiff = {
+  path: string;
+  before: string;
+  after: string;
+  binary: boolean;
+  /** No file there yet: the edit creates it. */
+  beforeMissing: boolean;
+  truncated: boolean;
+  /** The snippet the agent replaces is no longer in the file. */
+  stale: boolean;
+};
+
+/**
+ * Previews each file a pending permission edits, read from disk: the file as
+ * it is and as it would be. Empty for a request that edits no file.
+ */
+export function agentHubPermissionFileDiff(id: string): Promise<PermissionFileDiff[]> {
+  return callBridge(async () => {
+    const raw = ((await AppService.AgentHubPermissionFileDiff(id)) ?? []) as unknown as Array<Record<string, unknown>>;
+    return raw.map((d) => ({
+      path: String(d.path ?? ""),
+      before: String(d.before ?? ""),
+      after: String(d.after ?? ""),
+      binary: Boolean(d.binary),
+      beforeMissing: Boolean(d.beforeMissing),
+      truncated: Boolean(d.truncated),
+      stale: Boolean(d.stale),
+    }));
+  });
+}
+
+/**
+ * The file edits a request_permission carries, as the agent sent them: ACP
+ * diff content items. Shown at once, before the whole-file preview arrives.
+ */
+export function permissionFileEdits(params: unknown): PermissionFileDiff[] {
+  const toolCall = (params as { toolCall?: { content?: unknown } } | null)?.toolCall;
+  const content = Array.isArray(toolCall?.content) ? toolCall.content : [];
+  return content.flatMap((item) => {
+    const d = item as { type?: unknown; path?: unknown; oldText?: unknown; newText?: unknown };
+    if (d.type !== "diff" || typeof d.path !== "string" || !d.path) return [];
+    const oldText = typeof d.oldText === "string" ? d.oldText : null;
+    return [{
+      path: d.path,
+      before: oldText ?? "",
+      after: typeof d.newText === "string" ? d.newText : "",
+      binary: false,
+      // A Write's null oldText cannot tell new from overwrite; the disk read can.
+      beforeMissing: false,
+      truncated: false,
+      stale: false,
+    }];
+  });
+}
+
 /**
  * An empty folder for one session started with no project. The hub needs a
  * working directory and refuses / and the home folder, so "no project" is a

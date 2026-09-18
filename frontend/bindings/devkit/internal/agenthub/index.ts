@@ -27,6 +27,7 @@ export type {
     InvokeResult,
     PendingElicitation,
     PendingPermission,
+    PermissionFileDiff,
     RestoreAction,
     RestoreConflict,
     RestorePreview,

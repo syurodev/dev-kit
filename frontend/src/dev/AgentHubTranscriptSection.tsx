@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { AgentSession } from "@/bridge/agenthub";
 import { AgentHubContent } from "@/modules/agenthub/surfaces/AgentHubContent";
 import { AgentSidebarTree } from "@/modules/agenthub/surfaces/AgentSidebarTree";
+import { AgentPermissionRequest } from "@/modules/agenthub/surfaces/AgentPermissionRequest";
 import type { TranscriptItem } from "@/modules/agenthub/types";
 
 /**
@@ -190,6 +191,40 @@ export function AgentHubTranscriptSection() {
           onPromptChange={setDraftPrompt}
           onSend={() => {}}
           onCancel={() => {}}
+        />
+      </div>
+      <h2 className="text-title-16 text-text-primary">Agent Hub — permission to edit a file</h2>
+      <div data-testid="gallery-agenthub-permission-edit" className="w-180 max-w-full">
+        <AgentPermissionRequest
+          size="wide"
+          session={session}
+          onResolve={() => {}}
+          pending={{
+            id: "perm-edit",
+            sessionId: session.id,
+            caller: `agent:${session.id}`,
+            title: "",
+            depth: 0,
+            createdAt: "",
+            expiresAt: "",
+            params: {
+              toolCall: {
+                title: "Edit src/config.ts",
+                content: [
+                  {
+                    type: "diff",
+                    path: `${session.projectPath}/src/config.ts`,
+                    oldText: "export const timeout = 30;\nexport const retries = 2;",
+                    newText: "export const timeout = 60;\nexport const retries = 3;\nexport const backoff = \"exponential\";",
+                  },
+                ],
+              },
+              options: [
+                { optionId: "allow_once", name: "Allow once", kind: "allow_once" },
+                { optionId: "allow_always", name: "Allow always", kind: "allow_always" },
+              ],
+            },
+          }}
         />
       </div>
       <h2 className="text-title-16 text-text-primary">Agent Hub — swarm rail</h2>

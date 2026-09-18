@@ -73,3 +73,16 @@ describe("transcript syntax", () => {
     expect(classOf("# greet")).toContain("text-(--text-tertiary)");
   });
 });
+
+describe("tokenizeLines", () => {
+  it("splits the runs per line, keeping the text exactly", async () => {
+    const { loadParser, tokenizeLines } = await import("./syntax");
+    const parser = await loadParser("typescript");
+    const code = "const a = 1;\n// two\nfunction f() {}";
+    const lines = tokenizeLines(code, parser);
+    expect(lines).toHaveLength(3);
+    expect(lines.map((segments) => segments.map((s) => s.text).join(""))).toEqual(code.split("\n"));
+    // The keyword is coloured, not the whole line.
+    expect(lines[0].some((s) => s.className && s.text === "const")).toBe(true);
+  });
+});

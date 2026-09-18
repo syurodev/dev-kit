@@ -211,6 +211,19 @@ export function AgentHubPendingPermissions(): $CancellablePromise<agenthub$0.Pen
 }
 
 /**
+ * AgentHubPermissionFileDiff previews what a pending permission would do to
+ * each file it edits: the file as it is now and as it would be once allowed.
+ * Empty for a request that edits no file, and for one no longer pending.
+ * 
+ * Read-only, and only for a request the hub is already holding: the path comes
+ * from the agent's own request, not from the caller, so this cannot be pointed
+ * at an arbitrary file.
+ */
+export function AgentHubPermissionFileDiff(id: string): $CancellablePromise<agenthub$0.PermissionFileDiff[] | null> {
+    return $Call.ByID(1388836716, id);
+}
+
+/**
  * AgentHubPlanRestore works out what putting a turn's files back would do,
  * without touching anything. The returned token is what AgentHubApplyRestore
  * takes; the plan itself stays on the backend, so a client cannot name a tree

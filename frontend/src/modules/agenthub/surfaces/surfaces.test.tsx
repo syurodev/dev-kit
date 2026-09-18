@@ -1466,7 +1466,6 @@ describe("Agent Hub Phase 3 Surfaces", () => {
             pending={mockPending}
             session={{ ...mockSession, id: "sess-req-1", title: "Subagent Alpha", projectPath: "/workspace/app" }}
             onResolve={() => {}}
-            timeoutSeconds={60}
           />,
         );
 
@@ -1487,6 +1486,61 @@ describe("Agent Hub Phase 3 Surfaces", () => {
         expect(html).toContain("Deny");
         expect(html).toContain('data-testid="permission-allow-always"');
         expect(html).toContain("Allow always");
+      });
+
+      it("shows the file an edit would change as a 08 Diff pane", () => {
+        const html = renderToString(
+          <AgentPermissionRequest
+            pending={{
+              ...mockPending,
+              params: {
+                toolCall: {
+                  title: "Edit src/app.ts",
+                  content: [{ type: "diff", path: "/workspace/app/src/app.ts", oldText: "const a = 1;", newText: "const a = 2;" }],
+                },
+                options: [{ optionId: "allow_once", name: "Allow once" }],
+              },
+            }}
+            session={{ ...mockSession, projectPath: "/workspace/app" }}
+            onResolve={() => {}}
+          />,
+        );
+        expect(html).toContain('data-testid="permission-file-edits"');
+        expect(html).toContain('data-slot="diff-pane"');
+        // Relative to the session's folder, and not upper-cased: it is a path.
+        expect(html).toContain(">src/app.ts<");
+        expect(html).toContain('data-kind="removed"');
+        expect(html).toContain('data-kind="added"');
+        expect(html).toContain("const a = 2;");
+      });
+
+      it("offers the whole file for review, without leaving the card", () => {
+        const html = renderToString(
+          <AgentPermissionRequest
+            pending={{
+              ...mockPending,
+              params: {
+                toolCall: {
+                  content: [{ type: "diff", path: "/workspace/app/src/app.ts", oldText: "a", newText: "b" }],
+                },
+                options: [{ optionId: "allow_once", name: "Allow once" }],
+              },
+            }}
+            session={{ ...mockSession, projectPath: "/workspace/app" }}
+            onResolve={() => {}}
+          />,
+        );
+        // The pane caps its height so the card cannot push the transcript off
+        // screen; this is the way to the rest of the file.
+        expect(html).toContain('data-testid="permission-diff-expand"');
+        expect(html).toContain("Review the whole diff of src/app.ts");
+      });
+
+      it("draws no diff for a request that edits no file", () => {
+        const html = renderToString(
+          <AgentPermissionRequest pending={mockPending} session={mockSession} onResolve={() => {}} />,
+        );
+        expect(html).not.toContain('data-testid="permission-file-edits"');
       });
 
       it("renders locked environment variant with warning badge", () => {

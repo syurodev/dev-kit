@@ -11,6 +11,7 @@ import {
   permissionEnv,
   type PermissionEnv,
 } from "./permissionCard";
+import { PermissionFileEdits } from "./PermissionFileEdits";
 
 export type { PermissionEnv };
 
@@ -154,6 +155,9 @@ export function AgentPermissionRequest({
           {actions}
         </>
       )}
+
+      {/* What the edit is, not only which tool: the file as it would be. */}
+      <PermissionFileEdits pending={pending} projectPath={session?.projectPath} actions={actions} />
 
       <PermissionLockedNote env={env} />
     </div>
