@@ -62,6 +62,9 @@ export function ConnectionOptionsDialog() {
         readOnly,
         trustedNetwork,
         sshProfileId,
+        // Sent back as it is: this dialog does not edit the bundle, and an
+        // omitted one reads as "remove it" on the Go side.
+        caCert: profile?.caCert,
       });
       await fetchProfiles();
       setShowConnectionOptionsDialog(false);
