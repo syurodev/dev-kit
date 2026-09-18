@@ -47,7 +47,28 @@ export type OpenTabInput = {
   params?: Record<string, unknown>;
   icon?: LucideIcon;
   preview?: boolean;
+  /**
+   * Open beside the focused group rather than in it: in another group showing
+   * the module, or a new one to its right (docs/dev-kit/layout.mdx § Mở một
+   * group). ⌘-click in a sidebar sets it through armBeside, and it is what a
+   * cross-module hand-off will pass as placement "beside".
+   */
+  beside?: boolean;
 };
+
+/**
+ * ⌘-click in a sidebar means "open beside" for whatever that click opens.
+ * The sidebar arms it in the capture phase of the click, and the openTab the
+ * same click makes consumes it — so no module's sidebar had to learn about it.
+ * Disarmed after the event either way.
+ */
+let besideArmed = false;
+export function armBeside() {
+  besideArmed = true;
+  setTimeout(() => {
+    besideArmed = false;
+  }, 0);
+}
 
 /**
  * Stable identity for a tab: same moduleId+viewId+params always resolves to
@@ -76,6 +97,22 @@ export function tabKey(
  */
 export function moduleOfTab(id: string): string {
   return id.slice(0, id.indexOf(":") === -1 ? id.length : id.indexOf(":"));
+}
+
+/**
+ * Where "beside" opens: another group already showing the module, else a new
+ * group right of the focused one — or, at the group limit, where a plain open
+ * would have gone.
+ */
+function besideGroup(s: WorkbenchTabsState, moduleId: string): { groups: DocGroup[]; group: DocGroup } {
+  const focus = focusedGroup(s);
+  const other = s.groups.find((g) => g.moduleId === moduleId && g.id !== focus?.id);
+  if (other) return { groups: s.groups, group: other };
+  if (!focus || s.groups.length >= MAX_GROUPS) return targetGroup(s, moduleId);
+  const created: DocGroup = { id: newGroupId(), moduleId, activeTabId: "", weight: focus.weight / 2 };
+  const groups = withGroup(s.groups, focus.id, { weight: focus.weight / 2 });
+  groups.splice(groups.findIndex((g) => g.id === focus.id) + 1, 0, created);
+  return { groups, group: created };
 }
 
 /** Moves `id` to the front of an MRU list, deduping any earlier entry. */
@@ -256,12 +293,19 @@ export const useWorkbenchTabsStore = create<WorkbenchTabsState>()(
 
   openTab: (input) => {
     const id = tabKey(input.moduleId, input.viewId, input.params);
+    const beside = input.beside || besideArmed;
+    besideArmed = false;
     set((state) => {
       // An open tab is shown where it already is; a new one goes to the
-      // focused group if it shows this module, else to one that does.
+      // focused group if it shows this module, else to one that does — or,
+      // beside, to a group other than the focused one.
       const existing = moduleTabs(state.modules, input.moduleId).openTabs.find((tab) => tab.id === id);
       const home = existing ? groupOfTab(state.groups, existing) : null;
-      const placed = home ? { groups: state.groups, group: home } : targetGroup(state, input.moduleId);
+      const placed = home
+        ? { groups: state.groups, group: home }
+        : beside
+          ? besideGroup(state, input.moduleId)
+          : targetGroup(state, input.moduleId);
       const partial = updateModule(
         state,
         input.moduleId,

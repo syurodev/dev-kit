@@ -203,10 +203,19 @@ group bên cạnh.
   module trên switcher để mở bên cạnh. Group rỗng tự đóng (trừ group cuối), có
   nút đóng group khi có hơn một.
 
-**Chưa làm:** kéo tab từ group này sang group kia (hiện qua menu), `⌘`-click
-trong sidebar, `placement: "beside"` cho intent liên module, và context pane của
-*mọi* module đang hiện — bố cục vị trí hiện chỉ có một context pane, của module
-đang focus.
+Sau đó đã làm thêm:
+
+- **Kéo tab** ra khỏi strip: thả lên group khác cùng module thì chuyển sang
+  đó, thả vào mép phải group của nó thì tách thành group mới.
+- **Context pane của mọi module đang hiện**: `openPanel` thuộc về module gọi nó
+  (qua `SidebarModuleIdContext`), mỗi module có vị trí riêng; pane của module
+  đang focus thắng khi tranh chỗ và hiện trạng thái Focused, các pane khác Idle.
+- **`⌘`-click trong sidebar** mở bên cạnh (`armBeside`, không module nào phải
+  sửa); `openTab({ beside: true })` là chỗ intent liên module sẽ gọi với
+  `placement: "beside"`.
+- **Khi cửa sổ nhỏ lại** và **preset** — xem hai mục dưới.
+- Tay nắm kéo pane là một vạch ngắn giữa mép trên header, hiện khi hover
+  (tooltip *Move*), thay cho icon chấm.
 
 ### Agent Hub
 
@@ -276,8 +285,11 @@ webview — một dự án riêng.
 Thay vì DevKit đoán nên đóng pane nào khi thiếu chỗ, người dùng chọn bố cục cho
 việc đang làm:
 
-- Mỗi module ship **tối đa 4 preset**, gọi bằng `⌃1`–`⌃4` khi module đó đang hiện
-  (menu *Layouts* trên title bar, `Shell / Layout Menu`).
+- **4 preset** cho module đang focus, gọi bằng `⌃⇧1`–`⌃⇧4` (menu *Layouts* trên
+  title bar): *Focus*, *Side panel*, *Pair with agent*, *Terminal below*
+  (`frontend/src/workbench/slots/layoutPresets.ts`). Không phải `⌃1`–`⌃4`:
+  `⌃`+số đã là chuyển module ở đây, và là chuyển desktop của Mission Control.
+  Tên theo từng module (bảng dưới) để sau.
 - Preset chỉ sắp **tầng module** + bật/tắt companion; không đụng vị trí companion
   mà người dùng đã chỉnh, trừ khi preset nói rõ (vd *Focus* ẩn mọi thứ).
 - *Save current layout…* lưu thành preset của người dùng cho module đó.
@@ -301,12 +313,16 @@ thứ tự:
    (`CONTENT_MIN_WIDTH` hiện có). Kích thước lưu là số tuyệt đối, clamp lúc render
    — một lần mở ở cửa sổ nhỏ không làm teo vĩnh viễn layout ở cửa sổ lớn (luật đã
    có ở [Shell primitives](/dev-kit/shell-primitives)).
-2. Vẫn thiếu: **sidebar đóng** (nó mở lại được bằng `⌘B`, không mất gì).
-3. Vẫn thiếu: cột context pane ngoài cùng **gộp làm tab** vào cột bên cạnh. Không
-   đóng, không float.
+2. Vẫn thiếu: **sidebar nhường chỗ** — trạng thái mở không đổi, rộng ra là nó
+   quay lại.
+3. Vẫn thiếu: cột thứ hai **xếp chồng vào cột thứ nhất** (bản đang chạy xếp chồng
+   thay vì gộp làm tab — vị trí không có tab). Không đóng, không float.
 4. Vẫn thiếu: document group **không** focus co về dải hẹp (icon module + tên tab
    đang mở), bấm vào là bung lại. Group đang focus không bao giờ co.
 5. Companion **không bao giờ** bị tự đóng.
+
+Chạy: `panelLayout.layoutPressure` (có test), đọc qua `useLayoutPressure` ở
+sidebar, các cột và document group.
 
 Nới cửa sổ ra thì chạy ngược lại, trả về đúng layout đã lưu. Cửa sổ tối thiểu
 vẫn là 1080×700.

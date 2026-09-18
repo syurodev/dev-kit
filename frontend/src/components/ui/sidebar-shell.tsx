@@ -15,6 +15,7 @@ import { ModuleSidebar } from "./module-sidebar";
 import { useSidebarOpenStore } from "@/stores/sidebarShell";
 import { ShellResizeHandle } from "@/components/ui/resize-handle";
 import { useLayoutPressure } from "@/workbench/useLayoutPressure";
+import { armBeside } from "@/stores/workbenchTabs";
 
 /**
  * Identifies which module a mounted view belongs to. Provided once per module
@@ -359,7 +360,15 @@ export function SidebarSurface({ activeModuleId }: { activeModuleId: string | nu
             wrapper, so a right inset put each rail's scrollbar that far in from
             its edge, with the 8px sash beyond it. On the right the sash is the
             margin, and a scrollbar belongs against the edge it scrolls. */}
-        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden pl-(--space-sidebar-edge) py-2 glass-rail">
+        {/* ⌘-click (Ctrl-click) on anything in a rail opens what it opens
+            beside the focused group rather than in it. Armed on the way down,
+            consumed by the openTab that click makes — no rail had to change. */}
+        <div
+          className="relative flex min-h-0 flex-1 flex-col overflow-hidden pl-(--space-sidebar-edge) py-2 glass-rail"
+          onClickCapture={(e) => {
+            if (e.metaKey || e.ctrlKey) armBeside();
+          }}
+        >
           {visited.map((moduleId) => (
             // `contents` keeps the rail a direct flex child of the column, as
             // it was before it had a wrapper; `hidden` takes a background one

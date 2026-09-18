@@ -129,3 +129,35 @@ describe("document groups", () => {
     expect(tabsOfGroup(store(), store().groups[0]).map((t) => t.title)).toEqual(["a", "b"]);
   });
 });
+
+describe("opening beside", () => {
+  test("puts a new tab in a new group right of the focused one", () => {
+    store().openTab(note("a"));
+    store().openTab({ ...note("b"), beside: true });
+    expect(shown()).toEqual(["notes:a", "notes:b"]);
+    expect(store().focusedGroupId).toBe(store().groups[1].id);
+  });
+
+  test("reuses another group of the module when there is one", () => {
+    store().openTab(note("a"));
+    store().openTab({ ...note("b"), beside: true });
+    store().focusGroup(store().groups[0].id);
+    store().openTab({ ...note("c"), beside: true });
+    expect(store().groups).toHaveLength(2);
+    expect(tabsOfGroup(store(), store().groups[1]).map((t) => t.title)).toEqual(["b", "c"]);
+  });
+
+  test("a document already open is focused where it is, not duplicated", () => {
+    store().openTab(note("a"));
+    store().openTab({ ...note("a"), beside: true });
+    expect(store().groups).toHaveLength(1);
+  });
+
+  test("a ⌘-click armed by the sidebar counts as beside", async () => {
+    const { armBeside } = await import("./workbenchTabs");
+    store().openTab(note("a"));
+    armBeside();
+    store().openTab(note("b"));
+    expect(store().groups).toHaveLength(2);
+  });
+});
