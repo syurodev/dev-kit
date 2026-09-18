@@ -3,6 +3,8 @@ import ReactDOM from 'react-dom/client'
 import './index.css'
 import App from './App'
 import { installNativeZoomGuard } from './lib/nativeZoom'
+import { installWindowShape } from './lib/windowShape'
+import { SQUIRCLE_SHELL_CLASS } from './lib/shellSquircle'
 
 // Inside Wails, html/body stay clear so nothing paints over the native window;
 // background/app is painted by the shell wrapper in AppShell, which is the
@@ -15,6 +17,13 @@ if ('_wails' in window) {
   // keeps its page zoom, which there is a real accessibility affordance rather
   // than a gesture landing on the wrong layer.
   installNativeZoomGuard(window)
+  // The OS window's corner radius, so the shell's cards run parallel to it.
+  installWindowShape()
+  // macOS draws that corner as a squircle, not an arc; the cards follow it.
+  // navigator, not detectPlatform: _wails.environment may not be there yet.
+  if (/Macintosh|Mac OS X/.test(navigator.userAgent)) {
+    document.documentElement.classList.add(SQUIRCLE_SHELL_CLASS)
+  }
 }
 
 // Set by the native side when WebKitGTK composites on the CPU and will not paint

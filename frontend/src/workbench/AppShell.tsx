@@ -1,5 +1,6 @@
 import { Profiler, type ReactNode } from "react";
 import { recordCommit } from "@/lib/perfLog";
+import { shellSquircleRef } from "@/lib/shellSquircle";
 
 import { Titlebar } from "@/components/ui/titlebar";
 import { SidebarSurface } from "@/components/ui/sidebar-shell";
@@ -23,10 +24,11 @@ import { AgentCompanionSlot } from "./AgentCompanionSlot";
  * Geometry, with the code that owns each number:
  *
  *   titlebar        40 tall                  components/ui/titlebar.tsx
- *   window gutter   8 on l/r/b, flush on top  WINDOW_GUTTER, panelLayout.ts
- *   sidebar         280 + 8 sash             sidebar-shell.tsx / panelWidths
- *   content-surface fills, opaque, radius 10 .shell-surface, index.css
- *   panel           320 + 8 sash             split-panel.tsx / panelWidths
+ *   window gutter   4 on l/r/b, flush on top  WINDOW_GUTTER, panelLayout.ts
+ *   sidebar         280 + 4 sash             sidebar-shell.tsx / panelWidths
+ *   content-surface fills, opaque, radius    .shell-surface, index.css
+ *                   window radius − gap (--shell-radius)
+ *   panel           320 + 4 sash             split-panel.tsx / panelWidths
  *   bottom          under content only       bottom-slot.tsx
  *
  * Figma still draws a dock at 666,879. It is gone: modules switch from the
@@ -90,7 +92,7 @@ export function AppShell({
             given up on purpose: it only ever applied to one platform, and it
             cost the shell its structure — flush surfaces are the walls of the
             window, and these are cards. */}
-        <div className="mx-2 mb-2 flex min-h-0 flex-1">
+        <div className="mx-1 mb-1 flex min-h-0 flex-1">
           {/* A perf zone (lib/perfTrace). Inert in production builds. */}
           <Profiler id="rail" onRender={recordCommit}>
             <SidebarSurface activeModuleId={activeModuleId} />
@@ -111,7 +113,7 @@ export function AppShell({
                 card a bug rather than a look — module content must not sit on
                 the user's wallpaper. Same material as the side panel and the
                 bottom slot; only the sidebar rail is transparent. */}
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden shell-surface">
+            <div ref={shellSquircleRef} className="flex min-h-0 flex-1 flex-col overflow-hidden shell-surface">
               {children}
             </div>
             <BottomSlotSurface activeModuleId={activeModuleId} />

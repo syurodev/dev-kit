@@ -3,6 +3,7 @@ package bridge
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -280,5 +281,33 @@ func TestAgentHubChooseFilesCancelReturnsEmptyNotNil(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Fatalf("paths = %v, want empty", got)
+	}
+}
+
+func TestAgentHubNewScratchDirectoryMakesAFreshFolderUnderTheRoot(t *testing.T) {
+	// Each "no project" session gets a folder of its own: a shared one would
+	// let two sessions read and overwrite each other's files.
+	svc := newBridgeWithAgentHub(t)
+	svc.container.ConfigDir = t.TempDir()
+
+	first, err := svc.AgentHubNewScratchDirectory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := svc.AgentHubNewScratchDirectory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatalf("two sessions share %q", first)
+	}
+	root := svc.AgentHubScratchRoot()
+	for _, dir := range []string{first, second} {
+		if filepath.Dir(dir) != root {
+			t.Fatalf("%q is not directly under %q", dir, root)
+		}
+		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+			t.Fatalf("%q was not created: %v", dir, err)
+		}
 	}
 }

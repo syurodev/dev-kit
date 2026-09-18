@@ -16,6 +16,8 @@ import type { SessionErrorCause } from "./surfaces";
 import {
   agentHubCancel,
   agentHubChooseDirectory,
+  agentHubNewScratchDirectory,
+  agentHubScratchRoot,
   agentHubChooseFiles,
   agentHubCloseSession,
   agentHubRenameSession,
@@ -47,6 +49,7 @@ import { elicitationForSession, useRespondElicitation } from "./elicitations";
 import { setSessionConfigOption, setSessionMode } from "./transcriptControls";
 import { commandName, promptWithCommand, promptWithoutCommand } from "./slashCommands";
 import { AgentHubContent } from "./surfaces";
+import { RenameSessionDialog } from "./surfaces/RenameSessionDialog";
 import { useAgentSessionList, useAgentSessionsStore } from "../../stores/agentSessions";
 import { useAgentPinsStore } from "../../stores/agentPins";
 import { useModuleVisibility } from "@/components/ui/module-visibility";
@@ -177,12 +180,23 @@ export function AgentHubView() {
     queryFn: () => agentRuntimeStatus(CLAUDE_AGENT),
     enabled: draft !== null && draftAgent === CLAUDE_VENDOR,
   });
+  // The row the sidebar asked to rename — not always the one on screen.
+  const [pendingRename, setPendingRename] = useState<AgentSession | null>(null);
   // The session awaiting a delete confirmation, with how many go with it.
   const [pendingDelete, setPendingDelete] = useState<{
     session: AgentSession;
     descendants: number;
   } | null>(null);
   const unpin = useAgentPinsStore((state) => state.unpin);
+  const recentProjects = useAgentPinsStore((state) => state.recentProjects);
+  const rememberProject = useAgentPinsStore((state) => state.rememberProject);
+  // Where "no project" sessions get their folders. Read once: it is a fixed
+  // place under the config dir, and the sidebar groups everything under it.
+  const scratchRoot = useQuery({
+    queryKey: ["agenthub", "scratchRoot"],
+    queryFn: agentHubScratchRoot,
+    staleTime: Infinity,
+  }).data ?? "";
   // Per session: attachments belong to the turn you are composing, and
   // switching tabs must not carry someone else's files into your prompt.
   const [attachments, setAttachments] = useState<Record<string, string[]>>({});
@@ -199,11 +213,6 @@ export function AgentHubView() {
     () => sessions.find((s) => s.id === activeSessionId) ?? sessions[0] ?? null,
     [sessions, activeSessionId],
   );
-
-  const parentSession = useMemo(() => {
-    if (!activeSession?.parentSessionId) return null;
-    return sessions.find((s) => s.id === activeSession.parentSessionId) ?? null;
-  }, [sessions, activeSession]);
 
   const activePrompt = useAgentSessionsStore(
     (state) => state.promptBySession[activeSession?.id ?? ""] ?? "",
@@ -227,7 +236,7 @@ export function AgentHubView() {
     if (!visible || !pendingAgentHubCommand) return;
     consumeAgentHubCommand(pendingAgentHubCommand);
     if (pendingAgentHubCommand === "create") {
-      void chooseFolderForDraft();
+      void startNewDraft();
     } else if (pendingAgentHubCommand === "cancel") {
       void handleCancel();
     } else {
@@ -245,7 +254,7 @@ export function AgentHubView() {
       const overlayOpen = Boolean(document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"]'));
       if (!isNewSessionShortcut(event, detectPlatform() === "mac", overlayOpen)) return;
       event.preventDefault();
-      void chooseFolderForDraft();
+      void startNewDraft();
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
@@ -301,15 +310,25 @@ export function AgentHubView() {
     setAuthRetry(null);
   }
 
-  /** Starts a draft in a folder the user picks, from "+ New" and the empty state. */
+  /**
+   * Starts a draft straight away, from "+ New", ⌘N and the empty state. The
+   * folder is the last one used, else where Code Graph is looking, else none;
+   * the draft's project picker changes it before the first message.
+   */
+  async function startNewDraft() {
+    const recent = useAgentPinsStore.getState().recentProjects[0];
+    const cwd = recent ?? (await codeGraphProjectRoot().catch(() => ""));
+    startDraft(cwd, null);
+  }
+
+  /** "New project…" in the draft's picker: the native folder dialog. */
   async function chooseFolderForDraft() {
-    // Opens where Code Graph is looking when it has a project open — the folder
-    // you are most likely about to point an agent at. Nothing open is the
-    // ordinary case, not an error.
-    const start = await codeGraphProjectRoot().catch(() => "");
+    // Opens where the draft already points, else where Code Graph is looking.
+    const start = draft?.cwd || (await codeGraphProjectRoot().catch(() => ""));
     try {
       const picked = await agentHubChooseDirectory(start);
-      if (picked) startDraft(picked, null); // "" is a cancelled picker
+      // "" is a cancelled picker: the draft keeps the folder it had.
+      if (picked) setDraft((current) => current && { ...current, cwd: picked });
     } catch (e) {
       reportError(e);
     }
@@ -323,12 +342,20 @@ export function AgentHubView() {
     setSandboxHint("");
     setAuthRetry(null);
     try {
+      const scratch = !params.cwd;
+      if (scratch) {
+        // No project: a scratch folder of its own, made now rather than when
+        // the draft opened so an abandoned draft leaves nothing behind. Kept
+        // in params, so a sign-in retry reuses it instead of making another.
+        params = { ...params, cwd: await agentHubNewScratchDirectory() };
+      }
       const session = await agentHubCreateSession({
         agentType: params.vendor,
         cwd: params.cwd,
         parentSessionId: params.parentSessionId,
       });
       upsertSession(session);
+      if (!scratch) rememberProject(params.cwd);
       setActiveSessionId(session.id);
       setDraft(null);
       setDraftPrompt("");
@@ -616,15 +643,14 @@ export function AgentHubView() {
 
   // Every page, not the window on screen: a copy that stopped where the scroll
   // did would be the newest half of a conversation with no sign it was half.
-  async function handleCopyTranscript() {
-    if (!activeSession) return;
+  async function handleCopyTranscript(session: AgentSession) {
     try {
-      const model = await loadWholeTranscript(activeSession.id);
+      const model = await loadWholeTranscript(session.id);
       await copyText(
         transcriptToMarkdown(model.items, {
-          title: activeSession.title,
-          projectPath: activeSession.projectPath,
-          vendor: activeSession.agentType,
+          title: session.title,
+          projectPath: session.projectPath,
+          vendor: session.agentType,
         }),
       );
       const turns = groupTurns(model.items).length;
@@ -633,32 +659,6 @@ export function AgentHubView() {
       reportError(e);
     }
   }
-
-  async function handleCloseSession() {
-    if (!activeSession) return;
-    const closedId = activeSession.id;
-    setBusy(true);
-    try {
-      await agentHubCloseSession(closedId);
-      upsertSession(await agentHubGetStatus(closedId));
-      // Stays selected. Closing parks the agent's process; the conversation is
-      // still readable and still answerable — the next prompt reopens it — so
-      // there is nothing to move away from. Jumping to another agent was right
-      // while closing was final.
-    } catch (e) {
-      reportError(e);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  // Not caught: the rename dialog shows the reason and stays open.
-  async function handleRenameSession(title: string) {
-    if (!activeSession) return;
-    await renameAgentSession(activeSession.id, title);
-  }
-
-
 
   // What stands between a draft and its first message, in the draft's own view.
   const draftBlocked =
@@ -703,19 +703,38 @@ export function AgentHubView() {
     return map;
   }, [pendingQueue, elicitationQueue]);
 
+  // What the draft's picker offers: folders used before, most recent first,
+  // then any other project a session is open in. Never a scratch folder.
+  const draftProjects = useMemo(() => {
+    const isScratch = (path: string) => Boolean(scratchRoot) && path.startsWith(`${scratchRoot}/`);
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const path of [...recentProjects, ...sessions.map((s) => s.projectPath)]) {
+      if (!path || isScratch(path) || seen.has(path)) continue;
+      seen.add(path);
+      out.push(path);
+    }
+    return out;
+  }, [recentProjects, sessions, scratchRoot]);
+
   useAgentHubSidebar({
     sessions,
+    scratchRoot,
     activeSessionId: activeSession?.id,
     pendingCounts,
     onSelectSession: (id) => {
       setDraft(null);
       setActiveSessionId(id);
     },
-    onNewSession: () => void chooseFolderForDraft(),
-    onNewSessionIn: (projectPath) => startDraft(projectPath, null),
+    onNewSession: () => void startNewDraft(),
+    // The "No project" group's + starts another scratch session, not one in
+    // the scratch root itself.
+    onNewSessionIn: (projectPath) => startDraft(projectPath === scratchRoot ? "" : projectPath, null),
     onNewChildSession: (parent) => startDraft(parent.projectPath, parent),
     onCancelTurn: (session) => void handleCancelFor(session),
     onCloseSession: (session) => void handleCloseFor(session),
+    onRenameSession: (session) => setPendingRename(session),
+    onCopyTranscript: (session) => void handleCopyTranscript(session),
     onDeleteSession: (session, descendants) => setPendingDelete({ session, descendants }),
     onCopy: (text) => void copyText(text),
   });
@@ -734,7 +753,6 @@ export function AgentHubView() {
           {/* Surface: Agent Hub / Content (1136×804) */}
           <AgentHubContent
             session={activeSession}
-            parentSession={parentSession}
             items={transcriptModel.items}
             usage={transcriptModel.usage}
             commands={transcriptModel.commands}
@@ -752,6 +770,9 @@ export function AgentHubView() {
             loadingOlder={transcriptModel.loadingOlder}
             onLoadOlder={transcriptModel.loadOlder}
             draft={draft ? { projectPath: draft.cwd, parentName: draft.parent?.title || undefined } : null}
+            projects={draftProjects}
+            onProjectChange={(path) => setDraft((current) => current && { ...current, cwd: path })}
+            onChooseProject={() => void chooseFolderForDraft()}
             agents={vendors}
             agent={draftAgent}
             onAgentChange={setDraftAgent}
@@ -774,9 +795,6 @@ export function AgentHubView() {
               });
             }}
             onCancel={() => void handleCancel()}
-            onCloseSession={() => void handleCloseSession()}
-            onRenameSession={(title) => handleRenameSession(title)}
-            onCopyTranscript={() => void handleCopyTranscript()}
             onCopy={(text) => void copyText(text)}
             pendingPermission={activePending}
             onResolvePermission={resolvePermission}
@@ -803,7 +821,7 @@ export function AgentHubView() {
                   : undefined,
               )
             }
-            onNewSession={() => void chooseFolderForDraft()}
+            onNewSession={() => void startNewDraft()}
             onOpenSettings={() => requestSettings("agents")}
             errorDetail={
               errorCause === "authRequired" && activeSession?.agentType === "claude" ? (
@@ -826,6 +844,13 @@ export function AgentHubView() {
             onRemoveAttachment={handleRemoveAttachment}
           />
         </div>
+
+      <RenameSessionDialog
+        initialTitle={pendingRename ? pendingRename.title || `Session ${pendingRename.id.slice(0, 8)}` : null}
+        // Not caught: the dialog shows the reason and stays open.
+        onRename={(title) => (pendingRename ? renameAgentSession(pendingRename.id, title) : undefined)}
+        onClose={() => setPendingRename(null)}
+      />
 
       {/* Delete is the one action here with nothing behind it: close keeps the
           row as history, this removes the transcript for good. */}

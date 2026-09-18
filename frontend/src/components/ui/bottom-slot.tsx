@@ -11,6 +11,7 @@ import { useBottomSlotStore } from "@/stores/bottomSlot";
 import { TerminalWorkspace } from "@/workbench/TerminalWorkspace";
 import { SidebarModuleIdContext } from "@/components/ui/sidebar-shell";
 import { ShellResizeHandle } from "@/components/ui/resize-handle";
+import { shellSquircleRef } from "@/lib/shellSquircle";
 
 /**
  * Registers `content` as the calling module's bottom-slot panel for as long as
@@ -108,7 +109,7 @@ export function BottomSlotSurface({ activeModuleId }: { activeModuleId: string |
             content, not as navigation chrome. */}
         {/* Figma bottom-surface 204:462: surface/base, glass/border, radius/10 —
             identical to the content card and the side panel. */}
-        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden shell-surface">
+        <div ref={shellSquircleRef} className="relative flex min-h-0 flex-1 flex-col overflow-hidden shell-surface">
           {/* The workspace owns this surface: terminals belong to the shell so
               they survive a module switch, the way a build running in one must.
               Module-registered content still gets a tab beside them. */}

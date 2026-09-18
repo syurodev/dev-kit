@@ -1,16 +1,7 @@
 import * as React from "react";
-import { Copy, Ellipsis, FileText, FolderOpen, Pencil, Square } from "lucide-react";
 import { UpdateKind } from "../../../../bindings/devkit/internal/agenthub/models";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import {
   Empty,
   EmptyContent,
@@ -20,39 +11,24 @@ import {
 } from "@/components/ui/empty";
 import type { AgentSession, ElicitationResponse, PendingElicitation, PendingPermission } from "@/bridge/agenthub";
 import type { AgentImageAttachment } from "@/bridge/agenthub";
-import { errorMessage as describeError } from "@/bridge/errors";
 import type { QueuedAgentPrompt } from "@/stores/agentSessions";
 import type { AvailableCommand, ConfigOption, SessionMode, TranscriptItem, Usage } from "../types";
 import type { ContextFileItem } from "./AgentMenu";
 import { TranscriptStream } from "./TranscriptStream";
 import { loadCheckpointFileDiff, useSessionCheckpoints } from "../useSessionCheckpoints";
 import { RewindDialog } from "./RewindDialog";
-import { AgentComposer, heldChoice } from "./AgentComposer";
+import { AgentComposer } from "./AgentComposer";
+import { ProjectPicker } from "./ProjectPicker";
 import { AgentSessionError, type SessionErrorCause } from "./AgentSessionError";
 import { AgentPermissionRequest } from "./AgentPermissionRequest";
 import { AgentQuestionCard } from "./AgentQuestionCard";
 import { PermissionPresence } from "./permissionCard";
-import { AgentState, type AgentStatus } from "./AgentState";
-import { VendorIcon } from "./VendorIcon";
-import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 export type AgentHubContentState = "Conversation" | "Empty" | "Error";
-
-/** What the rename dialog says after Save: "" once renamed, the reason when it was not. */
-export async function submitRename(title: string, rename: (title: string) => void | Promise<void>): Promise<string> {
-  try {
-    await rename(title);
-    return "";
-  } catch (error) {
-    return describeError(error);
-  }
-}
 
 export type AgentHubContentProps = {
   state?: AgentHubContentState;
   session?: AgentSession | null;
-  parentSession?: AgentSession | null;
   items?: TranscriptItem[];
   usage?: Usage | null;
   commands?: AvailableCommand[];
@@ -77,8 +53,6 @@ export type AgentHubContentProps = {
   errorCause?: SessionErrorCause;
   errorMessage?: string;
   onRetrySession?: () => void;
-  onCloseSession?: () => void;
-  onRenameSession?: (title: string) => void | Promise<void>;
   onNewSession?: () => void;
   /** Opens Settings → Agents, for errors whose fix is an install. */
   onOpenSettings?: () => void;
@@ -101,10 +75,8 @@ export type AgentHubContentProps = {
   onCancelQueued?: (id: string) => void;
   onEditQueued?: (prompt: QueuedAgentPrompt) => void;
   onOpenFile?: (path: string, line?: number) => void;
-  /** Copies a string for the header's session menu — the path, the id. */
+  /** Copies a string — a message, a code block. */
   onCopy?: (text: string) => void;
-  /** Copies the whole conversation as Markdown; see exportMarkdown. */
-  onCopyTranscript?: () => void;
   /** Sends /compact. Offered in the context popover only when the agent lists the command. */
   onCompact?: () => void;
   /**
@@ -130,6 +102,12 @@ export type AgentHubContentProps = {
    * message is sent. Takes precedence over `session`.
    */
   draft?: { projectPath: string; parentName?: string } | null;
+  /** Projects the draft's picker offers, most recent first. */
+  projects?: string[];
+  /** Sets the draft's folder; "" is no project. */
+  onProjectChange?: (path: string) => void;
+  /** Opens the native folder picker for a project not in the list. */
+  onChooseProject?: () => void;
   agents?: string[];
   agent?: string;
   onAgentChange?: (agent: string) => void;
@@ -148,26 +126,15 @@ export type AgentHubContentProps = {
  * first thing a new user meets, so it says what a session is rather than only
  * that there is none."
  *
- * Three states, one header, and the header is the whole identity of the agent
- * on one line: vendor mark, name, where it works, live state, and a menu.
+ * No header. The session's name, state and actions are all on its sidebar
+ * row already — the active one is the highlighted row — and a glass bar
+ * repeating them took the top of the transcript to say nothing new. Rename,
+ * copy and close live in that row's context menu.
  *
- * Where it works is the project's own name ("billing-service"), and the parent
- * when there is one — "from auth-refactor". The line used to be
- * "depth 2 · parent auth-refactor · /Users/…/billing-service": depth is how the
- * hub counts, not something anyone chose, and the absolute path took the whole
- * row to say what the folder's name says. The full path is the menu's first
- * line, a click away, next to the action that copies it.
- *
- * Two buttons went. "Cancel turn" repeated the composer's Stop, which sits
- * under the text being written — one action, one control. "Close" was a
- * bordered button at the same weight as that, for the one action here that
- * ends a process; it lives in the menu now, as it does on the sidebar row.
- *
- * Empty has no header and no composer — there is no agent to name and nothing
+ * Empty has no composer — there is no agent to name and nothing
  * to send to.
  */
 
-/** The last segment of a path — the folder a developer calls the project. */
 /**
  * What the field says when nothing is typed, by the session's state. Only the
  * states where sending does something other than "ask" get a line: a parked
@@ -186,30 +153,14 @@ export function composerPlaceholder(status: string | undefined): string | undefi
   }
 }
 
+/** The last segment of a path — the folder a developer calls the project. */
 function projectLabel(path: string): string {
   return path.split("/").filter(Boolean).pop() ?? path;
-}
-
-/** Same mapping as AgentRow: the bridge says awaiting_permission, Figma says awaiting. */
-function toAgentStatus(status: string | undefined): AgentStatus {
-  switch (status) {
-    case "running":
-      return "running";
-    case "awaiting_permission":
-      return "awaiting";
-    case "error":
-      return "error";
-    case "closed":
-      return "closed";
-    default:
-      return "idle";
-  }
 }
 
 export function AgentHubContent({
   state: explicitState,
   session,
-  parentSession,
   items = [],
   usage,
   commands = [],
@@ -233,8 +184,6 @@ export function AgentHubContent({
   errorCause = "crashed",
   errorMessage,
   onRetrySession,
-  onCloseSession,
-  onRenameSession,
   onNewSession,
   onOpenSettings,
   errorDetail,
@@ -254,7 +203,6 @@ export function AgentHubContent({
   onEditQueued,
   onOpenFile,
   onCopy,
-  onCopyTranscript,
   onCompact,
   pendingPermission,
   onResolvePermission,
@@ -264,6 +212,9 @@ export function AgentHubContent({
   elicitationBusy = false,
   elicitationError,
   draft,
+  projects = [],
+  onProjectChange,
+  onChooseProject,
   agents = [],
   agent = "claude",
   onAgentChange,
@@ -271,6 +222,23 @@ export function AgentHubContent({
   sendDisabled = false,
   className,
 }: AgentHubContentProps) {
+  // A draft has no session yet, so nothing the view holds for the selected
+  // one is its to show: the composer used to carry that session's context
+  // meter, turn count, mode and commands into a conversation not yet started.
+  if (draft) {
+    session = null;
+    pendingPermission = null;
+    pendingElicitation = null;
+    queuedPrompts = [];
+    attachments = [];
+    items = [];
+    usage = null;
+    commands = [];
+    contextFiles = [];
+    configOptions = [];
+    mode = null;
+    availableModes = [];
+  }
   // Loaded here rather than in TranscriptStream: the stream is a presentational
   // component that tests render with fixed items, and a fetch inside it would
   // make every one of those hit the bridge.
@@ -282,11 +250,6 @@ export function AgentHubContent({
     promptMessageId: "",
     editAfter: false,
   });
-  const [renameOpen, setRenameOpen] = React.useState(false);
-  const [renameValue, setRenameValue] = React.useState("");
-  const [renameError, setRenameError] = React.useState("");
-  // Picked in the ⋯ menu, so the dialog waits for that menu to close; see heldChoice.
-  const [heldRename] = React.useState(heldChoice);
   const effectiveState: AgentHubContentState = explicitState
     ? explicitState
     : draft
@@ -301,21 +264,6 @@ export function AgentHubContent({
   // The floating composer's height, measured, so the transcript can pad its
   // foot by exactly that much. A fixed guess is wrong the moment a file is
   // attached and the composer grows a row of chips.
-  // The glass header's height, measured for the same reason as the composer's:
-  // the body scrolls under it, and its first line should start just below it.
-  const headerRef = React.useRef<HTMLDivElement>(null);
-  const [headerHeight, setHeaderHeight] = React.useState(0);
-  const hasHeader = Boolean(draft) || (effectiveState !== "Empty" && Boolean(session));
-  React.useEffect(() => {
-    const el = headerRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(([entry]) =>
-      setHeaderHeight(Math.ceil(entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height)),
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [hasHeader]);
-
   const composerRef = React.useRef<HTMLDivElement>(null);
   const [composerHeight, setComposerHeight] = React.useState(0);
   React.useEffect(() => {
@@ -336,21 +284,6 @@ export function AgentHubContent({
     : session?.title || (session ? `Session ${session.id.slice(0, 8)}` : "");
   const vendor = draft ? agent : session?.agentType || "claude";
 
-  // Parent is omitted rather than shown empty — a root agent has no parent, and
-  // "from —" reads as a missing value.
-  const project = session ? projectLabel(session.projectPath) : "";
-  const context = session
-    ? [
-        // Not when it only repeats the name. An agent is often named after the
-        // folder it was opened in, and "Dev-kit-backend dev-kit-backend" says
-        // one thing twice.
-        project.toLowerCase() === displayTitle.toLowerCase() ? null : project,
-        parentSession ? `from ${parentSession.title || parentSession.id.slice(0, 8)}` : null,
-      ]
-        .filter(Boolean)
-        .join(" · ")
-    : "";
-
   return (
     <main
       role="main"
@@ -358,141 +291,14 @@ export function AgentHubContent({
       data-testid="agent-hub-content"
       data-state={effectiveState}
       className={cn(
-        // Relative, no top padding and no gap: the header floats over the body
-        // rather than taking a row above it, so the body starts at the top edge
-        // and pads itself by the header's measured height instead.
+        // Relative, so the composer can float over the transcript's foot.
         // No side or bottom padding either: the transcript scrolls, and padding
         // out here put its scrollbar 16px in from the card's edge. Each body
         // pads its own content (the stream's px-6, the composer's px-6 pb-3).
         "relative flex size-full min-h-0 min-w-0 flex-col overflow-hidden",
         className,
       )}
-      style={{ "--header-inset": `${headerHeight}px` } as React.CSSProperties}
     >
-      {/* The header floats over the body as a glass card, the same material
-          as the composer at the foot: content scrolls under both and the
-          blur keeps each legible over whatever is passing. The outer layer is
-          what gets measured (card plus its 12px gap) and lets the pointer
-          through that gap; only the card takes clicks. */}
-      {hasHeader ? (
-        <div ref={headerRef} className="pointer-events-none absolute inset-x-4 top-0 z-10 pt-3">
-          <div data-testid="agent-hub-header-bar" className="pointer-events-auto rounded-xl glass-float">
-      {draft ? (
-        <header
-          data-testid="agent-hub-content-header"
-          className="flex w-full shrink-0 items-center gap-2 px-6 py-2 select-none"
-        >
-          <VendorIcon vendor={vendor} className="size-3.5 text-icon-secondary" />
-          <div className="flex min-w-0 flex-1 items-baseline gap-2">
-            <h2 className="min-w-0 shrink truncate text-title-14 text-text-primary">New session</h2>
-            <p
-              data-testid="content-header-context"
-              className="min-w-0 truncate text-body-13 text-text-tertiary"
-              style={{ flexShrink: 100 }}
-            >
-              {[projectLabel(draft.projectPath), draft.parentName ? `from ${draft.parentName}` : null]
-                .filter(Boolean)
-                .join(" · ")}
-            </p>
-          </div>
-        </header>
-      ) : null}
-
-      {!draft && effectiveState !== "Empty" && session ? (
-        <header
-          data-testid="agent-hub-content-header"
-          className="flex w-full shrink-0 items-center gap-2 px-6 py-2 select-none"
-        >
-          <VendorIcon
-            vendor={vendor}
-            working={session.status === "running"}
-            className="size-3.5 text-icon-secondary"
-          />
-          {/* The name gives way last: it truncates, but only after the project
-              line beside it has. */}
-          <div className="flex min-w-0 flex-1 items-baseline gap-2">
-            <h2 className="min-w-0 shrink truncate text-title-14 text-text-primary">{displayTitle}</h2>
-            {context ? (
-              <p
-                data-testid="content-header-context"
-                className="min-w-0 truncate text-body-13 text-text-tertiary"
-                style={{ flexShrink: 100 }}
-              >
-                {context}
-              </p>
-            ) : null}
-          </div>
-          <AgentState status={toAgentStatus(session.status)} />
-          {onCopy || onCopyTranscript || onCloseSession || onRenameSession ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="Session actions"
-                  data-testid="content-session-menu"
-                >
-                  <Ellipsis aria-hidden="true" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="end"
-                className="w-64"
-                onCloseAutoFocus={() => heldRename.release((apply) => apply())}
-              >
-                <DropdownMenuLabel className="truncate">{session.projectPath || "."}</DropdownMenuLabel>
-                {onCopy ? (
-                  <>
-                    <DropdownMenuItem icon={<FolderOpen />} onSelect={() => onCopy(session.projectPath)}>
-                      Copy working directory
-                    </DropdownMenuItem>
-                    <DropdownMenuItem icon={<Copy />} onSelect={() => onCopy(session.id)}>
-                      Copy session ID
-                    </DropdownMenuItem>
-                  </>
-                ) : null}
-                {onCopyTranscript ? (
-                  <DropdownMenuItem
-                    icon={<FileText />}
-                    data-testid="content-copy-transcript"
-                    onSelect={onCopyTranscript}
-                  >
-                    Copy transcript as Markdown
-                  </DropdownMenuItem>
-                ) : null}
-                {onRenameSession ? (
-                  <DropdownMenuItem icon={<Pencil />} data-testid="content-rename-session" onSelect={() =>
-                    heldRename.hold(() => {
-                      setRenameValue(displayTitle);
-                      setRenameOpen(true);
-                    })
-                  }>
-                    Rename session
-                  </DropdownMenuItem>
-                ) : null}
-                {onCloseSession ? (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      icon={<Square />}
-                      data-testid="content-close-session"
-                      disabled={session.status === "closed"}
-                      onSelect={onCloseSession}
-                    >
-                      Close session
-                    </DropdownMenuItem>
-                  </>
-                ) : null}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : null}
-        </header>
-      ) : null}
-          </div>
-        </div>
-      ) : null}
-
       {effectiveState === "Empty" ? (
         <Empty data-testid="agent-hub-content-empty" className="min-h-0 gap-3 p-6">
           <EmptyHeader className="w-105 max-w-full gap-3">
@@ -540,17 +346,21 @@ export function AgentHubContent({
               <div
                 data-testid="agent-hub-draft"
                 className="flex size-full flex-col items-center justify-center px-6"
-                style={{
-                  paddingTop: "var(--header-inset, 0px)",
-                  paddingBottom: "var(--composer-inset, 0px)",
-                }}
+                style={{ paddingBottom: "var(--composer-inset, 0px)" }}
               >
                 <div className="flex w-full max-w-120 flex-col gap-3">
                   <p className="text-title-14 text-text-primary">
-                    {`Start a session in ${projectLabel(draft.projectPath) || draft.projectPath}`}
+                    {draft.projectPath
+                      ? `Start a session in ${projectLabel(draft.projectPath) || draft.projectPath}`
+                      : "Start a session without a project"}
+                    {draft.parentName ? (
+                      <span className="text-text-tertiary">{` · from ${draft.parentName}`}</span>
+                    ) : null}
                   </p>
                   <p className="text-body-13 text-text-tertiary">
-                    {`Pick an agent below and send your first message. It can only reach paths inside ${draft.projectPath}.`}
+                    {draft.projectPath
+                      ? `Pick an agent below and send your first message. It can only reach paths inside ${draft.projectPath}.`
+                      : "Pick an agent below and send your first message. It gets an empty scratch folder of its own and cannot reach your projects."}
                   </p>
                   {draftNotice}
                   {errorMessage ? (
@@ -661,6 +471,20 @@ export function AgentHubContent({
               </div>
             ) : null}
           </PermissionPresence>
+          {/* Where the draft will work, changeable until the first message
+              fixes it. A child works where its parent does, so its folder is
+              shown and not offered. */}
+          {draft && onProjectChange && onChooseProject ? (
+            <div className="pointer-events-auto mx-auto flex w-full max-w-180 items-center gap-1 px-2 pb-1">
+              <ProjectPicker
+                value={draft.projectPath}
+                projects={projects}
+                onChange={onProjectChange}
+                onChooseFolder={onChooseProject}
+                disabled={Boolean(draft.parentName)}
+              />
+            </div>
+          ) : null}
           <div className="pointer-events-auto mx-auto flex w-full max-w-180 items-center gap-3">
             <AgentComposer
               size="wide"
@@ -739,56 +563,6 @@ export function AgentHubContent({
           if (editAfter && result.promptText) onPromptChange(result.promptText);
         }}
       />
-      <Dialog
-        open={renameOpen}
-        onOpenChange={(open) => {
-          setRenameOpen(open);
-          if (!open) setRenameError("");
-        }}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader><DialogTitle>Rename session</DialogTitle></DialogHeader>
-          <form onSubmit={(event) => {
-            event.preventDefault();
-            const title = renameValue.trim();
-            if (!title || !onRenameSession) return;
-            // A refused rename keeps the dialog open with the reason, so the
-            // name can be fixed and saved again.
-            void submitRename(title, onRenameSession).then((reason) => {
-              setRenameError(reason);
-              if (!reason) setRenameOpen(false);
-            });
-          }}>
-            <Input
-              value={renameValue}
-              onChange={(event) => setRenameValue(event.target.value)}
-              maxLength={120}
-              autoFocus
-              aria-label="Session name"
-              aria-invalid={Boolean(renameError)}
-              aria-describedby={renameError ? "rename-session-error" : undefined}
-            />
-            {renameError ? (
-              <p id="rename-session-error" role="alert" className="mt-2 text-caption-11 text-status-danger">
-                {renameError}
-              </p>
-            ) : null}
-            <DialogFooter className="mt-4">
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => {
-                  setRenameOpen(false);
-                  setRenameError("");
-                }}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={!renameValue.trim()}>Save</Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
     </main>
   );
 }

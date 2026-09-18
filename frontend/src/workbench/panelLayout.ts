@@ -2,16 +2,19 @@ import { useEffect, useState } from "react";
 
 /**
  * Transparent gutter / sash between the centre content card and either side panel.
- * Single source of truth for both SidebarSurface and SplitPanelSlot — matches 8px
- * sash in Figma App Shell (107:137). Both panels set it via inline
- * `style={{ width: GAP_WIDTH }}`, never a utility class.
+ * Single source of truth for both SidebarSurface and SplitPanelSlot. Both panels
+ * set it via inline `style={{ width: GAP_WIDTH }}`, never a utility class.
+ *
+ * 4, and equal to WINDOW_GUTTER: one gap everywhere, inside and at the edge. It
+ * mirrors --shell-gap in index.css, which the card radius is computed from.
+ * Figma App Shell 107:137 draws 8. The sash's hit area stays wider than this
+ * (resize-handle.tsx), so a narrower gap is not a smaller target.
  */
-export const GAP_WIDTH = 8;
+export const GAP_WIDTH = 4;
 
 /**
  * The margin between the window edge and the content row (`mx-1 mb-1` on
- * Workbench.tsx). Figma App Shell 107:137 draws this at 8, the same as the
- * sash; DevKit runs it at 4 so the shell reads tighter against the window.
+ * AppShell.tsx).
  *
  * Separate from GAP_WIDTH even when equal: one is a draggable sash between two
  * surfaces, the other dead margin at the window edge, and collapsing them hid a
@@ -23,12 +26,13 @@ export const GAP_WIDTH = 8;
 // would read as the surfaces hanging rather than sitting.
 //
 // Not 0: flush surfaces read as walls of the window, and DevKit's are cards.
-// Inset far enough to read as a deliberate band rather than a failed parallel
-// corner, they owe the window's squircle nothing — and they look the same on
-// Linux and Windows, which never had one to defer to.
 //
-// 8, the same as the sash, so the shell sits on one rhythm.
-export const WINDOW_GUTTER = 8;
+// 4, the same as the sash, so the shell sits on one rhythm. It used to be 8,
+// wide enough that a card corner not parallel to the window's went unnoticed.
+// At 4 it would be noticed, so the corners are made parallel instead: the card
+// radius is the window's radius minus this gap (--shell-radius, index.css),
+// with the window's radius read from the OS (window_shape*.go).
+export const WINDOW_GUTTER = 4;
 
 /** Hard floor for the centre content area, whatever the two side panels do. */
 export const CONTENT_MIN_WIDTH = 480;

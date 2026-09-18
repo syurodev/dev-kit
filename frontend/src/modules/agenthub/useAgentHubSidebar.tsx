@@ -25,6 +25,8 @@ import type { AgentSession } from "../../bridge/agenthub";
  */
 export function useAgentHubSidebar(args: {
   sessions: AgentSession[];
+  /** Sessions under this folder are drawn as one "No project" group. */
+  scratchRoot?: string;
   activeSessionId?: string;
   pendingCounts: Record<string, number>;
   onSelectSession: (id: string) => void;
@@ -33,10 +35,12 @@ export function useAgentHubSidebar(args: {
   onNewChildSession: (parent: AgentSession) => void;
   onCancelTurn: (session: AgentSession) => void;
   onCloseSession: (session: AgentSession) => void;
+  onRenameSession: (session: AgentSession) => void;
+  onCopyTranscript: (session: AgentSession) => void;
   onDeleteSession: (session: AgentSession, descendants: number) => void;
   onCopy: (text: string) => void;
 }) {
-  const { sessions, activeSessionId, pendingCounts } = args;
+  const { sessions, scratchRoot, activeSessionId, pendingCounts } = args;
   const pinned = useAgentPinsStore((state) => state.pinned);
   const togglePin = useAgentPinsStore((state) => state.togglePin);
   const collapsed = useAgentPinsStore((state) => state.collapsed);
@@ -73,6 +77,14 @@ export function useAgentHubSidebar(args: {
     (session: AgentSession) => handlers.current.onCloseSession(session),
     [],
   );
+  const onRenameSession = useCallback(
+    (session: AgentSession) => handlers.current.onRenameSession(session),
+    [],
+  );
+  const onCopyTranscript = useCallback(
+    (session: AgentSession) => handlers.current.onCopyTranscript(session),
+    [],
+  );
   const onDeleteSession = useCallback(
     (session: AgentSession, descendants: number) =>
       handlers.current.onDeleteSession(session, descendants),
@@ -84,6 +96,7 @@ export function useAgentHubSidebar(args: {
     () => (
       <AgentSidebarTree
         sessions={sessions}
+        scratchRoot={scratchRoot}
         activeSessionId={activeSessionId}
         pendingCounts={pendingCounts}
         subagents={subagents}
@@ -99,12 +112,15 @@ export function useAgentHubSidebar(args: {
         onNewChildSession={onNewChildSession}
         onCancelTurn={onCancelTurn}
         onCloseSession={onCloseSession}
+        onRenameSession={onRenameSession}
+        onCopyTranscript={onCopyTranscript}
         onDeleteSession={onDeleteSession}
         onCopy={onCopy}
       />
     ),
     [
       sessions,
+      scratchRoot,
       activeSessionId,
       pendingCounts,
       subagents,
@@ -120,6 +136,8 @@ export function useAgentHubSidebar(args: {
       onNewChildSession,
       onCancelTurn,
       onCloseSession,
+      onRenameSession,
+      onCopyTranscript,
       onDeleteSession,
       onCopy,
     ],

@@ -89,7 +89,7 @@ export function AgentHubCheckpointFileDiff(checkpointID: string, path: string): 
 }
 
 /**
- * AgentHubChooseDirectory opens the native folder picker// AgentHubChooseDirectory opens the native folder picker and returns the chosen
+ * AgentHubChooseDirectory opens the native folder picker and returns the chosen
  * path, or "" when the user cancelled. Cancelling is not an error: the dialog
  * that called this stays open with the field untouched, and an error there
  * would render as a failure the user did not cause.
@@ -183,6 +183,16 @@ export function AgentHubListVendorTypes(): $CancellablePromise<agenthub$0.AgentT
 }
 
 /**
+ * AgentHubNewScratchDirectory makes an empty folder for one session that is
+ * not started in a project. An agent needs a working directory — the hub
+ * refuses / and the home folder — so "no project" is a fresh folder of its own
+ * rather than a shared one, where two sessions would see each other's files.
+ */
+export function AgentHubNewScratchDirectory(): $CancellablePromise<string> {
+    return $Call.ByID(4222497297);
+}
+
+/**
  * AgentHubPendingElicitations lists every agent question awaiting the user,
  * oldest first, so the frontend can rebuild its queue on mount; live arrivals
  * come through the agenthub:elicitation event.
@@ -240,6 +250,15 @@ export function AgentHubResolvePermission(id: string, outcome: json$0.RawMessage
  */
 export function AgentHubRespondElicitation(id: string, response: json$0.RawMessage): $CancellablePromise<void> {
     return $Call.ByID(3217368980, id, response);
+}
+
+/**
+ * AgentHubScratchRoot is where "Don't work in a project" sessions live. The
+ * sidebar gathers every session under it into one group instead of drawing a
+ * project per timestamped folder.
+ */
+export function AgentHubScratchRoot(): $CancellablePromise<string> {
+    return $Call.ByID(4207543028);
 }
 
 /**

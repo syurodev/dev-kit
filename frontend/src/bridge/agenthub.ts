@@ -310,6 +310,20 @@ export function agentHubChooseDirectory(startIn = ""): Promise<string> {
 }
 
 /**
+ * An empty folder for one session started with no project. The hub needs a
+ * working directory and refuses / and the home folder, so "no project" is a
+ * scratch folder of its own under DevKit's config dir.
+ */
+export function agentHubNewScratchDirectory(): Promise<string> {
+  return callBridge(() => AppService.AgentHubNewScratchDirectory() as Promise<string>);
+}
+
+/** Where the scratch folders live; the sidebar groups sessions under it as "No project". */
+export function agentHubScratchRoot(): Promise<string> {
+  return callBridge(() => AppService.AgentHubScratchRoot() as Promise<string>);
+}
+
+/**
  * Ends the session: the agent process is shut down and its MCP endpoint
  * released. Not the same as agentHubCancel, which stops the turn in flight and
  * leaves the agent running. Not undoable — the session stays as history.

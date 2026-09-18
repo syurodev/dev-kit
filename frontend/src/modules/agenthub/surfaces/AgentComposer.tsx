@@ -450,7 +450,7 @@ export function AgentComposer({
         data-state={effectiveState}
         className={cn(
           // relative: the slash-command list hangs off the top of this box.
-          "glass-float relative flex w-full flex-col gap-2 rounded-xl p-2",
+          "glass-float glass-float-low relative flex w-full flex-col gap-2 rounded-xl p-2",
           // The rail's composer fills its panel, which the user sizes.
           !rail && "max-w-274",
           className,
