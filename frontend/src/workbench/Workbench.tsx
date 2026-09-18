@@ -12,6 +12,7 @@ import { AgentSessionsSubscriber } from "./AgentSessionsSubscriber";
 import { CommandPalette } from "./CommandPalette";
 import { SystemStatusMenu } from "./SystemStatusMenu";
 import { DocumentGroups } from "./DocumentGroups";
+import { LayoutMenu } from "./LayoutMenu";
 import { setParking, syncTabHosts, tabHost } from "./tabHosts";
 import { TabSwitcher } from "./TabSwitcher";
 import { InteractionHost } from "./InteractionHost";
@@ -684,6 +685,7 @@ export function Workbench() {
               {metadataLoading ? "Loading module metadata..." : null}
             </div>
             <div className="flex shrink-0 items-center gap-1">
+              <LayoutMenu moduleId={activeModule?.id ?? null} />
               <SystemStatusMenu
                 onResolveConflicts={() => openTab({ moduleId: "sync", viewId: "sync.status", title: "Sync" })}
                 onOpenAgents={() => setChatOpen(true)}
