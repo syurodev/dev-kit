@@ -105,7 +105,7 @@ type Service struct {
 	// CancelPendingElicitations cancels a session's open questions when its turn
 	// is stopped. Set in main.go to ElicitationWaiter.CancelSession.
 	CancelPendingElicitations func(sessionID string) int
-	PermissionTimeout         time.Duration // 0 = interaction.DefaultTimeout (60s)
+	PermissionTimeout         time.Duration // 0 = no deadline: wait for the user
 	// MCPEndpoints opens the per-session MCP socket before the vendor spawns.
 	MCPEndpoints MCPEndpoints
 	// OnSessionClosed fires after a session is closed (interaction.Hub forgets its allow_always).
@@ -1096,10 +1096,16 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 		Cancelled: promptErr != nil,
 	})
 
-	if permDenied.Load() {
-		_ = s.setSessionStatus(recordCtx, in.SessionID, SessionStatusError)
-		return InvokeResult{Status: "error"}, ErrPermissionDenied
-	}
+	// A denial is not a failure. The agent was told no — mediatePermission
+	// still fails closed toward it, and its tool call is rejected — and then
+	// the turn went on and ended like any other, usually with the agent saying
+	// what it will do instead. This used to mark the session errored and fail
+	// the turn, which put a red "stopped … Restart" card under a conversation
+	// that had not stopped and a session that was still usable: it told the
+	// user their own answer had broken something.
+	//
+	// Status "denied" rather than "completed" so a caller that has to know —
+	// an agent that invoked this session through MCP — still can.
 	if promptErr != nil {
 		finalStatus := SessionStatusError
 		if errors.Is(promptErr, ErrCancelled) || errors.Is(promptErr, context.Canceled) {
@@ -1161,8 +1167,12 @@ func (s *Service) Invoke(ctx context.Context, in InvokeInput) (InvokeResult, err
 	}
 	turnOutcome = "completed"
 
+	status := "completed"
+	if permDenied.Load() {
+		status = "denied"
+	}
 	return InvokeResult{
-		Status:       "completed",
+		Status:       status,
 		Summary:      summary,
 		FilesChanged: files,
 		TurnCount:    len(turns),

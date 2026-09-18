@@ -8,8 +8,18 @@ import (
 	"time"
 
 	"devkit/internal/agenthub"
-	"devkit/internal/interaction"
 )
+
+// sessionStatus reads a session's row, for the tests that care that a refusal
+// leaves it usable.
+func sessionStatus(t *testing.T, svc *agenthub.Service, id string) agenthub.SessionStatus {
+	t.Helper()
+	session, err := svc.GetStatus(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return session.Status
+}
 
 func TestPermissionTimeoutRejects(t *testing.T) {
 	svc := newTestService(t)
@@ -22,12 +32,20 @@ func TestPermissionTimeoutRejects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = svc.Invoke(context.Background(), agenthub.InvokeInput{
+	out, err := svc.Invoke(context.Background(), agenthub.InvokeInput{
 		SessionID: sess.ID,
 		Prompt:    "NEED_PERMISSION",
 	})
-	if !errors.Is(err, agenthub.ErrPermissionDenied) {
-		t.Fatalf("got %v want ErrPermissionDenied", err)
+	// Nobody to ask means the tool is refused — but refusing a tool is not a
+	// broken turn, so the turn ends denied rather than failing.
+	if err != nil {
+		t.Fatalf("invoke err = %v, want none", err)
+	}
+	if out.Status != "denied" {
+		t.Fatalf("status = %q, want denied", out.Status)
+	}
+	if got := sessionStatus(t, svc, sess.ID); got != agenthub.SessionStatusIdle {
+		t.Fatalf("session status = %q, want idle — the user's own answer did not break it", got)
 	}
 }
 
@@ -68,12 +86,15 @@ func TestPermissionWaiterTimeoutRejects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = svc.Invoke(context.Background(), agenthub.InvokeInput{
+	out, err := svc.Invoke(context.Background(), agenthub.InvokeInput{
 		SessionID: sess.ID,
 		Prompt:    "NEED_PERMISSION",
 	})
-	if !errors.Is(err, agenthub.ErrPermissionDenied) {
-		t.Fatalf("got %v want ErrPermissionDenied", err)
+	if err != nil {
+		t.Fatalf("invoke err = %v, want none", err)
+	}
+	if out.Status != "denied" {
+		t.Fatalf("status = %q, want denied", out.Status)
 	}
 }
 
@@ -131,7 +152,7 @@ func TestPermissionWaiterAllowContinues(t *testing.T) {
 	}
 }
 
-func TestPermissionWaiterDenyFailsTurn(t *testing.T) {
+func TestPermissionWaiterDenyDeniesTurn(t *testing.T) {
 	svc := newTestService(t)
 	svc.PermissionTimeout = 2 * time.Second
 
@@ -175,18 +196,23 @@ func TestPermissionWaiterDenyFailsTurn(t *testing.T) {
 
 	select {
 	case err := <-errCh:
-		if !errors.Is(err, agenthub.ErrPermissionDenied) {
-			t.Fatalf("invoke err = %v want ErrPermissionDenied (out=%+v)", err, out)
+		// Deny is an answer, not a failure: the tool is refused, the turn runs
+		// on and ends, and the session stays usable.
+		if err != nil {
+			t.Fatalf("invoke err = %v, want none (out=%+v)", err, out)
 		}
-		if out.Status != "error" {
-			t.Fatalf("status=%q want error", out.Status)
+		if out.Status != "denied" {
+			t.Fatalf("status = %q, want denied", out.Status)
+		}
+		if got := sessionStatus(t, svc, sess.ID); got != agenthub.SessionStatusIdle {
+			t.Fatalf("session status = %q, want idle", got)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for invoke")
 	}
 }
 
-func TestPermissionCancelledOutcomeFailsTurn(t *testing.T) {
+func TestPermissionCancelledOutcomeDeniesTurn(t *testing.T) {
 	svc := newTestService(t)
 	svc.ResolvePermission = func(ctx context.Context, sessionID string, params json.RawMessage) (json.RawMessage, error) {
 		return json.RawMessage(`{"outcome":{"outcome":"cancelled"}}`), nil
@@ -202,11 +228,11 @@ func TestPermissionCancelledOutcomeFailsTurn(t *testing.T) {
 		SessionID: sess.ID,
 		Prompt:    "NEED_PERMISSION",
 	})
-	if !errors.Is(err, agenthub.ErrPermissionDenied) {
-		t.Fatalf("got %v want ErrPermissionDenied", err)
+	if err != nil {
+		t.Fatalf("invoke err = %v, want none", err)
 	}
-	if out.Status != "error" {
-		t.Fatalf("status=%q want error", out.Status)
+	if out.Status != "denied" {
+		t.Fatalf("status = %q, want denied", out.Status)
 	}
 }
 
@@ -237,7 +263,11 @@ func TestPendingPermissionCarriesDeadline(t *testing.T) {
 	}
 }
 
-func TestPendingPermissionDeadlineDefaultsToInteractionTimeout(t *testing.T) {
+func TestPendingPermissionHasNoDeadlineByDefault(t *testing.T) {
+	// A permission is a question put to a person, and the card offers a whole
+	// diff to read before answering. Nothing expires unless a timeout is
+	// configured; the waiter says so by leaving ExpiresAt zero, which is how
+	// the card knows to draw no countdown.
 	var seen agenthub.PendingPermission
 	w := agenthub.NewPermissionWaiter(func(p agenthub.PendingPermission) { seen = p })
 
@@ -250,8 +280,11 @@ func TestPendingPermissionDeadlineDefaultsToInteractionTimeout(t *testing.T) {
 	}()
 	<-done
 
-	if got := seen.ExpiresAt.Sub(seen.CreatedAt); got != interaction.DefaultTimeout {
-		t.Fatalf("window = %v, want interaction.DefaultTimeout", got)
+	if !seen.ExpiresAt.IsZero() {
+		t.Fatalf("ExpiresAt = %v, want zero — nothing closes this gate but the user", seen.ExpiresAt)
+	}
+	if seen.CreatedAt.IsZero() {
+		t.Fatal("CreatedAt not stamped")
 	}
 }
 
