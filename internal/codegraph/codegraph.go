@@ -143,9 +143,12 @@ type Subgraph struct {
 
 // SymbolMatch is one SearchSymbol result.
 type SymbolMatch struct {
-	NodeID   string `json:"nodeId"`
-	Label    string `json:"label"`
-	Kind     string `json:"kind"`
+	NodeID string `json:"nodeId"`
+	Label  string `json:"label"`
+	Kind   string `json:"kind"`
+	// Layer is the node's layer (controller, service, repository, unknown),
+	// for the dot a search result wears.
+	Layer    string `json:"layer"`
 	FilePath string `json:"filePath"`
 	Line     int    `json:"line"`
 }
@@ -309,6 +312,8 @@ type Analyzer interface {
 // ReplaceIndex overwrites it wholesale on every (re-)index.
 type Store interface {
 	IndexVersion(ctx context.Context) (int, error)
+	// IndexedAt is when the index was last replaced, Unix milliseconds; 0 if unknown.
+	IndexedAt(ctx context.Context) (int64, error)
 	ReplaceIndex(ctx context.Context, result AnalysisResult) error
 	// IndexedProject / SetIndexedProject say which project the stored index
 	// describes, so an open can tell "this project's index" from "an index".

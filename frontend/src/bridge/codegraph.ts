@@ -24,6 +24,8 @@ export type CodeGraphSymbolMatch = {
   nodeId: string;
   label: string;
   kind: string;
+  /** controller | service | repository | unknown. */
+  layer: string;
   filePath: string;
   line: number;
 };
@@ -84,6 +86,7 @@ export async function searchCodeGraphSymbol(query: string): Promise<CodeGraphSym
       nodeId: s.nodeId,
       label: s.label,
       kind: s.kind,
+      layer: s.layer,
       filePath: s.filePath,
       line: s.line,
     }));
@@ -250,6 +253,42 @@ export function codeGraphProjectRoot(): Promise<string> {
   return callBridge(
     () => AppService.CodeGraphProjectRoot() as Promise<string>,
   );
+}
+
+/** The sidebar's line under the project name (Go codegraph.IndexInfo). */
+export type CodeGraphIndexInfo = {
+  /** When the stored index was last replaced, Unix ms; 0 when unknown. */
+  indexedAt: number;
+  indexing: boolean;
+  /** The last run's failure with the analyzer's output tail, or "". */
+  error: string;
+  modules: string[];
+  /** The checked-out git branch, "" outside a work tree. */
+  branch: string;
+};
+
+export function codeGraphIndexInfo(): Promise<CodeGraphIndexInfo> {
+  return callBridge(async () => {
+    const info = await AppService.CodeGraphIndexInfo();
+    return {
+      indexedAt: info.indexedAt,
+      indexing: info.indexing,
+      error: info.error,
+      modules: info.modules ?? [],
+      branch: info.branch,
+    };
+  });
+}
+
+/** M modified, A added or untracked, D deleted, R renamed. */
+export type CodeGraphGitState = "M" | "A" | "D" | "R";
+
+/** Changed files of the active project, keyed like CodeGraphFileEntry.path. */
+export function codeGraphGitStatus(): Promise<Record<string, CodeGraphGitState>> {
+  return callBridge(async () => {
+    const map = (await AppService.CodeGraphGitStatus()) ?? {};
+    return map as Record<string, CodeGraphGitState>;
+  });
 }
 
 const INDEX_UPDATED_EVENT = "codegraph:indexUpdated";

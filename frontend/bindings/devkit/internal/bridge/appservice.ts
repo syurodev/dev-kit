@@ -499,6 +499,23 @@ export function CodeGraphGetPlannedFlow(): $CancellablePromise<codegraph$0.Plan>
     return $Call.ByID(3322703391);
 }
 
+/**
+ * CodeGraphGitStatus maps changed files in the active project to M/A/D/R, for
+ * the Files tab. Empty outside a git work tree.
+ */
+export function CodeGraphGitStatus(): $CancellablePromise<{ [_ in string]?: string } | null> {
+    return $Call.ByID(3946330245);
+}
+
+/**
+ * CodeGraphIndexInfo is what the sidebar says under the project name: when the
+ * index was built, whether a run is in flight, why the last one failed, and the
+ * modules the project was detected with (a restored session knows them too).
+ */
+export function CodeGraphIndexInfo(): $CancellablePromise<codegraph$0.IndexInfo> {
+    return $Call.ByID(1381036455);
+}
+
 export function CodeGraphListEndpoints(): $CancellablePromise<codegraph$0.Endpoint[] | null> {
     return $Call.ByID(1712846729);
 }

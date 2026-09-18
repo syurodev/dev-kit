@@ -169,6 +169,40 @@ export interface FlowStep {
 }
 
 /**
+ * IndexInfo is what the sidebar says about the index under the project name:
+ * when it was built, whether a run is in flight, and why the last one failed.
+ */
+export interface IndexInfo {
+    /**
+     * IndexedAt is when the stored index was last replaced, Unix milliseconds;
+     * 0 when unknown.
+     */
+    "indexedAt": number;
+
+    /**
+     * Indexing is true while an open or a re-index is running or queued.
+     */
+    "indexing": boolean;
+
+    /**
+     * Error is the last run's failure, including the analyzer's output tail;
+     * "" when it succeeded. The stored index, if any, is still the previous one.
+     */
+    "error": string;
+
+    /**
+     * Modules are the build modules the project was detected with, so a
+     * restored session knows them too.
+     */
+    "modules": string[] | null;
+
+    /**
+     * Branch is the checked-out git branch, "" outside a work tree.
+     */
+    "branch": string;
+}
+
+/**
  * InstallCommand is one way to install a missing program, with the packaging
  * ecosystem it belongs to so the reader can pick the line that is theirs.
  */
@@ -436,6 +470,12 @@ export interface SymbolMatch {
     "nodeId": string;
     "label": string;
     "kind": string;
+
+    /**
+     * Layer is the node's layer (controller, service, repository, unknown),
+     * for the dot a search result wears.
+     */
+    "layer": string;
     "filePath": string;
     "line": number;
 }

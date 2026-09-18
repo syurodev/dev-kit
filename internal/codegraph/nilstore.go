@@ -12,6 +12,7 @@ import (
 type nilStore struct{}
 
 func (nilStore) IndexVersion(context.Context) (int, error) { return 0, nil }
+func (nilStore) IndexedAt(context.Context) (int64, error)  { return 0, nil }
 
 func (nilStore) ReplaceIndex(context.Context, AnalysisResult) error { return ErrNoActiveProject }
 func (nilStore) IndexedProject(context.Context) (string, error)     { return "", nil }
