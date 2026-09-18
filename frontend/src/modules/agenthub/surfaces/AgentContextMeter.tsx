@@ -9,6 +9,9 @@ export type AgentContextMeterProps = {
   turnCount?: number;
   /** Sends /compact. Omitted when the agent offers no such command. */
   onCompact?: () => void;
+  /** Controlled by the composer, so only one of its popovers is ever open. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
   className?: string;
 };
 
@@ -76,7 +79,14 @@ export function rateLimitDetail(limit: RateLimit, now = Date.now()): string {
   return parts.join(" · ") || "no detail";
 }
 
-export function AgentContextMeter({ usage, turnCount = 0, onCompact, className }: AgentContextMeterProps) {
+export function AgentContextMeter({
+  usage,
+  turnCount = 0,
+  onCompact,
+  open,
+  onOpenChange,
+  className,
+}: AgentContextMeterProps) {
   const used = usage?.used ?? 0;
   const size = usage?.size ?? 0;
   if (!size) return null;
@@ -88,7 +98,7 @@ export function AgentContextMeter({ usage, turnCount = 0, onCompact, className }
   const circumference = 2 * Math.PI * 6;
 
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
         <Button
           type="button"

@@ -440,6 +440,22 @@ export function AgentComposer({
   const [pendingBypass, setPendingBypass] = useState<{ apply: () => void } | null>(null);
   // Picked in a menu, so it waits for that menu to close; see heldChoice.
   const [heldBypass] = useState(heldChoice);
+  /**
+   * Which of the composer's own menus is open, if any. One piece of state
+   * rather than one per menu, and every menu is controlled by it: opening one
+   * closes the rest by construction.
+   *
+   * Radix dismisses a menu when the pointer goes down outside it, which is
+   * normally enough — but the composer floats over the transcript in a
+   * pointer-events-none layer that re-enables them on itself, and there the
+   * dismissal did not reach: three menus could sit open at once, stacked over
+   * each other.
+   */
+  const [openMenu, setOpenMenu] = useState<"" | "agent" | "context" | "commands" | "mode" | "config" | "usage">("");
+  const menu = (name: "agent" | "context" | "commands" | "mode" | "config" | "usage") => ({
+    open: openMenu === name,
+    onOpenChange: (open: boolean) => setOpenMenu(open ? name : ""),
+  });
   const [goalOpen, setGoalOpen] = useState(false);
   const [goalDraft, setGoalDraft] = useState("");
   const askBypass = heldBypass.hold;
@@ -634,7 +650,7 @@ export function AgentComposer({
 
         <div className="flex w-full items-center gap-1">
           {onAgentChange ? (
-            <DropdownMenu>
+            <DropdownMenu {...menu("agent")}>
               <DropdownMenuTrigger asChild>
                 <Button
                   type="button"
@@ -667,6 +683,7 @@ export function AgentComposer({
           {/* Each pill is its own menu trigger. One DropdownMenu with two
               triggers is not a thing — they open different lists. */}
           <AgentMenu
+            {...menu("context")}
             mode="context"
             contextFiles={contextFiles}
             onSelectContext={onSelectContext}
@@ -685,7 +702,7 @@ export function AgentComposer({
               </Button>
             </ActionTooltip>
           </AgentMenu>
-          <AgentMenu mode="commands" commands={commands} onSelectCommand={onSelectCommand}>
+          <AgentMenu mode="commands" commands={commands} onSelectCommand={onSelectCommand} {...menu("commands")}>
             <ActionTooltip label="Commands" side="top">
               <Button
                 type="button"
@@ -712,6 +729,7 @@ export function AgentComposer({
                 data-testid="composer-goal"
                 data-set={goal ? "true" : "false"}
                 onClick={() => {
+                  setOpenMenu("");
                   setGoalDraft(goal?.objective ?? "");
                   setGoalOpen(true);
                 }}
@@ -723,7 +741,7 @@ export function AgentComposer({
             </ActionTooltip>
           ) : null}
           {onSetMode && modeChoices.length > 0 ? (
-            <DropdownMenu>
+            <DropdownMenu {...menu("mode")}>
               <DropdownMenuTrigger asChild>
                 <Button type="button" variant="ghost" size="sm" data-testid="composer-mode" className="gap-1 px-2 text-text-secondary">
                   <SlidersHorizontal className="size-3.5" aria-hidden="true" />
@@ -760,7 +778,7 @@ export function AgentComposer({
             </DropdownMenu>
           ) : null}
           {onSetConfigOption && selectableOptions.length > 0 ? (
-            <DropdownMenu>
+            <DropdownMenu {...menu("config")}>
               <DropdownMenuTrigger asChild>
                 <ActionTooltip label="Agent settings" side="top">
                   <Button type="button" variant="ghost" size="icon-sm" data-testid="composer-config" className="text-text-secondary">
@@ -795,7 +813,7 @@ export function AgentComposer({
             </DropdownMenu>
           ) : null}
           <span className="min-w-0 flex-1" />
-          <AgentContextMeter usage={usage} turnCount={turnCount} onCompact={onCompact} />
+          <AgentContextMeter usage={usage} turnCount={turnCount} onCompact={onCompact} {...menu("usage")} />
           <BorderBeam
             active={isStreaming && !reduce}
             size="sm"

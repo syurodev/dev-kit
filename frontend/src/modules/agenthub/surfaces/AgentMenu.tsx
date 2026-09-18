@@ -29,6 +29,13 @@ export type AgentMenuProps = {
   onSelectContext?: (filePath: string) => void;
   /** Opens the native file picker. Rendered first, above whatever is listed. */
   onBrowseContext?: () => void;
+  /**
+   * Controlled, because the composer owns which of its menus is open: one
+   * open at a time, whatever the surface underneath does with pointer events.
+   * Left out, the menu opens and closes itself as any dropdown does.
+   */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
   /** The control that opens the menu — the composer passes its pill. */
   children: ReactNode;
   className?: string;
@@ -65,13 +72,15 @@ export function AgentMenu({
   onSelectCommand,
   onSelectContext,
   onBrowseContext,
+  open,
+  onOpenChange,
   children,
   className,
 }: AgentMenuProps) {
   const isCommands = mode === "commands";
 
   return (
-    <DropdownMenu>
+    <DropdownMenu open={open} onOpenChange={onOpenChange}>
       <DropdownMenuTrigger asChild>{children}</DropdownMenuTrigger>
       <DropdownMenuContent
         align="start"
