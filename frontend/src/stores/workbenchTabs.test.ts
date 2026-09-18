@@ -19,7 +19,7 @@ useWorkbenchTabsStore.persist.setOptions({
 // last-active tab, and none of the interaction rules change.
 
 beforeEach(() => {
-  useWorkbenchTabsStore.setState({ activeModuleId: "", modules: {} });
+  useWorkbenchTabsStore.setState({ activeModuleId: "", modules: {}, groups: [], focusedGroupId: "" });
 });
 
 describe("per-module tab ownership", () => {

@@ -26,7 +26,7 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Pin, PinOff, Plus, Settings2, Wrench, X } from "lucide-react";
+import { Columns2, MoveRight, Pin, PinOff, Plus, Settings2, Wrench, X } from "lucide-react";
 import {
   useEffect,
   useLayoutEffect,
@@ -88,6 +88,11 @@ type TabStripProps = {
   onTogglePin?: (id: string) => void;
   /** Settings ▸ Appearance, where tab widths are set. */
   onConfigureTabs?: () => void;
+  /** Move the tab into a new document group beside this one (⌘\\). */
+  onSplitRight?: (id: string) => void;
+  /** Other groups showing this module, which a tab can move to. */
+  moveTargets?: { id: string; label: string }[];
+  onMoveToGroup?: (tabId: string, groupId: string) => void;
   /** True while ⌘⇧E/Ctrl⇧E is held (Workbench.tsx): every tab goes full
    * width and ArrowLeft/Right + Enter/Escape navigate the strip. */
   keyboardBrowsing: boolean;
@@ -184,6 +189,9 @@ type TabItemProps = {
   onPin?: (id: string) => void;
   onTogglePin?: (id: string) => void;
   onConfigureTabs?: () => void;
+  onSplitRight?: (id: string) => void;
+  moveTargets?: { id: string; label: string }[];
+  onMoveToGroup?: (tabId: string, groupId: string) => void;
 };
 
 function TabItem({
@@ -207,6 +215,9 @@ function TabItem({
   onPin,
   onTogglePin,
   onConfigureTabs,
+  onSplitRight,
+  moveTargets = [],
+  onMoveToGroup,
 }: TabItemProps) {
   // `attributes` are not spread, for the grid's reason: they would replace
   // role="tab" and the roving tabindex with role="button" and tabIndex 0.
@@ -382,6 +393,19 @@ function TabItem({
       {tab.preview && onPin ? (
         <ContextMenuItem onSelect={() => onPin(tab.id)}>Keep Open</ContextMenuItem>
       ) : null}
+      {onSplitRight || (moveTargets.length > 0 && onMoveToGroup) ? <ContextMenuSeparator /> : null}
+      {onSplitRight ? (
+        <ContextMenuItem icon={<Columns2 />} shortcut={shortcut("\\")} onSelect={() => onSplitRight(tab.id)}>
+          Split Right
+        </ContextMenuItem>
+      ) : null}
+      {onMoveToGroup
+        ? moveTargets.map((target) => (
+            <ContextMenuItem key={target.id} icon={<MoveRight />} onSelect={() => onMoveToGroup(tab.id, target.id)}>
+              {target.label}
+            </ContextMenuItem>
+          ))
+        : null}
       <ModuleTabActions tab={tab} />
       {onConfigureTabs ? (
         <>
@@ -407,6 +431,9 @@ export function TabStrip({
   onPin,
   onTogglePin,
   onConfigureTabs,
+  onSplitRight,
+  moveTargets,
+  onMoveToGroup,
   keyboardBrowsing,
   onExitBrowsing,
 }: TabStripProps) {
@@ -606,6 +633,9 @@ export function TabStrip({
                 onPin={onPin}
                 onTogglePin={onTogglePin}
                 onConfigureTabs={onConfigureTabs}
+                onSplitRight={onSplitRight}
+                moveTargets={moveTargets}
+                onMoveToGroup={onMoveToGroup}
               />
             ))}
           </div>

@@ -7,7 +7,7 @@ useWorkbenchTabsStore.persist.setOptions({
 });
 
 beforeEach(() => {
-  useWorkbenchTabsStore.setState({ activeModuleId: "", modules: {} });
+  useWorkbenchTabsStore.setState({ activeModuleId: "", modules: {}, groups: [], focusedGroupId: "" });
 });
 
 const open = (title: string) =>

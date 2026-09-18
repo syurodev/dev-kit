@@ -15,7 +15,8 @@ export type SwitcherModule = { id: string; title: string; unavailable?: boolean 
 type ModuleSwitcherProps = {
   modules: SwitcherModule[];
   activeModuleId: string;
-  onSelectModule: (moduleId: string) => void;
+  /** `beside`: ⌥-click, open the module in a new group beside the focused one. */
+  onSelectModule: (moduleId: string, opts?: { beside?: boolean }) => void;
 };
 
 /**
@@ -36,7 +37,7 @@ export function ModuleSwitcher({ modules, activeModuleId, onSelectModule }: Modu
           // There is no ⌘10. The handler is in Workbench.tsx.
           digit={index < 9 ? String(index + 1) : null}
           active={module.id === activeModuleId}
-          onSelect={() => onSelectModule(module.id)}
+          onSelect={(beside) => onSelectModule(module.id, { beside })}
         />
       ))}
     </nav>
@@ -52,7 +53,7 @@ function ModuleButton({
   module: SwitcherModule;
   digit: string | null;
   active: boolean;
-  onSelect: () => void;
+  onSelect: (beside?: boolean) => void;
 }) {
   const [peekOpen, setPeekOpen] = useState(false);
   const manifest = getModule(module.id);
@@ -85,9 +86,9 @@ function ModuleButton({
         // speculative hover must never leave an unhandled rejection.
         void manifest?.views[0]?.preload?.().catch(() => undefined);
       }}
-      onClick={() => {
+      onClick={(event) => {
         setPeekOpen(false);
-        onSelect();
+        onSelect(event.altKey);
       }}
     >
       <Icon className="size-4" />

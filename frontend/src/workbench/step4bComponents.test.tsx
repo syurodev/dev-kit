@@ -38,7 +38,9 @@ describe("Step 4b Shell Overlays & Composition Reconciliation", () => {
       const files = {
         // The content card lives in AppShell now, not Workbench — the split
         // that gave the shell's layout one file to compare against Figma 107:2.
-        // The content card and every pane card live in the slot layout now.
+        // The document groups are the content cards now; every pane card
+        // lives in the slot layout.
+        "DocumentGroups.tsx": new URL("./DocumentGroups.tsx", import.meta.url),
         "pane-slots.tsx": new URL(
           "../components/ui/pane-slots.tsx",
           import.meta.url

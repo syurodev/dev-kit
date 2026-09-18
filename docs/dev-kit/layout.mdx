@@ -189,6 +189,25 @@ màn hình — người dùng luôn biết sidebar đang nói về group nào.
 group đang focus của module đó (hoặc group đang focus nếu cùng module); `side` ⇒
 group bên cạnh.
 
+### Đã làm (v1)
+
+- Store: `frontend/src/stores/documentGroups.ts` (luật thuần, có test) trên
+  partition tab sẵn có — tab nhớ group của nó qua `WorkbenchTab.group`;
+  `activeTabId` của module luôn là tab của **group đang focus**, nên code module
+  (Database `useIsActiveDocument`, Notes…) không phải đổi gì. Lưu qua restart.
+- Vẽ: `frontend/src/workbench/DocumentGroups.tsx` — mỗi group một card, tab
+  strip riêng, sash kéo chia độ rộng (trọng số, không phải px), group focus có
+  viền `border-focus`. View của tab render một lần vào host riêng
+  (`workbench/tabHosts.ts`); chuyển tab giữa group không remount.
+- Mở group: *Split Right* trên tab / `⌘\`, *Move to Other Group*, `⌥`-click
+  module trên switcher để mở bên cạnh. Group rỗng tự đóng (trừ group cuối), có
+  nút đóng group khi có hơn một.
+
+**Chưa làm:** kéo tab từ group này sang group kia (hiện qua menu), `⌘`-click
+trong sidebar, `placement: "beside"` cho intent liên module, và context pane của
+*mọi* module đang hiện — bố cục vị trí hiện chỉ có một context pane, của module
+đang focus.
+
 ### Agent Hub
 
 Agent Hub là một module có document là **phiên agent**. Nếu một group Agent Hub

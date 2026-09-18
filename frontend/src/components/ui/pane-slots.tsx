@@ -74,8 +74,8 @@ const rectOf = (el: Element | null): Rect | undefined => {
  * Everything right of the sidebar: the document, and the panes that move
  * between the slots around it (workbench/slots/slotModel.ts).
  *
- *   document column   the content card (tab strip + views), and under it the
- *                     bottom row — under the document only, so the columns
+ *   document column   the document groups (workbench/DocumentGroups.tsx), and
+ *                     under them the bottom row — under the document only, so the columns
  *                     keep their full height beside it
  *   column A, B       up to two columns on the right, each split top/bottom
  *
@@ -210,11 +210,6 @@ export function PaneSlotsRow({ activeModuleId, children }: { activeModuleId: str
     [hosts, titles, resolved, close, moveTo, targets, beginDrag],
   );
 
-  const setDocRef = React.useCallback((el: HTMLDivElement | null) => {
-    docRef.current = el;
-    return shellSquircleRef(el);
-  }, []);
-
   return (
     <Ctx.Provider value={ctx}>
       <LazyMotion features={domAnimation}>
@@ -224,10 +219,11 @@ export function PaneSlotsRow({ activeModuleId, children }: { activeModuleId: str
               min-w-0 because this column has no overflow-hidden of its own to
               zero its automatic minimum width. */}
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-            {/* One card holds the strip and the views, which is how Figma's
-                content-surface is built. Opaque on purpose: module content
-                must not sit on the user's wallpaper. */}
-            <div ref={setDocRef} className="flex min-h-0 flex-1 flex-col overflow-hidden shell-surface">
+            {/* The document area: one card per document group
+                (workbench/DocumentGroups.tsx). Not a card itself — the groups
+                are, so two of them side by side sit on the app background with
+                the same gap as everything else. */}
+            <div ref={docRef} data-slot-document className="flex min-h-0 min-w-0 flex-1">
               {children}
             </div>
             <BottomRow pane={resolved.bottom ?? null} />

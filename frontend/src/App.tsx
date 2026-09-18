@@ -33,13 +33,22 @@ function isGalleryRequested(): boolean {
 function App() {
   if (import.meta.env.DEV && typeof window !== "undefined" && new URLSearchParams(window.location.search).has("shell-harness")) {
     return (
-      <ThemeProvider>
-        <TooltipProvider>
-          <Suspense fallback={null}>
-            <ShellHarness />
-          </Suspense>
-        </TooltipProvider>
-      </ThemeProvider>
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <TooltipProvider>
+            {/* `&workbench`: the real Workbench, still without the vault
+                gate — for document groups. Bridge calls fail in a browser;
+                modules show their error or empty states, enough for layout. */}
+            {new URLSearchParams(window.location.search).has("workbench") ? (
+              <Workbench />
+            ) : (
+              <Suspense fallback={null}>
+                <ShellHarness />
+              </Suspense>
+            )}
+          </TooltipProvider>
+        </ThemeProvider>
+      </QueryClientProvider>
     );
   }
   if (isGalleryRequested()) {

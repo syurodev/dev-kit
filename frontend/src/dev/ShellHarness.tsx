@@ -7,6 +7,7 @@ import { useBottomSlotStore } from "@/stores/bottomSlot";
  * DEV — the real AppShell without the vault gate, so its geometry and the
  * slot layout's drag can be exercised in a browser.
  * `?shell-harness`. Fake content; no bridge calls of its own.
+ * `?shell-harness&workbench` renders the real Workbench instead (App.tsx).
  */
 function OpenSlots() {
   const { openPanel, openCompanion } = useSplitPanel();
@@ -20,10 +21,11 @@ function OpenSlots() {
 }
 
 export default function ShellHarness() {
+
   return (
     <AppShell activeModuleId="codegraph" titlebar={<span className="text-body-13 text-text-secondary">Shell harness</span>}>
       <OpenSlots />
-      <div className="flex h-full items-center justify-center text-body-13 text-text-secondary">Document content</div>
+      <div className="flex min-w-0 flex-1 items-center justify-center overflow-hidden text-body-13 text-text-secondary shell-surface">Document content</div>
     </AppShell>
   );
 }
