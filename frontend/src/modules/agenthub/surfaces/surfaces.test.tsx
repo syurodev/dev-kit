@@ -1,3 +1,4 @@
+import { TREE_ROW_HEIGHT } from "@/components/tree-view";
 import { describe, expect, it } from "bun:test";
 import { renderToString as renderRaw } from "react-dom/server";
 import {
@@ -11,7 +12,6 @@ import {
   visibleSessions,
   countDescendants,
   groupByProject,
-  SWARM_ROW_HEIGHT,
   AgentHubContent,
   AgentMetaInspector,
   AgentRail,
@@ -897,12 +897,11 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       expect(html).not.toContain("20260918-1-x");
     });
 
-    it("draws the swarm's rows roomier than the tree's dense default", () => {
+    it("draws its rows at the tree's own height, like every other rail", () => {
       const html = renderSidebar(
         <AgentSidebarTree sessions={[mockSession]} onSelectSession={() => {}} onNewSession={() => {}} />,
       );
-      expect(html).toContain(`height:${SWARM_ROW_HEIGHT}px`);
-      expect(html).not.toContain("height:24px");
+      expect(html).toContain(`height:${TREE_ROW_HEIGHT}px`);
     });
 
     it("shows Claude's own subagents under the session that spawned them", () => {

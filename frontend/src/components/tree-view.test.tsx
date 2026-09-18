@@ -120,12 +120,12 @@ describe("TreeView", () => {
   });
 });
 
-/** A connection pinned at 0 with two schemas pinned at 24, each holding tables. */
+/** A connection pinned at row 0 with two schemas pinned at row 1, each holding tables. */
 function database(tablesPerSchema: number): TreeNodeData[] {
   const schema = (name: string): TreeNodeData => ({
     id: name,
     label: name,
-    sticky: 24,
+    sticky: 1,
     expandable: true,
     expanded: true,
     children: Array.from({ length: tablesPerSchema }, (_, i) => ({ id: `t${i}`, label: `${name}_${i}` })),

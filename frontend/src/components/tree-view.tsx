@@ -1,9 +1,21 @@
-import { createContext, memo, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  forwardRef,
+  memo,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ButtonHTMLAttributes,
+  type ReactNode,
+} from "react";
 import { flushSync } from "react-dom";
 import { ChevronRight } from "lucide-react";
 import { observeElementRect, useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Chip } from "@/components/ui/chip";
 
 /**
  * One row of the tree.
@@ -52,13 +64,12 @@ export type TreeNodeData = {
   onSelect?: () => void;
   /**
    * Pins this row to the top of the scroller while its children scroll under
-   * it, at this offset in px.
+   * it, this many rows down: 0 at the top, 1 under a row pinned at 0.
    *
-   * A number rather than a boolean because the offset is the caller's: the
-   * database rail pins a connection at 0 and its schema at 24 beneath it, and
-   * a folder above them is not pinned at all. Deriving it from the tree level
-   * would pin the tables too, which on five levels is 120px of stuck header on
-   * a 280px rail.
+   * Rows rather than px so the caller never needs the tree's row height: the
+   * database rail pins a connection at 0 and its schema at 1 beneath it, and a
+   * folder above them is not pinned at all. Deriving it from the tree level
+   * would pin the tables too — five levels of stuck header on a narrow rail.
    */
   sticky?: number;
   /** Double-click. The tables use it to write a SELECT into the console. */
@@ -69,17 +80,17 @@ export type TreeNodeData = {
 };
 
 /**
- * --control-height-xs, the row height. Rows are fixed-height, which is what
- * lets the tree be windowed by arithmetic instead of by measuring.
+ * --control-height-sm, the row height of every tree in the app. Rows are
+ * fixed-height, which is what lets the tree be windowed by arithmetic instead
+ * of by measuring.
+ *
+ * One height, not one per caller: the database rail drew 24, the agent swarm
+ * 32 and Code Graph its own 28 and 33, so the same tree looked like three
+ * components from one module to the next. The tree owns its metrics — row
+ * height, icon size, spacing, type — and a caller only says what is in a row.
  */
-export const TREE_ROW_HEIGHT = 24;
+export const TREE_ROW_HEIGHT = 28;
 
-/**
- * The height every row of one tree is drawn at. TREE_ROW_HEIGHT unless the
- * tree asks for more: the agent swarm is read for minutes at a time and uses
- * roomier rows, the database and Kafka rails keep the dense default. Still one
- * height per tree, so windowing and pinning stay arithmetic.
- */
 const RowHeight = createContext(TREE_ROW_HEIGHT);
 
 /**
@@ -191,8 +202,8 @@ export function pinnedRows(
   const pins: Pin[] = [];
   if (offset <= 0) return pins;
   for (const i of candidates ?? rows.map((_, index) => index)) {
-    const pin = rows[i].node.sticky;
-    if (pin === undefined || rows[i].placeholder) continue;
+    if (rows[i].node.sticky === undefined || rows[i].placeholder) continue;
+    const pin = rows[i].node.sticky * rowHeight;
     const y = i * rowHeight - offset;
     if (y >= pin) continue;
     const top = Math.min(pin, rows[i].end * rowHeight - offset - rowHeight);
@@ -320,6 +331,45 @@ function RowTooltip({ title, children }: { title?: string; children: ReactNode }
 }
 
 /**
+ * A control in a row's `actions`, the same size in every tree: 24×24 — the
+ * macOS minimum target with room to spare in a 28px row — a 14px glyph, the
+ * row's quiet colour until hovered. forwardRef so it can be a Radix trigger.
+ */
+export const TreeRowAction = forwardRef<HTMLButtonElement, ButtonHTMLAttributes<HTMLButtonElement>>(
+  function TreeRowAction({ className, onClick, ...props }, ref) {
+    return (
+      <button
+        ref={ref}
+        type="button"
+        className={cn(
+          "flex size-6 shrink-0 items-center justify-center rounded-sm text-text-tertiary hover:bg-state-soft hover:text-text-primary [&_svg]:size-3.5",
+          className,
+        )}
+        // A row action is not a click on the row.
+        onClick={(event) => {
+          event.stopPropagation();
+          onClick?.(event);
+        }}
+        {...props}
+      />
+    );
+  },
+);
+
+/**
+ * A short tag at a row's end — a connection's environment — the same size in
+ * every tree. `danger` for the one that must stand out (prod); the rest stay
+ * quiet so a list of them does not shout.
+ */
+export function TreeRowTag({ danger = false, children }: { danger?: boolean; children: ReactNode }) {
+  return (
+    <Chip tone={danger ? "danger" : "default"} className={cn("h-5 px-1.5", !danger && "text-text-tertiary")}>
+      {children}
+    </Chip>
+  );
+}
+
+/**
  * Memoised on the row, which flattenTree keeps stable for as long as the nodes
  * are: a scroll that brings a row into the window mounts it, and every row
  * already there renders nothing.
@@ -366,7 +416,7 @@ const Row = memo(function Row({ row, copy = false }: { row: FlatRow; copy?: bool
         <button
           type="button"
           tabIndex={copy ? -1 : undefined}
-          className="flex min-w-0 flex-1 items-center gap-1 text-left"
+          className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
           onClick={() => {
             node.onSelect?.();
             node.onToggle?.();
@@ -379,7 +429,17 @@ const Row = memo(function Row({ row, copy = false }: { row: FlatRow; copy?: bool
               <ChevronRight className={cn("size-3 transition-transform", open && "rotate-90")} />
             )}
           </span>
-          {node.icon}
+          {/* A fixed 14px slot, glyphs sized to it whatever the caller drew:
+              icons are the tree's metric, not the caller's. A dot or a chip
+              keeps its own size inside it. */}
+          {node.icon ? (
+            <span
+              data-slot="tree-icon"
+              className="flex size-3.5 shrink-0 items-center justify-center text-icon-secondary [&_svg]:size-3.5 [&_svg]:shrink-0"
+            >
+              {node.icon}
+            </span>
+          ) : null}
           <span
             data-slot="tree-label"
             className={cn(
@@ -429,7 +489,12 @@ const Row = memo(function Row({ row, copy = false }: { row: FlatRow; copy?: bool
             ) : null}
           </span>
         ) : null}
-        {node.trailing}
+        {node.trailing ? (
+          // Marks, not controls: small, quiet, the same size in every tree.
+          <span className="flex shrink-0 items-center gap-1 text-text-tertiary [&_svg]:size-3 [&_svg]:shrink-0">
+            {node.trailing}
+          </span>
+        ) : null}
       </div>
     </div>
   );
@@ -466,16 +531,8 @@ const Placeholder = memo(function Placeholder({ row }: { row: FlatRow }) {
  * to set state on every event and re-render every visible row with it:
  * 8.3–8.7ms of main thread a step, p95 15ms, in the harness.
  */
-export function TreeView({
-  nodes,
-  className,
-  rowHeight = TREE_ROW_HEIGHT,
-}: {
-  nodes: TreeNodeData[];
-  className?: string;
-  /** Every row's height; see RowHeight. */
-  rowHeight?: number;
-}) {
+export function TreeView({ nodes, className }: { nodes: TreeNodeData[]; className?: string }) {
+  const rowHeight = TREE_ROW_HEIGHT;
   const rows = useMemo(() => flattenTree(nodes), [nodes]);
   const pinnable = useMemo(
     () => rows.flatMap((row, i) => (row.node.sticky !== undefined && !row.placeholder ? [i] : [])),

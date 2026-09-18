@@ -12,7 +12,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import { TreeView, type TreeNodeData } from "@/components/tree-view";
+import { TreeRowAction, TreeView, type TreeNodeData } from "@/components/tree-view";
 import { Shimmer } from "@/components/ui/shimmer";
 import { AgentState, type AgentStatus } from "./AgentState";
 import { heldChoice } from "./AgentComposer";
@@ -97,9 +97,8 @@ export type AgentSidebarTreeProps = {
  * rails use: guides, sticky headers, keyboard semantics and windowing are
  * already there and were previously hand-rolled here as a 1px span and a pl-4.
  * Its rows are one line, which is what moved the project out to its own level —
- * a second line per session repeated the folder for every one of them. They are
- * SWARM_ROW_HEIGHT here rather than the tree's dense 24: this rail is watched
- * for minutes at a time, and packed rows tire the eye.
+ * a second line per session repeated the folder for every one of them. Row
+ * height, icons and type are the tree's own, the same as every other rail.
  *
  * The waiting count lives in the footer: one number for the whole tree, where
  * you look when deciding whether anything needs you at all.
@@ -211,8 +210,7 @@ export function visibleSessions(
   );
 }
 
-/** Row height for the swarm; roomier than TreeView's default. */
-export const SWARM_ROW_HEIGHT = 32;
+
 
 /** One project and the root sessions opened in it, pinned ones first. */
 export type ProjectGroup = { path: string; roots: AgentSession[]; total: number };
@@ -407,7 +405,7 @@ export function AgentSidebarTree({
       id: `subagent:${agent.id}`,
       label: agent.name || agent.id.slice(0, 8),
       title: agent.task || undefined,
-      icon: <Bot className="size-3 shrink-0 text-icon-secondary" />,
+      icon: <Bot />,
       // No session of DevKit's to open, so the row hands focus to the session
       // that owns it — where the subagent's own output is, in the transcript.
       onSelect: () => onSelectSession(session.id),
@@ -439,17 +437,13 @@ export function AgentSidebarTree({
         ),
         title: session.title || undefined,
         icon: (
-          <VendorIcon
-            vendor={session.agentType}
-            working={session.status === "running"}
-            className="size-3 text-icon-secondary"
-          />
+          <VendorIcon vendor={session.agentType} working={session.status === "running"} />
         ),
         count: turnCounts[session.id],
         trailing: (
           <span className="flex shrink-0 items-center gap-1">
             {pinnedIds.includes(session.id) ? (
-              <Pin aria-label="Pinned" data-testid="agent-row-pin" className="size-2.5 text-text-tertiary" />
+              <Pin aria-label="Pinned" data-testid="agent-row-pin" />
             ) : null}
             <AgentState
               status={waitingHere ? "awaiting" : status}
@@ -479,24 +473,18 @@ export function AgentSidebarTree({
         label: name,
         title: scratch ? undefined : group.path || undefined,
         icon: scratch ? (
-          <FolderX className="size-3 shrink-0 text-icon-secondary" />
+          <FolderX />
         ) : (
-          <Folder className="size-3 shrink-0 text-icon-secondary" />
+          <Folder />
         ),
         count: group.total,
         // On hover, in the count's place: starting another agent in a project
         // you are looking at should not mean picking that folder again.
         actions: onNewSessionIn ? (
           <ActionTooltip label={scratch ? "New session without a project" : `New session in ${name}`}>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xs"
-              data-testid="agent-tree-project-new"
-              onClick={() => onNewSessionIn(group.path)}
-            >
+            <TreeRowAction data-testid="agent-tree-project-new" onClick={() => onNewSessionIn(group.path)}>
               <Plus aria-hidden="true" />
-            </Button>
+            </TreeRowAction>
           </ActionTooltip>
         ) : undefined,
         wrap: (row: React.ReactNode) => (
@@ -612,7 +600,7 @@ export function AgentSidebarTree({
 
       <div className="h-px w-full shrink-0 bg-border-subtle" />
 
-      <TreeView nodes={nodes} rowHeight={SWARM_ROW_HEIGHT} className="flex-1 scrollbar-gutter-stable" />
+      <TreeView nodes={nodes} className="flex-1 scrollbar-gutter-stable" />
 
       {waiting > 0 ? (
         // A button, not a caption: the count says something needs you, and
