@@ -34,7 +34,7 @@ import {
   type SlotId,
 } from "@/workbench/slots/slotModel";
 import { startPaneDrag } from "@/workbench/slots/paneDrag";
-import { TerminalWorkspace } from "@/workbench/TerminalWorkspace";
+import { TerminalTabs, TerminalWorkspace } from "@/workbench/TerminalWorkspace";
 import { getModule } from "@/modules/registry";
 import { usePanelWidthsStore } from "@/stores/panelWidths";
 import { placementFor, usePaneSlotsStore } from "@/stores/paneSlots";
@@ -53,6 +53,8 @@ const MAX_BOTTOM_HEIGHT = 600;
 type SlotsCtx = {
   hosts: Record<PaneId, HTMLDivElement>;
   titles: Record<PaneId, string>;
+  /** Whether the active module put its own tab in the terminal pane. */
+  terminalHasModule: boolean;
   resolved: ReturnType<typeof resolve>;
   close: (pane: PaneId) => void;
   moveTo: (pane: PaneId, slot: SlotId) => void;
@@ -206,8 +208,8 @@ export function PaneSlotsRow({ activeModuleId, children }: { activeModuleId: str
   );
 
   const ctx = React.useMemo<SlotsCtx>(
-    () => ({ hosts, titles, resolved, close, moveTo, targets, beginDrag }),
-    [hosts, titles, resolved, close, moveTo, targets, beginDrag],
+    () => ({ hosts, titles, terminalHasModule: moduleContent != null, resolved, close, moveTo, targets, beginDrag }),
+    [hosts, titles, moduleContent, resolved, close, moveTo, targets, beginDrag],
   );
 
   return (
@@ -476,7 +478,7 @@ function PaneHeader({
   cardRef: React.RefObject<HTMLDivElement | null>;
   originRef: React.RefObject<HTMLDivElement | null>;
 }) {
-  const { titles, close, moveTo, targets, beginDrag } = useSlots();
+  const { titles, terminalHasModule, close, moveTo, targets, beginDrag } = useSlots();
   const ref = React.useRef<HTMLDivElement>(null);
   const Icon = ICONS[pane];
   const title = titles[pane];
@@ -487,7 +489,9 @@ function PaneHeader({
     const el = ref.current;
     if (!el) return;
     const onDown = (e: PointerEvent) => {
-      if ((e.target as HTMLElement).closest("button")) return;
+      // Controls in the header — its buttons, and the terminal's tabs and
+      // their close marks — are not handles.
+      if ((e.target as HTMLElement).closest("button, [role=button], [role=tab]")) return;
       if (!cardRef.current || !originRef.current) return;
       e.preventDefault();
       beginDrag(pane, e, cardRef.current, originRef.current);
@@ -505,7 +509,13 @@ function PaneHeader({
     >
       <GripVertical className="size-3.5 shrink-0 text-text-tertiary" aria-hidden />
       <Icon className="size-3.5 shrink-0" aria-hidden />
-      <span className="min-w-0 flex-1 truncate text-label-12">{title}</span>
+      {/* The terminal's tabs are its title: one header, not a header over a
+          strip. The empty stretch of the strip still drags the pane. */}
+      {pane === "terminal" ? (
+        <TerminalTabs showModule={terminalHasModule} />
+      ) : (
+        <span className="min-w-0 flex-1 truncate text-label-12">{title}</span>
+      )}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button type="button" aria-label={`Move ${title} to…`} title="Move to…" className={headerButton}>
