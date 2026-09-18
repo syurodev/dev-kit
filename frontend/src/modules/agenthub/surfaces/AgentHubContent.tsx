@@ -12,7 +12,15 @@ import {
 import type { AgentSession, ElicitationResponse, PendingElicitation, PendingPermission } from "@/bridge/agenthub";
 import type { AgentImageAttachment } from "@/bridge/agenthub";
 import type { QueuedAgentPrompt } from "@/stores/agentSessions";
-import type { AvailableCommand, ConfigOption, SessionMode, TranscriptItem, Usage } from "../types";
+import type {
+  AvailableCommand,
+  ConfigOption,
+  SessionFailure,
+  SessionGoal,
+  SessionMode,
+  TranscriptItem,
+  Usage,
+} from "../types";
 import type { ContextFileItem } from "./AgentMenu";
 import { TranscriptStream } from "./TranscriptStream";
 import { loadCheckpointFileDiff, useSessionCheckpoints } from "../useSessionCheckpoints";
@@ -20,6 +28,7 @@ import { RewindDialog } from "./RewindDialog";
 import { AgentComposer } from "./AgentComposer";
 import { ProjectPicker } from "./ProjectPicker";
 import { AgentSessionError, type SessionErrorCause } from "./AgentSessionError";
+import { AgentSessionFailure } from "./AgentSessionFailure";
 import { AgentPermissionRequest } from "./AgentPermissionRequest";
 import { AgentQuestionCard } from "./AgentQuestionCard";
 import { PermissionPresence } from "./permissionCard";
@@ -75,6 +84,16 @@ export type AgentHubContentProps = {
   onCancelQueued?: (id: string) => void;
   onEditQueued?: (prompt: QueuedAgentPrompt) => void;
   onOpenFile?: (path: string, line?: number) => void;
+  /**
+   * A problem the vendor reported about the session as a whole, and what the
+   * user can do about it. Shown above the composer, where the error card is.
+   */
+  failure?: SessionFailure | null;
+  onFailureAction?: (action: string) => void;
+  onDismissFailure?: () => void;
+  /** What the session works towards, and the ask to change it; see AgentComposer. */
+  goal?: SessionGoal | null;
+  onSetGoal?: (objective: string) => void;
   /** Copies a string — a message, a code block. */
   onCopy?: (text: string) => void;
   /** Sends /compact. Offered in the context popover only when the agent lists the command. */
@@ -203,6 +222,11 @@ export function AgentHubContent({
   onEditQueued,
   onOpenFile,
   onCopy,
+  failure,
+  onFailureAction,
+  onDismissFailure,
+  goal,
+  onSetGoal,
   onCompact,
   pendingPermission,
   onResolvePermission,
@@ -227,6 +251,7 @@ export function AgentHubContent({
   // meter, turn count, mode and commands into a conversation not yet started.
   if (draft) {
     session = null;
+    failure = null;
     pendingPermission = null;
     pendingElicitation = null;
     queuedPrompts = [];
@@ -407,6 +432,18 @@ export function AgentHubContent({
               route — never took the field away. So the card sits where the
               permission card does, above the field, and the transcript pads
               for both. */}
+          {/* Above the error card: a vendor failure explains why a turn
+              stopped, and the card below it only says that one did. */}
+          {failure && onFailureAction ? (
+            <div className="pointer-events-auto mx-auto mb-3 w-full max-w-180">
+              <AgentSessionFailure
+                failure={failure}
+                onAction={onFailureAction}
+                onDismiss={onDismissFailure}
+                className="max-w-none"
+              />
+            </div>
+          ) : null}
           {isError ? (
             // An opaque base under the card: its danger wash is translucent,
             // which is right on a surface and wrong floating over a transcript,
@@ -494,6 +531,8 @@ export function AgentHubContent({
               onCancel={onCancel}
               streaming={draft ? false : streaming}
               usage={usage}
+              goal={draft ? null : goal}
+              onSetGoal={draft ? undefined : onSetGoal}
               turnCount={
                 // A turn is a thing the human said. Counting them here beats
                 // threading InvokeResult.turnCount through the view: this

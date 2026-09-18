@@ -140,6 +140,9 @@ type Usage struct {
 	Size     int64   `json:"size"`
 	Amount   float64 `json:"amount"`
 	Currency string  `json:"currency,omitempty"`
+	// RateLimit is the subscription's own ceiling, which the context window
+	// says nothing about: a turn can fit and still be refused.
+	RateLimit *RateLimit `json:"rateLimit,omitempty"`
 }
 
 // ConfigSelectOption is one selectable value of a select-typed ConfigOption.
@@ -207,6 +210,48 @@ type AsyncTask struct {
 
 // SessionUpdate is the hub-owned view of one session/update notification.
 // Raw is always populated, including for UpdateUnknown.
+// SessionFailure is a session-scoped problem the vendor reports through the
+// air extension DevKit asks for (devkitClientCapabilities lists
+// sessionFailure): a sign-in that expired, a usage limit reached, a provider
+// outage. It rides on a session_info_update's _meta rather than as a kind of
+// its own, and it is the only structured word the agent gives for these —
+// without it the user sees a turn that stopped and no reason.
+//
+// Actions are the vendor's own hints for the way out: "login", "retry",
+// "new_session". Severity is "error" or "warning"; a warning is a notice, not
+// a session that stopped.
+type SessionFailure struct {
+	ID       string   `json:"id"`
+	Revision int      `json:"revision"`
+	Category string   `json:"category"`
+	Severity string   `json:"severity"`
+	Title    string   `json:"title"`
+	Details  string   `json:"details,omitempty"`
+	Reason   string   `json:"reason,omitempty"`
+	Actions  []string `json:"actions,omitempty"`
+}
+
+// SessionGoal is the objective a session is working towards, from the goal
+// extension: set with /goal or through _session/goal, cleared the same way,
+// and published on a session_info_update's _meta whenever it changes.
+type SessionGoal struct {
+	Objective  string `json:"objective"`
+	Status     string `json:"status,omitempty"`
+	Iterations int    `json:"iterations,omitempty"`
+	LastReason string `json:"lastReason,omitempty"`
+	CreatedAt  string `json:"createdAt,omitempty"`
+}
+
+// RateLimit is what a subscription has left, as Claude attaches it to a
+// usage_update. Status is "allowed", "allowed_warning" or "rejected";
+// ResetsAt is a Unix second, Utilization a percentage.
+type RateLimit struct {
+	Status      string  `json:"status"`
+	ResetsAt    int64   `json:"resetsAt,omitempty"`
+	LimitType   string  `json:"limitType,omitempty"`
+	Utilization float64 `json:"utilization,omitempty"`
+}
+
 type SessionUpdate struct {
 	Kind     UpdateKind         `json:"kind"`
 	Content  *ContentBlock      `json:"content,omitempty"`
@@ -230,6 +275,12 @@ type SessionUpdate struct {
 	// ConfigOptions is the full set of settings from a config_option_update.
 	ConfigOptions []ConfigOption `json:"configOptions,omitempty"`
 	Usage         *Usage         `json:"usage,omitempty"`
+	// Failure and Goal both ride on session_info_update's _meta; see their
+	// types. GoalCleared says the goal was removed, which Goal == nil cannot:
+	// most session_info_updates carry no goal at all.
+	Failure     *SessionFailure `json:"failure,omitempty"`
+	Goal        *SessionGoal    `json:"goal,omitempty"`
+	GoalCleared bool            `json:"goalCleared,omitempty"`
 	// MessageID identifies the assistant message a chunk belongs to. Claude
 	// sends it on every chunk; it is a stricter coalescing key than "same kind"
 	// because two consecutive messages would otherwise fold into one bubble.
@@ -430,11 +481,14 @@ func ParseSessionUpdate(raw json.RawMessage) SessionUpdate {
 			State: wire.State,
 		}
 	case UpdateSessionInfo:
-		// The goal-carrying shape of this kind has no title. Leaving it as
-		// UpdateUnknown would put it back in the log every session; naming it
-		// with an empty Title says "understood, nothing to apply".
+		// Three shapes share this kind: a generated title, a goal, and a
+		// session failure. Leaving the last two as UpdateUnknown would put
+		// them back in the log every session; naming the kind with nothing
+		// applied says "understood, nothing to show".
 		out.Kind = UpdateSessionInfo
 		out.Title = wire.Title
+		out.Failure = parseSessionFailure(wire.Meta)
+		out.Goal, out.GoalCleared = parseSessionGoal(wire.Meta)
 	case UpdateConfigOptions:
 		out.Kind = UpdateConfigOptions
 		out.ConfigOptions = parseConfigOptions(wire.ConfigOptions)
@@ -443,7 +497,7 @@ func ParseSessionUpdate(raw json.RawMessage) SessionUpdate {
 		out.AsyncTask = parseAsyncTask(wire)
 	case UpdateUsage:
 		out.Kind = UpdateUsage
-		usage := Usage{Used: wire.Used, Size: wire.Size}
+		usage := Usage{Used: wire.Used, Size: wire.Size, RateLimit: parseRateLimit(wire.Meta)}
 		var cost struct {
 			Amount   float64 `json:"amount"`
 			Currency string  `json:"currency"`
@@ -540,4 +594,84 @@ func parseToolCall(wire wireUpdate) *ToolCall {
 	_ = json.Unmarshal(wire.Content, &call.Content)
 	_ = json.Unmarshal(wire.Locations, &call.Locations)
 	return call
+}
+
+// wireSessionInfoMeta is session_info_update's _meta: the air extension's
+// failure envelope, and the goal extension's snapshot.
+//
+// Goal is a pointer to a pointer in effect — `"goal": null` is how a cleared
+// goal arrives, and it has to be told apart from a _meta with no goal key at
+// all, which is every other session_info_update.
+type wireSessionInfoMeta struct {
+	JetBrains struct {
+		Air struct {
+			SessionFailure *SessionFailure `json:"sessionFailure"`
+		} `json:"air"`
+	} `json:"jetbrains"`
+	Goal json.RawMessage `json:"goal"`
+}
+
+// parseSessionFailure reads the air extension's failure out of a
+// session_info_update's _meta. nil when there is none, which is the usual case.
+func parseSessionFailure(meta json.RawMessage) *SessionFailure {
+	if len(meta) == 0 {
+		return nil
+	}
+	var parsed wireSessionInfoMeta
+	if err := json.Unmarshal(meta, &parsed); err != nil {
+		return nil
+	}
+	failure := parsed.JetBrains.Air.SessionFailure
+	if failure == nil || failure.Title == "" {
+		return nil
+	}
+	return failure
+}
+
+// parseSessionGoal reads the goal extension's snapshot. The second return is
+// whether the goal was explicitly cleared ("goal": null).
+func parseSessionGoal(meta json.RawMessage) (*SessionGoal, bool) {
+	if len(meta) == 0 {
+		return nil, false
+	}
+	var parsed wireSessionInfoMeta
+	if err := json.Unmarshal(meta, &parsed); err != nil {
+		return nil, false
+	}
+	if len(parsed.Goal) == 0 {
+		return nil, false
+	}
+	if string(parsed.Goal) == "null" {
+		return nil, true
+	}
+	var goal SessionGoal
+	if err := json.Unmarshal(parsed.Goal, &goal); err != nil || goal.Objective == "" {
+		return nil, false
+	}
+	return &goal, false
+}
+
+// parseRateLimit reads Claude's own rate-limit block off a usage_update's
+// _meta. Its key is namespaced by the vendor, not by ACP.
+func parseRateLimit(meta json.RawMessage) *RateLimit {
+	if len(meta) == 0 {
+		return nil
+	}
+	var parsed struct {
+		RateLimit *struct {
+			Status        string  `json:"status"`
+			ResetsAt      int64   `json:"resetsAt"`
+			RateLimitType string  `json:"rateLimitType"`
+			Utilization   float64 `json:"utilization"`
+		} `json:"_claude/rateLimit"`
+	}
+	if err := json.Unmarshal(meta, &parsed); err != nil || parsed.RateLimit == nil || parsed.RateLimit.Status == "" {
+		return nil
+	}
+	return &RateLimit{
+		Status:      parsed.RateLimit.Status,
+		ResetsAt:    parsed.RateLimit.ResetsAt,
+		LimitType:   parsed.RateLimit.RateLimitType,
+		Utilization: parsed.RateLimit.Utilization,
+	}
 }

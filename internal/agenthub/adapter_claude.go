@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -666,6 +667,8 @@ func (a *ClaudeAdapter) open(ctx context.Context, spec OpenSpec, plan openPlan) 
 		return nil, herr
 	}
 
+	rt.steering, rt.goalControl = parseAgentExtensions(initRes.Meta)
+
 	// Non-nil even with no endpoints: mcpServers is a required field.
 	mcpServers := make([]any, 0, len(spec.McpServers))
 	for _, srv := range spec.McpServers {
@@ -1068,8 +1071,12 @@ type claudeRuntime struct {
 	killer       acp.ProcessKiller
 	acpSessionID string
 	// modes is the handshake's answer; set before the runtime is returned and
-	// never written again.
+	// never written again. steering and goal are read from the same answer:
+	// both are extensions the agent advertises in initialize's top-level _meta,
+	// and calling either without that is a method the agent would refuse.
 	modes       *acp.SessionModeState
+	steering    bool
+	goalControl string
 	cwd         string
 	cancelServe context.CancelFunc
 	serveDone   chan struct{}
@@ -1418,4 +1425,93 @@ var unknownMethodSeen sync.Map
 func markMethodSeen(method string) bool {
 	_, loaded := unknownMethodSeen.LoadOrStore(method, struct{}{})
 	return !loaded
+}
+
+// parseAgentExtensions reads the two extensions DevKit drives from the agent's
+// initialize answer: steering (inject a message into the running turn) and
+// goal (an objective the session works towards).
+//
+// Both are advertised in the top-level _meta rather than in agentCapabilities,
+// because both are extensions rather than ACP proper. The goal's own control
+// method comes with it instead of being assumed.
+func parseAgentExtensions(meta json.RawMessage) (steering bool, goalControl string) {
+	if len(meta) == 0 {
+		return false, ""
+	}
+	var parsed struct {
+		Steering struct {
+			Supported bool `json:"supported"`
+		} `json:"steering"`
+		Goal struct {
+			ControlMethod string   `json:"controlMethod"`
+			Actions       []string `json:"actions"`
+		} `json:"goal"`
+	}
+	if err := json.Unmarshal(meta, &parsed); err != nil {
+		return false, ""
+	}
+	control := parsed.Goal.ControlMethod
+	if control != "" && !slices.Contains(parsed.Goal.Actions, "set") {
+		// Advertised without the action DevKit would use: treat it as absent
+		// rather than calling a method the agent will refuse.
+		control = ""
+	}
+	return parsed.Steering.Supported, control
+}
+
+// Steer injects a message into the turn that is running, instead of queueing
+// it behind that turn. The agent's own answer says what became of it:
+// "injected" into the running turn, "startedNewTurn" when it had already
+// finished, or "promptRequired" — the opt-in DevKit asks for — which means the
+// session was idle and the message is still the caller's to send.
+func (r *claudeRuntime) Steer(ctx context.Context, prompt []acp.ContentBlock) (string, error) {
+	r.mu.Lock()
+	if r.closed {
+		r.mu.Unlock()
+		return "", ErrSessionNotFound
+	}
+	conn, sid, supported := r.conn, r.acpSessionID, r.steering
+	r.mu.Unlock()
+	if !supported {
+		return "", ErrUnsupported
+	}
+
+	var res struct {
+		Outcome string `json:"outcome"`
+		Reason  string `json:"reason"`
+	}
+	// idleBehavior promptRequired: without it an idle session starts a turn of
+	// its own that nothing here owns — no turn record, no checkpoint, and the
+	// composer would show nothing running while it ran.
+	req := map[string]any{
+		"sessionId": sid,
+		"prompt":    prompt,
+		"_meta":     map[string]any{"steering": map[string]any{"idleBehavior": "promptRequired"}},
+	}
+	if err := conn.Call(ctx, "_session/steering", req, &res); err != nil {
+		return "", err
+	}
+	return res.Outcome, nil
+}
+
+// SetGoal sets or clears the session's objective through the goal extension.
+// An empty objective clears it.
+func (r *claudeRuntime) SetGoal(ctx context.Context, objective string) error {
+	r.mu.Lock()
+	if r.closed {
+		r.mu.Unlock()
+		return ErrSessionNotFound
+	}
+	conn, sid, control := r.conn, r.acpSessionID, r.goalControl
+	r.mu.Unlock()
+	if control == "" {
+		return ErrUnsupported
+	}
+
+	req := map[string]any{"sessionId": sid, "action": "clear"}
+	if objective != "" {
+		req = map[string]any{"sessionId": sid, "action": "set", "objective": objective}
+	}
+	var res struct{}
+	return conn.Call(ctx, control, req, &res)
 }

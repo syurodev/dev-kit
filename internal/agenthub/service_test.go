@@ -36,6 +36,23 @@ func newTestService(t *testing.T) *agenthub.Service {
 	return agenthub.NewService(reg, agenthub.NewSQLStore(db), func(string, json.RawMessage) {})
 }
 
+// newTestServiceWith is newTestService with the caller's own mock adapter, for
+// a test that has to look at the runtime the service opened.
+func newTestServiceWith(t *testing.T, adapter *agenthub.MockAdapter) *agenthub.Service {
+	t.Helper()
+	db, err := storage.Open(filepath.Join(t.TempDir(), "devkit.db"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if err := storage.Migrate(context.Background(), db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	reg := agenthub.NewRegistry()
+	reg.Register(adapter)
+	return agenthub.NewService(reg, agenthub.NewSQLStore(db), func(string, json.RawMessage) {})
+}
+
 func TestCreateAndListSession(t *testing.T) {
 	svc := newTestService(t)
 	s, err := svc.CreateSession(context.Background(), agenthub.CreateInput{

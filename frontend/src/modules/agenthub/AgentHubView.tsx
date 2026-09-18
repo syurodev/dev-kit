@@ -16,6 +16,8 @@ import type { SessionErrorCause } from "./surfaces";
 import {
   agentHubCancel,
   agentHubChooseDirectory,
+  agentHubSetGoal,
+  agentHubSteer,
   agentHubNewScratchDirectory,
   agentHubScratchRoot,
   agentHubChooseFiles,
@@ -105,6 +107,35 @@ export function isNewSessionShortcut(event: ShortcutKey, mac: boolean, overlayOp
   return modifier && event.key.toLowerCase() === "n";
 }
 
+/**
+ * Whether a message should go into the turn that is running rather than behind
+ * it. Text only: steering carries content blocks, and files belong to a turn of
+ * their own. Not while the agent waits on a permission — that turn is parked on
+ * the user, and the card asking is already on screen.
+ */
+export function shouldSteer(input: {
+  status: string;
+  text: string;
+  attachments: number;
+  images: number;
+  busy: boolean;
+  retrying: boolean;
+}): boolean {
+  return (
+    !input.retrying &&
+    !input.busy &&
+    input.text.length > 0 &&
+    input.attachments === 0 &&
+    input.images === 0 &&
+    input.status === "running"
+  );
+}
+
+/** A failure and its revision: the agent republishes one when it changes. */
+export function failureKey(failure: { id: string; revision: number }): string {
+  return `${failure.id}:${failure.revision}`;
+}
+
 /** Renames a session. Throws, so the rename dialog stays open and says why. */
 export async function renameAgentSession(
   sessionId: string,
@@ -180,6 +211,10 @@ export function AgentHubView() {
     queryFn: () => agentRuntimeStatus(CLAUDE_AGENT),
     enabled: draft !== null && draftAgent === CLAUDE_VENDOR,
   });
+  // A vendor failure the user waved off. Keyed by id and revision: the agent
+  // republishes a failure with a new revision when something about it changed,
+  // and that is news again.
+  const [dismissedFailure, setDismissedFailure] = useState("");
   // The row the sidebar asked to rename — not always the one on screen.
   const [pendingRename, setPendingRename] = useState<AgentSession | null>(null);
   // The session awaiting a delete confirmation, with how many go with it.
@@ -546,6 +581,26 @@ export function AgentHubView() {
     const text = retry ? retry.text : activePrompt.trim();
     // A prompt with attachments and no words is a turn: "look at these".
     if (!text && attached.length === 0 && attachedImages.length === 0) return;
+    // While the agent is working, a message goes INTO the turn rather than
+    // behind it — the vendors' own apps read what you type mid-turn, and so
+    // does this. Text only: steering carries content blocks, and the files
+    // belong to a turn of their own. A refusal, an agent that cannot steer, or
+    // a turn that ended in the meantime all fall through to the queue.
+    if (
+      shouldSteer({
+        status: session.status,
+        text,
+        attachments: attached.length,
+        images: attachedImages.length,
+        busy,
+        retrying: Boolean(known),
+      })
+    ) {
+      if (await steerInto(session, text)) {
+        setPrompt(session.id, "");
+        return;
+      }
+    }
     if (!known && (busy || session.status === "running" || session.status === "awaiting_permission")) {
       queuePrompt(session, text, attached, attachedImages);
       return;
@@ -570,6 +625,46 @@ export function AgentHubView() {
       if (isAgentAuthRequiredError(e)) setAuthRetry({ kind: "turn", ...turn });
     } finally {
       setBusy(false);
+    }
+  }
+
+  /** True when the message reached the running turn; false leaves it to the queue. */
+  async function steerInto(session: AgentSession, text: string): Promise<boolean> {
+    try {
+      return (await agentHubSteer(session.id, text)) === "injected";
+    } catch {
+      // Nothing is lost: the caller queues it instead, which is what this app
+      // did for every mid-turn message before steering existed.
+      return false;
+    }
+  }
+
+  async function handleSetGoal(objective: string) {
+    if (!activeSession) return;
+    try {
+      await agentHubSetGoal(activeSession.id, objective);
+    } catch (e) {
+      reportError(e);
+    }
+  }
+
+  // The vendor's own hints for a failure, each mapped to the thing this app
+  // already does for it.
+  function handleFailureAction(action: string) {
+    if (action === "retry") {
+      void handleSend(lastTurn.current?.sessionId === activeSession?.id ? (lastTurn.current ?? undefined) : undefined);
+      return;
+    }
+    if (action === "new_session") {
+      void startNewDraft();
+      return;
+    }
+    if (action === "login") {
+      const methods = signIn.methods.data ?? [];
+      // One way in: take it. Several: the error card's panel names them, and
+      // picking for the user would be guessing.
+      if (methods.length === 1) signIn.start(methods[0]);
+      else setErrorCause("authRequired");
     }
   }
 
@@ -796,6 +891,18 @@ export function AgentHubView() {
             }}
             onCancel={() => void handleCancel()}
             onCopy={(text) => void copyText(text)}
+            failure={
+              transcriptModel.failure &&
+              failureKey(transcriptModel.failure) !== dismissedFailure
+                ? transcriptModel.failure
+                : null
+            }
+            onFailureAction={handleFailureAction}
+            onDismissFailure={() =>
+              setDismissedFailure(transcriptModel.failure ? failureKey(transcriptModel.failure) : "")
+            }
+            goal={transcriptModel.goal}
+            onSetGoal={(objective) => void handleSetGoal(objective)}
             pendingPermission={activePending}
             onResolvePermission={resolvePermission}
             permissionBusy={permissionBusy}

@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useReducedMotion } from "framer-motion";
-import { AtSign, Check, ChevronDown, Command as CommandIcon, Pencil, Play, SlidersHorizontal, X } from "lucide-react";
+import { AtSign, Check, ChevronDown, Command as CommandIcon, Pencil, Play, SlidersHorizontal, Target, X } from "lucide-react";
 // Icon DATA, not components: morphicons interpolates path geometry, which a
 // lucide-react component does not expose. Same version as lucide-react.
 import { ArrowUp, Square } from "lucide";
@@ -11,6 +11,8 @@ import { BorderBeam } from "border-beam";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ActionTooltip } from "@/components/ui/action-tooltip";
+import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -36,7 +38,7 @@ import { onThemeChange } from "@/theme/themeColors";
 import { AgentFileChip } from "../transcript/AgentFileChip";
 import { AgentMenu, type ContextFileItem } from "./AgentMenu";
 import { AgentContextMeter } from "./AgentContextMeter";
-import type { AvailableCommand, ConfigOption, ConfigSelectOption, SessionMode, Usage } from "../types";
+import type { AvailableCommand, ConfigOption, ConfigSelectOption, SessionGoal, SessionMode, Usage } from "../types";
 import type { QueuedAgentPrompt } from "@/stores/agentSessions";
 import type { AgentImageAttachment } from "@/bridge/agenthub";
 
@@ -223,6 +225,13 @@ export type AgentComposerProps = {
   onSend: () => void;
   onCancel: () => void;
   usage?: Usage | null;
+  /**
+   * What the session is working towards (the goal extension). The agent keeps
+   * it, not the composer: this is the vendor's last word on it, and onSetGoal
+   * only asks for a change.
+   */
+  goal?: SessionGoal | null;
+  onSetGoal?: (objective: string) => void;
   turnCount?: number;
   vendor?: string;
   version?: string;
@@ -319,6 +328,8 @@ export function AgentComposer({
   onSend,
   onCancel,
   usage,
+  goal,
+  onSetGoal,
   turnCount = 0,
   vendor = "claude",
   attachedFiles = [],
@@ -429,6 +440,24 @@ export function AgentComposer({
   const [pendingBypass, setPendingBypass] = useState<{ apply: () => void } | null>(null);
   // Picked in a menu, so it waits for that menu to close; see heldChoice.
   const [heldBypass] = useState(heldChoice);
+  /**
+   * Which of the composer's own menus is open, if any. One piece of state
+   * rather than one per menu, and every menu is controlled by it: opening one
+   * closes the rest by construction.
+   *
+   * Radix dismisses a menu when the pointer goes down outside it, which is
+   * normally enough — but the composer floats over the transcript in a
+   * pointer-events-none layer that re-enables them on itself, and there the
+   * dismissal did not reach: three menus could sit open at once, stacked over
+   * each other.
+   */
+  const [openMenu, setOpenMenu] = useState<"" | "agent" | "context" | "commands" | "mode" | "config" | "usage">("");
+  const menu = (name: "agent" | "context" | "commands" | "mode" | "config" | "usage") => ({
+    open: openMenu === name,
+    onOpenChange: (open: boolean) => setOpenMenu(open ? name : ""),
+  });
+  const [goalOpen, setGoalOpen] = useState(false);
+  const [goalDraft, setGoalDraft] = useState("");
   const askBypass = heldBypass.hold;
   const openHeldBypass = () => heldBypass.release((apply) => setPendingBypass({ apply }));
   const selectableOptions = configOptions.filter(
@@ -621,7 +650,7 @@ export function AgentComposer({
 
         <div className="flex w-full items-center gap-1">
           {onAgentChange ? (
-            <DropdownMenu>
+            <DropdownMenu {...menu("agent")}>
               <DropdownMenuTrigger asChild>
                 <Button
                   type="button"
@@ -654,6 +683,7 @@ export function AgentComposer({
           {/* Each pill is its own menu trigger. One DropdownMenu with two
               triggers is not a thing — they open different lists. */}
           <AgentMenu
+            {...menu("context")}
             mode="context"
             contextFiles={contextFiles}
             onSelectContext={onSelectContext}
@@ -672,7 +702,7 @@ export function AgentComposer({
               </Button>
             </ActionTooltip>
           </AgentMenu>
-          <AgentMenu mode="commands" commands={commands} onSelectCommand={onSelectCommand}>
+          <AgentMenu mode="commands" commands={commands} onSelectCommand={onSelectCommand} {...menu("commands")}>
             <ActionTooltip label="Commands" side="top">
               <Button
                 type="button"
@@ -686,8 +716,32 @@ export function AgentComposer({
               </Button>
             </ActionTooltip>
           </AgentMenu>
+          {/* The objective the agent keeps working towards between turns. It
+              sits with the mode rather than in the ⌘ menu because it is the
+              same kind of thing: per-session state the agent applies to every
+              turn, not a command you run once. */}
+          {onSetGoal ? (
+            <ActionTooltip label={goal ? "Change what this session is working towards" : "Set what this session works towards"}>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                data-testid="composer-goal"
+                data-set={goal ? "true" : "false"}
+                onClick={() => {
+                  setOpenMenu("");
+                  setGoalDraft(goal?.objective ?? "");
+                  setGoalOpen(true);
+                }}
+                className={cn("gap-1 px-2", goal ? "text-text-primary" : "text-text-secondary")}
+              >
+                <Target className="size-3.5" aria-hidden="true" />
+                {goal ? <span className="max-w-32 truncate text-body-13">{goal.objective}</span> : null}
+              </Button>
+            </ActionTooltip>
+          ) : null}
           {onSetMode && modeChoices.length > 0 ? (
-            <DropdownMenu>
+            <DropdownMenu {...menu("mode")}>
               <DropdownMenuTrigger asChild>
                 <Button type="button" variant="ghost" size="sm" data-testid="composer-mode" className="gap-1 px-2 text-text-secondary">
                   <SlidersHorizontal className="size-3.5" aria-hidden="true" />
@@ -724,7 +778,7 @@ export function AgentComposer({
             </DropdownMenu>
           ) : null}
           {onSetConfigOption && selectableOptions.length > 0 ? (
-            <DropdownMenu>
+            <DropdownMenu {...menu("config")}>
               <DropdownMenuTrigger asChild>
                 <ActionTooltip label="Agent settings" side="top">
                   <Button type="button" variant="ghost" size="icon-sm" data-testid="composer-config" className="text-text-secondary">
@@ -759,7 +813,7 @@ export function AgentComposer({
             </DropdownMenu>
           ) : null}
           <span className="min-w-0 flex-1" />
-          <AgentContextMeter usage={usage} turnCount={turnCount} onCompact={onCompact} />
+          <AgentContextMeter usage={usage} turnCount={turnCount} onCompact={onCompact} {...menu("usage")} />
           <BorderBeam
             active={isStreaming && !reduce}
             size="sm"
@@ -808,6 +862,58 @@ export function AgentComposer({
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        {/* Setting an objective is not a turn: the agent keeps it and applies
+            it to the turns that follow, so this asks and closes rather than
+            sending anything. Clearing it is the same call with nothing in it. */}
+        <Dialog open={goalOpen} onOpenChange={setGoalOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>What is this session working towards?</DialogTitle>
+            </DialogHeader>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                onSetGoal?.(goalDraft.trim());
+                setGoalOpen(false);
+              }}
+            >
+              <Input
+                value={goalDraft}
+                onChange={(event) => setGoalDraft(event.target.value)}
+                maxLength={500}
+                autoFocus
+                placeholder="a green build on CI"
+                aria-label="Objective"
+                data-testid="composer-goal-input"
+              />
+              <p className="mt-2 text-caption-11 text-text-tertiary">
+                The agent keeps working towards this across turns until it is cleared.
+              </p>
+              <DialogFooter className="mt-4">
+                {goal ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    data-testid="composer-goal-clear"
+                    onClick={() => {
+                      onSetGoal?.("");
+                      setGoalOpen(false);
+                    }}
+                  >
+                    Clear goal
+                  </Button>
+                ) : null}
+                <Button type="button" variant="ghost" onClick={() => setGoalOpen(false)}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={!goalDraft.trim()}>
+                  Set goal
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
       </div>
   );
 }

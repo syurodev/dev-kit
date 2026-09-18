@@ -1533,6 +1533,87 @@ func (s *Service) SetConfigOption(ctx context.Context, id, optionID, value strin
 	return configurator.SetConfigOption(ctx, optionID, value)
 }
 
+// SteerOutcome is what became of a steered message; see SessionSteerer.Steer.
+type SteerOutcome string
+
+const (
+	// SteerInjected: the message went into the turn that was running.
+	SteerInjected SteerOutcome = "injected"
+	// SteerPromptRequired: nothing was running, so nothing was sent. The
+	// caller sends it as an ordinary prompt, which is the turn it deserves —
+	// a record, a checkpoint, a Stop button.
+	SteerPromptRequired SteerOutcome = "promptRequired"
+)
+
+// Steer puts a message into the turn a session is in the middle of, rather
+// than queueing it behind that turn. This is what the vendor's own apps do
+// when you type while the agent works: the agent reads it at its next step.
+//
+// The echo is recorded here, because nothing else will: the agent streams the
+// answer to a steered message but never the message. Recorded only when it was
+// actually injected — a promptRequired outcome sent nothing.
+func (s *Service) Steer(ctx context.Context, id, text string) (SteerOutcome, error) {
+	if strings.TrimSpace(text) == "" {
+		return "", fmt.Errorf("%w: prompt is required", ErrInvalidPrompt)
+	}
+	if err := s.authorizeTarget(ctx, id); err != nil {
+		return "", err
+	}
+	sess, err := s.store.GetSession(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	rt, err := s.runtimeFor(ctx, sess)
+	if err != nil {
+		return "", err
+	}
+	steerer, ok := rt.(SessionSteerer)
+	if !ok {
+		return "", fmt.Errorf("%w: agent %q cannot take a message mid-turn", ErrUnsupported, sess.AgentType)
+	}
+	outcome, err := steerer.Steer(ctx, []acp.ContentBlock{{Type: "text", Text: text}})
+	if err != nil {
+		return "", err
+	}
+	if SteerOutcome(outcome) == SteerPromptRequired {
+		return SteerPromptRequired, nil
+	}
+
+	recordCtx := context.WithoutCancel(ctx)
+	echo := SessionUpdate{
+		Kind:      UpdateUserMessageChunk,
+		Content:   &ContentBlock{Type: "text", Text: text},
+		MessageID: uuid.NewString(),
+	}
+	if err := s.recorder.Record(recordCtx, id, echo); err != nil && s.OnRecordError != nil {
+		s.OnRecordError(id, err)
+	}
+	s.emit(id, userEchoUpdate(text, echo.MessageID, nil))
+	return SteerOutcome(outcome), nil
+}
+
+// SetGoal sets what the session is working towards, or clears it when the
+// objective is empty. The agent publishes the goal back on a
+// session_info_update, which is what the UI shows — this call only asks.
+func (s *Service) SetGoal(ctx context.Context, id, objective string) error {
+	if err := s.authorizeTarget(ctx, id); err != nil {
+		return err
+	}
+	sess, err := s.store.GetSession(ctx, id)
+	if err != nil {
+		return err
+	}
+	rt, err := s.runtimeFor(ctx, sess)
+	if err != nil {
+		return err
+	}
+	steerer, ok := rt.(SessionSteerer)
+	if !ok {
+		return fmt.Errorf("%w: agent %q keeps no goal", ErrUnsupported, sess.AgentType)
+	}
+	return steerer.SetGoal(ctx, strings.TrimSpace(objective))
+}
+
 // configurator resumes the session's runtime the way Invoke does. It used to
 // read only the live map, which is empty after every restart, so the first
 // model or mode change in a reopened session was refused as "agent does not

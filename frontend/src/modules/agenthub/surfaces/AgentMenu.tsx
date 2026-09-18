@@ -29,6 +29,13 @@ export type AgentMenuProps = {
   onSelectContext?: (filePath: string) => void;
   /** Opens the native file picker. Rendered first, above whatever is listed. */
   onBrowseContext?: () => void;
+  /**
+   * Controlled, because the composer owns which of its menus is open: one
+   * open at a time, whatever the surface underneath does with pointer events.
+   * Left out, the menu opens and closes itself as any dropdown does.
+   */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
   /** The control that opens the menu — the composer passes its pill. */
   children: ReactNode;
   className?: string;
@@ -65,20 +72,24 @@ export function AgentMenu({
   onSelectCommand,
   onSelectContext,
   onBrowseContext,
+  open,
+  onOpenChange,
   children,
   className,
 }: AgentMenuProps) {
   const isCommands = mode === "commands";
 
   return (
-    <DropdownMenu>
+    <DropdownMenu open={open} onOpenChange={onOpenChange}>
       <DropdownMenuTrigger asChild>{children}</DropdownMenuTrigger>
       <DropdownMenuContent
         align="start"
         data-testid="agent-menu"
         data-mode={mode}
         className={cn(
-          "w-80 rounded-control border-border-subtle bg-surface-glass-floating p-1",
+          // Scrolls rather than growing: a project with skills installed has
+          // dozens of commands, and the menu ran off the screen.
+          "max-h-96 w-96 overflow-y-auto rounded-control border-border-subtle bg-surface-glass-floating p-1",
           className,
         )}
       >
@@ -101,20 +112,30 @@ export function AgentMenu({
 
         {isCommands
           ? commands.map((command) => (
+              // The description is a line under the name, not the row's
+              // trailing detail. A command's description is a sentence — a
+              // skill's is a paragraph — and the trailing slot is one line at
+              // the end of a fixed-height row: they overflowed it and drew on
+              // top of the rows below.
               <DropdownMenuItem
                 key={command.name}
                 data-testid="agent-menu-command"
                 onSelect={() => onSelectCommand?.(command.name)}
-                className="h-8 rounded-sm"
-                icon={<CommandIcon className="size-3 shrink-0" aria-hidden="true" />}
-                detail={
-                  command.description ? (
-                    <span className="text-caption-11">{command.description}</span>
-                  ) : undefined
-                }
+                className="h-auto items-start rounded-sm py-1.5"
+                icon={<CommandIcon className="mt-0.5 size-3 shrink-0" aria-hidden="true" />}
               >
-                <span className="text-code-12 text-text-primary">
-                  {command.name.startsWith("/") ? command.name : `/${command.name}`}
+                <span className="flex min-w-0 flex-col gap-0.5 whitespace-normal">
+                  <span className="truncate text-code-12 text-text-primary">
+                    {command.name.startsWith("/") ? command.name : `/${command.name}`}
+                  </span>
+                  {command.description ? (
+                    <span
+                      title={command.description}
+                      className="line-clamp-2 text-caption-11 text-text-tertiary"
+                    >
+                      {command.description}
+                    </span>
+                  ) : null}
                 </span>
               </DropdownMenuItem>
             ))
@@ -125,16 +146,18 @@ export function AgentMenu({
                   key={file.path}
                   data-testid="agent-menu-context"
                   onSelect={() => onSelectContext?.(file.path)}
-                  className="h-8 rounded-sm"
-                  icon={<Glyph className="size-3 shrink-0" aria-hidden="true" />}
-                  detail={
-                    file.description ? (
-                      <span className="text-caption-11">{file.description}</span>
-                    ) : undefined
-                  }
+                  className="h-auto items-start rounded-sm py-1.5"
+                  icon={<Glyph className="mt-0.5 size-3 shrink-0" aria-hidden="true" />}
                 >
-                  <span className="text-code-12 text-text-primary">
-                    {file.name ?? file.path}
+                  <span className="flex min-w-0 flex-col gap-0.5 whitespace-normal">
+                    <span className="truncate text-code-12 text-text-primary">
+                      {file.name ?? file.path}
+                    </span>
+                    {file.description ? (
+                      <span title={file.description} className="line-clamp-2 text-caption-11 text-text-tertiary">
+                        {file.description}
+                      </span>
+                    ) : null}
                   </span>
                 </DropdownMenuItem>
               );

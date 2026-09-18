@@ -10,6 +10,8 @@ import { useShallow } from "zustand/react/shallow";
 export const EMPTY_TRANSCRIPT_MODEL: TranscriptModel = {
   items: [],
   usage: null,
+  failure: null,
+  goal: null,
   commands: [],
   mode: null,
   availableModes: [],

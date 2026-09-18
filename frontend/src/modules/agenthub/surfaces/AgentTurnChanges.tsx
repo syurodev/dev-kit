@@ -3,7 +3,7 @@ import { AlertTriangle, ChevronRight, FileDiff } from "lucide-react";
 
 import { AnimatedCollapse } from "@/components/ui/animated-collapse";
 import { cn } from "@/lib/utils";
-import { AgentToolDiff } from "../transcript/AgentToolDiff";
+import { FileDiffPane } from "./FileDiffPane";
 import {
   changeCounts,
   changeSummary,
@@ -189,14 +189,21 @@ export function ChangedFileRow({
         {error ? (
           <p className="px-2 text-caption-11 text-status-warning">{error}</p>
         ) : diff ? (
-          // truncated, not a shortened diff: half a file draws a difference at
-          // the cut that is not in the file. AgentToolDiff already says "too
-          // large to preview" for exactly this.
-          <AgentToolDiff
-            path={diff.path}
-            oldText={diff.before}
-            newText={diff.after}
-            truncated={diff.truncated}
+          // Headless: the row above already names the file and counts its
+          // lines. truncated, not a shortened diff: half a file draws a
+          // difference at the cut that is not in the file, and the pane says
+          // "too large to preview" for exactly this.
+          <FileDiffPane
+            diff={{
+              path: diff.path,
+              before: diff.before,
+              after: diff.after,
+              truncated: diff.truncated,
+              beforeMissing: diff.beforeMissing,
+            }}
+            headless
+            labels={{ before: "Before the turn", after: "After the turn" }}
+            testIdPrefix="turn-diff"
           />
         ) : (
           <p className="px-2 text-caption-11 text-text-tertiary">Loading…</p>
