@@ -247,7 +247,12 @@ function EndpointRow({
       <button
         type="button"
         onClick={() => onSelect(endpoint)}
-        className={cn("flex h-full min-w-0 flex-1 items-center gap-2.5 pr-2 text-left", indent ? "pl-10" : "pl-6.5")}
+        // The hover actions sit over the row's end, so while they show the
+        // path gives way to them and truncates before them, not under them.
+        className={cn(
+          "flex h-full min-w-0 flex-1 items-center gap-2.5 pr-2 text-left group-focus-within:pr-13 group-hover:pr-13",
+          indent ? "pl-10" : "pl-6.5",
+        )}
       >
         <span className={cn(METHOD_CHIP, "w-14.5", methodChipClass(endpoint.httpMethod))}>{endpoint.httpMethod}</span>
         <span className={cn("min-w-0 flex-1 truncate text-body-13", selected ? "text-text-primary" : "text-text-secondary")}>

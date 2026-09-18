@@ -28,7 +28,9 @@ const set = useCodeGraphStore.getState().set;
 const snapshot = () => useCodeGraphStore.getState();
 
 const PLACEHOLDER: Record<CodeGraphSidebarTab, string> = {
-  endpoints: "Search endpoints…   @ symbols",
+  // Short enough for the narrowest rail (240): the longer Figma wording was
+  // cut mid-word there.
+  endpoints: "Search, or @ for symbols",
   files: "Search files…",
   plan: "Filter plan nodes…",
 };
@@ -122,7 +124,7 @@ export function CodeGraphSidebar() {
           onChange={onQueryChange}
           onClear={onClearQuery}
           placeholder={PLACEHOLDER[activeTab]}
-          aria-label={PLACEHOLDER[activeTab].replace(/\s+@ symbols$/, "")}
+          aria-label={activeTab === "endpoints" ? "Search endpoints, or type @ for classes and methods" : PLACEHOLDER[activeTab]}
         />
       </SidebarHeader>
 
