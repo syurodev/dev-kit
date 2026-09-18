@@ -599,7 +599,10 @@ export function onAgentHubElicitationClosed(handler: (event: ElicitationClosedEv
 }
 
 function isoString(value: unknown): string {
-  return typeof value === "string" ? value : "";
+  if (typeof value !== "string") return "";
+  // Go's zero time, which is how a field with no value can still arrive when
+  // it is not marshalled with omitzero. Empty is what "none" means here.
+  return value.startsWith("0001-01-01") ? "" : value;
 }
 
 export function agentHubPendingPermissions(): Promise<PendingPermission[]> {

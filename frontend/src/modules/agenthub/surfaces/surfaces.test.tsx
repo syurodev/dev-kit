@@ -1572,6 +1572,20 @@ describe("Agent Hub Phase 3 Surfaces", () => {
         expect(html).not.toContain('data-testid="permission-file-edits"');
       });
 
+      it("draws no countdown when nothing expires", () => {
+        // The ordinary case now: the gate waits for the person, as the
+        // vendors' own apps do, so there is no deadline to show.
+        const html = renderToString(
+          <AgentPermissionRequest
+            pending={{ ...mockPending, expiresAt: "" }}
+            session={mockSession}
+            onResolve={() => {}}
+          />,
+        );
+        expect(html).not.toContain('data-testid="permission-seconds"');
+        expect(html).toContain('data-testid="permission-allow-once"');
+      });
+
       it("renders locked environment variant with warning badge", () => {
         const html = renderToString(
           <AgentPermissionRequest
