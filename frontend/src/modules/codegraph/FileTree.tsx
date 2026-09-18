@@ -15,6 +15,15 @@ type FileTreeProps = {
    * active; the user's own expansion is untouched either way.
    */
   forceExpanded?: Set<string> | null;
+  /** Git state per file (M, A, D, R), drawn at the end of its row. */
+  marks?: Record<string, string>;
+};
+
+const MARK_TONE: Record<string, string> = {
+  M: "text-status-warning",
+  A: "text-status-success",
+  D: "text-status-danger",
+  R: "text-status-info",
 };
 
 function depthOf(path: string): number {
@@ -46,7 +55,7 @@ export function visibleEntries(entries: CodeGraphFileEntry[], expanded: Set<stri
 // here as well as in the class below.
 const ROW_HEIGHT = 24;
 
-export function FileTree({ entries, selectedPath, onSelectFile, forceExpanded }: FileTreeProps) {
+export function FileTree({ entries, selectedPath, onSelectFile, forceExpanded, marks }: FileTreeProps) {
   const [userExpanded, setExpanded] = useState<Set<string>>(new Set());
   const expanded = useMemo(
     () => (forceExpanded ? new Set([...userExpanded, ...forceExpanded]) : userExpanded),
@@ -130,6 +139,11 @@ export function FileTree({ entries, selectedPath, onSelectFile, forceExpanded }:
               >
                 {name}
               </span>
+              {!entry.isDir && marks?.[entry.path] ? (
+                <span className={cn("shrink-0 text-code-11", MARK_TONE[marks[entry.path]] ?? "text-text-tertiary")}>
+                  {marks[entry.path]}
+                </span>
+              ) : null}
             </button>
           );
         })}

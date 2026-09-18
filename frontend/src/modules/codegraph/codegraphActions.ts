@@ -8,10 +8,13 @@ import {
   getCodeGraphNeighbors,
   getCodeGraphCodeSnippet,
   listCodeGraphFiles,
+  codeGraphIndexInfo,
+  codeGraphGitStatus,
   readCodeGraphFile,
   writeCodeGraphFile,
   type CodeGraphEndpoint,
   type CodeGraphSubgraph,
+  type CodeGraphSymbolMatch,
 } from "@/bridge/codegraph";
 import {
   approveCodeGraphPlan,
@@ -24,6 +27,8 @@ import { errorMessage, toAppError } from "@/bridge/errors";
 import { codeGraphRequests, useCodeGraphStore } from "./codegraphStore";
 import { isNoPlanError, isProjectChangedError } from "./codegraphErrors";
 import { mergeSubgraph } from "./subgraph";
+import { rememberProject } from "./recentProjects";
+import { useAgentSessionsStore } from "@/stores/agentSessions";
 
 /**
  * Everything CodeGraph asks the bridge, as module-level functions over the
@@ -50,6 +55,20 @@ const NEIGHBOR_DEPTH = 3;
 export function indexedStatus(moduleCount: number, endpointCount: number): string {
   const modules = moduleCount > 1 ? `${moduleCount} modules · ` : "";
   return `Indexed. ${modules}${endpointCount} endpoint(s) found.`;
+}
+
+/**
+ * The sidebar's line under the project name and the Files tab's git marks.
+ * Neither may break anything: a failed read leaves the last answer in place.
+ */
+export async function loadSidebarMeta() {
+  const current = begin("meta");
+  const [info, git] = await Promise.allSettled([codeGraphIndexInfo(), codeGraphGitStatus()]);
+  if (!current()) return;
+  set({
+    ...(info.status === "fulfilled" ? { indexInfo: info.value } : {}),
+    ...(git.status === "fulfilled" ? { gitStatus: git.value } : {}),
+  });
 }
 
 async function loadFiles() {
@@ -118,6 +137,9 @@ function switchProject(root: string) {
     pendingOpenFile: null,
     pendingOpenLine: null,
     fileError: "",
+    indexInfo: null,
+    gitStatus: {},
+    collapsedGroups: [],
     ...(fileDirty
       ? {}
       : { selectedFile: null, fileRoot: "", selectedLine: null, fileContent: "", fileDirty: false }),
@@ -136,6 +158,7 @@ export async function reindex(path: string) {
     rootId: null,
     rootEndpointId: null,
     subgraphPages: 0,
+    indexInfo: { ...(snapshot().indexInfo ?? { indexedAt: 0, error: "", modules: [], branch: "" }), indexing: true },
   });
   try {
     const detected = await openCodeGraphProject(path);
@@ -146,6 +169,7 @@ export async function reindex(path: string) {
     await loadFiles();
     if (!current()) return;
     set({ status: indexedStatus(detected.modules.length, list.length) });
+    rememberProject(path);
   } catch (e) {
     if (!current()) return;
     const failure = toAppError(e);
@@ -153,7 +177,10 @@ export async function reindex(path: string) {
   } finally {
     // A superseded reindex leaves busy to whoever superseded it: a project
     // switch resets it, and a newer reindex set it itself.
-    if (current()) set({ busy: false });
+    if (current()) {
+      set({ busy: false });
+      void loadSidebarMeta();
+    }
   }
 }
 
@@ -195,7 +222,10 @@ export async function restoreProject(isCancelled: () => boolean) {
   if (isCancelled() || !root || snapshot().projectPath) return;
   set({ projectPath: root, status: "Indexing…" });
   await refreshAfterReindex();
-  if (!isCancelled() && snapshot().projectPath === root) set({ status: "" });
+  if (!isCancelled() && snapshot().projectPath === root) {
+    set({ status: "" });
+    rememberProject(root);
+  }
 }
 
 export async function viewFlow(endpoint: CodeGraphEndpoint) {
@@ -211,6 +241,23 @@ export async function viewFlow(endpoint: CodeGraphEndpoint) {
     const sub = await getCodeGraphNeighbors(endpoint.entryNode, NEIGHBOR_DEPTH);
     if (!current()) return;
     set({ subgraph: sub, rootId: endpoint.entryNode, rootEndpointId: endpoint.id, subgraphPages: 1 });
+  } catch (e) {
+    if (!current()) return;
+    set({ subgraph: null, error: errorMessage(e) });
+  }
+}
+
+/**
+ * A symbol from the sidebar's @ search, drawn as the root of its own graph —
+ * a class or method reached without an endpoint in front of it.
+ */
+export async function viewSymbol(match: CodeGraphSymbolMatch) {
+  const current = begin("subgraph");
+  set({ activeTab: "endpoints", error: "", inspectorNodeId: null, snippet: null, snippetError: "", loadingMore: false });
+  try {
+    const sub = await getCodeGraphNeighbors(match.nodeId, NEIGHBOR_DEPTH);
+    if (!current()) return;
+    set({ subgraph: sub, rootId: match.nodeId, rootEndpointId: null, subgraphPages: 1 });
   } catch (e) {
     if (!current()) return;
     set({ subgraph: null, error: errorMessage(e) });
@@ -376,6 +423,7 @@ export async function refreshAfterReindex() {
   } catch (e) {
     if (current()) set({ error: errorMessage(e) });
   }
+  if (current()) void loadSidebarMeta();
   if (current() && snapshot().activeTab === "plan") {
     await loadPlan();
   }
@@ -488,4 +536,19 @@ export async function saveCurrentFile() {
         : errorMessage(e),
     });
   }
+}
+
+/**
+ * Hands a question about the graph to the agent companion: the text lands in
+ * the composer of the session on screen, and the companion opens. Nothing is
+ * sent — the person reads and presses send (docs/dev-kit/cross-module.mdx).
+ */
+export function askAgent(text: string) {
+  const agents = useAgentSessionsStore.getState();
+  const id = agents.activeSessionId;
+  if (id) {
+    const draft = agents.promptBySession[id] ?? "";
+    agents.setPrompt(id, draft ? `${draft}\n\n${text}` : text);
+  }
+  agents.setChatOpen(true);
 }

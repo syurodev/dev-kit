@@ -8,6 +8,8 @@ import type {
   CodeGraphCodeSnippet,
   CodeGraphEndpoint,
   CodeGraphFileEntry,
+  CodeGraphGitState,
+  CodeGraphIndexInfo,
   CodeGraphSubgraph,
   CodeGraphToolchainStatus,
 } from "@/bridge/codegraph";
@@ -89,6 +91,17 @@ type CodeGraphState = {
    */
   analyzerStatuses: CodeGraphToolchainStatus[] | null;
 
+  /** When the index was built, whether a run is going, why the last failed. */
+  indexInfo: CodeGraphIndexInfo | null;
+  /** Changed files of the project, for the Files tab's marks and filter. */
+  gitStatus: Record<string, CodeGraphGitState>;
+  /** Method chips on in the Endpoints tab; empty means all. */
+  methodFilter: string[];
+  /** Service and controller groups folded shut, by key. */
+  collapsedGroups: string[];
+  /** The Files tab's toggles. */
+  fileFilter: { javaOnly: boolean; changed: boolean; inFlow: boolean };
+
   set: (patch: Partial<CodeGraphState>) => void;
 };
 
@@ -142,6 +155,11 @@ export const useCodeGraphStore = create<CodeGraphState>((set, get) => ({
   fileError: "",
   query: "",
   analyzerStatuses: null,
+  indexInfo: null,
+  gitStatus: {},
+  methodFilter: [],
+  collapsedGroups: [],
+  fileFilter: { javaOnly: true, changed: false, inFlow: false },
 
   // Opening a file from outside this module (the agent companion sets
   // selectedFile directly) must still record which project it belongs to, or a
