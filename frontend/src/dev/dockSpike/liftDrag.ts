@@ -52,6 +52,20 @@ function showHint(h: Hint | null) {
   hintEl.dataset.label = h.label;
 }
 
+type FloatingGroup = { group: DockviewGroupPanel; position(bounds: { left: number; top: number }): void };
+
+/**
+ * dockview's floating window for a group. Not on the public API: DockviewApi
+ * keeps its component private. Moving the container through its own
+ * `position()` matters — panels rendered "always" (terminal, canvas, agent)
+ * live in a separate overlay that dockview re-aligns only on its own layout
+ * events; moving the element by hand leaves their content behind.
+ */
+function floatingOf(api: DockviewApi, group: DockviewGroupPanel): FloatingGroup | undefined {
+  const component = (api as unknown as { component?: { floatingGroups?: readonly FloatingGroup[] } }).component;
+  return component?.floatingGroups?.find((f) => f.group === group);
+}
+
 function rootOf(panel: IDockviewPanel): HTMLElement {
   return (panel.group.element.closest(".dockview-theme-devkit") as HTMLElement | null) ?? document.body;
 }
@@ -132,6 +146,7 @@ export function startLiftDrag(api: DockviewApi, panel: IDockviewPanel, down: Poi
     lifted = panel.group.element.closest(".dv-resize-container") as HTMLElement | null;
     lifted?.classList.add("dk-lifted");
     document.body.classList.add("dk-lift-dragging");
+    window.getSelection()?.removeAllRanges();
   };
 
   const move = (ev: PointerEvent) => {
@@ -140,9 +155,16 @@ export function startLiftDrag(api: DockviewApi, panel: IDockviewPanel, down: Poi
       lift();
       if (!lifted) return cleanup();
     }
+    ev.preventDefault(); // no text selection trailing the drag (Safari)
     const r = root!;
-    lifted.style.left = `${ev.clientX - offset.x - r.left}px`;
-    lifted.style.top = `${ev.clientY - offset.y - r.top}px`;
+    const left = ev.clientX - offset.x - r.left;
+    const top = ev.clientY - offset.y - r.top;
+    const fg = floatingOf(api, panel.group);
+    if (fg) fg.position({ left, top });
+    else {
+      lifted.style.left = `${left}px`;
+      lifted.style.top = `${top}px`;
+    }
     const resolved = resolveTarget(api, dragged, ev.clientX, ev.clientY, r, lifted);
     target = resolved?.target ?? null;
     showHint(resolved?.hint ?? null);

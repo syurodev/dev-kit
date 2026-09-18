@@ -88,15 +88,20 @@
 /* Lift drag (liftDrag.ts): the pane itself follows the pointer. */
 .dockview-theme-devkit .dv-resize-container.dk-lifted {
   pointer-events: none;
-  opacity: 0.94;
-  transform: scale(1.01);
+  /* No scale: content rendered "always" sits in dockview's render overlay,
+     outside this container, and would not scale with it. */
   box-shadow: 0 28px 60px rgb(0 0 0 / 0.55);
-  transition: transform var(--motion-fast), box-shadow var(--motion-fast);
+  transition: box-shadow var(--motion-fast);
   z-index: 2000 !important;
+}
+/* Hit-testing looks through the dragged pane's content to what is below. */
+body.dk-lift-dragging .dv-render-overlay {
+  pointer-events: none;
 }
 body.dk-lift-dragging,
 body.dk-lift-dragging * {
   cursor: grabbing !important;
+  -webkit-user-select: none;
   user-select: none;
 }
 .dk-drop-hint {
