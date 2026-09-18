@@ -183,50 +183,6 @@ export interface CheckpointProblem {
 }
 
 /**
- * CheckpointRecord is one stored checkpoint.
- */
-export interface CheckpointRecord {
-    "id": string;
-    "sessionId": string;
-    "projectKey": string;
-    "promptMessageId": string;
-    "kind": CheckpointKind;
-    "beforeTree": string;
-    "afterTree": string;
-    "status": CheckpointStatus;
-    "outcome": string;
-
-    /**
-     * Changed is the classified diff between the two trees.
-     */
-    "changed"?: ChangedFile[] | null;
-
-    /**
-     * Skipped is what neither tree holds, so a restore knows never to touch it.
-     */
-    "skipped"?: json$0.RawMessage;
-
-    /**
-     * AgentReport is the vendor's own list of files it changed, as it sent it.
-     */
-    "agentReport"?: json$0.RawMessage;
-
-    /**
-     * Overlap names the other sessions that were running in this project at the
-     * same time — the honest half of an unattributed file.
-     */
-    "overlap"?: json$0.RawMessage;
-
-    /**
-     * Detail is per-kind extra: a reason for an unavailable checkpoint, the
-     * fork's state for a rewind.
-     */
-    "detail"?: json$0.RawMessage;
-    "createdAt": string;
-    "finishedAt"?: string | null;
-}
-
-/**
  * CheckpointStatus is where a checkpoint got to.
  */
 export enum CheckpointStatus {
@@ -239,6 +195,36 @@ export enum CheckpointStatus {
     CheckpointDone = "done",
     CheckpointFailed = "failed",
 };
+
+/**
+ * CheckpointSummary is a checkpoint as the transcript reads it.
+ * 
+ * A narrower row than CheckpointRecord on purpose. The record carries the
+ * vendor's own changed-file report, the skip list and a per-kind detail blob —
+ * none of which the UI reads, all of which travel on every session open and
+ * again on every turn. What is not needed is not fetched and not sent.
+ */
+export interface CheckpointSummary {
+    "id": string;
+    "promptMessageId": string;
+    "kind": CheckpointKind;
+    "status": CheckpointStatus;
+    "outcome": string;
+
+    /**
+     * BeforeTree is present or empty; the hash itself is what says whether
+     * there is anything to go back to.
+     */
+    "beforeTree": string;
+    "changed"?: ChangedFile[] | null;
+
+    /**
+     * Overlap names the other sessions writing at the same time — the honest
+     * half of an unattributed file.
+     */
+    "overlap"?: json$0.RawMessage;
+    "createdAt": string;
+}
 
 /**
  * ContextFile is one bounded file suggestion for the prompt composer.
@@ -284,6 +270,12 @@ export interface FileDiff {
      */
     "beforeMissing": boolean;
     "afterMissing": boolean;
+
+    /**
+     * Truncated says the file is too big to preview. Not a shortened diff: half
+     * a file would draw a difference at the cut that is not in the file.
+     */
+    "truncated": boolean;
 }
 
 export interface ImageAttachment {

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -161,5 +162,112 @@ func TestShadowDirectoryRecordsItsProject(t *testing.T) {
 	}
 	if info.Mode().Perm() != 0o700 {
 		t.Fatalf("shadow directory mode = %v, want 0700", info.Mode().Perm())
+	}
+}
+
+// The per-project soft cap deletes what it must and no more.
+//
+// The share subtracted per deletion has to be a share of what is actually on
+// disk. Using a share of the cap instead made the amount of history deleted
+// depend on the limit rather than on the usage: a directory only just over the
+// line with many checkpoints lost nearly all of them.
+func TestSoftCapDeletesOnlyWhatItMustGo(t *testing.T) {
+	root := t.TempDir()
+	const key = "project-key"
+	dir := filepath.Join(root, key)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// 2 MiB on disk against a 1 MiB cap: half has to go, not nearly all of it.
+	if err := os.WriteFile(filepath.Join(dir, "pack"), make([]byte, 2<<20), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)
+	limits := Limits{MaxProjectBytes: 1 << 20}.withDefaults()
+	rows := make([]Record, 0, 20)
+	for i := range 20 {
+		rows = append(rows, Record{
+			ID:         "cp" + strconv.Itoa(i),
+			SessionID:  "s1",
+			ProjectKey: key,
+			Kind:       "turn",
+			CreatedAt:  now.Add(-time.Duration(20-i) * time.Minute),
+		})
+	}
+
+	expired := expiredCheckpoints(rows, now, root, limits)
+	// A range, not a count: each deletion frees an estimated twentieth of 2 MiB
+	// and integer division leaves a remainder, so the exact number is an
+	// artefact of the arithmetic rather than the behaviour. What is being
+	// pinned is the proportion — halving the directory takes about half the
+	// checkpoints. Subtracting a share of the CAP instead needs nineteen of the
+	// twenty, which is what this range refuses.
+	if len(expired) < 8 || len(expired) > 12 {
+		t.Fatalf("expired %d of 20, want about half: %v", len(expired), expired)
+	}
+	// And they are the oldest, so the undo history the user is most likely to
+	// reach for survives.
+	if expired[0] != "cp0" {
+		t.Fatalf("expired = %v, want the oldest first", expired)
+	}
+	for _, id := range expired {
+		if id == "cp19" {
+			t.Fatal("the newest checkpoint was deleted for size")
+		}
+	}
+}
+
+// Under the cap, nothing is deleted for size at all.
+func TestSoftCapLeavesAProjectUnderTheLineAlone(t *testing.T) {
+	root := t.TempDir()
+	const key = "small-project"
+	if err := os.MkdirAll(filepath.Join(root, key), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)
+	rows := []Record{
+		{ID: "a", SessionID: "s1", ProjectKey: key, Kind: "turn", CreatedAt: now.Add(-time.Hour)},
+		{ID: "b", SessionID: "s1", ProjectKey: key, Kind: "turn", CreatedAt: now},
+	}
+	if expired := expiredCheckpoints(rows, now, root, DefaultLimits()); len(expired) != 0 {
+		t.Fatalf("expired = %v, want none", expired)
+	}
+}
+
+// However far over the line a project is, it keeps one checkpoint.
+//
+// The estimate can be wrong — objects are shared between trees, so deleting a
+// checkpoint may free nothing — and a wrong estimate must not be able to empty
+// a project's undo history entirely. Something to go back to beats an accurate
+// directory size.
+func TestSoftCapNeverDeletesEveryCheckpointOfAProject(t *testing.T) {
+	root := t.TempDir()
+	const key = "enormous"
+	dir := filepath.Join(root, key)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// Two hundred times the cap: no number of deletions brings the estimate
+	// under it, so only the guard stops the loop.
+	if err := os.WriteFile(filepath.Join(dir, "pack"), make([]byte, 8<<20), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)
+	limits := Limits{MaxProjectBytes: 40 << 10}.withDefaults()
+
+	rows := []Record{
+		{ID: "old", SessionID: "s1", ProjectKey: key, Kind: "turn", CreatedAt: now.Add(-2 * time.Minute)},
+		{ID: "mid", SessionID: "s1", ProjectKey: key, Kind: "turn", CreatedAt: now.Add(-time.Minute)},
+		{ID: "newest", SessionID: "s1", ProjectKey: key, Kind: "turn", CreatedAt: now},
+	}
+	expired := expiredCheckpoints(rows, now, root, limits)
+	if len(expired) != 2 {
+		t.Fatalf("expired = %v, want all but one", expired)
+	}
+	for _, id := range expired {
+		if id == "newest" {
+			t.Fatal("the last checkpoint a project has was deleted for size")
+		}
 	}
 }

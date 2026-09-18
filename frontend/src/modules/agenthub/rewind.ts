@@ -1,6 +1,6 @@
 import {
   RewindMode,
-  type CheckpointRecord,
+  type CheckpointSummary,
   type RewindPreview,
 } from "../../../bindings/devkit/internal/agenthub/models";
 
@@ -29,7 +29,7 @@ export type RewindOption = {
  * to restore, so the choice collapses to the conversation alone rather than
  * offering an option that would do nothing.
  */
-export function rewindOptions(checkpoint: CheckpointRecord | null | undefined): RewindOption[] {
+export function rewindOptions(checkpoint: CheckpointSummary | null | undefined): RewindOption[] {
   const files = restorableFiles(checkpoint);
   const conversation: RewindOption = {
     mode: RewindMode.RewindConversation,
@@ -53,7 +53,7 @@ export function rewindOptions(checkpoint: CheckpointRecord | null | undefined): 
 }
 
 /** The mode a menu opens on. */
-export function defaultRewindMode(checkpoint: CheckpointRecord | null | undefined): RewindMode {
+export function defaultRewindMode(checkpoint: CheckpointSummary | null | undefined): RewindMode {
   return restorableFiles(checkpoint) ? RewindMode.RewindBoth : RewindMode.RewindConversation;
 }
 
@@ -64,7 +64,7 @@ export function defaultRewindMode(checkpoint: CheckpointRecord | null | undefine
  * restore to. A turn whose opening snapshot never finished has changes on
  * record and no way back to before them.
  */
-export function restorableFiles(checkpoint: CheckpointRecord | null | undefined): boolean {
+export function restorableFiles(checkpoint: CheckpointSummary | null | undefined): boolean {
   return Boolean(checkpoint?.beforeTree) && (checkpoint?.changed?.length ?? 0) > 0;
 }
 
@@ -137,7 +137,7 @@ export function queueBlocksRewind(queued: number): string | null {
 }
 
 /** The banner text for a rewind that never finished. */
-export function interruptedRewindNotice(record: CheckpointRecord | null | undefined): string | null {
+export function interruptedRewindNotice(record: CheckpointSummary | null | undefined): string | null {
   if (!record || record.kind !== "rewind_safety" || record.status !== "pending") return null;
   return "A rewind was interrupted. The files in this project may be half-restored.";
 }

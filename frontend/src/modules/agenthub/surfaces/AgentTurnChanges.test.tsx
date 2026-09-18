@@ -9,10 +9,10 @@ import {
   CheckpointKind,
   CheckpointStatus,
   type ChangedFile,
-  type CheckpointRecord,
+  type CheckpointSummary,
 } from "../../../../bindings/devkit/internal/agenthub/models";
 
-function record(overrides: Partial<CheckpointRecord> = {}): CheckpointRecord {
+function record(overrides: Partial<CheckpointSummary> = {}): CheckpointSummary {
   return {
     id: "cp1",
     sessionId: "s1",
@@ -25,7 +25,7 @@ function record(overrides: Partial<CheckpointRecord> = {}): CheckpointRecord {
     outcome: "ok",
     createdAt: "2026-09-17T10:00:00Z",
     ...overrides,
-  } as CheckpointRecord;
+  } as CheckpointSummary;
 }
 
 function file(overrides: Partial<ChangedFile> = {}): ChangedFile {
@@ -144,7 +144,7 @@ describe("a changed file's row", () => {
 // gave an id to. Which of the three rewinds are actually on offer is the
 // dialog's question, and is pinned in rewind.test.ts.
 describe("the rewind affordance on a prompt", () => {
-  function turnWith(checkpoint: CheckpointRecord | undefined, messageId = "p1", onRewind?: () => void) {
+  function turnWith(checkpoint: CheckpointSummary | undefined, messageId = "p1", onRewind?: () => void) {
     const [turn] = groupTurns([
       { id: "u", kind: "user_message_chunk", text: "do the thing", messageId, createdAt: "2026-09-17T10:00:00Z" },
       { id: "a", kind: "agent_message_chunk", text: "done" },

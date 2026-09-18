@@ -116,6 +116,43 @@ type CheckpointRecord struct {
 	FinishedAt *time.Time      `json:"finishedAt,omitempty"`
 }
 
+// CheckpointSummary is a checkpoint as the transcript reads it.
+//
+// A narrower row than CheckpointRecord on purpose. The record carries the
+// vendor's own changed-file report, the skip list and a per-kind detail blob —
+// none of which the UI reads, all of which travel on every session open and
+// again on every turn. What is not needed is not fetched and not sent.
+type CheckpointSummary struct {
+	ID              string           `json:"id"`
+	PromptMessageID string           `json:"promptMessageId"`
+	Kind            CheckpointKind   `json:"kind"`
+	Status          CheckpointStatus `json:"status"`
+	Outcome         string           `json:"outcome"`
+	// BeforeTree is present or empty; the hash itself is what says whether
+	// there is anything to go back to.
+	BeforeTree string        `json:"beforeTree"`
+	Changed    []ChangedFile `json:"changed,omitempty"`
+	// Overlap names the other sessions writing at the same time — the honest
+	// half of an unattributed file.
+	Overlap   json.RawMessage `json:"overlap,omitempty"`
+	CreatedAt time.Time       `json:"createdAt"`
+}
+
+// Summary narrows a record to what the transcript shows.
+func (c CheckpointRecord) Summary() CheckpointSummary {
+	return CheckpointSummary{
+		ID:              c.ID,
+		PromptMessageID: c.PromptMessageID,
+		Kind:            c.Kind,
+		Status:          c.Status,
+		Outcome:         c.Outcome,
+		BeforeTree:      c.BeforeTree,
+		Changed:         c.Changed,
+		Overlap:         c.Overlap,
+		CreatedAt:       c.CreatedAt,
+	}
+}
+
 // CheckpointStore is the checkpoint half of Store, split out the way
 // TranscriptStore is: a fake that only cares about checkpoints can implement
 // this one interface.
@@ -126,6 +163,20 @@ type CheckpointStore interface {
 	GetCheckpoint(ctx context.Context, id string) (CheckpointRecord, error)
 	// ListCheckpoints returns one session's checkpoints, oldest first.
 	ListCheckpoints(ctx context.Context, sessionID string) ([]CheckpointRecord, error)
+	// ListCheckpointSummaries is the same list without the columns only the
+	// backend reads. It is what the transcript asks for.
+	ListCheckpointSummaries(ctx context.Context, sessionID string) ([]CheckpointSummary, error)
+	// ListCheckpointsFrom returns one session's checkpoints created at or after
+	// a moment — the turns a restore has to reverse, rather than every turn the
+	// session ever had.
+	ListCheckpointsFrom(ctx context.Context, sessionID string, since time.Time) ([]CheckpointRecord, error)
+	// NewestCheckpointTree returns the newest closing tree DevKit holds for a
+	// session, which is its last complete picture of the project.
+	NewestCheckpointTree(ctx context.Context, sessionID string) (string, bool, error)
+	// ListCheckpointsInWindow returns the checkpoints of several sessions taken
+	// between two moments — what a turn asks to find the sub-sessions that ran
+	// inside it.
+	ListCheckpointsInWindow(ctx context.Context, sessionIDs []string, from, to time.Time) ([]CheckpointRecord, error)
 	// ListAllCheckpoints is what maintenance prunes against.
 	ListAllCheckpoints(ctx context.Context) ([]CheckpointRecord, error)
 	DeleteCheckpoints(ctx context.Context, ids []string) error
@@ -190,6 +241,105 @@ func (st *SQLStore) ListCheckpoints(ctx context.Context, sessionID string) ([]Ch
 		FROM `+tableAgentCheckpoints+`
 		WHERE session_id = ?
 		ORDER BY created_at ASC, id ASC`, sessionID)
+}
+
+// summaryColumns are the narrow read. Spelled out rather than reusing
+// checkpointColumns so adding a heavy column to the table cannot silently put
+// it on the wire.
+const summaryColumns = `id, prompt_message_id, kind, status, outcome, before_tree, changed, overlap, created_at`
+
+func (st *SQLStore) ListCheckpointSummaries(ctx context.Context, sessionID string) ([]CheckpointSummary, error) {
+	rows, err := st.db.QueryContext(ctx, `
+		SELECT `+summaryColumns+`
+		FROM `+tableAgentCheckpoints+`
+		WHERE session_id = ?
+		ORDER BY created_at ASC, id ASC`, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]CheckpointSummary, 0)
+	for rows.Next() {
+		var (
+			summary          CheckpointSummary
+			kind, status     string
+			changed, overlap sql.NullString
+			createdAt        string
+		)
+		if err := rows.Scan(&summary.ID, &summary.PromptMessageID, &kind, &status, &summary.Outcome,
+			&summary.BeforeTree, &changed, &overlap, &createdAt); err != nil {
+			return nil, err
+		}
+		summary.Kind, summary.Status = CheckpointKind(kind), CheckpointStatus(status)
+		if changed.Valid && changed.String != "" {
+			if err := json.Unmarshal([]byte(changed.String), &summary.Changed); err != nil {
+				return nil, err
+			}
+		}
+		summary.Overlap = rawJSON(overlap)
+		parsed, err := parseStoreTime(createdAt)
+		if err != nil {
+			return nil, err
+		}
+		summary.CreatedAt = parsed
+		out = append(out, summary)
+	}
+	return out, rows.Err()
+}
+
+// ListCheckpointsInWindow answers "which of these sessions wrote anything while
+// my turn was running" in one query.
+//
+// One query rather than a full list per child: a turn's window usually holds
+// nothing at all, and reading every checkpoint a child ever took to find that
+// out was the cost of asking.
+func (st *SQLStore) ListCheckpointsInWindow(ctx context.Context, sessionIDs []string, from, to time.Time) ([]CheckpointRecord, error) {
+	if len(sessionIDs) == 0 {
+		return nil, nil
+	}
+	query := `
+		SELECT ` + checkpointColumns + `
+		FROM ` + tableAgentCheckpoints + `
+		WHERE created_at >= ? AND created_at <= ? AND session_id IN (`
+	args := []any{formatStoreTime(from), formatStoreTime(to)}
+	for i, id := range sessionIDs {
+		if i > 0 {
+			query += `, `
+		}
+		query += `?`
+		args = append(args, id)
+	}
+	query += `) ORDER BY created_at ASC, id ASC`
+	return st.queryCheckpoints(ctx, query, args...)
+}
+
+// ListCheckpointsFrom bounds a restore's read by the turns it is reversing.
+func (st *SQLStore) ListCheckpointsFrom(ctx context.Context, sessionID string, since time.Time) ([]CheckpointRecord, error) {
+	return st.queryCheckpoints(ctx, `
+		SELECT `+checkpointColumns+`
+		FROM `+tableAgentCheckpoints+`
+		WHERE session_id = ? AND created_at >= ?
+		ORDER BY created_at ASC, id ASC`, sessionID, formatStoreTime(since))
+}
+
+// NewestCheckpointTree is one row, not a list: a restore needs the last
+// complete picture of the project, and a snapshot is a whole tree rather than a
+// delta, so the newest one already holds every path's last known content.
+func (st *SQLStore) NewestCheckpointTree(ctx context.Context, sessionID string) (string, bool, error) {
+	var tree string
+	err := st.db.QueryRowContext(ctx, `
+		SELECT after_tree
+		FROM `+tableAgentCheckpoints+`
+		WHERE session_id = ? AND after_tree != ''
+		ORDER BY created_at DESC, id DESC
+		LIMIT 1`, sessionID).Scan(&tree)
+	if err == sql.ErrNoRows {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return tree, true, nil
 }
 
 func (st *SQLStore) ListAllCheckpoints(ctx context.Context) ([]CheckpointRecord, error) {

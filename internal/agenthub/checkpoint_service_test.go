@@ -89,6 +89,13 @@ func checkpointService(t *testing.T) (*agenthub.Service, agenthub.Store, *agenth
 // every prompt.
 func checkpointServiceWriting(t *testing.T, write func()) (*agenthub.Service, agenthub.Store, *agenthub.EngineCheckpoints, string) {
 	t.Helper()
+	return checkpointServiceWritingStore(t, write, nil)
+}
+
+// checkpointServiceWritingStore also lets a test wrap the store, which is the
+// only way to watch what a read actually asked for.
+func checkpointServiceWritingStore(t *testing.T, write func(), wrap func(agenthub.Store) agenthub.Store) (*agenthub.Service, agenthub.Store, *agenthub.EngineCheckpoints, string) {
+	t.Helper()
 	git := checkpoint.Locate(context.Background())
 	if !git.OK() {
 		t.Skip("checkpoint: " + git.Reason)
@@ -101,7 +108,10 @@ func checkpointServiceWriting(t *testing.T, write func()) (*agenthub.Service, ag
 	if err := storage.Migrate(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
-	store := agenthub.NewSQLStore(db)
+	var store agenthub.Store = agenthub.NewSQLStore(db)
+	if wrap != nil {
+		store = wrap(store)
+	}
 	reg := agenthub.NewRegistry()
 	reg.Register(duringTurn{MockAdapter: agenthub.NewMockAdapter(), write: write})
 	svc := agenthub.NewService(reg, store, func(string, json.RawMessage) {})
@@ -534,7 +544,7 @@ func engineFileContent(t *testing.T, cps *agenthub.EngineCheckpoints, project, t
 	if err != nil {
 		return "", err
 	}
-	raw, err := repo.FileContent(context.Background(), tree, path)
+	raw, _, err := repo.FileContent(context.Background(), tree, path, 0)
 	return string(raw), err
 }
 
@@ -575,5 +585,269 @@ func TestATurnAttributesAFileAToolCallNamed(t *testing.T) {
 	}
 	if got := changed["scripted.ts"].Source; got != agenthub.SourceUnattributed {
 		t.Errorf("scripted.ts source = %q, want unattributed (nothing named it)", got)
+	}
+}
+
+// A file a diff drawer would choke on comes back flagged, with neither side
+// filled in. The checkpoint ceiling can be raised to a gigabyte, so "small
+// enough to snapshot" is not the same question as "small enough to push
+// through JSON into a line diff in the renderer".
+func TestCheckpointFileDiffRefusesAFileTooLargeToPreview(t *testing.T) {
+	var project string
+	svc, store, _, project := checkpointServiceWriting(t, func() {
+		// Over the one-megabyte preview ceiling, well under the ten-megabyte
+		// snapshot ceiling — the gap this test is about.
+		writeFile(t, project, "huge.json", strings.Repeat("x", 2<<20))
+		writeFile(t, project, "small.txt", "after\n")
+	})
+	ctx := context.Background()
+	writeFile(t, project, "huge.json", "before\n")
+	writeFile(t, project, "small.txt", "before\n")
+
+	session, err := svc.CreateSession(ctx, agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: project})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Invoke(ctx, agenthub.InvokeInput{SessionID: session.ID, Prompt: "go"}); err != nil {
+		t.Fatal(err)
+	}
+	records := waitForCheckpoint(t, store, session.ID, 1)
+
+	huge, err := svc.CheckpointFileDiff(ctx, records[0].ID, "huge.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !huge.Truncated {
+		t.Fatal("a 2 MiB file came back as content")
+	}
+	if huge.Before != "" || huge.After != "" {
+		t.Fatalf("a refused file still carried %d + %d bytes", len(huge.Before), len(huge.After))
+	}
+
+	// And the file beside it is unaffected: the ceiling is per file, not per
+	// checkpoint.
+	small, err := svc.CheckpointFileDiff(ctx, records[0].ID, "small.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if small.Truncated || small.Before != "before\n" || small.After != "after\n" {
+		t.Fatalf("small.txt = %+v", small)
+	}
+}
+
+// A sub-session's checkpoint counts only when it ran inside this turn.
+//
+// The window is the whole claim: a child session shares its parent's project,
+// so without it every file that child ever touched would be attributed to
+// whichever parent turn happened to settle next.
+func TestOnlyASubSessionsCheckpointsInsideTheTurnAreAttributed(t *testing.T) {
+	var project string
+	svc, store, _, project := checkpointServiceWriting(t, func() {
+		writeFile(t, project, "during.txt", "two\n")
+		writeFile(t, project, "long-ago.txt", "two\n")
+	})
+	ctx := context.Background()
+	writeFile(t, project, "during.txt", "one\n")
+	writeFile(t, project, "long-ago.txt", "one\n")
+
+	parent, err := svc.CreateSession(ctx, agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: project})
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, err := svc.CreateSession(ctx, agenthub.CreateInput{
+		AgentType: agenthub.AgentTypeMock, Cwd: project, ParentSessionID: parent.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The child's own checkpoint, from long before this turn: it claims both
+	// files, but only one of them changes inside the window.
+	past := time.Now().UTC().Add(-time.Hour)
+	if err := store.InsertCheckpoint(ctx, agenthub.CheckpointRecord{
+		ID: "child-old", SessionID: child.ID, ProjectKey: "k",
+		Kind: agenthub.CheckpointTurn, Status: agenthub.CheckpointDone,
+		Outcome:   agenthub.CheckpointOutcomeOK,
+		Changed:   []agenthub.ChangedFile{{Path: "long-ago.txt", Source: agenthub.SourceAgent}},
+		CreatedAt: past,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := svc.Invoke(ctx, agenthub.InvokeInput{SessionID: parent.ID, Prompt: "go"}); err != nil {
+		t.Fatal(err)
+	}
+	records := waitForCheckpoint(t, store, parent.ID, 1)
+	changed := changedPaths(records[0])
+
+	if got := changed["long-ago.txt"].Source; got != agenthub.SourceUnattributed {
+		t.Errorf("long-ago.txt source = %q, want unattributed: the child's claim on it is an hour old", got)
+	}
+	if got := changed["during.txt"].Source; got != agenthub.SourceUnattributed {
+		t.Errorf("during.txt source = %q, want unattributed", got)
+	}
+}
+
+// restoreReadProbe records the window a restore asks the store for.
+type restoreReadProbe struct {
+	agenthub.Store
+	asked bool
+	since time.Time
+}
+
+func (p *restoreReadProbe) ListCheckpointsFrom(ctx context.Context, sessionID string, since time.Time) ([]agenthub.CheckpointRecord, error) {
+	p.asked = true
+	p.since = since
+	return p.Store.ListCheckpointsFrom(ctx, sessionID, since)
+}
+
+// "This turn and every one after it" reads from that turn's own moment, not
+// from the beginning of the session.
+//
+// Widening that read changes no outcome — a path no later turn touched already
+// matches the target, so it never enters the plan — which means the only thing
+// that can say the read is bounded is the read itself. A session with months of
+// turns must not pull all of them off disk to reverse the last two.
+func TestGoingBackReadsOnlyFromTheTurnOnwards(t *testing.T) {
+	probe := &restoreReadProbe{}
+	var project string
+	turn := 0
+	svc, store, _, project := checkpointServiceWritingStore(t, func() {
+		turn++
+		writeFile(t, project, "turn"+string(rune('0'+turn))+".txt", "x\n")
+	}, func(inner agenthub.Store) agenthub.Store {
+		probe.Store = inner
+		return probe
+	})
+	ctx := context.Background()
+
+	session, err := svc.CreateSession(ctx, agenthub.CreateInput{AgentType: agenthub.AgentTypeMock, Cwd: project})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range 2 {
+		if _, err := svc.Invoke(ctx, agenthub.InvokeInput{SessionID: session.ID, Prompt: "go"}); err != nil {
+			t.Fatal(err)
+		}
+		waitForCheckpoint(t, store, session.ID, i+1)
+	}
+	records := waitForCheckpoint(t, store, session.ID, 2)
+
+	if _, err := svc.PlanRestore(ctx, agenthub.RestoreRequest{
+		SessionID:       session.ID,
+		Mode:            agenthub.RestoreToBeforeTurn,
+		PromptMessageID: records[1].PromptMessageID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !probe.asked {
+		t.Fatal("the restore never asked for the turns it is reversing")
+	}
+	if probe.since.IsZero() {
+		t.Fatal("the restore read every checkpoint the session ever took")
+	}
+	if !probe.since.Equal(records[1].CreatedAt) {
+		t.Fatalf("read from %s, want the reversed turn's own moment %s", probe.since, records[1].CreatedAt)
+	}
+}
+
+// The transcript's list is narrowed to what it shows, and the narrowing has to
+// keep what it claims to: the overlap is the evidence behind an unattributed
+// file, and a column list that quietly swapped it for something else would show
+// the label with nothing behind it.
+func TestCheckpointSummaryKeepsOverlapAndDropsTheHeavyColumns(t *testing.T) {
+	db, err := storage.Open(filepath.Join(t.TempDir(), "devkit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if err := storage.Migrate(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	store := agenthub.NewSQLStore(db)
+	ctx := context.Background()
+	if err := store.InsertSession(ctx, agenthub.AgentSession{
+		ID: "s1", AgentType: agenthub.AgentTypeMock, ProjectPath: t.TempDir(),
+		Status: agenthub.SessionStatusIdle, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.InsertCheckpoint(ctx, agenthub.CheckpointRecord{
+		ID: "cp1", SessionID: "s1", ProjectKey: "k", PromptMessageID: "p1",
+		Kind: agenthub.CheckpointTurn, Status: agenthub.CheckpointDone,
+		Outcome: agenthub.CheckpointOutcomeOK, BeforeTree: "aaa", AfterTree: "bbb",
+		Changed:     []agenthub.ChangedFile{{Path: "a.ts", Source: agenthub.SourceUnattributed}},
+		Overlap:     []byte(`[{"sessionId":"s2"}]`),
+		AgentReport: []byte(`{"files":[{"path":"a.ts"}]}`),
+		Skipped:     []byte(`[{"path":"big.bin","reason":"too_large"}]`),
+		CreatedAt:   time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	summaries, err := store.ListCheckpointSummaries(ctx, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(summaries) != 1 {
+		t.Fatalf("summaries = %d, want 1", len(summaries))
+	}
+	got := summaries[0]
+	if string(got.Overlap) != `[{"sessionId":"s2"}]` {
+		t.Fatalf("overlap = %s, want the sessions that were running", got.Overlap)
+	}
+	if got.BeforeTree != "aaa" || got.PromptMessageID != "p1" || len(got.Changed) != 1 {
+		t.Fatalf("summary = %+v", got)
+	}
+	// And what it drops stays dropped: a heavy column reappearing here is a
+	// payload on every session open and every turn.
+	raw, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, gone := range []string{"agentReport", "skipped", "detail", "afterTree", "projectKey", "finishedAt"} {
+		if strings.Contains(string(raw), gone) {
+			t.Errorf("%s is back on the wire: %s", gone, raw)
+		}
+	}
+}
+
+// Summary() is what rides the per-turn event and the interrupted-rewind
+// banner, so it has to narrow the same way the query does — and keep the same
+// fields. Mapping one column onto another here would put the vendor's report
+// where the overlap should be, and the label would show with nothing behind it.
+func TestCheckpointRecordSummaryNarrowsWithoutMislabelling(t *testing.T) {
+	record := agenthub.CheckpointRecord{
+		ID: "cp1", SessionID: "s1", ProjectKey: "k", PromptMessageID: "p1",
+		Kind: agenthub.CheckpointTurn, Status: agenthub.CheckpointDone,
+		Outcome: agenthub.CheckpointOutcomeOK, BeforeTree: "aaa", AfterTree: "bbb",
+		Changed:     []agenthub.ChangedFile{{Path: "a.ts", Source: agenthub.SourceUnattributed}},
+		Overlap:     []byte(`[{"sessionId":"s2"}]`),
+		AgentReport: []byte(`{"files":[{"path":"a.ts"}]}`),
+		Skipped:     []byte(`[{"path":"big.bin"}]`),
+		Detail:      []byte(`{"reason":"x"}`),
+		CreatedAt:   time.Now().UTC(),
+	}
+	summary := record.Summary()
+
+	if string(summary.Overlap) != `[{"sessionId":"s2"}]` {
+		t.Fatalf("overlap = %s, want the sessions that were running", summary.Overlap)
+	}
+	if summary.ID != record.ID || summary.PromptMessageID != record.PromptMessageID ||
+		summary.BeforeTree != record.BeforeTree || len(summary.Changed) != 1 {
+		t.Fatalf("summary = %+v", summary)
+	}
+	raw, err := json.Marshal(summary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, gone := range []string{"agentReport", "skipped", "detail", "afterTree", "projectKey"} {
+		if strings.Contains(string(raw), gone) {
+			t.Errorf("%s is back on the wire: %s", gone, raw)
+		}
+	}
+	// And nothing from those columns leaked into a field that survived.
+	if strings.Contains(string(raw), "big.bin") || strings.Contains(string(raw), `"reason"`) {
+		t.Errorf("a dropped column's content survived under another name: %s", raw)
 	}
 }

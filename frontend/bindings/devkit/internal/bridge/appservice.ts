@@ -150,7 +150,7 @@ export function AgentHubGetStatus(id: string): $CancellablePromise<agenthub$0.Ag
  * AgentHubInterruptedRewinds lists the rewinds that never finished, so the
  * session can offer to put its files back.
  */
-export function AgentHubInterruptedRewinds(): $CancellablePromise<agenthub$0.CheckpointRecord[] | null> {
+export function AgentHubInterruptedRewinds(): $CancellablePromise<agenthub$0.CheckpointSummary[] | null> {
     return $Call.ByID(2888715112);
 }
 
@@ -167,7 +167,7 @@ export function AgentHubListAgents(): $CancellablePromise<agenthub$0.AgentSessio
  * keyed on the prompt that started it, so the transcript can show a turn's
  * "N files changed" without a call per turn.
  */
-export function AgentHubListCheckpoints(id: string): $CancellablePromise<agenthub$0.CheckpointRecord[] | null> {
+export function AgentHubListCheckpoints(id: string): $CancellablePromise<agenthub$0.CheckpointSummary[] | null> {
     return $Call.ByID(7569693, id);
 }
 

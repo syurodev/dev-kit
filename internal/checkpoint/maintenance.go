@@ -176,11 +176,14 @@ func expiredCheckpoints(all []Record, now time.Time, root string, limits Limits)
 	}
 	for key, survivors := range byProject {
 		size := projectDiskUsage(filepath.Join(root, key))
+		// An even share of what is actually on disk, not of the cap. Those are
+		// different numbers, and using the cap made how much history was
+		// deleted depend on the limit rather than on the usage: a directory
+		// only just over the line with many checkpoints lost most of them.
+		share := size / int64(len(survivors))
 		for i := 0; size > limits.MaxProjectBytes && i < len(survivors)-1; i++ {
 			doomed[survivors[i].ID] = true
-			// Assume an even share, so the loop terminates on an estimate
-			// rather than on a re-measure that cannot change until gc runs.
-			size -= limits.MaxProjectBytes / int64(len(survivors))
+			size -= share
 		}
 	}
 

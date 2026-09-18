@@ -505,9 +505,12 @@ func main() {
 	agentCheckpoints.OnCheckpoint = func(sessionID string, record agenthub.CheckpointRecord) {
 		// The turn header is drawn while the turn is still running, before
 		// there is anything to count. This is what fills the number in.
+		// The summary, not the record: the vendor's own changed-file report and
+		// the skip list are read by nothing on the other side, and this fires
+		// on every turn.
 		emitAppEvent("agenthub:checkpoint", map[string]any{
 			"sessionId":  sessionID,
-			"checkpoint": record,
+			"checkpoint": record.Summary(),
 		})
 	}
 	agentCheckpoints.OnError = func(sessionID string, err error) {

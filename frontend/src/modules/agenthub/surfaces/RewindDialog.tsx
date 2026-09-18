@@ -24,7 +24,7 @@ import {
 } from "../rewind";
 import {
   RewindMode,
-  type CheckpointRecord,
+  type CheckpointSummary,
   type RewindPreview,
   type RewindResult,
 } from "../../../../bindings/devkit/internal/agenthub/models";
@@ -36,7 +36,7 @@ export type RewindDialogProps = {
   /** The turn being rewound. */
   promptMessageId: string;
   /** That turn's checkpoint, which decides which rewinds are on offer. */
-  checkpoint?: CheckpointRecord;
+  checkpoint?: CheckpointSummary;
   /** How many messages are queued behind this session. */
   queuedPrompts?: number;
   /** The user picked the pencil: put the message back in the composer after. */

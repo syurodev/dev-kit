@@ -48,111 +48,91 @@ type rewindCut struct {
 	ExtraTurnsDropped int
 }
 
-// planRewindCut reads a session's transcript and works out both answers.
+// planRewindCut works out both answers, reading only what it needs.
 //
-// The whole transcript rather than a window: the branch point can be any
-// distance back when several turns in a row failed, and a session's rows are
-// what a reload already reads.
+// Three bounded queries, not the whole transcript: a session with months of
+// history must not pay for all of it because a dialog was opened — which is the
+// reason the transcript is paged everywhere else, and this used to be the one
+// place that forgot.
 func planRewindCut(ctx context.Context, store TranscriptStore, sessionID, promptMessageID string) (rewindCut, error) {
-	entries, err := store.ListTranscript(ctx, sessionID)
+	prompt, found, err := store.FindPromptEntry(ctx, sessionID, promptMessageID)
 	if err != nil {
 		return rewindCut{}, err
 	}
-
-	requested := -1
-	for i, entry := range entries {
-		if entry.Kind != UpdateUserMessageChunk {
-			continue
-		}
-		if payloadMessageID(entry) == promptMessageID {
-			requested = i
-			break
-		}
-	}
-	if requested < 0 {
+	if !found {
 		return rewindCut{}, ErrTranscriptEntryNotFound
 	}
-
-	cut := rewindCut{CutSeq: entries[requested].Seq, PromptText: entries[requested].Text}
+	cut := rewindCut{CutSeq: prompt.Seq, PromptText: prompt.Text}
 
 	// The branch point: the newest thing the agent said on the main thread
-	// before the named prompt.
-	var candidates []string
-	branchAt := -1
-	for i := requested - 1; i >= 0 && len(candidates) < forkCandidateLimit; i-- {
-		entry := entries[i]
-		if entry.Kind != UpdateAgentMessageChunk {
-			continue
-		}
-		id, origin := payloadMessageID(entry), payloadOrigin(entry)
-		// A subagent's message is not a branch point: the vendor keeps it in
-		// the subagent's own session (spike S4), so asking the parent to fork
-		// at it names a message that session has never had.
-		if id == "" || origin != "" {
-			continue
-		}
-		if branchAt < 0 {
-			branchAt = i
-		}
-		candidates = append(candidates, id)
+	// before the named prompt. The query does the filtering, so the limit
+	// counts candidates rather than rows.
+	candidates, err := store.ForkCandidates(ctx, sessionID, prompt.Seq, forkCandidateLimit)
+	if err != nil {
+		return rewindCut{}, err
 	}
-	if len(candidates) > 0 {
-		cut.ForkMessageID = candidates[0]
-		cut.Fallbacks = candidates[1:]
+	branchSeq := int64(0)
+	for _, entry := range candidates {
+		id := payloadMessageID(entry)
+		if id == "" {
+			continue
+		}
+		if cut.ForkMessageID == "" {
+			cut.ForkMessageID = id
+			branchSeq = entry.Seq
+			continue
+		}
+		cut.Fallbacks = append(cut.Fallbacks, id)
 	}
 
 	// The cut moves back to the first prompt after the branch point. Between
 	// the two sit the turns that produced nothing the vendor can branch at, and
 	// a transcript that kept them would show prompts the forked session has
-	// never heard.
-	start := 0
-	if branchAt >= 0 {
-		start = branchAt + 1
+	// never heard. With no branch point at all the cut is the session's first
+	// prompt: there is nothing to go back to but the beginning.
+	from := int64(0)
+	if cut.ForkMessageID != "" {
+		from = branchSeq + 1
 	}
-	firstCut := requested
-	for i := start; i <= requested; i++ {
-		if entries[i].Kind == UpdateUserMessageChunk {
-			firstCut = i
-			break
-		}
+	dropped, err := store.PromptsFrom(ctx, sessionID, from)
+	if err != nil {
+		return rewindCut{}, err
 	}
-	cut.CutSeq = entries[firstCut].Seq
-
-	// Everything from the cut down goes, so every prompt at or below it is
-	// dropped — the named one, the reply-less turns above it, and every turn
-	// after it.
-	for i := firstCut; i < len(entries); i++ {
-		if entries[i].Kind != UpdateUserMessageChunk {
+	if len(dropped) == 0 {
+		// The named prompt is below the branch point but the query found
+		// nothing, which can only mean the row moved under us.
+		return rewindCut{}, ErrTranscriptEntryNotFound
+	}
+	cut.CutSeq = dropped[0].Seq
+	for _, entry := range dropped {
+		id := payloadMessageID(entry)
+		if id == "" {
 			continue
 		}
-		if id := payloadMessageID(entries[i]); id != "" {
-			cut.DroppedPrompts = append(cut.DroppedPrompts, id)
-			if id != promptMessageID {
-				cut.ExtraTurnsDropped++
-			}
+		cut.DroppedPrompts = append(cut.DroppedPrompts, id)
+		if id != promptMessageID {
+			cut.ExtraTurnsDropped++
 		}
 	}
 	return cut, nil
 }
 
-// payloadMessageID and payloadOrigin read the vendor's own fields off a
-// transcript row. They live in the payload rather than in columns because they
-// are the vendor's, and only some rows carry them.
-func payloadMessageID(entry TranscriptEntry) string { return payloadField(entry).MessageID }
-func payloadOrigin(entry TranscriptEntry) string    { return payloadField(entry).Origin }
-
-type rowFields struct {
-	MessageID string `json:"messageId"`
-	Origin    string `json:"origin"`
-}
-
-func payloadField(entry TranscriptEntry) rowFields {
+// payloadMessageID reads the vendor's own message id off a transcript row. It
+// lives in the payload rather than in a column because it is the vendor's, and
+// only some rows carry one.
+//
+// The queries filter on it too. That is not the same job: SQL filtering is what
+// makes a LIMIT count candidates instead of rows, and this is what keeps a
+// store that does not filter from handing back a row with nothing to branch at.
+func payloadMessageID(entry TranscriptEntry) string {
 	if len(entry.Payload) == 0 {
-		return rowFields{}
+		return ""
 	}
-	var body rowFields
+	var body struct {
+		MessageID string `json:"messageId"`
+	}
 	if err := json.Unmarshal(entry.Payload, &body); err != nil {
-		return rowFields{}
+		return ""
 	}
-	return body
+	return body.MessageID
 }

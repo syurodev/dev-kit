@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import { AnimatedCollapse } from "@/components/ui/animated-collapse";
 import { FADE_THROUGH } from "@/lib/motion";
 import type { TranscriptItem } from "../types";
-import type { CheckpointRecord, FileDiff } from "../../../../bindings/devkit/internal/agenthub/models";
+import type { CheckpointSummary, FileDiff } from "../../../../bindings/devkit/internal/agenthub/models";
 import { activityOf, stepSummary, workedFor, workSegments, type Turn } from "../turns";
 import {
   AgentPlan,
@@ -38,7 +38,7 @@ export type AgentTurnProps = {
    * that was not — which is not the same as a turn that changed nothing, so the
    * count is simply not drawn rather than drawn as a zero.
    */
-  checkpoint?: CheckpointRecord;
+  checkpoint?: CheckpointSummary;
   /** Loads one changed file's two versions, when its row is opened. */
   loadFileDiff?: (checkpointId: string, path: string) => Promise<FileDiff>;
   /**
