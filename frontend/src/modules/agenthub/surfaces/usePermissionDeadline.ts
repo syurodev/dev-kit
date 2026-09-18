@@ -6,9 +6,11 @@ import type { PendingPermission } from "../../../bridge/agenthub";
  * usePermissionDeadline renders the deadline the backend already set. It does
  * not create one.
  *
- * The gate is enforced in Go (`Service.mediatePermission` bounds the wait with
- * `PermissionTimeout`, default `interaction.DefaultTimeout`); the request ships
- * `expiresAt` so the surface can show it. Two things follow:
+ * A permission usually has no deadline: the gate waits for the person, the way
+ * the vendors' own apps do, and the request then ships no `expiresAt` — so
+ * there is nothing to count and no clock is drawn. When a deadline IS
+ * configured (`Service.PermissionTimeout`), the request carries it and the
+ * surface shows it. Two things follow:
  *
  * 1. The countdown starts at `expiresAt`, not at mount. A toast routinely mounts
  *    late — rail closed, another module, lazy chunk still loading — and a clock
@@ -20,37 +22,27 @@ import type { PendingPermission } from "../../../bridge/agenthub";
  */
 export function usePermissionDeadline(
   pending: Pick<PendingPermission, "id" | "createdAt" | "expiresAt">,
-  fallbackSeconds = 60,
-): { secondsLeft: number; expired: boolean } {
+): { secondsLeft?: number; expired: boolean } {
   const [now, setNow] = useState(() => Date.now());
 
-  const deadline = resolvePermissionDeadline(pending, fallbackSeconds);
+  const deadline = resolvePermissionDeadline(pending);
 
   useEffect(() => {
+    if (deadline === null) return;
     setNow(Date.now());
     const interval = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(interval);
   }, [pending.id, deadline]);
 
+  if (deadline === null) return { expired: false };
   const secondsLeft = Math.max(0, Math.ceil((deadline - now) / 1000));
   return { secondsLeft, expired: secondsLeft === 0 };
 }
 
+/** When this request stops being answerable, or null when nothing ends it. */
 export function resolvePermissionDeadline(
   pending: Pick<PendingPermission, "createdAt" | "expiresAt">,
-  fallbackSeconds: number,
-): number {
+): number | null {
   const expires = Date.parse(pending.expiresAt ?? "");
-  if (!Number.isNaN(expires)) {
-    return expires;
-  }
-  // An older backend may only stamp createdAt. Deriving from it is still
-  // anchored to when the request arrived, which is the part that matters.
-  const created = Date.parse(pending.createdAt ?? "");
-  if (!Number.isNaN(created)) {
-    return created + fallbackSeconds * 1000;
-  }
-  // Nothing to anchor to: show a full window rather than a wrong one, and let
-  // the backend be the thing that ends it.
-  return Date.now() + fallbackSeconds * 1000;
+  return Number.isNaN(expires) ? null : expires;
 }

@@ -3,6 +3,7 @@ package agenthub
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -360,11 +361,11 @@ func (r *mockRuntime) Prompt(ctx context.Context, prompt []acp.ContentBlock, pro
 		if err != nil {
 			return PromptOutcome{}, err
 		}
-		outcome, err := h.OnPermission(ctx, params)
-		if err != nil || isDeniedPermissionOutcome(outcome) {
-			if err == nil {
-				err = ErrPermissionDenied
-			}
+		// A refusal ends the tool call, not the turn — which is what a real
+		// vendor does with the cancelled outcome ACP hands it (see
+		// acp.preferResult). This used to abort the prompt, so every test
+		// about a denial was really testing a runtime that crashes on one.
+		if _, err := h.OnPermission(ctx, params); err != nil && !errors.Is(err, ErrPermissionDenied) {
 			return PromptOutcome{}, err
 		}
 	}

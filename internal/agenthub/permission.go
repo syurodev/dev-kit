@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"devkit/internal/interaction"
 	"devkit/internal/vaultitem"
 )
 
@@ -32,7 +31,12 @@ type PendingPermission struct {
 	// arrived — the rail was closed, the user was in another module, the lazy
 	// chunk was still loading — and a countdown started at mount would promise
 	// time that no longer exists.
-	ExpiresAt time.Time `json:"expiresAt"`
+	//
+	// omitzero, not a plain field: a zero time.Time marshals as
+	// "0001-01-01T00:00:00Z", which the UI read as a deadline in the year 1
+	// and drew as "expired" — with the buttons greyed out on a request that
+	// was still perfectly answerable.
+	ExpiresAt time.Time `json:"expiresAt,omitzero"`
 }
 
 // PermissionWaiter blocks ACP session/request_permission until Complete or timeout.
@@ -45,7 +49,8 @@ type PermissionWaiter struct {
 	notify func(PendingPermission)
 	// Timeout must match Service.PermissionTimeout — it only stamps ExpiresAt
 	// for the UI; the deadline that actually closes the gate is the context in
-	// Service.mediatePermission. Zero means interaction.DefaultTimeout.
+	// Service.mediatePermission. Zero, the default, is no deadline at all: the
+	// request then carries no ExpiresAt and the card draws no countdown.
 	Timeout time.Duration
 
 	mu      sync.Mutex
@@ -81,7 +86,10 @@ func (w *PermissionWaiter) Wait(ctx context.Context, sessionID string, params js
 		SessionID: sessionID,
 		Params:    append(json.RawMessage(nil), params...),
 		CreatedAt: now,
-		ExpiresAt: now.Add(w.timeout()),
+	}
+	// Zero ExpiresAt when nothing expires; the card reads that as "no clock".
+	if timeout := w.timeout(); timeout > 0 {
+		p.ExpiresAt = now.Add(timeout)
 	}
 
 	w.mu.Lock()
@@ -198,10 +206,7 @@ func (w *PermissionWaiter) invalidate(id string) {
 }
 
 func (w *PermissionWaiter) timeout() time.Duration {
-	if w.Timeout > 0 {
-		return w.Timeout
-	}
-	return interaction.DefaultTimeout
+	return w.Timeout
 }
 
 // PermissionTimeoutOrDefault exposes the deadline the gate actually enforces so
@@ -211,10 +216,7 @@ func (s *Service) PermissionTimeoutOrDefault() time.Duration {
 }
 
 func (s *Service) permissionTimeout() time.Duration {
-	if s.PermissionTimeout > 0 {
-		return s.PermissionTimeout
-	}
-	return interaction.DefaultTimeout
+	return s.PermissionTimeout
 }
 
 // isDeniedPermissionOutcome reports cancelled/rejected/deny ACP outcomes.
@@ -252,7 +254,7 @@ func isDeniedPermissionOutcome(raw json.RawMessage) bool {
 // the integration test that guards that channel pass while guarding nothing.
 const HookDenyReason = "DevKit blocks agent access to Claude Code's own credentials"
 
-// mediatePermission fails closed: nil resolver, timeout, cancel, or deny → deny.
+// mediatePermission fails closed: nil resolver, cancel, or deny → deny.
 // Never auto-approves. Returns an ACP cancelled/rejected Result body together
 // with ErrPermissionDenied so Conn can deliver Result while Invoke fails closed.
 func (s *Service) mediatePermission(ctx context.Context, sessionID string, params json.RawMessage) (json.RawMessage, error) {
@@ -264,8 +266,17 @@ func (s *Service) mediatePermission(ctx context.Context, sessionID string, param
 		return nil, err
 	}
 
-	waitCtx, cancel := context.WithTimeout(ctx, s.permissionTimeout())
-	defer cancel()
+	// No deadline unless one is configured. A permission is a question put to
+	// a person, and a person reading a 200-line diff — the card offers exactly
+	// that — takes longer than any timer worth setting. The vendors' own apps
+	// wait, and so does this: the turn ends when the user answers it, or when
+	// they stop the session, which cancels ctx and denies.
+	waitCtx := ctx
+	if timeout := s.permissionTimeout(); timeout > 0 {
+		var cancel context.CancelFunc
+		waitCtx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
 
 	outcome, err := s.ResolvePermission(waitCtx, sessionID, params)
 	if err != nil {

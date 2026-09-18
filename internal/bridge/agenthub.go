@@ -572,6 +572,51 @@ func (s *AppService) AgentHubPendingPermissions() ([]agenthub.PendingPermission,
 	return result.([]agenthub.PendingPermission), nil
 }
 
+// AgentHubPermissionFileDiff previews what a pending permission would do to
+// each file it edits: the file as it is now and as it would be once allowed.
+// Empty for a request that edits no file, and for one no longer pending.
+//
+// Read-only, and only for a request the hub is already holding: the path comes
+// from the agent's own request, not from the caller, so this cannot be pointed
+// at an arbitrary file.
+func (s *AppService) AgentHubPermissionFileDiff(id string) ([]agenthub.PermissionFileDiff, error) {
+	opaqueID := recordID(id)
+	result, err := s.call(context.Background(), "builtin.agenthub", "agenthub:read", "permission:list", map[string]any{
+		"action": "permission_file_diff",
+		"id":     opaqueID,
+	}, func(ctx context.Context) (any, error) {
+		waiter, err := s.agentHubPermissions()
+		if err != nil {
+			return nil, err
+		}
+		var pending *agenthub.PendingPermission
+		for _, p := range waiter.PendingList() {
+			if p.ID == id {
+				pending = &p
+				break
+			}
+		}
+		if pending == nil {
+			return []agenthub.PermissionFileDiff{}, nil
+		}
+		cwd := ""
+		if svc, err := s.agentHubService(); err == nil {
+			if session, err := svc.GetStatus(ctx, pending.SessionID); err == nil {
+				cwd = session.ProjectPath
+			}
+		}
+		diffs := agenthub.PermissionFileDiffs(pending.Params, cwd, os.ReadFile)
+		if diffs == nil {
+			diffs = []agenthub.PermissionFileDiff{}
+		}
+		return diffs, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]agenthub.PermissionFileDiff), nil
+}
+
 // AgentHubRespondElicitation answers a question an agent put to the user
 // (elicitation/create). response is the ACP body — {"action":"accept",
 // "content":{...}}, {"action":"decline"} or {"action":"cancel"}; the hub keeps

@@ -152,6 +152,28 @@ export function tokenize(code: string, parser: CodeParser): SyntaxSegment[] {
   return segments;
 }
 
+/**
+ * Past this a parse is a long task on the main thread, and the text stays
+ * plain. Shared so every surface that colours code gives up at the same size.
+ */
+export const HIGHLIGHT_LIMIT = 60_000;
+
+/**
+ * tokenize, split per line: `lines[i]` is line i's runs, the newlines dropped.
+ * A diff colours whole lines and needs to address them by number.
+ */
+export function tokenizeLines(code: string, parser: CodeParser): SyntaxSegment[][] {
+  const lines: SyntaxSegment[][] = [[]];
+  for (const segment of tokenize(code, parser)) {
+    const parts = segment.text.split("\n");
+    parts.forEach((text, i) => {
+      if (i > 0) lines.push([]);
+      if (text) lines[lines.length - 1].push({ text, className: segment.className });
+    });
+  }
+  return lines;
+}
+
 const FENCE_OPEN = /^```([\w+#.-]*)\s*$/;
 const FENCE_CLOSE = /^```\s*$/;
 const NUMBERED = /^\s*(\d+)(?:\t|→)(.*)$/;

@@ -11,6 +11,7 @@ import {
   permissionEnv,
   type PermissionEnv,
 } from "./permissionCard";
+import { PermissionFileEdits } from "./PermissionFileEdits";
 
 export type { PermissionEnv };
 
@@ -19,7 +20,6 @@ export type AgentPermissionRequestProps = {
   session?: AgentSession | null;
   onResolve: (optionId: string | null) => void | Promise<void>;
   busy?: boolean;
-  timeoutSeconds?: number;
   env?: PermissionEnv;
   /**
    * "rail" stacks; "wide" puts the ask and the answer on one line. The module's
@@ -62,12 +62,11 @@ export function AgentPermissionRequest({
   session,
   onResolve,
   busy = false,
-  timeoutSeconds = 60,
   env: explicitEnv,
   size = "rail",
   className,
 }: AgentPermissionRequestProps) {
-  const { secondsLeft, expired } = usePermissionDeadline(pending, timeoutSeconds);
+  const { secondsLeft, expired } = usePermissionDeadline(pending);
   const env = permissionEnv(pending.params, explicitEnv);
   const { once, always } = permissionChoices(parsePermissionOptions(pending.params));
 
@@ -154,6 +153,9 @@ export function AgentPermissionRequest({
           {actions}
         </>
       )}
+
+      {/* What the edit is, not only which tool: the file as it would be. */}
+      <PermissionFileEdits pending={pending} projectPath={session?.projectPath} actions={actions} />
 
       <PermissionLockedNote env={env} />
     </div>

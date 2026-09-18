@@ -180,6 +180,16 @@ async function runTurn(
     throw error;
   }
   store.finishTurn(sessionId);
+  // A refused tool is the user's own answer, not a broken session: the turn ran
+  // to its end and the session is idle. The queue still pauses — what the agent
+  // was doing was interrupted on purpose, and the prompts behind it were
+  // written for a plan that has just changed.
+  if (result.status === "denied") {
+    store.pauseQueue(sessionId, "You denied a permission.");
+    await refreshStatus(sessionId, bridge, "idle");
+    settleTabs(sessionId);
+    return result;
+  }
   if (result.status !== "completed") {
     store.pauseQueue(sessionId);
     await refreshStatus(sessionId, bridge, "error");

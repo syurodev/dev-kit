@@ -59,16 +59,18 @@ export function AgentPermissionToast({
   queued = 0,
   className,
 }: AgentPermissionToastProps) {
-  const { secondsLeft, expired } = usePermissionDeadline(pending, timeoutSeconds);
+  const { secondsLeft, expired } = usePermissionDeadline(pending);
   const env = permissionEnv(pending.params, explicitEnv);
   const { once } = permissionChoices(parsePermissionOptions(pending.params));
 
   // Elapsed, not remaining: Figma fills the track as the deadline is consumed.
+  // Nothing to fill when nothing expires, which is the ordinary case — the
+  // gate waits for the user (see usePermissionDeadline).
   const elapsedPercent =
-    timeoutSeconds > 0
+    secondsLeft !== undefined && timeoutSeconds > 0
       ? Math.min(100, Math.max(0, ((timeoutSeconds - secondsLeft) / timeoutSeconds) * 100))
       : 0;
-  const urgent = !expired && secondsLeft <= URGENT_SECONDS;
+  const urgent = !expired && secondsLeft !== undefined && secondsLeft <= URGENT_SECONDS;
 
   return (
     <div
@@ -137,6 +139,9 @@ export function AgentPermissionToast({
         </Button>
       </div>
 
+      {/* Only when something is running out. A rail at 0% under a toast that
+          never expires is a progress bar for a process with no end. */}
+      {secondsLeft === undefined ? null : (
       <Progress
         value={elapsedPercent}
         aria-label="Time left to answer"
@@ -148,6 +153,7 @@ export function AgentPermissionToast({
             : "[&_[data-slot=progress-indicator]]:bg-text-tertiary/40",
         )}
       />
+      )}
     </div>
   );
 }

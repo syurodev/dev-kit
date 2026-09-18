@@ -80,6 +80,26 @@ describe("one send path for every turn", () => {
     expect(status()).toBe("idle");
   });
 
+  it("leaves the session idle when the user denied a permission, and says why the queue paused", async () => {
+    // Denying is an answer, not a crash. It used to end the turn as an error,
+    // which put a red "stopped … Restart" card under a session that was fine.
+    reset(session("s1"));
+    store().enqueuePrompt("s1", queued("first"));
+    store().enqueuePrompt("s1", queued("second"));
+    const b = backend();
+
+    void drainQueuedPrompt("s1", b.bridge);
+    b.turns[0].resolve({ ...completed, status: "denied" });
+    await settle();
+
+    expect(status()).toBe("idle");
+    expect(store().queuePausedBySession.s1).toBe(true);
+    expect(store().queuePauseReasonBySession.s1).toBe("You denied a permission.");
+    // The prompts behind it wait for Resume rather than running on.
+    expect(queue()).toEqual(["second"]);
+    expect(b.sent()).toEqual(["first"]);
+  });
+
   it("takes a prompt out of the queue as soon as its turn starts", () => {
     reset(session("s1"));
     store().enqueuePrompt("s1", queued("first"));

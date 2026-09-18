@@ -378,8 +378,57 @@ export interface PendingPermission {
      * arrived — the rail was closed, the user was in another module, the lazy
      * chunk was still loading — and a countdown started at mount would promise
      * time that no longer exists.
+     * 
+     * omitzero, not a plain field: a zero time.Time marshals as
+     * "0001-01-01T00:00:00Z", which the UI read as a deadline in the year 1
+     * and drew as "expired" — with the buttons greyed out on a request that
+     * was still perfectly answerable.
      */
-    "expiresAt": string;
+    "expiresAt"?: string;
+}
+
+/**
+ * PermissionFileDiff is what a pending permission would do to one file: the
+ * file as it is on disk now, and as it would be once the edit is allowed.
+ * 
+ * The request itself says less than that. ACP carries the edit as a diff
+ * content item, {path, oldText, newText}, and an agent fills it with the
+ * tool's own arguments: Claude's Edit sends only the snippet it replaces and
+ * its replacement, and Write sends the new file with oldText null — so an
+ * overwrite of an existing file reads as a new one. Reading the file lets the
+ * card show the edit where it lands, with the lines around it, and tell a new
+ * file from an overwritten one.
+ */
+export interface PermissionFileDiff {
+    "path": string;
+
+    /**
+     * Before and After are the file's bytes as text. A file git called binary
+     * is not sent at all.
+     */
+    "before": string;
+    "after": string;
+    "binary": boolean;
+
+    /**
+     * Missing is a side the checkpoint does not hold — the file was added
+     * (no before) or deleted (no after), or the snapshot on that side failed.
+     */
+    "beforeMissing": boolean;
+    "afterMissing": boolean;
+
+    /**
+     * Truncated says the file is too big to preview. Not a shortened diff: half
+     * a file would draw a difference at the cut that is not in the file.
+     */
+    "truncated": boolean;
+
+    /**
+     * Stale says the snippet the agent means to replace is not in the file —
+     * it changed since the agent read it. Before and After are then the
+     * snippet and its replacement, which is still what the agent asked for.
+     */
+    "stale": boolean;
 }
 
 /**
