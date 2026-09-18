@@ -310,7 +310,7 @@ func publicError(subject string, err error) *apperrors.AppError {
 		}
 	}
 	// The engine's own answer to the SQL the user typed, passed through whole.
-	// Everything else on this subject stays redacted below: connecting happens
+	// Everything else on this subject has its secrets masked below: connecting happens
 	// with a DSN in hand, so a dial or an auth failure can carry a host, a
 	// username, and — if a driver echoes what it was given — a password. A
 	// statement's error carries none of that, and it is the single most useful
@@ -332,8 +332,16 @@ func publicError(subject string, err error) *apperrors.AppError {
 	if subject == "builtin.database" && errors.Is(err, database.ErrConsoleStoreUnavailable) {
 		return apperrors.Wrap(codeValidationFailed, "Query consoles are not being stored in this build.", true, err)
 	}
+	// The driver's own sentence — refused, timed out, wrong password, bad
+	// certificate — with anything that can hold a secret masked. A bare
+	// "Connection failed." left nobody able to act on it.
 	if subject == "builtin.database" || subject == "builtin.ssh" || subject == "builtin.kafka" {
-		return apperrors.New(codeConnectionFailed, "Connection failed.", true)
+		message := redactSecrets(err.Error())
+		log.Printf("bridge: %s: connection error: %s", subject, message)
+		if message == "" {
+			message = "Connection failed."
+		}
+		return apperrors.Wrap(codeConnectionFailed, message, true, err)
 	}
 	return unexpectedError(subject, err)
 }
