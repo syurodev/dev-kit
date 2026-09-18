@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   DockviewReact,
   type DockviewApi,
@@ -14,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { PANEL_COMPONENTS } from "./panels";
 import { canDrop, groupKindOf, relativeDirection, type ModuleId, type PaneParams, type Placement } from "./layoutRules";
 import { forgetMounts, updateProbes, useProbes } from "./probes";
+import { setDropHintElement, startLiftDrag } from "./liftDrag";
 import "./dockSpike.css";
 
 /**
@@ -161,10 +163,27 @@ function iconFor(p?: PaneParams) {
   return FileText;
 }
 
-function Tab({ api, params }: IDockviewPanelHeaderProps<PaneParams>) {
+// Lift drag unless `&native` asks for dockview's own drag (chip / HTML5).
+const LIFT = !new URLSearchParams(window.location.search).has("native");
+
+function Tab({ api, containerApi, params }: IDockviewPanelHeaderProps<PaneParams>) {
   const Icon = iconFor(params);
+  const ref = useRef<HTMLDivElement>(null);
+  // A native listener on the tab itself: dockview handles pointerdown on its
+  // tab element and it never reaches React's root-delegated handler.
+  useEffect(() => {
+    const el = ref.current;
+    if (!LIFT || !el) return;
+    const onDown = (e: PointerEvent) => {
+      if ((e.target as HTMLElement).closest("button")) return;
+      const panel = containerApi.getPanel(api.id);
+      if (panel) startLiftDrag(containerApi, panel, e);
+    };
+    el.addEventListener("pointerdown", onDown);
+    return () => el.removeEventListener("pointerdown", onDown);
+  }, [api.id, containerApi]);
   return (
-    <div className="flex h-full items-center gap-1.5 px-2 text-body-13">
+    <div ref={ref} className="flex h-full items-center gap-1.5 px-2 text-body-13">
       <Icon className="size-3.5 shrink-0" />
       <span className="truncate">{api.title}</span>
       <button type="button" aria-label={`Close ${api.title}`} className="ml-1 flex size-4 items-center justify-center rounded-sm opacity-60 hover:bg-state-soft hover:opacity-100" onClick={(e) => { e.stopPropagation(); api.close(); }}>
@@ -398,12 +417,26 @@ export default function DockSpike() {
     return () => window.removeEventListener("keydown", onKey);
   }, [toggleCompanion]);
 
+  const hintPortal = createPortal(<div ref={setDropHintElement} className="dk-drop-hint" aria-hidden />, document.body);
   const btn = "rounded-md border border-border-subtle bg-surface-raised px-2 py-1 text-caption-11-medium text-text-primary hover:border-status-info";
   return (
     <div className="dark flex h-screen w-screen flex-col bg-bg-app text-text-primary">
+      {hintPortal}
       <header className="flex h-10 shrink-0 items-center gap-2 border-b border-border-subtle px-3">
         <span className="text-title-13">Dockview spike</span>
-        <span className="text-caption-11 text-text-tertiary">{pointer ? "dnd: pointer" : "dnd: auto (html5)"}</span>
+        <span className="text-caption-11 text-text-tertiary">{LIFT ? "drag: lift (live pane)" : pointer ? "drag: dockview pointer" : "drag: dockview html5"}</span>
+        <button
+          type="button"
+          className={btn}
+          onClick={() => {
+            const url = new URL(window.location.href);
+            if (LIFT) url.searchParams.set("native", "");
+            else url.searchParams.delete("native");
+            window.location.href = url.toString();
+          }}
+        >
+          {LIFT ? "Use dockview drag" : "Use lift drag"}
+        </button>
         <button
           type="button"
           className={btn}
@@ -449,7 +482,7 @@ export default function DockSpike() {
             <ProbeCard />
           </div>
         </aside>
-        <div className="min-w-0 flex-1 p-1">
+        <div className="relative min-w-0 flex-1 p-1">
           <DockviewReact
             className="dockview-theme-devkit h-full"
             components={PANEL_COMPONENTS}
@@ -458,6 +491,7 @@ export default function DockSpike() {
             onReady={onReady}
             floatingGroupBounds="boundedWithinViewport"
             dndStrategy={pointer ? "pointer" : "auto"}
+            disableDnd={LIFT}
             disableTabsOverflowList
           />
         </div>

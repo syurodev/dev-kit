@@ -417,7 +417,7 @@ dùng DnD bằng pointer events), dockview-react **8.3.1**, đo trong Chromium �
 | 2 | Đổi cha DOM | ✅ | Kéo/float/dock Terminal, Agent, canvas: **0 panel re-mount**, đúng 1 xterm, cùng DOM node, draft trong composer còn nguyên, canvas refit qua `ResizeObserver` |
 | 3 | Hai tầng | ✅ *sau khi sửa* | Xem [Phát hiện 1](#phát-hiện-từ-spike). Đổi module 14–21 ms (dev build); companion đứng yên đến từng pixel qua 6 lần đổi liên tiếp |
 | 4 | Khoá document | ✅ | `onWillShowOverlay` + `canDrop` — không cần `locked`. Pane vào giữa document, document vào pane: đều bị từ chối |
-| 5 | WKWebView / WebView2 | ⚠️ chưa kiểm | Chưa chạy trong app Wails. Kéo HTML5 giả lập không kích hoạt trong Chromium automation; chế độ `dndStrategy: "pointer"` chạy đúng — ứng viên cho Wails |
+| 5 | WKWebView / WebView2 | ✅ macOS | Kéo thả chạy trong app Wails trên macOS (người dùng xác nhận). Kéo "nhấc cả pane" dùng pointer events nên không phụ thuộc HTML5 DnD. Windows WebView2 chưa kiểm |
 | 6 | Bàn phím | ◐ | *Move to…* trong header chạy (Right / Below / Left). Chưa có điều hướng bàn phím đầy đủ — dockview không có sẵn, phải tự làm |
 | 7 | Ngân sách | ❌ với v8 | Xem [Phát hiện 2](#phát-hiện-từ-spike) |
 | 8 | Hỏng thì hồi | ✅ | `fromJSON` ném lỗi với layout hỏng ⇒ về preset; `reuseExistingPanels` khôi phục mà không tạo xterm mới |
@@ -446,15 +446,25 @@ dùng DnD bằng pointer events), dockview-react **8.3.1**, đo trong Chromium �
    quay lại thì canvas mount lại (mất viewport/zoom). Luật hiện có — module đã
    thăm vẫn mount (`MAX_MOUNTED_MODULES`) — không tự đúng với dockview; cần chọn
    (xem Quyết định còn mở).
-5. **Group float nằm đè vùng thả.** Thả vào vùng có group float phía trên thì
+5. **Kéo "nhấc cả pane" (kiểu Claude Desktop) làm được trên dockview.**
+   `liftDrag.ts` tắt DnD của dockview (`disableDnd`) và tự lo bằng pointer
+   events: quá 5 px thì pane thành group float đúng kích thước/vị trí cũ, nội
+   dung vẫn chạy (0 re-mount), container bám theo chuột; pane dưới con trỏ được
+   hit-test, vùng thả vẽ theo `canDrop`; thả vào vùng thì `moveTo`, thả ra ngoài
+   hoặc `Esc` thì `fromJSON` về layout trước khi kéo. Hệ quả lớn: **không còn
+   phụ thuộc HTML5 DnD của webview, cũng không cần `dndStrategy: "pointer"`** —
+   dockview 4.13 có đủ mọi API cách này dùng (`disableDnd`, `addFloatingGroup`,
+   `moveTo`, `addGroup`, `toJSON`/`fromJSON` + `reuseExistingPanels`).
+6. **Group float nằm đè vùng thả.** Thả vào vùng có group float phía trên thì
    pane gộp vào group float, không vào grid bên dưới. Hợp luật nhưng dễ bất
    ngờ — cân nhắc làm mờ/khoá group float khi đang kéo.
 
 ### Quyết định còn mở
 
-- **Phiên bản.** v8 + tự cắt CSS theme (≈ 408 KB) để có DnD pointer, hay v4.13
-  (≈ 211 KB) và tự lo DnD trong WKWebView nếu HTML5 trục trặc. Mục 5 trả lời
-  câu này: chạy spike trong app Wails trước.
+- **Phiên bản.** Nghiêng về **v4.13** (≈ 211 KB / 47 KB gzip): với kéo kiểu
+  "nhấc cả pane" (phát hiện 5), thứ duy nhất v8 có mà v4 thiếu —
+  `dndStrategy: "pointer"` — không còn cần. Cần chạy lại spike trên v4.13 để
+  xác nhận trước khi chốt.
 - **Document là gì trong dockview.** (a) Mỗi document là một panel — kéo tab
   giữa group là native, nhưng đổi module phải gỡ/thêm panel (phát hiện 4). (b)
   Mỗi *document group* là **một** panel "document host" tự vẽ tab strip của

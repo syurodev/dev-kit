@@ -84,3 +84,47 @@
 .dockview-theme-devkit .dv-sash {
   border-radius: var(--dv-sash-border-radius);
 }
+
+/* Lift drag (liftDrag.ts): the pane itself follows the pointer. */
+.dockview-theme-devkit .dv-resize-container.dk-lifted {
+  pointer-events: none;
+  opacity: 0.94;
+  transform: scale(1.01);
+  box-shadow: 0 28px 60px rgb(0 0 0 / 0.55);
+  transition: transform var(--motion-fast), box-shadow var(--motion-fast);
+  z-index: 2000 !important;
+}
+body.dk-lift-dragging,
+body.dk-lift-dragging * {
+  cursor: grabbing !important;
+  user-select: none;
+}
+.dk-drop-hint {
+  position: fixed;
+  z-index: 1000;
+  pointer-events: none;
+  left: 0;
+  top: 0;
+  opacity: 0;
+  border: 1.5px dashed var(--status-info);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--status-info) 14%, transparent);
+  transition:
+    transform var(--motion-fast),
+    width var(--motion-fast),
+    height var(--motion-fast),
+    opacity var(--motion-fast);
+}
+.dk-drop-hint::after {
+  content: attr(data-label);
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  translate: -50% -50%;
+  padding: var(--radius-2xs) var(--space-inline);
+  border-radius: var(--radius-full);
+  background: var(--status-info);
+  color: var(--action-primary-foreground);
+  font-size: var(--type-compact-size);
+  white-space: nowrap;
+}
