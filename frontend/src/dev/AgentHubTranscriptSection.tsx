@@ -4,6 +4,7 @@ import { AgentHubContent } from "@/modules/agenthub/surfaces/AgentHubContent";
 import { AgentSidebarTree } from "@/modules/agenthub/surfaces/AgentSidebarTree";
 import { AgentPermissionRequest } from "@/modules/agenthub/surfaces/AgentPermissionRequest";
 import { AgentSessionError } from "@/modules/agenthub/surfaces/AgentSessionError";
+import { AgentToolDiff } from "@/modules/agenthub/transcript/AgentToolDiff";
 import type { TranscriptItem } from "@/modules/agenthub/types";
 
 /**
@@ -192,6 +193,14 @@ export function AgentHubTranscriptSection() {
           onPromptChange={setDraftPrompt}
           onSend={() => {}}
           onCancel={() => {}}
+        />
+      </div>
+      <h2 className="text-title-16 text-text-primary">Agent Hub — a file a tool changed</h2>
+      <div data-testid="gallery-agenthub-tool-diff" className="w-180 max-w-full">
+        <AgentToolDiff
+          path="src/main/java/com/acme/billing/RefundPolicy.java"
+          oldText={"public final class RefundPolicy {\n    private static final int WINDOW_DAYS = 30;\n\n    public boolean refundable(Order order) {\n        return order.ageInDays() <= WINDOW_DAYS;\n    }\n}\n"}
+          newText={"public final class RefundPolicy {\n    private static final int WINDOW_DAYS = 45;\n\n    public boolean refundable(Order order) {\n        if (order.isGift()) {\n            return true;\n        }\n        return order.ageInDays() <= WINDOW_DAYS;\n    }\n}\n"}
         />
       </div>
       <h2 className="text-title-16 text-text-primary">Agent Hub — session error</h2>

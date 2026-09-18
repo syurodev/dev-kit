@@ -4,7 +4,7 @@ import {
   createInitialTranscriptModel,
   initTranscript,
 } from "../transcript";
-import { renderToString } from "react-dom/server";
+import { renderToString as renderRaw } from "react-dom/server";
 import {
   AgentMessage,
   AgentCodeBlock,
@@ -18,6 +18,11 @@ import {
   AgentAsyncTask,
 } from "./index";
 import { formatToolOutput, toolCallFromDetail, toolOutputText } from "./AgentToolCall";
+import { TooltipProvider } from "@/components/ui/tooltip";
+
+// The provider is mounted once in App.tsx; these leaves carry tooltips of
+// their own (the diff's "review the whole file"), so the harness supplies it.
+const renderToString = (node: React.ReactNode) => renderRaw(<TooltipProvider>{node}</TooltipProvider>);
 
 describe("Agent Hub Transcript Leaves", () => {
   describe("AgentMessage", () => {
@@ -379,7 +384,7 @@ describe("Agent Hub Transcript Leaves", () => {
     it("handles absent/empty texts cleanly", () => {
       const html = renderToString(<AgentToolDiff path="empty.txt" />);
       expect(html).toContain("empty.txt");
-      expect(html).toContain("No textual change");
+      expect(html).toContain("no textual change");
     });
   });
 
