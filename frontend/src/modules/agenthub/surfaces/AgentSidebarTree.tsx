@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Ban, Bot, Copy, Eye, EyeOff, Folder, FolderOpen, Pin, PinOff, Plus, Square, Trash2 } from "lucide-react";
+import { Ban, Bot, Copy, Eye, EyeOff, FileText, Folder, FolderOpen, FolderX, Pencil, Pin, PinOff, Plus, Square, Trash2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,11 @@ import type { Subagent } from "../types";
 
 export type AgentSidebarTreeProps = {
   sessions: AgentSession[];
+  /**
+   * Where "no project" sessions get their folders. Every session under it is
+   * one "No project" group, not a project per timestamped scratch folder.
+   */
+  scratchRoot?: string;
   activeSessionId?: string;
   /** Per-session pending permissions; summed into the attention footer. */
   pendingCounts?: Record<string, number>;
@@ -57,6 +62,10 @@ export type AgentSidebarTreeProps = {
   onNewChildSession?: (parent: AgentSession) => void;
   onCancelTurn?: (session: AgentSession) => void;
   onCloseSession?: (session: AgentSession) => void;
+  /** Opens the rename dialog for this row's session. */
+  onRenameSession?: (session: AgentSession) => void;
+  /** Copies this row's whole conversation as Markdown. */
+  onCopyTranscript?: (session: AgentSession) => void;
   onDeleteSession?: (session: AgentSession, descendants: number) => void;
   onCopy?: (text: string) => void;
   className?: string;
@@ -87,8 +96,10 @@ export type AgentSidebarTreeProps = {
  * Rows come from components/tree-view, the same tree the database and Kafka
  * rails use: guides, sticky headers, keyboard semantics and windowing are
  * already there and were previously hand-rolled here as a 1px span and a pl-4.
- * Its rows are one line of 24px, which is what moved the project out to its own
- * level — a second line per session repeated the folder for every one of them.
+ * Its rows are one line, which is what moved the project out to its own level —
+ * a second line per session repeated the folder for every one of them. They are
+ * SWARM_ROW_HEIGHT here rather than the tree's dense 24: this rail is watched
+ * for minutes at a time, and packed rows tire the eye.
  *
  * The waiting count lives in the footer: one number for the whole tree, where
  * you look when deciding whether anything needs you at all.
@@ -200,6 +211,9 @@ export function visibleSessions(
   );
 }
 
+/** Row height for the swarm; roomier than TreeView's default. */
+export const SWARM_ROW_HEIGHT = 32;
+
 /** One project and the root sessions opened in it, pinned ones first. */
 export type ProjectGroup = { path: string; roots: AgentSession[]; total: number };
 
@@ -214,14 +228,18 @@ export type ProjectGroup = { path: string; roots: AgentSession[]; total: number 
 export function groupByProject(
   sessions: AgentSession[],
   pinnedIds: string[] = [],
+  scratchRoot = "",
 ): ProjectGroup[] {
+  // Every scratch folder is the same "no project" as far as the rail goes.
+  const groupOf = (path: string) => (scratchRoot && path.startsWith(`${scratchRoot}/`) ? scratchRoot : path);
   const byId = new Set(sessions.map((session) => session.id));
   const groups = new Map<string, AgentSession[]>();
   for (const session of sessions) {
     if (session.parentSessionId && byId.has(session.parentSessionId)) continue;
-    const list = groups.get(session.projectPath) ?? [];
+    const key = groupOf(session.projectPath);
+    const list = groups.get(key) ?? [];
     list.push(session);
-    groups.set(session.projectPath, list);
+    groups.set(key, list);
   }
 
   const pinRank = (session: AgentSession) => {
@@ -236,11 +254,16 @@ export function groupByProject(
       roots: [...roots].sort((a, b) => pinRank(a) - pinRank(b)),
       total: roots.reduce((sum, root) => sum + 1 + (descendants[root.id] ?? 0), 0),
     }))
-    .sort((a, b) => projectLabel(a.path).localeCompare(projectLabel(b.path)));
+    // No project last: the named ones are what the rail is organised by.
+    .sort((a, b) =>
+      Number(a.path === scratchRoot && !!scratchRoot) - Number(b.path === scratchRoot && !!scratchRoot) ||
+      projectLabel(a.path).localeCompare(projectLabel(b.path)),
+    );
 }
 
 export function AgentSidebarTree({
   sessions: allSessions,
+  scratchRoot = "",
   activeSessionId,
   pendingCounts = {},
   turnCounts = {},
@@ -257,6 +280,8 @@ export function AgentSidebarTree({
   onNewChildSession,
   onCancelTurn,
   onCloseSession,
+  onRenameSession,
+  onCopyTranscript,
   onDeleteSession,
   onCopy,
   className,
@@ -270,9 +295,9 @@ export function AgentSidebarTree({
   // says what will go, and a hidden child still goes.
   const descendantCounts = React.useMemo(() => countDescendants(allSessions), [allSessions]);
   const collapsed = React.useMemo(() => new Set(collapsedKeys), [collapsedKeys]);
-  // Delete opens a confirmation from the context menu, so it waits for the
-  // menu to close; see heldChoice.
-  const [heldDelete] = React.useState(heldChoice);
+  // Delete and rename open a dialog from the context menu, so they wait for
+  // the menu to close; see heldChoice.
+  const [heldDialog] = React.useState(heldChoice);
 
   const nodes = React.useMemo<TreeNodeData[]>(() => {
     const childrenOf = new Map<string, AgentSession[]>();
@@ -286,7 +311,7 @@ export function AgentSidebarTree({
     const menu = (session: AgentSession) => (row: React.ReactNode) => (
       <ContextMenu>
         <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
-        <ContextMenuContent className="w-56" onCloseAutoFocus={() => heldDelete.release((apply) => apply())}>
+        <ContextMenuContent className="w-56" onCloseAutoFocus={() => heldDialog.release((apply) => apply())}>
           <ContextMenuLabel className="truncate">
             {session.title || session.id.slice(0, 8)}
           </ContextMenuLabel>
@@ -307,9 +332,22 @@ export function AgentSidebarTree({
             </ContextMenuItem>
           ) : null}
 
+          {onRenameSession ? (
+            <ContextMenuItem icon={<Pencil />} onSelect={() => heldDialog.hold(() => onRenameSession(session))}>
+              Rename…
+            </ContextMenuItem>
+          ) : null}
+
+          {onCopy || onCopyTranscript ? <ContextMenuSeparator /> : null}
+
+          {onCopyTranscript ? (
+            <ContextMenuItem icon={<FileText />} onSelect={() => onCopyTranscript(session)}>
+              Copy transcript as Markdown
+            </ContextMenuItem>
+          ) : null}
+
           {onCopy ? (
             <>
-              <ContextMenuSeparator />
               <ContextMenuItem icon={<FolderOpen />} onSelect={() => onCopy(session.projectPath)}>
                 Copy working directory
               </ContextMenuItem>
@@ -349,7 +387,7 @@ export function AgentSidebarTree({
             <ContextMenuItem
               icon={<Trash2 />}
               variant="destructive"
-              onSelect={() => heldDelete.hold(() => onDeleteSession(session, descendantCounts[session.id] ?? 0))}
+              onSelect={() => heldDialog.hold(() => onDeleteSession(session, descendantCounts[session.id] ?? 0))}
             >
               {/* Says what will actually go. Deleting a parent takes its
                   subtree, and finding that out afterwards is the one thing
@@ -422,6 +460,8 @@ export function AgentSidebarTree({
         ),
         selected: session.id === activeSessionId,
         onSelect: () => onSelectSession(session.id),
+        // Double-click renames, as in a file tree.
+        onActivate: onRenameSession ? () => onRenameSession(session) : undefined,
         expandable: children.length > 0,
         expanded: !collapsed.has(key),
         onToggle: children.length ? () => onToggleCollapsed?.(key) : undefined,
@@ -430,18 +470,24 @@ export function AgentSidebarTree({
       };
     };
 
-    return groupByProject(sessions, pinnedIds).map((group) => {
+    return groupByProject(sessions, pinnedIds, scratchRoot).map((group) => {
       const key = `project:${group.path}`;
+      const scratch = Boolean(scratchRoot) && group.path === scratchRoot;
+      const name = scratch ? "No project" : projectLabel(group.path) || "No project";
       return {
         id: key,
-        label: projectLabel(group.path) || "No project",
-        title: group.path || undefined,
-        icon: <Folder className="size-3 shrink-0 text-icon-secondary" />,
+        label: name,
+        title: scratch ? undefined : group.path || undefined,
+        icon: scratch ? (
+          <FolderX className="size-3 shrink-0 text-icon-secondary" />
+        ) : (
+          <Folder className="size-3 shrink-0 text-icon-secondary" />
+        ),
         count: group.total,
         // On hover, in the count's place: starting another agent in a project
         // you are looking at should not mean picking that folder again.
         actions: onNewSessionIn ? (
-          <ActionTooltip label={`New session in ${projectLabel(group.path) || "this folder"}`}>
+          <ActionTooltip label={scratch ? "New session without a project" : `New session in ${name}`}>
             <Button
               type="button"
               variant="ghost"
@@ -457,16 +503,14 @@ export function AgentSidebarTree({
           <ContextMenu>
             <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
             <ContextMenuContent className="w-56">
-              <ContextMenuLabel className="truncate">
-                {projectLabel(group.path) || "No project"}
-              </ContextMenuLabel>
+              <ContextMenuLabel className="truncate">{name}</ContextMenuLabel>
               <ContextMenuSeparator />
               {onNewSessionIn ? (
                 <ContextMenuItem icon={<Plus />} onSelect={() => onNewSessionIn(group.path)}>
                   New session
                 </ContextMenuItem>
               ) : null}
-              {onCopy ? (
+              {onCopy && !scratch ? (
                 <ContextMenuItem icon={<Copy />} onSelect={() => onCopy(group.path)}>
                   Copy path
                 </ContextMenuItem>
@@ -489,6 +533,7 @@ export function AgentSidebarTree({
     });
   }, [
     sessions,
+    scratchRoot,
     subagents,
     turnCounts,
     pendingCounts,
@@ -503,6 +548,8 @@ export function AgentSidebarTree({
     onNewChildSession,
     onCancelTurn,
     onCloseSession,
+    onRenameSession,
+    onCopyTranscript,
     onDeleteSession,
     onCopy,
   ]);
@@ -565,7 +612,7 @@ export function AgentSidebarTree({
 
       <div className="h-px w-full shrink-0 bg-border-subtle" />
 
-      <TreeView nodes={nodes} className="flex-1 scrollbar-gutter-stable" />
+      <TreeView nodes={nodes} rowHeight={SWARM_ROW_HEIGHT} className="flex-1 scrollbar-gutter-stable" />
 
       {waiting > 0 ? (
         // A button, not a caption: the count says something needs you, and

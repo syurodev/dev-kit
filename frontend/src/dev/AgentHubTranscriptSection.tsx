@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { AgentSession } from "@/bridge/agenthub";
 import { AgentHubContent } from "@/modules/agenthub/surfaces/AgentHubContent";
+import { AgentSidebarTree } from "@/modules/agenthub/surfaces/AgentSidebarTree";
 import type { TranscriptItem } from "@/modules/agenthub/types";
 
 /**
@@ -151,6 +152,8 @@ const items: TranscriptItem[] = [
 export function AgentHubTranscriptSection() {
   // The draft's composer is live, so typing into it shows the field growing.
   const [draftPrompt, setDraftPrompt] = useState("");
+  const [draftProject, setDraftProject] = useState(session.projectPath);
+  const [activeId, setActiveId] = useState(session.id);
   return (
     <section id="agenthub-transcript" className="flex flex-col gap-3">
       <h2 className="text-title-16 text-text-primary">Agent Hub — conversation</h2>
@@ -166,7 +169,6 @@ export function AgentHubTranscriptSection() {
           onPromptChange={() => {}}
           onSend={() => {}}
           onCancel={() => {}}
-          onCloseSession={() => {}}
           onCopy={() => {}}
         />
       </div>
@@ -177,7 +179,10 @@ export function AgentHubTranscriptSection() {
       >
         <AgentHubContent
           session={null}
-          draft={{ projectPath: session.projectPath }}
+          draft={{ projectPath: draftProject }}
+          projects={[session.projectPath, "/Users/dev/billing-service", "/Users/dev/work/api"]}
+          onProjectChange={setDraftProject}
+          onChooseProject={() => setDraftProject("/Users/dev/picked-folder")}
           agents={["claude"]}
           agent="claude"
           onAgentChange={() => {}}
@@ -185,6 +190,21 @@ export function AgentHubTranscriptSection() {
           onPromptChange={setDraftPrompt}
           onSend={() => {}}
           onCancel={() => {}}
+        />
+      </div>
+      <h2 className="text-title-16 text-text-primary">Agent Hub — swarm rail</h2>
+      <div data-testid="gallery-agenthub-rail" className="h-80 w-66 overflow-hidden rounded-control border border-border-subtle bg-(--background-app) px-2">
+        <AgentSidebarTree
+          sessions={[
+            session,
+            { ...session, id: "sess-2", title: "Refund worker", status: "running" },
+            { ...session, id: "sess-3", title: "Fix flaky test", status: "closed", parentSessionId: session.id, depth: 1 },
+            { ...session, id: "sess-4", title: "Scratch idea", projectPath: "/cfg/DevKit/agent-scratch/20260918-1" },
+          ]}
+          scratchRoot="/cfg/DevKit/agent-scratch"
+          activeSessionId={activeId}
+          onSelectSession={setActiveId}
+          onNewSession={() => {}}
         />
       </div>
     </section>

@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"devkit/internal/agenthub"
 	"devkit/internal/terminal"
@@ -674,7 +676,7 @@ func defaultOpenFilesDialog(title, startIn string) ([]string, error) {
 	return dialog.PromptForMultipleSelection()
 }
 
-// AgentHubChooseDirectory opens the native folder picker// AgentHubChooseDirectory opens the native folder picker and returns the chosen
+// AgentHubChooseDirectory opens the native folder picker and returns the chosen
 // path, or "" when the user cancelled. Cancelling is not an error: the dialog
 // that called this stays open with the field untouched, and an error there
 // would render as a failure the user did not cause.
@@ -690,6 +692,40 @@ func (s *AppService) AgentHubChooseDirectory(startIn string) (string, error) {
 			dialogFunc = defaultOpenDirectoryDialog
 		}
 		return dialogFunc("Choose a working directory", startIn)
+	})
+	if err != nil {
+		return "", err
+	}
+	return result.(string), nil
+}
+
+// agentScratchDir is the parent of the folders sessions get when they are not
+// started in a project. Under DevKit's own config dir, next to codegraph and
+// mcp.sock, so nothing lands in the user's home by surprise.
+func agentScratchDir(configDir string) string {
+	return filepath.Join(configDir, "DevKit", "agent-scratch")
+}
+
+// AgentHubScratchRoot is where "Don't work in a project" sessions live. The
+// sidebar gathers every session under it into one group instead of drawing a
+// project per timestamped folder.
+func (s *AppService) AgentHubScratchRoot() string {
+	return agentScratchDir(s.container.ConfigDir)
+}
+
+// AgentHubNewScratchDirectory makes an empty folder for one session that is
+// not started in a project. An agent needs a working directory — the hub
+// refuses / and the home folder — so "no project" is a fresh folder of its own
+// rather than a shared one, where two sessions would see each other's files.
+func (s *AppService) AgentHubNewScratchDirectory() (string, error) {
+	result, err := s.call(context.Background(), "builtin.agenthub", "agenthub:execute", "session:new", map[string]any{
+		"action": "scratch_directory",
+	}, func(context.Context) (any, error) {
+		root := agentScratchDir(s.container.ConfigDir)
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			return "", err
+		}
+		return os.MkdirTemp(root, time.Now().Format("20060102-150405")+"-")
 	})
 	if err != nil {
 		return "", err

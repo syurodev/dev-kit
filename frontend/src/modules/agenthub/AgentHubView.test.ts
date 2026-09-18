@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import { isNewSessionShortcut, renameAgentSession } from "./AgentHubView";
-import { submitRename } from "./surfaces/AgentHubContent";
+import { submitRename } from "./surfaces/RenameSessionDialog";
 import { useAgentSessionsStore } from "../../stores/agentSessions";
 import { AppError } from "../../bridge/errors";
 

@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, memo, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { ChevronRight } from "lucide-react";
 import { observeElementRect, useVirtualizer } from "@tanstack/react-virtual";
@@ -73,6 +73,14 @@ export type TreeNodeData = {
  * lets the tree be windowed by arithmetic instead of by measuring.
  */
 export const TREE_ROW_HEIGHT = 24;
+
+/**
+ * The height every row of one tree is drawn at. TREE_ROW_HEIGHT unless the
+ * tree asks for more: the agent swarm is read for minutes at a time and uses
+ * roomier rows, the database and Kafka rails keep the dense default. Still one
+ * height per tree, so windowing and pinning stay arithmetic.
+ */
+const RowHeight = createContext(TREE_ROW_HEIGHT);
 
 /**
  * 16 a level. A guide needs room for its elbow between the parent's chevron
@@ -209,7 +217,7 @@ function fadeMask(pinBottom: number, fadeTop: boolean, fadeBottom: boolean): str
  */
 function Guides({ row }: { row: FlatRow }) {
   const { level, lasts, open, node, placeholder } = row;
-  const half = TREE_ROW_HEIGHT / 2;
+  const half = useContext(RowHeight) / 2;
   // A row with a chevron takes the elbow to the chevron. A leaf has an empty
   // chevron slot, and stopping there left its elbow short of the icon —
   // shallow next to the rows above it. It runs through the slot instead.
@@ -320,6 +328,7 @@ const Row = memo(function Row({ row, copy = false }: { row: FlatRow; copy?: bool
   const { node, level, open } = row;
   const hasCount = node.count !== undefined;
   const hasActions = node.actions != null;
+  const height = useContext(RowHeight);
 
   const line = (
     <div
@@ -329,7 +338,7 @@ const Row = memo(function Row({ row, copy = false }: { row: FlatRow; copy?: bool
       aria-selected={(!copy && node.selected) || undefined}
       data-level={level}
       className="group/row relative"
-      style={{ height: TREE_ROW_HEIGHT }}
+      style={{ height }}
     >
       <Guides row={row} />
       {/* The highlight starts at the row's own chevron, not the rail's edge:
@@ -429,8 +438,9 @@ const Row = memo(function Row({ row, copy = false }: { row: FlatRow; copy?: bool
 });
 
 const Placeholder = memo(function Placeholder({ row }: { row: FlatRow }) {
+  const height = useContext(RowHeight);
   return (
-    <div className="relative" style={{ height: TREE_ROW_HEIGHT }}>
+    <div className="relative" style={{ height }}>
       <Guides row={row} />
       <span
         className="absolute inset-y-0 flex items-center text-code-11 text-text-tertiary"
@@ -456,7 +466,16 @@ const Placeholder = memo(function Placeholder({ row }: { row: FlatRow }) {
  * to set state on every event and re-render every visible row with it:
  * 8.3–8.7ms of main thread a step, p95 15ms, in the harness.
  */
-export function TreeView({ nodes, className }: { nodes: TreeNodeData[]; className?: string }) {
+export function TreeView({
+  nodes,
+  className,
+  rowHeight = TREE_ROW_HEIGHT,
+}: {
+  nodes: TreeNodeData[];
+  className?: string;
+  /** Every row's height; see RowHeight. */
+  rowHeight?: number;
+}) {
   const rows = useMemo(() => flattenTree(nodes), [nodes]);
   const pinnable = useMemo(
     () => rows.flatMap((row, i) => (row.node.sticky !== undefined && !row.placeholder ? [i] : [])),
@@ -469,7 +488,7 @@ export function TreeView({ nodes, className }: { nodes: TreeNodeData[]; classNam
     count: rows.length,
     getScrollElement: () => scrollRef.current,
     getItemKey: (i) => rows[i].key,
-    estimateSize: () => TREE_ROW_HEIGHT,
+    estimateSize: () => rowHeight,
     overscan: 12,
     paddingStart: PAD_TOP,
     paddingEnd: PAD_BOTTOM,
@@ -508,8 +527,8 @@ export function TreeView({ nodes, className }: { nodes: TreeNodeData[]; classNam
     el.style.setProperty("-webkit-mask-repeat", "no-repeat");
     measureStrip();
     const update = (sync: boolean) => {
-      const next = pinnedRows(rows, el.scrollTop - PAD_TOP, TREE_ROW_HEIGHT, pinnable);
-      const pinBottom = next.reduce((bottom, pin) => Math.max(bottom, pin.top + TREE_ROW_HEIGHT), 0);
+      const next = pinnedRows(rows, el.scrollTop - PAD_TOP, rowHeight, pinnable);
+      const pinBottom = next.reduce((bottom, pin) => Math.max(bottom, pin.top + rowHeight), 0);
       const mask = `${fadeMask(
         pinBottom,
         el.scrollTop > 0,
@@ -540,9 +559,10 @@ export function TreeView({ nodes, className }: { nodes: TreeNodeData[]; classNam
       el.removeEventListener("scroll", onScroll);
       observer.disconnect();
     };
-  }, [rows, pinnable]);
+  }, [rows, pinnable, rowHeight]);
 
   return (
+    <RowHeight.Provider value={rowHeight}>
     <div ref={scrollRef} className={cn("min-h-0 overflow-y-auto", className)}>
       <div role="tree" style={{ position: "relative", height: virtualizer.getTotalSize() }}>
         {/* Pinned rows on a zero-height host stuck to the scroller's top.
@@ -576,5 +596,6 @@ export function TreeView({ nodes, className }: { nodes: TreeNodeData[]; classNam
         })}
       </div>
     </div>
+    </RowHeight.Provider>
   );
 }

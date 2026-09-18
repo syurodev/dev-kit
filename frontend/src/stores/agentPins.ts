@@ -26,7 +26,17 @@ type AgentPinsState = {
    */
   hideClosed: boolean;
   toggleHideClosed: () => void;
+  /**
+   * Folders sessions were started in, most recent first. A new draft opens in
+   * the first one, and the draft's project picker lists them — so a folder
+   * picked once is one click away even after its sessions are deleted.
+   */
+  recentProjects: string[];
+  rememberProject: (path: string) => void;
 };
+
+/** How many folders the project picker remembers. */
+const RECENT_PROJECTS = 12;
 
 /**
  * Which agents the user pinned to the top of the swarm tree.
@@ -61,6 +71,11 @@ export const useAgentPinsStore = create<AgentPinsState>()(
         })),
       hideClosed: false,
       toggleHideClosed: () => set((state) => ({ hideClosed: !state.hideClosed })),
+      recentProjects: [],
+      rememberProject: (path) =>
+        set((state) => ({
+          recentProjects: [path, ...state.recentProjects.filter((p) => p !== path)].slice(0, RECENT_PROJECTS),
+        })),
     }),
     {
       name: "agentPins",
@@ -69,6 +84,7 @@ export const useAgentPinsStore = create<AgentPinsState>()(
         pinned: state.pinned,
         collapsed: state.collapsed,
         hideClosed: state.hideClosed,
+        recentProjects: state.recentProjects,
       }),
     },
   ),

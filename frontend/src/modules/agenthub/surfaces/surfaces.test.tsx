@@ -11,6 +11,7 @@ import {
   visibleSessions,
   countDescendants,
   groupByProject,
+  SWARM_ROW_HEIGHT,
   AgentHubContent,
   AgentMetaInspector,
   AgentRail,
@@ -445,7 +446,6 @@ describe("Agent Hub Phase 3 Surfaces", () => {
           onSend={() => {}}
           onCancel={() => {}}
           onRetrySession={() => {}}
-          onCloseSession={() => {}}
         />,
       );
       // Close used to sit beside Retry on this card, and that is how a session
@@ -529,13 +529,67 @@ describe("Agent Hub Phase 3 Surfaces", () => {
         />,
       );
       expect(html).toContain('data-testid="agent-hub-draft"');
-      expect(html).toContain("New session");
-      expect(html).toContain("billing-service · from auth-refactor");
+      expect(html).toContain("Start a session in billing-service");
+      expect(html).toContain(" · from auth-refactor");
       // The folder is the sandbox; the draft says so before it is fixed.
       expect(html).toContain("It can only reach paths inside /Users/dev/billing-service.");
       expect(html).toContain('data-testid="composer-agent"');
       // Not the empty state: a draft is somewhere to type, not a dead end.
       expect(html).not.toContain("No agent running");
+    });
+
+    it("picks the draft's project above the composer, and allows none", () => {
+      const props = {
+        session: null,
+        agents: ["claude"],
+        agent: "claude",
+        onAgentChange: () => {},
+        promptValue: "",
+        onPromptChange: () => {},
+        onSend: () => {},
+        onCancel: () => {},
+        projects: ["/Users/dev/billing-service", "/Users/dev/api"],
+        onProjectChange: () => {},
+        onChooseProject: () => {},
+      };
+      const inProject = renderToString(
+        <AgentHubContent {...props} draft={{ projectPath: "/Users/dev/billing-service" }} />,
+      );
+      expect(inProject).toContain('data-testid="draft-project-picker"');
+      expect(inProject).toContain(">billing-service<");
+
+      const none = renderToString(<AgentHubContent {...props} draft={{ projectPath: "" }} />);
+      expect(none).toContain("Start a session without a project");
+      expect(none).toContain(">No project<");
+    });
+
+    it("shows nothing of the previously selected session in a draft", () => {
+      const previous: AgentSession = {
+        id: "sess-prev",
+        agentType: "claude",
+        projectPath: "/Users/dev/billing-service",
+        status: "closed",
+        parentSessionId: null,
+        depth: 0,
+        title: "Old one",
+        acpSessionId: "acp-prev",
+      };
+      const html = renderToString(
+        <AgentHubContent
+          session={previous}
+          draft={{ projectPath: "/Users/dev/billing-service" }}
+          usage={{ used: 152_000, size: 1_000_000, amount: 0.65 }}
+          items={[{ kind: "user_message_chunk", text: "hi" } as never]}
+          agents={["claude"]}
+          agent="claude"
+          promptValue=""
+          onPromptChange={() => {}}
+          onSend={() => {}}
+          onCancel={() => {}}
+        />,
+      );
+      expect(html).not.toContain("152");
+      expect(html).not.toContain("Send to reopen this session");
     });
 
     it("sends with a glass button, not a solid disc", () => {
@@ -797,6 +851,29 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       const away: AgentSession = { ...mockChildSession, projectPath: "/elsewhere" };
       const groups = groupByProject([mockSession, away]);
       expect(groups.map((g) => g.path)).toEqual(["packages/core"]);
+    });
+
+    it("gathers every scratch folder into one No project group, listed last", () => {
+      const root = "/cfg/DevKit/agent-scratch";
+      const a: AgentSession = { ...mockSession, id: "s-a", projectPath: `${root}/20260918-1-x` };
+      const b: AgentSession = { ...mockSession, id: "s-b", projectPath: `${root}/20260918-2-y` };
+      const z: AgentSession = { ...mockSession, id: "s-z", projectPath: "/work/zeta" };
+      const groups = groupByProject([a, z, b], [], root);
+      expect(groups.map((g) => g.path)).toEqual(["/work/zeta", root]);
+      expect(groups[1].total).toBe(2);
+      const html = renderSidebar(
+        <AgentSidebarTree sessions={[a, b]} scratchRoot={root} onSelectSession={() => {}} onNewSession={() => {}} />,
+      );
+      expect(html).toContain("No project");
+      expect(html).not.toContain("20260918-1-x");
+    });
+
+    it("draws the swarm's rows roomier than the tree's dense default", () => {
+      const html = renderSidebar(
+        <AgentSidebarTree sessions={[mockSession]} onSelectSession={() => {}} onNewSession={() => {}} />,
+      );
+      expect(html).toContain(`height:${SWARM_ROW_HEIGHT}px`);
+      expect(html).not.toContain("height:24px");
     });
 
     it("shows Claude's own subagents under the session that spawned them", () => {
@@ -1256,34 +1333,7 @@ describe("Agent Hub Phase 3 Surfaces", () => {
       expect(html).not.toContain('data-testid="agent-hub-content-header"');
     });
 
-    it("reads lineage as one sentence and takes status from AgentState alone", () => {
-      const parent: AgentSession = { ...mockSession, id: "sess-000", title: "auth-refactor" };
-      const child: AgentSession = {
-        ...mockSession,
-        depth: 2,
-        status: "awaiting_permission",
-        parentSessionId: parent.id,
-      };
-      const html = renderToString(
-        <AgentHubContent
-          session={child}
-          parentSession={parent}
-          promptValue=""
-          onPromptChange={() => {}}
-          onSend={() => {}}
-          onCancel={() => {}}
-        />,
-      );
-      // The project's own name and where the agent came from. "depth 2" was the
-      // hub counting, and the absolute path took the row to say a folder's name.
-      expect(html).toContain("dev-kit-app · from auth-refactor");
-      expect(html).not.toContain("depth 2");
-      // The colour-coded pill was a third status vocabulary beside AgentState.
-      expect(html).toContain('data-slot="agent-state"');
-      expect(html).not.toContain('data-testid="content-header-status"');
-    });
-
-    it("floats the header over the transcript as glass", () => {
+    it("draws no header: the sidebar row already names the session", () => {
       const html = renderToString(
         <AgentHubContent
           session={mockSession}
@@ -1293,34 +1343,9 @@ describe("Agent Hub Phase 3 Surfaces", () => {
           onCancel={() => {}}
         />,
       );
-      // A glass card, not a row above the body: content scrolls under it.
-      const bar = html.slice(html.indexOf('data-testid="agent-hub-header-bar"') - 120, html.indexOf('data-testid="agent-hub-header-bar"') + 120);
-      expect(bar).toContain("glass-float");
-      expect(bar).toContain("absolute");
-      expect(html).toContain('data-testid="agent-hub-content-header"');
-      // The transcript pads its top by the measured header, not a fixed guess.
-      expect(html).toContain("--header-inset");
-      // No agent, no header: the empty state draws no empty glass bar.
-      const empty = renderToString(
-        <AgentHubContent session={null} promptValue="" onPromptChange={() => {}} onSend={() => {}} onCancel={() => {}} />,
-      );
-      expect(empty).not.toContain('data-testid="agent-hub-header-bar"');
-    });
-
-    it("does not repeat the name when the agent is named after its folder", () => {
-      // Seen in the app: "Dev-kit-backend dev-kit-backend".
-      const named = { ...mockSession, title: "Dev-Kit-App", projectPath: "/Users/dev/dev-kit-app" };
-      const html = renderToString(
-        <AgentHubContent
-          session={named}
-          promptValue=""
-          onPromptChange={() => {}}
-          onSend={() => {}}
-          onCancel={() => {}}
-        />,
-      );
-      expect(html).toContain("Dev-Kit-App");
-      expect(html).not.toContain('data-testid="content-header-context"');
+      expect(html).not.toContain('data-testid="agent-hub-header-bar"');
+      expect(html).not.toContain('data-testid="agent-hub-content-header"');
+      expect(html).not.toContain('data-testid="content-session-menu"');
     });
 
     it("stops a turn from the composer, not from a second button in the header", () => {
@@ -1330,32 +1355,12 @@ describe("Agent Hub Phase 3 Surfaces", () => {
         onPromptChange: () => {},
         onSend: () => {},
         onCancel: () => {},
-        onCloseSession: () => {},
       };
       const running = renderToString(<AgentHubContent {...base} streaming />);
       // The header's Cancel turn repeated the composer's Stop, which sits under
       // the text being written. One action, one control.
       expect(running).not.toContain('data-testid="content-cancel-turn"');
       expect(running).toContain('aria-label="Stop generating"');
-    });
-
-    it("offers the session menu only when it has something to do", () => {
-      const base = {
-        session: mockSession,
-        promptValue: "",
-        onPromptChange: () => {},
-        onSend: () => {},
-        onCancel: () => {},
-      };
-      // Close lives in the menu now, as it does on the sidebar row: a bordered
-      // button at Stop's weight, for the one action here that ends a process,
-      // was the wrong emphasis. A menu with nothing in it is not drawn.
-      expect(renderToString(<AgentHubContent {...base} />)).not.toContain(
-        'data-testid="content-session-menu"',
-      );
-      expect(
-        renderToString(<AgentHubContent {...base} onCloseSession={() => {}} />),
-      ).toContain('data-testid="content-session-menu"');
     });
   });
 
