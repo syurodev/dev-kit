@@ -55,7 +55,11 @@ func JavaToolchain(repoRoot string) Toolchain {
 		// bar with carriage returns, which is what makes it readable streamed
 		// into a log view a line at a time.
 		Build: []string{"mvn", "-B", "-DskipTests", "package"},
-		Run:   []string{"java", "-jar", ArtifactArg, ProjectArg, OutputArg},
+		// -Xmx2g caps the analyzer's heap. Left to the JVM's default (a
+		// quarter of physical memory) a pathological project could take
+		// gigabytes from the person's machine; at the cap it fails with a
+		// clear out-of-memory message instead (see Main.java).
+		Run: []string{"java", "-Xmx2g", "-jar", ArtifactArg, ProjectArg, OutputArg},
 		// Maven finds its JDK through JAVA_HOME. Set from whichever java the
 		// probe settled on, so a Maven bundled inside an IDE builds with the
 		// IDE's JDK without either being on PATH.

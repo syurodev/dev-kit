@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	_ "modernc.org/sqlite"
 )
@@ -103,18 +104,35 @@ CREATE TABLE IF NOT EXISTS index_meta (
 // indexedProjectKey is the index_meta row holding the project root.
 const indexedProjectKey = "project_root"
 
-// sqliteStore is a Store backed by one SQLite file per project. It is not
-// safe for concurrent use by multiple goroutines without external locking —
-// Service (Task 3) serializes access with a mutex.
+// sqliteStore is a Store backed by one SQLite file per project. Safe for
+// concurrent use (database/sql pools connections; see storePragmas). Service
+// still serialises index writes itself — see Service.writeMu — so that the
+// order they land in is the order they were requested in.
 type sqliteStore struct {
 	db *sql.DB
 }
 
+// storePragmas apply to every connection the pool opens (they are DSN
+// parameters, not one-off statements, because database/sql may open more).
+//
+//   - WAL lets queries read the previous snapshot while a re-index rewrites
+//     the whole index in one transaction, instead of blocking behind it.
+//   - busy_timeout makes a writer that finds the file locked wait for it,
+//     rather than failing the index outright with SQLITE_BUSY.
+//   - synchronous=NORMAL is WAL's usual pairing: durable across app crashes,
+//     and the index can always be re-derived from source after a power cut.
+const storePragmas = "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
+
+// maxStoreConns bounds the pool. A few readers can proceed alongside the one
+// writer WAL allows; more would only contend for the same file.
+const maxStoreConns = 4
+
 func newSQLiteStore(path string) (*sqliteStore, error) {
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite", path+storePragmas)
 	if err != nil {
 		return nil, fmt.Errorf("codegraph: open sqlite store: %w", err)
 	}
+	db.SetMaxOpenConns(maxStoreConns)
 	if _, err := db.Exec(schema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("codegraph: create schema: %w", err)
@@ -178,24 +196,55 @@ func (s *sqliteStore) ReplaceIndex(ctx context.Context, result AnalysisResult) e
 			return fmt.Errorf("codegraph: clear %s: %w", table, err)
 		}
 	}
+
+	// One prepared statement per table, reused for every row: a large project
+	// is hundreds of thousands of rows, and re-parsing the same INSERT for each
+	// was most of the time the write took.
+	insert := func(query string) (*sql.Stmt, error) {
+		stmt, err := tx.PrepareContext(ctx, query)
+		if err != nil {
+			return nil, fmt.Errorf("codegraph: prepare %q: %w", query, err)
+		}
+		return stmt, nil
+	}
+
+	// A duplicate node ID is an analyzer bug — two declarations it resolved to
+	// the same signature — but it is one node, and failing the whole index
+	// over it left the user with nothing at all. First-seen wins, the same rule
+	// as endpoints below; every edge that names the ID still points at a node
+	// that exists, so the graph stays consistent.
+	nodeStmt, err := insert(`INSERT INTO nodes (id, label, kind, layer, file_path, line, end_line, summary, params) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer nodeStmt.Close()
+	seenNodes := make(map[string]bool, len(result.Nodes))
 	for _, n := range result.Nodes {
+		if seenNodes[n.ID] {
+			continue
+		}
+		seenNodes[n.ID] = true
 		paramsJSON, err := json.Marshal(n.Params)
 		if err != nil {
 			return fmt.Errorf("codegraph: marshal params for node %q: %w", n.ID, err)
 		}
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO nodes (id, label, kind, layer, file_path, line, end_line, summary, params) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		if _, err := nodeStmt.ExecContext(ctx,
 			n.ID, n.Label, n.Kind, n.Layer, n.FilePath, n.Line, n.EndLine, n.Summary, string(paramsJSON)); err != nil {
 			return fmt.Errorf("codegraph: insert node %q: %w", n.ID, err)
 		}
 	}
+
+	edgeStmt, err := insert(`INSERT INTO edges (from_id, to_id, kind) VALUES (?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer edgeStmt.Close()
 	for _, e := range result.Edges {
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO edges (from_id, to_id, kind) VALUES (?, ?, ?)`,
-			e.From, e.To, e.Kind); err != nil {
+		if _, err := edgeStmt.ExecContext(ctx, e.From, e.To, e.Kind); err != nil {
 			return fmt.Errorf("codegraph: insert edge %q->%q: %w", e.From, e.To, err)
 		}
 	}
+
 	// An endpoint's ID is its HTTP method and path, the same string the UI
 	// addresses it by — so two entry points that map to the identical route
 	// collide on insert. That is not always an analyzer bug: a Feign-style
@@ -205,39 +254,55 @@ func (s *sqliteStore) ReplaceIndex(ctx context.Context, result AnalysisResult) e
 	// an entirely valid project. First-seen wins, in the analyzer's own file
 	// order — deterministic, and losing one entry from the endpoint list
 	// beats losing the whole index over it.
+	endpointStmt, err := insert(`INSERT INTO endpoints (id, http_method, path, entry_node) VALUES (?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer endpointStmt.Close()
 	seenEndpoints := make(map[string]bool, len(result.Endpoints))
 	for _, ep := range result.Endpoints {
 		if seenEndpoints[ep.ID] {
 			continue
 		}
 		seenEndpoints[ep.ID] = true
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO endpoints (id, http_method, path, entry_node) VALUES (?, ?, ?, ?)`,
-			ep.ID, ep.HTTPMethod, ep.Path, ep.EntryNode); err != nil {
+		if _, err := endpointStmt.ExecContext(ctx, ep.ID, ep.HTTPMethod, ep.Path, ep.EntryNode); err != nil {
 			return fmt.Errorf("codegraph: insert endpoint %q: %w", ep.ID, err)
 		}
 	}
+
+	depStmt, err := insert(`INSERT INTO file_dependencies (file_path, depends_on_file_path) VALUES (?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer depStmt.Close()
 	for _, fd := range result.FileDependencies {
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO file_dependencies (file_path, depends_on_file_path) VALUES (?, ?)`,
-			fd.FilePath, fd.DependsOnFilePath); err != nil {
+		if _, err := depStmt.ExecContext(ctx, fd.FilePath, fd.DependsOnFilePath); err != nil {
 			return fmt.Errorf("codegraph: insert file dependency %q->%q: %w", fd.FilePath, fd.DependsOnFilePath, err)
 		}
 	}
+
+	accessStmt, err := insert(`INSERT INTO field_accesses (class_id, node_id, field_name, kind, line) VALUES (?, ?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer accessStmt.Close()
 	for _, fa := range result.FieldAccesses {
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO field_accesses (class_id, node_id, field_name, kind, line) VALUES (?, ?, ?, ?, ?)`,
-			fa.ClassID, fa.NodeID, fa.FieldName, fa.Kind, fa.Line); err != nil {
+		if _, err := accessStmt.ExecContext(ctx, fa.ClassID, fa.NodeID, fa.FieldName, fa.Kind, fa.Line); err != nil {
 			return fmt.Errorf("codegraph: insert field access %q.%q: %w", fa.ClassID, fa.FieldName, err)
 		}
 	}
+
+	siteStmt, err := insert(`INSERT INTO call_sites (from_id, to_id, line, unresolved) VALUES (?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer siteStmt.Close()
 	for _, c := range result.CallSites {
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO call_sites (from_id, to_id, line, unresolved) VALUES (?, ?, ?, ?)`,
-			c.From, c.To, c.Line, c.Unresolved); err != nil {
+		if _, err := siteStmt.ExecContext(ctx, c.From, c.To, c.Line, c.Unresolved); err != nil {
 			return fmt.Errorf("codegraph: insert call site %q->%q: %w", c.From, c.To, err)
 		}
 	}
+
 	// Commit the revision atomically with the graph, including empty indexes.
 	if _, err := tx.ExecContext(ctx, `INSERT INTO index_meta(key, value) VALUES ('version', '1')
         ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + 1`); err != nil {
@@ -384,10 +449,22 @@ func (s *sqliteStore) GetInEdges(ctx context.Context, nodeID string) ([]Edge, er
 	return out, rows.Err()
 }
 
+// maxSymbolMatches caps SearchSymbol. A one-letter query matches most of a
+// project; the picker shows a screenful, and the rest was serialised for
+// nobody.
+const maxSymbolMatches = 200
+
+// escapeLike makes a user's query literal inside a LIKE pattern: "%" and "_"
+// are wildcards there, so a search for "get_name" also matched "getXname",
+// and "%" matched everything.
+func escapeLike(query string) string {
+	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query)
+}
+
 func (s *sqliteStore) SearchSymbol(ctx context.Context, query string) ([]SymbolMatch, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, label, kind, file_path, line FROM nodes WHERE label LIKE ? ORDER BY label`,
-		"%"+query+"%")
+		`SELECT id, label, kind, file_path, line FROM nodes WHERE label LIKE ? ESCAPE '\' ORDER BY label LIMIT ?`,
+		"%"+escapeLike(query)+"%", maxSymbolMatches)
 	if err != nil {
 		return nil, fmt.Errorf("codegraph: SearchSymbol: %w", err)
 	}
@@ -402,6 +479,125 @@ func (s *sqliteStore) SearchSymbol(ctx context.Context, query string) ([]SymbolM
 		out = append(out, m)
 	}
 	return out, rows.Err()
+}
+
+// batchSize keeps an IN (...) list under SQLite's bound-parameter limit.
+const batchSize = 500
+
+func placeholders(n int) string {
+	return strings.TrimSuffix(strings.Repeat("?,", n), ",")
+}
+
+func stringArgs(ids []string) []any {
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		args[i] = id
+	}
+	return args
+}
+
+// GetNodes fetches many nodes in a few queries, keyed by ID. IDs the index
+// does not hold are simply absent from the map — a batch lookup is used for
+// "whatever these edges reach", where a dangling reference is not an error.
+func (s *sqliteStore) GetNodes(ctx context.Context, ids []string) (map[string]Node, error) {
+	out := make(map[string]Node, len(ids))
+	for start := 0; start < len(ids); start += batchSize {
+		chunk := ids[start:min(start+batchSize, len(ids))]
+		rows, err := s.db.QueryContext(ctx,
+			`SELECT id, label, kind, layer, file_path, line, end_line, summary, params FROM nodes WHERE id IN (`+placeholders(len(chunk))+`)`,
+			stringArgs(chunk)...)
+		if err != nil {
+			return nil, fmt.Errorf("codegraph: GetNodes: %w", err)
+		}
+		nodes, err := scanNodes(rows)
+		if err != nil {
+			return nil, err
+		}
+		for _, n := range nodes {
+			out[n.ID] = n
+		}
+	}
+	return out, nil
+}
+
+func scanNodes(rows *sql.Rows) ([]Node, error) {
+	defer rows.Close()
+	var out []Node
+	for rows.Next() {
+		var n Node
+		var paramsJSON string
+		if err := rows.Scan(&n.ID, &n.Label, &n.Kind, &n.Layer, &n.FilePath, &n.Line, &n.EndLine, &n.Summary, &paramsJSON); err != nil {
+			return nil, fmt.Errorf("codegraph: scan node: %w", err)
+		}
+		if err := json.Unmarshal([]byte(paramsJSON), &n.Params); err != nil {
+			return nil, fmt.Errorf("codegraph: unmarshal params for node %q: %w", n.ID, err)
+		}
+		out = append(out, n)
+	}
+	return out, rows.Err()
+}
+
+// GetAdjacentEdges returns every edge touching any of ids, in either
+// direction, ordered so the same query always returns the same list. It is
+// one level of GetNeighbors' walk in a few queries instead of two per node.
+func (s *sqliteStore) GetAdjacentEdges(ctx context.Context, ids []string) ([]Edge, error) {
+	var out []Edge
+	seen := map[Edge]bool{}
+	for start := 0; start < len(ids); start += batchSize {
+		chunk := ids[start:min(start+batchSize, len(ids))]
+		in := placeholders(len(chunk))
+		args := append(stringArgs(chunk), stringArgs(chunk)...)
+		rows, err := s.db.QueryContext(ctx,
+			`SELECT from_id, to_id, kind FROM edges WHERE from_id IN (`+in+`)
+			 UNION
+			 SELECT from_id, to_id, kind FROM edges WHERE to_id IN (`+in+`)
+			 ORDER BY from_id, to_id, kind`, args...)
+		if err != nil {
+			return nil, fmt.Errorf("codegraph: GetAdjacentEdges: %w", err)
+		}
+		for rows.Next() {
+			var e Edge
+			if err := rows.Scan(&e.From, &e.To, &e.Kind); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("codegraph: scan edge: %w", err)
+			}
+			if !seen[e] {
+				seen[e] = true
+				out = append(out, e)
+			}
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+	}
+	return out, nil
+}
+
+// ListClassMethods returns the methods a class declares — method nodes whose
+// ID is the class ID, a dot, and a name (plus a signature). Nested classes'
+// methods are excluded: "a.Outer.Inner.run()" belongs to a.Outer.Inner.
+func (s *sqliteStore) ListClassMethods(ctx context.Context, classID string) ([]Node, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, label, kind, layer, file_path, line, end_line, summary, params FROM nodes
+		 WHERE kind = 'method' AND id LIKE ? ESCAPE '\' ORDER BY id`,
+		escapeLike(classID)+".%")
+	if err != nil {
+		return nil, fmt.Errorf("codegraph: ListClassMethods: %w", err)
+	}
+	nodes, err := scanNodes(rows)
+	if err != nil {
+		return nil, err
+	}
+	out := nodes[:0]
+	for _, n := range nodes {
+		signature := strings.SplitN(n.ID, "(", 2)[0]
+		if dot := strings.LastIndex(signature, "."); dot >= 0 && signature[:dot] == classID {
+			out = append(out, n)
+		}
+	}
+	return out, nil
 }
 
 // GetDependents returns every file that directly depends on filePath (i.e.

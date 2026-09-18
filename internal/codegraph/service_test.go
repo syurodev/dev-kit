@@ -198,10 +198,11 @@ func TestServiceOpenProjectSetsProjectRoot(t *testing.T) {
 		t.Fatalf("OpenProject: %v", err)
 	}
 
-	_, root, err := svc.activeProject()
+	_, root, release, err := svc.activeProject()
 	if err != nil {
 		t.Fatalf("activeProject: %v", err)
 	}
+	release()
 	if root != "/fake/project" {
 		t.Fatalf("projectRoot = %q, want /fake/project", root)
 	}
@@ -313,7 +314,7 @@ func TestServiceReadWriteFileRoundTrip(t *testing.T) {
 		t.Fatalf("OpenProject: %v", err)
 	}
 
-	if err := svc.WriteFile(context.Background(), "notes.md", "# hello"); err != nil {
+	if err := svc.WriteFile(context.Background(), "notes.md", "# hello", ""); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	got, err := svc.ReadFile(context.Background(), "notes.md")
@@ -369,7 +370,7 @@ func TestServiceWriteFileRejectsPathOutsideProject(t *testing.T) {
 		t.Fatalf("OpenProject: %v", err)
 	}
 
-	if err := svc.WriteFile(context.Background(), "../../etc/passwd", "pwned"); !errors.Is(err, ErrPathOutsideProject) {
+	if err := svc.WriteFile(context.Background(), "../../etc/passwd", "pwned", ""); !errors.Is(err, ErrPathOutsideProject) {
 		t.Fatalf("WriteFile = %v, want ErrPathOutsideProject", err)
 	}
 }
@@ -390,7 +391,7 @@ func TestServiceWriteFileRejectsDanglingSymlink(t *testing.T) {
 		t.Fatalf("OpenProject: %v", err)
 	}
 
-	if err := svc.WriteFile(context.Background(), "link.txt", "pwned"); !errors.Is(err, ErrPathOutsideProject) {
+	if err := svc.WriteFile(context.Background(), "link.txt", "pwned", ""); !errors.Is(err, ErrPathOutsideProject) {
 		t.Fatalf("WriteFile = %v, want ErrPathOutsideProject", err)
 	}
 	if _, err := os.Stat(pwnedPath); !errors.Is(err, os.ErrNotExist) {
@@ -679,11 +680,11 @@ func TestServiceWaitForIndexReadyRespectsContextCancellation(t *testing.T) {
 	t.Cleanup(func() { svc.Close() })
 
 	svc.mu.Lock()
-	svc.reindexing = true // simulate a reindex that never finishes
+	svc.index.reindexCount++ // simulate a reindex that never finishes
 	svc.mu.Unlock()
 	defer func() {
 		svc.mu.Lock()
-		svc.reindexing = false
+		svc.index.reindexCount--
 		svc.mu.Unlock()
 	}()
 

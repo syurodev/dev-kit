@@ -610,7 +610,7 @@ func TestStoreSetPlanNodeFQN(t *testing.T) {
 		t.Fatalf("SavePlan: %v", err)
 	}
 
-	if err := store.SetPlanNodeFQN(ctx, "pn-2", "com.acme.refund.RefundService.handle"); err != nil {
+	if _, err := store.SetPlanNodeFQN(ctx, "pn-2", "com.acme.refund.RefundService.handle"); err != nil {
 		t.Fatalf("SetPlanNodeFQN: %v", err)
 	}
 	got, err := store.GetPlan(ctx)
@@ -621,7 +621,7 @@ func TestStoreSetPlanNodeFQN(t *testing.T) {
 		t.Fatalf("fqn = %q", got.Nodes[1].FQN)
 	}
 
-	if err := store.SetPlanNodeFQN(ctx, "does-not-exist", "com.acme.X.y"); !errors.Is(err, ErrPlanNodeNotFound) {
+	if _, err := store.SetPlanNodeFQN(ctx, "does-not-exist", "com.acme.X.y"); !errors.Is(err, ErrPlanNodeNotFound) {
 		t.Fatalf("SetPlanNodeFQN on unknown node = %v, want ErrPlanNodeNotFound", err)
 	}
 }

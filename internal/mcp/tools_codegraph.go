@@ -4,7 +4,6 @@ package mcp
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"devkit/internal/codegraph"
@@ -90,8 +89,9 @@ type codeGraphOpenProjectInput struct {
 }
 
 // toolCodeGraphOpenProject is the MCP counterpart of
-// bridge.AppService.CodeGraphOpenProject — same atomic OpenProjectAt call
-// under the same codegraph:index/project:new capability,
+// bridge.AppService.CodeGraphOpenProject — the same open, with the index under
+// the same config directory the desktop app uses (OpenProjectDir), under the
+// same codegraph:index/project:new capability,
 // documented in docs/dev-kit/codegraph.mdx's MCP tool surface table.
 //
 // path must be absolute: the MCP host runs inside the DevKit desktop
@@ -105,12 +105,7 @@ func (s *Server) toolCodeGraphOpenProject(ctx context.Context, _ *sdk.CallToolRe
 		return nil, nil, fmt.Errorf("codegraph: path must be absolute (got %q) — pass the directory you are working in", in.Path)
 	}
 	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:index", "project:new", meta("open_project", map[string]any{"path": in.Path}), func(ctx context.Context) (any, error) {
-		configDir, err := os.UserConfigDir()
-		if err != nil {
-			return nil, fmt.Errorf("codegraph: resolve config dir: %w", err)
-		}
-		dbPath := codegraph.ProjectDBPath(configDir, in.Path)
-		if err := s.deps.CodeGraph.OpenProjectAt(ctx, dbPath, in.Path); err != nil {
+		if err := s.deps.CodeGraph.OpenProjectDir(ctx, in.Path); err != nil {
 			return nil, err
 		}
 		return s.deps.CodeGraph.ActiveDetection(), nil
@@ -122,7 +117,7 @@ func (s *Server) toolCodeGraphOpenProject(ctx context.Context, _ *sdk.CallToolRe
 }
 
 func (s *Server) toolCodeGraphListEndpoints(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {
-	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:read", "project:active", meta("list_endpoints", nil), func(context.Context) (any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:read", "project:active", meta("list_endpoints", nil), func(ctx context.Context) (any, error) {
 		return s.deps.CodeGraph.ListEndpoints(ctx)
 	})
 	if err != nil {
@@ -136,7 +131,7 @@ type codeGraphGetApiFlowInput struct {
 }
 
 func (s *Server) toolCodeGraphGetApiFlow(ctx context.Context, _ *sdk.CallToolRequest, in codeGraphGetApiFlowInput) (*sdk.CallToolResult, any, error) {
-	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:read", "project:active", meta("get_api_flow", map[string]any{"endpoint_id": in.EndpointID}), func(context.Context) (any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:read", "project:active", meta("get_api_flow", map[string]any{"endpoint_id": in.EndpointID}), func(ctx context.Context) (any, error) {
 		return s.deps.CodeGraph.GetApiFlow(ctx, in.EndpointID)
 	})
 	if err != nil {
@@ -150,7 +145,7 @@ type codeGraphSearchSymbolInput struct {
 }
 
 func (s *Server) toolCodeGraphSearchSymbol(ctx context.Context, _ *sdk.CallToolRequest, in codeGraphSearchSymbolInput) (*sdk.CallToolResult, any, error) {
-	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:read", "project:active", meta("search_symbol", map[string]any{"query": in.Query}), func(context.Context) (any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:read", "project:active", meta("search_symbol", map[string]any{"query": in.Query}), func(ctx context.Context) (any, error) {
 		return s.deps.CodeGraph.SearchSymbol(ctx, in.Query)
 	})
 	if err != nil {
@@ -160,7 +155,7 @@ func (s *Server) toolCodeGraphSearchSymbol(ctx context.Context, _ *sdk.CallToolR
 }
 
 func (s *Server) toolCodeGraphListFiles(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {
-	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:fs", "project:active", meta("list_files", nil), func(context.Context) (any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:fs", "project:active", meta("list_files", nil), func(ctx context.Context) (any, error) {
 		return s.deps.CodeGraph.ListFiles(ctx)
 	})
 	if err != nil {
@@ -174,7 +169,7 @@ type codeGraphReadFileInput struct {
 }
 
 func (s *Server) toolCodeGraphReadFile(ctx context.Context, _ *sdk.CallToolRequest, in codeGraphReadFileInput) (*sdk.CallToolResult, any, error) {
-	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:fs", "file:"+in.RelativePath, meta("read_file", map[string]any{"relative_path": in.RelativePath}), func(context.Context) (any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:fs", "file:"+in.RelativePath, meta("read_file", map[string]any{"relative_path": in.RelativePath}), func(ctx context.Context) (any, error) {
 		return s.deps.CodeGraph.ReadFile(ctx, in.RelativePath)
 	})
 	if err != nil {
@@ -190,7 +185,7 @@ type codeGraphGetCodeSnippetInput struct {
 }
 
 func (s *Server) toolCodeGraphGetCodeSnippet(ctx context.Context, _ *sdk.CallToolRequest, in codeGraphGetCodeSnippetInput) (*sdk.CallToolResult, any, error) {
-	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:fs", "file:"+in.FilePath, meta("get_code_snippet", map[string]any{"file_path": in.FilePath, "line": in.Line, "end_line": in.EndLine}), func(context.Context) (any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:fs", "file:"+in.FilePath, meta("get_code_snippet", map[string]any{"file_path": in.FilePath, "line": in.Line, "end_line": in.EndLine}), func(ctx context.Context) (any, error) {
 		return s.deps.CodeGraph.GetCodeSnippet(ctx, in.FilePath, in.Line, in.EndLine)
 	})
 	if err != nil {
@@ -204,7 +199,7 @@ type codeGraphGetBlastRadiusInput struct {
 }
 
 func (s *Server) toolCodeGraphGetBlastRadius(ctx context.Context, _ *sdk.CallToolRequest, in codeGraphGetBlastRadiusInput) (*sdk.CallToolResult, any, error) {
-	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:read", "project:active", meta("get_blast_radius", map[string]any{"file_path": in.FilePath}), func(context.Context) (any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:read", "project:active", meta("get_blast_radius", map[string]any{"file_path": in.FilePath}), func(ctx context.Context) (any, error) {
 		return s.deps.CodeGraph.GetBlastRadius(ctx, in.FilePath)
 	})
 	if err != nil {
@@ -214,7 +209,7 @@ func (s *Server) toolCodeGraphGetBlastRadius(ctx context.Context, _ *sdk.CallToo
 }
 
 func (s *Server) toolCodeGraphWaitForIndexReady(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {
-	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:read", "project:active", meta("wait_for_index_ready", nil), func(context.Context) (any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:read", "project:active", meta("wait_for_index_ready", nil), func(ctx context.Context) (any, error) {
 		return s.deps.CodeGraph.WaitForIndexReady(ctx)
 	})
 	if err != nil {
@@ -232,7 +227,7 @@ type codeGraphGetNeighborsInput struct {
 
 func (s *Server) toolCodeGraphGetNeighbors(ctx context.Context, _ *sdk.CallToolRequest, in codeGraphGetNeighborsInput) (*sdk.CallToolResult, any, error) {
 	filter := codegraph.NeighborFilter{Layers: in.Layers, Continuation: in.Continuation}
-	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:read", "project:active", meta("get_neighbors", map[string]any{"root_id": in.RootID, "depth": in.Depth}), func(context.Context) (any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:read", "project:active", meta("get_neighbors", map[string]any{"root_id": in.RootID, "depth": in.Depth}), func(ctx context.Context) (any, error) {
 		return s.deps.CodeGraph.GetNeighbors(ctx, in.RootID, in.Depth, filter)
 	})
 	if err != nil {
@@ -247,7 +242,7 @@ type codeGraphTraceDataFlowInput struct {
 }
 
 func (s *Server) toolCodeGraphTraceDataFlow(ctx context.Context, _ *sdk.CallToolRequest, in codeGraphTraceDataFlowInput) (*sdk.CallToolResult, any, error) {
-	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:read", "project:active", meta("trace_data_flow", map[string]any{"symbol_id": in.SymbolID, "field_name": in.FieldName}), func(context.Context) (any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:read", "project:active", meta("trace_data_flow", map[string]any{"symbol_id": in.SymbolID, "field_name": in.FieldName}), func(ctx context.Context) (any, error) {
 		return s.deps.CodeGraph.TraceDataFlow(ctx, in.SymbolID, in.FieldName)
 	})
 	if err != nil {
@@ -261,7 +256,7 @@ type codeGraphListFieldsInput struct {
 }
 
 func (s *Server) toolCodeGraphListFields(ctx context.Context, _ *sdk.CallToolRequest, in codeGraphListFieldsInput) (*sdk.CallToolResult, any, error) {
-	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:read", "project:active", meta("list_fields", map[string]any{"node_id": in.NodeID}), func(context.Context) (any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:read", "project:active", meta("list_fields", map[string]any{"node_id": in.NodeID}), func(ctx context.Context) (any, error) {
 		return s.deps.CodeGraph.ListFields(ctx, in.NodeID)
 	})
 	if err != nil {

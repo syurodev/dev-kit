@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,7 +12,19 @@ import (
 
 // RestoreLastProject enables session persistence and reopens the last selected
 // project. Call after wiring the analyzer, before accepting MCP requests.
+//
+// It returns as soon as the project is marked as opening, and analyzes in the
+// background. Startup used to wait here for the whole open — ten minutes, at
+// the analyzer's timeout — before the window appeared at all. Now the window
+// comes up at once: codegraph:projectChanged tells it which folder is open,
+// readiness reports "opening" until the analysis lands, and
+// codegraph:indexUpdated / WaitForIndexReady carry the rest. A failure is
+// recorded as the index error (WaitForIndexReady returns it) and logged.
+//
+// ctx bounds only the synchronous part; the background analysis belongs to
+// the project, and Close or the next open cancels it.
 func (s *Service) RestoreLastProject(ctx context.Context, configDir string) error {
+	s.SetConfigDir(configDir)
 	s.openMu.Lock()
 	s.sessionPath = filepath.Join(configDir, "DevKit", "codegraph", "active-project")
 	data, err := os.ReadFile(s.sessionPath)
@@ -21,6 +34,9 @@ func (s *Service) RestoreLastProject(ctx context.Context, configDir string) erro
 	}
 	if err != nil {
 		return fmt.Errorf("codegraph: restore project: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	root := strings.TrimSpace(string(data))
 	if !filepath.IsAbs(root) {
@@ -33,7 +49,16 @@ func (s *Service) RestoreLastProject(ctx context.Context, configDir string) erro
 	if !info.IsDir() {
 		return fmt.Errorf("codegraph: saved project is not a directory")
 	}
-	return s.OpenProjectAt(ctx, ProjectDBPath(configDir, root), root)
+	run, err := s.beginOpen(ProjectDBPath(configDir, root), root)
+	if err != nil {
+		return err
+	}
+	go func() {
+		if err := run(context.Background()); err != nil && !errors.Is(err, ErrProjectChanged) {
+			log.Printf("codegraph: could not restore last project: %v", err)
+		}
+	}()
+	return nil
 }
 
 // Caller holds openMu. Atomic rename preserves the last selection on a crash.

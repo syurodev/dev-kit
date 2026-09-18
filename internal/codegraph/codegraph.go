@@ -48,6 +48,17 @@ var (
 	// corrupted content back over the real file on disk. Reject up front
 	// instead.
 	ErrBinaryFile = errors.New("codegraph: file is not text")
+	// ErrFileTooLarge is returned by ReadFile (and GetCodeSnippet) for a file
+	// past maxReadFileBytes — the editor is for source, and a huge file would
+	// be read whole into memory and pushed across the bridge as one string.
+	ErrFileTooLarge = errors.New("codegraph: file is too large to open")
+	// ErrProjectChanged is returned when the active project is no longer the
+	// one a call was made for: WriteFile given an expectedRoot that is not the
+	// open project, an open that a newer open (or Close) replaced before it
+	// finished, a query whose store was retired by a switch mid-call. The
+	// caller's view of which folder is open is stale; the fix is to re-read
+	// it, never to retry the same call blindly.
+	ErrProjectChanged = errors.New("codegraph: the active project changed")
 )
 
 // Param is one method parameter's name and type, e.g. {Name: "request", Type:
@@ -307,6 +318,13 @@ type Store interface {
 	ListEndpoints(ctx context.Context) ([]Endpoint, error)
 	GetEndpoint(ctx context.Context, endpointID string) (Endpoint, error)
 	GetNode(ctx context.Context, nodeID string) (Node, error)
+	// GetNodes is GetNode for many IDs at once; missing IDs are absent from
+	// the map rather than an error.
+	GetNodes(ctx context.Context, ids []string) (map[string]Node, error)
+	// GetAdjacentEdges returns every edge into or out of any of ids.
+	GetAdjacentEdges(ctx context.Context, ids []string) ([]Edge, error)
+	// ListClassMethods returns the method nodes a class declares directly.
+	ListClassMethods(ctx context.Context, classID string) ([]Node, error)
 	GetOutEdges(ctx context.Context, nodeID string) ([]Edge, error)
 	GetInEdges(ctx context.Context, nodeID string) ([]Edge, error)
 	SearchSymbol(ctx context.Context, query string) ([]SymbolMatch, error)
@@ -318,7 +336,9 @@ type Store interface {
 	SavePlan(ctx context.Context, plan Plan) error
 	GetPlan(ctx context.Context) (Plan, error)
 	SetPlanState(ctx context.Context, state string) error
-	SetPlanNodeFQN(ctx context.Context, planNodeID, fqn string) error
+	// SetPlanNodeFQN reports whether the change took an approved plan back
+	// to draft.
+	SetPlanNodeFQN(ctx context.Context, planNodeID, fqn string) (bool, error)
 	AddComment(ctx context.Context, c PlanComment) error
 	ListComments(ctx context.Context, planNodeID string) ([]PlanComment, error)
 	CountComments(ctx context.Context) (map[string]int, error)

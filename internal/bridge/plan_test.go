@@ -13,11 +13,8 @@ func newPlanTestService(t *testing.T, analysis codegraph.AnalysisResult) *AppSer
 	t.Helper()
 	s := newTestService(t)
 	s.container.CodeGraph = codegraph.NewService(codegraph.NewNilStore(), fakeCodeGraphAnalyzer{result: analysis})
-	if err := s.container.CodeGraph.SetProjectPath(t.TempDir() + "/index.db"); err != nil {
-		t.Fatalf("SetProjectPath: %v", err)
-	}
-	if err := s.container.CodeGraph.OpenProject(context.Background(), "/fake/project"); err != nil {
-		t.Fatalf("OpenProject: %v", err)
+	if err := s.container.CodeGraph.OpenProjectAt(context.Background(), t.TempDir()+"/index.db", "/fake/project"); err != nil {
+		t.Fatalf("OpenProjectAt: %v", err)
 	}
 	return s
 }

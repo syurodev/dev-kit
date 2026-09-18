@@ -55,7 +55,7 @@ type codeGraphProposeFlowInput struct {
 
 func (s *Server) toolCodeGraphProposeFlow(ctx context.Context, _ *sdk.CallToolRequest, in codeGraphProposeFlowInput) (*sdk.CallToolResult, any, error) {
 	plan := codegraph.Plan{Description: in.Description, Nodes: in.Nodes, Edges: in.Edges}
-	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:plan", "plan:active", meta("propose_flow", map[string]any{"nodes": len(in.Nodes)}), func(context.Context) (any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:plan", "plan:active", meta("propose_flow", map[string]any{"nodes": len(in.Nodes)}), func(ctx context.Context) (any, error) {
 		return s.deps.CodeGraph.ProposeFlow(ctx, plan)
 	})
 	if err != nil {
@@ -81,7 +81,7 @@ type plannedFlowResult struct {
 }
 
 func (s *Server) toolCodeGraphGetPlannedFlow(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {
-	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:plan", "plan:active", meta("get_planned_flow", nil), func(context.Context) (any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:plan", "plan:active", meta("get_planned_flow", nil), func(ctx context.Context) (any, error) {
 		plan, err := s.deps.CodeGraph.GetPlannedFlow(ctx)
 		if err != nil {
 			return nil, err
@@ -105,7 +105,7 @@ func (s *Server) toolCodeGraphGetPlannedFlow(ctx context.Context, _ *sdk.CallToo
 }
 
 func (s *Server) toolCodeGraphGetPlanProgress(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, any, error) {
-	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:plan", "plan:active", meta("get_plan_progress", nil), func(context.Context) (any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:plan", "plan:active", meta("get_plan_progress", nil), func(ctx context.Context) (any, error) {
 		return s.deps.CodeGraph.GetPlanProgress(ctx)
 	})
 	if err != nil {
@@ -120,7 +120,7 @@ type codeGraphRelinkPlanNodeInput struct {
 }
 
 func (s *Server) toolCodeGraphRelinkPlanNode(ctx context.Context, _ *sdk.CallToolRequest, in codeGraphRelinkPlanNodeInput) (*sdk.CallToolResult, any, error) {
-	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:plan", "plan:active", meta("relink_plan_node", map[string]any{"plan_node_id": in.PlanNodeID, "fqn": in.FQN}), func(context.Context) (any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:plan", "plan:active", meta("relink_plan_node", map[string]any{"plan_node_id": in.PlanNodeID, "fqn": in.FQN}), func(ctx context.Context) (any, error) {
 		return nil, s.deps.CodeGraph.RelinkPlanNode(ctx, in.PlanNodeID, in.FQN)
 	})
 	if err != nil {
@@ -138,7 +138,7 @@ type codeGraphReplyPlanNodeInput struct {
 func (s *Server) toolCodeGraphReplyPlanNode(ctx context.Context, _ *sdk.CallToolRequest, in codeGraphReplyPlanNodeInput) (*sdk.CallToolResult, any, error) {
 	v, err := s.deps.Caller.Call(ctx, "builtin.codegraph", "codegraph:plan", "plan:active",
 		meta("reply_plan_node", map[string]any{"plan_node_id": in.PlanNodeID}),
-		func(context.Context) (any, error) {
+		func(ctx context.Context) (any, error) {
 			return nil, s.deps.CodeGraph.ReplyPlanNode(ctx, in.PlanNodeID, in.Body, in.SessionID)
 		})
 	if err != nil {

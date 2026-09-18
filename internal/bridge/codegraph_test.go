@@ -34,7 +34,7 @@ func TestCodeGraphOpenProjectThenListEndpoints(t *testing.T) {
 	s.container.CodeGraph = codegraph.NewService(codegraph.NewNilStore(), fakeCodeGraphAnalyzer{result: result})
 	s.container.ConfigDir = t.TempDir()
 
-	if _, err := s.CodeGraphOpenProject("/fake/project"); err != nil {
+	if _, err := s.CodeGraphOpenProject(context.Background(), "/fake/project"); err != nil {
 		t.Fatalf("CodeGraphOpenProject: %v", err)
 	}
 
@@ -56,10 +56,10 @@ func TestCodeGraphOpenProjectTwiceReusesSameStore(t *testing.T) {
 	s.container.CodeGraph = codegraph.NewService(codegraph.NewNilStore(), fakeCodeGraphAnalyzer{result: result})
 	s.container.ConfigDir = t.TempDir()
 
-	if _, err := s.CodeGraphOpenProject("/fake/project"); err != nil {
+	if _, err := s.CodeGraphOpenProject(context.Background(), "/fake/project"); err != nil {
 		t.Fatalf("first CodeGraphOpenProject: %v", err)
 	}
-	if _, err := s.CodeGraphOpenProject("/fake/project"); err != nil {
+	if _, err := s.CodeGraphOpenProject(context.Background(), "/fake/project"); err != nil {
 		t.Fatalf("second CodeGraphOpenProject: %v", err)
 	}
 
@@ -91,11 +91,11 @@ func TestCodeGraphListReadWriteFile(t *testing.T) {
 	s.container.ConfigDir = t.TempDir()
 	dir := t.TempDir()
 
-	if _, err := s.CodeGraphOpenProject(dir); err != nil {
+	if _, err := s.CodeGraphOpenProject(context.Background(), dir); err != nil {
 		t.Fatalf("CodeGraphOpenProject: %v", err)
 	}
 
-	if err := s.CodeGraphWriteFile("notes.md", "# hello"); err != nil {
+	if err := s.CodeGraphWriteFile("notes.md", "# hello", ""); err != nil {
 		t.Fatalf("CodeGraphWriteFile: %v", err)
 	}
 	got, err := s.CodeGraphReadFile("notes.md")
@@ -129,7 +129,7 @@ func TestCodeGraphGetCodeSnippet(t *testing.T) {
 	s.container.CodeGraph = codegraph.NewService(codegraph.NewNilStore(), fakeCodeGraphAnalyzer{result: result})
 	s.container.ConfigDir = t.TempDir()
 
-	if _, err := s.CodeGraphOpenProject(dir); err != nil {
+	if _, err := s.CodeGraphOpenProject(context.Background(), dir); err != nil {
 		t.Fatalf("CodeGraphOpenProject: %v", err)
 	}
 
@@ -150,11 +150,8 @@ func TestCodeGraphGetBlastRadius(t *testing.T) {
 		},
 	}
 	s.container.CodeGraph = codegraph.NewService(codegraph.NewNilStore(), fakeCodeGraphAnalyzer{result: result})
-	if err := s.container.CodeGraph.SetProjectPath(filepath.Join(t.TempDir(), "index.db")); err != nil {
-		t.Fatalf("SetProjectPath: %v", err)
-	}
-	if err := s.container.CodeGraph.OpenProject(context.Background(), "/fake/project"); err != nil {
-		t.Fatalf("OpenProject: %v", err)
+	if err := s.container.CodeGraph.OpenProjectAt(context.Background(), filepath.Join(t.TempDir(), "index.db"), "/fake/project"); err != nil {
+		t.Fatalf("OpenProjectAt: %v", err)
 	}
 
 	radius, err := s.CodeGraphGetBlastRadius("Service.java")
@@ -169,11 +166,8 @@ func TestCodeGraphGetBlastRadius(t *testing.T) {
 func TestCodeGraphWaitForIndexReady(t *testing.T) {
 	s := newTestService(t)
 	s.container.CodeGraph = codegraph.NewService(codegraph.NewNilStore(), fakeCodeGraphAnalyzer{result: codegraph.AnalysisResult{}})
-	if err := s.container.CodeGraph.SetProjectPath(filepath.Join(t.TempDir(), "index.db")); err != nil {
-		t.Fatalf("SetProjectPath: %v", err)
-	}
-	if err := s.container.CodeGraph.OpenProject(context.Background(), "/fake/project"); err != nil {
-		t.Fatalf("OpenProject: %v", err)
+	if err := s.container.CodeGraph.OpenProjectAt(context.Background(), filepath.Join(t.TempDir(), "index.db"), "/fake/project"); err != nil {
+		t.Fatalf("OpenProjectAt: %v", err)
 	}
 	t.Cleanup(func() { s.container.CodeGraph.Close() })
 
@@ -196,11 +190,8 @@ func TestCodeGraphGetNeighbors(t *testing.T) {
 		Edges: []codegraph.Edge{{From: "n1", To: "n2", Kind: "call"}},
 	}
 	s.container.CodeGraph = codegraph.NewService(codegraph.NewNilStore(), fakeCodeGraphAnalyzer{result: result})
-	if err := s.container.CodeGraph.SetProjectPath(filepath.Join(t.TempDir(), "index.db")); err != nil {
-		t.Fatalf("SetProjectPath: %v", err)
-	}
-	if err := s.container.CodeGraph.OpenProject(context.Background(), "/fake/project"); err != nil {
-		t.Fatalf("OpenProject: %v", err)
+	if err := s.container.CodeGraph.OpenProjectAt(context.Background(), filepath.Join(t.TempDir(), "index.db"), "/fake/project"); err != nil {
+		t.Fatalf("OpenProjectAt: %v", err)
 	}
 	t.Cleanup(func() { s.container.CodeGraph.Close() })
 
@@ -225,11 +216,8 @@ func TestCodeGraphTraceDataFlow(t *testing.T) {
 		},
 	}
 	s.container.CodeGraph = codegraph.NewService(codegraph.NewNilStore(), fakeCodeGraphAnalyzer{result: result})
-	if err := s.container.CodeGraph.SetProjectPath(filepath.Join(t.TempDir(), "index.db")); err != nil {
-		t.Fatalf("SetProjectPath: %v", err)
-	}
-	if err := s.container.CodeGraph.OpenProject(context.Background(), "/fake/project"); err != nil {
-		t.Fatalf("OpenProject: %v", err)
+	if err := s.container.CodeGraph.OpenProjectAt(context.Background(), filepath.Join(t.TempDir(), "index.db"), "/fake/project"); err != nil {
+		t.Fatalf("OpenProjectAt: %v", err)
 	}
 	t.Cleanup(func() { s.container.CodeGraph.Close() })
 
@@ -248,11 +236,8 @@ func TestCodeGraphStartTerminal(t *testing.T) {
 	s.container.Terminal = reg
 	s.container.CodeGraph = codegraph.NewService(codegraph.NewNilStore(), fakeCodeGraphAnalyzer{result: codegraph.AnalysisResult{}})
 	s.container.CodeGraph.SetTerminalRegistry(reg)
-	if err := s.container.CodeGraph.SetProjectPath(t.TempDir() + "/index.db"); err != nil {
-		t.Fatalf("SetProjectPath: %v", err)
-	}
-	if err := s.container.CodeGraph.OpenProject(context.Background(), t.TempDir()); err != nil {
-		t.Fatalf("OpenProject: %v", err)
+	if err := s.container.CodeGraph.OpenProjectAt(context.Background(), t.TempDir()+"/index.db", t.TempDir()); err != nil {
+		t.Fatalf("OpenProjectAt: %v", err)
 	}
 
 	sessionID, err := s.CodeGraphStartTerminal(24, 80)
@@ -305,7 +290,7 @@ func TestCodeGraphOpenProjectReportsEveryModuleItFound(t *testing.T) {
 		}
 	}
 
-	detected, err := s.CodeGraphOpenProject(root)
+	detected, err := s.CodeGraphOpenProject(context.Background(), root)
 	if err != nil {
 		t.Fatalf("CodeGraphOpenProject: %v", err)
 	}
@@ -333,7 +318,7 @@ func TestCodeGraphOpenProjectRefusesAFolderThatIsNotAProject(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := s.CodeGraphOpenProject(root)
+	_, err := s.CodeGraphOpenProject(context.Background(), root)
 	if err == nil {
 		t.Fatal("a folder of text files is not a project")
 	}
@@ -341,5 +326,41 @@ func TestCodeGraphOpenProjectRefusesAFolderThatIsNotAProject(t *testing.T) {
 	// retry that could never work.
 	if !strings.HasPrefix(err.Error(), "unsupported_project:") {
 		t.Fatalf("expected the unsupported_project code, got %q", err.Error())
+	}
+}
+
+// A buffer opened under one project must not be saved into another: the
+// frontend passes the root it opened the file under, and a switch in between
+// (an agent's codegraph.openProject) turns the save into project_changed.
+func TestCodeGraphWriteFileRefusesAStaleProjectRoot(t *testing.T) {
+	s := newTestService(t)
+	s.container.CodeGraph = codegraph.NewService(codegraph.NewNilStore(), fakeCodeGraphAnalyzer{result: codegraph.AnalysisResult{}})
+	s.container.ConfigDir = t.TempDir()
+	t.Cleanup(func() { s.container.CodeGraph.Close() })
+	dirA, dirB := t.TempDir(), t.TempDir()
+	if _, err := s.CodeGraphOpenProject(context.Background(), dirA); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CodeGraphOpenProject(context.Background(), dirB); err != nil {
+		t.Fatal(err)
+	}
+
+	err := s.CodeGraphWriteFile("notes.md", "for A", dirA)
+	if err == nil || !strings.HasPrefix(err.Error(), "project_changed:") {
+		t.Fatalf("expected the project_changed code, got %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(dirB, "notes.md")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("the refused save wrote into B: %v", statErr)
+	}
+	if err := s.CodeGraphWriteFile("notes.md", "for B", dirB); err != nil {
+		t.Fatalf("a save into the open project: %v", err)
+	}
+}
+
+func TestCodeGraphCancelAnalyzerBuildWithNothingBuilding(t *testing.T) {
+	s := newTestService(t)
+	s.container.CodeGraph = codegraph.NewService(codegraph.NewNilStore(), fakeCodeGraphAnalyzer{})
+	if err := s.CodeGraphCancelAnalyzerBuild(); err != nil {
+		t.Fatalf("cancelling no build must be a no-op: %v", err)
 	}
 }

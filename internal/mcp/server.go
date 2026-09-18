@@ -110,7 +110,9 @@ type KafkaAPI interface {
 
 // CodeGraphAPI is the codegraph domain surface MCP tools invoke.
 type CodeGraphAPI interface {
-	OpenProjectAt(ctx context.Context, dbPath, projectPath string) error
+	// OpenProjectDir opens a folder with its index under the config dir the
+	// desktop app itself uses, so MCP and the UI share one index per project.
+	OpenProjectDir(ctx context.Context, projectPath string) error
 	ActiveDetection() codegraph.DetectedProject
 	ListEndpoints(ctx context.Context) ([]codegraph.Endpoint, error)
 	GetApiFlow(ctx context.Context, endpointID string) (codegraph.ApiFlow, error)

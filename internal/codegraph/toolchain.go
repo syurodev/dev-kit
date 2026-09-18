@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 var (
@@ -350,9 +351,18 @@ func (r Requirement) inspect(ctx context.Context, c candidate) Requirement {
 	r.Path = c.path
 	r.Source = c.source
 
+	// Bounded: a version flag answers in well under a second, and a candidate
+	// that does not — the macOS /usr/bin/java stub resolving a broken
+	// JAVA_HOME, a wrapper waiting on a network share — must not stall the
+	// setup panel, or startup, which probes once.
+	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
+	defer cancel()
+
 	// CombinedOutput because a version banner is as likely to go to stderr as
 	// to stdout, and it is small enough that buffering it is not a concern.
 	cmd := exec.CommandContext(ctx, c.path, r.versionArgs...)
+	cmd.WaitDelay = time.Second
+	killProcessGroup(cmd)
 	// A launcher script may need its own runtime just to print a version. Give
 	// it the environment the user configured; if that runtime is itself wrong,
 	// its own requirement reports that separately.
@@ -456,6 +466,24 @@ func (s *Service) BuildAnalyzer(ctx context.Context, language string) error {
 	}
 	defer s.buildMu.Unlock()
 
+	// Bounded, and cancellable from outside the call: CancelAnalyzerBuild (the
+	// setup panel's Cancel) and Close (quitting the app) both stop it.
+	if _, ok := ctx.Deadline(); !ok {
+		var cancelTimeout context.CancelFunc
+		ctx, cancelTimeout = context.WithTimeout(ctx, buildTimeout)
+		defer cancelTimeout()
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	s.mu.Lock()
+	s.buildCancel = cancel
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		s.buildCancel = nil
+		s.mu.Unlock()
+	}()
+
 	resolved, buildable := toolchain.resolve(ctx)
 	if !buildable {
 		for _, req := range resolved {
@@ -482,6 +510,27 @@ func (s *Service) BuildAnalyzer(ctx context.Context, language string) error {
 	s.SetAnalyzer(toolchain.Analyzer())
 	return nil
 }
+
+// CancelAnalyzerBuild stops the analyzer build in flight, if there is one —
+// Maven, its JVM and everything they forked. BuildAnalyzer then returns the
+// cancellation. A no-op when nothing is building.
+func (s *Service) CancelAnalyzerBuild() {
+	s.mu.Lock()
+	cancel := s.buildCancel
+	s.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+const (
+	// probeTimeout bounds one version probe.
+	probeTimeout = 15 * time.Second
+	// buildTimeout bounds an analyzer build when the caller set no deadline.
+	// A cold Maven cache downloads the analyzer's dependencies, which is
+	// minutes on a slow network; past this it is not downloading any more.
+	buildTimeout = 30 * time.Minute
+)
 
 // Analyzer returns an Analyzer that runs this toolchain's artifact.
 //
@@ -548,6 +597,11 @@ func (t Toolchain) run(ctx context.Context, resolved []Requirement, onLine func(
 	cmd := exec.CommandContext(ctx, program, t.Build[1:]...)
 	cmd.Dir = t.Dir
 	cmd.Env = t.environ(byProgram)
+	// Cancelling a build must stop Maven's JVM and whatever it forked, not
+	// just the mvn launcher script, and must then return even if something
+	// still holds the output pipe. See killProcessGroup.
+	cmd.WaitDelay = 5 * time.Second
+	killProcessGroup(cmd)
 
 	// One pipe for both streams: build tools put warnings on stderr and the
 	// log on stdout, and a reader who sees them apart cannot reconstruct the
@@ -589,6 +643,9 @@ func (t Toolchain) run(ctx context.Context, resolved []Requirement, onLine func(
 	pipeReader.Close()
 
 	if waitErr != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return fmt.Errorf("codegraph: %s analyzer build stopped: %w", t.Language, ctxErr)
+		}
 		return fmt.Errorf("codegraph: %s analyzer build failed: %w", t.Language, waitErr)
 	}
 	return nil

@@ -424,9 +424,24 @@ export function CodeGraphApprovePlan(): $CancellablePromise<void> {
  * Its own capability: this is the one CodeGraph call that runs a build tool
  * against the user's machine, and a grant that covers reading an index should
  * not silently also cover that.
+ * 
+ * ctx cancels the build (promise cancel), as does CodeGraphCancelAnalyzerBuild
+ * for a caller that no longer holds the promise.
  */
 export function CodeGraphBuildAnalyzer(language: string): $CancellablePromise<void> {
     return $Call.ByID(2644427237, language);
+}
+
+/**
+ * CodeGraphCancelAnalyzerBuild stops the analyzer build in flight — Maven and
+ * every process it started — so the setup panel's Cancel works even after the
+ * view that started the build has gone. The build's own call then fails with
+ * operation_cancelled. A no-op when nothing is building.
+ * 
+ * Same capability as the build: stopping one is part of running one.
+ */
+export function CodeGraphCancelAnalyzerBuild(): $CancellablePromise<void> {
+    return $Call.ByID(1636823899);
 }
 
 /**
@@ -489,6 +504,12 @@ export function CodeGraphListPlanNodeComments(planNodeID: string): $CancellableP
  * how many modules were found. A repository of microservices is the case that
  * needs it: it indexes as one graph, and without a count it is indistinguishable
  * on screen from a single project that happens to have a lot of endpoints.
+ * 
+ * ctx is the call's own context: cancelling the frontend's promise cancels it
+ * (the same mechanism DBQuery uses), and with it the analysis — an open of a
+ * large project is minutes, and "never mind" has to stop the JVM, not just the
+ * spinner. A newer open or the app quitting cancels it too, reported as
+ * codegraph.ErrProjectChanged.
  */
 export function CodeGraphOpenProject(path: string): $CancellablePromise<codegraph$0.DetectedProject> {
     return $Call.ByID(1356804218, path);
@@ -533,8 +554,15 @@ export function CodeGraphWaitForIndexReady(): $CancellablePromise<number> {
     return $Call.ByID(1296963836);
 }
 
-export function CodeGraphWriteFile(relativePath: string, content: string): $CancellablePromise<void> {
-    return $Call.ByID(3478134130, relativePath, content);
+/**
+ * CodeGraphWriteFile saves an editor buffer. expectedRoot is the project root
+ * the buffer was opened under: if the active project has changed since — an
+ * agent can switch it over MCP while the buffer is open — the save is refused
+ * with project_changed instead of landing, as a new or overwritten file, in a
+ * project the user was not editing. Empty skips the check.
+ */
+export function CodeGraphWriteFile(relativePath: string, content: string, expectedRoot: string): $CancellablePromise<void> {
+    return $Call.ByID(3478134130, relativePath, content, expectedRoot);
 }
 
 export function DBActiveProfile(): $CancellablePromise<$models.ActiveProfileDTO> {
