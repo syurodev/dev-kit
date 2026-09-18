@@ -12,6 +12,11 @@ export type ConnectionProfile = {
   sslMode: string;
   env: string;
   readOnly: boolean;
+  /**
+   * sslmode=disable to a non-loopback host, allowed because the network is
+   * already encrypted end to end (Tailscale, WireGuard, a VPN).
+   */
+  trustedNetwork?: boolean;
   sshProfileId?: string;
   engine?: string;
   driverOptions?: Record<string, string>;
@@ -34,6 +39,11 @@ export type CreateProfileInput = {
   sslMode: string;
   env: string;
   engine?: string;
+  /**
+   * sslmode=disable to a non-loopback host, allowed because the network is
+   * already encrypted end to end (Tailscale, WireGuard, a VPN).
+   */
+  trustedNetwork?: boolean;
   /** Set at creation so a tunnelled profile never exists with a direct path. */
   sshProfileId?: string;
   /**
@@ -48,6 +58,11 @@ export type CreateProfileInput = {
 export type UpdateProfileOptionsInput = {
   env: string;
   readOnly: boolean;
+  /**
+   * sslmode=disable to a non-loopback host, allowed because the network is
+   * already encrypted end to end (Tailscale, WireGuard, a VPN).
+   */
+  trustedNetwork?: boolean;
   sshProfileId?: string;
   /**
    * PEM bundle to verify the server certificate against, instead of the
@@ -203,6 +218,7 @@ function toProfile(p: {
   ssl_mode: string;
   env: string;
   read_only?: boolean;
+  trusted_network?: boolean;
   ssh_profile_id?: string;
   ca_cert?: string;
   engine?: string;
@@ -218,6 +234,7 @@ function toProfile(p: {
     sslMode: p.ssl_mode,
     env: p.env,
     readOnly: Boolean(p.read_only),
+    trustedNetwork: Boolean(p.trusted_network),
     sshProfileId: p.ssh_profile_id || undefined,
     caCert: p.ca_cert || undefined,
     engine: p.engine || "postgres",
@@ -290,6 +307,7 @@ export function createProfile(input: CreateProfileInput): Promise<ConnectionProf
       username: input.username,
       password: input.password,
       ssl_mode: input.sslMode,
+      trusted_network: Boolean(input.trustedNetwork),
       env: input.env,
       // Sent at creation, not patched afterwards: a tunnelled profile must
       // never exist with a direct connection path, however briefly.
@@ -308,6 +326,7 @@ export function updateProfileOptions(
     const updated = await AppService.DBUpdateProfileOptions(id, {
       env: opts.env,
       read_only: opts.readOnly,
+      trusted_network: Boolean(opts.trustedNetwork),
       ssh_profile_id: opts.sshProfileId || "",
       ca_cert: opts.caCert ?? "",
     });
@@ -332,6 +351,7 @@ export function testNewConnection(input: CreateProfileInput): Promise<void> {
         username: input.username,
         password: input.password,
         ssl_mode: input.sslMode,
+        trusted_network: Boolean(input.trustedNetwork),
         env: input.env,
         ssh_profile_id: input.sshProfileId ?? "",
       ca_cert: input.caCert ?? "",

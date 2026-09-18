@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { Database, X, AlertTriangle, Radio, ShieldCheck } from "lucide-react";
+import { Database, X, AlertTriangle, Radio, ShieldCheck, Network } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { NativeSelect } from "@/components/ui/native-select";
 import { viewIcon } from "@/modules/registry";
 import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
@@ -12,10 +13,16 @@ import { errorMessage } from "../../../bridge/errors";
 
 /** What each mode actually guarantees, in one line. */
 const SSL_MODE_HINT: Record<string, string> = {
-  disable: "No encryption. Refused for anything but a loopback host.",
+  disable: "No encryption. Loopback only, unless the network below is already encrypted.",
   require: "Encrypted, but the server's identity is not checked.",
   "verify-full": "Encrypted, and the certificate must match the host name.",
 };
+
+/** Mirrors isLoopbackHost in Go: the hosts sslmode=disable reaches unasked. */
+function isLoopbackHost(host: string): boolean {
+  const h = host.trim().toLowerCase();
+  return h === "localhost" || h === "::1" || h.startsWith("127.");
+}
 
 /** The modes that read a CA bundle. */
 function verifiesCertificate(sslMode: string): boolean {
@@ -61,6 +68,7 @@ export function NewConnectionDialog() {
   const [password, setPassword] = useState("");
   const [sslMode, setSslMode] = useState("disable");
   const [caCert, setCaCert] = useState("");
+  const [trustedNetwork, setTrustedNetwork] = useState(false);
   const [env, setEnv] = useState("dev");
   const [sshProfileId, setSshProfileId] = useState("");
 
@@ -74,6 +82,10 @@ export function NewConnectionDialog() {
   // require would be saved as a promise the connection does not keep; the
   // backend refuses that pairing, so drop it here rather than surface an error.
   const caForSubmit = verifies ? caCert : "";
+  // Only asked when it decides something: plaintext to a host that is not
+  // this machine. Anywhere else the answer is ignored, so it is not sent.
+  const asksTrustedNetwork = sslMode === "disable" && !isLoopbackHost(host);
+  const trustedForSubmit = asksTrustedNetwork && trustedNetwork;
 
   if (!showNewConnectionDialog) return null;
 
@@ -107,6 +119,7 @@ export function NewConnectionDialog() {
         username: username.trim(),
         password,
         sslMode,
+        trustedNetwork: trustedForSubmit,
         env,
         sshProfileId,
         caCert: caForSubmit,
@@ -136,6 +149,7 @@ export function NewConnectionDialog() {
         username: username.trim(),
         password,
         sslMode,
+        trustedNetwork: trustedForSubmit,
         env,
         sshProfileId,
         caCert: caForSubmit,
@@ -281,7 +295,7 @@ export function NewConnectionDialog() {
               value={sslMode}
               onChange={(e) => setSslMode(e.target.value)}
               >
-              <option value="disable">disable (loopback dev only)</option>
+              <option value="disable">disable (loopback or encrypted network)</option>
               <option value="require">require</option>
               <option value="verify-full">verify-full (recommended)</option>
             </NativeSelect>
@@ -336,6 +350,32 @@ export function NewConnectionDialog() {
               </p>
             )}
           </div>
+
+          {/* A tailnet or VPN address is remote, but the path to it is already
+              encrypted. DevKit cannot tell that network from the internet, so
+              it asks rather than guesses. */}
+          {asksTrustedNetwork && (
+            <div className="col-span-2 flex items-center justify-between gap-3 rounded-lg border border-border bg-surface-raised p-2.5">
+              <div className="space-y-0.5">
+                <label
+                  htmlFor="db-trusted-network"
+                  className="flex items-center gap-1 font-medium text-text-primary"
+                >
+                  <Network className="size-3 text-status-info" />
+                  <span>Network is already encrypted</span>
+                </label>
+                <p className="text-caption-11 text-text-tertiary">
+                  Tailscale, WireGuard or a VPN. Without it, DevKit refuses plaintext to a remote
+                  host and the password would cross the network unencrypted.
+                </p>
+              </div>
+              <Switch
+                id="db-trusted-network"
+                checked={trustedNetwork}
+                onCheckedChange={setTrustedNetwork}
+              />
+            </div>
+          )}
 
           {/* The CA bundle only exists to make verify-full reachable, so it
               only appears under the mode that reads it. Mounted-but-hidden

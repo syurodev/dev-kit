@@ -13,12 +13,12 @@ import (
 // #45. The modes that try TLS and settle for plaintext are refused outright.
 func TestSSLModeIsAnAllowlist(t *testing.T) {
 	for _, mode := range []string{"prefer", "allow", "PREFER", "verify"} {
-		if _, err := normalizeSSLMode("db.internal", mode); !errors.Is(err, ErrUnknownSSLMode) {
+		if _, err := normalizeSSLMode("db.internal", mode, false); !errors.Is(err, ErrUnknownSSLMode) {
 			t.Errorf("sslmode %q: err = %v, want ErrUnknownSSLMode", mode, err)
 		}
 	}
 	for _, mode := range []string{"require", "verify-ca", "verify-full"} {
-		if got, err := normalizeSSLMode("db.internal", mode); err != nil || got != mode {
+		if got, err := normalizeSSLMode("db.internal", mode, false); err != nil || got != mode {
 			t.Errorf("sslmode %q = %q, %v", mode, got, err)
 		}
 	}

@@ -31,6 +31,14 @@ export interface CreateProfileInput {
     "username": string;
     "password": string;
     "ssl_mode": string;
+
+    /**
+     * TrustedNetwork allows ssl_mode "disable" to a non-loopback host, for a
+     * network that is already encrypted end to end (Tailscale, WireGuard, a
+     * VPN). The app cannot tell such a network from the open internet, so it
+     * is the user's statement, made per profile, never a guess.
+     */
+    "trusted_network"?: boolean;
     "env": string;
 
     /**
@@ -112,6 +120,14 @@ export interface ProfileSummary {
     "database": string;
     "username": string;
     "ssl_mode": string;
+
+    /**
+     * TrustedNetwork allows ssl_mode "disable" to a non-loopback host, for a
+     * network that is already encrypted end to end (Tailscale, WireGuard, a
+     * VPN). The app cannot tell such a network from the open internet, so it
+     * is the user's statement, made per profile, never a guess.
+     */
+    "trusted_network"?: boolean;
     "env": string;
     "read_only": boolean;
 
@@ -243,6 +259,13 @@ export interface TableInfo {
 export interface UpdateProfileOptionsInput {
     "env": string;
     "read_only": boolean;
+
+    /**
+     * TrustedNetwork is the same statement CreateProfileInput carries. Editable
+     * here because a profile refused for sslmode=disable is fixed from this
+     * dialog, not by deleting it and typing it again.
+     */
+    "trusted_network": boolean;
 
     /**
      * SSHProfileID empty means connect directly.
