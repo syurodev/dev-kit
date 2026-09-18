@@ -16,6 +16,7 @@ import { useBottomSlotStore } from "@/stores/bottomSlot";
 import { useBottomContentStore } from "@/stores/bottomContent";
 import { TerminalWorkspace } from "@/workbench/TerminalWorkspace";
 import { getModule } from "@/modules/registry";
+import { shellSquircleRef } from "@/lib/shellSquircle";
 import { canDrop, groupKindOf, relativeDirection, type PaneParams, type Placement } from "./layoutRules";
 import { setDropHintElement, startLiftDrag } from "./liftDrag";
 import "./dock.css";
@@ -259,6 +260,22 @@ export function DockShellRow({ activeModuleId, children }: { activeModuleId: str
       minimumWidth: 480,
     });
     doc.group.model.header.hidden = true;
+    // Every pane is dressed like the shell's cards: .shell-surface, and on
+    // macOS the squircle clip with its SVG ring (lib/shellSquircle.ts) —
+    // a plain CSS border drawn at the very edge reads tighter against the
+    // window than the old cards' inset ring, though the gap is the same 4px.
+    const undress = new Map<DockviewGroupPanel, () => void>();
+    const dress = (g: DockviewGroupPanel) => {
+      if (undress.has(g)) return;
+      g.element.classList.add("shell-surface");
+      undress.set(g, shellSquircleRef(g.element) ?? (() => undefined));
+    };
+    a.groups.forEach(dress);
+    a.onDidAddGroup(dress);
+    a.onDidRemoveGroup((g) => {
+      undress.get(g)?.();
+      undress.delete(g);
+    });
     a.onWillShowOverlay((ev) => {
       const data = ev.getData();
       const dragged = (data?.panelId ? a.getPanel(data.panelId)?.params : undefined) as PaneParams | undefined;
