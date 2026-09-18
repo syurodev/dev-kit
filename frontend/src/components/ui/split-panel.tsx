@@ -8,6 +8,7 @@ import { SPLIT_MIN_HEIGHT, splitColumn } from "@/workbench/splitColumn";
 import { usePanelWidthsStore } from "@/stores/panelWidths";
 import { ShellResizeHandle } from "@/components/ui/resize-handle";
 import { cn } from "@/lib/utils";
+import { shellSquircleRef } from "@/lib/shellSquircle";
 import { CONTENT_FADE_DELAY, EASE_OUT_STRONG, MOTION_BASE, MOTION_FAST, MOTION_SLOW } from "@/lib/motion";
 
 type PanelState = {
@@ -96,6 +97,7 @@ function PanelCard({
 }) {
   return (
     <div
+      ref={shellSquircleRef}
       style={style}
       className={cn(
         // Figma panel-surface 116:1348 is surface/base at full opacity with a

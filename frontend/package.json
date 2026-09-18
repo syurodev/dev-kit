@@ -75,6 +75,7 @@
     "codemirror": "^6.0.2",
     "date-fns": "^4.4.0",
     "embla-carousel-react": "^8.6.0",
+    "figma-squircle": "^1.1.0",
     "framer-motion": "^13.1.0",
     "input-otp": "^1.4.2",
     "lodash": "^4.18.1",

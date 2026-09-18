@@ -854,6 +854,7 @@ func main() {
 	}
 	mainWindow = wailsApp.Window.NewWithOptions(windowOptions)
 	trackWindowFrame(mainWindow, container.UIState)
+	trackWindowShape(wailsApp, mainWindow)
 
 	// Permission to notify is asked for when the user is here — the window
 	// gaining focus (the first time, normally at launch) or the setting being

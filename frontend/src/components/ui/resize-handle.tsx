@@ -55,6 +55,11 @@ export function ShellResizeHandle({
         isVertical
           ? 'w-2 h-full cursor-col-resize flex items-center justify-center'
           : 'h-2 w-full cursor-row-resize flex items-center justify-center',
+        // The shell's gap is 4px, too thin to aim at. An invisible band 2px
+        // past each side makes the target 8 without widening the gap, and z-10
+        // keeps it above the card edges it overlaps.
+        'z-10 before:absolute before:content-[""]',
+        isVertical ? 'before:inset-y-0 before:-inset-x-0.5' : 'before:inset-x-0 before:-inset-y-0.5',
         // In rest state: completely empty (transparent, no border)
         'bg-transparent',
         className

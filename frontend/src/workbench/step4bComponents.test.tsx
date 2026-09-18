@@ -14,12 +14,12 @@ import { usePanelWidthsStore } from "@/stores/panelWidths";
 
 describe("Step 4b Shell Overlays & Composition Reconciliation", () => {
   describe("App Shell Geometry & Layout Constants (Figma 107:137)", () => {
-    it("traces exact shell constants: sidebar 280, panel 320, gap 8, titlebar 40", () => {
+    it("traces exact shell constants: sidebar 280, panel 320, gap 4, titlebar 40", () => {
       // The three SHELL_*_CLASS strings that used to be asserted here are gone.
       // Nothing applied them — the live widths come from usePanelWidthsStore —
       // so the assertions only checked a constant equalled its own literal, and
       // "App Shell geometry reconciled" rested on them. What remains can fail.
-      expect(GAP_WIDTH).toBe(8);
+      expect(GAP_WIDTH).toBe(4);
       expect(TITLE_BAR_HEIGHT).toBe(40);
 
       const storeState = usePanelWidthsStore.getState();
@@ -89,22 +89,25 @@ describe("Step 4b Shell Overlays & Composition Reconciliation", () => {
       // exact corner on one platform and cost the shell its structure: flush
       // surfaces read as the walls of the window, and DevKit's are cards. They
       // are inset now, on the three sides that have a window edge, and they
-      // draw all four of their own corners on every platform.
-      expect(WINDOW_GUTTER).toBe(8);
+      // draw all four of their own corners on every platform — concentric with
+      // the window's, at its radius minus this one gap.
+      expect(WINDOW_GUTTER).toBe(4);
+      expect(WINDOW_GUTTER).toBe(GAP_WIDTH);
 
       const shell = readFileSync(new URL("./AppShell.tsx", import.meta.url), "utf8");
       const row = shell.split("\n").find((line) => line.includes("flex min-h-0 flex-1"));
       expect(row).toBeDefined();
       // Left, right and bottom. Not the top: the title bar is chrome already,
       // and a band under it reads as the surfaces hanging in the window.
-      expect(row).toContain("mx-2");
-      expect(row).toContain("mb-2");
+      expect(row).toContain("mx-1");
+      expect(row).toContain("mb-1");
       expect(row).not.toContain("mt-");
 
       const css = readFileSync(new URL("../index.css", import.meta.url), "utf8");
       expect(css).not.toContain("border-bottom-left-radius: 0;");
       expect(css).not.toContain("border-bottom-right-radius: 0;");
-      expect(css).toContain("border-radius: var(--radius-control);");
+      expect(css).toContain("--shell-radius: max(0px, calc(var(--window-radius) - var(--shell-gap)))");
+      expect(css).toMatch(/\.shell-surface \{[^}]*border-radius: var\(--shell-radius\)/);
     });
 
     it("clamps every resizable shell surface at render, not only while dragging", () => {
