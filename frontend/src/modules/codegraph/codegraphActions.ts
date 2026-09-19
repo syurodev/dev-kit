@@ -255,6 +255,33 @@ export async function pickAndOpenProject() {
 }
 
 /**
+ * Re-indexes the active project from anywhere — the command palette lists
+ * every module's commands, so this can run before any Code Graph surface has
+ * mounted and the store has learned which project that is. Go is the
+ * authority on it, so Go is asked.
+ *
+ * With no project at all it opens the picker rather than doing nothing: a
+ * command that silently does nothing reads as broken.
+ */
+export async function reindexActiveProject() {
+  ensureStarted();
+  if (snapshot().busy) return;
+  let root = snapshot().projectPath;
+  if (!root) {
+    try {
+      root = await codeGraphProjectRoot();
+    } catch {
+      root = "";
+    }
+  }
+  if (!root) {
+    await pickAndOpenProject();
+    return;
+  }
+  await reindex(root);
+}
+
+/**
  * The active project changed underneath the view — codegraph:projectChanged,
  * which also fires for this window's own picker. Our own switch has already
  * moved projectPath, so only a root we are not showing needs anything done.

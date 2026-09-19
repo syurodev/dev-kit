@@ -68,7 +68,7 @@ func RegisterBuiltins(container *Container) error {
 			Title:      "Code Graph",
 			Version:    "1.0.0",
 			APIVersion: modules.CurrentAPIVersion,
-			Commands:   []string{"codegraph.open_project"},
+			Commands:   []string{"codegraph.open_project", "codegraph.reindex_project"},
 			// Flows, files and the plan are documents of their own (frontend
 			// modules/codegraph/documents.ts); the shell compares this list with
 			// the manifest on every launch.

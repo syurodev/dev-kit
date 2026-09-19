@@ -15,10 +15,21 @@ export const codegraphModule: ModuleManifest = {
   // each is a tab (documents.ts) and the strip is drawn.
   tabs: true,
   capabilities: ["codegraph:index", "codegraph:read", "codegraph:toolchain"],
+  // The actions are imported when a command runs, not with the manifest: the
+  // manifest is in the initial bundle, and Code Graph's store and bridge are
+  // not.
   commands: [
     {
       id: "codegraph.open_project",
       title: "Open Java project",
+      run: () => void import("./codegraphActions").then((actions) => actions.pickAndOpenProject()),
+    },
+    {
+      // Named for the palette, which lists every module's commands together:
+      // beside Database's "Re-index schema", a bare "Re-index" says nothing.
+      id: "codegraph.reindex_project",
+      title: "Re-index Code Graph project",
+      run: () => void import("./codegraphActions").then((actions) => actions.reindexActiveProject()),
     },
   ],
   // The rail belongs to the module, not to whichever document is open: a
