@@ -73,6 +73,26 @@ func (s *AppService) CodeGraphSearchSymbol(query string) ([]codegraph.SymbolMatc
 	return result.([]codegraph.SymbolMatch), nil
 }
 
+// CodeGraphFindDefinitions answers "go to definition" for the identifier
+// under the cursor at filePath:line. Not found is a normal, non-error result
+// (an empty slice) — the editor tries other things (e.g. leaving the cursor
+// alone) rather than surfacing a failure to the user for a symbol the index
+// simply has no location for.
+func (s *AppService) CodeGraphFindDefinitions(filePath string, line int, identifier string) ([]codegraph.Definition, error) {
+	result, err := s.call(context.Background(), "builtin.codegraph", "codegraph:read", "project:active", map[string]any{
+		"action":     "find_definitions",
+		"file_path":  filePath,
+		"line":       line,
+		"identifier": identifier,
+	}, func(ctx context.Context) (any, error) {
+		return s.container.CodeGraph.FindDefinitions(ctx, filePath, line, identifier)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]codegraph.Definition), nil
+}
+
 func (s *AppService) CodeGraphGetBlastRadius(filePath string) ([]string, error) {
 	result, err := s.call(context.Background(), "builtin.codegraph", "codegraph:read", "project:active", map[string]any{
 		"action":    "get_blast_radius",

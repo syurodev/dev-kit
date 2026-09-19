@@ -475,6 +475,17 @@ export function CodeGraphCountPlanNodeComments(): $CancellablePromise<{ [_ in st
     return $Call.ByID(1373712737);
 }
 
+/**
+ * CodeGraphFindDefinitions answers "go to definition" for the identifier
+ * under the cursor at filePath:line. Not found is a normal, non-error result
+ * (an empty slice) — the editor tries other things (e.g. leaving the cursor
+ * alone) rather than surfacing a failure to the user for a symbol the index
+ * simply has no location for.
+ */
+export function CodeGraphFindDefinitions(filePath: string, line: number, identifier: string): $CancellablePromise<codegraph$0.Definition[] | null> {
+    return $Call.ByID(3562533088, filePath, line, identifier);
+}
+
 export function CodeGraphGetApiFlow(endpointID: string): $CancellablePromise<codegraph$0.ApiFlow> {
     return $Call.ByID(3432526133, endpointID);
 }

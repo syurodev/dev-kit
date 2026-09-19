@@ -1,11 +1,13 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { RotateCcw, TriangleAlert } from "lucide-react";
-import { keymap } from "@codemirror/view";
-import { CodeEditor } from "@/components/code-editor/CodeEditor";
+import { keymap, type EditorView } from "@codemirror/view";
+import { CodeEditor, type RevealTarget } from "@/components/code-editor/CodeEditor";
+import { codeIntel, markCodeIntelBaseline, type CodeLocation } from "@/components/code-editor/codeIntel";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { tabKey } from "@/stores/workbenchTabs";
 import { BlastRadiusPanel } from "./BlastRadiusPanel";
+import { createCodeGraphIntelProvider } from "./codegraphIntelProvider";
 import { languageExtensionForPath } from "./editorLanguage";
 import { useCodeGraphStore } from "./codegraphStore";
 import { discardFile, editFile, openFile, reloadFile, saveFile } from "./codegraphActions";
@@ -13,6 +15,13 @@ import { FILE_VIEW, MODULE } from "./documents";
 import { useProjectReady } from "./useDocument";
 
 const onOpenFile = (path: string) => openFile(path);
+
+// Module-level so every file's codeIntel() closes over the same identities:
+// the extension list below is memoized per path, and the provider holds no
+// per-editor state, so one answers for every file.
+const intelProvider = createCodeGraphIntelProvider();
+const onNavigate = (location: CodeLocation, { beside }: { beside: boolean }) =>
+  openFile(location.path, location.line, { beside });
 
 /**
  * One file as a tab, open for editing, with what depends on it underneath.
@@ -38,8 +47,29 @@ export function FileDocument({ params }: { params?: Record<string, unknown> }) {
     () => [
       ...languageExtensionForPath(path),
       keymap.of([{ key: "Mod-s", run: () => (void saveFile(path), true) }]),
+      codeIntel({ path, provider: intelProvider, onNavigate }),
     ],
     [path],
+  );
+
+  // Once a save lands, the index will describe the text on screen, so that is
+  // what go-to-definition should count lines from (see codeIntel.ts's
+  // baseline). Watching dirty go false rather than hooking the save itself:
+  // Mod-S and the Save button both end here, and saveFile only clears dirty
+  // when what it wrote is still what the buffer holds.
+  const viewRef = useRef<EditorView | null>(null);
+  const dirty = buffer?.dirty ?? false;
+  const wasDirty = useRef(dirty);
+  useEffect(() => {
+    if (wasDirty.current && !dirty && viewRef.current) markCodeIntelBaseline(viewRef.current);
+    wasDirty.current = dirty;
+  }, [dirty]);
+
+  const line = buffer?.line ?? null;
+  const revealToken = buffer?.revealToken ?? 0;
+  const revealTarget = useMemo<RevealTarget>(
+    () => (line === null ? null : { line, token: revealToken }),
+    [line, revealToken],
   );
 
   if (!buffer || (buffer.loading && !buffer.content)) {
@@ -93,9 +123,12 @@ export function FileDocument({ params }: { params?: Record<string, unknown> }) {
       <div className="min-h-0 flex-1 overflow-hidden">
         <CodeEditor
           value={buffer.content}
-          revealLine={buffer.line}
+          revealLine={revealTarget}
           onChange={(content) => editFile(path, content, tabId)}
           extensions={extensions}
+          onView={(view) => {
+            viewRef.current = view;
+          }}
           wrap="auto"
         />
       </div>

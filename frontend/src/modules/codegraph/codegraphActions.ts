@@ -122,7 +122,7 @@ function patchFlow(root: string, patch: Partial<FlowDoc>) {
 
 function patchBuffer(path: string, patch: Partial<FileBuffer>) {
   const buffers = snapshot().buffers;
-  const base: FileBuffer = buffers[path] ?? { content: "", root: snapshot().projectPath, dirty: false, loading: false, error: "", line: null };
+  const base: FileBuffer = buffers[path] ?? { content: "", root: snapshot().projectPath, dirty: false, loading: false, error: "", line: null, revealToken: 0 };
   set({ buffers: { ...buffers, [path]: { ...base, ...patch } } });
 }
 
@@ -523,14 +523,18 @@ export async function refreshAfterReindex() {
 }
 
 /** Reads a file into its buffer — unless the buffer holds edits, which win. */
-async function loadBuffer(path: string, line: number | null) {
+async function loadBuffer(path: string, line: number | null, navigating: boolean) {
   const existing = snapshot().buffers[path];
+  // Only a navigation asks the caret to move. reloadFile passes the line the
+  // buffer already holds, and re-reading a file is not a request to go there
+  // again.
+  const reveal = navigating && line !== null ? { line, revealToken: (existing?.revealToken ?? 0) + 1 } : { line };
   if (existing?.dirty) {
-    if (line !== null) patchBuffer(path, { line });
+    if (line !== null) patchBuffer(path, reveal);
     return;
   }
   const current = begin(`file:${path}`);
-  patchBuffer(path, { loading: !existing, error: "", line });
+  patchBuffer(path, { loading: !existing, error: "", ...reveal });
   try {
     const content = await readCodeGraphFile(path);
     // Typed into while the read was in flight: the typing wins.
@@ -543,18 +547,18 @@ async function loadBuffer(path: string, line: number | null) {
 
 /**
  * Opens a file as a tab. Every way in — the tree, blast radius, the
- * inspector's Edit, an agent — goes through here. A file with unsaved edits
+ * inspector's Edit, go-to-definition, an agent — goes through here. A file with unsaved edits
  * opens on its edits: nothing is ever discarded to open something.
  */
 export function openFile(path: string, line: number | null = null, options?: OpenDocOptions) {
   openFileDoc(path, options);
-  void loadBuffer(path, line);
+  void loadBuffer(path, line, true);
 }
 
 /** A buffer read again from disk: after a save elsewhere, or to drop a failed read. */
 export function reloadFile(path: string) {
   if (snapshot().buffers[path]?.dirty) return;
-  void loadBuffer(path, snapshot().buffers[path]?.line ?? null);
+  void loadBuffer(path, snapshot().buffers[path]?.line ?? null, false);
 }
 
 /**

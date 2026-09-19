@@ -4,6 +4,7 @@ import { EditorView, basicSetup } from "codemirror";
 import { EditorState, Compartment, type Extension } from "@codemirror/state";
 import { keymap } from "@codemirror/view";
 import { shouldWrap, visibleColumns } from "./autoWrap";
+import { externalValue } from "./codeIntel";
 import { devkitHighlight } from "./devkitHighlight";
 import { wrapBreaks } from "./wrapBreaks";
 import { wrapIndent } from "./wrapIndent";
@@ -24,6 +25,28 @@ const fontTheme = EditorView.theme({
 // identifiers in half.
 const wrapExtensions: Extension[] = [EditorView.lineWrapping, wrapIndent, wrapBreaks];
 
+/**
+ * A request to scroll a line into view and put the caret on it. `token`
+ * exists because two navigations to the same line are still two navigations
+ * — go to definition twice in a row, or once from two different call sites
+ * that both land on line 40 — and each one should visibly move the caret,
+ * not just the first. The reveal effect below is keyed on this whole object,
+ * so the caller must hand it a fresh one (bumping `token`) every time it
+ * wants the editor to react, even when `line` repeats.
+ */
+export type RevealTarget = { line: number; token: number } | null;
+
+/**
+ * The 0-based column of the first non-whitespace character in `text`, or 0
+ * for a blank line. Landing go-to-definition's caret at column 0 would put it
+ * inside a method's leading indentation rather than on the code itself — this
+ * is what most editors do instead.
+ */
+export function firstNonWhitespaceColumn(text: string): number {
+  const match = /\S/.exec(text);
+  return match ? match.index : 0;
+}
+
 export type CodeEditorProps = {
   value: string;
   onChange: (value: string) => void;
@@ -42,7 +65,15 @@ export type CodeEditorProps = {
    * Whatever this says, ⌥Z flips it for that editor until it unmounts.
    */
   wrap?: boolean | "auto";
-  revealLine?: number | null;
+  revealLine?: RevealTarget;
+  /**
+   * Reports the live EditorView on mount, and null on unmount, through a ref
+   * so a new function identity every render never remounts the editor (same
+   * trick as onChangeRef below). Generic and headless on purpose — CodeEditor
+   * doesn't know why a caller wants the view; codegraph's FilesPane happens to
+   * use it to reset codeIntel's save baseline.
+   */
+  onView?: (view: EditorView | null) => void;
 };
 
 // Headless CodeMirror 6 wrapper — no language or schema knowledge of its
@@ -51,7 +82,7 @@ export type CodeEditorProps = {
 // remounting the EditorView, which would lose undo history and cursor
 // position — the doc's explicit requirement, and CodeMirror's own
 // documented pattern for dynamic reconfiguration, not a DevKit invention.
-export function CodeEditor({ value, onChange, extensions, readOnly, wrap, revealLine }: CodeEditorProps) {
+export function CodeEditor({ value, onChange, extensions, readOnly, wrap, revealLine, onView }: CodeEditorProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
   const languageCompartment = useRef(new Compartment()).current;
@@ -63,6 +94,12 @@ export function CodeEditor({ value, onChange, extensions, readOnly, wrap, reveal
   // closure) just to keep the update listener current.
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+
+  // Same trick, for the same reason: onView must not join the mount effect's
+  // dependency array (it stays [] — see that effect), so the latest identity
+  // is read through a ref instead of forcing a remount on every render.
+  const onViewRef = useRef(onView);
+  onViewRef.current = onView;
 
   // What "auto" currently measures, and what the user last asked for with ⌥Z.
   // The user's word outranks both the prop and the measurement: someone who
@@ -123,11 +160,13 @@ export function CodeEditor({ value, onChange, extensions, readOnly, wrap, reveal
       parent: containerRef.current,
     });
     viewRef.current = view;
+    onViewRef.current?.(view);
     // Fires once on observe, which is also the first measurement.
     const resizeObserver = new ResizeObserver(measureWidth);
     resizeObserver.observe(containerRef.current);
     return () => {
       resizeObserver.disconnect();
+      onViewRef.current?.(null);
       view.destroy();
       viewRef.current = null;
     };
@@ -145,14 +184,37 @@ export function CodeEditor({ value, onChange, extensions, readOnly, wrap, reveal
   useEffect(() => {
     const view = viewRef.current;
     if (!view || view.state.doc.toString() === value) return;
-    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: value } });
+    // Tagged with externalValue so codeIntel.ts (if attached) can tell this
+    // apart from ordinary typing: a whole-document replace from outside is
+    // either a different file opening or a reload from disk, and either way
+    // its line numbers now describe what an index would see next, exactly
+    // like a save does. CodeEditor doesn't know or care what reads that
+    // annotation — only that this ONE dispatch is not a keystroke.
+    view.dispatch({
+      changes: { from: 0, to: view.state.doc.length, insert: value },
+      annotations: externalValue.of(true),
+    });
   }, [value]);
 
+  // Keyed on the whole revealLine object, not just its line: RevealTarget's
+  // own doc says why a repeat of the same line must still be a new object —
+  // without that, go-to-definition to a spot already revealed (the same
+  // line twice, or a line in the file already open) would dispatch nothing
+  // and leave the caret exactly where it was.
   useEffect(() => {
     const view = viewRef.current;
-    if (!view || !revealLine || revealLine < 1) return;
-    const line = view.state.doc.line(Math.min(revealLine, view.state.doc.lines));
-    view.dispatch({ effects: EditorView.scrollIntoView(line.from, { y: "start" }) });
+    if (!view || !revealLine || revealLine.line < 1) return;
+    const line = view.state.doc.line(Math.min(revealLine.line, view.state.doc.lines));
+    const anchor = line.from + firstNonWhitespaceColumn(line.text);
+    view.dispatch({
+      selection: { anchor, head: anchor },
+      effects: EditorView.scrollIntoView(anchor, { y: "start" }),
+    });
+    // A navigation should land focus in the editor, the same way it would if
+    // the user had clicked the target line themselves — otherwise the caret
+    // moves invisibly for a click that came from outside the editor (the
+    // Impact panel, the file tree).
+    view.focus();
   }, [revealLine]);
 
   useEffect(() => {

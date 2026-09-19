@@ -40,13 +40,25 @@ func (nilStore) SearchSymbol(context.Context, string) ([]SymbolMatch, error) {
 func (nilStore) FindNodeAtLine(context.Context, string, int) (Node, bool, error) {
 	return Node{}, false, ErrNoActiveProject
 }
+func (nilStore) FindNodesByName(context.Context, string) ([]Node, error) {
+	return nil, ErrNoActiveProject
+}
 func (nilStore) GetDependents(context.Context, string) ([]string, error) {
+	return nil, ErrNoActiveProject
+}
+func (nilStore) GetDependencies(context.Context, string) ([]string, error) {
 	return nil, ErrNoActiveProject
 }
 func (nilStore) GetFieldAccesses(context.Context, string, string) ([]FieldAccess, error) {
 	return nil, ErrNoActiveProject
 }
+func (nilStore) GetFieldAccessesAt(context.Context, string, int, string) ([]FieldAccess, error) {
+	return nil, ErrNoActiveProject
+}
 func (nilStore) GetCallSites(context.Context, string) ([]CallSite, error) {
+	return nil, ErrNoActiveProject
+}
+func (nilStore) GetCallSitesAt(context.Context, string, int) ([]CallSite, error) {
 	return nil, ErrNoActiveProject
 }
 
