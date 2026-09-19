@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { CodeEditor } from "@/components/code-editor/CodeEditor";
+import { dedent } from "@/components/code-editor/dedent";
 import { Button } from "@/components/ui/button";
 import { lineNumbers } from "@codemirror/view";
 import { languageExtensionForPath } from "../editorLanguage";
@@ -33,6 +34,12 @@ export function DetailTab({ snippet, loading, error, onEdit }: DetailTabProps) {
     [snippet],
   );
 
+  // A method cut out of its class still carries the class's indentation. In
+  // this panel — narrow by design — those are columns the code needed, and with
+  // wrapping on they also push every continuation row further right. Display
+  // only: the buffer is read-only, and Edit opens the real file.
+  const source = useMemo(() => (snippet ? dedent(snippet.source) : ""), [snippet]);
+
   if (loading) return <p className="p-5 text-body-13 text-text-tertiary">Loading source…</p>;
   if (error) return <p className="p-5 text-body-13 text-status-danger">{error}</p>;
 
@@ -62,7 +69,7 @@ export function DetailTab({ snippet, loading, error, onEdit }: DetailTabProps) {
           // snippet is exactly the method or class — not a guessed ±N lines.
           <div className="min-h-0 flex-1 overflow-hidden rounded-md border border-border-subtle bg-surface-well">
             <CodeEditor
-              value={snippet.source}
+              value={source}
               onChange={() => {}}
               extensions={extensions}
               readOnly
