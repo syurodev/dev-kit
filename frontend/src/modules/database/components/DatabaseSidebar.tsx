@@ -51,7 +51,7 @@ import { TreeView, type TreeNodeData } from "@/components/tree-view";
 import { cn } from "@/lib/utils";
 import { useShallow } from "zustand/react/shallow";
 import { useDatabaseStore, type SidebarPane } from "../databaseStore";
-import { countTables, filterNamespace, matchesProfile } from "../databaseTree";
+import { countTables, filterNamespace, keepsProfile } from "../databaseTree";
 import { FolderIcon } from "../folderIcons";
 import { DatabaseModuleOverlays } from "../DatabaseModuleOverlays";
 import { RowContextMenuContent, RowDropdownMenuContent, type RowAction } from "./rowActions";
@@ -261,6 +261,9 @@ export function DatabaseSidebar() {
   // exception: opening those would dump every column of every match.
   const filtering = needle.length > 0;
   const namespace = filterNamespace(schemaSnapshot?.namespace ?? {}, needle);
+  const matchCount = countTables(namespace);
+  const keep = (p: ConnectionProfile) =>
+    keepsProfile(p, needle, p.id === selectedProfileId && matchCount > 0);
 
   function columnNodes(schemaName: string, tableName: string): TreeNodeData[] {
     const key = `${schemaName}.${tableName}`;
@@ -622,7 +625,7 @@ export function DatabaseSidebar() {
   const folderNodes: TreeNodeData[] = folders.map((folder) => {
     const inFolder = profiles.filter((p) => folder.profileIds.includes(p.id));
     inFolder.forEach((p) => assigned.add(p.id));
-    const visible = inFolder.filter((p) => matchesProfile(p, needle));
+    const visible = inFolder.filter(keep);
     return {
       id: `folder:${folder.id}`,
       label: folder.name,
@@ -657,7 +660,7 @@ export function DatabaseSidebar() {
   });
 
   const rootProfiles = profiles
-    .filter((p) => !assigned.has(p.id) && matchesProfile(p, needle))
+    .filter((p) => !assigned.has(p.id) && keep(p))
     .map((p) => profileNode(p, ""));
 
   const tree = [
@@ -665,8 +668,6 @@ export function DatabaseSidebar() {
     ...folderNodes.filter((node) => !filtering || node.children?.length),
     ...rootProfiles,
   ];
-
-  const matchCount = countTables(namespace);
 
   return (
     <div className="flex h-full min-h-0 flex-col select-none">

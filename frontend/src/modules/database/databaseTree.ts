@@ -24,6 +24,20 @@ export function matchesProfile(
 }
 
 /**
+ * Whether a connection row survives the search. The selected connection is the
+ * only one whose tables are in the tree, so it also stays when the needle hits
+ * one of those tables — dropping it for not matching by name hid every table
+ * match under it, and the rail said "112 tables match" above "Nothing matches".
+ */
+export function keepsProfile(
+  profile: { name: string; database: string; host: string },
+  needle: string,
+  hasMatchingTables: boolean,
+): boolean {
+  return hasMatchingTables || matchesProfile(profile, needle);
+}
+
+/**
  * The namespace with non-matching tables removed, and any schema left with no
  * table dropped with them — an empty schema row under a search reads as "this
  * schema has nothing", which is not what happened.
