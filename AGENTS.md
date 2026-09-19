@@ -134,15 +134,28 @@ platform module).
   manager, so maximise/minimise do nothing there — close and the layout are testable.
 
 ### CodeGraph analyzer toolchain
-The Java analyzer is not committed as a jar — it is built from `analyzer/` on the machine
-that runs DevKit. When it is missing, CodeGraph now shows a setup panel that can run that
-build itself (`internal/codegraph/toolchain.go`), rather than failing an index with
-"analyzer not configured".
+Two languages, and they are built the opposite way round. **Java** is a subprocess: a jar
+built from `analyzer/` on the machine that runs DevKit (or shipped in the package), and
+launched by a JDK the user must have — when it is missing, CodeGraph shows a setup panel
+that can run that build itself (`internal/codegraph/toolchain.go`). **Lua** is in process:
+`internal/lua` plus `internal/codegraph/analyzer_lua*.go`, so it is ready the moment
+DevKit starts, with nothing installed, on every platform (AppImage and MSIX included).
 
 - `Toolchain` is per language and is the extension point for the next analyzer: a value
-  with its own requirements, build command and artifact path. `DefaultToolchains` is the
-  registry; `main.go` wires it and hot-swaps the analyzer in on a successful build, so no
-  restart is needed.
+  with its own requirements, build command and artifact path — or with `Native` set, which
+  means the analyzer runs in this process and every build field is unused. A native
+  toolchain reports `Ready` without probing anything, and `BuildAnalyzer` refuses it
+  (`ErrAnalyzerIsBuiltIn`) rather than reporting a build that never happened.
+- **Which analyzer runs is a per-project answer.** `OpenProject` detects the language, then
+  takes that language's analyzer out of the registry — a Lua project is never handed the
+  Java one. `SetAnalyzer` is an override for an owner who knows better (every test double
+  in the package); `NewSubprocessAnalyzer()`'s placeholder does not count as one, which is
+  what keeps the tests that pass it from pinning the service to nothing. `main.go` wires
+  no analyzer at all now, only the registry.
+- The UI's setup panel is gated per language (`frontend/src/modules/codegraph/analyzerGate.ts`):
+  the open project's language decides, and with nothing open it only takes over when NO
+  analyzer is ready. Before Lua it took the whole canvas whenever anything was unbuilt,
+  which would now block Lua work on a missing JDK.
 - **Discovery is not `PATH`** (`internal/codegraph/locate.go`). Plenty of Java developers
   have IntelliJ and nothing else: the IDE ships its own JetBrains Runtime, bundles a full
   Maven under `plugins/maven/lib/maven3`, and downloads project JDKs into `~/.jdks` —
@@ -195,18 +208,66 @@ build itself (`internal/codegraph/toolchain.go`), rather than failing an index w
 - End-to-end (real Maven, minutes, network):
   `DEVKIT_ANALYZER_BUILD_E2E=1 go test ./internal/codegraph/ -run BuildsForReal -v -timeout 20m`
 
+### CodeGraph: the Lua analyzer
+`internal/lua` is a hand-written Lua parser (lexer + recursive descent). It reads 5.1
+through 5.4 plus the LuaJIT literals, because one Kong tree holds all of it: the plugin
+runs on LuaJIT (5.1, `1LL`), the tooling beside it is plain 5.4 (`//`, bitwise, `<const>`).
+It never returns an error — a statement it cannot read becomes a `Diagnostic` and the parse
+resynchronises at the next statement boundary, so a file being edited keeps every function
+around the broken one. (The Java analyzer swallows an unparseable file whole; that is the
+failure this deliberately does not copy.)
+
+`internal/codegraph/analyzer_lua*.go` turns that tree into an `AnalysisResult`:
+
+- `analyzer_lua.go` — file discovery, the require-path index, module nodes, doc comments.
+- `analyzer_lua_declare.go` — what each file declares and which of it is reachable. Lua has
+  no export keyword, so all six ways of putting a function on a module table are read
+  (`function M.f`, `function M:f`, `M.f = function`, `local M = { f = ... }`,
+  `return { f = ... }`, a bare global).
+- `analyzer_lua_resolve.go` — call resolution. **There are no types, so resolution is by
+  provenance**: a value is followable when it traces back to a `require` of a file in this
+  project, the table the module returns, or a method's `self`. Everything else is a call
+  site with a reason and no target — `library` (stdlib, `ngx`, `kong`, a require with no
+  file here) or `unresolved` (a value the analyzer lost). A wrong edge is worse than a
+  missing one. A constructor (`new`, `create`, `extend`, …) carries its module through;
+  an ordinary method does not, because `db:query()` returns data, not an instance.
+- `analyzer_lua_kong.go` — everything about what a Lua project is FOR. Entry points are
+  Kong plugin phases (`ACCESS · plugin-name`, since a plugin serves no route of its own),
+  Kong Admin API route tables (`["/path"] = { GET = ... }`) and Lapis `app:get` routes.
+  Layers follow: endpoints → `controller`, `resty.redis`/`kong.db`/a `dao`-ish name →
+  `repository`, and what a controller requires → `service` unless it already said otherwise.
+
+Module ids are require paths (`kong/plugins/x/handler.lua` → `kong.plugins.x.handler`,
+`foo/init.lua` → `foo`, a leading `lua/` or `src/` stripped). A require that names nothing
+exactly falls back to a **unique** suffix match, which is what makes
+`require "kong.plugins.mine.util"` find `util.lua` in a plugin repository checked out at
+its own root; an ambiguous suffix resolves to nothing rather than to a guess.
+
+`analyzer_lua_e2e_test.go` is the one that matters when changing any of this: it drives a
+Lua index through the flow walker, blast radius, go-to-definition, find-references, the
+data-flow trace and the snippet reader — all written against the Java analyzer's id and
+label contract, all of which a second analyzer can break without failing a single one of
+its own tests.
+
+```bash
+go test ./internal/lua/ ./internal/codegraph/ -count=1
+```
+
 ### CodeGraph: opening a project
 `Service.OpenProject` does three things before any analyzer runs, each because the version
 without it was worse.
 
-- **Detection gates the subprocess** (`internal/codegraph/detect.go`). Without it, opening
-  any folder started a JVM to walk it and reported the empty result as an empty project
-  rather than as the wrong folder. A `Toolchain` declares `Markers` (build files) and
-  `SourceExt`; a directory holding a marker is a module root. Unrecognised folders get
-  `ErrUnsupportedProject`, which the UI renders as "choose another folder" rather than as a
-  failed analysis (its own bridge code, `unsupported_project`, so the two are not confused).
-  Detection is skipped when no toolchain is registered — an empty registry knows nothing and
-  must not refuse everything.
+- **Detection gates the subprocess** (`internal/codegraph/detect.go`) and now also picks the
+  analyzer. Without it, opening any folder started a JVM to walk it and reported the empty
+  result as an empty project rather than as the wrong folder. A `Toolchain` declares
+  `Markers` (build files) and `SourceExt`; a directory holding a marker is a module root —
+  for Lua that includes `handler.lua`, so a repository of Kong plugins reads as one module
+  per plugin. First toolchain to claim the folder wins, and Java is ahead of Lua because
+  its markers are build files while Lua's fallback is "any folder holding a .lua".
+  Unrecognised folders get `ErrUnsupportedProject`, which the UI renders as "choose another
+  folder" rather than as a failed analysis (its own bridge code, `unsupported_project`, so
+  the two are not confused). Detection is skipped when no toolchain is registered — an empty
+  registry knows nothing and must not refuse everything.
 - **A folder of microservices is one index, not none.** `ProjectAnalyzer` discovers every
   `src/main/java` below the root (skipping `target/`, `node_modules/`, dot-dirs; depth 6),
   falling back to the root itself for a bare folder of `.java` files. All roots go into one
