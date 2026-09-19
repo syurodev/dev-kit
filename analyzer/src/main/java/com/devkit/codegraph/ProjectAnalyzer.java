@@ -18,9 +18,11 @@ import com.github.javaparser.ast.expr.EnclosedExpr;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.FieldAccessExpr;
 import com.github.javaparser.ast.expr.MethodCallExpr;
+import com.github.javaparser.ast.expr.MethodReferenceExpr;
 import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.expr.ObjectCreationExpr;
 import com.github.javaparser.ast.expr.ThisExpr;
+import com.github.javaparser.ast.expr.TypeExpr;
 import com.github.javaparser.ast.expr.UnaryExpr;
 import com.github.javaparser.ast.nodeTypes.NodeWithExtends;
 import com.github.javaparser.ast.nodeTypes.NodeWithImplements;
@@ -722,6 +724,66 @@ public class ProjectAnalyzer {
                 recordCall(scope, toNodeId, construction.getRange().map(r -> r.begin.line).orElse(0), "", index, result);
             }
         }
+
+        // `Foo::bar` names a method that WILL run — `.map(Mapper::toDto)` is
+        // where the flow goes next, and the place someone asking "who uses
+        // toDto" is looking for. It was invisible: not a MethodCallExpr, so no
+        // edge and no call site. Recorded like a constructor, and for the same
+        // reason: only when the target is a node. `String::valueOf` and
+        // `Objects::nonNull` are everywhere, and a wall for each would bury the
+        // gaps that matter; so would one for every reference the solver cannot
+        // follow, which it cannot more often than it can a call.
+        for (MethodReferenceExpr reference : scope.node().findAll(MethodReferenceExpr.class)) {
+            if (!belongsTo(reference, scope.node())) {
+                continue;
+            }
+            String toNodeId = methodReferenceTarget(reference, index, module, methodsByTypeAndName);
+            if (toNodeId == null || !nodeIds.contains(toNodeId)) {
+                continue;
+            }
+            boolean dangling = dispatch.abstractMethods.contains(toNodeId)
+                    && !dispatch.implementations.containsKey(toNodeId);
+            recordCall(scope, toNodeId, reference.getRange().map(r -> r.begin.line).orElse(0),
+                    dangling ? "interface" : "", index, result);
+        }
+    }
+
+    /**
+     * The node id a method reference names, or null when it cannot be told.
+     *
+     * Asked of the solver first. It fails on a reference more readily than on
+     * a call — which overload `Foo::bar` means depends on the functional
+     * interface it is being converted to, and that is the inference JavaParser
+     * is weakest at — so the fallback is the one a call has: the type on the
+     * left, and a method of that name declared on it, if there is exactly one.
+     * `Foo::new` is the same question about Foo's constructors, which are
+     * method nodes named after their class.
+     */
+    private String methodReferenceTarget(MethodReferenceExpr reference, Index index, String module,
+                                         Map<String, List<String>> methodsByTypeAndName) {
+        boolean constructor = reference.getIdentifier().equals("new");
+        if (!constructor) {
+            try {
+                ResolvedMethodDeclaration target = reference.resolve();
+                return index.typeIdFor(target.declaringType(), module) + "." + target.getSignature();
+            } catch (RuntimeException | StackOverflowError e) {
+                // Inferred below.
+            }
+        }
+        String declaringType = receiverTypeId(reference.getScope(), index, module);
+        if (declaringType == null) {
+            return null;
+        }
+        String name = constructor ? simpleNameOf(declaringType) : reference.getIdentifier();
+        List<String> candidates = methodsByTypeAndName.get(declaringType + "." + name);
+        return candidates != null && candidates.size() == 1 ? candidates.get(0) : null;
+    }
+
+    /** A type id's simple name: past the last dot, before any " [module]" the index added to tell two apart. */
+    private static String simpleNameOf(String typeId) {
+        int suffix = typeId.indexOf(" [");
+        String qualified = suffix >= 0 ? typeId.substring(0, suffix) : typeId;
+        return qualified.substring(qualified.lastIndexOf('.') + 1);
     }
 
     private void recordCall(CallScope scope, String toNodeId, int line, String unresolved, Index index,
@@ -783,24 +845,39 @@ public class ProjectAnalyzer {
         if (scope.isEmpty()) {
             return null; // an unqualified call — this method's own class, already resolvable or already lost
         }
-        String declaringType;
-        try {
-            ResolvedType scopeType = scope.get().calculateResolvedType();
-            if (!scopeType.isReferenceType()) {
-                return null;
-            }
-            var typeDecl = scopeType.asReferenceType().getTypeDeclaration();
-            declaringType = typeDecl.isPresent()
-                    ? index.typeIdFor(typeDecl.get(), module)
-                    : scopeType.asReferenceType().getQualifiedName();
-        } catch (RuntimeException | StackOverflowError e) {
-            return null; // the receiver is a mystery too; nothing to infer from
+        String declaringType = receiverTypeId(scope.get(), index, module);
+        if (declaringType == null) {
+            return null;
         }
         List<String> candidates = methodsByTypeAndName.get(declaringType + "." + call.getNameAsString());
         if (candidates == null || candidates.size() != 1) {
             return null;
         }
         return candidates.get(0);
+    }
+
+    /**
+     * The index's id for the type of a receiver — the `service` of
+     * `service.query(...)`, the `Mapper` of `Mapper::toDto` — or null when it
+     * has no type we can name. A type written out (the left of `Mapper::toDto`)
+     * is resolved as the type it is; anything else is an expression, and is
+     * asked what it evaluates to.
+     */
+    private String receiverTypeId(Expression receiver, Index index, String module) {
+        try {
+            ResolvedType type = receiver instanceof TypeExpr written
+                    ? written.getType().resolve()
+                    : receiver.calculateResolvedType();
+            if (!type.isReferenceType()) {
+                return null;
+            }
+            var typeDecl = type.asReferenceType().getTypeDeclaration();
+            return typeDecl.isPresent()
+                    ? index.typeIdFor(typeDecl.get(), module)
+                    : type.asReferenceType().getQualifiedName();
+        } catch (RuntimeException | StackOverflowError e) {
+            return null; // the receiver is a mystery too; nothing to infer from
+        }
     }
 
     /**

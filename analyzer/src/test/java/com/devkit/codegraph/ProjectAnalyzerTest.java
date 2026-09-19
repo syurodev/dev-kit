@@ -222,6 +222,102 @@ class ProjectAnalyzerTest {
     }
 
     @Test
+    void methodReferencesAreCallsToTheMethodTheyName(@TempDir Path tempDir) throws IOException {
+        // The shape that was invisible: `.map(Controller::toResponse)` runs
+        // toResponse for every element, but it is not a MethodCallExpr, so
+        // there was no edge — the flow stopped short of it, and "find
+        // references" on toResponse answered "nowhere".
+        Path projectRoot = tempDir.resolve("project");
+        Path pkg = projectRoot.resolve("src/main/java/com/acme/ref");
+        Files.createDirectories(pkg);
+        Files.writeString(pkg.resolve("Controller.java"), """
+                package com.acme.ref;
+                import java.util.List;
+                import java.util.function.Supplier;
+                public class Controller {
+                    private final Mapper mapper = new Mapper();
+                    public List<String> list(List<Integer> ids) {
+                        return ids.stream()
+                                .map(Controller::toResponse)
+                                .map(mapper::decorate)
+                                .map(this::trim)
+                                .map(String::valueOf)
+                                .toList();
+                    }
+                    public Supplier<Mapper> factory() {
+                        return Mapper::new;
+                    }
+                    private static String toResponse(Integer id) { return "#" + id; }
+                    private String trim(String s) { return s.trim(); }
+                }
+                """);
+        Files.writeString(pkg.resolve("Mapper.java"), """
+                package com.acme.ref;
+                public class Mapper {
+                    public Mapper() {}
+                    public String decorate(String s) { return "[" + s + "]"; }
+                }
+                """);
+
+        AnalysisResult result = new ProjectAnalyzer(projectRoot).analyze();
+
+        String list = "com.acme.ref.Controller.list";
+        assertTrue(hasCallEdge(result, list, "com.acme.ref.Controller.toResponse"), "Type::staticMethod: " + result.edges);
+        assertTrue(hasCallEdge(result, list, "com.acme.ref.Mapper.decorate"), "instance::method: " + result.edges);
+        assertTrue(hasCallEdge(result, list, "com.acme.ref.Controller.trim"), "this::method: " + result.edges);
+        assertTrue(hasCallEdge(result, "com.acme.ref.Controller.factory", "com.acme.ref.Mapper.Mapper"),
+                "Type::new: " + result.edges);
+
+        // The call site sits on the line the reference is written on — that is
+        // what "find references" shows, and the line it jumps to.
+        boolean siteOnItsOwnLine = result.callSites.stream().anyMatch(cs ->
+                labelOf(result, cs.from).equals(list)
+                        && labelOf(result, cs.to).equals("com.acme.ref.Controller.toResponse")
+                        && cs.line == 8);
+        assertTrue(siteOnItsOwnLine, "expected the toResponse site on line 8: " + result.callSites);
+
+        // String::valueOf resolves, to a library method. A CALL to one records
+        // a "library" wall; a reference to one records nothing, or every
+        // stream pipeline in a project would be a row of walls. So list() has
+        // a wall for each of its six library calls — stream, four maps, toList
+        // — and not a seventh.
+        long wallsInList = result.callSites.stream()
+                .filter(cs -> labelOf(result, cs.from).equals(list) && cs.to.isEmpty())
+                .count();
+        assertEquals(6, wallsInList, "the library reference must not add a wall");
+    }
+
+    @Test
+    void anOverloadedMethodReferenceTheSolverCannotFollowIsLeftOut(@TempDir Path tempDir) throws IOException {
+        // Inference by name needs exactly one method of that name. Two
+        // overloads and no resolution means no way to choose, and a wrong edge
+        // is worse than a missing one.
+        Path projectRoot = tempDir.resolve("project");
+        Path pkg = projectRoot.resolve("src/main/java/com/acme/ref");
+        Files.createDirectories(pkg);
+        Files.writeString(pkg.resolve("Caller.java"), """
+                package com.acme.ref;
+                public class Caller {
+                    public void run(com.totally.unknown.Registry registry) {
+                        registry.register(Handlers::handle);
+                    }
+                }
+                """);
+        Files.writeString(pkg.resolve("Handlers.java"), """
+                package com.acme.ref;
+                public class Handlers {
+                    static void handle(String s) {}
+                    static void handle(Integer i) {}
+                }
+                """);
+
+        AnalysisResult result = new ProjectAnalyzer(projectRoot).analyze();
+        boolean anyEdgeToHandle = result.edges.stream()
+                .anyMatch(e -> labelOf(result, e.to).equals("com.acme.ref.Handlers.handle"));
+        assertTrue(!anyEdgeToHandle, "ambiguous reference must not guess: " + result.edges);
+    }
+
+    @Test
     void nonExistentProjectPathThrowsException() {
         Path nonExistent = Path.of("/tmp/non-existent-path-for-test-xyz-987654");
         assertThrows(IllegalArgumentException.class, () -> new ProjectAnalyzer(nonExistent).analyze());
