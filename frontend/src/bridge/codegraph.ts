@@ -361,6 +361,12 @@ export type CodeGraphIndexInfo = {
   /** The last run's failure with the analyzer's output tail, or "". */
   error: string;
   modules: string[];
+  /**
+   * What detection decided the project is written in ("java", "lua", "" when
+   * nothing was detected). A restored session learns it here, since the open
+   * that decided it happened in a previous run.
+   */
+  language: string;
   /** The checked-out git branch, "" outside a work tree. */
   branch: string;
 };
@@ -373,6 +379,7 @@ export function codeGraphIndexInfo(): Promise<CodeGraphIndexInfo> {
       indexing: info.indexing,
       error: info.error,
       modules: info.modules ?? [],
+      language: info.language ?? "",
       branch: info.branch,
     };
   });

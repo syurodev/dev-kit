@@ -4,6 +4,7 @@ import { CraftButton, CraftButtonIcon, CraftButtonLabel } from "@/components/ui/
 import { EmptyState } from "@/components/ui/empty-state";
 import { modKey } from "@/lib/shortcut";
 import { AnalyzerSetup } from "./AnalyzerSetup";
+import { blockingAnalyzers } from "./analyzerGate";
 import { useCodeGraphStore } from "./codegraphStore";
 import { loadAnalyzerStatus, pickAndOpenProject, reindex } from "./codegraphActions";
 import { useProjectReady } from "./useDocument";
@@ -41,9 +42,10 @@ export function CodeGraphHome() {
   const errorCode = useCodeGraphStore((s) => s.errorCode);
   const endpointCount = useCodeGraphStore((s) => s.endpoints.length);
   const analyzerStatuses = useCodeGraphStore((s) => s.analyzerStatuses);
-  // Null (not probed, or the probe failed) counts as ready: a status call that
-  // cannot answer must not hide a working module behind a setup panel.
-  const missingAnalyzers = (analyzerStatuses ?? []).filter((s) => !s.ready);
+  // What the open project turned out to be written in, "" until the first
+  // index answers (and for a project whose open failed before detection).
+  const projectLanguage = useCodeGraphStore((s) => s.indexInfo?.language ?? "");
+  const missingAnalyzers = blockingAnalyzers(analyzerStatuses, projectPath, projectLanguage);
 
   // Nothing in CodeGraph works without an analyzer, so setup takes the whole
   // canvas. The sidebar is still there, so the project picker stays reachable.
@@ -87,8 +89,8 @@ export function CodeGraphHome() {
     return (
       <EmptyState
         icon={GitFork}
-        title="Open a Java project"
-        body="DevKit indexes the project's controllers, services and repositories, then draws the call chain behind each route."
+        title="Open a project"
+        body="DevKit indexes a Java or Lua project's controllers, services and repositories, then draws the call chain behind each route."
       >
         {/* Alone on the screen and an invitation, so it takes the craft
             button — unlike the recovery buttons above. */}
@@ -96,7 +98,7 @@ export function CodeGraphHome() {
           <CraftButtonIcon>
             <FolderSearch className="size-3" />
           </CraftButtonIcon>
-          <CraftButtonLabel>Open Java project…</CraftButtonLabel>
+          <CraftButtonLabel>Open project…</CraftButtonLabel>
         </CraftButton>
       </EmptyState>
     );

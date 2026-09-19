@@ -1,6 +1,6 @@
 import { Globe, Zap, Database, Box, type LucideIcon } from "lucide-react";
 
-/** Matches codegraph.Node.layer as produced by the Java analyzer. */
+/** Matches codegraph.Node.layer, whichever analyzer produced it. */
 export type Layer = "controller" | "service" | "repository" | "unknown";
 
 export type LayerVisual = {
