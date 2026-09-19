@@ -56,7 +56,15 @@ type fieldSymbol struct {
 //     fieldAccessClasses) — the identifier is a field read/write; the
 //     symbol is the field itself, not the class the tier surfaces it
 //     through.
-//  3. Every node named identifier, project-wide — the same candidate set
+//  3. The narrowest node enclosing this line, if the identifier names it.
+//     Tier 0 asks for the node's own line, and that is where its
+//     declaration STARTS: for a method under @Override or @GetMapping —
+//     most methods in a Spring project — the annotation's line, one or more
+//     above the name. So a cursor on the name misses tier 0. It comes after
+//     the call-site and field tiers on purpose: inside list(), a line
+//     calling repository.list() names the callee, and tier 1 has already
+//     said so; only a line with no such use falls through to here.
+//  4. Every node named identifier, project-wide — the same candidate set
 //     FindDefinitions' fallback tier ranks (nodesByName), recomputed from
 //     tier 0's own query rather than queried twice.
 //
@@ -90,6 +98,11 @@ func resolveSymbol(ctx context.Context, store Store, filePath string, line int, 
 			out[i] = symbol{Field: &fieldSymbol{ClassID: c.ID, FieldName: identifier}}
 		}
 		return out, nil
+	}
+	if enclosing, ok, err := store.FindNodeAtLine(ctx, filePath, line); err != nil {
+		return nil, err
+	} else if ok && matchesIdentifier(enclosing.Label, identifier) {
+		return []symbol{{Node: &enclosing}}, nil
 	}
 	return nodeSymbols(named), nil
 }

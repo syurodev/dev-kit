@@ -40,6 +40,64 @@ func TestResolveSymbolDeclarationWinsOverByName(t *testing.T) {
 	}
 }
 
+// A node's Line is where its declaration starts, which under an annotation is
+// the annotation — so the cursor on the method's NAME is a line or more below
+// it and misses the exact-line tier. The enclosing node named by the
+// identifier must still be the symbol; otherwise the by-name tier answers
+// with every same-named method in the project and their references are
+// unioned in.
+func TestResolveSymbolAnnotatedDeclarationResolvesToEnclosingMethod(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	result := AnalysisResult{
+		Nodes: []Node{
+			{ID: "com.acme.DeviceService", Label: "com.acme.DeviceService", Kind: "class", FilePath: "DeviceService.java", Line: 10, EndLine: 40},
+			// @Override on 17, `public List<Device> list(...)` on 18.
+			{ID: "com.acme.DeviceService.list(Command)", Label: "com.acme.DeviceService.list", Kind: "method", FilePath: "DeviceService.java", Line: 17, EndLine: 22},
+			{ID: "com.acme.OrderService.list()", Label: "com.acme.OrderService.list", Kind: "method", FilePath: "OrderService.java", Line: 5, EndLine: 9},
+		},
+	}
+	if err := store.ReplaceIndex(ctx, result); err != nil {
+		t.Fatal(err)
+	}
+
+	syms, err := resolveSymbol(ctx, store, "DeviceService.java", 18, "list")
+	if err != nil {
+		t.Fatalf("resolveSymbol: %v", err)
+	}
+	if len(syms) != 1 || syms[0].Node == nil || syms[0].Node.ID != "com.acme.DeviceService.list(Command)" {
+		t.Fatalf("syms = %+v, want only the method whose name the cursor is on", syms)
+	}
+}
+
+// Inside list(), a line that calls ANOTHER method named list names the callee.
+// The call-site tier has to win over the enclosing-node tier, or every
+// delegating method would resolve to itself.
+func TestResolveSymbolCallInsideSameNamedMethodResolvesToCallee(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	result := AnalysisResult{
+		Nodes: []Node{
+			{ID: "com.acme.DeviceService.list(Command)", Label: "com.acme.DeviceService.list", Kind: "method", FilePath: "DeviceService.java", Line: 17, EndLine: 22},
+			{ID: "com.acme.DeviceRepository.list()", Label: "com.acme.DeviceRepository.list", Kind: "method", FilePath: "DeviceRepository.java", Line: 8, EndLine: 8},
+		},
+		CallSites: []CallSite{
+			{From: "com.acme.DeviceService.list(Command)", To: "com.acme.DeviceRepository.list()", Line: 19},
+		},
+	}
+	if err := store.ReplaceIndex(ctx, result); err != nil {
+		t.Fatal(err)
+	}
+
+	syms, err := resolveSymbol(ctx, store, "DeviceService.java", 19, "list")
+	if err != nil {
+		t.Fatalf("resolveSymbol: %v", err)
+	}
+	if len(syms) != 1 || syms[0].Node == nil || syms[0].Node.ID != "com.acme.DeviceRepository.list()" {
+		t.Fatalf("syms = %+v, want the callee, not the enclosing method", syms)
+	}
+}
+
 // --- FindImplementations -----------------------------------------------------
 
 func interfaceAndImpls() AnalysisResult {
