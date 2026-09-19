@@ -31,6 +31,7 @@ export function FilesTab({
   files,
   query,
   selectedFile,
+  unsaved,
   gitStatus,
   flowFiles,
   filter,
@@ -38,10 +39,13 @@ export function FilesTab({
   expanded,
   onToggleFolder,
   onSelectFile,
+  onKeepFile,
 }: {
   files: CodeGraphFileEntry[];
   query: string;
   selectedFile: string | null;
+  /** Files with edits not yet saved — open or not. */
+  unsaved: ReadonlySet<string>;
   gitStatus: Record<string, CodeGraphGitState>;
   /** Files of the nodes in the graph on screen. */
   flowFiles: ReadonlySet<string>;
@@ -51,6 +55,7 @@ export function FilesTab({
   expanded: string[];
   onToggleFolder: (path: string) => void;
   onSelectFile: (path: string) => void;
+  onKeepFile: (path: string) => void;
 }) {
   const changedCount = Object.keys(gitStatus).length;
   const keepFile = useMemo(() => {
@@ -81,10 +86,21 @@ export function FilesTab({
             icon: <FileCode2 />,
             selected: b.path === selectedFile,
             onSelect: () => onSelectFile(b.path),
-            trailing: gitStatus[b.path] ? <span className={MARK_TONE[gitStatus[b.path]]}>{gitStatus[b.path]}</span> : null,
+            onActivate: () => onKeepFile(b.path),
+            trailing:
+              unsaved.has(b.path) || gitStatus[b.path] ? (
+                <span className="flex items-center gap-1.5">
+                  {unsaved.has(b.path) ? (
+                    <span aria-label="unsaved" title="Unsaved edits" className="text-text-primary">
+                      ●
+                    </span>
+                  ) : null}
+                  {gitStatus[b.path] ? <span className={MARK_TONE[gitStatus[b.path]]}>{gitStatus[b.path]}</span> : null}
+                </span>
+              ) : null,
           };
     return nestFiles(shown.entries).map(toNode);
-  }, [shown, expanded, selectedFile, gitStatus, onToggleFolder, onSelectFile]);
+  }, [shown, expanded, selectedFile, unsaved, gitStatus, onToggleFolder, onSelectFile, onKeepFile]);
 
   const toggle = (key: keyof FileFilter, label: string, disabled = false) => (
     <button

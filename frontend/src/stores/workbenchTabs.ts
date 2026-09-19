@@ -340,8 +340,12 @@ export const useWorkbenchTabsStore = create<WorkbenchTabsState>()(
             // One preview slot per module, not one for the whole app: leaving
             // Notes for SSH via the Dock must not evict the note being
             // previewed, because coming back has to find it exactly as left
-            // (module-tabs.mdx: state survives leaving a module).
-            const previewIndex = m.openTabs.findIndex((t) => t.preview);
+            // (module-tabs.mdx: state survives leaving a module). And one per
+            // group within it, as in VS Code: browsing in one group must not
+            // take away what another group is showing.
+            const previewIndex = m.openTabs.findIndex(
+              (t) => t.preview && groupOfTab(placed.groups, t)?.id === placed.group.id,
+            );
             if (previewIndex !== -1) {
               // Replace the current preview tab in place — same array index —
               // so the strip doesn't jump when browsing via single-click.

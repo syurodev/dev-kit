@@ -14,11 +14,14 @@ liền mạch mà không module nào phải import ruột của module khác.
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-<Callout type="warn" title="Design only">
-Chưa có `EntityRef` hay intent registry trong code. Hôm nay module gọi nhau
-bằng import trực tiếp (vd `AgentCompanion` gọi `openFileInProject` của Code
-Graph) và hai window event lẻ (`settingsRequest`, `vaultUnlockRequest`). Thiết
-kế UI: [Figma · CodeGraph / Cross-module](https://www.figma.com/design/3dOzSZBYY7QtzANFTCfEe8/DevKit?node-id=1195-55294).
+<Callout type="warn" title="Làm một phần">
+Đã có: kiểu `EntityRef` và intent registry ở `frontend/src/workbench/intents.ts`,
+với một intent là `codegraph.reveal` (kind `file`, `endpoint`, `node`) — Agent
+companion và Agent Hub mở file qua nó thay cho import `openFileInProject`
+(Agent Hub mở `beside` để session vẫn trên màn hình). Chưa có: resolver,
+`Shared / Entity Chip`, `agent.attach`, và hai window event lẻ
+(`settingsRequest`, `vaultUnlockRequest`) vẫn còn. Thiết kế UI:
+[Figma · CodeGraph / Cross-module](https://www.figma.com/design/3dOzSZBYY7QtzANFTCfEe8/DevKit?node-id=1195-55294).
 </Callout>
 
 ## Nguyên tắc
@@ -135,7 +138,7 @@ Code Graph biết cấu trúc code nên là nơi phát ra nhiều ref nhất. Si
 
 1. `EntityRef` + `Shared / Entity Chip` + resolver cho `codegraph` (endpoint,
    planNode, file) — dùng ngay trong composer của Agent Hub (`agent.attach`).
-2. Intent registry; chuyển `openFileInProject` sang `codegraph.reveal`.
+2. ~~Intent registry; chuyển `openFileInProject` sang `codegraph.reveal`.~~ Xong.
 3. API Client v1 với `api.fromEndpoint` (cần analyzer đọc `@RequestBody` /
    `@PathVariable` — xem [API Client § Phụ thuộc](/dev-kit/api-client#phụ-thuộc-analyzer-phải-hiểu-tham-số-của-handler)).
 4. Tasks v1 — resolver `task` và `tasks.createFromPlan` cắm vào tab Plan.

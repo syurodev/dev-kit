@@ -37,8 +37,7 @@ import {
   type AgentImageAttachment,
 } from "../../bridge/agenthub";
 import { codeGraphProjectRoot } from "../../bridge/codegraph";
-import { openFileInProject } from "../codegraph/codegraphActions";
-import { useWorkbenchTabsStore } from "../../stores/workbenchTabs";
+import { dispatchIntent } from "@/workbench/intents";
 import { copyText } from "../../bridge/clipboard";
 import { toAppError } from "../../bridge/errors";
 import { useAgentHubSidebar } from "./useAgentHubSidebar";
@@ -157,7 +156,6 @@ export function AgentHubView() {
   const pendingAgentHubCommand = useAgentSessionsStore((state) => state.pendingAgentHubCommand);
   const consumeAgentHubCommand = useAgentSessionsStore((state) => state.consumeAgentHubCommand);
   const markCompletedRead = useAgentSessionsStore((state) => state.markCompletedRead);
-  const openTab = useWorkbenchTabsStore((state) => state.openTab);
   const upsertSession = useAgentSessionsStore((state) => state.upsertSession);
   const removeSession = useAgentSessionsStore((state) => state.removeSession);
   const setPrompt = useAgentSessionsStore((state) => state.setPrompt);
@@ -511,8 +509,19 @@ export function AgentHubView() {
 
   function handleOpenFile(path: string, line?: number) {
     if (!activeSession) return;
-    openTab({ moduleId: "codegraph", viewId: "codegraph.explorer", title: "Code Graph" });
-    void openFileInProject(activeSession.projectPath, path, line);
+    // Beside: the session stays on screen next to the file it talks about.
+    void dispatchIntent(
+      "codegraph.reveal",
+      {
+        module: "codegraph",
+        kind: "file",
+        id: path,
+        label: path.slice(path.lastIndexOf("/") + 1),
+        project: activeSession.projectPath,
+        line,
+      },
+      { placement: "beside" },
+    );
   }
 
   function handleSelectCommand(name: string) {

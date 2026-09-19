@@ -1,68 +1,66 @@
-import { useMemo } from "react";
-import { FolderSearch, GitFork, Loader2, RotateCcw, TriangleAlert } from "lucide-react";
+import { useCallback, useEffect, useMemo } from "react";
+import { RotateCcw, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  CraftButton,
-  CraftButtonIcon,
-  CraftButtonLabel,
-} from "@/components/ui/craft-button";
-import { EmptyProgress, EmptyState } from "@/components/ui/empty-state";
+import { EmptyState } from "@/components/ui/empty-state";
+import { useSplitPanel } from "@/components/ui/split-panel";
+import { tabKey } from "@/stores/workbenchTabs";
 import { cn } from "@/lib/utils";
 import { FlowCanvas, describeCounts, type CanvasCounts } from "./graph/FlowCanvas";
 import { methodChipClass } from "./graph/tokens";
+import { shortLabel } from "./graph/labels";
+import { NodeInspector } from "./inspector/NodeInspector";
 import { useCodeGraphStore } from "./codegraphStore";
-import {
-  inspectNode,
-  loadMoreNeighbors,
-  pickAndOpenProject,
-  reindex,
-} from "./codegraphActions";
+import { closeInspector, inspectNode, loadFlow, loadMoreNeighbors, openFile } from "./codegraphActions";
+import { FLOW_VIEW, MODULE } from "./documents";
+import { useIsFrontDocument, useProjectReady } from "./useDocument";
 
-const onSelectNode = (nodeId: string) => void inspectNode(nodeId);
+/**
+ * One flow as a tab: the call graph behind an endpoint, or behind a class or
+ * method picked with @. Its inspector is a context pane of this tab — it
+ * shows while this is the document in front and comes back when it is again.
+ */
+export function FlowDocument({ params }: { params?: Record<string, unknown> }) {
+  const root = typeof params?.root === "string" ? params.root : "";
+  const endpointId = typeof params?.endpoint === "string" ? params.endpoint : undefined;
+  const tabId = tabKey(MODULE, FLOW_VIEW, params);
 
-/** The Endpoints tab: one endpoint's call graph, or why there is none yet. */
-export function EndpointsPane() {
-  const projectPath = useCodeGraphStore((s) => s.projectPath);
-  const endpoints = useCodeGraphStore((s) => s.endpoints);
-  const subgraph = useCodeGraphStore((s) => s.subgraph);
-  const rootId = useCodeGraphStore((s) => s.rootId);
-  const rootEndpointId = useCodeGraphStore((s) => s.rootEndpointId);
-  const error = useCodeGraphStore((s) => s.error);
-  const errorCode = useCodeGraphStore((s) => s.errorCode);
-  const busy = useCodeGraphStore((s) => s.busy);
-  const loadingMore = useCodeGraphStore((s) => s.loadingMore);
-  const rootEndpoint = useMemo(
-    () =>
-      endpoints.find((ep) => ep.id === rootEndpointId) ??
-      endpoints.find((ep) => ep.entryNode === rootId) ??
-      null,
-    [endpoints, rootEndpointId, rootId],
-  );
+  const ready = useProjectReady();
+  const flow = useCodeGraphStore((s) => s.flows[root]);
+  const endpoint = useCodeGraphStore((s) => (endpointId ? s.endpoints.find((ep) => ep.id === endpointId) : undefined));
+  const front = useIsFrontDocument(tabId);
 
-  return (
-    <div className="flex flex-1 flex-col overflow-hidden">
-      {subgraph && rootId ? (
+  // A tab restored after a relaunch, or one whose flow a re-index dropped,
+  // has nothing in the store yet: it asks once the project can answer.
+  useEffect(() => {
+    if (ready && root && !flow) void loadFlow(root);
+  }, [ready, root, flow]);
+
+  const onSelect = useCallback((nodeId: string) => void inspectNode(root, nodeId), [root]);
+  useInspectorPane(root, front);
+
+  const subgraph = flow?.subgraph;
+  if (subgraph) {
+    const rootNode = subgraph.nodes.find((n) => n.id === root);
+    return (
+      <div className="flex h-full w-full flex-col overflow-hidden">
         <FlowCanvas
-          key={rootId}
-          rootId={rootId}
+          key={root}
+          rootId={root}
           nodes={subgraph.nodes}
           edges={subgraph.edges}
-          onSelect={onSelectNode}
+          onSelect={onSelect}
           header={
-            rootEndpoint ? (
+            endpoint ? (
               <>
-                <span
-                  className={cn(
-                    "rounded-sm px-2 py-0.75 text-code-12-medium uppercase",
-                    methodChipClass(rootEndpoint.httpMethod),
-                  )}
-                >
-                  {rootEndpoint.httpMethod}
+                <span className={cn("rounded-sm px-2 py-0.75 text-code-12-medium uppercase", methodChipClass(endpoint.httpMethod))}>
+                  {endpoint.httpMethod}
                 </span>
-                <span className="truncate text-title-16 text-text-primary">{rootEndpoint.path}</span>
+                <span className="truncate text-title-16 text-text-primary">{endpoint.path}</span>
               </>
             ) : (
-              <span className="truncate text-title-16 text-text-primary">{rootId}</span>
+              <span className="truncate text-title-16 text-text-primary" title={rootNode?.label ?? root}>
+                {rootNode ? shortLabel(rootNode.label, rootNode.kind) : root}
+              </span>
             )
           }
           meta={(counts: CanvasCounts) => (
@@ -70,20 +68,17 @@ export function EndpointsPane() {
               <span className="text-code-11 text-text-tertiary">{describeCounts(counts)}</span>
               {subgraph.truncated && (
                 <>
-                  <span
-                    title="The backend capped this subgraph; some nodes are not shown yet."
-                    className="text-code-11 text-status-warning"
-                  >
+                  <span title="The backend capped this subgraph; some nodes are not shown yet." className="text-code-11 text-status-warning">
                     partial
                   </span>
                   <Button
                     variant="outline"
                     size="xs"
                     className="bg-surface-raised"
-                    disabled={loadingMore || !subgraph.continuation}
-                    onClick={() => void loadMoreNeighbors()}
+                    disabled={flow.loadingMore || !subgraph.continuation}
+                    onClick={() => void loadMoreNeighbors(root)}
                   >
-                    {loadingMore ? "Loading…" : "Load more"}
+                    {flow.loadingMore ? "Loading…" : "Load more"}
                   </Button>
                 </>
               )}
@@ -91,66 +86,64 @@ export function EndpointsPane() {
           )}
           hint={
             <>
-              <strong className="text-text-primary">Click</strong> to open code
+              <strong className="text-text-primary">Click</strong> to inspect
             </>
           }
         />
-      ) : busy ? (
-        <EmptyState
-          icon={Loader2}
-          title="Analyzing codebase"
-          body="Indexing controllers, services and repositories. The graph opens as soon as the first route resolves."
-        >
-          <EmptyProgress />
-        </EmptyState>
-      ) : error && errorCode === "unsupported_project" ? (
-        /* Nothing was analyzed and nothing is wrong with the analyzer —
-           the folder simply is not a project. Offering a retry here would
-           be a button that cannot work; the only useful move is choosing
-           somewhere else. */
-        <EmptyState icon={FolderSearch} title="Nothing to index in that folder" body={error}>
-          <Button onClick={pickAndOpenProject}>Choose another folder…</Button>
-        </EmptyState>
-      ) : error ? (
-        <EmptyState icon={TriangleAlert} title="Could not analyze this project" body={error}>
-          <Button
-            variant="outline"
-            className="bg-surface-raised"
-            onClick={() => reindex(projectPath)}
-            disabled={!projectPath}
-          >
-            Re-run analysis
-            <RotateCcw className="size-4" />
-          </Button>
-        </EmptyState>
-      ) : (
-        <EmptyState
-          icon={GitFork}
-          title={projectPath ? "Pick an endpoint to graph" : "Open a Java project"}
-          body={
-            projectPath
-              ? "Choose a route on the left and DevKit traces its controller, services and repositories from the analyzed codebase."
-              : "DevKit indexes the project's controllers, services and repositories, then draws the call chain behind each route."
-          }
-        >
-          {projectPath ? (
-            <span className="flex items-center gap-2 rounded-md bg-state-soft px-2.5 py-1.25 text-body-12 text-text-tertiary">
-              <span className="text-code-11">⌘K</span>
-              search endpoints
-            </span>
-          ) : (
-            /* Alone on the screen and an invitation, so it takes the
-               craft button — unlike the two buttons further up, which
-               recover from an error and should not be celebrating. */
-            <CraftButton onClick={pickAndOpenProject}>
-              <CraftButtonIcon>
-                <FolderSearch className="size-3" />
-              </CraftButtonIcon>
-              <CraftButtonLabel>Open Java project…</CraftButtonLabel>
-            </CraftButton>
-          )}
-        </EmptyState>
-      )}
-    </div>
+      </div>
+    );
+  }
+
+  if (flow?.error) {
+    return (
+      <EmptyState icon={TriangleAlert} tone="danger" title="Could not draw this flow" body={flow.error}>
+        <Button variant="outline" className="bg-surface-raised" onClick={() => void loadFlow(root, true)}>
+          Try again
+          <RotateCcw className="size-4" />
+        </Button>
+      </EmptyState>
+    );
+  }
+
+  return (
+    <EmptyState
+      busy
+      title={endpoint ? `Tracing ${endpoint.httpMethod} ${endpoint.path}` : "Tracing the flow"}
+      body={ready ? "Following the calls from the handler through services and repositories." : "Waiting for the project's index."}
+    />
   );
+}
+
+/**
+ * Opens the inspector while this flow is in front and a node of it is
+ * picked; closes it when either stops being true. Opening the node's code
+ * puts the file beside the flow, so the graph stays on screen.
+ */
+function useInspectorPane(root: string, front: boolean) {
+  const inspector = useCodeGraphStore((s) => s.inspector);
+  const subgraph = useCodeGraphStore((s) => s.flows[root]?.subgraph);
+  const snippet = useCodeGraphStore((s) => s.snippet);
+  const snippetLoading = useCodeGraphStore((s) => s.snippetLoading);
+  const snippetError = useCodeGraphStore((s) => s.snippetError);
+  const node = useMemo(
+    () => (front && inspector?.flow === root ? (subgraph?.nodes.find((n) => n.id === inspector.nodeId) ?? null) : null),
+    [front, inspector, root, subgraph],
+  );
+  const { openPanel, closePanel } = useSplitPanel();
+
+  useEffect(() => {
+    if (!node) return;
+    openPanel(
+      <NodeInspector
+        node={node}
+        snippet={snippet}
+        snippetLoading={snippetLoading}
+        snippetError={snippetError}
+        onEdit={snippet ? () => openFile(snippet.filePath, snippet.line, { preview: false, beside: true }) : undefined}
+        onJump={(id) => void inspectNode(root, id)}
+      />,
+      { width: 520, onClose: closeInspector },
+    );
+    return () => closePanel();
+  }, [node, root, snippet, snippetLoading, snippetError, openPanel, closePanel]);
 }

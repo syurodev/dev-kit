@@ -523,6 +523,34 @@ Chiều cao lưu là **số tuyệt đối**, và được clamp **lúc render**
 ghi — mở một lần ở cửa sổ nhỏ không được phép làm teo vĩnh viễn tỉ lệ đã kéo ở
 cửa sổ lớn. Cùng quy tắc với bottom slot.
 
+## Document: flow, file, plan là tab
+
+Canvas không còn đổi theo tab của sidebar. Mỗi thứ mở ra là một **tab** của
+module (`frontend/src/modules/codegraph/documents.ts`), nên đi được mọi nơi tab
+đi được — cạnh nhau trong [document group](/dev-kit/layout#document-group--nhiều-document-cạnh-nhau),
+giữ khi xem thứ khác, khôi phục sau khi mở lại app.
+
+| View | Params | Mở từ |
+|---|---|---|
+| `codegraph.explorer` (home) | — | Titlebar; trạng thái project: chưa chọn, đang analyze (icon xoay, không progress bar — backend không báo tiến độ), lỗi, "chọn endpoint" |
+| `codegraph.flow` | `root` (node id), `endpoint?` | Dòng endpoint, kết quả `@`, intent `codegraph.reveal` kind `endpoint`/`node` |
+| `codegraph.file` | `path` (tương đối project) | Tab Files, symbol `⌘↵`, *Edit* của inspector (mở `beside`), intent kind `file` |
+| `codegraph.plan` | — | Tab Plan: dòng node, *Review & approve plan* (approve nằm trên canvas, cạnh thứ được duyệt) |
+
+- **Click** mở preview tab của group, click tiếp thay nó; **double-click**, sửa
+  file, hoặc *Open in new tab* giữ tab. **⌘-click** / *Open beside* mở ở group
+  bên cạnh. Preview là **một cho mỗi group** (không phải một cho cả module), như
+  VS Code: duyệt ở group này không lấy mất thứ group kia đang hiện.
+- **Inspector là context pane của flow**: chỉ hiện khi flow của nó là tab đang
+  focus; focus sang flow khác hay file thì ẩn, quay lại thì hiện lại.
+- **Mỗi file một buffer**: mở file khác không bao giờ hỏi bỏ thay đổi (dialog
+  *Discard unsaved changes?* đã bỏ). Đóng tab của file đang sửa **giữ** buffer;
+  mở lại thấy nguyên. Sidebar đánh `●` cho file chưa lưu.
+- **Đổi project** đóng mọi flow và file sạch; file đang sửa ở lại, đánh dấu
+  "từ project khác", chỉ Copy/Discard, không Save.
+- **Canvas tự fit khi pane đổi cỡ** (tách group, mở inspector) cho tới khi
+  người dùng tự pan/zoom; nút Fit trả view về cho layout.
+
 ## Data flow analysis & BRD (add-on v1)
 
 ### Data flow: bounded, theo yêu cầu — không phân tích toàn project lúc index

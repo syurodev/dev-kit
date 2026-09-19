@@ -12,6 +12,8 @@ import {
   codeGraphGitStatus,
   readCodeGraphFile,
   writeCodeGraphFile,
+  onCodeGraphIndexUpdated,
+  onCodeGraphProjectChanged,
   type CodeGraphEndpoint,
   type CodeGraphSubgraph,
   type CodeGraphSymbolMatch,
@@ -24,11 +26,24 @@ import {
   getCodeGraphPlanProgress,
 } from "@/bridge/codegraphPlan";
 import { errorMessage, toAppError } from "@/bridge/errors";
-import { codeGraphRequests, useCodeGraphStore } from "./codegraphStore";
+import { codeGraphRequests, useCodeGraphStore, type FileBuffer, type FlowDoc } from "./codegraphStore";
 import { isNoPlanError, isProjectChangedError } from "./codegraphErrors";
 import { mergeSubgraph } from "./subgraph";
 import { rememberProject } from "./recentProjects";
 import { useAgentSessionsStore } from "@/stores/agentSessions";
+import { moduleTabs, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
+import type { Placement } from "@/workbench/intents";
+import {
+  MODULE,
+  closeProjectDocuments,
+  describeDocument,
+  keepTab,
+  openEndpointFlow,
+  openFileDoc,
+  openPlanDoc,
+  openNodeFlow,
+} from "./documents";
+import { symbolDisplay } from "./sidebar/sidebarModel";
 
 /**
  * Everything CodeGraph asks the bridge, as module-level functions over the
@@ -77,7 +92,8 @@ async function loadFiles() {
     const files = await listCodeGraphFiles();
     if (current()) set({ files });
   } catch (e) {
-    if (current()) set({ fileError: errorMessage(e) });
+    // The tree keeps what it had: an empty rail would read as an empty project.
+    if (current()) console.warn("codegraph: could not list files", errorMessage(e));
   }
 }
 
@@ -97,33 +113,74 @@ export async function loadAnalyzerStatus() {
   }
 }
 
+const EMPTY_FLOW: FlowDoc = { subgraph: null, pages: 0, loading: false, loadingMore: false, error: "" };
+
+function patchFlow(root: string, patch: Partial<FlowDoc>) {
+  const flows = snapshot().flows;
+  set({ flows: { ...flows, [root]: { ...(flows[root] ?? EMPTY_FLOW), ...patch } } });
+}
+
+function patchBuffer(path: string, patch: Partial<FileBuffer>) {
+  const buffers = snapshot().buffers;
+  const base: FileBuffer = buffers[path] ?? { content: "", root: snapshot().projectPath, dirty: false, loading: false, error: "", line: null };
+  set({ buffers: { ...buffers, [path]: { ...base, ...patch } } });
+}
+
+/** The documents open in Code Graph's tabs, by kind. */
+function openDocuments() {
+  const tabs = moduleTabs(useWorkbenchTabsStore.getState().modules, MODULE).openTabs.map(describeDocument);
+  return {
+    flows: new Set(tabs.flatMap((d) => (d.kind === "flow" && d.root ? [d.root] : []))),
+    files: new Set(tabs.flatMap((d) => (d.kind === "file" && d.path ? [d.path] : []))),
+    plan: tabs.some((d) => d.kind === "plan"),
+  };
+}
+
+/**
+ * Drops the state of documents whose tab is gone: a flow nobody is looking
+ * at, a clean buffer. A buffer with unsaved edits is kept — closing a tab is
+ * not "throw my edits away", and opening the file again finds them.
+ */
+function pruneClosedDocuments() {
+  const open = openDocuments();
+  const { flows, buffers, inspector } = snapshot();
+  const keptFlows = Object.fromEntries(Object.entries(flows).filter(([root]) => open.flows.has(root)));
+  const keptBuffers = Object.fromEntries(
+    Object.entries(buffers).filter(([path, b]) => open.files.has(path) || b.dirty),
+  );
+  const patch: Record<string, unknown> = {};
+  if (Object.keys(keptFlows).length !== Object.keys(flows).length) patch.flows = keptFlows;
+  if (Object.keys(keptBuffers).length !== Object.keys(buffers).length) patch.buffers = keptBuffers;
+  if (inspector && !open.flows.has(inspector.flow)) Object.assign(patch, { inspector: null, snippet: null });
+  if (Object.keys(patch).length > 0) set(patch);
+}
+
 /**
  * Drops everything that belongs to the previous project and supersedes every
- * request still in flight for it.
+ * request still in flight for it — and closes its documents: a flow of the
+ * old project drawn under the new one's name would be a lie.
  *
  * An unsaved buffer is the one exception: throwing away someone's edits
- * because an agent switched projects over MCP would be data loss. It stays on
- * screen with its old fileRoot, which the view shows as "from another project"
+ * because an agent switched projects over MCP would be data loss. Its tab
+ * stays with its old root, which the view shows as "from another project"
  * and which saving refuses (and Go refuses too), so it can be copied out but
  * never written into the new project at the same relative path.
  */
 function switchProject(root: string) {
   codeGraphRequests.invalidateAll();
-  const { fileDirty } = snapshot();
+  const dirty = Object.fromEntries(Object.entries(snapshot().buffers).filter(([, b]) => b.dirty));
+  closeProjectDocuments((path) => path in dirty);
   set({
     projectPath: root,
     endpoints: [],
     files: [],
-    subgraph: null,
-    rootId: null,
-    rootEndpointId: null,
-    subgraphPages: 0,
-    loadingMore: false,
+    flows: {},
+    buffers: dirty,
     busy: false,
     status: "",
     error: "",
     errorCode: "",
-    inspectorNodeId: null,
+    inspector: null,
     snippet: null,
     snippetLoading: false,
     snippetError: "",
@@ -134,31 +191,22 @@ function switchProject(root: string) {
     selectedPlanNodeId: null,
     commentsPlanNodeId: null,
     commentCounts: {},
-    pendingOpenFile: null,
-    pendingOpenLine: null,
-    fileError: "",
     indexInfo: null,
     gitStatus: {},
     collapsedGroups: [],
     fileExpanded: [],
-    ...(fileDirty
-      ? {}
-      : { selectedFile: null, fileRoot: "", selectedLine: null, fileContent: "", fileDirty: false }),
   });
 }
 
 export async function reindex(path: string) {
-  if (path !== snapshot().projectPath) switchProject(path);
+  const sameProject = path === snapshot().projectPath;
+  if (!sameProject) switchProject(path);
   const current = begin("reindex");
   set({
     busy: true,
     status: "Indexing…",
     error: "",
     errorCode: "",
-    subgraph: null,
-    rootId: null,
-    rootEndpointId: null,
-    subgraphPages: 0,
     indexInfo: { ...(snapshot().indexInfo ?? { indexedAt: 0, error: "", modules: [], branch: "" }), indexing: true },
   });
   try {
@@ -171,6 +219,8 @@ export async function reindex(path: string) {
     if (!current()) return;
     set({ status: indexedStatus(detected.modules.length, list.length) });
     rememberProject(path);
+    // The flows still open were drawn from the index just replaced.
+    if (sameProject) void refreshOpenFlows();
   } catch (e) {
     if (!current()) return;
     const failure = toAppError(e);
@@ -217,52 +267,80 @@ export async function handleProjectChanged(root: string) {
   if (snapshot().projectPath === root && snapshot().status === "Indexing…") set({ status: "" });
 }
 
-/** On mount: adopt the project Go restored, if the store has none yet. */
-export async function restoreProject(isCancelled: () => boolean) {
+/** Adopt the project Go restored, if the store has none yet. */
+async function restoreProject() {
   const root = await codeGraphProjectRoot();
-  if (isCancelled() || !root || snapshot().projectPath) return;
+  if (!root || snapshot().projectPath) return;
   set({ projectPath: root, status: "Indexing…" });
   await refreshAfterReindex();
-  if (!isCancelled() && snapshot().projectPath === root) {
+  if (snapshot().projectPath === root) {
     set({ status: "" });
     rememberProject(root);
   }
 }
 
-export async function viewFlow(endpoint: CodeGraphEndpoint) {
-  const current = begin("subgraph");
-  set({
-    error: "",
-    inspectorNodeId: null,
-    snippet: null,
-    snippetError: "",
-    loadingMore: false,
-  });
-  try {
-    const sub = await getCodeGraphNeighbors(endpoint.entryNode, NEIGHBOR_DEPTH);
-    if (!current()) return;
-    set({ subgraph: sub, rootId: endpoint.entryNode, rootEndpointId: endpoint.id, subgraphPages: 1 });
-  } catch (e) {
-    if (!current()) return;
-    set({ subgraph: null, error: errorMessage(e) });
+let started = false;
+let restored = false;
+
+/**
+ * Wires the module up once, from whichever of its surfaces mounts first — the
+ * rail, the home view, a restored flow or file tab. None of them owns the
+ * project, so none of them can be the one place this lives.
+ *
+ * The subscriptions are for the app's lifetime, like the store they write to.
+ */
+export function ensureStarted() {
+  if (!started) {
+    started = true;
+    onCodeGraphIndexUpdated(() => void refreshAfterReindex());
+    // The project can change without this module doing it — an agent
+    // switching it over MCP. Everything project-scoped is reset when it does.
+    onCodeGraphProjectChanged((root) => void handleProjectChanged(root));
+    useWorkbenchTabsStore.subscribe((state, prev) => {
+      if (state.modules[MODULE] !== prev.modules[MODULE]) pruneClosedDocuments();
+    });
+    // Probe once. Cheap enough, and the answer cannot change without someone
+    // installing a JDK, which is not something to poll for.
+    void loadAnalyzerStatus();
   }
+  if (!restored) {
+    restored = true;
+    // A locked vault fails this; the next surface to mount tries again.
+    restoreProject().catch(() => {
+      restored = false;
+    });
+  }
+}
+
+/** Fetches one flow's graph, unless it is already on screen. */
+export async function loadFlow(root: string, force = false) {
+  const flow = snapshot().flows[root];
+  if (!force && flow && (flow.subgraph || flow.loading)) return;
+  const current = begin(`flow:${root}`);
+  patchFlow(root, { loading: true, error: "", loadingMore: false });
+  try {
+    const sub = await getCodeGraphNeighbors(root, NEIGHBOR_DEPTH);
+    if (current()) patchFlow(root, { subgraph: sub, pages: 1, loading: false });
+  } catch (e) {
+    if (current()) patchFlow(root, { subgraph: null, loading: false, error: errorMessage(e) });
+  }
+}
+
+export type OpenDocOptions = { preview?: boolean; beside?: boolean };
+
+/** An endpoint's call flow, in the preview tab unless told otherwise. */
+export function viewFlow(endpoint: CodeGraphEndpoint, options?: OpenDocOptions) {
+  openEndpointFlow(endpoint, options);
+  void loadFlow(endpoint.entryNode);
 }
 
 /**
  * A symbol from the sidebar's @ search, drawn as the root of its own graph —
  * a class or method reached without an endpoint in front of it.
  */
-export async function viewSymbol(match: CodeGraphSymbolMatch) {
-  const current = begin("subgraph");
-  set({ activeTab: "endpoints", error: "", inspectorNodeId: null, snippet: null, snippetError: "", loadingMore: false });
-  try {
-    const sub = await getCodeGraphNeighbors(match.nodeId, NEIGHBOR_DEPTH);
-    if (!current()) return;
-    set({ subgraph: sub, rootId: match.nodeId, rootEndpointId: null, subgraphPages: 1 });
-  } catch (e) {
-    if (!current()) return;
-    set({ subgraph: null, error: errorMessage(e) });
-  }
+export function viewSymbol(match: CodeGraphSymbolMatch, options?: OpenDocOptions) {
+  openNodeFlow(match.nodeId, symbolDisplay(match).name, options);
+  void loadFlow(match.nodeId);
 }
 
 /**
@@ -271,37 +349,33 @@ export async function viewSymbol(match: CodeGraphSymbolMatch) {
  * picture — GetNeighbors returned `truncated` and a continuation token that
  * nothing read.
  *
- * The page is merged only if the subgraph it continues is still the one on
- * screen — checked by identity rather than by taking the "subgraph" key, so
- * clicking Load more never cancels an endpoint the user just picked. A page of
- * endpoint A is never merged into B, nor into a refresh that replaced A.
+ * The page is merged only if the subgraph it continues is still the one in
+ * that flow — checked by identity, so a refresh that replaced it wins.
  */
-export async function loadMoreNeighbors() {
-  const { rootId, subgraph, loadingMore } = snapshot();
-  if (!rootId || !subgraph?.continuation || loadingMore) return;
-  const current = begin("loadMore");
-  set({ loadingMore: true });
+export async function loadMoreNeighbors(root: string) {
+  const flow = snapshot().flows[root];
+  if (!flow?.subgraph?.continuation || flow.loadingMore) return;
+  const subgraph = flow.subgraph;
+  const current = begin(`more:${root}`);
+  patchFlow(root, { loadingMore: true });
   try {
-    const next = await getCodeGraphNeighbors(rootId, NEIGHBOR_DEPTH, {
-      continuation: subgraph.continuation,
-    });
-    const now = snapshot();
-    if (!current() || now.subgraph !== subgraph || now.rootId !== rootId) return;
-    set({ subgraph: mergeSubgraph(subgraph, next), subgraphPages: now.subgraphPages + 1 });
+    const next = await getCodeGraphNeighbors(root, NEIGHBOR_DEPTH, { continuation: subgraph.continuation });
+    const now = snapshot().flows[root];
+    if (!current() || now?.subgraph !== subgraph) return;
+    patchFlow(root, { subgraph: mergeSubgraph(subgraph, next), pages: now.pages + 1 });
   } catch (e) {
-    if (current() && snapshot().subgraph === subgraph) set({ error: errorMessage(e) });
+    if (current() && snapshot().flows[root]?.subgraph === subgraph) patchFlow(root, { error: errorMessage(e) });
   } finally {
-    if (current()) set({ loadingMore: false });
+    if (current()) patchFlow(root, { loadingMore: false });
   }
 }
 
-/** Click a node → open its inspector, anchored to that node on the canvas. */
-export async function inspectNode(nodeId: string) {
-  const { subgraph } = snapshot();
-  const node = subgraph?.nodes.find((n) => n.id === nodeId);
+/** Click a node → open its inspector, a context pane of the flow it is in. */
+export async function inspectNode(flow: string, nodeId: string) {
+  const node = snapshot().flows[flow]?.subgraph?.nodes.find((n) => n.id === nodeId);
   if (!node) return;
   const current = begin("inspect");
-  set({ inspectorNodeId: nodeId, snippet: null, snippetError: "" });
+  set({ inspector: { flow, nodeId }, snippet: null, snippetError: "" });
   // A node with no source yet (a plan node still not_implemented) has an empty
   // filePath — let the Detail tab show its own empty state rather than asking
   // Go for a file that does not exist.
@@ -320,7 +394,7 @@ export async function inspectNode(nodeId: string) {
 
 export function closeInspector() {
   begin("inspect"); // a snippet still on its way belongs to nothing now
-  set({ inspectorNodeId: null, snippet: null, snippetError: "", snippetLoading: false });
+  set({ inspector: null, snippet: null, snippetError: "", snippetLoading: false });
 }
 
 /**
@@ -348,6 +422,13 @@ export async function loadPlan() {
   } finally {
     if (current()) set({ planBusy: false });
   }
+}
+
+/** The plan's canvas as a tab, with `nodeId` picked on it. */
+export function showPlan(nodeId?: string, options?: OpenDocOptions) {
+  if (nodeId) set({ selectedPlanNodeId: nodeId });
+  openPlanDoc(options);
+  if (!snapshot().plan && !snapshot().planBusy) void loadPlan();
 }
 
 export async function approvePlan() {
@@ -392,16 +473,35 @@ async function fetchPages(rootId: string, pages: number, current: () => boolean)
   return { sub, loaded };
 }
 
+/** Re-draws every open flow from the current index, as many pages as it had. */
+async function refreshOpenFlows() {
+  const open = openDocuments().flows;
+  await Promise.all(
+    [...open].map(async (root) => {
+      const pages = Math.max(1, snapshot().flows[root]?.pages ?? 1);
+      const current = begin(`flow:${root}`);
+      try {
+        const { sub, loaded } = await fetchPages(root, pages, current);
+        if (current()) patchFlow(root, { subgraph: sub, pages: loaded, loading: false, error: "" });
+      } catch (e) {
+        // A node the re-index removed: the tab says so rather than keeping
+        // a graph of code that is gone.
+        if (current()) patchFlow(root, { loading: false, error: errorMessage(e) });
+      }
+    }),
+  );
+}
+
 /**
- * Re-reads whatever is currently on screen after a background re-index.
+ * Re-reads whatever is open after a background re-index.
  *
  * Everything here is derived from the index, so it goes stale silently — plan
  * status especially, since Go recomputes the diff on every read and the UI
  * would otherwise keep showing the answer from before the agent's last commit.
  *
- * The open file is deliberately NOT re-read: that buffer may hold unsaved
- * edits, and refreshing it would throw them away to fix a staleness the user
- * can see and control.
+ * Open files are deliberately NOT re-read: a buffer may hold unsaved edits,
+ * and refreshing it would throw them away to fix a staleness the user can see
+ * and control.
  */
 export async function refreshAfterReindex() {
   const current = begin("refresh");
@@ -410,72 +510,60 @@ export async function refreshAfterReindex() {
     if (!current()) return;
     const endpoints = await listCodeGraphEndpoints();
     if (!current()) return;
-    set({ endpoints });
+    set({ endpoints, error: "", errorCode: "" });
     await loadFiles();
     if (!current()) return;
-    // Read after the waits, not before: the user may have picked another
-    // endpoint (or loaded more of this one) while the index settled.
-    const { rootId, subgraphPages } = snapshot();
-    if (rootId) {
-      const flow = begin("subgraph");
-      const { sub, loaded } = await fetchPages(rootId, Math.max(1, subgraphPages), flow);
-      if (current() && flow()) set({ subgraph: sub, subgraphPages: loaded });
-    }
+    await refreshOpenFlows();
   } catch (e) {
     if (current()) set({ error: errorMessage(e) });
   }
-  if (current()) void loadSidebarMeta();
-  if (current() && snapshot().activeTab === "plan") {
-    await loadPlan();
-  }
+  if (!current()) return;
+  void loadSidebarMeta();
+  if (openDocuments().plan || snapshot().activeTab === "plan") await loadPlan();
 }
 
-async function readFileIntoEditor(path: string, line: number | null = null) {
-  const current = begin("file");
-  set({ fileError: "", pendingOpenFile: null, pendingOpenLine: null });
+/** Reads a file into its buffer — unless the buffer holds edits, which win. */
+async function loadBuffer(path: string, line: number | null) {
+  const existing = snapshot().buffers[path];
+  if (existing?.dirty) {
+    if (line !== null) patchBuffer(path, { line });
+    return;
+  }
+  const current = begin(`file:${path}`);
+  patchBuffer(path, { loading: !existing, error: "", line });
   try {
     const content = await readCodeGraphFile(path);
-    if (!current()) return;
-    set({
-      selectedFile: path,
-      fileRoot: snapshot().projectPath,
-      selectedLine: line,
-      fileContent: content,
-      fileDirty: false,
-    });
+    // Typed into while the read was in flight: the typing wins.
+    if (!current() || snapshot().buffers[path]?.dirty) return;
+    patchBuffer(path, { content, root: snapshot().projectPath, dirty: false, loading: false });
   } catch (e) {
-    if (current()) set({ fileError: errorMessage(e) });
+    if (current()) patchBuffer(path, { loading: false, error: errorMessage(e) });
   }
 }
 
 /**
- * Opens a file in the editor — unless that would discard unsaved edits, in
- * which case it parks the request for the view's confirm dialog. Every way in
- * (tree, blast radius, the inspector's Edit) goes through here.
+ * Opens a file as a tab. Every way in — the tree, blast radius, the
+ * inspector's Edit, an agent — goes through here. A file with unsaved edits
+ * opens on its edits: nothing is ever discarded to open something.
  */
-export async function openFile(path: string, line: number | null = null) {
-  const { fileDirty, selectedFile, fileRoot, projectPath } = snapshot();
-  if (fileDirty) {
-    // Re-opening the file already being edited is a no-op, not a revert —
-    // unless the buffer is left over from another project.
-    const sameBuffer = path === selectedFile && (!fileRoot || fileRoot === projectPath);
-    if (sameBuffer) {
-      if (line !== null) set({ selectedLine: line });
-    } else {
-      set({ pendingOpenFile: path, pendingOpenLine: line });
-    }
-    return;
-  }
-  await readFileIntoEditor(path, line);
+export function openFile(path: string, line: number | null = null, options?: OpenDocOptions) {
+  openFileDoc(path, options);
+  void loadBuffer(path, line);
+}
+
+/** A buffer read again from disk: after a save elsewhere, or to drop a failed read. */
+export function reloadFile(path: string) {
+  if (snapshot().buffers[path]?.dirty) return;
+  void loadBuffer(path, snapshot().buffers[path]?.line ?? null);
 }
 
 /**
  * Opens a file an agent pointed at, in the agent's project: switches to that
  * project the same way the picker does (so its state resets and an unsaved
- * buffer is kept as the old project's), then goes through openFile, so the
- * discard prompt applies here too. `path` may be absolute or project-relative.
+ * buffer is kept as the old project's), then goes through openFile.
+ * `path` may be absolute or project-relative.
  */
-export async function openFileInProject(root: string, path: string, line?: number) {
+export async function openFileInProject(root: string, path: string, line?: number, placement: Placement = "replace") {
   const trimmedRoot = root.replace(/[\\/]+$/, "");
   const normalizedRoot = trimmedRoot.split("\\").join("/");
   const normalizedPath = path.split("\\").join("/");
@@ -483,56 +571,54 @@ export async function openFileInProject(root: string, path: string, line?: numbe
     ? normalizedPath.slice(normalizedRoot.length + 1)
     : normalizedPath;
   set({ activeTab: "files" });
-  if (trimmedRoot !== snapshot().projectPath) {
+  if (trimmedRoot && trimmedRoot !== snapshot().projectPath) {
     await reindex(trimmedRoot);
-    // A failed open is already on screen as the view's error; a superseded
-    // one belongs to whoever superseded it.
+    // A failed open is already on screen as the home view's error; a
+    // superseded one belongs to whoever superseded it.
     if (snapshot().projectPath !== trimmedRoot || snapshot().error) return;
   }
-  await openFile(relative, line ?? null);
+  openFile(relative, line ?? null, { preview: false, beside: placement === "beside" });
 }
 
-export async function confirmDiscardAndOpen() {
-  const { pendingOpenFile: path, pendingOpenLine: line } = snapshot();
-  if (!path) return;
-  set({ fileDirty: false });
-  await readFileIntoEditor(path, line);
+/** Throws a buffer's edits away and closes its tab. */
+export function discardFile(path: string) {
+  begin(`file:${path}`);
+  const { [path]: _gone, ...rest } = snapshot().buffers;
+  set({ buffers: rest });
+  const tab = moduleTabs(useWorkbenchTabsStore.getState().modules, MODULE).openTabs.find(
+    (t) => describeDocument(t).path === path,
+  );
+  if (tab) useWorkbenchTabsStore.getState().closeTab(tab.id);
 }
 
-export function cancelPendingOpen() {
-  set({ pendingOpenFile: null, pendingOpenLine: null });
-}
-
-/** Closes a buffer left over from a project switch, edits and all. */
-export function closeFile() {
-  begin("file");
-  set({ selectedFile: null, fileRoot: "", selectedLine: null, fileContent: "", fileDirty: false, fileError: "" });
-}
-
-export function editFileContent(content: string) {
-  set({ fileContent: content, fileDirty: true });
+export function editFile(path: string, content: string, tabId: string) {
+  patchBuffer(path, { content, dirty: true });
+  // An edited preview is not a preview any more: the next click must not
+  // replace it.
+  keepTab(tabId);
 }
 
 // Reads the live values off the store rather than through refs mirrored during
 // render, so the CodeMirror keymap can call it without re-binding.
-export async function saveCurrentFile() {
-  const { selectedFile, fileContent, fileRoot, projectPath } = snapshot();
-  if (!selectedFile) return;
-  if (fileRoot && fileRoot !== projectPath) {
-    set({
-      fileError: `This buffer belongs to ${fileRoot}, not the open project — copy your edits out; it cannot be saved here.`,
+export async function saveFile(path: string) {
+  const buffer = snapshot().buffers[path];
+  const { projectPath } = snapshot();
+  if (!buffer) return;
+  if (buffer.root && buffer.root !== projectPath) {
+    patchBuffer(path, {
+      error: `This buffer belongs to ${buffer.root}, not the open project — copy your edits out; it cannot be saved here.`,
     });
     return;
   }
+  const { content } = buffer;
   try {
-    await writeCodeGraphFile(selectedFile, fileContent, fileRoot || projectPath);
+    await writeCodeGraphFile(path, content, buffer.root || projectPath);
     // Edits typed while the write was in flight are still unsaved.
-    if (snapshot().selectedFile === selectedFile && snapshot().fileContent === fileContent) {
-      set({ fileDirty: false, fileError: "" });
-    }
+    if (snapshot().buffers[path]?.content === content) patchBuffer(path, { dirty: false, error: "" });
+    void loadSidebarMeta();
   } catch (e) {
-    set({
-      fileError: isProjectChangedError(e)
+    patchBuffer(path, {
+      error: isProjectChangedError(e)
         ? "Not saved: the active project changed since this file was opened. Your edits are still here — copy them before closing the file."
         : errorMessage(e),
     });

@@ -1,18 +1,21 @@
-import { useCallback, useMemo } from "react";
+import { useEffect, useMemo } from "react";
+import { moduleTabs, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
 import { SidebarHeader, SidebarSearch } from "@/components/ui/sidebar-shell";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { CodeGraphEndpoint, CodeGraphSymbolMatch } from "@/bridge/codegraph";
 import { useCodeGraphStore } from "./codegraphStore";
 import {
-  approvePlan,
   askAgent,
+  ensureStarted,
   loadPlan,
   openFile,
   pickAndOpenProject,
   reindex,
+  showPlan,
   viewFlow,
   viewSymbol,
 } from "./codegraphActions";
+import { MODULE, describeDocument } from "./documents";
 import { ProjectHeader } from "./sidebar/ProjectHeader";
 import { EmptyProject } from "./sidebar/EmptyProject";
 import { IndexErrorCard } from "./sidebar/IndexErrorCard";
@@ -48,13 +51,17 @@ const onToggleGroup = (key: string) => {
 };
 const onAskAboutEndpoint = (ep: CodeGraphEndpoint) =>
   askAgent(`About the endpoint ${ep.httpMethod} ${ep.path} (handled by ${ep.entryNode}) in Code Graph: `);
+const onPreviewEndpoint = (ep: CodeGraphEndpoint) => viewFlow(ep);
+const onKeepEndpoint = (ep: CodeGraphEndpoint) => viewFlow(ep, { preview: false });
+const onEndpointBeside = (ep: CodeGraphEndpoint) => viewFlow(ep, { preview: false, beside: true });
+// A search result is a deliberate pick, not browsing: it keeps its tab.
 const onOpenSymbolFile = (m: CodeGraphSymbolMatch) => {
   set({ activeTab: "files", query: "" });
-  void openFile(m.filePath, m.line);
+  openFile(m.filePath, m.line, { preview: false });
 };
 const onOpenSymbolGraph = (m: CodeGraphSymbolMatch) => {
   set({ query: "" });
-  void viewSymbol(m);
+  viewSymbol(m, { preview: false });
 };
 const onClearQuery = () => set({ query: "" });
 // Module-level, so the trees' node lists are rebuilt only when their data is.
@@ -62,7 +69,10 @@ const onToggleFolder = (path: string) => {
   const { fileExpanded } = snapshot();
   set({ fileExpanded: fileExpanded.includes(path) ? fileExpanded.filter((p) => p !== path) : [...fileExpanded, path] });
 };
-const onSelectFile = (path: string) => void openFile(path);
+const onSelectFile = (path: string) => openFile(path);
+const onKeepFile = (path: string) => openFile(path, null, { preview: false });
+const onSelectPlanNode = (id: string) => showPlan(id);
+const onOpenPlan = () => showPlan(undefined, { preview: false });
 
 /**
  * Figma `CodeGraph / Sidebar` (1192:69479): the project and how fresh its
@@ -71,21 +81,27 @@ const onSelectFile = (path: string) => void openFile(path);
  * and the view only has to register it.
  */
 export function CodeGraphSidebar() {
+  useEffect(ensureStarted, []);
+  // What the rail marks is the document in front: the flow's endpoint, the file.
+  const front = useWorkbenchTabsStore((s) => {
+    const tabs = moduleTabs(s.modules, MODULE);
+    return tabs.openTabs.find((t) => t.id === tabs.activeTabId) ?? null;
+  });
+  const doc = describeDocument(front);
   const projectPath = useCodeGraphStore((s) => s.projectPath);
   const busy = useCodeGraphStore((s) => s.busy);
   const activeTab = useCodeGraphStore((s) => s.activeTab);
   const query = useCodeGraphStore((s) => s.query);
   const endpoints = useCodeGraphStore((s) => s.endpoints);
-  const rootEndpointId = useCodeGraphStore((s) => s.rootEndpointId);
   const indexInfo = useCodeGraphStore((s) => s.indexInfo);
   const methodFilter = useCodeGraphStore((s) => s.methodFilter);
   const collapsedGroups = useCodeGraphStore((s) => s.collapsedGroups);
   const files = useCodeGraphStore((s) => s.files);
-  const selectedFile = useCodeGraphStore((s) => s.selectedFile);
   const gitStatus = useCodeGraphStore((s) => s.gitStatus);
   const fileFilter = useCodeGraphStore((s) => s.fileFilter);
   const fileExpanded = useCodeGraphStore((s) => s.fileExpanded);
-  const subgraph = useCodeGraphStore((s) => s.subgraph);
+  const subgraph = useCodeGraphStore((s) => (doc.root ? s.flows[doc.root]?.subgraph : undefined));
+  const buffers = useCodeGraphStore((s) => s.buffers);
   const plan = useCodeGraphStore((s) => s.plan);
   const planBusy = useCodeGraphStore((s) => s.planBusy);
   const planError = useCodeGraphStore((s) => s.planError);
@@ -93,13 +109,18 @@ export function CodeGraphSidebar() {
 
   const services = useMemo(() => groupEndpoints(endpoints).length, [endpoints]);
   const flowFiles = useMemo(() => new Set((subgraph?.nodes ?? []).map((n) => n.filePath).filter(Boolean)), [subgraph]);
+  const unsaved = useMemo(
+    () => new Set(Object.entries(buffers).flatMap(([path, b]) => (b.dirty ? [path] : []))),
+    [buffers],
+  );
+  // A flow opened from @ has no endpoint; the endpoint it starts at is still it.
+  const selectedEndpointId =
+    doc.endpoint ?? (doc.root ? endpoints.find((ep) => ep.entryNode === doc.root)?.id : undefined) ?? null;
   // The tab's badge: plan nodes that need someone to look.
   const attention = (plan?.nodes ?? []).filter(
     (n) => n.status === "implemented_diverged" || n.status === "pending_enhancement",
   ).length;
   const symbolMode = activeTab === "endpoints" && query.startsWith("@");
-
-  const onSelectPlanNode = useCallback((id: string) => set({ selectedPlanNodeId: id }), []);
 
   if (!projectPath) {
     return (
@@ -171,19 +192,22 @@ export function CodeGraphSidebar() {
           endpoints={endpoints}
           query={query}
           busy={busy}
-          selectedEndpointId={rootEndpointId}
+          selectedEndpointId={selectedEndpointId}
           methodFilter={methodFilter}
           collapsed={collapsedGroups}
           onMethodFilter={(methods) => set({ methodFilter: methods })}
           onToggleGroup={onToggleGroup}
-          onSelect={viewFlow}
+          onSelect={onPreviewEndpoint}
+          onKeep={onKeepEndpoint}
+          onOpenBeside={onEndpointBeside}
           onAskAgent={onAskAboutEndpoint}
         />
       ) : activeTab === "files" ? (
         <FilesTab
           files={files}
           query={query}
-          selectedFile={selectedFile}
+          selectedFile={doc.kind === "file" ? (doc.path ?? null) : null}
+          unsaved={unsaved}
           gitStatus={gitStatus}
           flowFiles={flowFiles}
           filter={fileFilter}
@@ -191,6 +215,7 @@ export function CodeGraphSidebar() {
           expanded={fileExpanded}
           onToggleFolder={onToggleFolder}
           onSelectFile={onSelectFile}
+          onKeepFile={onKeepFile}
         />
       ) : (
         <PlanTab
@@ -200,8 +225,8 @@ export function CodeGraphSidebar() {
           error={planError}
           selectedNodeId={selectedPlanNodeId}
           onRetry={() => void loadPlan()}
-          onApprove={() => void approvePlan()}
           onSelectNode={onSelectPlanNode}
+          onOpenCanvas={onOpenPlan}
         />
       )}
     </div>

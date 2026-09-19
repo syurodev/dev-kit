@@ -81,6 +81,16 @@ describe("document groups", () => {
     expect(store().groups).toHaveLength(1);
   });
 
+  test("each group has its own preview: browsing in one leaves the other's alone", () => {
+    store().openTab({ ...note("a"), preview: true });
+    store().openTab({ ...note("b"), preview: true, beside: true });
+    expect(shown()).toEqual(["notes:a", "notes:b"]);
+    // A third preview in the right group replaces b there, not a on the left.
+    store().openTab({ ...note("c"), preview: true });
+    expect(shown()).toEqual(["notes:a", "notes:c"]);
+    expect(moduleTabs(store().modules, "notes").openTabs.map((t) => t.title)).toEqual(["a", "c"]);
+  });
+
   test("a module opened beside keeps the other group as it was", () => {
     store().openTab(note("a"));
     store().openModuleBeside("codegraph");

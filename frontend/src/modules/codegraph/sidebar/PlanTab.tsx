@@ -7,8 +7,12 @@ import { planSummary } from "./sidebarModel";
 
 /**
  * The plan as a worklist (Figma `CodeGraph / Sidebar — 4 Plan`): a progress
- * card with the approval, then what needs attention, what is planned, what is
- * done.
+ * card, then what needs attention, what is planned, what is done. A row opens
+ * the plan's canvas on that node.
+ *
+ * The card's button opens the canvas rather than approving from here: an
+ * approval is a judgement on the flow, and the flow is on the canvas — the
+ * Approve button is there, beside what it approves.
  */
 export function PlanTab({
   plan,
@@ -17,7 +21,7 @@ export function PlanTab({
   error,
   selectedNodeId,
   onRetry,
-  onApprove,
+  onOpenCanvas,
   onSelectNode,
 }: {
   plan: CodeGraphPlanProgress | null;
@@ -26,7 +30,7 @@ export function PlanTab({
   error: string;
   selectedNodeId: string | null;
   onRetry: () => void;
-  onApprove: () => void;
+  onOpenCanvas: () => void;
   onSelectNode: (id: string) => void;
 }) {
   if (!plan) {
@@ -77,11 +81,16 @@ export function PlanTab({
         </div>
         <span className="text-caption-11 text-text-tertiary">{legend.join(" · ")}</span>
         {plan.state === "draft" ? (
-          <Button size="sm" className="w-full" onClick={onApprove} disabled={busy}>
+          <Button size="sm" className="w-full" onClick={onOpenCanvas}>
             Review &amp; approve plan
           </Button>
         ) : (
-          <span className="text-caption-11 text-text-tertiary">Approved — agents build against it.</span>
+          <div className="flex items-center justify-between gap-2">
+            <span className="min-w-0 truncate text-caption-11 text-text-tertiary">Approved — agents build against it.</span>
+            <Button size="xs" variant="ghost" className="shrink-0" onClick={onOpenCanvas}>
+              Open canvas
+            </Button>
+          </div>
         )}
       </div>
 

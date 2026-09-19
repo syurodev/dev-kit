@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Bot, Boxes, CodeXml, Copy, Ellipsis, Workflow } from "lucide-react";
+import { Bot, Boxes, CodeXml, Columns2, Copy, Ellipsis, SquarePlus } from "lucide-react";
 import { TreeRowAction, TreeView, type TreeNodeData } from "@/components/tree-view";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
 import {
@@ -30,7 +30,12 @@ type Props = {
   collapsed: string[];
   onMethodFilter: (methods: string[]) => void;
   onToggleGroup: (key: string) => void;
+  /** Single click: the flow in the preview tab. */
   onSelect: (ep: CodeGraphEndpoint) => void;
+  /** Double click: the flow in a tab that stays. */
+  onKeep: (ep: CodeGraphEndpoint) => void;
+  /** The flow in a group beside the one in front. */
+  onOpenBeside: (ep: CodeGraphEndpoint) => void;
   onAskAgent: (ep: CodeGraphEndpoint) => void;
 };
 
@@ -48,6 +53,8 @@ export function EndpointsTab({
   onMethodFilter,
   onToggleGroup,
   onSelect,
+  onKeep,
+  onOpenBeside,
   onAskAgent,
 }: Props) {
   const methods = useMemo(() => methodsIn(endpoints), [endpoints]);
@@ -57,6 +64,7 @@ export function EndpointsTab({
   // A search opens everything: a match inside a folded group is not a match.
   const searching = query.trim().length > 0 || active.size > 0;
 
+  const menuActions = useMemo(() => ({ onKeep, onOpenBeside, onAskAgent }), [onKeep, onOpenBeside, onAskAgent]);
   const nodes = useMemo(() => {
     const closed = new Set(searching ? [] : collapsed);
     const endpointNode = (ep: CodeGraphEndpoint, controller: string): TreeNodeData => ({
@@ -70,6 +78,7 @@ export function EndpointsTab({
       title: `${ep.httpMethod} ${ep.path}`,
       selected: selectedEndpointId === ep.id,
       onSelect: () => onSelect(ep),
+      onActivate: () => onKeep(ep),
       actions: (
         <>
           <Tooltip>
@@ -87,7 +96,7 @@ export function EndpointsTab({
               </TreeRowAction>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-60">
-              <EndpointMenuItems endpoint={ep} controller={controller} onSelect={onSelect} onAskAgent={onAskAgent} Item={DropdownMenuItem} />
+              <EndpointMenuItems endpoint={ep} controller={controller} actions={menuActions} Item={DropdownMenuItem} />
             </DropdownMenuContent>
           </DropdownMenu>
         </>
@@ -96,7 +105,7 @@ export function EndpointsTab({
         <ContextMenu key={`ep:${ep.id}`}>
           <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
           <ContextMenuContent className="w-60">
-            <EndpointMenuItems endpoint={ep} controller={controller} onSelect={onSelect} onAskAgent={onAskAgent} Item={ContextMenuItem} />
+            <EndpointMenuItems endpoint={ep} controller={controller} actions={menuActions} Item={ContextMenuItem} />
           </ContextMenuContent>
         </ContextMenu>
       ),
@@ -128,7 +137,7 @@ export function EndpointsTab({
         children: g.controllers.map((c) => controllerNode(c, 1)),
       }),
     );
-  }, [groups, searching, collapsed, selectedEndpointId, onSelect, onAskAgent, onToggleGroup]);
+  }, [groups, searching, collapsed, selectedEndpointId, onSelect, onKeep, onAskAgent, onToggleGroup, menuActions]);
 
   const toggleMethod = (m: string) =>
     onMethodFilter(active.has(m) ? methodFilter.filter((x) => x !== m) : [...methodFilter, m]);
@@ -181,6 +190,8 @@ export function EndpointsTab({
   );
 }
 
+type MenuActions = Pick<Props, "onKeep" | "onOpenBeside" | "onAskAgent">;
+
 /**
  * What can be done with an endpoint without picking it first — on hover, and
  * the same list on right-click.
@@ -188,23 +199,24 @@ export function EndpointsTab({
 function EndpointMenuItems({
   endpoint,
   controller,
-  onSelect,
-  onAskAgent,
+  actions,
   Item,
 }: {
   endpoint: CodeGraphEndpoint;
   controller: string;
-  onSelect: (ep: CodeGraphEndpoint) => void;
-  onAskAgent: (ep: CodeGraphEndpoint) => void;
+  actions: MenuActions;
   Item: typeof DropdownMenuItem | typeof ContextMenuItem;
 }) {
   const copy = (text: string) => void navigator.clipboard?.writeText(text).catch(() => undefined);
   return (
     <>
-      <Item icon={<Workflow />} onSelect={() => onSelect(endpoint)}>
-        Show call flow
+      <Item icon={<SquarePlus />} onSelect={() => actions.onKeep(endpoint)}>
+        Open in new tab
       </Item>
-      <Item icon={<Bot />} onSelect={() => onAskAgent(endpoint)}>
+      <Item icon={<Columns2 />} onSelect={() => actions.onOpenBeside(endpoint)}>
+        Open beside
+      </Item>
+      <Item icon={<Bot />} onSelect={() => actions.onAskAgent(endpoint)}>
         Ask agent about this endpoint
       </Item>
       <Item icon={<Copy />} onSelect={() => copy(`${endpoint.httpMethod} ${endpoint.path}`)}>
