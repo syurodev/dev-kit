@@ -3,6 +3,7 @@ import { Command as CommandPrimitive } from "cmdk"
 import { Search, Check } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { Kbd } from "@/components/ui/kbd"
 import {
   Dialog,
   DialogContent,
@@ -85,8 +86,18 @@ function CommandDialog({
         showCloseButton={showCloseButton}
       >
         {/* Fills the dialog, which is what decides the width: left at its own
-            640px it would overflow a narrower dialog and be clipped again. */}
-        <Command className="w-full" {...commandProps}>{children}</Command>
+            640px it would overflow a narrower dialog and be clipped again.
+
+            The height is capped at what is left of the window below the
+            dialog's top-1/3, less a 1rem gutter. A list's own max-height knows
+            nothing about where the dialog starts: a 28rem list under a 56px
+            input, starting a third of the way down a 640px window, ran off the
+            bottom and took the footer with it. Capping the column instead
+            works for any list — the input and footer do not shrink, so the
+            list gives way and scrolls inside. */}
+        <Command className="w-full max-h-[calc(66.667vh-1rem)]" {...commandProps}>
+          {children}
+        </Command>
       </DialogContent>
     </Dialog>
   )
@@ -113,11 +124,7 @@ function CommandInput({
         )}
         {...props}
       />
-      {shortcut ? (
-        <kbd className="rounded-sm border border-border-subtle bg-surface-raised p-1 text-code-11 text-text-tertiary">
-          {shortcut}
-        </kbd>
-      ) : null}
+      {shortcut ? <Kbd>{shortcut}</Kbd> : null}
     </div>
   )
 }
@@ -230,19 +237,21 @@ function CommandItem({
 function CommandShortcut({
   className,
   ...props
-}: React.ComponentProps<"span">) {
+}: React.ComponentProps<typeof Kbd>) {
+  // The app's one key chip (kbd.tsx), not a second one drawn here: a shortcut
+  // beside a command should look like the same shortcut in a menu, a tooltip
+  // or the module switcher. It stays as it is on the selected row — only the
+  // row's label steps up (Figma 719:1475).
+  return <Kbd className={cn("ml-auto shrink-0", className)} {...props} />
+}
+
+/** A key, then what it does — the footer's unit. */
+function CommandHint({ keys, children }: { keys: string; children: React.ReactNode }) {
   return (
-    <span
-      data-slot="command-shortcut"
-      className={cn(
-        // Figma 719:1475: every row's shortcut is a kbd chip on surface/raised
-        // with a border/subtle hairline, and it stays text/tertiary even on the
-        // selected row — only the row label steps up to text/primary.
-        "ml-auto rounded-sm border border-border-subtle bg-surface-raised p-1 text-code-11 text-text-tertiary",
-        className
-      )}
-      {...props}
-    />
+    <span className="flex shrink-0 items-center gap-1.5">
+      <Kbd>{keys}</Kbd>
+      {children}
+    </span>
   )
 }
 
@@ -260,10 +269,11 @@ function CommandFooter({
       )}
       {...props}
     >
-      {/* Figma 719:1475 draws the footer as a single mono run, not as chips. */}
-      <span className="whitespace-pre">{`↑↓ navigate   ·   ↵ open   ·   esc close`}</span>
+      <CommandHint keys="↑↓">navigate</CommandHint>
+      <CommandHint keys="↵">open</CommandHint>
+      <CommandHint keys="esc">close</CommandHint>
       {/* Pushed to the far end: where a caller says what the list is scoped to. */}
-      {children ? <span className="ml-auto flex min-w-0 items-center gap-1.5 truncate">{children}</span> : null}
+      {children ? <span className="ml-auto flex min-w-0 items-center gap-4 truncate">{children}</span> : null}
     </div>
   )
 }
@@ -279,4 +289,5 @@ export {
   CommandShortcut,
   CommandSeparator,
   CommandFooter,
+  CommandHint,
 }

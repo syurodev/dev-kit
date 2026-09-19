@@ -4,12 +4,14 @@ import {
   CommandEmpty,
   CommandFooter,
   CommandGroup,
+  CommandHint,
   CommandInput,
   CommandItem,
   CommandList,
   CommandShortcut,
 } from "@/components/ui/command";
 import { ChevronRight, Search } from "lucide-react";
+import { Kbd } from "@/components/ui/kbd";
 import { cn } from "@/lib/utils";
 import { getModule, type ModuleManifest, type PaletteSearchGroup } from "@/modules/registry";
 import { allOpenTabs, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
@@ -209,9 +211,10 @@ export function CommandPalette({
           // The module's name rather than its noun: "endpoints, files and
           // symbols" beside the key hints does not fit in 640px, and the name
           // is what "@" is scoped to anyway. No "@" hint where it finds nothing.
-          <span className="whitespace-pre">
-            {search && activeModule ? `>  commands   ·   @  ${activeModule.title}` : ">  commands"}
-          </span>
+          <>
+            <CommandHint keys=">">commands</CommandHint>
+            {search && activeModule ? <CommandHint keys="@">{activeModule.title}</CommandHint> : null}
+          </>
         )}
       </CommandFooter>
     </CommandDialog>
@@ -269,9 +272,7 @@ export function CommandPaletteStaticCard({
         <span className="flex-1 text-title-16 text-text-primary">
           {state === "results" ? "git status" : "nonexistent-command"}
         </span>
-        <kbd className="rounded-sm border border-border-subtle bg-surface-raised p-1 text-code-11 text-text-tertiary">
-          esc
-        </kbd>
+        <Kbd>esc</Kbd>
       </div>
 
       {state === "results" ? (
@@ -285,7 +286,7 @@ export function CommandPaletteStaticCard({
             className="flex h-10 items-center gap-3 rounded-md bg-surface-raised px-3 text-body-13-medium text-text-primary cursor-pointer"
           >
             <span>Git: Status</span>
-            <span className="ml-auto rounded-sm border border-border-subtle bg-surface-raised p-1 text-code-11 text-text-tertiary">⌘⇧G</span>
+            <Kbd className="ml-auto">⌘⇧G</Kbd>
           </div>
           {/* Inactive row: NO background at all + label 13 Regular --text-secondary */}
           <div
@@ -293,7 +294,7 @@ export function CommandPaletteStaticCard({
             className="flex h-10 items-center gap-3 rounded-md bg-transparent px-3 text-body-13 text-text-secondary cursor-pointer"
           >
             <span>Git: Commit Changes</span>
-            <span className="ml-auto rounded-sm border border-border-subtle bg-surface-raised p-1 text-code-11 text-text-tertiary">⌘K</span>
+            <Kbd className="ml-auto">⌘K</Kbd>
           </div>
         </div>
       ) : (
@@ -308,7 +309,9 @@ export function CommandPaletteStaticCard({
 
       {/* Footer: h40, px-5 gap-4, Mono 11 --text-tertiary */}
       <div className="flex h-10 shrink-0 items-center gap-4 border-t border-border-subtle px-5 text-code-11 text-text-tertiary">
-        <span className="whitespace-pre">{`↑↓ navigate   ·   ↵ open   ·   esc close`}</span>
+        <CommandHint keys="↑↓">navigate</CommandHint>
+        <CommandHint keys="↵">open</CommandHint>
+        <CommandHint keys="esc">close</CommandHint>
       </div>
     </div>
   );
