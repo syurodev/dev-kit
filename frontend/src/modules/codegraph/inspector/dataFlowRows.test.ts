@@ -1,16 +1,11 @@
 import { describe, expect, it } from "bun:test";
-import { toDataFlowRows, WALL_LABELS, type DataFlowRow } from "./dataFlowRows";
+import { filterFlow, summarizeFlow, toDataFlowGroups, WALL_LABELS } from "./dataFlowRows";
 import type { CodeGraphDataFlowStep } from "@/bridge/codegraph";
-
-// flatMap, not filter: it narrows the discriminated union without depending on
-// TypeScript inferring a type predicate from the callback.
-const headers = (rows: DataFlowRow[]) => rows.flatMap((r) => (r.type === "header" ? [r] : []));
-const events = (rows: DataFlowRow[]) => rows.flatMap((r) => (r.type === "event" ? [r] : []));
 
 const step = (over: Partial<CodeGraphDataFlowStep>): CodeGraphDataFlowStep => ({
   nodeId: "n1",
   label: "OrderService.process",
-  filePath: "OrderService.java",
+  filePath: "src/OrderService.java",
   line: 10,
   kind: "read",
   depth: 0,
@@ -19,45 +14,65 @@ const step = (over: Partial<CodeGraphDataFlowStep>): CodeGraphDataFlowStep => ({
   ...over,
 });
 
-describe("toDataFlowRows", () => {
-  it("groups consecutive steps in the same method under one header", () => {
-    const rows = toDataFlowRows([
+describe("toDataFlowGroups", () => {
+  it("puts consecutive steps in the same method in one group", () => {
+    const groups = toDataFlowGroups([
       step({ nodeId: "n1", line: 10, kind: "write" }),
       step({ nodeId: "n1", line: 12, kind: "read" }),
       step({ nodeId: "n2", label: "Repo.save", line: 40, kind: "read" }),
     ]);
-    expect(headers(rows)).toHaveLength(2);
-    expect(headers(rows)[0].label).toBe("OrderService.process");
-    expect(events(rows)).toHaveLength(3);
+    expect(groups.map((g) => g.label)).toEqual(["OrderService.process", "Repo.save"]);
+    expect(groups[0].events.map((e) => e.kind)).toEqual(["write", "read"]);
+    // Open file lands on the first line the method touched.
+    expect(groups[0].line).toBe(10);
   });
 
-  it("re-opens a header when the same method is revisited at a new depth", () => {
-    const rows = toDataFlowRows([
+  it("re-opens a group when the same method is revisited at a new depth", () => {
+    const groups = toDataFlowGroups([
       step({ nodeId: "n1", line: 10, depth: 0 }),
       step({ nodeId: "n2", label: "B.f", line: 20, depth: 1 }),
       step({ nodeId: "n1", line: 14, depth: 0 }),
     ]);
-    expect(headers(rows)).toHaveLength(3);
+    expect(groups).toHaveLength(3);
+    expect(groups[1].depth).toBe(1);
   });
 
-  it("marks a resolved call as navigable and an unresolved one as a wall", () => {
-    const rows = toDataFlowRows([
+  it("names a call by its callee, and marks a wall instead of a target", () => {
+    const [g] = toDataFlowGroups([
       step({ kind: "call", targetId: "n2", line: 11 }),
       step({ kind: "call", targetId: "", unresolved: "library", line: 13 }),
+      step({ nodeId: "n2", label: "Repo.save", depth: 1 }),
     ]);
-    const [first, second] = events(rows);
-    expect(first.targetId).toBe("n2");
-    expect(first.wall).toBe("");
-    expect(second.targetId).toBe("");
-    expect(second.wall).toBe(WALL_LABELS.library);
-  });
-
-  it("indents by depth", () => {
-    const rows = toDataFlowRows([step({ depth: 3 })]);
-    expect(rows[0].depth).toBe(3);
+    expect(g.events[0].targetId).toBe("n2");
+    expect(g.events[0].targetLabel).toBe("Repo.save");
+    expect(g.events[1].targetId).toBe("");
+    expect(g.events[1].wall).toBe(WALL_LABELS.library);
   });
 
   it("returns nothing for an empty trace", () => {
-    expect(toDataFlowRows([])).toEqual([]);
+    expect(toDataFlowGroups([])).toEqual([]);
+  });
+});
+
+describe("summarizeFlow and filterFlow", () => {
+  const groups = toDataFlowGroups([
+    step({ nodeId: "a", kind: "read" }),
+    step({ nodeId: "a", kind: "call", targetId: "b" }),
+    step({ nodeId: "b", label: "B.save", kind: "write", depth: 1 }),
+    step({ nodeId: "c", label: "C.get", kind: "read", unresolved: "interface" }),
+  ]);
+
+  it("counts methods, not steps", () => {
+    expect(summarizeFlow(groups)).toEqual({ readers: 2, writers: 1, walls: 1 });
+  });
+
+  it("keeps only the writers, and only their writes", () => {
+    const writes = filterFlow(groups, "write");
+    expect(writes.map((g) => g.nodeId)).toEqual(["b"]);
+    expect(writes[0].events.map((e) => e.kind)).toEqual(["write"]);
+  });
+
+  it("leaves everything for all", () => {
+    expect(filterFlow(groups, "all")).toBe(groups);
   });
 });

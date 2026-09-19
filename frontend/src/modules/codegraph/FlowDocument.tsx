@@ -141,9 +141,11 @@ function useInspectorPane(root: string, front: boolean) {
         snippetError={snippetError}
         onEdit={snippet ? () => openFile(snippet.filePath, snippet.line, { preview: false, beside: true }) : undefined}
         onJump={(id) => void inspectNode(root, id)}
+        canJump={(id) => Boolean(subgraph?.nodes.some((n) => n.id === id))}
+        onOpenFile={(path, line) => openFile(path, line, { preview: false, beside: true })}
       />,
       { width: 520, onClose: closeInspector },
     );
     return () => closePanel();
-  }, [node, root, snippet, snippetLoading, snippetError, openPanel, closePanel]);
+  }, [node, root, subgraph, snippet, snippetLoading, snippetError, openPanel, closePanel]);
 }
