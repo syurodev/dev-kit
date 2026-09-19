@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, mock } from "bun:test";
-import type { CodeGraphDefinition } from "@/bridge/codegraph";
+import type { CodeGraphDefinition, CodeGraphReference } from "@/bridge/codegraph";
 
 let response: CodeGraphDefinition[] = [];
+let implementations: CodeGraphDefinition[] = [];
+let references: CodeGraphReference[] = [];
 const calls: Array<{ filePath: string; line: number; identifier: string }> = [];
 
 mock.module("@/bridge/codegraph", () => ({
@@ -9,12 +11,22 @@ mock.module("@/bridge/codegraph", () => ({
     calls.push({ filePath, line, identifier });
     return response;
   },
+  findCodeGraphImplementations: async (filePath: string, line: number, identifier: string) => {
+    calls.push({ filePath, line, identifier });
+    return implementations;
+  },
+  findCodeGraphReferences: async (filePath: string, line: number, identifier: string) => {
+    calls.push({ filePath, line, identifier });
+    return references;
+  },
 }));
 
 const { createCodeGraphIntelProvider } = await import("./codegraphIntelProvider");
 
 beforeEach(() => {
   response = [];
+  implementations = [];
+  references = [];
   calls.length = 0;
 });
 
@@ -105,5 +117,46 @@ describe("createCodeGraphIntelProvider", () => {
     // handing a stale answer to the caller.
     expect(calls).toHaveLength(1);
     expect(locations).toEqual([]);
+  });
+
+  it("maps an implementation like a definition, from the baseline line", async () => {
+    implementations = [
+      { nodeId: "com.acme.OrderServiceImpl.create(Request)", label: "com.acme.OrderServiceImpl.create", kind: "method", filePath: "OrderServiceImpl.java", line: 31 },
+    ];
+    const provider = createCodeGraphIntelProvider();
+    const locations = await provider.implementation!(
+      { path: "OrderService.java", line: 12, displayLine: 15, identifier: "create" },
+      neverAborted(),
+    );
+    expect(calls).toEqual([{ filePath: "OrderService.java", line: 12, identifier: "create" }]);
+    expect(locations).toEqual([
+      { path: "OrderServiceImpl.java", line: 31, label: "OrderServiceImpl.create", kind: "method" },
+    ]);
+  });
+
+  it("maps a reference to the line of the use, the method it sits in, and its source line", async () => {
+    references = [
+      { nodeId: "com.acme.OrderController.post(Request)", label: "com.acme.OrderController.post", kind: "call", filePath: "OrderController.java", line: 44, code: "return service.create(request);" },
+    ];
+    const provider = createCodeGraphIntelProvider();
+    const locations = await provider.references!(
+      { path: "OrderService.java", line: 12, displayLine: 12, identifier: "create" },
+      neverAborted(),
+    );
+    expect(locations).toEqual([
+      { path: "OrderController.java", line: 44, label: "OrderController.post", kind: "call", preview: "return service.create(request);" },
+    ]);
+  });
+
+  it("labels an injection by the class that declares it, and omits an empty preview", async () => {
+    references = [
+      { nodeId: "com.acme.OrderController", label: "com.acme.OrderController", kind: "inject", filePath: "OrderController.java", line: 18, code: "" },
+    ];
+    const provider = createCodeGraphIntelProvider();
+    const locations = await provider.references!(
+      { path: "OrderService.java", line: 9, displayLine: 9, identifier: "OrderService" },
+      neverAborted(),
+    );
+    expect(locations).toEqual([{ path: "OrderController.java", line: 18, label: "OrderController", kind: "inject" }]);
   });
 });

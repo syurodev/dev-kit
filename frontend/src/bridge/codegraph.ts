@@ -131,6 +131,64 @@ export async function findCodeGraphDefinitions(
   });
 }
 
+/**
+ * Go-to-implementation for the identifier at filePath:line: for a method, the
+ * project methods implementing it; for a class or interface, the classes that
+ * do. Asked on something that is itself an implementation, the answer is
+ * empty — never the thing itself (see FindImplementations).
+ */
+export async function findCodeGraphImplementations(
+  filePath: string,
+  line: number,
+  identifier: string,
+): Promise<CodeGraphDefinition[]> {
+  return callBridge(async () => {
+    const list = await AppService.CodeGraphFindImplementations(filePath, line, identifier);
+    return (list ?? []).map((d) => ({
+      nodeId: d.nodeId,
+      label: d.label,
+      kind: d.kind,
+      filePath: d.filePath,
+      line: d.line,
+    }));
+  });
+}
+
+/**
+ * One place a symbol is used — mirrors Go's Reference
+ * (internal/codegraph/references.go). Unlike a definition, `line` is the line
+ * of the use itself, `label` names the method or class the use sits in, and
+ * `code` is that source line, trimmed.
+ */
+export type CodeGraphReference = {
+  nodeId: string;
+  label: string;
+  /** "call" | "read" | "write" | "inject" */
+  kind: string;
+  filePath: string;
+  line: number;
+  code: string;
+};
+
+/** Every use of the identifier at filePath:line, sorted by file then line, capped by Go. */
+export async function findCodeGraphReferences(
+  filePath: string,
+  line: number,
+  identifier: string,
+): Promise<CodeGraphReference[]> {
+  return callBridge(async () => {
+    const list = await AppService.CodeGraphFindReferences(filePath, line, identifier);
+    return (list ?? []).map((r) => ({
+      nodeId: r.nodeId,
+      label: r.label,
+      kind: r.kind,
+      filePath: r.filePath,
+      line: r.line,
+      code: r.code,
+    }));
+  });
+}
+
 export type CodeGraphFileEntry = {
   path: string;
   isDir: boolean;
