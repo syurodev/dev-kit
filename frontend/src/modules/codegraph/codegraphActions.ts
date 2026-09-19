@@ -207,7 +207,7 @@ export async function reindex(path: string) {
     status: "Indexing…",
     error: "",
     errorCode: "",
-    indexInfo: { ...(snapshot().indexInfo ?? { indexedAt: 0, error: "", modules: [], branch: "" }), indexing: true },
+    indexInfo: { ...(snapshot().indexInfo ?? { indexedAt: 0, error: "", modules: [], language: "", branch: "" }), indexing: true },
   });
   try {
     const detected = await openCodeGraphProject(path);
@@ -242,7 +242,7 @@ export async function pickAndOpenProject() {
     chosen = (await Dialogs.OpenFile({
       CanChooseDirectories: true,
       CanChooseFiles: false,
-      Title: "Open Java project",
+      Title: "Open project",
     })) as string;
   } catch (e) {
     set({ error: errorMessage(e) });

@@ -24,6 +24,12 @@ type IndexInfo struct {
 	// Modules are the build modules the project was detected with, so a
 	// restored session knows them too.
 	Modules []string `json:"modules"`
+	// Language is what detection decided the project is written in ("java",
+	// "lua", "" when nothing was detected). Restored sessions need it for the
+	// same reason they need Modules — the open that decided it happened in a
+	// previous run — and the UI needs it to know WHICH analyzer has to be
+	// ready before it can show a setup panel instead of the project.
+	Language string `json:"language"`
 	// Branch is the checked-out git branch, "" outside a work tree.
 	Branch string `json:"branch"`
 }
@@ -32,7 +38,11 @@ type IndexInfo struct {
 // not the index ready: a failed run is exactly when this is asked.
 func (s *Service) IndexInfo(ctx context.Context) (IndexInfo, error) {
 	s.mu.RLock()
-	info := IndexInfo{Indexing: s.index.busy(), Modules: append([]string(nil), s.detected.Modules...)}
+	info := IndexInfo{
+		Indexing: s.index.busy(),
+		Modules:  append([]string(nil), s.detected.Modules...),
+		Language: s.detected.Language,
+	}
 	if s.index.err != nil {
 		info.Error = s.index.err.Error()
 	}

@@ -276,7 +276,7 @@ func publicError(subject string, err error) *apperrors.AppError {
 		// from a failed analyze because it is not a failure: the user picked a
 		// folder, and the answer is which kinds of project CodeGraph reads.
 		case errors.Is(err, codegraph.ErrUnsupportedProject):
-			return apperrors.Wrap(codeUnsupportedProject, "No supported project found in that folder. CodeGraph reads Java projects — pick a folder holding a build file (pom.xml, build.gradle) or Java sources.", true, codegraph.ErrUnsupportedProject)
+			return apperrors.Wrap(codeUnsupportedProject, "No supported project found in that folder. CodeGraph reads Java and Lua projects — pick a folder holding a build file (pom.xml, build.gradle, a .rockspec) or Java or Lua sources.", true, codegraph.ErrUnsupportedProject)
 		case errors.Is(err, codegraph.ErrToolchainIncomplete):
 			return apperrors.Wrap(codeConnectionFailed, "The CodeGraph analyzer cannot run: "+err.Error()+".", true, codegraph.ErrToolchainIncomplete)
 		case errors.Is(err, codegraph.ErrNoPlan):

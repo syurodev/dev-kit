@@ -34,11 +34,19 @@ type Service struct {
 	// store is the open project's index, and lease is how it is borrowed: a
 	// switch retires the old lease rather than closing the store out from
 	// under a query that is still reading it. See storeLease.
-	store       Store
-	lease       *storeLease
-	analyzer    Analyzer
-	active      bool
-	projectRoot string
+	store Store
+	lease *storeLease
+	// analyzer is what the active project is indexed with. It is set per open,
+	// from the toolchain registered for the language detection found, so two
+	// projects in two languages are each read by their own analyzer.
+	analyzer Analyzer
+	// analyzerOverride is an analyzer installed by whoever owns this Service
+	// (SetAnalyzer), and it wins over the registry. That is what a test double
+	// is, and what a Service with no toolchains has instead of a registry; a
+	// production Service sets none, so the registry decides.
+	analyzerOverride Analyzer
+	active           bool
+	projectRoot      string
 	// announcedRoot is the last root OnProjectChanged was told about, so
 	// reopening the same folder is not reported as a switch.
 	announcedRoot string
@@ -103,13 +111,32 @@ type Service struct {
 }
 
 func NewService(store Store, analyzer Analyzer) *Service {
-	return &Service{
+	service := &Service{
 		store:            store,
 		lease:            newStoreLease(store),
 		analyzer:         analyzer,
 		debounceInterval: 750 * time.Millisecond,
 		maxDebounceWait:  10 * time.Second,
 	}
+	if isAnalyzerOverride(analyzer) {
+		service.analyzerOverride = analyzer
+	}
+	return service
+}
+
+// isAnalyzerOverride reports whether an analyzer is an explicit choice rather
+// than a placeholder.
+//
+// The placeholder is the one NewSubprocessAnalyzer returns — an analyzer with
+// nothing behind it, which is what the app constructs Service with and what
+// half this package's tests pass when the analyzer is beside the point. It
+// means "nothing here", so it cannot mean "use this and ignore the registry".
+func isAnalyzerOverride(analyzer Analyzer) bool {
+	if analyzer == nil {
+		return false
+	}
+	_, placeholder := analyzer.(unconfiguredAnalyzer)
+	return !placeholder
 }
 
 // SetConfigDir records the OS config directory project indexes live under, so
@@ -154,16 +181,61 @@ func (s *Service) SetTerminalRegistry(reg *terminal.Registry) {
 	s.terminalRegistry = reg
 }
 
-// SetAnalyzer replaces the Analyzer used by OpenProject/runReindex — called
-// once from main.go's post-construction wiring (mirrors SetTerminalRegistry)
-// once the real Java analyzer jar's location is resolved, replacing the
-// zero-value stub container.go constructs Service with. Each indexing request
-// captures its analyzer under mu, so a running request keeps the instance it
-// started with.
+// SetAnalyzer replaces the Analyzer used by OpenProject/runReindex. Each
+// indexing request captures its analyzer under mu, so a running request keeps
+// the instance it started with.
+//
+// It is an override, and it wins: a Service told explicitly what to analyze
+// with is a Service whose owner knows something the registry does not — every
+// test double, and an embedder wiring its own. Left unset, which is what the
+// app does, the analyzer is chosen per project from the toolchain registered
+// for the language detection found (see analyzerFor).
 func (s *Service) SetAnalyzer(analyzer Analyzer) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.analyzer = analyzer
+	if isAnalyzerOverride(analyzer) {
+		s.analyzerOverride = analyzer
+	}
+}
+
+// analyzerFor is the analyzer registered for a language, from the toolchain
+// registry. A project is analyzed by its own language's analyzer, which is the
+// whole reason the registry is keyed by language: handing a Lua project to the
+// Java analyzer would start a JVM, walk a folder holding no Java, and report
+// the empty result as an empty project.
+func (s *Service) analyzerFor(language string) (Analyzer, bool) {
+	if language == "" {
+		return nil, false
+	}
+	for _, toolchain := range s.toolchainList() {
+		if toolchain.Language == language {
+			return toolchain.Analyzer(), true
+		}
+	}
+	return nil, false
+}
+
+// overrideAnalyzer is the explicitly installed analyzer, if there is one.
+func (s *Service) overrideAnalyzer() (Analyzer, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.analyzerOverride, s.analyzerOverride != nil
+}
+
+// adoptAnalyzerFor installs an analyzer only when it is the open project's
+// language — what a finished build calls so the next index uses what was just
+// built, without a project of another language being handed it. With nothing
+// open, it installs: there is no project for it to be wrong about.
+func (s *Service) adoptAnalyzerFor(language string, analyzer Analyzer) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.analyzerOverride != nil {
+		return
+	}
+	if s.detected.Language == "" || s.detected.Language == language {
+		s.analyzer = analyzer
+	}
 }
 
 // StartTerminal opens a local shell ($SHELL, falling back to /bin/sh) at
@@ -328,9 +400,23 @@ func (s *Service) runOpen(ctx context.Context, generation uint64, root string, a
 		}
 		detected = found
 	}
+	// Detection decides which analyzer runs. It has to happen here rather than
+	// in beginOpen: beginOpen captures the analyzer before anything has walked
+	// the folder, and with more than one language registered the answer to
+	// "which analyzer" is not knowable until the folder has been looked at.
+	if _, overridden := s.overrideAnalyzer(); !overridden {
+		if resolved, ok := s.analyzerFor(detected.Language); ok {
+			analyzer = resolved
+		}
+	}
 	s.mu.Lock()
 	if s.index.generation == generation {
 		s.detected = detected
+		// Recorded, not just used, so every later re-index of this project —
+		// the refresh below, each watcher run — reaches for the same one.
+		if analyzer != nil {
+			s.analyzer = analyzer
+		}
 	}
 	s.mu.Unlock()
 

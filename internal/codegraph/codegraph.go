@@ -79,7 +79,7 @@ type Node struct {
 	FilePath string  `json:"filePath"`
 	Line     int     `json:"line"`
 	EndLine  int     `json:"endLine"`
-	Summary  string  `json:"summary"` // Javadoc summary text, empty if none/not a doc comment
+	Summary  string  `json:"summary"` // doc comment summary (Javadoc, or the LDoc block above a Lua function); empty if none
 	Params   []Param `json:"params"`  // full parameter signature, empty for class nodes
 }
 
@@ -196,7 +196,7 @@ type CodeSnippet struct {
 	Line     int    `json:"line"`
 	EndLine  int    `json:"endLine"`
 	Source   string `json:"source"`
-	Language string `json:"language"` // "java" | "json" | "yaml" | "markdown" | "" (unknown extension)
+	Language string `json:"language"` // "java" | "lua" | "json" | "yaml" | "markdown" | "" (unknown extension)
 	FQN      string `json:"fqn"`      // empty if the snippet didn't match exactly one indexed symbol
 }
 

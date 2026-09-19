@@ -37,7 +37,7 @@ func (s *Server) registerCodeGraph(ms *sdk.Server) {
 
 	sdk.AddTool(ms, &sdk.Tool{
 		Name:        "codegraph.listFiles",
-		Description: "List every file and directory in the active CodeGraph project (not just .java)",
+		Description: "List every file and directory in the active CodeGraph project (not just its source files)",
 		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
 	}, s.toolCodeGraphListFiles)
 

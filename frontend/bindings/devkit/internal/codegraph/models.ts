@@ -219,6 +219,15 @@ export interface IndexInfo {
     "modules": string[] | null;
 
     /**
+     * Language is what detection decided the project is written in ("java",
+     * "lua", "" when nothing was detected). Restored sessions need it for the
+     * same reason they need Modules — the open that decided it happened in a
+     * previous run — and the UI needs it to know WHICH analyzer has to be
+     * ready before it can show a setup panel instead of the project.
+     */
+    "language": string;
+
+    /**
      * Branch is the checked-out git branch, "" outside a work tree.
      */
     "branch": string;
