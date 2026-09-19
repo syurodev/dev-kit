@@ -4,6 +4,7 @@ import { EditorView, basicSetup } from "codemirror";
 import { EditorState, Compartment, type Extension } from "@codemirror/state";
 import { keymap } from "@codemirror/view";
 import { shouldWrap, visibleColumns } from "./autoWrap";
+import { externalValue } from "./codeIntel";
 import { devkitHighlight } from "./devkitHighlight";
 import { wrapBreaks } from "./wrapBreaks";
 import { wrapIndent } from "./wrapIndent";
@@ -145,7 +146,16 @@ export function CodeEditor({ value, onChange, extensions, readOnly, wrap, reveal
   useEffect(() => {
     const view = viewRef.current;
     if (!view || view.state.doc.toString() === value) return;
-    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: value } });
+    // Tagged with externalValue so codeIntel.ts (if attached) can tell this
+    // apart from ordinary typing: a whole-document replace from outside is
+    // either a different file opening or a reload from disk, and either way
+    // its line numbers now describe what an index would see next, exactly
+    // like a save does. CodeEditor doesn't know or care what reads that
+    // annotation — only that this ONE dispatch is not a keystroke.
+    view.dispatch({
+      changes: { from: 0, to: view.state.doc.length, insert: value },
+      annotations: externalValue.of(true),
+    });
   }, [value]);
 
   useEffect(() => {

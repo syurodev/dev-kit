@@ -1280,6 +1280,108 @@
   text-indent: calc(-1 * var(--cm-wrap-indent-capped));
 }
 
+/* Go-to-definition hover + tooltips (codeIntel.ts).
+ *
+ * The tooltip DOM lands inside view.dom — CodeMirror's own default
+ * container when no `parent` is configured (TooltipViewManager falls back
+ * to `this.container = this.view.dom`) — so it is a literal descendant of
+ * .cm-surfaceless just like .cm-editor/.cm-gutters above, and this selector
+ * reaches it the same way. The extra .cm-code-intel-tooltip class keeps
+ * specificity safely ahead of CodeMirror's own baseTheme (`&light
+ * .cm-tooltip` / `&dark .cm-tooltip`), which ships at the lowest possible
+ * precedence on purpose so an app theme can win outright.
+ */
+.cm-surfaceless .cm-code-intel-identifier {
+  text-decoration: underline;
+  text-decoration-color: var(--brand-text);
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.cm-surfaceless .cm-tooltip.cm-code-intel-tooltip {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background-color: var(--surface-raised);
+  box-shadow: var(--shadow-popover, 0 8px 24px rgb(0 0 0 / 0.32));
+  overflow: hidden;
+  padding: var(--space-micro);
+}
+
+.cm-surfaceless .cm-code-intel-message {
+  padding: var(--space-micro) var(--space-inline);
+  max-width: 260px;
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: var(--type-dense-size);
+  line-height: var(--type-dense-leading);
+}
+
+.cm-surfaceless .cm-code-intel-picker {
+  display: flex;
+  flex-direction: column;
+  min-width: 220px;
+  max-width: 420px;
+  max-height: 16rem;
+  overflow: auto;
+}
+
+.cm-surfaceless .cm-code-intel-option {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-inline);
+  padding: var(--space-micro) var(--space-inline);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+/* Hover and keyboard selection read the same way on purpose — see the
+   matching comment in sqlCompletionTheme.ts. */
+.cm-surfaceless .cm-code-intel-option:hover,
+.cm-surfaceless .cm-code-intel-option-selected {
+  background-color: var(--state-soft);
+  color: var(--text-primary);
+}
+
+.cm-surfaceless .cm-code-intel-option-selected {
+  box-shadow: inset 2px 0 0 var(--status-info);
+}
+
+.cm-surfaceless .cm-code-intel-option-label {
+  flex: none;
+  font-family: var(--code-font-family, var(--font-mono));
+  font-size: var(--type-compact-size);
+  font-weight: 600;
+}
+
+.cm-surfaceless .cm-code-intel-option-kind {
+  flex: none;
+  color: var(--text-tertiary);
+  font-size: var(--type-micro-size);
+}
+
+/* Front-truncated path, in CSS alone: setting the block's own paragraph
+ * direction to RTL moves the overflow ellipsis to where text overflows,
+ * which is now the FRONT — so a long path loses its lead-in and keeps the
+ * part worth reading, the filename and line, instead of losing THAT to a
+ * trailing "…". No unicode-bidi override: each run of Latin/digit text
+ * (path segments, the line number) is still its own strong-LTR run and
+ * reads left to right exactly as written — RTL only decides which END gets
+ * the "…" when the line as a whole is too long to fit.
+ */
+.cm-surfaceless .cm-code-intel-option-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+  color: var(--text-tertiary);
+  font-family: var(--code-font-family, var(--font-mono));
+  font-size: var(--type-micro-size);
+}
+
 /* React Flow animates edge dashes with a CSS keyframe on every edge at once.
    At schema scale that is a lot of motion, and it is exactly the kind someone
    with vestibular sensitivity asks the OS to stop. */

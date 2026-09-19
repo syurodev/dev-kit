@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, type ReactNode } from "react";
 import { TreeNextSection } from "./TreeNextGallery";
 import { AgentHubTranscriptSection } from "./AgentHubTranscriptSection";
 import { CodeEditorWrapSection } from "./CodeEditorWrapSection";
+import { CodeIntelSection } from "./CodeIntelSection";
 import {
   Activity,
   FileText,
@@ -1060,6 +1061,8 @@ export default function ComponentGallery() {
       <AgentHubTranscriptSection />
 
       <CodeEditorWrapSection />
+
+      <CodeIntelSection />
 
       <TreeNextSection />
     </div>
