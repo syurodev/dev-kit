@@ -1,7 +1,6 @@
 import { useCallback, useMemo, useRef, type ReactNode } from "react";
 import { useSidebarContent } from "@/components/ui/sidebar-shell";
-import { useWorkbenchTabsStore } from "../../stores/workbenchTabs";
-import { getModule } from "../registry";
+import { openNoteTab } from "./documents";
 import { NotesSidebar } from "./NotesSidebar";
 import { useNotesSidebarStore } from "./notesSidebarStore";
 import { useNotesRefreshStore } from "../../stores/notesRefresh";
@@ -29,7 +28,6 @@ export function useNotesSidebarContent(onNavigate?: () => void): ReactNode {
   const setScope = useNotesSidebarStore((s) => s.setScope);
   const toggleExpanded = useNotesSidebarStore((s) => s.toggleExpanded);
   const requestAction = useNotesSidebarStore((s) => s.requestAction);
-  const openTab = useWorkbenchTabsStore((s) => s.openTab);
   const bumpNotesRefresh = useNotesRefreshStore((s) => s.bump);
 
   // Callers pass a plain function redefined every render. Holding it in a ref
@@ -42,20 +40,9 @@ export function useNotesSidebarContent(onNavigate?: () => void): ReactNode {
   // A note row in the rail opens the note the same way a dashboard card does:
   // as the module's preview tab. The rail is the module's, so it may open
   // tabs directly rather than round-tripping through the dashboard.
-  const openNote = useCallback(
-    (note: { id: string; title: string }, preview = true) => {
-      const preload = getModule("notes")?.views.find((v) => v.id === "notes.editor")?.preload?.();
-      void preload?.catch(() => undefined);
-      openTab({
-        moduleId: "notes",
-        viewId: "notes.editor",
-        title: note.title || "Untitled",
-        params: { noteId: note.id },
-        preview,
-      });
-    },
-    [openTab],
-  );
+  const openNote = useCallback((note: { id: string; title: string }, preview = true) => {
+    openNoteTab(note, preview);
+  }, []);
   const openNoteInTab = useCallback(
     (note: { id: string; title: string }) => openNote(note, false),
     [openNote],

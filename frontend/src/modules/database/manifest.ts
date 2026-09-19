@@ -172,4 +172,8 @@ export const databaseModule: ModuleManifest = {
       ),
     },
   ],
+  paletteSearch: {
+    noun: "tables and connections",
+    search: (query, signal) => import("./paletteSearch").then((m) => m.searchPalette(query, signal)),
+  },
 };

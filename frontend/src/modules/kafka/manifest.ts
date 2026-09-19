@@ -25,4 +25,8 @@ export const kafkaModule: ModuleManifest = {
       ),
     },
   ],
+  paletteSearch: {
+    noun: "topics and clusters",
+    search: (query, signal) => import("./paletteSearch").then((m) => m.searchPalette(query, signal)),
+  },
 };

@@ -19,6 +19,12 @@ export const toolsModule: ModuleManifest = {
   // The view draws its own 24px inset (Figma 1144:16).
   padded: false,
   capabilities: ["tools:hash", "tools:util"],
-  commands: TOOLS.map((tool) => ({ id: tool.id, title: tool.name })),
+  // Imported when run, not with the manifest: the manifest is in the initial
+  // bundle, the tools store is not.
+  commands: TOOLS.map((tool) => ({
+    id: tool.id,
+    title: tool.name,
+    run: () => void import("./openTool").then((m) => m.openTool(tool.id)),
+  })),
   views: TOOLS.map((tool) => ({ id: tool.id, title: tool.name, ...toolsView })),
 };

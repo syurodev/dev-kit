@@ -41,4 +41,8 @@ export const notesModule: ModuleManifest = {
       ),
     },
   ],
+  paletteSearch: {
+    noun: "notes",
+    search: (query, signal) => import("./paletteSearch").then((m) => m.searchPalette(query, signal)),
+  },
 };
