@@ -58,7 +58,9 @@ const BASELINE: Record<string, { twText: number; rawPx: number; rawHex: number }
   // tokens now, so a code block follows the theme family. What remains is
   // documentation: comments naming the Figma token a class maps to.
   // Spacing and radius literals now resolve through shared tokens.
-  components: { twText: 0, rawPx: 79, rawHex: 1 },
+  // rawPx 79 → 78: the command dialog's width is one min(640px, 100% - 2rem)
+  // where it was a w-[640px] max-w-[640px] pair.
+  components: { twText: 0, rawPx: 78, rawHex: 1 },
   // 33 → 24: nine `rounded-[8px]` went with the nine copies of the title
   // bar's action button, which is Button's `titlebar` variant now. --radius-md
   // is that 8px, so the scale had the number the whole time. 24 → 19: the
