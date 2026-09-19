@@ -96,6 +96,7 @@ export function FileDocument({ params }: { params?: Record<string, unknown> }) {
           revealLine={buffer.line}
           onChange={(content) => editFile(path, content, tabId)}
           extensions={extensions}
+          wrap="auto"
         />
       </div>
       {buffer.error ? (

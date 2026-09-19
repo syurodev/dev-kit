@@ -1262,10 +1262,22 @@
  *
  * The 6px matches CodeMirror's own .cm-line padding, kept so this does not
  * silently reflow the non-wrapping editor.
+ *
+ * The indent is capped at a share of the editor's width. Uncapped, a line
+ * nested five levels deep in a 40-column inspector leaves its continuations
+ * under half the pane — the narrower the editor, the more the indent costs and
+ * the less it can afford. Past the cap a continuation sits left of its own
+ * line's start, which is the lesser evil. cqw needs a size container, so the
+ * scroller is one, and only while wrapping: nothing else here reads it.
  */
+.cm-surfaceless .cm-scroller:has(> .cm-lineWrapping) {
+  container-type: inline-size;
+}
+
 .cm-surfaceless .cm-line {
-  padding-left: calc(var(--space-code-line) + var(--cm-wrap-indent, 0ch));
-  text-indent: calc(-1 * var(--cm-wrap-indent, 0ch));
+  --cm-wrap-indent-capped: min(var(--cm-wrap-indent, 0ch), 30cqw);
+  padding-left: calc(var(--space-code-line) + var(--cm-wrap-indent-capped));
+  text-indent: calc(-1 * var(--cm-wrap-indent-capped));
 }
 
 /* React Flow animates edge dashes with a CSS keyframe on every edge at once.
