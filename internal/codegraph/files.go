@@ -249,6 +249,14 @@ func languageForPath(path string) string {
 		return "java"
 	case ".lua":
 		return "lua"
+	case ".ts", ".mts", ".cts":
+		return "typescript"
+	case ".tsx":
+		return "typescriptreact"
+	case ".js", ".mjs", ".cjs":
+		return "javascript"
+	case ".jsx":
+		return "javascriptreact"
 	case ".json":
 		return "json"
 	case ".yaml", ".yml":

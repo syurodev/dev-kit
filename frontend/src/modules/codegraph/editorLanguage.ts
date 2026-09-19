@@ -4,6 +4,7 @@ import { java } from "@codemirror/lang-java";
 import { json } from "@codemirror/lang-json";
 import { yaml } from "@codemirror/lang-yaml";
 import { markdown } from "@codemirror/lang-markdown";
+import { javascript } from "@codemirror/lang-javascript";
 import { lua } from "@codemirror/legacy-modes/mode/lua";
 
 /**
@@ -26,6 +27,18 @@ export function languageExtensionForPath(path: string): Extension[] {
       // CodeMirror 6 ships for it, and it is what the Agent Hub's transcript
       // already uses for the languages in the same position.
       return [StreamLanguage.define(lua)];
+    case "ts":
+    case "mts":
+    case "cts":
+      return [javascript({ typescript: true })];
+    case "tsx":
+      return [javascript({ typescript: true, jsx: true })];
+    case "js":
+    case "mjs":
+    case "cjs":
+      return [javascript()];
+    case "jsx":
+      return [javascript({ jsx: true })];
     case "json":
       return [json()];
     case "yaml":

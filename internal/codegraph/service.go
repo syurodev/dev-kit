@@ -45,8 +45,14 @@ type Service struct {
 	// is, and what a Service with no toolchains has instead of a registry; a
 	// production Service sets none, so the registry decides.
 	analyzerOverride Analyzer
-	active           bool
-	projectRoot      string
+	// analyzers is one analyzer per language, built from the registry on first
+	// use and kept. Kept rather than rebuilt because an analyzer may hold a
+	// process — the TypeScript one is a language server whose whole advantage
+	// is that it outlives a single analysis — and a fresh instance per open
+	// would throw that away every time.
+	analyzers   map[string]Analyzer
+	active      bool
+	projectRoot string
 	// announcedRoot is the last root OnProjectChanged was told about, so
 	// reopening the same folder is not reported as a switch.
 	announcedRoot string
@@ -208,12 +214,58 @@ func (s *Service) analyzerFor(language string) (Analyzer, bool) {
 	if language == "" {
 		return nil, false
 	}
+	s.mu.RLock()
+	existing, ok := s.analyzers[language]
+	s.mu.RUnlock()
+	if ok {
+		return existing, true
+	}
+
+	var built Analyzer
 	for _, toolchain := range s.toolchainList() {
 		if toolchain.Language == language {
-			return toolchain.Analyzer(), true
+			built = toolchain.Analyzer()
+			break
 		}
 	}
-	return nil, false
+	if built == nil {
+		return nil, false
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if existing, ok := s.analyzers[language]; ok {
+		// Another open got there first; keep theirs so the process is shared.
+		return existing, true
+	}
+	if s.analyzers == nil {
+		s.analyzers = map[string]Analyzer{}
+	}
+	s.analyzers[language] = built
+	return built, true
+}
+
+// analyzerCloser is implemented by an Analyzer that holds something between
+// analyses — a process, a connection — and needs telling when there will not
+// be another. Nothing requires it: Java's analyzer and Lua's hold nothing, and
+// an analyzer that does not implement it is simply dropped.
+type analyzerCloser interface {
+	CloseAnalyzer() error
+}
+
+// closeAnalyzers shuts down every analyzer that holds resources. Called from
+// Close; a language server left running after the app quits is a process the
+// user has no way to find.
+func (s *Service) closeAnalyzers() {
+	s.mu.Lock()
+	analyzers := s.analyzers
+	s.analyzers = nil
+	s.mu.Unlock()
+	for _, analyzer := range analyzers {
+		if closer, ok := analyzer.(analyzerCloser); ok {
+			_ = closer.CloseAnalyzer()
+		}
+	}
 }
 
 // overrideAnalyzer is the explicitly installed analyzer, if there is one.
@@ -636,5 +688,6 @@ func (s *Service) Close() error {
 	s.index.reset() // A late analyzer result cannot publish after shutdown.
 	s.active = false
 	s.mu.Unlock()
+	s.closeAnalyzers()
 	return nil
 }

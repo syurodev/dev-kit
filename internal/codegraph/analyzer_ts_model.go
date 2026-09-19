@@ -61,7 +61,11 @@ type tsDecl struct {
 	label  string
 	kind   string // "class" | "method"
 	name   string
-	file   *tsFile
+	// layer is decided after every declaration is known, because a framework
+	// needs the whole project to decide one (a class is a repository partly
+	// because of what it injects) and a method takes its class's.
+	layer string
+	file  *tsFile
 	// owner is the enclosing class, nil for a top-level declaration.
 	owner *tsDecl
 	// symbolKind is the LSP kind the server reported, kept because a

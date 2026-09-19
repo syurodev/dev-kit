@@ -144,6 +144,16 @@ type Toolchain struct {
 	// description of how to analyze rather than a live object, which is what
 	// lets DefaultToolchains be called more than once without sharing state.
 	Native func() Analyzer
+	// Serve, when set, builds this toolchain's Analyzer from its artifact
+	// instead of the default one-shot subprocess. launch resolves the argv and
+	// environment at the moment it is called, so an artifact built after the
+	// app started is picked up without re-wiring anything.
+	//
+	// It exists because a one-shot subprocess is not the only way to run an
+	// analyzer. The TypeScript one is a language server: a cold index costs
+	// seconds and a warm one milliseconds, so the process has to outlive a
+	// single analysis, and only the analyzer itself can own that.
+	Serve func(launch func() ([]string, []string, error)) Analyzer
 	// Artifact is where a build of this toolchain writes its output. It is not
 	// necessarily where a usable artifact is found: a packaged install ships
 	// one and never builds. See Search.
@@ -238,7 +248,7 @@ type ToolchainStatus struct {
 // files and Lua's fallback is "any folder holding a .lua", which a Java
 // project with a build script in Lua would otherwise trip.
 func DefaultToolchains(repoRoot string) []Toolchain {
-	return []Toolchain{JavaToolchain(repoRoot), LuaToolchain()}
+	return []Toolchain{JavaToolchain(repoRoot), LuaToolchain(), TypeScriptToolchain(repoRoot)}
 }
 
 // SetToolchains registers what BuildAnalyzer can build and AnalyzerStatus can
@@ -308,6 +318,13 @@ func (t Toolchain) status(ctx context.Context) ToolchainStatus {
 func (t Toolchain) runtimeMet(resolved []Requirement) bool {
 	if len(t.Run) == 0 {
 		return false
+	}
+	// An artifact that launches itself has no runtime to be missing. A Go
+	// binary is the case: it needs a toolchain to be BUILT and nothing at all
+	// to be run, so the only question left is whether the artifact is there —
+	// which the caller already asked.
+	if t.Run[0] == ArtifactArg {
+		return true
 	}
 	for _, req := range resolved {
 		if req.Program == t.Run[0] {
@@ -584,7 +601,19 @@ func (t Toolchain) Analyzer() Analyzer {
 	if t.Native != nil {
 		return t.Native()
 	}
+	if t.Serve != nil {
+		return t.Serve(func() ([]string, []string, error) {
+			return t.serverCommand(context.Background())
+		})
+	}
 	return toolchainAnalyzer{toolchain: t}
+}
+
+// serverCommand is analyzerCommand for a toolchain whose artifact is a server
+// rather than a one-shot: there is no project or output path to substitute,
+// because a language server is told which project to load after it starts.
+func (t Toolchain) serverCommand(ctx context.Context) ([]string, []string, error) {
+	return t.runCommand(ctx, strings.NewReplacer())
 }
 
 // analyzerCommand builds the argv and environment for one analysis, or reports
@@ -613,6 +642,43 @@ func (t Toolchain) analyzerCommand(ctx context.Context, project, output string) 
 		argv = append(argv, replace.Replace(arg))
 	}
 	return argv, t.environ(map[string]Requirement{resolved.Program: resolved}), nil
+}
+
+// runCommand resolves Run into an argv and an environment, with extra
+// substituted into every argument after the first.
+//
+// Run[0] is either the name of a requirement — a runtime that launches the
+// artifact — or ArtifactArg, meaning the artifact launches itself. The second
+// case probes nothing: there is no version to check on a binary that carries
+// its own runtime.
+func (t Toolchain) runCommand(ctx context.Context, extra *strings.Replacer) ([]string, []string, error) {
+	artifact := t.installedArtifact()
+	if artifact == "" || len(t.Run) == 0 {
+		return nil, nil, ErrAnalyzerNotConfigured
+	}
+
+	program := artifact
+	environment := os.Environ()
+	if t.Run[0] != ArtifactArg {
+		runtimeReq, ok := t.requirement(t.Run[0])
+		if !ok {
+			return nil, nil, fmt.Errorf("%w: %s names no requirement %q", ErrUnknownToolchain, t.Language, t.Run[0])
+		}
+		resolved := runtimeReq.probe(ctx, t.Dir)
+		if !resolved.Met {
+			return nil, nil, fmt.Errorf("%w: %s", ErrToolchainIncomplete, resolved.Problem)
+		}
+		program = resolved.Path
+		environment = t.environ(map[string]Requirement{resolved.Program: resolved})
+	}
+
+	replace := strings.NewReplacer(ArtifactArg, artifact)
+	argv := make([]string, 0, len(t.Run))
+	argv = append(argv, program)
+	for _, arg := range t.Run[1:] {
+		argv = append(argv, extra.Replace(replace.Replace(arg)))
+	}
+	return argv, environment, nil
 }
 
 func (t Toolchain) requirement(program string) (Requirement, bool) {
