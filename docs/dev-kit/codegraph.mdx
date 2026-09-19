@@ -551,8 +551,10 @@ giữ khi xem thứ khác, khôi phục sau khi mở lại app.
 - **Cây Files gộp thư mục** như IntelliJ: chuỗi thư mục chỉ có một thư mục
   con thành một dòng (`gateway/src`, `main/java`), dừng ở source root
   (`src/<set>/java|kotlin|…`); dưới đó là package nối bằng dấu chấm
-  (`com.synx.devkit.gateway`, icon package). *JAVA ONLY* giữ file nguồn
-  `.java/.kt/.groovy/.scala`, ẩn build file, config, resources.
+  (`com.synx.devkit.gateway`, icon package). Chip *CODE* giữ file mã nguồn
+  của mọi ngôn ngữ (một thư mục microservice thường trộn Java, Go, TS…), ẩn
+  build file, config, resources, docs — không gắn với Java vì analyzer sẽ đọc
+  thêm ngôn ngữ.
 - **Canvas tự fit khi pane đổi cỡ** (tách group, mở inspector) cho tới khi
   người dùng tự pan/zoom; nút Fit trả view về cho layout.
 

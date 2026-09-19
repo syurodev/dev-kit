@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { cn } from "@/lib/utils";
-import { getCodeGraphBlastRadius, type CodeGraphFileEntry, type CodeGraphGitState } from "@/bridge/codegraph";
+import type { CodeGraphFileEntry, CodeGraphGitState } from "@/bridge/codegraph";
 import { FileCode2, Folder, FolderCode, Package } from "lucide-react";
 import { TreeView, type TreeNodeData } from "@/components/tree-view";
 import { filterFileEntries } from "../fileSearch";
@@ -8,7 +8,14 @@ import { compactFiles, isSourceRoot, nestFiles, type FileBranch } from "./treeNo
 
 const TOGGLE = "inline-flex h-5.5 shrink-0 items-center rounded-sm border px-2 text-code-11";
 
-const SOURCE = /\.(java|kt|groovy|scala)$/i;
+/**
+ * Source code in any language a project is likely to mix — a folder of
+ * microservices is Java beside Go beside TypeScript, and the analyzer will
+ * read more than Java. What it hides is what is not code: build files,
+ * config, resources, lockfiles, docs.
+ */
+const CODE =
+  /\.(java|kt|kts|groovy|scala|go|py|ts|tsx|js|jsx|mjs|cjs|rs|rb|php|cs|fs|swift|m|mm|c|h|cc|cpp|hpp|dart|ex|exs|erl|clj|lua|sql|proto|graphql|vue|svelte|sh)$/i;
 
 const MARK_TONE: Record<CodeGraphGitState, string> = {
   M: "text-status-warning",
@@ -17,15 +24,14 @@ const MARK_TONE: Record<CodeGraphGitState, string> = {
   R: "text-status-info",
 };
 
-const GIT_WORD: Record<CodeGraphGitState, string> = { M: "Modified", A: "New file", D: "Deleted", R: "Renamed" };
 
-export type FileFilter = { javaOnly: boolean; changed: boolean; inFlow: boolean };
+export type FileFilter = { codeOnly: boolean; changed: boolean; inFlow: boolean };
 
 /**
  * The project's files (Figma `CodeGraph / Sidebar — 5 Files`): three toggles
- * over the tree — sources only, changed only, only what the flow on screen
- * passes through — git marks on each row, and under it what the selected file
- * touches.
+ * over the tree — code only, changed only, only what the flow on screen
+ * passes through — and git marks on each row. What depends on a file is the
+ * Impact panel under its editor, not a card here.
  */
 export function FilesTab({
   files,
@@ -59,9 +65,9 @@ export function FilesTab({
 }) {
   const changedCount = Object.keys(gitStatus).length;
   const keepFile = useMemo(() => {
-    if (!filter.javaOnly && !filter.changed && !filter.inFlow) return undefined;
+    if (!filter.codeOnly && !filter.changed && !filter.inFlow) return undefined;
     return (path: string) =>
-      (!filter.javaOnly || SOURCE.test(path)) &&
+      (!filter.codeOnly || CODE.test(path)) &&
       (!filter.changed || path in gitStatus) &&
       (!filter.inFlow || flowFiles.has(path));
   }, [filter, gitStatus, flowFiles]);
@@ -125,7 +131,7 @@ export function FilesTab({
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Filter files">
-        {toggle("javaOnly", "JAVA ONLY", "Source files only (.java, .kt, .groovy, .scala) — hides build files, config and resources")}
+        {toggle("codeOnly", "CODE", "Source code only, in any language — hides build files, config, resources and docs")}
         {toggle("changed", changedCount > 0 ? `CHANGED · ${changedCount}` : "CHANGED", "Files with uncommitted changes (git status)")}
         {toggle("inFlow", "IN FLOW", "Files the flow in front passes through", flowFiles.size === 0 && !filter.inFlow)}
       </div>
@@ -136,49 +142,7 @@ export function FilesTab({
           {files.length === 0 ? "No files yet — open a project." : "No files match."}
         </p>
       )}
-      {selectedFile ? (
-        <FileContext path={selectedFile} git={gitStatus[selectedFile]} inFlow={flowFiles.has(selectedFile)} />
-      ) : null}
     </div>
   );
 }
 
-/**
- * What the selected file reaches: whether the flow on screen passes through
- * it, and how many files depend on it — the blast radius of an edit.
- */
-function FileContext({ path, git, inFlow }: { path: string; git?: CodeGraphGitState; inFlow: boolean }) {
-  const [dependents, setDependents] = useState<number | null>(null);
-
-  useEffect(() => {
-    let live = true;
-    setDependents(null);
-    // After a pause, not on every arrow key through the tree: it walks a
-    // transitive closure.
-    const t = window.setTimeout(() => {
-      getCodeGraphBlastRadius(path)
-        .then((files) => live && setDependents(files.length))
-        // Unknown is not "nothing": a failed read just says less.
-        .catch(() => live && setDependents(-1));
-    }, 250);
-    return () => {
-      live = false;
-      window.clearTimeout(t);
-    };
-  }, [path]);
-
-  const parts = [
-    git ? GIT_WORD[git] : null,
-    inFlow ? "In the flow on screen" : null,
-    dependents === null || dependents < 0 ? null : dependents === 0 ? "Nothing depends on it" : `${dependents} ${dependents === 1 ? "file depends" : "files depend"} on it`,
-  ].filter(Boolean);
-
-  return (
-    <div className="flex shrink-0 flex-col gap-1 rounded-lg border border-border-subtle bg-surface-raised px-2.5 py-2">
-      <span className="truncate text-caption-11-medium text-text-primary" title={path}>
-        {path.slice(path.lastIndexOf("/") + 1)}
-      </span>
-      <span className="text-caption-11 text-text-tertiary">{parts.length > 0 ? parts.join(" · ") : dependents === null ? "Working out what depends on it…" : "Unchanged"}</span>
-    </div>
-  );
-}

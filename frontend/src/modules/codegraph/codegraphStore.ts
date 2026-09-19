@@ -122,7 +122,7 @@ type CodeGraphState = {
   /** Folders open in the Files tab. */
   fileExpanded: string[];
   /** The Files tab's toggles. */
-  fileFilter: { javaOnly: boolean; changed: boolean; inFlow: boolean };
+  fileFilter: { codeOnly: boolean; changed: boolean; inFlow: boolean };
 
   set: (patch: Partial<CodeGraphState>) => void;
 };
@@ -172,7 +172,7 @@ export const useCodeGraphStore = create<CodeGraphState>((set) => ({
   methodFilter: [],
   collapsedGroups: [],
   fileExpanded: [],
-  fileFilter: { javaOnly: true, changed: false, inFlow: false },
+  fileFilter: { codeOnly: true, changed: false, inFlow: false },
 
   set: (patch) => set(patch),
 }));
