@@ -1,8 +1,11 @@
 // frontend/src/components/code-editor/CodeEditor.tsx
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { EditorView, basicSetup } from "codemirror";
 import { EditorState, Compartment, type Extension } from "@codemirror/state";
+import { keymap } from "@codemirror/view";
+import { shouldWrap, visibleColumns } from "./autoWrap";
 import { devkitHighlight } from "./devkitHighlight";
+import { wrapBreaks } from "./wrapBreaks";
 import { wrapIndent } from "./wrapIndent";
 
 // Settings > Appearance drives these two custom properties (stores/
@@ -16,6 +19,11 @@ const fontTheme = EditorView.theme({
   },
 });
 
+// Everything wrapping needs, as one unit: wrapped rows without the hanging
+// indent read as new lines, and without the break opportunities they cut
+// identifiers in half.
+const wrapExtensions: Extension[] = [EditorView.lineWrapping, wrapIndent, wrapBreaks];
+
 export type CodeEditorProps = {
   value: string;
   onChange: (value: string) => void;
@@ -26,8 +34,14 @@ export type CodeEditorProps = {
    * is what a full-width file editor wants; a narrow preview wants it on,
    * because a horizontal scrollbar under two visible lines is worse than a
    * wrapped line.
+   *
+   * "auto" is for an editor whose width is not its caller's to know — a pane
+   * the user can split or drag to any size. It scrolls while there is room for
+   * a conventional line and wraps once there is not (see autoWrap.ts).
+   *
+   * Whatever this says, ⌥Z flips it for that editor until it unmounts.
    */
-  wrap?: boolean;
+  wrap?: boolean | "auto";
   revealLine?: number | null;
 };
 
@@ -50,12 +64,41 @@ export function CodeEditor({ value, onChange, extensions, readOnly, wrap, reveal
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
 
+  // What "auto" currently measures, and what the user last asked for with ⌥Z.
+  // The user's word outranks both the prop and the measurement: someone who
+  // turned wrapping off in a narrow pane does not want it back on the next
+  // resize.
+  const [narrow, setNarrow] = useState(false);
+  const [wrapOverride, setWrapOverride] = useState<boolean | null>(null);
+  const wrapped = wrapOverride ?? (wrap === "auto" ? narrow : !!wrap);
+  const wrappedRef = useRef(wrapped);
+  wrappedRef.current = wrapped;
+  const autoWrapRef = useRef(wrap === "auto");
+  autoWrapRef.current = wrap === "auto";
+
+  const measureWidth = useRef(() => {
+    const view = viewRef.current;
+    if (!view || !autoWrapRef.current) return;
+    const columns = visibleColumns(view);
+    setNarrow((current) => shouldWrap(columns, current));
+  }).current;
+
   useEffect(() => {
     if (!containerRef.current) return;
     const view = new EditorView({
       state: EditorState.create({
         doc: value,
         extensions: [
+          // Ahead of basicSetup so no default binding can claim the key first.
+          keymap.of([
+            {
+              key: "Alt-z",
+              run: () => {
+                setWrapOverride(!wrappedRef.current);
+                return true;
+              },
+            },
+          ]),
           basicSetup,
           fontTheme,
           languageCompartment.of(extensions ?? []),
@@ -65,10 +108,14 @@ export function CodeEditor({ value, onChange, extensions, readOnly, wrap, reveal
           // re-resolves itself when the palette changes. Reconfiguring it on a
           // theme switch would be work with no output.
           devkitHighlight,
-          wrapCompartment.of(wrap ? [EditorView.lineWrapping, wrapIndent] : []),
+          wrapCompartment.of(wrapped ? wrapExtensions : []),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
               onChangeRef.current(update.state.doc.toString());
+            } else if (update.geometryChanged) {
+              // The container did not resize, but what fits in it may have: the
+              // code font size is a live CSS variable (see fontTheme above).
+              measureWidth();
             }
           }),
         ],
@@ -76,7 +123,11 @@ export function CodeEditor({ value, onChange, extensions, readOnly, wrap, reveal
       parent: containerRef.current,
     });
     viewRef.current = view;
+    // Fires once on observe, which is also the first measurement.
+    const resizeObserver = new ResizeObserver(measureWidth);
+    resizeObserver.observe(containerRef.current);
     return () => {
+      resizeObserver.disconnect();
       view.destroy();
       viewRef.current = null;
     };
@@ -116,9 +167,14 @@ export function CodeEditor({ value, onChange, extensions, readOnly, wrap, reveal
 
   useEffect(() => {
     viewRef.current?.dispatch({
-      effects: wrapCompartment.reconfigure(wrap ? [EditorView.lineWrapping, wrapIndent] : []),
+      effects: wrapCompartment.reconfigure(wrapped ? wrapExtensions : []),
     });
-  }, [wrap, wrapCompartment]);
+  }, [wrapped, wrapCompartment]);
+
+  // A caller switching to "auto" after mount has no measurement yet.
+  useEffect(() => {
+    if (wrap === "auto") measureWidth();
+  }, [wrap, measureWidth]);
 
   // cm-surfaceless is styled in index.css, not through EditorView.theme: a
   // theme extension ties oneDark on specificity (.cm-editor.<theme-class>) and
