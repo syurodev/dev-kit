@@ -134,6 +134,9 @@ tasks:
       - task: build:mcp
         vars:
           GOARCH: '{{.ARCH | default ARCH}}'
+      - task: build:analyzer:ts
+        vars:
+          GOARCH: '{{.ARCH | default ARCH}}'
       - task: create:app:bundle
 
   package:universal:
@@ -142,7 +145,52 @@ tasks:
       - task: build:universal
     cmds:
       - task: build:mcp:universal
+      - task: build:analyzer:ts:universal
       - task: create:app:bundle
+
+  build:analyzer:ts:
+    summary: Builds the TypeScript analyzer for this app bundle
+    internal: true
+    cmds:
+      - task: common:build:analyzer:ts
+        vars:
+          GOOS: darwin
+          GOARCH: '{{.GOARCH}}'
+          OUTPUT: "bin/tsgo"
+
+  build:analyzer:ts:universal:
+    summary: Builds a universal (arm64 + amd64) TypeScript analyzer
+    # A universal .app with a single-architecture analyzer is a .app that
+    # analyzes nothing on half the Macs it installs on, and says so only when
+    # somebody opens a TypeScript project.
+    internal: true
+    deps:
+      - task: common:build:analyzer:ts
+        vars:
+          GOOS: darwin
+          GOARCH: amd64
+          OUTPUT: "bin/tsgo-amd64"
+      - task: common:build:analyzer:ts
+        vars:
+          GOOS: darwin
+          GOARCH: arm64
+          OUTPUT: "bin/tsgo-arm64"
+    cmds:
+      - task: '{{if eq OS "darwin"}}lipo:analyzer:ts:native{{else}}lipo:analyzer:ts:go{{end}}'
+
+  lipo:analyzer:ts:native:
+    summary: Creates a universal tsgo using native lipo (macOS)
+    internal: true
+    cmds:
+      - lipo -create -output analyzer-ts/bin/tsgo analyzer-ts/bin/tsgo-amd64 analyzer-ts/bin/tsgo-arm64
+      - rm -f analyzer-ts/bin/tsgo-amd64 analyzer-ts/bin/tsgo-arm64
+
+  lipo:analyzer:ts:go:
+    summary: Creates a universal tsgo using wails3 tool lipo (Linux/Windows)
+    internal: true
+    cmds:
+      - wails3 tool lipo -output analyzer-ts/bin/tsgo -input analyzer-ts/bin/tsgo-amd64 -input analyzer-ts/bin/tsgo-arm64
+      - rm -f analyzer-ts/bin/tsgo-amd64 analyzer-ts/bin/tsgo-arm64
 
   build:mcp:
     summary: Builds devkit-mcp for this app bundle
@@ -199,6 +247,7 @@ tasks:
       # internal/codegraph/artifact.go looks: one level up from the executable
       # and across. Change one, change the other.
       - cp analyzer/target/codegraph-analyzer.jar "{{.BIN_DIR}}/{{.APP_NAME}}.app/Contents/Resources"
+      - cp analyzer-ts/bin/tsgo "{{.BIN_DIR}}/{{.APP_NAME}}.app/Contents/Resources"
       - cp "{{.BIN_DIR}}/{{.APP_NAME}}" "{{.BIN_DIR}}/{{.APP_NAME}}.app/Contents/MacOS"
       # Contents/MacOS, alongside the app binary: where ResolveCommand in
       # internal/mcp/install/install.go looks first (filepath.Dir(exe)).

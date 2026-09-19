@@ -1,8 +1,9 @@
 # analyzer-ts — the TypeScript analyzer's toolchain
 
-**Status: phase 0 spike. Nothing here is wired into DevKit yet.** What this
-directory holds is the answer to one question — *what should the TypeScript
-analyzer be built on* — and the measurements that settled it.
+The measurements in this file are why the analyzer is built the way it is, and they were
+taken before any of it existed. `cmd/spike` is the throwaway that took them, kept because
+re-deriving the protocol is the expensive part. For the analyzer itself, see
+`internal/lsp` (the client) and `internal/codegraph/analyzer_ts*.go`.
 
 ## What it is
 
@@ -86,7 +87,9 @@ That is CodeGraph's entire data model, in a **standard, stable protocol**, with
 no binary AST to decode. 1.9 s for 722 files is the same order as the Lua
 analyzer (1.3 s for 1560 files).
 
-## What this decides
+## What this decided
+
+All three of these are now how the analyzer works.
 
 1. **Build on the LSP, not the compiler API.** Standard protocol beats an
    internal one, and it is the only one of the two that answers the question
@@ -97,8 +100,10 @@ analyzer (1.3 s for 1560 files).
    are one-shot: spawn, analyze, exit. A cold TS index is ~2 s but a warm
    re-index of one changed file is **5 ms**, and the file watcher re-indexes on
    every save. Throwing the process away between saves would turn a 5 ms job
-   into a 2 s one. `Analyzer` gains a lifecycle, which neither existing
-   analyzer needed.
+   into a 2 s one. `Analyzer` gained a lifecycle (`analyzerCloser`), which
+   neither existing analyzer needed. Measured on the finished analyzer: 1.18 s
+   cold for 722 files, 268 ms to re-index — and the difference is entirely
+   `sync` telling the server only about files whose content hash changed.
 3. **`Toolchain` needs a third mode.** Today it has `Native` (in process, Lua)
    and artifact-plus-runtime (Java: a jar and a JDK, where `Run[0]` names a
    `Requirement`). `tsgo` is a third shape: the artifact is itself the

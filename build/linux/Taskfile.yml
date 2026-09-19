@@ -156,6 +156,7 @@ tasks:
     deps:
       - task: build
       - task: common:build:analyzer
+      - task: common:build:analyzer:ts
       - task: build:mcp
     cmds:
       - task: generate:dotdesktop
@@ -166,6 +167,7 @@ tasks:
     deps:
       - task: build
       - task: common:build:analyzer
+      - task: common:build:analyzer:ts
       - task: build:mcp
     cmds:
       - task: generate:dotdesktop
@@ -176,6 +178,7 @@ tasks:
     deps:
       - task: build
       - task: common:build:analyzer
+      - task: common:build:analyzer:ts
       - task: build:mcp
     cmds:
       - task: generate:dotdesktop
