@@ -217,37 +217,42 @@ function UserSection({
           {users.length}
         </Badge>
       </h3>
-      <ItemGroup className="gap-1">
+      {/* Rows, not cards: a bordered card around a code well was a box in a
+          box. The row lines up with the section title (-mx-2 undoes its
+          padding) and only lights up on hover. */}
+      <ItemGroup className="-mx-2 gap-0.5">
         {users.map((u) => (
-          <Item key={u.nodeId} size="xs" variant="outline" className="border-border-subtle">
-            <ItemHeader className="items-start">
-              <ItemContent className="min-w-0">
-                <ItemTitle className="max-w-full">
+          <Item key={u.nodeId} size="xs" className="gap-1 px-2 py-1.5 hover:bg-state-soft">
+            <ItemHeader>
+              <ItemContent className="min-w-0 gap-0.5">
+                <ItemTitle className="w-full min-w-0 gap-1.5">
                   {canJump(u.nodeId) && u.nodeId !== current ? (
                     <button
                       type="button"
                       onClick={() => onJump(u.nodeId)}
                       title={`${u.label} — inspect`}
-                      className="truncate text-left hover:underline"
+                      className="min-w-0 truncate text-left hover:underline"
                     >
                       {shortLabel(u.label, "method")}
                     </button>
                   ) : (
-                    <span className="truncate" title={u.label}>
+                    <span className="min-w-0 truncate" title={u.label}>
                       {shortLabel(u.label, "method")}
                     </span>
                   )}
-                  {u.nodeId === current ? <Badge variant="outline">this method</Badge> : null}
+                  {u.nodeId === current ? (
+                    <Badge variant="secondary" className="h-4 shrink-0 px-1.5 text-caption-11">
+                      this method
+                    </Badge>
+                  ) : null}
                 </ItemTitle>
-                {u.via ? (
-                  <ItemDescription className="truncate">via {shortLabel(u.via, "method")}</ItemDescription>
-                ) : null}
+                <ItemDescription className="truncate text-code-11 text-text-tertiary" title={u.filePath}>
+                  {fileName(u.filePath)}
+                  {u.via ? <span className="font-sans"> · via {shortLabel(u.via, "method")}</span> : null}
+                </ItemDescription>
               </ItemContent>
-              <span className="min-w-0 max-w-1/2 truncate text-code-11 text-text-tertiary" title={u.filePath}>
-                {fileName(u.filePath)}
-              </span>
             </ItemHeader>
-            <ul className="flex min-w-0 basis-full flex-col gap-0.5">
+            <ul className="flex min-w-0 basis-full flex-col gap-px">
               {u.accesses.map((a) => (
                 <li key={a.line} className="min-w-0">
                   <button
