@@ -59,6 +59,13 @@ export interface DataFlowStep {
      * remain in the index, but lack field evidence and are omitted here.
      */
     "unresolved": string;
+
+    /**
+     * Code is the source line itself, trimmed — what "read at line 42" means
+     * to someone reading it. Empty when the file could not be read; the trace
+     * does not fail over a missing line.
+     */
+    "code": string;
 }
 
 /**

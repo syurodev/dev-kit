@@ -16,84 +16,100 @@ export const WALL_LABELS = {
   limit: "step limit reached — the trace was cut short",
 } as const;
 
-export type DataFlowEvent = {
-  key: string;
-  line: number;
-  kind: "read" | "write" | "call";
-  /** Non-empty only for a resolved call — the node to jump to. */
-  targetId: string;
-  /** The callee's name, for a call: what the pill says. */
-  targetLabel: string;
-  /** Non-empty when this step hit a wall; already human-readable. */
-  wall: string;
-};
+/**
+ * Walls that mean a use may be missing from the answer. A cycle or a repeat
+ * is a method already on the list, so nothing was lost there.
+ */
+const LOSSY = new Set(["library", "interface", "unresolved", "depth", "limit"]);
 
-/** One method's stretch of the walk: where it is, and what it did there. */
-export type DataFlowGroup = {
-  key: string;
+/** One line of a method that touches the field. */
+export type FieldAccess = { line: number; code: string };
+
+/** One method that reads (or writes) the field, and where. */
+export type FieldUser = {
   nodeId: string;
   label: string;
   filePath: string;
-  /** The first line it touched — where "open file" lands. */
-  line: number;
-  depth: number;
-  events: DataFlowEvent[];
+  /** The method whose call led the trace here, when it was not a start. */
+  via: string;
+  accesses: FieldAccess[];
+};
+
+/** A call the trace could not follow: uses past it may be missing. */
+export type FieldGap = { label: string; line: number; reason: string };
+
+export type FieldUsage = {
+  writers: FieldUser[];
+  readers: FieldUser[];
+  gaps: FieldGap[];
 };
 
 /**
- * Folds a trace into one group per method visit, each with its events.
+ * A trace, turned into the answer it is for: which methods change the
+ * field, which read it, and where the trace could not see.
  *
- * A group re-opens on revisit rather than merging: the same method reached
- * again after a deeper call is a different point in the walk, and collapsing
- * the two would imply an ordering the trace does not claim.
+ * The trace itself is a walk — methods in call-graph order, calls between
+ * them — which is right for a machine and hard to read. Grouped by role, the
+ * list says what it means; the walk survives as each method's "via".
  */
-export function toDataFlowGroups(steps: CodeGraphDataFlowStep[]): DataFlowGroup[] {
-  // A callee's name comes from its own steps further down the walk.
-  const names = new Map(steps.map((s) => [s.nodeId, s.label]));
-  const groups: DataFlowGroup[] = [];
-  let open: DataFlowGroup | null = null;
+export function toFieldUsage(steps: CodeGraphDataFlowStep[]): FieldUsage {
+  const writers = new Map<string, FieldUser>();
+  const readers = new Map<string, FieldUser>();
+  const gaps: FieldGap[] = [];
+  // The method whose call is open at each depth — who led the walk here.
+  const callerAt: string[] = [];
 
-  steps.forEach((s, i) => {
-    if (!open || open.nodeId !== s.nodeId || open.depth !== s.depth) {
-      open = { key: `g${i}`, nodeId: s.nodeId, label: s.label, filePath: s.filePath, line: s.line, depth: s.depth, events: [] };
-      groups.push(open);
+  for (const s of steps) {
+    callerAt[s.depth] = s.label;
+    if (s.kind === "call") {
+      if (s.unresolved && LOSSY.has(s.unresolved)) {
+        gaps.push({ label: s.label, line: s.line, reason: WALL_LABELS[s.unresolved as keyof typeof WALL_LABELS] ?? s.unresolved });
+      }
+      continue;
     }
-    const resolved = s.unresolved === "";
-    open.events.push({
-      key: `e${i}`,
-      line: s.line,
-      kind: s.kind,
-      targetId: resolved ? s.targetId : "",
-      targetLabel: s.kind === "call" ? (names.get(s.targetId) ?? s.targetId) : "",
-      wall: resolved ? "" : (WALL_LABELS[s.unresolved] ?? s.unresolved),
-    });
-  });
+    const into = s.kind === "write" ? writers : readers;
+    let user = into.get(s.nodeId);
+    if (!user) {
+      user = { nodeId: s.nodeId, label: s.label, filePath: s.filePath, via: s.depth > 0 ? (callerAt[s.depth - 1] ?? "") : "", accesses: [] };
+      into.set(s.nodeId, user);
+    }
+    if (!user.accesses.some((a) => a.line === s.line)) user.accesses.push({ line: s.line, code: s.code ?? "" });
+  }
 
-  return groups;
+  return { writers: [...writers.values()], readers: [...readers.values()], gaps };
 }
 
-export type DataFlowFilter = "all" | "read" | "write";
+/** The one-line answer over the list. */
+export function describeUsage(field: string, usage: FieldUsage): string {
+  const w = usage.writers.length;
+  const r = usage.readers.length;
+  const methods = (n: number) => `${n} ${n === 1 ? "method" : "methods"}`;
+  if (w === 0 && r === 0) return `Nothing indexed reads or writes ${field}.`;
+  if (w === 0) return `${field} is read in ${methods(r)} and never written — it behaves as a constant.`;
+  if (r === 0) return `${field} is written in ${methods(w)} and never read back.`;
+  return `${field} is written in ${methods(w)} and read in ${methods(r)}.`;
+}
 
-/** How many methods read the field, how many write it, and walls hit. */
-export function summarizeFlow(groups: DataFlowGroup[]) {
-  const methodsWith = (kind: "read" | "write") =>
-    new Set(groups.filter((g) => g.events.some((e) => e.kind === kind)).map((g) => g.nodeId)).size;
-  return {
-    readers: methodsWith("read"),
-    writers: methodsWith("write"),
-    walls: groups.reduce((n, g) => n + g.events.filter((e) => e.wall).length, 0),
-  };
+/** The field as a whole word: `id` must not match inside `userId`. */
+function fieldPattern(field: string, flags = "") {
+  const escaped = field.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?<![\\w$])(${escaped})(?![\\w$])`, flags);
+}
+
+/** The code split around the field's name, so a row can light up the part that matters. */
+export function splitOnField(code: string, field: string): { text: string; hit: boolean }[] {
+  if (!field) return [{ text: code, hit: false }];
+  const parts = code.split(fieldPattern(field, "g"));
+  return parts.filter((p) => p !== "").map((p) => ({ text: p, hit: p === field }));
 }
 
 /**
- * The groups a filter keeps. "write" answers the question a field trace is
- * usually opened for — who changes this — so it drops the reads and the
- * calls in between, and every method that does not write.
+ * A long line cut from the left so the field stays on screen: the rest of
+ * the row truncates at the right, and the field is the part worth seeing.
+ * Keeps `lead` characters of context before it.
  */
-export function filterFlow(groups: DataFlowGroup[], filter: DataFlowFilter): DataFlowGroup[] {
-  if (filter === "all") return groups;
-  return groups.flatMap((g) => {
-    const events = g.events.filter((e) => e.kind === filter);
-    return events.length > 0 ? [{ ...g, events }] : [];
-  });
+export function focusOnField(code: string, field: string, lead = 24): string {
+  const at = field ? code.search(fieldPattern(field)) : -1;
+  if (at <= lead) return code;
+  return `…${code.slice(at - lead).trimStart()}`;
 }

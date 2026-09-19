@@ -239,6 +239,10 @@ type DataFlowStep struct {
 	// already on the current path). Unresolved library/interface call sites
 	// remain in the index, but lack field evidence and are omitted here.
 	Unresolved string `json:"unresolved"`
+	// Code is the source line itself, trimmed — what "read at line 42" means
+	// to someone reading it. Empty when the file could not be read; the trace
+	// does not fail over a missing line.
+	Code string `json:"code"`
 }
 
 // DataFlowTrace is TraceDataFlow's result: every already-indexed method that

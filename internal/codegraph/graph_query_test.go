@@ -2,6 +2,8 @@ package codegraph
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -239,5 +241,30 @@ func TestTraceDataFlowExpandsEachMethodOnce(t *testing.T) {
 	}
 	if repeats != diamonds {
 		t.Fatalf("repeat markers = %d, want one per diamond's second arm", repeats)
+	}
+}
+
+// A trace step carries its source line, so "read at 2" reads as the code
+// that does the reading. A file that cannot be read costs its lines, not the
+// trace.
+func TestAttachSourceLines(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "A.java"), []byte("class A {\n    String h = req.getHeader(DEVICE_HEADER);\n}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	steps := []DataFlowStep{
+		{FilePath: "A.java", Line: 2, Kind: "read"},
+		{FilePath: "A.java", Line: 99, Kind: "read"},
+		{FilePath: "Gone.java", Line: 1, Kind: "write"},
+	}
+	attachSourceLines(root, steps)
+	if steps[0].Code != "String h = req.getHeader(DEVICE_HEADER);" {
+		t.Fatalf("code = %q", steps[0].Code)
+	}
+	if steps[1].Code != "" || steps[2].Code != "" {
+		t.Fatalf("out of range or missing file must leave code empty: %q, %q", steps[1].Code, steps[2].Code)
+	}
+	if got := clipLine("abcdef", 4); got != "abc…" {
+		t.Fatalf("clipLine = %q", got)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 )
 
 const (
@@ -218,7 +219,7 @@ func (s *Service) ListFields(ctx context.Context, nodeID string) ([]FieldRef, er
 // that, a diamond of methods that all touch the field was walked once per
 // PATH through it, which grows exponentially with the diamonds in a chain.
 func (s *Service) TraceDataFlow(ctx context.Context, symbolID, fieldName string) (DataFlowTrace, error) {
-	store, release, err := s.activeStore()
+	store, root, release, err := s.activeProject()
 	if err != nil {
 		return DataFlowTrace{}, err
 	}
@@ -373,7 +374,41 @@ func (s *Service) TraceDataFlow(ctx context.Context, symbolID, fieldName string)
 		}
 		walk(root, 0)
 	}
+	attachSourceLines(root, trace.Steps)
 	return trace, nil
+}
+
+// maxDataFlowCodeLen keeps one step's source line to what a panel row shows.
+const maxDataFlowCodeLen = 160
+
+// attachSourceLines fills each step's Code with its source line, reading
+// every file once. Best effort: a file that moved or cannot be read leaves
+// its steps without code rather than failing a trace that is otherwise right.
+func attachSourceLines(root string, steps []DataFlowStep) {
+	files := make(map[string][]string)
+	for i := range steps {
+		path := steps[i].FilePath
+		lines, seen := files[path]
+		if !seen {
+			if resolved, err := resolvePath(root, path); err == nil {
+				if text, err := readTextFile(resolved); err == nil {
+					lines = strings.Split(text, "\n")
+				}
+			}
+			files[path] = lines
+		}
+		if n := steps[i].Line; n >= 1 && n <= len(lines) {
+			steps[i].Code = clipLine(strings.TrimSpace(lines[n-1]), maxDataFlowCodeLen)
+		}
+	}
+}
+
+func clipLine(line string, max int) string {
+	runes := []rune(line)
+	if len(runes) <= max {
+		return line
+	}
+	return string(runes[:max-1]) + "…"
 }
 
 const (

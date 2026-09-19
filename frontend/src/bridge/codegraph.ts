@@ -198,6 +198,8 @@ export type CodeGraphDataFlowStep = {
   targetId: string;
   /** Empty when nothing was lost; otherwise the wall the trace hit. */
   unresolved: "" | "library" | "interface" | "unresolved" | "lombok" | "depth" | "cycle" | "repeat" | "limit";
+  /** The source line, trimmed. Empty when the file could not be read. */
+  code: string;
 };
 
 export type CodeGraphDataFlowTrace = {
