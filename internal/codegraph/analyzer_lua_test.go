@@ -547,3 +547,107 @@ func TestLuaAnalyzerOnAFolderWithNoLua(t *testing.T) {
 		t.Errorf("expected no nodes, got %d", len(result.Nodes))
 	}
 }
+
+// A function declared inside an `if` at the top level has a node of its own.
+// Walking the module's own statements must not walk its body a second time, or
+// every call in it is recorded twice — once against the function and once
+// against the module.
+func TestLuaAnalyzerDoesNotRecordAConditionalDeclarationTwice(t *testing.T) {
+	result := analyzeLua(t, map[string]string{
+		"target.lua": "local M = {}\nfunction M.work() end\nreturn M\n",
+		"cond.lua": `
+local target = require "target"
+local M = {}
+
+if ngx.config.subsystem == "http" then
+  function M.run()
+    target.work()
+  end
+end
+
+return M
+`,
+	})
+
+	if got := countCallSites(result, "cond.run", "target.work"); got != 1 {
+		t.Errorf("call sites = %d, want the one that is written", got)
+	}
+	if got := countCallSites(result, "cond", "target.work"); got != 0 {
+		t.Errorf("the module recorded %d calls that belong to its function", got)
+	}
+}
+
+// `function Store.count(self)` means the same as `function Store:count()`, and
+// plenty of Lua is written the first way.
+func TestLuaAnalyzerBindsAnExplicitSelfParameter(t *testing.T) {
+	result := analyzeLua(t, map[string]string{
+		"store.lua": `
+local Store = {}
+
+function Store.reset(self)
+  self:clear()
+end
+
+function Store.clear(self)
+end
+
+return Store
+`,
+	})
+
+	if !hasEdge(result, "store.reset", "store.clear", "call") {
+		t.Error("expected self:clear() to resolve through the explicit self parameter")
+	}
+}
+
+func TestLuaAnalyzerSeesARequireUnderACall(t *testing.T) {
+	result := analyzeLua(t, map[string]string{
+		"user.lua": `
+local cjson = require("cjson").new()
+
+local function encode(value)
+  return cjson.encode(value)
+end
+
+return { encode = encode }
+`,
+	})
+
+	byID := map[string]string{}
+	for _, node := range result.Nodes {
+		byID[node.ID] = node.Label
+	}
+	var reasons []string
+	for _, site := range result.CallSites {
+		if byID[site.From] == "user.encode" {
+			reasons = append(reasons, site.Unresolved)
+		}
+	}
+	// One call, and it is outside the project rather than lost: without
+	// reading the require under the .new(), cjson would be an unknown local
+	// and the call would read as a gap in the analysis.
+	if len(reasons) != 1 || reasons[0] != "library" {
+		t.Errorf("call reasons from user.encode = %v, want exactly [library]", reasons)
+	}
+}
+
+// A module can be a bag of settings with no functions at all, and the fields
+// on it are still what somebody wants to trace.
+func TestLuaAnalyzerRecordsFieldsOnAModuleWithNoFunctions(t *testing.T) {
+	result := analyzeLua(t, map[string]string{
+		"conf.lua": `
+local M = {}
+M.timeout = 1000
+M.retries = 3
+return M
+`,
+	})
+
+	names := map[string]bool{}
+	for _, fa := range result.FieldAccesses {
+		names[fa.FieldName] = true
+	}
+	if !names["timeout"] || !names["retries"] {
+		t.Errorf("expected both fields, got %v", names)
+	}
+}

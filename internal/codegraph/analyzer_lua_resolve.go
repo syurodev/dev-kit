@@ -136,16 +136,36 @@ func (m *luaModule) resolveCalls(index *luaIndex, result *AnalysisResult) {
 			// analyzer knows nothing about what was passed in.
 			scope.set(param, luaValue{})
 		}
-		if fn.selfTable != "" {
-			scope.set("self", luaValue{kind: luaTableValue, table: fn.selfTable})
+		if table := fn.selfBinding(); table != "" {
+			scope.set("self", luaValue{kind: luaTableValue, table: table})
 		}
 		resolver := &luaResolver{module: m, result: result, from: fn.nodeID, edges: edges}
 		resolver.walkBlock(fn.body.Body, scope)
 	}
 }
 
+// selfBinding is the table this function's `self` refers to.
+//
+// The colon form says so outright. The dot form with an explicit `self` first
+// parameter — `function Store.count(self)` — means exactly the same thing and
+// is how plenty of Lua is written; without this, every call through that self
+// would be a gap.
+func (fn *luaFunc) selfBinding() string {
+	if fn.selfTable != "" {
+		return fn.selfTable
+	}
+	if len(fn.params) == 0 || fn.params[0].Name != "self" {
+		return ""
+	}
+	table, _, found := strings.Cut(fn.decl, ".")
+	if !found {
+		return ""
+	}
+	return table
+}
+
 // moduleScope is what every function in the file starts from: the modules it
-// required, and the tables it declares functions on.
+// required, the tables it declares functions on, and the table it returns.
 func (m *luaModule) moduleScope() *luaScope {
 	scope := newLuaScope(nil)
 	for _, req := range m.requires {
@@ -170,6 +190,11 @@ func (m *luaModule) moduleScope() *luaScope {
 			tables[fn.selfTable] = true
 		}
 	}
+	// And the table the file returns, which a module with fields but no
+	// functions on it has no declaration to reveal.
+	if m.tableVar != "" {
+		tables[m.tableVar] = true
+	}
 	for table := range tables {
 		if _, taken := scope.get(table); taken {
 			// A required module wins: the file said where that name came from.
@@ -183,16 +208,54 @@ func (m *luaModule) moduleScope() *luaScope {
 // walkTopLevel walks a file's own statements without descending into the
 // function bodies that hang off them — those are walked separately, under
 // their own node.
+//
+// It recurses through `do`, `if`, `for` and `while` itself rather than handing
+// them to walkStmt, and that is not tidiness. Conditional declaration is
+// idiomatic in Lua (`if ngx.config.subsystem == "http" then function M.access()
+// ... end`), the declaration pass already gave those functions nodes of their
+// own, and walkStmt would walk their bodies again — every call inside them
+// recorded a second time, once against the function and once against the
+// module.
 func (r *luaResolver) walkTopLevel(block []lua.Stmt, scope *luaScope) {
 	for _, stmt := range block {
 		switch s := stmt.(type) {
 		case *lua.FuncStmt, *lua.LocalFuncStmt:
 			// Declaration only; the body is somebody else's node.
 		case *lua.LocalStmt:
-			r.bindLocals(s.Names, s.Exprs, scope)
+			// Right-hand side first: `local kong = kong` reads the outer one.
 			r.walkExprsSkippingFunctions(s.Exprs, scope)
+			r.bindLocals(s.Names, s.Exprs, scope)
 		case *lua.AssignStmt:
 			r.walkAssign(s, scope, true)
+		case *lua.DoStmt:
+			r.walkTopLevel(s.Body, newLuaScope(scope))
+		case *lua.WhileStmt:
+			r.walkExpr(s.Cond, scope)
+			r.walkTopLevel(s.Body, newLuaScope(scope))
+		case *lua.RepeatStmt:
+			inner := newLuaScope(scope)
+			r.walkTopLevel(s.Body, inner)
+			r.walkExpr(s.Cond, inner)
+		case *lua.IfStmt:
+			for _, clause := range s.Clauses {
+				r.walkExpr(clause.Cond, scope)
+				r.walkTopLevel(clause.Body, newLuaScope(scope))
+			}
+			r.walkTopLevel(s.Else, newLuaScope(scope))
+		case *lua.NumericForStmt:
+			r.walkExpr(s.Start, scope)
+			r.walkExpr(s.Limit, scope)
+			r.walkExpr(s.Step, scope)
+			inner := newLuaScope(scope)
+			inner.set(s.Name, luaValue{})
+			r.walkTopLevel(s.Body, inner)
+		case *lua.GenericForStmt:
+			r.walkExprs(s.Exprs, scope)
+			inner := newLuaScope(scope)
+			for _, name := range s.Names {
+				inner.set(name, luaValue{})
+			}
+			r.walkTopLevel(s.Body, inner)
 		default:
 			r.walkStmt(stmt, scope)
 		}

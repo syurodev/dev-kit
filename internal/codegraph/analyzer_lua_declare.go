@@ -24,6 +24,9 @@ func (m *luaModule) declare(index *luaIndex) {
 	m.collect(m.chunk.Block)
 	m.tableVar = m.moduleTableVar()
 	m.assignIDs(index)
+	// Every doc comment has been read; nothing below this point looks at the
+	// source text again.
+	m.lines = nil
 }
 
 // collect walks a block for declarations. It descends into `do`, `if`, `for`
@@ -249,7 +252,11 @@ func luaRequireCall(expr lua.Expr) (string, bool) {
 					}
 				}
 			}
+			return "", false
 		}
+		// `require("cjson").new()`: the call is made ON a require, so the
+		// require is under the callee rather than being it.
+		return luaRequireCall(e.Func)
 	case *lua.IndexExpr:
 		return luaRequireCall(e.Obj)
 	case *lua.MethodCallExpr:

@@ -56,12 +56,17 @@ func NewLuaAnalyzer() Analyzer { return luaAnalyzer{} }
 // required. One file is one module, which is what `require` means in Lua —
 // there is no unit smaller than a file for it to name.
 type luaModule struct {
-	rel     string // path relative to the project root, forward slashes
-	dotted  string // the require path this file answers to
-	nodeID  string
-	chunk   *lua.Chunk
-	lines   []string
-	summary string
+	rel    string // path relative to the project root, forward slashes
+	dotted string // the require path this file answers to
+	nodeID string
+	chunk  *lua.Chunk
+	// lines is the file's source, and it is dropped once the declaration pass
+	// has read the doc comments out of it. A slice header per line is nothing
+	// per file and hundreds of megabytes across a tree of twenty thousand;
+	// lineCount is all anything needs afterwards.
+	lines     []string
+	lineCount int
+	summary   string
 
 	// tableVar is the local name this file's module table is bound to — the M
 	// in `local M = {} ... return M`. It is how a declaration path becomes a
@@ -283,6 +288,7 @@ func luaReadModule(root, file string) (*luaModule, error) {
 		requireByName: map[string]luaRequire{},
 		layer:         "unknown",
 	}
+	module.lineCount = len(module.lines)
 	module.dotted = luaRequirePath(module.rel)
 	module.summary = luaHeaderComment(module.lines)
 	return module, nil
@@ -374,30 +380,41 @@ func (i *luaIndex) uniqueID(base string) string {
 
 // lookup resolves a require path to the module that serves it.
 //
-// Exact first. Then a suffix match, which is what makes a plugin repository
-// work when it is checked out at its own root: the source says
-// require("kong.plugins.rate-limit.policies") and the file on disk is
-// policies.lua, whose only honest name is "policies". A suffix match is
-// accepted only when exactly one module matches — two would be a guess, and
-// the call is better recorded as unresolved than attached to the wrong file.
+// Exact first. Then the path's own suffixes, longest first, which is what
+// makes a plugin repository work when it is checked out at its own root: the
+// source says require("kong.plugins.rate-limit.policies") and the file on disk
+// is policies.lua, whose only honest name is "policies". Two modules answering
+// to the same suffix resolves to nothing — that is a guess, and the call is
+// better recorded as unresolved than attached to the wrong file.
+//
+// By the path's suffixes rather than by scanning the modules, because most
+// requires in a real tree name something outside the project (resty.redis,
+// kong.tools.utils) and every one of them would otherwise walk every file: a
+// thousand files and ten thousand requires is ten million comparisons for an
+// answer that is almost always "not here". A path has a handful of suffixes,
+// and each is one map lookup.
 func (i *luaIndex) lookup(requirePath string) *luaModule {
 	if candidates := i.byRequire[requirePath]; len(candidates) == 1 {
 		return candidates[0]
 	} else if len(candidates) > 1 {
 		return nil
 	}
-	var found *luaModule
-	for _, module := range i.modules {
-		for _, key := range luaRequireKeys(module.rel) {
-			if key != "" && strings.HasSuffix(requirePath, "."+key) {
-				if found != nil && found != module {
-					return nil
-				}
-				found = module
-			}
+	rest := requirePath
+	for {
+		_, after, found := strings.Cut(rest, ".")
+		if !found {
+			return nil
+		}
+		rest = after
+		switch candidates := i.byRequire[rest]; len(candidates) {
+		case 1:
+			return candidates[0]
+		case 0:
+			continue
+		default:
+			return nil
 		}
 	}
-	return found
 }
 
 func (m *luaModule) resolveRequires(index *luaIndex) {
@@ -417,7 +434,7 @@ func (m *luaModule) emitNodes(result *AnalysisResult) {
 		Layer:    m.layer,
 		FilePath: m.rel,
 		Line:     1,
-		EndLine:  len(m.lines),
+		EndLine:  m.lineCount,
 		Summary:  m.summary,
 	})
 	for _, fn := range m.order {
