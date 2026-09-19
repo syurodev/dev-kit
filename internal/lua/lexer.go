@@ -180,7 +180,6 @@ func (l *lexer) skipSpaceAndComments() {
 // an index like `t[1]`, or `a[[b]]`'s first bracket in a context where it is
 // really indexing.
 func (l *lexer) scanLongBracket() (string, bool, int) {
-	start := l.pos
 	startLine := l.line
 	p := l.pos + 1
 	level := 0
@@ -215,7 +214,6 @@ func (l *lexer) scanLongBracket() (string, bool, int) {
 	body := l.src[p : p+end]
 	l.line += strings.Count(body, "\n")
 	l.pos = p + end + len(closing)
-	_ = start
 	return body, true, l.line
 }
 

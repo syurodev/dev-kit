@@ -247,6 +247,8 @@ func languageForPath(path string) string {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".java":
 		return "java"
+	case ".lua":
+		return "lua"
 	case ".json":
 		return "json"
 	case ".yaml", ".yml":

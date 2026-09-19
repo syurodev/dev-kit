@@ -616,9 +616,6 @@ func main() {
 			"line":     line,
 		})
 	}
-	// Wire the analyzer unconditionally: it resolves its artifact and its
-	// runtime per analysis, so a jar that appears later — because the user
-	// built it from the setup panel — needs no restart and no re-wiring.
 	for _, status := range container.CodeGraph.AnalyzerStatus(context.Background()) {
 		if status.Ready {
 			continue
@@ -628,9 +625,12 @@ func main() {
 		log.Printf("codegraph: %s analyzer not built — CodeGraph will offer to build it (%s in %s)",
 			status.Language, status.BuildCommand, status.Artifact)
 	}
-	for _, toolchain := range toolchains {
-		container.CodeGraph.SetAnalyzer(toolchain.Analyzer())
-	}
+	// No analyzer is wired here. Which one runs is a per-project answer now
+	// that there is more than one language, and only the open itself knows it:
+	// it detects what the folder holds and takes that language's analyzer out
+	// of the registry above. Each still resolves its artifact and its runtime
+	// per analysis, so a jar that appears later — because the user built it
+	// from the setup panel — needs no restart and no re-wiring.
 
 	// Returns once the project is marked as opening; the analysis runs in the
 	// background and reports through the events above, so it never holds the

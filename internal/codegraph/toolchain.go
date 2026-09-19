@@ -35,6 +35,11 @@ var (
 	// finalName, a skipped shade plugin. Failing here beats wiring an
 	// analyzer at a path that does not exist.
 	ErrArtifactMissing = errors.New("codegraph: analyzer build produced no artifact")
+	// ErrAnalyzerIsBuiltIn is returned by BuildAnalyzer for a language whose
+	// analyzer runs in this process. Nothing to build is not a failure, but it
+	// is not a success either — a caller that asked for a build and was told
+	// "done" would then wait for an artifact that is never going to appear.
+	ErrAnalyzerIsBuiltIn = errors.New("codegraph: analyzer is built in and needs no build")
 )
 
 // Requirement is one external program an analyzer toolchain needs before it
@@ -125,6 +130,20 @@ type InstallCommand struct {
 type Toolchain struct {
 	Language string
 	Label    string
+	// Native, when set, is the analyzer this language runs IN THIS PROCESS,
+	// and every field below about building and launching one is then unused.
+	//
+	// It exists because not every language needs a subprocess. Java does:
+	// JavaParser only runs on a JVM, so the analyzer is a jar that is built or
+	// shipped and launched by a runtime the user must have. Lua does not — its
+	// parser is internal/lua — and pretending otherwise would have cost the
+	// user a setup panel, a requirement probe and a build for an analyzer that
+	// is already compiled into the binary they are running.
+	//
+	// A function rather than an Analyzer value so a toolchain stays a
+	// description of how to analyze rather than a live object, which is what
+	// lets DefaultToolchains be called more than once without sharing state.
+	Native func() Analyzer
 	// Artifact is where a build of this toolchain writes its output. It is not
 	// necessarily where a usable artifact is found: a packaged install ships
 	// one and never builds. See Search.
@@ -212,9 +231,14 @@ type ToolchainStatus struct {
 	Requirements []Requirement `json:"requirements"`
 }
 
-// DefaultToolchains is the registry: every analyzer DevKit knows how to build.
+// DefaultToolchains is the registry: every analyzer DevKit ships.
+//
+// Order is detection order — DetectProject takes the first toolchain that
+// recognises a folder. Java is ahead of Lua because its markers are build
+// files and Lua's fallback is "any folder holding a .lua", which a Java
+// project with a build script in Lua would otherwise trip.
 func DefaultToolchains(repoRoot string) []Toolchain {
-	return []Toolchain{JavaToolchain(repoRoot)}
+	return []Toolchain{JavaToolchain(repoRoot), LuaToolchain()}
 }
 
 // SetToolchains registers what BuildAnalyzer can build and AnalyzerStatus can
@@ -248,6 +272,18 @@ func (s *Service) AnalyzerStatus(ctx context.Context) []ToolchainStatus {
 }
 
 func (t Toolchain) status(ctx context.Context) ToolchainStatus {
+	// A built-in analyzer is ready by construction: it ships inside the
+	// binary asking the question. Probing for a runtime it does not launch
+	// would cost a subprocess and could only ever answer yes.
+	if t.Native != nil {
+		return ToolchainStatus{
+			Language:    t.Language,
+			Label:       t.Label,
+			Ready:       true,
+			HasArtifact: true,
+			Bundled:     true,
+		}
+	}
 	requirements, buildable := t.resolve(ctx)
 	installed := t.installedArtifact()
 	artifact := t.Artifact
@@ -460,6 +496,9 @@ func (s *Service) BuildAnalyzer(ctx context.Context, language string) error {
 	if !found {
 		return fmt.Errorf("%w: %s", ErrUnknownToolchain, language)
 	}
+	if toolchain.Native != nil {
+		return fmt.Errorf("%w: %s", ErrAnalyzerIsBuiltIn, language)
+	}
 
 	if !s.buildMu.TryLock() {
 		return ErrBuildAlreadyRunning
@@ -507,7 +546,11 @@ func (s *Service) BuildAnalyzer(ctx context.Context, language string) error {
 		return fmt.Errorf("%w: expected %s", ErrArtifactMissing, toolchain.Artifact)
 	}
 
-	s.SetAnalyzer(toolchain.Analyzer())
+	// Only for the language the open project is written in. Before there were
+	// two analyzers this was unconditional and harmless; with two it would
+	// hand a Lua project the Java analyzer because a Java build happened to
+	// finish while it was open.
+	s.adoptAnalyzerFor(language, toolchain.Analyzer())
 	return nil
 }
 
@@ -538,6 +581,9 @@ const (
 // analysis, so installing the runtime — or building the analyzer — takes
 // effect without a restart, and startup pays for no subprocess probes.
 func (t Toolchain) Analyzer() Analyzer {
+	if t.Native != nil {
+		return t.Native()
+	}
 	return toolchainAnalyzer{toolchain: t}
 }
 
