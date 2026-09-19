@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { getCodeGraphBlastRadius, type CodeGraphFileEntry, type CodeGraphGitState } from "@/bridge/codegraph";
-import { FileCode2, Folder } from "lucide-react";
+import { FileCode2, Folder, FolderCode, Package } from "lucide-react";
 import { TreeView, type TreeNodeData } from "@/components/tree-view";
 import { filterFileEntries } from "../fileSearch";
-import { nestFiles, type FileBranch } from "./treeNodes";
+import { compactFiles, isSourceRoot, nestFiles, type FileBranch } from "./treeNodes";
 
 const TOGGLE = "inline-flex h-5.5 shrink-0 items-center rounded-sm border px-2 text-code-11";
 
@@ -72,8 +72,9 @@ export function FilesTab({
       b.isDir
         ? {
             id: b.path,
-            label: b.name,
-            icon: <Folder />,
+            label: b.label ?? b.name,
+            title: b.path,
+            icon: b.isPackage ? <Package /> : isSourceRoot(b.path) ? <FolderCode /> : <Folder />,
             expandable: b.children.length > 0,
             expanded: open.has(b.path),
             onToggle: () => onToggleFolder(b.path),
@@ -99,12 +100,13 @@ export function FilesTab({
                 </span>
               ) : null,
           };
-    return nestFiles(shown.entries).map(toNode);
+    return compactFiles(nestFiles(shown.entries)).map(toNode);
   }, [shown, expanded, selectedFile, unsaved, gitStatus, onToggleFolder, onSelectFile, onKeepFile]);
 
-  const toggle = (key: keyof FileFilter, label: string, disabled = false) => (
+  const toggle = (key: keyof FileFilter, label: string, hint: string, disabled = false) => (
     <button
       type="button"
+      title={hint}
       aria-pressed={filter[key]}
       disabled={disabled}
       onClick={() => onFilter({ ...filter, [key]: !filter[key] })}
@@ -123,9 +125,9 @@ export function FilesTab({
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Filter files">
-        {toggle("javaOnly", "JAVA ONLY")}
-        {toggle("changed", changedCount > 0 ? `CHANGED · ${changedCount}` : "CHANGED")}
-        {toggle("inFlow", "IN FLOW", flowFiles.size === 0 && !filter.inFlow)}
+        {toggle("javaOnly", "JAVA ONLY", "Source files only (.java, .kt, .groovy, .scala) — hides build files, config and resources")}
+        {toggle("changed", changedCount > 0 ? `CHANGED · ${changedCount}` : "CHANGED", "Files with uncommitted changes (git status)")}
+        {toggle("inFlow", "IN FLOW", "Files the flow in front passes through", flowFiles.size === 0 && !filter.inFlow)}
       </div>
       {nodes.length > 0 ? (
         <TreeView nodes={nodes} className="min-h-0 flex-1 scrollbar-gutter-stable" />

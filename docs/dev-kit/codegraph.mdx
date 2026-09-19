@@ -548,6 +548,11 @@ giữ khi xem thứ khác, khôi phục sau khi mở lại app.
   mở lại thấy nguyên. Sidebar đánh `●` cho file chưa lưu.
 - **Đổi project** đóng mọi flow và file sạch; file đang sửa ở lại, đánh dấu
   "từ project khác", chỉ Copy/Discard, không Save.
+- **Cây Files gộp thư mục** như IntelliJ: chuỗi thư mục chỉ có một thư mục
+  con thành một dòng (`gateway/src`, `main/java`), dừng ở source root
+  (`src/<set>/java|kotlin|…`); dưới đó là package nối bằng dấu chấm
+  (`com.synx.devkit.gateway`, icon package). *JAVA ONLY* giữ file nguồn
+  `.java/.kt/.groovy/.scala`, ẩn build file, config, resources.
 - **Canvas tự fit khi pane đổi cỡ** (tách group, mở inspector) cho tới khi
   người dùng tự pan/zoom; nút Fit trả view về cho layout.
 
