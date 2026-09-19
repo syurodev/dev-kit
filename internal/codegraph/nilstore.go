@@ -61,6 +61,9 @@ func (nilStore) GetCallSites(context.Context, string) ([]CallSite, error) {
 func (nilStore) GetCallSitesAt(context.Context, string, int) ([]CallSite, error) {
 	return nil, ErrNoActiveProject
 }
+func (nilStore) GetCallSitesTo(context.Context, string) ([]CallSite, error) {
+	return nil, ErrNoActiveProject
+}
 
 func (nilStore) AddComment(context.Context, PlanComment) error { return ErrNoActiveProject }
 func (nilStore) ListComments(context.Context, string) ([]PlanComment, error) {

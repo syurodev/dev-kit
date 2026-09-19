@@ -166,6 +166,20 @@ type Definition struct {
 	Line     int    `json:"line"`
 }
 
+// Reference is one place a symbol is used — FindReferences' result. Unlike
+// Definition, NodeID/Label/FilePath/Line describe the USE site (the caller,
+// the reading/writing method, the injecting node), not the symbol itself:
+// "go to definition" jumps to one place, but "find references" is inherently
+// a list of many different places, each in a different enclosing node.
+type Reference struct {
+	NodeID   string `json:"nodeId"` // the node the use sits in (the caller / accessor / injector)
+	Label    string `json:"label"`  // that node's label
+	Kind     string `json:"kind"`   // "call" | "read" | "write" | "inject"
+	FilePath string `json:"filePath"`
+	Line     int    `json:"line"` // the line of the USE, not of the enclosing node
+	Code     string `json:"code"` // that source line, trimmed and clipped
+}
+
 // FileEntry is one file or directory in the active project, relative to its
 // root. Deliberately flat (not a nested tree) — simpler to produce here and
 // just as easy for a frontend to build a tree UI from a sorted flat list.
@@ -373,6 +387,11 @@ type Store interface {
 	// one call expression ("a.foo(); b.foo();" on one line), so this returns
 	// all of them, not just the first.
 	GetCallSitesAt(ctx context.Context, filePath string, line int) ([]CallSite, error)
+	// GetCallSitesTo returns every call site whose to_id is toID — the
+	// reverse lookup FindReferences' method tier needs ("who calls this"),
+	// which neither GetCallSites (by caller) nor GetCallSitesAt (by exact
+	// location) answers.
+	GetCallSitesTo(ctx context.Context, toID string) ([]CallSite, error)
 	SavePlan(ctx context.Context, plan Plan) error
 	GetPlan(ctx context.Context) (Plan, error)
 	SetPlanState(ctx context.Context, state string) error

@@ -96,13 +96,31 @@ func (s *Service) FindDefinitions(ctx context.Context, filePath string, line int
 	return definitionsByName(ctx, store, filePath, line, identifier)
 }
 
-// definitionsFromCallSites is FindDefinitions' first tier. It does not care
-// which node encloses the line — GetCallSitesAt already scopes to filePath
-// and the exact line by joining call_sites to the enclosing node's own
-// file_path — so a call inside a method and a call inside a static field
-// initializer (recorded against the class itself, not a method) are both
-// found the same way.
+// definitionsFromCallSites is FindDefinitions' first tier: a thin wrapper
+// around callSiteTargets (shared with resolveSymbol in references.go) that
+// turns the matched nodes into Definitions.
 func definitionsFromCallSites(ctx context.Context, store Store, filePath string, line int, identifier string) ([]Definition, error) {
+	targets, err := callSiteTargets(ctx, store, filePath, line, identifier)
+	if err != nil || len(targets) == 0 {
+		return nil, err
+	}
+	out := make([]Definition, len(targets))
+	for i, n := range targets {
+		out[i] = definitionFromNode(n)
+	}
+	return out, nil
+}
+
+// callSiteTargets does not care which node encloses the line —
+// GetCallSitesAt already scopes to filePath and the exact line by joining
+// call_sites to the enclosing node's own file_path — so a call inside a
+// method and a call inside a static field initializer (recorded against the
+// class itself, not a method) are both found the same way. Shared by
+// FindDefinitions' first tier and resolveSymbol's identical tier (see
+// references.go): both need "what does the call on this line resolve to",
+// FindDefinitions to jump there, resolveSymbol to identify it as the symbol
+// under the cursor.
+func callSiteTargets(ctx context.Context, store Store, filePath string, line int, identifier string) ([]Node, error) {
 	sites, err := store.GetCallSitesAt(ctx, filePath, line)
 	if err != nil {
 		return nil, err
@@ -122,7 +140,7 @@ func definitionsFromCallSites(ctx context.Context, store Store, filePath string,
 		return nil, err
 	}
 
-	var out []Definition
+	var out []Node
 	seen := make(map[string]bool, len(sites))
 	for _, cs := range sites {
 		target, ok := targets[cs.To]
@@ -130,18 +148,35 @@ func definitionsFromCallSites(ctx context.Context, store Store, filePath string,
 			continue
 		}
 		seen[target.ID] = true
-		out = append(out, definitionFromNode(target))
+		out = append(out, target)
 	}
 	return out, nil
 }
 
 // definitionsFromFieldAccesses is FindDefinitions' second tier: a field read
-// or write at this exact line, resolved to the class that declares it.
-// identifier is passed straight to the store as the field name being looked
-// up — field_accesses has no separate "does this field's name match" step to
-// run through matchesIdentifier, since a field access's field_name is already
-// the plain field identifier, not a label built out of an enclosing type.
+// or write at this exact line, resolved to the class that declares it. A
+// thin wrapper around fieldAccessClasses (shared with resolveSymbol).
 func definitionsFromFieldAccesses(ctx context.Context, store Store, filePath string, line int, identifier string) ([]Definition, error) {
+	classes, err := fieldAccessClasses(ctx, store, filePath, line, identifier)
+	if err != nil || len(classes) == 0 {
+		return nil, err
+	}
+	out := make([]Definition, len(classes))
+	for i, c := range classes {
+		out[i] = definitionFromNode(c)
+	}
+	return out, nil
+}
+
+// fieldAccessClasses resolves a field read/write at this exact line to the
+// class(es) that declare it. identifier is passed straight to the store as
+// the field name being looked up — field_accesses has no separate "does this
+// field's name match" step to run through matchesIdentifier, since a field
+// access's field_name is already the plain field identifier, not a label
+// built out of an enclosing type. Shared by FindDefinitions' second tier
+// (which needs the class to jump to) and resolveSymbol's identical tier
+// (which needs the class to build a field symbol: {ClassID, identifier}).
+func fieldAccessClasses(ctx context.Context, store Store, filePath string, line int, identifier string) ([]Node, error) {
 	accesses, err := store.GetFieldAccessesAt(ctx, filePath, line, identifier)
 	if err != nil {
 		return nil, err
@@ -159,7 +194,7 @@ func definitionsFromFieldAccesses(ctx context.Context, store Store, filePath str
 		return nil, err
 	}
 
-	var out []Definition
+	var out []Node
 	seen := make(map[string]bool, len(accesses))
 	for _, fa := range accesses {
 		class, ok := classes[fa.ClassID]
@@ -167,7 +202,7 @@ func definitionsFromFieldAccesses(ctx context.Context, store Store, filePath str
 			continue
 		}
 		seen[class.ID] = true
-		out = append(out, definitionFromNode(class))
+		out = append(out, class)
 	}
 	return out, nil
 }
@@ -186,7 +221,7 @@ func definitionsFromFieldAccesses(ctx context.Context, store Store, filePath str
 // anywhere — UNLESS removing it would leave nothing at all, in which case it
 // is the only useful answer available and is kept.
 func definitionsByName(ctx context.Context, store Store, filePath string, line int, identifier string) ([]Definition, error) {
-	candidates, err := store.FindNodesByName(ctx, identifier)
+	matched, err := nodesByName(ctx, store, identifier)
 	if err != nil {
 		return nil, err
 	}
@@ -210,12 +245,6 @@ func definitionsByName(ctx context.Context, store Store, filePath string, line i
 		}
 	}
 
-	matched := candidates[:0]
-	for _, n := range candidates {
-		if matchesIdentifier(n.Label, identifier) && hasLocation(n) {
-			matched = append(matched, n)
-		}
-	}
 	sort.SliceStable(matched, func(i, j int) bool {
 		if ri, rj := rankOf(matched[i]), rankOf(matched[j]); ri != rj {
 			return ri < rj
@@ -244,4 +273,26 @@ func definitionsByName(ctx context.Context, store Store, filePath string, line i
 		out = []Definition{}
 	}
 	return out, nil
+}
+
+// nodesByName is the raw candidate set behind FindDefinitions'
+// fallback-by-name tier: every node in the project whose label names
+// identifier and that has a somewhere-to-jump-to location. definitionsByName
+// additionally ranks these by proximity and drops the self-declaration
+// (relevant only to "go to definition"); resolveSymbol (references.go) needs
+// neither — it uses this same set both to detect "cursor is on the
+// declaration" (tier 0) and, unranked, as its own by-name fallback (tier 3) —
+// so the filter itself lives here, shared, rather than duplicated.
+func nodesByName(ctx context.Context, store Store, identifier string) ([]Node, error) {
+	candidates, err := store.FindNodesByName(ctx, identifier)
+	if err != nil {
+		return nil, err
+	}
+	matched := candidates[:0]
+	for _, n := range candidates {
+		if matchesIdentifier(n.Label, identifier) && hasLocation(n) {
+			matched = append(matched, n)
+		}
+	}
+	return matched, nil
 }

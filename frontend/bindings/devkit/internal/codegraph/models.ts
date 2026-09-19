@@ -406,6 +406,41 @@ export interface PlanProgress {
 }
 
 /**
+ * Reference is one place a symbol is used — FindReferences' result. Unlike
+ * Definition, NodeID/Label/FilePath/Line describe the USE site (the caller,
+ * the reading/writing method, the injecting node), not the symbol itself:
+ * "go to definition" jumps to one place, but "find references" is inherently
+ * a list of many different places, each in a different enclosing node.
+ */
+export interface Reference {
+    /**
+     * the node the use sits in (the caller / accessor / injector)
+     */
+    "nodeId": string;
+
+    /**
+     * that node's label
+     */
+    "label": string;
+
+    /**
+     * "call" | "read" | "write" | "inject"
+     */
+    "kind": string;
+    "filePath": string;
+
+    /**
+     * the line of the USE, not of the enclosing node
+     */
+    "line": number;
+
+    /**
+     * that source line, trimmed and clipped
+     */
+    "code": string;
+}
+
+/**
  * Requirement is one external program an analyzer toolchain needs before it
  * can be built, together with what was actually found on this machine.
  * 

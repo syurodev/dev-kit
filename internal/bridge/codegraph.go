@@ -93,6 +93,45 @@ func (s *AppService) CodeGraphFindDefinitions(filePath string, line int, identif
 	return result.([]codegraph.Definition), nil
 }
 
+// CodeGraphFindReferences answers "find references" for the identifier under
+// the cursor at filePath:line: every other place in the project that uses
+// it. Not found is a normal, non-error result (an empty slice), the same
+// contract as CodeGraphFindDefinitions.
+func (s *AppService) CodeGraphFindReferences(filePath string, line int, identifier string) ([]codegraph.Reference, error) {
+	result, err := s.call(context.Background(), "builtin.codegraph", "codegraph:read", "project:active", map[string]any{
+		"action":     "find_references",
+		"file_path":  filePath,
+		"line":       line,
+		"identifier": identifier,
+	}, func(ctx context.Context) (any, error) {
+		return s.container.CodeGraph.FindReferences(ctx, filePath, line, identifier)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]codegraph.Reference), nil
+}
+
+// CodeGraphFindImplementations answers "find implementations" for the
+// identifier under the cursor at filePath:line: the concrete methods that
+// implement it (asked on an interface/abstract method) or the classes that
+// implement it (asked on an interface/abstract class). Not found is a
+// normal, non-error result (an empty slice).
+func (s *AppService) CodeGraphFindImplementations(filePath string, line int, identifier string) ([]codegraph.Definition, error) {
+	result, err := s.call(context.Background(), "builtin.codegraph", "codegraph:read", "project:active", map[string]any{
+		"action":     "find_implementations",
+		"file_path":  filePath,
+		"line":       line,
+		"identifier": identifier,
+	}, func(ctx context.Context) (any, error) {
+		return s.container.CodeGraph.FindImplementations(ctx, filePath, line, identifier)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]codegraph.Definition), nil
+}
+
 func (s *AppService) CodeGraphGetBlastRadius(filePath string) ([]string, error) {
 	result, err := s.call(context.Background(), "builtin.codegraph", "codegraph:read", "project:active", map[string]any{
 		"action":    "get_blast_radius",
