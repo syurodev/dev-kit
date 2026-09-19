@@ -196,7 +196,7 @@ type CodeSnippet struct {
 	Line     int    `json:"line"`
 	EndLine  int    `json:"endLine"`
 	Source   string `json:"source"`
-	Language string `json:"language"` // "java" | "lua" | "json" | "yaml" | "markdown" | "" (unknown extension)
+	Language string `json:"language"` // "java" | "lua" | "typescript" | "javascript" | "json" | "yaml" | "markdown" | "" (unknown extension)
 	FQN      string `json:"fqn"`      // empty if the snippet didn't match exactly one indexed symbol
 }
 

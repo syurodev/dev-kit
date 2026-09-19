@@ -134,18 +134,32 @@ platform module).
   manager, so maximise/minimise do nothing there — close and the layout are testable.
 
 ### CodeGraph analyzer toolchain
-Two languages, and they are built the opposite way round. **Java** is a subprocess: a jar
-built from `analyzer/` on the machine that runs DevKit (or shipped in the package), and
-launched by a JDK the user must have — when it is missing, CodeGraph shows a setup panel
-that can run that build itself (`internal/codegraph/toolchain.go`). **Lua** is in process:
-`internal/lua` plus `internal/codegraph/analyzer_lua*.go`, so it is ready the moment
-DevKit starts, with nothing installed, on every platform (AppImage and MSIX included).
+Three languages, three shapes, and `Toolchain` is the thing they differ in.
+
+- **Java** — a jar built from `analyzer/` (or shipped in the package) and launched by a JDK
+  the user must have. `Ready` means artifact AND runtime; when either is missing CodeGraph
+  shows a setup panel (`internal/codegraph/toolchain.go`).
+- **Lua** — `Native`: the analyzer runs in this process (`internal/lua` +
+  `analyzer_lua*.go`), so it is ready the moment DevKit starts with nothing installed, on
+  every platform including AppImage and MSIX.
+- **TypeScript** — `Serve` plus `Run[0] == ArtifactArg`: the artifact IS the runtime.
+  `tsgo` is the TypeScript compiler rewritten in Go, so it cross-compiles beside DevKit as
+  a self-contained binary and needs nothing installed to RUN. Go is a requirement to BUILD
+  it, the way Maven is for Java.
 
 - `Toolchain` is per language and is the extension point for the next analyzer: a value
   with its own requirements, build command and artifact path — or with `Native` set, which
   means the analyzer runs in this process and every build field is unused. A native
   toolchain reports `Ready` without probing anything, and `BuildAnalyzer` refuses it
   (`ErrAnalyzerIsBuiltIn`) rather than reporting a build that never happened.
+- `Serve` is for an analyzer that is not a one-shot subprocess. It is handed a `launch`
+  closure that resolves argv and environment at call time, and returns the `Analyzer`.
+  `Run[0]` naming `ArtifactArg` instead of a requirement means the artifact launches
+  itself, so `runtimeMet` is true without probing anything.
+- **Service keeps one analyzer per language and closes them on shutdown**
+  (`analyzerCloser`). It matters only for TypeScript, and it matters a lot: a language
+  server rebuilt on every open is cold on every open, and one left running after the app
+  quits is a process the user cannot find.
 - **Which analyzer runs is a per-project answer.** `OpenProject` detects the language, then
   takes that language's analyzer out of the registry — a Lua project is never handed the
   Java one. `SetAnalyzer` is an override for an owner who knows better (every test double
@@ -171,11 +185,17 @@ DevKit starts, with nothing installed, on every platform (AppImage and MSIX incl
   the from-source path. Each platform puts it where `installedResourcePaths`
   (`internal/codegraph/artifact.go`) looks, and the two must be changed together:
 
-  | Package | Jar lands at | Declared in |
+  | Package | Jar and `tsgo` land at | Declared in |
   | --- | --- | --- |
   | deb / rpm / arch | `/usr/local/share/dev-kit/` | `build/linux/nfpm/nfpm.yaml` |
   | macOS `.app` | `Contents/Resources/` | `build/darwin/Taskfile.yml` |
   | Windows NSIS | beside the `.exe` | `build/windows/nsis/project.nsi` |
+
+  `common:build:analyzer:ts` builds `tsgo` the same way, and the packaging tasks depend on
+  both. On macOS the universal package builds it for each architecture and lipos them
+  (`build:analyzer:ts:universal`): a universal `.app` with a single-architecture analyzer
+  analyzes nothing on half the Macs it installs on, and says so only when somebody opens a
+  TypeScript project.
 
   **AppImage and MSIX do not carry it.** `wails3 generate appimage` and `wails3 tool msix`
   build their payload from the binary alone and expose no hook for extra files, so those
@@ -253,27 +273,62 @@ its own tests.
 go test ./internal/lua/ ./internal/codegraph/ -count=1
 ```
 
-### CodeGraph: the TypeScript analyzer (phase 0 — not shipped)
-`analyzer-ts/` holds a **spike**, not a feature: the toolchain question for the
-next language, answered and measured. Read `analyzer-ts/README.md` before starting
-the real work; the short version:
+### CodeGraph: the TypeScript analyzer
+A language server, driven. `internal/lsp` is the client — not an editor client: no
+diagnostics, no completion, no document sync beyond opening a file. An indexer opens
+everything once and asks structural questions, tens of thousands of them, so calls are
+matched by id and safe to make concurrently.
 
-- TypeScript cannot be in-process like Lua — `microsoft/typescript-go` keeps its
-  parser, binder and checker under `internal/`, so there is no importable library.
-  What there is, is `tsgo`: a self-contained Go binary that cross-compiles beside
-  DevKit, 28 MB stripped with `lib.d.ts` embedded. So: a subprocess with **no
-  runtime requirement** — no JDK, no Node, no setup panel.
-- Build on `tsgo --lsp`, not `tsgo --api`. The compiler API is faster (207 ms to
-  load 722 files) but cannot answer "what does this function call"; the only route
-  there is a base64 binary AST in an encoding internal to typescript-go. The LSP
-  answers it in a standard protocol: `documentSymbol` for nodes,
-  `callHierarchy/outgoingCalls` for edges, 1.9 s for 722 files.
-- **`Analyzer` will need a lifecycle.** Java's and Lua's are one-shot — spawn,
-  analyze, exit. A cold TS index is ~2 s and a warm re-index of one changed file
-  is 5 ms, so throwing the process away between saves (which is what the watcher
-  does) would turn 5 ms into 2 s. The TS analyzer has to be long-lived.
-- `Toolchain` will need a third mode beside `Native` and artifact-plus-runtime:
-  the artifact IS the executable, so `Ready` needs no requirement probe.
+TypeScript cannot be in-process like Lua: `microsoft/typescript-go` keeps its parser,
+binder and checker under `internal/`, so there is no library to import — only the `tsgo`
+binary, which `analyzer-ts/` (a Go module of its own) pins and builds.
+
+`internal/codegraph/analyzer_ts*.go`:
+
+- `analyzer_ts.go` — the analyzer. Owns the long-lived connection, walks the project,
+  orchestrates the LSP, assembles the `AnalysisResult`.
+- `analyzer_ts_model.go` — the language-level model: files, declarations, decorators,
+  imports. **It knows nothing about any framework.**
+- `analyzer_ts_read.go` / `analyzer_ts_scan.go` — what the server does not say. tsgo
+  returns an empty `detail`, so signatures come from the source, and no LSP request
+  exposes decorators. Bounded text work: the server has already said where each
+  declaration starts and where its name is, so **a decorator is whatever sits between
+  those two points** and a parameter list is whatever is inside the parentheses after the
+  name. Nothing searches for a declaration.
+- `analyzer_ts_framework.go` — **the seam**. A framework is a reading of the model, not a
+  fork of it: five methods (`Name`, `Detect`, `Endpoints`, `Layer`, `Edges`). Adding one
+  is a new file plus a line in `tsFrameworks`; it may not touch the model or the analyzer.
+  If it needs something the model does not carry, the model grows a *language-level* fact,
+  never a framework-shaped one.
+- `analyzer_ts_nest.go` — NestJS, read almost exactly the way the Java analyzer reads
+  Spring, because Nest copied the model. One place reads more than a decorator: Nest marks
+  every provider `@Injectable`, so the decorator alone cannot tell a service from a
+  repository — what the class injects can.
+- `analyzer_ts_next.go` — Next.js App Router. It exists to prove the seam: an interface
+  with one implementation is a guess about what varies. Next shares nothing with Nest — no
+  decorators, no classes, no injection; a route is a DIRECTORY and a handler is an exported
+  function whose name is the HTTP method.
+
+Two things this analyzer does that the others cannot:
+
+- **There is no `unresolved` call site.** The checker resolved the call or the code does
+  not compile. A target outside the project is `library`, same as everywhere else.
+- **Module resolution is the compiler's.** `tsconfig` paths, `baseUrl`, package `exports`,
+  extension inference, NodeNext's `.js` meaning `.ts`, barrel re-exports — asked by running
+  `textDocument/definition` on each import specifier rather than reimplemented and got
+  silently wrong.
+
+**The process is long-lived and that is the design.** A cold index of 722 files is ~1.2s,
+almost all of it building the program; a re-index is ~270ms, because `sync` tells the
+server only about files whose content hash changed. The file watcher re-indexes on every
+save, so a one-shot subprocess would pay the cold cost every time.
+
+Tests skip unless the analyzer has been built:
+
+```bash
+cd analyzer-ts && go build -o bin/tsgo github.com/microsoft/typescript-go/cmd/tsgo
+go test ./internal/lsp/ ./internal/codegraph/ -count=1
+```
 
 ### CodeGraph: opening a project
 `Service.OpenProject` does three things before any analyzer runs, each because the version

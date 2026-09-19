@@ -140,6 +140,7 @@ tasks:
     deps:
       - task: build
       - task: common:build:analyzer
+      - task: common:build:analyzer:ts
       - task: build:mcp
     preconditions:
       - sh: '[ "{{.INSTALL_SCOPE}}" = "user" ] || [ "{{.INSTALL_SCOPE}}" = "machine" ]'

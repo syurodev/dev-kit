@@ -26,6 +26,14 @@ contents:
   # the other.
   - src: "./analyzer/target/codegraph-analyzer.jar"
     dst: "/usr/local/share/dev-kit/codegraph-analyzer.jar"
+  # The TypeScript analyzer, built by `common:build:analyzer:ts`. Same place
+  # and the same rule: change one, change the other. Unlike the jar it needs
+  # no runtime installed — it is a self-contained Go binary — so it is
+  # executable rather than data.
+  - src: "./analyzer-ts/bin/tsgo"
+    dst: "/usr/local/share/dev-kit/tsgo"
+    file_info:
+      mode: 0755
   # The devkit-mcp stdio proxy, built by the `build:mcp` task the packaging
   # depends on. Beside dev-kit in /usr/local/bin: where ResolveCommand in
   # internal/mcp/install/install.go looks first (filepath.Dir(exe)).

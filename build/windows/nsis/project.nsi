@@ -99,6 +99,12 @@ Section
     ; Change one, change the other. The uninstaller's RMDir /r below takes it.
     File "..\..\..\analyzer\target\codegraph-analyzer.jar"
 
+    ; The TypeScript analyzer, built by `common:build:analyzer:ts`. Beside the
+    ; executable for the same reason and found the same way; it is a
+    ; self-contained binary rather than a jar, so nothing else is needed to run
+    ; it. The uninstaller's RMDir /r below takes it too.
+    File "..\..\..\analyzer-ts\bin\tsgo.exe"
+
     ; The devkit-mcp stdio proxy, built by the `build:mcp` task the installer
     ; target depends on. It sits beside the executable, which is where
     ; ResolveCommand in internal/mcp/install/install.go looks first. Change

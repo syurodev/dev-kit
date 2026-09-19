@@ -203,6 +203,35 @@ tasks:
     cmds:
       - mvn -B -DskipTests package
 
+  build:analyzer:ts:
+    summary: Builds the TypeScript analyzer (tsgo) that ships inside the package
+    # The TypeScript analyzer is not a jar launched by a runtime; it IS the
+    # runtime. tsgo is the TypeScript compiler rewritten in Go, so a plain
+    # `go build` cross-compiles a self-contained binary — which is why a
+    # packaged DevKit can read TypeScript with nothing installed, and why this
+    # needs no JDK-shaped preconditions the way build:analyzer does.
+    #
+    # analyzer-ts is a module of its own: tsgo is a program DevKit spawns,
+    # never a library it imports (typescript-go keeps everything under
+    # internal/), and the root go.mod should not carry its dependency tree.
+    # GOOS/GOARCH/OUTPUT are set by each platform's own task; the defaults are
+    # for local use.
+    dir: analyzer-ts
+    sources:
+      - go.mod
+      - go.sum
+    generates:
+      - "{{.OUTPUT}}"
+    cmds:
+      - go build -trimpath -buildvcs=false -ldflags="-w -s" -o "{{.OUTPUT}}" github.com/microsoft/typescript-go/cmd/tsgo
+    vars:
+      DEFAULT_OUTPUT: "bin/tsgo{{exeExt}}"
+      OUTPUT: '{{.OUTPUT | default .DEFAULT_OUTPUT}}'
+    env:
+      GOOS: '{{.GOOS | default OS}}'
+      GOARCH: '{{.GOARCH | default ARCH}}'
+      CGO_ENABLED: 0
+
   build:mcp:
     summary: Builds the devkit-mcp stdio proxy that ships beside the app binary
     # Agent Hub spawns this from right next to the main executable —

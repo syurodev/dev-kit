@@ -90,7 +90,7 @@ export function CodeGraphHome() {
       <EmptyState
         icon={GitFork}
         title="Open a project"
-        body="DevKit indexes a Java or Lua project's controllers, services and repositories, then draws the call chain behind each route."
+        body="DevKit indexes a Java, Lua or TypeScript project's controllers, services and repositories, then draws the call chain behind each route."
       >
         {/* Alone on the screen and an invitation, so it takes the craft
             button — unlike the recovery buttons above. */}
