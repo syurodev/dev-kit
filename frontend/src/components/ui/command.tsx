@@ -69,12 +69,21 @@ function CommandDialog({
       </DialogHeader>
       <DialogContent
         className={cn(
-          "top-1/3 translate-y-0 overflow-hidden rounded-float! p-0 border-none bg-transparent shadow-none w-[640px] max-w-[640px]",
+          // sm:max-w-[640px], not just max-w: DialogContent carries its own
+          // sm:max-w-sm, and tailwind-merge keeps both because the variants
+          // differ — so at any real window width the dialog was 384px and cut
+          // the 640px palette inside it off at the right (no esc chip, the
+          // shortcuts against the edge). The min() keeps the 1rem gutters the
+          // dialog's own max-w gave a narrow window, which a bare 640px would
+          // have overridden.
+          "top-1/3 translate-y-0 overflow-hidden rounded-float! p-0 border-none bg-transparent shadow-none w-[640px] max-w-[min(640px,calc(100%-2rem))] sm:max-w-[min(640px,calc(100%-2rem))]",
           className
         )}
         showCloseButton={showCloseButton}
       >
-        <Command>{children}</Command>
+        {/* Fills the dialog, which is what decides the width: left at its own
+            640px it would overflow a narrower dialog and be clipped again. */}
+        <Command className="w-full">{children}</Command>
       </DialogContent>
     </Dialog>
   )
