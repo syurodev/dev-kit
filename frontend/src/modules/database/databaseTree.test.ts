@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { countTables, filterNamespace, matchesProfile } from "./databaseTree";
+import { countTables, filterNamespace, keepsProfile, matchesProfile } from "./databaseTree";
 
 const namespace = {
   public: { ba_account: ["id"], ba_user: ["id"], billing_invoices: ["id"] },
@@ -40,6 +40,19 @@ describe("matchesProfile", () => {
     expect(matchesProfile(profile, "chiro")).toBe(true);
     expect(matchesProfile(profile, "10.0.0")).toBe(true);
     expect(matchesProfile(profile, "nowhere")).toBe(false);
+  });
+});
+
+describe("keepsProfile", () => {
+  const profile = { name: "chiro-prod", database: "chiro", host: "10.0.0.4" };
+
+  it("keeps a connection whose tables match even when its name does not", () => {
+    expect(keepsProfile(profile, "His", true)).toBe(true);
+  });
+
+  it("falls back to matching the connection itself", () => {
+    expect(keepsProfile(profile, "prod", false)).toBe(true);
+    expect(keepsProfile(profile, "His", false)).toBe(false);
   });
 });
 
