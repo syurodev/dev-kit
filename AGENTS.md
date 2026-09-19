@@ -253,6 +253,28 @@ its own tests.
 go test ./internal/lua/ ./internal/codegraph/ -count=1
 ```
 
+### CodeGraph: the TypeScript analyzer (phase 0 — not shipped)
+`analyzer-ts/` holds a **spike**, not a feature: the toolchain question for the
+next language, answered and measured. Read `analyzer-ts/README.md` before starting
+the real work; the short version:
+
+- TypeScript cannot be in-process like Lua — `microsoft/typescript-go` keeps its
+  parser, binder and checker under `internal/`, so there is no importable library.
+  What there is, is `tsgo`: a self-contained Go binary that cross-compiles beside
+  DevKit, 28 MB stripped with `lib.d.ts` embedded. So: a subprocess with **no
+  runtime requirement** — no JDK, no Node, no setup panel.
+- Build on `tsgo --lsp`, not `tsgo --api`. The compiler API is faster (207 ms to
+  load 722 files) but cannot answer "what does this function call"; the only route
+  there is a base64 binary AST in an encoding internal to typescript-go. The LSP
+  answers it in a standard protocol: `documentSymbol` for nodes,
+  `callHierarchy/outgoingCalls` for edges, 1.9 s for 722 files.
+- **`Analyzer` will need a lifecycle.** Java's and Lua's are one-shot — spawn,
+  analyze, exit. A cold TS index is ~2 s and a warm re-index of one changed file
+  is 5 ms, so throwing the process away between saves (which is what the watcher
+  does) would turn 5 ms into 2 s. The TS analyzer has to be long-lived.
+- `Toolchain` will need a third mode beside `Native` and artifact-plus-runtime:
+  the artifact IS the executable, so `Ready` needs no requirement probe.
+
 ### CodeGraph: opening a project
 `Service.OpenProject` does three things before any analyzer runs, each because the version
 without it was worse.
