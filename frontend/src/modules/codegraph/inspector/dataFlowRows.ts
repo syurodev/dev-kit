@@ -16,57 +16,100 @@ export const WALL_LABELS = {
   limit: "step limit reached — the trace was cut short",
 } as const;
 
-export type DataFlowRow =
-  | { type: "header"; key: string; nodeId: string; label: string; filePath: string; depth: number }
-  | {
-      type: "event";
-      key: string;
-      nodeId: string;
-      line: number;
-      kind: "read" | "write" | "call";
-      depth: number;
-      /** Non-empty only for a resolved call — the node to jump to. */
-      targetId: string;
-      /** Non-empty when this step hit a wall; already human-readable. */
-      wall: string;
-    };
+/**
+ * Walls that mean a use may be missing from the answer. A cycle or a repeat
+ * is a method already on the list, so nothing was lost there.
+ */
+const LOSSY = new Set(["library", "interface", "unresolved", "depth", "limit"]);
+
+/** One line of a method that touches the field. */
+export type FieldAccess = { line: number; code: string };
+
+/** One method that reads (or writes) the field, and where. */
+export type FieldUser = {
+  nodeId: string;
+  label: string;
+  filePath: string;
+  /** The method whose call led the trace here, when it was not a start. */
+  via: string;
+  accesses: FieldAccess[];
+};
+
+/** A call the trace could not follow: uses past it may be missing. */
+export type FieldGap = { label: string; line: number; reason: string };
+
+export type FieldUsage = {
+  writers: FieldUser[];
+  readers: FieldUser[];
+  gaps: FieldGap[];
+};
 
 /**
- * Flattens a trace into rows, inserting a header whenever the method changes.
+ * A trace, turned into the answer it is for: which methods change the
+ * field, which read it, and where the trace could not see.
  *
- * The header re-opens on revisit rather than merging: the same method reached
- * again after a deeper call is a different point in the walk, and collapsing
- * the two would imply an ordering the trace does not claim.
+ * The trace itself is a walk — methods in call-graph order, calls between
+ * them — which is right for a machine and hard to read. Grouped by role, the
+ * list says what it means; the walk survives as each method's "via".
  */
-export function toDataFlowRows(steps: CodeGraphDataFlowStep[]): DataFlowRow[] {
-  const rows: DataFlowRow[] = [];
-  let openMethod = "";
-  let openDepth = -1;
+export function toFieldUsage(steps: CodeGraphDataFlowStep[]): FieldUsage {
+  const writers = new Map<string, FieldUser>();
+  const readers = new Map<string, FieldUser>();
+  const gaps: FieldGap[] = [];
+  // The method whose call is open at each depth — who led the walk here.
+  const callerAt: string[] = [];
 
-  steps.forEach((s, i) => {
-    if (s.nodeId !== openMethod || s.depth !== openDepth) {
-      rows.push({
-        type: "header",
-        key: `h${i}`,
-        nodeId: s.nodeId,
-        label: s.label,
-        filePath: s.filePath,
-        depth: s.depth,
-      });
-      openMethod = s.nodeId;
-      openDepth = s.depth;
+  for (const s of steps) {
+    callerAt[s.depth] = s.label;
+    if (s.kind === "call") {
+      if (s.unresolved && LOSSY.has(s.unresolved)) {
+        gaps.push({ label: s.label, line: s.line, reason: WALL_LABELS[s.unresolved as keyof typeof WALL_LABELS] ?? s.unresolved });
+      }
+      continue;
     }
-    rows.push({
-      type: "event",
-      key: `e${i}`,
-      nodeId: s.nodeId,
-      line: s.line,
-      kind: s.kind,
-      depth: s.depth,
-      targetId: s.unresolved === "" ? s.targetId : "",
-      wall: s.unresolved === "" ? "" : (WALL_LABELS[s.unresolved] ?? s.unresolved),
-    });
-  });
+    const into = s.kind === "write" ? writers : readers;
+    let user = into.get(s.nodeId);
+    if (!user) {
+      user = { nodeId: s.nodeId, label: s.label, filePath: s.filePath, via: s.depth > 0 ? (callerAt[s.depth - 1] ?? "") : "", accesses: [] };
+      into.set(s.nodeId, user);
+    }
+    if (!user.accesses.some((a) => a.line === s.line)) user.accesses.push({ line: s.line, code: s.code ?? "" });
+  }
 
-  return rows;
+  return { writers: [...writers.values()], readers: [...readers.values()], gaps };
+}
+
+/** The one-line answer over the list. */
+export function describeUsage(field: string, usage: FieldUsage): string {
+  const w = usage.writers.length;
+  const r = usage.readers.length;
+  const methods = (n: number) => `${n} ${n === 1 ? "method" : "methods"}`;
+  if (w === 0 && r === 0) return `Nothing indexed reads or writes ${field}.`;
+  if (w === 0) return `${field} is read in ${methods(r)} and never written — it behaves as a constant.`;
+  if (r === 0) return `${field} is written in ${methods(w)} and never read back.`;
+  return `${field} is written in ${methods(w)} and read in ${methods(r)}.`;
+}
+
+/** The field as a whole word: `id` must not match inside `userId`. */
+function fieldPattern(field: string, flags = "") {
+  const escaped = field.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?<![\\w$])(${escaped})(?![\\w$])`, flags);
+}
+
+/** The code split around the field's name, so a row can light up the part that matters. */
+export function splitOnField(code: string, field: string): { text: string; hit: boolean }[] {
+  if (!field) return [{ text: code, hit: false }];
+  const parts = code.split(fieldPattern(field, "g"));
+  return parts.filter((p) => p !== "").map((p) => ({ text: p, hit: p === field }));
+}
+
+/**
+ * A long line cut from the left so the field stays on screen: the rest of
+ * the row truncates at the right, and the field is the part worth seeing.
+ * Keeps `lead` characters of context before it.
+ */
+export function focusOnField(code: string, field: string, lead = 24): string {
+  const at = field ? code.search(fieldPattern(field)) : -1;
+  if (at <= lead) return code;
+  return `…${code.slice(at - lead).trimStart()}`;
 }

@@ -273,6 +273,32 @@ function Canvas({
     if (nodeSetChanged) void fitView(fitOptions);
   }, [placing, rfNodes, ranks, layoutKey, fitView, fitOptions]);
 
+  // The view the layout fitted stays fitted while its pane changes size — a
+  // group split beside it, the inspector opening, the window shrinking.
+  // React Flow does not refit on resize, so without this a narrowed canvas
+  // kept its old zoom and cut the graph off at the right edge. Once the user
+  // pans or zooms, the view is theirs and a resize leaves it alone.
+  const viewport = useRef<HTMLDivElement>(null);
+  const userMoved = useRef(false);
+  const fitRef = useRef(() => {});
+  fitRef.current = () => {
+    if (!userMoved.current && placedIds.size > 0) void fitView({ ...fitOptions, duration: 0 });
+  };
+  useEffect(() => {
+    const el = viewport.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    let frame = 0;
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => fitRef.current());
+    });
+    observer.observe(el);
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, []);
+
   // A node not yet placed sits at the origin: drawn invisibly (so it can be
   // measured) and with no edges, instead of flashing over the graph.
   const shownNodes = useMemo(
@@ -345,7 +371,11 @@ function Canvas({
           {typeof meta === "function" ? meta(counts) : meta}
           <CanvasToolbar
             onSearch={() => {}}
-            onFit={() => void fitView(fitOptions)}
+            onFit={() => {
+              // Asking for a fit hands the view back to the layout.
+              userMoved.current = false;
+              void fitView(fitOptions);
+            }}
             onExpand={() => {}}
             fitActive
           />
@@ -354,6 +384,7 @@ function Canvas({
       <div className="h-px shrink-0 bg-border-subtle" />
 
       <div
+        ref={viewport}
         className={placedIds.size > 0 || !placing ? "min-h-0 flex-1" : "min-h-0 flex-1 opacity-0"}
         onKeyDown={onKeyDown}
       >
@@ -371,6 +402,10 @@ function Canvas({
           // so it is never measured, and place() would wait for it forever.
           onlyRenderVisibleElements={!placing}
           onNodeClick={(_, node) => onSelect?.(node.id)}
+          // A move with an event is the user's; fitView's own moves have none.
+          onMoveStart={(event) => {
+            if (event) userMoved.current = true;
+          }}
           proOptions={{ hideAttribution: false }}
         >
           <Background gap={24} size={2} color="color-mix(in srgb, var(--text-primary) 8%, transparent)" />

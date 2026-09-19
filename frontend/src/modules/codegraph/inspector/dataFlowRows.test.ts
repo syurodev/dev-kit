@@ -1,63 +1,87 @@
 import { describe, expect, it } from "bun:test";
-import { toDataFlowRows, WALL_LABELS, type DataFlowRow } from "./dataFlowRows";
+import { describeUsage, focusOnField, splitOnField, toFieldUsage } from "./dataFlowRows";
 import type { CodeGraphDataFlowStep } from "@/bridge/codegraph";
-
-// flatMap, not filter: it narrows the discriminated union without depending on
-// TypeScript inferring a type predicate from the callback.
-const headers = (rows: DataFlowRow[]) => rows.flatMap((r) => (r.type === "header" ? [r] : []));
-const events = (rows: DataFlowRow[]) => rows.flatMap((r) => (r.type === "event" ? [r] : []));
 
 const step = (over: Partial<CodeGraphDataFlowStep>): CodeGraphDataFlowStep => ({
   nodeId: "n1",
   label: "OrderService.process",
-  filePath: "OrderService.java",
+  filePath: "src/OrderService.java",
   line: 10,
   kind: "read",
   depth: 0,
   targetId: "",
   unresolved: "",
+  code: "",
   ...over,
 });
 
-describe("toDataFlowRows", () => {
-  it("groups consecutive steps in the same method under one header", () => {
-    const rows = toDataFlowRows([
-      step({ nodeId: "n1", line: 10, kind: "write" }),
-      step({ nodeId: "n1", line: 12, kind: "read" }),
-      step({ nodeId: "n2", label: "Repo.save", line: 40, kind: "read" }),
+describe("toFieldUsage", () => {
+  it("sorts methods into writers and readers, each with its lines", () => {
+    const usage = toFieldUsage([
+      step({ nodeId: "a", label: "A.save", kind: "write", line: 3, code: "this.status = s;" }),
+      step({ nodeId: "a", label: "A.save", kind: "read", line: 5 }),
+      step({ nodeId: "b", label: "B.get", kind: "read", line: 8 }),
+      step({ nodeId: "b", label: "B.get", kind: "read", line: 9 }),
     ]);
-    expect(headers(rows)).toHaveLength(2);
-    expect(headers(rows)[0].label).toBe("OrderService.process");
-    expect(events(rows)).toHaveLength(3);
-  });
-
-  it("re-opens a header when the same method is revisited at a new depth", () => {
-    const rows = toDataFlowRows([
-      step({ nodeId: "n1", line: 10, depth: 0 }),
-      step({ nodeId: "n2", label: "B.f", line: 20, depth: 1 }),
-      step({ nodeId: "n1", line: 14, depth: 0 }),
+    expect(usage.writers.map((u) => u.label)).toEqual(["A.save"]);
+    expect(usage.writers[0].accesses).toEqual([{ line: 3, code: "this.status = s;" }]);
+    // A method that does both is in both lists, with the lines of each.
+    expect(usage.readers.map((u) => [u.label, u.accesses.map((a) => a.line)])).toEqual([
+      ["A.save", [5]],
+      ["B.get", [8, 9]],
     ]);
-    expect(headers(rows)).toHaveLength(3);
   });
 
-  it("marks a resolved call as navigable and an unresolved one as a wall", () => {
-    const rows = toDataFlowRows([
-      step({ kind: "call", targetId: "n2", line: 11 }),
-      step({ kind: "call", targetId: "", unresolved: "library", line: 13 }),
+  it("says which call led the trace to a method", () => {
+    const usage = toFieldUsage([
+      step({ nodeId: "a", label: "Ctl.list", kind: "call", targetId: "b" }),
+      step({ nodeId: "b", label: "Svc.find", kind: "read", depth: 1 }),
     ]);
-    const [first, second] = events(rows);
-    expect(first.targetId).toBe("n2");
-    expect(first.wall).toBe("");
-    expect(second.targetId).toBe("");
-    expect(second.wall).toBe(WALL_LABELS.library);
+    expect(usage.readers[0].via).toBe("Ctl.list");
   });
 
-  it("indents by depth", () => {
-    const rows = toDataFlowRows([step({ depth: 3 })]);
-    expect(rows[0].depth).toBe(3);
+  it("reports calls it could not follow, but not ones already on the list", () => {
+    const usage = toFieldUsage([
+      step({ kind: "call", unresolved: "interface" }),
+      step({ kind: "call", unresolved: "repeat" }),
+      step({ kind: "call", unresolved: "cycle" }),
+    ]);
+    expect(usage.gaps).toHaveLength(1);
+    expect(usage.gaps[0].reason.startsWith("interface")).toBe(true);
   });
+});
 
-  it("returns nothing for an empty trace", () => {
-    expect(toDataFlowRows([])).toEqual([]);
+describe("describeUsage", () => {
+  const user = { nodeId: "x", label: "X.y", filePath: "", via: "", accesses: [] };
+  it("calls a field nothing writes a constant", () => {
+    expect(describeUsage("HEADER", { writers: [], readers: [user, user], gaps: [] })).toBe(
+      "HEADER is read in 2 methods and never written — it behaves as a constant.",
+    );
+  });
+  it("counts both sides", () => {
+    expect(describeUsage("state", { writers: [user], readers: [user], gaps: [] })).toBe(
+      "state is written in 1 method and read in 1 method.",
+    );
+  });
+});
+
+describe("splitOnField", () => {
+  it("lights up the field as a whole word only", () => {
+    expect(splitOnField("req.getHeader(DEVICE_HEADER)", "DEVICE_HEADER")).toEqual([
+      { text: "req.getHeader(", hit: false },
+      { text: "DEVICE_HEADER", hit: true },
+      { text: ")", hit: false },
+    ]);
+    expect(splitOnField("userId = id", "id").filter((p) => p.hit)).toHaveLength(1);
+  });
+});
+
+describe("focusOnField", () => {
+  it("cuts a long line from the left so the field shows", () => {
+    const code = "String deviceId = request.getHeader(DeviceHeaders.DEVICE_HEADER);";
+    expect(focusOnField(code, "DEVICE_HEADER", 10)).toBe("…ceHeaders.DEVICE_HEADER);");
+  });
+  it("leaves a line alone when the field is near its start", () => {
+    expect(focusOnField("DEVICE_HEADER.length()", "DEVICE_HEADER")).toBe("DEVICE_HEADER.length()");
   });
 });

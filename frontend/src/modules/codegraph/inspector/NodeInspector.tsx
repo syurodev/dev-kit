@@ -11,6 +11,10 @@ export type NodeInspectorProps = {
   snippetError: string;
   onEdit?: () => void;
   onJump: (nodeId: string) => void;
+  /** Whether a node is on the canvas the inspector belongs to. */
+  canJump?: (nodeId: string) => boolean;
+  /** Opens a file at a line — the Data flow tab's method rows. */
+  onOpenFile?: (path: string, line: number) => void;
 };
 
 /**
@@ -34,6 +38,8 @@ export function NodeInspector({
   snippetError,
   onEdit,
   onJump,
+  canJump,
+  onOpenFile,
 }: NodeInspectorProps) {
   const visual = LAYERS[layerOf(node.layer)];
   const Icon = visual.icon;
@@ -71,8 +77,8 @@ export function NodeInspector({
         />
       </TabsContent>
 
-      <TabsContent value="dataflow" className="flex min-h-0 flex-col">
-        <DataFlowTab nodeId={node.id} onJump={onJump} />
+      <TabsContent value="dataflow" className="flex min-h-0 flex-1 flex-col">
+        <DataFlowTab nodeId={node.id} onJump={onJump} canJump={canJump} onOpenFile={onOpenFile} />
       </TabsContent>
     </Tabs>
   );

@@ -294,3 +294,32 @@ func (s *AppService) CodeGraphCancelAnalyzerBuild() error {
 	})
 	return err
 }
+
+// CodeGraphIndexInfo is what the sidebar says under the project name: when the
+// index was built, whether a run is in flight, why the last one failed, and the
+// modules the project was detected with (a restored session knows them too).
+func (s *AppService) CodeGraphIndexInfo(ctx context.Context) (codegraph.IndexInfo, error) {
+	result, err := s.call(ctx, "builtin.codegraph", "codegraph:read", "project:active", map[string]any{
+		"action": "index_info",
+	}, func(ctx context.Context) (any, error) {
+		return s.container.CodeGraph.IndexInfo(ctx)
+	})
+	if err != nil {
+		return codegraph.IndexInfo{}, err
+	}
+	return result.(codegraph.IndexInfo), nil
+}
+
+// CodeGraphGitStatus maps changed files in the active project to M/A/D/R, for
+// the Files tab. Empty outside a git work tree.
+func (s *AppService) CodeGraphGitStatus(ctx context.Context) (map[string]string, error) {
+	result, err := s.call(ctx, "builtin.codegraph", "codegraph:fs", "project:active", map[string]any{
+		"action": "git_status",
+	}, func(ctx context.Context) (any, error) {
+		return s.container.CodeGraph.GitStatus(ctx)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(map[string]string), nil
+}

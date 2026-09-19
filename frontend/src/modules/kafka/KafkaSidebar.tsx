@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Plug, PlugZap, Plus, Trash2, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Chip } from "@/components/ui/chip";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -10,7 +9,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { SidebarHeader, SidebarSearch } from "@/components/ui/sidebar-shell";
-import { TreeView, type TreeNodeData } from "@/components/tree-view";
+import { TreeRowTag, TreeView, type TreeNodeData } from "@/components/tree-view";
 import {
   Empty,
   EmptyContent,
@@ -71,9 +70,7 @@ export function KafkaSidebar() {
           />
         ),
         trailing: p.env ? (
-          <Chip tone={prod ? "danger" : "default"} className={cn("h-5 px-1.5", !prod && "text-text-tertiary")}>
-            {env}
-          </Chip>
+          <TreeRowTag danger={prod}>{env}</TreeRowTag>
         ) : null,
         selected: p.id === selectedId,
         onSelect: () => selectProfile(p.id),

@@ -64,12 +64,15 @@ func RegisterBuiltins(container *Container) error {
 			Capabilities: []string{"kafka:connect", "kafka:produce"},
 		},
 		{
-			ID:           "codegraph",
-			Title:        "Code Graph",
-			Version:      "1.0.0",
-			APIVersion:   modules.CurrentAPIVersion,
-			Commands:     []string{"codegraph.open_project"},
-			Views:        []string{"codegraph.explorer"},
+			ID:         "codegraph",
+			Title:      "Code Graph",
+			Version:    "1.0.0",
+			APIVersion: modules.CurrentAPIVersion,
+			Commands:   []string{"codegraph.open_project"},
+			// Flows, files and the plan are documents of their own (frontend
+			// modules/codegraph/documents.ts); the shell compares this list with
+			// the manifest on every launch.
+			Views:        []string{"codegraph.explorer", "codegraph.flow", "codegraph.file", "codegraph.plan"},
 			Capabilities: []string{"codegraph:index", "codegraph:read", "codegraph:toolchain"},
 		},
 		{

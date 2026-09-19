@@ -11,7 +11,7 @@ import {
 import { Chip } from "@/components/ui/chip";
 import { CodeEditor } from "@/components/code-editor/CodeEditor";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
-import { EmptyProgress, EmptyState } from "@/components/ui/empty-state";
+import { EmptyState } from "@/components/ui/empty-state";
 import { useVirtualRows } from "@/components/ui/virtual-rows";
 import { useSidebarContent } from "@/components/ui/sidebar-shell";
 import { useSplitPanel } from "@/components/ui/split-panel";
@@ -129,7 +129,7 @@ export function KafkaView() {
       <div className="flex h-full flex-col overflow-hidden">
         {phase === "connecting" ? (
           <EmptyState
-            icon={Loader2}
+            busy
             title={`Connecting to ${profile?.name ?? "cluster"}`}
             body="Reaching the broker and reading cluster metadata. Every call to a broker has a timeout — nothing here can hang the app."
           >
@@ -137,7 +137,6 @@ export function KafkaView() {
               {profile?.bootstrapServers.join(", ")} · {profile?.securityProtocol}
               {profile?.saslMechanism ? ` / ${profile.saslMechanism}` : ""}
             </span>
-            <EmptyProgress />
           </EmptyState>
         ) : phase === "error" ? (
           <EmptyState

@@ -13,8 +13,7 @@ import { useResolvePermission } from "@/modules/agenthub/permissions";
 import { elicitationForSession, useRespondElicitation } from "@/modules/agenthub/elicitations";
 import { setSessionConfigOption, setSessionMode } from "@/modules/agenthub/transcriptControls";
 import { useAgentSessionList, useAgentSessionsStore } from "@/stores/agentSessions";
-import { openFileInProject } from "@/modules/codegraph/codegraphActions";
-import { useWorkbenchTabsStore } from "@/stores/workbenchTabs";
+import { dispatchIntent } from "@/workbench/intents";
 import { EMPTY_ARRAY } from "@/lib/stableEmpty";
 import { imageAttachmentFromFile } from "@/modules/agenthub/imageAttachments";
 import type { QueuedAgentPrompt } from "@/stores/agentSessions";
@@ -35,7 +34,6 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
   const sessions = useAgentSessionList();
   const activeSessionId = useAgentSessionsStore((s) => s.activeSessionId);
   const setActiveSessionId = useAgentSessionsStore((s) => s.setActiveSessionId);
-  const openTab = useWorkbenchTabsStore((s) => s.openTab);
   const upsertSession = useAgentSessionsStore((s) => s.upsertSession);
   const setPrompt = useAgentSessionsStore((s) => s.setPrompt);
   const pending = useAgentSessionsStore((s) => s.pending);
@@ -140,8 +138,16 @@ export function AgentCompanion({ visible = true }: { visible?: boolean }) {
 
   function openFile(path: string, line?: number) {
     if (!session) return;
-    openTab({ moduleId: "codegraph", viewId: "codegraph.explorer", title: "Code Graph" });
-    void openFileInProject(session.projectPath, path, line);
+    // The companion sits over whatever module is on screen; the file opens
+    // where you are working, as Code Graph decides.
+    void dispatchIntent("codegraph.reveal", {
+      module: "codegraph",
+      kind: "file",
+      id: path,
+      label: path.slice(path.lastIndexOf("/") + 1),
+      project: session.projectPath,
+      line,
+    });
   }
 
   async function setMode(nextMode: string) {

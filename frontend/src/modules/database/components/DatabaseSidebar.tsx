@@ -47,8 +47,7 @@ import {
   DropdownMenu,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { TreeView, type TreeNodeData } from "@/components/tree-view";
-import { cn } from "@/lib/utils";
+import { TreeRowAction, TreeRowTag, TreeView, type TreeNodeData } from "@/components/tree-view";
 import { useShallow } from "zustand/react/shallow";
 import { useDatabaseStore, type SidebarPane } from "../databaseStore";
 import { countTables, filterNamespace, matchesProfile } from "../databaseTree";
@@ -60,7 +59,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConsoleFilesPanel } from "./ConsoleFilesPanel";
 import { SavedQueriesPanel } from "./SavedQueriesPanel";
 import { DeleteProfileDialog } from "./DeleteProfileDialog";
-import { Chip, EngineMark } from "./EngineBadge";
+import { EngineMark } from "./EngineBadge";
 import { deleteProfile, type ConnectionProfile } from "../../../bridge/database";
 import { copyText } from "../../../bridge/clipboard";
 import {
@@ -89,21 +88,6 @@ function relativeTime(iso: string): string {
   const days = Math.round(hours / 24);
   return `${days} day${days === 1 ? "" : "s"} ago`;
 }
-
-const GLYPH = "size-3.5 shrink-0 text-text-tertiary";
-/** --control-height-xs, which is what TreeView gives a row. */
-const ROW_HEIGHT_PX = 24;
-/**
- * 24×24, not the 16×16 these were.
- *
- * accessibility.md › Mobility puts macOS at a 28×28 default and a 20×20
- * minimum, and a `size-3` glyph in `p-0.5` came to sixteen — under the floor,
- * on the three controls that act on a connection. 24 is what the row can give
- * (it is `--control-height-xs` tall); the gap goes with it, because the same
- * section calls spacing between controls as important as their size.
- */
-const ACTION =
-  "flex size-6 items-center justify-center rounded-sm text-text-tertiary hover:bg-state-soft hover:text-text-primary";
 
 /**
  * One tree, DataGrip-shaped: folder → connection → schema → table → column.
@@ -275,9 +259,9 @@ export function DatabaseSidebar() {
         label: col.name,
         icon:
           col.name === "id" || col.name.endsWith("_id") ? (
-            <Key className={GLYPH} />
+            <Key />
           ) : (
-            <Columns className={GLYPH} />
+            <Columns />
           ),
         meta: col.dataType,
         title: `${col.dataType}${col.nullable ? "" : " · not null"}`,
@@ -288,7 +272,7 @@ export function DatabaseSidebar() {
     const names: TreeNodeData[] = (namespace[schemaName]?.[tableName] ?? []).map((name) => ({
       id: `col:${key}.${name}`,
       label: name,
-      icon: <Columns className={GLYPH} />,
+      icon: <Columns />,
     }));
     // A failure has to be visible where it happened. emptyLabel cannot carry it:
     // the names above are still listed, so the branch is never empty and that
@@ -298,7 +282,7 @@ export function DatabaseSidebar() {
       names.push({
         id: `col-error:${key}`,
         label: <span className="text-status-danger">Column types unavailable</span>,
-        icon: <TriangleAlert className={cn(GLYPH, "text-status-danger")} />,
+        icon: <TriangleAlert className="text-status-danger" />,
         title: failure,
       });
     }
@@ -317,7 +301,7 @@ export function DatabaseSidebar() {
         // several times over. The tooltip is the only thing telling them apart
         // without expanding each one.
         title: `${schemaName}.${tableName}`,
-        icon: <TableIcon className={cn(GLYPH, focused && "text-status-info")} />,
+        icon: <TableIcon className={focused ? "text-status-info" : undefined} />,
         expandable: true,
         expanded: !!expandedTables[key],
         // Async: opening a table is what fetches its columns.
@@ -337,7 +321,7 @@ export function DatabaseSidebar() {
         emptyLabel: tableColumnsError[key] ?? "No columns",
         count: columnNames.length || undefined,
         trailing: focused ? (
-          <Crosshair className="size-3 shrink-0 text-status-info" aria-label="Focused in the ERD" />
+          <Crosshair className="text-status-info" aria-label="Focused in the ERD" />
         ) : null,
         wrap: (row) => (
           <ContextMenu key={`table:${key}`}>
@@ -389,11 +373,11 @@ export function DatabaseSidebar() {
     return Object.keys(namespace).map((schemaName) => ({
       id: `schema:${schemaName}`,
       label: schemaName,
-      icon: <Database className={GLYPH} />,
+      icon: <Database />,
       // Under the connection row. Scrolling to table 140 of 173 used to leave
       // no answer on screen to "which connection, which schema" — the two
       // headings a split view would have given, bought here with sticky.
-      sticky: ROW_HEIGHT_PX,
+      sticky: 1,
       expandable: true,
       expanded: filtering || (expandedSchemas[schemaName] ?? true),
       onToggle: () => toggleSchemaExpand(schemaName),
@@ -531,7 +515,7 @@ export function DatabaseSidebar() {
     return {
       id: `profile:${profile.id}`,
       label: profile.name,
-      icon: <EngineMark engine={profile.engine} className="size-3.5" />,
+      icon: <EngineMark engine={profile.engine} />,
       // Only the selected connection unfolds, so only it has anything to stay
       // above. Pinning the others would stack four dead headings at the top.
       sticky: isSelected ? 0 : undefined,
@@ -573,9 +557,9 @@ export function DatabaseSidebar() {
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <ActionTooltip label={`Actions for ${profile.name}`}>
-              <button type="button" className={ACTION} onClick={(e) => e.stopPropagation()}>
-                <MoreHorizontal className="size-3" />
-              </button>
+              <TreeRowAction aria-label={`Actions for ${profile.name}`}>
+                <MoreHorizontal />
+              </TreeRowAction>
             </ActionTooltip>
           </DropdownMenuTrigger>
           <RowDropdownMenuContent actions={profileActions(profile, folderId, isSelected)} />
@@ -586,24 +570,19 @@ export function DatabaseSidebar() {
           {profile.readOnly && (
             <ActionTooltip label="Safe mode (read-only) is on">
               <span>
-                <Shield className="size-3 shrink-0 text-text-tertiary" />
+                <Shield />
               </span>
             </ActionTooltip>
           )}
           {profile.sshProfileId && (
             <ActionTooltip label="SSH tunnel enabled">
               <span>
-                <Radio className="size-3 shrink-0 text-text-tertiary" />
+                <Radio />
               </span>
             </ActionTooltip>
           )}
           {profile.env ? (
-            <Chip
-              tone={isProd ? "danger" : "default"}
-              className={cn("h-5 px-1.5", !isProd && "text-text-tertiary")}
-            >
-              {env}
-            </Chip>
+            <TreeRowTag danger={isProd}>{env}</TreeRowTag>
           ) : null}
         </>
       ),
@@ -626,7 +605,7 @@ export function DatabaseSidebar() {
     return {
       id: `folder:${folder.id}`,
       label: folder.name,
-      icon: <FolderIcon name={folder.icon} className="size-3.5 shrink-0 text-text-secondary" />,
+      icon: <FolderIcon name={folder.icon} />,
       // An empty folder gets no chevron rather than one that opens onto an
       // "Empty folder" line: the count already says it, and the row it saves
       // is a row.

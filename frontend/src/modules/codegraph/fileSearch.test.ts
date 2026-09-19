@@ -1,6 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { filterFileEntries } from "./fileSearch";
-import { visibleEntries } from "./FileTree";
+import { filterFileEntries, visibleEntries } from "./fileSearch";
 
 const tree = [
   { path: "src", isDir: true },
@@ -30,5 +29,18 @@ describe("filterFileEntries", () => {
     const r = filterFileEntries(tree, "pom");
     expect(r.entries.map((e) => e.path)).toEqual(["pom.xml"]);
     expect(r.forceExpanded!.size).toBe(0);
+  });
+});
+
+describe("file toggles", () => {
+  it("a toggle keeps matching files and the folders that hold them", () => {
+    const entries = [
+      { path: "src", isDir: true },
+      { path: "src/A.java", isDir: false },
+      { path: "src/b.xml", isDir: false },
+    ];
+    const r = filterFileEntries(entries, "", (p) => p.endsWith(".java"));
+    expect(r.entries.map((e) => e.path)).toEqual(["src", "src/A.java"]);
+    expect(r.forceExpanded).toBeNull();
   });
 });

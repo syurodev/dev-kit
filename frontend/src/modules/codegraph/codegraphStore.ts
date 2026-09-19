@@ -8,18 +8,57 @@ import type {
   CodeGraphCodeSnippet,
   CodeGraphEndpoint,
   CodeGraphFileEntry,
+  CodeGraphGitState,
+  CodeGraphIndexInfo,
   CodeGraphSubgraph,
   CodeGraphToolchainStatus,
 } from "@/bridge/codegraph";
 
+/**
+ * One flow document: the graph drawn from a root node, as a tab of its own
+ * (documents.ts). Keyed by root node id, so two tabs of endpoints handled by
+ * the same method share one fetch.
+ */
+export type FlowDoc = {
+  subgraph: CodeGraphSubgraph | null;
+  /**
+   * How many pages are on screen. A background re-index re-fetches this many,
+   * so an index update does not quietly undo every "Load more" clicked.
+   */
+  pages: number;
+  loading: boolean;
+  /** True while fetching the next page of a truncated subgraph. */
+  loadingMore: boolean;
+  error: string;
+};
+
+/**
+ * One file document's buffer, keyed by project-relative path.
+ *
+ * It outlives its tab on purpose: closing the tab of a file with unsaved
+ * edits keeps the edits, and opening the file again finds them. Only saving,
+ * discarding or a clean project switch drops a buffer.
+ */
+export type FileBuffer = {
+  content: string;
+  /**
+   * The project root it was read from. Saving sends it to Go, which refuses
+   * the write if the active project has moved since; the view compares it
+   * with projectPath to mark a buffer left over from a switch.
+   */
+  root: string;
+  dirty: boolean;
+  loading: boolean;
+  error: string;
+  /** The line to reveal, if it was opened at one. */
+  line: number | null;
+};
+
 type CodeGraphState = {
   projectPath: string;
   endpoints: CodeGraphEndpoint[];
-  subgraph: CodeGraphSubgraph | null;
-  rootId: string | null;
-  /** The endpoint picked in the sidebar; several endpoints can share one entry node. */
-  rootEndpointId: string | null;
   status: string;
+  /** Why the project could not be analyzed, or "". */
   error: string;
   /**
    * The bridge error code behind `error`, or "". "unsupported_project" is the
@@ -30,23 +69,22 @@ type CodeGraphState = {
   errorCode: string;
   busy: boolean;
 
-  /** True while fetching the next page of a truncated subgraph. */
-  loadingMore: boolean;
-  /**
-   * How many pages of the subgraph are on screen. A background re-index
-   * re-fetches this many, so an index update does not quietly undo every
-   * "Load more" the user clicked.
-   */
-  subgraphPages: number;
+  /** Open flow documents, by root node id. */
+  flows: Record<string, FlowDoc>;
+  /** Open (or edited) file documents, by project-relative path. */
+  buffers: Record<string, FileBuffer>;
 
-  /** The node whose inspector is open, or null. Replaces snippetOpen: the
-   *  inspector is anchored to a specific node, so "which node" IS the
-   *  open/closed state. */
-  inspectorNodeId: string | null;
+  /**
+   * The node whose inspector is open, and the flow it was picked in. The
+   * inspector is a context pane of that flow: it shows while that flow is the
+   * document in front, and goes when another document comes forward.
+   */
+  inspector: { flow: string; nodeId: string } | null;
   snippet: CodeGraphCodeSnippet | null;
   snippetLoading: boolean;
   snippetError: string;
 
+  /** The sidebar's section. Documents are tabs now; this only picks the rail's list. */
   activeTab: "endpoints" | "files" | "plan";
 
   /** Per-node status plus the aggregate, recomputed by Go on every read. */
@@ -61,22 +99,6 @@ type CodeGraphState = {
   commentCounts: Record<string, number>;
   planError: string;
   files: CodeGraphFileEntry[];
-  selectedFile: string | null;
-  /**
-   * The project root `selectedFile` was opened under. Saving sends it to Go,
-   * which refuses the write if the active project has moved since; the view
-   * compares it with `projectPath` to mark a buffer left over from a switch.
-   * Filled in by set() whenever selectedFile changes without it — see below.
-   */
-  fileRoot: string;
-  /** A file the user asked to open while the current one had unsaved edits. */
-  pendingOpenFile: string | null;
-  /** The line the parked open should reveal, if it came with one. */
-  pendingOpenLine: number | null;
-  selectedLine: number | null;
-  fileContent: string;
-  fileDirty: boolean;
-  fileError: string;
 
   /** Filters the sidebar's visible list; applies to whichever tab is active. */
   query: string;
@@ -89,36 +111,47 @@ type CodeGraphState = {
    */
   analyzerStatuses: CodeGraphToolchainStatus[] | null;
 
+  /** When the index was built, whether a run is going, why the last failed. */
+  indexInfo: CodeGraphIndexInfo | null;
+  /** Changed files of the project, for the Files tab's marks and filter. */
+  gitStatus: Record<string, CodeGraphGitState>;
+  /** Method chips on in the Endpoints tab; empty means all. */
+  methodFilter: string[];
+  /** Service and controller groups folded shut, by key. */
+  collapsedGroups: string[];
+  /** Folders open in the Files tab. */
+  fileExpanded: string[];
+  /** The Files tab's toggles. */
+  fileFilter: { codeOnly: boolean; changed: boolean; inFlow: boolean };
+
   set: (patch: Partial<CodeGraphState>) => void;
 };
 
 /**
- * CodeGraph's view state lives outside the component on purpose.
+ * CodeGraph's view state lives outside the components on purpose.
  *
- * A Dock visit opens the module as the single shared *preview* tab, and openTab
- * replaces whichever preview tab is there (stores/workbenchTabs.ts). Switching
- * modules therefore drops CodeGraph's tab and unmounts its subtree, so useState
- * in the view would come back as an empty "Open Java project…" screen even
- * though Go still has the project indexed and watched.
+ * Its documents are tabs (documents.ts), and a tab can be closed, replaced as
+ * the preview, or unmounted when the module is left — so useState in a view
+ * would come back empty although Go still has the project indexed and
+ * watched. And the sidebar, the documents and the inspector all read the same
+ * project, which only a store outside all three can hold.
  *
  * The Go service restores the last selected project on startup. The view
  * reads that selection on mount and waits for its index before loading data;
  * graph results themselves are never restored from frontend storage.
  */
-export const useCodeGraphStore = create<CodeGraphState>((set, get) => ({
+export const useCodeGraphStore = create<CodeGraphState>((set) => ({
   projectPath: "",
   endpoints: [],
-  subgraph: null,
-  rootId: null,
-  rootEndpointId: null,
   status: "",
   error: "",
   errorCode: "",
   busy: false,
-  loadingMore: false,
-  subgraphPages: 0,
 
-  inspectorNodeId: null,
+  flows: {},
+  buffers: {},
+
+  inspector: null,
   snippet: null,
   snippetLoading: false,
   snippetError: "",
@@ -132,28 +165,16 @@ export const useCodeGraphStore = create<CodeGraphState>((set, get) => ({
   commentCounts: {},
   planError: "",
   files: [],
-  selectedFile: null,
-  fileRoot: "",
-  pendingOpenFile: null,
-  pendingOpenLine: null,
-  selectedLine: null,
-  fileContent: "",
-  fileDirty: false,
-  fileError: "",
   query: "",
   analyzerStatuses: null,
+  indexInfo: null,
+  gitStatus: {},
+  methodFilter: [],
+  collapsedGroups: [],
+  fileExpanded: [],
+  fileFilter: { codeOnly: true, changed: false, inFlow: false },
 
-  // Opening a file from outside this module (the agent companion sets
-  // selectedFile directly) must still record which project it belongs to, or a
-  // later save would carry the previous file's root. So a patch that changes
-  // the file without naming its root takes the project it lands in.
-  set: (patch) => {
-    if ("selectedFile" in patch && !("fileRoot" in patch)) {
-      set({ ...patch, fileRoot: patch.selectedFile ? (patch.projectPath ?? get().projectPath) : "" });
-      return;
-    }
-    set(patch);
-  },
+  set: (patch) => set(patch),
 }));
 
 /**

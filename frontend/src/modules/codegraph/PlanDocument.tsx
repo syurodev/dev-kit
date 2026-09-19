@@ -1,7 +1,7 @@
-import { useCallback, useMemo } from "react";
-import { GitFork, Loader2, RotateCcw, TriangleAlert } from "lucide-react";
+import { useCallback, useEffect, useMemo } from "react";
+import { GitFork, RotateCcw, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { EmptyProgress, EmptyState } from "@/components/ui/empty-state";
+import { EmptyState } from "@/components/ui/empty-state";
 import type { CodeGraphEdge, CodeGraphNode } from "@/bridge/codegraph";
 import { FlowCanvas } from "./graph/FlowCanvas";
 import { shortLabel } from "./graph/labels";
@@ -11,14 +11,16 @@ import { PlanCommentsPopover } from "./plan/PlanCommentsPopover";
 import { PLAN_STATUS } from "./plan/planStatus";
 import { useCodeGraphStore } from "./codegraphStore";
 import { approvePlan, loadPlan, relinkPlanNode, setPlanCommentCount } from "./codegraphActions";
+import { useProjectReady } from "./useDocument";
 
 const set = useCodeGraphStore.getState().set;
 const onSelectPlanNode = (id: string) => set({ selectedPlanNodeId: id, commentsPlanNodeId: id });
 const closeComments = () => set({ commentsPlanNodeId: null });
 const retryPlan = () => void loadPlan();
 
-/** The Plan tab: the agent's proposed flow, each node's status against the index. */
-export function PlanPane() {
+/** The plan as a tab: the agent's proposed flow, each node's status against the index. */
+export function PlanDocument() {
+  const ready = useProjectReady();
   const plan = useCodeGraphStore((s) => s.plan);
   const planEdges = useCodeGraphStore((s) => s.planEdges);
   const planBusy = useCodeGraphStore((s) => s.planBusy);
@@ -26,6 +28,12 @@ export function PlanPane() {
   const selectedPlanNodeId = useCodeGraphStore((s) => s.selectedPlanNodeId);
   const commentsPlanNodeId = useCodeGraphStore((s) => s.commentsPlanNodeId);
   const commentCounts = useCodeGraphStore((s) => s.commentCounts);
+
+  // Restored after a relaunch, or opened before the sidebar's Plan section
+  // ever loaded it.
+  useEffect(() => {
+    if (ready && !useCodeGraphStore.getState().plan) void loadPlan();
+  }, [ready]);
 
   // The plan canvas reuses FlowCanvas whole. Plan nodes travel in the same
   // shape as real ones with an empty filePath — a shape the view already
@@ -90,7 +98,7 @@ export function PlanPane() {
 
   if (plan && planRootId) {
     return (
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex h-full w-full flex-col overflow-hidden">
         {selectedPlanNode && (
           <PlanNodeDetail
             node={selectedPlanNode}
@@ -149,11 +157,9 @@ export function PlanPane() {
   }
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div className="flex h-full w-full flex-col overflow-hidden">
       {planBusy ? (
-        <EmptyState icon={Loader2} title="Loading plan" body="Reading the plan and recomputing each node's status against the index.">
-          <EmptyProgress />
-        </EmptyState>
+        <EmptyState busy title="Loading plan" body="Reading the plan and recomputing each node's status against the index." />
       ) : planError ? (
         <EmptyState icon={TriangleAlert} title="Could not load the plan" body={planError}>
           <Button variant="outline" className="bg-surface-raised" onClick={retryPlan}>

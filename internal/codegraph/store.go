@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -308,10 +310,31 @@ func (s *sqliteStore) ReplaceIndex(ctx context.Context, result AnalysisResult) e
         ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + 1`); err != nil {
 		return fmt.Errorf("codegraph: increment index version: %w", err)
 	}
+	// When, for the sidebar's "Indexed 2m ago": written with the revision so
+	// the two can never disagree.
+	if _, err := tx.ExecContext(ctx, `INSERT INTO index_meta(key, value) VALUES ('indexed_at', ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value`, strconv.FormatInt(time.Now().UnixMilli(), 10)); err != nil {
+		return fmt.Errorf("codegraph: stamp index time: %w", err)
+	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("codegraph: commit replace: %w", err)
 	}
 	return nil
+}
+
+// IndexedAt is when the stored index was last replaced, in Unix milliseconds;
+// 0 for an index written before the stamp existed, or none at all.
+func (s *sqliteStore) IndexedAt(ctx context.Context) (int64, error) {
+	var raw string
+	err := s.db.QueryRowContext(ctx, `SELECT value FROM index_meta WHERE key = 'indexed_at'`).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	at, _ := strconv.ParseInt(raw, 10, 64)
+	return at, nil
 }
 
 func (s *sqliteStore) IndexVersion(ctx context.Context) (int, error) {
@@ -463,7 +486,7 @@ func escapeLike(query string) string {
 
 func (s *sqliteStore) SearchSymbol(ctx context.Context, query string) ([]SymbolMatch, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, label, kind, file_path, line FROM nodes WHERE label LIKE ? ESCAPE '\' ORDER BY label LIMIT ?`,
+		`SELECT id, label, kind, layer, file_path, line FROM nodes WHERE label LIKE ? ESCAPE '\' ORDER BY label LIMIT ?`,
 		"%"+escapeLike(query)+"%", maxSymbolMatches)
 	if err != nil {
 		return nil, fmt.Errorf("codegraph: SearchSymbol: %w", err)
@@ -473,7 +496,7 @@ func (s *sqliteStore) SearchSymbol(ctx context.Context, query string) ([]SymbolM
 	var out []SymbolMatch
 	for rows.Next() {
 		var m SymbolMatch
-		if err := rows.Scan(&m.NodeID, &m.Label, &m.Kind, &m.FilePath, &m.Line); err != nil {
+		if err := rows.Scan(&m.NodeID, &m.Label, &m.Kind, &m.Layer, &m.FilePath, &m.Line); err != nil {
 			return nil, fmt.Errorf("codegraph: scan symbol match: %w", err)
 		}
 		out = append(out, m)

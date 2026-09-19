@@ -31,18 +31,49 @@ function ancestorsOf(path: string): string[] {
  *
  * Input order is preserved (the backend lists folders before their contents).
  */
-export function filterFileEntries(entries: CodeGraphFileEntry[], query: string): FileSearchResult {
+export function filterFileEntries(
+  entries: CodeGraphFileEntry[],
+  query: string,
+  /**
+   * The Files tab's toggles (Java only, Changed, In flow): a file must pass it
+   * to be shown. Folders are never tested — they come along with what they hold.
+   */
+  keepFile?: (path: string) => boolean,
+): FileSearchResult {
   const needle = query.trim().toLowerCase();
-  if (!needle) return { entries, forceExpanded: null };
+  if (!needle && !keepFile) return { entries, forceExpanded: null };
   const keep = new Set<string>();
   const forceExpanded = new Set<string>();
   for (const e of entries) {
-    if (!e.path.toLowerCase().includes(needle)) continue;
+    if (keepFile && (e.isDir || !keepFile(e.path))) continue;
+    if (needle && !e.path.toLowerCase().includes(needle)) continue;
     keep.add(e.path);
     for (const a of ancestorsOf(e.path)) {
       keep.add(a);
       forceExpanded.add(a);
     }
   }
-  return { entries: entries.filter((e) => keep.has(e.path)), forceExpanded };
+  // Only a search opens folders: a toggle alone leaves the tree as it was folded.
+  return { entries: entries.filter((e) => keep.has(e.path)), forceExpanded: needle ? forceExpanded : null };
+}
+
+function parentOf(path: string): string | null {
+  const idx = path.lastIndexOf("/");
+  return idx === -1 ? null : path.slice(0, idx);
+}
+
+/**
+ * Every entry whose full ancestor chain is in `expanded` — a depth-0 entry is
+ * always visible. The test that a search match can actually be seen, not
+ * merely that it survived the filter.
+ */
+export function visibleEntries(entries: CodeGraphFileEntry[], expanded: Set<string>): CodeGraphFileEntry[] {
+  return entries.filter((e) => {
+    let parent = parentOf(e.path);
+    while (parent !== null) {
+      if (!expanded.has(parent)) return false;
+      parent = parentOf(parent);
+    }
+    return true;
+  });
 }
