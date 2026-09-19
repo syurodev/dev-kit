@@ -183,6 +183,43 @@ export type ModuleManifest = {
    * run the import until something renders it.
    */
   sidebar?: ModuleViewComponent | LazyExoticComponent<ModuleViewComponent>;
+  /**
+   * What the command palette can find INSIDE this module while it is the one
+   * in front — a table, a file, a note — beyond the commands every module has.
+   */
+  paletteSearch?: ModulePaletteSearch;
+};
+
+/** One thing a module's palette search found, and what picking it does. */
+export type PaletteSearchItem = {
+  /** Unique within the module. */
+  id: string;
+  title: string;
+  /** Where it lives or what it is, shown dimmer beside the title: a schema, a path. */
+  subtitle?: string;
+  icon?: LucideIcon;
+  run: () => void;
+};
+
+export type PaletteSearchGroup = { heading: string; items: PaletteSearchItem[] };
+
+export type ModulePaletteSearch = {
+  /** Completes "Search …" in the placeholder: "tables", "endpoints, files and symbols". */
+  noun: string;
+  /**
+   * Best matches first, already limited to what is worth a row each. The
+   * module does its own matching because only it knows its data — a symbol
+   * search is a query to Go, a table search is a walk of the schema — and
+   * shares workbench/palette/match.ts so the ranking reads the same everywhere.
+   *
+   * An empty query asks what is worth offering unprompted, which may be
+   * nothing. It must not throw for "this module has nothing loaded": a locked
+   * vault or no open project is an empty answer.
+   *
+   * Imported when called, like a command's run: the manifest is in the
+   * initial bundle and a module's store and bridge are not.
+   */
+  search: (query: string, signal: AbortSignal) => Promise<PaletteSearchGroup[]>;
 };
 
 export type ModuleMetadata = {

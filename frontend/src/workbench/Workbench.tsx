@@ -1,4 +1,4 @@
-import { lazy, memo, Profiler, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { lazy, memo, Profiler, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { recordCommit, WORKBENCH_PROFILER } from "@/lib/perfLog";
 import { ModuleSkeleton } from "./ModuleSkeleton";
@@ -7,7 +7,8 @@ import { MessageSquare, PanelBottom, PanelLeft, Search, Settings as SettingsIcon
 import { listModules, type ModuleDTO } from "../bridge/commands";
 import { useMenuCommands } from "./menuCommands";
 import { ModuleSwitcher } from "./ModuleSwitcher";
-import { moduleIndexFromEvent } from "./moduleShortcuts";
+import { editsText, isPaletteShortcut, moduleIndexFromEvent } from "./moduleShortcuts";
+import { shortcut } from "@/lib/shortcut";
 import { AgentSessionsSubscriber } from "./AgentSessionsSubscriber";
 import { CommandPalette } from "./CommandPalette";
 import { SystemStatusMenu } from "./SystemStatusMenu";
@@ -354,6 +355,13 @@ export function Workbench() {
         // here — so leave it for whatever else might want it.
         return;
       }
+      // ⌘K / Ctrl+K: the command palette. It was only ever a label on the
+      // titlebar button's tooltip — nothing listened for it.
+      if (isPaletteShortcut(event, editsText(event.target))) {
+        event.preventDefault();
+        setPaletteOpen((open) => !open);
+        return;
+      }
       // ⌘\ / Ctrl+\: the focused group's tab into a new group beside it.
       if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key === "\\") {
         const state = useWorkbenchTabsStore.getState();
@@ -570,7 +578,10 @@ export function Workbench() {
     }
   }, [activeModuleId, openTab, pendingAgentHubCommand, tabModules]);
 
-  const commands = availableModules.flatMap((module) => module.commands);
+  const switcherModuleIds = useMemo(() => switcherModules.map((module) => module.id), [switcherModules]);
+  // Stable: the palette's sections are memoized on it, and focusModule is a
+  // new function every render.
+  const focusModuleFromPalette = useCallback((moduleId: string) => focusModuleRef.current(moduleId), []);
   const hasMetadataWarning = metadataError || parityIssues.length > 0;
 
   return (
@@ -585,8 +596,12 @@ export function Workbench() {
           <AgentSessionsSubscriber />
           <CommandPalette
             open={paletteOpen}
-            commands={commands}
             onClose={() => setPaletteOpen(false)}
+            modules={availableModules}
+            switcherModuleIds={switcherModuleIds}
+            unavailableModuleIds={unavailableModuleIds}
+            activeModuleId={activeModule?.id ?? null}
+            onFocusModule={focusModuleFromPalette}
           />
           <Suspense fallback={null}>
             <SettingsModal
@@ -703,7 +718,7 @@ export function Workbench() {
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
-                  Commands <Kbd>⌘K</Kbd>
+                  Commands <Kbd>{shortcut("K")}</Kbd>
                 </TooltipContent>
               </Tooltip>
               <Tooltip>

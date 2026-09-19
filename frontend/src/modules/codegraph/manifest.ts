@@ -60,6 +60,10 @@ export const codegraphModule: ModuleManifest = {
       ...lazyModuleView(() => import("./PlanDocument").then(({ PlanDocument }) => ({ default: PlanDocument }))),
     },
   ],
+  paletteSearch: {
+    noun: "endpoints, files and symbols",
+    search: (query, signal) => import("./paletteSearch").then((m) => m.searchPalette(query, signal)),
+  },
 };
 
 /**

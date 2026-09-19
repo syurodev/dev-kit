@@ -50,4 +50,8 @@ export const agenthubModule: ModuleManifest = {
       ),
     },
   ],
+  paletteSearch: {
+    noun: "sessions",
+    search: (query, signal) => import("./paletteSearch").then((m) => m.searchPalette(query, signal)),
+  },
 };

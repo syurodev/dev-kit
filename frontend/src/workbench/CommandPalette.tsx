@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CommandDialog,
   CommandEmpty,
@@ -8,52 +9,234 @@ import {
   CommandList,
   CommandShortcut,
 } from "@/components/ui/command";
-import { Search } from "lucide-react";
+import { ChevronRight, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { runCommand } from "@/modules/registry";
+import { getModule, type ModuleManifest, type PaletteSearchGroup } from "@/modules/registry";
+import { allOpenTabs, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
+import { shortcut } from "@/lib/shortcut";
+import {
+  composeSections,
+  paletteEmptyMessage,
+  palettePlaceholder,
+  parseQuery,
+  staticSections,
+  type PaletteModule,
+  type PaletteRow,
+} from "./palette/paletteModel";
 
 type CommandPaletteProps = {
   open: boolean;
-  commands: Array<{ id: string; title: string; shortcut?: string }>;
   onClose: () => void;
+  /** Every module that can be used, in registry order. */
+  modules: readonly ModuleManifest[];
+  /** The rail's modules in its order — the order ⌘1–⌘9 count in. */
+  switcherModuleIds: readonly string[];
+  unavailableModuleIds: ReadonlySet<string>;
+  activeModuleId: string | null;
+  /** The shell's own: it also preloads the module's home view. */
+  onFocusModule: (moduleId: string) => void;
 };
 
-export function CommandPalette({ open, commands, onClose }: CommandPaletteProps) {
+// Long enough that typing a word is one search, short enough not to be felt.
+const SEARCH_DEBOUNCE_MS = 140;
+
+/**
+ * The app's one place to go anywhere from: run a command, switch module,
+ * reopen a tab, and find something inside the module in front — a table, a
+ * file, a note (each module says what through `paletteSearch`).
+ *
+ * Filtering is ours, not cmdk's. cmdk scores every row against one flat list;
+ * the palette has an order that is part of its meaning — what was searched for
+ * in this module, then this module's commands, then the rest — and rows that
+ * arrive late from a module's search, which cmdk would re-filter with a
+ * different idea of a match than the module used. cmdk still owns what it is
+ * good at: the keyboard, the selection, the listbox semantics.
+ */
+export function CommandPalette({
+  open,
+  onClose,
+  modules,
+  switcherModuleIds,
+  unavailableModuleIds,
+  activeModuleId,
+  onFocusModule,
+}: CommandPaletteProps) {
+  const [query, setQuery] = useState("");
+  const [found, setFound] = useState<PaletteSearchGroup[]>([]);
+  const [searching, setSearching] = useState(false);
+  const tabModules = useWorkbenchTabsStore((state) => state.modules);
+  const listRef = useRef<HTMLDivElement | null>(null);
+
+  // A palette that opens on the last thing typed makes the second use slower
+  // than the first: the old query has to be cleared before the new one.
+  useEffect(() => {
+    if (!open) {
+      setQuery("");
+      setFound([]);
+      setSearching(false);
+    }
+  }, [open]);
+
+  const search = activeModuleId ? getModule(activeModuleId)?.paletteSearch : undefined;
+  // ">" and "@" narrow what is asked; `text` is what is matched.
+  const { scope, text } = useMemo(() => parseQuery(query), [query]);
+
+  useEffect(() => {
+    // ">" is commands only: the module is not asked at all.
+    if (!open || !search || scope === "commands") {
+      setFound([]);
+      setSearching(false);
+      return;
+    }
+    const controller = new AbortController();
+    setSearching(true);
+    // The first ask, on opening, is not debounced: nothing is being typed yet.
+    const timer = setTimeout(
+      () => {
+        search
+          .search(text, controller.signal)
+          // A module's search failing is that module's problem, and must not
+          // cost the commands and modules underneath it.
+          .catch(() => [] as PaletteSearchGroup[])
+          .then((groups) => {
+            if (controller.signal.aborted) return;
+            setFound(groups);
+            setSearching(false);
+          });
+      },
+      text ? SEARCH_DEBOUNCE_MS : 0,
+    );
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+    // On text and scope, not the raw query: typing the "@" itself, or a space
+    // after it, is not a new question for the module.
+  }, [open, search, scope, text]);
+
+  const paletteModules = useMemo<PaletteModule[]>(
+    () =>
+      modules.map((module) => {
+        const digit = switcherModuleIds.indexOf(module.id);
+        return {
+          id: module.id,
+          title: module.title,
+          icon: module.icon,
+          switchable: digit !== -1,
+          shortcut: digit !== -1 && digit < 9 ? shortcut(String(digit + 1)) : undefined,
+          unavailable: unavailableModuleIds.has(module.id),
+          commands: module.commands,
+        };
+      }),
+    [modules, switcherModuleIds, unavailableModuleIds],
+  );
+
+  const sections = useMemo(() => {
+    const state = useWorkbenchTabsStore.getState();
+    const frontTabId = activeModuleId ? state.modules[activeModuleId]?.activeTabId : undefined;
+    const tabs = allOpenTabs(tabModules).filter(
+      (tab) =>
+        tab.id !== frontTabId &&
+        // A module's home view rides along as a hidden preview tab; it is
+        // "the module", which Go to already offers.
+        !(tab.preview && getModule(tab.moduleId)?.views[0]?.id === tab.viewId),
+    );
+    const fixed = staticSections(
+      { query: text, scope, activeModuleId, modules: paletteModules, tabs },
+      { focusModule: onFocusModule, activateTab: (id) => useWorkbenchTabsStore.getState().setActiveTab(id) },
+    );
+    return composeSections(text, activeModuleId, fixed, scope === "commands" ? [] : found);
+  }, [text, scope, activeModuleId, paletteModules, tabModules, found, onFocusModule]);
+
+  // The list keeps its scroll between queries otherwise, so new results could
+  // open scrolled past their own first row.
+  useEffect(() => {
+    listRef.current?.scrollTo({ top: 0 });
+  }, [query]);
+
+  const activeModule = paletteModules.find((module) => module.id === activeModuleId);
+  const empty = sections.length === 0;
+  const emptyMessage = paletteEmptyMessage(scope, activeModule?.title, search?.noun);
+  // What the list is scoped to, for the footer: the prefixes are invisible
+  // until someone knows them, so the unscoped footer is where they are taught.
+  const scopeLabel =
+    scope === "commands"
+      ? "Commands"
+      : scope === "module"
+        ? `Only ${activeModule?.title ?? "this module"}`
+        : null;
+
+  function pick(row: PaletteRow) {
+    // Closed first: a command that opens a dialog of its own must not find
+    // this one still holding the focus trap.
+    onClose();
+    row.run();
+  }
+
   return (
     <CommandDialog
       open={open}
       onOpenChange={(next) => {
-        if (!next) {
-          onClose();
-        }
+        if (!next) onClose();
       }}
+      description="Run a command, switch module, or search the module in front."
+      commandProps={{ shouldFilter: false, loop: true }}
     >
-      <CommandInput placeholder="Search commands..." />
-      <CommandList>
-        <CommandEmpty>No commands are currently available.</CommandEmpty>
-        <CommandGroup heading="COMMANDS">
-          {commands.map((command) => (
-            <CommandItem
-              key={command.id}
-              value={command.title}
-              // It ran nothing at all before: every item closed the palette and
-              // that was the whole of it, so the palette listed the app's
-              // commands without being able to perform one.
-              onSelect={() => {
-                runCommand(command.id);
-                onClose();
-              }}
-            >
-              {command.title}
-              {command.shortcut ? (
-                <CommandShortcut>{command.shortcut}</CommandShortcut>
-              ) : null}
-            </CommandItem>
-          ))}
-        </CommandGroup>
+      <CommandInput value={query} onValueChange={setQuery} placeholder={palettePlaceholder(search?.noun)} />
+      {/* Taller than a picker's list: this one holds several groups at once,
+          and at the primitive's 20rem the second group starts below the fold. */}
+      <CommandList ref={listRef} className="max-h-[min(56vh,28rem)]">
+        {empty && !searching ? (
+          <CommandEmpty title={emptyMessage.title}>{emptyMessage.body}</CommandEmpty>
+        ) : null}
+        {empty && searching ? (
+          <p className="px-3 pt-10 pb-12 text-center text-body-13 text-text-tertiary">Searching {search?.noun}…</p>
+        ) : null}
+        {sections.map((section) => (
+          <CommandGroup key={section.id} heading={section.heading}>
+            {section.rows.map((row) => (
+              <PaletteItem key={row.id} row={row} onPick={pick} />
+            ))}
+          </CommandGroup>
+        ))}
       </CommandList>
-      <CommandFooter />
+      <CommandFooter>
+        {scopeLabel ? (
+          <span className="truncate text-text-secondary">{searching ? `Searching ${activeModule?.title}…` : scopeLabel}</span>
+        ) : searching && activeModule ? (
+          <span className="truncate">Searching {activeModule.title}…</span>
+        ) : (
+          // The module's name rather than its noun: "endpoints, files and
+          // symbols" beside the key hints does not fit in 640px, and the name
+          // is what "@" is scoped to anyway. No "@" hint where it finds nothing.
+          <span className="whitespace-pre">
+            {search && activeModule ? `>  commands   ·   @  ${activeModule.title}` : ">  commands"}
+          </span>
+        )}
+      </CommandFooter>
     </CommandDialog>
+  );
+}
+
+function PaletteItem({ row, onPick }: { row: PaletteRow; onPick: (row: PaletteRow) => void }) {
+  // A command has no glyph of its own, and an empty column beside one reads as
+  // something missing. The chevron says "this does something" and keeps the
+  // titles in line with the rows that do have one.
+  const Icon = row.icon ?? ChevronRight;
+  return (
+    // value is the id, not the title: two rows may share a title (a table in
+    // two schemas), and cmdk tracks its selection by value.
+    <CommandItem value={row.id} indicator={false} onSelect={() => onPick(row)}>
+      <Icon
+        className="size-4 shrink-0 text-text-tertiary group-data-[selected=true]/command-item:text-text-secondary"
+        aria-hidden
+      />
+      <span className="min-w-0 shrink truncate">{row.title}</span>
+      {row.subtitle ? (
+        <span className="min-w-0 flex-1 truncate text-body-13 font-normal text-text-tertiary">{row.subtitle}</span>
+      ) : null}
+      {row.shortcut ? <CommandShortcut>{row.shortcut}</CommandShortcut> : null}
+    </CommandItem>
   );
 }
 
