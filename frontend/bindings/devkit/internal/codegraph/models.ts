@@ -89,6 +89,21 @@ export interface DataFlowTrace {
 }
 
 /**
+ * Definition is one place the symbol under the cursor may be defined. A
+ * single FindDefinitions call can return more than one — an unresolved
+ * interface call, an overload picked by name alone, or two candidates the
+ * fallback-by-name tier could not tell apart — so the editor always shows a
+ * list, even when it happens to have one entry.
+ */
+export interface Definition {
+    "nodeId": string;
+    "label": string;
+    "kind": string;
+    "filePath": string;
+    "line": number;
+}
+
+/**
  * DetectedProject is what a folder turned out to hold.
  */
 export interface DetectedProject {

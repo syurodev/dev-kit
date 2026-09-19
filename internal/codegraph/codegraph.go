@@ -153,6 +153,19 @@ type SymbolMatch struct {
 	Line     int    `json:"line"`
 }
 
+// Definition is one place the symbol under the cursor may be defined. A
+// single FindDefinitions call can return more than one — an unresolved
+// interface call, an overload picked by name alone, or two candidates the
+// fallback-by-name tier could not tell apart — so the editor always shows a
+// list, even when it happens to have one entry.
+type Definition struct {
+	NodeID   string `json:"nodeId"`
+	Label    string `json:"label"`
+	Kind     string `json:"kind"`
+	FilePath string `json:"filePath"`
+	Line     int    `json:"line"`
+}
+
 // FileEntry is one file or directory in the active project, relative to its
 // root. Deliberately flat (not a nested tree) — simpler to produce here and
 // just as easy for a frontend to build a tree UI from a sorted flat list.
@@ -338,10 +351,28 @@ type Store interface {
 	GetInEdges(ctx context.Context, nodeID string) ([]Edge, error)
 	SearchSymbol(ctx context.Context, query string) ([]SymbolMatch, error)
 	FindNodeAtLine(ctx context.Context, filePath string, line int) (Node, bool, error)
+	// FindNodesByName returns every node whose label names identifier (see
+	// matchesIdentifier) — FindDefinitions' fallback-by-name tier, e.g.
+	// resolving a type reference like "DeviceListResponse" to its class.
+	FindNodesByName(ctx context.Context, identifier string) ([]Node, error)
 	GetDependents(ctx context.Context, filePath string) ([]string, error)
+	// GetDependencies is GetDependents in the other direction: every file
+	// filePath itself depends on. Used to rank FindDefinitions' fallback
+	// candidates by proximity when several files declare the same name.
+	GetDependencies(ctx context.Context, filePath string) ([]string, error)
 	GetFieldAccesses(ctx context.Context, classID, fieldName string) ([]FieldAccess, error)
+	// GetFieldAccessesAt returns the field accesses recorded at one exact
+	// source line in filePath — FindDefinitions' field-access tier, scoped to
+	// a single field name so a coincidental line/name match in another file
+	// can never leak in.
+	GetFieldAccessesAt(ctx context.Context, filePath string, line int, fieldName string) ([]FieldAccess, error)
 	ListFields(ctx context.Context, nodeID string) ([]FieldRef, error)
 	GetCallSites(ctx context.Context, fromID string) ([]CallSite, error)
+	// GetCallSitesAt returns the call sites recorded at one exact source line
+	// in filePath — FindDefinitions' call-site tier. A line can hold more than
+	// one call expression ("a.foo(); b.foo();" on one line), so this returns
+	// all of them, not just the first.
+	GetCallSitesAt(ctx context.Context, filePath string, line int) ([]CallSite, error)
 	SavePlan(ctx context.Context, plan Plan) error
 	GetPlan(ctx context.Context) (Plan, error)
 	SetPlanState(ctx context.Context, state string) error

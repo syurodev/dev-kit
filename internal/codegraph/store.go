@@ -646,6 +646,61 @@ func (s *sqliteStore) GetDependents(ctx context.Context, filePath string) ([]str
 	return out, rows.Err()
 }
 
+// GetDependencies is GetDependents read the other way round: every file
+// filePath itself names as a dependency, one hop, not transitive. Used to
+// rank FindDefinitions' fallback-by-name candidates — a file filePath
+// actually imports from is a better guess than an unrelated file that
+// happens to declare a type with the same simple name.
+func (s *sqliteStore) GetDependencies(ctx context.Context, filePath string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT DISTINCT depends_on_file_path FROM file_dependencies WHERE file_path = ? ORDER BY depends_on_file_path`,
+		filePath)
+	if err != nil {
+		return nil, fmt.Errorf("codegraph: GetDependencies: %w", err)
+	}
+	defer rows.Close()
+
+	var out []string
+	for rows.Next() {
+		var f string
+		if err := rows.Scan(&f); err != nil {
+			return nil, fmt.Errorf("codegraph: scan dependency: %w", err)
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
+// GetFieldAccessesAt joins through nodes to filter by file: field_accesses
+// itself carries no file_path, only the accessing node's ID (node_id), which
+// may be a method OR — for a static field initializer's own call scope — the
+// class itself. Either way that node has a file_path, so the join scopes the
+// line correctly without the caller needing to know which kind of node
+// recorded the access.
+func (s *sqliteStore) GetFieldAccessesAt(ctx context.Context, filePath string, line int, fieldName string) ([]FieldAccess, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT fa.class_id, fa.node_id, fa.field_name, fa.kind, fa.line
+		  FROM field_accesses fa
+		  JOIN nodes n ON fa.node_id = n.id
+		 WHERE n.file_path = ? AND fa.line = ? AND fa.field_name = ?
+		 ORDER BY fa.class_id`,
+		filePath, line, fieldName)
+	if err != nil {
+		return nil, fmt.Errorf("codegraph: GetFieldAccessesAt: %w", err)
+	}
+	defer rows.Close()
+
+	var out []FieldAccess
+	for rows.Next() {
+		var fa FieldAccess
+		if err := rows.Scan(&fa.ClassID, &fa.NodeID, &fa.FieldName, &fa.Kind, &fa.Line); err != nil {
+			return nil, fmt.Errorf("codegraph: scan field access: %w", err)
+		}
+		out = append(out, fa)
+	}
+	return out, rows.Err()
+}
+
 func (s *sqliteStore) GetFieldAccesses(ctx context.Context, classID, fieldName string) ([]FieldAccess, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT class_id, node_id, field_name, kind, line FROM field_accesses WHERE class_id = ? AND field_name = ? ORDER BY line`,
@@ -698,6 +753,36 @@ func (s *sqliteStore) ListFields(ctx context.Context, nodeID string) ([]FieldRef
 	return out, rows.Err()
 }
 
+// GetCallSitesAt joins through nodes for the same reason GetFieldAccessesAt
+// does: call_sites has no file_path of its own, only from_id, so the join is
+// what lets a caller ask "what is called from this exact line of this exact
+// file" without first looking up which node encloses the line. Not deduped —
+// FindDefinitions' call-site tier wants every call expression on the line,
+// including two calls to the same-named method.
+func (s *sqliteStore) GetCallSitesAt(ctx context.Context, filePath string, line int) ([]CallSite, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT cs.from_id, cs.to_id, cs.line, cs.unresolved
+		  FROM call_sites cs
+		  JOIN nodes n ON cs.from_id = n.id
+		 WHERE n.file_path = ? AND cs.line = ?
+		 ORDER BY cs.to_id`,
+		filePath, line)
+	if err != nil {
+		return nil, fmt.Errorf("codegraph: GetCallSitesAt: %w", err)
+	}
+	defer rows.Close()
+
+	var out []CallSite
+	for rows.Next() {
+		var c CallSite
+		if err := rows.Scan(&c.From, &c.To, &c.Line, &c.Unresolved); err != nil {
+			return nil, fmt.Errorf("codegraph: scan call site: %w", err)
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
 // GetCallSites returns every call expression in one method, in source order.
 // Repeats are preserved: a method that calls the same target twice has two
 // rows, and losing one would put the trace's events in the wrong order.
@@ -745,4 +830,25 @@ func (s *sqliteStore) FindNodeAtLine(ctx context.Context, filePath string, line 
 		return Node{}, false, fmt.Errorf("codegraph: unmarshal params for node %q: %w", n.ID, err)
 	}
 	return n, true, nil
+}
+
+// FindNodesByName is a candidate filter, not the authority on the match: a
+// label is "typeId.methodName" for a method or the bare qualified name for a
+// class (see ProjectAnalyzer's node-id doc comment), so "label = identifier OR
+// label LIKE '%.identifier'" already excludes an unrelated method like
+// "listAll" when identifier is "list". It is still only a pre-filter because
+// SQLite's LIKE is case-insensitive for ASCII regardless of column collation,
+// while FindDefinitions' contract is case-sensitive — callers must re-check
+// every row against matchesIdentifier, the single authoritative definition of
+// "does this label name that identifier", before trusting a match.
+func (s *sqliteStore) FindNodesByName(ctx context.Context, identifier string) ([]Node, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, label, kind, layer, file_path, line, end_line, summary, params FROM nodes
+		 WHERE label = ? OR label LIKE ? ESCAPE '\'
+		 ORDER BY id`,
+		identifier, "%."+escapeLike(identifier))
+	if err != nil {
+		return nil, fmt.Errorf("codegraph: FindNodesByName: %w", err)
+	}
+	return scanNodes(rows)
 }
