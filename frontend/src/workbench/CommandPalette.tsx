@@ -186,8 +186,11 @@ export function CommandPalette({
     >
       <CommandInput value={query} onValueChange={setQuery} placeholder={palettePlaceholder(search?.noun)} />
       {/* Taller than a picker's list: this one holds several groups at once,
-          and at the primitive's 20rem the second group starts below the fold. */}
-      <CommandList ref={listRef} className="max-h-[min(56vh,28rem)]">
+          and at the primitive's 20rem the second group starts below the fold.
+          No vh here — fitting the window is the dialog's job (command.tsx caps
+          the whole column), and a second guess at it only made the list
+          shorter than the room it had. */}
+      <CommandList ref={listRef} className="max-h-[28rem]">
         {empty && !searching ? (
           <CommandEmpty title={emptyMessage.title}>{emptyMessage.body}</CommandEmpty>
         ) : null}

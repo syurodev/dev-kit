@@ -80,7 +80,15 @@ function CommandDialog({
           // shortcuts against the edge). The min() keeps the 1rem gutters the
           // dialog's own max-w gave a narrow window, which a bare 640px would
           // have overridden.
-          "top-1/3 translate-y-0 overflow-hidden rounded-float! p-0 border-none bg-transparent shadow-none w-[640px] max-w-[min(640px,calc(100%-2rem))] sm:max-w-[min(640px,calc(100%-2rem))]",
+          // Up by the titlebar, where Spotlight and an editor's quick-open
+          // sit, not a third of the way down: it is a way to go somewhere, so
+          // it belongs where the eye already is for navigation, and from there
+          // it has most of the window for its list. 3.5rem is the 40px
+          // titlebar plus a 1rem gap.
+          //
+          // One variable, because two numbers have to agree: where the dialog
+          // starts, and how tall the column inside may be (below).
+          "[--command-top:3.5rem] top-(--command-top) translate-y-0 overflow-hidden rounded-float! p-0 border-none bg-transparent shadow-none w-[640px] max-w-[min(640px,calc(100%-2rem))] sm:max-w-[min(640px,calc(100%-2rem))]",
           className
         )}
         showCloseButton={showCloseButton}
@@ -89,13 +97,13 @@ function CommandDialog({
             640px it would overflow a narrower dialog and be clipped again.
 
             The height is capped at what is left of the window below the
-            dialog's top-1/3, less a 1rem gutter. A list's own max-height knows
+            dialog's top, less a 1rem gutter. A list's own max-height knows
             nothing about where the dialog starts: a 28rem list under a 56px
             input, starting a third of the way down a 640px window, ran off the
             bottom and took the footer with it. Capping the column instead
             works for any list — the input and footer do not shrink, so the
             list gives way and scrolls inside. */}
-        <Command className="w-full max-h-[calc(66.667vh-1rem)]" {...commandProps}>
+        <Command className="w-full max-h-[calc(100vh-var(--command-top)-1rem)]" {...commandProps}>
           {children}
         </Command>
       </DialogContent>
