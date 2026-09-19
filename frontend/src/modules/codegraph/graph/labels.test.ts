@@ -29,3 +29,19 @@ test("a default-package method is left alone rather than losing its class", () =
 test("an unknown kind is treated as a class, not dropped", () => {
   expect(shortLabel("com.acme.Thing", "")).toBe("Thing");
 });
+
+// ProjectAnalyzer.Index.uniqueId (analyzer/.../ProjectAnalyzer.java) qualifies
+// a colliding class id — and, since a class's label is its id, its label too
+// — with " [module]" rather than dropping one of the two. Dots and brackets
+// are stripped from the qualifier before it is inserted, so it never adds a
+// new "." for split() to trip over; these pin that the bracket survives
+// intact rather than being cut in half or swallowed.
+test("a collision-qualified class label keeps its bracket", () => {
+  expect(shortLabel("com.acme.Application [services_billing]", "class")).toBe("Application [services_billing]");
+});
+
+test("a method on a collision-qualified class reads Class [module].method", () => {
+  expect(shortLabel("com.acme.Application [services_billing].create", "method")).toBe(
+    "Application [services_billing].create",
+  );
+});

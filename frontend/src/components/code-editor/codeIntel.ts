@@ -113,6 +113,25 @@ export function baselineLineAt(baseline: CodeIntelBaseline, pos: number): number
   return baseline.doc.lineAt(basePos).number;
 }
 
+/**
+ * baselineLineAt's inverse: the 1-based line in `currentDoc` that baseline
+ * line `baselineLine` now falls on. A lookup result naming a location in the
+ * very file whose buffer is dirty is naming a BASELINE line — the index only
+ * ever describes the last saved text — so it has to be re-mapped through
+ * every edit made since before it means anything to the buffer on screen.
+ *
+ * `baselineLine` is clamped to the baseline document's own line count first:
+ * a provider is not required to only ever answer with lines that existed at
+ * the baseline (in practice they always do, but a stale index answering
+ * about a line since deleted should not throw).
+ */
+export function currentLineAt(baseline: CodeIntelBaseline, baselineLine: number, currentDoc: Text): number {
+  const clampedLine = Math.min(Math.max(baselineLine, 1), baseline.doc.lines);
+  const basePos = baseline.doc.line(clampedLine).from;
+  const pos = Math.min(baseline.sinceBaseline.mapPos(basePos), currentDoc.length);
+  return currentDoc.lineAt(pos).number;
+}
+
 const resetCodeIntelBaseline = StateEffect.define();
 
 const baselineField = StateField.define<CodeIntelBaseline>({
@@ -395,6 +414,20 @@ export function codeIntel(config: CodeIntelConfig): Extension {
         if (this.view.state.field(hoverField, false)) this.view.dispatch({ effects: setHoverRange.of(null) });
       }
 
+      /**
+       * A provider answers in terms of the SAVED file — so a location naming
+       * the file this very editor has open needs its line re-mapped through
+       * whatever has been typed since the baseline before it means anything
+       * on screen. Every other location is left alone: the index's line
+       * already is the line on disk for a file this editor isn't editing.
+       */
+      resolveLocation(location: CodeLocation): CodeLocation {
+        if (location.path !== config.path) return location;
+        const baseline = this.view.state.field(baselineField);
+        const line = currentLineAt(baseline, location.line, this.view.state.doc);
+        return line === location.line ? location : { ...location, line };
+      }
+
       async goToDefinition(pos: number, beside: boolean) {
         const definition = config.provider.definition;
         if (!definition) return;
@@ -431,8 +464,14 @@ export function codeIntel(config: CodeIntelConfig): Extension {
 
         if (this.destroyed || seq !== this.requestSeq) return;
 
-        if (locations.length === 1) {
-          config.onNavigate(locations[0], { beside });
+        // Resolved once, up front, so the tooltip's own path:line text (below)
+        // and whatever onNavigate actually receives always agree — a location
+        // in the file open right now is never shown at one line and jumped to
+        // at another.
+        const resolved = locations.map((location) => this.resolveLocation(location));
+
+        if (resolved.length === 1) {
+          config.onNavigate(resolved[0], { beside });
           return;
         }
         // The document may have been edited while the lookup was out, and a
@@ -442,7 +481,7 @@ export function codeIntel(config: CodeIntelConfig): Extension {
         const tooltipPos = Math.min(anchor, view.state.doc.length);
         view.dispatch({
           effects: setCodeIntelTooltip.of(
-            locations.length === 0
+            resolved.length === 0
               ? {
                   kind: "message",
                   pos: tooltipPos,
@@ -451,7 +490,7 @@ export function codeIntel(config: CodeIntelConfig): Extension {
               : {
                   kind: "picker",
                   pos: tooltipPos,
-                  items: locations,
+                  items: resolved,
                   selected: 0,
                   beside,
                   onNavigate: config.onNavigate,

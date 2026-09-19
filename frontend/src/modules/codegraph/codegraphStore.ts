@@ -52,6 +52,13 @@ export type FileBuffer = {
   error: string;
   /** The line to reveal, if it was opened at one. */
   line: number | null;
+  /**
+   * Bumped each time `line` is set by a navigation, even to the line it
+   * already held. Going to the same definition twice is two requests, and the
+   * editor's reveal is keyed on (line, token) so it sees both (RevealTarget in
+   * CodeEditor.tsx).
+   */
+  revealToken: number;
 };
 
 type CodeGraphState = {

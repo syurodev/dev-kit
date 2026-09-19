@@ -93,6 +93,44 @@ export async function searchCodeGraphSymbol(query: string): Promise<CodeGraphSym
   });
 }
 
+/**
+ * One place the symbol under the cursor may be defined — mirrors Go's
+ * Definition (internal/codegraph/definitions.go). `filePath` is
+ * project-relative, the same form the Files tab already uses, and `label` is
+ * the node's fully-qualified label ("com.acme.OrderService.create"), not
+ * shortened for display — that is the caller's job.
+ */
+export type CodeGraphDefinition = {
+  nodeId: string;
+  label: string;
+  kind: string;
+  filePath: string;
+  line: number;
+};
+
+/**
+ * Go-to-definition for the identifier under the cursor at filePath:line. Not
+ * found is a normal empty result, not an error (see FindDefinitions' doc
+ * comment) — several results is also normal, an ambiguous overload or an
+ * unresolved fallback match.
+ */
+export async function findCodeGraphDefinitions(
+  filePath: string,
+  line: number,
+  identifier: string,
+): Promise<CodeGraphDefinition[]> {
+  return callBridge(async () => {
+    const list = await AppService.CodeGraphFindDefinitions(filePath, line, identifier);
+    return (list ?? []).map((d) => ({
+      nodeId: d.nodeId,
+      label: d.label,
+      kind: d.kind,
+      filePath: d.filePath,
+      line: d.line,
+    }));
+  });
+}
+
 export type CodeGraphFileEntry = {
   path: string;
   isDir: boolean;
