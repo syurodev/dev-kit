@@ -651,3 +651,108 @@ return M
 		t.Errorf("expected both fields, got %v", names)
 	}
 }
+
+// The patterns real OpenResty and Kong code is written in, and what each one
+// costs. This is the test that says how good "good enough" is: parsing Lua is
+// settled, and everything that is still hard about a Lua index is resolution.
+//
+// Pinned as assertions rather than left as a benchmark because the interesting
+// number is not the percentage, it is WHICH call is missed. Of the calls that
+// could resolve at all, the only one that does not is dispatch through a table
+// indexed at run time — and no static tool resolves that, in any language.
+func TestLuaAnalyzerOnThePatternsRealKongCodeUses(t *testing.T) {
+	result := analyzeLua(t, map[string]string{
+		"kong/plugins/hard/handler.lua": `
+local policies = require "kong.plugins.hard.policies"
+local util     = require "kong.plugins.hard.util"
+local cjson    = require "cjson"
+local Session  = require "kong.plugins.hard.session"
+
+local H = { PRIORITY = 10, VERSION = "1.0" }
+
+function H:access(conf)
+  util.normalise(conf)
+
+  -- Dispatch through a table indexed by configuration: undecidable.
+  local policy = policies[conf.policy]
+  policy.incr(conf.key)
+
+  -- A closure handed to a library, whose body is still this project's.
+  local ok, err = pcall(function()
+    util.validate(conf)
+  end)
+
+  -- A callback handed to the runtime, same story.
+  ngx.timer.at(0, function(premature)
+    util.flush()
+  end)
+
+  local decoded = cjson.decode(conf.body)
+  return decoded.id
+end
+
+function H:log(conf)
+  local s = Session.new(conf)
+  s:close()
+  local another = Session:new(conf)
+  another:close()
+end
+
+return H
+`,
+		"kong/plugins/hard/policies.lua": `
+local redis = require "resty.redis"
+local M = {}
+M.redis = { incr = function(key) return redis:new():incr(key) end }
+M.local_ = { incr = function(key) return 1 end }
+return M
+`,
+		"kong/plugins/hard/util.lua": `
+local M = {}
+function M.normalise(conf) end
+function M.validate(conf) end
+function M.flush() end
+return M
+`,
+		"kong/plugins/hard/session.lua": `
+local Session = {}
+Session.__index = Session
+function Session.new(conf) return setmetatable({ conf = conf }, Session) end
+function Session:close() self.closed = true end
+return Session
+`,
+	})
+
+	// A closure is not a node, so the calls inside one belong to the function
+	// that wrote it — both when a library is holding the closure (pcall) and
+	// when the runtime is (ngx.timer.at).
+	for _, target := range []string{
+		"kong.plugins.hard.util.normalise",
+		"kong.plugins.hard.util.validate",
+		"kong.plugins.hard.util.flush",
+	} {
+		if !hasEdge(result, "kong.plugins.hard.handler.access", target, "call") {
+			t.Errorf("expected access to reach %s", target)
+		}
+	}
+
+	// setmetatable OOP, reached both ways people write the constructor.
+	if !hasEdge(result, "kong.plugins.hard.handler.log", "kong.plugins.hard.session.new", "call") {
+		t.Error("expected the constructor call to resolve")
+	}
+	if got := countCallSites(result, "kong.plugins.hard.handler.log", "kong.plugins.hard.session.close"); got != 2 {
+		t.Errorf("calls reaching Session.close = %d, want 2 — one per constructor form", got)
+	}
+
+	// And the honest ledger: everything outside the project reads as a wall,
+	// and exactly one call is a genuine gap.
+	gaps := 0
+	for _, site := range result.CallSites {
+		if site.Unresolved == "unresolved" {
+			gaps++
+		}
+	}
+	if gaps != 1 {
+		t.Errorf("genuine gaps = %d, want exactly the one dynamic dispatch; %+v", gaps, result.CallSites)
+	}
+}

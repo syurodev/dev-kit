@@ -298,3 +298,72 @@ func TestDeepNestingIsBoundedRatherThanFatal(t *testing.T) {
 		t.Error("expected a diagnostic rather than an unbounded parse")
 	}
 }
+
+// The corners real Lua actually has. Each of these is something that either
+// broke a parser somewhere or reads like it should: the call forms with no
+// parentheses, the two places Lua's scoping surprises people, the operators
+// added in 5.3 and 5.4, and the literal forms LuaJIT added to 5.1.
+//
+// A table rather than a test apiece because what matters is the count: a
+// parser is judged by how few of these it gets wrong, and a list is how you
+// see that at a glance.
+func TestParsesTheCornersOfRealLua(t *testing.T) {
+	cases := map[string]string{
+		"method call with a string argument":                         `require"x" local a = obj:method"lit"`,
+		"call with a table argument":                                 `describe{ name = "x" }`,
+		"chained call results":                                       `local v = f():g():h().field`,
+		"long bracket holding a short one":                           "local s = [==[ has ]] inside ]==]",
+		"long comment inside an expression":                          `local x = y --[[mid]] + z`,
+		"label and goto":                                             `::top:: goto top`,
+		"a local declared in a repeat body is in scope in its until": `repeat local x = 1 until x == 1`,
+		"stacked unary operators":                                    `local a = - -5 local b = not not x local c = #{1,2}`,
+		"power binds tighter than unary minus":                       `local a = 2^-3 local b = -2^2`,
+		"every table field form at once":                             `local t = {[1]=1, 2, 3; x=4, ["y"]=5,}`,
+		"numeric literal corners":                                    `local a,b,c,d,e = 0xA.8p1, 3., .5, 1e+10, 0XfF`,
+		"a deeply qualified method declaration":                      `function t.a.b.c:d(...) return ... end`,
+		"varargs in a table and in a call":                           `local function f(...) return {...}, select("#", ...) end`,
+		"semicolons where nothing needs them":                        `;;local a = 1;;; return a;`,
+		"a call on a parenthesised expression":                       `local x = (f or g)()`,
+		"assignment through an index chain":                          `a.b["c"].d = 1`,
+		"a method call split across lines":                           "obj\n  :method()\n  ",
+		"the 5.3 and 5.4 operators":                                  `local a = (1 & 2) | (3 ~ 4) // 5 >> 6 << 7`,
+		"both 5.4 attributes":                                        `local a <const> = 1 local b <close> = nil`,
+		"LuaJIT integer literals":                                    `local a, b = 1LL, 0xffULL`,
+		"every string escape":                                        "local s = \"a\\tb\\\\c\\\"d\\65\\x41\\u{48}\\z\n   e\"",
+		"closures three deep":                                        `local f = function() return function() return function() end end end`,
+		"an if with several elseifs":                                 `if a then elseif b then elseif c then else end`,
+		"a generic for over three names":                             `for k, v, w in pairs(t) do end`,
+		"a numeric for counting down":                                `for i = 10, 1, -1 do end`,
+		"a bare return":                                              `local function f() return end`,
+		"a call statement that is a whole chain":                     `a.b.c:d().e:f()`,
+		"a comment with no newline after it":                         `local a = 1 -- trailing`,
+		"CRLF line endings":                                          "local a = 1\r\nlocal b = 2\r\n",
+		"the OpenResty module preamble": "local _M = { _VERSION = '0.1' }\n" +
+			"function _M.new(self, o) return setmetatable(o or {}, {__index = self}) end\nreturn _M",
+	}
+
+	for name, src := range cases {
+		chunk := Parse(src)
+		if len(chunk.Diagnostics) > 0 {
+			t.Errorf("%s: line %d: %s", name, chunk.Diagnostics[0].Line, chunk.Diagnostics[0].Message)
+			continue
+		}
+		if len(chunk.Block) == 0 {
+			t.Errorf("%s: parsed clean but produced no statements", name)
+		}
+	}
+}
+
+// A known gap, pinned so nobody has to rediscover it.
+//
+// `goto` became a keyword in Lua 5.2, so `local goto = 1` is valid 5.1 and is
+// rejected here. It stays rejected: LuaJIT — which is what Kong, OpenResty and
+// Neovim all run — backported goto as a keyword, so the code this analyzer
+// exists to read cannot use the name either. Accepting it would mean deciding
+// per file which dialect is in front of us, from a file that does not say.
+func TestGotoIsAlwaysAKeyword(t *testing.T) {
+	chunk := Parse(`local goto = 1`)
+	if len(chunk.Diagnostics) == 0 {
+		t.Error("goto is expected to be a keyword; if this now parses, the comment above is stale")
+	}
+}
