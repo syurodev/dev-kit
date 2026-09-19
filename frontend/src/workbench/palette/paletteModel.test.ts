@@ -1,6 +1,14 @@
 import { describe, expect, it } from "bun:test";
 import { Database, Network, Wrench } from "lucide-react";
-import { composeSections, palettePlaceholder, staticSections, type PaletteInput, type PaletteModule } from "./paletteModel";
+import {
+  composeSections,
+  paletteEmptyMessage,
+  palettePlaceholder,
+  parseQuery,
+  staticSections,
+  type PaletteInput,
+  type PaletteModule,
+} from "./paletteModel";
 
 const noop = () => {};
 
@@ -125,5 +133,51 @@ describe("palettePlaceholder", () => {
   it("names what the module in front can be searched for", () => {
     expect(palettePlaceholder("tables and connections")).toBe("Search tables and connections, commands, modules…");
     expect(palettePlaceholder(undefined)).toBe("Search commands, modules…");
+  });
+});
+
+describe("parseQuery", () => {
+  it("reads a leading > or @ as a scope and leaves the rest as the text", () => {
+    expect(parseQuery(">re-index")).toEqual({ scope: "commands", text: "re-index" });
+    expect(parseQuery("@ orders ")).toEqual({ scope: "module", text: "orders" });
+    expect(parseQuery("  >")).toEqual({ scope: "commands", text: "" });
+    expect(parseQuery("orders")).toEqual({ scope: "all", text: "orders" });
+  });
+
+  it("only means it at the start", () => {
+    expect(parseQuery("a>b")).toEqual({ scope: "all", text: "a>b" });
+    expect(parseQuery("user@host")).toEqual({ scope: "all", text: "user@host" });
+  });
+});
+
+describe("scopes", () => {
+  it("> lists every module's commands, the one in front first, and nothing else", () => {
+    expect(sections({ scope: "commands" })).toEqual([
+      { heading: "Database", rows: ["New console", "Re-index schema"] },
+      { heading: "Agent Hub", rows: ["Cancel turn"] },
+      { heading: "Code Graph", rows: ["Re-index Code Graph project"] },
+    ]);
+  });
+
+  it("> with text filters commands and never offers a module or a tab", () => {
+    const tabs = [{ id: "t1", moduleId: "codegraph", title: "Code.java" }];
+    expect(sections({ scope: "commands", query: "code", tabs })).toEqual([
+      { heading: "Code Graph", rows: ["Re-index Code Graph project"] },
+    ]);
+  });
+
+  it("@ offers nothing fixed: only the module's own search belongs there", () => {
+    expect(sections({ scope: "module", query: "console" })).toEqual([]);
+  });
+});
+
+describe("paletteEmptyMessage", () => {
+  it("tells a module with nothing to search apart from a search that found nothing", () => {
+    expect(paletteEmptyMessage("module", "SSH", undefined).title).toBe("SSH has nothing to search");
+    expect(paletteEmptyMessage("module", "Database", "tables and connections").title).toBe(
+      "No tables and connections found",
+    );
+    expect(paletteEmptyMessage("commands", "Database", "tables").title).toBe("No command matches");
+    expect(paletteEmptyMessage("all", "Database", undefined).body).toBe("No command, module or open tab matches.");
   });
 });

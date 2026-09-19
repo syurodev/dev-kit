@@ -16,7 +16,9 @@ import { allOpenTabs, useWorkbenchTabsStore } from "@/stores/workbenchTabs";
 import { shortcut } from "@/lib/shortcut";
 import {
   composeSections,
+  paletteEmptyMessage,
   palettePlaceholder,
+  parseQuery,
   staticSections,
   type PaletteModule,
   type PaletteRow,
@@ -76,9 +78,12 @@ export function CommandPalette({
   }, [open]);
 
   const search = activeModuleId ? getModule(activeModuleId)?.paletteSearch : undefined;
+  // ">" and "@" narrow what is asked; `text` is what is matched.
+  const { scope, text } = useMemo(() => parseQuery(query), [query]);
 
   useEffect(() => {
-    if (!open || !search) {
+    // ">" is commands only: the module is not asked at all.
+    if (!open || !search || scope === "commands") {
       setFound([]);
       setSearching(false);
       return;
@@ -89,7 +94,7 @@ export function CommandPalette({
     const timer = setTimeout(
       () => {
         search
-          .search(query.trim(), controller.signal)
+          .search(text, controller.signal)
           // A module's search failing is that module's problem, and must not
           // cost the commands and modules underneath it.
           .catch(() => [] as PaletteSearchGroup[])
@@ -99,13 +104,15 @@ export function CommandPalette({
             setSearching(false);
           });
       },
-      query ? SEARCH_DEBOUNCE_MS : 0,
+      text ? SEARCH_DEBOUNCE_MS : 0,
     );
     return () => {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [open, search, query]);
+    // On text and scope, not the raw query: typing the "@" itself, or a space
+    // after it, is not a new question for the module.
+  }, [open, search, scope, text]);
 
   const paletteModules = useMemo<PaletteModule[]>(
     () =>
@@ -135,11 +142,11 @@ export function CommandPalette({
         !(tab.preview && getModule(tab.moduleId)?.views[0]?.id === tab.viewId),
     );
     const fixed = staticSections(
-      { query, activeModuleId, modules: paletteModules, tabs },
+      { query: text, scope, activeModuleId, modules: paletteModules, tabs },
       { focusModule: onFocusModule, activateTab: (id) => useWorkbenchTabsStore.getState().setActiveTab(id) },
     );
-    return composeSections(query, activeModuleId, fixed, found);
-  }, [query, activeModuleId, paletteModules, tabModules, found, onFocusModule]);
+    return composeSections(text, activeModuleId, fixed, scope === "commands" ? [] : found);
+  }, [text, scope, activeModuleId, paletteModules, tabModules, found, onFocusModule]);
 
   // The list keeps its scroll between queries otherwise, so new results could
   // open scrolled past their own first row.
@@ -149,6 +156,15 @@ export function CommandPalette({
 
   const activeModule = paletteModules.find((module) => module.id === activeModuleId);
   const empty = sections.length === 0;
+  const emptyMessage = paletteEmptyMessage(scope, activeModule?.title, search?.noun);
+  // What the list is scoped to, for the footer: the prefixes are invisible
+  // until someone knows them, so the unscoped footer is where they are taught.
+  const scopeLabel =
+    scope === "commands"
+      ? "Commands"
+      : scope === "module"
+        ? `Only ${activeModule?.title ?? "this module"}`
+        : null;
 
   function pick(row: PaletteRow) {
     // Closed first: a command that opens a dialog of its own must not find
@@ -171,9 +187,7 @@ export function CommandPalette({
           and at the primitive's 20rem the second group starts below the fold. */}
       <CommandList ref={listRef} className="max-h-[min(56vh,28rem)]">
         {empty && !searching ? (
-          <CommandEmpty title="Nothing found">
-            {search ? `No ${search.noun}, command, module or open tab matches.` : "No command, module or open tab matches."}
-          </CommandEmpty>
+          <CommandEmpty title={emptyMessage.title}>{emptyMessage.body}</CommandEmpty>
         ) : null}
         {empty && searching ? (
           <p className="px-3 pt-10 pb-12 text-center text-body-13 text-text-tertiary">Searching {search?.noun}…</p>
@@ -187,12 +201,18 @@ export function CommandPalette({
         ))}
       </CommandList>
       <CommandFooter>
-        {activeModule ? (
-          <>
-            <activeModule.icon className="size-3.5 shrink-0" aria-hidden />
-            <span className="truncate">{searching ? `Searching ${activeModule.title}…` : activeModule.title}</span>
-          </>
-        ) : null}
+        {scopeLabel ? (
+          <span className="truncate text-text-secondary">{searching ? `Searching ${activeModule?.title}…` : scopeLabel}</span>
+        ) : searching && activeModule ? (
+          <span className="truncate">Searching {activeModule.title}…</span>
+        ) : (
+          // The module's name rather than its noun: "endpoints, files and
+          // symbols" beside the key hints does not fit in 640px, and the name
+          // is what "@" is scoped to anyway. No "@" hint where it finds nothing.
+          <span className="whitespace-pre">
+            {search && activeModule ? `>  commands   ·   @  ${activeModule.title}` : ">  commands"}
+          </span>
+        )}
       </CommandFooter>
     </CommandDialog>
   );
