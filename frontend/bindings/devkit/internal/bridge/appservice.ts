@@ -486,6 +486,27 @@ export function CodeGraphFindDefinitions(filePath: string, line: number, identif
     return $Call.ByID(3562533088, filePath, line, identifier);
 }
 
+/**
+ * CodeGraphFindImplementations answers "find implementations" for the
+ * identifier under the cursor at filePath:line: the concrete methods that
+ * implement it (asked on an interface/abstract method) or the classes that
+ * implement it (asked on an interface/abstract class). Not found is a
+ * normal, non-error result (an empty slice).
+ */
+export function CodeGraphFindImplementations(filePath: string, line: number, identifier: string): $CancellablePromise<codegraph$0.Definition[] | null> {
+    return $Call.ByID(880796049, filePath, line, identifier);
+}
+
+/**
+ * CodeGraphFindReferences answers "find references" for the identifier under
+ * the cursor at filePath:line: every other place in the project that uses
+ * it. Not found is a normal, non-error result (an empty slice), the same
+ * contract as CodeGraphFindDefinitions.
+ */
+export function CodeGraphFindReferences(filePath: string, line: number, identifier: string): $CancellablePromise<codegraph$0.Reference[] | null> {
+    return $Call.ByID(1051923404, filePath, line, identifier);
+}
+
 export function CodeGraphGetApiFlow(endpointID: string): $CancellablePromise<codegraph$0.ApiFlow> {
     return $Call.ByID(3432526133, endpointID);
 }

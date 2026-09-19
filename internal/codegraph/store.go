@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS call_sites (
 	unresolved TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_call_sites_from ON call_sites(from_id);
+CREATE INDEX IF NOT EXISTS idx_call_sites_to ON call_sites(to_id);
 CREATE TABLE IF NOT EXISTS plan_node_comments (
 	plan_node_id TEXT NOT NULL,
 	comment_id   TEXT NOT NULL PRIMARY KEY,
@@ -769,6 +770,33 @@ func (s *sqliteStore) GetCallSitesAt(ctx context.Context, filePath string, line 
 		filePath, line)
 	if err != nil {
 		return nil, fmt.Errorf("codegraph: GetCallSitesAt: %w", err)
+	}
+	defer rows.Close()
+
+	var out []CallSite
+	for rows.Next() {
+		var c CallSite
+		if err := rows.Scan(&c.From, &c.To, &c.Line, &c.Unresolved); err != nil {
+			return nil, fmt.Errorf("codegraph: scan call site: %w", err)
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// GetCallSitesTo returns every call site whose to_id is toID — the reverse
+// of GetCallSites (by caller) and GetCallSitesAt (by exact location).
+// FindReferences' method tier needs exactly this direction ("who calls this
+// method"), which neither of those answers: GetCallSitesAt needs a location
+// under the cursor, GetCallSites needs the CALLER's own ID. idx_call_sites_to
+// keeps this side of the join as cheap as idx_call_sites_from already made
+// the from_id side.
+func (s *sqliteStore) GetCallSitesTo(ctx context.Context, toID string) ([]CallSite, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT from_id, to_id, line, unresolved FROM call_sites WHERE to_id = ? ORDER BY from_id, line`,
+		toID)
+	if err != nil {
+		return nil, fmt.Errorf("codegraph: GetCallSitesTo: %w", err)
 	}
 	defer rows.Close()
 

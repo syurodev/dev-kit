@@ -1321,6 +1321,23 @@
   flex-direction: column;
   min-width: 220px;
   max-width: 420px;
+}
+
+/* Non-selectable, does not scroll with the list below it — a picker that can
+ * hold dozens of rows (references) still keeps "N references to X" in view
+ * while the rows themselves scroll past it. */
+.cm-surfaceless .cm-code-intel-picker-header {
+  flex: none;
+  padding: var(--space-micro) var(--space-inline);
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-tertiary);
+  font-family: var(--font-sans);
+  font-size: var(--type-micro-size);
+}
+
+.cm-surfaceless .cm-code-intel-list {
+  display: flex;
+  flex-direction: column;
   max-height: 16rem;
   overflow: auto;
 }
@@ -1333,6 +1350,14 @@
   border-radius: var(--radius-sm);
   color: var(--text-secondary);
   cursor: pointer;
+}
+
+/* A row with a `preview` reads as two stacked lines (the source line, then
+ * where it's from) instead of the label/kind/path single row below. */
+.cm-surfaceless .cm-code-intel-option-with-preview {
+  flex-direction: column;
+  align-items: stretch;
+  gap: calc(var(--space-micro) / 2);
 }
 
 /* Hover and keyboard selection read the same way on purpose — see the
@@ -1360,6 +1385,37 @@
   font-size: var(--type-micro-size);
 }
 
+/* The source line itself — mono, one line, ellipsis past the editor's edge. */
+.cm-surfaceless .cm-code-intel-option-preview {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-secondary);
+  font-family: var(--code-font-family, var(--font-mono));
+  font-size: var(--type-compact-size);
+}
+
+/* Reset the browser's own yellow highlight box — this uses <mark> for its
+ * semantics (an emphasised span within text), not its stock look. */
+.cm-surfaceless .cm-code-intel-option-preview-match {
+  background-color: transparent;
+  color: var(--brand-text);
+  font-weight: 600;
+}
+
+/* "label · path:line" underneath a preview — same front-truncation trick as
+ * .cm-code-intel-option-path below, for the same reason. */
+.cm-surfaceless .cm-code-intel-option-meta {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+  color: var(--text-tertiary);
+  font-family: var(--code-font-family, var(--font-mono));
+  font-size: var(--type-micro-size);
+}
+
 /* Front-truncated path, in CSS alone: setting the block's own paragraph
  * direction to RTL moves the overflow ellipsis to where text overflows,
  * which is now the FRONT — so a long path loses its lead-in and keeps the
@@ -1380,6 +1436,68 @@
   color: var(--text-tertiary);
   font-family: var(--code-font-family, var(--font-mono));
   font-size: var(--type-micro-size);
+}
+
+/* The file this editor has open reads as "this file" rather than repeating
+ * its own path back — italic is the whole marking, subtle on purpose. */
+.cm-surfaceless .cm-code-intel-option-current-file .cm-code-intel-option-path,
+.cm-surfaceless .cm-code-intel-option-current-file .cm-code-intel-option-meta {
+  font-style: italic;
+}
+
+/* The right-click menu: same tooltip shell as the picker/message, styled to
+ * match the app's own ContextMenu/DropdownMenu (components/ui/menu-row.tsx)
+ * so it doesn't read as a foreign widget — same row height and radius, same
+ * hover/selection tint, shortcut text in the same quiet, small type. */
+.cm-surfaceless .cm-code-intel-menu {
+  display: flex;
+  flex-direction: column;
+  min-width: 220px;
+}
+
+.cm-surfaceless .cm-code-intel-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-inline);
+  height: 1.75rem;
+  padding: 0 var(--space-inline);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--type-compact-size);
+  cursor: pointer;
+}
+
+.cm-surfaceless .cm-code-intel-menu-item:hover,
+.cm-surfaceless .cm-code-intel-menu-item-selected {
+  background-color: var(--state-soft);
+}
+
+.cm-surfaceless .cm-code-intel-menu-item[aria-disabled="true"] {
+  color: var(--text-tertiary);
+  cursor: default;
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+.cm-surfaceless .cm-code-intel-menu-item-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cm-surfaceless .cm-code-intel-menu-item-shortcut {
+  flex: none;
+  color: var(--text-tertiary);
+  font-family: var(--code-font-family, var(--font-mono));
+  font-size: var(--type-micro-size);
+}
+
+.cm-surfaceless .cm-code-intel-menu-separator {
+  height: 1px;
+  margin: var(--space-micro) 0;
+  background-color: var(--border-subtle);
 }
 
 /* React Flow animates edge dashes with a CSS keyframe on every edge at once.

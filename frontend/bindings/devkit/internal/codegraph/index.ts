@@ -24,6 +24,7 @@ export type {
     PlanNode,
     PlanNodeProgress,
     PlanProgress,
+    Reference,
     Requirement,
     Subgraph,
     SymbolMatch,

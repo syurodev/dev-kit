@@ -1,5 +1,11 @@
 import type { CodeIntelProvider, CodeIntelRequest, CodeLocation } from "@/components/code-editor/codeIntel";
-import { findCodeGraphDefinitions, type CodeGraphDefinition } from "@/bridge/codegraph";
+import {
+  findCodeGraphDefinitions,
+  findCodeGraphImplementations,
+  findCodeGraphReferences,
+  type CodeGraphDefinition,
+  type CodeGraphReference,
+} from "@/bridge/codegraph";
 import { shortLabel } from "./graph/labels";
 
 /**
@@ -19,6 +25,23 @@ function toCodeLocation(definition: CodeGraphDefinition): CodeLocation {
 }
 
 /**
+ * A reference's label is the method the use sits in, and its kind is how the
+ * symbol is used there ("call", "read", "write", "inject") — not what the
+ * enclosing node is, which shortLabel still needs to be told: everything that
+ * can hold a use is a method, except the class an injection is declared on.
+ */
+function referenceToCodeLocation(reference: CodeGraphReference): CodeLocation {
+  return {
+    path: reference.filePath,
+    line: reference.line,
+    label: shortLabel(reference.label, reference.kind === "inject" ? "class" : "method"),
+    kind: reference.kind,
+    // An unreadable file leaves code empty; no preview is better than a blank one.
+    ...(reference.code ? { preview: reference.code } : {}),
+  };
+}
+
+/**
  * codeIntel.ts's provider interface, backed by the codegraph index's
  * FindDefinitions (internal/codegraph/definitions.go). `request.line` is
  * passed straight through as the SAVED-file line codeIntel.ts already
@@ -34,6 +57,14 @@ export function createCodeGraphIntelProvider(): CodeIntelProvider {
       // this provider can do: a result for a lookup nobody is waiting for
       // anymore is dropped instead of handed back to open a stale tooltip.
       return signal.aborted ? [] : definitions.map(toCodeLocation);
+    },
+    async implementation(request: CodeIntelRequest, signal: AbortSignal): Promise<CodeLocation[]> {
+      const implementations = await findCodeGraphImplementations(request.path, request.line, request.identifier);
+      return signal.aborted ? [] : implementations.map(toCodeLocation);
+    },
+    async references(request: CodeIntelRequest, signal: AbortSignal): Promise<CodeLocation[]> {
+      const references = await findCodeGraphReferences(request.path, request.line, request.identifier);
+      return signal.aborted ? [] : references.map(referenceToCodeLocation);
     },
   };
 }
