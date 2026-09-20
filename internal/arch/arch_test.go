@@ -103,6 +103,13 @@ func TestLayering(t *testing.T) {
 		t.Errorf("layering violation: sandbox must not import %s", short(imp))
 	}
 
+	// gitparse is a leaf: it reads what git printed, which does not depend on
+	// which git directory printed it. checkpoint (shadow repo) and the Git
+	// module (the project's own repo) both consume it.
+	for _, imp := range graph[pkg("gitparse")] {
+		t.Errorf("layering violation: gitparse must not import %s", short(imp))
+	}
+
 	// notify is a leaf: it raises OS notifications for any module and must not
 	// know what a module is. That is why its Target is three strings of its
 	// own rather than the workbench's EntityRef — see internal/notify.
@@ -110,11 +117,18 @@ func TestLayering(t *testing.T) {
 		t.Errorf("layering violation: notify must not import %s", short(imp))
 	}
 
-	// checkpoint is a leaf too: it runs git against a project directory and
-	// knows nothing about sessions, transcripts or storage. agenthub consumes
-	// it through a locally-declared interface, never the reverse — the same
-	// boundary ssh/database keep from environments.
+	// checkpoint runs git against a project directory and knows nothing about
+	// sessions, transcripts or storage. agenthub consumes it through a
+	// locally-declared interface, never the reverse — the same boundary
+	// ssh/database keep from environments.
+	//
+	// gitparse is the one import allowed: it is itself a leaf, it sits below
+	// checkpoint rather than above it, and the alternative is a second copy of
+	// the diff parsers in internal/git.
 	for _, imp := range graph[pkg("checkpoint")] {
+		if imp == pkg("gitparse") {
+			continue
+		}
 		t.Errorf("layering violation: checkpoint must not import %s", short(imp))
 	}
 

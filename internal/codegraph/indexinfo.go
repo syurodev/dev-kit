@@ -2,12 +2,12 @@
 package codegraph
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"os/exec"
-	"path"
 	"strings"
+
+	"devkit/internal/gitparse"
 )
 
 // IndexInfo is what the sidebar says about the index under the project name:
@@ -84,45 +84,5 @@ func (s *Service) GitStatus(ctx context.Context) (map[string]string, error) {
 		}
 		return nil, err
 	}
-	return parsePorcelain(out, strings.TrimSpace(string(prefixOut))), nil
-}
-
-// parsePorcelain reads `git status --porcelain=v1 -z`. Paths come relative to
-// the repository root; prefix (from rev-parse --show-prefix) is where the
-// project sits inside it, and is cut off so the keys match ListFiles.
-func parsePorcelain(out []byte, prefix string) map[string]string {
-	changes := map[string]string{}
-	fields := bytes.Split(out, []byte{0})
-	for i := 0; i < len(fields); i++ {
-		entry := string(fields[i])
-		if len(entry) < 4 {
-			continue
-		}
-		xy, file := entry[:2], entry[3:]
-		// A rename or copy carries its source as the next field.
-		if xy[0] == 'R' || xy[0] == 'C' {
-			i++
-		}
-		if prefix != "" {
-			if !strings.HasPrefix(file, prefix) {
-				continue
-			}
-			file = strings.TrimPrefix(file, prefix)
-		}
-		changes[path.Clean(file)] = gitState(xy)
-	}
-	return changes
-}
-
-func gitState(xy string) string {
-	switch {
-	case xy == "??" || strings.ContainsRune(xy, 'A'):
-		return "A"
-	case strings.ContainsRune(xy, 'D'):
-		return "D"
-	case strings.ContainsRune(xy, 'R'):
-		return "R"
-	default:
-		return "M"
-	}
+	return gitparse.Porcelain(out, strings.TrimSpace(string(prefixOut))), nil
 }
