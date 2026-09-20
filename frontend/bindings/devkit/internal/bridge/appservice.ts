@@ -1177,6 +1177,14 @@ export function GitFetch(remote: string): $CancellablePromise<void> {
 }
 
 /**
+ * GitFilePatch returns one file's unified diff, work tree against the index —
+ * the pairing hunk staging needs, since GitStageHunk applies to the index.
+ */
+export function GitFilePatch(path: string): $CancellablePromise<string> {
+    return $Call.ByID(2357332082, path);
+}
+
+/**
  * GitGuards lists the branch patterns protected in the open project.
  */
 export function GitGuards(): $CancellablePromise<git$0.Guard[] | null> {

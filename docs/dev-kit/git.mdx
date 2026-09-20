@@ -315,6 +315,7 @@ sử không giữ lại được gì.
   được "chặn khi đụng `deploy/`".
 - Log tuyến tính một branch; không thấy hình dạng nhánh.
 - Stage theo hunk dựa trên `git apply --cached`; hunk đè nhau sau khi file đổi
-  trên đĩa sẽ bị từ chối và phải chọn lại.
+  trên đĩa sẽ bị từ chối và phải chọn lại. Chiều ngược lại — unstage theo hunk —
+  chưa có: bỏ stage vẫn là cả file. File nhị phân không có hunk để chọn.
 - Một project đang mở tại một thời điểm, giống Code Graph — submodule và
   monorepo nhiều repo con chưa nằm trong phạm vi.

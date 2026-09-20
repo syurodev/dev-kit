@@ -93,6 +93,15 @@ export function gitUnstage(paths: string[]): Promise<void> {
   });
 }
 
+/**
+ * One file's unified diff, work tree against the index — the pairing hunk
+ * staging needs, because gitStageHunk applies what it is given to the index.
+ * A binary or untracked file has no hunks and comes back empty.
+ */
+export function gitFilePatch(path: string): Promise<string> {
+  return callBridge(async () => await AppService.GitFilePatch(path));
+}
+
 export function gitStageHunk(patch: string): Promise<void> {
   return callBridge(async () => {
     await AppService.GitStageHunk(patch);

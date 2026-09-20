@@ -1,6 +1,15 @@
-import { useCallback, useEffect, useState } from "react";
-import { GitBranch, GitMerge, RefreshCw, ShieldCheck, Upload } from "lucide-react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import {
+  ChevronDown,
+  ChevronRight,
+  GitBranch,
+  GitMerge,
+  RefreshCw,
+  ShieldCheck,
+  Upload,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -8,25 +17,35 @@ import {
   deleteGuard,
   gitAvailability,
   gitCommit,
+  gitFilePatch,
   gitGuards,
   gitStage,
+  gitStageHunk,
   gitStatus,
   gitUnstage,
   seedMessage,
   type GitStatus,
   type Guard,
 } from "@/bridge/git";
+import { buildPatch, hunkSummary, parsePatch, type FilePatch } from "./hunks";
 
 function FileList({
   title,
   paths,
   action,
   onAction,
+  expanded,
+  onExpand,
+  renderExpansion,
 }: {
   title: string;
   paths: string[];
   action: string;
   onAction: (paths: string[]) => void;
+  /** The one path whose disclosure is open. Only one is, deliberately. */
+  expanded?: string;
+  onExpand?: (path: string) => void;
+  renderExpansion?: (path: string) => ReactNode;
 }) {
   if (paths.length === 0) {
     return null;
@@ -43,15 +62,164 @@ function FileList({
       </header>
       <ul>
         {paths.map((path) => (
-          <li key={path} className="flex items-center gap-2 px-3 py-1 text-sm">
-            <span className="min-w-0 flex-1 truncate font-mono text-xs">{path}</span>
-            <Button variant="ghost" size="sm" onClick={() => onAction([path])}>
-              {action}
-            </Button>
+          <li key={path} className="text-sm">
+            <div className="flex items-center gap-2 px-3 py-1">
+              {onExpand ? (
+                <button
+                  type="button"
+                  className="text-fg-muted hover:text-text-primary"
+                  aria-expanded={expanded === path}
+                  aria-label={expanded === path ? `Hide hunks in ${path}` : `Show hunks in ${path}`}
+                  onClick={() => onExpand(expanded === path ? "" : path)}
+                >
+                  {expanded === path ? (
+                    <ChevronDown className="size-3.5" aria-hidden />
+                  ) : (
+                    <ChevronRight className="size-3.5" aria-hidden />
+                  )}
+                </button>
+              ) : null}
+              <span className="min-w-0 flex-1 truncate font-mono text-xs">{path}</span>
+              <Button variant="ghost" size="sm" onClick={() => onAction([path])}>
+                {action}
+              </Button>
+            </div>
+            {expanded === path && renderExpansion ? renderExpansion(path) : null}
           </li>
         ))}
       </ul>
     </section>
+  );
+}
+
+/** Long hunks are shown to their first this-many lines and then counted. */
+const PREVIEW_LINES = 40;
+
+function hunkLineClass(line: string): string {
+  if (line.startsWith("+")) return "text-emerald-500";
+  if (line.startsWith("-")) return "text-red-500";
+  // A "\ No newline at end of file" line is git talking, not the file.
+  if (line.startsWith("\\")) return "text-fg-muted italic";
+  return "";
+}
+
+/**
+ * Picking hunks out of one file and staging only those.
+ *
+ * The patch is re-read after every staging rather than adjusted in place: the
+ * line numbers in the hunks that remain are measured against the index, and
+ * staging one hunk moves the index. Asking git again is cheap and cannot drift.
+ */
+function HunkPicker({
+  path,
+  onStaged,
+  onError,
+}: {
+  path: string;
+  onStaged: () => void;
+  onError: (message: string) => void;
+}) {
+  const [patch, setPatch] = useState<FilePatch | null>(null);
+  // A Set, not an array of indexes, because ticking is the only thing that
+  // happens to it and order never matters — buildPatch sorts what it is given.
+  const [picked, setPicked] = useState<ReadonlySet<number>>(() => new Set<number>());
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(() => {
+    gitFilePatch(path)
+      .then((text) => {
+        setPatch(parsePatch(text));
+        setPicked(new Set<number>());
+      })
+      .catch((e: Error) => onError(e.message));
+  }, [path, onError]);
+
+  useEffect(load, [load]);
+
+  if (!patch) {
+    return <p className="px-3 pb-2 pl-8 text-xs text-fg-muted">Reading the diff…</p>;
+  }
+  if (patch.binary || patch.hunks.length === 0) {
+    return (
+      <p className="px-3 pb-2 pl-8 text-xs text-fg-muted">
+        {patch.binary
+          ? "Binary file — there is nothing to pick apart. Stage the whole file or none of it."
+          : "Git reports no hunks here. Stage the whole file or none of it."}
+      </p>
+    );
+  }
+
+  const all = picked.size === patch.hunks.length;
+  const toggle = (index: number) => {
+    setPicked((current) => {
+      const next = new Set(current);
+      if (!next.delete(index)) next.add(index);
+      return next;
+    });
+  };
+
+  return (
+    <div className="border-y border-border-subtle bg-white/2">
+      <header className="flex items-center gap-2 py-1 pr-2 pl-8">
+        <span className="flex-1 text-xs text-fg-muted">
+          {patch.hunks.length} hunk{patch.hunks.length === 1 ? "" : "s"}
+        </span>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() =>
+            setPicked(all ? new Set<number>() : new Set(patch.hunks.map((_, index) => index)))
+          }
+        >
+          {all ? "None" : "All"}
+        </Button>
+        <Button
+          size="sm"
+          disabled={picked.size === 0 || busy}
+          onClick={() => {
+            const text = buildPatch(patch, [...picked]);
+            if (!text) return;
+            setBusy(true);
+            gitStageHunk(text)
+              .then(() => {
+                // Both: the file lists change, and so does what is left here.
+                onStaged();
+                load();
+              })
+              .catch((e: Error) => onError(e.message))
+              .finally(() => setBusy(false));
+          }}
+        >
+          Stage {picked.size} hunk{picked.size === 1 ? "" : "s"}
+        </Button>
+      </header>
+      <ul>
+        {patch.hunks.map((hunk, index) => (
+          <li key={`${index}:${hunk.header}`} className="border-t border-border-subtle">
+            <label className="flex cursor-pointer items-center gap-2 py-1 pr-3 pl-8">
+              <Checkbox
+                checked={picked.has(index)}
+                onCheckedChange={() => toggle(index)}
+                aria-label={`Stage ${hunkSummary(hunk)}`}
+              />
+              <span className="text-xs text-fg-muted">{hunkSummary(hunk)}</span>
+            </label>
+            <pre className="overflow-x-auto pr-3 pb-1.5 pl-8 font-mono text-xs leading-snug">
+              {hunk.lines.slice(0, PREVIEW_LINES).map((line, lineIndex) => (
+                <div key={lineIndex} className={hunkLineClass(line)}>
+                  {line.replace(/\n$/, "") || " "}
+                </div>
+              ))}
+              {hunk.lines.length > PREVIEW_LINES ? (
+                <div className="text-fg-muted">
+                  …{hunk.lines.length - PREVIEW_LINES} more lines
+                </div>
+              ) : null}
+            </pre>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -69,6 +237,8 @@ export function GitChangesView() {
   const [guards, setGuards] = useState<Guard[] | null>(null);
   const [unavailable, setUnavailable] = useState("");
   const [message, setMessage] = useState("");
+  // The one changed file whose hunks are open. Empty is none.
+  const [expanded, setExpanded] = useState("");
   const [error, setError] = useState("");
 
   const reload = useCallback(() => {
@@ -202,6 +372,13 @@ export function GitChangesView() {
           onAction={(paths) => {
             gitStage(paths).then(reload).catch((e: Error) => setError(e.message));
           }}
+          expanded={expanded}
+          onExpand={setExpanded}
+          // Untracked files are not expandable: git does not diff them, so
+          // there would be no hunks to pick.
+          renderExpansion={(path) => (
+            <HunkPicker path={path} onStaged={reload} onError={setError} />
+          )}
         />
         <FileList
           title="Untracked"
