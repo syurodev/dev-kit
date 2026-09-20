@@ -125,7 +125,11 @@ function Titlebar({
       className={cn(
         // No material of its own: Figma's root is bare, `h-[40px] relative
         // w-[1440px]`, with no fill, border, blur or shadow.
-        "relative flex h-10 shrink-0 items-center gap-1",
+        //
+        // select-none: this is window chrome, and a double-click on its empty
+        // stretch (to zoom or maximise) otherwise selects the nearest text and
+        // extends the selection down through the whole rail beneath it.
+        "relative flex h-10 shrink-0 items-center gap-1 select-none",
         // pt shifts the content down onto the traffic lights' optical line; see
         // --titlebar-optical-offset in index.css for why it is not zero. It is
         // a calibration against a control only AppKit draws, so it applies only
