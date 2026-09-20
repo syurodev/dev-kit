@@ -216,3 +216,32 @@ func (s *Service) CommitsForTask(ctx context.Context, key string, limit int) ([]
 	}
 	return commits, nil
 }
+
+// FilePatch returns one file's unified diff, work tree against the index.
+//
+// That pairing is deliberate and is what makes hunk staging correct: the hunks
+// come out measured against the index, and StageHunk applies them to the index
+// with `git apply --cached`. It is the same pair `git add -p` uses, so a file
+// that is already partly staged keeps working — the diff is against what is
+// staged, not against HEAD.
+//
+// A binary file has no hunks to pick and comes back empty: the caller stages
+// the whole file or nothing. So does an untracked one, which git does not diff
+// at all.
+func (s *Service) FilePatch(ctx context.Context, path string) (string, error) {
+	r, err := s.active()
+	if err != nil {
+		return "", err
+	}
+	if path == "" {
+		return "", ErrNotAllowed
+	}
+	// --no-ext-diff: a repository configuring an external differ would return
+	// something that is not a patch at all.
+	out, err := r.run(ctx, nil,
+		"diff", "--no-color", "--no-ext-diff", "--no-renames", "-U3", "--", path)
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}

@@ -333,3 +333,17 @@ func (s *AppService) GitBindRemote(name, accountID, env string) (gitservice.Remo
 	}
 	return result.(gitservice.Remote), nil
 }
+
+// GitFilePatch returns one file's unified diff, work tree against the index —
+// the pairing hunk staging needs, since GitStageHunk applies to the index.
+func (s *AppService) GitFilePatch(path string) (string, error) {
+	result, err := s.call(context.Background(), "builtin.git", "git:read", "repo:diff", map[string]any{
+		"action": "file_patch",
+	}, func(ctx context.Context) (any, error) {
+		return s.container.Git.FilePatch(ctx, path)
+	})
+	if err != nil {
+		return "", err
+	}
+	return result.(string), nil
+}

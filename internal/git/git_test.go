@@ -427,3 +427,101 @@ func TestResolveRefusesToEscapeTheProject(t *testing.T) {
 		t.Fatal("the escape actually wrote a file")
 	}
 }
+
+// The pairing that makes hunk staging correct: the patch is measured against
+// the index, and StageHunk applies it to the index. A file already partly
+// staged therefore diffs against what is staged, not against HEAD.
+func TestFilePatchIsAgainstTheIndexSoHunksApply(t *testing.T) {
+	svc, dir := newRepo(t)
+	ctx := context.Background()
+	write(t, dir, "many.txt", "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n")
+	if err := svc.Stage(ctx, []string{"many.txt"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Commit(ctx, CommitInput{Message: "base"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Two separate edits, far enough apart to be two hunks.
+	write(t, dir, "many.txt", "1\nTOP\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\nBOTTOM\n15\n")
+	patch, err := svc.FilePatch(ctx, "many.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(patch, "\n@@") < 2 {
+		t.Fatalf("expected two hunks:\n%s", patch)
+	}
+
+	// Feed back only the first hunk, the way the UI will.
+	lines := strings.SplitAfter(patch, "\n")
+	var head []string
+	var first []string
+	seen := 0
+	for _, line := range lines {
+		if strings.HasPrefix(line, "@@") {
+			seen++
+			if seen > 1 {
+				break
+			}
+		}
+		if seen == 0 {
+			head = append(head, line)
+			continue
+		}
+		first = append(first, line)
+	}
+	if err := svc.StageHunk(ctx, strings.Join(head, "")+strings.Join(first, "")); err != nil {
+		t.Fatalf("applying one hunk: %v", err)
+	}
+
+	status, err := svc.Status(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Staged and unstaged at once: the first edit is in the index, the second
+	// is still only in the work tree.
+	if len(status.Staged) != 1 || len(status.Unstaged) != 1 {
+		t.Fatalf("staged=%v unstaged=%v; one hunk should land and one should not",
+			status.Staged, status.Unstaged)
+	}
+
+	// And the remaining diff is now against the new index, so the second hunk
+	// is all that is left to stage.
+	rest, err := svc.FilePatch(ctx, "many.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Only the CHANGED lines matter here: "TOP" also appears as the @@ header's
+	// context label, which is a hint about where the hunk sits, not an edit.
+	if strings.Contains(rest, "\n+TOP") {
+		t.Fatalf("the staged hunk is still reported as unstaged:\n%s", rest)
+	}
+	if !strings.Contains(rest, "\n+BOTTOM") {
+		t.Fatalf("the unstaged hunk vanished:\n%s", rest)
+	}
+}
+
+// A binary file has no hunks to pick; the caller stages the whole thing.
+func TestFilePatchOnABinaryFileHasNoHunks(t *testing.T) {
+	svc, dir := newRepo(t)
+	ctx := context.Background()
+	if err := os.WriteFile(filepath.Join(dir, "blob.bin"), []byte{0, 1, 2, 0, 3}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Stage(ctx, []string{"blob.bin"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Commit(ctx, CommitInput{Message: "binary"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "blob.bin"), []byte{0, 9, 9, 0, 9}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	patch, err := svc.FilePatch(ctx, "blob.bin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(patch, "@@") {
+		t.Fatalf("a binary file produced hunks:\n%s", patch)
+	}
+}
