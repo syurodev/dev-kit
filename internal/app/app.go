@@ -111,7 +111,7 @@ func RegisterBuiltins(container *Container) error {
 			Version:    "1.0.0",
 			APIVersion: modules.CurrentAPIVersion,
 			Commands:   []string{"git.commit", "git.push"},
-			Views:      []string{"git.changes", "git.diff", "git.history"},
+			Views:      []string{"git.changes", "git.diff", "git.remotes", "git.history"},
 			// git:push is separate from git:write because it leaves the
 			// machine. There is no git:push:force, here or anywhere.
 			Capabilities: []string{"git:read", "git:write", "git:push"},
