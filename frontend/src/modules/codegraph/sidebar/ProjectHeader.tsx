@@ -99,7 +99,7 @@ export function ProjectHeader({
             })}
             {recent.length > 0 ? <DropdownMenuSeparator /> : null}
             <DropdownMenuItem icon={<FolderOpen />} disabled={busy} onSelect={onPickProject}>
-              Open Java project…
+              Open project…
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

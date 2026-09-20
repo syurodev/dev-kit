@@ -224,7 +224,24 @@ export async function reindex(path: string) {
   } catch (e) {
     if (!current()) return;
     const failure = toAppError(e);
-    set({ endpoints: [], files: [], status: "", error: failure.message, errorCode: failure.code });
+    set({
+      endpoints: [],
+      files: [],
+      status: "",
+      error: failure.message,
+      errorCode: failure.code,
+      // The optimistic set above turned indexInfo.indexing on before the
+      // open even started; nothing else turns it back off on a failed open
+      // (loadSidebarMeta's own refresh fails the same way — there is still
+      // no active project to ask). Left alone, the sidebar's status line
+      // reads indexing as true forever and never stops saying "Indexing…",
+      // regardless of what busy/error say.
+      indexInfo: {
+        ...(snapshot().indexInfo ?? { indexedAt: 0, modules: [], language: "", branch: "" }),
+        indexing: false,
+        error: failure.message,
+      },
+    });
   } finally {
     // A superseded reindex leaves busy to whoever superseded it: a project
     // switch resets it, and a newer reindex set it itself.
@@ -546,7 +563,23 @@ export async function refreshAfterReindex() {
     if (!current()) return;
     await refreshOpenFlows();
   } catch (e) {
-    if (current()) set({ error: errorMessage(e) });
+    if (current()) {
+      const message = errorMessage(e);
+      set({
+        error: message,
+        // loadSidebarMeta below asks Go for a fresh indexInfo, but there is
+        // still no active project to ask, so it will not overwrite this: left
+        // as null (or a stale indexing:true from before this project), the
+        // sidebar's status line reads busy forever, e.g. after a failed
+        // restore-on-startup or an agent's MCP open. Same fix as reindex's
+        // own catch, for the other way a project becomes active.
+        indexInfo: {
+          ...(snapshot().indexInfo ?? { indexedAt: 0, modules: [], language: "", branch: "" }),
+          indexing: false,
+          error: message,
+        },
+      });
+    }
   }
   if (!current()) return;
   void loadSidebarMeta();

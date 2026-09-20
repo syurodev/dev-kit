@@ -21,12 +21,13 @@ export function EmptyProject({
       <div className="flex flex-col gap-1.5 px-1 pt-2">
         <h2 className="text-title-14 text-text-primary">No project open</h2>
         <p className="text-body-12 text-text-tertiary">
-          Open a Java project to index its endpoints, call flow and files. Nothing leaves this machine.
+          Open a Java, Lua or TypeScript project to index its endpoints, call flow and files. Nothing leaves this
+          machine.
         </p>
       </div>
       <Button onClick={onPickProject} disabled={busy} className="w-full">
         <FolderOpen />
-        Open Java project…
+        Open project…
       </Button>
       {recent.length > 0 ? (
         <div className="flex flex-col gap-0.5">
