@@ -687,17 +687,15 @@ export function DatabaseSidebar() {
           ActionTooltip is for: a Radix tooltip alone sets aria-describedby,
           and a control with no name is one a screen reader calls "button".
         */}
-        <div className="px-(--space-sidebar-edge) pt-2">
-          <TabsList className="w-full">
-            {PANES.map(({ value, label, Icon }) => (
-              <ActionTooltip key={value} label={label}>
-                <TabsTrigger value={value} className="flex-1">
-                  <Icon />
-                </TabsTrigger>
-              </ActionTooltip>
-            ))}
-          </TabsList>
-        </div>
+        <TabsList className="w-full">
+          {PANES.map(({ value, label, Icon }) => (
+            <ActionTooltip key={value} label={label}>
+              <TabsTrigger value={value} className="flex-1">
+                <Icon />
+              </TabsTrigger>
+            </ActionTooltip>
+          ))}
+        </TabsList>
 
         <TabsContent value="connections" className="flex min-h-0 flex-col">
       <SidebarHeader>

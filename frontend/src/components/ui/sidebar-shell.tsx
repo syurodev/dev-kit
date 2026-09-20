@@ -353,18 +353,19 @@ export function SidebarSurface({ activeModuleId }: { activeModuleId: string | nu
             near-clear tint so the native vibrancy backdrop carries it, the way
             Finder/Notes sidebars sit closest to the desktop. */}
         {/* Keep the shared titlebar background visible through the rail.
-            A compact horizontal inset leaves more room for long labels;
-            vertical spacing and the user's sidebar width stay unchanged.
 
-            Inset on the left only. Every module's list scrolls inside this
-            wrapper, so a right inset put each rail's scrollbar that far in from
-            its edge, with the 8px sash beyond it. On the right the sash is the
-            margin, and a scrollbar belongs against the edge it scrolls. */}
+            No inset of its own, on any side. A rail starts where the content
+            card starts and runs to the edge of the window on the left; what
+            sits between a rail's rows is the rail's to decide, not the
+            shell's. Every module's list also scrolls inside this wrapper, so an
+            inset on the right would have put each rail's scrollbar that far in
+            from its edge, with the 8px sash beyond it — a scrollbar belongs
+            against the edge it scrolls. */}
         {/* ⌘-click (Ctrl-click) on anything in a rail opens what it opens
             beside the focused group rather than in it. Armed on the way down,
             consumed by the openTab that click makes — no rail had to change. */}
         <div
-          className="relative flex min-h-0 flex-1 flex-col overflow-hidden pl-(--space-sidebar-edge) py-2 glass-rail"
+          className="relative flex min-h-0 flex-1 flex-col overflow-hidden glass-rail"
           onClickCapture={(e) => {
             if (e.metaKey || e.ctrlKey) armBeside();
           }}
