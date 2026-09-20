@@ -96,7 +96,10 @@ proprietary rời khỏi máy — trái nguyên tắc local-first.
 | FR-8 | Chuyển sang status `category = terminal` (Done, Won't do, …) qua MCP đi qua **cửa duyệt**, và board quyết định cửa đó là gì — xem [Cửa duyệt đóng task](#cửa-duyệt-đóng-task--người-hoặc-một-lệnh-verify). Board **không** khai `verify` ⇒ xác nhận tương tác mỗi lần, **không** có `allow_always` (`internal/interaction`). Board **có** khai `verify` ⇒ DevKit tự chạy lệnh đó; exit 0 đóng thẳng, exit khác reject. |
 | FR-8b | Lệnh `verify` do **người** khai trên board (`tasks:admin`, UI-only — agent không sửa được, cùng loại trừ cứng với `workflow`). Kết quả mỗi lần chạy thành một comment `kind=system`: lệnh, exit code, thời gian, phần đuôi output. |
 | FR-8c | `verify` **chạy nền**: `tasks.transition` trả về ngay với `verifying`, task **giữ nguyên status** và mang một cờ tạm thời; kết quả tới sau thì mới chuyển hoặc từ chối. Agent không phải giữ call mở suốt một suite dài. |
-| FR-8d | Một `verify` chạy tại một thời điểm **cho mỗi project** — chúng dùng chung work tree. Yêu cầu thứ hai xếp hàng; huỷ được từ UI. DevKit thoát giữa chừng ⇒ lượt đó **mất**, task ở nguyên chỗ cũ: không bao giờ đóng một task bằng một lượt chạy chưa kết thúc. |
+| FR-8d | Một `verify` chạy tại một thời điểm **cho mỗi project** — chúng dùng chung work tree. Yêu cầu thứ hai xếp hàng; huỷ được từ UI. |
+| FR-8e | **Hàng đợi lưu xuống SQLite**, sống qua restart. DevKit thoát giữa chừng ⇒ lượt đang chạy **quay lại hàng đợi**, không bao giờ được suy ra kết quả: task chỉ đóng bằng một lượt chạy **đã kết thúc**, và chạy lại là một lượt mới chứ không phải nối tiếp lượt cũ. |
+| FR-8f | Một yêu cầu chờ quá lâu (mặc định 24h) hoặc thuộc project chưa mở lại ⇒ đánh dấu `stale` kèm comment `kind=system`, **không** tự chạy. Chấm một cây code hôm nay bằng một yêu cầu của hôm kia là trả lời sai câu hỏi. |
+| FR-8g | Lượt `verify` kết thúc ⇒ **notification hệ điều hành** khi người dùng không nhìn vào app, mở ra đúng task đó. Dùng lại đường notification của Agent Hub — xem [Notification](#notification--tách-leaf-trước-đã). |
 | FR-9 | `tasks.transition` nhận `expectedStatus` optional; lệch trạng thái hiện tại → reject `validation_failed`, không ghi đè — chống hai agent giẫm chân nhau (xem [Optimistic transition](#optimistic-transition--chống-hai-agent-giẫm-chân)). |
 | FR-10 | Agent comment được vào task (`tasks.comment.add`); comment ghi rõ tác giả là `agent:<sessionId>` hay `user`, không trộn lẫn. |
 | FR-11 | Mỗi task giữ **lịch sử chuyển trạng thái bounded** (từ → sang, bởi ai, lúc nào), đọc được cả khi phiên agent đã đóng. |
@@ -129,6 +132,8 @@ proprietary rời khỏi máy — trái nguyên tắc local-first.
 | NFR-11 | **Không lưu SHA.** Tên branch thì có (`task.branch`, FR-17b): một SHA mục ruỗng sau rebase/amend/squash, một tên branch thì không — nó ổn định qua đúng những thao tác làm SHA đổi. Mọi dữ kiện còn lại (commit, trạng thái push, đã merge chưa) được **hỏi lúc hiển thị**, bounded — xem [Tích hợp Git](#tích-hợp-git--hỏi-không-lưu). |
 | NFR-12 | Lệnh `verify` (FR-8) chạy trong thư mục project với timeout và giới hạn output; nó là lệnh **người dùng đã khai**, agent chỉ kích hoạt được chứ không đổi được. Audit ghi lệnh + exit code; không ghi output. |
 | NFR-13 | Hàng đợi `verify` theo **project**, không theo board hay theo task (FR-8d): work tree mới là thứ bị tranh chấp. Hàng đợi bounded; yêu cầu thứ N khi đã có N-1 đang chờ bị từ chối chứ không xếp vô hạn. |
+| NFR-14 | Notification là **nudge**: không ai được chờ nó. Hàng đợi có chặn trên và thả bớt khi đầy, gửi trên goroutine riêng, im lặng khi cửa sổ đang được nhìn — hành vi của `agenthub.Notifier` giữ nguyên qua lần tách leaf, không thiết kế lại. |
+| NFR-15 | `task_verify_runs` là derived/operational: **không** vào `vault_items`, không sync. Nó mô tả máy này đang làm gì, không phải dữ liệu dự án. |
 
 ### Out of scope (v1)
 
@@ -175,8 +180,14 @@ proprietary rời khỏi máy — trái nguyên tắc local-first.
   vẫn đóng tay được từ UI.
 - Hai task cùng project cùng gọi transition → hai lượt chạy **nối tiếp**,
   không song song; cái thứ hai hiện "đang chờ".
-- Kill DevKit giữa lượt chạy → mở lại, task ở nguyên chỗ cũ, không task nào
-  đóng bằng một lượt chưa kết thúc.
+- Kill DevKit giữa lượt chạy → mở lại, task ở nguyên chỗ cũ; yêu cầu đó quay
+  về `queued` và chạy **lại từ đầu** khi project mở, không task nào đóng bằng
+  một lượt chưa kết thúc.
+- Kill DevKit, mở lại sau hai ngày → yêu cầu thành `stale` kèm comment, **không**
+  tự chạy trên code đã khác.
+- Lượt chạy xong khi người dùng đang ở module khác → có notification, click mở
+  đúng task đó; đang nhìn thẳng vào app → không có toast nào.
+- Kiểm tra ledger sync: không có operation nào mang `task_verify_runs`.
 - Agent gọi `tasks.board.update` để sửa hoặc gỡ `verify` → không có tool đó.
 - Phiên agent chết → `session_id` còn nguyên, task hiện "phiên đã đóng"; agent
   mở phiên mới `claim` lại chính task đó → thành công.
@@ -316,6 +327,11 @@ quyền mới.
   `internal/interaction` cho transition terminal.
 - **`internal/vaultitem`** — substrate dùng chung, thêm 3 record type.
 - **`internal/interaction`** — gate xác nhận đã Implemented, dùng lại nguyên.
+- **`internal/notify`** (leaf, **tách ra từ `agenthub`**) — `Notifier` +
+  `NotificationGate` đổi khoá từ `SessionID` sang target chung; `agenthub` là
+  consumer đầu, Tasks là consumer thứ hai (FR-8g).
+- **Bảng local `task_verify_runs`** — hàng đợi `verify` bền qua restart
+  (FR-8e), derived/operational, không sync.
 - **Bridge + MCP adapter** — cùng gọi `tasks.Service`, cùng qua Capability
   Gateway, đúng pattern Notes/Code Graph/Agent Hub.
 - **Frontend `frontend/src/modules/tasks/`** — `TasksBoard`, `TaskDetail`,
@@ -557,9 +573,57 @@ Ba thứ phải có, vì chạy nền đẻ ra đúng ba vấn đề:
   board trỏ cùng `project_path` vẫn chung một hàng.
 - **Huỷ được.** Một suite mười phút mà người dùng vừa nhận ra mình sai thì
   phải dừng được, và hàng đợi phải chạy tiếp.
-- **Không có kết quả nửa chừng.** DevKit thoát khi đang chạy ⇒ lượt đó mất,
-  task ở nguyên chỗ cũ. Một task không đóng thì người ta bấm lại; một task đóng
-  nhầm thì không ai biết để mở lại.
+- **Không có kết quả nửa chừng.** DevKit thoát khi đang chạy ⇒ lượt đó **trở
+  lại hàng đợi**, không bao giờ được đoán là đã pass. Một task không đóng thì
+  người ta bấm lại; một task đóng nhầm thì không ai biết để mở lại.
+
+##### Hàng đợi nằm trong SQLite
+
+Bảng `task_verify_runs` (`run_id`, `task_id`, `board_id`, `project_path`,
+`target_status`, `requested_by`, `requested_at`, `started_at`, `finished_at`,
+`state`, `exit_code`) — derived/operational, **không** sync, cùng loại với
+session của Agent Hub và query history của Database.
+
+Vòng đời: `queued` → `running` → `passed` \| `failed` \| `cancelled` \| `stale`.
+
+Hai luật giữ cho nó an toàn:
+
+- **Khởi động lại: mọi dòng `running` quay về `queued`.** Không bao giờ suy ra
+  kết quả từ một lượt không thấy kết thúc. Chạy lại là một lượt **mới** và
+  hoàn chỉnh, nên bất biến của FR-8d không bị hàng đợi bền làm hỏng — nó chỉ
+  đổi chỗ "bỏ luôn" thành "làm lại".
+- **Hàng đợi chỉ rút khi project đang mở**, vì `verify` cần work tree. Yêu cầu
+  của project khác nằm chờ, không chạy lén.
+
+Và đây là chỗ tính bền tự đẻ ra rủi ro của nó: nếu "chấm work tree lúc nó
+chạy" đã đúng trong một phiên, thì qua một lần restart khoảng cách đó có thể
+là **nhiều ngày**. Nên FR-8f: quá hạn thì thành `stale` và đợi người bấm lại,
+chứ không âm thầm chạy một yêu cầu đã cũ trên code đã khác.
+
+##### Notification — tách leaf trước đã
+
+Lượt chạy xong khi người dùng đang ở module khác thì một comment là không đủ:
+họ đã bỏ đi rồi. Nên nó bắn notification hệ điều hành, mở ra đúng task.
+
+Đường đó **đã tồn tại** — `internal/agenthub/notifier.go` và
+`notification_gate.go` — và đã giải đúng những vấn đề khó: gửi trên goroutine
+riêng để không ai phải chờ OS, hàng đợi có chặn trên và **thả bớt** khi đầy
+(*"a notification is a nudge, and nothing that raises one may wait for room"*),
+không xin quyền trong lúc người dùng đang có prompt phải trả lời, im lặng khi
+cửa sổ đang được nhìn, và gộp thông báo của cùng một chủ thể thay vì chồng
+toast.
+
+Nhưng nó ở trong `agenthub` và khoá theo `SessionID`. Tasks import vào là vỡ
+layering. Nên đây là **tách leaf, không phải viết lại**:
+
+- `internal/notify` — `Notifier`, `DesktopNotifications`, `NotificationGate`
+  chuyển nguyên sang, đổi `SessionID` thành một **target** chung (module + id)
+  để cú click mở đúng thứ; `NotificationGate` vốn đã gộp theo session, giờ gộp
+  theo target.
+- `agenthub` thành consumer đầu tiên (hành vi không đổi), Tasks là thứ hai.
+
+Cùng hình dạng với `internal/gitparse` ở [Git](/dev-kit/git): thứ đã đúng rồi
+thì kéo xuống leaf cho người thứ hai dùng, không viết bản thứ hai.
 
 Agent đi mất giữa chừng cũng không sao — và đó chính là lý do chọn chạy nền:
 kết quả rơi vào **task**, không rơi vào call. Comment `kind=system` ghi lại
@@ -864,8 +928,11 @@ nhanh, và `session_id` giúp thấy rõ máy nào đang giữ task.
 - `verify` chấm work tree **lúc nó chạy**, không phải lúc yêu cầu: xếp hàng
   sau một lượt khác trong khi code vẫn đang đổi thì kết quả nói về một cây code
   đã khác.
-- Hàng đợi `verify` sống trong bộ nhớ: DevKit thoát là mất cả hàng, không chỉ
-  lượt đang chạy.
+- Hàng đợi bền nhưng **không** sync: yêu cầu đặt trên máy này không chạy ở máy
+  khác. Đúng ý — `verify` cần work tree của máy này.
+- Máy không có dịch vụ notification (Linux thiếu session D-Bus, macOS build
+  trần không bundle id) ⇒ không có toast; comment `kind=system` vẫn là bản ghi
+  đầy đủ. `DesktopNotifications.Start` đã phân biệt được hai ca này.
 - Không có lịch sử các lượt `verify` ngoài comment `kind=system` trên từng
   task — không có chỗ xem "board này pass bao nhiêu phần trăm".
 - `git log --grep` quét lịch sử theo giới hạn số commit, không quét toàn bộ
@@ -884,6 +951,8 @@ Những câu từng để mở, và câu trả lời — ghi lại để khỏi 
 | Comment `kind=system` trộn chung dòng hội thoại? | **Tách** sang tab *Activity* (FR-15) |
 | Git đề nghị trailer `Task:` cho mọi commit? | **Có**, khi branch khớp `task.branch` của một task chưa đóng — đề nghị trong ô message, xoá được |
 | `verify` chạy đồng bộ hay chạy nền? | **Chạy nền** (FR-8c). Kết quả rơi vào **task** chứ không vào call, nên agent bỏ đi giữa chừng cũng không mất gì. Đổi lại: một lượt một project (FR-8d), vì work tree là thứ bị tranh chấp |
+| Lượt `verify` xong thì báo thế nào? | **Notification hệ điều hành** khi người dùng không nhìn app (FR-8g) — nhưng phải **tách `internal/notify`** ra leaf trước, vì `Notifier` đang khoá theo `SessionID` của Agent Hub |
+| Hàng đợi `verify` có lưu không? | **Có, SQLite** (FR-8e). Lượt đang chạy khi thoát thì **quay lại hàng đợi**, không bao giờ suy ra kết quả; quá hạn thì `stale` chứ không chạy lén (FR-8f) |
 | "Thêm sub task" nghĩa là gì? | **Lớp UI**: checklist trong detail, bộ đếm trên card, kéo-thả gán cha (FR-15b). Giữ một cấp, giữ `parent_id`, không thêm tool MCP nào |
 | Cho board khai luật chặn transition theo trạng thái git? | **Không cần.** Dữ kiện git ở cửa duyệt vẫn là hiển thị, không chặn (FR-20). Việc chặn thuộc về [Git](/dev-kit/git) qua env gate trên branch, không phải thuộc về workflow của board |
 
@@ -892,11 +961,11 @@ Những câu từng để mở, và câu trả lời — ghi lại để khỏi 
 - Một `claim` mới chiếm được task của phiên đã chết (FR-6b). "Đã chết" lấy
   thẳng từ trạng thái phiên của Agent Hub, hay cần thêm một khoảng chờ để
   tránh cướp nhầm một agent đang reconnect?
-- Lượt `verify` xong khi người dùng đang ở module khác: chỉ ghi comment, hay
-  bắn notification? Agent Hub đã có `internal/agenthub/notifier.go` cho đúng
-  loại việc này.
-- Hàng đợi `verify` mất khi DevKit thoát. Có đáng lưu xuống SQLite để chạy lại
-  lúc mở, hay một lượt test dở thì bỏ luôn là đúng?
+- Ngưỡng `stale` mặc định 24h (FR-8f). Nên cho board khai lại, hay một con số
+  cứng là đủ và khai được chỉ thêm một nút để chỉnh sai?
+- Tách `internal/notify` làm `agenthub` đổi khoá `SessionID` → target. Làm
+  cùng lúc với Tasks, hay tách trước thành một thay đổi thuần refactor để
+  `agenthub` có bước xanh riêng trước khi có consumer thứ hai?
 
 <Cards>
   <Card title="Agent Hub" href="/dev-kit/agent-hub" description="Nguồn actor chính — agent claim task, kết quả turn đẩy task sang review" />
