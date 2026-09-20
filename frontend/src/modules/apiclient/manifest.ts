@@ -1,5 +1,6 @@
 import { Send } from "lucide-react";
 import { lazyModuleView, type ModuleManifest } from "../registry";
+import { registerIntent } from "@/workbench/intents";
 
 export const apiclientModule: ModuleManifest = {
   id: "apiclient",
@@ -23,3 +24,21 @@ export const apiclientModule: ModuleManifest = {
     },
   ],
 };
+
+
+/**
+ * `api.fromEndpoint` (docs/dev-kit/cross-module.mdx): Try in API Client, from
+ * a Code Graph endpoint, without Code Graph importing this module's views.
+ *
+ * Beside by default, which is the example the intents module itself gives: the
+ * endpoint being read stays on screen while the draft opens next to it.
+ */
+registerIntent(
+  "api.fromEndpoint",
+  async (ref, { placement }) => {
+    if (ref.kind !== "endpoint") return;
+    const { openEndpointDraft } = await import("./documents");
+    openEndpointDraft(ref.id, ref.label, { beside: placement === "beside" });
+  },
+  "beside",
+);

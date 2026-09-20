@@ -8,6 +8,7 @@ export {
 export type {
     Auth,
     Collection,
+    EndpointDraft,
     Environment,
     HistoryEntry,
     Request,

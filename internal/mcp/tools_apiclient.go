@@ -18,6 +18,7 @@ type APIClientAPI interface {
 	Request(id string) (apiclient.Request, error)
 	Environments() ([]apiclient.Environment, error)
 	Send(ctx context.Context, in apiclient.SendInput) (apiclient.Response, error)
+	DraftFromEndpoint(ctx context.Context, endpointID string) (apiclient.EndpointDraft, error)
 }
 
 func (s *Server) registerAPIClient(ms *sdk.Server) {
@@ -51,6 +52,14 @@ func (s *Server) registerAPIClient(ms *sdk.Server) {
 			"A tag that requires confirmation asks every time, and the response is truncated",
 		Annotations: &sdk.ToolAnnotations{DestructiveHint: boolPtr(false)},
 	}, s.toolAPISend)
+
+	sdk.AddTool(ms, &sdk.Tool{
+		Name: "api.fromEndpoint",
+		Description: "Draft a request from a Code Graph endpoint: method, path, query and header " +
+			"parameters, and a body skeleton when the handler declares a type this project's " +
+			"source contains. Nothing is saved, and `note` says why a body is missing",
+		Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true},
+	}, s.toolAPIFromEndpoint)
 
 	// Deliberately absent: creating, editing or deleting an environment. An
 	// environment names the hosts and decides whether firing at them asks
@@ -109,6 +118,25 @@ func (s *Server) toolAPISend(ctx context.Context, _ *sdk.CallToolRequest, in api
 		return s.deps.API.Send(ctx, apiclient.SendInput{
 			Request: req, EnvironmentID: in.EnvironmentID, ForAgent: true,
 		})
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return nil, structured(v), nil
+}
+
+type apiEndpointInput struct {
+	EndpointID string `json:"endpointId"`
+}
+
+// toolAPIFromEndpoint drafts without saving. An agent that wanted a saved
+// request can save one; an agent that only wanted to see the shape should not
+// leave a row in somebody's sidebar to find out.
+func (s *Server) toolAPIFromEndpoint(ctx context.Context, _ *sdk.CallToolRequest, in apiEndpointInput) (*sdk.CallToolResult, any, error) {
+	v, err := s.deps.Caller.Call(ctx, "builtin.apiclient", "api:read", "request:list", meta("from_endpoint", map[string]any{
+		"endpoint_id": in.EndpointID,
+	}), func(ctx context.Context) (any, error) {
+		return s.deps.API.DraftFromEndpoint(ctx, in.EndpointID)
 	})
 	if err != nil {
 		return nil, nil, err

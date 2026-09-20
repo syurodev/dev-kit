@@ -158,6 +158,7 @@ func (a *tsAnalyzer) Analyze(ctx context.Context, projectPath string) (AnalysisR
 	}
 
 	result := AnalysisResult{}
+	tsResolveBodyTypes(project)
 	tsApplyFrameworks(project, &result)
 	tsEmitNodes(project, &result)
 	tsEmitDependencies(project, &result)
@@ -646,6 +647,62 @@ func tsLayerFor(active []tsFramework, p *tsProject, file *tsFile, decl *tsDecl) 
 		return layer
 	}
 	return "unknown"
+}
+
+// tsResolveBodyTypes fills in the fields of every @Body parameter's type.
+//
+// It runs once every file has been read, because the DTO is almost never in
+// the controller's own file, and it asks the index rather than the language
+// server: the declaration is already there with its range, and reading the
+// properties out of it is the same bounded text work the rest of this analyzer
+// does. A type the index does not hold — a library's, or one declared as an
+// interface the server did not report as a class — leaves the fields empty,
+// which is what makes the draft say "could not read this type" instead of
+// showing an empty object.
+//
+// Only an UNAMBIGUOUS name counts. Two classes called CreateUserDto is exactly
+// when a guess builds a body out of the wrong fields.
+func tsResolveBodyTypes(p *tsProject) {
+	classes := map[string][]*tsDecl{}
+	for _, file := range p.files {
+		for _, decl := range file.decls {
+			if decl.kind == "class" {
+				classes[decl.name] = append(classes[decl.name], decl)
+			}
+		}
+	}
+	for _, file := range p.files {
+		for _, decl := range file.decls {
+			for i := range decl.params {
+				param := &decl.params[i]
+				if param.Source != ParamSourceBody || param.Type == "" {
+					continue
+				}
+				found := classes[tsBareTypeName(param.Type)]
+				if len(found) != 1 {
+					continue
+				}
+				param.Fields = tsReadProperties(found[0].file.lines, found[0].line, found[0].endLine)
+			}
+		}
+	}
+}
+
+// tsBareTypeName strips what a lookup by name cannot use: generics, array
+// brackets, a namespace qualifier, and the null/undefined half of a union.
+func tsBareTypeName(written string) string {
+	name := strings.TrimSpace(written)
+	if cut, _, ok := tsCutTopLevel(name, '|'); ok {
+		name = strings.TrimSpace(cut)
+	}
+	if index := strings.Index(name, "<"); index >= 0 {
+		name = name[:index]
+	}
+	name = strings.TrimSuffix(strings.TrimSpace(name), "[]")
+	if index := strings.LastIndex(name, "."); index >= 0 {
+		name = name[index+1:]
+	}
+	return strings.TrimSpace(name)
 }
 
 func tsEmitNodes(p *tsProject, result *AnalysisResult) {

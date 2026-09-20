@@ -106,6 +106,35 @@ type Collection struct {
 	Order    int    `json:"order"`
 }
 
+// EndpointDraft is a request drafted from a Code Graph endpoint.
+//
+// It is not saved: a draft becomes a request only when the person saves it,
+// and an agent that asked for one gets what a person sees rather than a row
+// appearing in their sidebar.
+//
+// The type lives here because it is a request; the function that builds one
+// lives in the composition root, because building it means reading the Code
+// Graph index and this package must not depend on that.
+type EndpointDraft struct {
+	Request
+	// BodyInferred says the body skeleton came from the handler's own declared
+	// type. False is not a failure — a Lua endpoint declares no body at all —
+	// which is why Note carries the reason.
+	BodyInferred bool `json:"bodyInferred"`
+	// Note is the one sentence to show about the body. Empty when the skeleton
+	// was read from the code.
+	Note string `json:"note"`
+}
+
+// The notes, as sentences rather than codes: each is shown verbatim, and an
+// empty {} for all three would read as "the DTO is empty" — the one thing none
+// of them means.
+const (
+	NoteNoBodyDeclared  = "This endpoint declares no request body."
+	NoteBodyNotReadable = "The handler takes a body, but its type is not in this project's source — fill it in by hand."
+	NoteNoDeclaredTypes = "This language does not declare parameter types, so the body cannot be read from the code."
+)
+
 // Response is what came back, already bounded.
 type Response struct {
 	Status     int               `json:"status"`

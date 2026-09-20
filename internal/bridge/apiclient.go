@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"devkit/internal/apiclient"
+	"devkit/internal/app"
 )
 
 func (s *AppService) ApiRequests() ([]apiclient.Request, error) {
@@ -216,4 +217,20 @@ func (s *AppService) ApiClearHistory(requestID string) error {
 		return nil, s.container.APIClient.ClearHistory(requestID)
 	})
 	return err
+}
+
+// ApiDraftFromEndpoint builds a request from a Code Graph endpoint without
+// saving it. FR-7 is explicit that a draft becomes a request only when the
+// person saves it, so this returns one and stores nothing.
+func (s *AppService) ApiDraftFromEndpoint(endpointID string) (apiclient.EndpointDraft, error) {
+	result, err := s.call(context.Background(), "builtin.apiclient", "api:read", "request:list", map[string]any{
+		"action":      "draft_from_endpoint",
+		"endpoint_id": recordID(endpointID),
+	}, func(ctx context.Context) (any, error) {
+		return app.DraftFromEndpoint(ctx, s.container.CodeGraph, endpointID)
+	})
+	if err != nil {
+		return apiclient.EndpointDraft{}, err
+	}
+	return result.(apiclient.EndpointDraft), nil
 }

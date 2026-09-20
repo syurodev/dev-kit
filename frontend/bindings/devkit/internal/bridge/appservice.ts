@@ -579,6 +579,15 @@ export function ApiDeleteRequest(id: string): $CancellablePromise<void> {
     return $Call.ByID(3006789638, id);
 }
 
+/**
+ * ApiDraftFromEndpoint builds a request from a Code Graph endpoint without
+ * saving it. FR-7 is explicit that a draft becomes a request only when the
+ * person saves it, so this returns one and stores nothing.
+ */
+export function ApiDraftFromEndpoint(endpointID: string): $CancellablePromise<apiclient$0.EndpointDraft> {
+    return $Call.ByID(303944444, endpointID);
+}
+
 export function ApiEnvironments(): $CancellablePromise<apiclient$0.Environment[] | null> {
     return $Call.ByID(3503140704);
 }

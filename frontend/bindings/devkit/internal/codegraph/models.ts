@@ -146,6 +146,17 @@ export interface Endpoint {
 }
 
 /**
+ * Field is one field of a body type, e.g. {Name: "amount", Type: "BigDecimal"}.
+ * One level deep only: a nested DTO is a field with a type and no fields of its
+ * own, because a skeleton that guessed two levels would be guessing about
+ * serialization it cannot see.
+ */
+export interface Field {
+    "name": string;
+    "type": string;
+}
+
+/**
  * FieldRef is one field a node touches, with how often — enough for a picker
  * to list the fields worth tracing without the caller guessing a name. Reads
  * and Writes are counted over whatever scope was asked for: every method on
@@ -304,6 +315,27 @@ export interface Node {
 export interface Param {
     "name": string;
     "type": string;
+
+    /**
+     * Source is one of the ParamSource constants, or empty when the analyzer
+     * cannot say. Lua leaves it empty for every parameter and that is the
+     * honest answer: a Kong phase or a Lapis route declares no types and no
+     * body, so there is nothing to read rather than nothing there.
+     */
+    "source"?: string;
+
+    /**
+     * WireName is the name on the wire when the declaration renames it —
+     * @RequestParam("page_size") int pageSize. Empty means it is Name.
+     */
+    "wireName"?: string;
+
+    /**
+     * Fields are the body type's own fields, for a Source of body. Empty for
+     * a type the analyzer could not resolve to project source, which is why
+     * the draft says "could not read this type" rather than showing {}.
+     */
+    "fields"?: Field[] | null;
 }
 
 /**

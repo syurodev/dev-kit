@@ -691,7 +691,9 @@ func main() {
 		Tasks:     container.Tasks,
 		Git:       container.Git,
 		Accounts:  container.Accounts,
-		API:       container.APIClient,
+		// Wrapped so api.fromEndpoint can read the index: internal/mcp must
+		// not import app, and apiclient must not import codegraph.
+		API: app.NewAPIWithDrafts(container.APIClient, container.CodeGraph),
 		// Which branches an agent may push: the ones written on tasks it
 		// holds, so the permission survives the session that created them.
 		TaskBranches: app.NewTaskBranches(container.Tasks),

@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Bot, Boxes, CodeXml, Columns2, Copy, Ellipsis, SquarePlus } from "lucide-react";
+import { Bot, Boxes, CodeXml, Columns2, Copy, Ellipsis, Send, SquarePlus } from "lucide-react";
 import { TreeRowAction, TreeView, type TreeNodeData } from "@/components/tree-view";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
 import {
@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { dispatchIntent, hasIntent } from "@/workbench/intents";
 import type { CodeGraphEndpoint } from "@/bridge/codegraph";
 import { methodChipClass } from "../graph/tokens";
 import { filterEndpoints, groupEndpoints, methodsIn, type ControllerGroup } from "./sidebarModel";
@@ -219,6 +220,23 @@ function EndpointMenuItems({
       <Item icon={<Bot />} onSelect={() => actions.onAskAgent(endpoint)}>
         Ask agent about this endpoint
       </Item>
+      {/* Hidden rather than disabled when the API Client is not loaded: an
+          intent nobody registered is a menu item that does nothing. */}
+      {hasIntent("api.fromEndpoint") ? (
+        <Item
+          icon={<Send />}
+          onSelect={() =>
+            void dispatchIntent("api.fromEndpoint", {
+              module: "codegraph",
+              kind: "endpoint",
+              id: endpoint.id,
+              label: `${endpoint.httpMethod} ${endpoint.path}`,
+            })
+          }
+        >
+          Try in API Client
+        </Item>
+      ) : null}
       <Item icon={<Copy />} onSelect={() => copy(`${endpoint.httpMethod} ${endpoint.path}`)}>
         Copy method and path
       </Item>
