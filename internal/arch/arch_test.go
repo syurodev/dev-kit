@@ -70,6 +70,14 @@ func TestLayering(t *testing.T) {
 		// reverse, and it declares EnvLookup locally like ssh/database/kafka.
 		// It takes a *sql.DB and a table name rather than importing storage,
 		// so the scoped-secret table stays the composition root's decision.
+		// git runs against the project's own work tree. It may use checkpoint
+		// (for Locate) and gitparse, both leaves below it, but never accounts,
+		// environments or interaction directly — it declares those as local
+		// interfaces so the composition root decides what satisfies them.
+		pkg("git"): {
+			pkg("accounts"), pkg("environments"), pkg("interaction"), pkg("vaultitem"),
+			pkg("mcp"), pkg("bridge"), pkg("app"), pkg("storage"),
+		},
 		pkg("accounts"): {
 			pkg("environments"), pkg("storage"), pkg("mcp"), pkg("bridge"), pkg("app"),
 			pkg("ssh"), pkg("database"), pkg("kafka"), pkg("notes"), pkg("agenthub"),
