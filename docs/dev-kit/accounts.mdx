@@ -5,10 +5,15 @@ description: Một chỗ duy nhất trả lời "tôi là ai trên dịch vụ n
 
 # Tài khoản
 
-Accounts là built-in module giữ **danh tính** của người dùng trên các dịch vụ
-bên ngoài (GitHub, GitLab, Kong Admin, một API nội bộ…), tách khỏi **kết nối**
-mà từng module đã tự quản. Module khác không lưu token; nó lưu một `account_id`
-và nhờ Go giải quyết secret **đúng lúc gọi**.
+Accounts là built-in module giữ **mọi credential** của DevKit ở **một** chỗ:
+danh tính trên dịch vụ ngoài (GitHub, Kong Admin, một API nội bộ) lẫn
+credential của từng kết nối (password của một database, passphrase của một SSH
+key, SASL của một Kafka cluster). Module khác không lưu secret nữa; nó lưu một
+`account_id` và nhờ Go giải quyết **đúng lúc gọi**.
+
+Đổi lại, người dùng **không phải đi qua module này để tạo một kết nối**: form
+tạo DB profile vẫn có ô mật khẩu ngay tại chỗ, và account được tạo ngầm phía
+sau. Một kho, hai lối vào — xem [Tạo ngầm](#tạo-ngầm--một-kho-nhưng-ui-không-đổi).
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
@@ -37,24 +42,31 @@ flowchart TD
 
 ## Vì sao cần, khi đã có vault
 
-Hôm nay credential nằm rải ở **năm** chỗ, mỗi chỗ đúng theo cách của nó:
+Hôm nay credential nằm rải ở **năm** chỗ, mỗi chỗ tự quản theo cách của nó:
 
-| Ở đâu | Giữ cái gì |
-|---|---|
-| `db-profile` payload | password của một database cụ thể |
-| `ssh-key-passphrase` | passphrase của một key cụ thể |
-| `kafka-profile` payload | SASL credential của một cluster cụ thể |
-| `internal/auth` + OS keychain | refresh token của DevKit Cloud |
-| `internal/agenthub/auth.go` | **không giữ gì** — chỉ chạy lệnh login của vendor |
+| Ở đâu | Giữ cái gì | Sau khi có Accounts |
+|---|---|---|
+| `db-profile` payload | password của một database | Chuyển sang `account`; profile giữ `account_id` |
+| `ssh-key-passphrase` | passphrase của một key | Chuyển sang `account`; profile giữ `account_id` |
+| `kafka-profile` payload | SASL credential của một cluster | Chuyển sang `account`; profile giữ `account_id` |
+| `internal/auth` + OS keychain | refresh token của DevKit Cloud | **Ở nguyên keychain**; Accounts ghi một dòng `external` |
+| `internal/agenthub/auth.go` | **không giữ gì** — chạy lệnh login của vendor | **Giữ nguyên hành vi**; Accounts ghi một dòng `external` |
 
-Chúng đều gắn với **một kết nối**. Đó là đúng: password của Postgres staging
-không dùng lại ở đâu khác. Nhưng một **PAT GitHub** thì ngược lại — cùng một
-token dùng cho `git push`, cho request tới `api.github.com` trong
-[API Client](/dev-kit/api-client), và cho việc agent mở PR. Lưu theo kiểu cũ
-là ba bản sao, ba lần xoay vòng, và không chỗ nào biết nó đã hết hạn.
+Hai lý do để gom, và chúng khác nhau:
 
-Accounts sở hữu **chiều danh tính**; các module giữ nguyên **chiều kết nối**.
-Không module nào bị viết lại.
+- **Thứ dùng lại được.** Một PAT GitHub dùng cho `git push`, cho request tới
+  `api.github.com` trong [API Client](/dev-kit/api-client), và cho việc agent
+  mở PR. Lưu theo kiểu cũ là ba bản sao và ba lần xoay vòng.
+- **Thứ chỉ dùng một chỗ.** Password của Postgres staging không dùng lại ở
+  đâu. Nó vào Accounts không phải để dùng chung, mà để **một kho là một kho**:
+  một chỗ trả lời "DevKit đang giữ những secret nào", một luật reveal, một
+  đường audit, một chỗ xoay vòng. Năm cách làm cùng một việc là năm chỗ để
+  làm sai khác nhau.
+
+Hai thứ **không** vào kho, và lý do giống nhau: DevKit vốn đã cố ý không giữ
+chúng. Lấy chúng vào là phá một quyết định đã đúng, nên chúng vào danh sách
+dưới dạng `external` — có mặt để trả lời "tôi đăng nhập gì", không có secret
+để mất.
 
 <Callout type="info">
 Đừng nhầm với `internal/identity` — package đó trả lời "**ai đang gọi
@@ -94,18 +106,22 @@ vào context của một model.
 
 | ID | Requirement |
 |---|---|
-| FR-1 | Account có **kind**: `token` (PAT/API key), `basic` (user+password), `oauth` (access + refresh + expiry, DevKit tự refresh), `key` (trỏ tới SSH key đã có, **không** di chuyển key), `external` (DevKit không giữ secret). |
-| FR-2 | Account có **provider** từ một registry: `github`, `gitlab`, `bitbucket`, `anthropic`, `openai`, `google`, `kong`, `generic`. Provider khai: kind nào nhận, verify bằng request nào, đọc subject/scope/expiry ở đâu. `generic` nhận URL verify do người dùng nhập. |
+| FR-1 | Account có **kind**: `token` (PAT/API key), `basic` (user+password), `oauth` (access + refresh + expiry, DevKit tự refresh), `secret` (một chuỗi đơn: passphrase, SASL password, password của DB), `external` (DevKit không giữ secret, chỉ ghi nhận danh tính tồn tại). |
+| FR-2 | Account có **provider** từ một registry: `github`, `gitlab`, `bitbucket`, `anthropic`, `openai`, `google`, `kong`, `generic`, cộng ba provider của kết nối (`database`, `ssh`, `kafka`) cho account scoped. Provider khai: kind nào nhận, verify bằng request nào, đọc subject/scope/expiry ở đâu. Provider của kết nối **không tự verify** — thứ verify chúng là chính nút Test Connection của module sở hữu. |
 | FR-3 | **Verify là hành động chính**, không phải Save. Sau verify, account hiện `subject` (login/email thật), `scopes`, `expires_at`, `verified_at`. Verify thất bại ⇒ vẫn lưu được nhưng trạng thái `unverified`, hiện rõ. |
 | FR-4 | Trạng thái dẫn xuất: `valid`, `expiring` (< 14 ngày), `expired`, `revoked` (verify trả 401), `unverified`. Badge trên nút module đếm số account **không** `valid`. |
 | FR-5 | **Binding**: module khác lưu `account_id`, không lưu secret. Resolve chỉ xảy ra trong Go, ngay trước khi dùng, không cache quá vòng đời một call. |
 | FR-6 | Account có thể **giới hạn theo env tag** (danh sách rỗng = dùng được mọi nơi). Binding tới một env ngoài danh sách bị từ chối ở service, không chỉ ẩn trong UI. |
 | FR-7 | **Kind `external`**: DevKit ghi nhận danh tính tồn tại và cách đăng nhập lại, nhưng không giữ credential. Dùng cho Agent Hub vendor login (xem dưới) và DevKit Cloud. Không reveal được vì không có gì để reveal. |
-| FR-8 | **Reveal** giá trị trong UI: qua `internal/interaction` + nhập lại Master Password, mỗi lần một account, có audit. Không có "đừng hỏi lại". |
+| FR-8 | **Reveal** giá trị trong UI: qua `internal/interaction`, mỗi lần một account, có audit. Yêu cầu nhập lại Master Password là **một tuỳ chọn trong Settings, mặc định bật**; tắt đi thì reveal chỉ còn dialog xác nhận. Tuỳ chọn là của người dùng vì chi phí rơi vào đúng người đó, và người xoay token mười lần một ngày biết rõ mình đang đánh đổi gì. |
 | FR-9 | **Xoay vòng tại chỗ**: dán giá trị mới vào một account đang có ⇒ mọi binding tiếp tục chạy, không sửa module nào. Đây là lý do binding lưu ID chứ không lưu giá trị. |
 | FR-10 | **Usage index**: account detail liệt kê ai đang dùng nó (remote git nào, request nào), lấy bằng cách hỏi ngược từng module — cùng cơ chế `ProfileEnvUsage` của env tag. Xoá account đang được dùng bị chặn, kèm danh sách. |
 | FR-11 | Agent gọi được `accounts.list` / `accounts.get` / `accounts.status`. Cả ba **không bao giờ** trả giá trị credential. |
-| FR-12 | Account là vault item ⇒ đồng bộ đa thiết bị như mọi vault item. `external` cũng sync (nó chỉ là ghi chú), `key` sync phần trỏ chứ không sync key. |
+| FR-12 | Account là vault item ⇒ đồng bộ đa thiết bị như mọi vault item. `external` cũng sync (nó chỉ là ghi chú). |
+| FR-13 | **Kho duy nhất**: credential của DB / SSH / Kafka profile chuyển thành `account`; profile giữ `account_id`. Không module nào còn payload secret của riêng nó. |
+| FR-14 | **Tạo ngầm**: form tạo profile giữ nguyên ô nhập secret; module gọi `CreateScoped` khi lưu. Người dùng **không** phải mở Accounts trước — xem [Tạo ngầm](#tạo-ngầm--một-kho-nhưng-ui-không-đổi). |
+| FR-15 | Account **scoped** (thuộc một profile) hiện trong nhóm gập riêng, xoá theo profile; **thăng cấp** thành shared được, không hạ cấp được. |
+| FR-16 | **Không đoán khi có nhiều lựa chọn**: hai account cùng khớp host ⇒ hỏi một lần cho mỗi cặp `(host, env)` rồi nhớ lựa chọn đó. Không có heuristic "cái dùng lần cuối". |
 
 ### Non-functional requirements
 
@@ -124,8 +140,10 @@ vào context của một model.
   token có sẵn; `oauth` chỉ để **refresh** cặp token người dùng đã có.
 - Chia sẻ account giữa nhiều người / team vault.
 - Hardware key, YubiKey, passkey.
-- Di chuyển credential đang nằm trong `db-profile` / `kafka-profile` sang
-  Accounts. Chúng gắn với kết nối, đúng chỗ rồi — xem *Ranh giới* dưới.
+- Gom `internal/auth` (refresh token của Cloud) ra khỏi OS keychain. Keychain
+  là chỗ đúng cho thứ mở được chính vault; Accounts chỉ ghi một dòng `external`.
+- Thay đổi cách Agent Hub đăng nhập vendor. `internal/agenthub/auth.go` cố ý
+  không chạm credential; giữ nguyên, ghi `external`.
 
 ### Acceptance criteria
 
@@ -136,25 +154,54 @@ vào context của một model.
   tham số nào bật được điều ngược lại.
 - Account giới hạn `[prod]` → bind vào một API environment tag `dev` bị từ chối
   ở service (test gọi thẳng service, không qua UI).
+- Tạo một DB profile như trước → **không** có bước nào mới trong UI; kiểm tra
+  storage thấy một `account` scoped và `db-profile` không còn payload secret.
+- Xoá DB profile đó → account scoped của nó biến mất cùng; account shared mà
+  nó bind tới thì không.
+- Có hai account GitHub → request đầu tiên tới `api.github.com` trên env `dev`
+  **hỏi chọn**; request thứ hai cùng cặp đó không hỏi lại; cùng host trên env
+  `prod` thì hỏi lại lần nữa.
+- Tắt tuỳ chọn hỏi Master Password → reveal chỉ còn dialog xác nhận; bật lại
+  → lần reveal kế tiếp hỏi mật khẩu.
 - Dán giá trị mới vào account → request và git remote đang bind tiếp tục chạy,
   không sửa gì ở hai module đó.
 
-## Ranh giới — cái gì **không** vào Accounts
+## Tạo ngầm — một kho, nhưng UI không đổi
 
-Đây là phần dễ làm hỏng nhất, nên viết ra thành luật:
+Gom về một kho mà bắt người dùng đi vòng là đổi một vấn đề lấy một vấn đề tệ
+hơn: không ai muốn "tạo account trước, rồi mới tạo được DB profile". Nên luật
+là **kho gom lại, luồng thì không**.
 
-| Thứ | Ở đâu | Vì sao |
+Form tạo DB / SSH / Kafka profile giữ nguyên ô nhập secret tại chỗ. Khi lưu,
+service của module đó gọi `accounts.CreateScoped` và giữ lại `account_id`.
+Người dùng không thấy bước nào mới.
+
+**Account scoped vs shared** — khác nhau ở phạm vi, không ở cách lưu:
+
+| | Scoped | Shared |
 |---|---|---|
-| Password của một DB profile | Ở `db-profile` | Nó là thuộc tính của **kết nối đó**, không dùng lại ở đâu khác. Đưa vào Accounts là thêm một lớp trỏ mà không ai được lợi. |
-| SASL credential của Kafka cluster | Ở `kafka-profile` | Như trên. |
-| SSH private key | Ở SSH module | Key là file trên đĩa với quyền của nó; Accounts chỉ **trỏ** tới profile (kind `key`) để danh sách "tôi đăng nhập gì" đầy đủ. |
-| Credential đăng nhập Claude/Codex | **Không ở đâu trong DevKit** | `internal/agenthub/auth.go` cố ý không chạm tới: sign-in chạy bằng chính lệnh của vendor trong terminal người dùng nhìn thấy. Accounts ghi nó là `external` — có mặt trong danh sách, không giữ secret. |
-| Refresh token của DevKit Cloud | OS keychain qua `internal/auth` | Keychain là chỗ đúng cho thứ mở được chính vault. Accounts ghi `external`. |
+| Sinh ra từ | Form của một profile (ngầm) | Module Accounts (tường minh) |
+| Ai dùng | Đúng một profile | Bất kỳ module nào bind tới |
+| Trong danh sách | Nhóm *Thuộc một kết nối*, gập lại mặc định | Danh sách chính |
+| Xoá profile | Xoá luôn account scoped của nó | Không đụng tới |
 
-`external` là thứ khiến Accounts không phải một cuộc di cư: nó **mô tả** cái
-đã có thay vì **lấy** cái đã có.
+Một account scoped **thăng cấp** thành shared bằng một nút, khi người dùng
+phát hiện mình đang dùng cùng token ở chỗ thứ hai. Chiều ngược lại không có —
+hạ cấp một account đang được ba chỗ dùng là làm hỏng ba chỗ.
 
-## Flow
+Danh sách chính vì thế vẫn đọc được: nó là "tôi đăng nhập những gì", không
+phải một bãi mười hai dòng trong đó chín dòng là password của từng database.
+
+<Callout type="info" title="Migration">
+Ba record type hiện có (`db-profile`, `ssh-key-passphrase`, `kafka-profile`)
+đổi hình dạng: payload rỗng đi, metadata thêm `account_id`. App đang greenfield
+nên chưa cần backfill (xem [Implementation status](/dev-kit/implementation-status)),
+nhưng đây là loại thay đổi **phải** có migration trước khi hỗ trợ nâng cấp từ
+một bản đã có dữ liệu — và nó đụng `ValidateRecordSchema` của ba module đang
+chạy, không phải chỉ của module mới.
+</Callout>
+
+## Flow## Flow
 
 ### Thêm và verify
 
@@ -227,6 +274,11 @@ type Provider struct {
 tới `api.github.com` thì account GitHub đã verify được **chọn sẵn**, không phải
 mở menu. Thêm provider = thêm một giá trị vào registry, không đụng service.
 
+**Khớp đúng một account thì chọn luôn; khớp từ hai trở lên thì hỏi** (FR-16),
+và nhớ lựa chọn theo cặp `(host, env)`. Không đoán: hai account GitHub thường
+là cá nhân và công ty, và bắn một request bằng danh tính sai còn tệ hơn bắt
+người dùng chọn một lần.
+
 ### Vaultitem contract
 
 Một record type mới (thêm vào hai switch `IsSupportedItemType` và
@@ -234,7 +286,7 @@ Một record type mới (thêm vào hai switch `IsSupportedItemType` và
 
 | Type | Metadata (plaintext) | Payload (mã hoá) |
 |---|---|---|
-| `account` | `provider`, `kind`, `label`, `subject`, `scopes`, `expires_at`, `verified_at`, `state`, `env` (list, optional), `ref` (kind `key`/`external`: trỏ tới profile hoặc mô tả cách login lại) | credential; với `external` là payload rỗng có dấu |
+| `account` | `provider`, `kind`, `label`, `subject`, `scopes`, `expires_at`, `verified_at`, `state`, `env` (list, optional), `scope_owner` (rỗng = shared; ngược lại là ID profile sở hữu), `ref` (kind `external`: mô tả cách login lại) | credential; với `external` là payload rỗng có dấu |
 
 Metadata cố ý đủ để **liệt kê, lọc, và cảnh báo hết hạn mà không cần mở vault**
 — đó là lý do list vẫn chạy khi vault khoá (NFR-6). Mẫu là `db-profile`.
@@ -268,8 +320,8 @@ hữu hành động** (`git.push`, `api.send`). Hai tool đó gate theo env củ
 Account không phải thứ người ta chủ động mở. Nên mục tiêu là nó **biến mất**:
 
 - **Chọn sẵn theo host.** `Try in API Client` trên một endpoint → account khớp
-  `Provider.Hosts` (hoặc account dùng lần cuối cho env đó) đã được chọn. Không
-  hỏi gì.
+  `Provider.Hosts` đã được chọn, nếu chỉ có một cái khớp. Hai cái trở lên thì
+  hỏi một lần cho cặp `(host, env)` đó rồi thôi (FR-16).
 - **Chỉ hiện khi thiếu.** Không có account phù hợp, hoặc account `expired` ⇒
   một **peek** ngay trong module đang đứng (intent `accounts.pick`), không
   chuyển tab — luật 3 của [Liên module](/dev-kit/cross-module#nguyên-tắc).
@@ -279,10 +331,30 @@ Account không phải thứ người ta chủ động mở. Nên mục tiêu là
 - **Chip `account`.** `EntityRef` thêm kind `account`; chip hiện trong header
   request của API Client và trên dòng remote của [Git](/dev-kit/git).
 
+## Quyết định đã chốt
+
+| Câu hỏi | Chốt |
+|---|---|
+| Credential của DB / Kafka / SSH có vào Accounts không? | **Có** — một kho là một kho. Nhưng UI phải liền mạch: tạo ngầm từ chính form của profile (FR-13/14) |
+| Hai account cùng khớp host thì chọn thế nào? | **Buộc chọn** một lần cho mỗi `(host, env)`; không heuristic (FR-16) |
+| Reveal có bắt nhập lại Master Password không? | **Tuỳ chọn**, mặc định bật (FR-8) |
+
+## Open questions
+
+- Account scoped của một profile có nên **sync** không? Profile thì sync; nhưng
+  password của một database chỉ chạy được trên máy có đường mạng tới database
+  đó. Sync cả cụm cho nhất quán, hay để scoped ở lại máy?
+- Thăng cấp scoped → shared đổi `scope_owner` về rỗng. Nếu sau đó người dùng
+  xoá profile ban đầu, account ở lại mồ côi nhưng đúng — có cần nhắc họ không,
+  hay im lặng là đúng?
+
 ## Known ceiling (v1)
 
 - Một account một provider — không có "cùng token dùng cho hai host lạ nhau"
   ngoài `generic`.
+- Account scoped thăng cấp được lên shared, **không** hạ cấp lại được.
+- Provider của kết nối (`database`/`ssh`/`kafka`) không có verify riêng; trạng
+  thái của chúng là `unverified` cho tới khi module sở hữu chạy Test Connection.
 - Không phát hiện được token bị thu hồi cho tới lần resolve/verify kế tiếp;
   không có webhook.
 - `oauth` chỉ refresh, không tự chạy được luồng đăng nhập đầu tiên.

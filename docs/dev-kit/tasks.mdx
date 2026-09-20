@@ -90,18 +90,21 @@ proprietary rời khỏi máy — trái nguyên tắc local-first.
 | FR-3 | Task có: `title`, `description` (markdown), `status`, `priority`, `labels[]`, `assignee`, `parent_id` (subtask một cấp), `blocked_by[]`. Không có epic/sprint/estimate ở v1. |
 | FR-4 | Mỗi task có `key` con người đọc được (vd `DEV-4f2a91`), ổn định suốt vòng đời, dùng làm định danh khi nói chuyện với agent. |
 | FR-5 | Agent tạo task được qua MCP (`tasks.create`), kể cả task con của task nó đang làm — không cần user thao tác. |
-| FR-6 | Agent **nhận** một task (`tasks.claim`): service ghi `session_id` = phiên agent đang gọi và chuyển task sang status `active` đầu tiên của board. Task đã có `session_id` khác đang sống → reject. |
+| FR-6 | Agent **nhận** một task (`tasks.claim`): service ghi `session_id` = phiên agent đang gọi và chuyển task sang status `active` đầu tiên của board. Task đã có `session_id` khác **đang sống** → reject. |
+| FR-6b | Phiên agent chết ⇒ `session_id` **giữ nguyên**, không tự clear: agent mở lại phiên và nhận lại đúng việc. Task hiện "phiên đã đóng" kèm nút Release thủ công, và một `claim` mới **được phép chiếm** khi phiên đang giữ không còn sống — giữ không có nghĩa là khoá vĩnh viễn. |
 | FR-7 | Agent chuyển trạng thái task (`tasks.transition`) sang bất kỳ status nào có `category` ∈ `open` \| `active` **không cần xác nhận**. |
-| FR-8 | Chuyển sang status `category = terminal` (Done, Won't do, …) qua MCP **bắt buộc** xác nhận tương tác mỗi lần, **không** có `allow_always` — tái dùng `internal/interaction` đã Implemented. |
+| FR-8 | Chuyển sang status `category = terminal` (Done, Won't do, …) qua MCP đi qua **cửa duyệt**, và board quyết định cửa đó là gì — xem [Cửa duyệt đóng task](#cửa-duyệt-đóng-task--người-hoặc-một-lệnh-verify). Board **không** khai `verify` ⇒ xác nhận tương tác mỗi lần, **không** có `allow_always` (`internal/interaction`). Board **có** khai `verify` ⇒ DevKit tự chạy lệnh đó; exit 0 đóng thẳng, exit khác reject. |
+| FR-8b | Lệnh `verify` do **người** khai trên board (`tasks:admin`, UI-only — agent không sửa được, cùng loại trừ cứng với `workflow`). Kết quả mỗi lần chạy thành một comment `kind=system`: lệnh, exit code, thời gian, phần đuôi output. |
 | FR-9 | `tasks.transition` nhận `expectedStatus` optional; lệch trạng thái hiện tại → reject `validation_failed`, không ghi đè — chống hai agent giẫm chân nhau (xem [Optimistic transition](#optimistic-transition--chống-hai-agent-giẫm-chân)). |
 | FR-10 | Agent comment được vào task (`tasks.comment.add`); comment ghi rõ tác giả là `agent:<sessionId>` hay `user`, không trộn lẫn. |
 | FR-11 | Mỗi task giữ **lịch sử chuyển trạng thái bounded** (từ → sang, bởi ai, lúc nào), đọc được cả khi phiên agent đã đóng. |
 | FR-12 | Khi một turn của agent kết thúc trên task nó đang giữ, service tự post comment tóm tắt (`summary` + `filesChanged` từ [`invokeAgent`](/dev-kit/agent-hub#invokeagent--agent-master-gọi-agent-khác)) và chuyển task sang status `active` cuối cùng của board (thường là *In review*) — **không** tự đóng task. |
 | FR-13 | Task link được tới một **plan node** của [Code Graph](/dev-kit/codegraph) (`plan_node_id`) và ngược lại; hai chiều, không copy trạng thái của nhau — xem [Tích hợp Code Graph](#tích-hợp-code-graph--hai-chiều-không-gộp-storage). |
 | FR-14 | Tạo hàng loạt task từ một plan **đã được người duyệt** (`tasks.createFromPlan`) — mỗi plan node thành một task, link sẵn. |
-| FR-15 | Board view kiểu kanban: cột theo status, kéo-thả card giữa cột; task detail mở trong panel hoặc tab riêng. |
+| FR-15 | Board view kiểu kanban: cột theo status, kéo-thả card giữa cột; task detail mở trong panel hoặc tab riêng. Comment `kind=system` **tách** sang tab *Activity* riêng, không trộn vào dòng hội thoại người/agent. |
 | FR-16 | Xoá task (`tasks:admin`) và mọi thao tác trên board/workflow là **UI-only**, không expose MCP. Task không dùng nữa thì **archive**, không xoá. |
 | FR-17 | **Branch cho task**: tạo/checkout một branch đặt tên từ `key` (mẫu khai ở board, mặc định `<key>-<slug(title)>`). Là **hành động tường minh trong UI**; `tasks.claim` không bao giờ đụng vào work tree — xem [Tích hợp Git](#tích-hợp-git--hỏi-không-lưu). |
+| FR-17b | Branch mà agent tạo được **ghi vào task** (`task.branch`) ngay bằng `tasks.setFields`: `git.branch.create` trả tên branch, agent ghi lại. Đây là chỗ duy nhất DevKit nhớ "branch này thuộc việc này", và là thứ [Git NFR-4](/dev-kit/git) dựa vào để biết agent được push lên branch nào sau khi phiên đã restart. |
 | FR-18 | **Commit mang `key`**: khi phiên agent đang giữ một task, `git.commitTurn` seed thêm trailer `Task: <key>` vào message. Git ghi, Tasks không ghi gì. |
 | FR-19 | **Task detail hiện việc đã commit**: danh sách commit mang `key` của task (bounded), mỗi dòng mở diff. Không có repo / chưa fetch ⇒ danh sách rỗng, không phải lỗi. |
 | FR-20 | **Cửa duyệt `terminal` đọc thêm trạng thái git**: dialog xác nhận của FR-8 hiện thêm ba dữ kiện chỉ git trả lời được — còn thay đổi chưa commit không, commit mang `key` đã push chưa, branch của task đã vào default chưa. **Hiển thị, không chặn** — cùng luật đã áp cho `blocked_by`. |
@@ -120,7 +123,8 @@ proprietary rời khỏi máy — trái nguyên tắc local-first.
 | NFR-8 | Task sync như mọi `vault_items` record; không có pipeline riêng, không auto-winner khi conflict (xem [Sync & conflict](#sync--conflict)). |
 | NFR-9 | Thêm 3 record type mới không được làm vỡ validate của module khác — xem Blast radius ở [Vaultitem contract](#vaultitem-contract). |
 | NFR-10 | `internal/tasks` **không import `internal/git`**. Dữ kiện git vào qua một interface hẹp do `internal/app` tiêm, đúng cách `environments` nhận `ProfileEnvUsage` và `mcp` khai `NotesAPI` — không thêm cạnh mới vào đồ thị `internal/arch`. Interface `nil` ⇒ mọi thứ git im lặng biến mất. |
-| NFR-11 | Không lưu SHA, không lưu tên branch trong record task. Mọi dữ kiện git được **hỏi lúc hiển thị**, bounded — xem [Tích hợp Git](#tích-hợp-git--hỏi-không-lưu). |
+| NFR-11 | **Không lưu SHA.** Tên branch thì có (`task.branch`, FR-17b): một SHA mục ruỗng sau rebase/amend/squash, một tên branch thì không — nó ổn định qua đúng những thao tác làm SHA đổi. Mọi dữ kiện còn lại (commit, trạng thái push, đã merge chưa) được **hỏi lúc hiển thị**, bounded — xem [Tích hợp Git](#tích-hợp-git--hỏi-không-lưu). |
+| NFR-12 | Lệnh `verify` (FR-8) chạy trong thư mục project với timeout và giới hạn output; nó là lệnh **người dùng đã khai**, agent chỉ kích hoạt được chứ không đổi được. Audit ghi lệnh + exit code; không ghi output. |
 
 ### Out of scope (v1)
 
@@ -151,11 +155,19 @@ proprietary rời khỏi máy — trái nguyên tắc local-first.
   `session_id` trỏ đúng phiên đó; agent thứ hai claim cùng task → reject rõ ràng.
 - Agent gọi `tasks.transition` sang `in_progress`/`review` → chạy thẳng, không
   hiện dialog nào.
-- Agent gọi `tasks.transition` sang `done` → **luôn** hiện dialog Allow/Deny,
-  kể cả sau khi user đã Allow always cho tool khác; Deny → `permission_denied`,
-  task giữ nguyên trạng thái cũ.
-- DevKit chạy headless, agent gọi transition sang `done` → fail ngay
-  (`tasks.confirmationRequired`), không treo chờ dialog không tồn tại.
+- Board **không** khai `verify`, agent gọi `tasks.transition` sang `done` →
+  **luôn** hiện dialog Allow/Deny, kể cả sau khi user đã Allow always cho tool
+  khác; Deny → `permission_denied`, task giữ nguyên trạng thái cũ.
+- Board **không** khai `verify`, DevKit chạy headless, agent gọi transition
+  sang `done` → fail ngay (`tasks.confirmationRequired`), không treo chờ dialog
+  không tồn tại.
+- Board **có** khai `verify`, test đang xanh → agent gọi transition sang `done`
+  → task đóng, không dialog nào hiện, comment `kind=system` ghi lệnh + exit 0.
+- Board **có** khai `verify`, test đang đỏ → transition bị reject kèm đuôi
+  output; **không** rơi về hỏi người; user vẫn đóng tay được từ UI.
+- Agent gọi `tasks.board.update` để sửa hoặc gỡ `verify` → không có tool đó.
+- Phiên agent chết → `session_id` còn nguyên, task hiện "phiên đã đóng"; agent
+  mở phiên mới `claim` lại chính task đó → thành công.
 - Hai agent cùng gọi `transition(id, "review", expectedStatus: "in_progress")`
   → đúng một cái thành công, cái còn lại `validation_failed`, không có ghi đè
   im lặng.
@@ -306,7 +318,7 @@ Ba record type mới trên `vault_items` ([ADR-008](/dev-kit/architecture-decisi
 | Field | At rest | Notes |
 |---|---|---|
 | `type` | `"task-board"` | Schema-validated |
-| `metadata` | `{"name":"DevKit","key_prefix":"DEV","color":"blue","workflow":{...},"branch_template":"","project_path":""}` plaintext | `workflow` là danh sách status + `category`, xem dưới. `branch_template` (FR-17) và `project_path` là **optional**, thêm field vào type đã có — không phải record type thứ tư |
+| `metadata` | `{"name":"DevKit","key_prefix":"DEV","color":"blue","workflow":{...},"verify":{...},"branch_template":"","project_path":""}` plaintext | `workflow` là danh sách status + `category`, xem dưới. `verify` (FR-8), `branch_template` (FR-17) và `project_path` đều **optional**, thêm field vào type đã có — không phải record type thứ tư |
 | `payload` | Envelope V2 rỗng `{}` | `key_id` phải = `task-board` — board không có secret, envelope chỉ để record hợp lệ với sync validation (cùng cách `note-folder` đang làm) |
 
 #### Task — `type = "task"`
@@ -314,7 +326,7 @@ Ba record type mới trên `vault_items` ([ADR-008](/dev-kit/architecture-decisi
 | Field | At rest | Notes |
 |---|---|---|
 | `type` | `"task"` | Schema-validated |
-| `metadata` | `{"board_id","key","title","status","priority","labels":[],"assignee","parent_id","blocked_by":[],"plan_node_id","session_id","archived_at","history":[…]}` plaintext | Đủ để render board + filter + sort mà **không** cần decrypt gì |
+| `metadata` | `{"board_id","key","title","status","priority","labels":[],"assignee","parent_id","blocked_by":[],"plan_node_id","session_id","branch","archived_at","history":[…]}` plaintext | Đủ để render board + filter + sort mà **không** cần decrypt gì |
 | `payload` | Envelope V2 của `description` markdown | AAD `(task, <id>, task-body)`; `key_id` phải = `task-body` |
 | `history` | tối đa **50** entry `{from,to,by,at}` gần nhất | `by` = `"user"` hoặc `"agent:<sessionId>"` |
 
@@ -424,7 +436,7 @@ opaque qua `recordID()` như mọi module khác.
 | `TasksGet` | `tasks:read` | `task:<id>` | Decrypt `description` |
 | `TasksCreate` | `tasks:write` | `task:new` | |
 | `TasksUpdate` | `tasks:write` | `task:<id>` | `title` + `description`, **giữ nguyên** status/labels/assignee |
-| `TasksSetFields` | `tasks:write` | `task:<id>` | Metadata-only: `priority`, `labels`, `assignee`, `parent_id`, `blocked_by`, `board_id` — không reseal payload |
+| `TasksSetFields` | `tasks:write` | `task:<id>` | Metadata-only: `priority`, `labels`, `assignee`, `parent_id`, `blocked_by`, `board_id`, `branch` — không reseal payload |
 | `TasksTransition` | `tasks:write` | `task:<id>` | Gate theo `category` (FR-8); nhận `expectedStatus` |
 | `TasksClaim` | `tasks:write` | `task:<id>` | Compare-and-set `session_id` |
 | `TasksRelease` | `tasks:write` | `task:<id>` | Nhả `session_id`, không đổi status |
@@ -461,10 +473,10 @@ Xem cơ chế chung + rationale ở [MCP / Agent](/dev-kit/mcp-agent).
 | `tasks.get` | `read` | `builtin.tasks` / `tasks:read` / `task:<id>` | Kèm `description`, comment và `history` — đây là nguồn ngữ cảnh agent đọc khi mở phiên mới |
 | `tasks.create` | `execute` | `builtin.tasks` / `tasks:write` / `task:new` | |
 | `tasks.update` | `execute` | `builtin.tasks` / `tasks:write` / `task:<id>` | title + description |
-| `tasks.setFields` | `execute` | `builtin.tasks` / `tasks:write` / `task:<id>` | priority/labels/assignee/parent/blocked_by |
+| `tasks.setFields` | `execute` | `builtin.tasks` / `tasks:write` / `task:<id>` | priority/labels/assignee/parent/blocked_by/**branch** (FR-17b) |
 | `tasks.claim` | `execute` | `builtin.tasks` / `tasks:write` / `task:<id>` | Compare-and-set, reject nếu đã có phiên khác giữ |
 | `tasks.release` | `execute` | `builtin.tasks` / `tasks:write` / `task:<id>` | |
-| `tasks.transition` | `execute` | `builtin.tasks` / `tasks:write` / `task:<id>` | **Gate theo `category`** — `terminal` phải xác nhận mỗi lần, không `allow_always` |
+| `tasks.transition` | `execute` | `builtin.tasks` / `tasks:write` / `task:<id>` | **Gate theo `category`** — `terminal` đi qua cửa duyệt của board: `verify` chạy được thì exit code quyết định, không thì xác nhận mỗi lần ([chi tiết](#cửa-duyệt-đóng-task--người-hoặc-một-lệnh-verify)) |
 | `tasks.comment.add` | `execute` | `builtin.tasks` / `tasks:write` / `task:<id>` | `author` do service gán, agent **không** tự khai được |
 | `tasks.comment.list` | `read` | `builtin.tasks` / `tasks:read` / `task:<id>` | |
 | `tasks.archive` | `execute` (`destructiveHint`) | `builtin.tasks` / `tasks:write` / `task:<id>` | Hồi phục được, nên không cần gate |
@@ -486,6 +498,47 @@ khai mình là `user` được.
 **Không thêm tool nào cho phần git.** Agent lấy `key` từ `tasks.get` rồi dùng
 `git.*` của [Git](/dev-kit/git); một `tasks.git.*` chỉ là cửa thứ hai tới cùng
 một fact. Xem [Tích hợp Git](#tích-hợp-git--hỏi-không-lưu).
+
+### Cửa duyệt đóng task — người, hoặc một lệnh `verify`
+
+Đóng task là điểm kiểm soát cuối cùng còn lại của con người, nên nó không mở
+ra được bằng một lời khai. **Một agent nói "test đã pass" là một câu, không
+phải một bằng chứng** — nó có thể sai, có thể là kết quả của lần chạy trước,
+và DevKit không nhìn thấy gì để đối chiếu, vì agent chạy test bằng công cụ
+riêng của nó ngoài tầm quan sát của DevKit.
+
+Nên điều kiện được đảo chiều: **DevKit tự chạy, tự đọc exit code.** Bản báo
+cáo do DevKit sinh ra, không do agent nộp lên.
+
+Board khai một lệnh `verify` (optional):
+
+```json
+{ "verify": { "command": "go test ./internal/...", "timeout_sec": 600 } }
+```
+
+| Board | `tasks.transition` → `terminal` từ MCP |
+|---|---|
+| Không khai `verify` | Xác nhận tương tác **mỗi lần**, không `allow_always` — y như trước |
+| Có khai `verify` | DevKit chạy lệnh trong thư mục project. **Exit 0** ⇒ đóng thẳng, không hỏi ai. **Exit khác 0** ⇒ reject kèm đuôi output |
+
+Exit khác 0 **không** rơi về hỏi người: một lần đóng mà test đang đỏ thì câu
+trả lời đã có rồi, hỏi thêm chỉ là bắt người dùng đọc hộ output. Người dùng
+vẫn đóng tay được từ UI bất cứ lúc nào — `verify` chỉ chặn đường **MCP**.
+
+Ba thứ giữ cho đây không thành một lỗ thực thi lệnh:
+
+- Lệnh do **người** khai, `tasks:admin`, UI-only. `TasksBoardUpdate` vốn đã
+  nằm trong nhóm loại trừ cứng của MCP vì "đổi workflow là đổi chính luật
+  đang ràng buộc agent" — `verify` rơi vào đúng nhóm đó, vì lý do đúng như
+  thế.
+- Agent chỉ **kích hoạt** được lệnh người dùng đã chọn, không truyền được
+  tham số nào vào.
+- Bounded: timeout của board, output cắt, audit ghi lệnh + exit code.
+
+Một hệ quả phụ đáng kể: nhánh `verify` **chạy được khi headless**. Nó không
+cần ai trả lời, nên board có `verify` là board mà agent đóng task được trong
+một phiên không có UI — điều mà NFR-3 (fail closed) cố ý không cho phép ở
+nhánh hỏi người.
 
 ### Tích hợp Agent Hub
 
@@ -580,11 +633,17 @@ nó sống sót qua rebase, qua việc archive task, qua việc gỡ DevKit, và
 đồng nghiệp chưa từng cài DevKit vẫn đọc được nó bằng `git log`. Một cặp ID
 trong SQLite local thì không làm được điều nào trong số đó.
 
-Hệ quả, và đây là luật của mục này: **Git được hỏi, không được lưu.**
+Hệ quả, và đây là luật của mục này: **Git được hỏi, không được lưu — trừ một
+tên branch.**
 
-- Record `task` **không thêm field nào**. Không SHA, không tên branch.
-- Danh sách commit của một task là `git log --grep` theo `key`, bounded, chạy
-  lúc hiển thị. Branch của task tìm bằng tiền tố `<key>` trong `git.branch.list`.
+- **Không SHA.** Danh sách commit của một task là `git log --grep` theo `key`,
+  bounded, chạy lúc hiển thị; trạng thái push và đã-merge-chưa cũng hỏi tại chỗ.
+- **Một ngoại lệ: `task.branch`** (FR-17b). Tên branch ổn định qua đúng những
+  thao tác làm SHA đổi, nên nó không mang cái hỏng mà SHA mang. Và nó phải
+  được lưu, vì nó trả lời một câu mà phiên agent không trả lời nổi: sau khi
+  phiên restart, agent được push lên branch nào ([Git NFR-4](/dev-kit/git)).
+  Task là bản ghi bền và sync được, nên nó là chỗ đúng để nhớ — không phải một
+  phiên sẽ chết.
 - Task là `vault_items` và **sync**; SHA từ máy A vô nghĩa trên máy B cho tới
   khi máy B fetch. Một task mang SHA chết trên thiết bị khác tệ hơn một task
   không mang gì.
@@ -597,7 +656,8 @@ Cùng kỷ luật đã viết cho Code Graph ("Tasks không bao giờ ghi vào `
 | Điểm nối | Chiều | Cơ chế |
 |---|---|---|
 | Branch cho task | UI → Git | Nút tường minh trong task detail; gọi `git.branch.create` theo `branch_template` của board (FR-17) |
-| Commit mang `key` | Git → (đọc được bởi Tasks) | Phiên agent đang giữ task ⇒ `git.commitTurn` seed trailer `Task: <key>` (FR-18) |
+| Commit mang `key` | Git → (đọc được bởi Tasks) | Phiên agent đang giữ task ⇒ `git.commitTurn` seed trailer `Task: <key>` (FR-18). Và **mọi commit** trên branch khớp `task.branch` của một task chưa đóng ⇒ Git **đề nghị** trailer trong ô message; người dùng xoá đi được |
+| Branch agent tạo | Git → Tasks | `git.branch.create` trả tên branch, agent ghi ngay vào `task.branch` bằng `tasks.setFields` (FR-17b) |
 | Việc đã commit | Tasks → Git | Task detail hỏi `git.log --grep`, mỗi dòng mở diff bằng viewer của Git (FR-19) |
 
 `tasks.claim` **không** tạo hay checkout branch. Claim là tool MCP agent gọi tự
@@ -737,37 +797,39 @@ nhanh, và `session_id` giúp thấy rõ máy nào đang giữ task.
   project khác" thay vì trả lời sai; board không khai gì thì lấy project đang
   mở. Nhiều repo cùng lúc chưa nằm trong phạm vi — cùng giới hạn "một project
   active per session" của Code Graph.
-- Commit không mang trailer `Task:` thì không có cách nào tìm ra. Trailer chỉ
-  được seed tự động ở `git.commitTurn` (FR-18); người tự gõ `git commit` trong
-  terminal phải tự thêm.
+- Commit không mang trailer `Task:` thì không có cách nào tìm ra. Trailer được
+  seed ở `git.commitTurn` và được **đề nghị** cho commit trên branch khớp
+  `task.branch`; người gõ `git commit` thẳng trong terminal vẫn phải tự thêm.
+- `verify` là **một** lệnh cho cả board, không phải per-task và không theo
+  label. Board trộn nhiều loại việc (backend + docs) thì hoặc tách board, hoặc
+  bỏ `verify` và quay về cửa duyệt người.
+- `verify` chạy đồng bộ trong lúc `tasks.transition` đang chờ: một suite dài
+  giữ call đó mở tới hết `timeout_sec`.
 - `git log --grep` quét lịch sử theo giới hạn số commit, không quét toàn bộ
   repo — task rất cũ trên repo rất dài có thể không thấy commit của nó nữa.
 
+## Quyết định đã chốt
+
+Những câu từng để mở, và câu trả lời — ghi lại để khỏi mở lại lần sau:
+
+| Câu hỏi | Chốt |
+|---|---|
+| `allow_always` theo board cho transition `terminal`? | **Không.** Thay vào đó board khai `verify` và **DevKit tự chạy** — exit code mở cửa, không phải một lời khai (FR-8, [chi tiết](#cửa-duyệt-đóng-task--người-hoặc-một-lệnh-verify)) |
+| Cho agent ghi metadata khi vault đang khoá? | **Không.** Nhất quán với mọi module thắng phần tiện lợi; module vẫn gate sau vault unlocked |
+| Phiên agent chết thì task tự `release`? | **Không, giữ `session_id`** để agent mở phiên mới nhận lại đúng việc; một `claim` khác chiếm được khi phiên cũ đã chết (FR-6b) |
+| Gộp `assignee` và `session_id`? | **Không.** `assignee` là *ý định* và có thể sai — chính người dùng cũng gán nhầm task; `session_id` là *thực tế* ai đang cầm. Gộp lại là mất đường phân biệt "giao nhầm" với "đang làm" |
+| Comment `kind=system` trộn chung dòng hội thoại? | **Tách** sang tab *Activity* (FR-15) |
+| Git đề nghị trailer `Task:` cho mọi commit? | **Có**, khi branch khớp `task.branch` của một task chưa đóng — đề nghị trong ô message, xoá được |
+| Cho board khai luật chặn transition theo trạng thái git? | **Không cần.** Dữ kiện git ở cửa duyệt vẫn là hiển thị, không chặn (FR-20). Việc chặn thuộc về [Git](/dev-kit/git) qua env gate trên branch, không phải thuộc về workflow của board |
+
 ## Open questions
 
-- Transition sang `terminal` hiện yêu cầu xác nhận **mỗi lần**. Với board mà
-  agent đóng hàng chục task nhỏ, có nên có `allow_always` **theo board**
-  (không phải theo tool) không, hay giữ nguyên vì đó chính là điểm kiểm soát
-  duy nhất còn lại?
-- Metadata-only write (transition, `setFields`) về mặt kỹ thuật **không cần
-  DEK**. V1 vẫn gate toàn module sau vault unlocked cho nhất quán với mọi
-  module khác — có nên mở cho agent cập nhật tiến độ khi vault đang locked
-  không, hay tính nhất quán quan trọng hơn?
-- Khi phiên agent chết giữa chừng, task nên tự `release` ngay hay giữ
-  `session_id` thêm một khoảng để agent reconnect lại đúng việc?
-- `assignee` v1 là `user` hoặc `agentType`. Có cần gán tới đúng **một session
-  đang chạy** (khác `session_id` do `claim` set) không, hay hai khái niệm đó
-  nên gộp làm một?
-- Comment `kind=system` do service tự post có nên đếm vào cùng danh sách với
-  comment người/agent không, hay tách thành một tab "Activity" riêng trong
-  task detail?
-- Trailer `Task:` hiện chỉ được seed ở `git.commitTurn`. Có nên để Git đề
-  nghị thêm nó cho **mọi** commit khi đang có task `active` mang branch trùng
-  tên không, hay như thế là đoán ý người dùng quá xa?
-- Dữ kiện git ở cửa duyệt `terminal` là **hiển thị, không chặn** (FR-20). Với
-  board mà mọi task đều phải push mới tính là xong, có nên cho board khai một
-  luật chặn tuỳ chọn không — hay đó chính là "transition graph" đã bị loại ra
-  khỏi v1, chỉ mặc áo khác?
+- Một `claim` mới chiếm được task của phiên đã chết (FR-6b). "Đã chết" lấy
+  thẳng từ trạng thái phiên của Agent Hub, hay cần thêm một khoảng chờ để
+  tránh cướp nhầm một agent đang reconnect?
+- `verify` chạy đồng bộ và giữ call `tasks.transition` mở tới hết timeout. Với
+  suite dài, có nên chuyển sang chạy nền rồi đóng task khi xong (agent không
+  phải chờ) — hay như thế là đóng task sau lưng agent đã bỏ đi?
 
 <Cards>
   <Card title="Agent Hub" href="/dev-kit/agent-hub" description="Nguồn actor chính — agent claim task, kết quả turn đẩy task sang review" />

@@ -95,24 +95,25 @@ sợ: không ai biết mình có mất việc đã commit không.
 | FR-11 | **Blast radius của một commit**: file đổi của commit → phạm vi ảnh hưởng trong index Code Graph. Git hỏi, Code Graph trả lời. |
 | FR-12 | Agent gọi được `git.*` qua MCP với giới hạn ở bảng dưới. |
 | FR-13 | Project không phải git work tree, hoặc máy không có git dùng được ⇒ module hiện panel "chưa có gì để hiện" nêu đúng lý do (`checkpoint.Availability` đã phân biệt được), không phải lỗi. |
+| FR-14 | **Conflict có UI riêng**: danh sách file conflict, và mỗi file mở trong panel ba cột *Ours · Merged (sửa được) · Theirs* — **cùng hình dạng `ResolvePanel` của [Sync](/dev-kit/data-sync)** đã chạy. Đánh dấu resolved = `git add`; huỷ cả lượt = `git merge --abort`. |
+| FR-15 | **Env gate theo branch**: một `git-guard` gắn env tag cho một mẫu tên branch (`main`, `release/*`). Branch khớp ⇒ commit **và** push trên đó đi qua `requiresConfirmation` của env đó. Không gắn ⇒ không chặn gì — mặc định là không có guard nào. |
 
 ### Non-functional requirements
 
 | ID | Requirement |
 |---|---|
 | NFR-1 | Mọi call qua `AppService.call` + Capability Gateway. `git:push` tách khỏi `git:write`. |
-| NFR-2 | **Push là hành động bị gate, commit thì không.** Commit là local và đảo được; push là ra ngoài và không đảo được. Remote gắn env tag `requiresConfirmation` ⇒ **mỗi lần** push đều hỏi, cả người lẫn agent, không có "đừng hỏi lại" (env thắng). |
+| NFR-2 | **Push bị gate theo mặc định; commit chỉ khi được khai.** Push là ra ngoài và không đảo được, nên remote gắn env tag `requiresConfirmation` ⇒ **mỗi lần** push đều hỏi. Commit là local và đảo được nên mặc định không hỏi — trừ khi branch khớp một `git-guard` (FR-15), vì một repo chứa manifest deploy thì chính commit mới là thứ đáng sợ. Cả hai đều không có "đừng hỏi lại" (env thắng). |
 | NFR-3 | `git:push:force` là capability riêng và **không có trong grant của MCP subject**. Agent không force-push được, bằng cách không tồn tại đường đó. |
-| NFR-4 | Agent không push được lên branch mặc định của remote (`origin/HEAD`), và không push được lên branch nó không tạo trong phiên đó. |
+| NFR-4 | Agent không push được lên branch mặc định của remote (`origin/HEAD`), và chỉ push được lên branch **ghi trên một task nó đang giữ** (`task.branch`). `git.branch.create` trả tên branch để agent ghi ngay vào task bằng `tasks.setFields` — nên quyền đó **sống qua restart phiên**, khác với một danh sách nằm trong bộ nhớ của phiên. Không có task nào ⇒ agent chỉ commit, không push. |
 | NFR-5 | Mọi lệnh chạy với `--no-optional-locks`, không hook tương tác, `GIT_TERMINAL_PROMPT=0`, timeout, huỷ được bằng ctx. Credential đưa qua `GIT_ASKPASS` chứ không nằm trong URL hay argv. |
 | NFR-6 | Diff cắt ở giới hạn kích thước (hiển thị 5 MB, trả cho agent 256 KB kèm `truncated: true`) — cùng con số [API Client](/dev-kit/api-client) dùng. |
 | NFR-7 | Audit ghi lệnh + remote + branch + số file; không ghi nội dung diff. |
 
 ### Out of scope (v1)
 
-- **Giải quyết merge conflict trong UI.** Three-way merge là một sản phẩm
-  riêng; `internal/syncconflict` là cho vault item, không phải cho file. Conflict
-  ⇒ nói rõ và mời mở terminal (DevKit đã có sẵn terminal).
+- **Merge tự động thông minh.** Conflict được giải bằng tay trong UI (FR-14);
+  DevKit không thử đoán kết quả hợp nhất hộ người dùng.
 - `rebase -i`, cherry-pick, submodule, LFS, worktree, blame heatmap, đồ thị nhánh.
 - Tích hợp GitHub/GitLab (PR, issue, review). Đó là
   [API Client](/dev-kit/api-client) cộng account, không phải git.
@@ -242,6 +243,7 @@ thứ được lưu:
 | Thứ | Ở đâu | Vì sao |
 |---|---|---|
 | `git-remote` binding (`remote`, `env` tag, `account_id`) | vault item, sync được | Nó đặt tên một credential và một môi trường; cùng hình dạng `db-profile` |
+| `git-guard` (`project_key`, `pattern`, `env`) | vault item, sync được | FR-15. Mẫu tên branch, không phải tên branch cụ thể, nên nó vẫn đúng với branch chưa tồn tại. Không có record nào = không chặn gì |
 | Draft message, hunk đang chọn, branch cuối theo project | SQLite local (derived) | Thuộc về máy này, mất cũng không sao |
 
 ### Bridge & capability
@@ -249,7 +251,7 @@ thứ được lưu:
 | Capability | Dùng cho | MCP có? |
 |---|---|---|
 | `git:read` | status, diff, log, branch list | có |
-| `git:write` | stage, commit, branch create/checkout, stash | có, với NFR-4 |
+| `git:write` | stage, commit, branch create/checkout, stash, resolve conflict | có, với NFR-4; commit trên branch khớp `git-guard` đi qua gate env |
 | `git:push` | fetch, pull, push | có, luôn qua gate env |
 | `git:push:force` | force-push | **không, và không có cách bật** |
 
@@ -262,8 +264,10 @@ thứ được lưu:
 | `git.log` | `git:read` | bounded |
 | `git.branch.list` / `git.branch.create` | `git:read` / `git:write` | create ghi lại "agent tạo branch này" cho NFR-4 |
 | `git.checkout` | `git:write` | từ chối khi có thay đổi chưa commit, trừ khi stash trước |
-| `git.stage` / `git.commit` | `git:write` | commit là local, không gate env |
+| `git.stage` / `git.commit` | `git:write` | Commit không gate env, **trừ** branch khớp `git-guard` (FR-15) |
 | `git.stash` | `git:write` | |
+| `git.conflicts` | `git:read` | Danh sách file conflict + ba phiên bản của một file (FR-14) |
+| `git.resolve` | `git:write` | Ghi nội dung đã hợp nhất cho một file rồi `git add`. Không có `--abort` qua MCP: huỷ cả lượt merge là việc của người |
 | `git.push` | `git:push` | gate env; chặn default branch; không có `--force` |
 
 Không có `git.reset --hard`, không có `git.remote.set`, không có
@@ -283,11 +287,32 @@ sử không giữ lại được gì.
 | Git → Tasks | Trailer `Task: <key>` trong message | Git ghi; Tasks đọc bằng `--grep`, không lưu lại gì |
 | Tasks → Git | Task detail: danh sách commit, nút tạo branch `<key>-…` | Hỏi lúc hiển thị; `tasks.claim` **không** đụng work tree |
 | Tasks → Git | Cửa duyệt đóng task hỏi: còn thay đổi chưa commit? đã push? đã merge? | Hiển thị, **không chặn** — xem [Tasks FR-20](/dev-kit/tasks) |
+| Tasks → Git | `task.branch` quyết định agent được push lên branch nào | NFR-4; sống qua restart phiên, khác một danh sách trong bộ nhớ |
+| Sync → Git | Panel ba cột của conflict | Cùng hình dạng `ResolvePanel` đã chạy cho vault item (FR-14) |
 | Git → Accounts | Dòng remote hiện chip account; hết hạn ⇒ peek ngay tại chỗ | Không chuyển tab |
+
+## Quyết định đã chốt
+
+| Câu hỏi | Chốt |
+|---|---|
+| Conflict có UI không, hay đẩy ra terminal? | **Có UI** — ba cột Ours/Merged/Theirs, dùng lại hình dạng `ResolvePanel` của Sync (FR-14) |
+| Commit có bị gate env không? | **Có, nhưng opt-in theo branch.** `git-guard` gắn env cho một mẫu tên branch; không khai gì thì không chặn gì (FR-15) |
+| Agent được push lên branch nào sau khi phiên restart? | Branch **ghi trên task nó đang giữ** (`task.branch`), không phải một danh sách trong bộ nhớ phiên (NFR-4) |
+
+## Open questions
+
+- `git-guard` là vault item nên **sync**: một guard khai trên máy này áp lên
+  mọi máy. Đúng ý (luật của repo, không của máy) — hay có trường hợp người
+  dùng muốn siết chỉ trên một máy?
+- Conflict panel sửa được ô Merged. Với file nhị phân thì không có gì để sửa:
+  chỉ cho chọn Ours/Theirs, hay ẩn hẳn khỏi danh sách?
 
 ## Known ceiling (v1)
 
-- Conflict không giải quyết được trong UI — chỉ báo và mời dùng terminal.
+- Conflict giải bằng tay ba cột; không có merge tool tự động, không có gợi ý
+  hợp nhất, không có diff theo từ.
+- `git-guard` khớp theo mẫu tên branch, không theo đường dẫn file: không khai
+  được "chặn khi đụng `deploy/`".
 - Log tuyến tính một branch; không thấy hình dạng nhánh.
 - Stage theo hunk dựa trên `git apply --cached`; hunk đè nhau sau khi file đổi
   trên đĩa sẽ bị từ chối và phải chọn lại.
