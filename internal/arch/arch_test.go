@@ -70,6 +70,14 @@ func TestLayering(t *testing.T) {
 		// reverse, and it declares EnvLookup locally like ssh/database/kafka.
 		// It takes a *sql.DB and a table name rather than importing storage,
 		// so the scoped-secret table stays the composition root's decision.
+		// tasks is a thin adapter on vaultitem like notes. It declares
+		// Confirmer, Notifier and SessionLiveness locally rather than
+		// importing interaction, notify or agenthub — the board must not
+		// depend on the agent runtime to exist.
+		pkg("tasks"): {
+			pkg("interaction"), pkg("notify"), pkg("agenthub"), pkg("git"),
+			pkg("storage"), pkg("mcp"), pkg("bridge"), pkg("app"),
+		},
 		// git runs against the project's own work tree. It may use checkpoint
 		// (for Locate) and gitparse, both leaves below it, but never accounts,
 		// environments or interaction directly — it declares those as local

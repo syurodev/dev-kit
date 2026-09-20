@@ -31,6 +31,14 @@ const (
 	// goes to storage.TableAccountSecrets, the same separation query history
 	// keeps from saved queries.
 	ItemTypeAccount = "account"
+
+	// The Tasks module's three. A task's title and status are plaintext
+	// metadata for the same reason a note's title is: the board must render,
+	// filter and sort while the vault is locked, and only the description
+	// needs the DEK.
+	ItemTypeTaskBoard   = "task-board"
+	ItemTypeTask        = "task"
+	ItemTypeTaskComment = "task-comment"
 )
 
 // ErrInvalidRecordSchema means a vault item does not satisfy the contract of
@@ -44,7 +52,8 @@ var ErrInvalidRecordSchema = errors.New("vault item schema is invalid")
 func IsSupportedItemType(itemType string) bool {
 	switch itemType {
 	case ItemTypeNote, ItemTypeNoteFolder, ItemTypeNoteVersion, ItemTypeDatabase,
-		ItemTypeSSH, ItemTypeKafka, ItemTypeDatabaseQuery, ItemTypeAccount:
+		ItemTypeSSH, ItemTypeKafka, ItemTypeDatabaseQuery, ItemTypeAccount,
+		ItemTypeTaskBoard, ItemTypeTask, ItemTypeTaskComment:
 		return true
 	default:
 		return false
@@ -139,6 +148,57 @@ func ValidateRecordSchema(itemType string, metadata json.RawMessage, payload *cr
 			return ErrInvalidRecordSchema
 		}
 		expectedKeyID = "db-query-body"
+
+	case ItemTypeTaskBoard:
+		var value struct {
+			Name           string          `json:"name"`
+			KeyPrefix      string          `json:"key_prefix"`
+			Color          string          `json:"color"`
+			Workflow       json.RawMessage `json:"workflow"`
+			Verify         json.RawMessage `json:"verify"`
+			BranchTemplate string          `json:"branch_template"`
+			ProjectPath    string          `json:"project_path"`
+		}
+		if decodeMetadataObject(metadata, &value) != nil || value.Name == "" ||
+			value.KeyPrefix == "" || len(value.Workflow) == 0 {
+			return ErrInvalidRecordSchema
+		}
+		expectedKeyID = "task-board"
+
+	case ItemTypeTask:
+		var value struct {
+			BoardID    string          `json:"board_id"`
+			Key        string          `json:"key"`
+			Title      string          `json:"title"`
+			Status     string          `json:"status"`
+			Priority   string          `json:"priority"`
+			Labels     []string        `json:"labels"`
+			Assignee   string          `json:"assignee"`
+			ParentID   string          `json:"parent_id"`
+			BlockedBy  []string        `json:"blocked_by"`
+			PlanNodeID string          `json:"plan_node_id"`
+			SessionID  string          `json:"session_id"`
+			Branch     string          `json:"branch"`
+			ArchivedAt string          `json:"archived_at"`
+			History    json.RawMessage `json:"history"`
+		}
+		if decodeMetadataObject(metadata, &value) != nil || value.BoardID == "" ||
+			value.Key == "" || value.Title == "" || value.Status == "" {
+			return ErrInvalidRecordSchema
+		}
+		expectedKeyID = "task-body"
+
+	case ItemTypeTaskComment:
+		var value struct {
+			TaskID string `json:"task_id"`
+			Author string `json:"author"`
+			Kind   string `json:"kind"`
+		}
+		if decodeMetadataObject(metadata, &value) != nil || value.TaskID == "" ||
+			value.Author == "" || !validCommentKind(value.Kind) {
+			return ErrInvalidRecordSchema
+		}
+		expectedKeyID = "task-comment-body"
 
 	case ItemTypeAccount:
 		var value struct {
@@ -257,6 +317,16 @@ func validAccountKind(kind string) bool {
 func validAccountState(state string) bool {
 	switch state {
 	case "valid", "expiring", "expired", "revoked", "unverified":
+		return true
+	}
+	return false
+}
+
+// validCommentKind mirrors tasks.CommentKind. A system comment is written by
+// the service, never by a caller claiming to be one.
+func validCommentKind(kind string) bool {
+	switch kind {
+	case "human", "agent", "system":
 		return true
 	}
 	return false

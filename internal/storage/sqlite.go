@@ -46,6 +46,13 @@ const (
 	// database password is only useful on a machine that can reach the
 	// database. Same reason db_query_history has a table of its own.
 	TableAccountSecrets = "account_secrets"
+
+	// TableTaskVerifyRuns is the queue of close-a-task verify runs. It is
+	// derived/operational — it says what this machine is doing, not what the
+	// project is — so it never syncs. It is durable because a run interrupted
+	// by a quit must come back as a queued run rather than as a guess about
+	// what its exit code would have been.
+	TableTaskVerifyRuns = "task_verify_runs"
 	TableAppPreferences = "app_preferences"
 	TableUIState        = "ui_state"
 	// TableDBQueryHistory is deliberately outside vault_items: sync has no
@@ -813,7 +820,42 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		},
 	}
 
-	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23})
+	m24 := Migration{
+		Version: 24,
+		Name:    "task verify runs",
+		Up: func(ctx context.Context) error {
+			if _, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE TABLE IF NOT EXISTS %s (
+					id TEXT PRIMARY KEY,
+					task_id TEXT NOT NULL,
+					board_id TEXT NOT NULL,
+					project_path TEXT NOT NULL,
+					target_status TEXT NOT NULL,
+					command TEXT NOT NULL,
+					timeout_sec INTEGER NOT NULL DEFAULT 0,
+					requested_by TEXT NOT NULL,
+					requested_at TEXT NOT NULL,
+					started_at TEXT,
+					finished_at TEXT,
+					state TEXT NOT NULL,
+					exit_code INTEGER NOT NULL DEFAULT 0,
+					output TEXT NOT NULL DEFAULT ''
+				)`, TableTaskVerifyRuns,
+			)); err != nil {
+				return err
+			}
+			// The drain asks "what is queued for this project", and the queue
+			// is per project because the work tree is what two runs contend
+			// for — not the board, and not the task.
+			_, err := db.ExecContext(ctx, fmt.Sprintf(
+				`CREATE INDEX IF NOT EXISTS idx_task_verify_runs_project_state ON %s (project_path, state, requested_at)`,
+				TableTaskVerifyRuns,
+			))
+			return err
+		},
+	}
+
+	runner, err := NewMigrationRunner(&sqlMigrationStore{db: db}, []Migration{m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15, m16, m17, m18, m19, m20, m21, m22, m23, m24})
 	if err != nil {
 		return err
 	}
