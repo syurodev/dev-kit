@@ -1,4 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  pointerWithin,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
 import { KanbanSquare, Plus, RefreshCw, Workflow } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -8,70 +16,14 @@ import {
   createTasksFromPlan,
   listBoards,
   listTasks,
-  progressOf,
   setBoardVerify,
   transitionTask,
   type Board,
   type Task,
 } from "@/bridge/tasks";
 import { BoardVerifyDialog } from "./BoardVerifyDialog";
-
-function TaskCard({
-  task,
-  board,
-  siblings,
-  onMove,
-}: {
-  task: Task;
-  board: Board;
-  siblings: Task[];
-  onMove: (to: string) => void;
-}) {
-  const children = siblings.filter((candidate) => candidate.parentId === task.id);
-  const progress = children.length > 0 ? progressOf(board, children) : null;
-
-  return (
-    <li className="rounded-md border border-border-subtle bg-surface-well p-2">
-      <div className="flex items-baseline gap-2">
-        <code className="text-xs text-fg-muted">{task.key}</code>
-        {task.sessionId ? (
-          <span
-            className="size-1.5 rounded-full bg-emerald-500"
-            title="An agent session holds this task"
-            aria-label="Held by an agent"
-          />
-        ) : null}
-      </div>
-      <div className="pt-0.5 text-sm">{task.title}</div>
-      <div className="flex items-center gap-2 pt-1 text-xs text-fg-muted">
-        {progress ? (
-          // Counted by category, so a board that renamed its Done column still
-          // counts. It counts without blocking: the parent can still close.
-          <span>
-            {progress.done}/{progress.total}
-          </span>
-        ) : null}
-        {task.planNodeId ? (
-          <span title="Implements a Code Graph plan node">plan</span>
-        ) : null}
-        {task.branch ? <span className="truncate font-mono">{task.branch}</span> : null}
-        <div className="flex-1" />
-        <select
-          className="bg-transparent text-xs"
-          value={task.status}
-          aria-label={`Status of ${task.key}`}
-          onChange={(event) => onMove(event.target.value)}
-        >
-          {board.workflow.statuses.map((status) => (
-            <option key={status.id} value={status.id}>
-              {status.name}
-            </option>
-          ))}
-        </select>
-      </div>
-    </li>
-  );
-}
+import { BoardColumn, TaskCard } from "./BoardColumn";
+import { columnsOf, dropTarget } from "./board";
 
 /**
  * The board. Columns come from the workflow in declaration order, and every
@@ -83,6 +35,11 @@ export function TasksBoardView() {
   const [boardID, setBoardID] = useState("");
   // The board whose close rule is being edited, or null.
   const [editingVerify, setEditingVerify] = useState<Board | null>(null);
+  // The card under the cursor, for the copy that follows it.
+  const [dragging, setDragging] = useState<Task | null>(null);
+  // Four pixels before a drag starts, so a click on a card's dropdown is
+  // still a click and not a one-pixel drag that swallows it.
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
   // null until the first load answers: an empty array here cannot tell
   // "not loaded yet" from "this board is empty", and the columns would
   // flash zero counts on every open.
@@ -139,6 +96,16 @@ export function TasksBoardView() {
   }
   if (!board || !tasks) {
     return null;
+  }
+
+  // One path for both ways of moving a card. The status the card was SHOWING
+  // goes along, so a card somebody else already moved is refused rather than
+  // overwritten — which matters more for a drag, where the card under the
+  // cursor may have been stale since before the drag began.
+  function move(task: Task, to: string) {
+    transitionTask(task.id, to, task.status)
+      .then(reloadTasks)
+      .catch((e: Error) => setError(e.message));
   }
 
   return (
@@ -233,37 +200,50 @@ export function TasksBoardView() {
         }}
       />
       {error ? <p className="px-3 py-1 text-xs text-red-500">{error}</p> : null}
-      <div className="flex min-h-0 flex-1 gap-3 overflow-auto p-3">
-        {board.workflow.statuses.map((status) => {
-          const column = tasks.filter(
-            (task) => task.status === status.id && task.parentId === "",
-          );
-          return (
-            <section key={status.id} className="flex w-64 shrink-0 flex-col gap-2">
-              <h3 className="text-xs font-medium text-fg-muted">
-                {status.name} ({column.length})
-              </h3>
-              <ul className="flex flex-col gap-2">
-                {column.map((task) => (
-                  <TaskCard
-                    key={task.id}
-                    task={task}
-                    board={board}
-                    siblings={tasks}
-                    onMove={(to) => {
-                      // The status the card was showing goes along, so a card
-                      // somebody else moved is refused rather than overwritten.
-                      transitionTask(task.id, to, task.status)
-                        .then(reloadTasks)
-                        .catch((e: Error) => setError(e.message));
-                    }}
-                  />
-                ))}
-              </ul>
-            </section>
-          );
-        })}
-      </div>
+      <DndContext
+        sensors={sensors}
+        // pointerWithin rather than closestCenter: a column is a large
+        // rectangle, and what is under the cursor is the answer — not the
+        // column whose centre happens to be nearest to a card's own centre.
+        collisionDetection={pointerWithin}
+        onDragStart={({ active }) =>
+          setDragging(tasks.find((task) => task.id === active.id) ?? null)
+        }
+        onDragCancel={() => setDragging(null)}
+        onDragEnd={({ active, over }) => {
+          const task = tasks.find((candidate) => candidate.id === active.id);
+          setDragging(null);
+          if (!task) return;
+          const to = dropTarget(task.status, over ? String(over.id) : null);
+          if (!to) return;
+          move(task, to);
+        }}
+      >
+        <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-3">
+          {columnsOf(board, tasks).map((column) => (
+            <BoardColumn
+              key={column.id || "orphans"}
+              column={column}
+              board={board}
+              allTasks={tasks}
+              onMove={move}
+            />
+          ))}
+        </div>
+        <DragOverlay>
+          {dragging ? (
+            <ul className="w-64">
+              <TaskCard
+                task={dragging}
+                board={board}
+                siblings={tasks}
+                onMove={() => undefined}
+                overlay
+              />
+            </ul>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
     </div>
   );
 }
