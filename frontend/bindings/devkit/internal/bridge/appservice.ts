@@ -103,6 +103,17 @@ export function AccountsUsedBy(id: string): $CancellablePromise<string[] | null>
 }
 
 /**
+ * AccountsVerify asks the provider who a credential belongs to.
+ * 
+ * It is the module's headline action, and deliberately not on the MCP surface:
+ * it spends a real request against a real provider, and an agent that can
+ * trigger it can probe which credentials exist by watching what changes.
+ */
+export function AccountsVerify(id: string): $CancellablePromise<accounts$0.Account> {
+    return $Call.ByID(2954128931, id);
+}
+
+/**
  * AgentHubApplyRestore carries out a plan. overwrite names the conflicts the
  * user chose to force; the backend honours only the ones that can be forced.
  */

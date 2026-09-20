@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import { KeyRound, RefreshCw, ShieldAlert, Trash2 } from "lucide-react";
+import { BadgeCheck, KeyRound, RefreshCw, ShieldAlert, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
   deleteAccount,
   listAccounts,
   promoteAccount,
+  verifyAccount,
   type Account,
 } from "@/bridge/accounts";
 
@@ -56,6 +57,21 @@ function AccountRow({
       <span className={`shrink-0 text-xs ${STATE_TONE[account.state]}`}>
         {STATE_LABEL[account.state]}
       </span>
+      {!account.scopeOwner && account.kind !== "external" ? (
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label={`Verify ${account.label}`}
+          title="Ask the provider who this credential belongs to"
+          onClick={() => {
+            verifyAccount(account.id)
+              .then(onChanged)
+              .catch((e: Error) => setError(e.message));
+          }}
+        >
+          <BadgeCheck className="size-4" aria-hidden />
+        </Button>
+      ) : null}
       {account.scopeOwner ? (
         <Button
           variant="ghost"

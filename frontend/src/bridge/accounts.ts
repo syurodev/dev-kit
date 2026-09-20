@@ -86,6 +86,15 @@ export function promoteAccount(id: string, label: string): Promise<Account> {
   return callBridge(async () => (await AppService.AccountsPromote(id, label)) as Account);
 }
 
+/**
+ * Asks the provider who this credential belongs to. It is what turns a saved
+ * string into an account with a subject, scopes and an expiry — and it is not
+ * on the MCP surface, because it spends a real request at a real provider.
+ */
+export function verifyAccount(id: string): Promise<Account> {
+  return callBridge(async () => (await AppService.AccountsVerify(id)) as Account);
+}
+
 export function deleteAccount(id: string): Promise<void> {
   return callBridge(async () => {
     await AppService.AccountsDelete(id);

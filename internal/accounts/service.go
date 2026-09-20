@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"sort"
 	"strings"
 	"time"
@@ -43,6 +44,7 @@ type Service struct {
 	providers *Registry
 	env       EnvLookup
 	usage     []Usage
+	http      *http.Client
 	now       func() time.Time
 }
 

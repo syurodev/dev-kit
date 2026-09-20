@@ -123,3 +123,22 @@ func (s *AppService) AccountsUsedBy(id string) ([]string, error) {
 	}
 	return result.([]string), nil
 }
+
+// AccountsVerify asks the provider who a credential belongs to.
+//
+// It is the module's headline action, and deliberately not on the MCP surface:
+// it spends a real request against a real provider, and an agent that can
+// trigger it can probe which credentials exist by watching what changes.
+func (s *AppService) AccountsVerify(id string) (accounts.Account, error) {
+	opaqueID := recordID(id)
+	result, err := s.call(context.Background(), "builtin.accounts", "accounts:write", "account:"+opaqueID, map[string]any{
+		"action":     "verify",
+		"account_id": opaqueID,
+	}, func(ctx context.Context) (any, error) {
+		return s.container.Accounts.Verify(ctx, id)
+	})
+	if err != nil {
+		return accounts.Account{}, err
+	}
+	return result.(accounts.Account), nil
+}
