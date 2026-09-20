@@ -705,3 +705,55 @@ func TestBinaryConflictOffersOnlyASide(t *testing.T) {
 		t.Fatalf("binary bytes did not survive taking a side: %q", content)
 	}
 }
+
+// A commit view is drawn from Show and RevPatch: who, when, what the parent
+// was, and each file as it changed.
+func TestShowAndRevPatchDescribeOneCommit(t *testing.T) {
+	svc, dir := newRepo(t)
+	ctx := context.Background()
+	write(t, dir, "a.txt", "one\ntwo\n")
+	if err := svc.Stage(ctx, []string{"a.txt"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Commit(ctx, CommitInput{Message: "add a\n\nWhy a exists."}); err != nil {
+		t.Fatal(err)
+	}
+	log, err := svc.Log(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	head, root := log[0], log[1]
+	if root.Parent != "" {
+		t.Fatalf("the first commit has no parent, got %q", root.Parent)
+	}
+
+	shown, err := svc.Show(ctx, head.SHA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if shown.Subject != "add a" || shown.Body != "Why a exists." || shown.Parent != root.Short {
+		t.Fatalf("show = %+v, want subject, body and parent %s", shown, root.Short)
+	}
+
+	patch, err := svc.RevPatch(ctx, head.SHA, "a.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(patch, "+one") || !strings.Contains(patch, "+two") {
+		t.Fatalf("patch = %q", patch)
+	}
+}
+
+// A revision reaches git as an argument, so only a hash may.
+func TestShowAndRevPatchRefuseAnythingButAHash(t *testing.T) {
+	svc, _ := newRepo(t)
+	ctx := context.Background()
+	for _, rev := range []string{"", "--output=/tmp/x", "HEAD", "main..HEAD", "abc"} {
+		if _, err := svc.Show(ctx, rev); err == nil {
+			t.Errorf("Show(%q) was allowed", rev)
+		}
+		if _, err := svc.RevPatch(ctx, rev, "README.md"); err == nil {
+			t.Errorf("RevPatch(%q) was allowed", rev)
+		}
+	}
+}

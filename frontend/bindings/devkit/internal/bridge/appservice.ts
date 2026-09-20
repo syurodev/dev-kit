@@ -1246,6 +1246,13 @@ export function GitCommit(message: string, taskKey: string, amend: boolean): $Ca
 }
 
 /**
+ * GitCommitInfo is one commit by hash: the log's entry for it, with its parent.
+ */
+export function GitCommitInfo(rev: string): $CancellablePromise<git$0.Commit> {
+    return $Call.ByID(1132703835, rev);
+}
+
+/**
  * GitCommitTurn stages exactly what one agent turn changed and drafts its
  * message. It is the bridge between two histories of one work tree: the
  * agent's per-turn checkpoints and the user's commits.
@@ -1366,6 +1373,13 @@ export function GitResolve(path: string, merged: string): $CancellablePromise<vo
  */
 export function GitResolveSide(path: string, side: string): $CancellablePromise<void> {
     return $Call.ByID(3994671297, path, side);
+}
+
+/**
+ * GitRevPatch is one file's diff in one commit, against its parent.
+ */
+export function GitRevPatch(rev: string, path: string): $CancellablePromise<string> {
+    return $Call.ByID(3548178207, rev, path);
 }
 
 export function GitStage(paths: string[] | null): $CancellablePromise<void> {

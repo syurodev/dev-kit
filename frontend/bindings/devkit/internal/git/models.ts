@@ -20,6 +20,11 @@ export interface Branch {
 export interface Commit {
     "sha": string;
     "short": string;
+
+    /**
+     * Parent is the first parent's short hash, empty for a root commit.
+     */
+    "parent": string;
     "subject": string;
     "body": string;
     "author": string;

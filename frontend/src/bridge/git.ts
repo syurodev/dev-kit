@@ -33,6 +33,8 @@ export type Change = {
 export type Commit = {
   sha: string;
   short: string;
+  /** The first parent's short hash; empty for a root commit. */
+  parent: string;
   subject: string;
   body: string;
   author: string;
@@ -113,6 +115,16 @@ export function gitDiff(rev = "", staged = false): Promise<Change[]> {
 
 export function gitLog(limit = 100): Promise<Commit[]> {
   return callBridge(async () => ((await AppService.GitLog(limit)) ?? []) as Commit[]);
+}
+
+/** One commit by hash, with its parent. Only a hash is accepted. */
+export function gitCommitInfo(rev: string): Promise<Commit> {
+  return callBridge(async () => (await AppService.GitCommitInfo(rev)) as Commit);
+}
+
+/** One file's diff in one commit, against its parent — the text `parsePatch` reads. */
+export function gitRevPatch(rev: string, path: string): Promise<string> {
+  return callBridge(async () => (await AppService.GitRevPatch(rev, path)) as string);
 }
 
 /** A task's commits, found by its trailer rather than by a stored SHA. */

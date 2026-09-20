@@ -37,6 +37,8 @@ export function GitConflictPanel({
 }) {
   const [conflict, setConflict] = useState<Conflict | null>(null);
   const [merged, setMerged] = useState("");
+  // The markers git left in the merge as it loaded: the conflicts there were.
+  const [total, setTotal] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -49,6 +51,7 @@ export function GitConflictPanel({
         if (!active) return;
         setConflict(loaded);
         setMerged(loaded.merged);
+        setTotal(markerCount(loaded.merged));
       })
       .catch((e: Error) => active && setError(e.message));
     return () => {
@@ -87,7 +90,10 @@ export function GitConflictPanel({
         <span className="truncate font-mono text-title-16 text-text-primary">{path}</span>
         <span className="flex h-6 items-center gap-1.5 rounded-md border border-border-subtle bg-surface-raised px-2.5 text-code-11 text-text-secondary">
           <span className="size-1.5 rounded-full bg-status-warning" />
-          unmerged
+          {/* How many of the file's conflicts are still open — read from the
+              merged pane, so it counts down as the person edits. Unknown until
+              the merge has loaded, when it says what it can. */}
+          {conflict && total > 0 ? `${left} of ${total} conflicts` : "unmerged"}
         </span>
         <span className="flex-1" />
         <Button
@@ -96,7 +102,7 @@ export function GitConflictPanel({
           disabled={disabled}
           onClick={() => run(gitResolveSide(path, "ours"))}
         >
-          Keep ours
+          Take ours
         </Button>
         <Button
           variant="outline"
@@ -104,14 +110,14 @@ export function GitConflictPanel({
           disabled={disabled}
           onClick={() => run(gitResolveSide(path, "theirs"))}
         >
-          Keep theirs
+          Take theirs
         </Button>
         {reading?.mergeable ? (
           <Button disabled={disabled} onClick={() => run(gitResolve(path, merged))}>
             {/* The label names what the button would actually do. Blocking the
                 save instead would dead-end anyone whose file legitimately
                 contains a line of angle brackets. */}
-            {left > 0 ? "Save with markers" : "Save merge"}
+            {left > 0 ? "Save with markers" : "Mark resolved"}
             <span className="text-code-11 opacity-65">⌘S</span>
           </Button>
         ) : null}

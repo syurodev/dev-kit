@@ -85,6 +85,32 @@ func (s *AppService) GitLog(limit int) ([]gitservice.Commit, error) {
 	return result.([]gitservice.Commit), nil
 }
 
+// GitCommitInfo is one commit by hash: the log's entry for it, with its parent.
+func (s *AppService) GitCommitInfo(rev string) (gitservice.Commit, error) {
+	result, err := s.call(context.Background(), "builtin.git", "git:read", "repo:log", map[string]any{
+		"action": "commit",
+	}, func(ctx context.Context) (any, error) {
+		return s.container.Git.Show(ctx, rev)
+	})
+	if err != nil {
+		return gitservice.Commit{}, err
+	}
+	return result.(gitservice.Commit), nil
+}
+
+// GitRevPatch is one file's diff in one commit, against its parent.
+func (s *AppService) GitRevPatch(rev, path string) (string, error) {
+	result, err := s.call(context.Background(), "builtin.git", "git:read", "repo:diff", map[string]any{
+		"action": "rev_patch",
+	}, func(ctx context.Context) (any, error) {
+		return s.container.Git.RevPatch(ctx, rev, path)
+	})
+	if err != nil {
+		return "", err
+	}
+	return result.(string), nil
+}
+
 // GitCommitsForTask is the task-to-commit link, asked rather than stored: a
 // SHA rots under rebase, amend and squash, a trailer does not.
 func (s *AppService) GitCommitsForTask(key string, limit int) ([]gitservice.Commit, error) {

@@ -29,14 +29,14 @@ export const gitModule: ModuleManifest = {
       id: "git.changes",
       title: "Changes",
       ...lazyModuleView(() =>
-        import("./GitChangesView").then(({ GitChangesView }) => ({ default: withGitFolder(GitChangesView) })),
+        import("./GitChangesView").then(({ GitChangesView }) => ({ default: withGitFolder(GitChangesView, { bar: false }) })),
       ),
     },
     {
       id: "git.diff",
       title: "Diff",
       ...lazyModuleView(() =>
-        import("./GitDiffView").then(({ GitDiffView }) => ({ default: withGitFolder(GitDiffView) })),
+        import("./GitDiffView").then(({ GitDiffView }) => ({ default: withGitFolder(GitDiffView, { bar: false }) })),
       ),
     },
     {

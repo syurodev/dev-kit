@@ -106,13 +106,3 @@ export function buildPatch(patch: FilePatch, selected: readonly number[]): strin
   // about corrupt input, which reads as though the hunk is wrong.
   return text.endsWith("\n") ? text : text + "\n";
 }
-
-/** A short description of what a hunk touches, for the row beside its tick. */
-export function hunkSummary(hunk: Hunk): string {
-  const range = hunk.header.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
-  const start = range ? Number(range[1]) : 0;
-  const count = range && range[2] !== undefined ? Number(range[2]) : 1;
-  const end = count > 0 ? start + count - 1 : start;
-  const where = count > 1 ? `lines ${start}–${end}` : `line ${start}`;
-  return `${where} · +${hunk.added} −${hunk.removed}`;
-}

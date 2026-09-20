@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Repository } from "@/bridge/git";
-import { describeRepository, repositoryRoot } from "./repositories";
+import { describeRepository, folderStatus, pathTail, repositoryRoot } from "./repositories";
 
 const repo = (over: Partial<Repository> = {}): Repository => ({
   path: "/work/billing",
@@ -58,5 +58,41 @@ describe("repositoryRoot", () => {
 
   test("falls back to Git's own folder when nothing is open", () => {
     expect(repositoryRoot("", "/elsewhere/repo")).toBe("/elsewhere/repo");
+  });
+});
+
+describe("pathTail", () => {
+  test("keeps the last segments and none of the way there", () => {
+    expect(pathTail("/Users/me/CHIRO/log-service", 2)).toBe("CHIRO/log-service");
+    expect(pathTail("/log-service", 2)).toBe("log-service");
+    expect(pathTail("/Users/me/CHIRO/", 1)).toBe("CHIRO");
+  });
+});
+
+describe("folderStatus", () => {
+  const base = { folder: "/w/CHIRO/log", current: "/w/CHIRO/log", pinned: false, project: "/w/CHIRO/log", repos: null };
+
+  test("following says whose folder it is following, and where that is", () => {
+    expect(folderStatus(base)).toEqual({ tone: "success", text: "Following Code Graph · CHIRO/log" });
+  });
+
+  test("a folder that is no repository says so before anything else", () => {
+    expect(folderStatus({ ...base, folder: "/w/CHIRO", current: "/w/CHIRO", project: "" })).toEqual({
+      tone: "warning",
+      text: "Not a repository · following Code Graph",
+    });
+  });
+
+  test("pinned names what Code Graph is doing, and whether that is a repository", () => {
+    const pinned = { ...base, pinned: true, folder: "/w/CHIRO/his", current: "/w/CHIRO" };
+    expect(folderStatus({ ...pinned, repos: [] })).toEqual({ tone: "info", text: "Pinned · CHIRO is not a repository" });
+    expect(folderStatus({ ...pinned, repos: [repo({ path: "/w/CHIRO" })] })).toEqual({
+      tone: "info",
+      text: "Pinned · Code Graph is in CHIRO",
+    });
+    expect(folderStatus({ ...pinned, current: "" })).toEqual({
+      tone: "info",
+      text: "Pinned · Code Graph has no project open",
+    });
   });
 });

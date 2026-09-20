@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { buildPatch, hunkSummary, parsePatch } from "./hunks";
+import { buildPatch, parsePatch } from "./hunks";
 
 const TWO_HUNKS = `diff --git a/many.txt b/many.txt
 index 9e040f2..1390cbb 100644
@@ -118,17 +118,5 @@ index 9e040f2..1390cbb 100644
       `diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-one\n+two`,
     );
     expect(buildPatch(patch, [0].slice()).endsWith("\n")).toBe(true);
-  });
-});
-
-describe("hunkSummary", () => {
-  it("names the lines the hunk lands on", () => {
-    const patch = parsePatch(TWO_HUNKS);
-    expect(hunkSummary(patch.hunks[0])).toBe("lines 1–5 · +1 −1");
-  });
-
-  it("says line, singular, for a one-line hunk", () => {
-    const patch = parsePatch(`--- a/a\n+++ b/a\n@@ -3 +3 @@\n-x\n+y\n`);
-    expect(hunkSummary(patch.hunks[0])).toBe("line 3 · +1 −1");
   });
 });
