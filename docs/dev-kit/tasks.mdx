@@ -95,6 +95,8 @@ proprietary rời khỏi máy — trái nguyên tắc local-first.
 | FR-7 | Agent chuyển trạng thái task (`tasks.transition`) sang bất kỳ status nào có `category` ∈ `open` \| `active` **không cần xác nhận**. |
 | FR-8 | Chuyển sang status `category = terminal` (Done, Won't do, …) qua MCP đi qua **cửa duyệt**, và board quyết định cửa đó là gì — xem [Cửa duyệt đóng task](#cửa-duyệt-đóng-task--người-hoặc-một-lệnh-verify). Board **không** khai `verify` ⇒ xác nhận tương tác mỗi lần, **không** có `allow_always` (`internal/interaction`). Board **có** khai `verify` ⇒ DevKit tự chạy lệnh đó; exit 0 đóng thẳng, exit khác reject. |
 | FR-8b | Lệnh `verify` do **người** khai trên board (`tasks:admin`, UI-only — agent không sửa được, cùng loại trừ cứng với `workflow`). Kết quả mỗi lần chạy thành một comment `kind=system`: lệnh, exit code, thời gian, phần đuôi output. |
+| FR-8c | `verify` **chạy nền**: `tasks.transition` trả về ngay với `verifying`, task **giữ nguyên status** và mang một cờ tạm thời; kết quả tới sau thì mới chuyển hoặc từ chối. Agent không phải giữ call mở suốt một suite dài. |
+| FR-8d | Một `verify` chạy tại một thời điểm **cho mỗi project** — chúng dùng chung work tree. Yêu cầu thứ hai xếp hàng; huỷ được từ UI. DevKit thoát giữa chừng ⇒ lượt đó **mất**, task ở nguyên chỗ cũ: không bao giờ đóng một task bằng một lượt chạy chưa kết thúc. |
 | FR-9 | `tasks.transition` nhận `expectedStatus` optional; lệch trạng thái hiện tại → reject `validation_failed`, không ghi đè — chống hai agent giẫm chân nhau (xem [Optimistic transition](#optimistic-transition--chống-hai-agent-giẫm-chân)). |
 | FR-10 | Agent comment được vào task (`tasks.comment.add`); comment ghi rõ tác giả là `agent:<sessionId>` hay `user`, không trộn lẫn. |
 | FR-11 | Mỗi task giữ **lịch sử chuyển trạng thái bounded** (từ → sang, bởi ai, lúc nào), đọc được cả khi phiên agent đã đóng. |
@@ -126,6 +128,7 @@ proprietary rời khỏi máy — trái nguyên tắc local-first.
 | NFR-10 | `internal/tasks` **không import `internal/git`**. Dữ kiện git vào qua một interface hẹp do `internal/app` tiêm, đúng cách `environments` nhận `ProfileEnvUsage` và `mcp` khai `NotesAPI` — không thêm cạnh mới vào đồ thị `internal/arch`. Interface `nil` ⇒ mọi thứ git im lặng biến mất. |
 | NFR-11 | **Không lưu SHA.** Tên branch thì có (`task.branch`, FR-17b): một SHA mục ruỗng sau rebase/amend/squash, một tên branch thì không — nó ổn định qua đúng những thao tác làm SHA đổi. Mọi dữ kiện còn lại (commit, trạng thái push, đã merge chưa) được **hỏi lúc hiển thị**, bounded — xem [Tích hợp Git](#tích-hợp-git--hỏi-không-lưu). |
 | NFR-12 | Lệnh `verify` (FR-8) chạy trong thư mục project với timeout và giới hạn output; nó là lệnh **người dùng đã khai**, agent chỉ kích hoạt được chứ không đổi được. Audit ghi lệnh + exit code; không ghi output. |
+| NFR-13 | Hàng đợi `verify` theo **project**, không theo board hay theo task (FR-8d): work tree mới là thứ bị tranh chấp. Hàng đợi bounded; yêu cầu thứ N khi đã có N-1 đang chờ bị từ chối chứ không xếp vô hạn. |
 
 ### Out of scope (v1)
 
@@ -162,10 +165,18 @@ proprietary rời khỏi máy — trái nguyên tắc local-first.
 - Board **không** khai `verify`, DevKit chạy headless, agent gọi transition
   sang `done` → fail ngay (`tasks.confirmationRequired`), không treo chờ dialog
   không tồn tại.
-- Board **có** khai `verify`, test đang xanh → agent gọi transition sang `done`
-  → task đóng, không dialog nào hiện, comment `kind=system` ghi lệnh + exit 0.
-- Board **có** khai `verify`, test đang đỏ → transition bị reject kèm đuôi
-  output; **không** rơi về hỏi người; user vẫn đóng tay được từ UI.
+- Board **có** khai `verify`, test đang xanh → `tasks.transition` trả
+  `verifying` **ngay** (không chờ suite); khi chạy xong task sang `done`, không
+  dialog nào hiện, comment `kind=system` ghi lệnh + exit 0.
+- Trong lúc đang chạy, task vẫn ở status cũ trên board — **không** nhảy sang
+  `done` rồi lùi lại.
+- Board **có** khai `verify`, test đang đỏ → task ở nguyên chỗ cũ, comment
+  `kind=system` ghi exit code + đuôi output; **không** rơi về hỏi người; user
+  vẫn đóng tay được từ UI.
+- Hai task cùng project cùng gọi transition → hai lượt chạy **nối tiếp**,
+  không song song; cái thứ hai hiện "đang chờ".
+- Kill DevKit giữa lượt chạy → mở lại, task ở nguyên chỗ cũ, không task nào
+  đóng bằng một lượt chưa kết thúc.
 - Agent gọi `tasks.board.update` để sửa hoặc gỡ `verify` → không có tool đó.
 - Phiên agent chết → `session_id` còn nguyên, task hiện "phiên đã đóng"; agent
   mở phiên mới `claim` lại chính task đó → thành công.
@@ -477,7 +488,7 @@ Xem cơ chế chung + rationale ở [MCP / Agent](/dev-kit/mcp-agent).
 | `tasks.setFields` | `execute` | `builtin.tasks` / `tasks:write` / `task:<id>` | priority/labels/assignee/parent/blocked_by/**branch** (FR-17b) |
 | `tasks.claim` | `execute` | `builtin.tasks` / `tasks:write` / `task:<id>` | Compare-and-set, reject nếu đã có phiên khác giữ |
 | `tasks.release` | `execute` | `builtin.tasks` / `tasks:write` / `task:<id>` | |
-| `tasks.transition` | `execute` | `builtin.tasks` / `tasks:write` / `task:<id>` | **Gate theo `category`** — `terminal` đi qua cửa duyệt của board: `verify` chạy được thì exit code quyết định, không thì xác nhận mỗi lần ([chi tiết](#cửa-duyệt-đóng-task--người-hoặc-một-lệnh-verify)) |
+| `tasks.transition` | `execute` | `builtin.tasks` / `tasks:write` / `task:<id>` | **Gate theo `category`** — `terminal` đi qua cửa duyệt của board: có `verify` thì trả `verifying` ngay và chạy nền, không thì xác nhận mỗi lần ([chi tiết](#cửa-duyệt-đóng-task--người-hoặc-một-lệnh-verify)) |
 | `tasks.comment.add` | `execute` | `builtin.tasks` / `tasks:write` / `task:<id>` | `author` do service gán, agent **không** tự khai được |
 | `tasks.comment.list` | `read` | `builtin.tasks` / `tasks:read` / `task:<id>` | |
 | `tasks.archive` | `execute` (`destructiveHint`) | `builtin.tasks` / `tasks:write` / `task:<id>` | Hồi phục được, nên không cần gate |
@@ -525,6 +536,41 @@ Board khai một lệnh `verify` (optional):
 Exit khác 0 **không** rơi về hỏi người: một lần đóng mà test đang đỏ thì câu
 trả lời đã có rồi, hỏi thêm chỉ là bắt người dùng đọc hộ output. Người dùng
 vẫn đóng tay được từ UI bất cứ lúc nào — `verify` chỉ chặn đường **MCP**.
+
+#### Chạy nền, và cái giá của nó
+
+`tasks.transition` **không đứng chờ** suite chạy xong. Nó trả về ngay:
+
+```json
+{ "result": "verifying", "run_id": "…" }
+```
+
+Task **giữ nguyên status** trong lúc chờ — nó chỉ mang một cờ tạm. Chuyển nó
+sang `done` trước rồi rút lại khi test đỏ là để board nói dối trong vài phút,
+và một board nói dối vài phút là một board không tin được.
+
+Ba thứ phải có, vì chạy nền đẻ ra đúng ba vấn đề:
+
+- **Một lượt một project.** Hai task cùng đóng là hai lần `go test` trên **cùng
+  một work tree** — chúng giẫm lên nhau và cả hai kết quả đều vô nghĩa. Yêu cầu
+  thứ hai xếp hàng. Đây là ràng buộc của work tree, không phải của board: hai
+  board trỏ cùng `project_path` vẫn chung một hàng.
+- **Huỷ được.** Một suite mười phút mà người dùng vừa nhận ra mình sai thì
+  phải dừng được, và hàng đợi phải chạy tiếp.
+- **Không có kết quả nửa chừng.** DevKit thoát khi đang chạy ⇒ lượt đó mất,
+  task ở nguyên chỗ cũ. Một task không đóng thì người ta bấm lại; một task đóng
+  nhầm thì không ai biết để mở lại.
+
+Agent đi mất giữa chừng cũng không sao — và đó chính là lý do chọn chạy nền:
+kết quả rơi vào **task**, không rơi vào call. Comment `kind=system` ghi lại
+lượt chạy, task chuyển hoặc không, và phiên sau đọc `tasks.get` là thấy đủ.
+Đổi lại, agent muốn biết ngay thì phải hỏi lại — `tasks.get` trả
+`verify: {state, run_id, started_at}`.
+
+Hệ quả cần nói thẳng: **kết quả mô tả work tree lúc nó CHẠY, không phải lúc
+yêu cầu.** Xếp hàng sau một lượt khác trong lúc agent vẫn đang sửa file thì
+`verify` chấm một cây code đã khác. Không có cách nào tránh mà không khoá work
+tree lại, và khoá work tree của người dùng thì tệ hơn.
 
 Ba thứ giữ cho đây không thành một lỗ thực thi lệnh:
 
@@ -815,8 +861,13 @@ nhanh, và `session_id` giúp thấy rõ máy nào đang giữ task.
 - `verify` là **một** lệnh cho cả board, không phải per-task và không theo
   label. Board trộn nhiều loại việc (backend + docs) thì hoặc tách board, hoặc
   bỏ `verify` và quay về cửa duyệt người.
-- `verify` chạy đồng bộ trong lúc `tasks.transition` đang chờ: một suite dài
-  giữ call đó mở tới hết `timeout_sec`.
+- `verify` chấm work tree **lúc nó chạy**, không phải lúc yêu cầu: xếp hàng
+  sau một lượt khác trong khi code vẫn đang đổi thì kết quả nói về một cây code
+  đã khác.
+- Hàng đợi `verify` sống trong bộ nhớ: DevKit thoát là mất cả hàng, không chỉ
+  lượt đang chạy.
+- Không có lịch sử các lượt `verify` ngoài comment `kind=system` trên từng
+  task — không có chỗ xem "board này pass bao nhiêu phần trăm".
 - `git log --grep` quét lịch sử theo giới hạn số commit, không quét toàn bộ
   repo — task rất cũ trên repo rất dài có thể không thấy commit của nó nữa.
 
@@ -832,6 +883,7 @@ Những câu từng để mở, và câu trả lời — ghi lại để khỏi 
 | Gộp `assignee` và `session_id`? | **Không.** `assignee` là *ý định* và có thể sai — chính người dùng cũng gán nhầm task; `session_id` là *thực tế* ai đang cầm. Gộp lại là mất đường phân biệt "giao nhầm" với "đang làm" |
 | Comment `kind=system` trộn chung dòng hội thoại? | **Tách** sang tab *Activity* (FR-15) |
 | Git đề nghị trailer `Task:` cho mọi commit? | **Có**, khi branch khớp `task.branch` của một task chưa đóng — đề nghị trong ô message, xoá được |
+| `verify` chạy đồng bộ hay chạy nền? | **Chạy nền** (FR-8c). Kết quả rơi vào **task** chứ không vào call, nên agent bỏ đi giữa chừng cũng không mất gì. Đổi lại: một lượt một project (FR-8d), vì work tree là thứ bị tranh chấp |
 | "Thêm sub task" nghĩa là gì? | **Lớp UI**: checklist trong detail, bộ đếm trên card, kéo-thả gán cha (FR-15b). Giữ một cấp, giữ `parent_id`, không thêm tool MCP nào |
 | Cho board khai luật chặn transition theo trạng thái git? | **Không cần.** Dữ kiện git ở cửa duyệt vẫn là hiển thị, không chặn (FR-20). Việc chặn thuộc về [Git](/dev-kit/git) qua env gate trên branch, không phải thuộc về workflow của board |
 
@@ -840,9 +892,11 @@ Những câu từng để mở, và câu trả lời — ghi lại để khỏi 
 - Một `claim` mới chiếm được task của phiên đã chết (FR-6b). "Đã chết" lấy
   thẳng từ trạng thái phiên của Agent Hub, hay cần thêm một khoảng chờ để
   tránh cướp nhầm một agent đang reconnect?
-- `verify` chạy đồng bộ và giữ call `tasks.transition` mở tới hết timeout. Với
-  suite dài, có nên chuyển sang chạy nền rồi đóng task khi xong (agent không
-  phải chờ) — hay như thế là đóng task sau lưng agent đã bỏ đi?
+- Lượt `verify` xong khi người dùng đang ở module khác: chỉ ghi comment, hay
+  bắn notification? Agent Hub đã có `internal/agenthub/notifier.go` cho đúng
+  loại việc này.
+- Hàng đợi `verify` mất khi DevKit thoát. Có đáng lưu xuống SQLite để chạy lại
+  lúc mở, hay một lượt test dở thì bỏ luôn là đúng?
 
 <Cards>
   <Card title="Agent Hub" href="/dev-kit/agent-hub" description="Nguồn actor chính — agent claim task, kết quả turn đẩy task sang review" />

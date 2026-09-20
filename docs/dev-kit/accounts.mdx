@@ -117,10 +117,11 @@ vào context của một model.
 | FR-9 | **Xoay vòng tại chỗ**: dán giá trị mới vào một account đang có ⇒ mọi binding tiếp tục chạy, không sửa module nào. Đây là lý do binding lưu ID chứ không lưu giá trị. |
 | FR-10 | **Usage index**: account detail liệt kê ai đang dùng nó (remote git nào, request nào), lấy bằng cách hỏi ngược từng module — cùng cơ chế `ProfileEnvUsage` của env tag. Xoá account đang được dùng bị chặn, kèm danh sách. |
 | FR-11 | Agent gọi được `accounts.list` / `accounts.get` / `accounts.status`. Cả ba **không bao giờ** trả giá trị credential. |
-| FR-12 | Account là vault item ⇒ đồng bộ đa thiết bị như mọi vault item. `external` cũng sync (nó chỉ là ghi chú). |
+| FR-12 | Account **shared** là vault item ⇒ đồng bộ đa thiết bị. `external` cũng vậy (nó chỉ là ghi chú). Account **scoped** thì **không rời máy** — xem [Scoped không sync](#scoped-không-sync--vì-một-vault-item-thì-luôn-sync). |
 | FR-13 | **Kho duy nhất**: credential của DB / SSH / Kafka profile chuyển thành `account`; profile giữ `account_id`. Không module nào còn payload secret của riêng nó. |
 | FR-14 | **Tạo ngầm**: form tạo profile giữ nguyên ô nhập secret; module gọi `CreateScoped` khi lưu. Người dùng **không** phải mở Accounts trước — xem [Tạo ngầm](#tạo-ngầm--một-kho-nhưng-ui-không-đổi). |
-| FR-15 | Account **scoped** (thuộc một profile) hiện trong nhóm gập riêng, xoá theo profile; **thăng cấp** thành shared được, không hạ cấp được. |
+| FR-15 | Account **scoped** (thuộc một profile) hiện trong nhóm gập riêng, xoá theo profile; **thăng cấp** thành shared được, không hạ cấp được. Thăng cấp là cách duy nhất để một credential của kết nối bắt đầu sync — và là một lựa chọn tường minh của người dùng, không phải mặc định. |
+| FR-17 | Profile trên một máy chưa có secret scoped ⇒ state `needs_local_secret`: UI của module sở hữu nói "nhập mật khẩu cho máy này", **không** phải lỗi giải mã và không phải "profile hỏng". |
 | FR-16 | **Không đoán khi có nhiều lựa chọn**: hai account cùng khớp host ⇒ hỏi một lần cho mỗi cặp `(host, env)` rồi nhớ lựa chọn đó. Không có heuristic "cái dùng lần cuối". |
 
 ### Non-functional requirements
@@ -163,6 +164,13 @@ vào context của một model.
   `prod` thì hỏi lại lần nữa.
 - Tắt tuỳ chọn hỏi Master Password → reveal chỉ còn dialog xác nhận; bật lại
   → lần reveal kế tiếp hỏi mật khẩu.
+- Tạo DB profile trên máy A, sync sang máy B → máy B thấy profile, state
+  `needs_local_secret`, và thông báo là "nhập mật khẩu cho máy này" chứ không
+  phải lỗi giải mã.
+- Thăng cấp account scoped đó thành shared trên máy A → sau sync, máy B kết
+  nối được mà không phải nhập gì.
+- Kiểm tra ledger sync: không có operation nào mang record type
+  `account-scoped`.
 - Dán giá trị mới vào account → request và git remote đang bind tiếp tục chạy,
   không sửa gì ở hai module đó.
 
@@ -191,6 +199,62 @@ hạ cấp một account đang được ba chỗ dùng là làm hỏng ba chỗ.
 
 Danh sách chính vì thế vẫn đọc được: nó là "tôi đăng nhập những gì", không
 phải một bãi mười hai dòng trong đó chín dòng là password của từng database.
+
+### Scoped không sync — vì một vault item thì luôn sync
+
+Một account scoped không rời máy đã tạo ra nó. Password của Postgres staging
+chỉ dùng được ở nơi có đường mạng tới Postgres staging, và không nhân bản nó
+là cắt phần lớn khối lượng secret ra khỏi đường truyền.
+
+Điều đó quyết định luôn **chỗ lưu**, và không có lựa chọn thứ hai:
+
+> `db_query_history` đã ghi thẳng ra lý do — *"everything in that table is
+> sync-bound by construction"*. Một record trong `vault_items` **luôn** sync.
+> Nên một credential không sync thì **không thể là vault item.**
+
+Nên Accounts có hai kho sau lưng một service:
+
+| | Shared | Scoped |
+|---|---|---|
+| Lưu ở | `vault_items`, type `account` | Bảng local `account_secrets` |
+| Sync | Có | **Không** |
+| Mã hoá | Envelope V2 | Envelope V2 — **vẫn seal bằng DEK**, chỉ là không nhân bản |
+| AAD record type | `account` (vault item type) | `account-scoped` — **không** phải vault item type |
+
+Hình dạng này là của [Database](/dev-kit/database): saved query sync, query
+history thì không, và history dùng một AAD record type riêng cố ý *"must not
+open as a saved query, and vice versa"*. Cùng lý do, cùng cách.
+
+Một kho vẫn là một kho ở chỗ quan trọng: `accounts.Service` sở hữu cả hai, nên
+vẫn **một** luật reveal, **một** đường audit, **một** danh sách, **một** chỗ
+xoay vòng. Cái tách ra là nơi bit nằm, không phải cách người dùng gặp nó.
+
+#### Không cần sync "vỏ"
+
+Nếu profile lưu `account_id` của một account không sync, máy B sẽ cầm một ID
+trỏ vào hư không — và nếu máy B tự tạo account mới rồi ghi ID đó ngược vào
+profile, hai máy sẽ đá nhau mãi mãi. Sửa bằng cách sync một cái vỏ rỗng thì
+phải bịa ra một loại record mới: sync metadata, không sync payload, trong một
+engine mà `ValidateRecordSchema` đòi payload hợp lệ.
+
+Không cần. **Bỏ hẳn cái ID đi và nối bằng quyền sở hữu:**
+
+```
+profile.account_id  != ""  →  account shared (người dùng chọn tường minh)
+profile.account_id  == ""  →  account scoped có scope_owner == profile.id, tìm trong bảng local
+```
+
+Máy B đồng bộ profile, tra bảng local, không thấy gì ⇒ `needs_local_secret`
+(FR-17) — một câu đúng, không phải một ID gãy.
+
+<Callout type="warn" title="Hệ quả có chủ đích: password DB / Kafka / SSH thôi sync">
+Hôm nay chúng nằm trong payload của profile, nên chúng **đang** sync. Sau thay
+đổi này chúng ở lại máy, và người dùng thêm một thiết bị sẽ phải nhập lại
+password cho từng kết nối. Đó là đánh đổi được chọn, không phải sót: muốn một
+credential có mặt trên mọi máy thì **thăng cấp nó thành shared** (FR-15), một
+hành động tường minh. Phải nói rõ trong release note của bản đầu tiên có
+Accounts, nếu không nó sẽ đọc như một bug.
+</Callout>
 
 <Callout type="info" title="Migration">
 Ba record type hiện có (`db-profile`, `ssh-key-passphrase`, `kafka-profile`)
@@ -286,7 +350,13 @@ Một record type mới (thêm vào hai switch `IsSupportedItemType` và
 
 | Type | Metadata (plaintext) | Payload (mã hoá) |
 |---|---|---|
-| `account` | `provider`, `kind`, `label`, `subject`, `scopes`, `expires_at`, `verified_at`, `state`, `env` (list, optional), `scope_owner` (rỗng = shared; ngược lại là ID profile sở hữu), `ref` (kind `external`: mô tả cách login lại) | credential; với `external` là payload rỗng có dấu |
+| `account` | `provider`, `kind`, `label`, `subject`, `scopes`, `expires_at`, `verified_at`, `state`, `env` (list, optional), `ref` (kind `external`: mô tả cách login lại) | credential; với `external` là payload rỗng có dấu |
+
+Chỉ account **shared** và `external` là vault item — **một** type mới, không
+phải một nhóm. Account scoped nằm ở bảng local `account_secrets`
+(`account_id`, `scope_owner`, `provider`, `label`, `envelope`, `created_at`),
+đúng hình dạng `db_query_history` và vì đúng lý do đó
+([Scoped không sync](#scoped-không-sync--vì-một-vault-item-thì-luôn-sync)).
 
 Metadata cố ý đủ để **liệt kê, lọc, và cảnh báo hết hạn mà không cần mở vault**
 — đó là lý do list vẫn chạy khi vault khoá (NFR-6). Mẫu là `db-profile`.
@@ -338,21 +408,25 @@ Account không phải thứ người ta chủ động mở. Nên mục tiêu là
 | Credential của DB / Kafka / SSH có vào Accounts không? | **Có** — một kho là một kho. Nhưng UI phải liền mạch: tạo ngầm từ chính form của profile (FR-13/14) |
 | Hai account cùng khớp host thì chọn thế nào? | **Buộc chọn** một lần cho mỗi `(host, env)`; không heuristic (FR-16) |
 | Reveal có bắt nhập lại Master Password không? | **Tuỳ chọn**, mặc định bật (FR-8) |
+| Account scoped có sync không? | **Không.** Và vì `vault_items` sync theo cấu trúc, scoped buộc phải ra bảng local — cùng hình dạng `db_query_history`. Không cần sync "vỏ": bỏ `account_id` và nối bằng `scope_owner` ([chi tiết](#scoped-không-sync--vì-một-vault-item-thì-luôn-sync)) |
 
 ## Open questions
 
-- Account scoped của một profile có nên **sync** không? Profile thì sync; nhưng
-  password của một database chỉ chạy được trên máy có đường mạng tới database
-  đó. Sync cả cụm cho nhất quán, hay để scoped ở lại máy?
-- Thăng cấp scoped → shared đổi `scope_owner` về rỗng. Nếu sau đó người dùng
-  xoá profile ban đầu, account ở lại mồ côi nhưng đúng — có cần nhắc họ không,
-  hay im lặng là đúng?
+- Thăng cấp scoped → shared **chuyển kho**: một row local thành một vault item.
+  Nếu sau đó người dùng xoá profile ban đầu, account shared ở lại mồ côi nhưng
+  đúng — có cần nhắc họ không, hay im lặng là đúng?
+- Xoá một profile trên máy A sync sang máy B; row scoped mồ côi trên B phải có
+  ai đó quét. Quét lúc khởi động, hay lúc mở module Accounts?
 
 ## Known ceiling (v1)
 
 - Một account một provider — không có "cùng token dùng cho hai host lạ nhau"
   ngoài `generic`.
 - Account scoped thăng cấp được lên shared, **không** hạ cấp lại được.
+- Account scoped không sync ⇒ mỗi máy mới phải nhập lại credential của từng
+  kết nối. Không có cách xuất/nhập hàng loạt ở v1.
+- Account scoped không nằm trong `vault_items` ⇒ **không** xuất hiện trong
+  cross-type search (`VaultSearch`); chỉ tìm được từ trong module Accounts.
 - Provider của kết nối (`database`/`ssh`/`kafka`) không có verify riêng; trạng
   thái của chúng là `unverified` cho tới khi module sở hữu chạy Test Connection.
 - Không phát hiện được token bị thu hồi cho tới lần resolve/verify kế tiếp;
