@@ -34,6 +34,10 @@ import { agenthubModule } from "../modules/agenthub/manifest";
 import { syncModule } from "../modules/sync/manifest";
 import { settingsModule } from "../modules/settings/manifest";
 import { codegraphModule } from "../modules/codegraph/manifest";
+import { accountsModule } from "../modules/accounts/manifest";
+import { tasksModule } from "../modules/tasks/manifest";
+import { gitModule } from "../modules/git/manifest";
+import { apiclientModule } from "../modules/apiclient/manifest";
 
 import type { SettingsTab } from "@/modules/settings/SettingsView";
 
@@ -93,6 +97,10 @@ registerModule(agenthubModule);
 registerModule(syncModule);
 registerModule(settingsModule);
 registerModule(codegraphModule);
+registerModule(accountsModule);
+registerModule(tasksModule);
+registerModule(gitModule);
+registerModule(apiclientModule);
 
 type WorkbenchViewsProps = {
   /** Every module's tabs — this layer keeps recently-left modules mounted. */

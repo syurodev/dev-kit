@@ -40,6 +40,17 @@ export interface ExecuteCommandRequest {
     "payload": { [_ in string]?: any } | null;
 }
 
+/**
+ * GitAvailability explains a machine with no usable git, so the module can
+ * show a panel that names the reason rather than an error.
+ */
+export interface GitAvailability {
+    "ok": boolean;
+    "path": string;
+    "version": string;
+    "reason": string;
+}
+
 export interface ModuleDTO {
     "id": string;
     "title": string;

@@ -7,10 +7,16 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as accounts$0 from "../accounts/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as agenthub$0 from "../agenthub/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as agentruntime$0 from "../agentruntime/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as apiclient$0 from "../apiclient/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as codegraph$0 from "../codegraph/models.js";
@@ -20,6 +26,12 @@ import * as database$0 from "../database/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as environments$0 from "../environments/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as git$0 from "../git/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as gitparse$0 from "../gitparse/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as interaction$0 from "../interaction/models.js";
@@ -37,11 +49,58 @@ import * as preferences$0 from "../preferences/models.js";
 import * as ssh$0 from "../ssh/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as tasks$0 from "../tasks/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as json$0 from "../../../encoding/json/models.js";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as $models from "./models.js";
+
+/**
+ * AccountsCreate stores a credential. The value arrives once, here, and is
+ * never handed back by any method on this service.
+ */
+export function AccountsCreate(provider: string, kind: string, label: string, user: string, secret: string, env: string[] | null, scopeOwner: string, ref: string): $CancellablePromise<accounts$0.Account> {
+    return $Call.ByID(3166993726, provider, kind, label, user, secret, env, scopeOwner, ref);
+}
+
+export function AccountsDelete(id: string): $CancellablePromise<void> {
+    return $Call.ByID(1933082933, id);
+}
+
+export function AccountsGet(id: string): $CancellablePromise<accounts$0.Account> {
+    return $Call.ByID(3064107238, id);
+}
+
+export function AccountsList(): $CancellablePromise<accounts$0.Account[] | null> {
+    return $Call.ByID(4033894790);
+}
+
+export function AccountsPromote(id: string, label: string): $CancellablePromise<accounts$0.Account> {
+    return $Call.ByID(267954766, id, label);
+}
+
+export function AccountsProviders(): $CancellablePromise<accounts$0.Provider[] | null> {
+    return $Call.ByID(3954616476);
+}
+
+/**
+ * AccountsRotate replaces a value in place, which is why every binding holds
+ * an id: nothing bound to this account needs editing afterwards.
+ */
+export function AccountsRotate(id: string, user: string, secret: string): $CancellablePromise<void> {
+    return $Call.ByID(2823647049, id, user, secret);
+}
+
+/**
+ * AccountsUsedBy names what still binds an account, so a refusal to delete is
+ * actionable rather than a flat no.
+ */
+export function AccountsUsedBy(id: string): $CancellablePromise<string[] | null> {
+    return $Call.ByID(1261261654, id);
+}
 
 /**
  * AgentHubApplyRestore carries out a plan. overwrite names the conflicts the
@@ -389,6 +448,59 @@ export function AgentRuntimeSetClaudeBinary(source: string): $CancellablePromise
  */
 export function AgentRuntimeStatus(agent: string): $CancellablePromise<agentruntime$0.Status> {
     return $Call.ByID(3949624987, agent);
+}
+
+/**
+ * ApiCreateEnvironment takes the secret variables once. They are sealed and
+ * never returned by any method here — Environments lists their names only.
+ */
+export function ApiCreateEnvironment(name: string, env: string, vars: { [_ in string]?: string } | null, secrets: { [_ in string]?: string } | null): $CancellablePromise<apiclient$0.Environment> {
+    return $Call.ByID(1426115855, name, env, vars, secrets);
+}
+
+/**
+ * ApiCurl renders a request as cURL with the credential left as a shell
+ * variable, so the result is safe to paste into a ticket.
+ */
+export function ApiCurl(id: string, vars: { [_ in string]?: string } | null): $CancellablePromise<string> {
+    return $Call.ByID(3986395368, id, vars);
+}
+
+export function ApiDeleteRequest(id: string): $CancellablePromise<void> {
+    return $Call.ByID(3006789638, id);
+}
+
+export function ApiEnvironments(): $CancellablePromise<apiclient$0.Environment[] | null> {
+    return $Call.ByID(3503140704);
+}
+
+export function ApiRequest(id: string): $CancellablePromise<apiclient$0.Request> {
+    return $Call.ByID(1869710267, id);
+}
+
+export function ApiRequests(): $CancellablePromise<apiclient$0.Request[] | null> {
+    return $Call.ByID(934441944);
+}
+
+/**
+ * ApiSaveRequest takes the fields the window actually has rather than a whole
+ * Request: that struct carries CreatedAt/UpdatedAt, and a bound method with a
+ * time in its arguments fails in the binding layer unless the frontend invents
+ * an RFC3339 stamp. Timestamps are the store's to write.
+ */
+export function ApiSaveRequest(id: string, collectionID: string, name: string, method: string, url: string, query: { [_ in string]?: string } | null, headers: { [_ in string]?: string } | null, body: string, authKind: string, accountID: string, authHeader: string, originRef: string): $CancellablePromise<apiclient$0.Request> {
+    return $Call.ByID(3169872428, id, collectionID, name, method, url, query, headers, body, authKind, accountID, authHeader, originRef);
+}
+
+/**
+ * ApiSend is its own capability: reading a request and firing it at a
+ * production host are not the same permission.
+ * 
+ * The audit metadata carries method and environment, never headers or body —
+ * the credential is resolved inside the service and does not pass here.
+ */
+export function ApiSend(id: string, environmentID: string): $CancellablePromise<apiclient$0.Response> {
+    return $Call.ByID(3367835692, id, environmentID);
 }
 
 /**
@@ -939,6 +1051,131 @@ export function ExecuteCommand(request: $models.ExecuteCommandRequest): $Cancell
 }
 
 /**
+ * GitAbortMerge throws a whole merge away. UI-only: it is not in the MCP tool
+ * surface, because discarding everyone's in-flight merge is a person's call.
+ */
+export function GitAbortMerge(): $CancellablePromise<void> {
+    return $Call.ByID(4105832776);
+}
+
+export function GitAvailability(): $CancellablePromise<$models.GitAvailability> {
+    return $Call.ByID(2641668709);
+}
+
+export function GitBranches(): $CancellablePromise<git$0.Branch[] | null> {
+    return $Call.ByID(3987290938);
+}
+
+export function GitCheckout(name: string): $CancellablePromise<void> {
+    return $Call.ByID(1754712678, name);
+}
+
+export function GitCommit(message: string, taskKey: string, amend: boolean): $CancellablePromise<git$0.Commit> {
+    return $Call.ByID(413335887, message, taskKey, amend);
+}
+
+/**
+ * GitCommitsForTask is the task-to-commit link, asked rather than stored: a
+ * SHA rots under rebase, amend and squash, a trailer does not.
+ */
+export function GitCommitsForTask(key: string, limit: number): $CancellablePromise<git$0.Commit[] | null> {
+    return $Call.ByID(242463450, key, limit);
+}
+
+/**
+ * GitConflict reads one unmerged path's three stages, for the resolve panel.
+ */
+export function GitConflict(path: string): $CancellablePromise<git$0.Conflict> {
+    return $Call.ByID(3332321120, path);
+}
+
+/**
+ * GitCreateBranch returns the name so the caller can record it on a task,
+ * which is what makes an agent's push permission outlive its session.
+ */
+export function GitCreateBranch(name: string, $from: string): $CancellablePromise<string> {
+    return $Call.ByID(3089158422, name, $from);
+}
+
+export function GitDiff(rev: string, staged: boolean): $CancellablePromise<gitparse$0.Change[] | null> {
+    return $Call.ByID(3338272585, rev, staged);
+}
+
+export function GitFetch(remote: string): $CancellablePromise<void> {
+    return $Call.ByID(1222806806, remote);
+}
+
+export function GitLog(limit: number): $CancellablePromise<git$0.Commit[] | null> {
+    return $Call.ByID(3837460472, limit);
+}
+
+/**
+ * GitOpen points the module at a project.
+ */
+export function GitOpen(projectPath: string): $CancellablePromise<void> {
+    return $Call.ByID(3699903610, projectPath);
+}
+
+export function GitPull(remote: string): $CancellablePromise<void> {
+    return $Call.ByID(4167644809, remote);
+}
+
+/**
+ * GitPush is its own capability because it leaves the machine and cannot be
+ * undone. There is no force parameter anywhere in this file.
+ */
+export function GitPush(remote: string, branch: string, setUpstream: boolean): $CancellablePromise<void> {
+    return $Call.ByID(3667714738, remote, branch, setUpstream);
+}
+
+export function GitRemotes(): $CancellablePromise<git$0.Remote[] | null> {
+    return $Call.ByID(3133910209);
+}
+
+export function GitResolve(path: string, merged: string): $CancellablePromise<void> {
+    return $Call.ByID(534163570, path, merged);
+}
+
+export function GitStage(paths: string[] | null): $CancellablePromise<void> {
+    return $Call.ByID(2290481020, paths);
+}
+
+/**
+ * GitStageHunk applies one hunk the user ticked.
+ */
+export function GitStageHunk(patch: string): $CancellablePromise<void> {
+    return $Call.ByID(798220028, patch);
+}
+
+/**
+ * GitStageTurn stages exactly what one agent turn changed — the reason this
+ * module exists rather than a terminal.
+ */
+export function GitStageTurn(paths: string[] | null): $CancellablePromise<string[] | null> {
+    return $Call.ByID(2651883043, paths);
+}
+
+export function GitStash(message: string): $CancellablePromise<void> {
+    return $Call.ByID(1974957663, message);
+}
+
+export function GitStashPop(): $CancellablePromise<void> {
+    return $Call.ByID(2794981362);
+}
+
+/**
+ * GitStatus is the single source of what changed. Code Graph's file-tree
+ * markers read this rather than running git of their own.
+ */
+export function GitStatus(): $CancellablePromise<git$0.Status> {
+    return $Call.ByID(1908970812);
+}
+
+export function GitUnstage(paths: string[] | null): $CancellablePromise<void> {
+    return $Call.ByID(2519686057, paths);
+}
+
+/**
  * InteractionComplete resolves a pending interaction with the given value
  * (profile id, "allow", "allow_always", "deny", or "" for select cancel).
  */
@@ -1306,6 +1543,92 @@ export function SyncRevokeDevice(targetDeviceID: string): $CancellablePromise<vo
 
 export function SyncStatus(): $CancellablePromise<$models.SyncStatusDTO> {
     return $Call.ByID(1672945227);
+}
+
+export function TasksArchive(id: string): $CancellablePromise<tasks$0.Task> {
+    return $Call.ByID(1362818522, id);
+}
+
+export function TasksBoardCreate(name: string, keyPrefix: string, color: string): $CancellablePromise<tasks$0.Board> {
+    return $Call.ByID(4166159416, name, keyPrefix, color);
+}
+
+export function TasksBoardList(): $CancellablePromise<tasks$0.Board[] | null> {
+    return $Call.ByID(2675033908);
+}
+
+/**
+ * TasksBoardSetVerify sets the command that closes tasks on this board.
+ * 
+ * tasks:admin and UI-only, deliberately: changing it is changing the rule that
+ * binds every agent on the board, which is the same reason the workflow is not
+ * reachable from MCP.
+ */
+export function TasksBoardSetVerify(boardID: string, command: string, timeoutSec: number, projectPath: string): $CancellablePromise<tasks$0.Board> {
+    return $Call.ByID(4245920665, boardID, command, timeoutSec, projectPath);
+}
+
+export function TasksCommentAdd(taskID: string, body: string): $CancellablePromise<tasks$0.Comment> {
+    return $Call.ByID(3205203560, taskID, body);
+}
+
+export function TasksCommentList(taskID: string): $CancellablePromise<tasks$0.Comment[] | null> {
+    return $Call.ByID(2611536701, taskID);
+}
+
+export function TasksCreate(boardID: string, title: string, description: string, priority: string, parentID: string, labels: string[] | null): $CancellablePromise<tasks$0.Task> {
+    return $Call.ByID(1953792048, boardID, title, description, priority, parentID, labels);
+}
+
+/**
+ * TasksDelete is UI-only and tasks:admin: it destroys a record of the project.
+ */
+export function TasksDelete(id: string): $CancellablePromise<void> {
+    return $Call.ByID(3434941327, id);
+}
+
+export function TasksGet(id: string): $CancellablePromise<tasks$0.Task> {
+    return $Call.ByID(4202583712, id);
+}
+
+export function TasksList(boardID: string, status: string, assignee: string, label: string, includeArchived: boolean, limit: number): $CancellablePromise<tasks$0.Task[] | null> {
+    return $Call.ByID(3290164812, boardID, status, assignee, label, includeArchived, limit);
+}
+
+/**
+ * TasksProgress is the subtask counter the board card shows. It counts by
+ * category, so a renamed Done column still counts.
+ */
+export function TasksProgress(parentID: string): $CancellablePromise<tasks$0.Progress> {
+    return $Call.ByID(3304126799, parentID);
+}
+
+/**
+ * TasksSetFields is the metadata-only path: it never reseals the description,
+ * so moving a card or recording a branch is not a decrypt and re-encrypt.
+ */
+export function TasksSetFields(id: string, priority: string, assignee: string, parentID: string, branch: string, labels: string[] | null): $CancellablePromise<tasks$0.Task> {
+    return $Call.ByID(99490969, id, priority, assignee, parentID, branch, labels);
+}
+
+export function TasksTransition(id: string, to: string, expectedStatus: string): $CancellablePromise<tasks$0.TransitionResult> {
+    return $Call.ByID(2469073087, id, to, expectedStatus);
+}
+
+export function TasksUpdate(id: string, title: string, description: string): $CancellablePromise<tasks$0.Task> {
+    return $Call.ByID(648191013, id, title, description);
+}
+
+export function TasksVerifyCancel(runID: string): $CancellablePromise<void> {
+    return $Call.ByID(420618615, runID);
+}
+
+/**
+ * TasksVerifyRuns is a task's verify history — the record of what DevKit ran
+ * and what it exited with.
+ */
+export function TasksVerifyRuns(taskID: string, limit: number): $CancellablePromise<tasks$0.Run[] | null> {
+    return $Call.ByID(1955308559, taskID, limit);
 }
 
 export function TerminalClose(sessionID: string): $CancellablePromise<void> {

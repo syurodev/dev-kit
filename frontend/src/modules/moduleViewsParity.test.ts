@@ -10,6 +10,10 @@ import { agenthubModule } from "./agenthub/manifest";
 import { syncModule } from "./sync/manifest";
 import { settingsModule } from "./settings/manifest";
 import { codegraphModule } from "./codegraph/manifest";
+import { accountsModule } from "./accounts/manifest";
+import { tasksModule } from "./tasks/manifest";
+import { gitModule } from "./git/manifest";
+import { apiclientModule } from "./apiclient/manifest";
 
 /**
  * Go declares each built-in module's views too (internal/app/app.go), and the
@@ -40,6 +44,10 @@ const MANIFESTS = [
   kafkaModule,
   agenthubModule,
   syncModule,
+  accountsModule,
+  tasksModule,
+  gitModule,
+  apiclientModule,
   settingsModule,
   codegraphModule,
 ];

@@ -11,6 +11,7 @@ export type {
     AuthStatusDTO,
     ConsoleDirectory,
     ExecuteCommandRequest,
+    GitAvailability,
     ModuleDTO,
     SyncConflictDTO,
     SyncConflictDetailDTO,

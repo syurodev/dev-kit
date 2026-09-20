@@ -1,0 +1,198 @@
+import { AppService } from "../../bindings/devkit/internal/bridge";
+import { callBridge } from "./client";
+
+export type GitAvailability = {
+  ok: boolean;
+  path: string;
+  version: string;
+  reason: string;
+};
+
+export type GitStatus = {
+  branch: string;
+  upstream: string;
+  ahead: number;
+  behind: number;
+  detached: boolean;
+  files: Record<string, string>;
+  staged: string[] | null;
+  unstaged: string[] | null;
+  untracked: string[] | null;
+  /** Unmerged paths. Not "modified in both": staging one commits the markers. */
+  conflicted: string[] | null;
+};
+
+export type Change = {
+  path: string;
+  kind: "added" | "modified" | "deleted" | "typechange";
+  added: number;
+  removed: number;
+  mode: string;
+};
+
+export type Commit = {
+  sha: string;
+  short: string;
+  subject: string;
+  body: string;
+  author: string;
+  date: string;
+};
+
+export type Branch = { name: string; current: boolean; upstream: string };
+
+export type Remote = { name: string; url: string; accountId: string; env: string };
+
+/** One unmerged file, in the shape Sync's ResolvePanel already renders. */
+export type Conflict = {
+  path: string;
+  ours: string;
+  theirs: string;
+  base: string;
+  binary: boolean;
+};
+
+export function gitAvailability(): Promise<GitAvailability> {
+  return callBridge(async () => (await AppService.GitAvailability()) as GitAvailability);
+}
+
+export function gitOpen(projectPath: string): Promise<void> {
+  return callBridge(async () => {
+    await AppService.GitOpen(projectPath);
+  });
+}
+
+export function gitStatus(): Promise<GitStatus> {
+  return callBridge(async () => (await AppService.GitStatus()) as GitStatus);
+}
+
+export function gitDiff(rev = "", staged = false): Promise<Change[]> {
+  return callBridge(async () => ((await AppService.GitDiff(rev, staged)) ?? []) as Change[]);
+}
+
+export function gitLog(limit = 100): Promise<Commit[]> {
+  return callBridge(async () => ((await AppService.GitLog(limit)) ?? []) as Commit[]);
+}
+
+/** A task's commits, found by its trailer rather than by a stored SHA. */
+export function commitsForTask(key: string, limit = 50): Promise<Commit[]> {
+  return callBridge(
+    async () => ((await AppService.GitCommitsForTask(key, limit)) ?? []) as Commit[],
+  );
+}
+
+export function gitStage(paths: string[]): Promise<void> {
+  return callBridge(async () => {
+    await AppService.GitStage(paths);
+  });
+}
+
+export function gitUnstage(paths: string[]): Promise<void> {
+  return callBridge(async () => {
+    await AppService.GitUnstage(paths);
+  });
+}
+
+export function gitStageHunk(patch: string): Promise<void> {
+  return callBridge(async () => {
+    await AppService.GitStageHunk(patch);
+  });
+}
+
+/** Stages exactly what one agent turn changed. */
+export function gitStageTurn(paths: string[]): Promise<string[]> {
+  return callBridge(async () => (await AppService.GitStageTurn(paths)) ?? []);
+}
+
+export function gitCommit(message: string, taskKey = "", amend = false): Promise<Commit> {
+  return callBridge(
+    async () => (await AppService.GitCommit(message, taskKey, amend)) as Commit,
+  );
+}
+
+export function gitBranches(): Promise<Branch[]> {
+  return callBridge(async () => ((await AppService.GitBranches()) ?? []) as Branch[]);
+}
+
+/**
+ * Returns the branch name so the caller can record it on a task — which is
+ * what makes an agent's push permission outlive its session.
+ */
+export function gitCreateBranch(name: string, from = ""): Promise<string> {
+  return callBridge(async () => await AppService.GitCreateBranch(name, from));
+}
+
+export function gitCheckout(name: string): Promise<void> {
+  return callBridge(async () => {
+    await AppService.GitCheckout(name);
+  });
+}
+
+export function gitStash(message = ""): Promise<void> {
+  return callBridge(async () => {
+    await AppService.GitStash(message);
+  });
+}
+
+export function gitStashPop(): Promise<void> {
+  return callBridge(async () => {
+    await AppService.GitStashPop();
+  });
+}
+
+export function gitConflict(path: string): Promise<Conflict> {
+  return callBridge(async () => (await AppService.GitConflict(path)) as Conflict);
+}
+
+export function gitResolve(path: string, merged: string): Promise<void> {
+  return callBridge(async () => {
+    await AppService.GitResolve(path, merged);
+  });
+}
+
+export function gitAbortMerge(): Promise<void> {
+  return callBridge(async () => {
+    await AppService.GitAbortMerge();
+  });
+}
+
+export function gitRemotes(): Promise<Remote[]> {
+  return callBridge(async () => ((await AppService.GitRemotes()) ?? []) as Remote[]);
+}
+
+export function gitPush(remote: string, branch: string, setUpstream = false): Promise<void> {
+  return callBridge(async () => {
+    await AppService.GitPush(remote, branch, setUpstream);
+  });
+}
+
+export function gitFetch(remote = "origin"): Promise<void> {
+  return callBridge(async () => {
+    await AppService.GitFetch(remote);
+  });
+}
+
+export function gitPull(remote = "origin"): Promise<void> {
+  return callBridge(async () => {
+    await AppService.GitPull(remote);
+  });
+}
+
+/**
+ * Seeds a commit message from what is staged. The body is a statement of
+ * fact — the paths — rather than prose a model invented; the subject line is
+ * left for the person to write.
+ */
+export function seedMessage(staged: string[], taskKey = ""): string {
+  const lines: string[] = ["", ""];
+  for (const path of staged.slice(0, 20)) {
+    lines.push(`- ${path}`);
+  }
+  if (staged.length > 20) {
+    lines.push(`- …and ${staged.length - 20} more`);
+  }
+  if (taskKey) {
+    lines.push("", `Task: ${taskKey}`);
+  }
+  return lines.join("\n");
+}
