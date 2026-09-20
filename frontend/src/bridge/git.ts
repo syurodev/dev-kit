@@ -160,6 +160,53 @@ export function gitRemotes(): Promise<Remote[]> {
   return callBridge(async () => ((await AppService.GitRemotes()) ?? []) as Remote[]);
 }
 
+/** A protected branch pattern: the thing that turns commit gating on. */
+export type Guard = { id: string; projectKey: string; pattern: string; env: string };
+
+export function gitGuards(): Promise<Guard[]> {
+  return callBridge(async () => ((await AppService.GitGuards()) ?? []) as Guard[]);
+}
+
+/**
+ * Protects a branch pattern with an environment tag. Without a guard,
+ * committing is never gated — that is the default, and it is deliberate; a
+ * guard is for the repository whose commits are deploy manifests.
+ */
+export function createGuard(pattern: string, env: string): Promise<Guard> {
+  return callBridge(async () => (await AppService.GitCreateGuard(pattern, env)) as Guard);
+}
+
+export function deleteGuard(id: string): Promise<void> {
+  return callBridge(async () => {
+    await AppService.GitDeleteGuard(id);
+  });
+}
+
+/**
+ * Points a remote at an account. An empty account clears the binding and git's
+ * own configuration takes over again.
+ */
+export function bindRemote(name: string, accountId: string, env: string): Promise<Remote> {
+  return callBridge(async () => (await AppService.GitBindRemote(name, accountId, env)) as Remote);
+}
+
+/**
+ * Stages exactly what one agent turn changed and drafts its message. Staging
+ * and drafting is the part a machine can do; committing stays a decision.
+ */
+export type TurnCommit = {
+  staged: string[];
+  skipped: string[];
+  message: string;
+  taskKey?: string;
+};
+
+export function commitTurn(sessionId: string, checkpointId: string): Promise<TurnCommit> {
+  return callBridge(
+    async () => (await AppService.GitCommitTurn(sessionId, checkpointId)) as TurnCommit,
+  );
+}
+
 export function gitPush(remote: string, branch: string, setUpstream = false): Promise<void> {
   return callBridge(async () => {
     await AppService.GitPush(remote, branch, setUpstream);

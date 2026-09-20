@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"devkit/internal/app"
+
 	"devkit/internal/agenthub"
 	"devkit/internal/terminal"
 
@@ -816,4 +818,24 @@ func (s *AppService) AgentHubNewScratchDirectory() (string, error) {
 		return "", err
 	}
 	return result.(string), nil
+}
+
+// GitCommitTurn stages exactly what one agent turn changed and drafts its
+// message. It is the bridge between two histories of one work tree: the
+// agent's per-turn checkpoints and the user's commits.
+//
+// It stages and drafts, and stops. The message and the decision to commit stay
+// with the person — GitCommit is a separate call.
+func (s *AppService) GitCommitTurn(sessionID, checkpointID string) (app.TurnCommit, error) {
+	_ = recordID(sessionID)
+	result, err := s.call(context.Background(), "builtin.git", "git:write", "repo:stage", map[string]any{
+		"action":  "commit_turn",
+		"session": recordID(sessionID),
+	}, func(ctx context.Context) (any, error) {
+		return app.CommitTurn(ctx, s.container, sessionID, checkpointID)
+	})
+	if err != nil {
+		return app.TurnCommit{}, err
+	}
+	return result.(app.TurnCommit), nil
 }

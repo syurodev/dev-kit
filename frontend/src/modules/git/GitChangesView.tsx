@@ -1,16 +1,20 @@
 import { useCallback, useEffect, useState } from "react";
-import { GitBranch, GitMerge, RefreshCw, Upload } from "lucide-react";
+import { GitBranch, GitMerge, RefreshCw, ShieldCheck, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  createGuard,
+  deleteGuard,
   gitAvailability,
   gitCommit,
+  gitGuards,
   gitStage,
   gitStatus,
   gitUnstage,
   seedMessage,
   type GitStatus,
+  type Guard,
 } from "@/bridge/git";
 
 function FileList({
@@ -60,6 +64,9 @@ function FileList({
  */
 export function GitChangesView() {
   const [status, setStatus] = useState<GitStatus | null>(null);
+  // null until loaded: "no guard" and "not asked yet" are different answers,
+  // and one of them means committing will not ask.
+  const [guards, setGuards] = useState<Guard[] | null>(null);
   const [unavailable, setUnavailable] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -71,6 +78,9 @@ export function GitChangesView() {
         setError("");
       })
       .catch((e: Error) => setError(e.message));
+    gitGuards()
+      .then(setGuards)
+      .catch(() => setGuards([]));
   }, []);
 
   useEffect(() => {
@@ -91,9 +101,13 @@ export function GitChangesView() {
   if (error && !status) {
     return <EmptyState icon={GitBranch} title="Nothing to show" body={error} />;
   }
-  if (!status) {
+  if (!status || !guards) {
     return null;
   }
+
+  // The guard covering the branch you are on, if any. Its absence is the
+  // default and is not a problem to report — committing simply does not ask.
+  const guard = guards.find((candidate) => matchesBranch(candidate.pattern, status.branch));
 
   const staged = status.staged ?? [];
   const unstaged = status.unstaged ?? [];
@@ -112,7 +126,41 @@ export function GitChangesView() {
         {status.behind > 0 ? (
           <span className="text-xs text-fg-muted">↓{status.behind}</span>
         ) : null}
+        {guard ? (
+          <span
+            className="flex items-center gap-1 text-xs text-amber-500"
+            title={`Committing on ${guard.pattern} asks first (${guard.env})`}
+          >
+            <ShieldCheck className="size-3.5" aria-hidden />
+            {guard.env}
+          </span>
+        ) : null}
         <div className="flex-1" />
+        {guard ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              deleteGuard(guard.id).then(reload).catch((e: Error) => setError(e.message));
+            }}
+          >
+            Unprotect
+          </Button>
+        ) : status.branch ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            title="Ask before every commit on this branch"
+            onClick={() => {
+              // prod is the tag this is nearly always for; an env tag that
+              // does not require confirmation makes the guard a no-op, which
+              // the backend already treats as "not gated".
+              createGuard(status.branch, "prod").then(reload).catch((e: Error) => setError(e.message));
+            }}
+          >
+            Protect branch
+          </Button>
+        ) : null}
         <Button variant="ghost" size="icon" aria-label="Reload" onClick={reload}>
           <RefreshCw className="size-4" aria-hidden />
         </Button>
@@ -205,4 +253,19 @@ export function GitChangesView() {
       </footer>
     </div>
   );
+}
+
+/**
+ * Whether a guard's pattern covers a branch. The backend decides for real —
+ * this only draws the badge — so it is the same rule and no more: an exact
+ * name, or a glob with one `*`.
+ */
+export function matchesBranch(pattern: string, branch: string): boolean {
+  if (!pattern || !branch) return false;
+  if (pattern === branch) return true;
+  const star = pattern.indexOf("*");
+  if (star === -1) return false;
+  const head = pattern.slice(0, star);
+  const tail = pattern.slice(star + 1);
+  return branch.length >= head.length + tail.length && branch.startsWith(head) && branch.endsWith(tail);
 }

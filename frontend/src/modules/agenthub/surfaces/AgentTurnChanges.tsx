@@ -23,6 +23,13 @@ export type AgentTurnChangesProps = {
   checkpoint: CheckpointSummary;
   /** Loads one file's two versions. Called once per file, when it is opened. */
   loadDiff?: (checkpointId: string, path: string) => Promise<CheckpointFileDiff>;
+  /**
+   * Stages exactly this turn's paths and drafts a commit message.
+   *
+   * Absent when there is no repository, which is most of the time — and the
+   * action is then not drawn rather than drawn and failing.
+   */
+  commitTurn?: (checkpointId: string) => Promise<void>;
   className?: string;
 };
 
@@ -40,8 +47,10 @@ export type AgentTurnChangesProps = {
  * guess, and the note underneath names the other sessions that were running if
  * there were any.
  */
-export function AgentTurnChanges({ checkpoint, loadDiff, className }: AgentTurnChangesProps) {
+export function AgentTurnChanges({ checkpoint, loadDiff, commitTurn, className }: AgentTurnChangesProps) {
   const [open, setOpen] = React.useState(false);
+  const [staging, setStaging] = React.useState(false);
+  const [stageError, setStageError] = React.useState("");
   const summary = React.useMemo(() => changeSummary(checkpoint), [checkpoint]);
   const files = React.useMemo(() => orderChangedFiles(checkpoint.changed ?? []), [checkpoint.changed]);
   const overlap = React.useMemo(() => overlapNote(checkpoint), [checkpoint]);
@@ -98,6 +107,30 @@ export function AgentTurnChanges({ checkpoint, loadDiff, className }: AgentTurnC
             loadDiff={loadDiff}
           />
         ))}
+        {/* The bridge between two histories of one work tree: the checkpoints
+            DevKit took per turn, and the commits the user authors. It stages
+            and drafts and stops — committing stays a decision. */}
+        {commitTurn ? (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={staging}
+              onClick={() => {
+                setStaging(true);
+                setStageError("");
+                commitTurn(checkpoint.id)
+                  .catch((error: Error) => setStageError(error.message))
+                  .finally(() => setStaging(false));
+              }}
+              className="cursor-pointer text-caption-11 text-text-tertiary hover:text-text-secondary disabled:cursor-default"
+            >
+              {staging ? "Staging…" : "Commit this turn"}
+            </button>
+            {stageError ? (
+              <span className="min-w-0 truncate text-caption-11 text-status-warning">{stageError}</span>
+            ) : null}
+          </div>
+        ) : null}
       </AnimatedCollapse>
     </div>
   );
